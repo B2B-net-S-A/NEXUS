@@ -447,7 +447,9 @@ async def client_documents(
 
     await _open(db, current_user)
     try:
-        return await service_confirmation.collect(db, client_id, month)
+        return await service_confirmation.collect(
+            db, client_id, month, amounts=has_financial_access(current_user)
+        )
     except SettlementError as exc:
         raise _fail(exc) from exc
 

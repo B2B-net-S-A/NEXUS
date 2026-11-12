@@ -409,8 +409,18 @@ krokach E6.
       `fields.md_month_limit` wyłączona, `cl.estimate` 12, `cl.client_document`
       (Service Delivery Confirmation, projekt, 2026-11), `proof.excel_with_mail`
       wyłączona (akceptacja per projekt z ESP sprawdza człowiek).
-    - Zostaje: blok maila ESP-MANAGER (ACTUAL/FORECAST/INVOICE) i odczyt
-      odpowiedzi „Approved”, Time Sheet w PDF (dziś MD od Finansów), projekt dla
+    - Blok maila ESP-MANAGER (12.11, osobny PR): reguła `cl.cost_mail_block`
+      z parametrem `vendor` (puste = nazwa spółki z SDC). Przy liście SDC
+      „Kopiuj blok ESP” per projekt: Stage (ACTUAL, przy planie FORECAST jak
+      SDC), Project, PO (numer zamówienia grupy), Month, Vendor, MD, „Cost net
+      <waluta>”, pusty Comment. MD i kwota z pozycji faktury do klienta
+      (`client_invoice.positions`: limit puli, waluta linii), osoba w kilku
+      projektach dzieli się w proporcji godzin z Time Sheet, reszta z zaokrągleń
+      w ostatnim projekcie osoby. Korekta planu zostaje na fakturze, w bloku jej
+      nie ma. Blok gotowy po przyjęciu wszystkich osób projektu, z numerem
+      zamówienia i stawką klienta; kwota i tekst tylko dla `has_financial_access`.
+    - Zostaje: etap INVOICE bloku (Ref-ID z odpowiedzi „Approved”, numer
+      faktury; wymaga czytnika rozliczenia@), odczyt odpowiedzi „Approved”, Time Sheet w PDF (dziś MD od Finansów), projekt dla
       dwóch osób z akceptacją mailową (z Time Sheet, gdy konsultant go wpisze).
 - E6.3 Alior, Orlen, CeZ: dokument na wiele osób, podpis klienta i spółki,
   protokół jako warunek faktury.

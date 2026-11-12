@@ -3,7 +3,9 @@
 Time Sheet z panelu → MD z godzin → przyjęcie → pozycje faktury do klienta
 w euro (stawka klienta z linii zamówienia) → potwierdzenie usług per projekt.
 Plik w trwającym miesiącu z regułą ``cl.estimate`` to plan: dokument ma etap
-FORECAST, a faktura idzie z planu.
+FORECAST, a faktura idzie z planu. Blok kosztów do maila (``cl.cost_mail_block``)
+ma MD i kwotę z pozycji faktury do klienta (z limitem puli), dzielone między
+projekty w proporcji godzin.
 """
 
 from __future__ import annotations
@@ -39,6 +41,7 @@ RULES = {
     "fields.md_hours": {"level": "block", "params": {"hours": "8"}},
     "fields.md_month_limit": {"level": "off", "params": {}},
 }
+BLOCK = {"cl.cost_mail_block": {"level": "warn", "params": {"vendor": "Dostawca"}}}
 
 
 def _timesheet(month: str, rows: list[tuple[int, str, str, int, str | None]]) -> bytes:
@@ -133,6 +136,7 @@ async def test_time_sheet_godziny_faktura_w_euro_i_dokument_per_projekt(
                         "from": month,
                     },
                 },
+                **BLOCK,
             },
         )
         await _store(
@@ -153,6 +157,12 @@ async def test_time_sheet_godziny_faktura_w_euro_i_dokument_per_projekt(
             row = next(r for r in view["rows"] if r["contract_id"] == contract_id)
             assert row["md_regular"] == "5.000"  # 40 h / 8
             assert row["status"] == "ok", row
+            # Przed przyjęciem blok nie jest gotowy: kwota jeszcze nie jest pewna.
+            waiting = await service_confirmation.collect(
+                db, client_id, month, amounts=True
+            )
+            assert waiting["projects"][0]["esp"]["ready"] is False
+            assert waiting["projects"][0]["esp"]["text"] is None
             await service.accept(db, contract_id, month, actor=ACTOR, now=local_now())
             await db.commit()
 
@@ -178,6 +188,37 @@ async def test_time_sheet_godziny_faktura_w_euro_i_dokument_per_projekt(
             assert by_project["ALFA"]["tasks"] == 2
             assert by_project["BETA"]["hours"] == "19.00"
             assert "net" not in by_project["BETA"]
+            # Bez dostępu do kwot: MD tak, kwoty i tekstu bloku nie ma.
+            assert by_project["ALFA"]["esp"] == {
+                "ready": True,
+                "md": "2.625",
+                "currency": "EUR",
+                "cost": None,
+                "text": None,
+            }
+            assert docs["can_see_amounts"] is False
+
+            money = await service_confirmation.collect(
+                db, client_id, month, amounts=True
+            )
+            esp = {p["project"]: p["esp"] for p in money["projects"]}
+            # 5 MD × 250 EUR dzielone 21 h / 19 h; suma = faktura do klienta.
+            assert (esp["ALFA"]["md"], esp["ALFA"]["cost"]) == ("2.625", "656.25")
+            assert (esp["BETA"]["md"], esp["BETA"]["cost"]) == ("2.375", "593.75")
+            assert esp["ALFA"]["text"] == "\n".join(
+                [
+                    "[ESP-MANAGER-START]",
+                    "Stage: ACTUAL",
+                    "Project: ALFA",
+                    f"PO: ROZL-{client_id}",
+                    f"Month: {month}",
+                    "Vendor: Dostawca",
+                    "MD: 2.625",
+                    "Cost net EUR: 656.25",
+                    "Comment:",
+                    "[ESP-MANAGER-END]",
+                ]
+            )
 
             monkeypatch.setattr(
                 service_confirmation, "render_pdf", lambda html: html.encode()
@@ -222,6 +263,7 @@ async def test_plan_trwajacego_miesiaca_daje_forecast_i_fakture_z_planu(
                     "level": "warn",
                     "params": {"kind": "SDC", "per": "projekt", "from": before},
                 },
+                **BLOCK,
             },
         )
         await _store(
@@ -255,7 +297,9 @@ async def test_plan_trwajacego_miesiaca_daje_forecast_i_fakture_z_planu(
             invoice = await client_invoice.invoice_month(
                 db, client_id, month, amounts=True
             )
-            docs = await service_confirmation.collect(db, client_id, month)
+            docs = await service_confirmation.collect(
+                db, client_id, month, amounts=True
+            )
             estimates = await client_invoice.estimates(
                 db, client_id, month, amounts=True
             )
@@ -263,6 +307,10 @@ async def test_plan_trwajacego_miesiaca_daje_forecast_i_fakture_z_planu(
         assert item["kind"] == "estimate" and item["net"] == "3750.00"
         assert docs["stage"] == "FORECAST"
         assert docs["projects"][0]["md"] == "15.000"
+        text = docs["projects"][0]["esp"]["text"]
+        assert "Stage: FORECAST\nProject: ALFA" in text
+        assert f"Month: {month}" in text
+        assert "MD: 15\nCost net EUR: 3750\n" in text
         plan_row = next(r for r in estimates["rows"] if r["contract_id"] == contract_id)
         # Dwie osobne faktury, obie w euro: 10 MD za poprzedni miesiąc i 15 MD planu.
         assert plan_row["currency"] == "EUR"
@@ -270,6 +318,68 @@ async def test_plan_trwajacego_miesiaca_daje_forecast_i_fakture_z_planu(
             "2500.00",
             "3750.00",
         )
+    finally:
+        await _restore(previous)
+        await _cleanup(client_id)
+
+
+async def test_blok_kosztow_z_limitem_puli_a_bez_reguly_go_nie_ma(
+    tmp_path, monkeypatch
+) -> None:
+    from app.services import storage_service
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    # Pula 4 MD, Time Sheet na 5 MD: do klienta (i do bloku) tylko 4 MD.
+    client_id, contract_id, line_id = await _world(md_total="4")
+    month = _month(-1)
+    previous = await _module(True)
+    document = {
+        "cl.client_document": {
+            "level": "warn",
+            "params": {"kind": "SDC", "per": "projekt", "from": month},
+        }
+    }
+    try:
+        await _euro_line(line_id)
+        await _rules(client_id, {**RULES, **document})
+        await _store(
+            contract_id,
+            month,
+            _timesheet(
+                month,
+                [
+                    (3, "", "Moduł A", 8, None),
+                    (4, "", "Moduł A", 8, None),
+                    (5, "", "Moduł A", 5, None),
+                    (6, "BETA", "Wsparcie", 19, None),
+                ],
+            ),
+        )
+        async with AsyncSessionLocal() as db:
+            await service.accept(db, contract_id, month, actor=ACTOR, now=local_now())
+            await db.commit()
+        async with AsyncSessionLocal() as db:
+            off = await service_confirmation.collect(db, client_id, month, amounts=True)
+        assert [p["esp"] for p in off["projects"]] == [None, None]
+
+        await _rules(client_id, BLOCK)
+        async with AsyncSessionLocal() as db:
+            docs = await service_confirmation.collect(
+                db, client_id, month, amounts=True
+            )
+            invoice = await client_invoice.invoice_month(
+                db, client_id, month, amounts=True
+            )
+        item = next(r for r in invoice["rows"] if r["contract_id"] == contract_id)
+        assert item["net"] == "1000.00"
+        esp = {p["project"]: p["esp"] for p in docs["projects"]}
+        assert {p["project"]: p["md"] for p in docs["projects"]} == {
+            "ALFA": "2.625",
+            "BETA": "2.375",
+        }
+        assert (esp["ALFA"]["md"], esp["ALFA"]["cost"]) == ("2.100", "525.00")
+        assert (esp["BETA"]["md"], esp["BETA"]["cost"]) == ("1.900", "475.00")
+        assert "MD: 2.1\nCost net EUR: 525\n" in esp["ALFA"]["text"]
     finally:
         await _restore(previous)
         await _cleanup(client_id)

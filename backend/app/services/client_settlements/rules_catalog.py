@@ -336,6 +336,16 @@ SECTIONS: tuple[Section, ...] = (
                 "Każdy dokument do pobrania osobno, żeby wysłać go od razu, gdy jest gotowy.",
             ),
             Rule(
+                "cl.cost_mail_block",
+                "Blok kosztów projektu do maila do automatu klienta",
+                "off",
+                "E6",
+                {"vendor": ""},
+                (ParamField("vendor", "dostawca", "nazwa jak w mailu klienta"),),
+                "Przy dokumencie na projekt: „Kopiuj blok ESP” z etapem, projektem, "
+                "zamówieniem, miesiącem, MD i kwotą netto w walucie faktury.",
+            ),
+            Rule(
                 "cl.after_signed_document",
                 "Faktura do klienta po podpisanym dokumencie",
                 "off",

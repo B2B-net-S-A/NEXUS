@@ -316,3 +316,35 @@ def test_cena_klienta_w_euro_z_linii_zamowienia_a_marza_w_zlotych():
 
     assert client_invoice.client_price(Pln()).currency == "PLN"
     assert client_invoice.client_price(None).rate is None
+
+
+def test_blok_kosztow_do_maila_regula_i_format():
+    rules = rules_catalog.effective({})
+    assert service_confirmation.block_params(rules) is None
+    rules["cl.cost_mail_block"] = {"level": "warn", "params": {"vendor": " "}}
+    # Pusty dostawca = nazwa spółki z dokumentu.
+    assert service_confirmation.block_params(rules) == {
+        "vendor": service_confirmation.SUPPLIER
+    }
+    text = service_confirmation.block_text(
+        stage="FORECAST",
+        project="ALFA",
+        order_numbers=["ZAM-TEST", "ZAM-DRUGIE"],
+        month="2026-12",
+        vendor="Dostawca",
+        md=Decimal("12.000"),
+        net=Decimal("3492.50"),
+        currency="EUR",
+    )
+    assert text.splitlines() == [
+        "[ESP-MANAGER-START]",
+        "Stage: FORECAST",
+        "Project: ALFA",
+        "PO: ZAM-TEST, ZAM-DRUGIE",
+        "Month: 2026-12",
+        "Vendor: Dostawca",
+        "MD: 12",
+        "Cost net EUR: 3492.5",
+        "Comment:",
+        "[ESP-MANAGER-END]",
+    ]

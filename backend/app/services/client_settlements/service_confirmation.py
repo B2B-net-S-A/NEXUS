@@ -14,6 +14,16 @@ dokument przyjęty przez klienta za październik (odpowiedź rozliczeń z 12.11.
 Miesiąc z estymacją (``cl.estimate``) bierze plan, tak jak faktura do klienta:
 etap „FORECAST” zamiast „ACTUAL”. Osoba z RCP do poprawy albo bez czytelnego
 Time Sheet nie wchodzi do dokumentu i jest wypisana na liście.
+
+Blok kosztów do maila (reguła ``cl.cost_mail_block``): klient potwierdza koszt
+projektu mailem do swojego automatu, tekstem między ``[ESP-MANAGER-START]``
+a ``[ESP-MANAGER-END]``. MD i kwota netto są z pozycji faktury do klienta
+(``client_invoice.positions``: z limitem puli zamówienia, w walucie linii), nie
+z surowych godzin Time Sheet. Osoba pracująca w kilku projektach dzieli swoje
+MD i kwotę między projekty w proporcji godzin z Time Sheet. Korekta planu
+z poprzedniego miesiąca zostaje na fakturze, w bloku jej nie ma: blok mówi
+o pracy rozliczanego miesiąca. Blok jest gotowy dopiero, gdy wszystkie osoby
+projektu są przyjęte; kwota tylko dla kont z dostępem do kwot.
 """
 
 from __future__ import annotations
@@ -32,9 +42,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ
 from app.models.client import Client
+from app.models.client_order import ClientOrder
 from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpDocument
-from app.services.client_settlements import service, timesheet
+from app.services.client_settlements import client_invoice, service, timesheet
 from app.services.consultant_portal import documents as portal_documents
 
 SUPPLIER = "B2B.net S.A."
@@ -76,6 +87,8 @@ class Project:
     accepted: int = 0
     order_numbers: list[str] = field(default_factory=list)
     tasks: dict[tuple[str, str], Task] = field(default_factory=dict)
+    #: Rozliczenia osób projektu: (rozliczenie, godziny w projekcie, godziny osoby).
+    parts: list[tuple[ClientSettlement, Decimal, Decimal]] = field(default_factory=list)
 
 
 def rule_for(rules: dict[str, dict[str, Any]], month: str) -> Optional[dict[str, str]]:
@@ -91,6 +104,16 @@ def rule_for(rules: dict[str, dict[str, Any]], month: str) -> Optional[dict[str,
     if re.fullmatch(r"\d{4}-\d{2}", start) and month < start:
         return None
     return params
+
+
+def block_params(rules: dict[str, dict[str, Any]]) -> Optional[dict[str, str]]:
+    """Parametry bloku kosztów do maila, gdy reguła jest włączona."""
+
+    rule = rules["cl.cost_mail_block"]
+    if rule["level"] == "off":
+        return None
+    vendor = str(rule["params"].get("vendor") or "").strip()
+    return {"vendor": vendor or SUPPLIER}
 
 
 def _hours_text(value: Decimal) -> str:
@@ -130,11 +153,15 @@ async def _settlements(
     return chosen, stage
 
 
-async def collect(db: AsyncSession, client_id: int, month: str) -> dict[str, Any]:
+async def collect(
+    db: AsyncSession, client_id: int, month: str, *, amounts: bool = False
+) -> dict[str, Any]:
     """Lista dokumentów miesiąca klienta: projekty, osoby, godziny, MD.
 
-    Bez kwot: dokument mówi o godzinach, a kwota do klienta (z limitem puli
-    zamówienia) jest w „Do faktury dla klienta”."""
+    Dokument mówi o godzinach, a kwota do klienta (z limitem puli zamówienia)
+    jest w „Do faktury dla klienta”. Wyjątek: blok kosztów do maila
+    (``esp``) przy regule ``cl.cost_mail_block``, z kwotą tylko przy
+    ``amounts``."""
 
     client = await db.get(Client, client_id)
     if client is None:
@@ -147,6 +174,7 @@ async def collect(db: AsyncSession, client_id: int, month: str) -> dict[str, Any
         "enabled": params is not None,
         "kind": (params or {}).get("kind") or "Service Delivery Confirmation",
         "stage": None,
+        "can_see_amounts": amounts,
         "projects": [],
         "skipped": [],
     }
@@ -155,6 +183,8 @@ async def collect(db: AsyncSession, client_id: int, month: str) -> dict[str, Any
     projects, skipped, stage = await _projects(db, client, month, rules)
     base["stage"] = stage
     base["skipped"] = skipped
+    block = block_params(rules)
+    costs = await _project_costs(db, projects) if block is not None else {}
     base["projects"] = [
         {
             "project": p.name,
@@ -164,10 +194,160 @@ async def collect(db: AsyncSession, client_id: int, month: str) -> dict[str, Any
             "md": f"{timesheet.md_from_hours(p.hours, timesheet.per_md(rules)):.3f}",
             "order_numbers": p.order_numbers,
             "tasks": len(p.tasks),
+            "esp": None
+            if block is None
+            else _esp(
+                p,
+                costs[p.name],
+                stage=stage,
+                month=month,
+                vendor=block["vendor"],
+                amounts=amounts,
+            ),
         }
         for p in projects
     ]
     return base
+
+
+@dataclass
+class Cost:
+    md: Decimal = Decimal("0")
+    net: Decimal = Decimal("0")
+    currencies: set[str] = field(default_factory=set)
+    ready: bool = True
+
+
+async def _project_costs(db: AsyncSession, projects: list[Project]) -> dict[str, Cost]:
+    """MD i netto do klienta per projekt, jak pozycje faktury do klienta."""
+
+    settlements = {s.id: s for p in projects for s, _h, _t in p.parts}
+    order_ids = {s.order_id for s in settlements.values() if s.order_id is not None}
+    orders = (
+        {
+            o.id: o
+            for o in (
+                await db.scalars(
+                    select(ClientOrder).where(ClientOrder.id.in_(order_ids))
+                )
+            ).all()
+        }
+        if order_ids
+        else {}
+    )
+    # Osoba: MD i netto z pozycji faktury (bez korekty planu), waluta.
+    person: dict[int, Optional[tuple[Decimal, Decimal, str]]] = {}
+    for sid, s in settlements.items():
+        price = client_invoice.client_price(orders.get(s.order_id))
+        if s.status != "accepted" or price.rate is None:
+            person[sid] = None
+            continue
+        items = client_invoice.positions(
+            s, name="", rate=price.rate, overtime_suffix=None, currency=price.currency
+        )
+        person[sid] = (
+            sum((i.quantity for i in items), Decimal("0")),
+            sum((i.net for i in items), Decimal("0")),
+            price.currency,
+        )
+    # Podział osoby na projekty w proporcji godzin; reszta z zaokrągleń
+    # idzie do ostatniego projektu osoby, żeby suma zgadzała się z fakturą.
+    shares: dict[int, list[tuple[str, Decimal]]] = {}
+    for p in sorted(projects, key=lambda p: p.name.lower()):
+        for s, hours, total in p.parts:
+            shares.setdefault(s.id, []).append(
+                (p.name, hours / total if total else Decimal("0"))
+            )
+    out = {p.name: Cost() for p in projects}
+    for sid, parts in shares.items():
+        value = person[sid]
+        if value is None:
+            for name, _share in parts:
+                out[name].ready = False
+            continue
+        md, net, currency = value
+        md_left, net_left = md, net
+        for index, (name, share) in enumerate(parts):
+            if index == len(parts) - 1:
+                md_part, net_part = md_left, net_left
+            else:
+                md_part = (md * share).quantize(Decimal("0.001"))
+                net_part = (net * share).quantize(client_invoice.MONEY)
+            md_left -= md_part
+            net_left -= net_part
+            cost = out[name]
+            cost.md += md_part
+            cost.net += net_part
+            cost.currencies.add(currency)
+    for cost in out.values():
+        if len(cost.currencies) > 1:
+            cost.ready = False
+    return out
+
+
+def _plain(value: Decimal) -> str:
+    """Liczba jak w bloku klienta: kropka, bez zer na końcu („12”, „3492.5”)."""
+
+    text = f"{value:f}"
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def block_text(
+    *,
+    stage: str,
+    project: str,
+    order_numbers: list[str],
+    month: str,
+    vendor: str,
+    md: Decimal,
+    net: Decimal,
+    currency: str,
+) -> str:
+    return "\n".join(
+        [
+            "[ESP-MANAGER-START]",
+            f"Stage: {stage}",
+            f"Project: {project}",
+            f"PO: {', '.join(order_numbers)}",
+            f"Month: {month}",
+            f"Vendor: {vendor}",
+            f"MD: {_plain(md.quantize(Decimal('0.001')))}",
+            f"Cost net {currency}: {_plain(net.quantize(client_invoice.MONEY))}",
+            "Comment:",
+            "[ESP-MANAGER-END]",
+        ]
+    )
+
+
+def _esp(
+    p: Project,
+    cost: Cost,
+    *,
+    stage: str,
+    month: str,
+    vendor: str,
+    amounts: bool,
+) -> dict[str, Any]:
+    currency = next(iter(cost.currencies)) if len(cost.currencies) == 1 else None
+    ready = cost.ready and currency is not None and bool(p.order_numbers)
+    return {
+        "ready": ready,
+        "md": f"{cost.md:.3f}",
+        "currency": currency,
+        "cost": f"{cost.net:.2f}" if amounts and ready else None,
+        "text": block_text(
+            stage=stage,
+            project=p.name,
+            order_numbers=p.order_numbers,
+            month=month,
+            vendor=vendor,
+            md=cost.md,
+            net=cost.net,
+            currency=currency or "",
+        )
+        if amounts and ready
+        else None,
+    }
 
 
 async def _projects(
@@ -197,9 +377,12 @@ async def _projects(
             )
             continue
         number = numbers.get(s.contract_id)
-        for name, hours in sheet.hours_by_project().items():
+        by_project = sheet.hours_by_project()
+        total = sum(by_project.values(), Decimal("0"))
+        for name, hours in by_project.items():
             project = projects.setdefault(name, Project(name))
             project.hours += hours
+            project.parts.append((s, hours, total))
             project.people += 1
             project.accepted += s.status == "accepted"
             if number and number not in project.order_numbers:
