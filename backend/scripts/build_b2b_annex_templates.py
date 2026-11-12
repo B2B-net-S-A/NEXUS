@@ -116,7 +116,8 @@ JDG_PARTY = p(
     b("{{ g.g_pan }} {{ partner.name_instrumental or partner.name or '…' }}"),
     " {{ g.g_prowadzacy }} działalność gospodarczą pod firmą: "
     "{{ partner.legal_name or '…' }}, zarejestrowaną w Centralnej Ewidencji "
-    "i Informacji o Działalności Gospodarczej pod adresem: "
+    "i Informacji o Działalności Gospodarczej pod adresem"
+    "{% if partner.address_for_service %} do doręczeń{% endif %}: "
     "{{ partner.business_address or '…' }}, NIP: {{ partner.nip or '…' }}, "
     "REGON: {{ partner.regon or '…' }},",
 )
@@ -166,8 +167,11 @@ FINAL = [
         hanging_cm=0.63,
     ),
     p(
-        "4.\tAneks sporządzono w dwóch jednobrzmiących egzemplarzach po jednym "
-        "dla każdej ze stron.",
+        "4.\tW przypadku zawarcia aneksu w formie elektronicznej, o której mowa "
+        "w ust. 2, aneks sporządza się w jednym egzemplarzu w postaci "
+        "elektronicznej, który otrzymuje każda ze Stron. W przypadku zawarcia "
+        "aneksu w formie pisemnej sporządza się go w dwóch jednobrzmiących "
+        "egzemplarzach, po jednym dla każdej ze Stron.",
         indent_cm=0.63,
         hanging_cm=0.63,
     ),
