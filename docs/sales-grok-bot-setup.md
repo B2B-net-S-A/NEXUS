@@ -172,6 +172,9 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    Od tej chwili startują rodzaje dodawane kolejnymi PR-ami; każdy przed
    pokazaniem ludziom przechodzi próbę skryptem z `--kind <rodzaj>`
    (i `--request '{…}'`, gdy rodzaj ma pola zlecenia).
+   Karta firmy (G-A): `--kind enrich --company-ids <1 id>`; pytanie (G-B):
+   `--kind question --company-ids <1 id> --request '{"question": "Czy mają centrum IT w Polsce?"}'`.
+   Po `received` wynik widać na karcie firmy (propozycje pól, odpowiedź na pytanie).
 5. Mapy decydentów (`people`, `docs/claude/sprzedaz/mapy-decydentow-od-bota.md`):
    `python -m scripts.sales_signals_run --kind people --company-ids <id firmy z kontem w Fabrykach IT> --request '{"source":"public"}'`.
    Bieg ma przejść na `received`, a wynik pojawić się w Leady → „Lista z researchu”
@@ -205,3 +208,11 @@ nie pokazuje.
 
 Stan biegu i liczniki są w `sales_signal_runs`. Dane osoby są widoczne
 w zakładce „Mapa decydentów” na karcie firmy dla osób z prawem edycji Sprzedaży.
+
+Jeśli Cognism używa innej nazwy tej samej spółki, operator może po niezależnym
+potwierdzeniu tożsamości zlecić bieg z jawnym `--company-ids` i dodać do
+`--request` pole `employers`. Każdy wpis ma `company_ref`, nazwę pracodawcy
+z Cognism `company_name` i potwierdzoną domenę `company_domain`. Dopasowanie
+dotyczy tylko danej karty i biegu. Jeśli Cognism pokazuje etykietę grupy, pole
+`profile_ids` ogranicza zapis do profili z indywidualnie potwierdzoną funkcją
+w konkretnej spółce.

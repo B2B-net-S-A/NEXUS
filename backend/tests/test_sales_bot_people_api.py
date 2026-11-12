@@ -193,6 +193,83 @@ async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
 
 
 @pytest.mark.asyncio
+async def test_cognism_verified_employer_is_scoped_to_the_run_card_and_profiles(
+    app_client,
+) -> None:
+    tag = _tag()
+    pinned = await _company(f"Karta {tag}")
+    no_hint = await _company(f"Karta bez wskazówki {tag}")
+    wrong_domain = await _company(f"Inna karta {tag}", domain="inna.example")
+    wrong_profile = await _company(f"Karta bez zgodnej osoby {tag}")
+    alternate_name = f"Etykieta dostawcy {tag}"
+    hint = {
+        "company_name": alternate_name,
+        "company_domain": "firma.example",
+        "profile_ids": ["profile-example"],
+    }
+    request = {
+        "source": "cognism",
+        "employers": [
+            {**hint, "company_ref": cid}
+            for cid in (pinned, wrong_domain, wrong_profile)
+        ],
+    }
+    company_ids = [pinned, no_hint, wrong_domain, wrong_profile]
+    run_id, token = await _run(company_ids, kind="people", request=request)
+    person = {
+        "full_name": "Jan Fikcyjny",
+        "title": "Head of Data",
+        "source_url": "https://app.cognism.com/search/prospects/contacts/profile-example",
+        "observed_at": datetime.now(timezone.utc).isoformat(),
+        "active": True,
+        "email": "jan@firma.example",
+    }
+    outside = {
+        **person,
+        "full_name": "Osoba spoza wskazówki",
+        "source_url": "https://app.cognism.com/search/prospects/contacts/another-profile",
+    }
+    reported_people = {
+        pinned: [person, outside],
+        no_hint: [person],
+        wrong_domain: [person],
+        wrong_profile: [outside],
+    }
+    report = {
+        "firms": [
+            {
+                "company_ref": cid,
+                "status": "matched",
+                "company_name": f"{alternate_name} S.A.",
+                "company_domain": "FIRMA.example",
+                "people": reported_people[cid],
+            }
+            for cid in company_ids
+        ]
+    }
+    response = await app_client.post(
+        f"{RUNS}/{run_id}", json=report, headers={"X-Run-Token": token}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["people"] == 1
+    assert response.json()["ambiguous"] == 2
+    assert response.json()["not_processed"] == 1
+    async with AsyncSessionLocal() as db:
+        run = await db.get(SalesSignalRun, run_id)
+        assert run.report["processed_company_ids"] == [pinned]
+        assert run.report["ambiguous_company_ids"] == sorted([no_hint, wrong_domain])
+        assert run.report["unprocessed_company_ids"] == [wrong_profile]
+        matched = await db.get(SalesCompany, pinned)
+        [entry] = matched.custom_fields[people.COGNISM_MAP_KEY]
+        assert entry["source_url"] == person["source_url"]
+        assert entry["email"] == person["email"]
+        assert matched.domain is None
+        blocked = await db.get(SalesCompany, wrong_domain)
+        assert blocked.domain == "inna.example"
+        assert people.COGNISM_MAP_KEY not in blocked.custom_fields
+
+
+@pytest.mark.asyncio
 async def test_cognism_provider_dnc_survives_company_merge(
     app_client, monkeypatch
 ) -> None:
@@ -366,6 +443,12 @@ async def test_accept_from_results_list_opens_an_account_for_a_card(
     editor = await _user("sales_edit")
     [item] = await _pending(app_client, editor, company_id)
 
+    field_choice = await app_client.post(
+        f"{RESULTS}/{item['id']}/accept",
+        headers=_headers(editor),
+        json={"fields": ["title"]},
+    )
+    assert field_choice.status_code == 409
     accepted = await app_client.post(
         f"{RESULTS}/{item['id']}/accept", headers=_headers(editor)
     )

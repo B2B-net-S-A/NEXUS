@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.sales import SalesSignalRun
-from app.services.sales.bot_tasks import people, signals_briefing
+from app.services.sales.bot_tasks import enrich, people, question, signals_briefing
 from app.services.sales.bot_tasks.base import (
     AcceptRefused,
     BotTask,
@@ -58,7 +58,13 @@ LEGACY_KINDS: frozenset[str] = frozenset({"signals", "briefing"})
 
 REGISTRY: dict[str, BotTask] = {
     task.kind: task
-    for task in (signals_briefing.SIGNALS, signals_briefing.BRIEFING, people.PEOPLE)
+    for task in (
+        signals_briefing.SIGNALS,
+        signals_briefing.BRIEFING,
+        enrich.ENRICH,
+        question.QUESTION,
+        people.PEOPLE,
+    )
 }
 
 

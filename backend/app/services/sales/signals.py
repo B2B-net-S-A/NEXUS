@@ -637,6 +637,10 @@ async def start_run(
     rows = await _companies(db, company_ids[:MAX_FIRMS])
     if task.needs_firms and not rows:
         return None
+    if cognism and any(
+        firm["company_ref"] not in rows for firm in checked_request.get("employers", [])
+    ):
+        raise ValueError("Potwierdzona firma Cognism nie należy do biegu.")
     run, token = new_run(
         kind,
         list(rows),

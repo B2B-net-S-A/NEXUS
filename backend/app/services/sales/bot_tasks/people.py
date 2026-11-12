@@ -80,7 +80,6 @@ from app.services.sales.research_file import (
     ResearchRow,
     level_from_title,
     person_key,
-    site_domain,
     valid_email,
     valid_link,
     valid_phone,
@@ -94,6 +93,7 @@ COGNISM_MAP_KEY = "bot_decision_map"
 COGNISM_SUPPRESSIONS_KEY = "bot_decision_map_suppressions"
 COGNISM_MAX_FIRMS = 5
 COGNISM_MAX_PEOPLE = 5
+_COGNISM_PROFILE_ID = r"[A-Za-z0-9_-]{8,128}"
 #: Pochodzenie osoby na mapie i w historii szansy (pole „Skąd lista” importu).
 ORIGIN = "Grok Bot"
 MAX_PEOPLE = 15
@@ -129,12 +129,74 @@ PHONE_DROPPED = "pominięto telefon (bez źródła albo nie wygląda na numer)"
 LINKEDIN_DROPPED = "pominięto LinkedIn (tylko link do profilu)"
 
 
+def _canonical_corporate_domain(value: Optional[str]) -> Optional[str]:
+    domain = (value or "").strip().lower().removeprefix("www.").removesuffix(".")
+    # mail_domain zna składnię i domeny publicznej poczty. Tu przyjmujemy
+    # tylko nazwę hosta, bez składni URL ani adresu e-mail.
+    return (
+        domain
+        if domain and len(domain) <= 253 and mail_domain(domain) == domain
+        else None
+    )
+
+
+class CognismEmployerHint(BaseModel):
+    """Etykieta pracodawcy potwierdzona przez operatora dla jednej karty."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    company_ref: int = Field(gt=0, strict=True)
+    company_name: RequiredText = Field(max_length=500)
+    company_domain: str = Field(max_length=254)
+    profile_ids: Optional[list[str]] = Field(
+        default=None, min_length=1, max_length=COGNISM_MAX_PEOPLE
+    )
+
+    @field_validator("company_name")
+    @classmethod
+    def _usable_name(cls, value: str) -> str:
+        if not normalize_company_name(value):
+            raise ValueError("Podaj rozpoznawalną nazwę pracodawcy.")
+        return value
+
+    @field_validator("company_domain")
+    @classmethod
+    def _corporate_domain(cls, value: str) -> str:
+        domain = _canonical_corporate_domain(value)
+        if domain is None:
+            raise ValueError("Podaj domenę firmową pracodawcy bez adresu URL.")
+        return domain
+
+    @field_validator("profile_ids")
+    @classmethod
+    def _specific_profiles(cls, values: Optional[list[str]]) -> Optional[list[str]]:
+        if values is not None and (
+            len(set(values)) != len(values)
+            or any(not re.fullmatch(_COGNISM_PROFILE_ID, value) for value in values)
+        ):
+            raise ValueError("Podaj odrębne identyfikatory profili Cognism.")
+        return values
+
+
 class PeopleRequest(BaseModel):
     """Źródło wybiera NEXUS. Brak wartości oznacza dotychczasowy research publiczny."""
 
     model_config = ConfigDict(extra="forbid")
 
-    source: Optional[Literal["cognism"]] = None
+    source: Optional[Literal["public", "cognism"]] = None
+    employers: Optional[list[CognismEmployerHint]] = Field(
+        default=None, max_length=COGNISM_MAX_FIRMS
+    )
+
+    @model_validator(mode="after")
+    def _cognism_employers(self) -> "PeopleRequest":
+        if self.employers is None:
+            return self
+        if self.source != COGNISM_SOURCE:
+            raise ValueError("Wskazówki o pracodawcach są dostępne tylko dla Cognism.")
+        if len({hint.company_ref for hint in self.employers}) != len(self.employers):
+            raise ValueError("Podaj najwyżej jedną wskazówkę dla każdej karty firmy.")
+        return self
 
 
 # ── Raport ────────────────────────────────────────────────────────────────
@@ -609,10 +671,16 @@ async def apply(
 
 
 async def _accept_all(
-    db: AsyncSession, result: SalesBotResult, user_id: int, now: datetime
+    db: AsyncSession,
+    result: SalesBotResult,
+    user_id: int,
+    now: datetime,
+    choice: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     """Przyjęcie z listy wyników: wszystkie otwarte osoby na kartę z wyniku."""
 
+    if choice and (choice.get("fields") is not None or choice.get("reject")):
+        raise AcceptRefused("Osoby wybiera się w przeglądzie wyniku.")
     plan, _ = await review_plan(db, result)
     target = plan.companies[0] if plan.companies else None
     if target is not None and target.state == research_import.CHOOSE:
@@ -652,7 +720,7 @@ PEOPLE = BotTask(
 # ── Mapa firmy z Cognism ──────────────────────────────────────────────────
 
 _PROFILE_PATH = re.compile(
-    r"/search/prospects/(?:(?:contacts?|people|persons?|prospects?)/)?([A-Za-z0-9_-]{8,128})/?"
+    rf"/search/prospects/(?:(?:contacts?|people|persons?|prospects?)/)?({_COGNISM_PROFILE_ID})/?"
 )
 _CLOCK_SKEW = timedelta(minutes=5)
 PhoneType = Literal["direct", "mobile"]
@@ -733,7 +801,13 @@ class CognismMapPerson(BaseModel):
 def _cognism_task_text(run: SalesSignalRun, ctx: TaskContext) -> str:
     return (
         "Korzystaj tylko z widocznych kontrolek zalogowanego Cognism. Dla każdej firmy "
-        "potwierdź dokładną spółkę i domenę z profilu pracodawcy. Wybierz do pięciu "
+        "potwierdź dokładną spółkę i domenę z profilu pracodawcy. Jeśli request.employers "
+        "podaje sprawdzoną etykietę i domenę dla company_ref, szukaj tej spółki i podaj "
+        "jej potwierdzoną nazwę oraz domenę. Przy rozbieżności zwróć ambiguous. "
+        "Jeśli wskazówka zawiera profile_ids, otwieraj wyłącznie te profile. "
+        "Sprawdź, czy osoba nadal pracuje w spółce z firms, nawet gdy etykieta "
+        "Cognism opisuje grupę. "
+        "Wybierz do pięciu "
         "aktualnych decydentów IT, danych/AI, inżynierii, zakupów i zarządu. Najpierw "
         "sprawdź Revealed. Reveal pojedynczo tylko dla dopasowanych osób, do pięciu "
         "odsłonięć na firmę z istniejącej puli kredytów. Nie kupuj kredytów, nie eksportuj "
@@ -883,16 +957,27 @@ def merge_cognism_company_fields(
     }
 
 
-def _cognism_employer_matches(company: SalesCompany, firm: CognismFirm) -> bool:
+def _cognism_employer_matches(
+    company: SalesCompany,
+    firm: CognismFirm,
+    hint: Optional[CognismEmployerHint] = None,
+) -> bool:
+    target_domain = mail_domain(company.domain) or mail_domain(company.website_url)
+    reported_domain = _canonical_corporate_domain(firm.company_domain)
+    if target_domain and target_domain != reported_domain:
+        return False
+    reported_name = normalize_company_name(firm.company_name or "")
+    if hint is not None:
+        return (
+            hint.company_ref == company.id
+            and normalize_company_name(hint.company_name) == reported_name
+            and hint.company_domain == reported_domain
+        )
     target_names = {
         normalize_company_name(value or "")
         for value in (company.name, company.legal_name, company.normalized_name)
     } - {""}
-    target_domain = mail_domain(company.domain) or mail_domain(company.website_url)
-    reported_domain = site_domain(firm.company_domain)
-    return normalize_company_name(firm.company_name or "") in target_names and (
-        not target_domain or target_domain == reported_domain
-    )
+    return reported_name in target_names
 
 
 def _cognism_contact(
@@ -990,6 +1075,8 @@ async def _ingest_cognism(
     db: AsyncSession, run: SalesSignalRun, report: CognismReport, now: datetime
 ) -> dict[str, Any]:
     allowed = set(run.company_ids)
+    request = PeopleRequest.model_validate(run.request or {})
+    hints = {hint.company_ref: hint for hint in request.employers or []}
     received: dict[int, CognismFirm] = {}
     processed: set[int] = set()
     ambiguous: set[int] = set()
@@ -1039,7 +1126,8 @@ async def _ingest_cognism(
             processed.add(cid)
             not_found.add(cid)
             continue
-        if not _cognism_employer_matches(company, firm):
+        hint = hints.get(cid)
+        if not _cognism_employer_matches(company, firm, hint):
             ambiguous.add(cid)
             continue
         if firm.status == "no_people":
@@ -1047,7 +1135,7 @@ async def _ingest_cognism(
             no_people.add(cid)
             continue
         domain = (
-            site_domain(firm.company_domain)
+            _canonical_corporate_domain(firm.company_domain)
             or mail_domain(company.domain)
             or mail_domain(company.website_url)
         )
@@ -1057,6 +1145,7 @@ async def _ingest_cognism(
         fresh: list[dict[str, Any]] = []
         removed: set[str] = set()
         provider_suppressions: dict[str, dict[str, str]] = {}
+        pinned_profiles = set(hint.profile_ids or []) if hint is not None else set()
         for person in firm.people:
             if (
                 not run.started_at - _CLOCK_SKEW
@@ -1066,6 +1155,8 @@ async def _ingest_cognism(
                 continue
             row = _cognism_contact(person, domain).model_dump(mode="json")
             key = _cognism_key(row)
+            if pinned_profiles and key not in pinned_profiles:
+                continue
             if not person.active or person.dnc is True:
                 marks = provider_suppressions.setdefault(key, {})
                 for reason, applies in (

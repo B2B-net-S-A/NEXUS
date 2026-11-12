@@ -4,7 +4,8 @@ Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
 przed krokiem i przy ofertach „Do decyzji”). Osobny kanał Cognism bierze firmy
-z odebranego researchu po dacie uruchomienia.
+z odebranego researchu po dacie uruchomienia. W nocy od 1:00 do 6:00
+osobna flaga zadań uruchamia uzupełnianie kart firm bez domeny.
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -22,8 +23,10 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
+from app.services.sales import bot_tasks
 from app.services.sales import signal_targets as targets
 from app.services.sales import signals
+from app.services.sales.bot_tasks import enrich
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +81,35 @@ async def _start_cognism_people(db: AsyncSession, *, now: datetime) -> int:
     return len(ids) if run is not None and run.status in ("started", "received") else 0
 
 
+async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> int:
+    """Nocny bieg uzupełnienia kart; zwraca liczbę wysłanych firm."""
+
+    start, end = enrich.NIGHT_HOURS
+    if not bot_tasks.enabled() or not start <= local.hour < end:
+        return 0
+    night = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(
+        timezone.utc
+    )
+    # Tylko biegi pętli: przycisk na karcie ma własny limit i nie zjada nocy.
+    started, last = (
+        await db.execute(
+            select(func.count(), func.max(SalesSignalRun.started_at)).where(
+                SalesSignalRun.kind == enrich.KIND,
+                SalesSignalRun.requested_by_user_id.is_(None),
+                SalesSignalRun.started_at >= night,
+            )
+        )
+    ).one()
+    if started >= enrich.NIGHT_MAX_RUNS or (
+        last is not None and last > now - enrich.NIGHT_EVERY
+    ):
+        return 0
+    ids = await enrich.night_company_ids(db, now=now)
+    if ids and _started(await signals.start_run(db, enrich.KIND, ids, now=now)):
+        return len(ids)
+    return 0
+
+
 async def _legacy_tick(
     db: AsyncSession, *, now: datetime, local: datetime, done: dict[str, int]
 ) -> None:
@@ -107,14 +139,24 @@ async def _legacy_tick(
 
 
 async def tick(
-    db: AsyncSession, *, now: datetime, local: datetime, legacy_ready: bool = True
+    db: AsyncSession,
+    *,
+    now: datetime,
+    local: datetime,
+    legacy_ready: bool | None = None,
+    bot_tasks_ready: bool = True,
 ) -> dict[str, int]:
     done = {
         "expired": await signals.expire_runs(db, now=now),
         "signals": 0,
         "briefing": 0,
         "people": 0,
+        "enrich": 0,
     }
+    if bot_tasks_ready:
+        done["enrich"] = await _night_enrich(db, now=now, local=local)
+    if legacy_ready is None:
+        legacy_ready = signals.enabled()
     if legacy_ready:
         await _legacy_tick(db, now=now, local=local, done=done)
     done["people"] = await _start_cognism_people(db, now=now)
@@ -122,15 +164,17 @@ async def tick(
 
 
 async def sales_signals_loop() -> None:
-    legacy_ready = signals.enabled() and signals.configured()
+    shared_configured = signals.configured()
+    legacy_ready = signals.enabled() and shared_configured
+    bot_tasks_ready = bot_tasks.enabled() and shared_configured
     cognism_ready = signals.people_enabled() and signals.people_configured()
-    if signals.enabled() and not legacy_ready:
+    if (signals.enabled() or bot_tasks.enabled()) and not shared_configured:
         logger.warning("sales_signals_loop enabled without GROK_BOT_WEBHOOK_URL/KEY")
     if signals.people_enabled() and not cognism_ready:
         logger.warning(
             "sales_signals_loop enabled without Cognism webhook configuration"
         )
-    if not (legacy_ready or cognism_ready):
+    if not (legacy_ready or bot_tasks_ready or cognism_ready):
         logger.info("sales_signals_loop disabled")
         return
     beat = loop_heartbeat.register(
@@ -145,13 +189,16 @@ async def sales_signals_loop() -> None:
                     now=datetime.now(timezone.utc),
                     local=local_now(),
                     legacy_ready=legacy_ready,
+                    bot_tasks_ready=bot_tasks_ready,
                 )
             if any(done.values()):
                 logger.info(
-                    "sales_signals tick expired=%d signals=%d briefing=%d people=%d",
+                    "sales_signals tick expired=%d signals=%d briefing=%d "
+                    "enrich=%d people=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
+                    done["enrich"],
                     done["people"],
                 )
         except asyncio.CancelledError:

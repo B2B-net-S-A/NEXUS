@@ -29,7 +29,7 @@ import asyncio
 import json
 import sys
 from datetime import datetime, timezone
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from app.core.database import AsyncSessionLocal, engine
 from app.services.sales import bot_tasks, signal_targets, signals
@@ -59,14 +59,14 @@ def _request(value: str) -> dict[str, object]:
 async def run(
     kind: str,
     company_ids: list[int],
-    request: Optional[dict[str, object]] = None,
+    request: Optional[dict[str, Any]] = None,
     *,
     pilot: bool = False,
 ) -> dict[str, object]:
     try:
         async with AsyncSessionLocal() as db:
             now = datetime.now(timezone.utc)
-            if kind == "people" and request == signal_targets.COGNISM_REQUEST:
+            if kind == "people" and (request or {}).get("source") == "cognism":
                 await signal_targets.lock_people_starts(db)
                 now = datetime.now(timezone.utc)
                 if await signal_targets.cognism_run_active(db, now=now):
@@ -77,11 +77,21 @@ async def run(
                 company_ids = await signal_targets.cognism_company_ids(
                     db, now=now, explicit_ids=candidates
                 )
+                employers = (request or {}).get("employers")
+                if employers:
+                    company_ids = [cid for cid in company_ids if cid in candidates]
                 if not company_ids:
                     return {
                         "started": False,
                         "reason": "brak kwalifikujących się firm do wysłania",
                     }
+                if employers:
+                    selected = [
+                        firm for firm in employers if firm["company_ref"] in company_ids
+                    ]
+                    request = {"source": "cognism"}
+                    if selected:
+                        request["employers"] = selected
             modes = (
                 await signal_targets.modes_for(db, company_ids, now=now)
                 if kind == "briefing"
@@ -119,7 +129,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(argv)
     if args.kind == "people" and args.request is None:
         args.request = signal_targets.COGNISM_REQUEST
-    cognism = args.kind == "people" and args.request == signal_targets.COGNISM_REQUEST
+    cognism = args.kind == "people" and (args.request or {}).get("source") == "cognism"
     if args.pilot and (not cognism or args.company_ids):
         parser.error("--pilot jest dla people (Cognism) bez --company-ids.")
     if cognism and len(args.company_ids) > signal_targets.COGNISM_BATCH_SIZE:
@@ -130,11 +140,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if task.needs_firms and not (args.company_ids or args.pilot):
         parser.error(f"Rodzaj {args.kind} wymaga --company-ids.")
     try:
-        task.validate_request(args.request)
+        args.request = task.validate_request(args.request)
     except ValueError as exc:
         # Sam rodzaj błędu: treść zlecenia nie idzie do logu.
         parser.error(f"Niepoprawne --request ({type(exc).__name__}).")
     if cognism:
+        employer_refs = {
+            firm["company_ref"] for firm in args.request.get("employers", [])
+        }
+        if employer_refs and not employer_refs.issubset(args.company_ids):
+            parser.error(
+                "Potwierdzone firmy Cognism muszą być na liście --company-ids."
+            )
         if not signals.people_enabled() or not signals.people_configured():
             print(
                 "Kanał Cognism jest wyłączony albo brakuje konfiguracji webhooka.",

@@ -60,6 +60,16 @@ class RejectIn(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=300)
 
 
+class AcceptIn(BaseModel):
+    """Wybór handlowca dla rodzaju z polami (``enrich``): które przyjąć, które odrzucić.
+
+    Bez ``fields`` rodzaj sam decyduje, co znaczy „przyjmij wszystko”.
+    """
+
+    fields: Optional[list[str]] = Field(default=None, max_length=20)
+    reject: list[str] = Field(default_factory=list, max_length=20)
+
+
 def _out(row: SalesBotResult, company: Optional[SalesCompany]) -> BotResultOut:
     return BotResultOut(
         id=row.id,
@@ -152,8 +162,10 @@ async def reject_result(
 async def accept_result(
     result_id: int,
     current_user: SalesEditUser,
+    payload: Optional[AcceptIn] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    user_id = current_user.id
     row = await db.get(SalesBotResult, result_id, with_for_update=True)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
@@ -164,7 +176,11 @@ async def accept_result(
         raise HTTPException(status.HTTP_409_CONFLICT, detail=NO_ACCEPT_DETAIL)
     try:
         outcome = await task.accept(
-            db, row, current_user.id, datetime.now(timezone.utc)
+            db,
+            row,
+            user_id,
+            datetime.now(timezone.utc),
+            payload.model_dump() if payload else None,
         )
     except bot_tasks.AcceptRefused as exc:
         await db.rollback()

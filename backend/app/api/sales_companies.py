@@ -37,7 +37,6 @@ from app.models.sales import SalesCompany, SalesOpportunity
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
-from app.services.company_names import normalize_company_name
 from app.services.sales import calls as sales_calls
 from app.services.sales import companies as service
 from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
@@ -302,24 +301,8 @@ async def _check_links(
             )
 
 
-def _apply(company: SalesCompany, fields: dict[str, Any]) -> None:
-    for key, value in fields.items():
-        if key == "nip":
-            value = service.nip_digits(value)
-        elif key == "tags":
-            value = value or []
-        elif isinstance(value, str):
-            value = value.strip() or None
-        setattr(company, key, value)
-    if fields.get("owner_user_id") is not None:
-        # Opiekun z konta zastępuje etykietę opiekuna z Atlasa.
-        company.owner_label = None
-    if "name" in fields:
-        company.normalized_name = normalize_company_name(company.name) or company.name
-    if "domain" not in fields and not company.domain and fields.get("website_url"):
-        # Bez domeny nie działa dopasowanie poczty i kalendarza (10.11.2026).
-        # Domena wysłana jawnie, także pusta, jest decyzją człowieka.
-        company.domain = service.mail_domain(company.website_url)
+# Jedna ścieżka zapisu pól karty: ekran Firmy i przyjęcie propozycji bota (G-A).
+_apply = service.apply_fields
 
 
 @router.get("", response_model=CompanyList)

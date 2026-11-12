@@ -121,14 +121,22 @@ async def test_worker_runs_independent_cognism_only_when_no_active_run(monkeypat
     monkeypatch.setattr(targets, "cognism_company_ids", company_ids)
 
     async def tick():
-        return await worker.tick(object(), now=now, local=now, legacy_ready=False)
+        return await worker.tick(
+            object(), now=now, local=now, legacy_ready=False, bot_tasks_ready=False
+        )
 
     assert (await tick())["people"] == 0
     assert order == ["expire"]
     order.clear()
 
     monkeypatch.setattr(settings, "SALES_COGNISM_PEOPLE_RESEARCH_SINCE", now)
-    assert (await tick()) == {"expired": 1, "signals": 0, "briefing": 0, "people": 2}
+    assert (await tick()) == {
+        "expired": 1,
+        "signals": 0,
+        "briefing": 0,
+        "enrich": 0,
+        "people": 2,
+    }
     assert order == ["expire", "lock", "active", "choose", "start"]
     order.clear()
 

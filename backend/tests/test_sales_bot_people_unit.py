@@ -328,11 +328,60 @@ def test_people_source_selects_the_report_on_the_server() -> None:
     assert bot_tasks.for_run(public) is people.PEOPLE
     assert bot_tasks.for_run(cognism) is people.COGNISM
     assert people.PEOPLE.validate_request({}) == {}
+    assert people.PEOPLE.validate_request({"source": "public"}) == {"source": "public"}
     assert people.PEOPLE.validate_request({"source": "cognism"}) == {
         "source": "cognism"
     }
     with pytest.raises(ValidationError):
         people.PEOPLE.validate_request({"source": "cognism", "person": "Jan"})
+
+
+def test_cognism_employer_hints_validate_only_scoped_corporate_names_and_domains() -> (
+    None
+):
+    hint = {
+        "company_ref": 2,
+        "company_name": "Inna Etykieta",
+        "company_domain": "www.FIRMA.example.",
+        "profile_ids": ["profile-example"],
+    }
+    validate = people.PEOPLE.validate_request
+    assert validate({"source": "cognism", "employers": [hint]}) == {
+        "source": "cognism",
+        "employers": [{**hint, "company_domain": "firma.example"}],
+    }
+    bad_inputs = [
+        {"source": "public", "employers": [hint]},
+        {"employers": [hint]},
+        {"source": "cognism", "employers": [hint, hint]},
+        {
+            "source": "cognism",
+            "employers": [{**hint, "company_ref": i} for i in range(1, 7)],
+        },
+    ]
+    bad_hints = [
+        {"company_ref": True},
+        {"company_name": "???"},
+        {"company_domain": "gmail.com"},
+        {"company_domain": "https://firma.example"},
+        {"company_domain": "firma.example:443@inna.example"},
+        {"profile_ids": []},
+        {"profile_ids": ["profile-example", "profile-example"]},
+        {
+            "profile_ids": [
+                "https://app.cognism.com/search/prospects/contacts/profile-example"
+            ]
+        },
+    ]
+    for payload in [
+        *bad_inputs,
+        *(
+            {"source": "cognism", "employers": [{**hint, **change}]}
+            for change in bad_hints
+        ),
+    ]:
+        with pytest.raises(ValidationError):
+            validate(payload)
 
 
 def test_cognism_contacts_preserve_field_dates_on_partial_refresh() -> None:
