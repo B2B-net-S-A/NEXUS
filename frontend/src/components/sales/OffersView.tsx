@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { FileSignature } from "lucide-react";
+import { ExternalLink, FileSignature } from "lucide-react";
 import { useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -20,6 +20,7 @@ import {
   useOffers,
   usePipelines,
   useTakeOverOpportunity,
+  type OfferBotPoints,
   type OfferRow,
   type OfferScope,
   type OfferSectionTotals,
@@ -33,7 +34,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { NextStepDialog } from "./CallLogDialogs";
-import { daysLabel, formatDealNumber } from "./format";
+import { daysLabel, formatDealNumber, safeHref } from "./format";
 import { plural } from "./my-day";
 import { CloseOfferDialog, PostponeOfferDialog } from "./OfferDecisionDialogs";
 import { OFFER_SCOPES, lostStages, offerStepText, scopeLabel, sectionHint, stageNote } from "./offers";
@@ -43,6 +44,8 @@ import { shortCompany } from "./step";
 const DECIDE_PAGE = 25;
 const COLUMNS = 6;
 const ROW_BUTTON = "h-7 px-2.5";
+/** Tyle punktów bota widać pod pozycją „Do decyzji”; reszta jest na karcie szansy. */
+const BOT_POINTS_SHOWN = 2;
 
 interface SectionRowProps {
   title: string;
@@ -69,6 +72,53 @@ function NoteRow({ children }: { children: React.ReactNode }) {
         {children}
       </TableCell>
     </TableRow>
+  );
+}
+
+/**
+ * Co zmieniło się w firmie według bota researchu (decyzja Artura 12.11.2026). Bez
+ * punktów (`null`: wyłączony kanał, firma jeszcze niesprawdzona) nic nie pokazuje,
+ * a pusta lista mówi wprost, że bot nic nowego nie znalazł. Tekst się zawija, bo
+ * kolumna jest wąska, a link do źródła zostaje cały.
+ */
+function BotPointsNote({ botPoints }: { botPoints: OfferBotPoints | null }) {
+  if (!botPoints) return null;
+  const points = botPoints.points.slice(0, BOT_POINTS_SHOWN);
+  return (
+    <section
+      className="mt-1 space-y-0.5 text-[11.5px] leading-4 text-muted-foreground"
+      aria-label="Punkty od bota"
+      data-tour="sales.offers.bot-points"
+    >
+      <Badge variant="neutral" size="sm">
+        Bot · wniosek, sprawdź źródło
+      </Badge>
+      {points.length === 0 ? (
+        <p>Bot nie znalazł nic nowego od wysłania oferty.</p>
+      ) : (
+        <ul className="space-y-0.5">
+          {points.map((point, index) => {
+            const href = safeHref(point.url);
+            return (
+              <li key={index} className="break-words">
+                {point.published && <span className="tabular-nums">{formatIsoDatePl(point.published)}: </span>}
+                {point.text}
+                {href && (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="ml-1 inline-flex items-center gap-0.5 whitespace-nowrap text-primary hover:underline"
+                  >
+                    źródło <ExternalLink className="h-3 w-3" aria-hidden />
+                  </a>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -150,6 +200,7 @@ export function OffersView() {
             {/* Etap pierwszy: przy szansie spoza ofert to on mówi, co to za pozycja, a koniec się ucina. */}
             {note ? `${note} · ${row.title}` : row.title}
           </TruncatedText>
+          {row.section === "to_decide" && <BotPointsNote botPoints={row.bot_points} />}
         </TableCell>
         <TableCell className="text-sm text-muted-foreground">
           <TruncatedText className="max-w-full">{row.owner?.name ?? "bez opiekuna"}</TruncatedText>

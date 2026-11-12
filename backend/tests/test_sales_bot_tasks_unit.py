@@ -65,6 +65,13 @@ def test_registry_kinds_are_known_to_the_database_check() -> None:
         assert task.task_text(signals.new_run(task.kind, [1], now=NOW)[0], _ctx())
 
 
+def test_briefing_task_sends_ongoing_without_news_to_no_signal() -> None:
+    run = signals.new_run("briefing", [1], now=NOW, modes={1: "ongoing"})[0]
+    text = bot_tasks.REGISTRY["briefing"].task_text(run, _ctx())
+    assert 'Gdy przy mode = "ongoing" nie ma nic nowego' in text
+    assert "wpisz firmę do no_signal" in text
+
+
 def test_new_kinds_and_modes_fit_their_columns() -> None:
     assert all(len(kind) <= 16 for kind in schema.BOT_RUN_KINDS)
     assert all(len(mode) <= 12 for mode in schema.BOT_BRIEFING_MODES)

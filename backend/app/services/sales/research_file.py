@@ -11,6 +11,11 @@ Moduł jest czysty (bez bazy); co stanie się z wierszem, ustala
 ``research_import.py``. Poziom decyzji bierze się z kolumny pliku, a bez niej
 z nazwy stanowiska (decyzja Artura z 10.11.2026): zarząd i VP to poziom 1,
 Head i Director poziom 2, reszta poziom 3. Człowiek zmienia go w przeglądzie.
+
+Eksport CSV z Cognism (decyzja Artura z 12.11.2026) czyta się bez przeróbek:
+angielskie nagłówki, kilkadziesiąt kolumn, z których bierzemy tylko znane.
+Telefon osoby to komórka albo numer bezpośredni, nigdy centrala firmy, a adres,
+którego Cognism nie zweryfikował, nie trafia na mapę.
 """
 
 from __future__ import annotations
@@ -30,7 +35,9 @@ from app.services.sales.companies import http_url
 MAX_FILE_BYTES = 2 * 1024 * 1024
 #: Lista z researchu to dziesiątki osób; limit chroni przegląd i proces web.
 MAX_ROWS = 500
-MAX_COLUMNS = 40
+#: Eksport z Cognism ma 50–100 kolumn, a znane pola mogą leżeć daleko w prawo.
+#: Kolumny dalej niż sufit nie są czytane; nieznane po prostu się pomija.
+MAX_COLUMNS = 150
 #: Tyle linii pliku czytamy razem z pustymi; arkusz z dziesiątkami tysięcy pustych
 #: wierszy to nie lista, a jego przeglądanie zajmuje proces web.
 MAX_SCANNED_LINES = 20_000
@@ -72,6 +79,9 @@ _LIMITS: dict[str, int] = {
     "title": 255,
     "email": 320,
     "phone": 50,
+    "mobile": 50,
+    "direct_phone": 50,
+    "email_status": 60,
     "linkedin": 512,
     "source_url": 1000,
     "website": 255,
@@ -91,6 +101,10 @@ _HEADERS: dict[str, tuple[str, ...]] = {
         "company name",
         "employer",
         "organization",
+        "organization name",
+        "organisation",
+        "organisation name",
+        "account name",
     ),
     "name": (
         "osoba",
@@ -102,9 +116,25 @@ _HEADERS: dict[str, tuple[str, ...]] = {
         "full name",
         "person",
         "contact",
+        "contact name",
+        "contact full name",
+        "person name",
     ),
-    "first_name": ("imie", "first name"),
-    "last_name": ("nazwisko", "last name", "surname"),
+    "first_name": (
+        "imie",
+        "first name",
+        "firstname",
+        "given name",
+        "contact first name",
+    ),
+    "last_name": (
+        "nazwisko",
+        "last name",
+        "lastname",
+        "surname",
+        "family name",
+        "contact last name",
+    ),
     "title": (
         "stanowisko",
         "rola",
@@ -114,18 +144,72 @@ _HEADERS: dict[str, tuple[str, ...]] = {
         "job title",
         "position",
         "role",
+        "jobtitle",
+        "contact job title",
+        "job role",
     ),
-    "email": ("e mail", "email", "mail", "adres e mail", "adres email"),
+    "email": (
+        "email",
+        "mail",
+        "adres email",
+        "email address",
+        "work email",
+        "business email",
+        "contact email",
+    ),
+    #: Status adresu z Cognism; „Unverified”, „Invalid”, „Catch-all” zdejmują adres.
+    "email_status": (
+        "email status",
+        "email confidence",
+        "email verification",
+        "email verification status",
+        "email validation",
+        "email validation status",
+        "email quality",
+        "email deliverability",
+    ),
+    #: Telefon osoby: komórka, potem numer bezpośredni, potem kolumna ogólna.
+    #: Centrala firmy („Company Phone”, „HQ Phone”) celowo nie ma tu nagłówka.
+    "mobile": (
+        "komorka",
+        "telefon komorkowy",
+        "mobile",
+        "mobile phone",
+        "mobile number",
+        "mobile phone number",
+        "phone verified mobile",
+        "cell",
+        "cell phone",
+        "contact mobile",
+    ),
+    "direct_phone": (
+        "direct",
+        "direct phone",
+        "direct phone number",
+        "direct dial",
+        "direct line",
+        "direct number",
+        "telefon bezposredni",
+    ),
     "phone": (
         "telefon",
         "tel",
         "nr telefonu",
         "numer telefonu",
-        "komorka",
         "phone",
-        "mobile",
+        "phone number",
+        "contact phone",
     ),
-    "linkedin": ("linkedin", "profil linkedin", "linkedin url", "profil"),
+    "linkedin": (
+        "linkedin",
+        "profil linkedin",
+        "linkedin url",
+        "profil",
+        "person linkedin url",
+        "contact linkedin url",
+        "linkedin profile",
+        "linkedin profile url",
+    ),
     "source_url": (
         "zrodlo",
         "link zrodlowy",
@@ -134,7 +218,20 @@ _HEADERS: dict[str, tuple[str, ...]] = {
         "source",
         "source url",
     ),
-    "website": ("www", "strona", "strona www", "domena", "website", "domain"),
+    "website": (
+        "www",
+        "strona",
+        "strona www",
+        "domena",
+        "website",
+        "domain",
+        "website url",
+        "company website",
+        "company website url",
+        "company url",
+        "company domain",
+        "domain name",
+    ),
     "confidence": (
         "pewnosc",
         "pewne",
@@ -159,6 +256,37 @@ _FIELD_BY_HEADER = {
     header: field for field, headers in _HEADERS.items() for header in headers
 }
 
+#: Nagłówki typowe dla eksportu z Cognism. Lista z researchu ma firmę, osobę
+#: i kontakt; plik z kilkoma z tych kolumn naraz (albo z „Cognism” w nagłówku)
+#: to eksport z platformy i źródło przy osobach mówi „Cognism”.
+_COGNISM_MARKERS = frozenset(
+    (
+        "seniority",
+        "department",
+        "company phone",
+        "company linkedin url",
+        "person linkedin url",
+        "mobile phone",
+        "direct phone",
+        "direct dial",
+        "email status",
+        "email confidence",
+        "company domain",
+        "company website",
+        "company size",
+        "company industry",
+        "company employee count",
+        "company revenue",
+    )
+)
+COGNISM_MIN_MARKERS = 4
+COGNISM = "Cognism"
+UNVERIFIED_EMAIL_WARNING = "e-mail niezweryfikowany w Cognism"
+_UNVERIFIED_EMAIL = re.compile(
+    r"\b(?:unverified|not verified|invalid|catch ?all|accept all|risky|unknown"
+    r"|undeliverable|bounced?|niezweryfikowan\w*|nieprawidlow\w*)\b"
+)
+
 _CONFIRMED_WORDS = frozenset(
     """pewne pewny pewna potwierdzone potwierdzony potwierdzona zweryfikowane
     zweryfikowany zweryfikowana tak yes true 1 confirmed verified high wysoka""".split()
@@ -167,6 +295,7 @@ _CONFIRMED_WORDS = frozenset(
 # Znaki sterujące, niewidoczne odstępy i znaczniki kierunku tekstu.
 _CONTROL = re.compile("[\x00-\x1f\x7f-\x9f​-‏ - ⁠-⁯﻿]")
 _SPACES = re.compile(r"\s+")
+_E_MAIL = re.compile(r"\be mail\b")
 _EMAIL = re.compile(r"^[^@\s]+@([a-z0-9-]+\.)+[a-z]{2,}$")
 _DOMAIN = re.compile(r"^([a-z0-9-]+\.)+[a-z]{2,}$")
 _SITE = re.compile(r"^([a-z]+://)?(www\.)?([^/:?#\s]+)")
@@ -219,6 +348,8 @@ class SkippedRow:
 class ResearchFile:
     rows: list[ResearchRow]
     skipped: list[SkippedRow]
+    #: ``"Cognism"`` dla eksportu z Cognism; ``None`` dla zwykłej listy z researchu.
+    origin: Optional[str] = None
 
 
 # ── Wartości ──────────────────────────────────────────────────────────────
@@ -242,6 +373,12 @@ def fold(value: Any) -> str:
     text = unicodedata.normalize("NFKD", str(value or "").lower())
     text = "".join(ch for ch in text if not unicodedata.combining(ch)).replace("ł", "l")
     return _SPACES.sub(" ", re.sub(r"[^a-z0-9]+", " ", text)).strip()
+
+
+def header_key(cell: Any) -> str:
+    """Nagłówek do porównań; „E-mail Status” i „Email Status” to ta sama kolumna."""
+
+    return _E_MAIL.sub("email", fold(cell))
 
 
 def person_key(name: Optional[str]) -> Optional[str]:
@@ -288,6 +425,21 @@ def company_domain(website: Optional[str], email: Optional[str]) -> Optional[str
         return None
     domain = email.rsplit("@", 1)[1]
     return None if domain in PUBLIC_EMAIL_DOMAINS else domain
+
+
+def email_unverified(status: Optional[str]) -> bool:
+    """Status adresu z platformy mówi, że skrzynki nikt nie potwierdził."""
+
+    return bool(_UNVERIFIED_EMAIL.search(fold(status)))
+
+
+def is_cognism_header(header: Iterable[Any]) -> bool:
+    """Wiersz nagłówka eksportu z Cognism: kilka jego typowych kolumn albo nazwa."""
+
+    folded = {header_key(cell) for cell in list(header)[:MAX_COLUMNS]}
+    if any("cognism" in cell for cell in folded):
+        return True
+    return len(folded & _COGNISM_MARKERS) >= COGNISM_MIN_MARKERS
 
 
 def confidence_of(value: Optional[str]) -> str:
@@ -373,14 +525,20 @@ def _xlsx_rows(payload: bytes) -> Iterable[tuple[Any, ...]]:
         workbook.close()
 
 
-def _columns(header: Iterable[Any]) -> dict[str, int]:
-    columns: dict[str, int] = {}
+def _columns(header: Iterable[Any]) -> dict[str, tuple[int, ...]]:
+    """Kolumny pola w kolejności z pliku; wartość to pierwsza niepusta z nich.
+
+    Eksport z Cognism ma „Company Website” i „Company Domain”: pusta strona nie
+    może zasłonić domeny w kolejnej kolumnie.
+    """
+
+    columns: dict[str, tuple[int, ...]] = {}
     for index, cell in enumerate(header):
         if index >= MAX_COLUMNS:
             break
-        field = _FIELD_BY_HEADER.get(fold(cell))
+        field = _FIELD_BY_HEADER.get(header_key(cell))
         if field is not None:
-            columns.setdefault(field, index)
+            columns[field] = (*columns.get(field, ()), index)
     if "company" not in columns:
         raise ResearchFileError(NO_COMPANY_COLUMN_DETAIL)
     if "name" not in columns and not {"first_name", "last_name"} <= columns.keys():
@@ -388,12 +546,23 @@ def _columns(header: Iterable[Any]) -> dict[str, int]:
     return columns
 
 
+def _cell(cells: list[Any], indexes: tuple[int, ...], limit: int) -> Optional[str]:
+    return next(
+        (
+            text
+            for index in indexes
+            if index < len(cells) and (text := clean_text(cells[index], limit))
+        ),
+        None,
+    )
+
+
 def _row(
-    line: int, cells: list[Any], columns: dict[str, int]
+    line: int, cells: list[Any], columns: dict[str, tuple[int, ...]]
 ) -> Optional[ResearchRow | SkippedRow]:
     values = {
-        field: clean_text(cells[index] if index < len(cells) else None, _LIMITS[field])
-        for field, index in columns.items()
+        field: _cell(cells, indexes, _LIMITS[field])
+        for field, indexes in columns.items()
     }
     if not any(values.values()):
         return None
@@ -411,8 +580,14 @@ def _row(
     email = valid_email(values.get("email"))
     if values.get("email") and not email:
         warnings.append("pominięto adres e-mail (niepełny)")
-    phone = valid_phone(values.get("phone"))
-    if values.get("phone") and not phone:
+    # Domena firmy może przyjść z adresu, także gdy samej skrzynki nikt nie potwierdził.
+    domain = company_domain(values.get("website"), email)
+    if email and email_unverified(values.get("email_status")):
+        email = None
+        warnings.append(UNVERIFIED_EMAIL_WARNING)
+    phones = [values.get(field) for field in ("mobile", "direct_phone", "phone")]
+    phone = next((p for p in map(valid_phone, phones) if p), None)
+    if any(phones) and not phone:
         warnings.append("pominięto telefon (nie wygląda na numer)")
     linkedin = valid_link(values.get("linkedin"), _LIMITS["linkedin"])
     if values.get("linkedin") and not linkedin:
@@ -432,7 +607,7 @@ def _row(
         phone=phone,
         linkedin_url=linkedin,
         source_url=source_url,
-        domain=company_domain(values.get("website"), email),
+        domain=domain,
         confidence=confidence_of(values.get("confidence")),
         decision_level=_level(values.get("level"), values.get("title")),
         note=values.get("note"),
@@ -452,7 +627,8 @@ def parse_research_file(filename: str, payload: bytes) -> ResearchFile:
         raise ResearchFileError(EMPTY_DETAIL)
     raw = _xlsx_rows(payload) if extension == ".xlsx" else _csv_rows(payload)
 
-    columns: Optional[dict[str, int]] = None
+    columns: Optional[dict[str, tuple[int, ...]]] = None
+    origin: Optional[str] = None
     rows: list[ResearchRow] = []
     skipped: list[SkippedRow] = []
     for line, cells in enumerate(raw, start=1):
@@ -463,6 +639,7 @@ def parse_research_file(filename: str, payload: bytes) -> ResearchFile:
             if not any(clean_text(cell, 255) for cell in cells):
                 continue
             columns = _columns(cells)
+            origin = COGNISM if is_cognism_header(cells) else None
             continue
         parsed = _row(line, cells, columns)
         if parsed is None:
@@ -475,4 +652,4 @@ def parse_research_file(filename: str, payload: bytes) -> ResearchFile:
             rows.append(parsed)
     if columns is None or (not rows and not skipped):
         raise ResearchFileError(EMPTY_DETAIL)
-    return ResearchFile(rows=rows, skipped=skipped)
+    return ResearchFile(rows=rows, skipped=skipped, origin=origin)

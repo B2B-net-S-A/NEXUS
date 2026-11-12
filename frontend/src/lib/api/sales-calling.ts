@@ -35,6 +35,8 @@ export interface QueueItem {
   attempts: number;
   last_outcome_at: string | null;
   since: string;
+  /** Kto dzwoni: wypełnione w Tabeli (przy „Wszyscy” widać cudze rekordy). */
+  assignee?: Ref | null;
 }
 
 /** Licznik dnia bez celu: zastępuje ręczne „Podsumowanie” z Excela (11.11.2026). */
@@ -62,12 +64,31 @@ export interface CallRecordTable {
   items: QueueItem[];
   total: number;
   counts: Partial<Record<RecordState, number>>;
+  /** Osoby z rekordami w wybranym zakresie, do filtra „Kto dzwoni”. */
+  callers?: Ref[];
 }
+
+/** „Moje” to rekordy zalogowanej osoby, „Wszyscy” każdego dzwoniącego (decyzja Artura 12.11.2026). */
+export type CallRecordScope = "mine" | "all";
 
 export interface CallRecordFilters {
   state: RecordState | null;
   campaignId: number | null;
   search: string;
+  scope?: CallRecordScope;
+  /** Tylko przy „Wszyscy”: rekordy jednej osoby. */
+  callerId?: number | null;
+}
+
+/** Linia „Na liście dzwonienia” na karcie firmy: bez numeru telefonu. */
+export interface CompanyCallRecord {
+  record_id: number;
+  campaign: Ref | null;
+  assignee: Ref | null;
+  person_name: string | null;
+  state: RecordState | "do_not_contact";
+  callback_on: string | null;
+  last_outcome_at: string | null;
 }
 
 export interface CallHistoryEntry {
@@ -212,10 +233,21 @@ export function useCallRecords(filters: CallRecordFilters) {
             ...(filters.state === null ? {} : { state: filters.state }),
             ...(filters.campaignId === null ? {} : { campaign_id: filters.campaignId }),
             ...(filters.search.trim() ? { q: filters.search.trim() } : {}),
+            ...(filters.scope === "all" ? { scope: "all" } : {}),
+            ...(filters.scope === "all" && filters.callerId ? { caller_id: filters.callerId } : {}),
           },
         })
       ).data,
     placeholderData: keepPreviousData,
+  });
+}
+
+/** Na czyjej liście dzwonienia jest firma (karta firmy). */
+export function useCompanyCallRecords(companyId: number) {
+  return useQuery({
+    queryKey: ["sales", "calling", "company", companyId] as const,
+    queryFn: async () =>
+      (await api.get<CompanyCallRecord[]>(`/api/sales/calling/companies/${companyId}/records`)).data,
   });
 }
 
