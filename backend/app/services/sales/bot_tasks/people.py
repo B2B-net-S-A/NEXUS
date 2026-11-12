@@ -26,12 +26,14 @@ Reguły: ``docs/claude/sprzedaz/mapy-decydentow-od-bota.md``.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import dataclasses
 import logging
 import re
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote_to_bytes, urlsplit
 
 from pydantic import (
     AwareDatetime,
@@ -94,7 +96,10 @@ COGNISM_MAP_KEY = "bot_decision_map"
 COGNISM_SUPPRESSIONS_KEY = "bot_decision_map_suppressions"
 COGNISM_MAX_FIRMS = 5
 COGNISM_MAX_PEOPLE = 5
-_COGNISM_PROFILE_ID = r"[A-Za-z0-9_-]{8,128}"
+_COGNISM_PLAIN_ID = re.compile(r"[A-Za-z0-9_-]{8,128}")
+_COGNISM_OPAQUE_ID = re.compile(r"(?:[A-Za-z0-9+=]|%[0-9A-Fa-f]{2})+")
+_MAX_COGNISM_BASE64 = 256
+_MAX_COGNISM_SEGMENT = 384
 #: Pochodzenie osoby na mapie i w historii szansy (pole „Skąd lista” importu).
 ORIGIN = "Grok Bot"
 MAX_PEOPLE = 15
@@ -141,6 +146,27 @@ def _canonical_corporate_domain(value: Optional[str]) -> Optional[str]:
     )
 
 
+def canonical_cognism_profile_id(value: str) -> Optional[str]:
+    """Id Cognism jako jeden segment ścieżki, w tym zapisany w standardowym Base64."""
+
+    if _COGNISM_PLAIN_ID.fullmatch(value):
+        return value
+    if len(value) > _MAX_COGNISM_SEGMENT or not _COGNISM_OPAQUE_ID.fullmatch(value):
+        return None
+    try:
+        encoded = unquote_to_bytes(value).decode("ascii")
+        if not 8 <= len(encoded) <= _MAX_COGNISM_BASE64:
+            return None
+        opaque = base64.b64decode(encoded, validate=True)
+    except (UnicodeError, binascii.Error):
+        return None
+    # Odrzuć niekanoniczne bity dopełnienia i wielokrotne kodowanie URL.
+    if base64.b64encode(opaque).decode("ascii") != encoded:
+        return None
+    segment = quote(encoded, safe="")
+    return segment if len(segment) <= _MAX_COGNISM_SEGMENT else None
+
+
 class CognismEmployerHint(BaseModel):
     """Etykieta pracodawcy potwierdzona przez operatora dla jednej karty."""
 
@@ -171,12 +197,15 @@ class CognismEmployerHint(BaseModel):
     @field_validator("profile_ids")
     @classmethod
     def _specific_profiles(cls, values: Optional[list[str]]) -> Optional[list[str]]:
-        if values is not None and (
-            len(set(values)) != len(values)
-            or any(not re.fullmatch(_COGNISM_PROFILE_ID, value) for value in values)
-        ):
-            raise ValueError("Podaj odrębne identyfikatory profili Cognism.")
-        return values
+        if values is None:
+            return None
+        canonical: list[str] = []
+        for value in values:
+            profile_id = canonical_cognism_profile_id(value)
+            if profile_id is None or profile_id in canonical:
+                raise ValueError("Podaj odrębne identyfikatory profili Cognism.")
+            canonical.append(profile_id)
+        return canonical
 
 
 class PeopleRequest(BaseModel):
@@ -721,7 +750,7 @@ PEOPLE = BotTask(
 # ── Mapa firmy z Cognism ──────────────────────────────────────────────────
 
 _PROFILE_PATH = re.compile(
-    rf"/search/prospects/(?:(?:contacts?|people|persons?|prospects?)/)?({_COGNISM_PROFILE_ID})/?"
+    r"(/search/prospects/(?:(?:contacts?|people|persons?|prospects?)/)?)([^/]+)/?"
 )
 _CLOCK_SKEW = timedelta(minutes=5)
 PhoneType = Literal["direct", "mobile"]
@@ -745,7 +774,11 @@ class CognismPerson(BaseModel):
     @field_validator("source_url")
     @classmethod
     def _provider_profile(cls, value: str) -> str:
+        if any(not 33 <= ord(char) <= 126 for char in value):
+            raise ValueError("Wymagany jest link do profilu osoby w Cognism.")
         url = urlsplit(value)
+        match = _PROFILE_PATH.fullmatch(url.path)
+        profile_id = canonical_cognism_profile_id(match[2]) if match else None
         if (
             url.scheme != "https"
             or url.netloc.lower() != "app.cognism.com"
@@ -753,10 +786,18 @@ class CognismPerson(BaseModel):
             or url.fragment
             or "?" in value
             or "#" in value
-            or not _PROFILE_PATH.fullmatch(url.path)
+            or match is None
+            or profile_id is None
         ):
             raise ValueError("Wymagany jest link do profilu osoby w Cognism.")
-        return f"https://app.cognism.com{url.path.rstrip('/')}"
+        if match[1] == "/search/prospects/" and (
+            not _COGNISM_PLAIN_ID.fullmatch(profile_id)
+            or profile_id in {"companies", "contacts", "prospects"}
+        ):
+            # Segment z kodowanym ukośnikiem jest identyfikatorem wyłącznie po
+            # jawnej ścieżce profilu, nigdy zamiennikiem części tej ścieżki.
+            raise ValueError("Wymagany jest link do profilu osoby w Cognism.")
+        return f"https://app.cognism.com{match[1]}{profile_id}"
 
 
 class CognismFirm(BaseModel):

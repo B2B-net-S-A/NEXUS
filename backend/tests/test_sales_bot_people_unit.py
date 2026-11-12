@@ -6,7 +6,9 @@ w testach są fikcyjne (repo jest publiczne).
 
 from __future__ import annotations
 
+import base64
 from datetime import date, datetime, timedelta, timezone
+from urllib.parse import quote
 
 import pytest
 from pydantic import ValidationError
@@ -312,11 +314,73 @@ def _cognism_person(**over) -> people.CognismPerson:
         "https://app.cognism.com/search/prospects/contacts/profile-example?key=test",
         "https://app.cognism.com/search/prospects/contacts/profile-example#private",
         "http://app.cognism.com/search/prospects/contacts/profile-example",
+        "https://app.cognism.com/search/prospects/contacts/../profile-example",
+        "https://app.cognism.com/search/prospects/persons%2FAAAA",
+        "https://app.cognism.com/search/prospects/companies",
     ],
 )
 def test_cognism_requires_exact_provider_contact_profile(url: str) -> None:
     with pytest.raises(ValidationError):
         _cognism_person(source_url=url)
+
+
+def test_cognism_opaque_profile_url_and_hint_share_a_canonical_id() -> None:
+    synthetic_ids = ";".join(
+        f"00000000-0000-4000-8000-{index:012d}" for index in range(1, 4)
+    )
+    encoded = base64.b64encode(synthetic_ids.encode()).decode()
+    assert len(encoded) > 128 and encoded.endswith("=")
+    segment = quote(encoded, safe="")
+    # Zmieniamy wyłącznie wielkość znaków w ucieczce procentowej, nie w Base64.
+    url = f"https://app.cognism.com/search/prospects/persons/{segment.replace('%3D', '%3d')}"
+    person = _cognism_person(source_url=url)
+    hint = {
+        "company_ref": 2,
+        "company_name": "Firma Testowa",
+        "company_domain": "firma.example",
+        "profile_ids": [encoded],
+    }
+    parsed = people.CognismEmployerHint.model_validate(hint)
+    assert parsed.profile_ids == [segment]
+    assert person.source_url.endswith(f"/persons/{segment}")
+    assert people._cognism_key(person.model_dump()) in parsed.profile_ids
+    with pytest.raises(ValidationError):
+        people.CognismEmployerHint.model_validate(
+            {**hint, "profile_ids": [encoded, segment]}
+        )
+
+
+def test_cognism_opaque_base64_slash_stays_in_one_profile_segment() -> None:
+    encoded = base64.b64encode(b"\xfb\xff\x00" * 3).decode()
+    segment = quote(encoded, safe="")
+    assert "/" in encoded and "%2F" in segment and "%2B" in segment
+    prefix = "https://app.cognism.com/search/prospects/persons/"
+    assert people.canonical_cognism_profile_id(segment) == segment
+    assert _cognism_person(source_url=prefix + segment).source_url == prefix + segment
+    with pytest.raises(ValidationError):
+        _cognism_person(source_url=prefix + encoded)
+
+
+@pytest.mark.parametrize(
+    "segment",
+    [
+        "..",
+        "%2e%2e",
+        "YWJjZGVmZw%253D%253D",
+        "YWJjZGVmZw%3",
+        "YWJjZGVmZx%3D%3D",
+        "YWJjZGVmZw%3D%3D%2Fmore",
+        "YWJjZGVmZw%3F",
+        "YWJjZGVmZw%FF",
+        "A" * 260,
+    ],
+)
+def test_cognism_invalid_profile_id_is_rejected_in_both_paths(segment: str) -> None:
+    assert people.canonical_cognism_profile_id(segment) is None
+    with pytest.raises(ValidationError):
+        _cognism_person(
+            source_url=f"https://app.cognism.com/search/prospects/persons/{segment}"
+        )
 
 
 def test_people_source_selects_the_report_on_the_server() -> None:
