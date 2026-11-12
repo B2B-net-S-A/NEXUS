@@ -1,5 +1,23 @@
 [
   {
+    "id": "porcja-kluczowe-z-dowodem",
+    "pr": 3354,
+    "title": "Porcja dnia: kluczowe wymagania z dowodem",
+    "why": "Na karcie krytyczne wymagania: ✓ doświadczenie, ~ tylko wzmianka, ✗ brak, plus polski. Klik w pozycję pokazuje ją w CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.key-facts",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "porcja-brak-klikany-przy-pozycji",
     "pr": 3353,
     "title": "Porcja dnia: brak umiejętności klikasz przy pozycji",
