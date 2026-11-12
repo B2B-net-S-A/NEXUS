@@ -141,6 +141,17 @@ async def my_queue(
         for person in working(people)
         if person.user_id == current_user.id
     }
+    # „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski (12.11.2026).
+    from app.services.review_batch_facts import key_facts_for
+
+    key_facts = await key_facts_for(
+        db,
+        [
+            (card.process_id, jobs[card.job_id], candidates[card.candidate_id])
+            for card in cards
+            if card.job_id in jobs and card.candidate_id in candidates
+        ],
+    )
     items = []
     for card in cards:
         person = candidates.get(card.candidate_id)
@@ -172,6 +183,7 @@ async def my_queue(
                     else None
                 ),
                 **_order_note(card),
+                "key_facts": key_facts.get(card.process_id),
                 "why": {
                     "source": tier_key(tier_of(job, now)),
                     "via": via.get(job.id),

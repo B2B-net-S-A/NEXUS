@@ -388,6 +388,8 @@ function BatchWorkspace({
     (data.overdue_screenings ?? 0) > 0 ? "close" : "decide",
   );
   const [picked, setPicked] = useState(0);
+  // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
+  const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
   const open = data.open_today_screenings ?? [];
   const selected = open[Math.min(picked, Math.max(open.length - 1, 0))] ?? null;
@@ -430,7 +432,13 @@ function BatchWorkspace({
             next ? (
               <>
                 <JobContext jobId={next.job_id} title={next.job_title} why={next.why} />
-                <ReviewBatchCard key={next.process_id} item={next} onDecided={onDecided} hideJob />
+                <ReviewBatchCard
+                  key={next.process_id}
+                  item={next}
+                  onDecided={onDecided}
+                  hideJob
+                  onPickRequirement={(text) => setSearchRequest({ text, nonce: Date.now() })}
+                />
               </>
             ) : queue.isError ? (
               <div className="text-sm text-destructive" role="alert">
@@ -504,6 +512,7 @@ function BatchWorkspace({
               jobId={preview.jobId}
               stageId={preview.stageId}
               budgetHourly={preview.budget}
+              searchRequest={searchRequest}
               className="min-h-0 flex-1"
             />
           ) : (
