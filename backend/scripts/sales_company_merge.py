@@ -83,7 +83,7 @@ from app.services.company_names import normalize_company_name
 from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
 from app.services.sales.company_aliases import JOINED, brand_of
 from app.services.sales.decision_map import IT_FACTORIES_PIPELINE_KEY
-from app.services.sales.merge import merge_companies, names_to_join
+from app.services.sales.merge import merge_companies, names_to_join, outlook_copy
 from app.services.sales.task_scope import live_opportunity
 from app.services.sales.touch import last_touch_at, touched_at
 
@@ -205,6 +205,8 @@ class Report:
     to_merge_by_origin: dict[str, int] = field(default_factory=dict)
     moving: dict[str, int] = field(default_factory=dict)
     names_to_join: int = 0
+    #: Kopie maili i spotkań z Outlooka, które scalenie dołączy do wiersza docelowej.
+    outlook_duplicates: int = 0
     domains: dict[str, int] = field(default_factory=dict)
     domains_to_set: int = 0
     merged: int = 0
@@ -509,6 +511,25 @@ async def _company_touches(
     return {row[0]: row[1] for row in rows.all() if row[1] is not None}
 
 
+async def _outlook_duplicates(db: AsyncSession, merges: Sequence[Merge]) -> int:
+    """Ile kopii tego samego maila lub spotkania z Outlooka zniknie przy scaleniu.
+
+    Synchronizacja zapisuje je przy każdej dopasowanej firmie, a na jednej karcie
+    zostaje jeden wiersz (``ux_sales_activities_outlook``).
+    """
+
+    total = 0
+    for merge in merges:
+        ids = [merge.target.id, *(source.id for source in merge.sources)]
+        rows = await db.execute(
+            select(func.count() - 1)
+            .where(SalesActivity.company_id.in_(ids), outlook_copy())
+            .group_by(SalesActivity.external_source, SalesActivity.external_id)
+        )
+        total += sum(int(extra) for extra in rows.scalars())
+    return total
+
+
 def _moved_touches(
     merge: Merge,
     live: dict[int, tuple[int, datetime]],
@@ -744,6 +765,7 @@ async def _build_plan(
         for name in ("contacts", "opportunities", "activities", "files")
     }
     report.names_to_join = sum(len(merge.join) for merge in going)
+    report.outlook_duplicates = await _outlook_duplicates(db, going)
     report.domains = dict(Counter(plan.status for plan in domains))
     report.domains_to_set = report.domains.get("do_zapisu", 0)
     return Plan(report, groups, merges, domains, stats, missing)
