@@ -106,6 +106,31 @@ describe("ReviewBatchScreen przy pustej kolejce", () => {
     expect(screen.getByTestId("review-batch-empty").textContent).toMatch(/minimum/i);
   });
 
+  it("bez przypisanych rekrutacji mówi to wprost, a nie „Porcja przejrzana” (audyt 12.11.2026, R4)", () => {
+    // Serwer: brak kart → `required = min(minimum, done + 0) = 0`, więc `met = true`.
+    given({
+      required: 0,
+      remaining: 0,
+      met: true,
+      blocks: false,
+      open_screenings: 0,
+      open_today_screenings: [],
+      team_jobs: [],
+    });
+    render(<ReviewBatchScreen />);
+    expect(screen.queryByText(/Porcja przejrzana/)).toBeNull();
+    const empty = screen.getByTestId("review-batch-no-jobs");
+    expect(empty.textContent).toMatch(/Nie masz przypisanych rekrutacji/);
+    expect(empty.textContent).toMatch(/Poproś Delivery Leada o przypisanie/);
+    expect(screen.queryByText(/0 z 0/)).toBeNull();
+  });
+
+  it("screening do domknięcia zostaje pod ręką także bez przypisanych rekrutacji", () => {
+    given({ required: 0, remaining: 0, met: true, team_jobs: [] });
+    render(<ReviewBatchScreen />);
+    expect(screen.queryByTestId("review-batch-no-jobs")).toBeNull();
+  });
+
   it("po zrobionym minimum zostaje „Porcja przejrzana”", () => {
     given({ met: true, done_today: 10, remaining: 0, open_today_screenings: [], open_screenings: 0 });
     render(<ReviewBatchScreen />);
