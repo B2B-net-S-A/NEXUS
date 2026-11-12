@@ -31,8 +31,17 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
 - **Zawsze zalogowanej osoby, w stałej kolejności:** oddzwonienia na dziś, spotkania bez
   terminu, nowe rekordy kampanii. Bez celu dziennego, paska postępu, rankingu i
   przełącznika „pokaż osobę”: to narzędzie pracy, nie kontroli (jak „Mój dzień”).
-- **Nic nie dzwoni i nie wysyła się samo.** Numer to link `tel:`, kontakt następuje po
-  kliknięciu człowieka. Lead ani rekord nie dają prawa do zimnego kontaktu (art. 398 PKE).
+- **Listy widzi cała Sprzedaż** (decyzja Artura 12.11.2026): Tabela ma zakres „Moje /
+  Wszyscy” (`GET /records?scope=all&caller_id=`) z kolumną „Kto dzwoni” i filtrem osoby,
+  dla każdego z „Sprzedaż: podgląd”, żeby handlowiec wiedział, do jakich firm i kto dzwoni.
+  Karta firmy pokazuje „Na liście dzwonienia” (`GET /companies/{id}/records`: osoba,
+  kampania, wynik, powrót, bez numeru). Cudzy rekord otwiera się do czytania, wynik
+  zapisuje osoba przypisana albo admin. Sprzeciw nie wychodzi także w „Wszyscy”.
+  Kolejka zostaje osobista.
+- **Nic nie dzwoni i nie wysyła się samo.** Dzwonimy z telefonu, nie z NEXUSA (decyzja
+  Artura 12.11.2026): karta pokazuje numer i „Kopiuj numer” zamiast linku `tel:`, a wiersz
+  kolejki nie ma etykiety „Zadzwoń”. Lead ani rekord nie dają prawa do zimnego kontaktu
+  (art. 398 PKE).
 - **Daty powrotu** liczy serwer w kalendarzu firmy: „Nie odebrał” następny dzień roboczy,
   „Oferta ogólna wysłana” za 3 dni robocze, „Oddzwonić” i „Nie teraz” w wybranym dniu
   (bez daty: następny dzień roboczy i 30 dni). Brak daty nie blokuje zapisu, data

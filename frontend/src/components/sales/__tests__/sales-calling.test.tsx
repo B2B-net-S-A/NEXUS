@@ -99,18 +99,20 @@ vi.mock("../SalesSelect", () => ({
   // Radix Select nie daje się wybrać w jsdom: w teście wystarcza zwykła lista.
   SalesSelect: ({
     id,
+    ariaLabel,
     value,
     onValueChange,
     options,
     anyLabel,
   }: {
     id?: string;
+    ariaLabel?: string;
     value: string;
     onValueChange: (value: string) => void;
     options: { value: string; label: string }[];
     anyLabel?: string;
   }) => (
-    <select id={id} value={value} onChange={(event) => onValueChange(event.target.value)}>
+    <select id={id} aria-label={ariaLabel} value={value} onChange={(event) => onValueChange(event.target.value)}>
       {anyLabel !== undefined && <option value="">{anyLabel}</option>}
       {options.map((option) => (
         <option key={option.value} value={option.value}>
@@ -462,7 +464,7 @@ describe("kolejka", () => {
   it("sprzeciw zdejmuje numer, a cudza pozycja i sam podgląd nie zapisują wyniku", () => {
     card.mockReturnValue(ok(cardData({ do_not_contact: true, can_save: false })));
     const { unmount } = render(<CallQueueView />);
-    expect(screen.queryByRole("link", { name: /Zadzwoń/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Kopiuj numer/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nie odebrał" })).toBeDisabled();
     expect(screen.getByText(/w kolejce innej osoby/)).toBeInTheDocument();
     unmount();
@@ -470,8 +472,21 @@ describe("kolejka", () => {
     canEdit = false;
     card.mockReturnValue(ok(cardData()));
     render(<CallQueueView />);
-    expect(screen.getByRole("link", { name: /Zadzwoń \+48 600 100 200/ })).toHaveAttribute("href", "tel:+48600100200");
+    // Dzwonimy z telefonu (decyzja Artura 12.11.2026): numer i „Kopiuj numer”, bez linku `tel:`.
+    expect(screen.queryByRole("link", { name: /Zadzwoń/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Kopiuj numer/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nie odebrał" })).toBeDisabled();
+  });
+
+  it("„Kopiuj numer” kopiuje numer do schowka, a wiersz listy nie udaje przycisku „Zadzwoń”", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    render(<CallQueueView />);
+    expect(screen.queryByText("Zadzwoń")).not.toBeInTheDocument();
+    expect(screen.queryByText("W rozmowie")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Kopiuj numer/ }));
+    expect(writeText).toHaveBeenCalledWith("+48 600 100 200");
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Skopiowano numer +48 600 100 200."));
   });
 
   it("kampanie i import w nagłówku widzi tylko osoba z prawem edycji", () => {
@@ -631,11 +646,38 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     records.mockReturnValue(ok({ items: [fresh, closed], total: 2, counts: { new: 1, not_interested: 1 } }));
     render(<CallQueueView />);
     fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
-    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "" });
+    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "mine", callerId: null });
     fireEvent.click(screen.getByRole("button", { name: /Nie zainteresowany\s*1/ }));
-    expect(records).toHaveBeenLastCalledWith({ state: "not_interested", campaignId: null, search: "" });
+    expect(records).toHaveBeenLastCalledWith({
+      state: "not_interested",
+      campaignId: null,
+      search: "",
+      scope: "mine",
+      callerId: null,
+    });
     fireEvent.click(screen.getByRole("button", { name: "Odmowa Sp. z o.o." }));
     expect(screen.getByLabelText("Rozmowa: Odmowa Sp. z o.o.")).toBeInTheDocument();
+  });
+
+  it("„Wszyscy” w tabeli pokazuje listy innych z kolumną „Kto dzwoni” i filtrem osoby", () => {
+    const theirs = item({
+      key: "r:8",
+      record_id: 8,
+      company: { id: 12, name: "Cudza Firma" },
+      assignee: { id: 9, name: "Druga Osoba" },
+    });
+    records.mockReturnValue(ok({ items: [theirs], total: 1, counts: { new: 1 }, callers: [{ id: 9, name: "Druga Osoba" }] }));
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
+    expect(screen.queryByRole("columnheader", { name: "Kto dzwoni" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Wszyscy" }));
+    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "all", callerId: null });
+    expect(screen.getByRole("columnheader", { name: "Kto dzwoni" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Druga Osoba" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Kto dzwoni"), { target: { value: "9" } });
+    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "all", callerId: 9 });
+    fireEvent.click(screen.getByRole("radio", { name: "Moje" }));
+    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "mine", callerId: null });
   });
 
   it("awaria tabeli nie wygląda jak pusta lista", () => {

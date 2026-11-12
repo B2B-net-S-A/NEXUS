@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, ExternalLink, Phone } from "lucide-react";
+import { CalendarClock, Copy, ExternalLink, Phone } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -24,7 +24,6 @@ import {
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
-import { telHref } from "../my-day";
 import { BookMeetingDialog } from "../handoff/BookMeetingForm";
 import { TalkingPoints } from "../signals/TalkingPoints";
 import {
@@ -382,6 +381,31 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
   );
 }
 
+/**
+ * Numer do wybrania na telefonie (decyzja Artura 12.11.2026): dzwonimy z telefonu, nie z NEXUSA,
+ * więc zamiast linku `tel:` jest duży numer i „Kopiuj numer”.
+ */
+function PhoneNumber({ phone }: { phone: string }) {
+  const { showError, showSuccess } = useToast();
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(phone)
+      .then(() => showSuccess(`Skopiowano numer ${phone}.`))
+      .catch(() => showError("Nie udało się skopiować numeru. Zaznacz go i skopiuj ręcznie."));
+  };
+  return (
+    <div className="flex flex-1 items-center gap-2">
+      <span className="flex select-all items-center gap-1.5 text-lg font-semibold tabular-nums tracking-wide text-foreground">
+        <Phone className="h-4 w-4 text-muted-foreground" aria-hidden />
+        {phone}
+      </span>
+      <Button size="sm" variant="outline" className="h-8" onClick={copy}>
+        <Copy className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Kopiuj numer
+      </Button>
+    </div>
+  );
+}
+
 /** Karta wybranej pozycji: kto, co już było, skrypt, punkty z researchu i wynik jednym kliknięciem. */
 export function CallCard(props: CallCardProps) {
   const { item, position } = props;
@@ -416,11 +440,7 @@ export function CallCard(props: CallCardProps) {
         {card?.do_not_contact ? (
           <Badge variant="danger">Nie kontaktować</Badge>
         ) : callable && item.phone ? (
-          <Button size="sm" className="h-8 flex-1" asChild>
-            <a href={telHref(item.phone)}>
-              <Phone className="mr-1.5 h-3.5 w-3.5" aria-hidden /> Zadzwoń {item.phone}
-            </a>
-          </Button>
+          <PhoneNumber phone={item.phone} />
         ) : (
           <span className="text-xs tabular-nums text-muted-foreground">{item.phone ?? "Brak numeru telefonu"}</span>
         )}

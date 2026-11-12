@@ -64,7 +64,8 @@ function QueueRow({ item, today, active, onSelect }: RowProps) {
         aria-current={active ? "true" : undefined}
         className={cn(
           "flex min-h-11 w-full items-center gap-2 px-3 py-1 text-left hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-          active && "bg-primary/5",
+          // Wybrana osoba: pasek i tło zamiast etykiety „Zadzwoń” (dzwonimy z telefonu, 12.11.2026).
+          active && "bg-primary/10 shadow-[inset_3px_0_0_hsl(var(--primary))]",
         )}
         onClick={onSelect}
       >
@@ -74,14 +75,6 @@ function QueueRow({ item, today, active, onSelect }: RowProps) {
         </span>
         <span className="hidden w-44 shrink-0 truncate text-right text-xs text-muted-foreground sm:block">
           {item.person_title ?? item.person_name ?? ""}
-        </span>
-        <span
-          className={cn(
-            "w-24 shrink-0 whitespace-nowrap rounded-md border px-2 py-1 text-center text-xs font-medium",
-            active ? "border-primary bg-primary text-primary-foreground" : "border-border text-foreground",
-          )}
-        >
-          {active ? "W rozmowie" : "Zadzwoń"}
         </span>
       </button>
     </li>

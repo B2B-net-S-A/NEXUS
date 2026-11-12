@@ -12,7 +12,7 @@ a moduł z limiterem i PEP 563 zamienia parametry ``Annotated`` w parametry quer
 import asyncio
 import json
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -76,6 +76,8 @@ class QueueItemOut(BaseModel):
     attempts: int
     last_outcome_at: Optional[datetime]
     since: datetime
+    #: Kto dzwoni; wypełnione w Tabeli (przy „Wszyscy” widać cudze rekordy).
+    assignee: Optional[Ref] = None
 
 
 class QueueCounts(BaseModel):
@@ -111,6 +113,20 @@ class RecordTableOut(BaseModel):
     items: list[QueueItemOut]
     total: int
     counts: dict[str, int]
+    #: Osoby z rekordami w wybranym zakresie, do filtra „Kto dzwoni”.
+    callers: list[Ref] = []
+
+
+class CompanyCallRecordOut(BaseModel):
+    """Linia „Na liście dzwonienia” na karcie firmy: bez numeru telefonu."""
+
+    record_id: int
+    campaign: Optional[Ref]
+    assignee: Optional[Ref]
+    person_name: Optional[str]
+    state: str
+    callback_on: Optional[date]
+    last_outcome_at: Optional[datetime]
 
 
 class HistoryOut(BaseModel):
@@ -230,6 +246,11 @@ def _item(item: calling.QueueItem) -> QueueItemOut:
         attempts=item.attempts,
         last_outcome_at=item.last_outcome_at,
         since=item.since,
+        assignee=(
+            Ref(id=item.assignee_id, name=item.assignee_name or "")
+            if item.assignee_id is not None and item.assignee_name is not None
+            else None
+        ),
     )
 
 
@@ -315,19 +336,25 @@ async def call_queue(
 async def my_records(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
+    scope: Literal["mine", "all"] = Query(default="mine"),
+    caller_id: Optional[int] = Query(default=None, ge=1),
     state: Optional[str] = Query(default=None, max_length=20),
     campaign_id: Optional[int] = Query(default=None, ge=1),
     q: Optional[str] = Query(default=None, max_length=120),
     limit: int = Query(default=calling.TABLE_LIMIT, ge=1, le=calling.TABLE_LIMIT),
     offset: int = Query(default=0, ge=0),
 ) -> RecordTableOut:
-    """Widok „Tabela”: wszystkie rekordy zalogowanej osoby z filtrem po wyniku."""
+    """Widok „Tabela”: rekordy zalogowanej osoby albo wszystkich, z filtrem po wyniku.
+
+    „Wszyscy” (decyzja Artura 12.11.2026) widzi każdy z „Sprzedaż: podgląd”: handlowiec
+    ma wiedzieć, do jakich firm i kto dzwoni. Zapis wyniku dalej tylko przypisany albo admin.
+    """
 
     if state is not None and state not in calling.TABLE_STATES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail=STATE_DETAIL)
     table = await calling.list_records(
         db,
-        current_user.id,
+        current_user.id if scope == "mine" else caller_id,
         state=state,
         campaign_id=campaign_id,
         search=(q or "").strip() or None,
@@ -338,7 +365,40 @@ async def my_records(
         items=[_item(item) for item in table.items],
         total=table.total,
         counts=table.counts,
+        callers=[Ref(id=id_, name=name) for id_, name in table.callers],
     )
+
+
+@router.get(
+    "/companies/{company_id}/records", response_model=list[CompanyCallRecordOut]
+)
+async def company_call_records(
+    company_id: int,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[CompanyCallRecordOut]:
+    """Na czyjej liście dzwonienia jest firma: linia na karcie firmy (decyzja Artura 12.11.2026)."""
+
+    return [
+        CompanyCallRecordOut(
+            record_id=row.record_id,
+            campaign=(
+                Ref(id=row.campaign_id, name=row.campaign_name or "")
+                if row.campaign_id is not None
+                else None
+            ),
+            assignee=(
+                Ref(id=row.assignee_id, name=row.assignee_name or "")
+                if row.assignee_id is not None
+                else None
+            ),
+            person_name=row.person_name,
+            state=row.state,
+            callback_on=row.callback_on,
+            last_outcome_at=row.last_outcome_at,
+        )
+        for row in await calling.company_records(db, company_id)
+    ]
 
 
 @router.get("/records/{record_id}", response_model=CardOut)
