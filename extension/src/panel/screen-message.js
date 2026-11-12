@@ -3,9 +3,10 @@
 
 import { ERROR_KINDS } from "../api.js";
 import { MESSAGE_KINDS, defaultJobId } from "../view/logic.js";
+import { creditsLeft, inmailAdvice } from "../view/outreach.js";
 import { apiErrorText } from "./errors.js";
 import { jobPicker } from "./job-picker.js";
-import { button, frame, h, segmented, spinnerLabel } from "./ui.js";
+import { button, frame, h, section, segmented, spinnerLabel } from "./ui.js";
 
 const REMIND_OPTIONS = [
   { value: "", label: "Bez przypomnienia" },
@@ -103,6 +104,33 @@ async function saveContact(ctx, ms) {
   }
 }
 
+/** Lite: 30 InMaili miesięcznie — zanim padnie InMail, panel pokazuje tańszą drogę. */
+function inmailAdvisor(ctx, ms) {
+  const { state } = ctx;
+  const inmail = state.me?.inmail || null;
+  const advice = inmailAdvice({ outreach: state.lookup?.outreach, degree: state.read?.profile?.degree ?? null, inmail });
+  const left = creditsLeft(inmail);
+  const counter = inmail && left != null
+    ? [
+        h("div", { class: "row row--between small" }, h("span", {}, "Twoje InMaile w tym miesiącu"), h("strong", {}, `${inmail.sent_month ?? 0} z ${inmail.credits_month}`)),
+        h("div", { class: "meter", role: "img", "aria-label": `Wysłane ${inmail.sent_month ?? 0} z ${inmail.credits_month}` }, h("span", { style: `width:${Math.min(100, Math.round(((inmail.sent_month ?? 0) / Math.max(1, inmail.credits_month)) * 100))}%` })),
+        h("p", { class: "hint advisor__hint" }, "Licznik z kontaktów zapisanych w NEXUSIE, nie saldo konta LinkedIna."),
+      ]
+    : [];
+  const cheaper = advice.cheaper && MESSAGE_KINDS.find((k) => k.value === advice.cheaper);
+  return section(
+    "Zanim wydasz InMail",
+    ...counter,
+    advice.checks.map((c) => h("div", { class: `check check--${c.tone}` }, h("span", { class: "check__icon", "aria-hidden": "true" }, c.icon), h("span", {}, c.text))),
+    cheaper
+      ? h("div", { class: "row advisor__actions" }, button(cheaper.value === "invitation" ? "Napisz zaproszenie" : "Napisz zwykłą wiadomość", () => {
+          ms.kind = cheaper.value;
+          draft(ctx, ms);
+        }, { disabled: ms.busy }))
+      : null,
+  );
+}
+
 export function renderMessage(ctx) {
   const ms = messageState(ctx);
   const kind = MESSAGE_KINDS.find((k) => k.value === ms.kind);
@@ -151,6 +179,7 @@ export function renderMessage(ctx) {
       ms.kind = v;
       draft(ctx, ms);
     }, "Rodzaj wiadomości"),
+    ms.kind === "inmail" ? inmailAdvisor(ctx, ms) : null,
     h("div", { class: "message-box" }, textarea, h("div", { class: "row row--between" }, ms.busy ? spinnerLabel("Piszę szkic…") : h("span", { class: "muted small" }, ms.ai === false ? "AI nie odpowiedziało — tekst z szablonu rekrutacji." : ""), counter)),
     ms.error ? frame("error", h("p", {}, ms.error)) : null,
     ms.notice ? frame("success", h("p", {}, ms.notice)) : null,

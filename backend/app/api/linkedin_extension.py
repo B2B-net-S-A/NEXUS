@@ -60,6 +60,9 @@ from app.schemas.linkedin_extension import (
     ProfilePdfResponse,
     RefreshRequest,
     RefreshResponse,
+    ReplyRequest,
+    ReplyResponse,
+    SearchKitResponse,
     ConnectRequest,
     ConnectResponse,
     ConnectionAdminOut,
@@ -72,6 +75,7 @@ from app.schemas.linkedin_extension import (
 )
 from app.core.scheduling import business_today
 from app.services import linkedin_extension_lookup as lookup_service
+from app.services import linkedin_extension_outreach as outreach_service
 from app.services import linkedin_extension_writes as writes
 from app.services.linkedin_extension_auth import (
     LATEST_EXTENSION_VERSION,
@@ -238,12 +242,14 @@ async def extension_me(
     principal: ExtensionAuth,
     db: AsyncSession = Depends(get_db),
 ) -> MeResponse:
+    inmail = await outreach_service.inmail_month(db, principal.user)
     await db.commit()
     return MeResponse(
         user=user_brief(principal.user),
         usage=usage_out(principal.connection),
         frontend_url=frontend_url(),
         latest_version=LATEST_EXTENSION_VERSION,
+        inmail=inmail,
     )
 
 
@@ -274,6 +280,24 @@ async def extension_jobs(
     )
 
 
+@router.get("/jobs/{job_id}/search-kit", response_model=SearchKitResponse)
+async def extension_search_kit(
+    job_id: int,
+    principal: ExtensionReader,  # noqa: ARG001 — bramka odczytu
+    db: AsyncSession = Depends(get_db),
+) -> SearchKitResponse:
+    """Słowa kluczowe, tytuły, lokalizacje i firmy off-limits do wyszukiwarki
+    Recruitera (1.0.8). Bez modelu AI i bez licznika — strona LinkedIna nie
+    jest czytana."""
+    kit = await outreach_service.search_kit(db, job_id)
+    await db.commit()
+    if kit is None:
+        raise HTTPException(
+            status_code=404, detail="Nie ma takiej otwartej rekrutacji."
+        )
+    return kit
+
+
 async def _count_read(db: AsyncSession, principal) -> None:
     try:
         await count_page_read(db, principal.connection)
@@ -302,9 +326,14 @@ async def extension_lookup(
     result = await lookup_service.lookup(
         db, principal.user, data, active_job_id=data.active_job_id
     )
+    outreach = (
+        await outreach_service.load_outreach(db, principal.user, result.candidate.id)
+        if result.status == "found" and result.candidate is not None
+        else None
+    )
     usage = usage_out(principal.connection)
     await db.commit()
-    return LookupResponse(**result.as_dict(), usage=usage)
+    return LookupResponse(**result.as_dict(), outreach=outreach, usage=usage)
 
 
 @router.post("/active-job", response_model=ActiveJobResponse)
@@ -329,6 +358,7 @@ async def extension_lookup_batch(
     """Statusy osób z widocznej strony wyników (makieta 5). Liczy 1 odczyt."""
     await _count_read(db, principal)
     items = await lookup_service.batch_lookup(db, principal.user, data.people)
+    items = await outreach_service.enrich_batch(db, principal.user, items)
     usage = usage_out(principal.connection)
     await db.commit()
     return BatchResponse(items=items, usage=usage)
@@ -428,6 +458,31 @@ async def extension_contact(
     await db.commit()
     await send_note_create_side_effects(created)
     return ContactResponse(id=created.note.id, reminder_id=reminder_id)
+
+
+@router.post(
+    "/candidates/{candidate_id}/contacts/{note_id}/reply",
+    response_model=ReplyResponse,
+)
+async def extension_contact_reply(
+    candidate_id: int,
+    note_id: int,
+    data: ReplyRequest,
+    principal: ExtensionWriter,
+    db: AsyncSession = Depends(get_db),
+) -> ReplyResponse:
+    """Odpowiedź na mój InMail, zaproszenie albo wiadomość (1.0.8): notatka
+    i zamknięcie moich przypomnień „Odezwij się … (LinkedIn)” przy osobie."""
+    from app.api.notes import send_note_create_side_effects
+
+    await _candidate_or_404(db, candidate_id)
+    reply_id, closed, created = await outreach_service.record_reply(
+        db, principal.user, candidate_id, note_id, data.outcome
+    )
+    await db.commit()
+    if created is not None:
+        await send_note_create_side_effects(created)
+    return ReplyResponse(id=reply_id, closed_reminders=closed)
 
 
 @router.post("/candidates/{candidate_id}/notes", response_model=IdResponse)

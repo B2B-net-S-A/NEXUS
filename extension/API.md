@@ -120,3 +120,63 @@ Gdy osoba już jest (ten sam link) — `200` z `created: false`.
 `{"job_id": 1, "kind": "inmail | invitation | linkedin_message", "profile": ProfileRead}` →
 `{"text": "…", "ai": true}`. Gdy AI nie odpowie: `ai: false` i szablon z rekrutacji.
 Zaproszenie ≤ 300 znaków.
+
+## Recruiter Lite: InMaile, odpowiedzi, lista, wyszukiwanie (1.0.8, decyzja Artura 12.11.2026)
+
+Lite daje 30 InMaili miesięcznie, bez spotlightów, wspólnych projektów i raportów InMaili.
+Panel pilnuje, żeby InMail nie szedł tam, gdzie jest tańsza droga, i liczy odpowiedzi.
+Makiety: https://claude.ai/artifact/DUYzKcQfyWPyRn9BRusoy1. Nic z tego nie czyta LinkedIna
+więcej niż dotąd i nic nie wysyła.
+
+### `GET /api/extension/me` — nowe pole `inmail`
+```json
+"inmail": {"sent_month": 12, "replied_month": 5, "credits_month": 30}
+```
+`sent_month` = moje kontakty z kanałem InMail zapisane z wtyczki w bieżącym miesiącu
+kalendarza firmy; `replied_month` = moje zapisane odpowiedzi `interested`/`not_now`
+w tym miesiącu; `credits_month` = `LINKEDIN_INMAIL_MONTHLY_CREDITS` (30, jak Lite).
+To licznik z NEXUSA, nie saldo konta LinkedIna.
+
+### `POST /api/extension/lookup` — nowe pole `outreach` (`null`, gdy osoby nie ma w NEXUSIE)
+```json
+"outreach": {
+  "has_phone": true,
+  "recent_contact": {"at": "…", "user_name": "Katarzyna", "channel_label": "InMail", "is_me": false, "days_ago": 9},
+  "open_inmail": {"note_id": 123, "at": "…", "job_title": "Analityk biznesowy", "refund_until": "2027-01-19"},
+  "last_reply": {"at": "…", "outcome": "interested | not_now | no_reply"}
+}
+```
+`has_phone` mówi tylko, czy NEXUS ma numer (numeru panel nie dostaje). `recent_contact` =
+najnowszy kontakt zespołu (także mój) z ostatnich 30 dni, inaczej `null`. `open_inmail` = mój
+ostatni InMail z wtyczki z ostatnich 90 dni bez zapisanej odpowiedzi; `refund_until` = dzień
+wysłania + 90 dni (odpowiedź do tego dnia oddaje kredyt). `last_reply` = ostatnia zapisana
+odpowiedź na którykolwiek kontakt z wtyczki.
+
+### `POST /api/extension/lookup-batch` — nowe pola w `items[]`
+```json
+{"index": 0, "status": "in_base", "candidate_id": 1, "label": "…", "score": null,
+ "has_phone": true,
+ "last_contact": {"at": "…", "user_name": "Ania", "channel_label": "InMail", "is_me": false, "days_ago": 9}}
+```
+`last_contact` = najnowszy kontakt zespołu bez limitu czasu (`null` dla nowych osób).
+Panel liczy „do przejrzenia”: nowe i „w bazie” bez kontaktu zespołu w 30 dni.
+
+### `POST /api/extension/candidates/{id}/contacts/{note_id}/reply`
+`{"outcome": "interested | not_now | no_reply"}` → `{"id": <notatka>, "closed_reminders": 1}`.
+`note_id` to mój kontakt z wtyczki (InMail, zaproszenie albo wiadomość) przy tej osobie, inaczej 404.
+Zapisuje notatkę „próba kontaktu” ze śladem `linkedin_extension:reply:<outcome>:<note_id>`
+i zamyka moje zaplanowane przypomnienia „Odezwij się … (LinkedIn)” przy tej osobie.
+Drugi zapis do tego samego kontaktu zwraca istniejącą notatkę (`closed_reminders: 0`).
+
+### `GET /api/extension/jobs/{job_id}/search-kit` (nie liczy odczytu)
+```json
+{"job_id": 1, "title": "Analityk biznesowy",
+ "keywords": "(\"Analityk biznesowy\" OR \"Business Analyst\") AND BPMN AND SQL",
+ "titles": ["Analityk biznesowy", "Business Analyst"],
+ "skills_must": ["BPMN", "SQL"], "skills_nice": ["UML"],
+ "locations": ["Gdańsk"], "remote": "hybrid",
+ "exclude_companies": ["Bank Północny", "Klient Testowy"]}
+```
+Słowa kluczowe składa NEXUS z tytułu i umiejętności „must” rekrutacji, bez modelu AI.
+`exclude_companies` = firmy off-limits (klienci z aktywnym zamówieniem) do filtra firmy
+w Recruiterze. Zamknięta albo nieistniejąca rekrutacja → 404.
