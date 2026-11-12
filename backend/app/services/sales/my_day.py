@@ -434,6 +434,46 @@ def _meeting_identity(activity: SalesActivity) -> tuple[str, str]:
     return ("id", str(activity.id))
 
 
+def _meetings_between(
+    start_utc: datetime, end_utc: datetime, user_id: Optional[int]
+) -> list[Any]:
+    """Spotkania osoby z kalendarza (także termin z „Umów spotkanie”, którego autorem
+    jest prowadzący); ``None``: spotkania każdej osoby ze Sprzedaży."""
+
+    return [
+        SalesActivity.kind == "meeting",
+        SalesActivity.created_by_user_id == user_id
+        if user_id is not None
+        else SalesActivity.created_by_user_id.is_not(None),
+        SalesActivity.occurred_at >= start_utc,
+        SalesActivity.occurred_at <= end_utc,
+        *not_cancelled(),
+    ]
+
+
+async def meeting_company_ids(
+    db: AsyncSession, start_utc: datetime, end_utc: datetime
+) -> list[int]:
+    """Firmy ze spotkaniami w przedziale, po kolei; bez automatów (teczka bota)."""
+
+    rows = (
+        await db.execute(
+            select(SalesActivity.company_id, SalesActivity.subject)
+            .join(SalesCompany, SalesCompany.id == SalesActivity.company_id)
+            .where(
+                *_meetings_between(start_utc, end_utc, None),
+                SalesCompany.archived_at.is_(None),
+            )
+            .order_by(SalesActivity.occurred_at, SalesActivity.id)
+        )
+    ).all()
+    chosen: list[int] = []
+    for company_id, subject in rows:
+        if not is_auto_subject(subject) and company_id not in chosen:
+            chosen.append(company_id)
+    return chosen
+
+
 async def _meeting_rows(
     db: AsyncSession, user_id: int, now: datetime
 ) -> tuple[list[DayRow], dict[int, SalesActivity]]:
@@ -445,13 +485,7 @@ async def _meeting_rows(
             .outerjoin(
                 SalesOpportunity, SalesOpportunity.id == SalesActivity.opportunity_id
             )
-            .where(
-                SalesActivity.kind == "meeting",
-                SalesActivity.created_by_user_id == user_id,
-                SalesActivity.occurred_at >= day.start_utc,
-                SalesActivity.occurred_at <= day.end_utc,
-                *not_cancelled(),
-            )
+            .where(*_meetings_between(day.start_utc, day.end_utc, user_id))
             .order_by(SalesActivity.occurred_at, SalesActivity.id)
         )
     ).all()

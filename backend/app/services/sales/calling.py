@@ -25,6 +25,7 @@ Każdy wynik zapisuje też telefon w ``sales_activities`` (ten sam dziennik i s�
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any, Literal, Optional
@@ -59,6 +60,7 @@ from app.services.sales import client_gate, history
 from app.services.sales.calls import DO_NOT_CONTACT, OBJECTION_DETAIL, OUTCOME_LABELS
 from app.services.sales.lifecycle import apply_stage
 from app.services.sales.next_step import not_system_entry
+from app.services.sales.signal_targets import pick
 from app.services.sales.touch import not_cancelled
 from app.services.sales_schema import OpportunityEventKind
 
@@ -305,8 +307,11 @@ def _not_interested_returning() -> Any:
     )
 
 
-def _own_campaign_records(query: Any, user_id: int) -> Any:
-    """Otwarte rekordy kampanii tej osoby: wspólne złączenia listy i liczników."""
+def _own_campaign_records(query: Any, user_id: Optional[int]) -> Any:
+    """Otwarte rekordy kampanii tej osoby: wspólne złączenia listy i liczników.
+
+    ``None``: rekordy każdej osoby dzwoniącej (haczyk bota na następny dzień roboczy).
+    """
 
     return (
         query.select_from(SalesCallRecord)
@@ -314,7 +319,9 @@ def _own_campaign_records(query: Any, user_id: int) -> Any:
         .join(SalesCallCampaign, SalesCallCampaign.id == SalesCallRecord.campaign_id)
         .outerjoin(SalesContact, SalesContact.id == SalesCallRecord.contact_id)
         .where(
-            SalesCallRecord.assigned_user_id == user_id,
+            SalesCallRecord.assigned_user_id == user_id
+            if user_id is not None
+            else SalesCallRecord.assigned_user_id.is_not(None),
             or_(SalesCallRecord.state.in_(OPEN_STATES), _not_interested_returning()),
             SalesCallCampaign.archived_at.is_(None),
             SalesCompany.archived_at.is_(None),
@@ -585,6 +592,72 @@ async def load_queue(
         yesterday=previous_business_day(today),
         yesterday_counts=await day_counts(db, user_id, previous_business_day(today)),
     )
+
+
+# ── Haczyk bota: firmy z kolejki na następny dzień roboczy ────────────────
+
+
+async def companies_due_by(
+    db: AsyncSession,
+    day: date,
+    today: date,
+    *,
+    exclude: Iterable[int] = (),
+    limit: int,
+) -> list[int]:
+    """Firmy z rekordów kampanii, które staną w kolejce w dniu ``day``.
+
+    Ta sama selekcja co kolejka (``_own_campaign_records``), dla każdej osoby
+    dzwoniącej: najpierw powroty z datą po dziś i najpóźniej ``day`` (z weekendem
+    i świętem pomiędzy, bo ``day`` to następny dzień roboczy), potem nowe rekordy
+    w kolejności kolejki, po jednym od każdej osoby na zmianę. Firmy z ``exclude``
+    odpadają w zapytaniu, przed limitem, żeby nie zająć miejsc firmom bez haczyka.
+    """
+
+    skip = sorted(set(exclude))
+    not_skipped = [SalesCallRecord.company_id.notin_(skip)] if skip else []
+    waiting = SalesCallRecord.state.in_(RETURNING_STATES)
+    returning = (
+        await db.execute(
+            _own_campaign_records(select(SalesCallRecord.company_id), None)
+            .where(
+                or_(waiting, _not_interested_returning()),
+                SalesCallRecord.callback_on > today,
+                SalesCallRecord.callback_on <= day,
+                *not_skipped,
+            )
+            .order_by(SalesCallRecord.callback_on, SalesCallRecord.id)
+            .limit(limit * 3)
+        )
+    ).scalars()
+    rank = (
+        func.row_number()
+        .over(
+            partition_by=SalesCallRecord.assigned_user_id,
+            order_by=(SalesCallRecord.campaign_id, SalesCallRecord.id),
+        )
+        .label("rank")
+    )
+    fresh = (
+        _own_campaign_records(
+            select(SalesCallRecord.assigned_user_id, SalesCallRecord.company_id, rank),
+            None,
+        )
+        .where(SalesCallRecord.state == NEW, *not_skipped)
+        .subquery()
+    )
+    new = (
+        await db.execute(
+            select(fresh.c.company_id)
+            .where(fresh.c.rank <= limit)
+            .order_by(fresh.c.rank, fresh.c.assigned_user_id)
+        )
+    ).scalars()
+    return pick([*returning, *new], skip=set(), limit=limit)
+
+
+def next_business_day(day: date) -> date:
+    return workdays_after(day, 1)
 
 
 def previous_business_day(day: date) -> date:

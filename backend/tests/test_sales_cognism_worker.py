@@ -28,7 +28,14 @@ async def test_cognism_research_requires_company_evidence_and_canonicalizes_ids(
             ([1, 2], now, [1, 999], 1, "signals", {}),
             ([3, 4], now, None, 1, "signals", {}),
             ([5], now, None, 1, "enrich", {}),
-            ([9, 10], now, [9, 10], 2, "briefing", {"9": "first_call", "10": "ongoing"}),
+            (
+                [9, 10],
+                now,
+                [9, 10],
+                2,
+                "briefing",
+                {"9": "first_call", "10": "ongoing"},
+            ),
         ],
         [
             (6, "discovery", now - timedelta(hours=1), now),
@@ -56,7 +63,10 @@ async def test_cognism_selects_only_unprocessed_eligible_companies_after_cooldow
 
     async def evidence(_db, *, since, canonical):
         assert since == evidence_at and canonical == {99: 1}
-        return {**dict.fromkeys(range(1, 10), evidence_at), 10: old + timedelta(minutes=1)}
+        return {
+            **dict.fromkeys(range(1, 10), evidence_at),
+            10: old + timedelta(minutes=1),
+        }
 
     async def eligible(_db, ids):
         return set(ids) - {6}
@@ -139,6 +149,9 @@ async def test_worker_runs_independent_cognism_only_when_no_active_run(monkeypat
         # Biegi miesięczne (G-E, G-D) to krok zadań bota: tu wyłączony.
         "winback": 0,
         "discovery": 0,
+        # Haczyk i teczka stoją bez kanału punktów i flagi zadań.
+        "call_hook": 0,
+        "meeting_prep": 0,
     }
     assert order == ["expire", "lock", "active", "choose", "start"]
     order.clear()

@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), uzupełnianie kart enrich, Uzupełnij z bota, przyjęcie pól, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), uzupełnianie kart enrich, Uzupełnij z bota, przyjęcie pól, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -163,6 +163,51 @@ więc kolejny rodzaj to nowy moduł bez migracji i bez zmiany rutyny bota.
   skryptem (`--kind`, `--request '{json}'`) → włączenie flagi.
 - Logi, kod i testy bez nazw firm i osób (repo i logi Actions są publiczne).
 
+## Haczyk i teczka (decyzje Artura 12.11.2026)
+
+Dwa nowe rodzaje punktów z „Zadań bota”, liczone w dzień roboczy od 16:00
+(`local_now()`, kalendarz firmy ze świętami) na **następny dzień roboczy**: w piątek
+na poniedziałek, przed świętem na dzień po nim. Kod: `services/sales/hook_prep_targets.py`
+(wybór firm), `bot_tasks/call_hook.py` (haczyk), `bot_tasks/signals_briefing.py`
+(tryby w poleceniu i zapisie), `tasks/sales_signals.py` (`hooks_and_prep`).
+
+- **Bez nowego rodzaju biegu i bez migracji.** CHECK `sales_signal_runs.kind` nie zna
+  `call_hook` ani `meeting_prep`, więc oba to tryby firm w biegu `briefing`
+  (`firms[].mode`, CHECK trybów poszerzyła 0684). Bieg trybu startuje raz dziennie;
+  nieudany liczy się tylko przez godzinę, potem ponowienie. Start i zapis tylko przy
+  `SALES_BOT_TASKS_ENABLED`, a pętla chodzi tylko z `SALES_SIGNALS_ENABLED` (obie flagi);
+  na stagingu stoi jak cała pętla sygnałów. Logi: same liczby.
+- **Haczyk (`call_hook`)**: firmy z kolejki dzwonienia, które staną w niej następnego
+  dnia roboczego, wybrane tą samą selekcją co kolejka (`calling.companies_due_by`
+  na `_own_campaign_records`): powroty z datą po dziś i najpóźniej w tym dniu, potem
+  nowe rekordy aktywnych kampanii w kolejności kolejki, po jednym od każdej osoby na
+  zmianę. Najwyżej 40 firm na bieg, bez firm z haczykiem młodszym niż 14 dni. Bot
+  dostaje nazwę i domenę i odsyła w `hooks` jedno zdanie otwarcia związane z faktem
+  i do 2 faktów z adresem i datą (najwyżej rok wstecz) o firmie ogólnie i o tym, jak
+  używa automatyzacji, AI i IT. Pól osób i kontaktów model raportu nie ma.
+- **Gdzie leży haczyk — decyzja:** `sales_company_briefings` ma jeden wiersz na
+  firmę, więc haczyk nadpisałby punkty do prowadzonej szansy albo teczkę, a firma
+  z kolejki często ma jedno i drugie. Haczyk ma też inny kształt (zdanie + fakty).
+  Dlatego leży w `sales_bot_results` (rodzaj `call_hook`, firma, `payload`), jeden
+  wiersz na bieg i firmę, ze statusem `new` (to podpowiedź, nie wynik do przyjęcia).
+  Punkty, które bot przyśle dla firmy w trybie `call_hook`, odpadają przy zapisie.
+- **Teczka (`meeting_prep`)**: firmy ze spotkaniami od jutra do końca następnego dnia
+  roboczego (w piątek z weekendem), wybrane jak „Spotkania dziś” w „Moim dniu”
+  (`my_day.meeting_company_ids`, bez odwołanych i automatów). Termin z „Umów
+  spotkanie” jest tam też, bo przekazanie zapisuje go jako spotkanie prowadzącego
+  (`handoff._sync_meeting`). Bez firm z punktami młodszymi niż 3 dni, najwyżej 40.
+  Polecenie mówi, z którą firmą to pierwsze spotkanie (`request.first_meeting`, same
+  numery firm z biegu, liczone jak `first_call`), a z którą rozmowy już trwają.
+  Punkty (≤4, ze źródłami) nadpisują wiersz firmy jak dotąd.
+- **Ekrany:** karta rozmowy w „Dzwonieniu” pokazuje haczyk pod nazwą firmy z podpisem
+  „Bot · sprawdź źródło” (`calling/CallHook.tsx`, pole `call_hook` w
+  `GET /api/sales/signals/briefings/{id}`, puste bez flagi zadań). Teczkę pokazują
+  „Przygotowanie do spotkania” w „Moim dniu” i karta przekazanego spotkania
+  (`TalkingPoints`, „Punkty do rozmowy przed spotkaniem”). Brak, wyłączona flaga
+  i błąd zapytania nic nie pokazują.
+- **Próba przed włączeniem:** `python -m scripts.sales_signals_run --kind briefing
+  --mode call_hook --company-ids <id>` (albo `--mode meeting_prep`).
+
 ## „Warto wrócić” i „Nowe centra IT” (decyzja Artura 12.11.2026)
 
 Artur 12.11.2026 zdecydował, że oba rodzaje powstają teraz. Warunek pilota z 09.11
@@ -305,6 +350,8 @@ Testy: `backend/tests/test_sales_bot_company_unit.py`,
 `frontend/src/components/sales/__tests__/sales-company-bot.test.tsx`, a także
 `backend/tests/test_sales_signals_unit.py`, `backend/tests/test_sales_signals_api.py`,
 `backend/tests/test_sales_bot_tasks_unit.py`, `backend/tests/test_sales_bot_tasks_api.py`,
+`backend/tests/test_sales_hook_prep_unit.py`, `backend/tests/test_sales_hook_prep_api.py`,
 `backend/tests/test_sales_bot_winback_discovery_unit.py`, `backend/tests/test_sales_bot_winback_discovery_api.py`,
 `frontend/src/components/sales/__tests__/sales-signals.test.tsx`,
+`frontend/src/components/sales/__tests__/sales-hook-prep.test.tsx`,
 `frontend/src/components/sales/__tests__/sales-bot-modes.test.tsx`.

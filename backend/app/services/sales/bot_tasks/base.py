@@ -140,20 +140,27 @@ def result_fingerprint(kind: str, *parts: object) -> str:
 
 
 async def save_results(
-    db: AsyncSession, run: SalesSignalRun, rows: list[dict[str, Any]], now: datetime
+    db: AsyncSession,
+    run: SalesSignalRun,
+    rows: list[dict[str, Any]],
+    now: datetime,
+    *,
+    kind: Optional[str] = None,
 ) -> int:
     """Zapisz wyniki do decyzji; zwraca liczbę nowych.
 
     Wiersz: ``company_id`` (albo ``None``), ``payload``, ``fingerprint`` (albo
     ``None``). Ponowny wynik odświeża treść tylko, gdy nikt jeszcze o nim nie
     zdecydował: przyjęcie ani odrzucenie handlowca nie wraca do ``new``.
+    ``kind`` zastępuje rodzaj biegu, gdy jeden bieg daje wynik innego rodzaju
+    (haczyk ``call_hook`` z biegu ``briefing``).
     """
 
     new = 0
     for row in rows:
         statement = insert(SalesBotResult).values(
             run_id=run.id,
-            kind=run.kind,
+            kind=kind or run.kind,
             company_id=row.get("company_id"),
             payload=row.get("payload") or {},
             fingerprint=row.get("fingerprint"),

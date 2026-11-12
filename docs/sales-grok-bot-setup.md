@@ -172,6 +172,11 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    Od tej chwili startują rodzaje dodawane kolejnymi PR-ami; każdy przed
    pokazaniem ludziom przechodzi próbę skryptem z `--kind <rodzaj>`
    (i `--request '{…}'`, gdy rodzaj ma pola zlecenia).
+   Haczyk przed telefonem i teczka przed spotkaniem to tryby biegu `briefing`:
+   `--kind briefing --mode call_hook --company-ids <id>` (raport ma mieć `hooks`)
+   i `--kind briefing --mode meeting_prep --company-ids <id>` (punkty jak zwykle).
+   Sprawdź: `SELECT report->>'hooks', report->>'briefings' FROM sales_signal_runs
+   ORDER BY id DESC LIMIT 1;`.
    „Warto wrócić”: `--kind winback --company-ids <id firm z przegraną>`;
    „Nowe centra IT”: `--kind discovery` (bez firm). Oba potem same raz w miesiącu,
    w pierwszy poniedziałek od 7:00.

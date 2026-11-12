@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 const MODE_LABELS = {
   first_call: "na pierwszą rozmowę",
   ongoing: "do prowadzonej szansy",
+  meeting_prep: "przed spotkaniem",
 } as const;
 
 interface TalkingPointsProps {
