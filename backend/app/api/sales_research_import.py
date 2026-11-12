@@ -136,6 +136,8 @@ class ResearchPreviewOut(BaseModel):
     known_failed: bool
     #: Skan trafił w sufit wierszy: liczniki są dolną granicą.
     known_truncated: bool
+    #: ``"Cognism"`` dla eksportu z Cognism: ekran podpowiada nim pole „Skąd lista”.
+    origin: Optional[str] = None
 
 
 class ResearchPersonIn(BaseModel):
@@ -394,6 +396,7 @@ async def preview_research_list(
         ],
         known_failed=known is None,
         known_truncated=bool(known and known.truncated),
+        origin=listing.origin,
     )
 
 
