@@ -28,6 +28,8 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
+import { AskBotCard } from "./bot/AskBotCard";
+import { EnrichButton, EnrichCard } from "./bot/EnrichCard";
 import { CompanyCallLists } from "./calling/CompanyCallLists";
 import { CompanyCallPanel } from "./CompanyCallPanel";
 import { CompanyFormDialog } from "./CompanyFormDialog";
@@ -242,6 +244,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
               Edytuj
             </Button>
+            <EnrichButton companyId={data.id} disabled={Boolean(data.archived_at)} />
             <Button size="sm" variant="outline" onClick={() => setCalling((value) => !value)} disabled={Boolean(data.archived_at)}>
               Zaloguj rozmowę
             </Button>
@@ -286,10 +289,14 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
                 <CompanyFacts company={data} onLink={canEdit ? () => setLinking(true) : undefined} />
+                <EnrichCard company={data} canEdit={canEdit && !data.archived_at} />
                 <TalkingPoints companyId={companyId} className="rounded-lg border border-border bg-card px-3 py-2" />
                 <CompanyOpportunities companyId={companyId} />
               </div>
-              <WhoWeKnowPanel companyId={companyId} companyName={data.name} />
+              <div className="space-y-4">
+                <AskBotCard companyId={companyId} companyName={data.name} canEdit={canEdit && !data.archived_at} />
+                <WhoWeKnowPanel companyId={companyId} companyName={data.name} />
+              </div>
             </div>
           )}
           {tab === "people" && <WhoWeKnowPanel companyId={companyId} companyName={data.name} />}
