@@ -1,5 +1,21 @@
 [
   {
+    "id": "sprzedaz-listy-dzwonienia-wszyscy",
+    "pr": 3327,
+    "title": "Dzwonienie: listy wszystkich i numer do skopiowania",
+    "why": "W Tabeli przełącz „Moje / Wszyscy”, żeby zobaczyć, do jakich firm i kto dzwoni. Karta firmy pokazuje, na czyjej liście jest. Numer kopiujesz jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Tabela",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
     "id": "blizniaki-zaznacz-na-liscie",
     "title": "Zaznacz rekrutacje na liście i połącz je jako bliźniaki",
     "why": "Zaznacz pole przy 2–4 otwartych rekrutacjach i kliknij na dole „⇄ Połącz jako bliźniaki”. Przepięcia osób mają teraz ikonę „≈”, a „⇄” znaczy tylko bliźniaki.",
