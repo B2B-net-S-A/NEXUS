@@ -332,6 +332,7 @@ export function ReviewBatchCard({
             onClick={() => setRejecting(true)}
             disabled={busy}
             data-testid="review-reject"
+            data-tour="review-batch.reject"
           >
             <X className="h-4 w-4" aria-hidden="true" /> Nie pasuje… <kbd className="ml-1 text-xs opacity-70">O</kbd>
           </Button>
