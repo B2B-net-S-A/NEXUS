@@ -270,6 +270,7 @@ from app.api import sales_handoffs as sales_handoffs_api
 from app.api import sales_leads as sales_leads_api
 from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
+from app.api import sales_bot_results as sales_bot_results_api
 from app.api import sales_calling as sales_calling_api
 from app.api import sales_my_day as sales_my_day_api
 from app.api import sales_offers as sales_offers_api
@@ -2286,6 +2287,9 @@ app.include_router(sales_leads_api.router, prefix="/api/sales/leads", tags=["sal
 app.include_router(
     sales_signals_api.router, prefix="/api/sales/signals", tags=["sales"]
 )
+app.include_router(
+    sales_bot_results_api.router, prefix="/api/sales/bot-results", tags=["sales"]
+)
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(
     sales_calling_api.router, prefix="/api/sales/calling", tags=["sales"]
@@ -3717,6 +3721,7 @@ async def api_health_deep_check():
     from app.models.invite_link import CandidateInviteLinkVisitDay
     from app.models.sales import (
         SalesActivity,
+        SalesBotResult,
         SalesCallCampaign,
         SalesCallRecord,
         SalesCompany,
@@ -4034,6 +4039,8 @@ async def api_health_deep_check():
         # 0681: kampanie i kolejka dzwonienia — bez tabel pada zakładka „Dzwonienie”.
         ("sales_call_campaigns", SalesCallCampaign),
         ("sales_call_records", SalesCallRecord),
+        # 0684: wyniki zadań bota do decyzji handlowca.
+        ("sales_bot_results", SalesBotResult),
         # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),

@@ -31,6 +31,7 @@ from app.services.sales_schema import OpportunityEventKind
 
 from app.models.sales import (
     SalesActivity,
+    SalesBotResult,
     SalesCallRecord,
     SalesCompany,
     SalesCompanyAlias,
@@ -217,7 +218,7 @@ async def merge_companies(
                 SalesCompanyAlias.company_id == source_id
             )
         )
-    for model in (SalesActivity, SalesFile, SalesLead, SalesCallRecord):
+    for model in (SalesActivity, SalesFile, SalesLead, SalesCallRecord, SalesBotResult):
         await db.execute(
             update(model)
             .where(model.company_id == source_id)
