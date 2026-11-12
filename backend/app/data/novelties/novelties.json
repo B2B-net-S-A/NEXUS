@@ -1,5 +1,23 @@
 [
   {
+    "id": "porcja-brak-klikany-przy-pozycji",
+    "pr": 3353,
+    "title": "Porcja dnia: brak umiejętności klikasz przy pozycji",
+    "why": "„Brak umiejętności” klikasz przy wymaganiu: brak, tylko wzmianka, za mało lat. Nowe powody: brak polskiego, słaby angielski, forma umowy. System uczy się z tych kliknięć.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Nie pasuje",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.reject",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "sprzedaz-moj-dzien-wlasna-data-kroku",
     "pr": 3338,
     "title": "Mój dzień: własna data następnego kroku",
@@ -1976,7 +1994,7 @@
       },
       {
         "anchor": "review-batch.to-screening",
-        "text": "Jedna osoba, jedna decyzja: S — do screeningu, O — odrzuć z powodem (1–8).",
+        "text": "Jedna osoba, jedna decyzja: S — do screeningu, O — odrzuć z powodem (1–9, 0).",
         "hint": "Wszystko do decyzji jest na karcie: wynik, „musi mieć”, stawka wobec budżetu, dostępność. Pominąć osoby nie można.",
         "ack": true
       }
