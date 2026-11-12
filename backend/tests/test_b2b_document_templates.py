@@ -203,7 +203,15 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
         out += [
             "Ustalone zmiany wchodzą w życie z dniem 01.11.2026 r.",
             "zgodnie z art. 78¹ §1 Kodeksu cywilnego",
-            "Aneks sporządzono w dwóch jednobrzmiących egzemplarzach",
+        ]
+    if lang == "pl" and key.startswith("annex_"):
+        # § … ust. 4 każdego aneksu PL: jeden egzemplarz elektronicznie, dwa na papierze.
+        out += [
+            "W przypadku zawarcia aneksu w formie elektronicznej, o której mowa "
+            "w ust. 2, aneks sporządza się w jednym egzemplarzu w postaci "
+            "elektronicznej, który otrzymuje każda ze Stron. W przypadku zawarcia "
+            "aneksu w formie pisemnej sporządza się go w dwóch jednobrzmiących "
+            "egzemplarzach, po jednym dla każdej ze Stron.",
         ]
     if key == "annex_rate_change":
         out += [
