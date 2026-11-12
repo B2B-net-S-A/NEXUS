@@ -395,8 +395,9 @@ krokach E6.
       bez niego liczba godzin jak w dokumencie za październik), TOTAL MDs. Bez
       nazwisk i bez autora w metadanych. Miesiąc z planem (estymacja) = etap
       FORECAST z planu. Lista na „RCP i faktury kontraktorów” nad tabelą
-      (projekt, osoby, godziny, MD, netto w walucie klienta, „Pobierz PDF”);
-      osoby bez Time Sheet w Excelu albo z RCP do poprawy są wypisane pod listą.
+      (projekt, osoby, godziny, MD, „PDF”), bez kwot: kwota do klienta z limitem
+      puli zamówienia jest tylko w „Do faktury dla klienta”. Osoby bez Time
+      Sheet w Excelu albo z RCP do poprawy są wypisane pod listą.
     - Faktura do klienta w walucie zamówienia: linia ze stawką klienta w innej
       walucie niż zł i stawką dzienną daje pozycje po `rate_client` (Bosch:
       EUR/MD); marża zostaje w zł po kursie z linii (`md_rate_revenue` /
@@ -509,6 +510,6 @@ Dwa źródła, oba z danymi tylko poza repo:
 | E3 | gotowe lokalnie (10.11), styl A bez kroków; E3.2 dane do skopiowania dokończone z E4 | panel jako konsultant BNP na kopii: „Do zrobienia” = „Wyślij fakturę · <kwota> netto”, „Faktury” z wynikiem sprawdzenia i danymi do faktury, 1280 i 390 px; 200 testów BE (portal + rozliczenia), 349 FE; zrzuty `e3-*.png` |
 | E4 | gotowe lokalnie (10.11) | 3 prawdziwe faktury konsultantów BNP za październik (wizualizacje KSeF z próbek, metadane odtworzone lokalnie) przypięte po imieniu i nazwisku do właściwych osób i miesiąca, kwoty = wyliczenie co do grosza (3 z 3); zatwierdzenie NIP-u przez API zmienia stan na „W KSeF”; panel konsultanta i karta Finansów przeklikane 1280 i 390 px; 9 testów BE E4, 8 FE; prawdziwego pobrania z KSeF lokalnie nie ma (token tylko na produkcji) |
 | E5 | gotowe lokalnie (10.11), bez marży dla DL-a i kosztów integracji (E0.2) | kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
-| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE |
+| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE; staging z kopii 10.11 (12.11): listopad 6 osób z syntetycznych Time Sheet, MD × stawka klienta w EUR równe kwocie z bloku ESP za październik (próbka), SDC bez autora i nazwisk, plan grudnia jednej osoby 16 MD → faktura z planu; druga osoba „Brak MD”, bo nowa linia zamówienia jest w szkicu (dane, nie kod) |
 | E7 | decyzja 12.11: wszyscy klienci od listopada (panel `all`, kontrole tylko BNP); czeka M365, zmienna skrzynki i włączenie modułów | — |
 | E8 | do zrobienia (E8.1 po instrukcji z osobnej sesji) | — |

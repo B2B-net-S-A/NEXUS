@@ -170,17 +170,14 @@ async def test_time_sheet_godziny_faktura_w_euro_i_dokument_per_projekt(
         assert item["margin"] == "1375.00"
 
         async with AsyncSessionLocal() as db:
-            docs = await service_confirmation.collect(
-                db, client_id, month, amounts=True
-            )
+            docs = await service_confirmation.collect(db, client_id, month)
             assert docs["enabled"] and docs["stage"] == "ACTUAL"
             by_project = {p["project"]: p for p in docs["projects"]}
             assert set(by_project) == {"ALFA", "BETA"}
             assert by_project["ALFA"]["md"] == "2.625"
             assert by_project["ALFA"]["tasks"] == 2
-            assert by_project["BETA"]["net"] == [
-                {"currency": "EUR", "amount": "593.75"}
-            ]
+            assert by_project["BETA"]["hours"] == "19.00"
+            assert "net" not in by_project["BETA"]
 
             monkeypatch.setattr(
                 service_confirmation, "render_pdf", lambda html: html.encode()
@@ -258,18 +255,14 @@ async def test_plan_trwajacego_miesiaca_daje_forecast_i_fakture_z_planu(
             invoice = await client_invoice.invoice_month(
                 db, client_id, month, amounts=True
             )
-            docs = await service_confirmation.collect(
-                db, client_id, month, amounts=False
-            )
+            docs = await service_confirmation.collect(db, client_id, month)
             estimates = await client_invoice.estimates(
                 db, client_id, month, amounts=True
             )
         item = next(r for r in invoice["rows"] if r["contract_id"] == contract_id)
         assert item["kind"] == "estimate" and item["net"] == "3750.00"
         assert docs["stage"] == "FORECAST"
-        assert (
-            docs["projects"][0]["md"] == "15.000" and docs["projects"][0]["net"] == []
-        )
+        assert docs["projects"][0]["md"] == "15.000"
         plan_row = next(r for r in estimates["rows"] if r["contract_id"] == contract_id)
         # Dwie osobne faktury, obie w euro: 10 MD za poprzedni miesiąc i 15 MD planu.
         assert plan_row["currency"] == "EUR"

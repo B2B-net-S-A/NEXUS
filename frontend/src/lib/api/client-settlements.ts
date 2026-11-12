@@ -328,8 +328,6 @@ export interface ClientDocumentProject {
   md: string;
   order_numbers: string[];
   tasks: number;
-  /** Netto w walucie faktury klienta; puste bez dostępu do kwot. */
-  net: { currency: string; amount: string }[];
 }
 
 export interface ClientDocumentsMonth {
@@ -342,7 +340,6 @@ export interface ClientDocumentsMonth {
   stage: "ACTUAL" | "FORECAST" | null;
   projects: ClientDocumentProject[];
   skipped: { person: string; reason: string }[];
-  can_see_amounts: boolean;
 }
 
 export function useClientDocuments(clientId: number | null, month: string) {

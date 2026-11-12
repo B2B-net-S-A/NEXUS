@@ -7,12 +7,11 @@ import { Download } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds";
 import { useToast } from "@/components/Toast";
-import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { fetchClientDocument, useClientDocuments, type ClientDocumentProject } from "@/lib/api/client-settlements";
 
-import { mdText, monthLabel, money } from "./format";
+import { mdText, monthLabel } from "./format";
 
 function peopleText(p: ClientDocumentProject): string {
   const people = p.people === 1 ? "1 osoba" : p.people < 5 ? `${p.people} osoby` : `${p.people} osób`;
@@ -45,7 +44,7 @@ export function ClientDocumentsPanel({ clientId, month }: { clientId: number; mo
   }
 
   return (
-    <section aria-label={data.kind} className="rounded-xl border bg-card p-3">
+    <section aria-label={data.kind} className="rounded-xl border bg-card px-3 py-2">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-semibold">
           {data.kind} za {monthLabel(month)}
@@ -56,23 +55,23 @@ export function ClientDocumentsPanel({ clientId, month }: { clientId: number; mo
       {data.projects.length === 0 ? (
         <p className="mt-2 text-xs text-muted-foreground">Nikt jeszcze nie przysłał Time Sheet w Excelu za ten miesiąc.</p>
       ) : (
-        <ul className="mt-2 divide-y">
+        <ul className="mt-1 grid gap-x-6 sm:grid-cols-2">
           {data.projects.map((p) => (
-            <li key={p.project} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-1.5 text-[13px]">
-              <span className="min-w-28 font-medium">{p.project}</span>
+            <li key={p.project} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-t py-1 text-[13px]">
+              <span className="min-w-20 font-medium">{p.project}</span>
               <span className="text-xs text-muted-foreground">{peopleText(p)}</span>
               <span className="tabular-nums">
                 {mdText(p.hours)} h · {mdText(p.md)} MD
               </span>
-              {p.net.map((n) => (
-                <span key={n.currency} className="tabular-nums text-muted-foreground">
-                  {money(n.amount, n.currency)}
-                </span>
-              ))}
-              <span className="text-xs text-muted-foreground">{p.order_numbers.join(", ") || "bez numeru zamówienia"}</span>
-              <Button size="sm" variant="outline" className="ml-auto" onClick={() => onDownload(p.project)}>
-                <Download aria-hidden className="size-3.5" /> Pobierz PDF
-              </Button>
+              <button
+                type="button"
+                onClick={() => onDownload(p.project)}
+                title={p.order_numbers.join(", ") || "bez numeru zamówienia"}
+                className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline pointer-coarse:min-h-9"
+                aria-label={`Pobierz PDF: ${p.project}`}
+              >
+                <Download aria-hidden className="size-3.5" /> PDF
+              </button>
             </li>
           ))}
         </ul>

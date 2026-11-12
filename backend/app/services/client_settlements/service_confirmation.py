@@ -32,10 +32,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ
 from app.models.client import Client
-from app.models.client_order import ClientOrder
 from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpDocument
-from app.services.client_settlements import client_invoice, service, timesheet
+from app.services.client_settlements import service, timesheet
 from app.services.consultant_portal import documents as portal_documents
 
 SUPPLIER = "B2B.net S.A."
@@ -77,9 +76,6 @@ class Project:
     accepted: int = 0
     order_numbers: list[str] = field(default_factory=list)
     tasks: dict[tuple[str, str], Task] = field(default_factory=dict)
-    #: Netto w walucie faktury klienta, per waluta (osoby z jednego zamówienia
-    #: mają jedną; różne waluty pokazujemy osobno).
-    net: dict[str, Decimal] = field(default_factory=dict)
 
 
 def rule_for(rules: dict[str, dict[str, Any]], month: str) -> Optional[dict[str, str]]:
@@ -134,10 +130,11 @@ async def _settlements(
     return chosen, stage
 
 
-async def collect(
-    db: AsyncSession, client_id: int, month: str, *, amounts: bool
-) -> dict[str, Any]:
-    """Lista dokumentów miesiąca klienta: projekty, osoby, godziny, MD."""
+async def collect(db: AsyncSession, client_id: int, month: str) -> dict[str, Any]:
+    """Lista dokumentów miesiąca klienta: projekty, osoby, godziny, MD.
+
+    Bez kwot: dokument mówi o godzinach, a kwota do klienta (z limitem puli
+    zamówienia) jest w „Do faktury dla klienta”."""
 
     client = await db.get(Client, client_id)
     if client is None:
@@ -152,7 +149,6 @@ async def collect(
         "stage": None,
         "projects": [],
         "skipped": [],
-        "can_see_amounts": amounts,
     }
     if params is None:
         return base
@@ -168,12 +164,6 @@ async def collect(
             "md": f"{timesheet.md_from_hours(p.hours, timesheet.per_md(rules)):.3f}",
             "order_numbers": p.order_numbers,
             "tasks": len(p.tasks),
-            "net": [
-                {"currency": cur, "amount": f"{value:.2f}"}
-                for cur, value in sorted(p.net.items())
-            ]
-            if amounts
-            else [],
         }
         for p in projects
     ]
@@ -187,22 +177,8 @@ async def _projects(
     rules: dict[str, dict[str, Any]],
 ) -> tuple[list[Project], list[dict[str, str]], str]:
     settlements, stage = await _settlements(db, client.id, month)
-    per_md = timesheet.per_md(rules)
     numbers = await service._order_numbers(
         db, [s.contract_id for s in settlements], month
-    )
-    order_ids = {s.order_id for s in settlements if s.order_id is not None}
-    orders = (
-        {
-            o.id: o
-            for o in (
-                await db.scalars(
-                    select(ClientOrder).where(ClientOrder.id.in_(order_ids))
-                )
-            ).all()
-        }
-        if order_ids
-        else {}
     )
     projects: dict[str, Project] = {}
     skipped: list[dict[str, str]] = []
@@ -220,9 +196,6 @@ async def _projects(
                 }
             )
             continue
-        price = client_invoice.client_price(
-            orders.get(s.order_id) if s.order_id else None
-        )
         number = numbers.get(s.contract_id)
         for name, hours in sheet.hours_by_project().items():
             project = projects.setdefault(name, Project(name))
@@ -231,12 +204,6 @@ async def _projects(
             project.accepted += s.status == "accepted"
             if number and number not in project.order_numbers:
                 project.order_numbers.append(number)
-            if price.rate is not None:
-                project.net[price.currency] = project.net.get(
-                    price.currency, Decimal("0")
-                ) + (timesheet.md_from_hours(hours, per_md) * price.rate).quantize(
-                    Decimal("0.01")
-                )
         for entry in sheet.entries:
             project = projects[sheet.project_of(entry)]
             key = (entry.task_id or "", entry.description.strip().lower())

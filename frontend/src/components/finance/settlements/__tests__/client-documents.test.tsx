@@ -28,11 +28,9 @@ const base: ClientDocumentsMonth = {
       md: "17.000",
       order_numbers: ["ZAM-TEST"],
       tasks: 4,
-      net: [{ currency: "EUR", amount: "4250.00" }],
     },
   ],
   skipped: [{ person: "Jan Testowy", reason: "Brak Time Sheet w Excelu z godzinami" }],
-  can_see_amounts: true,
 };
 
 function renderPanel(data: ClientDocumentsMonth) {
@@ -57,16 +55,15 @@ describe("Potwierdzenie usług per projekt (E6.2)", () => {
     expect(money(null, "EUR")).toBe("–");
   });
 
-  it("pokazuje projekt z godzinami, MD i kwotą w euro, osoby poza dokumentem i pobiera PDF", async () => {
+  it("pokazuje projekt z godzinami i MD bez kwot, osoby poza dokumentem i pobiera PDF", async () => {
     renderPanel(base);
     expect(await screen.findByText("ALFA")).toBeInTheDocument();
     expect(screen.getByText("136 h · 17 MD")).toBeInTheDocument();
-    expect(screen.getByText(/^4\s250,00 EUR$/)).toBeInTheDocument();
     expect(screen.getByText("2 osoby, przyjęte 1 z 2")).toBeInTheDocument();
     expect(screen.getByText(/Poza dokumentem: Jan Testowy \(brak time sheet/)).toBeInTheDocument();
 
     mocks.get.mockResolvedValueOnce({ data: new Blob(["%PDF"]) });
-    fireEvent.click(screen.getByRole("button", { name: /Pobierz PDF/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Pobierz PDF: ALFA" }));
     await waitFor(() => expect(mocks.download).toHaveBeenCalledWith(expect.any(Blob), "SDC_ALFA_2026-11.pdf"));
     expect(mocks.get).toHaveBeenLastCalledWith("/api/finance/settlements/client-documents/file", {
       params: { client_id: 7, month: "2026-11", project: "ALFA" },
