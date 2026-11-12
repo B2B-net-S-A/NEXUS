@@ -12,6 +12,7 @@ const create = vi.fn();
 const createActivity = vi.fn();
 const logCall = vi.fn();
 const opportunitiesParams = vi.fn();
+const bulk = vi.fn();
 let opportunityItems: object[] = [];
 let searchParams = new URLSearchParams();
 let pipelinesData: Pipeline[] | undefined;
@@ -72,7 +73,8 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useSalesContacts: () => ({ data: undefined, isSuccess: false }),
   useCreateActivity: () => ({ mutate: createActivity, isPending: false }),
   useLogCall: () => ({ mutate: logCall, isPending: false }),
-  useBulkOpportunities: () => ({ mutate: vi.fn(), isPending: false }),
+  useBulkOpportunities: () => ({ mutate: bulk, isPending: false }),
+  useOwnerCandidates: () => ({ isSuccess: true, isError: false, data: [], refetch: vi.fn() }),
   useOpportunities: (params: unknown) => (opportunitiesParams(params), {
     data: { items: opportunityItems, total: opportunityItems.length },
     isLoading: false,
@@ -87,7 +89,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => searchParams,
 }));
-vi.mock("@/lib/url-selection", () => ({ useUrlWriter: () => vi.fn() }));
+vi.mock("@/lib/url-selection", () => ({ useUrlWriter: () => ({ replaceUrl: vi.fn() }) }));
 vi.mock("@/lib/permissions", async (original) => ({
   ...(await original<typeof import("@/lib/permissions")>()),
   hasPermission: () => true,
@@ -164,6 +166,7 @@ beforeEach(() => {
   createActivity.mockReset();
   logCall.mockReset();
   opportunitiesParams.mockClear();
+  bulk.mockReset();
   opportunityItems = [];
   searchParams = new URLSearchParams();
   pipelinesData = PIPELINES;
@@ -297,6 +300,71 @@ describe("Szanse: lista z zaznaczaniem", () => {
     expect(screen.getByRole("region", { name: "Zaznaczone szanse" })).toHaveTextContent("Zaznaczone: 1 szansę");
     // Lejek ma etap „lost”, więc jest też zamknięcie.
     expect(screen.getByRole("button", { name: "Zamknij z powodem" })).toBeInTheDocument();
+  });
+
+  const region = () => screen.queryByRole("region", { name: "Zaznaczone szanse" });
+
+  it("wpisanie szukanej frazy zdejmuje zaznaczenie, więc akcja nie trafia w niewidoczne szanse", () => {
+    opportunityItems = [item(41, "Zespół QA"), item(42, "Zespół DevOps")];
+    searchParams = new URLSearchParams("view=list");
+    render(<OpportunitiesView />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz wszystkie widoczne" }));
+    expect(region()).toHaveTextContent("Zaznaczone: 2 szanse");
+    fireEvent.change(screen.getByLabelText("Szukaj szansy, firmy albo NIP"), { target: { value: "Wedel" } });
+    expect(region()).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "Zaznacz Zespół QA" })).not.toBeChecked();
+  });
+
+  it.each([
+    ["opiekun", "view=list&mine=0"],
+    ["lejek", "view=list&lejek=3"],
+    ["bez kroku", "view=list&bez_kroku=1"],
+    ["czeka na odpowiedź", "view=list&czeka=1"],
+    ["bez ruchu", "view=list&bezruchu=1"],
+  ])("zmiana filtra „%s” zdejmuje zaznaczenie", (_name, next) => {
+    // Szanse przechodzą przez każdy z filtrów, więc po zmianie lista nadal je pokazuje.
+    const waiting = { waiting_for_reply: true, last_touch_at: "2026-01-02T10:00:00Z" };
+    opportunityItems = [{ ...item(41, "Zespół QA"), ...waiting }, { ...item(42, "Zespół DevOps"), ...waiting }];
+    pipelinesData = [
+      ...PIPELINES,
+      { id: 3, key: "tenders", name: "Przetargi", is_default: false, stages: SALES_STAGES },
+    ] as unknown as Pipeline[];
+    searchParams = new URLSearchParams("view=list");
+    const { rerender } = render(<OpportunitiesView />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz wszystkie widoczne" }));
+    expect(region()).not.toBeNull();
+    searchParams = new URLSearchParams(next);
+    rerender(<OpportunitiesView />);
+    expect(screen.getByRole("checkbox", { name: "Zaznacz Zespół QA" })).not.toBeChecked();
+    expect(region()).toBeNull();
+  });
+
+  it("zmiana widoku na tablicę i z powrotem nie przywraca starego zaznaczenia", () => {
+    opportunityItems = [item(41, "Zespół QA")];
+    searchParams = new URLSearchParams("view=list");
+    const { rerender } = render(<OpportunitiesView />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz Zespół QA" }));
+    searchParams = new URLSearchParams("view=board");
+    rerender(<OpportunitiesView />);
+    searchParams = new URLSearchParams("view=list");
+    rerender(<OpportunitiesView />);
+    expect(region()).toBeNull();
+  });
+
+  it("pasek liczy i wysyła tylko zaznaczone szanse, które nadal są na liście", () => {
+    bulk.mockImplementation((_input, { onSuccess }) => onSuccess({ done: [42], skipped: [] }));
+    opportunityItems = [item(41, "Zespół QA"), item(42, "Zespół DevOps")];
+    searchParams = new URLSearchParams("view=list");
+    const { rerender } = render(<OpportunitiesView />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz wszystkie widoczne" }));
+    // Szansa 41 znika z listy (np. zamknął ją ktoś inny, lista się odświeżyła).
+    opportunityItems = [item(42, "Zespół DevOps")];
+    rerender(<OpportunitiesView />);
+    expect(region()).toHaveTextContent("Zaznaczone: 1 szansę");
+    expect(screen.getByRole("checkbox", { name: "Zaznacz wszystkie widoczne" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Zaplanuj krok" }));
+    fireEvent.click(screen.getByRole("button", { name: "Jutro" }));
+    expect(bulk.mock.calls[0][0]).toMatchObject({ ids: [42], action: "plan" });
   });
 
   it("archiwum nie ma zaznaczania", () => {
