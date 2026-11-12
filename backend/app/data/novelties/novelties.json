@@ -2440,7 +2440,7 @@
   },
   {
     "id": "sprzedaz-leady-warto-wrocic",
-    "pr": 0,
+    "pr": 3333,
     "title": "Leady: „Warto wrócić” do przegranych",
     "why": "Raz w miesiącu bot sprawdza firmy z przegraną „na później”. Gdy dzieje się tam coś nowego, widzisz przegraną, zmianę ze źródłem i „Zaplanuj powrót”: zwykłe zadanie u opiekuna.",
     "tier": "dot",
@@ -2458,7 +2458,7 @@
   },
   {
     "id": "sprzedaz-leady-nowe-centra-it",
-    "pr": 0,
+    "pr": 3333,
     "title": "Leady: „Nowe centra IT” w Polsce",
     "why": "Raz w miesiącu bot zbiera zapowiedzi nowych centrów IT, GBS i R&D w Polsce. Widzisz, czy firma jest w kartotece, a „Załóż konto w Fabrykach IT” zakłada konto z Tobą jako opiekunem.",
     "tier": "dot",
