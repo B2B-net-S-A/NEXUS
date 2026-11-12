@@ -7,12 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useBulkOpportunities, type OpportunityBulkAction, type OpportunityBulkResult } from "@/lib/api/sales";
+import {
+  useBulkOpportunities,
+  useOwnerCandidates,
+  type OpportunityBulkAction,
+  type OpportunityBulkResult,
+} from "@/lib/api/sales";
 
 import { STEP_WHEN } from "./CallLogDialogs";
 import { plural } from "./my-day";
 import { SalesSelect } from "./SalesSelect";
-import { useOwnerFilterOptions } from "./useOwnerFilterOptions";
 
 interface OpportunityBulkBarProps {
   ids: number[];
@@ -30,7 +34,9 @@ const opportunities = (count: number) => plural(count, "szansę", "szanse", "sza
 export function OpportunityBulkBar({ ids, lostStageName, onClear }: OpportunityBulkBarProps) {
   const run = useBulkOpportunities();
   const { showError, showSuccess } = useToast();
-  const owners = useOwnerFilterOptions(null).filter((option) => option.value.startsWith("acct:"));
+  // Ta sama lista co przy jednej szansie (`ChangeOwnerDialog`): aktywne konta z „Sprzedaż: edycja”.
+  const candidates = useOwnerCandidates();
+  const owners = (candidates.data ?? []).map((person) => ({ value: String(person.id), label: person.name }));
   const [owner, setOwner] = useState("");
   const [reason, setReason] = useState("");
   const [skipped, setSkipped] = useState<OpportunityBulkResult["skipped"]>([]);
@@ -87,17 +93,28 @@ export function OpportunityBulkBar({ ids, lostStageName, onClear }: OpportunityB
             </Button>
           </PopoverTrigger>
           <PopoverContent className="flex w-72 flex-col gap-2 p-3">
-            <SalesSelect
-              ariaLabel="Nowy opiekun"
-              value={owner}
-              onValueChange={setOwner}
-              options={owners}
-              anyLabel="Wybierz osobę"
-            />
+            {candidates.isError ? (
+              <div role="alert" className="flex items-center justify-between gap-2 text-xs text-destructive">
+                <span>{apiErrorMessage(candidates.error, "Nie udało się wczytać listy osób.")}</span>
+                <Button size="sm" variant="outline" onClick={() => void candidates.refetch()}>
+                  Spróbuj ponownie
+                </Button>
+              </div>
+            ) : !candidates.isSuccess ? (
+              <p className="text-xs text-muted-foreground">Wczytywanie osób…</p>
+            ) : (
+              <SalesSelect
+                ariaLabel="Nowy opiekun"
+                value={owner}
+                onValueChange={setOwner}
+                options={owners}
+                anyLabel="Wybierz osobę"
+              />
+            )}
             <Button
               size="sm"
-              disabled={!owner || run.isPending}
-              onClick={() => send("Zmieniono opiekuna", { action: "owner", owner_user_id: Number(owner.slice(5)) })}
+              disabled={!candidates.isSuccess || !owner || run.isPending}
+              onClick={() => send("Zmieniono opiekuna", { action: "owner", owner_user_id: Number(owner) })}
             >
               Przekaż {opportunities(ids.length)}
             </Button>

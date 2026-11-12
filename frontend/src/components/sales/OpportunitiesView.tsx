@@ -209,9 +209,34 @@ export function OpportunitiesView() {
   });
   const open = (id: number) => router.push(`/sales/opportunities/${id}`);
   // Zaznaczanie na liście i akcje dla wielu szans naraz (decyzja Artura 11.11.2026).
-  const [selected, setSelected] = useState<number[]>([]);
+  // Zaznaczenie należy do jednego zestawu filtrów i widoku: zmiana któregoś je zeruje,
+  // a pasek dostaje tylko zaznaczone szanse, które nadal są na liście (audyt 12.11.2026:
+  // po wpisaniu frazy „Zamknij z powodem” trafiało w szanse, których nie było widać).
+  const selectionKey = JSON.stringify([
+    view,
+    pipeline?.id ?? null,
+    mine,
+    ownerParam,
+    q,
+    archived,
+    serviceLine,
+    createdFrom,
+    createdTo,
+    needsAction,
+    noStepOnly,
+    waitingOnly,
+  ]);
+  const [selection, setSelection] = useState<{ key: string; ids: number[] }>({ key: selectionKey, ids: [] });
+  // Zerowanie w trakcie renderu, nie w efekcie: powrót do tych samych filtrów nie przywraca starego zaznaczenia.
+  if (selection.key !== selectionKey && selection.ids.length > 0) setSelection({ key: selectionKey, ids: [] });
+  const selected = useMemo(() => {
+    if (selection.key !== selectionKey) return [];
+    const visible = new Set(items.map((item) => item.id));
+    return selection.ids.filter((id) => visible.has(id));
+  }, [selection, selectionKey, items]);
+  const setSelected = (ids: number[]) => setSelection({ key: selectionKey, ids });
   const toggleSelected = (id: number) =>
-    setSelected((current) => (current.includes(id) ? current.filter((value) => value !== id) : [...current, id]));
+    setSelected(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]);
   const selectable = canEdit && !archived;
   // Backend zamyka na etapie „lost” z lejka każdej szansy, więc pasek pokazuje jego nazwę.
   const lostStage = pipeline?.stages.find((stage) => stage.key === "lost" && stage.outcome === "lost");

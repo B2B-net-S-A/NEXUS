@@ -8,18 +8,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const bulk = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
+const refetchCandidates = vi.fn();
+let candidates: object = {};
 
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
   useBulkOpportunities: () => ({ mutate: bulk, isPending: false }),
+  useOwnerCandidates: () => candidates,
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showError, showSuccess }) }));
-vi.mock("../useOwnerFilterOptions", () => ({
-  useOwnerFilterOptions: () => [
-    { value: "acct:9", label: "Druga Osoba" },
-    { value: "atlas:Kinga", label: "Kinga (z Atlasa)" },
-  ],
-}));
 vi.mock("../SalesSelect", () => ({
   SalesSelect: ({
     ariaLabel,
@@ -51,6 +48,16 @@ const bar = (lostStageName: string | null = "Przegrana") =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Lista osób to `owner-candidates` (aktywne konta z „Sprzedaż: edycja”), nie filtr lejka.
+  candidates = {
+    isSuccess: true,
+    isError: false,
+    data: [
+      { id: 9, name: "Druga Osoba" },
+      { id: 81, name: "Opiekun Fabryk" },
+    ],
+    refetch: refetchCandidates,
+  };
 });
 
 describe("pasek zaznaczonych szans", () => {
@@ -65,16 +72,41 @@ describe("pasek zaznaczonych szans", () => {
     expect(onClear).toHaveBeenCalled();
   });
 
-  it("„Zmień opiekuna” proponuje tylko konta NEXUSA i wysyła wybrane", () => {
+  it("„Zmień opiekuna” proponuje osoby z owner-candidates i wysyła wybraną", () => {
     bulk.mockImplementation((_input, { onSuccess }) => onSuccess({ done: [11, 12, 13], skipped: [] }));
     bar();
     fireEvent.click(screen.getByRole("button", { name: "Zmień opiekuna" }));
     const select = screen.getByLabelText("Nowy opiekun") as HTMLSelectElement;
-    expect(Array.from(select.options).map((option) => option.value)).toEqual(["", "acct:9"]);
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(["", "9", "81"]);
     expect((screen.getByRole("button", { name: "Przekaż 3 szanse" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(select, { target: { value: "acct:9" } });
+    fireEvent.change(select, { target: { value: "81" } });
     fireEvent.click(screen.getByRole("button", { name: "Przekaż 3 szanse" }));
-    expect(bulk.mock.calls[0][0]).toEqual({ ids: [11, 12, 13], action: "owner", owner_user_id: 9 });
+    expect(bulk.mock.calls[0][0]).toEqual({ ids: [11, 12, 13], action: "owner", owner_user_id: 81 });
+  });
+
+  it("lista osób w trakcie wczytywania nie pozwala przekazać", () => {
+    candidates = { isSuccess: false, isError: false, data: undefined, refetch: refetchCandidates };
+    bar();
+    fireEvent.click(screen.getByRole("button", { name: "Zmień opiekuna" }));
+    expect(screen.getByText("Wczytywanie osób…")).toBeTruthy();
+    expect(screen.queryByLabelText("Nowy opiekun")).toBeNull();
+    expect((screen.getByRole("button", { name: "Przekaż 3 szanse" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("błąd listy osób to komunikat z „Spróbuj ponownie”, nie pusta lista", () => {
+    candidates = {
+      isSuccess: false,
+      isError: true,
+      error: { response: { status: 500, data: { detail: "Błąd serwera" } } },
+      data: undefined,
+      refetch: refetchCandidates,
+    };
+    bar();
+    fireEvent.click(screen.getByRole("button", { name: "Zmień opiekuna" }));
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByLabelText("Nowy opiekun")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
+    expect(refetchCandidates).toHaveBeenCalled();
   });
 
   it("„Zamknij z powodem” wysyła powód bez spacji, a pusty pomija", () => {

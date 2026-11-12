@@ -10,12 +10,14 @@ const logCompanyCall = vi.fn();
 const createActivity = vi.fn();
 let contacts: object[] = [];
 let opportunities: object[] = [];
+let contactsQuery: object | null = null;
+const refetchContacts = vi.fn();
 
 const mutation = (mutate: ReturnType<typeof vi.fn>) => ({ mutate, isPending: false });
 
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
-  useSalesContacts: () => ({ isSuccess: true, data: { items: contacts } }),
+  useSalesContacts: () => contactsQuery ?? { isSuccess: true, isError: false, data: { items: contacts } },
   useOpportunities: () => ({ isSuccess: true, data: { items: opportunities, total: opportunities.length } }),
   useLogCall: () => mutation(logCall),
   useLogCompanyCall: () => mutation(logCompanyCall),
@@ -66,6 +68,7 @@ beforeEach(() => {
   logCompanyCall.mockImplementation((_input, { onSuccess }) => onSuccess());
   contacts = [contact(3, "Jan Testowy", "+48 600 100 200")];
   opportunities = [];
+  contactsQuery = null;
 });
 
 describe("rozmowa z karty firmy", () => {
@@ -116,5 +119,20 @@ describe("rozmowa z karty firmy", () => {
     render(<CompanyCallPanel company={COMPANY} onDone={vi.fn()} />);
     expect(screen.getByText(/Nikt w kontaktach tej firmy nie ma numeru/)).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Wynik rozmowy" })).toBeNull();
+  });
+
+  it("błąd wczytania osób to komunikat z „Spróbuj ponownie”, nie wieczne „Wczytywanie”", () => {
+    contactsQuery = {
+      isSuccess: false,
+      isError: true,
+      error: { response: { status: 500, data: { detail: "Błąd serwera" } } },
+      data: undefined,
+      refetch: refetchContacts,
+    };
+    render(<CompanyCallPanel company={COMPANY} onDone={vi.fn()} />);
+    expect(screen.queryByText("Wczytywanie osób…")).toBeNull();
+    expect(screen.getByRole("alert")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Spróbuj ponownie" }));
+    expect(refetchContacts).toHaveBeenCalled();
   });
 });
