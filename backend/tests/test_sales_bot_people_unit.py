@@ -7,7 +7,6 @@ w testach są fikcyjne (repo jest publiczne).
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import ValidationError
@@ -17,7 +16,6 @@ from app.models.sales import SalesBotResult, SalesCompany
 from app.services import sales_schema
 from app.services.sales import bot_tasks, research_import
 from app.services.sales.bot_tasks import people
-from app.tasks import sales_signals as loop
 
 TODAY = date(2026, 11, 12)
 
@@ -270,7 +268,10 @@ def test_people_kind_is_registered_known_to_the_database_and_behind_the_flag(
 ) -> None:
     assert bot_tasks.REGISTRY["people"] is people.PEOPLE
     assert "people" in sales_schema.BOT_RUN_KINDS
-    assert people.PEOPLE.request_model is None and people.PEOPLE.needs_firms
+    assert (
+        people.PEOPLE.request_model is people.PeopleRequest
+        and people.PEOPLE.needs_firms
+    )
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", False)
     assert not bot_tasks.allowed_to_start("people")
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
@@ -289,70 +290,156 @@ def test_reply_is_numbers_only() -> None:
     assert people.PEOPLE.reply(summary) == summary
 
 
-# ── Tygodniowy przegląd w pętli ───────────────────────────────────────────
-
-WARSAW = ZoneInfo("Europe/Warsaw")
-
-
-class _Db:
-    async def scalar(self, statement):
-        return None
-
-
-def _patch_loop(monkeypatch, started: list) -> None:
-    async def zero(*_a, **_k):
-        return 0
-
-    async def none(*_a, **_k):
-        return []
-
-    async def empty(*_a, **_k):
-        return set()
-
-    async def targets(_db, *, now, limit):
-        assert limit == people.MAX_WEEKLY_FIRMS
-        return [5, 6]
-
-    class _Run:
-        status = "started"
-
-    async def start(_db, kind, company_ids, **_k):
-        started.append((kind, list(company_ids)))
-        return _Run()
-
-    monkeypatch.setattr(loop.signals, "expire_runs", zero)
-    monkeypatch.setattr(loop.signals, "start_run", start)
-    monkeypatch.setattr(loop.targets, "pilot_company_ids", none)
-    monkeypatch.setattr(loop.targets, "new_company_ids", none)
-    monkeypatch.setattr(loop.targets, "refresh_company_ids", none)
-    monkeypatch.setattr(loop.targets, "recently_sent", empty)
-    monkeypatch.setattr(loop.targets, "to_decide_company_ids", none)
-    monkeypatch.setattr(loop.targets, "people_company_ids", targets)
+def _cognism_person(**over) -> people.CognismPerson:
+    return people.CognismPerson.model_validate(
+        {
+            "full_name": "Jan Fikcyjny",
+            "title": "Head of Data",
+            "source_url": "https://app.cognism.com/search/prospects/contacts/profile-example",
+            "observed_at": "2026-11-12T09:10:00Z",
+            "active": True,
+            **over,
+        }
+    )
 
 
-@pytest.mark.asyncio
-async def test_weekly_people_run_only_with_the_flag_on_monday_from_eight(
-    monkeypatch,
-) -> None:
-    started: list = []
-    _patch_loop(monkeypatch, started)
-    monday = datetime(2026, 11, 16, 8, 5, tzinfo=WARSAW)
-    now = monday.astimezone(timezone.utc)
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://app.cognism.com.evil.example/search/prospects/contacts/profile-example",
+        "https://example@app.cognism.com/search/prospects/contacts/profile-example",
+        "https://app.cognism.com/search/prospects/companies/profile-example",
+        "https://app.cognism.com/search/prospects/contacts/profile-example?key=test",
+        "https://app.cognism.com/search/prospects/contacts/profile-example#private",
+        "http://app.cognism.com/search/prospects/contacts/profile-example",
+    ],
+)
+def test_cognism_requires_exact_provider_contact_profile(url: str) -> None:
+    with pytest.raises(ValidationError):
+        _cognism_person(source_url=url)
 
-    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", False)
-    done = await loop.tick(_Db(), now=now, local=monday)
-    assert done["people"] == 0 and started == []
 
-    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
-    early = datetime(2026, 11, 16, 7, 50, tzinfo=WARSAW)
-    await loop.tick(_Db(), now=early.astimezone(timezone.utc), local=early)
-    assert ("people", [5, 6]) not in started
+def test_people_source_selects_the_report_on_the_server() -> None:
+    from app.services.sales import signals
 
-    done = await loop.tick(_Db(), now=now, local=monday)
-    assert done["people"] == 2
-    assert ("people", [5, 6]) in started
+    now = datetime(2026, 11, 12, 9, 10, tzinfo=timezone.utc)
+    public = signals.new_run("people", [1], now=now)[0]
+    cognism = signals.new_run("people", [1], now=now, request={"source": "cognism"})[0]
+    assert bot_tasks.for_run(public) is people.PEOPLE
+    assert bot_tasks.for_run(cognism) is people.COGNISM
+    assert people.PEOPLE.validate_request({}) == {}
+    assert people.PEOPLE.validate_request({"source": "cognism"}) == {
+        "source": "cognism"
+    }
+    with pytest.raises(ValidationError):
+        people.PEOPLE.validate_request({"source": "cognism", "person": "Jan"})
 
-    started.clear()
-    tuesday = datetime(2026, 11, 17, 9, 0, tzinfo=WARSAW)
-    await loop.tick(_Db(), now=tuesday.astimezone(timezone.utc), local=tuesday)
-    assert all(kind != "people" for kind, _ in started)
+
+def test_cognism_contacts_preserve_field_dates_on_partial_refresh() -> None:
+    old = people._cognism_contact(
+        _cognism_person(
+            email="jan@firma.example",
+            phone="+48 600 100 200",
+            phone_type="mobile",
+            dnc=False,
+            verified_mobile=True,
+        ),
+        "firma.example",
+    ).model_dump(mode="json")
+    new = people._cognism_contact(
+        _cognism_person(
+            observed_at="2026-11-13T09:10:00Z",
+            title="Chief Data Officer",
+            email="jan@gmail.com",
+            phone="+48 600 100 201",
+            phone_type="direct",
+        ),
+        "firma.example",
+    ).model_dump(mode="json")
+    assert new["email"] is None and new["phone"] is None
+    [merged] = people.merge_cognism_people([old], [new])
+    assert merged["title"] == "Chief Data Officer"
+    assert merged["email"] == old["email"]
+    assert merged["phone"] == old["phone"]
+    assert merged["email_observed_at"] == old["observed_at"]
+    assert merged["phone_observed_at"] == old["observed_at"]
+    assert merged["observed_at"] == new["observed_at"]
+
+
+def test_cognism_company_merge_uses_each_fields_own_observation_date() -> None:
+    older = people._cognism_contact(
+        _cognism_person(
+            email="old@firma.example",
+            phone="+48 600 100 200",
+            phone_type="mobile",
+            verified_mobile=True,
+            dnc=False,
+        ),
+        "firma.example",
+    ).model_dump(mode="json")
+    current = people._cognism_contact(
+        _cognism_person(
+            observed_at="2026-11-13T09:10:00Z",
+            email="current@firma.example",
+            phone="+48 600 100 201",
+            phone_type="direct",
+            dnc=False,
+        ),
+        "firma.example",
+    ).model_dump(mode="json")
+    partial = {
+        **older,
+        "observed_at": "2026-11-14T09:10:00Z",
+        "title": "Chief Data Officer",
+    }
+    [merged] = people.merge_cognism_people([current], [partial])
+    assert merged["title"] == partial["title"]
+    assert merged["email"] == current["email"]
+    assert merged["phone"] == current["phone"]
+    assert merged["phone_type"] == "direct" and merged["verified_mobile"] is None
+    assert (
+        merged["email_observed_at"]
+        == merged["phone_observed_at"]
+        == current["observed_at"]
+    )
+
+
+def test_cognism_provider_suppression_outlasts_stale_map_and_partial_refresh() -> None:
+    older = people._cognism_contact(
+        _cognism_person(
+            email="jan@firma.example",
+            phone="+48 600 100 200",
+            phone_type="mobile",
+            verified_mobile=True,
+            dnc=False,
+        ),
+        "firma.example",
+    ).model_dump(mode="json")
+    mark = "2026-11-13T09:10:00Z"
+    blocked = {people.COGNISM_SUPPRESSIONS_KEY: {"profile-example": {"dnc": mark}}}
+    source = {people.COGNISM_MAP_KEY: [older]}
+    merged = people.merge_cognism_company_fields(blocked, source)
+    assert merged[people.COGNISM_MAP_KEY] == []
+    assert (
+        merged[people.COGNISM_SUPPRESSIONS_KEY]
+        == blocked[people.COGNISM_SUPPRESSIONS_KEY]
+    )
+
+    partial = {**older, "observed_at": "2026-11-14T09:10:00Z"}
+    assert (
+        people.merge_cognism_company_fields(
+            merged, {people.COGNISM_MAP_KEY: [partial]}
+        )[people.COGNISM_MAP_KEY]
+        == []
+    )
+
+    refreshed = {
+        **partial,
+        "phone": "+48 600 100 201",
+        "phone_observed_at": partial["observed_at"],
+    }
+    [restored] = people.merge_cognism_company_fields(
+        merged, {people.COGNISM_MAP_KEY: [refreshed]}
+    )[people.COGNISM_MAP_KEY]
+    assert restored["phone"] == refreshed["phone"]
+    assert restored["email"] is None and restored["email_observed_at"] is None

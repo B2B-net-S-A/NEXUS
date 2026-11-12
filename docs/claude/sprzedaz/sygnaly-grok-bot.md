@@ -141,6 +141,8 @@ więc kolejny rodzaj to nowy moduł bez migracji i bez zmiany rutyny bota.
   wymuszać polami (bez pól kontaktu, których źródło nie podaje), a wynik idzie do
   decyzji handlowca, nie od razu do kontaktów. Zbudowane: mapy z kontaktami ze
   źródeł publicznych, przegląd jak lista z researchu → `mapy-decydentow-od-bota.md`.
+  Osobna rutyna Cognism odsyła dopasowanych decydentów do mapy karty firmy.
+  Odczyt mapy wymaga „Sprzedaż: edycja”.
 - **Wyniki do decyzji** `sales_bot_results` (0684): rodzaj, firma, `payload`
   (dane z raportu po walidacji), status `new` / `accepted` / `rejected` / `partial`,
   kto i kiedy zdecydował, powód odrzucenia (`decision_reason`, do bota nie wraca).

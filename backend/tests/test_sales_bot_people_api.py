@@ -7,15 +7,21 @@ w testach są fikcyjne (repo jest publiczne).
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.models.sales import SalesBotResult, SalesOpportunity, SalesSignalRun
+from app.models.sales import (
+    SalesBotResult,
+    SalesCompany,
+    SalesOpportunity,
+    SalesSignalRun,
+)
 from app.services.sales import signals
 from app.services.sales.bot_tasks import people
 from app.services.sales.decision_map import decision_entries
@@ -70,6 +76,190 @@ async def _map(opportunity_id: int) -> list[dict[str, Any]]:
 
 
 @pytest.mark.asyncio
+async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
+    app_client, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "SALES_COGNISM_PEOPLE_ENABLED", True)
+    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", False)
+    name = f"Fabryka {_tag()}"
+    company_id = await _company(
+        name, domain="firma.example", custom_fields={"keep": True}
+    )
+    mismatched_id = await _company("Inna Fabryka", domain="inna-firma.example")
+    foreign_id = await _company()
+    viewer = await _user("sales_view")
+    editor = await _user("sales_edit")
+    endpoint = f"{BOT}/companies/{company_id}/map"
+    assert (await app_client.get(endpoint, headers=_headers(viewer))).status_code == 403
+    run_id, token = await _run(
+        [company_id, mismatched_id], kind="people", request={"source": "cognism"}
+    )
+    observed = datetime.now(timezone.utc).isoformat()
+    first = {
+        "full_name": "Jan Fikcyjny",
+        "title": "Head of Data",
+        "source_url": "https://app.cognism.com/search/prospects/contacts/profile-example",
+        "observed_at": observed,
+        "active": True,
+        "dnc": False,
+        "email": "jan@firma.example",
+        "phone": "+48 600 100 200",
+        "phone_type": "mobile",
+        "verified_mobile": True,
+    }
+    report = {
+        "firms": [
+            {
+                "company_ref": company_id,
+                "status": "matched",
+                "company_name": name,
+                "company_domain": "firma.example",
+                "people": [
+                    first,
+                    {
+                        **first,
+                        "full_name": "Anna Fikcyjna",
+                        "source_url": "https://app.cognism.com/search/prospects/contacts/blocked-example",
+                        "dnc": True,
+                    },
+                ],
+            },
+            {
+                "company_ref": mismatched_id,
+                "status": "matched",
+                "company_name": name,
+                "company_domain": "firma.example",
+                "people": [first],
+            },
+            {"company_ref": foreign_id, "status": "not_found"},
+        ],
+    }
+    invalid = await app_client.post(
+        f"{RUNS}/{run_id}",
+        json={
+            "firms": [
+                {**report["firms"][0], "people": [{**first, "secret": "private"}]}
+            ]
+        },
+        headers={"X-Run-Token": token},
+    )
+    assert invalid.status_code == 422
+    assert "private" not in invalid.text and first["full_name"] not in invalid.text
+    received = await app_client.post(
+        f"{RUNS}/{run_id}", json=report, headers={"X-Run-Token": token}
+    )
+    assert received.status_code == 200, received.text
+    assert received.json()["people"] == 1
+    assert received.json()["suppressed"] == 1
+    assert received.json()["ambiguous"] == 1
+    assert received.json()["unknown_company"] == 1
+    assert "processed_company_ids" not in received.json()
+    assert first["email"] not in received.text
+    repeated = await app_client.post(
+        f"{RUNS}/{run_id}", json=report, headers={"X-Run-Token": token}
+    )
+    assert repeated.status_code == 401
+    response = await app_client.get(endpoint, headers=_headers(editor))
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is True
+    [person] = response.json()["people"]
+    assert person["source"] == "cognism"
+    assert person["active"] is True and person["email"] == first["email"]
+    assert person["verified_mobile"] is True and person["phone_type"] == "mobile"
+    async with AsyncSessionLocal() as db:
+        company = await db.get(SalesCompany, company_id)
+        assert company.custom_fields["keep"] is True
+        mismatched = await db.get(SalesCompany, mismatched_id)
+        assert people.COGNISM_MAP_KEY not in mismatched.custom_fields
+        run = await db.get(SalesSignalRun, run_id)
+        assert run.report["processed_company_ids"] == [company_id]
+        assert run.report["ambiguous_company_ids"] == [mismatched_id]
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(SalesOpportunity)
+                .where(SalesOpportunity.company_id == company_id)
+            )
+            == 0
+        )
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(SalesBotResult)
+                .where(SalesBotResult.run_id == run_id)
+            )
+            == 0
+        )
+
+
+@pytest.mark.asyncio
+async def test_cognism_provider_dnc_survives_company_merge(
+    app_client, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "SALES_COGNISM_PEOPLE_ENABLED", True)
+    editor = await _user("sales_edit")
+    headers = _headers(editor)
+    name = f"Fabryka {_tag()}"
+    now = datetime.now(timezone.utc)
+    prior = (now - timedelta(days=1)).isoformat()
+    person = {
+        "full_name": "Jan Fikcyjny",
+        "title": "Head of Data",
+        "source_url": "https://app.cognism.com/search/prospects/contacts/profile-example",
+        "observed_at": prior,
+        "active": True,
+    }
+    stored = {
+        **person,
+        "phone": "+48 600 100 200",
+        "phone_observed_at": prior,
+        "phone_type": "mobile",
+    }
+    fields = {people.COGNISM_MAP_KEY: [stored], "keep": True}
+    target = await _company(name, domain="firma.example", custom_fields=fields)
+    source = await _company(name, domain="firma.example", custom_fields=fields)
+    run_id, token = await _run([target], kind="people", request={"source": "cognism"})
+    received = await app_client.post(
+        f"{RUNS}/{run_id}",
+        json={
+            "firms": [
+                {
+                    "company_ref": target,
+                    "status": "matched",
+                    "company_name": name,
+                    "company_domain": "firma.example",
+                    "people": [{**person, "observed_at": now.isoformat(), "dnc": True}],
+                }
+            ],
+        },
+        headers={"X-Run-Token": token},
+    )
+    assert received.status_code == 200, received.text
+    assert received.json()["suppressed"] == 1
+    target_map = f"{BOT}/companies/{target}/map"
+    assert (await app_client.get(target_map, headers=headers)).json()["people"] == []
+
+    merged = await app_client.post(
+        f"/api/sales/companies/{target}/merge",
+        json={"source_id": source},
+        headers=headers,
+    )
+    assert merged.status_code == 200, merged.text
+    assert (await app_client.get(target_map, headers=headers)).json()["people"] == []
+    async with AsyncSessionLocal() as db:
+        for company_id in (target, source):
+            company = await db.get(SalesCompany, company_id)
+            assert company.custom_fields["keep"] is True
+            assert company.custom_fields[people.COGNISM_MAP_KEY] == []
+            assert (
+                "dnc"
+                in company.custom_fields[people.COGNISM_SUPPRESSIONS_KEY][
+                    "profile-example"
+                ]
+            )
+
+
+@pytest.mark.asyncio
 async def test_bot_people_review_and_accept_land_on_the_account_map(
     app_client, monkeypatch
 ) -> None:
@@ -99,6 +289,13 @@ async def test_bot_people_review_and_accept_land_on_the_account_map(
     viewer = await _user("sales_view")
     [item] = await _pending(app_client, viewer, company_id)
     assert (item["status"], item["people"], item["open"]) == ("new", 2, 2)
+    generic = await app_client.get(
+        RESULTS,
+        params={"kind": "people", "company_id": company_id},
+        headers=_headers(viewer),
+    )
+    assert generic.status_code == 200, generic.text
+    assert [row["payload"] for row in generic.json()["items"]] == [{}]
 
     editor = await _user("sales_edit")
     assert (

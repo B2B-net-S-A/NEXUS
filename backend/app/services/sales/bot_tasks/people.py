@@ -28,22 +28,37 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional, Sequence
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    StrictBool,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.sales import (
     SalesBotResult,
+    SalesCallRecord,
     SalesCompany,
+    SalesCompanyContact,
+    SalesContact,
     SalesOpportunity,
     SalesPipeline,
     SalesSignalRun,
 )
-from app.services.sales import research_import
+from app.services.company_names import normalize_company_name
+from app.services.sales import client_gate, company_aliases, research_import
 from app.services.sales.bot_tasks.base import (
     AcceptRefused,
     BotTask,
@@ -57,11 +72,15 @@ from app.services.sales.decision_map import (
     IT_FACTORIES_PIPELINE_KEY,
     decision_entries,
 )
+from app.services.sales.calling_file import phone_digits
+from app.services.sales.companies import mail_domain
+from app.services.sales.factories import COMPANY_DO_NOT_CONTACT
 from app.services.sales.research_file import (
     TO_VERIFY,
     ResearchRow,
     level_from_title,
     person_key,
+    site_domain,
     valid_email,
     valid_link,
     valid_phone,
@@ -70,6 +89,11 @@ from app.services.sales.research_file import (
 logger = logging.getLogger(__name__)
 
 KIND = "people"
+COGNISM_SOURCE = "cognism"
+COGNISM_MAP_KEY = "bot_decision_map"
+COGNISM_SUPPRESSIONS_KEY = "bot_decision_map_suppressions"
+COGNISM_MAX_FIRMS = 5
+COGNISM_MAX_PEOPLE = 5
 #: Pochodzenie osoby na mapie i w historii szansy (pole „Skąd lista” importu).
 ORIGIN = "Grok Bot"
 MAX_PEOPLE = 15
@@ -103,6 +127,14 @@ CHOOSE_DETAIL = "Ta marka ma kilka kart. Przejrzyj wynik i wskaż kartę firmy."
 EMAIL_DROPPED = "pominięto e-mail (bez źródła albo niepełny)"
 PHONE_DROPPED = "pominięto telefon (bez źródła albo nie wygląda na numer)"
 LINKEDIN_DROPPED = "pominięto LinkedIn (tylko link do profilu)"
+
+
+class PeopleRequest(BaseModel):
+    """Źródło wybiera NEXUS. Brak wartości oznacza dotychczasowy research publiczny."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Optional[Literal["cognism"]] = None
 
 
 # ── Raport ────────────────────────────────────────────────────────────────
@@ -613,4 +645,492 @@ PEOPLE = BotTask(
     report_model=PeopleReport,
     ingest=_ingest,
     accept=_accept_all,
+    request_model=PeopleRequest,
+)
+
+
+# ── Mapa firmy z Cognism ──────────────────────────────────────────────────
+
+_PROFILE_PATH = re.compile(
+    r"/search/prospects/(?:(?:contacts?|people|persons?|prospects?)/)?([A-Za-z0-9_-]{8,128})/?"
+)
+_CLOCK_SKEW = timedelta(minutes=5)
+PhoneType = Literal["direct", "mobile"]
+
+
+class CognismPerson(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    full_name: RequiredText = Field(max_length=255)
+    title: RequiredText = Field(max_length=255)
+    source_url: str = Field(max_length=512)
+    observed_at: AwareDatetime
+    active: StrictBool
+    dnc: Optional[StrictBool] = None
+    email: Optional[str] = Field(default=None, max_length=255)
+    phone: Optional[str] = Field(default=None, max_length=60)
+    phone_type: Optional[PhoneType] = None
+    verified_mobile: Optional[StrictBool] = None
+
+    @field_validator("source_url")
+    @classmethod
+    def _provider_profile(cls, value: str) -> str:
+        url = urlsplit(value)
+        if (
+            url.scheme != "https"
+            or url.netloc.lower() != "app.cognism.com"
+            or url.query
+            or url.fragment
+            or "?" in value
+            or "#" in value
+            or not _PROFILE_PATH.fullmatch(url.path)
+        ):
+            raise ValueError("Wymagany jest link do profilu osoby w Cognism.")
+        return f"https://app.cognism.com{url.path.rstrip('/')}"
+
+
+class CognismFirm(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    company_ref: int = Field(gt=0)
+    status: Literal["matched", "no_people", "not_found", "ambiguous", "not_processed"]
+    company_name: Optional[RequiredText] = Field(default=None, max_length=500)
+    company_domain: Optional[str] = Field(default=None, max_length=255)
+    people: list[CognismPerson] = Field(
+        default_factory=list, max_length=COGNISM_MAX_PEOPLE
+    )
+
+    @model_validator(mode="after")
+    def _consistent_outcome(self) -> "CognismFirm":
+        if self.status in ("matched", "no_people") and not self.company_name:
+            raise ValueError("Przy dopasowaniu podaj nazwę pracodawcy z Cognism.")
+        if bool(self.people) != (self.status == "matched"):
+            raise ValueError("Lista osób jest wymagana wyłącznie dla matched.")
+        return self
+
+
+class CognismReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    firms: list[CognismFirm] = Field(max_length=COGNISM_MAX_FIRMS)
+
+
+class CognismMapPerson(BaseModel):
+    full_name: str
+    title: str
+    source_url: str
+    observed_at: AwareDatetime
+    source: Literal["cognism"] = COGNISM_SOURCE
+    active: Literal[True] = True
+    email: Optional[str] = None
+    email_observed_at: Optional[AwareDatetime] = None
+    phone: Optional[str] = None
+    phone_type: Optional[PhoneType] = None
+    phone_observed_at: Optional[AwareDatetime] = None
+    verified_mobile: Optional[bool] = None
+
+
+def _cognism_task_text(run: SalesSignalRun, ctx: TaskContext) -> str:
+    return (
+        "Korzystaj tylko z widocznych kontrolek zalogowanego Cognism. Dla każdej firmy "
+        "potwierdź dokładną spółkę i domenę z profilu pracodawcy. Wybierz do pięciu "
+        "aktualnych decydentów IT, danych/AI, inżynierii, zakupów i zarządu. Najpierw "
+        "sprawdź Revealed. Reveal pojedynczo tylko dla dopasowanych osób, do pięciu "
+        "odsłonięć na firmę z istniejącej puli kredytów. Nie kupuj kredytów, nie eksportuj "
+        "i nie obchodź blokad. Przy braku sesji, "
+        "MFA, CAPTCHA, opłacie albo niedokończonym odczycie zwróć not_processed. Przy "
+        "niejednoznacznej spółce zwróć ambiguous; przy braku spółki not_found; przy "
+        "potwierdzonej spółce bez osób no_people. Dane osoby tylko z otwartego profilu "
+        "Cognism: bez zgadywania, prywatnych skrzynek i numerów centrali. Podaj dokładny "
+        "adres profilu bez zapytania i datę odczytu z UTC. Telefon tylko bezpośredni "
+        "lub komórkowy. Ustaw dnc=true przy fladze Do Not Call i pomiń numer. Ustaw "
+        "dnc=false tylko przy widocznym numerze bez flagi; w razie wątpliwości pomiń "
+        "numer i dnc. Diamond oznacza verified_mobile=true. Nie zapisuj danych w czacie."
+    )
+
+
+def _cognism_format() -> dict[str, Any]:
+    return {
+        "firms": [
+            {
+                "company_ref": "<ref z firms>",
+                "status": "matched|no_people|not_found|ambiguous|not_processed",
+                "company_name": "<dokładna nazwa pracodawcy w Cognism albo null>",
+                "company_domain": "<domena profilu pracodawcy albo null>",
+                "people": [
+                    {
+                        "full_name": "...",
+                        "title": "...",
+                        "source_url": "<link do otwartego profilu osoby w Cognism>",
+                        "observed_at": "RRRR-MM-DDTHH:MM:SSZ",
+                        "active": True,
+                        "dnc": "<true|false|null>",
+                        "email": "<służbowy e-mail albo null>",
+                        "phone": "<bezpośredni numer albo null>",
+                        "phone_type": "direct|mobile|null",
+                        "verified_mobile": "<true|false|null>",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _cognism_key(person: dict[str, Any]) -> str:
+    return person["source_url"].rstrip("/").rsplit("/", 1)[-1]
+
+
+_CONTACT_FIELDS = {
+    "email": ("email_observed_at",),
+    "phone": ("phone_observed_at", "phone_type", "verified_mobile"),
+}
+
+
+def _observation(person: dict[str, Any], field: str = "observed_at") -> datetime:
+    return datetime.fromisoformat(person.get(field) or person["observed_at"])
+
+
+def merge_cognism_people(
+    existing: list[dict[str, Any]], incoming: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Scal mapy po identyfikatorze profilu; brak pola w nowszym odczycie go nie kasuje."""
+
+    merged: dict[str, dict[str, Any]] = {}
+    for person in [*existing, *incoming]:
+        key = _cognism_key(person)
+        previous = merged.get(key)
+        if previous is None:
+            merged[key] = dict(person)
+            continue
+        old, new = sorted(
+            (previous, person),
+            key=_observation,
+        )
+        combined = {
+            **old,
+            **{field: value for field, value in new.items() if value is not None},
+        }
+        for field, metadata in _CONTACT_FIELDS.items():
+            available = [entry for entry in (new, old) if entry.get(field)]
+            if available:
+                most_recent = max(
+                    available, key=lambda entry: _observation(entry, metadata[0])
+                )
+                for name in (field, *metadata):
+                    combined[name] = most_recent.get(name)
+                combined[metadata[0]] = (
+                    most_recent.get(metadata[0]) or most_recent["observed_at"]
+                )
+        merged[key] = combined
+    return list(merged.values())
+
+
+def _visible_cognism_people(
+    entries: list[dict[str, Any]], suppressions: dict[str, dict[str, str]]
+) -> list[dict[str, Any]]:
+    visible = []
+    for person in entries:
+        blocked = {
+            reason: datetime.fromisoformat(at)
+            for reason, at in suppressions.get(_cognism_key(person), {}).items()
+        }
+        if not blocked:
+            visible.append(person)
+            continue
+        cutoff = max(blocked.values())
+        if _observation(person) <= cutoff:
+            continue
+        if "dnc" in blocked and (
+            not person.get("phone")
+            or _observation(person, "phone_observed_at") <= cutoff
+        ):
+            continue
+        kept = dict(person)
+        for field, metadata in _CONTACT_FIELDS.items():
+            if kept.get(field) and _observation(kept, metadata[0]) <= cutoff:
+                for name in (field, *metadata):
+                    kept[name] = None
+        visible.append(kept)
+    return visible
+
+
+def merge_cognism_company_fields(
+    target: dict[str, Any], source: dict[str, Any]
+) -> dict[str, Any]:
+    """Połącz tylko pola mapy; stare dane nie przywracają profilu po DNC."""
+
+    if not (
+        {COGNISM_MAP_KEY, COGNISM_SUPPRESSIONS_KEY} & (target.keys() | source.keys())
+    ):
+        return {}
+    suppressions: dict[str, dict[str, str]] = {}
+    for fields in (target, source):
+        for key, observations in (fields.get(COGNISM_SUPPRESSIONS_KEY) or {}).items():
+            latest = suppressions.setdefault(key, {})
+            for reason, at in observations.items():
+                previous = latest.get(reason)
+                if previous is None or datetime.fromisoformat(
+                    at
+                ) > datetime.fromisoformat(previous):
+                    latest[reason] = at
+    entries = merge_cognism_people(
+        target.get(COGNISM_MAP_KEY) or [], source.get(COGNISM_MAP_KEY) or []
+    )
+    return {
+        COGNISM_MAP_KEY: _visible_cognism_people(entries, suppressions),
+        COGNISM_SUPPRESSIONS_KEY: suppressions,
+    }
+
+
+def _cognism_employer_matches(company: SalesCompany, firm: CognismFirm) -> bool:
+    target_names = {
+        normalize_company_name(value or "")
+        for value in (company.name, company.legal_name, company.normalized_name)
+    } - {""}
+    target_domain = mail_domain(company.domain) or mail_domain(company.website_url)
+    reported_domain = site_domain(firm.company_domain)
+    return normalize_company_name(firm.company_name or "") in target_names and (
+        not target_domain or target_domain == reported_domain
+    )
+
+
+def _cognism_contact(
+    person: CognismPerson, company_domain: Optional[str]
+) -> CognismMapPerson:
+    email = valid_email(person.email)
+    if not email or not company_domain or mail_domain(email) != company_domain:
+        email = None
+    phone = (
+        valid_phone(person.phone)
+        if person.dnc is False and person.phone_type and phone_digits(person.phone)
+        else None
+    )
+    if phone and not re.fullmatch(r"[+0-9(). -]+", phone):
+        phone = None
+    return CognismMapPerson(
+        full_name=person.full_name,
+        title=person.title,
+        source_url=person.source_url,
+        observed_at=person.observed_at,
+        email=email,
+        email_observed_at=person.observed_at if email else None,
+        phone=phone,
+        phone_type=person.phone_type if phone else None,
+        phone_observed_at=person.observed_at if phone else None,
+        verified_mobile=person.verified_mobile
+        if phone and person.phone_type == "mobile"
+        else None,
+    )
+
+
+async def _cognism_objections(
+    db: AsyncSession, company_ids: set[int]
+) -> tuple[set[tuple[int, str]], set[str], set[str]]:
+    names: set[tuple[int, str]] = set()
+    emails: set[str] = set()
+    phones: set[str] = set()
+    contacts = await db.execute(
+        select(
+            SalesContact.company_id,
+            SalesContact.full_name,
+            SalesContact.email,
+            SalesContact.phone,
+            SalesContact.mobile_phone,
+        ).where(SalesContact.do_not_contact_at.is_not(None))
+    )
+    linked = await db.execute(
+        select(SalesCompanyContact.company_id, SalesContact.full_name)
+        .join(SalesContact, SalesContact.id == SalesCompanyContact.contact_id)
+        .where(
+            SalesCompanyContact.company_id.in_(company_ids),
+            SalesContact.do_not_contact_at.is_not(None),
+        )
+    )
+    calls = await db.execute(
+        select(
+            SalesCallRecord.company_id,
+            SalesCallRecord.person_name,
+            SalesCallRecord.email,
+            SalesCallRecord.phone,
+        ).where(SalesCallRecord.state == "do_not_contact")
+    )
+    for company_id, name in linked.all():
+        if key := person_key(name):
+            names.add((company_id, key))
+    for company_id, name, email, *numbers in [*contacts.all(), *calls.all()]:
+        if company_id in company_ids and (key := person_key(name)):
+            names.add((company_id, key))
+        if address := valid_email(email):
+            emails.add(address)
+        phones.update(number for value in numbers if (number := phone_digits(value)))
+    return names, emails, phones
+
+
+async def read_cognism_map(
+    db: AsyncSession, company: SalesCompany
+) -> list[CognismMapPerson]:
+    fields = company.custom_fields or {}
+    entries = _visible_cognism_people(
+        fields.get(COGNISM_MAP_KEY) or [], fields.get(COGNISM_SUPPRESSIONS_KEY) or {}
+    )
+    if not entries or company.status == COMPANY_DO_NOT_CONTACT:
+        return []
+    names, emails, phones = await _cognism_objections(db, {company.id})
+    return [
+        CognismMapPerson.model_validate(person)
+        for person in entries
+        if (company.id, person_key(person["full_name"])) not in names
+        and person.get("email") not in emails
+        and phone_digits(person.get("phone")) not in phones
+    ]
+
+
+async def _ingest_cognism(
+    db: AsyncSession, run: SalesSignalRun, report: CognismReport, now: datetime
+) -> dict[str, Any]:
+    allowed = set(run.company_ids)
+    received: dict[int, CognismFirm] = {}
+    processed: set[int] = set()
+    ambiguous: set[int] = set()
+    unknown = stored = no_people = not_found = suppressed = 0
+    for firm in report.firms:
+        cid = firm.company_ref
+        if cid not in allowed:
+            unknown += 1
+        elif cid in received:
+            ambiguous.add(cid)
+        else:
+            received[cid] = firm
+    rows = await db.execute(
+        select(SalesCompany)
+        .where(SalesCompany.id.in_(received))
+        .order_by(SalesCompany.id)
+        .with_for_update()
+    )
+    companies = {company.id: company for company in rows.scalars()}
+    clients = await client_gate.match_companies(
+        db,
+        [
+            client_gate.CompanyIdentity(
+                company.id, company.client_id, company.normalized_name
+            )
+            for company in companies.values()
+        ],
+    )
+    names, emails, phones = await _cognism_objections(db, set(companies))
+    for cid, firm in received.items():
+        company = companies.get(cid)
+        if cid in ambiguous or firm.status == "ambiguous":
+            ambiguous.add(cid)
+            continue
+        if (
+            company is None
+            or company.archived_at is not None
+            or company.status == COMPANY_DO_NOT_CONTACT
+            or cid in clients
+            or company_aliases.is_own_company(company.normalized_name)
+            or firm.status == "not_processed"
+        ):
+            continue
+        if firm.status == "not_found":
+            processed.add(cid)
+            not_found += 1
+            continue
+        if not _cognism_employer_matches(company, firm):
+            ambiguous.add(cid)
+            continue
+        if firm.status == "no_people":
+            processed.add(cid)
+            no_people += 1
+            continue
+        domain = (
+            site_domain(firm.company_domain)
+            or mail_domain(company.domain)
+            or mail_domain(company.website_url)
+        )
+        fields = company.custom_fields or {}
+        existing = fields.get(COGNISM_MAP_KEY) or []
+        by_key = {_cognism_key(person): person for person in existing}
+        fresh: list[dict[str, Any]] = []
+        removed: set[str] = set()
+        provider_suppressions: dict[str, dict[str, str]] = {}
+        for person in firm.people:
+            if (
+                not run.started_at - _CLOCK_SKEW
+                <= person.observed_at
+                <= now + _CLOCK_SKEW
+            ):
+                continue
+            row = _cognism_contact(person, domain).model_dump(mode="json")
+            key = _cognism_key(row)
+            if not person.active or person.dnc is True:
+                marks = provider_suppressions.setdefault(key, {})
+                for reason, applies in (
+                    ("inactive", not person.active),
+                    ("dnc", person.dnc is True),
+                ):
+                    if not applies:
+                        continue
+                    previous_at = marks.get(reason)
+                    if (
+                        previous_at is None
+                        or person.observed_at > datetime.fromisoformat(previous_at)
+                    ):
+                        marks[reason] = row["observed_at"]
+                suppressed += 1
+                continue
+            previous = by_key.get(key, {})
+            if (
+                (cid, person_key(person.full_name)) in names
+                or valid_email(person.email) in emails
+                or previous.get("email") in emails
+                or phone_digits(person.phone) in phones
+                or phone_digits(previous.get("phone")) in phones
+            ):
+                removed.add(key)
+                suppressed += 1
+                continue
+            fresh.append(row)
+        if fresh or removed or provider_suppressions:
+            processed.add(cid)
+            merged = merge_cognism_company_fields(
+                fields,
+                {
+                    COGNISM_MAP_KEY: fresh,
+                    COGNISM_SUPPRESSIONS_KEY: provider_suppressions,
+                },
+            )
+            visible = [
+                person
+                for person in merged[COGNISM_MAP_KEY]
+                if _cognism_key(person) not in removed
+            ]
+            company.custom_fields = {**fields, **merged, COGNISM_MAP_KEY: visible}
+            stored += len(
+                {_cognism_key(row) for row in fresh}
+                & {_cognism_key(row) for row in visible}
+            )
+    return {
+        "firms": len(allowed),
+        "processed": len(processed),
+        "people": stored,
+        "no_people": no_people,
+        "not_found": not_found,
+        "ambiguous": len(ambiguous),
+        "not_processed": len(allowed - processed - ambiguous),
+        "unknown_company": unknown,
+        "suppressed": suppressed,
+        "processed_company_ids": sorted(processed),
+        "ambiguous_company_ids": sorted(ambiguous),
+        "unprocessed_company_ids": sorted(allowed - processed - ambiguous),
+    }
+
+
+COGNISM = BotTask(
+    kind=KIND,
+    task_text=_cognism_task_text,
+    report_format=_cognism_format,
+    report_model=CognismReport,
+    ingest=_ingest_cognism,
+    request_model=PeopleRequest,
 )

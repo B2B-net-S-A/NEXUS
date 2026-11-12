@@ -173,7 +173,35 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    pokazaniem ludziom przechodzi próbę skryptem z `--kind <rodzaj>`
    (i `--request '{…}'`, gdy rodzaj ma pola zlecenia).
 5. Mapy decydentów (`people`, `docs/claude/sprzedaz/mapy-decydentow-od-bota.md`):
-   `python -m scripts.sales_signals_run --kind people --company-ids <id firmy z kontem w Fabrykach IT>`.
+   `python -m scripts.sales_signals_run --kind people --company-ids <id firmy z kontem w Fabrykach IT> --request '{"source":"public"}'`.
    Bieg ma przejść na `received`, a wynik pojawić się w Leady → „Lista z researchu”
    → „Osoby od bota”. Sprawdź przy kilku osobach, że link źródła otwiera stronę
    z tą osobą, a e-mail i telefon (jeśli są) stoją na stronie z ich linku.
+
+## Mapy decydentów z Cognism
+
+Osobna rutyna „NEXUS Decydenci Cognism” uruchamia się przez webhook i używa
+panelu Cognism w przeglądarce. Logowanie korzysta z wpisu Vault dla
+`app.cognism.com`. Instrukcja przyjmuje tylko `kind=people` i
+`request.source=cognism`. Raport idzie do `callback_url` NEXUSA z nagłówkiem
+`X-Run-Token`. Bieg bierze najwyżej pięć firm, a bot wybiera do pięciu
+decydentów na firmę. Używa istniejącej puli kredytów do odsłonięcia
+dopasowanych kontaktów. Odczytuje dane z pełnego profilu osoby, gdy lista ich
+nie pokazuje.
+
+1. Zapisz poświadczenia webhooka jako sekrety `GROK_BOT_PEOPLE_WEBHOOK_URL`
+   i `GROK_BOT_PEOPLE_WEBHOOK_KEY`. Ustaw te zmienne przez „Coolify set env”
+   z `value_from_secret`. Włącz `SALES_COGNISM_PEOPLE_ENABLED` i wdróż
+   w oknie wdrożeń.
+2. Sprawdź bieg jednej firmy przez `python -m scripts.sales_signals_run
+   --kind people --company-ids <id>`. Zweryfikuj wynik w Sprzedaż → Firmy →
+   Mapa decydentów. Kolejną partię aktywnych kart z tagiem pilota uruchamia
+   `python -m scripts.sales_signals_run --kind people --pilot`.
+3. Ustaw `SALES_COGNISM_PEOPLE_RESEARCH_SINCE` jako datę i czas ISO 8601
+   z offsetem, np. `2026-11-12T18:00:00+01:00`. Worker zleca mapy dla
+   kwalifikujących się firm z raportów sygnałów, uzupełniania firm i punktów
+   do pierwszej rozmowy oraz po zaakceptowaniu odkrytej firmy. Każdy kolejny
+   raport z researchu może odświeżyć mapę.
+
+Stan biegu i liczniki są w `sales_signal_runs`. Dane osoby są widoczne
+w zakładce „Mapa decydentów” na karcie firmy dla osób z prawem edycji Sprzedaży.

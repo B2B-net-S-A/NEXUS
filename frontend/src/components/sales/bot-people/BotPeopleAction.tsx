@@ -32,7 +32,7 @@ interface BotPeopleActionProps {
  */
 export function BotPeopleAction({ companyId, canEdit, className }: BotPeopleActionProps) {
   const query = useBotPeoplePending();
-  const start = useStartBotPeople();
+  const start = useStartBotPeople("public");
   const { showError, showSuccess } = useToast();
   if (!query.isSuccess || !query.data.enabled) return null;
   const pending = query.data.items.find((item) => item.company.id === companyId);

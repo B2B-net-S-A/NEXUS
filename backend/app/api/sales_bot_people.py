@@ -14,11 +14,11 @@ mówi ``enabled: false``, reszta odpowiada 409.
 # (CLAUDE.md, ciało żądania ląduje wtedy jako parametr query).
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser
@@ -36,13 +36,13 @@ from app.models.sales import SalesBotResult, SalesCompany
 from app.services.sales import bot_tasks, client_gate, company_aliases, signals
 from app.services.sales import research_import, signal_targets
 from app.services.sales.bot_tasks import people
+from app.services.sales.bot_tasks.people import CognismMapPerson
 from app.services.sales.factories import COMPANY_DO_NOT_CONTACT
 
 router = APIRouter()
 
 #: Jeden uruchomiony bieg na firmę na dobę (bez nieudanych startów).
 START_EVERY = timedelta(hours=24)
-START_LOCK_KEY = "sales-bot-people-start"
 OPEN_STATUSES = ("new", "partial")
 
 DISABLED_DETAIL = "Zadania bota są wyłączone."
@@ -55,6 +55,7 @@ PENDING_DETAIL = "Na przegląd czeka już wynik bota dla tej firmy."
 BLOCKED_DETAIL = "Firma ma oznaczenie „Nie kontaktować”."
 NOT_STARTED_DETAIL = "Nie udało się zlecić biegu. Spróbuj ponownie później."
 WEBHOOK_DETAIL = "Bot nie przyjął zlecenia. Spróbuj ponownie później."
+BUSY_DETAIL = "Bot sprawdza już firmy w Cognism. Spróbuj ponownie po zakończeniu biegu."
 NOT_FOUND_DETAIL = "Nie ma takiego wyniku."
 DECIDED_DETAIL = "O tym wyniku już zdecydowano."
 
@@ -118,9 +119,75 @@ class BotPeopleStartOut(BaseModel):
     run_id: int
 
 
+class CognismCompanyMapOut(BaseModel):
+    enabled: bool
+    company_id: int
+    can_start: bool = False
+    running: bool = False
+    people: list[CognismMapPerson] = Field(default_factory=list)
+
+
 def _require_enabled() -> None:
     if not bot_tasks.enabled():
         raise HTTPException(status.HTTP_409_CONFLICT, detail=DISABLED_DETAIL)
+
+
+async def _company_start_refusal(
+    db: AsyncSession, company: SalesCompany
+) -> Optional[str]:
+    if company_aliases.is_own_company(company.normalized_name or ""):
+        return client_gate.OWN_COMPANY_REFUSAL
+    if company.status == COMPANY_DO_NOT_CONTACT:
+        return BLOCKED_DETAIL
+    clients = await client_gate.match_companies(
+        db,
+        [
+            client_gate.CompanyIdentity(
+                company_id=company.id,
+                client_id=company.client_id,
+                normalized_name=company.normalized_name,
+            )
+        ],
+    )
+    client = clients.get(company.id)
+    return client.refusal if client else None
+
+
+@router.get("/companies/{company_id}/map", response_model=CognismCompanyMapOut)
+async def cognism_company_map(
+    company_id: int,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> CognismCompanyMapOut:
+    """Dane z Cognism należą do karty firmy, również gdy nie ma szansy."""
+
+    if not signals.people_enabled():
+        return CognismCompanyMapOut(enabled=False, company_id=company_id)
+    company = await db.get(SalesCompany, company_id)
+    if company is None or company.archived_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NO_COMPANY_DETAIL)
+    now = datetime.now(timezone.utc)
+    running = await signal_targets.cognism_run_active(db, now=now)
+    configured = signals.people_configured()
+    recent = (
+        await signal_targets.people_recently_sent(
+            db, now=now, within=START_EVERY, source=people.COGNISM_SOURCE
+        )
+        if configured and not running
+        else set()
+    )
+    return CognismCompanyMapOut(
+        enabled=True,
+        company_id=company_id,
+        can_start=(
+            configured
+            and not running
+            and company_id not in recent
+            and await _company_start_refusal(db, company) is None
+        ),
+        running=running,
+        people=await people.read_cognism_map(db, company),
+    )
 
 
 @router.get("/pending", response_model=BotPeopleListOut)
@@ -201,7 +268,7 @@ async def preview_result(
         result_id=result_id,
         company=company_out,
         status=status_now,
-        preview=await preview_out(db, plan, [], origin=people.ORIGIN),
+        preview=await preview_out(db, plan, []),
         published=published,
         decided=decided,
     )
@@ -272,56 +339,60 @@ async def start_people_run(
     request: Request,  # wymagane przez slowapi
     company_id: int,
     current_user: SalesEditUser,
+    source: Optional[Literal["public", "cognism"]] = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> BotPeopleStartOut:
     """„Znajdź decydentów (bot)”: jeden bieg na firmę na 24 godziny."""
 
-    _require_enabled()
-    if not signals.configured():
+    provider = source or (
+        people.COGNISM_SOURCE
+        if signals.people_enabled() and signals.people_configured()
+        else "public"
+    )
+    cognism = provider == people.COGNISM_SOURCE
+    if cognism:
+        if not signals.people_enabled():
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=DISABLED_DETAIL)
+        configured = signals.people_configured()
+    else:
+        _require_enabled()
+        configured = signals.configured()
+    if not configured:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=NOT_CONFIGURED_DETAIL)
     company = await db.get(SalesCompany, company_id)
     if company is None or company.archived_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NO_COMPANY_DETAIL)
-    if company_aliases.is_own_company(company.normalized_name or ""):
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail=client_gate.OWN_COMPANY_REFUSAL
-        )
-    if company.status == COMPANY_DO_NOT_CONTACT:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=BLOCKED_DETAIL)
-    clients = await client_gate.match_companies(
-        db,
-        [
-            client_gate.CompanyIdentity(
-                company_id=company.id,
-                client_id=company.client_id,
-                normalized_name=company.normalized_name,
-            )
-        ],
-    )
-    if company.id in clients:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT, detail=clients[company.id].refusal
-        )
+    refusal = await _company_start_refusal(db, company)
+    if refusal:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=refusal)
     # Dwa kliknięcia naraz: blokada do commitu w ``start_run``, sprawdzenie i zapis biegu
     # widzą się nawzajem.
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": START_LOCK_KEY}
-    )
+    await signal_targets.lock_people_starts(db)
     now = datetime.now(timezone.utc)
-    recent = await signal_targets.people_recently_sent(db, now=now, within=START_EVERY)
+    if cognism and await signal_targets.cognism_run_active(db, now=now):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=BUSY_DETAIL)
+    recent = await signal_targets.people_recently_sent(
+        db, now=now, within=START_EVERY, source=provider
+    )
     if company.id in recent:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=RECENT_DETAIL)
-    pending = await db.scalar(
-        select(SalesBotResult.id).where(
-            SalesBotResult.kind == people.KIND,
-            SalesBotResult.company_id == company.id,
-            SalesBotResult.status.in_(OPEN_STATUSES),
+    if not cognism:
+        pending = await db.scalar(
+            select(SalesBotResult.id).where(
+                SalesBotResult.kind == people.KIND,
+                SalesBotResult.company_id == company.id,
+                SalesBotResult.status.in_(OPEN_STATUSES),
+            )
         )
-    )
-    if pending is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=PENDING_DETAIL)
+        if pending is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=PENDING_DETAIL)
     run = await signals.start_run(
-        db, people.KIND, [company.id], now=now, requested_by_user_id=current_user.id
+        db,
+        people.KIND,
+        [company.id],
+        now=now,
+        requested_by_user_id=current_user.id,
+        request=signal_targets.COGNISM_REQUEST if cognism else None,
     )
     if run is None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=NOT_STARTED_DETAIL)

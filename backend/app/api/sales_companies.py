@@ -733,8 +733,17 @@ async def merge_company(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Wybierz inną firmę do scalenia.",
         )
-    target = await db.get(SalesCompany, company_id)
-    source = await db.get(SalesCompany, payload.source_id)
+    rows = (
+        await db.scalars(
+            select(SalesCompany)
+            .where(SalesCompany.id.in_([company_id, payload.source_id]))
+            .order_by(SalesCompany.id)
+            .with_for_update()
+        )
+    ).all()
+    companies = {row.id: row for row in rows}
+    target = companies.get(company_id)
+    source = companies.get(payload.source_id)
     if target is None or source is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
     if target.archived_at is not None or source.archived_at is not None:

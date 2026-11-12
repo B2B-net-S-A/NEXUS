@@ -108,3 +108,18 @@ Testy: `backend/tests/test_sales_bot_people_unit.py`,
 `backend/tests/test_sales_bot_people_api.py`,
 `frontend/src/components/sales/__tests__/sales-bot-people.test.tsx`, wzorzec
 `tests/data/authz_golden/sales_bot_people.json`.
+
+## Mapa firmy z Cognism
+
+Karta firmy ma zakładkę „Mapa decydentów” dla użytkowników z prawem edycji
+Sprzedaży. Pokazuje aktualne stanowisko, służbowy e-mail i numer bezpośredni
+albo komórkowy, jeśli Cognism je udostępnił. Przy osobie widać źródło oraz
+osobne daty sprawdzenia stanowiska i dostępnych kontaktów. Bot otwiera pełne
+profile osób w panelu Cognism i odsyła wyniki osobnym webhookiem.
+NEXUS zapisuje jednoznaczne dopasowania po sprawdzeniu pracodawcy i sprzeciwów.
+Brak pola w nowym odczycie nie usuwa wcześniejszej wartości.
+
+Mapa należy do karty firmy. Nowe firmy zakwalifikowane przez zakończony
+research trafiają do kolejki Cognism. Przycisk na karcie pozwala zlecić
+uzupełnienie mapy. Konfiguracja i próba są w instrukcji
+`docs/sales-grok-bot-setup.md`.

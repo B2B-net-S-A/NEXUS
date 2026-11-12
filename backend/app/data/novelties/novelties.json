@@ -2520,5 +2520,22 @@
     "href": "/sales/leads",
     "dot_anchor": "sales.bot-people.list",
     "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-mapa-decydentow-cognism",
+    "pr": 3334,
+    "title": "Mapa decydentów z Cognism",
+    "why": "Na karcie firmy znajdziesz osoby i służbowe dane kontaktowe sprawdzone przez bota w Cognism.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Firmy → Mapa decydentów",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.decision-map",
+    "requires_setting": "SALES_COGNISM_PEOPLE_ENABLED"
   }
 ]

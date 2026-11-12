@@ -56,10 +56,43 @@ export interface BotPeopleAcceptInput {
 
 export type BotPeopleAccepted = ResearchAccepted & { status: string };
 
+export interface CompanyDecisionPerson {
+  full_name: string;
+  title: string;
+  active: boolean;
+  source: "cognism";
+  source_url: string;
+  observed_at: string;
+  email: string | null;
+  email_observed_at: string | null;
+  phone: string | null;
+  phone_observed_at: string | null;
+  phone_type: "direct" | "mobile" | null;
+  verified_mobile: boolean | null;
+}
+
+export interface CompanyDecisionMap {
+  enabled: boolean;
+  company_id: number;
+  can_start: boolean;
+  running: boolean;
+  people: CompanyDecisionPerson[];
+}
+
 const URL = "/api/sales/bot-people";
 export const botPeopleKeys = {
   pending: ["sales-bot-people", "pending"] as const,
+  companyMap: (companyId: number) => ["sales-bot-people", "company-map", companyId] as const,
 };
+
+export function useCompanyDecisionMap(companyId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: botPeopleKeys.companyMap(companyId),
+    queryFn: async () => (await api.get<CompanyDecisionMap>(`${URL}/companies/${companyId}/map`)).data,
+    enabled,
+    refetchInterval: (query) => (query.state.data?.running ? 10_000 : false),
+  });
+}
 
 export function useBotPeoplePending() {
   return useQuery({
@@ -99,11 +132,18 @@ export function useRejectBotPeople() {
   });
 }
 
-export function useStartBotPeople() {
+export function useStartBotPeople(source: "public" | "cognism") {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (companyId: number) =>
-      (await api.post<{ started: boolean; run_id: number }>(`${URL}/companies/${companyId}/start`)).data,
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: botPeopleKeys.pending }),
+      (await api.post<{ started: boolean; run_id: number }>(
+        `${URL}/companies/${companyId}/start`,
+        undefined,
+        { params: { source } },
+      )).data,
+    onSettled: (_data, _error, companyId) => {
+      void queryClient.invalidateQueries({ queryKey: botPeopleKeys.pending });
+      void queryClient.invalidateQueries({ queryKey: botPeopleKeys.companyMap(companyId) });
+    },
   });
 }

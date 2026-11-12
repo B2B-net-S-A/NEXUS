@@ -31,6 +31,7 @@
   "back_office"
  ],
  "routes": {
+  "GET /api/sales/bot-people/companies/{company_id}/map": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/bot-people/pending": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/bot-people/{result_id}/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/bot-people/companies/{company_id}/start": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

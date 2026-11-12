@@ -7,13 +7,16 @@ pokazać, czy rutyna bota sama odeśle raport. Ekrany pokażą wynik dopiero po
 włączeniu flagi; stan biegu widać w ``sales_signal_runs``.
 
 Rodzaj to dowolny wpis rejestru zadań bota (``services/sales/bot_tasks``).
-Rodzaje inne niż ``signals`` i ``briefing`` startują dopiero przy włączonym
-``SALES_BOT_TASKS_ENABLED``; ``--request`` to pola zlecenia sprawdzane modelem rodzaju.
+Zadania wymagają właściwej flagi kanału. ``--request`` to pola zlecenia
+sprawdzane modelem rodzaju. Dla Cognism ``--pilot`` wysyła następną partię
+firm z tagiem pilota, najwyżej pięć w jednym biegu. Powtórz po przyjęciu raportu.
 
 Uruchomienie (z ``backend/``)::
 
     python -m scripts.sales_signals_run --kind signals --company-ids 12,34,56
     python -m scripts.sales_signals_run --kind briefing --company-ids 12
+    python -m scripts.sales_signals_run --kind people --pilot
+    python -m scripts.sales_signals_run --kind people --company-ids 12,34
     python -m scripts.sales_signals_run --kind <rodzaj> --request '{"pole": 1}'
 
 Wynik to same liczby i identyfikatory (logi są publiczne).
@@ -54,11 +57,31 @@ def _request(value: str) -> dict[str, object]:
 
 
 async def run(
-    kind: str, company_ids: list[int], request: Optional[dict[str, object]] = None
+    kind: str,
+    company_ids: list[int],
+    request: Optional[dict[str, object]] = None,
+    *,
+    pilot: bool = False,
 ) -> dict[str, object]:
     try:
         async with AsyncSessionLocal() as db:
             now = datetime.now(timezone.utc)
+            if kind == "people" and request == signal_targets.COGNISM_REQUEST:
+                await signal_targets.lock_people_starts(db)
+                now = datetime.now(timezone.utc)
+                if await signal_targets.cognism_run_active(db, now=now):
+                    return {"started": False, "reason": "bieg Cognism już trwa"}
+                candidates = (
+                    await signal_targets.pilot_company_ids(db) if pilot else company_ids
+                )
+                company_ids = await signal_targets.cognism_company_ids(
+                    db, now=now, explicit_ids=candidates
+                )
+                if not company_ids:
+                    return {
+                        "started": False,
+                        "reason": "brak kwalifikujących się firm do wysłania",
+                    }
             modes = (
                 await signal_targets.modes_for(db, company_ids, now=now)
                 if kind == "briefing"
@@ -90,21 +113,42 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--kind", choices=sorted(bot_tasks.REGISTRY), default="signals")
     parser.add_argument("--company-ids", type=_ids, default=[])
     parser.add_argument("--request", type=_request, default=None)
+    parser.add_argument(
+        "--pilot", action="store_true", help="Następna partia firm pilota Cognism"
+    )
     args = parser.parse_args(argv)
+    if args.kind == "people" and args.request is None:
+        args.request = signal_targets.COGNISM_REQUEST
+    cognism = args.kind == "people" and args.request == signal_targets.COGNISM_REQUEST
+    if args.pilot and (not cognism or args.company_ids):
+        parser.error("--pilot jest dla people (Cognism) bez --company-ids.")
+    if cognism and len(args.company_ids) > signal_targets.COGNISM_BATCH_SIZE:
+        parser.error(
+            f"Cognism przyjmuje najwyżej {signal_targets.COGNISM_BATCH_SIZE} firm na bieg."
+        )
     task = bot_tasks.REGISTRY[args.kind]
-    if task.needs_firms and not args.company_ids:
+    if task.needs_firms and not (args.company_ids or args.pilot):
         parser.error(f"Rodzaj {args.kind} wymaga --company-ids.")
     try:
         task.validate_request(args.request)
     except ValueError as exc:
         # Sam rodzaj błędu: treść zlecenia nie idzie do logu.
         parser.error(f"Niepoprawne --request ({type(exc).__name__}).")
-    if not signals.configured():
+    if cognism:
+        if not signals.people_enabled() or not signals.people_configured():
+            print(
+                "Kanał Cognism jest wyłączony albo brakuje konfiguracji webhooka.",
+                file=sys.stderr,
+            )
+            return 2
+    elif not signals.configured():
         print("Brak GROK_BOT_WEBHOOK_URL albo GROK_BOT_WEBHOOK_KEY.", file=sys.stderr)
         return 2
-    result = asyncio.run(run(args.kind, args.company_ids, args.request))
+    result = asyncio.run(
+        run(args.kind, args.company_ids, args.request, pilot=args.pilot)
+    )
     print(json.dumps(result, ensure_ascii=False))
-    return 0 if result.get("status") == "started" else 1
+    return 0 if result.get("status") in ("started", "received") else 1
 
 
 if __name__ == "__main__":

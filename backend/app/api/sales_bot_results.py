@@ -23,6 +23,7 @@ from app.models.sales import SalesBotResult, SalesCompany
 from app.services import sales_schema as schema
 from app.services.sales import bot_tasks
 from app.services.sales.bot_tasks.base import NO_ACCEPT_DETAIL
+from app.services.sales.bot_tasks.people import KIND as PEOPLE_KIND
 
 router = APIRouter()
 
@@ -67,7 +68,8 @@ def _out(row: SalesBotResult, company: Optional[SalesCompany]) -> BotResultOut:
         if company is None
         else CompanyRef(id=company.id, name=company.name),
         status=row.status,
-        payload=dict(row.payload or {}),
+        # Wyniki osób są dostępne w dedykowanym przeglądzie z „Sprzedaż: edycja”.
+        payload={} if row.kind == PEOPLE_KIND else dict(row.payload or {}),
         created_at=row.created_at,
         run_id=row.run_id,
     )

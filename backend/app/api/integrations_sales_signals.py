@@ -37,6 +37,7 @@ router = APIRouter()
 MAX_REPORT_BYTES = 512 * 1024
 TOO_LARGE_DETAIL = "Raport przekracza limit 512 KB."
 UNKNOWN_KIND_DETAIL = "Ten rodzaj biegu nie jest obsługiwany."
+INVALID_PEOPLE_REPORT_DETAIL = "Raport osób nie jest zgodny z formatem zlecenia."
 
 
 async def require_signal_run_token(
@@ -118,7 +119,7 @@ async def receive_report(
     run: SalesSignalRun = Depends(require_signal_run_token),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    task = bot_tasks.get(run.kind)
+    task = bot_tasks.for_run(run)
     if task is None:
         # Bieg rodzaju, którego rejestr już nie zna: zamknięty, token zużyty.
         run.status, run.token_hash, run.error = "failed", None, "nieznany rodzaj"
@@ -127,7 +128,13 @@ async def receive_report(
             "sales_bot run=%s kind=%s refused: unknown kind", run.id, run.kind
         )
         raise HTTPException(status.HTTP_409_CONFLICT, detail=UNKNOWN_KIND_DETAIL)
-    report = parse_report(await read_limited(request), task.report_model)
+    try:
+        report = parse_report(await read_limited(request), task.report_model)
+    except RequestValidationError:
+        if run.kind == "people":
+            # Szczegóły walidacji mogą zawierać nazwiska i dane kontaktowe.
+            raise HTTPException(422, detail=INVALID_PEOPLE_REPORT_DETAIL) from None
+        raise
     summary = await bot_tasks.ingest(
         db, task, run, report, now=datetime.now(timezone.utc)
     )
