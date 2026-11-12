@@ -171,3 +171,6 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    Od tej chwili startują rodzaje dodawane kolejnymi PR-ami; każdy przed
    pokazaniem ludziom przechodzi próbę skryptem z `--kind <rodzaj>`
    (i `--request '{…}'`, gdy rodzaj ma pola zlecenia).
+   Karta firmy (G-A): `--kind enrich --company-ids <1 id>`; pytanie (G-B):
+   `--kind question --company-ids <1 id> --request '{"question": "Czy mają centrum IT w Polsce?"}'`.
+   Po `received` wynik widać na karcie firmy (propozycje pól, odpowiedź na pytanie).

@@ -225,6 +225,8 @@ def _patch(monkeypatch, started: list) -> None:
         started.append((kind, list(company_ids)))
         return _Run()
 
+    # Od G-A pętla biegnie także dla samych zadań bota; sygnały pilnują swojej flagi.
+    monkeypatch.setattr(loop.signals, "enabled", lambda: True)
     monkeypatch.setattr(loop.signals, "expire_runs", zero)
     monkeypatch.setattr(loop.signals, "start_run", start)
     monkeypatch.setattr(loop.targets, "pilot_company_ids", ids)
@@ -264,6 +266,17 @@ async def test_no_signals_run_before_seven_or_on_tuesday(monkeypatch) -> None:
         db = _Db({"signals": None, "briefing": None})
         await loop.tick(db, now=local.astimezone(timezone.utc), local=local)
     assert all(kind != "signals" for kind, _ in started)
+
+
+@pytest.mark.asyncio
+async def test_signals_flag_off_starts_no_signals_or_briefing(monkeypatch) -> None:
+    started: list = []
+    _patch(monkeypatch, started)
+    monkeypatch.setattr(loop.signals, "enabled", lambda: False)
+    local = datetime(2026, 11, 16, 9, 0, tzinfo=WARSAW)
+    db = _Db({"signals": None, "briefing": None})
+    done = await loop.tick(db, now=local.astimezone(timezone.utc), local=local)
+    assert started == [] and done["signals"] == done["briefing"] == 0
 
 
 @pytest.mark.asyncio

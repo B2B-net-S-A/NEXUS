@@ -110,6 +110,28 @@ async def find_duplicates(
     return list((await db.execute(query.order_by(SalesCompany.id).limit(5))).scalars())
 
 
+def apply_fields(company: SalesCompany, fields: dict[str, Any]) -> None:
+    """Zapis pól karty firmy: ekran Firmy i przyjęcie propozycji bota (G-A)."""
+
+    for key, value in fields.items():
+        if key == "nip":
+            value = nip_digits(value)
+        elif key == "tags":
+            value = value or []
+        elif isinstance(value, str):
+            value = value.strip() or None
+        setattr(company, key, value)
+    if fields.get("owner_user_id") is not None:
+        # Opiekun z konta zastępuje etykietę opiekuna z Atlasa.
+        company.owner_label = None
+    if "name" in fields:
+        company.normalized_name = normalize_company_name(company.name) or company.name
+    if "domain" not in fields and not company.domain and fields.get("website_url"):
+        # Bez domeny nie działa dopasowanie poczty i kalendarza (10.11.2026).
+        # Domena wysłana jawnie, także pusta, jest decyzją człowieka.
+        company.domain = mail_domain(company.website_url)
+
+
 async def open_pipeline(db: AsyncSession, company_id: int) -> OpenPipeline:
     row = (
         await db.execute(

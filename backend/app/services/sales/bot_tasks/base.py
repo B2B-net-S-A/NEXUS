@@ -63,7 +63,11 @@ class AcceptRefused(Exception):
 
 
 async def refuse_accept(
-    db: AsyncSession, result: SalesBotResult, user_id: int, now: datetime
+    db: AsyncSession,
+    result: SalesBotResult,
+    user_id: int,
+    now: datetime,
+    choice: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     raise AcceptRefused(NO_ACCEPT_DETAIL)
 
@@ -103,9 +107,11 @@ class BotTask:
     lead_feedback: bool = False
     #: Odpowiedź trasy dla bota z podsumowania ``ingest``.
     reply: Callable[[dict[str, Any]], dict[str, Any]] = numbers_only
-    #: Przyjęcie wyniku z ``sales_bot_results``; domyślnie 409.
+    #: Przyjęcie wyniku z ``sales_bot_results``; domyślnie 409. Ostatni argument
+    #: to wybór handlowca z treści żądania (``fields``, ``reject``), może być pusty.
     accept: Callable[
-        [AsyncSession, SalesBotResult, int, datetime], Awaitable[dict[str, Any]]
+        [AsyncSession, SalesBotResult, int, datetime, Optional[dict[str, Any]]],
+        Awaitable[dict[str, Any]],
     ] = refuse_accept
 
     def validate_request(self, request: Optional[dict[str, Any]]) -> dict[str, Any]:
