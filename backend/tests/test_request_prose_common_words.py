@@ -19,7 +19,18 @@ SKILLS = {
     **PROD_LIKE_SKILLS,
     "Microsoft Access": ("database", ("access", "ms access")),
     "Microsoft Project": ("tools", ("project", "ms project")),
-    "Microsoft Office": ("tools", ("office", "ms office")),
+    "Microsoft Office": ("tools", ("office", "ms office", "office 365")),
+    "Microsoft Exchange": ("infra", ("exchange", "exchange server")),
+    "Microsoft Teams": ("tools", ("teams", "ms teams")),
+    "Microsoft Outlook": ("tools", ("outlook",)),
+    "Microsoft Word": ("tools", ("word", "ms word")),
+    "Spring": ("backend", ()),
+    "Redux": ("frontend", ()),
+    "Lambda": ("cloud", ("aws lambda",)),
+    "Go": ("backend", ("golang",)),
+    "R": ("data", ()),
+    "C": ("backend", ()),
+    "Rust": ("backend", ()),
     "LeSS": ("methodology", ()),
     "SAFe": ("methodology", ()),
     "SOLID": ("practice", ()),
@@ -114,6 +125,74 @@ def test_lowercase_tail_of_a_hyphenated_word_is_not_a_name():
     with dictionary():
         assert _radar_must("", "Wymagania:\n- wdrożenia non-docker") == []
         assert _radar_must("", "Wymagania:\n- PL-Docker") == ["docker"]
+
+
+# ── Regresje #3276 (audyt 12.11.2026) ──────────────────────────────────────
+
+
+def test_microsoft_products_written_as_names_count():
+    # Request administratora M365: przed #3276 must miał exchange, office,
+    # outlook i teams; po #3276 został sam Office — reszta była „zwykłym
+    # słowem”, którego nie dało się napisać jak nazwy.
+    text = (
+        "Wymagania:\n- administracja Exchange\n- Teams\n- Outlook\n- Office 365\n- Word"
+    )
+    with dictionary():
+        must = _radar_must("M365 Administrator", text)
+    for name in (
+        "microsoft exchange",
+        "microsoft teams",
+        "microsoft outlook",
+        "microsoft office",
+        "microsoft word",
+    ):
+        assert name in must, (name, must)
+
+
+def test_microsoft_products_lowercase_are_plain_words():
+    text = (
+        "Wymagania:\n- praca w zespole, spotkania z innymi teams\n"
+        "- exchange of knowledge\n- positive outlook\n- in other word"
+    )
+    with dictionary():
+        assert _radar_must("", text) == []
+
+
+def test_lowercase_tail_of_a_technology_compound_still_counts():
+    # „java-spring”, „react-redux”, „aws-lambda” to dwie technologie zapisane
+    # łącznie, nie końcówka złożenia jak „password-less”.
+    text = "Wymagania:\n- doświadczenie w java-spring\n- react-redux\n- aws-lambda"
+    with dictionary():
+        must = _radar_must("Backend Developer", text)
+    for name in ("java", "spring", "react", "redux", "lambda"):
+        assert name in must, (name, must)
+
+
+def test_lowercase_tail_of_a_common_word_is_still_dropped():
+    text = "Wymagania:\n- password-less login\n- privileged-access\n- remote-teams"
+    with dictionary():
+        assert _radar_must("", text) == []
+
+
+def test_capitalised_common_word_inside_a_sentence_counts():
+    with dictionary():
+        must = _radar_must("", "Wymagania:\n- znajomość zasad Solid i metodyki Safe")
+    assert "solid" in must and "safe" in must, must
+
+
+def test_capitalised_common_word_at_line_start_or_in_title_is_plain():
+    text = "Wymagania:\n- Solid understanding of networking\n- Less than 3 years"
+    with dictionary():
+        assert _radar_must("", text) == []
+        assert "safe" not in _radar_must("Safe Harbor Platform Engineer", "")
+
+
+def test_short_and_plain_technology_names_unchanged():
+    text = "Wymagania:\n- Go\n- R\n- C\n- Rust\n- Spring\n- Java, Python, Kafka"
+    with dictionary():
+        must = _radar_must("Backend Developer", text)
+    for name in ("go", "r", "c", "rust", "spring", "java", "python", "kafka"):
+        assert name in must, (name, must)
 
 
 # ── Odczyt maila na /jobs/new (M2 „W mailu są też”) ─────────────────────────

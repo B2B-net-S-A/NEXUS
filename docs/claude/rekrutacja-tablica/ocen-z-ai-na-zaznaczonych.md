@@ -35,8 +35,13 @@ Decyzja Artura: wariant C z makiet https://claude.ai/artifact/TBHtexa3vvyK76HW2v
   `raw_cv_text` z PDF wtrąca daty, telefon, nagłówki i drugą kolumnę w środek
   zdania („optimize/␤01-2021 – Present␤improve JIRA…”), a model cytuje zdanie
   sklejone. Cytat stoi, gdy jest dosłownie albo ma ≥ 6 słów i ≥ 80% jego
-  trójek słów jest w tekście (bez diakrytyków i interpunkcji). Krótszy —
-  tylko dosłownie. „…” dzieli cytat na fragmenty i każdy musi przejść sam.
+  trójek słów jest w tekście (bez diakrytyków i interpunkcji), w tym
+  pierwsza i ostatnia — brak dopuszczamy tylko w środku. Krótszy — tylko
+  dosłownie. „…” w środku dzieli cytat na fragmenty i każdy musi przejść sam:
+  dosłownie od 3 słów albo regułą trójek. Audyt 12.11.2026 (#3274): sam próg
+  przepuszczał zmyślone zakończenie („bazami danych PostgreSQL” przy CV
+  „… Oracle”, 8 z 9 trójek), a „…” sklejało pojedyncze słowa („podstawowym
+  … Angielski”).
   Pomiar 09.11 na stagingu: 176 z 1 490 cytatów (12%) było prawdziwych, ale
   niedosłownych, 79 zmyślonych dalej odpada; próbka 30 osób tą ścieżką: +24
   ze 180 cytatów, wszystkie sprawdzone prawdziwe. Ta sama reguła ustala źródło
