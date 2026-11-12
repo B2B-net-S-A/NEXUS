@@ -74,6 +74,11 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
   - „Nie odbyło się” → zadanie dla osoby, która umówiła, na następny dzień
     roboczy; wpis terminu znika, bo spotkanie, które się nie odbyło, nie może być
     dotykiem ani spotkaniem w KPI. Ponowne umówienie tej samej szansy czyści werdykt.
+- **Ponowne umówienie po werdykcie to nowe spotkanie:** blok zaczyna bez
+  `meeting_activity_id`, a poprzednie spotkanie (z formularza albo z Outlooka) zostaje
+  na osi szansy. Przepisany identyfikator spotkania z Outlooka trzymał starą datę na
+  karcie (od razu „werdykt”), a zmiana terminu, zaproszenie i przejęcie nowego spotkania
+  z kalendarza dostawały 409 (audyt 12.11.2026).
 - **Ruch po etapach ma te same skutki co `POST /move`** (`apply_stage` i historia).
   Front dalej rusza szansę tylko przez `/move` albo przez werdykt.
 - **Termin zmienia** osoba, która umówiła, prowadzący albo admin; zmiana kasuje

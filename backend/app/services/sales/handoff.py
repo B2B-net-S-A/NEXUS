@@ -598,7 +598,12 @@ async def book(
             to_utc(payload.meeting_at).isoformat() if payload.meeting_at else None
         ),
         "duration_minutes": payload.duration_minutes,
-        "meeting_activity_id": previous.get("meeting_activity_id"),
+        # Po werdykcie to nowe spotkanie: poprzednie (także z Outlooka) zostaje
+        # w historii osi, a termin, zaproszenie i przejęcie z kalendarza dotyczą
+        # już nowego. Przepisany identyfikator zostawiał starą datę na karcie.
+        "meeting_activity_id": (
+            None if previous.get("verdict") else previous.get("meeting_activity_id")
+        ),
         "confirmed_at": None,
         "verdict": None,
     }
