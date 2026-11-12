@@ -132,6 +132,8 @@ export interface DocumentPrefill {
   base: DocumentBaseInfo;
   /** Generator aneksów: „§ X ust. Y” dla obu wariantów Partnera. */
   paragraph_defaults?: Partial<Record<"sole_trader" | "company", [string, string]>>;
+  /** Notki do pól: np. wypowiedzenie do końca projektu zamiast okresu z umowy. */
+  notes?: Record<string, string>;
   needs_refs: boolean;
   ref_defaults: Record<string, string>;
   languages: string[];

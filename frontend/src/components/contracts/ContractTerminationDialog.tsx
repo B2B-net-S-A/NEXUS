@@ -254,7 +254,9 @@ export function ContractTerminationDialog({
   // zamyka ją z datą rozwiązania — kolejność „najpierw koniec, potem dokument”
   // obsługuje `effects.apply` (projekt już zakończony = kontrakt bez zmian).
   // „Przygotuj wypowiedzenie” idzie tą samą drogą; daty doręczenia
-  // i rozwiązania liczy generator z okresu wypowiedzenia w umowie.
+  // i rozwiązania liczy generator z okresu wypowiedzenia w umowie, a koniec
+  // projektu bierze z kontraktu zapisanego tym oknem (późniejsza z dwóch dat).
+  // Nie przekazujemy go w adresie: `v_termination_date` przykryłby wyliczenie.
   const preparesAgreement = !bulk && form.agreementPlan === "prepare";
   const preparesNotice = !bulk && form.agreementPlan === "notice";
   const generatorHref = preparesAgreement
