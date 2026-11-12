@@ -25,7 +25,7 @@ from app.services.client_settlements import settings as module_settings
 DEFAULT_PAYMENT_DAYS = 14
 #: Grupy kontroli, które konsultant może zobaczyć; „Zamówienie”, „Stawki”
 #: i „MD wdrożeniowe” zostają u Finansów.
-VISIBLE_GROUPS = ("RCP", "Pola i sumy", "Nadgodziny")
+VISIBLE_GROUPS = ("RCP", "Time Sheet", "Pola i sumy", "Nadgodziny")
 
 STATUS_LABELS = {
     "checking": "Sprawdzamy RCP",
