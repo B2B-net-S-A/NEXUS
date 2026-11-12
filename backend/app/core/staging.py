@@ -167,6 +167,7 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "care_announcements_send",
         "ksef_fetch",
         "sales_ksef_fetch",
+        "sales_ebi24_payments",
         "hr_agreements_signing",
         "hr_lifecycle",
         "hr_contract_hooks",

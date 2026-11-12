@@ -15,7 +15,9 @@ na pytania z 03 i 04.11.2026.
   bo ponowienie żądania daje duplikat, a kontrola duplikatów jest po naszej stronie.
 - `scripts/ebi24_probe.py`: same liczniki, bez nazw, NIP-ów, numerów, kwot i identyfikatorów.
 
-Nic innego tego kodu nie używa: bez pętli w lifespanie, tras API i ekranów.
+- `app/services/client_invoicing/ebi24_payments.py` (od 12.11.2026, migracja 0685): zapłaty faktur
+  do klientów z eBI24, pętla `sales_ebi24_payments` (co godzinę, tylko `EBI24_MODE=prod`, na stagingu
+  zablokowana), sonda `ebi24_payments` w `/api/health`. Szczegóły niżej.
 
 ## Uruchomienie sondy
 
@@ -83,6 +85,29 @@ zapisywania profilu. Prawdziwych kluczy nie wpisuj tam na współdzielonym kompu
 3. Szablony faktur z „Do faktury” przez `bucket/create`, najpierw na UAT. Człowiek sprawdza szablon
    i wysyła go z EBI24. Przed startem: `taxRate` w wierszu jest wymagany, a NEXUS nie zna stawek VAT
    (`client_invoicing/export.py`), i potrzebny jest zapis w NEXUSIE, który szablon już powstał.
+
+## Zapłaty z eBI24 (decyzja Artura z 10.11.2026)
+
+- **Skąd:** nagłówki faktur przychodowych z `bucket/index` (AdvancedCriteria `issuedDate`
+  `greaterOrEqual`, ostatnie 180 dni — `_updatedDate` w nagłówku nie istnieje, pomiar na UAT 12.11).
+  `paid` jest w nagłówku listy, a `getDocument` go nie ma, więc żądań na dokument nie wysyłamy.
+- **Dopasowanie wyłącznie po numerze KSeF** (`_ksefReferenceNumber` = `client_sales_invoices.ksef_number`).
+  Numer faktury z eBI24 („1/11/2026”) nie jest unikalny między kontami, a na UAT powstaje ten sam
+  co na produkcji. Ten sam numer KSeF na kilku dokumentach eBI24 = nic nie zapisujemy (`ambiguous`).
+- **Lustro, nie historia:** jeden dokument eBI24 = jeden wiersz `kind='ebi24'` (`ebi24_document_id`
+  unikalny). Kwota = `paidAmount`, a bez niej całe brutto przy `paid`; data = `paidDate`, a bez niej
+  dzień pierwszego odczytu. Cofnięcie w eBI24 = `ignored` z powodem; ponowne „opłacona” go przywraca.
+- **NEXUS wygrywa z eBI24:** uznanie z wyciągu i ręczne „opłacono” zastępują wiersz z eBI24
+  (`ignored`, `EBI24_SUPERSEDED`), a dopasowanie uznań liczy „do zapłaty” bez zapłat z eBI24
+  (`payments.own_to_pay`). Inaczej ta sama wpłata liczyłaby się dwa razy, a uznanie trafiałoby
+  do „do sprawdzenia” jako „już opłacona”.
+- **Zapis tylko na PROD.** Na UAT podgląd: `run_once(db, dry_run=True)` (liczniki, bez zapisu).
+- **Do sprawdzenia po oznaczeniu zapłaty na UAT:** czy `paidDate`, `paidAmount` i `remainingAmount`
+  pojawiają się w nagłówku. Przy niezapłaconej fakturze ich nie ma (12.11.2026).
+- **`bucket/create` nadaje numer faktury od razu przy utworzeniu szkicu** (UAT 12.11: `1/11/2026`,
+  `2/11/2026`). Skasowany szkic zostawia dziurę w numeracji — ustal z Finansami przed etapem szkiców.
+- Dostawca zapowiedział 12.11 zmianę metody pobierania danych (znacznik „już pobrane”). Gdy będzie
+  na UAT, zmienia się tylko `fetch_headers`; reguły dopasowania zostają.
 
 ## Co jeszcze niepotwierdzone
 

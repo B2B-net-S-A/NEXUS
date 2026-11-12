@@ -77,6 +77,15 @@ class Chain:
         return money(self.gross - self.paid)
 
     @property
+    def own_to_pay(self) -> Decimal:
+        """Do zapłaty bez zapłat odczytanych z eBI24 — zapis NEXUSA je zastępuje."""
+
+        if self.head.paid_in_invoice_on is not None:
+            return self.to_pay
+        own = sum((Decimal(p.amount) for p in self.payments if p.kind != "ebi24"), ZERO)
+        return money(self.gross - own)
+
+    @property
     def paid_on(self) -> Optional[date]:
         if self.head.paid_in_invoice_on is not None:
             return self.head.paid_in_invoice_on
@@ -335,9 +344,12 @@ async def chains_for_period(
 
 
 async def open_chains(
-    db: AsyncSession, *, client_ids: Optional[Collection[int]]
+    db: AsyncSession, *, client_ids: Optional[Collection[int]], own: bool = False
 ) -> list[Chain]:
-    """Łańcuchy z czymkolwiek do zapłaty (do zaległości i dopasowania uznań)."""
+    """Łańcuchy z czymkolwiek do zapłaty (do zaległości i dopasowania uznań).
+
+    ``own`` — „do zapłaty” bez zapłat z eBI24 (podpowiedzi dla uznań z wyciągu).
+    """
 
     query = select(ClientSalesInvoice).where(
         ClientSalesInvoice.paid_in_invoice_on.is_(None)
@@ -347,7 +359,9 @@ async def open_chains(
             ClientSalesInvoice.client_id.in_(sorted(client_ids) or [-1])
         )
     chains = await build_chains(db, list(await db.scalars(query)))
-    return [chain for chain in chains if chain.to_pay > ZERO]
+    return [
+        chain for chain in chains if (chain.own_to_pay if own else chain.to_pay) > ZERO
+    ]
 
 
 async def rows_by_period(

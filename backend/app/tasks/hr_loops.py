@@ -463,6 +463,35 @@ async def sales_ksef_fetch_loop() -> None:
     )
 
 
+async def sales_ebi24_payments_job(db: AsyncSession) -> dict[str, Any] | None:
+    """Zapłaty faktur do klientów z eBI24; poza EBI24_MODE=prod albo bez modułu = nic."""
+    from app.services.client_invoicing import ebi24_payments
+
+    result = await ebi24_payments.run_once(db)
+    return None if result.get("status") in {"disabled", "skipped"} else result
+
+
+async def sales_ebi24_payments_loop() -> None:
+    from app.services.ebi24.environment import load_config
+
+    if not loops_enabled("sales_ebi24_payments"):
+        return
+    if load_config().mode != "prod":
+        logger.info(
+            "sales_ebi24_payments disabled (EBI24_MODE≠prod) — pętla nie startuje"
+        )
+        return
+    beat = loop_heartbeat.register(
+        "sales_ebi24_payments", max_silence_seconds=KSEF_FETCH_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic(
+        "sales_ebi24_payments",
+        beat,
+        KSEF_FETCH_INTERVAL_SECONDS,
+        sales_ebi24_payments_job,
+    )
+
+
 AGREEMENTS_SIGNING_INTERVAL_SECONDS = 5 * 60  # przebieg raz na 15 min (hr_job_runs)
 
 

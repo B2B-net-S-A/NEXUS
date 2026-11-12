@@ -22,6 +22,10 @@ faktury → „do sprawdzenia” z podpowiedzią (Finanse potwierdzają jednym
 kliknięciem). Uznania, które nie dotyczą żadnej faktury (zwroty, odsetki,
 wpłaty spoza sprzedaży), nie trafiają do bazy — liczymy je tylko.
 
+Zapłata odczytana z eBI24 (``ebi24_payments``) nie zmniejsza „do zapłaty” przy
+dopasowaniu uznania, a dopasowane uznanie (i ręczne „opłacono”) ją zastępuje
+— ta sama wpłata nie liczy się dwa razy.
+
 Ten sam plik drugi raz nic nie zmienia (skrót pliku + numer pozycji,
 ``uq_client_sales_invoice_payments_statement``); ta sama operacja na innym
 pliku (wyciąg dzienny i miesięczny) zostaje jako ``ignored`` z powodem.
@@ -130,11 +134,40 @@ class CreditResult:
 # ── Czyste reguły ────────────────────────────────────────────────────────────
 
 
+EBI24_SUPERSEDED = "Zastąpiona zapłatą zapisaną w NEXUSIE (wyciąg albo „opłacono”)."
+
+
+def own_to_pay(chain: Chain) -> Decimal:
+    """Do zapłaty bez zapłat odczytanych z eBI24 — wyciąg je zastępuje."""
+
+    return chain.own_to_pay
+
+
+def supersede_ebi24(chain: Chain) -> int:
+    """Zapłaty z eBI24 w łańcuchu → ``ignored``; zostaje zapis NEXUSA."""
+
+    mirrored = [p for p in chain.payments if p.kind == "ebi24"]
+    for payment in mirrored:
+        payment.match_status = "ignored"
+        payment.reason = EBI24_SUPERSEDED
+    chain.payments = [p for p in chain.payments if p.kind != "ebi24"]
+    return len(mirrored)
+
+
+async def supersede_ebi24_for(db: AsyncSession, invoice: ClientSalesInvoice) -> int:
+    """To samo dla łańcucha faktury (także zapłaty z eBI24 na jej korektach)."""
+
+    for chain in await ledger.build_chains(db, [invoice]):
+        if invoice.id in {i.id for i in chain.invoices}:
+            return supersede_ebi24(chain)
+    return 0
+
+
 def open_invoice(chain: Chain) -> OpenInvoice:
     return OpenInvoice(
         invoice_id=chain.head.id,
         currency=chain.head.currency,
-        to_pay=chain.to_pay,
+        to_pay=own_to_pay(chain),
         ksef_numbers=tuple(i.ksef_number for i in chain.invoices if i.ksef_number),
         invoice_numbers=tuple(
             i.invoice_number for i in chain.invoices if i.invoice_number
@@ -357,6 +390,7 @@ async def import_credits(
         db.add(payment)
         await db.flush()
         chain = chains[decision.invoice_id]
+        supersede_ebi24(chain)
         chain.payments.append(payment)
         invoices[decision.invoice_id] = open_invoice(chain)
         result.matched += 1
@@ -410,6 +444,7 @@ async def assign_credit(
         raise PaymentError("Nie ma takiej faktury.", 404)
     if invoice.currency != payment.currency:
         raise PaymentError("Waluta wpłaty jest inna niż waluta faktury.")
+    await supersede_ebi24_for(db, invoice)
     payment.invoice_id = invoice.id
     payment.match_status = "matched"
     payment.resolved_by = actor_id
@@ -453,6 +488,7 @@ async def mark_paid(
     value = money(Decimal(amount))
     if value <= ZERO:
         raise PaymentError("Kwota musi być większa od zera.")
+    await supersede_ebi24_for(db, invoice)
     payment = ClientSalesInvoicePayment(
         kind="manual",
         invoice_id=invoice.id,
@@ -500,5 +536,8 @@ __all__ = [
     "mark_paid",
     "mpp_vat",
     "open_invoice",
+    "own_to_pay",
+    "supersede_ebi24",
+    "supersede_ebi24_for",
     "unmatched_credits",
 ]

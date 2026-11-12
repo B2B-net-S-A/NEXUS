@@ -204,7 +204,8 @@ export function ClientInvoicingTab({
             „Do faktury” liczy NEXUS z zamówienia: zużycie MD × stawka osoby, a przy zamówieniach
             okresowych stawka × godziny albo miesiąc z zamówienia. Kwotę faktury do zamówienia
             kosztowego ustalają Finanse — NEXUS sprawdza, czy mieści się w budżecie. Wystawioną
-            fakturę NEXUS znajduje w KSeF i łączy z zamówieniem, a zapłatę bierze z wyciągu.
+            fakturę NEXUS znajduje w KSeF i łączy z zamówieniem, a zapłatę bierze z wyciągu albo
+            z eBI24.
           </p>
         </>
       ) : null}

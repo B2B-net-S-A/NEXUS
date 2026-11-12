@@ -245,7 +245,7 @@ class ClientSalesInvoiceLink(Base):
 
 
 class ClientSalesInvoicePayment(Base):
-    """Zapłata faktury do klienta: uznanie z wyciągu albo ręczne „opłacono”."""
+    """Zapłata faktury do klienta: uznanie z wyciągu, ręczne „opłacono” albo eBI24."""
 
     __tablename__ = "client_sales_invoice_payments"
     __table_args__ = (
@@ -275,12 +275,21 @@ class ClientSalesInvoicePayment(Base):
         CheckConstraint(
             schema.CK_PAYMENT_IGNORED, name="ck_client_sales_invoice_payments_ignored"
         ),
+        CheckConstraint(
+            schema.CK_PAYMENT_EBI24, name="ck_client_sales_invoice_payments_ebi24"
+        ),
         Index(
             "uq_client_sales_invoice_payments_statement",
             "statement_sha256",
             "statement_line_ref",
             unique=True,
             postgresql_where=text(schema.STATEMENT_LINE_WHERE),
+        ),
+        Index(
+            "uq_client_sales_invoice_payments_ebi24",
+            "ebi24_document_id",
+            unique=True,
+            postgresql_where=text(schema.EBI24_WHERE),
         ),
         Index("ix_client_sales_invoice_payments_invoice", "invoice_id"),
         Index("ix_client_sales_invoice_payments_match", "match_status", "booked_on"),
@@ -308,6 +317,10 @@ class ClientSalesInvoicePayment(Base):
     statement_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     statement_format: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
     statement_line_ref: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    #: ``_id`` dokumentu eBI24 (``kind='ebi24'``) — jeden wiersz na dokument.
+    ebi24_document_id: Mapped[Optional[str]] = mapped_column(
+        String(schema.EBI24_DOCUMENT_ID_MAX), nullable=True
+    )
     reason: Mapped[Optional[str]] = mapped_column(
         String(schema.REASON_MAX_LENGTH), nullable=True
     )
