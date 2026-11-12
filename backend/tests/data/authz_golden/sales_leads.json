@@ -35,6 +35,7 @@
   "GET /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/leads/{lead_id}/convert": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "POST /api/sales/leads/{lead_id}/convert": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/leads/{lead_id}/take-over": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), uzupełnianie kart enrich, Uzupełnij z bota, przyjęcie pól, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), uzupełnianie kart enrich, Uzupełnij z bota, przyjęcie pól, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -208,6 +208,71 @@ na poniedziałek, przed świętem na dzień po nim. Kod: `services/sales/hook_pr
 - **Próba przed włączeniem:** `python -m scripts.sales_signals_run --kind briefing
   --mode call_hook --company-ids <id>` (albo `--mode meeting_prep`).
 
+## „Warto wrócić” i „Nowe centra IT” (decyzja Artura 12.11.2026)
+
+Artur 12.11.2026 zdecydował, że oba rodzaje powstają teraz. Warunek pilota z 09.11
+(30% sygnałów kończy się telefonem, opinia IOD przed wyjściem poza 20 firm) dotyczy
+sygnałów; dla „Warto wrócić” zastępuje go ta decyzja, bo to firmy, z którymi już
+rozmawialiśmy, a „Nowe centra IT” działa wyłącznie na poziomie firm (bez osób, bez
+danych z NEXUSA w zleceniu). Oba startują tylko przy `SALES_BOT_TASKS_ENABLED`
+i tylko raz w miesiącu: pętla `tasks/sales_signals.py` w pierwszy poniedziałek
+miesiąca od 7:00, a gdy wtedy nie wyszło, przy pierwszym obrocie po tej chwili
+(nieudany webhook po godzinie). Próba: `--kind winback --company-ids …` i `--kind discovery`.
+Makiety: `LeadsBotModes.tsx` z gałęzi makiet. Przetargów z makiety nie budujemy (Artur: nie).
+
+### „Warto wrócić” (`winback`, G-E)
+
+- **Firmy** (`signal_targets.winback_deals`): szansa przegrana w ostatnich 14 miesiącach
+  kalendarza firmy z `lost_reason` dokładnie z `WINBACK_LOST_REASONS` („Klient zrezygnował
+  z projektu”, „Projekt na bliżej nieokreśloną przyszłość”, „Cena za wysoka”, „Brak
+  kontaktu z klientem”), karta poza archiwum, bez otwartej szansy, poza klientami NEXUSA
+  (`client_gate`), najwyżej 50 firm od najświeższej przegranej. Kopia z 10.11.2026:
+  31 takich przegranych w 29 firmach.
+- **Do bota idą tylko nazwy i domeny.** Powód przegranej, tytuł szansy i opiekun zostają
+  w NEXUSIE. Raport ma kształt sygnałów (`ReportSignal`, okno 120 dni), bez punktów.
+- **Wynik to lead**, nie `sales_bot_results`: źródło `research`, odcisk firma + link jak
+  przy sygnałach, `payload.origin = "winback"` z `lost_opportunity_id`, tytułem,
+  `lost_reason` i `lost_at`. Przy przyjęciu raportu firma jest sprawdzana jeszcze raz:
+  otwarta szansa albo klient NEXUSA od startu biegu = lead nie powstaje.
+- **Osoba przy leadzie:** opiekun firmy, gdy pracuje w Sprzedaży (`offers.works_in_sales`),
+  inaczej opiekun przegranej, gdy pracuje w Sprzedaży, inaczej nikt.
+- **Leady → „Warto wrócić”** (`components/sales/bot-modes/WinBackInbox.tsx`, lista
+  `GET /api/sales/leads?origin=winback`): przegrana (link do szansy, data, powód), co się
+  zmieniło ze źródłem, „Dlaczego teraz” z podpisem „wniosek bota, nie fakt”.
+  „Zaplanuj powrót” to zwykłe zadanie przy firmie (`POST /api/sales/activities`)
+  u osoby z leada, a lead przechodzi na „W kontakcie”. Zadanie nie wisi na przegranej
+  szansie, bo lista Zadania nie pokazuje pozycji przy przegranych. Bez osoby w Sprzedaży
+  przycisk to „Przejmij i zaplanuj”: `POST /api/sales/leads/{id}/take-over`
+  („Sprzedaż: edycja”, 409, gdy lead ma osobę w Sprzedaży), potem zadanie u klikającego.
+  „Nie teraz” odrzuca lead z powodem z `REJECT_REASONS` (wraca do bota jak przy sygnałach).
+  Żadnej automatyzacji kontaktu.
+- Skrzynka sygnałów pyta o `origin=grok`, więc leady „Warto wrócić” są tylko w swoim widoku.
+
+### „Nowe centra IT” (`discovery`, G-D)
+
+- **Bieg bez firm** (`needs_firms=False`, `request` pusty): zapowiedzi z ostatnich 183 dni
+  o nowych albo rozbudowywanych centrach IT, GBS, R&D i usług wspólnych w Polsce, najwyżej
+  20 pozycji (firma, domena, miasto, co, skala, dlaczego, link, data). Bez osób.
+- **Karta:** po domenie, potem po nazwie kanonicznej (`companies.find_duplicates`, ta sama
+  reguła co 409 przy zakładaniu karty), potem po marce (`company_aliases.brand_of`; spółka
+  grupy o innej nazwie to nie ta sama karta). Wynik w `sales_bot_results` z `company_id`
+  albo bez, odcisk domena-albo-nazwa + link.
+- **Leady → „Nowe centra IT”** (`bot-modes/NewFirmsInbox.tsx`, `GET /api/sales/bot-results?kind=discovery`):
+  „W NEXUSIE” mówi, czy karta jest, kto jest opiekunem i czy pracuje w Sprzedaży (pola
+  `owner`, `owner_in_sales` listy wyników). „Załóż konto w Fabrykach IT” (`accept`):
+  karta, gdy jej nie ma (dopasowanie jeszcze raz, potem nowa karta z opiekunem = klikający),
+  i szansa w `atlas-it-factories` na pierwszym otwartym etapie z opiekunem = klikający
+  i wpisem w historii (`history.record_created`). Karta z otwartym kontem w tym lejku nie
+  dostaje drugiego: wynik jest przyjęty i wskazuje istniejące (`existed`). „Nie teraz”
+  to odrzucenie wyniku z powodem.
+
+### Ekran
+
+- Widoki pokazują się w przełączniku Leadów tylko przy `bot_tasks_enabled` z listy leadów.
+  Błąd zapytania to komunikat z ponowieniem, wyłączony kanał to napis, nie pusta lista.
+- Nowości: `sprzedaz-leady-warto-wrocic` i `sprzedaz-leady-nowe-centra-it` (kropki na
+  przełączniku, `requires_setting = SALES_BOT_TASKS_ENABLED`).
+
 ## Uzupełnianie kart (G-A, rodzaj `enrich`, 12.11.2026)
 
 Makieta zatwierdzona przez Artura: karta firmy, „Bot uzupełnił kartę” pod faktami.
@@ -286,5 +351,7 @@ Testy: `backend/tests/test_sales_bot_company_unit.py`,
 `backend/tests/test_sales_signals_unit.py`, `backend/tests/test_sales_signals_api.py`,
 `backend/tests/test_sales_bot_tasks_unit.py`, `backend/tests/test_sales_bot_tasks_api.py`,
 `backend/tests/test_sales_hook_prep_unit.py`, `backend/tests/test_sales_hook_prep_api.py`,
+`backend/tests/test_sales_bot_winback_discovery_unit.py`, `backend/tests/test_sales_bot_winback_discovery_api.py`,
 `frontend/src/components/sales/__tests__/sales-signals.test.tsx`,
-`frontend/src/components/sales/__tests__/sales-hook-prep.test.tsx`.
+`frontend/src/components/sales/__tests__/sales-hook-prep.test.tsx`,
+`frontend/src/components/sales/__tests__/sales-bot-modes.test.tsx`.

@@ -20,10 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.sales_gates import SalesEditUser, SalesViewUser
 from app.core.database import get_db
 from app.models.sales import SalesBotResult, SalesCompany
+from app.models.user import User
 from app.services import sales_schema as schema
+from app.services.effective_access import resolve_effective_access
 from app.services.sales import bot_tasks
 from app.services.sales.bot_tasks.base import NO_ACCEPT_DETAIL
 from app.services.sales.bot_tasks.people import KIND as PEOPLE_KIND
+from app.services.sales.offers import works_in_sales
 
 router = APIRouter()
 
@@ -49,6 +52,9 @@ class BotResultOut(BaseModel):
     payload: dict[str, Any]
     created_at: datetime
     run_id: int
+    #: Opiekun karty firmy i czy pracuje w Sprzedaży (panel „W NEXUSIE”).
+    owner: Optional[CompanyRef] = None
+    owner_in_sales: bool = False
 
 
 class BotResultsOut(BaseModel):
@@ -70,7 +76,12 @@ class AcceptIn(BaseModel):
     reject: list[str] = Field(default_factory=list, max_length=20)
 
 
-def _out(row: SalesBotResult, company: Optional[SalesCompany]) -> BotResultOut:
+def _out(
+    row: SalesBotResult,
+    company: Optional[SalesCompany],
+    owners: Optional[dict[int, User]] = None,
+) -> BotResultOut:
+    owner = (owners or {}).get(company.owner_user_id or 0) if company else None
     return BotResultOut(
         id=row.id,
         kind=row.kind,
@@ -82,7 +93,22 @@ def _out(row: SalesBotResult, company: Optional[SalesCompany]) -> BotResultOut:
         payload={} if row.kind == PEOPLE_KIND else dict(row.payload or {}),
         created_at=row.created_at,
         run_id=row.run_id,
+        owner=None
+        if owner is None
+        else CompanyRef(id=owner.id, name=owner.name or owner.email),
+        owner_in_sales=owner is not None and works_in_sales(owner),
     )
+
+
+async def _owners(
+    db: AsyncSession, companies: list[Optional[SalesCompany]]
+) -> dict[int, User]:
+    ids = sorted({c.owner_user_id for c in companies if c and c.owner_user_id})
+    if not ids:
+        return {}
+    users = list((await db.scalars(select(User).where(User.id.in_(ids)))).all())
+    await resolve_effective_access(db, users)
+    return {user.id: user for user in users}
 
 
 @router.get("", response_model=BotResultsOut)
@@ -109,8 +135,9 @@ async def list_results(
     if company_id is not None:
         statement = statement.where(SalesBotResult.company_id == company_id)
     rows = (await db.execute(statement)).all()
+    owners = await _owners(db, [company for _row, company in rows])
     return BotResultsOut(
-        enabled=True, items=[_out(row, company) for row, company in rows]
+        enabled=True, items=[_out(row, company, owners) for row, company in rows]
     )
 
 
@@ -155,7 +182,8 @@ async def reject_result(
             raise HTTPException(status.HTTP_409_CONFLICT, detail=DECIDED_DETAIL)
     await db.commit()
     row = await db.get(SalesBotResult, result_id, populate_existing=True)
-    return _out(row, await _company(db, row.company_id))
+    company = await _company(db, row.company_id)
+    return _out(row, company, await _owners(db, [company]))
 
 
 @router.post("/{result_id}/accept")

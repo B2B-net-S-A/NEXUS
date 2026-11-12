@@ -5,6 +5,10 @@ podgląd”, zapis: „Sprzedaż: edycja”. Lead zamienia się w szansę przy f
 z kartoteki sprzedaży (istniejącej po nazwie kanonicznej albo nowej).
 Lead z firmy, która jest już klientem NEXUSA, nie powstaje — popyt
 u klientów idzie do DL (decyzja Artura 22.10.2026).
+
+„Warto wrócić” (G-E, 12.11.2026): leady z bota z ``payload.origin = "winback"``
+filtruje ``origin``; „Przejmij” (``/take-over``) daje lead zalogowanej osobie
+tylko, gdy przypisanej osoby nie ma albo nie pracuje ona w Sprzedaży.
 """
 
 from __future__ import annotations
@@ -21,17 +25,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.sales_gates import SalesEditUser, SalesViewUser
 from app.core.database import get_db
 from app.models.sales import SalesCompany, SalesLead, SalesOpportunity
+from app.models.user import User
 from app.services import sales_schema as schema
+from app.services.effective_access import resolve_effective_access
 from app.services.company_names import normalize_company_name
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales import company_dates
 from app.services.sales import leads as service
-from app.services.sales import signals
+from app.services.sales import bot_tasks, signals
 from app.services.sales.companies import http_url
+from app.services.sales.offers import works_in_sales
 
 router = APIRouter()
 
 NOT_FOUND_DETAIL = "Nie ma takiego leada."
+DECIDED_DETAIL = "Ten lead jest już rozpatrzony."
+ASSIGNED_DETAIL = (
+    "Ten lead ma osobę, która pracuje w Sprzedaży. Przejąć można tylko lead "
+    "bez opiekuna albo po osobie spoza Sprzedaży."
+)
 
 Source = Literal[schema.LEAD_SOURCES]  # type: ignore[valid-type]
 Status = Literal[schema.LEAD_STATUSES]  # type: ignore[valid-type]
@@ -66,6 +78,11 @@ class ConvertRequest(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
 
 
+class Ref(BaseModel):
+    id: int
+    name: str
+
+
 class LeadOut(BaseModel):
     id: int
     source: str
@@ -82,6 +99,9 @@ class LeadOut(BaseModel):
     created_at: datetime
     #: Surowe dane sygnału (z Atlasa: ogłoszenie, źródło, uzasadnienie wyniku).
     payload: dict[str, Any] = Field(default_factory=dict)
+    #: Osoba przypisana i czy pracuje w Sprzedaży (aktywna, z uprawnieniem Sprzedaży).
+    assignee: Optional[Ref] = None
+    assignee_in_sales: bool = False
 
 
 class LeadList(BaseModel):
@@ -90,10 +110,34 @@ class LeadList(BaseModel):
     counts: dict[str, int]
     #: Kanał sygnałów z bota researchu włączony (``SALES_SIGNALS_ENABLED``).
     signals_enabled: bool = False
+    #: Zadania bota poza sygnałami („Warto wrócić”, „Nowe centra IT”).
+    bot_tasks_enabled: bool = False
 
 
-def _out(lead: SalesLead) -> LeadOut:
-    return LeadOut.model_validate(lead, from_attributes=True)
+async def _outs(db: AsyncSession, leads: list[SalesLead]) -> list[LeadOut]:
+    """Leady z osobą przypisaną; jedno zapytanie o konta na całą listę."""
+
+    ids = sorted({lead.assignee_user_id for lead in leads if lead.assignee_user_id})
+    users: dict[int, User] = {}
+    if ids:
+        users = {
+            user.id: user
+            for user in (await db.scalars(select(User).where(User.id.in_(ids)))).all()
+        }
+        await resolve_effective_access(db, list(users.values()))
+    out = []
+    for lead in leads:
+        item = LeadOut.model_validate(lead, from_attributes=True)
+        user = users.get(lead.assignee_user_id or 0)
+        if user is not None:
+            item.assignee = Ref(id=user.id, name=user.name or user.email)
+            item.assignee_in_sales = works_in_sales(user)
+        out.append(item)
+    return out
+
+
+async def _out(db: AsyncSession, lead: SalesLead) -> LeadOut:
+    return (await _outs(db, [lead]))[0]
 
 
 async def _get(db: AsyncSession, lead_id: int) -> SalesLead:
@@ -111,6 +155,8 @@ async def list_leads(
     lead_status: Optional[Status] = Query(default="new", alias="status"),
     q: Optional[str] = Query(default=None, max_length=200),
     company_id: Optional[int] = Query(default=None, ge=1),
+    #: Pochodzenie leada z bota (``payload.origin``): ``grok`` sygnały, ``winback``.
+    origin: Optional[str] = Query(default=None, pattern=r"^[a-z_]{1,32}$"),
     #: Skrzynka sygnałów grupuje po stronie ekranu: wszystkie statusy naraz.
     all_statuses: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
@@ -120,6 +166,8 @@ async def list_leads(
         query = query.where(SalesLead.source == source)
     if company_id is not None:
         query = query.where(SalesLead.company_id == company_id)
+    if origin:
+        query = query.where(SalesLead.payload["origin"].astext == origin)
     text = (q or "").strip()
     if text:
         query = query.where(
@@ -148,10 +196,11 @@ async def list_leads(
         )
     ).scalars()
     return LeadList(
-        items=[_out(lead) for lead in rows],
+        items=await _outs(db, list(rows)),
         total=int(total or 0),
         counts={key: int(counts.get(key, 0)) for key in schema.LEAD_STATUSES},
         signals_enabled=signals.enabled(),
+        bot_tasks_enabled=bot_tasks.enabled(),
     )
 
 
@@ -179,7 +228,7 @@ async def create_lead(
         await db.execute(select(SalesLead).where(SalesLead.fingerprint == fingerprint))
     ).scalar_one_or_none()
     if existing is not None:
-        return _out(existing)
+        return await _out(db, existing)
     lead = SalesLead(
         source="manual",
         title=payload.title,
@@ -194,7 +243,7 @@ async def create_lead(
     db.add(lead)
     await db.commit()
     await db.refresh(lead)
-    return _out(lead)
+    return await _out(db, lead)
 
 
 @router.patch("/{lead_id}", response_model=LeadOut)
@@ -219,7 +268,7 @@ async def update_lead(
         )
     await db.commit()
     await db.refresh(lead)
-    return _out(lead)
+    return await _out(db, lead)
 
 
 @router.post("/{lead_id}/convert", response_model=dict[str, Any])
@@ -254,4 +303,30 @@ async def get_lead(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> LeadOut:
-    return _out(await _get(db, lead_id))
+    return await _out(db, await _get(db, lead_id))
+
+
+@router.post("/{lead_id}/take-over", response_model=LeadOut)
+async def take_over_lead(
+    lead_id: int,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> LeadOut:
+    """„Przejmij”: lead bez osoby w Sprzedaży przechodzi na zalogowaną osobę."""
+
+    lead = await db.get(SalesLead, lead_id, with_for_update=True)
+    if lead is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    if lead.status not in ("new", "contacted"):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=DECIDED_DETAIL)
+    previous_id = lead.assignee_user_id
+    if previous_id is not None and previous_id != current_user.id:
+        previous = await db.get(User, previous_id)
+        if previous is not None:
+            await resolve_effective_access(db, [previous])
+            if works_in_sales(previous):
+                raise HTTPException(status.HTTP_409_CONFLICT, detail=ASSIGNED_DETAIL)
+    lead.assignee_user_id = current_user.id
+    await db.commit()
+    await db.refresh(lead)
+    return await _out(db, lead)

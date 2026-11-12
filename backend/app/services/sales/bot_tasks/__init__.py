@@ -18,7 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.models.sales import SalesSignalRun
-from app.services.sales.bot_tasks import enrich, people, question, signals_briefing
+from app.services.sales.bot_tasks import (
+    discovery,
+    enrich,
+    people,
+    question,
+    signals_briefing,
+    winback,
+)
 from app.services.sales.bot_tasks.base import (
     AcceptRefused,
     BotTask,
@@ -64,6 +71,8 @@ REGISTRY: dict[str, BotTask] = {
         enrich.ENRICH,
         question.QUESTION,
         people.PEOPLE,
+        winback.WINBACK,
+        discovery.DISCOVERY,
     )
 }
 
