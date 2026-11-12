@@ -59,9 +59,10 @@ def test_registry_kinds_are_known_to_the_database_check() -> None:
     assert set(bot_tasks.REGISTRY) <= set(schema.BOT_RUN_KINDS)
     assert {"signals", "briefing"} <= set(bot_tasks.REGISTRY)
     assert bot_tasks.LEGACY_KINDS == set(schema.SIGNAL_RUN_KINDS)
-    for kind in bot_tasks.LEGACY_KINDS:
-        assert bot_tasks.REGISTRY[kind].report_model is signals.RunReport
     for task in bot_tasks.REGISTRY.values():
+        if task.kind in bot_tasks.LEGACY_KINDS:
+            assert task.report_model is signals.RunReport
+        assert issubclass(task.report_model, BaseModel)
         assert task.task_text(signals.new_run(task.kind, [1], now=NOW)[0], _ctx())
 
 

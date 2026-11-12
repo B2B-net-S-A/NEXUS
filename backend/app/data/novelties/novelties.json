@@ -2488,6 +2488,36 @@
     "dot_anchor": "sales.research.cognism"
   },
   {
+    "id": "sprzedaz-bot-uzupelnia-karte",
+    "pr": 3331,
+    "title": "Karta firmy: „Uzupełnij z bota”",
+    "why": "Bot szuka domeny, NIP-u, miasta, branży, wielkości i firmy matki ze źródłami. Każde pole przyjmujesz albo odrzucasz sam: nic nie zapisuje się na karcie bez Ciebie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.enrich",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-zapytaj-bota",
+    "pr": 3331,
+    "title": "Karta firmy: „Zapytaj bota”",
+    "why": "Zadaj pytanie o firmę, a bot w kilka minut odpowie ze źródłami. Do bota idzie tylko nazwa, domena i pytanie, więc nie wpisuj w nim e-maili ani telefonów.",
+    "tier": "dot",
+    "shipped_on": "2026-11-12",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy → Przegląd",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.ask",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
     "id": "sprzedaz-leady-warto-wrocic",
     "pr": 3333,
     "title": "Leady: „Warto wrócić” do przegranych",

@@ -139,9 +139,10 @@ async def test_fake_kind_round_trip_and_decision_survives_rerun(
 
 @pytest.mark.asyncio
 async def test_run_of_unregistered_kind_is_refused_and_closed(app_client) -> None:
-    assert "question" not in bot_tasks.REGISTRY
-    company = await _company(f"Pytanie {uuid.uuid4().hex[:8]}")
-    run_id, token = await _run([company], kind="question")
+    # „Warto wrócić” jest już w rejestrze (G-E); mapy osób jeszcze nie.
+    assert "people" not in bot_tasks.REGISTRY
+    company = await _company(f"Mapa {uuid.uuid4().hex[:8]}")
+    run_id, token = await _run([company], kind="people")
     resp = await app_client.post(
         f"{URL}/{run_id}", json={"items": []}, headers={"X-Run-Token": token}
     )

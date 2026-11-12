@@ -307,8 +307,13 @@ async def _card(
 
 
 async def _accept(
-    db: AsyncSession, result: SalesBotResult, user_id: int, now: datetime
+    db: AsyncSession,
+    result: SalesBotResult,
+    user_id: int,
+    now: datetime,
+    choice: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
+    # ``choice`` (wybór pól) dotyczy rodzajów z polami; tu jest jedna decyzja.
     pipeline, stage, stages = await _pipeline(db)
     card, created = await _card(db, result, user_id)
     if card.owner_user_id is None:

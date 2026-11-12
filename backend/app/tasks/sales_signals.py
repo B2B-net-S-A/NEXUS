@@ -3,10 +3,12 @@
 Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od 7:00
 startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
-przed krokiem i przy ofertach „Do decyzji”). W pierwszy poniedziałek miesiąca
-od 7:00 (albo przy pierwszym obrocie po nim) startuje „Warto wrócić” i „Nowe
-centra IT”, tylko przy włączonym ``SALES_BOT_TASKS_ENABLED``. Wyłącznik
-``SALES_SIGNALS_ENABLED``, bez adresu bota pętla stoi.
+przed krokiem i przy ofertach „Do decyzji”). Wyłącznik ``SALES_SIGNALS_ENABLED``,
+bez adresu bota pętla stoi. Nocą (1:00–6:00, raz na godzinę, najwyżej 5 biegów)
+uzupełnia karty firm bez domeny (``enrich``, G-A), a w pierwszy poniedziałek
+miesiąca od 7:00 (albo przy pierwszym obrocie po nim) startuje „Warto wrócić”
+i „Nowe centra IT”. Te kroki mają własny wyłącznik ``SALES_BOT_TASKS_ENABLED``,
+więc pętla biegnie, gdy włączony jest którykolwiek z nich.
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -23,8 +25,9 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
-from app.services.sales import bot_tasks, signals
-from app.services.sales import signal_targets as targets
+from app.services.sales import bot_tasks, signal_targets as targets
+from app.services.sales import signals
+from app.services.sales.bot_tasks import enrich
 
 logger = logging.getLogger(__name__)
 
@@ -75,21 +78,44 @@ async def _monthly_ids(db: AsyncSession, kind: str, *, now: datetime) -> list[in
     return []
 
 
+async def _night_enrich(db: AsyncSession, *, now: datetime, local: datetime) -> int:
+    """Nocny bieg uzupełnienia kart; zwraca liczbę wysłanych firm."""
+
+    start, end = enrich.NIGHT_HOURS
+    if not bot_tasks.enabled() or not start <= local.hour < end:
+        return 0
+    night = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(
+        timezone.utc
+    )
+    # Tylko biegi pętli: przycisk na karcie ma własny limit i nie zjada nocy.
+    started, last = (
+        await db.execute(
+            select(func.count(), func.max(SalesSignalRun.started_at)).where(
+                SalesSignalRun.kind == enrich.KIND,
+                SalesSignalRun.requested_by_user_id.is_(None),
+                SalesSignalRun.started_at >= night,
+            )
+        )
+    ).one()
+    if started >= enrich.NIGHT_MAX_RUNS or (
+        last is not None and last > now - enrich.NIGHT_EVERY
+    ):
+        return 0
+    ids = await enrich.night_company_ids(db, now=now)
+    if ids and _started(await signals.start_run(db, enrich.KIND, ids, now=now)):
+        return len(ids)
+    return 0
+
+
 async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str, int]:
     done = {
         "expired": await signals.expire_runs(db, now=now),
         "signals": 0,
         "briefing": 0,
+        "enrich": await _night_enrich(db, now=now, local=local),
         **{kind: 0 for kind in MONTHLY_KINDS},
     }
-    is_monday = local.weekday() == 0
-    if is_monday and local.hour >= SIGNALS_HOUR:
-        last = await _last_start(db, "signals", now=now)
-        if last is None or last < _monday_start(local):
-            ids = await targets.pilot_company_ids(db)
-            if ids and _started(await signals.start_run(db, "signals", ids, now=now)):
-                done["signals"] = len(ids)
-
+    # Biegi miesięczne to zadania bota: tylko ich wyłącznik, nie sygnałów.
     due = first_monday_start(local)
     if bot_tasks.enabled() and local >= due:
         for kind in MONTHLY_KINDS:
@@ -102,6 +128,15 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
             if _started(await signals.start_run(db, kind, ids, now=now)):
                 # Bieg bez listy firm liczy się jako jeden.
                 done[kind] = len(ids) or 1
+    if not signals.enabled():
+        return done
+    is_monday = local.weekday() == 0
+    if is_monday and local.hour >= SIGNALS_HOUR:
+        last = await _last_start(db, "signals", now=now)
+        if last is None or last < _monday_start(local):
+            ids = await targets.pilot_company_ids(db)
+            if ids and _started(await signals.start_run(db, "signals", ids, now=now)):
+                done["signals"] = len(ids)
 
     last = await _last_start(db, "briefing", now=now)
     if last is None or last <= now - BRIEFING_EVERY:
@@ -122,7 +157,7 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
 
 
 async def sales_signals_loop() -> None:
-    if not signals.enabled():
+    if not signals.enabled() and not bot_tasks.enabled():
         logger.info("sales_signals_loop disabled")
         return
     if not signals.configured():
@@ -138,11 +173,12 @@ async def sales_signals_loop() -> None:
                 done = await tick(db, now=datetime.now(timezone.utc), local=local_now())
             if any(done.values()):
                 logger.info(
-                    "sales_signals tick expired=%d signals=%d briefing=%d "
+                    "sales_signals tick expired=%d signals=%d briefing=%d enrich=%d "
                     "winback=%d discovery=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
+                    done["enrich"],
                     done["winback"],
                     done["discovery"],
                 )

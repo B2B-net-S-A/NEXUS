@@ -175,3 +175,6 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    „Warto wrócić”: `--kind winback --company-ids <id firm z przegraną>`;
    „Nowe centra IT”: `--kind discovery` (bez firm). Oba potem same raz w miesiącu,
    w pierwszy poniedziałek od 7:00.
+   Karta firmy (G-A): `--kind enrich --company-ids <1 id>`; pytanie (G-B):
+   `--kind question --company-ids <1 id> --request '{"question": "Czy mają centrum IT w Polsce?"}'`.
+   Po `received` wynik widać na karcie firmy (propozycje pól, odpowiedź na pytanie).
