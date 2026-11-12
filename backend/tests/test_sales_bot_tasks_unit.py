@@ -57,7 +57,9 @@ FAKE = bot_tasks.BotTask(
 
 def test_registry_kinds_are_known_to_the_database_check() -> None:
     assert set(bot_tasks.REGISTRY) <= set(schema.BOT_RUN_KINDS)
-    assert {"signals", "briefing", "enrich", "question", "people"} <= set(bot_tasks.REGISTRY)
+    assert {"signals", "briefing", "enrich", "question", "people"} <= set(
+        bot_tasks.REGISTRY
+    )
     assert bot_tasks.LEGACY_KINDS == set(schema.SIGNAL_RUN_KINDS)
     for task in bot_tasks.REGISTRY.values():
         if task.kind in bot_tasks.LEGACY_KINDS:
