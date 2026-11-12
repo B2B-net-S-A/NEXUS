@@ -153,3 +153,15 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   jednym nie cofa reszty ani zamknięcia. Klienta NEXUS nie powiadamia i okno mówi to
   wprost. Zaproszenie z Outlooka bez bliźniaka o tej samej godzinie = prośba dzwonkiem
   do prowadzącego (`ask_to_cancel`). Przy kilku osobach naraz listy nie ma.
+- **Jedna rozmowa w kilku rekrutacjach klienta = jeden debrief** (zgłoszenie
+  12.11.2026). Kandydatka w dwóch requestach Nordei na Scrum Mastera miała
+  jedną rozmowę u klienta wpisaną w obu (raz przy ruchu karty, raz przy
+  zapisie pytań). Debrief zapisany w jednej rekrutacji zostawiał w drugiej
+  „Telefon po rozmowie · po terminie 167 h” i „Zapisz debrief”. Ten sam
+  kandydat, ten sam `client_id` i ta sama godzina rozpoczęcia to jedno
+  spotkanie: `debrief_gate.shared_meeting_debriefs` daje debrief spod
+  bliźniaczego wpisu, a zamyka on rundę w bramce (`missing_debrief`), na
+  ekranie (`load_snapshots`) i w API integracji (`closed_debrief_event_ids`).
+  Odwołany wpis się nie liczy, inna godzina albo inny klient to osobna
+  rozmowa. Debrief nie jest kopiowany; zapis w drugiej rekrutacji zakłada
+  własny wiersz pod jej wpisem. Na kopii z 10.11 takie pary były 2.

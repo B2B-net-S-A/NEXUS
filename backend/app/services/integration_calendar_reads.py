@@ -42,7 +42,7 @@ from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.job import Job
 from app.models.prep_meeting import PrepMeeting, PrepReview
 from app.services.client_identity import client_display_name_expression
-from app.services.debrief_gate import debrief_closes_round
+from app.services.debrief_gate import debrief_closes_round, shared_meeting_debriefs
 from app.services.interview_cycle import (
     BADGE_DAYS_AHEAD,
     DEFAULT_DAYS_BACK,
@@ -324,7 +324,7 @@ async def closed_debrief_event_ids(
             )
         )
     ).all()
-    return {
+    closed = {
         row.calendar_event_id
         for row in rows
         if debrief_closes_round(
@@ -334,6 +334,22 @@ async def closed_debrief_event_ids(
             _utc(starts[row.calendar_event_id]),
         )
     }
+    # Ta sama rozmowa wpisana w innej rekrutacji klienta (12.11.2026).
+    shared = await shared_meeting_debriefs(db, [e for e in starts if e not in closed])
+    closed.update(
+        event_id
+        for event_id, feedbacks in shared.items()
+        if any(
+            debrief_closes_round(
+                fb.client_questions,
+                fb.no_client_questions,
+                _utc(fb.updated_at) if fb.updated_at else None,
+                _utc(starts[event_id]),
+            )
+            for fb in feedbacks
+        )
+    )
+    return closed
 
 
 def interview_out(
