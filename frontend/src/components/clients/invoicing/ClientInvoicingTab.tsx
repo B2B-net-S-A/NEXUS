@@ -38,6 +38,7 @@ import {
   checkText,
   defaultPeriod,
   looseInvoices,
+  paymentNote,
   paymentText,
   paymentTone,
   quantityText,
@@ -257,7 +258,12 @@ function BillingRowView({ row, invoices }: { row: BillingRow; invoices: SalesInv
       <TableCell className="min-w-0">
         {invoices.length ? (
           invoices.map((invoice) => (
-            <StatusDot key={invoice.id} tone={paymentTone(invoice)} className="block">
+            <StatusDot
+              key={invoice.id}
+              tone={paymentTone(invoice)}
+              note={paymentNote(invoice)}
+              className="flex"
+            >
               {paymentText(invoice)}
             </StatusDot>
           ))
@@ -299,7 +305,9 @@ function InvoiceList({
               <span className={`${CALM_SUBLINE} truncate`}>{targetsText(invoice)}</span>
             </span>
             <span className="min-w-0">
-              <StatusDot tone={paymentTone(invoice)}>{paymentText(invoice)}</StatusDot>
+              <StatusDot tone={paymentTone(invoice)} note={paymentNote(invoice)}>
+                {paymentText(invoice)}
+              </StatusDot>
               {canManage ? (
                 <a
                   href="/finance?view=sales-invoices"

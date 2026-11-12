@@ -50,6 +50,7 @@ import {
   canMarkPaid,
   checkText,
   defaultPeriod,
+  paymentNote,
   paymentText,
   paymentTone,
   splitPeriod,
@@ -492,7 +493,9 @@ function InvoiceTable({
                 </span>
               </TableCell>
               <TableCell className="min-w-0">
-                <StatusDot tone={paymentTone(invoice)}>{paymentText(invoice)}</StatusDot>
+                <StatusDot tone={paymentTone(invoice)} note={paymentNote(invoice)}>
+                  {paymentText(invoice)}
+                </StatusDot>
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex flex-wrap justify-end gap-1">
