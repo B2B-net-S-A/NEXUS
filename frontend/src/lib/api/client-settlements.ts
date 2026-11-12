@@ -328,6 +328,19 @@ export interface ClientDocumentProject {
   md: string;
   order_numbers: string[];
   tasks: number;
+  /** Blok kosztów do maila do automatu klienta (reguła `cl.cost_mail_block`); `null` = reguła wyłączona. */
+  esp: ClientDocumentCostBlock | null;
+}
+
+export interface ClientDocumentCostBlock {
+  /** Wszystkie osoby projektu przyjęte, jest numer zamówienia i stawka klienta. */
+  ready: boolean;
+  /** MD z pozycji faktury do klienta (z limitem puli), nie z godzin Time Sheet. */
+  md: string;
+  currency: string | null;
+  /** Tylko dla kont z dostępem do kwot i gotowego bloku. */
+  cost: string | null;
+  text: string | null;
 }
 
 export interface ClientDocumentsMonth {
@@ -338,6 +351,7 @@ export interface ClientDocumentsMonth {
   kind: string;
   /** `FORECAST` — z planu miesiąca (estymacja), `ACTUAL` — z Time Sheet. */
   stage: "ACTUAL" | "FORECAST" | null;
+  can_see_amounts: boolean;
   projects: ClientDocumentProject[];
   skipped: { person: string; reason: string }[];
 }

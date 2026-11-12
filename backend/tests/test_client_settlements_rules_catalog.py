@@ -77,6 +77,7 @@ E6_RULES = {
     "pay.per_person",
     "cl.extra_costs_on_invoice",
     "cl.client_document",
+    "cl.cost_mail_block",
     "cl.after_signed_document",
     "cl.send_to",
 }
