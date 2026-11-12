@@ -52,6 +52,7 @@ from app.services.debrief_gate import (
     debrief_closes_round,
     pick_current_round,
     pick_prep_round,
+    shared_meeting_debriefs,
 )
 from app.services.hr.time_suggest import plural
 from app.services.job_working_title import job_display_title_expr
@@ -1224,20 +1225,23 @@ async def load_snapshots(
             )
         ).scalars()
         feedback = {fb.calendar_event_id: fb for fb in fb_rows}
+    # Ta sama rozmowa wpisana w innej rekrutacji klienta (12.11.2026).
+    shared = await shared_meeting_debriefs(db, iv_ids)
 
     def _debrief_of(ev: CalendarEvent) -> Optional[InterviewFeedback]:
-        fb = feedback.get(ev.id)
         # Ta sama reguła „runda zamknięta” co bramka (``debrief_closes_round``):
         # debrief kompletny i zapisany po rozpoczęciu rozmowy. Feedback bez
         # pytań klienta (ogólny ``POST /api/interview-feedback``) nie zamyka
         # kroków „Telefon” i „Debrief” — bramka i tak odrzuciłaby ruch karty.
-        if fb is not None and debrief_closes_round(
-            fb.client_questions,
-            fb.no_client_questions,
-            _as_utc(fb.updated_at) if fb.updated_at else None,
-            _as_utc(ev.start_time),
-        ):
-            return fb
+        own = feedback.get(ev.id)
+        for fb in (*([own] if own is not None else []), *shared.get(ev.id, ())):
+            if debrief_closes_round(
+                fb.client_questions,
+                fb.no_client_questions,
+                _as_utc(fb.updated_at) if fb.updated_at else None,
+                _as_utc(ev.start_time),
+            ):
+                return fb
         return None
 
     now = _as_utc(now) if now is not None else datetime.now(timezone.utc)

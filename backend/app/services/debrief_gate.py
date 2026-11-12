@@ -32,6 +32,7 @@ from typing import Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -99,6 +100,53 @@ def debrief_closes_round(
     return debrief_is_complete(
         client_questions, no_client_questions
     ) and debrief_saved_after_start(saved_at, start)
+
+
+async def shared_meeting_debriefs(
+    db: AsyncSession, event_ids: Sequence[int]
+) -> dict[int, list[InterviewFeedback]]:
+    """Debriefy zapisane pod INNYM wpisem tej samej rozmowy u klienta.
+
+    Ten sam kandydat, ten sam klient i ta sama godzina rozpoczęcia to jedno
+    spotkanie, nawet gdy stoi w dwóch rekrutacjach (dwa requesty klienta na
+    tę samą rolę). Zgłoszenie 12.11.2026: debrief zapisany w jednej
+    rekrutacji zostawiał w drugiej „Telefon po rozmowie · po terminie”
+    i „Zapisz debrief”, więc zespół musiał przepisywać ten sam debrief.
+    Odwołany wpis się nie liczy. Klucz = id wpisu, dla którego szukamy.
+    """
+    if not event_ids:
+        return {}
+    own = aliased(CalendarEvent)
+    twin = aliased(CalendarEvent)
+    rows = (
+        await db.execute(
+            select(own.id, InterviewFeedback)
+            .join(
+                twin,
+                and_(
+                    twin.candidate_id == own.candidate_id,
+                    twin.client_id == own.client_id,
+                    twin.start_time == own.start_time,
+                    twin.id != own.id,
+                    twin.event_type == EventType.client_interview,
+                    twin.status != EventStatus.cancelled,
+                ),
+            )
+            .join(
+                InterviewFeedback,
+                and_(
+                    InterviewFeedback.calendar_event_id == twin.id,
+                    InterviewFeedback.feedback_source == FeedbackSource.candidate_side,
+                ),
+            )
+            .where(own.id.in_(list(event_ids)))
+            .order_by(InterviewFeedback.updated_at.desc())
+        )
+    ).all()
+    out: dict[int, list[InterviewFeedback]] = {}
+    for event_id, feedback in rows:
+        out.setdefault(event_id, []).append(feedback)
+    return out
 
 
 def pick_prep_round(rounds: Sequence[datetime], now: datetime) -> Optional[int]:
@@ -218,8 +266,22 @@ async def missing_debrief(
             return value
         return value.replace(tzinfo=timezone.utc)
 
+    shared = await shared_meeting_debriefs(db, [r[0] for r in rows])
+
     def _closed(row) -> bool:
-        return debrief_closes_round(row[2], row[3], _aware(row[4]), _aware(row[1]))
+        start = _aware(row[1])
+        if debrief_closes_round(row[2], row[3], _aware(row[4]), start):
+            return True
+        # Ta sama rozmowa wpisana w innej rekrutacji klienta (12.11.2026).
+        return any(
+            debrief_closes_round(
+                fb.client_questions,
+                fb.no_client_questions,
+                _aware(fb.updated_at),
+                start,
+            )
+            for fb in shared.get(row[0], ())
+        )
 
     # Runda 8 (R8-N9-3): ta sama „bieżąca runda” co ekran i planowanie prepu.
     index = pick_current_round([(_aware(r[1]) or now, _closed(r)) for r in rows], now)
