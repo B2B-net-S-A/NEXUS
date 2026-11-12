@@ -195,7 +195,17 @@ async def my_queue(
                 },
             }
         )
-    return {"items": items}
+    # Reguła rekrutacji z powtarzanych braków (R1, 12.11.2026) — linia nad kartą.
+    from app.services.job_learned_rules import rules_for_jobs
+
+    learned = await rules_for_jobs(db, job_ids)
+    return {
+        "items": items,
+        "job_rules": {
+            str(job_id): [rule.as_dict() for rule in rules]
+            for job_id, rules in learned.items()
+        },
+    }
 
 
 def _in_work(job: Job) -> bool:

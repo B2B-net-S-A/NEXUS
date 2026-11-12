@@ -18,6 +18,7 @@ import {
   type ReviewBatchJob,
   type ReviewBatchSource,
   type ReviewBatchStatus,
+  type ReviewBatchLearnedRule,
   type ReviewBatchWhy,
 } from "@/lib/api/reviewBatch";
 
@@ -275,7 +276,28 @@ function WhyLine({ why }: { why: ReviewBatchWhy }) {
   );
 }
 
-function JobContext({ jobId, title, why }: { jobId: number; title: string; why?: ReviewBatchWhy }) {
+/** „Z Waszych odrzuceń: wymagamy doświadczenia w Angular (5×)” — reguła R1. */
+export function learnedRulesLine(rules: readonly ReviewBatchLearnedRule[] | undefined): string | null {
+  if (!rules || rules.length === 0) return null;
+  const parts = rules.map(
+    (rule) =>
+      `${rule.level === "experience" ? "doświadczenia w" : "śladu"} ${rule.label} (${rule.count}×)`,
+  );
+  return `Z odrzuceń: wymagamy ${parts.join(", ")}`;
+}
+
+function JobContext({
+  jobId,
+  title,
+  why,
+  rules,
+}: {
+  jobId: number;
+  title: string;
+  why?: ReviewBatchWhy;
+  rules?: readonly ReviewBatchLearnedRule[];
+}) {
+  const learned = learnedRulesLine(rules);
   const brief = usePlainBrief(jobId);
   const oneLiner = brief.data?.one_liner ?? null;
   return (
@@ -287,6 +309,11 @@ function JobContext({ jobId, title, why }: { jobId: number; title: string; why?:
       <div className="text-sm font-semibold leading-snug">{title}</div>
       {why ? <WhyLine why={why} /> : null}
       {oneLiner ? <p className="mt-1 text-xs leading-snug text-muted-foreground">{oneLiner}</p> : null}
+      {learned ? (
+        <p className="mt-1 text-xs leading-snug text-primary" data-testid="review-learned-rules">
+          {learned}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -431,7 +458,12 @@ function BatchWorkspace({
           {tab === "decide" ? (
             next ? (
               <>
-                <JobContext jobId={next.job_id} title={next.job_title} why={next.why} />
+                <JobContext
+                  jobId={next.job_id}
+                  title={next.job_title}
+                  why={next.why}
+                  rules={queue.data?.job_rules?.[String(next.job_id)]}
+                />
                 <ReviewBatchCard
                   key={next.process_id}
                   item={next}

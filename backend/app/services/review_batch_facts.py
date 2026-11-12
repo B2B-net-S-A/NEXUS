@@ -148,6 +148,62 @@ def _text_hit(text: str, variants: Iterable[str]) -> bool:
     return False
 
 
+async def evidence_for(
+    db, candidates: Iterable[Any], labels: Iterable[str]
+) -> dict[tuple[int, str], tuple[str, int]]:
+    """``{(candidate_id, label): (stan, miesiące)}`` — dowód pozycji u osób.
+
+    Jedno zapytanie o oś technologii; reszta z CV i listy umiejętności osoby.
+    Wspólne dla karty porcji i reguły rekrutacji (``job_learned_rules``)."""
+    from app.models.candidate_skill_usage import CandidateSkillUsage
+    from app.services.scoring_service import (
+        candidate_skill_names,
+        skill_name_variants,
+        skill_present,
+    )
+
+    people = {c.id: c for c in candidates}
+    variants = {
+        label: [v for v in skill_name_variants([label]) if v] or [label.casefold()]
+        for label in {lb.strip() for lb in labels if lb and lb.strip()}
+    }
+    if not people or not variants:
+        return {}
+    keys = sorted({key for family in variants.values() for key in family})
+    rows = (
+        await db.execute(
+            select(
+                CandidateSkillUsage.candidate_id,
+                CandidateSkillUsage.skill_canonical,
+                func.max(CandidateSkillUsage.months),
+            )
+            .where(
+                CandidateSkillUsage.candidate_id.in_(sorted(people)),
+                CandidateSkillUsage.skill_canonical.in_(keys),
+                CandidateSkillUsage.months > 0,
+            )
+            .group_by(
+                CandidateSkillUsage.candidate_id,
+                CandidateSkillUsage.skill_canonical,
+            )
+        )
+    ).all()
+    usage = {(cid, key): int(months) for cid, key, months in rows}
+    out: dict[tuple[int, str], tuple[str, int]] = {}
+    for cid, candidate in people.items():
+        text = (getattr(candidate, "raw_cv_text", None) or "").casefold()
+        skills = candidate_skill_names(candidate)
+        for label, family in variants.items():
+            months = max((usage.get((cid, key), 0) for key in family), default=0)
+            state = evidence_state(
+                months=months,
+                text_hit=_text_hit(text, family),
+                skill_hit=skill_present(label, skills),
+            )
+            out[(cid, label)] = (state, months)
+    return out
+
+
 async def key_facts_for(db, cards: list[tuple[int, Any, Any]]) -> dict[int, dict]:
     """``{process_id: {"critical": [...], "polish": {...}}}`` dla kart porcji.
 
@@ -155,54 +211,22 @@ async def key_facts_for(db, cards: list[tuple[int, Any, Any]]) -> dict[int, dict
     kolejkę: oś technologii, języki i odrzucenia „Brak polskiego”."""
     from app.models.autofill_feedback import AutofillFeedback
     from app.models.candidate_language import CandidateLanguage
-    from app.models.candidate_skill_usage import CandidateSkillUsage
     from app.services.critical_skills import stored_critical
-    from app.services.scoring_service import (
-        candidate_skill_names,
-        skill_name_variants,
-        skill_present,
-    )
 
     if not cards:
         return {}
     candidate_ids = sorted({c.id for _, _, c in cards})
     labels_by_job: dict[int, list[str]] = {}
-    variants: dict[str, list[str]] = {}
     for _, job, _ in cards:
-        if job.id in labels_by_job:
-            continue
-        labels = [
-            label.strip() for label in (stored_critical(job) or []) if label.strip()
-        ]
-        labels_by_job[job.id] = labels
-        for label in labels:
-            variants.setdefault(
-                label,
-                [v for v in skill_name_variants([label]) if v] or [label.casefold()],
-            )
-    keys = sorted({key for family in variants.values() for key in family})
-
-    usage: dict[tuple[int, str], int] = {}
-    if keys:
-        rows = (
-            await db.execute(
-                select(
-                    CandidateSkillUsage.candidate_id,
-                    CandidateSkillUsage.skill_canonical,
-                    func.max(CandidateSkillUsage.months),
-                )
-                .where(
-                    CandidateSkillUsage.candidate_id.in_(candidate_ids),
-                    CandidateSkillUsage.skill_canonical.in_(keys),
-                    CandidateSkillUsage.months > 0,
-                )
-                .group_by(
-                    CandidateSkillUsage.candidate_id,
-                    CandidateSkillUsage.skill_canonical,
-                )
-            )
-        ).all()
-        usage = {(cid, key): int(months) for cid, key, months in rows}
+        if job.id not in labels_by_job:
+            labels_by_job[job.id] = [
+                label.strip() for label in (stored_critical(job) or []) if label.strip()
+            ]
+    evidence = await evidence_for(
+        db,
+        {c.id: c for _, _, c in cards}.values(),
+        [label for labels in labels_by_job.values() for label in labels],
+    )
 
     polish_rows = (
         await db.execute(
@@ -238,22 +262,10 @@ async def key_facts_for(db, cards: list[tuple[int, Any, Any]]) -> dict[int, dict
     }
 
     out: dict[int, dict] = {}
-    skill_cache: dict[int, set[str]] = {}
     for process_id, job, candidate in cards:
-        text = (getattr(candidate, "raw_cv_text", None) or "").casefold()
-        if candidate.id not in skill_cache:
-            skill_cache[candidate.id] = candidate_skill_names(candidate)
         critical = []
         for label in labels_by_job.get(job.id, []):
-            family = variants[label]
-            months = max(
-                (usage.get((candidate.id, key), 0) for key in family), default=0
-            )
-            state = evidence_state(
-                months=months,
-                text_hit=_text_hit(text, family),
-                skill_hit=skill_present(label, skill_cache[candidate.id]),
-            )
+            state, months = evidence.get((candidate.id, label), ("none", 0))
             critical.append(
                 {
                     "label": label,

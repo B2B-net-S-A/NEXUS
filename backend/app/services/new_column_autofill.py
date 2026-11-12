@@ -834,7 +834,8 @@ async def _by_rules(
 
 
 async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]:
-    """Tylko „brak przeciwwskazań” i bez off-limits u klienta."""
+    """Tylko „brak przeciwwskazań”, bez off-limits u klienta i zgodnie z regułą
+    rekrutacji z powtarzanych braków (``job_learned_rules``)."""
     from app.services import client_off_limits
     from app.services.candidate_job_eligibility import EligibilityReason
     from app.services.pipeline_eligibility import (
@@ -867,7 +868,14 @@ async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]
             candidates=[candidates[p.candidate_id] for p in eligible],
         )
     }
-    return [p for p in eligible if p.candidate_id not in off_limits]
+    allowed = [p for p in eligible if p.candidate_id not in off_limits]
+    # Reguła rekrutacji z powtarzanych braków (R1, 12.11.2026).
+    from app.services.job_learned_rules import keep_passing
+
+    passing = await keep_passing(
+        db, job.id, [candidates[p.candidate_id] for p in allowed]
+    )
+    return [p for p in allowed if p.candidate_id in passing]
 
 
 def entry_meta(pick: Pick, candidate: Candidate) -> dict:

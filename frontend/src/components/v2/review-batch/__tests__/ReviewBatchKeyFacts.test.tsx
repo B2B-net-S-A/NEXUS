@@ -53,7 +53,7 @@ describe("Kluczowe w tej rekrutacji", () => {
     expect(screen.getByLabelText("tylko wzmianka")).toHaveTextContent("~");
     expect(screen.getByLabelText("brak")).toHaveTextContent("✗");
     expect(screen.getByTestId("review-key-polish")).toHaveTextContent("ojczysty: polskie imię i nazwisko");
-    expect(screen.getByText(/Wymagania z listy: 3 z 5/)).toBeInTheDocument();
+    expect(screen.getByText(/Z listy wymagań: 3 z 5/)).toBeInTheDocument();
     expect(screen.queryByText("? bigquery")).not.toBeInTheDocument();
   });
 
