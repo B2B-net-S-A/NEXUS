@@ -201,6 +201,11 @@ Gdyby przed routerem E8 trzeba było włączyć czytnik rozliczeń, to tylko na 
 (nie `wsparcie@`). Wtedy przy portalu `pilot` do 15 min: `last_status = 'ok'`, dokumenty tylko od
 adresów z aktywowanych kontraktów; `all` bez modułu `back_office` działa jak `off`.
 
+Decyzja Artura z 12.11.2026: czytnik rozliczeń rusza od rozliczenia listopada dla wszystkich
+klientów (panel `all`), kroki w E7 roadmapy rozliczeń (`docs/rozliczenia-klientow-roadmapa.md`).
+`CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` wskazuje wtedy skrzynkę rozliczenia@, **nigdy** `wsparcie@`,
+dopóki nie ma routera E8. Jeśli rozliczenia@ jest już tylko aliasem `wsparcie@`, start czeka na E8.
+
 ## 4. Wygaszenie starych adresów — co zmienić wcześniej
 
 Stan z grepu `origin/main` 09.11.2026. Pełne adresy w treściach, które dostają ludzie:
