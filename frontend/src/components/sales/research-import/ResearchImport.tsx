@@ -355,7 +355,9 @@ export function ResearchImport() {
         CSV albo Excel (.xlsx), do 500 wierszy i 2 MB. Kolumny: Firma, Imię i nazwisko, Stanowisko; opcjonalnie E-mail,
         Telefon, LinkedIn, Źródło, Strona www, Pewność, Poziom, Notatka.
       </p>
-      <p className="text-xs text-muted-foreground">Eksport CSV z Cognism: wgraj plik bez zmian.</p>
+      <p className="text-xs text-muted-foreground" data-tour="sales.research.cognism">
+        Eksport CSV z Cognism: wgraj plik bez zmian.
+      </p>
       {preview.isError && (
         <p role="alert" className="text-sm text-destructive">
           {apiErrorMessage(preview.error, "Nie udało się odczytać pliku.")}
