@@ -8,8 +8,8 @@ dopasowania ``issued`` w ``client_sales_invoices``. SQL i powody:
 ``app/services/client_invoice_issue_schema.py`` (to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``).
 
-Równolegle powstaje ``0695`` (koszty): przy scaleniu przepnij ``down_revision``
-na tę migrację, która wejdzie pierwsza (``scripts/rechain_migration.py``).
+Stoi na ``0695_finance_ledger`` (kolejka kosztów, #3390): pas migracji
+wprowadza ten PR do kolejki zaraz za nim.
 """
 
 from alembic import op
