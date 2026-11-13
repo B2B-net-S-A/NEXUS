@@ -74,8 +74,16 @@ def enabled() -> bool:
     return bool(settings.SALES_SIGNALS_ENABLED)
 
 
-def configured() -> bool:
-    return bool(settings.GROK_BOT_WEBHOOK_URL and settings.GROK_BOT_WEBHOOK_KEY)
+def configured(kind: Optional[str] = None) -> bool:
+    """Webhook gotowy: dla rodzaju jego bota, bez rodzaju choć jednego bota
+    poza Cognism (własna para albo wspólna, ``bots.webhook``)."""
+
+    from app.services.sales import bots
+
+    if kind is not None:
+        bot = bots.bot_for(kind)
+        return bot is not None and all(bots.webhook(bot))
+    return any(all(bots.webhook(bot)) for bot in bots.BOTS if bot != bots.COGNISM)
 
 
 def people_enabled() -> bool:
@@ -616,7 +624,7 @@ async def start_run(
     (``BotTask.request_model``); niedozwolone pola to ``ValueError``.
     """
 
-    from app.services.sales import bot_tasks
+    from app.services.sales import bot_tasks, bots
 
     task = bot_tasks.get(kind)
     if task is None:
@@ -625,13 +633,16 @@ async def start_run(
     if not (people_enabled() if cognism else bot_tasks.allowed_to_start(kind)):
         return None
     checked_request = task.validate_request(request)
-    if cognism:
-        webhook_url = settings.GROK_BOT_PEOPLE_WEBHOOK_URL
-        webhook_key = settings.GROK_BOT_PEOPLE_WEBHOOK_KEY
-    else:
-        webhook_url = settings.GROK_BOT_WEBHOOK_URL
-        webhook_key = settings.GROK_BOT_WEBHOOK_KEY
+    # Każdy rodzaj należy do jednego z czterech botów (13.11.2026): własny
+    # webhook bota albo wspólny; bot wstrzymany na ekranie Boty nie startuje.
+    bot = bots.bot_for(kind, request)
+    if bot is None:
+        return None
+    webhook_url, webhook_key = bots.webhook(bot)
     if not (webhook_url and webhook_key):
+        return None
+    if await bots.is_paused(db, bot):
+        logger.info("sales_signals kind=%s bot=%s paused", kind, bot)
         return None
     moment = now or datetime.now(timezone.utc)
     rows = await _companies(db, company_ids[:MAX_FIRMS])

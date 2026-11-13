@@ -41,6 +41,7 @@ describe("zakładki Sprzedaży", () => {
     expect(tabOf(activeSection("/sales/tasks"))).toBe("my-day");
     expect(tabOf(activeSection("/sales/summary"))).toBe("opportunities");
     expect(tabOf(activeSection("/sales/offers"))).toBe("offers");
+    expect(tabOf(activeSection("/sales/bots"))).toBe("leads");
   });
 
   it("w Firmach przełącznik „Firmy | Osoby” prowadzi do Kontaktów", () => {

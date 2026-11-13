@@ -23,13 +23,17 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Protocol
 from urllib.parse import quote
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.scheduling import business_today
+from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpMailboxState
+from app.models.contract import Contract
+from app.models.user import User
+from app.services.client_settlements import kesu
 from app.services.consultant_portal import documents, identity, portal_settings
 from app.services.consultant_portal.auth import PortalError
 from app.services.m365.app_graph_client import AppGraphClient, AppOnlyTokenUnavailable
@@ -42,7 +46,9 @@ INITIAL_LOOKBACK = timedelta(days=3)
 MAX_MESSAGES_PER_RUN = 200
 _MESSAGE_SELECT = "id,subject,from,receivedDateTime,hasAttachments"
 _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
-_REPORT = re.compile(r"raport|timesheet|ewidencj|godzin", re.IGNORECASE)
+_REPORT = re.compile(
+    r"raport|timesheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora", re.IGNORECASE
+)
 _INVOICE = re.compile(r"faktur|invoice|(?:^|[^a-z])fv(?:[^a-z]|$)", re.IGNORECASE)
 _PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)")
 _PERIOD_ISO = re.compile(r"(?<!\d)(20\d{2})[./_-](0?[1-9]|1[0-2])(?!\d)")
@@ -69,6 +75,8 @@ class SettlementsMailbox(Protocol):
     async def list_messages(self, since: datetime) -> list[dict[str, Any]]: ...
 
     async def attachments(self, message_id: str) -> list[dict[str, Any]]: ...
+
+    async def mime(self, message_id: str) -> Optional[bytes]: ...
 
 
 def mailbox_upn() -> Optional[str]:
@@ -110,6 +118,14 @@ class GraphSettlementsMailbox:
                 f"{self._prefix}/messages/{quote(message_id, safe='')}/attachments"
             )
         return list((page or {}).get("value") or [])
+
+    async def mime(self, message_id: str) -> Optional[bytes]:
+        """Cały mail (MIME), np. z Jiry: treść niesie opiekuna i czas akceptacji."""
+
+        async with self._client() as client:
+            return await client.download(
+                f"{self._prefix}/messages/{quote(message_id, safe='')}/$value"
+            )
 
 
 def classify_kind(subject: str, file_name: str) -> str:
@@ -206,13 +222,28 @@ async def _ingest_message(
     if not message.get("hasAttachments"):
         return 0, 0
     sender = _sender(message)
-    contract = await identity.resolve_by_email(db, sender, settings=state, today=today)
+    subject = str(message.get("subject") or "")
+    by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
+    contract = by_subject or await identity.resolve_by_email(
+        db, sender, settings=state, today=today
+    )
     if contract is None and state.state != "all":
         return 0, 1
     contract_id = contract.id if contract else None
-    subject = str(message.get("subject") or "")
     received = _parse_time(message.get("receivedDateTime")) or now
     created = skipped = 0
+    if kesu.parse_jira(subject, "") is not None:
+        made = await _store_jira_mail(
+            db,
+            mailbox,
+            message,
+            contract_id=contract_id,
+            subject=subject,
+            received=received,
+            now=now,
+            sender=sender,
+        )
+        created += made
     for attachment in await mailbox.attachments(str(message["id"])):
         if attachment.get("@odata.type") != _FILE_ATTACHMENT or attachment.get(
             "isInline"
@@ -222,6 +253,11 @@ async def _ingest_message(
         if not isinstance(raw, str):
             continue
         name = str(attachment.get("name") or "")
+        if kesu.is_kesu_subject(subject) and kesu.is_transport_statement(name):
+            # Oświadczenie o własnym transporcie ma PESEL i dowód: nie w NEXUS-ie
+            # (odpowiedź rozliczeń z 12.11.2026), rozliczenia dosyłają je osobno.
+            skipped += 1
+            continue
         try:
             content = base64.b64decode(raw, validate=True)
         except ValueError:
@@ -249,6 +285,106 @@ async def _ingest_message(
             continue
         created += 0 if stored.duplicate else 1
     return created, skipped
+
+
+async def _kesu_contract(
+    db: AsyncSession,
+    subject: str,
+    sender: str,
+    *,
+    state: portal_settings.PortalSettings,
+    today: date,
+) -> Optional[Contract]:
+    """KEŚU (E6.3): osoba z tematu, ale tylko z zaufanego kanału.
+
+    Mail z Jiry przekazuje koordynator, więc nadawcą musi być aktywne konto
+    NEXUS-a (osoba z tematu ma pierwszeństwo przed kontraktem nadawcy, gdyby
+    koordynator sam miał kontrakt). Odpowiedź „KEŚU … - osoba” przychodzi od
+    klienta: przypisujemy ją tylko z domeny opiekuna z maila z Jiry tej osoby.
+    Inny nadawca = zwykła ścieżka (adres z kontraktu albo karta do przypisania),
+    bo sam temat może napisać każdy.
+    """
+
+    person = kesu.person_from_subject(subject)
+    if person is None or "@" not in sender:
+        return None
+    if kesu.parse_jira(subject, "") is not None:
+        staff = await db.scalar(
+            select(User.id).where(
+                func.lower(User.email) == sender, User.is_active.is_(True)
+            )
+        )
+        if staff is None:
+            return None
+        return await identity.resolve_by_name(db, person, settings=state, today=today)
+    contract = await identity.resolve_by_name(db, person, settings=state, today=today)
+    if contract is None:
+        return None
+    from app.services.client_settlements import service as settlements
+
+    domain = sender.rsplit("@", 1)[1]
+    recent = (
+        await db.scalars(
+            select(ClientSettlement)
+            .where(ClientSettlement.contract_id == contract.id)
+            .order_by(ClientSettlement.period_month.desc())
+            .limit(3)
+        )
+    ).all()
+    for settlement in recent:
+        approver = (settlements.meta_of(settlement).get("kesu") or {}).get(
+            "approver_email"
+        )
+        if approver and str(approver).lower().rsplit("@", 1)[-1] == domain:
+            return contract
+    return None
+
+
+async def _store_jira_mail(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    contract_id: Optional[int],
+    subject: str,
+    received: datetime,
+    now: datetime,
+    sender: str,
+) -> int:
+    """Mail z Jiry jako EML przy KEŚU: z treści bierzemy opiekuna i czas akceptacji."""
+
+    reader = getattr(mailbox, "mime", None)
+    if reader is None:
+        return 0
+    try:
+        content = await reader(str(message["id"]))
+    except (GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        code = (
+            f"http_{exc.status}" if isinstance(exc, GraphRequestError) else "no_token"
+        )
+        logger.warning("consultant_portal_mailbox: jira mime failed %s", code)
+        return 0
+    if not content:
+        return 0
+    year, month, guessed = period_for(subject, "", received.date())
+    try:
+        stored = await documents.store(
+            db,
+            contract_id=contract_id,
+            kind="report",
+            year=year,
+            month=month,
+            content=content,
+            file_name=f"Akceptacja Jira {month:02d}-{year}.eml",
+            channel="mailbox",
+            now=now,
+            period_guessed=guessed,
+            graph_message_id=str(message["id"])[:512],
+            sender_email=sender[:320] or None,
+        )
+    except PortalError:
+        return 0
+    return 0 if stored.duplicate else 1
 
 
 async def run_once(

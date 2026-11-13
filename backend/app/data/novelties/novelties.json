@@ -2727,5 +2727,19 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "b2b.esign.package"
+  },
+  {
+    "id": "sprzedaz-leady-boty",
+    "pr": 3364,
+    "title": "Leady → Boty: cztery boty Sprzedaży",
+    "why": "Zobaczysz, co robi każdy bot (Leady, Research, Dane firm, Kontakty), kiedy pracuje, czego nigdy nie robi i ile razy pracował w ostatnim tygodniu. Wyniki botów zapisują się od razu w kartach.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Leady → Boty",
+    "href": "/sales/bots",
+    "dot_anchor": "sales.bots.list"
   }
 ]

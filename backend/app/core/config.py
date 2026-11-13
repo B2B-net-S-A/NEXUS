@@ -1347,6 +1347,16 @@ class Settings(BaseSettings):
     # Adres webhooka rutyny bota i jego klucz (nagłówek ``Authorization: Bearer``).
     GROK_BOT_WEBHOOK_URL: str = ""
     GROK_BOT_WEBHOOK_KEY: str = ""
+    # Cztery boty Sprzedaży, każdy z własną rutyną (decyzja Artura 13.11.2026,
+    # ``app/services/sales/bots.py``). Bot bez własnej pary idzie na wspólny webhook.
+    GROK_BOT_LEADS_WEBHOOK_URL: str = ""
+    GROK_BOT_LEADS_WEBHOOK_KEY: str = ""
+    GROK_BOT_RESEARCH_WEBHOOK_URL: str = ""
+    GROK_BOT_RESEARCH_WEBHOOK_KEY: str = ""
+    GROK_BOT_COMPANY_WEBHOOK_URL: str = ""
+    GROK_BOT_COMPANY_WEBHOOK_KEY: str = ""
+    GROK_BOT_CONTACTS_WEBHOOK_URL: str = ""
+    GROK_BOT_CONTACTS_WEBHOOK_KEY: str = ""
     # Osobna rutyna Groka dla map firm z panelu Cognism.
     GROK_BOT_PEOPLE_WEBHOOK_URL: str = ""
     GROK_BOT_PEOPLE_WEBHOOK_KEY: str = ""
@@ -1358,6 +1368,10 @@ class Settings(BaseSettings):
     # karta firmy, pytania, odzyskiwanie, nowe centra, mapy osób. OFF do udanej
     # próby polecenia v2 rutyny bota; ``signals`` i ``briefing`` działają bez niej.
     SALES_BOT_TASKS_ENABLED: bool = False
+    # Dane firm z rejestrów państwowych (biała lista VAT MF i KRS) na karty Sprzedaży:
+    # noc 1–6 i zaraz po zapisaniu NIP-u albo KRS-u (``services/sales/registry.py``).
+    # OFF do próby na stagingu z kopią produkcji.
+    SALES_REGISTRY_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
