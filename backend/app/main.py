@@ -3597,8 +3597,59 @@ async def api_health_alembic():
     return JSONResponse(content=out, status_code=http_status.HTTP_200_OK)
 
 
+# Pentest stagingu 13.11.2026: anonim dostawał listę ok. 210 tabel, raport
+# dryfu schematu, kolację i liczby z importu portfela klientów, a każde
+# wywołanie to ok. 210 zapytań do bazy — bez limitu. Deploy (``deploy.yml``)
+# czyta wyłącznie ``status``, ``version``, ``checks``/``errors`` (do logu) i
+# ``postgres_started_at``, więc tylko to zostaje anonimowi, a w ``checks`` —
+# tylko sondy padnięte. Pełny raport: zalogowany admin. Deploy woła sondę
+# najwyżej ok. 4 razy na minutę (co 15 s), stąd 10/min per IP.
+_DEEP_HEALTH_PUBLIC_FIELDS = ("status", "version", "postgres_started_at")
+
+
+async def _deep_health_viewer_is_admin(request: Request) -> bool:
+    """Pełny raport ``/api/health/deep`` tylko dla zalogowanego admina.
+
+    Sonda zostaje bez wymaganego logowania (deploy nie loguje się), więc token
+    sprawdzamy tylko, gdy przyszedł; każdy błąd = wersja anonimowa.
+    """
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.api.deps import get_authenticated_user
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import UserRole
+
+    try:
+        async with AsyncSessionLocal() as db:
+            user = await get_authenticated_user(
+                request,
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+                db,
+            )
+    except Exception:  # noqa: BLE001 — zły token albo baza: wersja anonimowa
+        return False
+    return user.has_role(UserRole.admin)
+
+
+def _public_deep_health_body(body: dict) -> dict:
+    failing = {
+        name: state for name, state in body["checks"].items() if state != "healthy"
+    }
+    public = {field: body[field] for field in _DEEP_HEALTH_PUBLIC_FIELDS}
+    public["checked"] = body["checked"]
+    public["checks"] = failing
+    if body.get("errors"):
+        public["errors"] = body["errors"]
+    return public
+
+
 @app.get("/api/health/deep")
-async def api_health_deep_check():
+@limiter.limit("10/minute")
+async def api_health_deep_check(request: Request):
     """Deep healthcheck — probes core business tables against the live ORM.
 
     Motivation: /api/health only does `SELECT 1`, so it stays green even when
@@ -3623,9 +3674,10 @@ async def api_health_deep_check():
     exactly how the 0154 incident slipped through.
 
     Auth-free by design (no CI-side login/token coupling that could itself block
-    deploys). Response leaks only table names + the failing exception's class
-    name; full errors go to server logs / Sentry. HTTP 503 if any core table
-    fails; 200 when all pass.
+    deploys). Anonymous callers get only the deploy signal (status, version,
+    the FAILING probes with the exception class name); the full report needs an
+    admin token — see ``_public_deep_health_body``. Full errors go to server
+    logs / Sentry. HTTP 503 if any core table fails; 200 when all pass.
 
     When a NEW core table (or a drift-prone child) is added, extend `core_checks`
     below in the same spirit as the entrypoint.sh safety-net checklist.
@@ -4994,6 +5046,7 @@ async def api_health_deep_check():
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
+        "checked": len(checks),
         "checks": checks,
         "collation": collation_report,
         "client_portfolio_import": portfolio_import,
@@ -5002,6 +5055,8 @@ async def api_health_deep_check():
     }
     if errors:
         body["errors"] = errors
+    if not await _deep_health_viewer_is_admin(request):
+        body = _public_deep_health_body(body)
 
     return JSONResponse(
         content=body,

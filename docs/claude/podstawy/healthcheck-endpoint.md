@@ -29,6 +29,16 @@
   i `care_board_states` (0509) — dopisane 22.10. Tabela bez modelu ORM dostaje
   sondę przez lekkie `table()` modułu (jak `CARE_BOARD_STATES`), bo `select()`
   wymusza wtedy każdą kolumnę. Strażnik: `tests/test_health_deep_hot_tables.py`.
+- **`/api/health/deep` anonimowo = tylko sygnał wdrożenia, limit 10/min per IP
+  (od pentestu stagingu 13.11.2026).** Anonim dostawał ok. 210 nazw tabel, raport
+  dryfu schematu, kolację i liczby z importu portfela klientów, a każde wywołanie
+  to ok. 210 zapytań do bazy bez limitu. Teraz anonim widzi `status`, `version`,
+  `postgres_started_at`, `checked` (liczba sond) oraz w `checks`/`errors`
+  wyłącznie sondy padnięte z klasą błędu — dokładnie to, co czyta `deploy.yml`.
+  Pełny raport: token zalogowanego admina (`Authorization: Bearer …`). Dowód, że
+  tabela jest na produkcji: `status: healthy` przy `version` = SHA z sondą tej
+  tabeli w `core_checks` (wszystkie sondy przeszły, więc i ta). Deploy woła sondę
+  co 15 s (najwyżej ok. 4/min), stąd limit 10/min.
 - **Naprawy schematu przy starcie mają `lock_timeout` 10 s** (`startup_locks.py`,
   moduły `allocation_schema_bootstrap`, `cv_schema_bootstrap`,
   `signature_policy_bootstrap`). Nocny `pg_dump` trzyma locki, a DDL czekający bez
