@@ -9,6 +9,8 @@ import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
+import { AppearanceSync } from "./AppearanceSync";
+import { WorldGalleryHost } from "./WorldGallery";
 import { TopbarV2 } from "./TopbarV2";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NotificationsRealtime } from "./NotificationsRealtime";
@@ -194,6 +196,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell-root relative flex h-dvh overflow-hidden bg-background text-foreground">
       <PhonePreviewRedirect />
+      <WorldGalleryHost />
+      {hydrated && hasOwnSession && <AppearanceSync />}
       {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
           po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
       <a

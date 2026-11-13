@@ -29,7 +29,9 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { useSidebarPinned } from "./useSidebarPinned";
 import { PaletteSwitcher } from "./PaletteSwitcher";
-import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
+import { ThemeToggleButton } from "./ThemeControls";
+import { WorldGalleryButton } from "./WorldGallery";
+import { useThemeStore } from "@/store/theme";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useHrNavState } from "@/lib/api/hr";
 import { useOwnHiringMembership } from "@/lib/api/ownHiring";
@@ -85,6 +87,7 @@ export function SidebarV2({
   const { user, logout, hydrated } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
+  const worldActive = useThemeStore((s) => s.world !== "none");
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&
     hasRole(user, "talent_community_manager", "recruiter");
@@ -328,9 +331,10 @@ export function SidebarV2({
         {mobileOpen && (
           <div className="mb-2 flex items-center gap-1 px-2">
             <span className="flex-1 text-xs text-sidebar-muted">Wygląd</span>
-            <PaletteSwitcher />
-            <KidsModeToggleButton />
-            <ThemeToggleButton />
+            {/* Świat ma własne kolory i sam wybiera jasny/ciemny — jak w menu „Wygląd”. */}
+            {!worldActive && <PaletteSwitcher />}
+            <WorldGalleryButton />
+            {!worldActive && <ThemeToggleButton />}
           </div>
         )}
         {!hydrated ? (
