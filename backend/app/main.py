@@ -251,6 +251,7 @@ from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
+from app.api import finance_payments as finance_payments_api
 from app.api import finance_posting as finance_posting_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
@@ -1447,6 +1448,9 @@ app.add_middleware(
         "X-Generated-Contract-Id",
         # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
         "X-Document-Id",
+        # Paczka przelewów kosztów (finance_payments.py).
+        "X-Batch-File-Sha256",
+        "X-Batch-File-Changed",
         # Paczka eksportu do Symfonii FK (finance_posting.py).
         "X-File-SHA256",
         # Paczka CV (candidates.py).
@@ -2272,6 +2276,13 @@ app.include_router(
 app.include_router(
     finance_ledger_api.counterparties_router,
     prefix="/api/finance/counterparties",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Księgowość E3 (0699): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
+app.include_router(
+    finance_payments_api.router,
+    prefix="/api/finance/payments",
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
@@ -3860,6 +3871,14 @@ async def api_health_deep_check():
         FinanceCostEntryEvent,
         FinanceCounterparty,
     )
+    from app.models.finance_payments import (
+        FinanceCostPayment,
+        FinanceCostPaymentRecord,
+        FinanceCounterpartyAccount,
+        FinanceCounterpartyAccountEvent,
+        FinancePaymentBatch,
+        FinancePaymentBatchItem,
+    )
     from app.models.finance_posting import (
         FinanceAccount,
         FinancePostingBatch,
@@ -4239,6 +4258,13 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
+        # 0699: przelewy i zapłaty faktur kosztowych (E3).
+        ("finance_cost_payments", FinanceCostPayment),
+        ("finance_counterparty_accounts", FinanceCounterpartyAccount),
+        ("finance_payment_batches", FinancePaymentBatch),
+        ("finance_payment_batch_items", FinancePaymentBatchItem),
+        ("finance_cost_payment_records", FinanceCostPaymentRecord),
+        ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
         # 0698: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),

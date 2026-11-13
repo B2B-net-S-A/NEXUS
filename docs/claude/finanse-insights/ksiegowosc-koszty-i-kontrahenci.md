@@ -195,3 +195,145 @@ Makiety M2 (sekcja dekretu) i M3 (eksport): ten sam artefakt co wyżej.
 - Ekrany: sekcja „Dekret do Symfonii FK” na karcie faktury, zakładki
   „Księgowanie” i „Plan kont” (przy otwartym module). Bez `data-help`
   (przewodnik „finance” ma komplet kotwic).
+
+## Przelewy i zapłaty (E3, 0699)
+
+Zastępuje w eBI24 eksport przelewów faktur kosztowych do banku i „Importuj →
+Wyciągi bankowe → Oznacz faktury jako zapłacone”. Makieta M6 (ten sam artefakt).
+Serwis `services/finance_ledger/payments.py`, reguły bez bazy
+`payment_rules.py`, stan w kolejce `payment_state.py`; trasy
+`/api/finance/payments` (`api/finance_payments.py`) z tymi samymi bramkami co
+„Koszty” (sekcja Finanse, `FinanceModuleUser`, moduł „Księgowość”; wzorzec
+`tests/data/authz_golden/finance_payments.json`). Zakładka Finanse → „Przelewy”.
+
+- **Warstwa płatności leży obok kolejki**, nie w niej: `finance_cost_payments`
+  (1:1 z wpisem, powstaje przy pierwszej zmianie; brak wiersza = „Do zapłaty”),
+  `finance_counterparty_accounts`, `finance_payment_batches`,
+  `finance_payment_batch_items`, `finance_cost_payment_records`. Stany:
+  `unpaid / in_batch / paid / partially_paid`; źródło zapłaty: wyciąg, ręcznie,
+  inna ścieżka NEXUSA (Płace). Kolejka ma kolumnę i filtr „Zapłata”, karta —
+  panel „Płatność”.
+- **Nie dublujemy przelewu.** Faktury osób zespołu płacą Płace (rozliczenie
+  miesiąca, „Dla Finansów”, paczka Płac — `ludzie/urlopy-czas-place-wejscie-odejscie.md`).
+  W planie paczki są tylko dla Płac i admina (D2) i zawsze zablokowane („zapłatę
+  prowadzą Płace”); stan w kolejce czytamy z `payroll_settlements` (opłacone
+  = „Zapłacona”, w paczce Płac = „W paczce”); „Opłacono” i rachunek na karcie
+  takiej faktury = 409. Obciążenia z wyciągu, które rozpoznaje ścieżka Płac
+  (`statements.decide`) albo które Płace już zapisały z tego pliku, zostają
+  tamtej ścieżce (licznik „zespół (Płace)”). Faktury kontraktorów klientów
+  i dokumenty wydatków nie mają w NEXUSIE innej ścieżki zapłaty — płacimy je tu.
+  Decyzja Artura z 13.11.2026: faktury osób zespołu nigdy nie wchodzą do paczki
+  kosztów, a do planu trafiają tylko faktury z terminem ≤ wybranej daty.
+- **Bramka zapłaty z rozliczeń klientów** (`pay.after_client_signature`,
+  `client_settlements/service.payment`, decyzja z 13.11.2026): faktura
+  kontraktora klienta → rozliczenie osoby za miesiąc faktury (kontrakt +
+  `period_month`, rodzaj `actual`) → reguły klienta na ten miesiąc
+  (`payments._client_gates`). `can_pay: False` przy poziomie `block` (stan
+  `fail`) = wiersz zablokowany z tytułem reguły („Zapłata czeka na podpis
+  klienta na KEŚU”), nie wejdzie do paczki; przy poziomie `warn` = ostrzeżenie
+  do świadomego odhaczenia (jak biała lista). KEŚU podpisane albo zapłata po
+  mailowej akceptacji (`pay_on_mail`) = bez ograniczeń; reguła wyłączona, brak
+  KEŚU, kontraktu, miesiąca albo rozliczenia (`payment` zwraca `None`) — też.
+- **Rachunek odbiorcy**: wpisany na karcie > z faktury w KSeF (kontraktorzy
+  klientów: `Platnosc/RachunekBankowy/NrRB` zapisywane od E3 w `details.accounts`
+  przy pobraniu XML-a; dokumenty wydatków XML-a nie mają) > z kartoteki
+  (zapamiętany przy ręcznym wpisie, „zapamiętaj w kartotece”). Krajowy = 26
+  cyfr NRB z sumą kontrolną, zagraniczny = IBAN z sumą kontrolną. Rachunki
+  kontrahentów pokazujemy w całości (Finanse muszą je sprawdzić; firmowe są
+  jawne w wykazie VAT) — rachunki osób zespołu nie trafiają tu wcale.
+  Rachunek faktury w aktywnej paczce się nie zmienia (409 — anuluj paczkę).
+- **Plan paczki** („Do zapłaty z terminem do”): tylko faktury z terminem ≤ daty.
+  Bez terminu faktura nie trafia do planu — historia sprzed NEXUSA była płacona
+  w eBI24, a KSeF nie niesie terminu (wpisują go Finanse na karcie). Blokady:
+  poczekalnia/odrzucona, „Wstrzymać płatność”, „Duplikat”, zapłacona, w innej
+  paczce, brak kwoty, brak albo zły rachunek, przelew w złotych na rachunek
+  zagraniczny, „Zapłata na konto US” bez ręcznego rachunku, tytuł (niżej).
+- **Tryb**: „Zapłata na konto US” = przelew na rachunek urzędu (tylko ręczny
+  rachunek, bez białej listy; formatu przelewu podatkowego `/TI/…` nie
+  składamy), „MPP” = podzielona płatność, „NIE MPP” = zwykły; bez flag — MPP,
+  gdy faktura w złotych ma ≥ 15 000 zł brutto, jako **wskazówka do potwierdzenia**
+  (ostrzeżenie do odhaczenia przy paczce). MPP tylko w złotych. Art. 105a: od
+  dostawcy w miesiącu wystawienia > 50 000 zł netto, a faktura < 15 000 zł
+  brutto bez MPP — podpowiedź „rozważ MPP” (PKWiU nie znamy — XML-a kosztów
+  nie pobieramy).
+- **Tytuł**: numer faktury i numer KSeF w osobnych liniach (4 × 35 znaków,
+  numer KSeF nie jest cięty). Od 1.01.2027 (`business_today()`, data
+  wstrzykiwana w testach) faktura z KSeF bez numeru KSeF jest zablokowana; PDF
+  spoza KSeF przechodzi. MPP: `/VAT/{vat z przecinkiem}/IDC/{NIP sprzedawcy}/INV/{numer}/TXT/{numer KSeF albo numer faktury}`.
+- **Biała lista**: `white_list.check` na dzień paczki dla rachunku krajowego
+  z NIP-em; wynik i `requestId` przy wierszu i w pozycji paczki. Tryb `off` =
+  „Nie sprawdzono (sprawdzanie wyłączone)”, awaria = „niesprawdzony” — nigdy
+  „brak w wykazie”. Faktura > 15 000 zł brutto z rachunkiem innym niż
+  „w wykazie” (także niesprawdzonym) = ostrzeżenie blokujące do świadomego
+  odhaczenia (kto — `acknowledged_by`).
+- **Paczka**: jedna waluta; w złotych Elixir-O (`hr/bank/elixir.py`, pole 15
+  klasyfikacji: 51 zwykły, 53 MPP) albo CSV, w walucie obcej tylko CSV (IBAN).
+  Elixir wymaga rachunku nadawcy (`app_settings['finance_payments']`, „Rachunek
+  nadawcy” na zakładce). **Układ pliku Elixir-O i komunikatu MPP trzeba
+  sprawdzić w bankowości firmowej przed pierwszą paczką** (import próbny).
+  CSV przez `safe_row` (bez formuł). Dwie równoległe „Utwórz paczkę”: blokada
+  doradcza `finance-cost-batch` i indeks częściowy
+  `uq_finance_payment_batch_items_active` — druga dostaje 409 „w paczce”.
+  Paczka ustawia wpisom `in_batch`; „Anuluj” zwalnia pozycje, które nie są
+  jeszcze zapłacone. Plik powstaje z pozycji (rachunek i tytuł z chwili paczki).
+- **Wyciąg** (Finanse → Przelewy → „Wgraj wyciąg”, MT940/CAMT.053 przez
+  `statements.parse_file`, ta sama blokada pliku co Płace i faktury do
+  klientów): tylko obciążenia. Dopasowanie: numer KSeF w tytule; potem numer
+  faktury całym słowem albo `/INV/` (numery powtarzają się u dostawców —
+  rozstrzyga rachunek odbiorcy, bez niego kwota równa pozostałej); potem
+  pozycja aktywnej paczki (ten sam rachunek i kwota). Kwota równa pozostałej =
+  zapłacona (MPP: kwota + VAT z `/VAT/` w tytule); mniejsza przy wskazanej
+  fakturze = częściowa (po samym numerze faktury tylko z potwierdzonym
+  rachunkiem); większa, faktura zapłacona, kilka pasujących = „do sprawdzenia”
+  z podpowiedziami („Przypisz” / „Pomiń” z powodem). Ten sam plik drugi raz nic
+  nie dopisuje; ta sama operacja z innego pliku = pominięta z powodem.
+- **Ręczne „Opłacono”** na karcie: kwota (domyślnie całość pozostałej, nie
+  więcej), data nie z przyszłości, powód (np. „karta firmowa” — 135 faktur
+  w eBI24 płaconych kartą).
+- **Paczka czekająca na bank jest zamrożona** (przegląd 13.11.2026). Dopóki
+  faktura ma aktywną pozycję paczki: ręczne „Opłacono” (pełne i częściowe),
+  „Przypisz” operacji z wyciągu, zmiana rachunku i dodanie albo zdjęcie flagi
+  płatności (MPP, NIE MPP, „Wstrzymać płatność”, „Zapłata na konto US”) = 409
+  „Faktura jest w paczce czekającej na bank — anuluj paczkę albo zdejmij z niej
+  fakturę”. „Zdejmij z paczki” (Przelewy → Paczki → Pozycje) zwalnia jedną
+  pozycję i oznacza paczkę jako zmienioną. Zapłata z wyciągu (bank wykonał
+  przelew) zamyka pozycję normalnie. Plik zawiera **wyłącznie pozycje
+  czekające** (`active`) — zapłaconej ani zdjętej do pliku nie dokładamy;
+  przy pobraniu zapisujemy skrót pliku, nazwa pliku niesie jego początek,
+  a pobranie po zmianie składu daje `X-Batch-File-Changed: true` i na liście
+  „Plik nieaktualny — pobierz ponownie” (stary plik trzeba usunąć z banku).
+  „Utwórz paczkę”, „Opłacono”, „Przypisz”, wyciąg, „Zdejmij”, rachunek i flagi
+  płatności biorą tę samą blokadę doradczą `finance-cost-batch`.
+- **Zaksięgowana faktura**: flagi płatności i termin płatności nie zmieniają
+  dekretu — wolno je zmienić także przy `booked` (z wpisem w historii);
+  kategoria i „Duplikat” zostają zamknięte. Faktura z „Wstrzymać płatność” nie
+  pojawia się w planie (wraca po zdjęciu flagi).
+- **Rachunek wpisany ręcznie ma ślad**: zmiana na karcie zapisuje zdarzenie
+  `account` w historii wpisu (stary → nowy rachunek, źródło, kto, kiedy;
+  CHECK akcji poszerza migracja E3), a „zapamiętaj w kartotece” jest domyślnie
+  **wyłączone**; zapamiętanie zapisuje `finance_counterparty_account_events`
+  (stara i nowa wartość, kto, kiedy). Plan i karta mówią „Rachunek zmieniony
+  ręcznie przez X dnia D”. Rachunek wpisany ręcznie (na karcie albo
+  w kartotece) i niepotwierdzony w wykazie VAT wymaga świadomego odhaczenia
+  **niezależnie od kwoty** (tryb `off` też — odhaczenie zamiast sprawdzenia).
+- **Faktoring**: rachunek faktora z XML-a (`Platnosc/RachunekBankowyFaktora`,
+  `details.factor_accounts`) ma pierwszeństwo przed rachunkiem sprzedawcy
+  (ręczny wpis dalej wygrywa); źródło `ksef_factor`, w planie „faktor”,
+  w pliku nazwa odbiorcy z dopiskiem „(rachunek faktora)” i w CSV kolumna
+  „Rachunek z” = „faktor”. Biała lista sprawdza rachunek faktora z NIP-em
+  sprzedawcy **informacyjnie** — faktor nie musi być w wykazie dla NIP-u
+  sprzedawcy, więc wynik nie wymaga odhaczenia (art. 117ba nie zwalnia wtedy
+  z ryzyka — decyzja Finansów przy umowie faktoringu).
+- **Korekty**: do zapłaty faktury pierwotnej kontraktora = brutto pierwotnej +
+  brutto jej korekt (łańcuch `client_settlements.invoice_chain`: numer KSeF
+  faktury korygowanej, a bez niego numer faktury; VAT dla MPP też po
+  korektach), z dopiskiem „Pomniejszona o korektę …”. Korekta znanej faktury
+  nie jest osobnym wierszem do zapłaty (blokada „rozliczona na fakturze
+  pierwotnej”, dzieli z nią stan zapłaty); korekta albo kwota ujemna bez znanej
+  pierwotnej = blokada „bez znanej faktury pierwotnej”; łańcuch do zera albo
+  poniżej = „nie ma czego płacić”. Dokumenty wydatków nie mają łańcucha —
+  kwota ujemna to zawsze „bez znanej pierwotnej”.
+- **Czego jeszcze nie ma**: zapłat oznaczonych w eBI24 (wpisy z backfillu są
+  „Do zapłaty”, dopóki ktoś ich nie oznaczy — do planu nie wchodzą, bo nie mają
+  terminu) i „Bank wykonał” dla całej paczki (zapłatę stwierdza wyciąg albo
+  „Opłacono”).

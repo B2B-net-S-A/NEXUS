@@ -35,7 +35,13 @@ import { formatIsoDatePl, monthTitlePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
+import type { PaymentState } from "@/lib/api/finance-payments";
 
+import {
+  PAYMENT_STATE_LABELS,
+  PAYMENT_STATE_ORDER,
+  paymentTone,
+} from "./payment-model";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -110,6 +116,24 @@ export function Concerning({ row }: { row: Pick<CostRow, "concerning"> }) {
   );
 }
 
+/** Kolumna „Zapłata” (E3): stan, data i — przy fakturach zespołu — ścieżka Płac. */
+function PaymentCell({ row }: { row: Pick<CostRow, "payment"> }) {
+  const payment = row.payment;
+  if (!payment) return <span className={CALM_EMPTY}>—</span>;
+  return (
+    <span className="block min-w-0">
+      <Badge size="sm" variant={paymentTone(payment.state)}>
+        {payment.label}
+      </Badge>
+      {payment.paid_on || payment.path === "payroll" ? (
+        <span className={cn(CALM_SUBLINE, "truncate")}>
+          {payment.paid_on ? formatIsoDatePl(payment.paid_on) : "przez Płace"}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 function ModuleBanner() {
   const accounting = useAccountingModule();
   const toggle = useSetAccountingModule();
@@ -159,6 +183,7 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
     flag: null,
     q: "",
     offset: 0,
+    payment: null,
   }));
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -302,6 +327,21 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
             </option>
           ))}
         </select>
+        <select
+          aria-label="Zapłata"
+          value={filters.payment ?? ""}
+          onChange={(event) =>
+            update({ payment: (event.target.value || null) as PaymentState | null })
+          }
+          className={CONTROL}
+        >
+          <option value="">Zapłata: wszystkie</option>
+          {PAYMENT_STATE_ORDER.map((state) => (
+            <option key={state} value={state}>
+              {PAYMENT_STATE_LABELS[state]}
+            </option>
+          ))}
+        </select>
         <input
           type="search"
           value={search}
@@ -378,12 +418,13 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
                   />
                 </TableHead>
                 <TableHead className={`${CALM_HEAD} w-[8%]`}>Wpływ</TableHead>
-                <TableHead className={`${CALM_HEAD} w-[20%]`}>Sprzedawca</TableHead>
-                <TableHead className={`${CALM_HEAD} w-[15%]`}>Numer</TableHead>
-                <TableHead className={`${CALM_HEAD} w-[22%]`}>Kogo dotyczy</TableHead>
-                <TableHead className={`${CALM_HEAD} w-[12%] text-right`}>Netto</TableHead>
-                <TableHead className={`${CALM_HEAD} w-[13%]`}>Flagi</TableHead>
+                <TableHead className={`${CALM_HEAD} w-[18%]`}>Sprzedawca</TableHead>
+                <TableHead className={`${CALM_HEAD} w-[14%]`}>Numer</TableHead>
+                <TableHead className={`${CALM_HEAD} w-[19%]`}>Kogo dotyczy</TableHead>
+                <TableHead className={`${CALM_HEAD} w-[11%] text-right`}>Netto</TableHead>
+                <TableHead className={`${CALM_HEAD} w-[11%]`}>Flagi</TableHead>
                 <TableHead className={`${CALM_HEAD} w-[9%]`}>Termin</TableHead>
+                <TableHead className={`${CALM_HEAD} w-[10%]`}>Zapłata</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -436,6 +477,9 @@ export function CostsTab({ canWrite = true }: { canWrite?: boolean }) {
                   </TableCell>
                   <TableCell className="whitespace-nowrap tabular-nums">
                     {row.due_date ? formatIsoDatePl(row.due_date) : <span className={CALM_EMPTY}>—</span>}
+                  </TableCell>
+                  <TableCell className="min-w-0">
+                    <PaymentCell row={row} />
                   </TableCell>
                 </TableRow>
               ))}
