@@ -14,7 +14,7 @@ bez potwierdzania: `sygnaly-grok-bot.md`, sekcja „Zapis od razu”.
 | Bot Research | `briefing` (też tryby `call_hook`, `meeting_prep`), `question` | `GROK_BOT_RESEARCH_WEBHOOK_URL/_KEY` |
 | Bot Dane firm | `enrich` | `GROK_BOT_COMPANY_WEBHOOK_URL/_KEY` |
 | Bot Kontakty | `people` ze źródeł publicznych | `GROK_BOT_CONTACTS_WEBHOOK_URL/_KEY` |
-| Bot Listy (13.11) | budowa list z bazy (bez Groka); rejestr.io w L3 | `GROK_BOT_LISTS_WEBHOOK_URL/_KEY` (L3) |
+| Bot Listy (13.11) | budowa list z bazy (bez Groka) i `lists` (rejestr.io, research) | `GROK_BOT_LISTS_WEBHOOK_URL/_KEY` |
 | Rutyna Cognism | `people` z `request.source = "cognism"` | `GROK_BOT_PEOPLE_WEBHOOK_URL/_KEY` (jak dotąd) |
 
 - Nowy rodzaj zadania = wpis w `KIND_BOT` (test `test_every_registered_kind_belongs_to_one_bot`

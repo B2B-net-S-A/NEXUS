@@ -248,6 +248,7 @@ from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import client_einvoices as client_einvoices_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -648,6 +649,14 @@ async def lifespan(app: FastAPI):
     _migration_failure = startup_failure_message(read_startup_status())
     if _migration_failure:
         logger.error(_migration_failure)
+    # Etap B2: przy rolling update DDL z entrypointu biegnie obok żywego ruchu,
+    # więc `lock_timeout` realnie odpuszcza kroki. Pominięty krok = błąd w Sentry.
+    from app.services.migration_health import skipped_ddl_message
+    from app.services.startup_locks import read_skipped_ddl
+
+    _skipped_ddl = skipped_ddl_message(read_skipped_ddl())
+    if _skipped_ddl:
+        logger.error(_skipped_ddl)
     # audyt 22.09 r2 (SEC-02): klucz z historii gita — tylko głośny log.
     from app.core.config import log_if_secret_key_leaked
 
@@ -872,6 +881,7 @@ async def lifespan(app: FastAPI):
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
+    from app.services.m365.startup_reset import m365_interrupted_reset_loop
     from app.tasks.access_usage import access_usage_loop
     from app.core.process_bus import process_bus_loop
     from app.core.process_role import keep_tasks_for_role
@@ -906,6 +916,15 @@ async def lifespan(app: FastAPI):
 
     freeze_startup_heap()
 
+    from app.core.shutdown_drain import install_shutdown_drain
+
+    if install_shutdown_drain(
+        settings.NEXUS_SHUTDOWN_DRAIN_SECONDS, asyncio.get_running_loop()
+    ):
+        logger.info(
+            "shutdown drain: %.0f s po SIGTERM", settings.NEXUS_SHUTDOWN_DRAIN_SECONDS
+        )
+
     # Pętle ma jeden proces naraz (rolling update trzyma chwilę dwa kontenery).
     # Wolna blokada = start jak dawniej, przed `yield`. Wyłącznik awaryjny:
     # BACKGROUND_LEADER_LOCK_ENABLED=false.
@@ -936,6 +955,12 @@ async def lifespan(app: FastAPI):
             "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
             # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
             "queue_retention": asyncio.create_task(queue_retention_loop()),
+            # Wysyłki i synchronizacje M365 porzucone przez proces, który zginął.
+            # Pętla, nie krok startu: przy rolling update start nie znaczy, że
+            # poprzednik nie żyje (`services/m365/startup_reset.py`).
+            "m365_interrupted_reset": asyncio.create_task(
+                m365_interrupted_reset_loop()
+            ),
             # 0632: zapis i retencja licznika użycia obszarów.
             "access_usage": asyncio.create_task(access_usage_loop()),
             "critical_stats_cache": asyncio.create_task(critical_stats_cache_loop()),
@@ -1199,13 +1224,6 @@ async def lifespan(app: FastAPI):
             _task.add_done_callback(_log_task_death(_name))
 
     async def _on_background_leader_acquired() -> None:
-        from app.services.m365.startup_reset import reset_interrupted_m365_state
-
-        try:
-            async with engine.begin() as _m365_reset_conn:
-                await reset_interrupted_m365_state(_m365_reset_conn)
-        except Exception as _m365_reset_exc:  # noqa: BLE001 — nie blokuje pętli
-            logger.warning("m365 reset pominięty: %r", _m365_reset_exc)
         _start_background_tasks()
 
     async def _on_background_leader_lost() -> None:
@@ -2211,10 +2229,24 @@ app.include_router(
     tags=["client-invoicing"],
     dependencies=_HR_PROGRAM,
 )
+# E-faktury Peppol (plan Nordei N2) — przed routerem rozliczeń (wspólny prefiks).
+app.include_router(
+    client_einvoices_api.router,
+    prefix="/api/finance/settlements/einvoices",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
     prefix="/api/finance/settlements",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# E5.1: Delivery Lead — marża i koszty integracji swoich klientów (sekcja Delivery).
+app.include_router(
+    client_settlements_api.delivery_router,
+    prefix="/api/my-clients",
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
@@ -2619,12 +2651,18 @@ async def api_health_live():
     import os
 
     from app.core.config import settings
+    from app.core.shutdown_drain import is_draining
 
-    return {
+    body = {
         "status": "alive",
         "version": os.environ.get("GIT_SHA", "unknown"),
         "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
     }
+    # Po SIGTERM przy rolling update: Docker oznacza kontener jako unhealthy,
+    # Traefik przestaje na niego kierować, a żądania w toku się kończą.
+    if is_draining():
+        return JSONResponse({**body, "status": "draining"}, status_code=503)
+    return body
 
 
 def _resolve_deployed_at() -> str:
@@ -3377,8 +3415,10 @@ async def api_health_check():
             _migration_state = await asyncio.wait_for(
                 alembic_revision_state(session), timeout=2.0
             )
+        from app.services.startup_locks import read_skipped_ddl
+
         checks["migrations"] = migrations_verdict(
-            _migration_state, read_startup_status()
+            _migration_state, read_startup_status(), read_skipped_ddl()
         )
     except Exception as exc:
         logger.warning("[health] migrations check failed: %s", exc)

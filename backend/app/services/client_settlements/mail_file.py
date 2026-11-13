@@ -38,6 +38,9 @@ class MailFile:
     sender: str
     body: str
     attachments: list[Attachment] = field(default_factory=list)
+    #: Nagłówki transportowe (MSG: ``PR_TRANSPORT_MESSAGE_HEADERS``, EML: nagłówek
+    #: ``Date``) — data wysłania przy kontroli maila akceptującego (E2.3).
+    headers: str = ""
 
 
 class _Broken(Exception):
@@ -189,6 +192,7 @@ def _read_msg(content: bytes) -> MailFile:
         subject=_text(cfb, top, "0037"),
         sender=_text(cfb, top, "0C1F") or _text(cfb, top, "0065"),
         body=_text(cfb, top, "1000"),
+        headers=_text(cfb, top, "007D"),
     )
     for name, index in sorted(top.items()):
         if not name.startswith("__attach_version1.0_#"):
@@ -210,6 +214,7 @@ def _read_eml(content: bytes) -> MailFile:
         subject=str(message.get("subject") or ""),
         sender=str(message.get("from") or ""),
         body=body if isinstance(body, str) else "",
+        headers=f"Date: {message.get('date')}" if message.get("date") else "",
     )
     for part in message.iter_attachments():
         payload = part.get_payload(decode=True)

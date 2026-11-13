@@ -175,6 +175,8 @@ export interface PortalMonth {
   invoice_label: string;
   issue_invoice: boolean;
   action: "send_report" | "send_invoice" | null;
+  /** Trwa miesiąc z estymacją (`cl.estimate`): wysyłany plik to plan miesiąca. */
+  plan?: boolean;
   documents: PortalDocument[];
   /** Rozliczenie klienta (E3); `null` przy wyłączonym module albo bez rozliczenia. */
   settlement?: PortalMonthSettlement | null;

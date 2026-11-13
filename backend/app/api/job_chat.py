@@ -48,6 +48,7 @@ from app.services import chat_notifications
 from app.services.chat_reactions import aggregate_job_reactions
 from app.services.job_membership import (
     is_member_of_job,
+    list_job_assigned_ids,
     list_job_member_ids,
     list_job_members,
 )
@@ -746,10 +747,27 @@ async def list_members(
     job_id: int,
     current_user: CandidatePIIAccess,
     db: AsyncSession = Depends(get_db),
+    assigned: bool = Query(
+        False,
+        description=(
+            "Tylko osoby przypisane do rekrutacji — kogo oznacza `@wszyscy` "
+            "(bez adminów spoza zespołu, uczestników kategorii i poprzednich "
+            "rekruterów)."
+        ),
+    ),
 ) -> list[ChatUserMini]:
     """Lista członków projektu (do autocomplete @mention'a w UI)."""
     await _require_read_access(db, current_user, job_id)
-    members = await list_job_members(db, job_id)
+    if assigned:
+        ids = await list_job_assigned_ids(db, job_id)
+        users = (
+            (await db.execute(select(User).where(User.id.in_(ids)))).scalars().all()
+            if ids
+            else []
+        )
+        members = sorted(users, key=lambda u: (u.name or u.email).lower())
+    else:
+        members = await list_job_members(db, job_id)
     return [_user_to_mini(u) for u in members if u is not None]
 
 

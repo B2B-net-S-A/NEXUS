@@ -197,6 +197,18 @@ def test_env_filters_on_server_and_reads_process_one(fake_ssh, capsys):
     assert "SECRET_KEY" not in out  # druga bramka po stronie laptopa
 
 
+def test_env_finds_backend_by_process_role_not_by_name(fake_ssh):
+    """Etap B2: kontener aplikacji z Dockerfile nie ma prefiksu `backend-ocgkw`."""
+    calls, stdout = fake_ssh
+    stdout.append("DB_STATEMENT_TIMEOUT_MS=120000\n")
+    assert pr.main(["env", "DB_STATEMENT_TIMEOUT_MS"]) == 0
+    remote = calls[0]["argv"][-1]
+    assert "backend-ocgkw" not in remote
+    assert '"NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"' in remote
+    # Szablon wypisuje nazwę i znacznik, nigdy wartości zmiennych.
+    assert "{{.}}" not in remote
+
+
 def test_env_remote_failure_is_an_error_not_missing_names(
     monkeypatch, tmp_path, capsys
 ):

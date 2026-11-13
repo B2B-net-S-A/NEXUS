@@ -26,6 +26,8 @@ interface Props {
   onHide?: () => void;
   /** Harness `/preview/jarvis`: maskotka w przepływie strony zamiast `fixed`. */
   inline?: boolean;
+  /** Świat wyglądu — robot ubiera się do niego (`JarvisOutfit`). */
+  outfit?: string | null;
 }
 
 export function JarvisMascot({
@@ -42,6 +44,7 @@ export function JarvisMascot({
   onDismissBubble,
   onHide,
   inline = false,
+  outfit,
 }: Props) {
   const size = minimized ? 40 : 64;
   return (
@@ -91,6 +94,7 @@ export function JarvisMascot({
             accent={accent}
             mood={mood}
             size={size}
+            outfit={outfit}
             className={inline ? undefined : "max-md:[&>svg]:size-10"}
           />
           {attention && !open && (

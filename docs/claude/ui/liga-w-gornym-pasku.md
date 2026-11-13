@@ -69,7 +69,7 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
 - **Awans, nie spadek** (D5): strzałka „↑ z 6.” do końca dnia, liczona od
   pierwszego widoku dnia w tej przeglądarce (`league-rank-memory`, localStorage
   w try/catch). Bez dzwonka i bez komunikatów o spadku.
-- **„Wygląd” zamiast trzech przełączników** (D2): motyw koloru, styl interfejsu,
+- **„Wygląd” zamiast trzech przełączników** (D2): motyw koloru (styl „Wyraźny” stały od 13.11),
   tryb gry i tryb ciemny w jednym menu (`shell/AppearanceMenu.tsx`). Pozycje
   palety są wspólne z `PaletteSwitcher` (`PaletteMenuItems`), tryb gry z jednym
   powitaniem (`useKidsModeToggle`). Na telefonie przełączniki zostają osobno

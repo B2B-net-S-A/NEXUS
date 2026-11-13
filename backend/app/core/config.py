@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # (domyślnie: testy, staging z gałęzi, wycofanie), `web` = samo HTTP,
     # `worker` = pętle. → docs/claude/podstawy/web-i-worker-osobno.md
     NEXUS_PROCESS_ROLE: str = "all"
+    # Rolling update (etap B2): tyle sekund po SIGTERM proces dalej obsługuje
+    # żądania z `/api/health/live` = 503, żeby Traefik zdjął go z routingu.
+    # 0 = zamknięcie od razu (compose). → app/core/shutdown_drain.py
+    NEXUS_SHUTDOWN_DRAIN_SECONDS: float = 0
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
@@ -1715,6 +1719,20 @@ class Settings(BaseSettings):
     EBI24_ACCOUNT_UUID: str = ""
     EBI24_COMMUNICATION_KEY: str = ""
     EBI24_SECRET_PHRASE: str = ""
+    # E-faktury Peppol (`app/services/peppol/`, plan Nordei N2): kanał doręczenia.
+    # off = nic nie wychodzi (domyślnie), simulate = pliki w PEPPOL_SIMULATE_DIR
+    # (staging, testy), visma_direct = kanał bezpośredni do Vismy Nordei (czeka
+    # na specyfikację od technika Vismy), recommand = dostawca Peppol z API
+    # (plan zapasowy; klucz i sekret konta). Klucz i sekret tylko przez workflow
+    # „Coolify set env”, nigdy w repo ani w logach. PEPPOL_SENDER_ID = nasz adres
+    # w sieci Peppol od dostawcy („9945:PL…”); pusty = 9945 i NIP sprzedawcy.
+    PEPPOL_PROVIDER: str = "off"
+    PEPPOL_API_URL: str = "https://app.recommand.eu"
+    PEPPOL_API_KEY: str = ""
+    PEPPOL_API_SECRET: str = ""
+    PEPPOL_COMPANY_ID: str = ""
+    PEPPOL_SENDER_ID: str = ""
+    PEPPOL_SIMULATE_DIR: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""

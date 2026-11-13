@@ -40,6 +40,7 @@ EXEMPT: dict[str, str] = {
     "candidate_search_retention": "retencja danych; opóźnienie o godziny nieszkodliwe",
     "jarvis_retention": "retencja rozmów Jarvisa; opóźnienie o godziny nieszkodliwe",
     "queue_retention": "retencja kolejek i dziennika automatów; opóźnienie o godziny nieszkodliwe",
+    "m365_interrupted_reset": "porządek po procesie, który zginął w trakcie wysyłki; opóźnienie = dłużej „Wysyłanie…”",
     "access_usage": "licznik do przeglądu dostępów; opóźniony zapis czeka w pamięci, retencja o godziny nieszkodliwa",
     "match_history_ttl": "sprzątanie historii; opóźnienie nieszkodliwe",
     "slack_sla_alerts": "osobna kontrola stopped_webhook_alarms",
