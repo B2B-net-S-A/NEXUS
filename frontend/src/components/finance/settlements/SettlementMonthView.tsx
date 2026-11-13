@@ -166,6 +166,9 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <span className="block truncate text-[11px] tabular-nums text-muted-foreground">
                     {r.order_number ?? <span className="text-warning-muted-foreground">Brak numeru zamówienia</span>}
                   </span>
+                  {r.kesu?.approver ? (
+                    <span className="block truncate text-[11px] text-muted-foreground">Opiekun: {r.kesu.approver}</span>
+                  ) : null}
                 </td>
                 <td className="px-2 py-1.5">
                   <StatusDot tone={STATUS[r.status].tone} note={r.issues ?? undefined}>
@@ -173,9 +176,7 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   </StatusDot>
                   {r.kesu ? (
                     <span className="mt-0.5 block">
-                      <StatusDot tone={KESU[r.kesu.state].tone} note={r.kesu.approver ? `Opiekun: ${r.kesu.approver}` : undefined}>
-                        KEŚU: {KESU[r.kesu.state].label.toLowerCase()}
-                      </StatusDot>
+                      <StatusDot tone={KESU[r.kesu.state].tone}>KEŚU: {KESU[r.kesu.state].label.toLowerCase()}</StatusDot>
                     </span>
                   ) : null}
                 </td>

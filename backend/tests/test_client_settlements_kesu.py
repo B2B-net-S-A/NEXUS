@@ -349,6 +349,17 @@ def test_koszty_dodatkowe_na_fakturze_glownej() -> None:
     assert [(p.quantity, p.net) for p in merged] == [
         (Decimal("1"), Decimal("26807.79"))
     ]
+    no_rate = client_invoice.Position(
+        "Usługi; osoba", "MD", Decimal("22"), None, Decimal("0.00"), "base"
+    )
+    alone = client_invoice.extra_costs(
+        s, [no_rate], _rules_with_item(""), name="Usługi; osoba"
+    )
+    # Linia zamówienia bez stawki: koszt nie udaje całej usługi „1 × 166,67”.
+    assert [(p.name, p.net) for p in alone] == [
+        ("Usługi; osoba", Decimal("0.00")),
+        ("Usługi; osoba; koszty dodatkowe", Decimal("166.67")),
+    ]
     off = client_invoice.extra_costs(s, [base], _rules(), name="x")
     assert off == [base]
 

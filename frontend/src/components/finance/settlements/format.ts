@@ -31,7 +31,7 @@ export const CLIENT_INVOICE: Record<ClientInvoiceState, { label: string; tone: S
   waiting: { label: "Czeka", tone: "neutral" },
   ready: { label: "Do wystawienia", tone: "info" },
   issued: { label: "Wystawiona", tone: "success" },
-  awaiting_signature: { label: "Czeka na podpis klienta", tone: "warning" },
+  awaiting_signature: { label: "Czeka na podpis", tone: "warning" },
 };
 
 export const KESU: Record<KesuState, { label: string; tone: StatusDotTone }> = {

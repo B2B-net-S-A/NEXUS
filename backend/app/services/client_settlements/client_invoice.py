@@ -274,8 +274,20 @@ def extra_costs(
     if label:
         return [*items, Position(label, "usł.", Decimal("1"), net, net, "extra_costs")]
     base = next((p for p in items if p.kind == "base"), None)
-    if base is None:
-        return items
+    if base is None or base.unit_price is None:
+        # Bez stawki na linii zamówienia nie da się podać jednej pozycji
+        # „usługa z kosztami”: koszty idą osobno, kwota usługi czeka na stawkę.
+        return [
+            *items,
+            Position(
+                f"{name}; koszty dodatkowe",
+                "usł.",
+                Decimal("1"),
+                net,
+                net,
+                "extra_costs",
+            ),
+        ]
     total = base.net + net
     merged = Position(base.name, "usł.", Decimal("1"), total, total, "base", currency)
     return [merged if p is base else p for p in items]

@@ -734,14 +734,13 @@ def mail_draft(
     """Mail do opiekuna z maila z Jiry, ze wzoru rozliczeń."""
 
     mon = int(month.split("-")[1])
-    first = person.split()[0] if person.split() else person
     return {
         "to": approver_email,
         "to_name": approver,
         "subject": f"KEŚU {_MONTHS_PL[mon - 1]} - {person}",
         "body": (
             "Dzień dobry,\n\n"
-            f"W załączeniu KEŚU ({first}) z naszym podpisem. "
+            f"W załączeniu KEŚU za {_MONTHS_PL[mon - 1]} ({person}) z naszym podpisem. "
             "Prośba o podpis po Państwa stronie. Dziękuję.\n\nPozdrawiam,"
         ),
     }
