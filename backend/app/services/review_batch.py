@@ -40,7 +40,7 @@ from typing import Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 from sqlalchemy.orm.attributes import flag_modified
@@ -632,6 +632,19 @@ class Decision:
     own_batch: bool
     # Rekrutacja w pracy; karta z zamkniętej nie jest zaległością.
     job_in_work: bool = True
+    # Osoba dalej pracuje w rekrutacji. Zdjęta (np. przy zejściu z priorytetu,
+    # ``recruiters_parked``) widzi kartę bez terminu i nie jest nią blokowana.
+    on_team: bool = True
+    # Kiedy osoba ostatnio wróciła do zespołu z „Poprzednich rekruterów”:
+    # termin domknięcia liczy się od późniejszej z dat ruchu i powrotu
+    # (decyzja Artura z 13.11.2026).
+    team_since: Optional[datetime] = None
+
+    @property
+    def due_from(self) -> datetime:
+        if self.team_since and self.team_since > self.moved_at:
+            return self.team_since
+        return self.moved_at
 
 
 @dataclass(frozen=True)
@@ -641,7 +654,8 @@ class DayCounts:
     done: int = 0
     # Karty z własnej porcji na screeningu bez wyniku.
     open_cards: tuple[Decision, ...] = ()
-    # Te z nich, którym minęły ``SCREENING_CLOSE_DAYS``: blokują wyszukiwanie.
+    # Te z nich, którym minęły ``SCREENING_CLOSE_DAYS``, z rekrutacji, w których
+    # osoba dalej pracuje: blokują wyszukiwanie.
     overdue_cards: tuple[Decision, ...] = ()
     # Niedomknięte w oknie i własne po terminie (do licznika na ekranie).
     open_screenings: int = 0
@@ -784,6 +798,34 @@ async def _decisions(
             )
         ).all()
     )
+    from app.services.job_team import recruiters_for_jobs, working
+
+    from app.models.job_previous_recruiter import JobPreviousRecruiter
+
+    teams = await recruiters_for_jobs(db, job_ids)
+    on_team = {
+        (job_id, person.user_id)
+        for job_id, people in teams.items()
+        for person in working(people)
+    }
+    returned = {
+        (job_id, user_id): at
+        for job_id, user_id, at in (
+            await db.execute(
+                select(
+                    JobPreviousRecruiter.job_id,
+                    JobPreviousRecruiter.user_id,
+                    func.max(JobPreviousRecruiter.cleared_at),
+                )
+                .where(
+                    JobPreviousRecruiter.job_id.in_(job_ids),
+                    JobPreviousRecruiter.user_id.in_(ids),
+                    JobPreviousRecruiter.cleared_at.is_not(None),
+                )
+                .group_by(JobPreviousRecruiter.job_id, JobPreviousRecruiter.user_id)
+            )
+        ).all()
+    }
     stage_rows = (
         await db.execute(
             select(
@@ -852,6 +894,8 @@ async def _decisions(
                     name, moved_at, later, answered.get((job_id, candidate_id), [])
                 ),
                 job_in_work=job_id in working_jobs,
+                on_team=(job_id, int(user)) in on_team,
+                team_since=returned.get((job_id, int(user))),
                 own_batch=_owner(meta) == int(user)
                 and in_batch(
                     PendingCard(
@@ -881,12 +925,14 @@ def summarize_day(
     waiting = [d for d in items if d.stage == "screening" and d.closed_at is None]
     open_cards = tuple(d for d in waiting if d.own_batch and d.job_in_work)
     overdue = (
-        tuple(d for d in open_cards if d.moved_at < close_from) if close_from else ()
+        tuple(d for d in open_cards if d.on_team and d.due_from < close_from)
+        if close_from
+        else ()
     )
     shown = (
-        [d for d in waiting if d.moved_at >= close_from or d in overdue]
+        [d for d in waiting if d.on_team and (d.due_from >= close_from or d in overdue)]
         if close_from
-        else waiting
+        else [d for d in waiting if d.on_team]
     )
     return DayCounts(
         done=len(done),
@@ -944,6 +990,8 @@ class OpenScreening:
     candidate_id: int
     name: str
     overdue: bool = False
+    # Osobę zdjęto z rekrutacji: karta bez terminu, nie blokuje.
+    parked: bool = False
 
 
 @dataclass(frozen=True)
@@ -1066,6 +1114,7 @@ async def _open_screenings(
             candidate_id=d.candidate_id,
             name=people.get(d.candidate_id, ""),
             overdue=d.process_id in late,
+            parked=not d.on_team,
         )
         for d in items
     ]

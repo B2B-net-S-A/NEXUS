@@ -92,6 +92,27 @@ describe("ReviewBatchScreen przy pustej kolejce", () => {
     expect(screen.getByText("Wyszukiwanie zablokowane")).toBeTruthy();
   });
 
+  it("screening z rekrutacji, z której zdjęto osobę, stoi na końcu bez terminu i poza licznikiem (13.11.2026)", () => {
+    given({
+      met: true,
+      done_today: 10,
+      remaining: 0,
+      overdue_screenings: 0,
+      open_today_screenings: [
+        { job_id: 12, job_title: "Analityk", candidate_id: 102, name: "Ewa Próbna", parked: true },
+        { job_id: 11, job_title: "Java Developer", candidate_id: 101, name: "Jan Testowy" },
+      ],
+    });
+    render(<ReviewBatchScreen />);
+    const tab = screen.getByRole("tab", { name: /Do domknięcia/ });
+    expect(tab.textContent).toMatch(/1$/);
+    fireEvent.click(tab);
+    const list = screen.getByTestId("review-batch-open-today");
+    expect(list.textContent).toMatch(/Jan Testowy.*Zdjęto Cię z tych rekrutacji: 1.*Ewa Próbna.*bez terminu/);
+    expect(list.textContent).not.toMatch(/po terminie/);
+    expect(screen.getByText("Wyszukiwanie działa")).toBeTruthy();
+  });
+
   it("po minimum przypomina o terminie niedomkniętych screeningów", () => {
     given({ met: true, done_today: 10, remaining: 0 });
     render(<ReviewBatchScreen />);

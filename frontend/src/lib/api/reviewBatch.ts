@@ -38,6 +38,8 @@ export interface ReviewBatchOpenScreening {
   name: string
   /** Minęły 2 dni robocze bez wyniku: blokuje wyszukiwanie. */
   overdue?: boolean
+  /** Osobę zdjęto z rekrutacji (np. zejście z priorytetu): bez terminu, nie blokuje. */
+  parked?: boolean
 }
 
 export interface ReviewBatchStatus {
