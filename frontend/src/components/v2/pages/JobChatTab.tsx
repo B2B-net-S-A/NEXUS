@@ -39,6 +39,7 @@ import {
   type ChatBusEvent,
   type ChatMessage,
   type ChatMessageListResp,
+  type ChatUserMini,
   type ReactionAggregate,
 } from "@/types/job-chat";
 import {
@@ -60,6 +61,7 @@ import {
   renderWithMentions,
   type UsersByEmail,
 } from "@/lib/renderMentions";
+
 
 const QUICK_REACTIONS = ["👍", "❤️", "🎉", "🚀", "👀", "🤔", "🙏", "🔥"];
 
@@ -110,6 +112,12 @@ export default function JobChatTab({
   const { data: mentionUsers } = useMentionableUsers({ kind: "job", jobId });
   const usersByEmail = useMemo(
     () => buildUsersByEmail(mentionUsers ?? []),
+    [mentionUsers],
+  );
+
+  // `@Wszyscy (n)` w treści: kogo serwer oznaczył przy zapisie (`mentions`).
+  const usersById = useMemo(
+    () => new Map((mentionUsers ?? []).map((u) => [u.id, u])),
     [mentionUsers],
   );
 
@@ -548,6 +556,7 @@ export default function JobChatTab({
             <MessageRow
               message={m}
               usersByEmail={usersByEmail}
+              usersById={usersById}
               currentUserId={user?.id ?? -1}
               canPin={canPin}
               isAdmin={!readOnly && user?.role === "admin"}
@@ -674,6 +683,7 @@ export default function JobChatTab({
 interface MessageRowProps {
   message: ChatMessage;
   usersByEmail: UsersByEmail;
+  usersById: ReadonlyMap<number, ChatUserMini>;
   currentUserId: number;
   canPin: boolean;
   isAdmin: boolean;
@@ -691,6 +701,7 @@ interface MessageRowProps {
 function MessageRow({
   message,
   usersByEmail,
+  usersById,
   currentUserId,
   canPin,
   isAdmin,
@@ -771,7 +782,9 @@ function MessageRow({
         >
           {message.is_deleted
             ? message.content
-            : renderWithMentions(message.content, usersByEmail)}
+            : renderWithMentions(message.content, usersByEmail, {
+                names: message.mentions.flatMap((id) => usersById.get(id)?.name ?? []),
+              })}
         </div>
 
         {/* Reactions chips */}

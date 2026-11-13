@@ -11,8 +11,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { Users } from "lucide-react";
 
 import { warsawToday } from "@/lib/warsaw-date";
+import { useAssignedJobUsers } from "@/hooks/useAssignedJobUsers";
 import {
   MentionScope,
   useMentionableUsers,
@@ -22,13 +24,16 @@ import {
   choosePopupPlacement,
   findMentionToken,
   matchMentionUsers,
+  matchesEveryoneQuery,
+  personCount,
   type PopupPlacement,
 } from "@/lib/mention-autocomplete";
 import { textareaFitHeight } from "@/lib/textarea-autogrow";
 import { caretOffsetTop, contentScrollHeight } from "@/lib/textarea-mirror";
 import { useElementWidth } from "@/lib/use-element-width";
+import { hasEveryoneMention, MENTION_EVERYONE_TOKEN } from "@/lib/renderMentions";
 import { cn } from "@/lib/utils";
-import { ROLE_LABELS, type UserRole } from "@/store/auth";
+import { ROLE_LABELS, useAuthStore, type UserRole } from "@/store/auth";
 import type { ChatUserMini } from "@/types/job-chat";
 
 import {
@@ -77,6 +82,14 @@ interface MentionTextareaProps {
   ariaLabel?: string;
   ariaDescribedBy?: string;
   maxSuggestions?: number;
+}
+
+type MentionOption =
+  | { kind: "everyone" }
+  | { kind: "user"; user: ChatUserMini };
+
+function joinNames(users: ChatUserMini[]): string {
+  return users.map((u) => u.name).join(", ");
 }
 
 const MAX_SUGGESTIONS_DEFAULT = 6;
@@ -186,6 +199,21 @@ export function MentionTextarea({
     [users, mention.open, mention.query, maxSuggestions],
   );
 
+  // „Wszyscy przypisani” (13.11.2026) — tylko w polu rekrutacji (czat,
+  // notatki); serwer rozwija `@wszyscy` na tę samą listę przy zapisie.
+  const assignedQuery = useAssignedJobUsers(scope.kind === "job" ? scope.jobId : null);
+  const myId = useAuthStore((s) => s.user?.id);
+  const everyone = useMemo(
+    () => (assignedQuery.data ?? []).filter((u) => u.id !== myId),
+    [assignedQuery.data, myId],
+  );
+  const options = useMemo<MentionOption[]>(() => {
+    const people = filtered.map((user) => ({ kind: "user" as const, user }));
+    const showEveryone =
+      mention.open && everyone.length > 0 && matchesEveryoneQuery(mention.query);
+    return showEveryone ? [{ kind: "everyone" as const }, ...people] : people;
+  }, [filtered, everyone, mention.open, mention.query]);
+
   // Co pokazać zamiast osób: lista nie może milczeć, gdy się wczytuje, nie
   // wczytała albo nikt nie pasuje. Tekst ze spacją, do którego nikt nie
   // pasuje, to zwykłe zdanie po „@” — wtedy nie pokazujemy nic.
@@ -196,10 +224,10 @@ export function MentionTextarea({
       ? "loading"
       : usersQuery.isError
         ? "error"
-        : filtered.length === 0 && plainWord
+        : options.length === 0 && plainWord
           ? "empty"
           : null;
-  const popupVisible = mention.open && (filtered.length > 0 || status !== null);
+  const popupVisible = mention.open && (options.length > 0 || status !== null);
 
   const [placement, setPlacement] = useState<PopupPlacement>({
     side: "below",
@@ -239,10 +267,10 @@ export function MentionTextarea({
   }, [value, mention.open, mention.startIndex]);
 
   useEffect(() => {
-    if (mention.open && mention.highlightIdx >= filtered.length) {
+    if (mention.open && mention.highlightIdx >= options.length) {
       setMention((s) => ({ ...s, highlightIdx: 0 }));
     }
-  }, [filtered.length, mention.highlightIdx, mention.open]);
+  }, [options.length, mention.highlightIdx, mention.open]);
 
   const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -262,16 +290,14 @@ export function MentionTextarea({
     });
   };
 
-  const insertMention = (m: ChatUserMini) => {
+  const insertText = (insertion: string) => {
     const ta = ref.current;
     if (mention.startIndex < 0 || !ta) return;
     const before = value.slice(0, mention.startIndex);
     const afterCaret = value.slice(ta.selectionStart ?? value.length);
-    const insertion = `@${m.email} `;
     const next = before + insertion + afterCaret;
     onChange(next);
     setMention(initialMentionState);
-    if (absences?.get(m.id)?.substitute_user_id) setHintFor(m.id);
     requestAnimationFrame(() => {
       const taNow = ref.current;
       if (!taNow) return;
@@ -279,6 +305,15 @@ export function MentionTextarea({
       taNow.focus();
       taNow.setSelectionRange(newPos, newPos);
     });
+  };
+
+  const chooseOption = (option: MentionOption) => {
+    if (option.kind === "everyone") {
+      insertText(`${MENTION_EVERYONE_TOKEN} `);
+      return;
+    }
+    insertText(`@${option.user.email} `);
+    if (absences?.get(option.user.id)?.substitute_user_id) setHintFor(option.user.id);
   };
 
   const hint =
@@ -301,15 +336,15 @@ export function MentionTextarea({
 
   const handleKeyDownInner = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (mention.open) {
-      if (e.key === "ArrowDown" && filtered.length > 0) {
+      if (e.key === "ArrowDown" && options.length > 0) {
         e.preventDefault();
         setMention((s) => ({
           ...s,
-          highlightIdx: Math.min(s.highlightIdx + 1, filtered.length - 1),
+          highlightIdx: Math.min(s.highlightIdx + 1, options.length - 1),
         }));
         return;
       }
-      if (e.key === "ArrowUp" && filtered.length > 0) {
+      if (e.key === "ArrowUp" && options.length > 0) {
         e.preventDefault();
         setMention((s) => ({
           ...s,
@@ -317,9 +352,9 @@ export function MentionTextarea({
         }));
         return;
       }
-      if ((e.key === "Enter" || e.key === "Tab") && filtered.length > 0) {
+      if ((e.key === "Enter" || e.key === "Tab") && options.length > 0) {
         e.preventDefault();
-        insertMention(filtered[mention.highlightIdx] ?? filtered[0]);
+        chooseOption(options[mention.highlightIdx] ?? options[0]);
         return;
       }
       if (e.key === "Escape" && popupVisible) {
@@ -356,7 +391,43 @@ export function MentionTextarea({
                 : "top-full mt-1",
           )}
         >
-          {filtered.map((m, idx) => {
+          {options.map((option, idx) => {
+            if (option.kind === "everyone") {
+              return (
+                <button
+                  key="everyone"
+                  type="button"
+                  role="option"
+                  aria-selected={idx === mention.highlightIdx}
+                  data-testid="mention-everyone"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    chooseOption(option);
+                  }}
+                  className={cn(
+                    "flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left text-sm",
+                    idx === mention.highlightIdx ? "bg-primary/10" : "hover:bg-muted",
+                  )}
+                >
+                  <Users className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="font-medium">Wszyscy przypisani</span>
+                      <span className="text-xs text-muted-foreground">
+                        {personCount(everyone.length)}
+                      </span>
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {joinNames(everyone)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {MENTION_EVERYONE_TOKEN}
+                  </span>
+                </button>
+              );
+            }
+            const m = option.user;
             const absence = absences?.get(m.id);
             return (
               <button
@@ -366,7 +437,7 @@ export function MentionTextarea({
                 aria-selected={idx === mention.highlightIdx}
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  insertMention(m);
+                  chooseOption(option);
                 }}
                 className={cn(
                   "flex w-full items-center gap-2 px-3 py-2 text-left text-sm",
@@ -445,6 +516,16 @@ export function MentionTextarea({
           className,
         )}
       />
+      {everyone.length > 0 && !popupVisible && hasEveryoneMention(value) ? (
+        <p
+          role="status"
+          data-testid="mention-everyone-hint"
+          title={joinNames(everyone)}
+          className="mt-1 line-clamp-2 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground"
+        >
+          Wzmiankę dostanie {personCount(everyone.length)}: {joinNames(everyone)}
+        </p>
+      ) : null}
       {/* Pod polem, gdy lista jest zamknięta — otwarta liczy miejsce od opakowania. */}
       {hint && !popupVisible ? (
         <div
