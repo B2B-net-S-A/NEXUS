@@ -5,6 +5,8 @@ import {
   choosePopupPlacement,
   findMentionToken,
   matchMentionUsers,
+  matchesEveryoneQuery,
+  personCount,
 } from "@/lib/mention-autocomplete";
 
 const users = [
@@ -105,5 +107,24 @@ describe("chooseCaretPlacement", () => {
   it("linia przewinięta poza pole trzyma listę przy jego krawędzi", () => {
     expect(chooseCaretPlacement(180, 50, 440, -30, 22, 264).offset).toBe(22);
     expect(chooseCaretPlacement(180, 50, 440, 900, 22, 264).offset).toBe(22);
+  });
+});
+
+describe("matchesEveryoneQuery / personCount (@wszyscy, 13.11.2026)", () => {
+  it("samo „@” i początki „wszyscy”, „zespół”, „all” pokazują pozycję", () => {
+    for (const q of ["", "W", "Wszyscy", "wsz", "zespół", "zesp", "all", "every"]) {
+      expect(matchesEveryoneQuery(q)).toBe(true);
+    }
+    for (const q of ["mar", "wszyscyx", "jan kowalski"]) {
+      expect(matchesEveryoneQuery(q)).toBe(false);
+    }
+  });
+
+  it("odmienia „osoba”", () => {
+    expect(personCount(1)).toBe("1 osoba");
+    expect(personCount(3)).toBe("3 osoby");
+    expect(personCount(6)).toBe("6 osób");
+    expect(personCount(12)).toBe("12 osób");
+    expect(personCount(22)).toBe("22 osoby");
   });
 });

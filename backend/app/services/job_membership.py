@@ -267,6 +267,24 @@ async def list_job_member_ids(
     return sorted(eligible_ids)
 
 
+async def list_job_assigned_ids(db: AsyncSession, job_id: int) -> list[int]:
+    """Osoby przypisane do rekrutacji — kogo oznacza `@wszyscy` (13.11.2026).
+
+    Rekruter prowadzący, Delivery Lead, osoby z aktywnym przypisaniem,
+    ręcznie dodani współpracownicy i plan priorytetów (zastępca w miejsce
+    nieobecnego). Bez adminów spoza zespołu, uczestników kategorii
+    i „Poprzednich rekruterów” — ta sama lista co odbiorcy dzwonków
+    o rekrutacji, a nie „zespół” z nagłówka czatu.
+    """
+    return await list_job_member_ids(
+        db,
+        job_id,
+        include_category_participants=False,
+        include_parked=False,
+        include_admins=False,
+    )
+
+
 async def list_job_members(db: AsyncSession, job_id: int) -> list[User]:
     """Zwraca pełne obiekty User członków projektu (z adminami)."""
     ids = await list_job_member_ids(db, job_id)
