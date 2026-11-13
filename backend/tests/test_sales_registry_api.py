@@ -383,3 +383,47 @@ async def test_no_registry_check_with_flag_off(
     )
     assert saved.status_code == 200, saved.text
     assert spawned == []
+
+
+@pytest.mark.asyncio
+async def test_krs_outage_with_vat_answer_records_vat_only(fake) -> None:
+    nip, krs = _nip(), _krs()
+    fake.vat[nip] = _vat_answer(nip, krs)
+    fake.krs[krs] = httpx.Response(503)
+    company = await _company(f"Bez KRS {uuid.uuid4().hex[:8]}", nip=nip)
+
+    summary = await _check([company])
+
+    # Odpowiedź MF nie przepada: wpis z białej listy, KRS wróci za 30 dni.
+    assert (summary.checked, summary.errors) == (1, 0)
+    [entry] = await _history(company)
+    assert entry.payload["krs_unavailable"] is True
+    assert entry.payload["fields"]["regon"]["source"] == "vat"
+    assert (await _card(company)).krs == krs
+
+
+@pytest.mark.asyncio
+async def test_check_after_bot_report_does_not_take_the_night_hour(
+    fake, monkeypatch
+) -> None:
+    monkeypatch.setattr(settings, "SALES_REGISTRY_ENABLED", True)
+    saved = await _company(f"Po bocie {uuid.uuid4().hex[:8]}", nip=_nip())
+    night_card = await _company(f"Nocą {uuid.uuid4().hex[:8]}", nip=_nip())
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(SalesSignalRun).where(SalesSignalRun.kind == cards.KIND)
+        )
+        await db.commit()
+    # Bieg po raporcie bota: bez osoby, jak noc, ale z innym znacznikiem.
+    await cards.check_after_save([saved])
+    original = cards.due_company_ids
+
+    async def only_night(db, *, now, limit, only=None):
+        return await original(db, now=now, limit=limit, only=[night_card])
+
+    monkeypatch.setattr(cards, "due_company_ids", only_night)
+    async with AsyncSessionLocal() as db:
+        night = local_now().replace(hour=2)
+        assert (
+            await cards.night_step(db, now=datetime.now(timezone.utc), local=night) == 1
+        )

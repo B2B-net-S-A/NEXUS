@@ -83,6 +83,9 @@ DAILY_MF_QUERIES = 25
 NIGHT_HOURS = (1, 6)
 NIGHT_EVERY = timedelta(hours=1)
 NIGHT_BATCH = MF_BATCH
+#: Skąd bieg (``sales_signal_runs.request.trigger``).
+NIGHT = "night"
+SAVE = "save"
 #: Karta sprawdzona nie wraca przez 30 dni (zmiana NIP-u albo KRS-u wraca od razu).
 RESEND_AFTER = timedelta(days=30)
 
@@ -421,6 +424,7 @@ class _Lookup:
     vat: Optional[VatRecord] = None
     vat_done: bool = False
     krs: Optional[KrsRecord] = None
+    krs_failed: bool = False
     failed: bool = False
 
 
@@ -460,7 +464,11 @@ async def _lookups(
             try:
                 lookup.krs = await fetch_krs(client, krs)
             except RegistryUnavailable:
-                lookup.failed = True
+                # Karta z odpowiedzią MF dostaje wpis z samej białej listy (KRS
+                # wróci za 30 dni), żeby awaria KRS nie zjadała co godzinę
+                # kolejnych zapytań z limitu MF. Bez MF karta wraca w kolejnym biegu.
+                lookup.krs_failed = True
+                lookup.failed = not lookup.vat_done
     return found
 
 
@@ -473,6 +481,7 @@ async def check_companies(
     mf_budget: int = DAILY_MF_QUERIES,
     requested_by_user_id: Optional[int] = None,
     dry_run: bool = False,
+    trigger: str = SAVE,
 ) -> Summary:
     """Sprawdź karty w rejestrach i zapisz wynik; commit robi ta funkcja.
 
@@ -515,6 +524,7 @@ async def check_companies(
             started_at=now,
             received_at=now,
             requested_by_user_id=requested_by_user_id,
+            request={"trigger": trigger},
         )
         db.add(run)
         await db.flush()
@@ -546,6 +556,7 @@ async def check_companies(
             "state": state,
             "vat_status": lookup.vat.vat_status if lookup.vat else None,
             "removed_on": lookup.krs.removed_on if lookup.krs else None,
+            "krs_unavailable": lookup.krs_failed,
             "sources": sources,
             "fields": fields,
             "outcomes": outcomes,
@@ -610,7 +621,8 @@ async def night_step(db: AsyncSession, *, now: datetime, local: datetime) -> int
     last = await db.scalar(
         select(func.max(SalesSignalRun.started_at)).where(
             SalesSignalRun.kind == KIND,
-            SalesSignalRun.requested_by_user_id.is_(None),
+            # Bieg po zapisie (ekran, raport bota w nocy) nie zjada godziny nocy.
+            SalesSignalRun.request["trigger"].astext == NIGHT,
             SalesSignalRun.started_at >= night,
         )
     )
@@ -621,7 +633,14 @@ async def night_step(db: AsyncSession, *, now: datetime, local: datetime) -> int
     ids = await due_company_ids(db, now=now, limit=NIGHT_BATCH)
     if not ids:
         return 0
-    summary = await check_companies(db, ids, now=now)
+    try:
+        summary = await check_companies(db, ids, now=now, trigger=NIGHT)
+    except Exception as exc:  # noqa: BLE001
+        # Komunikat błędu bazy niesie parametry zapytania (nazwy, NIP-y), a logi
+        # są publiczne: sam typ wyjątku.
+        await db.rollback()
+        logger.warning("sales_registry night failed: %s", type(exc).__name__)
+        return 0
     return summary.checked
 
 
@@ -635,8 +654,13 @@ async def check_after_save(
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         ids = await due_company_ids(db, now=now, limit=MF_BATCH, only=company_ids)
-        if ids:
+        if not ids:
+            return
+        try:
             await check_companies(db, ids, now=now, requested_by_user_id=user_id)
+        except Exception as exc:  # noqa: BLE001
+            # Jak w ``night_step``: bez parametrów zapytania w publicznym logu.
+            logger.warning("sales_registry after save failed: %s", type(exc).__name__)
 
 
 def identifiers_changed(before: str, company: SalesCompany) -> bool:

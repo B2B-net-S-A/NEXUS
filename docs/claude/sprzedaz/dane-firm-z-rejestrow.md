@@ -76,6 +76,11 @@ nagrania odpowiedzi w `backend/tests/data/sales_registry/` (fikcyjne firmy, bez 
   na końcu blokada wiersza karty. Karta, której NIP albo KRS zmienił się w trakcie,
   nie dostaje wyniku dla starych numerów. Timeout (10 s, trzy próby z odstępem) albo
   awaria rejestru zostawia kartę bez zmian i bez wpisu, więc wraca w kolejnym biegu.
+  Wyjątek: karta z odpowiedzią MF przy awarii samego KRS dostaje wpis z białej listy
+  (`krs_unavailable: true`), a KRS sprawdza się za 30 dni. Inaczej zepsuty numer KRS
+  zjadałby co godzinę kolejne zapytanie z limitu MF.
+- **Bieg ma znacznik `request.trigger`** (`night` albo `save`). Godzinę nocy liczą tylko
+  biegi `night`, bo bieg po nocnym raporcie bota też nie ma osoby i zabierałby paczkę.
 - **Flaga `SALES_REGISTRY_ENABLED`**, domyślnie wyłączona (rejestr flag
   `core/feature_flag_registry.py`). Pętla startuje także przy samej tej fladze.
   Na stagingu pętla stoi (`STAGING_BLOCKED_TASKS`), a zapora wyjścia nie wpuszcza
@@ -88,7 +93,8 @@ nagrania odpowiedzi w `backend/tests/data/sales_registry/` (fikcyjne firmy, bez 
   NIP z sumą kontrolną, KRS i REGON z samych cyfr (REGON 14 cyfr z „00000” → 9),
   dłuższa wartość niż kolumna karty odpada. Zły kształt odpowiedzi to awaria rejestru.
 - Logi i raport biegu to same liczby, bez nazw firm i numerów: repo i logi Actions
-  są publiczne. Nazwy rejestru leżą tylko w bazie (karta i historia).
+  są publiczne. Błąd w kroku nocnym i w sprawdzeniu po zapisie loguje tylko typ
+  wyjątku, bo komunikat błędu bazy niesie parametry zapytania (nazwę, NIP). Nazwy rejestru leżą tylko w bazie (karta i historia).
 
 ## Próba na stagingu z laptopa
 
