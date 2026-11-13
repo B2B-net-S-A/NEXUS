@@ -99,7 +99,7 @@ MODULES = (
     trainings,
     # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów (E0, E1, 13.11.2026).
     finance_ledger,
-    # 0696: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
+    # 0697: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
     finance_posting,
 )
 
