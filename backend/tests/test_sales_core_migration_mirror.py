@@ -130,7 +130,7 @@ def test_migration_reads_the_shared_module() -> None:
     )
     assert "for stmt in schema.BOT_TASKS_DDL:" in bot_tasks
     assert "*_sales_schema.BOT_TASKS_DDL," in entry
-    registry = (ROOT / "alembic/versions/0687_sales_registry_run_kind.py").read_text(
+    registry = (ROOT / "alembic/versions/0688_sales_registry_run_kind.py").read_text(
         encoding="utf-8"
     )
     assert "for stmt in schema.REGISTRY_DDL:" in registry

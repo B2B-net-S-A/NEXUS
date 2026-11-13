@@ -1,5 +1,5 @@
 # Dane firm z rejestrów państwowych (biała lista VAT i KRS) — decyzja Artura 13.11.2026
-<!-- indeks: services/sales/registry.py, services/sales/registry_cards.py, rodzaj biegu registry (0687), Dane firm (automat), wl-api.mf.gov.pl search/nips, limit 100 zapytań MF wspólny z Rozliczeniami (hr/white_list.py), DAILY_MF_QUERIES, api-krs.ms.gov.pl OdpisAktualny i OdpisPelny, firma wykreślona, likwidacja, upadłość, status VAT, tylko puste pola, pole człowieka zostaje, dubel NIP-u albo KRS-u z inną kartą, historia karty w sales_bot_results (accepted, payload.fields/outcomes), checked_key, 30 dni, noc 1–6, po zapisaniu NIP-u (ekran Firmy, bot enrich), SALES_REGISTRY_ENABLED, staging bez wyjścia do rejestrów, skrypt sales_registry_trial -->
+<!-- indeks: services/sales/registry.py, services/sales/registry_cards.py, rodzaj biegu registry (0688), Dane firm (automat), wl-api.mf.gov.pl search/nips, limit 100 zapytań MF wspólny z Rozliczeniami (hr/white_list.py), DAILY_MF_QUERIES, api-krs.ms.gov.pl OdpisAktualny i OdpisPelny, firma wykreślona, likwidacja, upadłość, status VAT, tylko puste pola, pole człowieka zostaje, dubel NIP-u albo KRS-u z inną kartą, historia karty w sales_bot_results (accepted, payload.fields/outcomes), checked_key, 30 dni, noc 1–6, po zapisaniu NIP-u (ekran Firmy, bot enrich), SALES_REGISTRY_ENABLED, staging bez wyjścia do rejestrów, skrypt sales_registry_trial -->
 
 Krok 6 planu botów Sprzedaży (raport: https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV).
 Artur 13.11.2026: dane od botów zapisują się od razu, bez „Przyjmij”, a NIP, KRS,
@@ -57,7 +57,7 @@ nagrania odpowiedzi w `backend/tests/data/sales_registry/` (fikcyjne firmy, bez 
 - Odcisk to wartości, wyniki pól, stan i numery z karty, bez daty sprawdzenia:
   to samo sprawdzenie drugi raz odświeża datę wiersza zamiast dokładać nowy.
   Pierwsze sprawdzenie zostaje jako „wpisano”, kolejne jako „potwierdzono”.
-- Każde sprawdzenie ma bieg `sales_signal_runs` rodzaju `registry` (migracja 0687
+- Każde sprawdzenie ma bieg `sales_signal_runs` rodzaju `registry` (migracja 0688
   podmienia CHECK rodzaju, lustro w `entrypoint.sh` przez `REGISTRY_DDL`): bez tokenu,
   od razu `received`, w `report` same liczby (`checked`, `applied_fields`,
   `kept_fields`, `taken_fields`, `inactive`, `errors`, `mf_queries`, `krs_queries`).

@@ -1361,7 +1361,7 @@ try:
         *_sales_schema.CALL_OUTCOMES_V2_DDL,
         # 0684: zadania bota — rodzaje biegów, zlecenie biegu, wyniki do decyzji.
         *_sales_schema.BOT_TASKS_DDL,
-        # 0687: rodzaj biegu „registry” (dane firm z rejestrów państwowych).
+        # 0688: rodzaj biegu „registry” (dane firm z rejestrów państwowych).
         *_sales_schema.REGISTRY_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)

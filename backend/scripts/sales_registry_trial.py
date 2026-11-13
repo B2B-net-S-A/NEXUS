@@ -7,7 +7,7 @@ robi się z hosta: skrypt łączy się z bazą stagingu (``DATABASE_URL`` na
 
 Domyślnie na sucho: ten sam przebieg co pętla, na końcu wycofanie, bez biegu i bez
 historii. ``--apply`` zapisuje wynik w tej bazie (wymaga rodzaju ``registry``,
-migracja 0687). Skrypt odmawia bazy spoza ``localhost``: produkcji nie dotyka.
+migracja 0688). Skrypt odmawia bazy spoza ``localhost``: produkcji nie dotyka.
 
 Na standardowym wyjściu same liczby. Nazwy kart i wartości z rejestrów idą do
 pliku ``--list-out`` poza repozytorium. Reguły:

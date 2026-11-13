@@ -1028,7 +1028,7 @@ BOT_RUN_KINDS: tuple[str, ...] = (
     "winback",
     "discovery",
     "people",
-    # 0687: sprawdzenie kart w rejestrach państwowych (``services/sales/registry.py``),
+    # 0688: sprawdzenie kart w rejestrach państwowych (``services/sales/registry.py``),
     # bieg bez bota i bez tokenu, od razu ``received``.
     "registry",
 )
@@ -1078,7 +1078,7 @@ BOT_TASKS_DDL: tuple[str, ...] = (
     "ON sales_bot_results (company_id)",
 )
 
-# 0687: rodzaj biegu ``registry``. Ten sam wzór co w ``BOT_TASKS_DDL``: podmiana
+# 0688: rodzaj biegu ``registry``. Ten sam wzór co w ``BOT_TASKS_DDL``: podmiana
 # CHECK-a tylko wtedy, gdy definicja nie zna jeszcze nowego rodzaju.
 REGISTRY_DDL: tuple[str, ...] = (
     "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
