@@ -13,6 +13,10 @@ Plan skracania przerwy (Etap 0) potrzebuje obu liczb osobno oraz odpowiedzi,
 czy Coolify odtworzył przy deployu kontener Postgresa (zmiana
 ``pg_postmaster_start_time()`` odczytanego z ``/api/health/deep`` przed
 webhookiem i po smoke teście).
+
+Od etapu B1 (11.2026) front jest osobną aplikacją Coolify z rolling update,
+wdrażaną w tym samym biegu (``--frontend-app true``). Raport mówi wtedy, który
+mechanizm zmierzył, i ostrzega, gdy front przekroczy cel 2 s.
 """
 
 from __future__ import annotations
@@ -26,6 +30,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 TARGETS = ("frontend", "api")
+# Cel etapu B1: rolling update frontu = przerwa nie dłuższa niż jedna próbka sondy.
+FRONTEND_APP_TARGET_SECONDS = 2
 _NO_VALUE = {"", "null", "none", "missing", "unknown"}
 
 
@@ -107,7 +113,7 @@ def _fmt(ts: int | None) -> str:
 
 
 def render_summary(
-    target_sha: str, results: list[TargetResult], postgres: str
+    target_sha: str, results: list[TargetResult], postgres: str, frontend_app: bool = False
 ) -> str:
     lines = [
         f"### Przerwa widziana przez użytkowników — deploy `{target_sha[:8]}`",
@@ -125,13 +131,22 @@ def render_summary(
         "",
         f"Postgres restartował: **{POSTGRES_LABELS[postgres]}**.",
         "",
+        (
+            "Front: osobna aplikacja Coolify `nexus-frontend` (rolling update), "
+            f"cel ≤ {FRONTEND_APP_TARGET_SECONDS} s."
+            if frontend_app
+            else "Front: usługa w compose (zatrzymywana razem z resztą)."
+        ),
+        "",
         "Próbki co ~2 s z runnera GitHub. Długość przerwy liczona od pierwszej "
         "złej do pierwszej dobrej próbki — przybliżenie, nie pomiar ciągły.",
     ]
     return "\n".join(lines) + "\n"
 
 
-def render_notices(results: list[TargetResult], postgres: str) -> list[str]:
+def render_notices(
+    results: list[TargetResult], postgres: str, frontend_app: bool = False
+) -> list[str]:
     """Linie ``::notice::`` (każda jednoliniowa). Pierwsza zachowuje dawny tekst."""
     worst = max((r.longest_seconds for r in results), default=0)
     notices = [
@@ -144,6 +159,12 @@ def render_notices(results: list[TargetResult], postgres: str) -> list[str]:
             f"::notice title=Przerwa {r.target}::{r.target}: {r.longest_seconds} s "
             f"(próbki bez 200: {r.bad_samples}/{r.samples}, kody: {codes})"
         )
+    front = next((r for r in results if r.target == "frontend"), None)
+    if frontend_app and front and front.longest_seconds > FRONTEND_APP_TARGET_SECONDS:
+        notices.append(
+            f"::warning title=Front ponad cel::nexus-frontend: {front.longest_seconds} s przerwy "
+            f"przy rolling update (cel ≤ {FRONTEND_APP_TARGET_SECONDS} s)"
+        )
     notices.append(f"::notice title=Postgres::Postgres restartował: {POSTGRES_LABELS[postgres]}")
     return notices
 
@@ -154,6 +175,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--target", required=True, help="TARGET_SHA deployu")
     parser.add_argument("--postgres-before", default="")
     parser.add_argument("--postgres-after", default="")
+    parser.add_argument(
+        "--frontend-app", default="false", help="true = front wdrożony jako osobna aplikacja"
+    )
     parser.add_argument("--summary-out", required=True, type=Path)
     parser.add_argument("--notice-out", required=True, type=Path)
     return parser.parse_args(argv)
@@ -164,11 +188,12 @@ def main(argv: list[str] | None = None) -> int:
     rows = load_samples(args.samples)
     results = [summarize(t, rows.get(t, [])) for t in TARGETS]
     postgres = postgres_restart(args.postgres_before, args.postgres_after)
+    frontend_app = args.frontend_app.strip().lower() == "true"
     args.summary_out.write_text(
-        render_summary(args.target, results, postgres), encoding="utf-8"
+        render_summary(args.target, results, postgres, frontend_app), encoding="utf-8"
     )
     args.notice_out.write_text(
-        "\n".join(render_notices(results, postgres)) + "\n", encoding="utf-8"
+        "\n".join(render_notices(results, postgres, frontend_app)) + "\n", encoding="utf-8"
     )
     return 0
 
