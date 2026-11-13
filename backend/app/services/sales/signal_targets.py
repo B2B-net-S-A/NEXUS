@@ -493,6 +493,13 @@ async def _eligible_people_companies(
     return {identity.company_id for identity in identities} - set(clients)
 
 
+async def eligible_companies(db: AsyncSession, company_ids: Iterable[int]) -> set[int]:
+    """Karty, o które wolno pytać bota: poza archiwum, bez „Nie kontaktować”,
+    nie nasza firma i nie klient NEXUSA (te same bramki co mapa osób)."""
+
+    return await _eligible_people_companies(db, company_ids)
+
+
 async def cognism_company_ids(
     db: AsyncSession, *, now: datetime, explicit_ids: Iterable[int] | None = None
 ) -> list[int]:
