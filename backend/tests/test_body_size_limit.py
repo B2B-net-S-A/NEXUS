@@ -136,3 +136,42 @@ async def test_chunked_multipart_upload_over_limit_is_413_not_400():
     )
     assert status == 413
     assert json.loads(payload)["code"] == "request_body_too_large"
+
+
+def test_pattern_limit_matches_only_the_whole_path():
+    """Szkolenia (0694): 2 GB tylko dla tras uploadu plików, nie dla sąsiednich."""
+
+    async def app(scope, receive, send):  # pragma: no cover - nie wołana
+        return None
+
+    middleware = BodySizeLimitMiddleware(
+        app,
+        max_bytes=30,
+        path_limits={"/exact": 5},
+        pattern_limits=[(r"/api/trainings/\d+/files", 2_000)],
+    )
+    assert middleware._limit_for("/api/trainings/12/files") == 2_000
+    assert middleware._limit_for("/api/trainings/12/files/9/review") == 30
+    assert middleware._limit_for("/api/trainings/x/files") == 30
+    assert middleware._limit_for("/exact") == 5
+    assert middleware._limit_for("/other") == 30
+
+
+def test_training_upload_routes_get_the_big_limit():
+    from app.main import app
+
+    stack = app.user_middleware
+    limit = next(m for m in stack if m.cls is BodySizeLimitMiddleware)
+    patterns = [pattern for pattern, _ in limit.kwargs["pattern_limits"]]
+    middleware = BodySizeLimitMiddleware(
+        lambda *a: None, max_bytes=1, pattern_limits=limit.kwargs["pattern_limits"]
+    )
+    assert len(patterns) == 2
+    assert middleware._limit_for("/api/trainings/5/files") > 2 * 1024**3
+    assert (
+        middleware._limit_for(
+            "/api/public/consultant-portal/trainings/5/deliverables/audio"
+        )
+        > 2 * 1024**3
+    )
+    assert middleware._limit_for("/api/public/consultant-portal/trainings/5/quote") == 1

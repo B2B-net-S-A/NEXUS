@@ -2,7 +2,8 @@
 
 /**
  * Harness panelu konsultanta: prawdziwe ekrany na zasianym cache, ZERO zapytań.
- * Dane wyłącznie fikcyjne. `?ekran=start|na-start|rozliczenia|faktury|rozmowy|sprzet|pomoc|trener`.
+ * Dane wyłącznie fikcyjne. `?ekran=start|na-start|rozliczenia|faktury|rozmowy|sprzet|pomoc|trener|trener-wyslane|
+ * szkolenia|szkolenia-nagranie|szkolenie-wycena|szkolenie-poprawa|szkolenie-umowa|szkolenie-przekazanie|szkolenie-faktura`.
  */
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo } from "react";
@@ -20,7 +21,14 @@ import {
   TrainerScreen,
 } from "@/components/consultant-portal/PanelScreens";
 import { PortalShell } from "@/components/consultant-portal/PortalShell";
+import { TrainingDetailView } from "@/components/consultant-portal/TrainingDetail";
+import { TrainingsScreen, TrainingsView } from "@/components/consultant-portal/TrainingScreens";
 import { portalKeys, type PortalMe } from "@/lib/api/consultant-portal";
+
+import { PREVIEW_APPLICATION, PREVIEW_TRAININGS, previewTraining } from "@/components/consultant-portal/training-fixtures";
+
+/** Stały „dziś” harnessu, żeby etapy szkoleń nie zmieniały się z kalendarzem. */
+const TODAY = "2026-11-13";
 
 const ME: PortalMe = {
   first_name: "Anna",
@@ -107,7 +115,24 @@ function seeded(): QueryClient {
   client.setQueryData(portalKeys.cases, { items: [] });
   client.setQueryData(portalKeys.faq, { items: [] });
   client.setQueryData(portalKeys.trainer, { application: null });
+  client.setQueryData(portalKeys.trainings, PREVIEW_TRAININGS);
+  // Pusty plik zamiast biletu: odtwarzacz nie wysyła zapytania, a rozdziały działają.
+  client.setQueryData(portalKeys.ticket(31), { url: "data:video/mp4;base64," });
   return client;
+}
+
+/** Zgłoszenie już wysłane: osobny cache, żeby `?ekran=trener` dalej pokazywał pusty formularz. */
+function SentApplication() {
+  const client = useMemo(() => {
+    const sent = new QueryClient({ defaultOptions: { queries: { staleTime: Infinity, retry: false, enabled: false } } });
+    sent.setQueryData(portalKeys.trainer, { application: PREVIEW_APPLICATION });
+    return sent;
+  }, []);
+  return (
+    <QueryClientProvider client={client}>
+      <TrainerScreen />
+    </QueryClientProvider>
+  );
 }
 
 function Screen() {
@@ -122,6 +147,25 @@ function Screen() {
     sprzet: <EquipmentScreen me={ME} />,
     pomoc: <HelpScreen me={ME} />,
     trener: <TrainerScreen />,
+    "trener-wyslane": <SentApplication />,
+    szkolenia: <TrainingsScreen />,
+    "szkolenia-nagranie": (
+      <TrainingsView data={PREVIEW_TRAININGS} today={TODAY} initialTab="recordings" initialRecording={21} />
+    ),
+    "szkolenie-wycena": <TrainingDetailView training={previewTraining(3, "ordered")} today={TODAY} />,
+    "szkolenie-poprawa": <TrainingDetailView training={previewTraining(3, "returned")} today={TODAY} />,
+    "szkolenie-umowa": <TrainingDetailView training={previewTraining(2, "accepted")} today={TODAY} />,
+    "szkolenie-przekazanie": <TrainingDetailView training={previewTraining(1, "signed")} today={TODAY} />,
+    "szkolenie-faktura": (
+      <TrainingDetailView
+        training={previewTraining(1, "signed", {
+          handover: previewTraining(1, "signed").handover.map((item) => ({ ...item, state: "accepted" as const })),
+          payment: { invoice_ready_at: "2026-11-12T10:00:00+01:00", paid_at: null },
+          can_invoice: true,
+        })}
+        today={TODAY}
+      />
+    ),
   };
   return (
     <QueryClientProvider client={client}>

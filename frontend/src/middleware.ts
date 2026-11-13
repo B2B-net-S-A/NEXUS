@@ -604,6 +604,8 @@ const PUBLIC_PATHS = [
   "/preview/client-invoicing",
   // Sprzedaż → Szanse (Atlas → NEXUS, 27.10.2026), fikcyjne dane.
   "/preview/sales",
+  // Szkolenia (13.11.2026): karta szkolenia i biblioteka, fikcja, zero zapytań.
+  "/preview/trainings",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki

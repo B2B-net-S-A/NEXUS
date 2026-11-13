@@ -46,6 +46,11 @@
   "GET /api/public/consultant-portal/status": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/todo": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/trainer": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/trainings": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/trainings/files/{file_id}": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/trainings/files/{file_id}/ticket": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/trainings/{training_id}": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/public/consultant-portal/trainings/{training_id}/agreement.pdf": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/cases": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/equipment/protocols/{protocol_id}/confirm": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/finance/documents": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -57,6 +62,12 @@
   "POST /api/public/consultant-portal/rating": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/rating-form": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/session": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "PUT /api/public/consultant-portal/trainer": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+  "POST /api/public/consultant-portal/trainer/sample": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/trainings/{training_id}/agreement/signature": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/trainings/{training_id}/deliverables/{key}": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/trainings/{training_id}/invoice": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/trainings/{training_id}/registration": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "PUT /api/public/consultant-portal/trainer": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "PUT /api/public/consultant-portal/trainings/{training_id}/quote": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
  }
 }

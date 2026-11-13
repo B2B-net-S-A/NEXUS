@@ -60,6 +60,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   offboarding: "Odejście",
   care: "Opieka",
   "back-office": "Back office",
+  // Szkolenia (13.11.2026, zamiast Akademii Compassa).
+  trainings: "Szkolenia",
   protocol: "Protokół",
   konsultant: "Strefa konsultanta",
   wejscie: "Wejście",
@@ -70,7 +72,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   rozmowy: "Rozmowy",
   sprzet: "Sprzęt",
   pomoc: "Pomoc",
-  trener: "Zostań trenerem",
+  trener: "Zgłoszenie trenera",
+  szkolenia: "Szkolenia",
   settings: "Ustawienia",
   templates: "Szablony email",
   admin: "Admin",

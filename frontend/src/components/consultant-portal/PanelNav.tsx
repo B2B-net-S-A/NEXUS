@@ -16,8 +16,18 @@ export function panelNavItems(me: Pick<PortalMe, "menu">): { href: string; label
     { href: "/konsultant/rozmowy", label: "Rozmowy" },
     ...(me.menu.equipment ? [{ href: "/konsultant/sprzet", label: "Sprzęt" }] : []),
     { href: "/konsultant/pomoc", label: "Pomoc" },
-    { href: "/konsultant/trener", label: "Zostań trenerem" },
+    { href: "/konsultant/szkolenia", label: "Szkolenia" },
   ];
+}
+
+/** „Szkolenia” świeci też na ekranie szkolenia i zgłoszenia trenera. */
+export function isCurrent(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  if (pathname === href) return true;
+  if (href === "/konsultant/szkolenia") {
+    return pathname.startsWith("/konsultant/szkolenia/") || pathname === "/konsultant/trener";
+  }
+  return false;
 }
 
 export function PanelNav({ me }: { me: PortalMe }) {
@@ -25,7 +35,7 @@ export function PanelNav({ me }: { me: PortalMe }) {
   return (
     <nav aria-label="Panel konsultanta" className="flex gap-1 overflow-x-auto">
       {panelNavItems(me).map((item) => {
-        const current = pathname === item.href;
+        const current = isCurrent(pathname, item.href);
         return (
           <Link
             key={item.href}
