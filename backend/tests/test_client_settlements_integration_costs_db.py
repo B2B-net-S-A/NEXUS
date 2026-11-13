@@ -223,6 +223,20 @@ async def test_bez_zgody_dl_klienta_odmowa_i_marza_bez_zmian() -> None:
         )
         assert hidden["rows"][0]["integration_cost"] is None
         assert hidden["rows"][0]["margin"] is None
+        async with AsyncSessionLocal() as db:
+            seen = await integration_costs.client_month(
+                db, client_id, month, amounts=True
+            )
+            blind = await integration_costs.client_month(
+                db, client_id, month, amounts=False
+            )
+            card = await integration_costs.card(db, contract_id, month, amounts=False)
+        assert seen["items"][0]["amount"] == "400.00"
+        assert seen["items"][0]["usage"]["approved"] == "400.00"
+        # Bez dostępu do kwot klienta (np. TCM): ani kwoty, ani licznika roku.
+        assert blind["items"][0]["amount"] is None
+        assert blind["items"][0]["usage"] is None and blind["limit"] is None
+        assert card["usage"] is None and card["items"][0]["amount"] is None
     finally:
         await _drop(client_id, [finance, admin, other_dl, dl])
 
@@ -304,4 +318,59 @@ async def test_dl_widzi_marze_swojego_klienta_i_rozstrzyga_koszt(app_client) -> 
         )
     finally:
         await _drop(client_id, [dl, other_dl])
+        await _restore(previous)
+
+
+async def test_wydruk_maila_po_rcp_nie_zastepuje_rcp(tmp_path, monkeypatch) -> None:
+    """E2.3: PDF z wydrukiem maila dosłany po RCP to dowód zgody, nie RCP."""
+
+    import io
+
+    import openpyxl
+
+    from app.models.consultant_portal import CpDocument
+    from app.services import storage_service
+    from app.services.consultant_portal import documents
+    from tests.test_client_settlements_acceptance_mail import (
+        MAIL_PRINTOUT,
+        pdf_with_text,
+    )
+    from tests.test_client_settlements_rcp import _sheet
+
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    previous = await _module(True)
+    client_id, contract_id, _line = await _world()
+    month = _previous_month()
+    year, mon = (int(x) for x in month.split("-"))
+    rows = _sheet([[None, "development", 7, None, None, "EBI", None, "SX03098"]])
+    rows[1][2] = rows[1][2].replace(year=year, month=mon, day=1)
+    workbook = openpyxl.Workbook()
+    for row in rows:
+        workbook.active.append(row)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    try:
+        async with AsyncSessionLocal() as db:
+            for content, name in (
+                (buffer.getvalue(), "rcp.xlsx"),
+                (pdf_with_text(MAIL_PRINTOUT), "akceptacja.pdf"),
+            ):
+                await documents.store(
+                    db,
+                    contract_id=contract_id,
+                    kind="report",
+                    year=year,
+                    month=mon,
+                    content=content,
+                    file_name=name,
+                    channel="portal",
+                    now=local_now(),
+                )
+            await db.commit()
+            s = await service._settlement(db, contract_id, month)
+            report = await db.get(CpDocument, s.report_document_id)
+        assert report.file_name == "rcp.xlsx"
+        assert s.md_source == "rcp" and s.md_regular == Decimal("7.000")
+    finally:
+        await _drop(client_id, [])
         await _restore(previous)

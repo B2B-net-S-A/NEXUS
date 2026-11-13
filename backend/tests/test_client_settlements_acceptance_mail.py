@@ -205,3 +205,66 @@ def test_mail_bez_daty_i_nadawcy_sprawdza_czlowiek():
     assert states["Czy akceptacja była przed pracą: sprawdza człowiek"] == "none"
     assert states["Nadawcy maila nie odczytano: domenę sprawdza człowiek"] == "none"
     assert not r.blocking
+
+
+def pdf_with_text(lines: list[str]) -> bytes:
+    """Najprostszy PDF z tekstem (Helvetica) — wydruk maila do testów."""
+
+    def esc(text: str) -> str:
+        return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+    stream = (
+        "BT /F1 10 Tf 40 800 Td 14 TL "
+        + " ".join(f"({esc(line)}) Tj T*" for line in lines)
+        + " ET"
+    )
+    objects = [
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] "
+        "/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        f"<< /Length {len(stream)} >>\nstream\n{stream}\nendstream",
+    ]
+    out = b"%PDF-1.4\n"
+    offsets = []
+    for index, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += f"{index} 0 obj\n{body}\nendobj\n".encode("latin-1")
+    xref = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    out += b"".join(f"{o:010d} 00000 n \n".encode() for o in offsets)
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\n"
+        f"startxref\n{xref}\n%%EOF\n"
+    ).encode()
+    return out
+
+
+MAIL_PRINTOUT = [
+    "From: Przelozony Jan <przelozony@klient.pl>",
+    "Sent: Monday, October 5, 2026 9:12 AM",
+    "To: konsultant@external.klient.pl",
+    "Subject: RE: nadgodziny",
+    "Potwierdzam.",
+]
+
+
+def test_wydruk_maila_w_pdf():
+    found = am.read(pdf_with_text(MAIL_PRINTOUT), am.PDF)
+    assert found == [MailMessage("przelozony@klient.pl", date(2026, 10, 5))]
+    assert (
+        am.read(pdf_with_text(["Rozliczenie czasu pracy", "SUMA 21,75"]), am.PDF) == []
+    )
+
+
+def test_cytat_bez_adresu_nadawcy_nie_blokuje():
+    # Outlook w firmie: „From: Nowak, Anna” bez adresu, przekazuje ktoś z firmy.
+    mails = [
+        MailMessage("konsultant@firma.pl", date(2026, 11, 4)),
+        MailMessage(None, date(2026, 10, 5)),
+    ]
+    r = _eval(parse_pdf_text(PDF_TEXT), rules=_overtime_rules(), mails=mails)
+    states = _states(r)
+    assert states["Nadawcy maila nie odczytano: domenę sprawdza człowiek"] == "none"
+    assert not r.blocking

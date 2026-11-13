@@ -509,7 +509,9 @@ async def contract_integration_costs(
 ) -> dict[str, Any]:
     await _open(db, current_user)
     try:
-        return await integration_costs.card(db, contract_id, month)
+        return await integration_costs.card(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
     except SettlementError as exc:
         raise _fail(exc) from exc
 
@@ -535,7 +537,9 @@ async def add_integration_cost(
             actor=current_user,
         )
         await _commit(db)
-        return await integration_costs.card(db, contract_id, month)
+        return await integration_costs.card(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
     except SettlementError as exc:
         await db.rollback()
         raise _fail(exc) from exc
@@ -553,7 +557,9 @@ async def withdraw_integration_cost(
     try:
         await integration_costs.withdraw(db, cost_id, contract_id)
         await _commit(db)
-        return await integration_costs.card(db, contract_id, month)
+        return await integration_costs.card(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
     except SettlementError as exc:
         await db.rollback()
         raise _fail(exc) from exc
@@ -584,7 +590,9 @@ async def _delivery_view(
     invoice = await client_invoice.invoice_month(db, client_id, month, amounts=amounts)
     return {
         **invoice,
-        "integration": await integration_costs.client_month(db, client_id, month),
+        "integration": await integration_costs.client_month(
+            db, client_id, month, amounts=amounts
+        ),
         "can_decide": await integration_costs.is_client_delivery_lead(
             db, user, client_id
         ),

@@ -266,10 +266,31 @@ async def _report(
 ) -> Optional[CpDocument]:
     """RCP miesiąca: najnowszy PDF albo XLSX; inny plik, gdy RCP nie ma."""
 
-    reports = await _month_reports(db, contract_id, month, kind=kind)
-    return next(
-        (d for d in reports if d.mime in RCP_MIMES), reports[0] if reports else None
-    )
+    return await _pick_report(await _month_reports(db, contract_id, month, kind=kind))
+
+
+def _is_mail_printout(doc: CpDocument) -> bool:
+    """PDF z wydrukiem maila (E2.3) to dowód zgody, nie RCP."""
+
+    if doc.mime != acceptance_mail.PDF:
+        return False
+    try:
+        content = portal_documents.path_for(doc.file_path).read_bytes()
+    except OSError:
+        return False
+    return bool(acceptance_mail.read(content, doc.mime))
+
+
+async def _pick_report(reports: list[CpDocument]) -> Optional[CpDocument]:
+    """RCP spośród plików miesiąca (najnowsze pierwsze): PDF albo XLSX, ale nie
+    wydruk maila — konsultant często dosyła go po RCP."""
+
+    candidates = [d for d in reports if d.mime in RCP_MIMES]
+    if len(candidates) > 1:
+        for doc in candidates:
+            if not await asyncio.to_thread(_is_mail_printout, doc):
+                return doc
+    return candidates[0] if candidates else (reports[0] if reports else None)
 
 
 async def _settlement(
@@ -762,9 +783,7 @@ async def _recompute(
     order = await _order_for(db, s.contract_id, s.period_month)
     state = await _order_state(db, order, s.period_month)
     reports = await _month_reports(db, s.contract_id, s.period_month, kind=s.kind)
-    report = next(
-        (d for d in reports if d.mime in RCP_MIMES), reports[0] if reports else None
-    )
+    report = await _pick_report(reports)
     s.report_document_id = report.id if report else None
     rules = await rules_for(db, s.client_id, s.period_month)
     proof = await _proof(

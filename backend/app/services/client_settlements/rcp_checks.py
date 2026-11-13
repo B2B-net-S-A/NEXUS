@@ -298,13 +298,15 @@ def _check_domain(
     if not allowed:
         return
     senders = sorted({m.domain for m in mails if m.domain})
-    if not senders:
+    if acceptance_mail.from_domain(mails, allowed):
+        group.ok("Akceptacja z domeny " + ", ".join(allowed))
+    elif not senders or any(m.sender is None for m in mails):
+        # Outlook w firmie cytuje często „From: Nowak, Anna” bez adresu — wtedy
+        # nie wiemy, skąd zgoda, i blokada byłaby fałszywa.
         group.info(
             "Nadawcy maila nie odczytano: domenę sprawdza człowiek",
             "Wymagana: " + ", ".join(allowed) + ".",
         )
-    elif acceptance_mail.from_domain(mails, allowed):
-        group.ok("Akceptacja z domeny " + ", ".join(allowed))
     else:
         group.fail(
             key,

@@ -58,7 +58,7 @@ export function DeliverySettlementsSection({ clientId }: { clientId: number }) {
     const ok = await askConfirm(
       approve
         ? {
-            title: `Zgoda na ${pln(cost.amount)} kosztów integracji?`,
+            title: cost.amount ? `Zgoda na ${pln(cost.amount)} kosztów integracji?` : "Zgoda na koszt integracji?",
             description: `${cost.person ?? "Konsultant"}, ${monthLabel(cost.month)}: ${cost.description}. Koszt obniży marżę miesiąca.`,
             confirmLabel: "Zgoda",
           }
@@ -178,7 +178,7 @@ export function DeliverySettlementsSection({ clientId }: { clientId: number }) {
                     <li key={cost.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                       <span className="min-w-0 flex-1">
                         <span className="block font-medium">
-                          {cost.person} · {monthLabel(cost.month)} · {pln(cost.amount)}
+                          {[cost.person, monthLabel(cost.month), cost.amount ? pln(cost.amount) : null].filter(Boolean).join(" · ")}
                         </span>
                         <span className="block text-xs text-muted-foreground">{cost.description}</span>
                         {cost.usage ? (

@@ -266,12 +266,16 @@ async def withdraw(db: AsyncSession, cost_id: int, contract_id: int) -> None:
     await db.flush()
 
 
-def _item(cost: ClientSettlementExtra, person: Optional[str] = None) -> dict[str, Any]:
+def _item(
+    cost: ClientSettlementExtra, person: Optional[str] = None, *, amounts: bool = True
+) -> dict[str, Any]:
+    """Kwota tylko przy dostępie do kwot klienta (``can_read_client_finance``)."""
+
     out = {
         "id": cost.id,
         "contract_id": cost.contract_id,
         "month": cost.period_month,
-        "amount": f"{Decimal(cost.amount):.2f}",
+        "amount": f"{Decimal(cost.amount):.2f}" if amounts else None,
         "description": cost.description,
         "status": cost.status,
         "decided_at": cost.decided_at.isoformat() if cost.decided_at else None,
@@ -281,7 +285,9 @@ def _item(cost: ClientSettlementExtra, person: Optional[str] = None) -> dict[str
     return out
 
 
-async def card(db: AsyncSession, contract_id: int, month: str) -> dict[str, Any]:
+async def card(
+    db: AsyncSession, contract_id: int, month: str, *, amounts: bool = True
+) -> dict[str, Any]:
     """Sekcja „Koszty integracji” na karcie osoby: rok konsultanta i licznik."""
 
     contract = await db.get(Contract, contract_id)
@@ -308,12 +314,16 @@ async def card(db: AsyncSession, contract_id: int, month: str) -> dict[str, Any]
     ).all()
     return {
         "enabled": enabled,
-        "usage": (await usage(db, contract, client_id, month)).as_dict(),
-        "items": [_item(c) for c in items],
+        "usage": (await usage(db, contract, client_id, month)).as_dict()
+        if amounts
+        else None,
+        "items": [_item(c, amounts=amounts) for c in items],
     }
 
 
-async def client_month(db: AsyncSession, client_id: int, month: str) -> dict[str, Any]:
+async def client_month(
+    db: AsyncSession, client_id: int, month: str, *, amounts: bool
+) -> dict[str, Any]:
     """Koszty klienta do decyzji DL-a: czekające z całego roku i rozstrzygnięte
     w miesiącu, z licznikiem roku każdej osoby."""
 
@@ -343,10 +353,15 @@ async def client_month(db: AsyncSession, client_id: int, month: str) -> dict[str
     for cost, contract in rows:
         person = await service._contract(db, contract.id)
         used = await usage(db, contract, client_id, cost.period_month)
-        items.append({**_item(cost, person.name), "usage": used.as_dict()})
+        items.append(
+            {
+                **_item(cost, person.name, amounts=amounts),
+                "usage": used.as_dict() if amounts else None,
+            }
+        )
     return {
         "enabled": enabled,
-        "limit": None if limit is None else f"{limit:.2f}",
+        "limit": None if limit is None or not amounts else f"{limit:.2f}",
         "year": year,
         "items": items,
     }

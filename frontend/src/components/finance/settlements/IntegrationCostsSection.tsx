@@ -70,7 +70,7 @@ export function IntegrationCostsSection({ contractId, month, canWrite }: Integra
       <p className="text-xs text-muted-foreground">
         Na koszt B2B, klient ich nie zwraca. Zgodę daje DL klienta; przyjęty koszt obniża marżę miesiąca.
       </p>
-      <p className="mt-1 text-xs font-medium tabular-nums">{integrationUsageText(card.usage)}</p>
+      {card.usage ? <p className="mt-1 text-xs font-medium tabular-nums">{integrationUsageText(card.usage)}</p> : null}
       {card.items.length > 0 ? (
         <ul className="mt-1 divide-y text-[13px]">
           {card.items.map((item) => (

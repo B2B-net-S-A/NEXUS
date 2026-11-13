@@ -492,17 +492,19 @@ export interface IntegrationCost {
   id: number;
   contract_id: number;
   month: string;
-  amount: string;
+  /** `null` bez dostępu do kwot klienta (`can_read_client_finance`). */
+  amount: string | null;
   description: string;
   status: IntegrationCostStatus;
   decided_at: string | null;
   person?: string;
-  usage?: IntegrationUsage;
+  usage?: IntegrationUsage | null;
 }
 
 export interface IntegrationCard {
   enabled: boolean;
-  usage: IntegrationUsage;
+  /** `null` bez dostępu do kwot. */
+  usage: IntegrationUsage | null;
   items: IntegrationCost[];
 }
 
