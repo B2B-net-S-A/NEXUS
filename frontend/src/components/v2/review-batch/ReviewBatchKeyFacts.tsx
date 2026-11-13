@@ -81,7 +81,7 @@ export function ReviewBatchKeyFactsBlock({
       </ul>
       {restTotal > 0 ? (
         <p className="text-xs text-muted-foreground">
-          Wymagania z listy: {restMatched} z {restTotal} w profilu (całość w zakładce „Wymagania”)
+          Z listy wymagań: {restMatched} z {restTotal} w profilu
         </p>
       ) : null}
     </div>

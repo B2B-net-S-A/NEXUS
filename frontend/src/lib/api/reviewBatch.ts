@@ -168,11 +168,27 @@ export function useReviewBatchStatus(options: { enabled?: boolean } = {}) {
   })
 }
 
+/**
+ * Reguła rekrutacji z powtarzanych braków (12.11.2026): 3 odrzucenia z tą samą
+ * pozycją → silnik wymaga jej śladu („trace”) albo doświadczenia („experience”).
+ */
+export interface ReviewBatchLearnedRule {
+  label: string
+  level: "trace" | "experience"
+  count: number
+}
+
+export interface ReviewBatchQueue {
+  items: ReviewBatchItem[]
+  /** Klucz to id rekrutacji jako tekst. */
+  job_rules?: Record<string, ReviewBatchLearnedRule[]>
+}
+
 export function useReviewBatchQueue(options: { enabled?: boolean } = {}) {
-  return useQuery<{ items: ReviewBatchItem[] }>({
+  return useQuery<ReviewBatchQueue>({
     queryKey: REVIEW_BATCH_QUEUE_KEY,
     queryFn: async () =>
-      (await api.get<{ items: ReviewBatchItem[] }>("/api/review-batch/me/queue", {
+      (await api.get<ReviewBatchQueue>("/api/review-batch/me/queue", {
         params: { limit: 20 },
       })).data,
     enabled: options.enabled ?? true,
