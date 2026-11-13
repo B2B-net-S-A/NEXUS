@@ -248,7 +248,7 @@ _KNOWN_CONTRACT_FKS = {
     # za kontraktem bez unikatu.
     ("client_settlements", "contract_id"),
     ("client_contractor_invoices", "contract_id"),
-    # Kartoteka raportu klienta (0689, Nordea N1): UNIQUE (klient, kontrakt,
+    # Kartoteka raportu klienta (0690, Nordea N1): UNIQUE (klient, kontrakt,
     # rodzaj, wartość) — ten sam numer osoby u obu duplikatów rozstrzyga
     # ``_resolve_child_duplicates`` (potwierdzony wygrywa z podpowiedzią).
     ("client_external_ids", "contract_id"),

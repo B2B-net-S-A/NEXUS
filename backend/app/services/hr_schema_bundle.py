@@ -87,7 +87,7 @@ MODULES = (
     bonus_guarantee,
     # 0679: rozliczenia klientów E1 (09.11.2026).
     client_settlements,
-    # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T (13.11.2026).
+    # 0690: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T (13.11.2026).
     client_time_reports,
 )
 

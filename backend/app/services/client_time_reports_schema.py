@@ -1,7 +1,7 @@
 """Rozliczenia Nordei N1 (``docs/rozliczenia-nordea-plan.md``): SQL migracji
-``0689_client_time_reports`` i lustra entrypointu.
+``0690_client_time_reports`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0689_client_time_reports.py``
+Jedno źródło instrukcji dla ``alembic/versions/0690_client_time_reports.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabele:
