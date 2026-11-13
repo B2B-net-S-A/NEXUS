@@ -1,0 +1,149 @@
+name: Security weekly
+
+# Pełny skan bezpieczeństwa raz w tygodniu (13.11.2026). Na PR-ach biegnie
+# Semgrep tylko w zmienionych plikach i audyt zależności tylko przy zmianie
+# pliku zależności (`ci.yml`: `semgrep-pr`, `deps-audit-pr`). Tutaj całe repo:
+#   * Semgrep na całym backendzie i frontendzie — łapie nowe reguły rejestru
+#     w niezmienianym kodzie i pliki, których żaden PR nie dotknął;
+#   * pip-audit i npm audit — nowe podatności publikowane w bazach co dzień,
+#     przy niezmienionych wersjach.
+# Poniedziałek 05:30 UTC (06:30 zimą / 07:30 latem w Warszawie), pół godziny po
+# Dependabocie (06:00 Warszawa), więc jego PR-y z podbiciami już czekają.
+# Codziennie nie: minuty Actions są płatne, a nowa podatność bez PR-a
+# z poprawką i tak czeka na tydzień Dependabota.
+#
+# Czerwony bieg z crona otwiera issue „NEXUS tygodniowy skan bezpieczeństwa
+# czerwony”, zielony je zamyka. Repo i logi Actions są publiczne: raport ma
+# tylko plik:linia, regułę i identyfikator podatności, bez danych.
+# → docs/claude/podstawy/skanery-bezpieczenstwa.md
+
+on:
+  schedule:
+    - cron: "30 5 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: security-weekly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep-full:
+    name: Semgrep (całe repo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Zainstaluj Semgrep
+        run: pip install semgrep==1.136.0
+      - name: Semgrep
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if semgrep scan --metrics=off --disable-version-check \
+                --config p/python --config p/fastapi --config p/typescript --config p/react \
+                --json --output semgrep.json backend frontend; then
+              exit 0
+            fi
+            echo "::warning::Semgrep nie zakończył skanu (próba $attempt z 3)."
+            sleep 30
+          done
+          echo "::error::Semgrep nie zakończył skanu — rejestr reguł albo błąd skanera."
+          exit 1
+      - name: Zapadka Semgrepa (baseline)
+        run: python3 .github/scripts/semgrep_ratchet.py compare --results semgrep.json
+
+  deps-audit:
+    name: Audyt zależności (całość)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+      # Oba ekosystemy zawsze: czerwony pip-audit nie może ukryć npm audit.
+      - name: pip-audit (backend)
+        id: pip
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          pip install pip-audit==2.9.0
+          pip-audit -r backend/requirements.txt --progress-spinner off -f json -o pip-audit.json \
+            || echo "pip-audit: kod $? — wynik oceni zapadka"
+          python3 .github/scripts/dependency_audit.py python --report pip-audit.json
+      - name: npm audit (frontend, bez dev)
+        id: npm
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          (cd frontend && npm audit --omit=dev --audit-level=high --json > ../npm-audit.json) \
+            || echo "npm audit: kod $? — wynik oceni zapadka"
+          python3 .github/scripts/dependency_audit.py npm --report npm-audit.json --min-severity high
+      - name: Wynik
+        env:
+          PIP: ${{ steps.pip.outcome }}
+          NPM: ${{ steps.npm.outcome }}
+        run: |
+          echo "pip-audit: $PIP; npm audit: $NPM"
+          if [ "$PIP" != "success" ] || [ "$NPM" != "success" ]; then
+            echo "::error::Audyt zależności czerwony — szczegóły w krokach wyżej i w podsumowaniu biegu."
+            exit 1
+          fi
+
+  alert:
+    name: Alarm w issue
+    needs: [semgrep-full, deps-audit]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Otwórz albo odśwież alarm po czerwonym biegu
+        if: ${{ needs.semgrep-full.result != 'success' || needs.deps-audit.result != 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SEMGREP: ${{ needs.semgrep-full.result }}
+          AUDIT: ${{ needs.deps-audit.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          marker="NEXUS tygodniowy skan bezpieczeństwa czerwony"
+          {
+            echo "Tygodniowy skan bezpieczeństwa (\`.github/workflows/security-weekly.yml\`) jest czerwony."
+            echo
+            echo "- Semgrep (całe repo): **$SEMGREP**"
+            echo "- Audyt zależności (pip-audit + npm audit): **$AUDIT**"
+            echo
+            echo "Lista znalezisk (plik:linia, reguła albo identyfikator podatności) jest w podsumowaniu biegu: $RUN_URL"
+            echo
+            echo "Co zrobić: popraw kod albo podbij wersję; świadomy wyjątek dopisz z uzasadnieniem"
+            echo "do \`.semgrep-baseline.json\` / \`.github/dependency-audit-baseline.json\`"
+            echo "(opis: \`docs/claude/podstawy/skanery-bezpieczenstwa.md\`). Zielony bieg zamknie to issue."
+          } > "$RUNNER_TEMP/alert.md"
+          bash .github/scripts/alert_issue.sh open "$marker" "$RUNNER_TEMP/alert.md"
+      - name: Zamknij alarm po zielonym biegu
+        if: ${{ needs.semgrep-full.result == 'success' && needs.deps-audit.result == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "NEXUS tygodniowy skan bezpieczeństwa czerwony" "Tygodniowy skan bezpieczeństwa przeszedł."

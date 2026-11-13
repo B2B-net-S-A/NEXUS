@@ -982,6 +982,7 @@ def test_every_alert_issue_can_also_be_closed_by_a_green_run() -> None:
         ],
         "backup-drill.yml": ["NEXUS backup drill nie przechodzi"],
         "sentry-daily-monitor.yml": ["NEXUS dzienny monitor Sentry nie działa"],
+        "security-weekly.yml": ["NEXUS tygodniowy skan bezpieczeństwa czerwony"],
         "e2e.yml": [
             "Nocny E2E przeciw produkcji jest czerwony",
             "E2E po deployu (prod-smoke) jest czerwony",
@@ -1290,3 +1291,43 @@ def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:
     assert "steps.heads.outcome == 'failure'" in cancel["if"]
     assert "github.event_name == 'merge_group'" in cancel["if"]
     assert "(ci|e2e)" in cancel["run"] and "gh run cancel" in cancel["run"]
+
+
+def test_security_scanners_block_prs_and_run_weekly() -> None:
+    """13.11.2026: Semgrep i audyt zależności w trybie zapadki. Osobny kontekst
+    nie jest wymagany w rulesecie, więc o blokadzie decyduje „Backend (pytest)”;
+    pełny skan raz w tygodniu, nie w kolejce (płatne minuty)."""
+    import json as _json
+
+    ci = _load("ci.yml")["jobs"]
+    gate = ci["backend-pytest-gate"]
+    run = gate["steps"][0]["run"]
+    for job_id in ("semgrep-pr", "deps-audit-pr"):
+        assert job_id in gate["needs"]
+        assert f"needs.{job_id}.result" in run
+        assert ci[job_id]["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert '[ "$semgrep" != "success" ]' in run and '[ "$audit" != "success" ]' in run
+
+    baseline = _json.loads(
+        (_WORKFLOWS.parents[1] / ".semgrep-baseline.json").read_text(encoding="utf-8")
+    )
+    weekly = _load("security-weekly.yml")
+    triggers = weekly.get("on", weekly.get(True))
+    assert [c["cron"] for c in triggers["schedule"]] == ["30 5 * * 1"]
+    scans = [
+        _step(ci["semgrep-pr"]["steps"], "Semgrep")["run"],
+        _step(weekly["jobs"]["semgrep-full"]["steps"], "Semgrep")["run"],
+    ]
+    installs = [
+        _step(ci["semgrep-pr"]["steps"], "Zainstaluj Semgrep")["run"],
+        _step(weekly["jobs"]["semgrep-full"]["steps"], "Zainstaluj Semgrep")["run"],
+    ]
+    for scan in scans:
+        configs = re.findall(r"--config (\S+)", scan)
+        assert configs == baseline["configs"], "Reguły skanu = reguły, z których powstał baseline."
+        assert "p/secrets" not in scan, "Sekrety łapie gitleaks."
+        assert "--metrics=off" in scan
+    for install in installs:
+        assert install.strip() == f"pip install semgrep=={baseline['semgrep']}"
+    # Jawne pliki omijają .semgrepignore — PR skanuje katalogi z --include.
+    assert "include-args" in scans[0] and scans[0].rstrip().count("backend frontend") == 1
