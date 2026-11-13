@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -28,6 +29,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.services import client_settlement_extras_schema as extras_schema
 from app.services import client_settlements_schema as schema
 
 
@@ -240,6 +242,14 @@ class ClientSettlementExtra(Base):
             "client_id",
             "period_month",
         ),
+        CheckConstraint(
+            extras_schema.CK_SOURCE, name="ck_client_settlement_extras_source"
+        ),
+        Index(
+            "ix_client_settlement_extras_card",
+            "bo_card_id",
+            postgresql_where=text("bo_card_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -259,6 +269,20 @@ class ClientSettlementExtra(Base):
     )
     status: Mapped[str] = mapped_column(
         String(10), nullable=False, server_default="pending", default="pending"
+    )
+    # 0690: źródło zgłoszenia, karta sprawy, fakturowanie klientowi, powód decyzji
+    # (``client_settlement_extras_schema``).
+    source: Mapped[str] = mapped_column(
+        String(12), nullable=False, server_default="finance", default="finance"
+    )
+    bo_card_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("bo_cards.id", ondelete="SET NULL"), nullable=True
+    )
+    bill_to_client: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    decision_note: Mapped[Optional[str]] = mapped_column(
+        String(extras_schema.DECISION_NOTE_MAX), nullable=True
     )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

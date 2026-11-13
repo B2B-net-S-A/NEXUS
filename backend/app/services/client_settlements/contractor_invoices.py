@@ -18,8 +18,13 @@ kosztowe, ``approvals/cost_invoices.py``), bez pobierania XML-a: limit pobrań
 zostaje dla Płac. Dlatego termin płatności liczymy od numeru KSeF (data
 przyjęcia) i reguły ``ci.payment_days``, nie z treści faktury.
 
+Kwota oczekiwana = wyliczenie z RCP (``amount_cost``) plus zatwierdzone dodatki
+osoby za ten miesiąc (``extras.py``: polecenie, weryfikacja techniczna,
+szkolenie, delegacja). Różnica równa zgłoszonemu, a niezatwierdzonemu dodatkowi
+daje stan ``extra_pending`` („czeka na zatwierdzenie dodatku”), nie „inną kwotę”.
+
 Miesiąc faktury: ten z miesiąca wystawienia i poprzedniego, w którym rozliczenie
-ma tę samą kwotę; bez równej kwoty — wystawiona od 25. dnia rozlicza bieżący
+ma tę samą kwotę (z zatwierdzonymi dodatkami); bez równej kwoty — wystawiona od 25. dnia rozlicza bieżący
 miesiąc, wcześniej poprzedni (faktury za październik przychodzą 30.10–05.11).
 """
 
@@ -41,6 +46,7 @@ from app.models.candidate import Candidate
 from app.models.client_settlement import ClientContractorInvoice, ClientSettlement
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User
+from app.services.client_settlements import extras as settlement_extras
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.hr.approvals.cost_invoices import fields_from_metadata
 from app.services.hr.payroll_periods import add_months
@@ -54,12 +60,13 @@ ENDED_GRACE = timedelta(days=92)
 LATE_ISSUE_DAY = 25
 
 #: Stan faktury kontraktora w wierszu miesiąca (kontrakt API E1.3).
-NONE, CAN_ISSUE, IN_KSEF, DIFFERS, NIP_CHECK = (
+NONE, CAN_ISSUE, IN_KSEF, DIFFERS, NIP_CHECK, EXTRA_PENDING = (
     "none",
     "can_issue",
     "in_ksef",
     "differs",
     "nip_check",
+    "extra_pending",
 )
 
 
@@ -166,7 +173,15 @@ async def _amounts(
             ClientSettlement.amount_cost.is_not(None),
         )
     )
-    return {(int(c), m): Decimal(a) for c, m, a in rows.all()}
+    out = {(int(c), m): Decimal(a) for c, m, a in rows.all()}
+    # Faktura z doliczonym dodatkiem (polecenie, delegacja) też ma „równą kwotę”.
+    for month in months:
+        found = await settlement_extras.expected_by_contract(
+            db, sorted({c for c, m in out if m == month}), month
+        )
+        for contract_id, extra in found.items():
+            out[(contract_id, month)] += extra.approved
+    return out
 
 
 def _months(issue: Optional[date]) -> list[str]:
@@ -390,24 +405,38 @@ def _net(invoices: list[ClientContractorInvoice]) -> Optional[Decimal]:
     return sum((Decimal(v) for v in values), Decimal("0"))
 
 
+def expected(
+    settlement: Optional[ClientSettlement],
+    extras: Optional[settlement_extras.Totals],
+) -> Optional[Decimal]:
+    """Oczekiwana kwota faktury: wyliczenie z RCP + zatwierdzone dodatki."""
+
+    if settlement is None or settlement.amount_cost is None:
+        return None
+    return Decimal(settlement.amount_cost) + (extras.approved if extras else 0)
+
+
 def state(
     settlement: Optional[ClientSettlement],
     invoices: list[ClientContractorInvoice],
     rules: dict[str, Any],
+    extras: Optional[settlement_extras.Totals] = None,
 ) -> str:
     bound = [i for i in invoices if i.nip_state in BOUND]
     if bound:
-        if (
-            settlement is None
-            or settlement.amount_cost is None
-            or rules["ci.amount"]["level"] == "off"
-        ):
+        want = expected(settlement, extras)
+        if want is None or rules["ci.amount"]["level"] == "off":
             return IN_KSEF
         net = _net(bound)
-        if net is not None and abs(net - Decimal(settlement.amount_cost)) <= _tolerance(
-            rules
-        ):
+        tolerance = _tolerance(rules)
+        if net is not None and abs(net - want) <= tolerance:
             return IN_KSEF
+        if (
+            net is not None
+            and extras is not None
+            and extras.explains(net - want, tolerance)
+        ):
+            return EXTRA_PENDING
         return DIFFERS
     if any(i.nip_state == SUGGESTED for i in invoices):
         return NIP_CHECK
@@ -449,6 +478,7 @@ def card(
     rules: dict[str, Any],
     *,
     amounts: bool,
+    extras: Optional[settlement_extras.Totals] = None,
 ) -> dict[str, Any]:
     """Blok „Faktura kontraktora” karty osoby: stan, faktury i kontrole."""
 
@@ -466,18 +496,42 @@ def card(
             )
     if bound:
         net = _net(bound)
-        cost = settlement.amount_cost if settlement is not None else None
+        want = expected(settlement, extras)
+        added = extras.approved if extras else Decimal("0")
         level = rules["ci.amount"]["level"]
-        if cost is not None and net is not None and level != "off" and amounts:
-            diff = net - Decimal(cost)
-            if abs(diff) <= _tolerance(rules):
-                checks.append({"state": "ok", "title": "Kwota równa wyliczeniu z RCP"})
+        if want is not None and net is not None and level != "off" and amounts:
+            diff = net - want
+            tolerance = _tolerance(rules)
+            basis = (
+                f"wyliczenie {_pln(want - added)} + zatwierdzone dodatki {_pln(added)}"
+                if added
+                else f"wyliczenie {_pln(want)}"
+            )
+            if abs(diff) <= tolerance:
+                checks.append(
+                    {
+                        "state": "ok",
+                        "title": "Kwota równa wyliczeniu z RCP i dodatkom"
+                        if added
+                        else "Kwota równa wyliczeniu z RCP",
+                    }
+                )
+            elif extras is not None and extras.explains(diff, tolerance):
+                # Koszt dodatkowy potwierdza rozliczający (travel.extra_costs_confirm):
+                # tylko uwaga, nigdy błąd.
+                checks.append(
+                    {
+                        "state": "warn",
+                        "title": "Czeka na zatwierdzenie dodatku",
+                        "detail": f"Faktura {_pln(net)} netto, {basis}; różnica {_pln(diff)} to zgłoszony dodatek.",
+                    }
+                )
             else:
                 checks.append(
                     {
                         "state": "fail" if level == "block" else "warn",
                         "title": "Inna kwota niż wyliczenie z RCP",
-                        "detail": f"Faktura {_pln(net)} netto, wyliczenie {_pln(Decimal(cost))}, różnica {_pln(diff)}.",
+                        "detail": f"Faktura {_pln(net)} netto, {basis}, różnica {_pln(diff)}.",
                     }
                 )
         need = clean_nip(_param(rules, "ci.buyer_nip", "nip"))
@@ -511,7 +565,7 @@ def card(
     ):
         checks.append({"state": "none", "title": "Czeka na fakturę w KSeF"})
     return {
-        "state": state(settlement, invoices, rules),
+        "state": state(settlement, invoices, rules, extras),
         "invoices": [
             {
                 "id": i.id,

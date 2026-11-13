@@ -9,12 +9,24 @@ Faktury kontraktorów z KSeF (E4): zatwierdzenie albo odrzucenie podpowiedzi NIP
 „Do faktury dla klienta” z marżą w zł i % u swoich klientów (kwoty według
 ``can_read_client_finance``) i rozstrzyga koszty integracji, które wpisały Finanse.
 Stoi pod ``/api/my-clients`` za sekcją Delivery, bo DL nie ma modułu Finanse.
+
+Dodatki do rozliczenia kontraktora (13.11.2026): wpis Finansów, zatwierdzenie,
+odrzucenie z powodem, fakturowanie klientowi i pliki dodatku.
 """
 
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +42,7 @@ from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today, local_now
 from app.models.user import User
+from app.models.client_settlement import ClientSettlementExtra
 from app.models.consultant_portal import CpDocument
 from app.services.access_scope import (
     assert_delivery_lead_client_visible,
@@ -43,7 +56,9 @@ from app.services.client_settlements import (
     service,
     service_confirmation,
 )
+from app.services.client_settlements import extras as settlement_extras
 from app.services.consultant_portal import documents as portal_documents
+from app.services.hr_documents_schema import MAX_FILE_BYTES
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.service import SettlementError
 
@@ -664,4 +679,204 @@ async def reject_integration_cost(
 ) -> dict[str, Any]:
     return await _delivery_decision(
         db, current_user, client_id, cost_id, month, approve=False
+    )
+
+
+# ── Dodatki do rozliczenia kontraktora (13.11.2026) ─────────────────────────
+
+
+class ExtraIn(BaseModel):
+    month: str = Field(pattern=MONTH_PATTERN)
+    kind: str = Field(max_length=20)
+    amount: Decimal = Field(gt=0, le=100000)
+    description: Optional[str] = Field(default=None, max_length=300)
+    bill_to_client: bool = False
+
+
+class ExtraApproveIn(BaseModel):
+    bill_to_client: Optional[bool] = None
+
+
+class ExtraRejectIn(BaseModel):
+    reason: str = Field(min_length=5, max_length=500)
+
+
+class ExtraBillingIn(BaseModel):
+    bill_to_client: bool
+
+
+def _extra_fail(exc: settlement_extras.ExtraError) -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+async def _extras_detail(
+    db: AsyncSession, contract_id: int, month: str, user: User
+) -> dict[str, Any]:
+    return await service.detail(
+        db, contract_id, month, amounts=has_financial_access(user)
+    )
+
+
+@router.post("/contract/{contract_id}/extras")
+async def add_extra(
+    contract_id: int,
+    body: ExtraIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Dodatek wpisany przez Finanse na karcie osoby — od razu zatwierdzony."""
+
+    await _open(db, current_user)
+    try:
+        await settlement_extras.create(
+            db,
+            contract_id,
+            body.month,
+            kind=body.kind,
+            amount=body.amount,
+            description=body.description,
+            source=settlement_extras.SOURCE_FINANCE,
+            actor_id=current_user.id,
+            now=local_now(),
+            bill_to_client=body.bill_to_client,
+            approve=True,
+        )
+        await _commit(db)
+    except settlement_extras.ExtraError as exc:
+        await db.rollback()
+        raise _extra_fail(exc) from exc
+    return await _extras_detail(db, contract_id, body.month, current_user)
+
+
+@router.post("/contract/{contract_id}/extras/{extra_id}/approve")
+async def approve_extra(
+    contract_id: int,
+    extra_id: int,
+    body: ExtraApproveIn,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        await settlement_extras.approve(
+            db,
+            extra_id,
+            contract_id,
+            actor_id=current_user.id,
+            now=local_now(),
+            bill_to_client=body.bill_to_client,
+        )
+        await _commit(db)
+    except settlement_extras.ExtraError as exc:
+        await db.rollback()
+        raise _extra_fail(exc) from exc
+    return await _extras_detail(db, contract_id, month, current_user)
+
+
+@router.post("/contract/{contract_id}/extras/{extra_id}/reject")
+async def reject_extra(
+    contract_id: int,
+    extra_id: int,
+    body: ExtraRejectIn,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        await settlement_extras.reject(
+            db,
+            extra_id,
+            contract_id,
+            actor_id=current_user.id,
+            now=local_now(),
+            reason=body.reason,
+        )
+        await _commit(db)
+    except settlement_extras.ExtraError as exc:
+        await db.rollback()
+        raise _extra_fail(exc) from exc
+    return await _extras_detail(db, contract_id, month, current_user)
+
+
+@router.post("/contract/{contract_id}/extras/{extra_id}/billing")
+async def extra_billing(
+    contract_id: int,
+    extra_id: int,
+    body: ExtraBillingIn,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Czy dodatek idzie na fakturę dla klienta (``cl.extra_costs_on_invoice``)."""
+
+    await _open(db, current_user)
+    try:
+        await settlement_extras.set_billing(
+            db, extra_id, contract_id, bill_to_client=body.bill_to_client
+        )
+        await _commit(db)
+    except settlement_extras.ExtraError as exc:
+        await db.rollback()
+        raise _extra_fail(exc) from exc
+    return await _extras_detail(db, contract_id, month, current_user)
+
+
+@router.post("/contract/{contract_id}/extras/{extra_id}/documents")
+async def extra_document_upload(
+    contract_id: int,
+    extra_id: int,
+    current_user: FinanceModuleUser,
+    file: Annotated[UploadFile, File()],
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Plik dodatku od Finansów (np. paragon z maila konsultanta)."""
+
+    await _open(db, current_user)
+    data = await file.read(MAX_FILE_BYTES + 1)
+    if len(data) > MAX_FILE_BYTES:
+        raise HTTPException(
+            status.HTTP_413_CONTENT_TOO_LARGE, "Dokument może mieć najwyżej 20 MB."
+        )
+    extra = await db.get(ClientSettlementExtra, extra_id)
+    if extra is None or extra.contract_id != contract_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego dodatku.")
+    try:
+        await settlement_extras.add_document(
+            db,
+            extra,
+            content=data,
+            file_name=file.filename,
+            channel="staff",
+            uploaded_by=current_user.id,
+        )
+        await _commit(db)
+    except settlement_extras.ExtraError as exc:
+        await db.rollback()
+        raise _extra_fail(exc) from exc
+    return await _extras_detail(db, contract_id, month, current_user)
+
+
+@router.get("/contract/{contract_id}/extras/{extra_id}/documents/{document_id}")
+async def extra_document(
+    contract_id: int,
+    extra_id: int,
+    document_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    await _open(db, current_user)
+    try:
+        document, path = await settlement_extras.document_of(
+            db, contract_id, extra_id, document_id
+        )
+    except settlement_extras.ExtraError as exc:
+        raise _extra_fail(exc) from exc
+    name = document.file_name or f"dokument-{document.id}"
+    return FileResponse(
+        path,
+        media_type=document.mime,
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
     )

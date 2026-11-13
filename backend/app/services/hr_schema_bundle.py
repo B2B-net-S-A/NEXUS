@@ -23,6 +23,7 @@ from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_settlements_schema as client_settlements
+from app.services import client_settlement_extras_schema as settlement_extras
 from app.services import client_structure_schema as client_structure
 from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
@@ -86,6 +87,8 @@ MODULES = (
     bonus_guarantee,
     # 0679: rozliczenia klientów E1 (09.11.2026).
     client_settlements,
+    # 0690: dodatki do rozliczenia kontraktora (13.11.2026).
+    settlement_extras,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

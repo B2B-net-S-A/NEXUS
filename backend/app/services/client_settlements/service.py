@@ -49,6 +49,7 @@ from app.services.client_order_lines import (
 from app.services.client_settlements import (
     acceptance_mail,
     contractor_invoices,
+    extras as settlement_extras,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
@@ -459,6 +460,8 @@ async def month_view(
     numbers = await _order_numbers(db, ids, month)
     rules = await rules_for(db, client_id, month)
     invoices = await contractor_invoices.for_month(db, ids, month)
+    extra_items = await settlement_extras.for_contracts(db, ids, month)
+    added = {cid: settlement_extras.totals(items) for cid, items in extra_items.items()}
     issued = await _issued_orders(
         db, [s.order_id for s in settlements.values() if s.order_id], month
     )
@@ -473,9 +476,30 @@ async def month_view(
             amounts,
             integration.get(person.contract.id, Decimal("0")),
         )
+        cost_add, revenue_add = settlement_extras.margin_shift(
+            extra_items.get(person.contract.id, [])
+        )
+        if amounts and settlement is not None and (cost_add or revenue_add):
+            # Zatwierdzone dodatki: koszt miesiąca; fakturowane klientowi — też przychód.
+            row["margin"], row["margin_pct"] = _margin(
+                None
+                if settlement.amount_cost is None
+                else settlement.amount_cost + cost_add,
+                None
+                if settlement.amount_revenue is None
+                else settlement.amount_revenue + revenue_add,
+                integration.get(person.contract.id, Decimal("0")),
+            )
         row["order_number"] = numbers.get(person.contract.id)
         row["contractor_invoice"] = contractor_invoices.state(
-            settlement, invoices.get(person.contract.id, []), rules
+            settlement,
+            invoices.get(person.contract.id, []),
+            rules,
+            added.get(person.contract.id),
+        )
+        # Dodatki do zatwierdzenia (polecenie, delegacja) — znacznik w wierszu.
+        row["extras_pending"] = len(
+            getattr(added.get(person.contract.id), "pending", ())
         )
         if settlement is not None and settlement.order_id in issued:
             row["client_invoice"] = "issued"
@@ -596,6 +620,9 @@ async def detail(
         contract_id, []
     )
     rules = await rules_for(db, person.contract.client_id, month)
+    extra_items = (await settlement_extras.for_contracts(db, [contract_id], month)).get(
+        contract_id, []
+    )
     estimate = (
         await _settlement(db, contract_id, month, kind=ESTIMATE)
         if kind == ACTUAL
@@ -647,7 +674,14 @@ async def detail(
             "md_remaining_after": remaining,
         },
         "contractor_invoice": contractor_invoices.card(
-            s, invoices, rules, amounts=amounts
+            s,
+            invoices,
+            rules,
+            amounts=amounts,
+            extras=settlement_extras.totals(extra_items),
+        ),
+        "extras": await settlement_extras.block(
+            db, contract_id, month, amounts=amounts, items=extra_items
         ),
     }
 

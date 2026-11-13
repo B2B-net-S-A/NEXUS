@@ -525,6 +525,63 @@ async def settlement(
     return await panel.settlement_screen(db, context)
 
 
+#: Delegacja z panelu: do 5 plików naraz (faktura, paragon, bilety tam i z powrotem).
+TRAVEL_FILES_MAX = 5
+
+
+@router.post("/settlement/extras", status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute;60/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def settlement_travel(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    year: Annotated[int, Form()],
+    month: Annotated[int, Form()],
+    amount: Annotated[str, Form(max_length=20)],
+    description: Annotated[str, Form(max_length=300)],
+    files: Annotated[list[UploadFile], File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Konsultant zgłasza delegację z dokumentami; dodatek czeka na Finanse."""
+
+    from app.services.client_settlements import consultant as settlement_view
+    from app.services.client_settlements.extras import ExtraError
+
+    if not documents.valid_period(year, month, today=business_today()):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Ten miesiąc nie jest już otwarty."
+        )
+    if len(files) > TRAVEL_FILES_MAX:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Dołącz najwyżej {TRAVEL_FILES_MAX} plików naraz.",
+        )
+    payload: list[tuple[bytes, Optional[str]]] = []
+    for upload in files:
+        data = await upload.read(documents.MAX_FILE_BYTES + 1)
+        if len(data) > documents.MAX_FILE_BYTES:
+            raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, FILE_TOO_LARGE)
+        payload.append((data, upload.filename))
+    try:
+        extra = await settlement_view.add_travel(
+            db,
+            context.consultant.contract_id,
+            year=year,
+            month=month,
+            amount=amount,
+            description=description,
+            files=payload,
+            now=_now(),
+        )
+        await db.commit()
+    except ExtraError as exc:
+        await db.rollback()
+        raise HTTPException(
+            exc.status, {"message": exc.message, "code": "extra_rejected"}
+        ) from exc
+    return {"id": extra.id, "status": extra.status}
+
+
 # ── Na start ─────────────────────────────────────────────────────────────────
 
 

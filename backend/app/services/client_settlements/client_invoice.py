@@ -18,6 +18,13 @@ Waluta (E6.2): linia zamówienia ze stawką klienta w innej walucie niż zł
 Marża zostaje w zł: netto przeliczamy kursem z linii zamówienia
 (``md_rate_revenue`` / ``rate_client``), tym samym, którym liczy się przychód.
 
+Dodatki (13.11.2026): zatwierdzony dodatek z ``bill_to_client`` (np. delegacja
+u Aliora) idzie na fakturę według ``cl.extra_costs_on_invoice`` — parametr
+``item`` pusty = doliczony do pozycji zasadniczej, nazwa = osobna pozycja z tą
+nazwą. Dodatki zatwierdzone (także niefakturowane klientowi) są kosztem
+miesiąca, więc obniżają marżę. Waluta linii inna niż zł: dodatek w zł nie
+trafia do pozycji, wiersz dostaje uwagę.
+
 Paczka załączników (E5.2): pliki RCP i maile miesiąca w zipie; przy regule
 ``cl.attachment_name`` plik RCP nosi numer KSeF faktury do klienta.
 """
@@ -37,6 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.client_settlement import ClientSettlement
+from app.services.client_settlements import extras as settlement_extras
 from app.services.client_settlements import service
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.consultant_portal import documents as portal_documents
@@ -64,7 +72,7 @@ class Position:
     quantity: Decimal
     unit_price: Optional[Decimal]
     net: Decimal
-    kind: str  # base · overtime · onboarding · correction
+    kind: str  # base · overtime · onboarding · correction · extra
     currency: str = PLN
 
     def as_dict(self) -> dict[str, Any]:
@@ -339,6 +347,9 @@ async def invoice_month(
         if suffix_rule["level"] != "off"
         else None
     )
+    extra_rule = rules["cl.extra_costs_on_invoice"]
+    billed = await settlement_extras.billed_to_client(db, ids, month)
+    added = await settlement_extras.expected_by_contract(db, ids, month)
     rows = []
     for row in view["rows"]:
         contract_id = row["contract_id"]
@@ -362,6 +373,7 @@ async def invoice_month(
             "template": False,
             "ksef_number": None,
             "invoice_number": None,
+            "extras_note": None,
         }
         prev_estimate = by_key.get((contract_id, previous, service.ESTIMATE))
         prev_actual = by_key.get((contract_id, previous, service.ACTUAL))
@@ -412,9 +424,17 @@ async def invoice_month(
             )
             if correction is not None:
                 items.append(correction)
+        if chosen is not None:
+            items, out["extras_note"] = with_extras(
+                items,
+                billed.get(contract_id, []),
+                rule=extra_rule,
+                currency=price.currency,
+            )
         net = sum((p.net for p in items), Decimal("0"))
         cost = (
             Decimal(chosen.amount_cost)
+            + getattr(added.get(contract_id), "approved", Decimal("0"))
             if chosen is not None and chosen.amount_cost is not None
             else None
         )
@@ -450,6 +470,67 @@ async def invoice_month(
         "can_see_amounts": amounts,
         "rows": rows,
     }
+
+
+def with_extras(
+    items: list[Position],
+    billed: list[Any],
+    *,
+    rule: dict[str, Any],
+    currency: str,
+) -> tuple[list[Position], Optional[str]]:
+    """Dodatki fakturowane klientowi w pozycjach (``cl.extra_costs_on_invoice``).
+
+    Zwraca pozycje i uwagę dla Finansów, gdy dodatek czeka poza fakturą."""
+
+    if not billed:
+        return items, None
+    total = _money(sum((Decimal(e.amount) for e in billed), Decimal("0")))
+    if rule["level"] == "off":
+        return items, (
+            f"Dodatek do faktury klienta ({settlement_extras.pln(total)}) czeka: "
+            "reguła „Koszty dodatkowe na fakturze głównej” jest wyłączona."
+        )
+    if currency != PLN:
+        return items, (
+            f"Dodatek w zł ({settlement_extras.pln(total)}) nie wchodzi do faktury "
+            f"w {currency} — dolicz go ręcznie."
+        )
+    name = str(rule["params"].get("item") or "").strip()
+    if name:
+        return [
+            *items,
+            Position(
+                name=name,
+                unit="usł.",
+                quantity=Decimal("1"),
+                unit_price=total,
+                net=total,
+                kind="extra",
+                currency=currency,
+            ),
+        ], None
+    base = next((i for i, p in enumerate(items) if p.kind == "base"), None)
+    if base is None:
+        return items, (
+            f"Dodatek do faktury klienta ({settlement_extras.pln(total)}) bez pozycji "
+            "zasadniczej — dolicz go ręcznie."
+        )
+    merged = items[base]
+    return [
+        *items[:base],
+        Position(
+            name=merged.name,
+            unit=merged.unit,
+            quantity=merged.quantity,
+            # Kwota z doliczonym kosztem nie jest już ilość × stawka.
+            unit_price=None,
+            net=_money(merged.net + total),
+            kind=merged.kind,
+            currency=merged.currency,
+        ),
+        *items[base + 1 :],
+    ], None
 
 
 def copy_text(rows: list[dict[str, Any]]) -> str:
