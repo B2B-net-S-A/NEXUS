@@ -424,13 +424,41 @@ class SwitchTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             self.run_switch(request, get)
         self.assertIn("ruch wrócił do frontu z compose", str(caught.exception))
-        self.assertIn(("POST", "applications/x/stop", None), calls)
-        self.assertEqual(
-            calls[-1],
-            ("PATCH", "applications/x", {"domains": "http://" + frontend_app.paths.CHECK_HOST, "force_domain_override": True}),
-        )
-        self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] == "PATCH"])
+        self.assert_retreated(calls)
         self.assertGreaterEqual(state["public"], 2, "przerwanie dopiero po dwóch rundach z usterką")
+
+    def assert_retreated(self, calls):
+        stop = calls.index(("POST", "applications/x/stop", None))
+        after = [c for c in calls[stop:] if c[0] == "PATCH" and c[1] == "applications/x"]
+        # Etykiety odtwarza Coolify z adresu próbnego (readonly=True), inaczej zostałyby
+        # w nich routery prawdziwych domen i następny `mode=deploy` wziąłby ruch.
+        self.assertEqual(after[0][2]["domains"], "http://" + frontend_app.paths.CHECK_HOST)
+        self.assertIs(after[0][2]["is_container_label_readonly_enabled"], True)
+        self.assertIs(after[1][2]["is_container_label_readonly_enabled"], False)
+        self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] == "PATCH"])
+
+    def test_any_interruption_after_user_domains_retreats(self):
+        # Np. healthcheck nowego kontenera nie zdąży po nadaniu domen albo wyjątek HTTP.
+        request, calls = switch_api()
+        deployments = {"n": 0}
+
+        def flaky(method, path, payload=None):
+            if path.startswith("deploy?"):
+                deployments["n"] += 1
+                if deployments["n"] == 2:
+                    calls.append((method, path, payload))
+                    raise RuntimeError("przerwane")
+            return request(method, path, payload)
+
+        with self.assertRaises(RuntimeError):
+            self.run_switch(flaky)
+        self.assert_retreated(calls)
+
+    def test_gate_failure_does_not_stop_anything(self):
+        request, calls = switch_api()
+        with self.assertRaises(ValueError):
+            self.run_switch(request, user_path(callback=BROKEN)[0])
+        self.assertNotIn(("POST", "applications/x/stop", None), calls)
 
     def test_single_blip_after_switch_does_not_roll_back(self):
         request, calls = switch_api()

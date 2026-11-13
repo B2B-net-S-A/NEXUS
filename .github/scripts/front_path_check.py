@@ -20,6 +20,7 @@ odpowiedzi.
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -51,7 +52,7 @@ def fetch(url: str, host: str | None = None) -> tuple[int, dict[str, str], bytes
             return response.status, headers, response.read(4096)
     except urllib.error.HTTPError as error:
         return error.code, {k.lower(): v for k, v in error.headers.items()}, b""
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError):
         return 0, {}, b""
 
 

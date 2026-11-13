@@ -61,6 +61,17 @@ class CheckPathsTests(unittest.TestCase):
         self.assertEqual(set(seen), {paths.CHECK_HOST})
 
 
+class FetchTests(unittest.TestCase):
+    def test_broken_response_is_a_failed_probe_not_a_crash(self):
+        import http.client
+        from unittest import mock
+
+        with mock.patch.object(paths._OPENER, "open", side_effect=http.client.RemoteDisconnected("x")):
+            self.assertEqual(paths.fetch("https://app/login"), (0, {}, b""))
+        with mock.patch.object(paths._OPENER, "open", side_effect=http.client.IncompleteRead(b"")):
+            self.assertEqual(paths.fetch("https://app/login"), (0, {}, b""))
+
+
 class WatchTests(unittest.TestCase):
     def test_two_bad_rounds_in_a_row_stop_the_watch(self):
         calls = []

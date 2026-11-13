@@ -475,6 +475,18 @@ def first_https_domain(domains: str) -> str:
     raise ValueError("front nie ma domeny https — nie ma czego obserwować")
 
 
+def retreat(request: Request, app_uuid: str) -> None:
+    """Powrót po nieudanym przepięciu: stop nowego frontu i sam adres próbny.
+
+    Stop od razu oddaje ruch kontenerowi z compose (ma jeszcze swoje etykiety).
+    Adres próbny przez `set_domains`, bo etykiety trzyma aplikacja
+    (`is_container_label_readonly_enabled=false`): sam PATCH domen zostawiłby w nich
+    routery prawdziwych domen i następny `mode=deploy` znów wziąłby ruch użytkowników.
+    """
+    request("POST", "applications/" + app_uuid + "/stop")
+    set_domains(request, app_uuid, "http://" + paths.CHECK_HOST, None)
+
+
 def switch(
     request: Request,
     source_uuid: str,
@@ -524,17 +536,19 @@ def switch(
     if failures:
         raise ValueError("bramka przepięcia: nowy front nie przeszedł ścieżki użytkownika — domeny zostają w compose")
 
-    set_domains(request, app["uuid"], front["domain"], front.get("redirect"))
-    deploy(request, commit, **timing)
-    failures = paths.watch(get, public, commit, watch_seconds, probe_every, sleep)
-    paths.report(f"domena publiczna, {int(watch_seconds)} s po przepięciu", failures)
+    try:
+        set_domains(request, app["uuid"], front["domain"], front.get("redirect"))
+        deploy(request, commit, **timing)
+        failures = paths.watch(get, public, commit, watch_seconds, probe_every, sleep)
+        paths.report(f"domena publiczna, {int(watch_seconds)} s po przepięciu", failures)
+    except BaseException:
+        # Każde przerwanie po nadaniu domen (healthcheck, wyjątek HTTP, anulowanie
+        # biegu) kończy się powrotem — inaczej domeny zostają na niepilnowanym froncie.
+        retreat(request, app["uuid"])
+        print("przerwane po nadaniu domen: " + APP_NAME + " zatrzymany, ruch wrócił do frontu z compose")
+        raise
     if failures:
-        request("POST", "applications/" + app["uuid"] + "/stop")
-        request(
-            "PATCH",
-            "applications/" + app["uuid"],
-            {"domains": "http://" + paths.CHECK_HOST, "force_domain_override": True},
-        )
+        retreat(request, app["uuid"])
         raise ValueError(
             "usterka po przepięciu: " + APP_NAME + " zatrzymany, ruch wrócił do frontu z compose, domeny zostają w compose"
         )

@@ -140,7 +140,9 @@ i `.github/scripts/front_path_check.py`:
 3. **Obserwacja po przepięciu i automatyczny powrót.** Przez 120 s co 5 s ta sama ścieżka
    na domenie publicznej. Dwie rundy z usterką z rzędu = `stop` nowej aplikacji: ruch
    wraca do starego kontenera, który ma jeszcze swoje etykiety, bo compose oddaje domeny
-   dopiero po obserwacji. Aplikacja wraca na adres próbny.
+   dopiero po obserwacji. Aplikacja wraca na adres próbny przez `set_domains`, bo etykiety
+   trzyma aplikacja: sam PATCH domen zostawiłby w nich routery prawdziwych domen. Ten sam
+   powrót następuje przy każdym przerwaniu po nadaniu domen (healthcheck, wyjątek, anulowanie).
 
 Do tego po każdym wdrożeniu frontu w Deploy (`wait`) ta sama ścieżka na domenie publicznej.
 Usterka = czerwony Deploy z poleceniem cofnięcia (`mode=deploy` z poprzednim SHA). Stary
