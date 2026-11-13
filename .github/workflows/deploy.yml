@@ -703,8 +703,10 @@ jobs:
           COMPOSE_DEPLOYMENT_UUID: ${{ steps.trigger.outputs.deployment_uuid }}
         run: python3 .github/scripts/coolify_frontend_app.py trigger
 
-      # Status wdrożenia frontu, SHA w logu builda (bez wypisywania logu) i stan
-      # `running:healthy`. Smoke `version.json` niżej sprawdza to samo z zewnątrz.
+      # Status wdrożenia frontu, SHA w logu builda (bez wypisywania logu), stan
+      # `running:healthy` i ścieżka użytkownika na domenie (callback logowania Microsoft
+      # przez backend, /login) — healthcheck kontenera nie sprawdza drogi front → backend
+      # (13.11.2026). Smoke `version.json` niżej sprawdza wersję z zewnątrz.
       - name: Wait for frontend app deployment
         if: ${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}
         env:

@@ -21,6 +21,7 @@ ani ciała odpowiedzi API.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
@@ -33,6 +34,7 @@ from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from coolify_labels import SHUTDOWN_SETTINGS, decode_labels, encode_labels, with_retry  # noqa: E402
+import front_path_check as paths  # noqa: E402
 
 APP_NAME = "nexus-frontend"
 BRANCH = "main"
@@ -63,6 +65,11 @@ BUILD_ENV_KEYS = ("NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_CAREER_HOST", "NEXT_PUBLIC
 # `backend` w sieci `nexus-front` pojawi się dopiero po przepięciu (compose dołącza
 # tę sieć). Tu stała, nie kopia, bo compose też ją wpisuje na stałe.
 FIXED_ENV = {"INTERNAL_API_URL": "http://backend:8000"}
+# Usługi compose, które front woła po sieci `nexus-front` (INTERNAL_API_URL).
+FRONT_UPSTREAMS = ("backend",)
+# Obserwacja po przepięciu: tyle sekund sond co PROBE_EVERY, potem compose oddaje domeny.
+WATCH_SECONDS = 120.0
+PROBE_EVERY = 5.0
 
 Request = Callable[..., Any]
 
@@ -326,6 +333,67 @@ def compose_has_network(source: dict[str, Any]) -> bool:
     return bool(COMPOSE_NETWORK_RE.search(str(source.get("docker_compose_raw") or "") + "\n"))
 
 
+def real_domains(fqdn: Any) -> str:
+    """Domeny użytkowników bez adresu próbnego bramki (`front_path_check.CHECK_HOST`)."""
+    kept = [d.strip() for d in str(fqdn or "").split(",") if d.strip() and paths.CHECK_HOST not in d]
+    return ",".join(kept)
+
+
+def rendered_service_networks(rendered: str, service: str) -> set[str] | None:
+    """Sieci usługi w compose złożonym przez Coolify (`docker_compose`, Yaml::dump z wcięciem 2).
+
+    Sprawdzamy to, co Coolify faktycznie uruchamia, nie nasz plik: 13.11.2026 plik
+    miał sieć `nexus-front`, a parser Coolify zgubił ją przy składaniu usług
+    (parsers.php:1735, :1775). None = usługi nie ma w złożonym compose.
+    """
+    lines = rendered.splitlines()
+    try:
+        start = lines.index("services:")
+    except ValueError:
+        return None
+    header = {f"  {service}:", f"  '{service}':", f'  "{service}":'}
+    block: list[str] | None = None
+    for line in lines[start + 1 :]:
+        if line and not line.startswith(" "):
+            break
+        if line.startswith("  ") and not line.startswith("   "):
+            if block is not None:
+                break
+            if line.rstrip() in header:
+                block = []
+            continue
+        if block is not None:
+            block.append(line)
+    if block is None:
+        return None
+    found: set[str] = set()
+    inside = False
+    for line in block:
+        if line.rstrip() == "    networks:":
+            inside = True
+            continue
+        if inside:
+            if not line.startswith("      "):
+                break
+            item = line.strip()
+            item = item[2:] if item.startswith("- ") else item.split(":", 1)[0]
+            found.add(item.strip().strip("'\""))
+    return found
+
+
+def rendered_network_gap(source: dict[str, Any]) -> list[str]:
+    """Usługi z FRONT_UPSTREAMS, których Coolify nie wpiął do `nexus-front`."""
+    rendered = str(source.get("docker_compose") or "")
+    if not rendered:
+        return ["(brak złożonego compose w API Coolify)"]
+    gaps = []
+    for service in FRONT_UPSTREAMS:
+        networks = rendered_service_networks(rendered, service)
+        if not networks or NETWORK not in networks:
+            gaps.append(service)
+    return gaps
+
+
 def preflight(request: Request, source_uuid: str, front_required: bool) -> None:
     """Bramka Deploy PRZED wyzwoleniem compose.
 
@@ -342,7 +410,7 @@ def preflight(request: Request, source_uuid: str, front_required: bool) -> None:
         return
     app = find_frontend(request)
     detail = request("GET", "applications/" + app["uuid"]) if app else {}
-    if not str((detail or {}).get("fqdn") or ""):
+    if not real_domains((detail or {}).get("fqdn")):
         raise ValueError("aplikacja frontu nie ma domen — najpierw mode=switch, compose nie rusza")
     if (compose_domains(source).get(COMPOSE_SERVICE) or {}).get("domain"):
         raise ValueError("compose ma jeszcze domeny frontu — najpierw mode=switch, compose nie rusza")
@@ -355,7 +423,7 @@ def deploy_target(request: Request) -> str | None:
     if app is None:
         return None
     detail = request("GET", "applications/" + app["uuid"]) or {}
-    return app["uuid"] if str(detail.get("fqdn") or "") else None
+    return app["uuid"] if real_domains(detail.get("fqdn")) else None
 
 
 def set_domains(request: Request, app_uuid: str, domains: str, redirect: Any) -> None:
@@ -390,13 +458,56 @@ def set_domains(request: Request, app_uuid: str, domains: str, redirect: Any) ->
     print(f"etykiety frontu: {len(labels)}, routery z retry: {len(chained)}")
 
 
-def switch(request: Request, source_uuid: str, commit: str, **timing: Any) -> None:
-    """Przepięcie domen frontu z compose na `nexus-frontend` bez przerwy.
+def server_ip(source: dict[str, Any]) -> str:
+    """IP serwera z API Coolify (adres próbny nie ma rekordu DNS). Nie trafia na wyjście."""
+    raw = str(((source.get("destination") or {}).get("server") or {}).get("ip") or "")
+    try:
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        raise ValueError("API Coolify nie podało adresu IP serwera — bramka nie sprawdzi frontu") from None
 
-    1. Aplikacja frontu dostaje domeny i wdraża się (rolling update) — od tej
-       chwili Traefik ma dla nich dwa zdrowe kontenery.
-    2. Compose traci domeny frontu; stary kontener znika z routingu przy
-       najbliższym wdrożeniu compose (PR usuwający usługę `frontend`).
+
+def first_https_domain(domains: str) -> str:
+    for domain in str(domains).split(","):
+        domain = domain.strip()
+        if domain.startswith("https://"):
+            return domain.rstrip("/")
+    raise ValueError("front nie ma domeny https — nie ma czego obserwować")
+
+
+def retreat(request: Request, app_uuid: str) -> None:
+    """Powrót po nieudanym przepięciu: stop nowego frontu i sam adres próbny.
+
+    Stop od razu oddaje ruch kontenerowi z compose (ma jeszcze swoje etykiety).
+    Adres próbny przez `set_domains`, bo etykiety trzyma aplikacja
+    (`is_container_label_readonly_enabled=false`): sam PATCH domen zostawiłby w nich
+    routery prawdziwych domen i następny `mode=deploy` znów wziąłby ruch użytkowników.
+    """
+    request("POST", "applications/" + app_uuid + "/stop")
+    set_domains(request, app_uuid, "http://" + paths.CHECK_HOST, None)
+
+
+def switch(
+    request: Request,
+    source_uuid: str,
+    commit: str,
+    get: paths.Fetch = paths.fetch,
+    watch_seconds: float = WATCH_SECONDS,
+    probe_every: float = PROBE_EVERY,
+    sleep: Callable[[float], None] = time.sleep,
+    **timing: Any,
+) -> None:
+    """Przepięcie domen frontu z compose na `nexus-frontend` z bramką.
+
+    0. Compose złożony przez Coolify ma `backend` w sieci `nexus-front`.
+    1. Nowy front dostaje tylko adres próbny i przechodzi ścieżkę użytkownika
+       (version.json, callback logowania Microsoft, /login) po IP serwera.
+       Usterka = koniec, użytkownicy dalej na froncie z compose.
+    2. Domeny na nowy front (rolling update).
+    3. Obserwacja domeny publicznej przez `watch_seconds`; usterka = nowy front
+       zatrzymany, ruch wraca do frontu z compose (ma jeszcze swoje etykiety, bo
+       compose dostaje nowe domeny dopiero w kroku 4).
+    4. Compose oddaje domeny frontu.
     """
     path = "applications/" + source_uuid
     app = find_frontend(request)
@@ -405,16 +516,76 @@ def switch(request: Request, source_uuid: str, commit: str, **timing: Any) -> No
     source = request("GET", path)
     if not compose_has_network(source):
         raise ValueError("wdrożony compose nie ma sieci " + NETWORK + " — front nie zobaczy backendu")
+    gaps = rendered_network_gap(source)
+    if gaps:
+        raise ValueError(
+            "Coolify złożył compose bez sieci " + NETWORK + " w: " + ", ".join(gaps)
+            + " — front nie zobaczy backendu; najpierw Deploy compose z jawnym networks: w usłudze"
+        )
     domains = compose_domains(source)
     front = domains.get(COMPOSE_SERVICE) or {}
     if not front.get("domain"):
         raise ValueError("compose nie ma domen frontu — przepięcie już zrobione?")
-    set_domains(request, app["uuid"], front["domain"], front.get("redirect"))
+    ip = server_ip(source)
+    public = first_https_domain(front["domain"])
+
+    set_domains(request, app["uuid"], "http://" + paths.CHECK_HOST, None)
     deploy(request, commit, **timing)
+    failures = paths.check_paths(get, "http://" + ip, paths.CHECK_HOST, commit)
+    paths.report("adres próbny, przed przepięciem", failures)
+    if failures:
+        raise ValueError("bramka przepięcia: nowy front nie przeszedł ścieżki użytkownika — domeny zostają w compose")
+
+    try:
+        set_domains(request, app["uuid"], front["domain"], front.get("redirect"))
+        deploy(request, commit, **timing)
+        failures = paths.watch(get, public, commit, watch_seconds, probe_every, sleep)
+        paths.report(f"domena publiczna, {int(watch_seconds)} s po przepięciu", failures)
+    except BaseException:
+        # Każde przerwanie po nadaniu domen (healthcheck, wyjątek HTTP, anulowanie
+        # biegu) kończy się powrotem — inaczej domeny zostają na niepilnowanym froncie.
+        retreat(request, app["uuid"])
+        print("przerwane po nadaniu domen: " + APP_NAME + " zatrzymany, ruch wrócił do frontu z compose")
+        raise
+    if failures:
+        retreat(request, app["uuid"])
+        raise ValueError(
+            "usterka po przepięciu: " + APP_NAME + " zatrzymany, ruch wrócił do frontu z compose, domeny zostają w compose"
+        )
+
     rest = {name: entry for name, entry in domains.items() if name != COMPOSE_SERVICE}
     request("PATCH", path, {"docker_compose_domains": domain_rows(rest)})
     count = len([d for d in str(front["domain"]).split(",") if d.strip()])
     print(f"przeniesiono domen frontu: {count}; compose zachowuje: {', '.join(sorted(rest))}")
+
+
+def verify_public(
+    request: Request,
+    commit: str,
+    get: paths.Fetch = paths.fetch,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Deploy, po wdrożeniu frontu: ścieżka użytkownika na domenie publicznej.
+
+    Bez automatycznego cofnięcia (stary kontener już zniknął) — czerwony Deploy
+    i w opisie błędu szybkie cofnięcie: mode=deploy z poprzednim SHA.
+    """
+    app = find_frontend(request)
+    detail = (request("GET", "applications/" + app["uuid"]) or {}) if app else {}
+    domains = real_domains(detail.get("fqdn"))
+    if not domains:
+        print("front bez domen — ścieżki użytkownika nie sprawdzam")
+        return
+    failures = paths.check_paths(get, first_https_domain(domains), None, commit)
+    if failures:
+        # Druga próba: pojedyncza usterka tuż po rolling update bywa przejściowa.
+        sleep(PROBE_EVERY)
+        failures = paths.check_paths(get, first_https_domain(domains), None, commit)
+    paths.report("domena publiczna, po wdrożeniu", failures)
+    if failures:
+        raise ValueError(
+            "front po wdrożeniu nie przechodzi ścieżki użytkownika — cofnij: Coolify frontend app, mode=deploy, commit=<poprzedni SHA>"
+        )
 
 
 def rollback(request: Request, source_uuid: str) -> None:
@@ -433,7 +604,7 @@ def rollback(request: Request, source_uuid: str) -> None:
     if not re.search(r"(?m)^  " + COMPOSE_SERVICE + r":\s*$", services):
         raise ValueError("wczytany compose nie ma usługi frontend — najpierw revert i Deploy")
     detail = request("GET", "applications/" + app["uuid"]) or {}
-    fqdn = str(detail.get("fqdn") or "")
+    fqdn = real_domains(detail.get("fqdn"))
     if not fqdn:
         raise ValueError("aplikacja frontu nie ma domen — nic do cofnięcia")
     domains = compose_domains(source)
@@ -518,6 +689,7 @@ def main() -> int:
             if not UUID_RE.fullmatch(deployment):
                 raise ValueError("brak FRONTEND_DEPLOYMENT_UUID")
             wait(request, deployment)
+            verify_public(request, os.environ.get("EXPECTED_SHA", ""))
     except urllib.error.HTTPError as error:
         print("NEXUS_FRONTEND_APP_FAILED: HTTP " + str(error.code), file=sys.stderr)
         return 1
