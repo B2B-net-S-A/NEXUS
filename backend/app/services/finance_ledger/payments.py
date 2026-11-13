@@ -48,16 +48,22 @@ from app.core.export_safety import safe_row
 from app.core.scheduling import DEFAULT_TZ
 from app.models.app_setting import AppSetting
 from app.models.client_settlement import ClientContractorInvoice, ClientSettlement
-from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
+from app.models.finance_ledger import (
+    FinanceCostEntry,
+    FinanceCostEntryEvent,
+    FinanceCounterparty,
+)
 from app.models.finance_payments import (
     FinanceCostPayment,
     FinanceCostPaymentRecord,
     FinanceCounterpartyAccount,
+    FinanceCounterpartyAccountEvent,
     FinancePaymentBatch,
     FinancePaymentBatchItem,
 )
 from app.models.hr_settlement import PayrollInvoice, PayrollPayment, PayrollSettlement
 from app.models.user import User
+from app.services.client_settlements import invoice_chain
 from app.services.client_settlements import service as settlement_service
 from app.services.finance_ledger import costs
 from app.services.finance_ledger import payment_rules as rules
@@ -86,9 +92,14 @@ PAYROLL_DETAIL = (
 NOT_FOUND = "Nie ma takiej faktury w kolejce."
 ACCOUNT_SOURCE_LABELS = {
     "manual": "wpisany na karcie",
+    "ksef_factor": "faktor (rachunek faktora z faktury w KSeF)",
     "ksef": "z faktury w KSeF",
     "counterparty": "z kartoteki kontrahenta",
 }
+#: Rachunki wpisane ręcznie (na karcie albo do kartoteki) — zawsze do
+#: sprawdzenia na białej liście, niezależnie od kwoty.
+MANUAL_SOURCES = ("manual", "counterparty")
+FACTOR_SUFFIX = " (rachunek faktora)"
 #: Etapy, z których faktura może iść do zapłaty (przyjęta do kolejki).
 PAYABLE_STAGES = ("new", "verified", "ready", "booked")
 
@@ -283,8 +294,20 @@ class AccountChoice:
     ksef: tuple[str, ...] = ()
     counterparty: Optional[str] = None
     manual: Optional[str] = None
-    #: Rachunek ze źródła, którego nie dało się odczytać (zły format).
-    invalid: bool = False
+    #: Rachunek faktora z faktury (``Platnosc/RachunekBankowyFaktora``).
+    factor: tuple[str, ...] = ()
+    #: Kto i kiedy wpisał rachunek ręcznie (na karcie albo do kartoteki).
+    changed_by: Optional[str] = None
+    changed_at: Optional[datetime] = None
+
+    @property
+    def note(self) -> Optional[str]:
+        if self.source not in MANUAL_SOURCES or self.changed_at is None:
+            return None
+        day = self.changed_at.astimezone(_ZONE).strftime("%d.%m.%Y")
+        who = self.changed_by or "nieznana osoba"
+        where = "na karcie" if self.source == "manual" else "w kartotece"
+        return f"Rachunek zmieniony ręcznie {where} przez {who} dnia {day}."
 
 
 def _valid(raw: Any) -> Optional[str]:
@@ -296,9 +319,10 @@ def _valid(raw: Any) -> Optional[str]:
 
 async def _accounts(db: AsyncSession, rows: list[PayRow]) -> dict[int, AccountChoice]:
     ids = [row.entry.id for row in rows]
+    payments = await _payments(db, ids)
     manual = {
         entry_id: payment.account
-        for entry_id, payment in (await _payments(db, ids)).items()
+        for entry_id, payment in payments.items()
         if payment.account
     }
     contractor_ids = [
@@ -307,6 +331,7 @@ async def _accounts(db: AsyncSession, rows: list[PayRow]) -> dict[int, AccountCh
         if row.entry.source_type == "contractor_invoice"
     ]
     ksef: dict[int, tuple[str, ...]] = {}
+    factor: dict[int, tuple[str, ...]] = {}
     if contractor_ids:
         for invoice_id, details in (
             await db.execute(
@@ -317,17 +342,26 @@ async def _accounts(db: AsyncSession, rows: list[PayRow]) -> dict[int, AccountCh
         ).all():
             found = [_valid(raw) for raw in (details or {}).get("accounts") or []]
             ksef[int(invoice_id)] = tuple(dict.fromkeys(a for a in found if a))
+            found = [
+                _valid(raw) for raw in (details or {}).get("factor_accounts") or []
+            ]
+            factor[int(invoice_id)] = tuple(dict.fromkeys(a for a in found if a))
     party_ids = {row.entry.counterparty_id for row in rows if row.entry.counterparty_id}
-    parties: dict[int, str] = {}
+    parties: dict[int, FinanceCounterpartyAccount] = {}
     if party_ids:
         parties = {
-            row.counterparty_id: row.account
+            row.counterparty_id: row
             for row in await db.scalars(
                 select(FinanceCounterpartyAccount).where(
                     FinanceCounterpartyAccount.counterparty_id.in_(party_ids)
                 )
             )
         }
+    names = await _names(
+        db,
+        {p.account_changed_by for p in payments.values() if p.account_changed_by}
+        | {p.updated_by for p in parties.values() if p.updated_by},
+    )
     result: dict[int, AccountChoice] = {}
     for row in rows:
         entry = row.entry
@@ -336,14 +370,32 @@ async def _accounts(db: AsyncSession, rows: list[PayRow]) -> dict[int, AccountCh
             if entry.source_type == "contractor_invoice"
             else ()
         )
-        party = parties.get(entry.counterparty_id or 0)
+        from_factor = (
+            factor.get(entry.source_id, ())
+            if entry.source_type == "contractor_invoice"
+            else ()
+        )
+        party_row = parties.get(entry.counterparty_id or 0)
+        party = party_row.account if party_row else None
         own = manual.get(entry.id)
+        payment = payments.get(entry.id)
+        changed_by: Optional[str] = None
+        changed_at: Optional[datetime] = None
+        # Ręczny wpis wygrywa; przy faktoringu płacimy na rachunek faktora,
+        # nie sprzedawcy (cesja wierzytelności z faktury).
         if own:
             account, source = own, "manual"
+            if payment is not None:
+                changed_by = names.get(payment.account_changed_by or 0)
+                changed_at = payment.account_changed_at
+        elif from_factor:
+            account, source = from_factor[0], "ksef_factor"
         elif from_ksef:
             account, source = from_ksef[0], "ksef"
-        elif party:
+        elif party_row is not None:
             account, source = party, "counterparty"
+            changed_by = names.get(party_row.updated_by or 0)
+            changed_at = party_row.updated_at
         else:
             account, source = None, None
         result[entry.id] = AccountChoice(
@@ -352,8 +404,155 @@ async def _accounts(db: AsyncSession, rows: list[PayRow]) -> dict[int, AccountCh
             ksef=from_ksef,
             counterparty=party,
             manual=own,
+            factor=from_factor,
+            changed_by=changed_by,
+            changed_at=changed_at,
         )
     return result
+
+
+async def _names(db: AsyncSession, user_ids: set[int]) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    return {
+        int(user_id): str(name)
+        for user_id, name in (
+            await db.execute(select(User.id, User.name).where(User.id.in_(user_ids)))
+        ).all()
+    }
+
+
+@dataclass(frozen=True)
+class Payable:
+    """Ile zapłacić za wpis po korektach (łańcuch faktury kontraktora).
+
+    ``plain`` — faktura bez korekt; ``root`` — faktura pierwotna z korektami
+    (``gross`` = brutto pierwotnej + brutto korekt); ``correction`` — korekta
+    znanej faktury, rozliczona na pierwotnej (nie płacimy jej osobno);
+    ``orphan`` — korekta (albo kwota ujemna) bez znanej faktury pierwotnej.
+    """
+
+    gross: Optional[Decimal]
+    vat: Optional[Decimal] = None
+    role: str = "plain"
+    corrections: tuple[tuple[str, Decimal], ...] = ()
+    root_entry_id: Optional[int] = None
+    root_number: Optional[str] = None
+    chain: tuple[int, ...] = ()
+
+    @property
+    def note(self) -> Optional[str]:
+        if self.role != "root" or not self.corrections:
+            return None
+        parts = ", ".join(
+            f"{number} ({rules.money(amount):+.2f})"
+            for number, amount in self.corrections
+        )
+        return (
+            f"Pomniejszona o korektę: {parts}."
+            if all(amount < 0 for _n, amount in self.corrections)
+            else f"Kwota po korektach: {parts}."
+        )
+
+
+async def _payables(db: AsyncSession, rows: list[PayRow]) -> dict[int, Payable]:
+    """Do zapłaty po korektach; łańcuch korekt jak na karcie osoby
+    (``client_settlements.invoice_chain``: numer KSeF faktury korygowanej,
+    a bez niego numer faktury)."""
+
+    result: dict[int, Payable] = {}
+    for row in rows:
+        if row.gross is not None and row.gross < 0:
+            result[row.entry.id] = Payable(None, role="orphan")
+        else:
+            result[row.entry.id] = Payable(row.gross, vat=row.vat)
+    wanted = {
+        row.entry.source_id: row.entry.id
+        for row in rows
+        if row.entry.source_type == "contractor_invoice"
+    }
+    nips = {
+        row.entry.seller_nip
+        for row in rows
+        if row.entry.source_type == "contractor_invoice" and row.entry.seller_nip
+    }
+    if not wanted or not nips:
+        return result
+    docs = list(
+        await db.scalars(
+            select(ClientContractorInvoice).where(
+                ClientContractorInvoice.seller_nip.in_(nips)
+            )
+        )
+    )
+    entry_of = {
+        int(source_id): int(entry_id)
+        for source_id, entry_id in (
+            await db.execute(
+                select(FinanceCostEntry.source_id, FinanceCostEntry.id).where(
+                    FinanceCostEntry.source_type == "contractor_invoice",
+                    FinanceCostEntry.source_id.in_([d.id for d in docs] or [0]),
+                )
+            )
+        ).all()
+    }
+    for chain in invoice_chain.chains(docs):
+        members = chain.docs
+        if not any(doc.id in wanted for doc in members):
+            continue
+        linked = tuple(entry_of[doc.id] for doc in members if doc.id in entry_of)
+        root = chain.root
+        if invoice_chain.is_correction(root):
+            for doc in members:
+                if doc.id in wanted:
+                    result[wanted[doc.id]] = Payable(None, role="orphan", chain=linked)
+            continue
+        others = [doc for doc in members if doc is not root]
+        if not others:
+            continue
+        total = sum((Decimal(doc.gross_amount) for doc in members), Decimal("0"))
+        vat = sum((Decimal(doc.vat_amount or 0) for doc in members), Decimal("0"))
+        label = root.invoice_number or root.ksef_number
+        for doc in members:
+            if doc.id not in wanted:
+                continue
+            if doc is root:
+                result[wanted[doc.id]] = Payable(
+                    rules.money(total),
+                    vat=rules.money(vat),
+                    role="root",
+                    corrections=tuple(
+                        (
+                            other.invoice_number or other.ksef_number,
+                            Decimal(other.gross_amount),
+                        )
+                        for other in others
+                    ),
+                    chain=linked,
+                )
+            else:
+                result[wanted[doc.id]] = Payable(
+                    None,
+                    role="correction",
+                    root_entry_id=entry_of.get(root.id),
+                    root_number=label,
+                    chain=linked,
+                )
+    return result
+
+
+def _payable_problem(payable: Payable) -> Optional[tuple[str, str]]:
+    """(kod, zdanie), gdy wpisu nie płaci się osobno."""
+
+    if payable.role == "correction":
+        return (
+            "correction",
+            f"Korekta faktury {payable.root_number} — kwotę rozliczamy na fakturze "
+            "pierwotnej, nie osobnym przelewem.",
+        )
+    if payable.role == "orphan":
+        return ("correction_orphan", rules.BLOCK_LABELS["correction_orphan"])
+    return None
 
 
 async def refresh(
@@ -365,6 +564,13 @@ async def refresh(
     if not ids:
         return
     rows = await _rows(db, FinanceCostEntry.id.in_(ids), payroll=True)
+    payables = await _payables(db, rows)
+    # Korekta dzieli stan z fakturą pierwotną — przeliczamy cały łańcuch.
+    chained = {entry_id for p in payables.values() for entry_id in p.chain}
+    if chained - set(ids):
+        ids = list(dict.fromkeys([*ids, *chained]))
+        rows = await _rows(db, FinanceCostEntry.id.in_(ids), payroll=True)
+        payables = await _payables(db, rows)
     paid = await _paid_sums(db, ids)
     items = await _active_items(db, ids)
     payments = await _payments(db, ids)
@@ -387,13 +593,21 @@ async def refresh(
             )
         ).all()
     }
-    for row in rows:
-        if row.payroll:
-            continue
+    states: dict[int, str] = {}
+    ordered = sorted(
+        (row for row in rows if not row.payroll),
+        key=lambda row: payables[row.entry.id].role == "correction",
+    )
+    for row in ordered:
         entry_id = row.entry.id
+        payable = payables[entry_id]
         total = rules.money(paid.get(entry_id, Decimal("0")))
-        gross = rules.money(row.gross) if row.gross is not None else None
-        if gross is not None and gross > rules.ZERO and total >= gross:
+        gross = rules.money(payable.gross) if payable.gross is not None else None
+        if payable.role == "correction" and payable.root_entry_id in states:
+            state = states[payable.root_entry_id]
+        elif gross is not None and gross <= rules.ZERO and payable.role == "root":
+            state = "paid"
+        elif gross is not None and gross > rules.ZERO and total >= gross:
             state = "paid"
         elif entry_id in items:
             state = "in_batch"
@@ -401,6 +615,7 @@ async def refresh(
             state = "partially_paid"
         else:
             state = "unpaid"
+        states[entry_id] = state
         payment = payments.get(entry_id)
         if payment is None:
             if state == "unpaid" and total == rules.ZERO:
@@ -416,8 +631,6 @@ async def refresh(
             if total > rules.ZERO
             else None
         )
-        if actor_id is not None:
-            payment.updated_by = actor_id
     await db.flush()
 
 
@@ -440,6 +653,11 @@ class PlanItem:
     batch_id: Optional[int] = None
     #: Tytuł reguły zapłaty z rozliczeń klienta (blokada albo odhaczenie).
     gate_title: Optional[str] = None
+    #: Zdania zamiast stałych etykiet (kod blokady / ostrzeżenia → zdanie).
+    labels: dict[str, str] = field(default_factory=dict)
+    vat: Optional[Decimal] = None
+    amount_note: Optional[str] = None
+    account_note: Optional[str] = None
 
     @property
     def entry_id(self) -> int:
@@ -447,6 +665,8 @@ class PlanItem:
 
 
 def _gate_label(item: PlanItem, code: Optional[str]) -> Optional[str]:
+    if code in item.labels:
+        return item.labels[code]
     if code != "client_signature" or not item.gate_title:
         return None
     return f"{item.gate_title} (reguła rozliczeń klienta)."
@@ -465,8 +685,10 @@ def item_payload(item: PlanItem) -> dict[str, Any]:
         "due_date": _iso(row.due),
         "currency": row.currency,
         "gross_amount": _money_text(row.gross),
-        "vat_amount": _money_text(row.vat),
+        "vat_amount": _money_text(item.vat if item.vat is not None else row.vat),
         "to_pay": _money_text(item.to_pay),
+        "amount_note": item.amount_note,
+        "account_note": item.account_note,
         "mode": item.mode,
         "mode_label": rules.MODE_LABELS.get(item.mode or ""),
         "mode_suggested": item.mode_suggested,
@@ -627,9 +849,11 @@ async def plan(
     else:
         # Bez terminu faktura nie trafia do planu: historia sprzed NEXUSA była
         # płacona w eBI24, a KSeF nie niesie terminu (wpisują go Finanse).
+        # „Wstrzymać płatność” znika z planu (wraca po zdjęciu flagi).
         rows = await _rows(
             db,
             FinanceCostEntry.stage != "rejected",
+            ~FinanceCostEntry.flags.contains(["hold_payment"]),
             payment_state.state_sql() != "paid",
             payroll=payroll,
             due_until=until or today,
@@ -641,6 +865,7 @@ async def plan(
     states = await payment_state.for_entries(db, [row.entry for row in rows])
     month_net = await _month_net(db, rows, payroll=payroll)
     gates = await _client_gates(db, rows)
+    payables = await _payables(db, rows)
     items: list[PlanItem] = []
     for row in rows:
         entry = row.entry
@@ -675,10 +900,18 @@ async def plan(
             if gate.get("state") == "fail":
                 item.block = "client_signature"
                 continue
-        if row.gross is None or row.gross <= 0:
-            item.block = "no_amount"
+        payable = payables[entry.id]
+        problem = _payable_problem(payable)
+        if problem is not None:
+            item.block = problem[0]
+            item.labels[problem[0]] = problem[1]
             continue
-        gross = rules.money(row.gross)
+        if payable.gross is None or payable.gross <= 0:
+            item.block = "corrected_out" if payable.role == "root" else "no_amount"
+            continue
+        gross = rules.money(payable.gross)
+        item.vat = payable.vat
+        item.amount_note = payable.note
         item.to_pay = rules.money(gross - paid.get(entry.id, Decimal("0")))
         if item.to_pay <= rules.ZERO:
             item.block = "paid"
@@ -698,6 +931,7 @@ async def plan(
             item.account, item.account_source = choice.manual, "manual"
         else:
             item.account, item.account_source = choice.account, choice.source
+            item.account_note = choice.note
         if not item.account:
             item.block = "no_account"
             continue
@@ -710,7 +944,7 @@ async def plan(
                 invoice_number=row.invoice_number,
                 ksef_number=row.ksef_number,
                 from_ksef=entry.from_ksef,
-                vat_amount=row.vat,
+                vat_amount=payable.vat,
                 seller_nip=entry.seller_nip,
                 today=today,
             )
@@ -725,13 +959,24 @@ async def plan(
             item.white_list = await _white_list(
                 db, entry.seller_nip, item.account, today, actor_id
             )
-        if rules.needs_white_list_ack(
+        wl_state = item.white_list["state"]
+        if item.account_source == "ksef_factor":
+            # Faktor nie musi być w wykazie dla NIP-u sprzedawcy — wynik tylko
+            # informuje (rachunek z faktury, cesja wierzytelności).
+            item.white_list["informational"] = True
+        elif rules.needs_white_list_ack(
             mode=mode.mode,
             currency=row.currency,
             gross=gross,
-            white_list_state=item.white_list["state"],
+            white_list_state=wl_state,
         ):
             item.acks.append("white_list")
+        if (
+            item.account_source in MANUAL_SOURCES
+            and mode.mode != "tax_office"
+            and wl_state != "listed"
+        ):
+            item.acks.append("account_manual")
         if mode.suggested:
             item.acks.append("mpp_suggested")
         if item.gate_title is not None:
@@ -792,9 +1037,7 @@ async def create_batch(
         raise PaymentError("Zaznacz faktury do paczki.", 422)
     when = _execution_date(execution_date, today)
     # Dwie paczki naraz nie wezmą tej samej faktury (drugi czeka i widzi „w paczce”).
-    await db.execute(
-        text("SELECT pg_advisory_xact_lock(hashtext('finance-cost-batch'))")
-    )
+    await payment_state.lock_batches(db)
     items = await plan(
         db, entry_ids=wanted, today=today, actor_id=actor_id, payroll=payroll
     )
@@ -846,12 +1089,11 @@ async def create_batch(
                 entry_id=item.entry_id,
                 mode=item.mode,
                 amount=item.to_pay,
-                vat_amount=row.vat,
+                vat_amount=item.vat,
                 currency=row.currency,
                 account=item.account,
-                recipient_name=(row.seller_name or row.entry.seller_nip or "Odbiorca")[
-                    :NAME_MAX
-                ],
+                account_source=item.account_source,
+                recipient_name=_recipient(row, item.account_source),
                 title_lines=list(item.title_lines),
                 white_list=dict(item.white_list),
                 acknowledged_by=actor_id if item.acks else None,
@@ -865,6 +1107,13 @@ async def create_batch(
         ) from exc
     await refresh(db, [item.entry_id for item in items], actor_id=actor_id)
     return await batch_detail(db, batch.id, payroll=payroll)
+
+
+def _recipient(row: PayRow, source: Optional[str]) -> str:
+    name = row.seller_name or row.entry.seller_nip or "Odbiorca"
+    if source == "ksef_factor":
+        name = f"{name[: NAME_MAX - len(FACTOR_SUFFIX)]}{FACTOR_SUFFIX}"
+    return name[:NAME_MAX]
 
 
 async def _batch(
@@ -899,7 +1148,28 @@ def _batch_status(batch: FinancePaymentBatch, statuses: list[str]) -> str:
     live = [status for status in statuses if status != "released"]
     if live and all(status == "done" for status in live):
         return "done"
+    if not live:
+        return "cancelled"
     return "active"
+
+
+def _file_stale(batch: FinancePaymentBatch) -> bool:
+    """Skład paczki zmienił się po ostatnim pobraniu pliku."""
+
+    return bool(
+        batch.changed_at
+        and batch.downloaded_at
+        and batch.changed_at > batch.downloaded_at
+    )
+
+
+def _file_fields(batch: FinancePaymentBatch) -> dict[str, Any]:
+    return {
+        "file_sha256": (batch.file_sha256 or "")[:12] or None,
+        "downloaded_at": _iso(batch.downloaded_at),
+        "changed_at": _iso(batch.changed_at),
+        "file_stale": _file_stale(batch),
+    }
 
 
 BATCH_STATUS_LABELS = {
@@ -937,6 +1207,7 @@ async def batch_detail(
         "created_at": _iso(batch.created_at),
         "count": sum(1 for item, _entry in rows if item.status != "released"),
         "total": _money_text(total),
+        **_file_fields(batch),
         "items": [
             {
                 "entry_id": entry.id,
@@ -945,6 +1216,10 @@ async def batch_detail(
                 else None,
                 "recipient_name": item.recipient_name,
                 "account": item.account,
+                "account_source": item.account_source,
+                "account_source_label": ACCOUNT_SOURCE_LABELS.get(
+                    item.account_source or ""
+                ),
                 "amount": _money_text(item.amount),
                 "currency": item.currency,
                 "mode": item.mode,
@@ -1001,6 +1276,7 @@ async def list_batches(db: AsyncSession, *, limit: int = 30) -> list[dict[str, A
                 "total": _money_text(Decimal(total or 0)),
                 "status": status,
                 "status_label": BATCH_STATUS_LABELS[status],
+                **_file_fields(batch),
             }
         )
     return out
@@ -1016,6 +1292,7 @@ CSV_COLUMNS = (
     "Tryb",
     "Kwota VAT",
     "NIP sprzedawcy",
+    "Rachunek z",
 )
 
 
@@ -1045,33 +1322,76 @@ def render_csv(
                     if item.mode == "mpp" and item.vat_amount is not None
                     else "",
                     entry.seller_nip or "",
+                    "faktor" if item.account_source == "ksef_factor" else "",
                 ]
             )
         )
     return ("﻿" + buffer.getvalue()).encode("utf-8")
 
 
+@dataclass(frozen=True)
+class BatchFile:
+    name: str
+    content: bytes
+    media_type: str
+    sha256: str
+    #: Plik różni się od poprzednio pobranego (paczka zmieniła się po pobraniu).
+    changed: bool
+
+
 async def batch_file(
-    db: AsyncSession, batch_id: int, *, payroll: bool, actor_id: int
-) -> tuple[str, bytes, str]:
-    batch = await _batch(db, batch_id)
+    db: AsyncSession, batch_id: int, *, payroll: bool, actor_id: int, now: datetime
+) -> BatchFile:
+    """Plik tylko z pozycji, które czekają na bank (``active``).
+
+    Pozycja zapłacona (wyciąg) albo zdjęta z paczki do pliku nie wraca. Skrót
+    pliku zapisujemy przy pobraniu — inny skrót niż poprzednio = plik
+    zmieniony (nowa nazwa z początkiem skrótu, nagłówek ``X-Batch-File-Changed``).
+    """
+
+    batch = await _batch(db, batch_id, lock=True)
     if batch.status == "cancelled":
         raise PaymentError("Ta paczka jest anulowana.")
     rows = [
         (item, entry)
         for item, entry in await _batch_items(db, batch_id, payroll=payroll)
-        if item.status != "released"
+        if item.status == "active"
     ]
     if not rows:
-        raise PaymentError("W tej paczce nie ma przelewów.")
-    stamp = batch.execution_date.isoformat()
+        raise PaymentError(
+            "W tej paczce nie ma przelewów czekających na bank — są zapłacone "
+            "albo zdjęte z paczki."
+        )
+    name, content, media = await _render(db, batch, rows)
+    digest = hashlib.sha256(content).hexdigest()
+    changed = batch.file_sha256 is not None and batch.file_sha256 != digest
+    batch.file_sha256 = digest
+    batch.downloaded_at = now
+    await db.flush()
     logger.info(
-        "[finance-payments] plik paczki %s (%s, %s pozycji) pobrany przez %s",
+        "[finance-payments] plik paczki %s (%s, %s pozycji, %s) pobrany przez %s",
         batch.id,
         batch.format,
         len(rows),
+        digest[:12],
         actor_id,
     )
+    stem, dot, ext = name.rpartition(".")
+    return BatchFile(
+        name=f"{stem}-{digest[:8]}{dot}{ext}",
+        content=content,
+        media_type=media,
+        sha256=digest,
+        changed=changed,
+    )
+
+
+async def _render(
+    db: AsyncSession,
+    batch: FinancePaymentBatch,
+    rows: list[tuple[FinancePaymentBatchItem, FinanceCostEntry]],
+) -> tuple[str, bytes, str]:
+    stamp = batch.execution_date.isoformat()
     if batch.format == "csv":
         return (
             f"przelewy-kosztow-{stamp}-{batch.id}.csv",
@@ -1136,6 +1456,68 @@ async def cancel_batch(
     return {"id": batch.id, "released": len(items)}
 
 
+async def release_item(
+    db: AsyncSession,
+    batch_id: int,
+    entry_id: int,
+    *,
+    actor_id: int,
+    now: datetime,
+    payroll: bool,
+) -> dict[str, Any]:
+    """„Zdejmij z paczki” — pozycja wraca do planu, plik trzeba pobrać ponownie."""
+
+    await payment_state.lock_batches(db)
+    batch = await _batch(db, batch_id, lock=True)
+    if batch.status == "cancelled":
+        raise PaymentError("Ta paczka jest anulowana.")
+    item = await db.scalar(
+        select(FinancePaymentBatchItem)
+        .join(FinanceCostEntry, FinanceCostEntry.id == FinancePaymentBatchItem.entry_id)
+        .where(
+            FinancePaymentBatchItem.batch_id == batch_id,
+            FinancePaymentBatchItem.entry_id == entry_id,
+            FinancePaymentBatchItem.status == "active",
+            *costs._payroll_scope(payroll),
+        )
+        .with_for_update()
+    )
+    if item is None:
+        raise PaymentError(
+            "Tej faktury nie ma w paczce czekającej na bank (zapłacona albo już zdjęta).",
+            404,
+        )
+    item.status = "released"
+    batch.changed_at = now
+    left = await db.scalar(
+        select(func.count())
+        .select_from(FinancePaymentBatchItem)
+        .where(
+            FinancePaymentBatchItem.batch_id == batch_id,
+            FinancePaymentBatchItem.status != "released",
+        )
+    )
+    if not left:
+        batch.status = "cancelled"
+        batch.cancelled_by = actor_id
+        batch.cancelled_at = now
+    await db.flush()
+    await refresh(db, [entry_id], actor_id=actor_id)
+    logger.info(
+        "[finance-payments] paczka %s: zdjęta faktura %s przez %s",
+        batch.id,
+        entry_id,
+        actor_id,
+    )
+    return {
+        "id": batch.id,
+        "entry_id": entry_id,
+        "released": 1,
+        "batch_cancelled": not left,
+        "file_stale": batch.downloaded_at is not None,
+    }
+
+
 # ── Płatność jednej faktury (karta) ──────────────────────────────────────────
 
 
@@ -1194,7 +1576,9 @@ async def entry_card(
             .order_by(FinanceCostPaymentRecord.booked_on, FinanceCostPaymentRecord.id)
         )
     )
-    gross = rules.money(row.gross) if row.gross is not None else None
+    payable = (await _payables(db, [row]))[entry.id]
+    problem = _payable_problem(payable)
+    gross = rules.money(payable.gross) if payable.gross is not None else None
     try:
         mode = rules.mode_for(entry.flags or [], gross or rules.ZERO, row.currency)
         mode_payload: dict[str, Any] = {
@@ -1207,6 +1591,8 @@ async def entry_card(
     base.update(
         mode_payload,
         to_pay=_money_text(gross - paid) if gross is not None else None,
+        amount_note=payable.note,
+        payable_problem=problem[1] if problem else None,
         paid_amount=_money_text(paid),
         paid_on=_iso(payment.paid_on) if payment else None,
         paid_source=payment.paid_source if payment else None,
@@ -1216,9 +1602,11 @@ async def entry_card(
         account=choice.account,
         account_source=choice.source,
         account_source_label=ACCOUNT_SOURCE_LABELS.get(choice.source or ""),
+        account_note=choice.note,
         accounts={
             "manual": choice.manual,
             "ksef": list(choice.ksef),
+            "factor": list(choice.factor),
             "counterparty": choice.counterparty,
         },
         can_remember=entry.counterparty_id is not None,
@@ -1254,15 +1642,19 @@ async def set_account(
     account: Optional[str],
     remember: bool,
     actor_id: int,
+    now: datetime,
     payroll: bool,
 ) -> None:
+    """Ręczny rachunek odbiorcy — zawsze ze śladem: zdarzenie na wpisie
+    (stary → nowy, kto, kiedy), przy „zapamiętaj” także w historii kartoteki."""
+
+    await payment_state.lock_batches(db)
     row = await _one(db, entry_id, payroll=payroll)
     if row.payroll:
         raise PaymentError(PAYROLL_DETAIL)
     if (await _active_items(db, [entry_id])).get(entry_id):
-        raise PaymentError(
-            "Faktura jest w paczce — anuluj paczkę, żeby zmienić rachunek."
-        )
+        raise PaymentError(payment_state.IN_BATCH_DETAIL)
+    before = (await _accounts(db, [row]))[entry_id]
     value: Optional[str] = None
     if account and account.strip():
         try:
@@ -1273,10 +1665,38 @@ async def set_account(
     if payment is None:
         payment = FinanceCostPayment(entry_id=entry_id, state="unpaid")
         db.add(payment)
+    if value != payment.account:
+        db.add(
+            FinanceCostEntryEvent(
+                entry_id=entry_id,
+                action="account",
+                detail={
+                    "from": before.account,
+                    "from_source": before.source,
+                    "to": value,
+                    "to_source": "manual" if value else None,
+                    "remember": bool(remember and value),
+                },
+                actor_id=actor_id,
+                created_at=now,
+            )
+        )
+        payment.account_changed_by = actor_id
+        payment.account_changed_at = now
     payment.account = value
     payment.updated_by = actor_id
     party_id = row.entry.counterparty_id
-    if value and remember and party_id:
+    if value and remember and party_id and value != before.counterparty:
+        db.add(
+            FinanceCounterpartyAccountEvent(
+                counterparty_id=party_id,
+                entry_id=entry_id,
+                old_account=before.counterparty,
+                new_account=value,
+                actor_id=actor_id,
+                created_at=now,
+            )
+        )
         statement = insert(FinanceCounterpartyAccount).values(
             counterparty_id=party_id, account=value, updated_by=actor_id
         )
@@ -1311,20 +1731,11 @@ async def mark_paid(
         raise PaymentError(
             "Podaj powód (co najmniej 3 znaki), np. „karta firmowa”.", 422
         )
+    await payment_state.lock_batches(db)
     row = await _one(db, entry_id, payroll=payroll)
     if row.payroll:
         raise PaymentError(PAYROLL_DETAIL)
-    if row.gross is None or row.gross <= 0:
-        raise PaymentError(rules.BLOCK_LABELS["no_amount"], 422)
-    await db.execute(
-        select(FinanceCostEntry.id)
-        .where(FinanceCostEntry.id == entry_id)
-        .with_for_update()
-    )
-    remaining = rules.money(
-        Decimal(row.gross)
-        - (await _paid_sums(db, [entry_id])).get(entry_id, Decimal("0"))
-    )
+    remaining = await _remaining(db, row)
     if remaining <= rules.ZERO:
         raise PaymentError("Faktura jest już zapłacona.")
     value = rules.money(amount) if amount is not None else remaining
@@ -1347,12 +1758,35 @@ async def mark_paid(
         )
     )
     await db.flush()
-    await _close_items(db, [entry_id])
     await refresh(db, [entry_id], actor_id=actor_id)
 
 
+async def _remaining(db: AsyncSession, row: PayRow) -> Decimal:
+    """Do zapłaty po korektach i zapłatach; wpis w paczce czekającej na bank,
+    korekta albo brak kwoty = ``PaymentError``."""
+
+    entry_id = row.entry.id
+    await db.execute(
+        select(FinanceCostEntry.id)
+        .where(FinanceCostEntry.id == entry_id)
+        .with_for_update()
+    )
+    if await payment_state.waiting_entry_ids(db, [entry_id]):
+        raise PaymentError(payment_state.IN_BATCH_DETAIL)
+    payable = (await _payables(db, [row]))[entry_id]
+    problem = _payable_problem(payable)
+    if problem is not None:
+        raise PaymentError(problem[1])
+    if payable.gross is None or payable.gross <= 0:
+        raise PaymentError(rules.BLOCK_LABELS["no_amount"], 422)
+    return rules.money(
+        Decimal(payable.gross)
+        - (await _paid_sums(db, [entry_id])).get(entry_id, Decimal("0"))
+    )
+
+
 async def _close_items(db: AsyncSession, entry_ids: list[int]) -> None:
-    """Zapłata wpisu w paczce kończy jego pozycję (paczka „wykonana”)."""
+    """Zapłata z wyciągu (bank wykonał przelew) kończy pozycję paczki."""
 
     for item in await db.scalars(
         select(FinancePaymentBatchItem).where(
@@ -1398,15 +1832,25 @@ async def _candidates(db: AsyncSession) -> list[rules.CostCandidate]:
     paid = await _paid_sums(db, ids)
     items = await _active_items(db, ids)
     accounts = await _accounts(db, rows)
+    payables = await _payables(db, rows)
     result = []
     for row in rows:
-        if row.gross is None or row.gross <= 0:
+        payable = payables[row.entry.id]
+        if payable.role in ("correction", "orphan"):
+            continue
+        if payable.gross is None or payable.gross <= 0:
             continue
         active = items.get(row.entry.id)
         choice = accounts[row.entry.id]
         known = {
             a
-            for a in (choice.account, choice.manual, choice.counterparty, *choice.ksef)
+            for a in (
+                choice.account,
+                choice.manual,
+                choice.counterparty,
+                *choice.ksef,
+                *choice.factor,
+            )
             if a
         }
         if active:
@@ -1415,7 +1859,7 @@ async def _candidates(db: AsyncSession) -> list[rules.CostCandidate]:
             rules.CostCandidate(
                 entry_id=row.entry.id,
                 currency=row.currency,
-                gross=rules.money(row.gross),
+                gross=rules.money(payable.gross),
                 paid=rules.money(paid.get(row.entry.id, Decimal("0"))),
                 invoice_number=row.invoice_number,
                 ksef_number=(row.ksef_number or "").upper() or None,
@@ -1456,6 +1900,9 @@ async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> Debit
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": f"hr-statement:{sha}"},
     )
+    # Ta sama blokada co paczka, „Opłacono” i „Przypisz” — zapłata z wyciągu
+    # zamyka pozycję paczki, której nikt w tej chwili nie zmienia.
+    await payment_state.lock_batches(db)
     result = DebitResult(format=parsed.format, statement=sha[:12])
     result.operations = len(parsed.lines)
     known = set(
@@ -1653,18 +2100,14 @@ async def assign_record(
     now: datetime,
     payroll: bool,
 ) -> None:
+    await payment_state.lock_batches(db)
     record = await _unmatched(db, record_id)
     row = await _one(db, entry_id, payroll=payroll)
     if row.payroll:
         raise PaymentError(PAYROLL_DETAIL)
     if row.currency != record.currency:
         raise PaymentError("Waluta przelewu jest inna niż waluta faktury.", 422)
-    if row.gross is None or row.gross <= 0:
-        raise PaymentError(rules.BLOCK_LABELS["no_amount"], 422)
-    remaining = rules.money(
-        Decimal(row.gross)
-        - (await _paid_sums(db, [entry_id])).get(entry_id, Decimal("0"))
-    )
+    remaining = await _remaining(db, row)
     if remaining <= rules.ZERO:
         raise PaymentError(
             "Faktura jest już zapłacona — sprawdź, czy to nie podwójna zapłata."
@@ -1676,7 +2119,6 @@ async def assign_record(
     record.resolved_by = actor_id
     record.resolved_at = now
     await db.flush()
-    await _close_items(db, [entry_id])
     await refresh(db, [entry_id], actor_id=actor_id)
 
 
@@ -1707,6 +2149,7 @@ __all__ = [
     "import_debits",
     "item_payload",
     "list_batches",
+    "release_item",
     "load_settings",
     "mark_paid",
     "plan",

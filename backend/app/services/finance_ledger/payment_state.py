@@ -16,11 +16,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy import case, exists, func, select
+from sqlalchemy import case, exists, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.finance_ledger import FinanceCostEntry
-from app.models.finance_payments import FinanceCostPayment
+from app.models.finance_payments import FinanceCostPayment, FinancePaymentBatchItem
 from app.models.hr_settlement import PayrollInvoice, PayrollPayment, PayrollSettlement
 from app.services.finance_payments_schema import PAYMENT_STATES
 
@@ -30,6 +30,40 @@ STATE_LABELS: dict[str, str] = {
     "paid": "Zapłacona",
     "partially_paid": "Zapłacona częściowo",
 }
+#: Flagi, które zmieniają tylko płatność, nie dekret (wolno je też przy
+#: „Zaksięgowanej”, ale nie przy fakturze w paczce czekającej na bank).
+PAYMENT_FLAGS: tuple[str, ...] = ("mpp", "no_mpp", "hold_payment", "tax_office_account")
+IN_BATCH_DETAIL = (
+    "Faktura jest w paczce czekającej na bank — anuluj paczkę albo zdejmij z niej "
+    "fakturę."
+)
+
+
+async def lock_batches(db: AsyncSession) -> None:
+    """Blokada doradcza paczek przelewów kosztów — „Utwórz paczkę”, „Opłacono”,
+    „Przypisz”, wyciąg, „Zdejmij z paczki” i flagi płatności idą po kolei."""
+
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('finance-cost-batch'))")
+    )
+
+
+async def waiting_entry_ids(db: AsyncSession, entry_ids: Iterable[int]) -> set[int]:
+    """Wpisy z aktywną pozycją paczki (paczka czeka na bank)."""
+
+    ids = list(entry_ids)
+    if not ids:
+        return set()
+    return set(
+        await db.scalars(
+            select(FinancePaymentBatchItem.entry_id).where(
+                FinancePaymentBatchItem.entry_id.in_(ids),
+                FinancePaymentBatchItem.status == "active",
+            )
+        )
+    )
+
+
 SOURCE_LABELS: dict[str, str] = {
     "statement": "wyciąg",
     "manual": "ręcznie",
@@ -132,6 +166,10 @@ async def for_entries(
 
 
 __all__ = [
+    "IN_BATCH_DETAIL",
+    "PAYMENT_FLAGS",
+    "lock_batches",
+    "waiting_entry_ids",
     "SOURCE_LABELS",
     "STATE_LABELS",
     "condition",

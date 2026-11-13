@@ -39,6 +39,7 @@
   "GET /api/finance/payments/statements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/payments/batches": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/payments/batches/{batch_id}/cancel": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/payments/batches/{batch_id}/items/{entry_id}/release": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/payments/entries/{entry_id}/paid": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/payments/plan": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/payments/records/{record_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

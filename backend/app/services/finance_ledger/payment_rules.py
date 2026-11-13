@@ -65,6 +65,10 @@ BLOCK_LABELS: dict[str, str] = {
     "mpp_no_vat": "MPP wymaga kwoty VAT z faktury.",
     "title_too_long": "Tytuł MPP nie mieści się w 4 liniach po 35 znaków.",
     "client_signature": "Zapłata czeka na podpis klienta na KEŚU (reguła rozliczeń klienta).",
+    "correction": "Korekta — kwotę rozliczamy na fakturze pierwotnej, nie osobnym przelewem.",
+    "correction_orphan": "Korekta (albo kwota ujemna) bez znanej faktury pierwotnej — "
+    "sprawdź ręcznie, którą fakturę pomniejsza.",
+    "corrected_out": "Faktura skorygowana do zera albo poniżej — nie ma czego płacić.",
 }
 #: Ostrzeżenia do świadomego odhaczenia przy tworzeniu paczki.
 ACK_LABELS: dict[str, str] = {
@@ -73,6 +77,8 @@ ACK_LABELS: dict[str, str] = {
     "odpowiedzialnością za VAT.",
     "client_signature": "Zapłata czeka na podpis klienta na KEŚU — reguła klienta "
     "ostrzega, nie blokuje (rozliczenia klientów).",
+    "account_manual": "Rachunek wpisany ręcznie i niepotwierdzony w wykazie VAT — "
+    "sprawdź go u dostawcy przed zapłatą (niezależnie od kwoty).",
     "mpp_suggested": "Faktura od 15 000 zł brutto bez flagi MPP / NIE MPP — sprawdź, "
     "czy podzielona płatność jest obowiązkowa (zał. 15).",
 }

@@ -324,7 +324,8 @@ def test_ddl_w_lustrze_entrypointu_i_downgrade() -> None:
     for stmt in ALL_DDL:
         if stmt.startswith("CREATE TABLE"):
             assert stmt in COLUMN_DDL
-    assert len(DOWNGRADE_DDL) == 5
+    assert len(DOWNGRADE_DDL) == 7
+    assert DOWNGRADE_DDL[0].startswith("DELETE FROM finance_cost_entry_events")
 
 
 def test_rachunek_z_xml_faktury_kontraktora_trafia_do_details() -> None:
@@ -345,3 +346,26 @@ def test_rachunek_z_xml_faktury_kontraktora_trafia_do_details() -> None:
     parsed = fa.parse_invoice(xml)
     assert parsed.accounts == (SUPPLIER,)
     assert contractor_details.details_from(parsed)["accounts"] == [SUPPLIER]
+
+
+def test_rachunek_faktora_z_xml_obok_rachunku_sprzedawcy() -> None:
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Faktura xmlns="http://crd.gov.pl/wzor/2025/06/25/13775/">'
+        "<Naglowek><KodFormularza>FA</KodFormularza>"
+        "<WariantFormularza>3</WariantFormularza></Naglowek>"
+        f"<Podmiot1><DaneIdentyfikacyjne><NIP>{NIP}</NIP>"
+        "<Nazwa>Konsultant Przykładowy</Nazwa></DaneIdentyfikacyjne></Podmiot1>"
+        "<Fa><KodWaluty>PLN</KodWaluty><P_1>2026-11-03</P_1><P_2>FV 2/11/2026</P_2>"
+        "<P_13_1>100.00</P_13_1><P_14_1>23.00</P_14_1><P_15>123.00</P_15>"
+        "<RodzajFaktury>VAT</RodzajFaktury>"
+        f"<Platnosc><RachunekBankowy><NrRB>{SUPPLIER}</NrRB></RachunekBankowy>"
+        f"<RachunekBankowyFaktora><NrRB>{OTHER}</NrRB></RachunekBankowyFaktora>"
+        "</Platnosc></Fa></Faktura>"
+    ).encode()
+    parsed = fa.parse_invoice(xml)
+    assert parsed.accounts == (SUPPLIER,)
+    assert parsed.factor_accounts == (OTHER,)
+    details = contractor_details.details_from(parsed)
+    assert details["accounts"] == [SUPPLIER]
+    assert details["factor_accounts"] == [OTHER]

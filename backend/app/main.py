@@ -3852,6 +3852,7 @@ async def api_health_deep_check():
         FinanceCostPayment,
         FinanceCostPaymentRecord,
         FinanceCounterpartyAccount,
+        FinanceCounterpartyAccountEvent,
         FinancePaymentBatch,
         FinancePaymentBatchItem,
     )
@@ -4235,6 +4236,7 @@ async def api_health_deep_check():
         ("finance_payment_batches", FinancePaymentBatch),
         ("finance_payment_batch_items", FinancePaymentBatchItem),
         ("finance_cost_payment_records", FinanceCostPaymentRecord),
+        ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
     ]
 
     checks: dict[str, str] = {}

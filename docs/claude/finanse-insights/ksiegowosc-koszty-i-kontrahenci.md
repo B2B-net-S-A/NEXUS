@@ -199,6 +199,49 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
 - **Ręczne „Opłacono”** na karcie: kwota (domyślnie całość pozostałej, nie
   więcej), data nie z przyszłości, powód (np. „karta firmowa” — 135 faktur
   w eBI24 płaconych kartą).
+- **Paczka czekająca na bank jest zamrożona** (przegląd 13.11.2026). Dopóki
+  faktura ma aktywną pozycję paczki: ręczne „Opłacono” (pełne i częściowe),
+  „Przypisz” operacji z wyciągu, zmiana rachunku i dodanie albo zdjęcie flagi
+  płatności (MPP, NIE MPP, „Wstrzymać płatność”, „Zapłata na konto US”) = 409
+  „Faktura jest w paczce czekającej na bank — anuluj paczkę albo zdejmij z niej
+  fakturę”. „Zdejmij z paczki” (Przelewy → Paczki → Pozycje) zwalnia jedną
+  pozycję i oznacza paczkę jako zmienioną. Zapłata z wyciągu (bank wykonał
+  przelew) zamyka pozycję normalnie. Plik zawiera **wyłącznie pozycje
+  czekające** (`active`) — zapłaconej ani zdjętej do pliku nie dokładamy;
+  przy pobraniu zapisujemy skrót pliku, nazwa pliku niesie jego początek,
+  a pobranie po zmianie składu daje `X-Batch-File-Changed: true` i na liście
+  „Plik nieaktualny — pobierz ponownie” (stary plik trzeba usunąć z banku).
+  „Utwórz paczkę”, „Opłacono”, „Przypisz”, wyciąg, „Zdejmij”, rachunek i flagi
+  płatności biorą tę samą blokadę doradczą `finance-cost-batch`.
+- **Zaksięgowana faktura**: flagi płatności i termin płatności nie zmieniają
+  dekretu — wolno je zmienić także przy `booked` (z wpisem w historii);
+  kategoria i „Duplikat” zostają zamknięte. Faktura z „Wstrzymać płatność” nie
+  pojawia się w planie (wraca po zdjęciu flagi).
+- **Rachunek wpisany ręcznie ma ślad**: zmiana na karcie zapisuje zdarzenie
+  `account` w historii wpisu (stary → nowy rachunek, źródło, kto, kiedy;
+  CHECK akcji poszerza migracja E3), a „zapamiętaj w kartotece” jest domyślnie
+  **wyłączone**; zapamiętanie zapisuje `finance_counterparty_account_events`
+  (stara i nowa wartość, kto, kiedy). Plan i karta mówią „Rachunek zmieniony
+  ręcznie przez X dnia D”. Rachunek wpisany ręcznie (na karcie albo
+  w kartotece) i niepotwierdzony w wykazie VAT wymaga świadomego odhaczenia
+  **niezależnie od kwoty** (tryb `off` też — odhaczenie zamiast sprawdzenia).
+- **Faktoring**: rachunek faktora z XML-a (`Platnosc/RachunekBankowyFaktora`,
+  `details.factor_accounts`) ma pierwszeństwo przed rachunkiem sprzedawcy
+  (ręczny wpis dalej wygrywa); źródło `ksef_factor`, w planie „faktor”,
+  w pliku nazwa odbiorcy z dopiskiem „(rachunek faktora)” i w CSV kolumna
+  „Rachunek z” = „faktor”. Biała lista sprawdza rachunek faktora z NIP-em
+  sprzedawcy **informacyjnie** — faktor nie musi być w wykazie dla NIP-u
+  sprzedawcy, więc wynik nie wymaga odhaczenia (art. 117ba nie zwalnia wtedy
+  z ryzyka — decyzja Finansów przy umowie faktoringu).
+- **Korekty**: do zapłaty faktury pierwotnej kontraktora = brutto pierwotnej +
+  brutto jej korekt (łańcuch `client_settlements.invoice_chain`: numer KSeF
+  faktury korygowanej, a bez niego numer faktury; VAT dla MPP też po
+  korektach), z dopiskiem „Pomniejszona o korektę …”. Korekta znanej faktury
+  nie jest osobnym wierszem do zapłaty (blokada „rozliczona na fakturze
+  pierwotnej”, dzieli z nią stan zapłaty); korekta albo kwota ujemna bez znanej
+  pierwotnej = blokada „bez znanej faktury pierwotnej”; łańcuch do zera albo
+  poniżej = „nie ma czego płacić”. Dokumenty wydatków nie mają łańcucha —
+  kwota ujemna to zawsze „bez znanej pierwotnej”.
 - **Czego jeszcze nie ma**: zapłat oznaczonych w eBI24 (wpisy z backfillu są
   „Do zapłaty”, dopóki ktoś ich nie oznaczy — do planu nie wchodzą, bo nie mają
   terminu) i „Bank wykonał” dla całej paczki (zapłatę stwierdza wyciąg albo

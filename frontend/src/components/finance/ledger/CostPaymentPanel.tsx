@@ -38,7 +38,8 @@ function AccountForm({ data, locked }: { data: EntryPayment; locked: boolean }) 
   const save = useEntryAccount(data.entry_id);
   const { showToast } = useToast();
   const [value, setValue] = useState(data.accounts?.manual ?? "");
-  const [remember, setRemember] = useState(true);
+  // Domyślnie bez nadpisywania kartoteki — inny dostawca z tym NIP-em zostaje.
+  const [remember, setRemember] = useState(false);
   if (locked) return null;
   return (
     <form
@@ -167,7 +168,18 @@ export function CostPaymentPanel({ entryId, readOnly }: { entryId: number; readO
         <Row label="Brutto">{formatMoney(data.gross_amount, data.currency)}</Row>
         {!payroll ? (
           <>
-            <Row label="Do zapłaty">{formatMoney(data.to_pay, data.currency)}</Row>
+            <Row label="Do zapłaty">
+              {data.payable_problem ? (
+                <span className="text-warning-muted-foreground">{data.payable_problem}</span>
+              ) : (
+                <>
+                  {formatMoney(data.to_pay, data.currency)}
+                  {data.amount_note ? (
+                    <span className="block text-xs text-muted-foreground">{data.amount_note}</span>
+                  ) : null}
+                </>
+              )}
+            </Row>
             <Row label="Tryb">
               {data.mode_label
                 ? `${data.mode_label}${data.mode_suggested ? " (z kwoty — do potwierdzenia przy paczce)" : ""}`
@@ -179,6 +191,11 @@ export function CostPaymentPanel({ entryId, readOnly }: { entryId: number; readO
                   <span className="font-mono text-xs">{formatAccount(data.account)}</span>
                   {data.account_source_label ? (
                     <span className="text-muted-foreground"> · {data.account_source_label}</span>
+                  ) : null}
+                  {data.account_note ? (
+                    <span className="block text-xs text-warning-muted-foreground">
+                      {data.account_note}
+                    </span>
                   ) : null}
                 </span>
               ) : (
@@ -202,7 +219,14 @@ export function CostPaymentPanel({ entryId, readOnly }: { entryId: number; readO
       {!payroll && !readOnly ? (
         <div className="space-y-2">
           <AccountForm key={data.accounts?.manual ?? ""} data={data} locked={inBatch} />
-          {data.state !== "paid" ? <PaidForm data={data} /> : null}
+          {inBatch ? (
+            <p className="text-xs text-muted-foreground">
+              Faktura jest w paczce czekającej na bank — „Opłacono” i zmiana rachunku po
+              zdjęciu z paczki (Przelewy → Paczki → Pozycje).
+            </p>
+          ) : data.state !== "paid" && !data.payable_problem ? (
+            <PaidForm data={data} />
+          ) : null}
         </div>
       ) : null}
       {data.records && data.records.length > 0 ? (

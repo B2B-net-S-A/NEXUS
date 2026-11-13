@@ -37,6 +37,8 @@ from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_payments import (
     FinanceCostPayment,
     FinanceCostPaymentRecord,
+    FinanceCounterpartyAccount,
+    FinanceCounterpartyAccountEvent,
     FinancePaymentBatch,
 )
 from app.models.hr_approval import ApprovalDocument
@@ -344,6 +346,7 @@ async def test_plan_tryb_blokady_i_biala_lista(world, client) -> None:
     assert items[big]["mode"] == "mpp" and items[big]["mode_suggested"] is True
     assert {ack["code"] for ack in items[big]["acks"]} == {
         "white_list",
+        "account_manual",
         "mpp_suggested",
     }
     assert items[big]["white_list"]["state"] == "not_listed"
@@ -356,7 +359,7 @@ async def test_plan_tryb_blokady_i_biala_lista(world, client) -> None:
         "label": "W wykazie VAT",
     }
     assert items[small]["acks"] == [] and items[small]["preselect"] is True
-    assert items[held]["block"] == "hold"
+    assert held not in items  # „Wstrzymać płatność” znika z planu
     assert items[duplicate]["block"] == "duplicate"
     assert items[no_account]["block"] == "no_account"
     assert items[office]["block"] == "tax_office_manual"
@@ -371,7 +374,9 @@ async def test_plan_tryb_blokady_i_biala_lista(world, client) -> None:
     )
     assert off[small]["white_list"]["state"] == "off"
     assert off[small]["white_list"]["label"].startswith("Nie sprawdzono")
-    assert off[small]["acks"] == []  # poniżej 15 000 zł brutto bez odhaczania
+    # Poniżej 15 000 zł brutto próg wykazu nie działa, ale rachunek wpisany
+    # ręcznie i niesprawdzony zawsze wymaga odhaczenia.
+    assert [ack["code"] for ack in off[small]["acks"]] == ["account_manual"]
     assert "white_list" in {ack["code"] for ack in off[big]["acks"]}
 
 
@@ -467,12 +472,15 @@ async def test_waluta_obca_tylko_csv(world, client) -> None:
     headers = _headers(world["accountant"])
     elixir_refused = await client.post(
         f"{PAY}/batches",
-        json={"entry_ids": [entry], "format": "elixir"},
+        json={"entry_ids": [entry], "acknowledged": [entry], "format": "elixir"},
         headers=headers,
     )
     assert elixir_refused.status_code == 422
+    # Rachunek zagraniczny wpisany ręcznie — wykaz VAT go nie sprawdzi.
     created = await client.post(
-        f"{PAY}/batches", json={"entry_ids": [entry]}, headers=headers
+        f"{PAY}/batches",
+        json={"entry_ids": [entry], "acknowledged": [entry]},
+        headers=headers,
     )
     assert created.status_code == 200, created.text
     assert created.json()["format"] == "csv" and created.json()["currency"] == "EUR"
@@ -589,7 +597,9 @@ async def test_rachunek_z_kartoteki_i_reczne_oplacono(world, client) -> None:
     )
     assert bad.status_code == 422
     saved = await client.put(
-        f"{PAY}/entries/{first}", json={"account": _nrb(51)}, headers=headers
+        f"{PAY}/entries/{first}",
+        json={"account": _nrb(51), "remember": True},
+        headers=headers,
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["account_source"] == "manual"
@@ -838,3 +848,364 @@ async def test_zaplata_kontraktora_czeka_na_podpis_klienta_na_kesu(
             )
             await db.commit()
         await _drop_client(client_id)
+
+
+# ── Przegląd E3: paczka czekająca na bank (1) ────────────────────────────────
+
+
+async def test_paczka_czekajaca_na_bank_blokuje_oplacono_flage_i_przypisz(
+    world, client
+) -> None:
+    nips = world["nips"]
+    headers = _headers(world["accountant"])
+    x = await _supplier_entry(world, nips["a"], gross="100.00", account=_nrb(81))
+    y = await _supplier_entry(world, nips["b"], gross="200.00", account=_nrb(82))
+    z = await _supplier_entry(world, nips["c"], gross="300.00", account=_nrb(83))
+    world["listed"].update({_nrb(81), _nrb(82), _nrb(83)})
+    created = await client.post(
+        f"{PAY}/batches", json={"entry_ids": [x, y, z]}, headers=headers
+    )
+    assert created.status_code == 200, created.text
+    batch = created.json()["id"]
+    first = await client.get(f"{PAY}/batches/{batch}/file", headers=headers)
+    assert first.status_code == 200, first.text
+    assert first.headers["x-batch-file-changed"] == "false"
+    assert world["ksef"][x] in first.content.decode("windows-1250")
+
+    today = world["today"].isoformat()
+    paid = await client.post(
+        f"{PAY}/entries/{x}/paid",
+        json={"paid_on": today, "reason": "karta firmowa"},
+        headers=headers,
+    )
+    assert paid.status_code == 409
+    assert "paczce czekającej na bank" in paid.json()["detail"]
+    partial = await client.post(
+        f"{PAY}/entries/{x}/paid",
+        json={"amount": "10.00", "paid_on": today, "reason": "karta"},
+        headers=headers,
+    )
+    assert partial.status_code == 409
+    patched = await client.patch(
+        f"{COSTS}/{x}", json={"flags": ["hold_payment"]}, headers=headers
+    )
+    assert patched.status_code == 409
+    bulk = await client.post(
+        f"{COSTS}/actions",
+        json={"ids": [x], "action": "flag_add", "flag": "hold_payment"},
+        headers=headers,
+    )
+    assert bulk.status_code == 409
+    account = await client.put(
+        f"{PAY}/entries/{x}", json={"account": _nrb(84)}, headers=headers
+    )
+    assert account.status_code == 409
+
+    released = await client.post(
+        f"{PAY}/batches/{batch}/items/{x}/release", headers=headers
+    )
+    assert released.status_code == 200, released.text
+    assert released.json()["file_stale"] is True
+    detail = await client.get(f"{PAY}/batches/{batch}", headers=headers)
+    assert detail.json()["file_stale"] is True
+    second = await client.get(f"{PAY}/batches/{batch}/file", headers=headers)
+    assert second.headers["x-batch-file-changed"] == "true"
+    text_ = second.content.decode("windows-1250")
+    assert world["ksef"][x] not in text_ and world["ksef"][y] in text_
+    assert await _state(x) == "unpaid"
+    # Zdjęta z paczki: „Opłacono” już działa.
+    reopened = await client.post(
+        f"{PAY}/entries/{x}/paid",
+        json={"paid_on": today, "reason": "karta firmowa"},
+        headers=headers,
+    )
+    assert reopened.status_code == 200, reopened.text
+
+    marker = uuid.uuid4().hex[:6].upper()
+    raw = _mt940(("200,00", "przelew", _nrb(82), f"Y{marker}"))
+    upload = await client.post(
+        f"{PAY}/statements", files={"file": ("w.sta", raw)}, headers=headers
+    )
+    assert upload.json()["matched"] == 1, upload.text
+    assert await _state(y) == "paid"
+    third = await client.get(f"{PAY}/batches/{batch}/file", headers=headers)
+    text_ = third.content.decode("windows-1250")
+    assert world["ksef"][y] not in text_ and world["ksef"][z] in text_
+    assert len(text_.strip().split("\r\n")) == 1
+
+
+# ── Przegląd E3: zaksięgowana faktura (2) ────────────────────────────────────
+
+
+async def test_zaksiegowana_faktura_dostaje_wstrzymanie_platnosci(
+    world, client
+) -> None:
+    headers = _headers(world["accountant"])
+    entry = await _supplier_entry(
+        world, world["nips"]["a"], gross="100.00", account=_nrb(85)
+    )
+    world["listed"].add(_nrb(85))
+    async with AsyncSessionLocal() as db:
+        row = await db.get(FinanceCostEntry, entry)
+        row.stage = "booked"
+        await db.commit()
+    before = _items(await client.post(f"{PAY}/plan", json={}, headers=headers), [entry])
+    assert before[entry]["selectable"] is True
+    held = await client.patch(
+        f"{COSTS}/{entry}", json={"flags": ["hold_payment"]}, headers=headers
+    )
+    assert held.status_code == 200, held.text
+    assert held.json()["flags"] == ["hold_payment"]
+    assert held.json()["history"][-1]["action"] == "flags"
+    after = await client.post(f"{PAY}/plan", json={}, headers=headers)
+    assert entry not in {item["entry_id"] for item in after.json()["items"]}
+    due = await client.patch(
+        f"{COSTS}/{entry}",
+        json={"due_date": world["today"].isoformat()},
+        headers=headers,
+    )
+    assert due.status_code == 200
+    # Dekret zostaje zamknięty: kategoria i „Duplikat” — nie.
+    category = await client.patch(
+        f"{COSTS}/{entry}", json={"category": "other"}, headers=headers
+    )
+    assert category.status_code == 409
+    duplicate = await client.patch(
+        f"{COSTS}/{entry}",
+        json={"flags": ["hold_payment", "duplicate"]},
+        headers=headers,
+    )
+    assert duplicate.status_code == 409
+
+
+# ── Przegląd E3: rachunek ręcznie, ślad i wykaz (3) ──────────────────────────
+
+
+async def test_reczny_rachunek_ma_slad_i_wymaga_sprawdzenia_w_wykazie(
+    world, client
+) -> None:
+    nips = world["nips"]
+    headers = _headers(world["accountant"])
+    async with AsyncSessionLocal() as db:
+        party = FinanceCounterparty(
+            id_type="nip", id_value=nips["a"], name="Dostawca A"
+        )
+        db.add(party)
+        await db.commit()
+        party_id = party.id
+    entry = await _supplier_entry(world, nips["a"], gross="50.00")
+
+    saved = await client.put(
+        f"{PAY}/entries/{entry}", json={"account": _nrb(86)}, headers=headers
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["account_note"].startswith(
+        f"Rachunek zmieniony ręcznie na karcie przez {world['accountant'].name}"
+    )
+    card = await client.get(f"{COSTS}/{entry}", headers=headers)
+    (event,) = [e for e in card.json()["history"] if e["action"] == "account"]
+    assert event["detail"]["from"] is None and event["detail"]["to"] == _nrb(86)
+    assert event["actor"] == world["accountant"].name
+    async with AsyncSessionLocal() as db:
+        # Domyślnie bez „zapamiętaj” — kartoteka nietknięta.
+        assert await db.get(FinanceCounterpartyAccount, party_id) is None
+
+    # Mała kwota, rachunek niepotwierdzony w wykazie → odhaczenie mimo progu.
+    plan = _items(await client.post(f"{PAY}/plan", json={}, headers=headers), [entry])
+    assert [ack["code"] for ack in plan[entry]["acks"]] == ["account_manual"]
+    assert plan[entry]["account_note"].startswith("Rachunek zmieniony ręcznie")
+    world["listed"].add(_nrb(86))
+    plan = _items(await client.post(f"{PAY}/plan", json={}, headers=headers), [entry])
+    assert plan[entry]["acks"] == []
+
+    for account in (_nrb(87), _nrb(88)):
+        remembered = await client.put(
+            f"{PAY}/entries/{entry}",
+            json={"account": account, "remember": True},
+            headers=headers,
+        )
+        assert remembered.status_code == 200, remembered.text
+    async with AsyncSessionLocal() as db:
+        events = list(
+            await db.scalars(
+                select(FinanceCounterpartyAccountEvent)
+                .where(FinanceCounterpartyAccountEvent.counterparty_id == party_id)
+                .order_by(FinanceCounterpartyAccountEvent.id)
+            )
+        )
+        assert [(e.old_account, e.new_account) for e in events] == [
+            (None, _nrb(87)),
+            (_nrb(87), _nrb(88)),
+        ]
+        assert {e.actor_id for e in events} == {world["accountant"].id}
+        payment = await db.get(FinanceCostPayment, entry)
+        assert payment.account_changed_by == world["accountant"].id
+    card = await client.get(f"{COSTS}/{entry}", headers=headers)
+    history = [e for e in card.json()["history"] if e["action"] == "account"]
+    assert [e["detail"]["to"] for e in history] == [_nrb(86), _nrb(87), _nrb(88)]
+
+
+# ── Przegląd E3: faktoring i korekty (4, 5) ──────────────────────────────────
+
+
+async def _contractor_invoice(
+    world: World,
+    *,
+    gross: str,
+    vat: str = "0.00",
+    number: str,
+    invoice_type: str = "Vat",
+    details: dict | None = None,
+    entry_account: str | None = None,
+) -> tuple[int, str]:
+    nip = world["nips"]["c"]
+    ksef = _ksef(nip)
+    async with AsyncSessionLocal() as db:
+        invoice = ClientContractorInvoice(
+            ksef_number=ksef,
+            seller_nip=nip,
+            seller_name="Kontraktor Testowy",
+            invoice_number=number,
+            invoice_type=invoice_type,
+            issue_date=date(2026, 11, 2),
+            gross_amount=Decimal(gross),
+            net_amount=Decimal(gross) - Decimal(vat),
+            vat_amount=Decimal(vat),
+            nip_state="known",
+            details=details,
+        )
+        db.add(invoice)
+        await db.commit()
+        await ledger.catch_up(db)
+        entry = await db.scalar(
+            select(FinanceCostEntry).where(
+                FinanceCostEntry.source_type == "contractor_invoice",
+                FinanceCostEntry.source_id == invoice.id,
+            )
+        )
+        entry.stage = "new"
+        entry.due_date = world["today"] - timedelta(days=1)
+        if entry_account:
+            db.add(FinanceCostPayment(entry_id=entry.id, account=entry_account))
+        await db.commit()
+        world["ksef"][entry.id] = ksef
+        return entry.id, ksef
+
+
+async def _drop_contractor_invoices(world: World) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(FinanceCostEntry).where(
+                FinanceCostEntry.source_type == "contractor_invoice",
+                FinanceCostEntry.seller_nip == world["nips"]["c"],
+            )
+        )
+        await db.execute(
+            delete(ClientContractorInvoice).where(
+                ClientContractorInvoice.seller_nip == world["nips"]["c"]
+            )
+        )
+        await db.commit()
+
+
+async def test_faktoring_platnosc_na_rachunek_faktora(world, client) -> None:
+    headers = _headers(world["accountant"])
+    seller, factor = _nrb(91), _nrb(92)
+    try:
+        entry, _number = await _contractor_invoice(
+            world,
+            gross="20000.00",
+            vat="3739.84",
+            number="F/1/11/2026",
+            details={"state": "ok", "accounts": [seller], "factor_accounts": [factor]},
+        )
+        async with AsyncSessionLocal() as db:
+            row = await db.get(FinanceCostEntry, entry)
+            row.flags = ["no_mpp"]
+            await db.commit()
+        plan = _items(
+            await client.post(f"{PAY}/plan", json={}, headers=headers), [entry]
+        )
+        row = plan[entry]
+        assert (row["account"], row["account_source"]) == (factor, "ksef_factor")
+        assert row["account_source_label"].startswith("faktor")
+        # Faktor nie musi być w wykazie dla NIP-u sprzedawcy — wynik informuje.
+        assert row["white_list"]["state"] == "not_listed"
+        assert row["white_list"]["informational"] is True
+        assert row["acks"] == []
+        created = await client.post(
+            f"{PAY}/batches",
+            json={"entry_ids": [entry], "format": "csv"},
+            headers=headers,
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["items"][0]["account_source"] == "ksef_factor"
+        file = await client.get(
+            f"{PAY}/batches/{created.json()['id']}/file", headers=headers
+        )
+        text_ = file.content.decode("utf-8-sig")
+        assert "(rachunek faktora)" in text_ and text_.rstrip().endswith(";faktor")
+        assert f"PL{factor[:2]} {factor[2:6]}" in text_
+    finally:
+        await _drop_contractor_invoices(world)
+
+
+async def test_korekta_ujemna_pomniejsza_fakture_pierwotna(world, client) -> None:
+    headers = _headers(world["accountant"])
+    world["listed"].add(_nrb(93))
+    try:
+        root, root_ksef = await _contractor_invoice(
+            world,
+            gross="10000.00",
+            vat="1869.92",
+            number="K/7/10/2026",
+            entry_account=_nrb(93),
+        )
+        correction, _k = await _contractor_invoice(
+            world,
+            gross="-2000.00",
+            vat="-373.98",
+            number="KOR/1/11/2026",
+            invoice_type="Kor",
+            details={
+                "state": "ok",
+                "type": "KOR",
+                "corrected": [
+                    {"ksef_number": root_ksef, "invoice_number": "K/7/10/2026"}
+                ],
+            },
+        )
+        orphan, _k2 = await _contractor_invoice(
+            world,
+            gross="-500.00",
+            number="KOR/2/11/2026",
+            invoice_type="Kor",
+            details={
+                "state": "ok",
+                "type": "KOR",
+                "corrected": [{"ksef_number": _ksef(world["nips"]["c"])}],
+            },
+        )
+        plan = _items(
+            await client.post(f"{PAY}/plan", json={}, headers=headers),
+            [root, correction, orphan],
+        )
+        assert plan[root]["to_pay"] == "8000.00"
+        assert plan[root]["amount_note"] == (
+            "Pomniejszona o korektę: KOR/1/11/2026 (-2000.00)."
+        )
+        assert plan[correction]["block"] == "correction"
+        assert "K/7/10/2026" in plan[correction]["block_label"]
+        assert plan[orphan]["block"] == "correction_orphan"
+        created = await client.post(
+            f"{PAY}/batches", json={"entry_ids": [root]}, headers=headers
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["total"] == "8000.00"
+        # Korekty nie da się zapłacić osobno.
+        refused = await client.post(
+            f"{PAY}/batches", json={"entry_ids": [correction]}, headers=headers
+        )
+        assert refused.status_code == 409
+    finally:
+        await _drop_contractor_invoices(world)

@@ -108,7 +108,18 @@ function historyText(item: CostCardData["history"][number]): string {
   return item.action_label;
 }
 
-function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) {
+/** Flagi płatności nie zmieniają dekretu — wolno je i po zaksięgowaniu (E3). */
+const PAYMENT_FLAGS: readonly CostFlag[] = ["mpp", "no_mpp", "hold_payment", "tax_office_account"];
+
+function Bookkeeping({
+  card,
+  locked,
+  booked,
+}: {
+  card: CostCardData;
+  locked: boolean;
+  booked: boolean;
+}) {
   const patch = useCostPatch(card.id);
   const { showToast } = useToast();
   const [note, setNote] = useState(card.note ?? "");
@@ -134,7 +145,7 @@ function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) 
         <select
           id="cost-category"
           value={card.category}
-          disabled={locked || patch.isPending}
+          disabled={locked || booked || patch.isPending}
           onChange={(event) =>
             save({ category: event.target.value as CostCategory }, "Kategoria zapisana.")
           }
@@ -174,7 +185,7 @@ function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) 
               key={flag}
               type="button"
               aria-pressed={on}
-              disabled={locked || patch.isPending}
+              disabled={locked || (booked && !PAYMENT_FLAGS.includes(flag)) || patch.isPending}
               onClick={() => toggle(flag)}
               className={cn(
                 "rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors disabled:opacity-50 pointer-coarse:min-h-10",
@@ -197,7 +208,7 @@ function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) 
           value={note}
           maxLength={4000}
           rows={2}
-          disabled={locked || patch.isPending}
+          disabled={locked || booked || patch.isPending}
           onChange={(event) => setNote(event.target.value)}
         />
         {note !== (card.note ?? "") ? (
@@ -238,7 +249,8 @@ export function CostCard({ id }: { id: number }) {
   }
   if (!card.data) return <QueryStateNotice state="not_found" />;
   const data = card.data;
-  const locked = data.own || data.stage === "booked" || impersonating;
+  // Zaksięgowana: dekret zamknięty, ale termin i flagi płatności wolno zmienić.
+  const editLocked = data.own || impersonating;
   const run = async (button: StageButton) => {
     let reason: string | undefined;
     if (button.needsReason) {
@@ -331,7 +343,7 @@ export function CostCard({ id }: { id: number }) {
           </Panel>
         </div>
         <div className="space-y-3.5">
-          <Bookkeeping card={data} locked={locked} />
+          <Bookkeeping card={data} locked={editLocked} booked={data.stage === "booked"} />
           <CostPaymentPanel entryId={data.id} readOnly={impersonating} />
           {!data.own && !impersonating && stageButtons(data.stage, data.from_ksef).length > 0 ? (
             <div className="flex flex-wrap justify-end gap-2">

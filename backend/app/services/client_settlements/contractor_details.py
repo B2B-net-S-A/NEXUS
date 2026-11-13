@@ -95,6 +95,7 @@ def details_from(parsed: fa.ParsedInvoice) -> dict[str, Any]:
         "reason": parsed.correction_reason,
         # Rachunki z „Platnosc/RachunekBankowy” — podpowiedź do przelewu (E3).
         "accounts": list(parsed.accounts),
+        "factor_accounts": list(parsed.factor_accounts),
     }
 
 

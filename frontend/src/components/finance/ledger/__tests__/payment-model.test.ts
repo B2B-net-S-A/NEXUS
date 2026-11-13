@@ -23,6 +23,8 @@ function item(id: number, patch: Partial<PlanItem> = {}): PlanItem {
     gross_amount: "100.00",
     vat_amount: "18.70",
     to_pay: "100.00",
+    amount_note: null,
+    account_note: null,
     mode: "standard",
     mode_label: "Zwykły",
     mode_suggested: false,

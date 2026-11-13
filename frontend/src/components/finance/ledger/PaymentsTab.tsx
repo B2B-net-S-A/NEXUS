@@ -21,12 +21,14 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   batchFilePath,
   useAssignDebit,
+  useBatchDetail,
   useBatches,
   useCancelBatch,
   useCreateBatch,
   useIgnoreDebit,
   usePaymentPlan,
   usePaymentSettings,
+  useReleaseItem,
   useSavePaymentSettings,
   useStatementOverview,
   useUploadStatement,
@@ -139,8 +141,13 @@ function WhiteList({ item }: { item: PlanItem }) {
     state === "listed" ? "success" : state === "not_listed" || state === "unchecked" ? "danger" : "neutral";
   return (
     <span className="block min-w-0">
-      <Badge size="sm" variant={variant} title={item.white_list.request_id ?? undefined}>
+      <Badge
+        size="sm"
+        variant={item.white_list.informational ? "neutral" : variant}
+        title={item.white_list.request_id ?? undefined}
+      >
         {item.white_list.label}
+        {item.white_list.informational ? " (informacyjnie — faktor)" : ""}
       </Badge>
       {item.white_list.request_id ? (
         <span className={cn(CALM_SUBLINE, "truncate font-mono")}>{item.white_list.request_id}</span>
@@ -216,6 +223,11 @@ function PlanTable({
               </TableCell>
               <TableCell className={CALM_AMOUNT}>
                 {formatMoney(item.to_pay ?? item.gross_amount, item.currency)}
+                {item.amount_note ? (
+                  <span className={cn(CALM_SUBLINE, "whitespace-normal text-right")}>
+                    {item.amount_note}
+                  </span>
+                ) : null}
               </TableCell>
               <TableCell>
                 {item.mode_label ? (
@@ -232,6 +244,11 @@ function PlanTable({
                 </span>
                 {item.account_source_label ? (
                   <span className={CALM_SUBLINE}>{item.account_source_label}</span>
+                ) : null}
+                {item.account_note ? (
+                  <span className="block text-xs text-warning-muted-foreground">
+                    {item.account_note}
+                  </span>
                 ) : null}
               </TableCell>
               <TableCell className="min-w-0">
@@ -264,16 +281,85 @@ function PlanTable({
   );
 }
 
+function BatchItems({ batchId, canWrite }: { batchId: number; canWrite: boolean }) {
+  const detail = useBatchDetail(batchId);
+  const release = useReleaseItem();
+  const { askConfirm, confirmDialog } = useConfirmV2();
+  const { showToast } = useToast();
+  if (detail.isLoading) return <p className="px-3.5 pb-2 text-xs text-muted-foreground">Wczytywanie…</p>;
+  if (detail.isError || !detail.data) {
+    return <QueryStateNotice state="error" onRetry={() => detail.refetch()} />;
+  }
+  return (
+    <ul className="space-y-1 px-3.5 pb-2 text-xs">
+      {detail.data.items.map((item) => (
+        <li key={item.entry_id} className="flex flex-wrap items-center gap-x-2">
+          <span className={cn(item.status !== "active" && "text-muted-foreground line-through")}>
+            {item.invoice_number ?? `#${item.entry_id}`}
+          </span>
+          <span className="text-muted-foreground">{item.recipient_name}</span>
+          <span className="tabular-nums">{formatMoney(item.amount, item.currency)}</span>
+          {item.account_source === "ksef_factor" ? (
+            <Badge size="sm" variant="warning">
+              faktor
+            </Badge>
+          ) : null}
+          <span className="text-muted-foreground">
+            {item.status === "done" ? "zapłacona" : item.status === "released" ? "zdjęta" : ""}
+          </span>
+          {canWrite && item.status === "active" ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ml-auto"
+              loading={release.isPending && release.variables?.entryId === item.entry_id}
+              onClick={async () => {
+                const ok = await askConfirm({
+                  title: "Zdjąć fakturę z paczki?",
+                  description:
+                    "Faktura wróci do „Do zapłaty”. Plik paczki trzeba pobrać ponownie i wymienić w banku.",
+                  confirmLabel: "Zdejmij z paczki",
+                  variant: "destructive",
+                });
+                if (!ok) return;
+                release.mutate(
+                  { batchId, entryId: item.entry_id },
+                  {
+                    onSuccess: () =>
+                      showToast("Faktura zdjęta z paczki — pobierz plik ponownie.", "success"),
+                    onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zdjąć faktury."), "error"),
+                  },
+                );
+              }}
+            >
+              Zdejmij z paczki
+            </Button>
+          ) : null}
+        </li>
+      ))}
+      {confirmDialog}
+    </ul>
+  );
+}
+
 function Batches({ canWrite }: { canWrite: boolean }) {
   const batches = useBatches();
   const cancel = useCancelBatch();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const { showToast } = useToast();
+  const [open, setOpen] = useState<number | null>(null);
   const items = batches.data?.items ?? [];
-  const download = async (id: number) => {
+  const download = async (id: number, stale: boolean) => {
     try {
       const file = await fetchAuthenticatedDownload(batchFilePath(id));
       downloadBlob(file.blob, file.filename ?? `przelewy-kosztow-${id}`);
+      if (stale) {
+        showToast(
+          "Pobrano NOWY plik paczki (inny skrót) — usuń z banku plik pobrany wcześniej.",
+          "info",
+        );
+      }
+      void batches.refetch();
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać pliku paczki."), "error");
     }
@@ -305,9 +391,30 @@ function Batches({ canWrite }: { canWrite: boolean }) {
               {batch.created_by_name ? (
                 <span className="text-xs text-muted-foreground">{batch.created_by_name}</span>
               ) : null}
+              {batch.file_stale ? (
+                <Badge size="sm" variant="danger">
+                  Plik nieaktualny — pobierz ponownie
+                </Badge>
+              ) : batch.file_sha256 ? (
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  plik {batch.file_sha256.slice(0, 8)}
+                </span>
+              ) : null}
               <span className="ml-auto flex gap-2">
-                {batch.status !== "cancelled" ? (
-                  <Button size="sm" variant="outline" onClick={() => void download(batch.id)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-expanded={open === batch.id}
+                  onClick={() => setOpen((current) => (current === batch.id ? null : batch.id))}
+                >
+                  Pozycje
+                </Button>
+                {batch.status === "active" ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => void download(batch.id, batch.file_stale)}
+                  >
                     Pobierz plik
                   </Button>
                 ) : null}
@@ -336,6 +443,11 @@ function Batches({ canWrite }: { canWrite: boolean }) {
                   </Button>
                 ) : null}
               </span>
+              {open === batch.id ? (
+                <div className="basis-full">
+                  <BatchItems batchId={batch.id} canWrite={canWrite} />
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

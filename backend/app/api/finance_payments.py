@@ -12,7 +12,9 @@ Serwis: ``services/finance_ledger/payments.py``.
 * ``GET/PUT /settings`` — rachunek i nazwa nadawcy (plik Elixir),
 * ``POST /plan`` — faktury do zapłaty do daty z trybem, tytułem i białą listą,
 * ``GET /batches``, ``POST /batches``, ``GET /batches/{id}``,
-  ``GET /batches/{id}/file``, ``POST /batches/{id}/cancel`` — paczki,
+  ``GET /batches/{id}/file`` (tylko pozycje czekające na bank; skrót pliku),
+  ``POST /batches/{id}/cancel``, ``POST /batches/{id}/items/{entry_id}/release``
+  („Zdejmij z paczki”) — paczki,
 * ``POST /statements``, ``GET /statements``, ``POST /records/{id}/assign``,
   ``POST /records/{id}/ignore`` — obciążenia z wyciągu,
 * ``GET/PUT /entries/{id}``, ``POST /entries/{id}/paid`` — płatność na karcie.
@@ -57,7 +59,8 @@ class CostPaymentBatchIn(BaseModel):
 
 class CostPaymentAccountIn(BaseModel):
     account: Optional[str] = Field(default=None, max_length=64)
-    remember: bool = True
+    #: Domyślnie nie nadpisujemy kartoteki (rachunek innego dostawcy z tym NIP-em).
+    remember: bool = False
 
 
 class CostPaymentPaidIn(BaseModel):
@@ -197,19 +200,56 @@ async def batch_file(
 ) -> Response:
     await _open(db, current_user)
     try:
-        name, content, media = await payments.batch_file(
-            db, batch_id, payroll=is_payroll(current_user), actor_id=current_user.id
+        file = await payments.batch_file(
+            db,
+            batch_id,
+            payroll=is_payroll(current_user),
+            actor_id=current_user.id,
+            now=_now(),
         )
     except payments.PaymentError as exc:
+        await db.rollback()
         raise _fail(exc) from exc
+    # Skrót pliku i chwila pobrania — następne pobranie pokaże, czy plik się zmienił.
+    await db.commit()
     return Response(
-        content=content,
-        media_type=media,
+        content=file.content,
+        media_type=file.media_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{name}"',
+            "Content-Disposition": f'attachment; filename="{file.name}"',
             "Cache-Control": "no-store",
+            "X-Batch-File-Sha256": file.sha256,
+            "X-Batch-File-Changed": "true" if file.changed else "false",
+            "Access-Control-Expose-Headers": "Content-Disposition, "
+            "X-Batch-File-Sha256, X-Batch-File-Changed",
         },
     )
+
+
+@router.post("/batches/{batch_id}/items/{entry_id}/release")
+async def release_item(
+    batch_id: int,
+    entry_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Zdejmij z paczki” — faktura wraca do planu, plik paczki do ponownego pobrania."""
+
+    await _open(db, current_user)
+    try:
+        result = await payments.release_item(
+            db,
+            batch_id,
+            entry_id,
+            actor_id=current_user.id,
+            now=_now(),
+            payroll=is_payroll(current_user),
+        )
+    except payments.PaymentError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
 
 
 @router.post("/batches/{batch_id}/cancel")
@@ -336,6 +376,7 @@ async def entry_account(
             account=body.account,
             remember=body.remember,
             actor_id=current_user.id,
+            now=_now(),
             payroll=payroll,
         )
     except payments.PaymentError as exc:

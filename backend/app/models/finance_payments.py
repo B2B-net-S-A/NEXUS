@@ -53,6 +53,12 @@ class FinanceCostPayment(Base):
     )
     paid_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     paid_source: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
+    account_changed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    account_changed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     updated_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -118,6 +124,15 @@ class FinancePaymentBatch(Base):
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: Ostatnia zmiana składu paczki („Zdejmij z paczki”) i ostatnie pobranie
+    #: pliku ze skrótem — plik pobrany przed zmianą jest nieaktualny.
+    changed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    downloaded_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    file_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
 
 class FinancePaymentBatchItem(Base):
@@ -131,6 +146,10 @@ class FinancePaymentBatchItem(Base):
         ),
         CheckConstraint(
             schema.CK_ITEM_AMOUNT, name="ck_finance_payment_batch_items_amount"
+        ),
+        CheckConstraint(
+            schema.CK_ITEM_ACCOUNT_SOURCE,
+            name="ck_finance_payment_batch_items_account_source",
         ),
         Index(
             "uq_finance_payment_batch_items_active",
@@ -157,6 +176,7 @@ class FinancePaymentBatchItem(Base):
     vat_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     account: Mapped[str] = mapped_column(String(schema.ACCOUNT_MAX), nullable=False)
+    account_source: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     recipient_name: Mapped[str] = mapped_column(String(schema.NAME_MAX), nullable=False)
     title_lines: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
@@ -234,4 +254,31 @@ class FinanceCostPaymentRecord(Base):
     )
     resolved_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class FinanceCounterpartyAccountEvent(Base):
+    """Historia rachunku kontrahenta w kartotece (stary → nowy, kto, kiedy)."""
+
+    __tablename__ = "finance_counterparty_account_events"
+    __table_args__ = (
+        Index("ix_finance_counterparty_account_events_party", "counterparty_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    counterparty_id: Mapped[int] = mapped_column(
+        ForeignKey("finance_counterparties.id", ondelete="CASCADE"), nullable=False
+    )
+    entry_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("finance_cost_entries.id", ondelete="SET NULL"), nullable=True
+    )
+    old_account: Mapped[Optional[str]] = mapped_column(
+        String(schema.ACCOUNT_MAX), nullable=True
+    )
+    new_account: Mapped[str] = mapped_column(String(schema.ACCOUNT_MAX), nullable=False)
+    actor_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

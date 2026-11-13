@@ -49,6 +49,10 @@ export interface PlanItem {
   gross_amount: string | null;
   vat_amount: string | null;
   to_pay: string | null;
+  /** „Pomniejszona o korektę …” — do zapłaty po korektach faktury. */
+  amount_note: string | null;
+  /** „Rachunek zmieniony ręcznie przez X dnia D.” */
+  account_note: string | null;
   mode: TransferMode | null;
   mode_label: string | null;
   mode_suggested: boolean;
@@ -56,7 +60,14 @@ export interface PlanItem {
   account_source: string | null;
   account_source_label: string | null;
   title: string;
-  white_list: { state: WhiteListState; label: string; request_id?: string; on_date?: string };
+  white_list: {
+    state: WhiteListState;
+    label: string;
+    request_id?: string;
+    on_date?: string;
+    /** Rachunek faktora — wynik wykazu tylko informuje. */
+    informational?: boolean;
+  };
   selectable: boolean;
   block: string | null;
   block_label: string | null;
@@ -86,6 +97,11 @@ export interface BatchSummary {
   total: string;
   status: "active" | "done" | "cancelled";
   status_label: string;
+  file_sha256: string | null;
+  downloaded_at: string | null;
+  changed_at: string | null;
+  /** Skład paczki zmienił się po ostatnim pobraniu pliku. */
+  file_stale: boolean;
 }
 
 export interface BatchDetail extends Omit<BatchSummary, "created_by_name"> {
@@ -94,6 +110,8 @@ export interface BatchDetail extends Omit<BatchSummary, "created_by_name"> {
     invoice_number: string | null;
     recipient_name: string;
     account: string;
+    account_source: string | null;
+    account_source_label: string | null;
     amount: string;
     currency: string;
     mode: TransferMode;
@@ -159,6 +177,8 @@ export interface EntryPayment {
   currency: string;
   gross_amount: string | null;
   to_pay?: string | null;
+  amount_note?: string | null;
+  payable_problem?: string | null;
   paid_amount?: string;
   paid_on: string | null;
   paid_source: string | null;
@@ -170,7 +190,13 @@ export interface EntryPayment {
   account?: string | null;
   account_source?: string | null;
   account_source_label?: string | null;
-  accounts?: { manual: string | null; ksef: string[]; counterparty: string | null };
+  account_note?: string | null;
+  accounts?: {
+    manual: string | null;
+    ksef: string[];
+    factor: string[];
+    counterparty: string | null;
+  };
   can_remember?: boolean;
   batch?: { id: number; execution_date: string; mode: TransferMode; amount: string } | null;
   records?: {
@@ -230,6 +256,27 @@ export function useCreateBatch() {
       execution_date: string;
       format: "elixir" | "csv";
     }) => (await api.post<BatchDetail>(`${PAY}/batches`, body)).data,
+    onSettled: () => invalidateAll(client),
+  });
+}
+
+export function useBatchDetail(id: number | null) {
+  return useQuery({
+    queryKey: [...paymentKeys.batches, id] as const,
+    queryFn: async () => (await api.get<BatchDetail>(`${PAY}/batches/${id}`)).data,
+    enabled: id !== null,
+  });
+}
+
+export function useReleaseItem() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ batchId, entryId }: { batchId: number; entryId: number }) =>
+      (
+        await api.post<{ released: number; batch_cancelled: boolean; file_stale: boolean }>(
+          `${PAY}/batches/${batchId}/items/${entryId}/release`,
+        )
+      ).data,
     onSettled: () => invalidateAll(client),
   });
 }

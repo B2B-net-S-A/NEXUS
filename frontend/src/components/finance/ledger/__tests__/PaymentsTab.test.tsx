@@ -35,6 +35,8 @@ function item(id: number, patch: Partial<PlanItem> = {}): PlanItem {
     gross_amount: "100.00",
     vat_amount: "18.70",
     to_pay: "100.00",
+    amount_note: null,
+    account_note: null,
     mode: "standard",
     mode_label: "Zwykły",
     mode_suggested: false,
@@ -163,5 +165,82 @@ describe("PaymentsTab", () => {
     expect(notice).toBeInTheDocument();
     expect(screen.queryByText(/Nie ma faktur z terminem/)).not.toBeInTheDocument();
     expect(within(document.body).queryByRole("button", { name: "Utwórz paczkę" })).toBeNull();
+  });
+});
+
+describe("PaymentsTab — paczka czekająca na bank", () => {
+  it("nieaktualny plik widać na liście, a „Zdejmij z paczki” zdejmuje fakturę", async () => {
+    const user = userEvent.setup();
+    get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/settings")) return { data: { sender_name: null, sender_account: null } };
+      if (url.endsWith("/statements")) return { data: { unmatched: [], recent: [] } };
+      if (url.endsWith("/batches")) {
+        return {
+          data: {
+            items: [
+              {
+                id: 5,
+                currency: "PLN",
+                format: "elixir",
+                execution_date: "2026-11-13",
+                created_at: null,
+                created_by_name: null,
+                count: 2,
+                total: "300.00",
+                status: "active",
+                status_label: "Czeka na bank",
+                file_sha256: "abcdef123456",
+                downloaded_at: "2026-11-13T09:00:00+00:00",
+                changed_at: "2026-11-13T10:00:00+00:00",
+                file_stale: true,
+              },
+            ],
+          },
+        };
+      }
+      if (url.endsWith("/batches/5")) {
+        return {
+          data: {
+            id: 5,
+            items: [
+              {
+                entry_id: 1,
+                invoice_number: "FV/1/11/2026",
+                recipient_name: "Dostawca 1",
+                account: "90109000000000000000004242",
+                account_source: "ksef_factor",
+                account_source_label: "faktor",
+                amount: "100.00",
+                currency: "PLN",
+                mode: "standard",
+                mode_label: "Zwykły",
+                title: "FV/1/11/2026",
+                white_list: { state: "listed", label: "W wykazie VAT" },
+                acknowledged: false,
+                status: "active",
+              },
+            ],
+          },
+        };
+      }
+      throw new Error(`nieoczekiwany GET ${url}`);
+    });
+    post.mockImplementation(async (url: string) => {
+      if (url.endsWith("/plan")) return { data: { ...PLAN, items: [] } };
+      if (url.endsWith("/release")) {
+        return { data: { released: 1, batch_cancelled: false, file_stale: true } };
+      }
+      throw new Error(`nieoczekiwany POST ${url}`);
+    });
+    renderTab();
+    expect(await screen.findByText("Plik nieaktualny — pobierz ponownie")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pozycje" }));
+    expect(await screen.findByText("faktor")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zdejmij z paczki" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Zdejmij z paczki" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/finance/payments/batches/5/items/1/release"),
+    );
   });
 });

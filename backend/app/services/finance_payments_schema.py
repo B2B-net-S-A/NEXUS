@@ -13,7 +13,8 @@ nie w niej — kolejka E1 zostaje bez zmian:
   nie mają tu wiersza — ich zapłatę prowadzą Płace (rozliczenie miesiąca),
   kolejka czyta stan z ``payroll_settlements``.
 * ``finance_counterparty_accounts`` — rachunek kontrahenta z kartoteki
-  (zapamiętany przy ręcznym wpisie na fakturze).
+  (zapamiętany przy ręcznym wpisie na fakturze, gdy ktoś zaznaczy
+  „zapamiętaj”), z historią zmian w ``finance_counterparty_account_events``.
 * ``finance_payment_batches`` i ``finance_payment_batch_items`` — paczka
   przelewów (jedna waluta) i jej pozycje z trybem (zwykły, MPP, konto US),
   rachunkiem, tytułem i wynikiem białej listy z dnia paczki. Wpis może być
@@ -27,6 +28,7 @@ nie w niej — kolejka E1 zostaje bez zmian:
 from __future__ import annotations
 
 from app.services.consultant_portal_schema import quoted
+from app.services.finance_ledger_schema import CK_EVENT_ACTION
 
 PAYMENT_STATES: tuple[str, ...] = ("unpaid", "in_batch", "paid", "partially_paid")
 PAID_SOURCES: tuple[str, ...] = ("statement", "manual", "other_path")
@@ -36,6 +38,7 @@ BATCH_STATUSES: tuple[str, ...] = ("active", "cancelled")
 ITEM_STATUSES: tuple[str, ...] = ("active", "released", "done")
 RECORD_KINDS: tuple[str, ...] = ("statement_line", "manual")
 RECORD_STATUSES: tuple[str, ...] = ("matched", "unmatched", "ignored")
+ACCOUNT_SOURCES: tuple[str, ...] = ("manual", "ksef_factor", "ksef", "counterparty")
 
 ACCOUNT_MAX = 34
 TITLE_MAX = 300
@@ -52,6 +55,9 @@ CK_BATCH_ELIXIR_PLN = "format <> 'elixir' OR currency = 'PLN'"
 CK_ITEM_STATUS = f"status IN ({quoted(ITEM_STATUSES)})"
 CK_ITEM_MODE = f"mode IN ({quoted(MODES)})"
 CK_ITEM_AMOUNT = "amount > 0"
+CK_ITEM_ACCOUNT_SOURCE = (
+    f"account_source IS NULL OR account_source IN ({quoted(ACCOUNT_SOURCES)})"
+)
 CK_RECORD_KIND = f"kind IN ({quoted(RECORD_KINDS)})"
 CK_RECORD_STATUS = f"match_status IN ({quoted(RECORD_STATUSES)})"
 CK_RECORD_MATCHED = "match_status <> 'matched' OR entry_id IS NOT NULL"
@@ -71,6 +77,8 @@ TABLE_DDL: tuple[str, ...] = (
     paid_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
     paid_on DATE NULL,
     paid_source VARCHAR(12) NULL,
+    account_changed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    account_changed_at TIMESTAMPTZ NULL,
     updated_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -94,6 +102,9 @@ TABLE_DDL: tuple[str, ...] = (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     cancelled_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     cancelled_at TIMESTAMPTZ NULL,
+    changed_at TIMESTAMPTZ NULL,
+    downloaded_at TIMESTAMPTZ NULL,
+    file_sha256 VARCHAR(64) NULL,
     CONSTRAINT ck_finance_payment_batches_format CHECK ({CK_BATCH_FORMAT}),
     CONSTRAINT ck_finance_payment_batches_status CHECK ({CK_BATCH_STATUS}),
     CONSTRAINT ck_finance_payment_batches_elixir_pln CHECK ({CK_BATCH_ELIXIR_PLN})
@@ -108,13 +119,24 @@ TABLE_DDL: tuple[str, ...] = (
     vat_amount NUMERIC(14, 2) NULL,
     currency VARCHAR(3) NOT NULL,
     account VARCHAR({ACCOUNT_MAX}) NOT NULL,
+    account_source VARCHAR(16) NULL,
     recipient_name VARCHAR({NAME_MAX}) NOT NULL,
     title_lines JSONB NOT NULL DEFAULT '[]'::jsonb,
     white_list JSONB NOT NULL DEFAULT '{{}}'::jsonb,
     acknowledged_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT ck_finance_payment_batch_items_status CHECK ({CK_ITEM_STATUS}),
     CONSTRAINT ck_finance_payment_batch_items_mode CHECK ({CK_ITEM_MODE}),
-    CONSTRAINT ck_finance_payment_batch_items_amount CHECK ({CK_ITEM_AMOUNT})
+    CONSTRAINT ck_finance_payment_batch_items_amount CHECK ({CK_ITEM_AMOUNT}),
+    CONSTRAINT ck_finance_payment_batch_items_account_source CHECK ({CK_ITEM_ACCOUNT_SOURCE})
+)""",
+    f"""CREATE TABLE IF NOT EXISTS finance_counterparty_account_events (
+    id SERIAL PRIMARY KEY,
+    counterparty_id INTEGER NOT NULL REFERENCES finance_counterparties(id) ON DELETE CASCADE,
+    entry_id INTEGER NULL REFERENCES finance_cost_entries(id) ON DELETE SET NULL,
+    old_account VARCHAR({ACCOUNT_MAX}) NULL,
+    new_account VARCHAR({ACCOUNT_MAX}) NOT NULL,
+    actor_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 )""",
     f"""CREATE TABLE IF NOT EXISTS finance_cost_payment_records (
     id SERIAL PRIMARY KEY,
@@ -161,9 +183,27 @@ INDEX_DDL: tuple[str, ...] = (
     "ON finance_cost_payment_records (entry_id)",
     "CREATE INDEX IF NOT EXISTS ix_finance_cost_payment_records_status "
     "ON finance_cost_payment_records (match_status, booked_on)",
+    "CREATE INDEX IF NOT EXISTS ix_finance_counterparty_account_events_party "
+    "ON finance_counterparty_account_events (counterparty_id, id)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+#: Zmiana rachunku odbiorcy trafia do historii wpisu (akcja ``account``,
+#: ``EVENT_ACTIONS`` w ``finance_ledger_schema``) — CHECK z 0695 jej nie znał.
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_finance_cost_entry_events_action'
+          AND pg_get_constraintdef(oid) LIKE '%''account''%'
+    ) THEN
+        ALTER TABLE finance_cost_entry_events
+            DROP CONSTRAINT IF EXISTS ck_finance_cost_entry_events_action;
+        ALTER TABLE finance_cost_entry_events
+            ADD CONSTRAINT ck_finance_cost_entry_events_action CHECK ({CK_EVENT_ACTION});
+    END IF;
+END $$""",
+)
 
 DATA_DDL: tuple[str, ...] = ()
 
@@ -176,6 +216,8 @@ ALL_DDL: tuple[str, ...] = (
 )
 
 DOWNGRADE_DDL: tuple[str, ...] = (
+    "DELETE FROM finance_cost_entry_events WHERE action = 'account'",
+    "DROP TABLE IF EXISTS finance_counterparty_account_events",
     "DROP TABLE IF EXISTS finance_cost_payment_records",
     "DROP TABLE IF EXISTS finance_payment_batch_items",
     "DROP TABLE IF EXISTS finance_payment_batches",
