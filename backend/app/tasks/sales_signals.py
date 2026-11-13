@@ -10,9 +10,7 @@ poniedziałek miesiąca od 7:00 (albo przy pierwszym obrocie po nim) „Warto wr
 i „Nowe centra IT” (``SALES_BOT_TASKS_ENABLED``). Z obiema flagami
 (``SALES_SIGNALS_ENABLED`` i ``SALES_BOT_TASKS_ENABLED``) w dzień roboczy od 16:00
 jeszcze haczyk przed telefonem i teczka przed spotkaniem na następny dzień roboczy
-(``services/sales/hook_prep_targets.py``). Niezależnie od bota, z flagą
-``SALES_REGISTRY_ENABLED``, w nocy od 1:00 do 6:00 paczka kart idzie do białej
-listy VAT i KRS (``services/sales/registry_cards.py``), we własnej sesji.
+(``services/sales/hook_prep_targets.py``).
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -32,9 +30,9 @@ from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
 from app.services.sales import bot_tasks
 from app.services.sales import hook_prep_targets as hook_prep
-from app.services.sales import registry_cards
 from app.services.sales import signal_targets as targets
 from app.services.sales import signals
+from app.services.sales import registry_cards
 from app.services.sales.bot_tasks import enrich
 from app.services.sales.bot_tasks.call_hook import CALL_HOOK
 from app.services.sales.bot_tasks.signals_briefing import MEETING_PREP
@@ -275,6 +273,7 @@ async def sales_signals_loop() -> None:
         logger.warning(
             "sales_signals_loop enabled without Cognism webhook configuration"
         )
+    # Rejestry państwowe (biała lista VAT, KRS) nie potrzebują bota ani webhooka.
     registry_ready = registry_cards.enabled()
     if not (legacy_ready or bot_tasks_ready or cognism_ready or registry_ready):
         logger.info("sales_signals_loop disabled")
@@ -294,16 +293,18 @@ async def sales_signals_loop() -> None:
                     bot_tasks_ready=bot_tasks_ready,
                 )
             if registry_ready:
-                # Własna sesja: sprawdzenie zamyka transakcję przed zapytaniami do rejestrów.
+                # Noc 1–6: paczka kart do rejestrów (``services/sales/registry_cards.py``),
+                # we własnej sesji, bo sprawdzenie zamyka transakcję przed siecią.
+                # Liczby loguje samo sprawdzenie.
                 async with AsyncSessionLocal() as db:
-                    done["registry"] = await registry_cards.night_step(
+                    await registry_cards.night_step(
                         db, now=datetime.now(timezone.utc), local=local_now()
                     )
             if any(done.values()):
                 logger.info(
                     "sales_signals tick expired=%d signals=%d briefing=%d "
                     "enrich=%d people=%d winback=%d discovery=%d "
-                    "call_hook=%d meeting_prep=%d registry=%d",
+                    "call_hook=%d meeting_prep=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
@@ -313,7 +314,6 @@ async def sales_signals_loop() -> None:
                     done["discovery"],
                     done[CALL_HOOK],
                     done[MEETING_PREP],
-                    done.get("registry", 0),
                 )
         except asyncio.CancelledError:
             raise
