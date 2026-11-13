@@ -30,8 +30,9 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
 from app.models.user import User
-from app.services.sales import bot_tasks, bots, signals
-from app.services.sales.bot_tasks import enrich, question
+from app.services.action_permissions import has_permission
+from app.services.sales import bot_card_history, bot_tasks, bots, signals
+from app.services.sales.bot_tasks import enrich, people, question
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ COOLDOWN_DETAIL = (
     "Propozycje pojawią się na karcie, gdy skończy."
 )
 QUESTIONS_SHOWN = 5
+HISTORY_SHOWN = 30
 
 
 class PersonRef(BaseModel):
@@ -93,6 +95,27 @@ class EnrichStateOut(BaseModel):
     run: Optional[EnrichRunOut] = None
     #: Najnowsza propozycja, o której nie zdecydowano do końca (``new``/``partial``).
     result: Optional[BotResultOut] = None
+
+
+class HistoryLineOut(BaseModel):
+    label: str
+    after: Optional[str] = None
+    before: Optional[str] = None
+    source: Optional[str] = None
+    note: Optional[str] = None
+    other_company: Optional[PersonRef] = None
+
+
+class HistoryEntryOut(BaseModel):
+    at: datetime
+    #: Który bot: „Dane firm” albo „Kontakty”.
+    bot: str
+    lines: list[HistoryLineOut]
+
+
+class HistoryOut(BaseModel):
+    enabled: bool
+    items: list[HistoryEntryOut]
 
 
 def _refuse_when_off() -> None:
@@ -298,3 +321,73 @@ async def start_enrich(
         "sales_bot enrich run=%s company=%s status=%s", run.id, company_id, run.status
     )
     return await _enrich_state(db, company_id)
+
+
+@router.get("/{company_id}/bot-history", response_model=HistoryOut)
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def company_bot_history(
+    company_id: int,
+    request: Request,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> HistoryOut:
+    """Historia karty: co boty wpisały od razu, co zostawiły i skąd to wzięły.
+
+    Osoby widzi tylko konto z „Sprzedaż: edycja” (jak mapę decydentów).
+    """
+
+    if not bot_tasks.enabled():
+        return HistoryOut(enabled=False, items=[])
+    with_people = has_permission(current_user, "sales_edit")
+    kinds = [enrich.KIND, people.KIND] if with_people else [enrich.KIND]
+    rows = (
+        await db.execute(
+            select(
+                SalesBotResult.kind,
+                SalesBotResult.decided_at,
+                SalesBotResult.updated_at,
+                SalesBotResult.created_at,
+                SalesBotResult.payload,
+            )
+            .where(
+                SalesBotResult.company_id == company_id,
+                SalesBotResult.kind.in_(kinds),
+                SalesBotResult.status.in_(("accepted", "partial")),
+            )
+            .order_by(SalesBotResult.created_at.desc(), SalesBotResult.id.desc())
+            .limit(HISTORY_SHOWN)
+        )
+    ).all()
+    entries = bot_card_history.build(
+        [
+            (kind, decided or updated or created, payload)
+            for kind, decided, updated, created, payload in rows
+        ],
+        with_people=with_people,
+    )
+    return HistoryOut(
+        enabled=True,
+        items=[
+            HistoryEntryOut(
+                at=entry.at,
+                bot=entry.bot,
+                lines=[
+                    HistoryLineOut(
+                        label=line.label,
+                        after=line.after,
+                        before=line.before,
+                        source=line.source,
+                        note=line.note,
+                        other_company=None
+                        if line.other_company_id is None
+                        else PersonRef(
+                            id=line.other_company_id,
+                            name=line.other_company_name or "",
+                        ),
+                    )
+                    for line in entry.lines
+                ],
+            )
+            for entry in entries
+        ],
+    )

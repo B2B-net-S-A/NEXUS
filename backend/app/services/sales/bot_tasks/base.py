@@ -146,8 +146,12 @@ async def save_results(
     now: datetime,
     *,
     kind: Optional[str] = None,
+    status: str = "new",
 ) -> int:
     """Zapisz wyniki do decyzji; zwraca liczbę nowych.
+
+    ``status="accepted"``: wynik zapisany od razu na karcie (bez decyzji
+    handlowca), wiersz jest wtedy historią karty.
 
     Wiersz: ``company_id`` (albo ``None``), ``payload``, ``fingerprint`` (albo
     ``None``). Ponowny wynik odświeża treść tylko, gdy nikt jeszcze o nim nie
@@ -164,7 +168,7 @@ async def save_results(
             company_id=row.get("company_id"),
             payload=row.get("payload") or {},
             fingerprint=row.get("fingerprint"),
-            status="new",
+            status=status,
         )
         statement = statement.on_conflict_do_update(
             constraint="uq_sales_bot_results_fingerprint",

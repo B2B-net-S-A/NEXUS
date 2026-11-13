@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from app.core.config import settings
-from app.models.sales import SalesBotResult, SalesCompany
+from app.models.sales import SalesCompany
 from app.services.sales import bot_tasks, signals
 from app.services.sales.bot_tasks import enrich, question
+from app.services.sales.bot_tasks.base import refuse_accept
 from app.tasks import sales_signals as loop
 
 NOW = datetime(2026, 11, 12, 9, 0, tzinfo=timezone.utc)
@@ -130,28 +131,7 @@ def test_enrich_fingerprint_depends_on_values_not_sources() -> None:
     assert enrich.fingerprint(7, a) != enrich.fingerprint(8, a)
 
 
-# ── przyjęcie enrich ─────────────────────────────────────────────────────
-
-
-class _Db:
-    """Sesja z jedną kartą; reszta zapytań jest podmieniona w testach."""
-
-    def __init__(self, company: Optional[SalesCompany]) -> None:
-        self.company = company
-
-    async def get(self, model, ident, **kw):  # noqa: ANN001
-        return self.company
-
-
-def _result(fields: dict[str, Any], **payload: Any) -> SalesBotResult:
-    return SalesBotResult(
-        id=3,
-        run_id=1,
-        kind="enrich",
-        company_id=7,
-        status="new",
-        payload={"fields": fields, **payload},
-    )
+# ── zapis od razu (decyzja Artura 13.11.2026) ────────────────────────────
 
 
 FIELDS = {
@@ -176,11 +156,9 @@ def no_conflicts(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_accept_all_fills_only_empty_fields(no_conflicts) -> None:
+async def test_empty_fields_go_on_the_card_and_human_fields_stay(no_conflicts) -> None:
     company = _company(hq_city="Gdańsk")
-    result = _result(FIELDS)
-    out = await enrich.ENRICH.accept(_Db(company), result, 5, NOW, None)
-    assert out["applied"] == ["domain", "nip", "tier", "parent_name"]
+    out = await enrich.apply_now(object(), company, FIELDS, {})
     assert (company.domain, company.nip, company.hq_city) == (
         "firma-testowa.pl",
         NIP,
@@ -191,61 +169,28 @@ async def test_accept_all_fills_only_empty_fields(no_conflicts) -> None:
         "1000+",
         99,
     )
-    # Miasto ma inną wartość: czeka na wybór pojedynczo.
-    assert result.status == "partial"
-    assert result.payload["decisions"] == {
-        "domain": "accepted",
-        "nip": "accepted",
-        "tier": "accepted",
-        "parent_name": "accepted",
-    }
-    assert result.decided_by_user_id == 5
+    assert out["hq_city"] == {"result": "kept", "current": "Gdańsk"}
+    assert out["nip"] == {"result": "applied", "previous": None}
+    assert out["parent_name"] == {"result": "applied", "parent_company_id": 99}
 
 
 @pytest.mark.asyncio
-async def test_explicit_choice_overwrites_and_reject_closes_the_result(
-    no_conflicts,
-) -> None:
-    company = _company(hq_city="Gdańsk")
-    result = _result({"hq_city": FIELDS["hq_city"], "nip": FIELDS["nip"]})
-    out = await enrich.ENRICH.accept(
-        _Db(company), result, 5, NOW, {"fields": ["hq_city"], "reject": ["nip"]}
-    )
-    assert (out["applied"], out["rejected"]) == (["hq_city"], ["nip"])
-    assert company.hq_city == "Kraków" and company.nip is None
-    assert result.status == "accepted"
+async def test_bot_updates_its_own_value_but_not_a_manual_edit(no_conflicts) -> None:
+    company = _company(hq_city="Kraków")
+    fields = {"hq_city": {"value": "Wrocław", "source": SRC}}
+    out = await enrich.apply_now(object(), company, fields, {"hq_city": "kraków"})
+    assert company.hq_city == "Wrocław"
+    assert out["hq_city"] == {"result": "applied", "previous": "Kraków"}
+
+    # Handlowiec poprawił miasto ręcznie: inna wartość niż wpisana przez bota.
+    company = _company(hq_city="Gdynia")
+    out = await enrich.apply_now(object(), company, fields, {"hq_city": "Kraków"})
+    assert company.hq_city == "Gdynia"
+    assert out["hq_city"]["result"] == "kept"
 
 
 @pytest.mark.asyncio
-async def test_rejecting_every_field_marks_the_result_rejected(no_conflicts) -> None:
-    result = _result({"nip": FIELDS["nip"]})
-    await enrich.ENRICH.accept(
-        _Db(_company()), result, 5, NOW, {"fields": [], "reject": ["nip"]}
-    )
-    assert result.status == "rejected"
-
-
-@pytest.mark.asyncio
-async def test_domain_or_nip_of_another_card_is_refused_without_change(
-    monkeypatch,
-) -> None:
-    other = _company(id=8, name="Inna Karta")
-
-    async def taken(db, company_id, column, value):  # noqa: ANN001
-        return other
-
-    monkeypatch.setattr(enrich, "_taken_by", taken)
-    for key in ("domain", "nip"):
-        company = _company()
-        result = _result({key: FIELDS[key]})
-        with pytest.raises(bot_tasks.AcceptRefused) as caught:
-            await enrich.ENRICH.accept(_Db(company), result, 5, NOW, {"fields": [key]})
-        assert "„Inna Karta”" in str(caught.value)
-        assert (company.domain, company.nip, result.status) == (None, None, "new")
-
-
-@pytest.mark.asyncio
-async def test_domain_derived_from_website_is_skipped_when_taken(monkeypatch) -> None:
+async def test_domain_or_nip_of_another_card_is_not_written(monkeypatch) -> None:
     other = _company(id=8, name="Inna Karta")
 
     async def taken(db, company_id, column, value):  # noqa: ANN001
@@ -253,17 +198,39 @@ async def test_domain_derived_from_website_is_skipped_when_taken(monkeypatch) ->
 
     monkeypatch.setattr(enrich, "_taken_by", taken)
     company = _company()
-    result = _result(
-        {"website_url": {"value": "https://firma-testowa.pl", "source": SRC}}
-    )
-    out = await enrich.ENRICH.accept(_Db(company), result, 5, NOW, None)
-    assert company.website_url == "https://firma-testowa.pl"
-    assert company.domain is None
-    assert "„Inna Karta”" in out["notes"][0]
+    fields = {key: FIELDS[key] for key in ("domain", "nip", "hq_city")}
+    out = await enrich.apply_now(object(), company, fields, {})
+    assert (company.domain, company.nip, company.hq_city) == (None, None, "Kraków")
+    for key in ("domain", "nip"):
+        assert out[key] == {
+            "result": "taken",
+            "other_id": 8,
+            "other_name": "Inna Karta",
+        }
 
 
 @pytest.mark.asyncio
-async def test_parent_without_a_single_match_stays_open_with_a_note(
+async def test_domain_from_website_only_when_no_other_card_has_it(monkeypatch) -> None:
+    site = {"website_url": {"value": "https://firma-testowa.pl", "source": SRC}}
+    other = _company(id=8, name="Inna Karta")
+    holder: dict[str, Any] = {"card": other}
+
+    async def taken(db, company_id, column, value):  # noqa: ANN001
+        return holder["card"]
+
+    monkeypatch.setattr(enrich, "_taken_by", taken)
+    company = _company()
+    await enrich.apply_now(object(), company, site, {})
+    assert (company.website_url, company.domain) == ("https://firma-testowa.pl", None)
+
+    holder["card"] = None
+    company = _company()
+    await enrich.apply_now(object(), company, site, {})
+    assert company.domain == "firma-testowa.pl"
+
+
+@pytest.mark.asyncio
+async def test_parent_without_a_single_match_is_skipped_with_a_note(
     monkeypatch, no_conflicts
 ) -> None:
     async def parent(db, company, name):  # noqa: ANN001
@@ -271,47 +238,16 @@ async def test_parent_without_a_single_match_stays_open_with_a_note(
 
     monkeypatch.setattr(enrich, "_parent_match", parent)
     company = _company()
-    result = _result({"parent_name": FIELDS["parent_name"]})
-    out = await enrich.ENRICH.accept(
-        _Db(company), result, 5, NOW, {"fields": ["parent_name"]}
+    out = await enrich.apply_now(
+        object(), company, {"parent_name": FIELDS["parent_name"]}, {}
     )
-    assert out["applied"] == [] and out["notes"]
     assert company.parent_company_id is None
-    assert result.status == "new"
+    assert out["parent_name"]["result"] == "skipped"
+    assert "kilka kart" in out["parent_name"]["note"]
 
 
-@pytest.mark.asyncio
-async def test_accept_refuses_archived_card_unknown_field_and_nothing_to_do(
-    no_conflicts,
-) -> None:
-    with pytest.raises(bot_tasks.AcceptRefused, match="archiwum"):
-        await enrich.ENRICH.accept(
-            _Db(_company(archived_at=NOW)), _result(FIELDS), 5, NOW, None
-        )
-    with pytest.raises(bot_tasks.AcceptRefused, match="Nieznane pole"):
-        await enrich.ENRICH.accept(
-            _Db(_company()), _result(FIELDS), 5, NOW, {"fields": ["owner_user_id"]}
-        )
-    full = _company(hq_city="Gdańsk")
-    with pytest.raises(bot_tasks.AcceptRefused, match="pojedynczo"):
-        await enrich.ENRICH.accept(
-            _Db(full), _result({"hq_city": FIELDS["hq_city"]}), 5, NOW, None
-        )
-
-
-@pytest.mark.asyncio
-async def test_decided_fields_are_not_applied_twice(no_conflicts) -> None:
-    company = _company()
-    result = _result(
-        {"nip": FIELDS["nip"], "hq_city": FIELDS["hq_city"]},
-        decisions={"nip": "rejected"},
-    )
-    result.status = "partial"
-    out = await enrich.ENRICH.accept(
-        _Db(company), result, 5, NOW, {"fields": ["nip", "hq_city"]}
-    )
-    assert out["applied"] == ["hq_city"] and company.nip is None
-    assert result.status == "accepted"
+def test_enrich_has_no_accept_step() -> None:
+    assert enrich.ENRICH.accept is refuse_accept
 
 
 # ── pytanie ──────────────────────────────────────────────────────────────
@@ -415,11 +351,15 @@ async def test_partial_enrich_records_researched_refs_without_changed_fields(
     async def parent_names(_db, _companies):
         return {}
 
-    async def save_results(_db, _run, results, _now):
-        assert results == []
+    async def save_results(_db, _run, results, _now, **kw):
+        assert results == [] and kw == {"status": "accepted"}
         return 0
 
+    async def owned(_db, _ids):
+        return {}
+
     monkeypatch.setattr(signals, "_companies", companies)
+    monkeypatch.setattr(enrich, "_bot_owned", owned)
     monkeypatch.setattr(enrich, "_parent_names", parent_names)
     monkeypatch.setattr(enrich, "save_results", save_results)
     run, _token = signals.new_run("enrich", [7, 8, 9], now=NOW)

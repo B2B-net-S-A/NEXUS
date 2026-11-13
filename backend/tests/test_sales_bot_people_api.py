@@ -337,6 +337,40 @@ async def test_cognism_provider_dnc_survives_company_merge(
 
 
 @pytest.mark.asyncio
+async def test_people_of_a_card_with_an_owner_land_on_the_map_at_once(
+    app_client, monkeypatch
+) -> None:
+    """Decyzja Artura z 13.11.2026: bez przeglądu, gdy jest kto zapisać."""
+
+    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
+    owner = await _user("sales_edit")
+    company_id = await _company(f"Fabryka {_tag()}", owner_user_id=owner.id)
+    account_id, _ = await _account([_person("Jan Fikcyjny", 1)], company_id=company_id)
+
+    reply = await _send(
+        app_client,
+        company_id,
+        [_bot_person("Anna Przykładowa", title="Chief Data Officer")],
+    )
+    assert (reply["added"], reply["waiting"]) == (1, 0)
+    entry = (await _map(account_id))[-1]
+    assert entry["name"] == "Anna Przykładowa"
+    assert entry["source_label"] == people.ORIGIN
+    assert entry["source_confidence"] == "confirmed"
+    async with AsyncSessionLocal() as db:
+        [row] = (
+            await db.execute(
+                select(SalesBotResult).where(
+                    SalesBotResult.company_id == company_id,
+                    SalesBotResult.kind == "people",
+                )
+            )
+        ).scalars()
+        assert (row.status, row.decided_by_user_id) == ("accepted", None)
+    assert await _pending(app_client, owner, company_id) == []
+
+
+@pytest.mark.asyncio
 async def test_bot_people_review_and_accept_land_on_the_account_map(
     app_client, monkeypatch
 ) -> None:

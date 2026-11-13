@@ -181,7 +181,8 @@ def test_result_converts_to_import_rows_with_level_and_warnings() -> None:
         (2, "Fabryka Testowa", 2),
         (3, "Fabryka Testowa", 3),
     ]
-    assert all(r.confidence == "to_verify" for r in rows)
+    # Od 13.11.2026 osoby od bota są zapisywane od razu, bez „do weryfikacji”.
+    assert all(r.confidence == "confirmed" for r in rows)
     assert rows[0].source_url == "https://firma.example/zespol"
     assert rows[0].domain == "fabryka.example"
     assert rows[2].email is None and rows[2].warnings == (people.EMAIL_DROPPED,)

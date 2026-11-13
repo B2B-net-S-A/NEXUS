@@ -3,13 +3,14 @@
 Do bota idzie to samo co zawsze: nazwa i domena firmy (``firms``), bez pól
 ``request``. Bot odsyła na firmę: domenę, stronę www, NIP, miasto siedziby,
 branżę, przedział liczby pracowników i nazwę spółki matki, każde pole z własnym
-źródłem. Nic nie trafia na kartę samo: wynik czeka w ``sales_bot_results``
-(jeden wiersz na firmę), a handlowiec przyjmuje pola po kolei
-(``POST /api/sales/bot-results/{id}/accept {fields, reject}``).
+źródłem. Od 13.11.2026 (decyzja Artura) pola trafiają na kartę od razu
+(``apply_now``): puste pole i pole wpisane wcześniej przez bota dostają wartość,
+pole wpisane przez człowieka zostaje. Wiersz ``sales_bot_results`` (status
+``accepted``) to historia karty: co bot podał, co wpisał, co zostawił i dlaczego.
 
-Przyjęcie idzie tą samą ścieżką zapisu co ekran Firmy (``companies.apply_fields``).
-Domena albo NIP z innej karty to odmowa z nazwą tamtej karty (scalenie kart to
-osobny krok, B6). Spółka matka staje się powiązaniem tylko wtedy, gdy pasuje
+Zapis idzie tą samą ścieżką co ekran Firmy (``companies.apply_fields``).
+Domena albo NIP z innej karty nie trafia na kartę (scalenie kart to osobny,
+ręczny krok). Spółka matka staje się powiązaniem tylko wtedy, gdy pasuje
 dokładnie jedna karta po nazwie kanonicznej.
 
 Reguły: ``docs/claude/sprzedaz/sygnaly-grok-bot.md`` („Uzupełnianie kart”).
@@ -37,7 +38,6 @@ from app.services.order_client_identity import nip_checksum_valid
 from app.services.sales import companies as company_service
 from app.services.sales import signals
 from app.services.sales.bot_tasks.base import (
-    AcceptRefused,
     BotTask,
     CleanText,
     SourceUrl,
@@ -85,12 +85,6 @@ NIGHT_MAX_RUNS = 5
 NIGHT_EVERY = timedelta(hours=1)
 #: Karta sprawdzona nocą nie wraca przez 30 dni, żeby noc nie męczyła tych samych firm.
 NIGHT_RESEND_AFTER = timedelta(days=30)
-
-ARCHIVED_DETAIL = "Firma jest w archiwum. Przywróć ją, żeby zmieniać kartę."
-NOTHING_DETAIL = (
-    "Nie ma pustych pól do uzupełnienia. Pola, które mają już inną wartość "
-    "na karcie, przyjmij pojedynczo."
-)
 
 
 # ── Raport ───────────────────────────────────────────────────────────────
@@ -297,8 +291,9 @@ async def _ingest(
     not_found = set(report.not_found) & allowed
     rows = await signals._companies(db, sorted(refs))
     parents = await _parent_names(db, list(rows.values()))
+    owned = await _bot_owned(db, sorted(rows))
     results: list[dict[str, Any]] = []
-    unknown = invalid = same = 0
+    unknown = invalid = same = applied = kept = 0
     seen: set[int] = set()
     for firm in report.firms:
         company = rows.get(firm.company_ref)
@@ -311,26 +306,33 @@ async def _ingest(
         )
         invalid += bad
         same += equal
-        if not fields:
+        if not fields or company.archived_at is not None:
             continue
+        outcomes = await apply_now(db, company, fields, owned.get(company.id, {}))
+        applied += sum(1 for o in outcomes.values() if o["result"] == APPLIED)
+        kept += sum(1 for o in outcomes.values() if o["result"] != APPLIED)
         results.append(
             {
                 "company_id": company.id,
-                "payload": {"fields": fields, "checked_at": now.isoformat()},
+                "payload": {
+                    "fields": fields,
+                    "outcomes": outcomes,
+                    "checked_at": now.isoformat(),
+                },
                 "fingerprint": fingerprint(company.id, fields),
             }
         )
     if results:
-        # Starsza propozycja, o której nikt nie zdecydował, ustępuje nowszej.
+        # Propozycje sprzed zapisu od razu (13.11), o których nikt nie zdecydował, znikają.
         await db.execute(
             delete(SalesBotResult).where(
                 SalesBotResult.kind == KIND,
-                SalesBotResult.status == "new",
+                SalesBotResult.status.in_(("new", "partial")),
                 SalesBotResult.company_id.in_([r["company_id"] for r in results]),
                 SalesBotResult.fingerprint.notin_([r["fingerprint"] for r in results]),
             )
         )
-    new = await save_results(db, run, results, now)
+    new = await save_results(db, run, results, now, status="accepted")
     return {
         "checked_firms": report.checked_firms,
         "sent_firms": len(run.company_ids),
@@ -338,6 +340,8 @@ async def _ingest(
         "results": len(results),
         "results_new": new,
         "fields": sum(len(r["payload"]["fields"]) for r in results),
+        "applied_fields": applied,
+        "kept_fields": kept,
         "invalid_fields": invalid,
         "same_fields": same,
         "unknown_company": unknown,
@@ -345,7 +349,19 @@ async def _ingest(
     }
 
 
-# ── Przyjęcie ────────────────────────────────────────────────────────────
+# ── Zapis od razu ────────────────────────────────────────────────────────
+#
+# Decyzja Artura z 13.11.2026: wynik bota trafia na kartę od razu, bez
+# „Przyjmij”. Puste pole i pole, które wcześniej wpisał bot, dostają nową
+# wartość; pole wpisane przez człowieka zostaje, a wersja bota idzie tylko do
+# historii karty (``payload.outcomes``). Dubel domeny albo NIP-u z inną kartą
+# niczego nie zmienia: scalanie kart zostaje ręczne.
+
+#: Wynik pola w historii karty.
+APPLIED = "applied"
+KEPT = "kept"
+TAKEN = "taken"
+SKIPPED = "skipped"
 
 
 def _current(company: SalesCompany, key: str) -> Any:
@@ -354,23 +370,58 @@ def _current(company: SalesCompany, key: str) -> Any:
     return getattr(company, key)
 
 
-def _choice(
-    fields: dict[str, Any], decisions: dict[str, str], choice: Optional[dict[str, Any]]
-) -> tuple[list[str], list[str]]:
-    """Pola do przyjęcia i do odrzucenia; bez listy pól przyjmuje tylko puste na karcie."""
+def _written(key: str, item: dict[str, Any], outcome: dict[str, Any]) -> Any:
+    """Wartość, którą bot wpisał na kartę (dla spółki matki: numer karty)."""
 
-    choice = choice or {}
-    open_keys = [key for key in FIELDS if key in fields and key not in decisions]
-    wanted = choice.get("fields")
-    rejected = list(dict.fromkeys(choice.get("reject") or []))
-    for key in [*(wanted or []), *rejected]:
-        if key not in FIELDS:
-            raise AcceptRefused(f"Nieznane pole karty: {key}.")
-    rejected = [key for key in rejected if key in open_keys]
-    if wanted is None:
-        return open_keys, rejected
-    chosen = [key for key in open_keys if key in wanted and key not in rejected]
-    return chosen, rejected
+    if key == "parent_name":
+        return outcome.get("parent_company_id")
+    return item.get("value")
+
+
+async def _bot_owned(
+    db: AsyncSession, company_ids: list[int]
+) -> dict[int, dict[str, Any]]:
+    """Ostatnia wartość, którą bot wpisał w pole karty (z historii wyników).
+
+    Pole jest „bota”, dopóki karta ma dokładnie tę wartość; po ręcznej zmianie
+    wartość się różni i pole należy do człowieka. Wyniki sprzed 13.11 przyjęte
+    ręcznie też się liczą: wartość przyszła od bota.
+    """
+
+    if not company_ids:
+        return {}
+    rows = await db.execute(
+        select(SalesBotResult.company_id, SalesBotResult.payload)
+        .where(
+            SalesBotResult.kind == KIND,
+            SalesBotResult.company_id.in_(company_ids),
+            SalesBotResult.status.in_(("accepted", "partial")),
+        )
+        .order_by(SalesBotResult.created_at, SalesBotResult.id)
+    )
+    owned: dict[int, dict[str, Any]] = {}
+    for company_id, payload in rows.all():
+        fields = (payload or {}).get("fields") or {}
+        outcomes = (payload or {}).get("outcomes") or {}
+        decisions = (payload or {}).get("decisions") or {}
+        for key, item in fields.items():
+            outcome = outcomes.get(key) or {}
+            if outcome.get("result") == APPLIED:
+                owned.setdefault(company_id, {})[key] = _written(key, item, outcome)
+            elif decisions.get(key) == "accepted" and key != "parent_name":
+                owned.setdefault(company_id, {})[key] = item.get("value")
+    return owned
+
+
+def _is_human(company: SalesCompany, key: str, owned: dict[str, Any]) -> bool:
+    current = _current(company, key)
+    if current in (None, ""):
+        return False
+    if key not in owned:
+        return True
+    if key == "parent_name":
+        return current != owned[key]
+    return not _same(str(current), str(owned[key]))
 
 
 async def _taken_by(
@@ -406,114 +457,86 @@ async def _parent_match(
         )
     ).all()
     if not rows:
-        return None, f"Nie ma karty „{name}” w kartotece. Firmę matkę ustaw ręcznie."
+        return None, f"Nie ma karty „{name}” w kartotece."
     if len(rows) > 1:
-        return None, f"Do „{name}” pasuje kilka kart. Firmę matkę wybierz ręcznie."
+        return None, f"Do „{name}” pasuje kilka kart."
     parent_id, grandparent_id = rows[0]
     if grandparent_id == company.id:
-        return (
-            None,
-            f"„{name}” ma tę firmę jako swoją firmę matkę. Sprawdź powiązanie ręcznie.",
-        )
+        return None, f"„{name}” ma tę firmę jako swoją firmę matkę."
     return parent_id, None
 
 
-async def _accept(
-    db: AsyncSession,
-    result: SalesBotResult,
-    user_id: int,
-    now: datetime,
-    choice: Optional[dict[str, Any]] = None,
-) -> dict[str, Any]:
-    payload = dict(result.payload or {})
-    fields: dict[str, dict[str, Any]] = payload.get("fields") or {}
-    decisions: dict[str, str] = dict(payload.get("decisions") or {})
-    company = (
-        await db.get(SalesCompany, result.company_id, with_for_update=True)
-        if result.company_id
-        else None
-    )
-    if company is None or company.archived_at is not None:
-        raise AcceptRefused(ARCHIVED_DETAIL)
-    chosen, rejected = _choice(fields, decisions, choice)
-    if (choice or {}).get("fields") is None:
-        # „Przyjmij wszystkie”: tylko pola puste na karcie, nadpisanie zawsze z wyboru.
-        chosen = [k for k in chosen if k not in rejected and not _current(company, k)]
-        if not chosen and not rejected:
-            raise AcceptRefused(NOTHING_DETAIL)
-    if not chosen and not rejected:
-        raise AcceptRefused("Wybierz pola do przyjęcia albo odrzucenia.")
+def _taken_outcome(other: SalesCompany) -> dict[str, Any]:
+    return {"result": TAKEN, "other_id": other.id, "other_name": other.name}
 
+
+async def apply_now(
+    db: AsyncSession,
+    company: SalesCompany,
+    fields: dict[str, dict[str, Any]],
+    owned: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    """Wpisz pola od bota na kartę; zwraca wynik każdego pola do historii.
+
+    Zapis idzie tą samą ścieżką co ekran Firmy (``companies.apply_fields``).
+    """
+
+    outcomes: dict[str, dict[str, Any]] = {}
     updates: dict[str, Any] = {}
-    applied: list[str] = []
-    notes: list[str] = []
-    for key in chosen:
-        value = fields[key]["value"]
+    for key in FIELDS:
+        item = fields.get(key)
+        if item is None:
+            continue
+        current = _current(company, key)
+        if _is_human(company, key, owned):
+            shown = current
+            if key == "parent_name":
+                shown = None
+            outcomes[key] = {"result": KEPT, "current": shown}
+            continue
+        previous = current if current not in (None, "") else None
+        value = item["value"]
         if key == "parent_name":
             parent_id, note = await _parent_match(db, company, value)
-            if note:
-                notes.append(note)
+            if parent_id is None:
+                outcomes[key] = {"result": SKIPPED, "note": note}
                 continue
             updates["parent_company_id"] = parent_id
-        elif key == "tier":
+            outcomes[key] = {"result": APPLIED, "parent_company_id": parent_id}
+            continue
+        if key == "domain":
+            other = await _taken_by(db, company.id, SalesCompany.domain, value)
+            if other is not None:
+                outcomes[key] = _taken_outcome(other)
+                continue
+        if key == "nip":
+            other = await _taken_by(db, company.id, SalesCompany.nip, value)
+            if other is not None:
+                outcomes[key] = _taken_outcome(other)
+                continue
+        if key == "tier":
             updates["tier"] = value
-            updates["size_range"] = fields[key].get("employees")
+            updates["size_range"] = item.get("employees")
         else:
             updates[key] = value
-        applied.append(key)
+        outcomes[key] = {"result": APPLIED, "previous": previous}
 
-    domain = updates.get("domain")
-    derived = False
-    if domain is None and "website_url" in updates and not company.domain:
-        domain = company_service.mail_domain(updates["website_url"])
-        derived = True
-    if domain:
-        other = await _taken_by(db, company.id, SalesCompany.domain, domain)
-        if other is not None and not derived:
-            raise AcceptRefused(
-                f"Domena {domain} jest już na karcie „{other.name}”. "
-                "Najpierw scal karty albo popraw domenę na tamtej karcie."
-            )
-        if other is not None:
-            # Domena wyliczona ze strony nie trafia na kartę, gdy ma ją inna karta.
+    # Strona bez domeny na karcie: ``apply_fields`` wylicza domenę ze strony,
+    # chyba że dostanie ją wprost. Domena zajęta przez inną kartę nie może tak
+    # wejść tylnymi drzwiami, więc wtedy idzie wprost ``None``.
+    site = updates.get("website_url")
+    if site and "domain" not in updates and not company.domain:
+        derived = company_service.mail_domain(site)
+        blocked = outcomes.get("domain", {}).get("result") in (TAKEN, KEPT)
+        if blocked or (
+            derived
+            and await _taken_by(db, company.id, SalesCompany.domain, derived)
+            is not None
+        ):
             updates["domain"] = None
-            notes.append(
-                f"Domena {domain} ze strony jest już na karcie „{other.name}”, "
-                "więc nie wpisaliśmy jej tutaj."
-            )
-    if "nip" in updates:
-        other = await _taken_by(db, company.id, SalesCompany.nip, updates["nip"])
-        if other is not None:
-            raise AcceptRefused(
-                f"NIP {updates['nip']} jest już na karcie „{other.name}”. "
-                "Najpierw scal karty albo popraw NIP na tamtej karcie."
-            )
-
     if updates:
         company_service.apply_fields(company, updates)
-    for key in applied:
-        decisions[key] = "accepted"
-    for key in rejected:
-        decisions[key] = "rejected"
-    payload["decisions"] = decisions
-    result.payload = payload
-    still_open = [key for key in fields if key not in decisions]
-    if still_open:
-        result.status = "partial" if decisions else "new"
-    else:
-        result.status = "accepted" if "accepted" in decisions.values() else "rejected"
-    if decisions:
-        result.decided_by_user_id = user_id
-        result.decided_at = now
-    result.updated_at = now
-    return {
-        "id": result.id,
-        "status": result.status,
-        "company_id": company.id,
-        "applied": applied,
-        "rejected": rejected,
-        "notes": notes,
-    }
+    return outcomes
 
 
 # ── Noc ──────────────────────────────────────────────────────────────────
@@ -562,5 +585,4 @@ ENRICH = BotTask(
     report_format=_report_format,
     report_model=EnrichReport,
     ingest=_ingest,
-    accept=_accept,
 )

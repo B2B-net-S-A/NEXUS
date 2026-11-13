@@ -160,7 +160,7 @@ describe("Warto wrócić", () => {
     expect(screen.getAllByText(/Klient zrezygnował z projektu/).length).toBeGreaterThan(0);
     expect(screen.getByText("Co się zmieniło")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /example\.com/ })).toHaveAttribute("href", "https://example.com/a");
-    expect(screen.getByText("wniosek bota, nie fakt")).toBeInTheDocument();
+    expect(screen.queryByText("wniosek bota, nie fakt")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zaplanuj powrót" })).toBeInTheDocument();
   });
 
@@ -231,7 +231,7 @@ describe("Nowe centra IT", () => {
     );
     render(<NewFirmsInbox />);
     expect(screen.getByText("Buduje zespół od zera")).toBeInTheDocument();
-    expect(screen.getByText("wniosek bota, nie fakt")).toBeInTheDocument();
+    expect(screen.queryByText("wniosek bota, nie fakt")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Załóż konto w Fabrykach IT" }));
     expect(accept).toHaveBeenCalledWith(9, expect.anything());
     expect(push).toHaveBeenCalledWith("/sales/opportunities/77");
