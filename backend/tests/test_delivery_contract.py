@@ -103,6 +103,11 @@ def test_compose_joins_the_frontend_app_network() -> None:
     compose = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
     network = (compose.get("networks") or {}).get("nexus-front") or {}
     assert network.get("external") is True and network.get("name") == "nexus-front"
+    # Jawnie w usłudze: sieć z najwyższego poziomu Coolify 4.5.3 gubi przy
+    # składaniu sieci usług (parsers.php:1735, :1775) — 13.11.2026 front po
+    # przepięciu dostawał `backend_unreachable` przy logowaniu Microsoft.
+    networks = _service("backend").get("networks") or []
+    assert "nexus-front" in networks, networks
 
 
 def test_frontend_does_not_wait_for_the_backend_to_become_healthy() -> None:
