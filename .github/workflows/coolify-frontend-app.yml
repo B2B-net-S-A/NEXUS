@@ -1,6 +1,8 @@
 # Osobna aplikacja Coolify dla frontu: próba rolling update bez przejmowania ruchu.
 # Plan: docs/claude/podstawy/przerwa-przy-wdrozeniu.md. `create` nie daje domeny,
-# więc Traefik nie kieruje na nią ruchu; aplikacja stoi w osobnej sieci `nexus-front`. `deploy` buduje na serwerze produkcji, więc
+# więc Traefik nie kieruje na nią ruchu; aplikacja stoi w osobnej sieci `nexus-front`.
+# `switch` przenosi domeny frontu z compose (po „przepnij” Artura), `rollback` i `stop`
+# to wycofanie — kolejność w docs/claude/podstawy/przerwa-przy-wdrozeniu.md. `deploy` buduje na serwerze produkcji, więc
 # w dzień roboczy tylko 18:00–08:00, jak każde wdrożenie.
 name: Coolify frontend app
 
@@ -8,10 +10,14 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "plan = odczyt, create = nowa aplikacja bez domeny, deploy = wdrożenie próbne"
+        description: "plan = odczyt, create = nowa aplikacja bez domeny, deploy = wdrożenie, switch = domeny frontu z compose na aplikację, rollback / stop = wycofanie"
         type: choice
-        options: [plan, create, deploy]
+        options: [plan, create, deploy, switch, rollback, stop]
         default: plan
+      commit:
+        description: "deploy / switch: pełny SHA do wdrożenia (puste = HEAD maina z chwili uruchomienia; starszy SHA = szybkie cofnięcie frontu)"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -40,4 +46,5 @@ jobs:
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
           MODE: ${{ inputs.mode }}
           EXPECTED_SHA: ${{ github.sha }}
+          COMMIT: ${{ inputs.commit }}
         run: python3 .github/scripts/coolify_frontend_app.py "$MODE"

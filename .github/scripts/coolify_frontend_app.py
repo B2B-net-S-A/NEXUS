@@ -12,7 +12,9 @@ każdą usługę, także ``postgres``, a w tej sieci Coolify ma własną usług�
 (``coolify-db``): nazwa ``postgres`` z backendu miałaby dwa adresy. W ``nexus-front``
 są tylko kontenery NEXUSA, front i ``coolify-proxy``.
 
-Tryby: ``plan`` (tylko odczyt), ``create``, ``deploy``. Logi Actions są publiczne,
+Tryby: ``plan`` (tylko odczyt), ``create``, ``deploy`` (próbne, z ``COMMIT``),
+``switch`` (domeny frontu z compose na aplikację), ``rollback`` i ``stop`` (wycofanie),
+``trigger`` i ``wait`` (kroki workflow Deploy). Logi Actions są publiczne,
 więc do wyjścia trafiają wyłącznie nazwy zmiennych, flagi i stany, nigdy wartości
 ani ciała odpowiedzi API.
 """
@@ -31,6 +33,11 @@ from typing import Any, Callable
 APP_NAME = "nexus-frontend"
 BRANCH = "main"
 NETWORK = "nexus-front"
+COMPOSE_SERVICE = "frontend"
+MODES = {"plan", "create", "deploy", "switch", "rollback", "stop", "trigger", "wait"}
+REDIRECTS = {"www", "non-www", "both"}
+SHA_RE = re.compile(r"[0-9a-f]{40}")
+UUID_RE = re.compile(r"[A-Za-z0-9_-]+")
 
 # Tylko to, co czyta front: `grep process.env frontend/` i ARG-i w frontend/Dockerfile.
 # Dziś kontener frontu dostaje cały skarbiec (ok. 200 zmiennych, także klucze API).
@@ -170,6 +177,10 @@ def plan(request: Request, source_uuid: str) -> None:
     rows = frontend_envs(request("GET", path + "/envs"))
     print(f"zmienne do skopiowania ({len(rows)}):")
     describe(rows)
+    domains = compose_domains(source)
+    front = str((domains.get(COMPOSE_SERVICE) or {}).get("domain") or "")
+    print("usługi compose z domeną: " + (", ".join(sorted(domains)) or "brak"))
+    print(f"domeny frontu w compose: {len([d for d in front.split(',') if d.strip()])}")
 
 
 def create(request: Request, source_uuid: str) -> None:
@@ -202,9 +213,45 @@ def built_sha_line(logs: Any, commit: str) -> bool | None:
     return f"(sha={commit})" in (logs if isinstance(logs, str) else json.dumps(logs))
 
 
-def deploy(
+def trigger(request: Request, commit: str) -> str:
+    """Wdrożenie frontu dokładnie z `commit`.
+
+    Coolify 4.5.3 bierze `git_commit_sha` aplikacji jako commit wdrożenia
+    (`queue_application_deployment`); bez przypięcia budowałby HEAD maina z chwili
+    startu, który bywa nowszy niż commit backendu i `version.json` by się rozjechał.
+    """
+    if not SHA_RE.fullmatch(commit):
+        raise ValueError("commit frontu musi mieć 40 znaków hex")
+    app = find_frontend(request)
+    if app is None:
+        raise ValueError("brak aplikacji " + APP_NAME)
+    request("PATCH", "applications/" + app["uuid"], {"git_commit_sha": commit})
+    response = request("POST", "deploy?uuid=" + app["uuid"] + "&force=false")
+    deployment_uuid = (response.get("deployments") or [{}])[0].get("deployment_uuid")
+    if not deployment_uuid:
+        raise ValueError("Coolify nie przyjął wdrożenia frontu")
+    print("wdrożenie frontu w kolejce, commit " + commit[:12])
+    return deployment_uuid
+
+
+def compose_commit(
+    request: Request, deployment_uuid: str, poll_seconds: float = 5.0, polls: int = 180
+) -> str:
+    """Commit, który buduje wdrożenie compose (Coolify ustala go dopiero po starcie)."""
+    for _ in range(polls):
+        deployment = request("GET", "deployments/" + deployment_uuid) or {}
+        commit = str(deployment.get("commit") or "")
+        if SHA_RE.fullmatch(commit):
+            return commit
+        if deployment.get("status") in {"failed", "cancelled-by-user"}:
+            raise ValueError("wdrożenie compose padło, front zostaje na starej wersji")
+        time.sleep(poll_seconds)
+    raise ValueError("wdrożenie compose nie ustaliło commitu w czasie")
+
+
+def wait(
     request: Request,
-    expected_sha: str = "",
+    deployment_uuid: str,
     poll_seconds: float = 10.0,
     polls: int = 120,
     health_polls: int = 18,
@@ -212,8 +259,6 @@ def deploy(
     app = find_frontend(request)
     if app is None:
         raise ValueError("brak aplikacji " + APP_NAME)
-    response = request("POST", "deploy?uuid=" + app["uuid"] + "&force=false")
-    deployment_uuid = response["deployments"][0]["deployment_uuid"]
     deployment: dict[str, Any] = {}
     status = "unknown"
     for _ in range(polls):
@@ -229,8 +274,6 @@ def deploy(
     # SHA repozytorium jest publiczne, więc można je wypisać.
     commit = str(deployment.get("commit") or "")
     print("commit wdrożenia: " + (commit[:12] or "brak"))
-    if expected_sha and commit != expected_sha:
-        print("uwaga: main przesunął się od uruchomienia workflow (" + expected_sha[:12] + ")")
     built = built_sha_line(deployment.get("logs"), commit)
     print(
         "version.json z SHA wdrożenia w logu builda: "
@@ -250,15 +293,107 @@ def deploy(
         raise ValueError("kontener frontu nie przeszedł healthchecku")
 
 
+def deploy(request: Request, commit: str, **timing: Any) -> None:
+    wait(request, trigger(request, commit), **timing)
+
+
+def compose_domains(source: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    raw = source.get("docker_compose_domains") or "{}"
+    data = json.loads(raw) if isinstance(raw, str) else raw
+    return data if isinstance(data, dict) else {}
+
+
+def domain_rows(domains: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
+    """Format PATCH: Coolify zastępuje całą listę, więc idą wszystkie usługi."""
+    rows = []
+    for name, entry in domains.items():
+        row = {"name": name, "domain": str(entry.get("domain") or "")}
+        if entry.get("redirect") in REDIRECTS:
+            row["redirect"] = entry["redirect"]
+        rows.append(row)
+    return rows
+
+
+def switch(request: Request, source_uuid: str, commit: str, **timing: Any) -> None:
+    """Przepięcie domen frontu z compose na `nexus-frontend` bez przerwy.
+
+    1. Aplikacja frontu dostaje domeny i wdraża się (rolling update) — od tej
+       chwili Traefik ma dla nich dwa zdrowe kontenery.
+    2. Compose traci domeny frontu; stary kontener znika z routingu przy
+       najbliższym wdrożeniu compose (PR usuwający usługę `frontend`).
+    """
+    path = "applications/" + source_uuid
+    app = find_frontend(request)
+    if app is None:
+        raise ValueError("brak aplikacji " + APP_NAME)
+    domains = compose_domains(request("GET", path))
+    front = domains.get(COMPOSE_SERVICE) or {}
+    if not front.get("domain"):
+        raise ValueError("compose nie ma domen frontu — przepięcie już zrobione?")
+    payload: dict[str, Any] = {"domains": front["domain"], "force_domain_override": True}
+    if front.get("redirect") in REDIRECTS:
+        payload["redirect"] = front["redirect"]
+    request("PATCH", "applications/" + app["uuid"], payload)
+    deploy(request, commit, **timing)
+    rest = {name: entry for name, entry in domains.items() if name != COMPOSE_SERVICE}
+    request("PATCH", path, {"docker_compose_domains": domain_rows(rest)})
+    count = len([d for d in str(front["domain"]).split(",") if d.strip()])
+    print(f"przeniesiono domen frontu: {count}; compose zachowuje: {', '.join(sorted(rest))}")
+
+
+def rollback(request: Request, source_uuid: str) -> None:
+    """Domeny frontu wracają do usługi `frontend` w compose.
+
+    Coolify przyjmuje domenę tylko dla usługi z wczytanego compose, więc najpierw
+    wdrożony musi być compose z usługą `frontend` (revert PR-a z przepięciem).
+    Do kolejnego wdrożenia compose ruch dalej obsługuje `nexus-frontend`.
+    """
+    path = "applications/" + source_uuid
+    app = find_frontend(request)
+    if app is None:
+        raise ValueError("brak aplikacji " + APP_NAME)
+    source = request("GET", path)
+    services = str(source.get("docker_compose_raw") or "")
+    if not re.search(r"(?m)^  " + COMPOSE_SERVICE + r":\s*$", services):
+        raise ValueError("wczytany compose nie ma usługi frontend — najpierw revert i Deploy")
+    detail = request("GET", "applications/" + app["uuid"]) or {}
+    fqdn = str(detail.get("fqdn") or "")
+    if not fqdn:
+        raise ValueError("aplikacja frontu nie ma domen — nic do cofnięcia")
+    domains = compose_domains(source)
+    entry: dict[str, Any] = {"domain": fqdn}
+    if detail.get("redirect") in REDIRECTS:
+        entry["redirect"] = detail["redirect"]
+    domains[COMPOSE_SERVICE] = entry
+    request("PATCH", path, {"docker_compose_domains": domain_rows(domains), "force_domain_override": True})
+    print("domeny frontu wpisane z powrotem do compose; teraz Deploy z force_rebuild=true, potem stop")
+
+
+def stop(request: Request) -> None:
+    app = find_frontend(request)
+    if app is None:
+        raise ValueError("brak aplikacji " + APP_NAME)
+    request("POST", "applications/" + app["uuid"] + "/stop")
+    print("zatrzymano " + APP_NAME)
+
+
+def write_output(name: str, value: str) -> None:
+    target = os.environ.get("GITHUB_OUTPUT")
+    if target:
+        with open(target, "a", encoding="utf-8") as handle:
+            handle.write(f"{name}={value}\n")
+
+
 def main() -> int:
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     base = os.environ["CO_URL"].rstrip("/")
     token = os.environ["CO_TOKEN"]
     source_uuid = os.environ["APP_UUID"]
-    if mode not in {"plan", "create", "deploy"} or not base.startswith("https://"):
+    commit = os.environ.get("COMMIT") or os.environ.get("EXPECTED_SHA", "")
+    if mode not in MODES or not base.startswith("https://"):
         print("NEXUS_FRONTEND_APP_FAILED: zły tryb albo adres", file=sys.stderr)
         return 1
-    if not re.fullmatch(r"[A-Za-z0-9_-]+", source_uuid):
+    if not UUID_RE.fullmatch(source_uuid):
         print("NEXUS_FRONTEND_APP_FAILED: zły identyfikator aplikacji", file=sys.stderr)
         return 1
 
@@ -282,8 +417,25 @@ def main() -> int:
             plan(request, source_uuid)
         elif mode == "create":
             create(request, source_uuid)
+        elif mode == "deploy":
+            deploy(request, commit)
+        elif mode == "switch":
+            switch(request, source_uuid, commit)
+        elif mode == "rollback":
+            rollback(request, source_uuid)
+        elif mode == "stop":
+            stop(request)
+        elif mode == "trigger":
+            # Deploy: front z tego samego commitu, który buduje compose.
+            compose = os.environ.get("COMPOSE_DEPLOYMENT_UUID", "")
+            if not UUID_RE.fullmatch(compose):
+                raise ValueError("brak COMPOSE_DEPLOYMENT_UUID")
+            write_output("deployment_uuid", trigger(request, compose_commit(request, compose)))
         else:
-            deploy(request, os.environ.get("EXPECTED_SHA", ""))
+            deployment = os.environ.get("FRONTEND_DEPLOYMENT_UUID", "")
+            if not UUID_RE.fullmatch(deployment):
+                raise ValueError("brak FRONTEND_DEPLOYMENT_UUID")
+            wait(request, deployment)
     except urllib.error.HTTPError as error:
         print("NEXUS_FRONTEND_APP_FAILED: HTTP " + str(error.code), file=sys.stderr)
         return 1
