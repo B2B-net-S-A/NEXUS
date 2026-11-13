@@ -2689,5 +2689,22 @@
     "href": "/sales/my-day",
     "dot_anchor": "sales.my-day.prep-points",
     "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "sprzedaz-leady-teczka",
+    "pr": 3363,
+    "title": "Leady: teczka firmy przy leadzie",
+    "why": "Pod opisem leada widzisz dane firmy, kogo znamy, decydentów i punkty na pierwszą rozmowę. Nowy lead sam uzupełnia kartę, kontakty i punkty.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Leady",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.leads.dossier",
+    "used_anchor": "sales.leads.dossier.card"
   }
 ]

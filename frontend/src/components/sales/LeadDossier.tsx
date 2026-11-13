@@ -65,7 +65,11 @@ export function LeadDossier({ dossier, compact = false }: LeadDossierProps) {
     dossier.points > 0 && (
       <Line key="points" label="Na pierwszą rozmowę">
         {countPl(dossier.points, "punkt", "punkty", "punktów")} ·{" "}
-        <Link href={`/sales/companies/${dossier.company_id}`} className="text-primary hover:underline">
+        <Link
+          href={`/sales/companies/${dossier.company_id}`}
+          data-tour="sales.leads.dossier.card"
+          className="text-primary hover:underline"
+        >
           karta firmy
         </Link>
       </Line>
@@ -75,6 +79,7 @@ export function LeadDossier({ dossier, compact = false }: LeadDossierProps) {
   return (
     <div
       data-testid="lead-dossier"
+      data-tour="sales.leads.dossier"
       className={cn(
         "mt-2 grid gap-x-6 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs",
         !compact && "sm:grid-cols-2",
