@@ -322,7 +322,9 @@ def test_do_faktury_dopiero_po_podpisie_klienta() -> None:
 
 
 def test_koszty_dodatkowe_na_fakturze_glownej() -> None:
-    s = _settlement(kesu.SIGNED)
+    """Koszty z KEŚU idą przez dodatki (``extras.sync_from_kesu``): netto =
+    brutto / 1,23, a pozycje składa ``client_invoice.with_extras``."""
+
     base = client_invoice.Position(
         "Usługi; osoba",
         "MD",
@@ -331,37 +333,58 @@ def test_koszty_dodatkowe_na_fakturze_glownej() -> None:
         Decimal("26641.12"),
         "base",
     )
-    separate = client_invoice.extra_costs(
-        s,
+    # Nocleg 205 zł brutto z KEŚU → dodatek 166,67 zł netto.
+    net = (Decimal("205.00") / kesu.VAT).quantize(Decimal("0.01"))
+    billed = [SimpleNamespace(amount=net)]
+    separate, note = client_invoice.with_extras(
         [base],
-        _rules_with_item("Koszty delegacji"),
+        billed,
+        rule=_rules_with_item("Koszty delegacji")["cl.extra_costs_on_invoice"],
+        currency="PLN",
         name="Usługi; osoba",
     )
+    assert note is None
     assert [(p.name, p.net, p.kind) for p in separate] == [
         ("Usługi; osoba", Decimal("26641.12"), "base"),
-        ("Koszty delegacji", Decimal("166.67"), "extra_costs"),
+        ("Koszty delegacji", Decimal("166.67"), "extra"),
     ]
     # Brutto faktury = „Razem w PLN BRUTTO” z KEŚU: (26 641,12 + 166,67) × 1,23.
     assert ((Decimal("26641.12") + Decimal("166.67")) * kesu.VAT).quantize(
         Decimal("0.01")
     ) == Decimal("32973.58")
-    merged = client_invoice.extra_costs(s, [base], _rules_with_item(""), name="x")
+    merged, _ = client_invoice.with_extras(
+        [base],
+        billed,
+        rule=_rules_with_item("")["cl.extra_costs_on_invoice"],
+        currency="PLN",
+        name="x",
+    )
     assert [(p.quantity, p.net) for p in merged] == [
         (Decimal("1"), Decimal("26807.79"))
     ]
     no_rate = client_invoice.Position(
         "Usługi; osoba", "MD", Decimal("22"), None, Decimal("0.00"), "base"
     )
-    alone = client_invoice.extra_costs(
-        s, [no_rate], _rules_with_item(""), name="Usługi; osoba"
+    alone, _ = client_invoice.with_extras(
+        [no_rate],
+        billed,
+        rule=_rules_with_item("")["cl.extra_costs_on_invoice"],
+        currency="PLN",
+        name="Usługi; osoba",
     )
     # Linia zamówienia bez stawki: koszt nie udaje całej usługi „1 × 166,67”.
     assert [(p.name, p.net) for p in alone] == [
         ("Usługi; osoba", Decimal("0.00")),
         ("Usługi; osoba; koszty dodatkowe", Decimal("166.67")),
     ]
-    off = client_invoice.extra_costs(s, [base], _rules(), name="x")
-    assert off == [base]
+    off, note = client_invoice.with_extras(
+        [base],
+        billed,
+        rule=_rules()["cl.extra_costs_on_invoice"],
+        currency="PLN",
+        name="x",
+    )
+    assert off == [base] and "wyłączona" in note
 
 
 def _rules_with_item(item: str) -> dict:

@@ -18,6 +18,13 @@ Waluta (E6.2): linia zamówienia ze stawką klienta w innej walucie niż zł
 Marża zostaje w zł: netto przeliczamy kursem z linii zamówienia
 (``md_rate_revenue`` / ``rate_client``), tym samym, którym liczy się przychód.
 
+Dodatki (13.11.2026): zatwierdzony dodatek z ``bill_to_client`` (np. koszty
+dodatkowe z KEŚU Aliora — trafiają tu jako zgłoszony dodatek, ``extras.sync_from_kesu``)
+idzie na fakturę według ``cl.extra_costs_on_invoice`` — parametr ``item`` pusty =
+jedna pozycja 1 × (usługa + koszty), nazwa = osobna pozycja z tą nazwą. Dodatki zatwierdzone (także niefakturowane klientowi) są kosztem
+miesiąca, więc obniżają marżę. Waluta linii inna niż zł: dodatek w zł nie
+trafia do pozycji, wiersz dostaje uwagę.
+
 Paczka załączników (E5.2): pliki RCP i maile miesiąca w zipie; przy regule
 ``cl.attachment_name`` plik RCP nosi numer KSeF faktury do klienta.
 """
@@ -37,7 +44,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.client_settlement import ClientSettlement
-from app.services.client_settlements import kesu, service
+from app.services.client_settlements import extras as settlement_extras
+from app.services.client_settlements import service
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
@@ -64,7 +72,7 @@ class Position:
     quantity: Decimal
     unit_price: Optional[Decimal]
     net: Decimal
-    kind: str  # base · overtime · onboarding · correction
+    kind: str  # base · overtime · onboarding · correction · extra
     currency: str = PLN
 
     def as_dict(self) -> dict[str, Any]:
@@ -247,52 +255,6 @@ def positions(
     return out
 
 
-def extra_costs(
-    s: ClientSettlement,
-    items: list[Position],
-    rules: dict[str, dict[str, Any]],
-    *,
-    name: str,
-    currency: str = PLN,
-) -> list[Position]:
-    """Koszty dodatkowe z KEŚU na fakturze głównej (``cl.extra_costs_on_invoice``, E6.3).
-
-    KEŚU podaje koszty brutto i liczy „Razem w PLN BRUTTO” razem z usługą, więc
-    netto kosztów = brutto / 1,23 (brutto faktury = „Razem” z KEŚU). Parametr
-    ``item`` pusty = jedna pozycja na całość, nazwa = osobna pozycja.
-    """
-
-    rule = rules["cl.extra_costs_on_invoice"]
-    data = service.meta_of(s).get("kesu")
-    if rule["level"] == "off" or not isinstance(data, dict) or currency != PLN:
-        return items
-    gross = Decimal(str(data.get("extra_costs") or "0"))
-    if gross <= 0:
-        return items
-    net = _money(gross / kesu.VAT)
-    label = str(rule["params"].get("item") or "").strip()
-    if label:
-        return [*items, Position(label, "usł.", Decimal("1"), net, net, "extra_costs")]
-    base = next((p for p in items if p.kind == "base"), None)
-    if base is None or base.unit_price is None:
-        # Bez stawki na linii zamówienia nie da się podać jednej pozycji
-        # „usługa z kosztami”: koszty idą osobno, kwota usługi czeka na stawkę.
-        return [
-            *items,
-            Position(
-                f"{name}; koszty dodatkowe",
-                "usł.",
-                Decimal("1"),
-                net,
-                net,
-                "extra_costs",
-            ),
-        ]
-    total = base.net + net
-    merged = Position(base.name, "usł.", Decimal("1"), total, total, "base", currency)
-    return [merged if p is base else p for p in items]
-
-
 def _correction(
     estimate: ClientSettlement,
     actual: ClientSettlement,
@@ -385,6 +347,9 @@ async def invoice_month(
         if suffix_rule["level"] != "off"
         else None
     )
+    extra_rule = rules["cl.extra_costs_on_invoice"]
+    billed = await settlement_extras.billed_to_client(db, ids, month)
+    added = await settlement_extras.expected_by_contract(db, ids, month)
     rows = []
     for row in view["rows"]:
         contract_id = row["contract_id"]
@@ -408,6 +373,7 @@ async def invoice_month(
             "template": False,
             "ksef_number": None,
             "invoice_number": None,
+            "extras_note": None,
         }
         prev_estimate = by_key.get((contract_id, previous, service.ESTIMATE))
         prev_actual = by_key.get((contract_id, previous, service.ACTUAL))
@@ -447,10 +413,6 @@ async def invoice_month(
             if chosen is not None
             else []
         )
-        if chosen is not None and chosen.kind == service.ACTUAL:
-            items = extra_costs(
-                chosen, items, rules, name=name, currency=price.currency
-            )
         if prev_estimate is not None and prev_actual is not None:
             correction = _correction(
                 prev_estimate,
@@ -462,9 +424,18 @@ async def invoice_month(
             )
             if correction is not None:
                 items.append(correction)
+        if chosen is not None:
+            items, out["extras_note"] = with_extras(
+                items,
+                billed.get(contract_id, []),
+                rule=extra_rule,
+                currency=price.currency,
+                name=name,
+            )
         net = sum((p.net for p in items), Decimal("0"))
         cost = (
             Decimal(chosen.amount_cost)
+            + getattr(added.get(contract_id), "approved", Decimal("0"))
             if chosen is not None and chosen.amount_cost is not None
             else None
         )
@@ -504,6 +475,60 @@ async def invoice_month(
         "can_see_amounts": amounts,
         "rows": rows,
     }
+
+
+def with_extras(
+    items: list[Position],
+    billed: list[Any],
+    *,
+    rule: dict[str, Any],
+    currency: str,
+    name: str,
+) -> tuple[list[Position], Optional[str]]:
+    """Dodatki fakturowane klientowi w pozycjach (``cl.extra_costs_on_invoice``).
+
+    Parametr ``item`` z nazwą = osobna pozycja; pusty = jedna pozycja „usługa
+    z kosztami” (1 × suma, jak faktura główna Aliora z KEŚU). Bez stawki na
+    pozycji zasadniczej koszt idzie osobno, żeby nie udawał całej usługi.
+    Zwraca pozycje i uwagę dla Finansów, gdy dodatek czeka poza fakturą."""
+
+    if not billed:
+        return items, None
+    total = _money(sum((Decimal(e.amount) for e in billed), Decimal("0")))
+    if rule["level"] == "off":
+        return items, (
+            f"Dodatek do faktury klienta ({settlement_extras.pln(total)}) czeka: "
+            "reguła „Koszty dodatkowe na fakturze głównej” jest wyłączona."
+        )
+    if currency != PLN:
+        return items, (
+            f"Dodatek w zł ({settlement_extras.pln(total)}) nie wchodzi do faktury "
+            f"w {currency} — dolicz go ręcznie."
+        )
+    label = str(rule["params"].get("item") or "").strip()
+    if label:
+        return [
+            *items,
+            Position(label, "usł.", Decimal("1"), total, total, "extra"),
+        ], None
+    base = next((p for p in items if p.kind == "base"), None)
+    if base is None or base.unit_price is None:
+        return [
+            *items,
+            Position(
+                f"{name}; koszty dodatkowe",
+                "usł.",
+                Decimal("1"),
+                total,
+                total,
+                "extra",
+            ),
+        ], None
+    merged_net = _money(base.net + total)
+    merged = Position(
+        base.name, "usł.", Decimal("1"), merged_net, merged_net, "base", currency
+    )
+    return [merged if p is base else p for p in items], None
 
 
 def copy_text(rows: list[dict[str, Any]]) -> str:

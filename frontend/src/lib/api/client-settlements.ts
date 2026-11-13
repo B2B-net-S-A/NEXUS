@@ -20,8 +20,9 @@ export type SettlementStatus =
   | "needs_fix"
   | "no_md"
   | "accepted";
-/** Faktura kontraktora z KSeF (E4); `nip_check` — NIP z faktury czeka na Finanse (E4.0). */
-export type ContractorInvoiceState = "none" | "can_issue" | "in_ksef" | "differs" | "nip_check";
+/** Faktura kontraktora z KSeF (E4); `nip_check` — NIP z faktury czeka na Finanse (E4.0);
+ * `extra_pending` — różnica faktury to zgłoszony, niezatwierdzony dodatek. */
+export type ContractorInvoiceState = "none" | "can_issue" | "in_ksef" | "differs" | "nip_check" | "extra_pending";
 /** `awaiting_signature` — KEŚU bez podpisu klienta (E6.3, `cl.after_signed_document`). */
 export type ClientInvoiceState = "waiting" | "ready" | "issued" | "awaiting_signature";
 /** Stan KEŚU osoby w miesiącu (E6.3, klient z Jirą). */
@@ -59,6 +60,8 @@ export interface SettlementRow {
   client_invoice: ClientInvoiceState;
   /** KEŚU z Jiry (E6.3): stan, opiekun i czas, bez kwot. */
   kesu?: KesuSummary | null;
+  /** Dodatki zgłoszone, a jeszcze niezatwierdzone przez Finanse. */
+  extras_pending?: number;
 }
 
 export interface KesuSummary {
@@ -166,6 +169,55 @@ export interface SettlementDetail {
   order: { md_total: string | null; md_charged: string | null; md_remaining_after: string | null } | null;
   contractor_invoice?: ContractorInvoiceBlock;
   kesu?: KesuBlock | null;
+  extras?: SettlementExtrasBlock;
+}
+
+/** Dodatek do rozliczenia kontraktora: polecenie, weryfikacja techniczna, szkolenie, delegacja. */
+export type SettlementExtraKind = "referral" | "tech_check" | "training" | "travel" | "integration" | "other";
+export type SettlementExtraStatus = "pending" | "approved" | "rejected";
+
+export interface SettlementExtraDocument {
+  id: number;
+  file_name: string | null;
+  mime: string;
+  channel: "portal" | "staff";
+  received_at: string | null;
+}
+
+export interface SettlementExtra {
+  id: number;
+  contract_id: number;
+  month: string;
+  kind: SettlementExtraKind;
+  kind_label: string;
+  /** Netto; `null` bez dostępu do kwot. */
+  amount: string | null;
+  description: string;
+  status: SettlementExtraStatus;
+  status_label: string;
+  source: "back_office" | "finance" | "portal";
+  source_label: string;
+  reported_by: string | null;
+  decided_by: string | null;
+  decided_at: string | null;
+  /** Powód odrzucenia. */
+  decision_note: string | null;
+  bill_to_client: boolean;
+  bo_card_id: number | null;
+  /** `false` dla kosztów integracji (ścieżka DL-a, nie faktura kontraktora). */
+  counts_on_invoice: boolean;
+  created_at: string | null;
+  documents: SettlementExtraDocument[];
+  /** Tylko w widoku karty back office'u. */
+  person?: string | null;
+}
+
+export interface SettlementExtrasBlock {
+  items: SettlementExtra[];
+  approved_total: string | null;
+  pending_total: string | null;
+  pending_count: number;
+  kinds: { key: SettlementExtraKind; label: string }[];
 }
 
 export interface ContractorInvoice {
@@ -271,7 +323,7 @@ export interface ClientInvoicePosition {
   quantity: string;
   unit_price: string | null;
   net: string | null;
-  kind: "base" | "overtime" | "onboarding" | "correction";
+  kind: "base" | "overtime" | "onboarding" | "correction" | "extra";
   /** Waluta faktury klienta (E6.2): stawka klienta z linii zamówienia, np. EUR. */
   currency: string;
 }
@@ -295,6 +347,8 @@ export interface ClientInvoiceRow {
   template: boolean;
   ksef_number: string | null;
   invoice_number: string | null;
+  /** Dodatek do faktury klienta, który nie wszedł do pozycji (reguła wyłączona, inna waluta). */
+  extras_note?: string | null;
 }
 
 export interface ClientInvoiceMonth {
@@ -630,6 +684,79 @@ export function useDecideIntegrationCost(clientId: number, month: string) {
           { params: { month } },
         )
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+// ── Dodatki do rozliczenia kontraktora ──────────────────────────────────────
+
+/** Plik dodatku (paragon, bilety, faktura kosztowa). */
+export async function fetchExtraDocument(contractId: number, extraId: number, documentId: number): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/contract/${contractId}/extras/${extraId}/documents/${documentId}`, {
+      responseType: "blob",
+    })
+  ).data;
+}
+
+export interface NewExtraInput {
+  contractId: number;
+  kind: SettlementExtraKind;
+  amount: string;
+  description: string;
+  billToClient: boolean;
+}
+
+/** Dodatek wpisany przez Finanse — od razu zatwierdzony. */
+export function useAddSettlementExtra(month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async ({ contractId, kind, amount, description, billToClient }: NewExtraInput) =>
+      (
+        await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/extras`, {
+          month,
+          kind,
+          amount,
+          description: description || null,
+          bill_to_client: billToClient,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export type ExtraDecision =
+  | { action: "approve"; billToClient?: boolean }
+  | { action: "reject"; reason: string }
+  | { action: "billing"; billToClient: boolean };
+
+export function useDecideSettlementExtra(month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async ({ contractId, extraId, decision }: { contractId: number; extraId: number; decision: ExtraDecision }) => {
+      const url = `${BASE}/contract/${contractId}/extras/${extraId}/${decision.action}`;
+      const body =
+        decision.action === "reject"
+          ? { reason: decision.reason }
+          : { bill_to_client: decision.billToClient ?? null };
+      return (await api.post<SettlementDetail>(url, body, { params: { month } })).data;
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useUploadExtraDocument(month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async ({ contractId, extraId, file }: { contractId: number; extraId: number; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/extras/${extraId}/documents`, form, {
+          params: { month },
+        })
+      ).data;
+    },
     onSuccess: invalidate,
   });
 }

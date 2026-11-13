@@ -180,6 +180,21 @@ export interface PortalMonth {
   documents: PortalDocument[];
   /** Rozliczenie klienta (E3); `null` przy wyłączonym module albo bez rozliczenia. */
   settlement?: PortalMonthSettlement | null;
+  /** Dodatki do faktury w tym miesiącu; `null` przy wyłączonym module rozliczeń. */
+  extras?: PortalExtra[] | null;
+}
+
+/** Dodatek do faktury (polecenie, weryfikacja, szkolenie, delegacja) ze stanem zgłoszenia. */
+export interface PortalExtra {
+  id: number;
+  kind_label: string;
+  description: string;
+  amount: string;
+  status: "pending" | "approved" | "rejected";
+  status_label: string;
+  /** Powód odrzucenia. */
+  reason: string | null;
+  documents: number;
 }
 
 /** Lista dozwolonych pól: bez stawki klienta, marży i mnożnika nadgodzin. */
@@ -204,8 +219,10 @@ export interface PortalSettlementInvoice {
   payment_days: number;
   buyer?: { name: string; nip: string; address: string };
   item?: { description: string; quantity: string; net: string | null };
+  /** Zatwierdzone dodatki: osobne pozycje faktury (kwota netto je zawiera). */
+  extra_items?: { description: string; quantity: string; net: string }[];
   ksef?: {
-    state: "in_ksef" | "differs";
+    state: "in_ksef" | "differs" | "extra_pending";
     label: string;
     invoice_number: string | null;
     ksef_number: string;
@@ -321,6 +338,12 @@ export const portalApi = {
     (await (await request("/finance/documents", { method: "POST", body: form })).json()) as {
       id: number;
       duplicate: boolean;
+    },
+  /** Delegacja z dokumentami: dodatek „zgłoszony”, czeka na Finanse. */
+  addTravel: async (form: FormData) =>
+    (await (await request("/settlement/extras", { method: "POST", body: form })).json()) as {
+      id: number;
+      status: string;
     },
   downloadDocument: async (id: number): Promise<Blob> =>
     (await request(`/finance/documents/${id}/file`)).blob(),

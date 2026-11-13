@@ -523,6 +523,26 @@ krokach E6.
 - **Meta per klient:** reguły ustawione w „Reguły klienta”, jeden pełny miesiąc
   na stagingu, akceptacja autora instrukcji.
 
+### Dodatki do rozliczenia kontraktora (13.11.2026, wspólne dla klientów)
+
+Potrzeba Finansów z 13.11: kontraktor dolicza do faktury premię za polecenie,
+weryfikację techniczną, szkolenie albo delegację. Reguła:
+`docs/claude/finanse-insights/dodatki-do-rozliczenia-kontraktora.md`.
+
+- Dane: `client_settlement_extras` i `client_settlement_extra_documents`
+  (tabela z 0689, kolumny i dokumenty z 0690, lustro w `entrypoint.sh` przez `hr_schema_bundle`). Koszty
+  integracji BNP (`cl.integration_costs`) to ten sam model, rodzaj `integration`.
+- Zgłoszenie: z karty sprawy w back office (kto, okres, kwota), przez Finanse na
+  karcie osoby, przez konsultanta w panelu (delegacja z dokumentami). Zgłoszony
+  dodatek czeka na Finanse; wpis Finansów jest od razu zatwierdzony.
+- Wyliczenie: `ci.amount` porównuje fakturę z wyliczeniem + zatwierdzone dodatki;
+  różnica równa zgłoszonemu dodatkowi = stan „Czeka na dodatek” (uwaga, nie błąd).
+- Panel: zatwierdzone dodatki osobnymi pozycjami w danych do faktury.
+- Faktura do klienta: dodatek z „Na fakturę dla klienta” według
+  `cl.extra_costs_on_invoice`; zatwierdzone dodatki są kosztem w marży.
+- Zostaje: limit kwot dodatków per rodzaj (np. stała stawka za weryfikację), dzwonek
+  dla Finansów o nowym zgłoszeniu, odczyt dodatku z treści maila sprawy.
+
 ### E8. Jedna skrzynka wsparcie@ (decyzja Artura z 09.11.2026)
 
 Cel: wszystkie maile i tickety wchodzą przez `wsparcie@b2bnetwork.pl`;
