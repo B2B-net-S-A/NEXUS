@@ -1,7 +1,8 @@
 # Osobna aplikacja Coolify dla frontu: próba rolling update bez przejmowania ruchu.
 # Plan: docs/claude/podstawy/przerwa-przy-wdrozeniu.md. `create` nie daje domeny,
 # więc Traefik nie kieruje na nią ruchu; aplikacja stoi w osobnej sieci `nexus-front`.
-# `switch` przenosi domeny frontu z compose (po „przepnij” Artura), `rollback` i `stop`
+# `switch` przenosi domeny frontu z compose (po „przepnij” Artura) przez bramkę: adres
+# próbny + ścieżka użytkownika, potem obserwacja z automatycznym powrotem; `rollback` i `stop`
 # to wycofanie — kolejność w docs/claude/podstawy/przerwa-przy-wdrozeniu.md. `deploy` buduje na serwerze produkcji, więc
 # w dzień roboczy tylko 18:00–08:00, jak każde wdrożenie.
 name: Coolify frontend app
@@ -41,6 +42,7 @@ jobs:
         run: |
           python3 -m unittest discover -s .github/scripts/tests -p test_coolify_frontend_app.py
           python3 -m unittest discover -s .github/scripts/tests -p test_coolify_labels.py
+          python3 -m unittest discover -s .github/scripts/tests -p test_front_path_check.py
       - name: Run
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}

@@ -190,6 +190,12 @@ services:
     stop_grace_period: 15s
     expose:
       - "8000"
+    # Jawnie, nie przez sieć z najwyższego poziomu: Coolify 4.5.3 dopisuje ją do
+    # usługi jako `null` i gubi przy składaniu listy sieci (parsers.php:1735, :1775),
+    # więc front `nexus-frontend` nie widział `backend:8000` (13.11.2026). Sieć bazowa
+    # Coolify dochodzi sama; alias `backend` compose nadaje w każdej sieci usługi.
+    networks:
+      - nexus-front
     depends_on:
       postgres:
         condition: service_healthy
@@ -288,48 +294,11 @@ services:
       - /var/lib/nexus-status:/run/nexus-host-status:ro
     logging: *default-logging
 
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        # Sentry build-time args. DSN is public (browser bundle); auth token is
-        # build-only (stripped from runtime image). Both come from Coolify env
-        # vault with is_buildtime=true.
-        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
-        NEXT_PUBLIC_GIT_SHA: ${GIT_SHA:-unknown}  # bez zagnieżdżonych domyślnych — patrz backend
-        # Host strony kariery (routing po domenie w middleware) — wklejany w build.
-        NEXT_PUBLIC_CAREER_HOST: ${NEXT_PUBLIC_CAREER_HOST:-}
-        SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
-    restart: unless-stopped
-    mem_limit: 1g
-    mem_reservation: 256m
-    env_file:
-      - .env
-    environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      NEXT_PUBLIC_CAREER_HOST: ${NEXT_PUBLIC_CAREER_HOST:-}
-      # Server-side (RSC) fetches need the compose-internal URL. Browser
-      # requests continue to use NEXT_PUBLIC_API_URL (inlined at build time).
-      INTERNAL_API_URL: http://backend:8000
-      # Sentry runtime envs (server-side, NOT NEXT_PUBLIC_). DSN unset = SDK no-op.
-      SENTRY_DSN: ${SENTRY_DSN:-}
-      SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
-      SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
-    expose:
-      - "3000"
-    # CELOWO bez `depends_on: backend` (reaudyt 14.09.2026). Zależność od zdrowego
-    # backendu sprawiała, że przy KAŻDYM deployu Compose najpierw zatrzymywał
-    # frontend, potem odtwarzał backend z migracjami i dopiero po jego starcie
-    # uruchamiał nowy frontend. Zmierzone przy #1509: frontend „no available
-    # server” ~105 s, API ~52 s — frontend padł 26 s przed API i wstał po nim.
-    # Bez zależności oba kontenery odtwarzają się niezależnie, a frontend leży
-    # tylko przez własny restart. Koszt: w oknie restartu API strona się
-    # wczytuje, ale jej zapytania do API chwilowo zwracają błąd (ponawia je
-    # axios) — to lepsze niż 503 całej aplikacji. Czas przerwy każdego deployu
-    # raportuje krok „Report user-facing downtime” w deploy.yml.
-    logging: *default-logging
+  # Front (Next.js) od 11.2026 jest osobną aplikacją Coolify `nexus-frontend`
+  # z Dockerfile `frontend/Dockerfile`: Coolify robi dla niej rolling update, a
+  # w compose zatrzymuje przy wdrożeniu wszystko naraz, także bazę. Deploy wdraża
+  # ją razem z tym compose (`coolify_frontend_app.py trigger`/`wait`).
+  # → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
 
   # Grafana Alloy log shipper. Profile-gated so this PR is safe to merge
   # before Grafana Cloud credentials land in Coolify env vault. Once
@@ -466,10 +435,10 @@ volumes:
   uploads_data:
 
 # Sieć wspólna z aplikacją frontu `nexus-frontend` (destination `nexus-front`
-# w Coolify): front woła `http://backend:8000` (INTERNAL_API_URL). Coolify
-# dopisuje każdą sieć z tego poziomu do każdej usługi; w `nexus-front` są tylko
-# kontenery NEXUSA i `coolify-proxy`, więc `postgres` czy `backend` nie mają tam
-# drugiego właściciela. NIE `connect_to_docker_network`: wspólna sieć `coolify`
+# w Coolify): front woła `http://backend:8000` (INTERNAL_API_URL). Dołącza do niej
+# tylko `backend`, jawnym `networks:` w usłudze — sieć z tego poziomu Coolify
+# do usług nie dopisuje (gubi ją jako `null`). W `nexus-front` są tylko kontenery
+# NEXUSA i `coolify-proxy`, więc `backend` nie ma tam drugiego właściciela. NIE `connect_to_docker_network`: wspólna sieć `coolify`
 # ma własną usługę `postgres` Coolify. Sieć zakłada
 # `coolify_frontend_app.py create`; bez niej wdrożenie compose pada.
 # → docs/claude/podstawy/przerwa-przy-wdrozeniu.md

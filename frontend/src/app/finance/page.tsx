@@ -36,6 +36,9 @@ import {
   ApprovedExpensesTab,
 } from "@/components/finance/ApprovedExpensesTab";
 import { useHrConfig } from "@/lib/api/hr";
+import { COSTS_URL_KEYS, CostsTab } from "@/components/finance/ledger/CostsTab";
+import { CounterpartiesTab } from "@/components/finance/ledger/CounterpartiesTab";
+import { useAccountingModule } from "@/lib/api/finance-ledger";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
 const VIEW_DESCRIPTION: Record<ViewMode, string> = {
@@ -54,6 +57,9 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
+  costs:
+    "Faktury kosztowe z KSeF i PDF w jednej kolejce: przyjęcie, opis, weryfikacja, księgowanie",
+  counterparties: "Kartoteka kontrahentów z kontami Symfonii, import z eBI24",
 };
 
 /**
@@ -119,6 +125,8 @@ export default function FinancePage() {
     useHrConfig(hasModule).data?.open_modules?.approvals === true;
   // „Rozliczenia” (rozliczenia klientów, roadmapa E1) tylko przy włączonym module.
   const settlementsOpen = useSettlementsModule(hasModule).data?.open === true;
+  // „Koszty” i „Kontrahenci” (księgowość E0–E1) tylko przy włączonym module.
+  const accountingOpen = useAccountingModule(hasModule).data?.open === true;
   // Import MD: `orders_work`, nie zapis sekcji — sekcji Back office nie ma.
   const canImportMd = !impersonating && hasPermission(user, "orders_work");
   const fallbackView: ViewMode = hasModule ? "results" : "order-changes";
@@ -129,7 +137,8 @@ export default function FinancePage() {
     (view === "sales-invoices" && !invoicingOpen) ||
     (view === "rate-divergences" && !hasModule) ||
     (view === "approved-expenses" && !approvalsOpen) ||
-    (view === "settlements" && !settlementsOpen)
+    (view === "settlements" && !settlementsOpen) ||
+    ((view === "costs" || view === "counterparties") && !accountingOpen)
       ? fallbackView
       : view;
 
@@ -185,6 +194,9 @@ export default function FinancePage() {
     if (next !== "settlements") {
       SETTLEMENTS_URL_KEYS.forEach((key) => params.delete(key));
     }
+    if (next !== "costs") {
+      COSTS_URL_KEYS.forEach((key) => params.delete(key));
+    }
     const query = params.toString();
     window.history.replaceState(
       null,
@@ -232,6 +244,22 @@ export default function FinancePage() {
               onClick={() => changeView("settlements")}
             >
               Rozliczenia
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "costs"}
+              onClick={() => changeView("costs")}
+            >
+              Koszty
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "counterparties"}
+              onClick={() => changeView("counterparties")}
+            >
+              Kontrahenci
             </ModeButton>
           ) : null}
           {hasModule && (
@@ -320,6 +348,10 @@ export default function FinancePage() {
           <RateDivergencesTab />
         ) : visibleView === "settlements" ? (
           <SettlementsTab canWrite={canWrite} />
+        ) : visibleView === "costs" ? (
+          <CostsTab canWrite={canWrite} />
+        ) : visibleView === "counterparties" ? (
+          <CounterpartiesTab canWrite={canWrite} />
         ) : visibleView === "approved-expenses" ? (
           <div data-help="finance.approved-expenses">
             <ApprovedExpensesTab />

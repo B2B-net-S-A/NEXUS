@@ -279,6 +279,8 @@ def test_frontend_app_is_gated_before_compose_and_deployed_after_it() -> None:
     wait = _step(steps, "Wait for frontend app deployment")
     assert names.index("Frontend app preflight") < names.index("Trigger deployment")
     assert "coolify_frontend_app.py preflight" in preflight["run"]
+    # Compose bez usługi `frontend`: front musi mieć domeny, zanim compose ruszy.
+    assert preflight["env"]["FRONTEND_APP_REQUIRED"] == "true"
     assert (
         names.index("Wait for deployment to finish (fail fast on server-side failure)")
         < names.index("Trigger frontend app deployment")

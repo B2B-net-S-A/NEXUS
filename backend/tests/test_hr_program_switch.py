@@ -53,6 +53,7 @@ PROGRAM_API_MODULES = {
     "app.api.consultant_portal_staff",
     "app.api.trainings",
     "app.api.trainings_media",
+    "app.api.finance_ledger",
 }
 PROGRAM_PREFIXES = (
     "/api/hr/",
@@ -67,6 +68,8 @@ PROGRAM_PREFIXES = (
     "/api/trainings",
     "/api/public/training-media",
     "/api/finance/sales-invoices",
+    "/api/finance/costs",
+    "/api/finance/counterparties",
 )
 
 

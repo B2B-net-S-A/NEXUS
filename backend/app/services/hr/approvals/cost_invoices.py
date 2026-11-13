@@ -101,10 +101,19 @@ async def _upload_twin(
 
 
 async def store(
-    db: AsyncSession, item: dict[str, Any], *, ksef_number: str, now: datetime
+    db: AsyncSession,
+    item: dict[str, Any],
+    *,
+    ksef_number: str,
+    now: datetime,
+    match: bool = True,
 ) -> Optional[str]:
     """Zapis faktury kosztowej i dopasowanie. Zwraca stan dokumentu albo ``None``
-    (już była, rekord bez kwoty, baza odrzuciła)."""
+    (już była, rekord bez kwoty, baza odrzuciła).
+
+    ``match=False`` (moduł „Zgody” wyłączony, zapis dla kolejki kosztów
+    „Księgowości”, 0695): bez szukania zgody i stałego kosztu — dokument
+    zostaje ``unmatched``."""
 
     fields = fields_from_metadata(item)
     if fields is None:
@@ -150,6 +159,6 @@ async def store(
         )
         logger.warning("ksef: baza odrzuciła fakturę kosztową (%s)", constraint)
         return None
-    if twin is None:
+    if twin is None and match:
         await settlement.match_document(db, doc)
     return doc.status
