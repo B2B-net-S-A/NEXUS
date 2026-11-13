@@ -8,6 +8,7 @@ kontrahenta (NIP z sumą kontrolną, PESEL, VAT UE), import pliku z eBI24
 from __future__ import annotations
 
 import io
+import zipfile
 
 import pytest
 from openpyxl import Workbook
@@ -144,6 +145,8 @@ def test_backfill_obejmuje_trzy_zrodla_i_nie_nadpisuje() -> None:
     ):
         assert f"FROM {table}" in joined
     assert all("DO NOTHING" in statement for statement in ENTRY_INSERTS)
+    # Bez NOT EXISTS co godzinę każdy wiersz źródła zjadałby wartość SERIAL.
+    assert all("NOT EXISTS" in statement for statement in ENTRY_INSERTS)
     assert all(":ksef_number" not in statement for statement in DATA_DDL)
     assert all(":ksef_number" in s for s in entry_inserts(by_ksef_number=True))
 
@@ -280,6 +283,27 @@ def test_xlsx_liczby_i_typ_identyfikatora() -> None:
         "502",
         "503",
     ]
+
+
+def test_xlsx_z_bomba_zip_odrzucony_przed_openpyxl() -> None:
+    """Część XML ponad limit wspólnego strażnika (10 MB) — po kompresji kilka
+    KB, więc limit uploadu jej nie zatrzyma (wzór: ``test_r10_impex_imports``)."""
+
+    book = Workbook()
+    book.active.append(["Nazwa", "NIP"])
+    original_buffer = io.BytesIO()
+    book.save(original_buffer)
+    rebuilt_buffer = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(original_buffer.getvalue())) as original,
+        zipfile.ZipFile(rebuilt_buffer, "w", zipfile.ZIP_DEFLATED) as rebuilt,
+    ):
+        for info in original.infolist():
+            rebuilt.writestr(info, original.read(info))
+        rebuilt.writestr("customXml/item1.xml", "<a>" + "x" * (11 * 1024 * 1024))
+    assert len(rebuilt_buffer.getvalue()) < 1024 * 1024
+    with pytest.raises(importer.ImportFileError, match="za duży po rozpakowaniu"):
+        importer.parse(rebuilt_buffer.getvalue())
 
 
 def test_plik_bez_naglowka_albo_pusty() -> None:

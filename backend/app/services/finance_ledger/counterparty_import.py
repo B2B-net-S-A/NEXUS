@@ -18,6 +18,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from app.core.zip_guard import UnsafeArchive, assert_safe_ooxml
 from app.services.finance_ledger import identifiers
 from app.services.finance_ledger_schema import (
     ACCOUNT_MAX,
@@ -161,6 +162,11 @@ def _cell(value: Any) -> str:
 
 def _sheet_rows(content: bytes) -> list[list[str]]:
     if content[:4] == b"PK\x03\x04":
+        # Bomba ZIP: 1,84 MB pliku rozwijało się w openpyxl do 4,25 GB RAM.
+        try:
+            assert_safe_ooxml(content)
+        except UnsafeArchive as exc:
+            raise ImportFileError("Plik XLSX jest za duży po rozpakowaniu.") from exc
         try:
             from openpyxl import load_workbook  # noqa: PLC0415
 

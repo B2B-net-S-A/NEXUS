@@ -37,12 +37,13 @@ Symfonii to E2, przelewy E3, wystawianie faktur E4 — nie dopisuj ich tu
   po zapisie u Płac, kontraktora i dokumentu wydatku), na końcu każdego przebiegu
   (`_ledger_catch_up` — dołapuje też PDF-y wgrane ręcznie) i przy starcie
   (`DATA_DDL` w `finance_ledger_schema.py`, ten sam SQL co backfill migracji).
-  Awaria wpisu nie cofa zapisu faktury. Istniejący wpis zostaje bez zmian
-  (`ON CONFLICT DO NOTHING`).
+  Awaria wpisu nie cofa zapisu faktury. Wstawiamy tylko faktury bez wpisu
+  (`WHERE NOT EXISTS`, żeby cogodzinny przebieg nie zjadał wartości sekwencji
+  `SERIAL` na każdym wierszu źródeł); `ON CONFLICT DO NOTHING` zostaje jako
+  zabezpieczenie przed wyścigiem. Istniejący wpis się nie zmienia.
 - Wpisy powstają **niezależnie od przełącznika** — po włączeniu modułu kolejka ma
   pełną historię. Żeby nie zalać Finansów starymi fakturami, ekran ma filtr
-  „Miesiąc wpływu”; backfill nie udaje „Zaksięgowanych” (to robi E2 albo
-  świadoma decyzja o dacie startu).
+  „Miesiąc wpływu”; backfill nie udaje „Zaksięgowanych” (to robi E2).
 - **Etapy** jak w eBI24: `received` (Z KSeF do przyjęcia: Przyjmij / Odrzuć z
   powodem) → `new` (Do opisu) → `verified` → `ready` (Gotowe do księgowania) →
   `booked` (Zaksięgowane, ustawia E2). Odrzucić można w poczekalni i w „Do opisu”;
@@ -63,8 +64,14 @@ Symfonii to E2, przelewy E3, wystawianie faktur E4 — nie dopisuj ich tu
   wydatek. Termin płatności: z rozliczenia osoby (`payroll_settlements.due_on`)
   albo wpisany ręcznie; metadane KSeF nie niosą terminu (XML kosztów nie
   pobieramy — budżet pobrań zostaje dla Płac).
-- Kwoty faktur osób zespołu widzi każdy z „Modułem Finanse” — tak jak w eBI24,
-  gdzie Finanse księgują wszystkie faktury.
+- **Faktury osób zespołu widzą tylko Płace i admin** (D2,
+  `ludzie/urlopy-czas-place-wejscie-odejscie.md`; ta sama bramka `is_payroll` co
+  lista faktur w `api/hr_ksef.py`). Konto z samym „Modułem Finanse” nie widzi ich
+  w kolejce ani w licznikach, karta i PATCH dają 404, akcja zbiorcza zwraca je
+  w `refused` jako 404 (`costs._payroll_scope`). Kategoria tych faktur to
+  „Zespół” (decyzja Artura z 13.11.2026).
+- Start kolejki: bez daty startu — stare faktury odsiewa filtr „Miesiąc wpływu”
+  (decyzja Artura z 13.11.2026).
 
 ## Kartoteka kontrahentów (E0)
 

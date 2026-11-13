@@ -37,6 +37,7 @@ from app.models.user import User, UserRole
 from app.services.finance_ledger import costs as ledger
 from app.services.finance_ledger import settings as module_settings
 from app.services.hr.approvals import cost_invoices
+from tests._permission_grants import grant_permissions
 
 COSTS = "/api/finance/costs"
 PARTIES = "/api/finance/counterparties"
@@ -141,6 +142,7 @@ async def world():
         admin = await _user(db, "admin")
         accountant = await _user(db, "finance")
         recruiter = await _user(db, "recruiter")
+        module_only = await _user(db, "recruiter")
         person = await _user(db, "employee")
         db.add(EmployeeBillingDetails(user_id=person.id, nip=nips["person"]))
         person_invoice = await _payroll_invoice(db, person, nips["person"])
@@ -148,6 +150,8 @@ async def world():
         client = Client(name=f"Klient Testowy {seed}", nip=nips["client"])
         db.add(client)
         await db.commit()
+    # Sam „Moduł Finanse” bez Płac (D2: faktur osób zespołu nie widzi).
+    await grant_permissions(module_only.id, "finance_module")
     await _set(module_settings.SETTING_KEY, {"enabled": True})
     async with AsyncSessionLocal() as db:
         await ledger.catch_up(db)
@@ -156,6 +160,7 @@ async def world():
         "admin": admin,
         "accountant": accountant,
         "recruiter": recruiter,
+        "module_only": module_only,
         "person": person,
         "person_invoice": person_invoice,
         "own_invoice": own_invoice,
@@ -191,7 +196,9 @@ async def world():
         await db.execute(delete(Client).where(Client.id == client.id))
         await db.execute(
             delete(User).where(
-                User.id.in_([admin.id, accountant.id, recruiter.id, person.id])
+                User.id.in_(
+                    [admin.id, accountant.id, recruiter.id, module_only.id, person.id]
+                )
             )
         )
         await db.commit()
@@ -517,3 +524,91 @@ async def test_filtr_miesiaca_wplywu(world, client, month) -> None:
         headers=_headers(world["accountant"]),
     )
     assert other.json()["total"] == 0
+
+
+async def _expense_entry(world) -> FinanceCostEntry:
+    ksef = _ksef_number(world["nips"]["supplier"])
+    item = {
+        "ksefNumber": ksef,
+        "invoiceNumber": "D/11/7",
+        "issueDate": "2026-11-03",
+        "seller": {"nip": world["nips"]["supplier"], "name": "Dostawca Testowy"},
+        "netAmount": "10.00",
+        "vatAmount": "2.30",
+        "grossAmount": "12.30",
+        "currency": "PLN",
+    }
+    async with AsyncSessionLocal() as db:
+        await cost_invoices.store(
+            db, item, ksef_number=ksef, now=datetime.now(timezone.utc), match=False
+        )
+        await ledger.enqueue_ksef(db, ksef)
+        await db.commit()
+        document_id = await db.scalar(
+            select(ApprovalDocument.id).where(ApprovalDocument.ksef_number == ksef)
+        )
+    return await _entry("approval_document", document_id)
+
+
+async def test_faktury_osob_zespolu_tylko_dla_plac(world, client) -> None:
+    """D2: nazwisko i kwotę faktury osoby zespołu widzą Płace i admin, nie sam
+    „Moduł Finanse” — ani w liście, ani w licznikach, karcie, akcji i PATCH."""
+
+    payroll_entry = await _entry("payroll_invoice", world["person_invoice"].id)
+    expense = await _expense_entry(world)
+    only = _headers(world["module_only"])
+    nip = world["nips"]["person"]
+
+    hidden = await client.get(
+        COSTS, params={"stage": "received", "q": nip}, headers=only
+    )
+    assert hidden.status_code == 200, hidden.text
+    assert hidden.json()["items"] == []
+    assert hidden.json()["counts"]["received"] == 0
+    visible = await client.get(
+        COSTS,
+        params={"stage": "received", "q": nip},
+        headers=_headers(world["accountant"]),
+    )
+    assert [item["id"] for item in visible.json()["items"]] == [payroll_entry.id]
+    assert visible.json()["counts"]["received"] == 1
+
+    supplier = await client.get(
+        COSTS,
+        params={"stage": "received", "q": world["nips"]["supplier"]},
+        headers=only,
+    )
+    assert [item["id"] for item in supplier.json()["items"]] == [expense.id]
+
+    assert (
+        await client.get(f"{COSTS}/{payroll_entry.id}", headers=only)
+    ).status_code == 404
+    assert (await client.get(f"{COSTS}/{expense.id}", headers=only)).status_code == 200
+
+    mixed = await client.post(
+        f"{COSTS}/actions",
+        json={"ids": [payroll_entry.id, expense.id], "action": "accept"},
+        headers=only,
+    )
+    assert mixed.status_code == 200, mixed.text
+    assert mixed.json()["changed"] == 1
+    assert mixed.json()["refused"] == [
+        {
+            "id": payroll_entry.id,
+            "detail": "Nie ma takiej faktury w kolejce.",
+            "status": 404,
+        }
+    ]
+    alone = await client.post(
+        f"{COSTS}/actions",
+        json={"ids": [payroll_entry.id], "action": "accept"},
+        headers=only,
+    )
+    assert alone.status_code == 404
+    patched = await client.patch(
+        f"{COSTS}/{payroll_entry.id}", json={"note": "x"}, headers=only
+    )
+    assert patched.status_code == 404
+    assert (
+        await _entry("payroll_invoice", world["person_invoice"].id)
+    ).stage == "received"

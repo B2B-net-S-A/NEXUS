@@ -38,6 +38,7 @@ from app.services.finance_ledger import costs, counterparties
 from app.services.finance_ledger import counterparty_import as importer
 from app.services.finance_ledger import settings as module_settings
 from app.services.finance_ledger_schema import FLAGS, REASON_MAX
+from app.services.hr.payroll_access import is_payroll
 
 costs_router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 counterparties_router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
@@ -144,6 +145,7 @@ async def list_costs(
         limit=limit,
         offset=offset,
         viewer_id=current_user.id,
+        payroll=is_payroll(current_user),
     )
 
 
@@ -161,6 +163,7 @@ async def cost_actions(
             body.action,
             actor_id=current_user.id,
             now=_now(),
+            payroll=is_payroll(current_user),
             reason=body.reason,
             flag=body.flag,
         )
@@ -177,7 +180,9 @@ async def cost_card(
 ) -> dict[str, Any]:
     await _open(db, current_user)
     try:
-        return await costs.card(db, entry_id, viewer_id=current_user.id)
+        return await costs.card(
+            db, entry_id, viewer_id=current_user.id, payroll=is_payroll(current_user)
+        )
     except costs.LedgerError as exc:
         raise _ledger_fail(exc) from exc
 
@@ -197,12 +202,15 @@ async def update_cost(
             body.model_dump(exclude_unset=True),
             actor_id=current_user.id,
             now=_now(),
+            payroll=is_payroll(current_user),
         )
     except costs.LedgerError as exc:
         await db.rollback()
         raise _ledger_fail(exc) from exc
     await db.commit()
-    return await costs.card(db, entry_id, viewer_id=current_user.id)
+    return await costs.card(
+        db, entry_id, viewer_id=current_user.id, payroll=is_payroll(current_user)
+    )
 
 
 # ── Kontrahenci ──────────────────────────────────────────────────────────────

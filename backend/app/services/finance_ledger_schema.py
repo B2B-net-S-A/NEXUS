@@ -20,7 +20,8 @@ modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 
 ``ENTRY_INSERTS`` zakłada wpisy brakującym fakturom źródeł. Wykonuje je
 migracja (backfill), entrypoint przy każdym starcie i przebieg KSeF na końcu
-(``ledger.catch_up``); wpis istniejący zostaje bez zmian (``ON CONFLICT``).
+(``ledger.catch_up``); wstawia tylko faktury bez wpisu (``NOT EXISTS``),
+a wpis istniejący zostaje bez zmian (``ON CONFLICT`` jako zabezpieczenie).
 """
 
 from __future__ import annotations
@@ -176,8 +177,17 @@ def entry_inserts(*, by_ksef_number: bool = False) -> tuple[str, ...]:
     ``by_ksef_number`` zawęża do jednej faktury (parametr ``:ksef_number``).
     """
 
-    def where(column: str) -> str:
-        return f"WHERE {column} = :ksef_number" if by_ksef_number else ""
+    def where(alias: str, source_type: str) -> str:
+        # Tylko faktury bez wpisu: sam ``ON CONFLICT`` pobiera wartość sekwencji
+        # dla każdego wiersza źródła, więc cogodzinny przebieg zjadałby ``SERIAL``.
+        # ``ON CONFLICT`` zostaje jako zabezpieczenie przed wyścigiem.
+        missing = (
+            "NOT EXISTS (SELECT 1 FROM finance_cost_entries e "
+            f"WHERE e.source_type = '{source_type}' AND e.source_id = {alias}.id)"
+        )
+        if by_ksef_number:
+            return f"WHERE {alias}.ksef_number = :ksef_number AND {missing}"
+        return f"WHERE {missing}"
 
     return (
         "INSERT INTO finance_cost_entries "
@@ -187,14 +197,15 @@ def entry_inserts(*, by_ksef_number: bool = False) -> tuple[str, ...]:
         "CASE WHEN p.source = 'ksef' THEN 'received' ELSE 'new' END, 'team', "
         "p.seller_nip, COALESCE(p.ksef_acquired_at, p.fetched_at, p.created_at), "
         f"{_COUNTERPARTY_BY_NIP.format(nip='p.seller_nip')} "
-        f"FROM payroll_invoices p {where('p.ksef_number')} {_ON_CONFLICT}",
+        f"FROM payroll_invoices p {where('p', 'payroll_invoice')} {_ON_CONFLICT}",
         "INSERT INTO finance_cost_entries "
         "(source_type, source_id, from_ksef, stage, category, seller_nip, "
         "received_at, counterparty_id) "
         "SELECT 'contractor_invoice', x.id, TRUE, 'received', 'contractor', "
         "x.seller_nip, COALESCE(x.acquired_at, x.created_at), "
         f"{_COUNTERPARTY_BY_NIP.format(nip='x.seller_nip')} "
-        f"FROM client_contractor_invoices x {where('x.ksef_number')} {_ON_CONFLICT}",
+        f"FROM client_contractor_invoices x {where('x', 'contractor_invoice')} "
+        f"{_ON_CONFLICT}",
         "INSERT INTO finance_cost_entries "
         "(source_type, source_id, from_ksef, stage, category, seller_nip, "
         "received_at, counterparty_id) "
@@ -202,7 +213,8 @@ def entry_inserts(*, by_ksef_number: bool = False) -> tuple[str, ...]:
         "CASE WHEN a.source = 'ksef' THEN 'received' ELSE 'new' END, 'office', "
         "a.seller_nip, COALESCE(a.fetched_at, a.created_at), "
         f"{_COUNTERPARTY_BY_NIP.format(nip='a.seller_nip')} "
-        f"FROM approval_documents a {where('a.ksef_number')} {_ON_CONFLICT}",
+        f"FROM approval_documents a {where('a', 'approval_document')} "
+        f"{_ON_CONFLICT}",
     )
 
 

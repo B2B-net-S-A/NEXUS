@@ -284,6 +284,14 @@ def _joined(src):
     )
 
 
+def _payroll_scope(payroll: bool) -> list[Any]:
+    """Faktury osób zespołu (nazwisko i kwota wynagrodzenia) widzą tylko Płace
+    i admin (D2, ``ludzie/urlopy-czas-place-wejscie-odejscie.md``) — reszta
+    „Modułu Finanse” nie widzi ich w kolejce, licznikach ani na karcie."""
+
+    return [] if payroll else [FinanceCostEntry.source_type != "payroll_invoice"]
+
+
 def _conditions(src, filters: Filters) -> list[Any]:
     entry = FinanceCostEntry
     conditions: list[Any] = []
@@ -507,9 +515,10 @@ async def list_view(
     limit: int,
     offset: int,
     viewer_id: int,
+    payroll: bool,
 ) -> dict[str, Any]:
     src = _sources()
-    conditions = _conditions(src, filters)
+    conditions = [*_conditions(src, filters), *_payroll_scope(payroll)]
     on_source, on_counterparty = _joined(src)
     counted = await db.execute(
         select(FinanceCostEntry.stage, func.count())
@@ -556,10 +565,16 @@ async def list_view(
     }
 
 
-async def card(db: AsyncSession, entry_id: int, *, viewer_id: int) -> dict[str, Any]:
+async def card(
+    db: AsyncSession, entry_id: int, *, viewer_id: int, payroll: bool
+) -> dict[str, Any]:
     src = _sources()
     row = (
-        await db.execute(_select(src).where(FinanceCostEntry.id == entry_id))
+        await db.execute(
+            _select(src).where(
+                FinanceCostEntry.id == entry_id, *_payroll_scope(payroll)
+            )
+        )
     ).first()
     if row is None:
         raise LedgerError("Nie ma takiej faktury w kolejce.", status=404)
@@ -708,6 +723,7 @@ async def act(
     *,
     actor_id: int,
     now: datetime,
+    payroll: bool,
     reason: Optional[str] = None,
     flag: Optional[str] = None,
 ) -> dict[str, Any]:
@@ -725,7 +741,7 @@ async def act(
     entries = list(
         await db.scalars(
             select(FinanceCostEntry)
-            .where(FinanceCostEntry.id.in_(unique))
+            .where(FinanceCostEntry.id.in_(unique), *_payroll_scope(payroll))
             .order_by(FinanceCostEntry.id)
             .with_for_update()
         )
@@ -773,10 +789,15 @@ async def update(
     *,
     actor_id: int,
     now: datetime,
+    payroll: bool,
 ) -> None:
     """Kategoria, flagi, termin płatności i notatka jednej faktury."""
 
-    entry = await db.get(FinanceCostEntry, entry_id, with_for_update=True)
+    entry = await db.scalar(
+        select(FinanceCostEntry)
+        .where(FinanceCostEntry.id == entry_id, *_payroll_scope(payroll))
+        .with_for_update()
+    )
     if entry is None:
         raise LedgerError("Nie ma takiej faktury w kolejce.", status=404)
     if entry.id in await _own_entry_ids(db, [entry], actor_id):
