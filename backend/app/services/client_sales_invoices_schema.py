@@ -69,7 +69,7 @@ MATCH_METHODS: tuple[str, ...] = (
     "person",
     "correction",
     "manual",
-    # 0695: faktura wystawiona w NEXUSIE i przyjęta przez KSeF — powiązana
+    # 0696: faktura wystawiona w NEXUSIE i przyjęta przez KSeF — powiązana
     # z zamówieniem przy wysyłce, automat jej nie przepina.
     "issued",
 )
@@ -308,7 +308,7 @@ INDEX_DDL: tuple[str, ...] = (
 )
 
 #: Metoda ``person`` (0630): osoba i stawka z pozycji faktury, decyzja Artura z 02.11.2026;
-#: ``issued`` (0695): faktura wystawiona w NEXUSIE (E4).
+#: ``issued`` (0696): faktura wystawiona w NEXUSIE (E4).
 METHOD_CONSTRAINT_DDL: tuple[str, ...] = (
     "ALTER TABLE client_sales_invoices "
     "DROP CONSTRAINT IF EXISTS ck_client_sales_invoices_method",

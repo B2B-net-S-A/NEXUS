@@ -1,7 +1,7 @@
 """Wystawianie faktur sprzedaży z NEXUSA do KSeF (E4): szkice, numeracja, wysyłka.
 
-Revision ID: 0695_sales_invoice_issue
-Revises: 0694_trainings
+Revision ID: 0696_sales_invoice_issue
+Revises: 0695_finance_ledger
 
 Tabele ``client_invoice_series`` i ``client_issued_invoices`` oraz metoda
 dopasowania ``issued`` w ``client_sales_invoices``. SQL i powody:
@@ -17,8 +17,8 @@ from alembic import op
 from app.services import client_invoice_issue_schema as schema
 from app.services import client_sales_invoices_schema as sales_schema
 
-revision = "0695_sales_invoice_issue"
-down_revision = "0694_trainings"
+revision = "0696_sales_invoice_issue"
+down_revision = "0695_finance_ledger"
 branch_labels = None
 depends_on = None
 

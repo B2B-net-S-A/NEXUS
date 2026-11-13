@@ -3,7 +3,7 @@
 NEXUS zastępuje eBI24 przy fakturach do klientów (~450 faktur miesięcznie, ~29 klientów, osobna pozycja na
 konsultanta). Ten etap: szkice z „Do faktury”, numeracja, XML FA(3), wysyłka do KSeF 2.0, PDF, korekta
 i zaliczkowa. Kod: `services/client_invoicing/{issue,fa3_build,numbering,ksef_send,issue_settings,invoice_pdf}.py`,
-trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja `0695_sales_invoice_issue`
+trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja `0696_sales_invoice_issue`
 (SQL w `services/client_invoice_issue_schema.py`, lustro w entrypoincie przez `hr_schema_bundle`).
 
 ## Kto i gdzie

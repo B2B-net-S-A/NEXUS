@@ -96,7 +96,7 @@ MODULES = (
     client_einvoices,
     # 0694: szkolenia i trenerzy — zamówienie, wycena, umowa, pliki (13.11.2026).
     trainings,
-    # 0695: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
+    # 0696: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
     client_invoice_issue,
 )
 
