@@ -15,10 +15,14 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Optional
 
-from app.services.sales import research_import
+from app.services.sales import contact_sync, research_import
 from app.services.sales.bot_tasks import enrich, people
 
 BOT_NAMES = {enrich.KIND: "Dane firm", people.KIND: "Kontakty"}
+#: Zmiany w zakładce Kontakty (``contact_sync``): autor według źródła biegu.
+CONTACT_BOT_NAMES = {contact_sync.BOT: "Kontakty", contact_sync.COGNISM: "Cognism"}
+#: Rodzaje wyników z osobami: widzi je tylko konto z „Sprzedaż: edycja”.
+PEOPLE_KINDS = (people.KIND, contact_sync.KIND)
 
 FIELD_LABELS = {
     "domain": "Domena",
@@ -126,6 +130,39 @@ def people_lines(payload: dict[str, Any]) -> list[Line]:
     return lines
 
 
+def contact_lines(payload: dict[str, Any]) -> list[Line]:
+    """Zmiany kontaktów: nowa osoba, nowsze stanowisko, odejście, powrót, porządek nazwiska."""
+
+    lines: list[Line] = []
+    for item in payload.get("changes") or []:
+        name = item.get("name") or "—"
+        change = item.get("change")
+        source = item.get("source_url")
+        before, after = item.get("before"), item.get("after")
+        if change == contact_sync.ADDED:
+            lines.append(Line(name, after, source=source, note="nowy kontakt"))
+        elif change == contact_sync.TITLE:
+            lines.append(
+                Line(name, after, before, source, note="nowsze stanowisko ze źródła")
+            )
+        elif change == contact_sync.LEFT:
+            lines.append(
+                Line(name, "nie pracuje", before, source, note=_left_note(item))
+            )
+        elif change == contact_sync.BACK:
+            lines.append(Line(name, "pracuje", "nie pracuje", source, note=after))
+        elif change == contact_sync.SPLIT:
+            lines.append(
+                Line(name, after, before, note="imię i nazwisko osobno od stanowiska")
+            )
+    return lines
+
+
+def _left_note(item: dict[str, Any]) -> Optional[str]:
+    as_of = item.get("as_of")
+    return f"według źródła z {as_of}" if as_of else None
+
+
 def build(
     rows: list[tuple[str, datetime, dict[str, Any]]], *, with_people: bool
 ) -> list[Entry]:
@@ -140,8 +177,15 @@ def build(
             lines = enrich_lines(payload or {})
         elif kind == people.KIND and with_people:
             lines = people_lines(payload or {})
+        elif kind == contact_sync.KIND and with_people:
+            lines = contact_lines(payload or {})
         else:
             continue
         if lines:
-            entries.append(Entry(at=at, bot=BOT_NAMES[kind], lines=lines))
+            bot = (
+                CONTACT_BOT_NAMES.get((payload or {}).get("source"), "Kontakty")
+                if kind == contact_sync.KIND
+                else BOT_NAMES[kind]
+            )
+            entries.append(Entry(at=at, bot=bot, lines=lines))
     return sorted(entries, key=lambda entry: entry.at, reverse=True)
