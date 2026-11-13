@@ -1470,19 +1470,28 @@ def add_bullet_list(
         )
 
 
-def add_education_table(doc: Any, row_count: int, t: dict[str, str]) -> Any:
+def add_education_table(
+    doc: Any, row_count: int, t: dict[str, str], *, with_dates: bool = True
+) -> Any:
     """Education table frame: grey header row, light borders, cell padding.
 
     Shared with the approved-CV renderer (``cv_approved_docx``) so a CV edited
     in the recruitment editor keeps the same table as one downloaded from the
     generator. Rows ``1..row_count`` are left empty for the caller, who fills
     them and then calls :func:`style_education_row`.
+
+    ``with_dates=False`` (no row has dates) drops the empty "Daty" column: one
+    full-width "Nazwa uczelni/kierunek" column (13.11.2026). The school then
+    goes in cell 0.
     """
-    table = doc.add_table(rows=row_count + 1, cols=2)
+    table = doc.add_table(rows=row_count + 1, cols=2 if with_dates else 1)
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.LEFT
-    table.columns[0].width = Inches(1.8)
-    table.columns[1].width = Inches(5.0)
+    if with_dates:
+        table.columns[0].width = Inches(1.8)
+        table.columns[1].width = Inches(5.0)
+    else:
+        table.columns[0].width = Inches(6.8)
 
     tbl = table._tbl
     tblPr = tbl.tblPr if tbl.tblPr is not None else OxmlElement("w:tblPr")
@@ -1510,8 +1519,9 @@ def add_education_table(doc: Any, row_count: int, t: dict[str, str]) -> Any:
     tblPr.append(tblCellMar)
 
     header_cells = table.rows[0].cells
-    header_cells[0].text = t["dates"]
-    header_cells[1].text = t["education_header"]
+    header_cells[-1].text = t["education_header"]
+    if with_dates:
+        header_cells[0].text = t["dates"]
 
     for cell in header_cells:
         shading_elm = OxmlElement("w:shd")
@@ -1758,15 +1768,21 @@ def render_cv_to_bytes(
     if candidate_data.get("education"):
         add_section_header(doc, t["education"])
 
-        table = add_education_table(doc, len(candidate_data["education"]), t)
+        with_dates = any(
+            (edu.get("dates") or "").strip() for edu in candidate_data["education"]
+        )
+        table = add_education_table(
+            doc, len(candidate_data["education"]), t, with_dates=with_dates
+        )
 
         for i, edu in enumerate(candidate_data["education"], start=1):
             row_cells = table.rows[i].cells
 
-            row_cells[0].text = edu["dates"]
+            if with_dates:
+                row_cells[0].text = edu.get("dates") or ""
 
-            row_cells[1].text = ""
-            para = row_cells[1].paragraphs[0]
+            row_cells[-1].text = ""
+            para = row_cells[-1].paragraphs[0]
 
             run_institution = para.add_run(edu["institution"])
             run_institution.font.name = "Montserrat"
