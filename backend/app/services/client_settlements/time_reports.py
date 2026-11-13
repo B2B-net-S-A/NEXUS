@@ -30,6 +30,7 @@ from sqlalchemy import func, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.export_safety import safe_row
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_order import ClientOrder
@@ -1465,11 +1466,13 @@ async def next_round(
             sorted(data_numbers.get(row["contract_id"] or 0, []))
         )
         sheet.append(
-            (
-                row["name"],
-                number,
-                ", ".join(row["projects"]),
-                _STATUS_LABEL.get(row["status"], row["status"]),
+            safe_row(
+                (
+                    row["name"],
+                    number,
+                    ", ".join(row["projects"]),
+                    _STATUS_LABEL.get(row["status"], row["status"]),
+                )
             )
         )
         count += 1
