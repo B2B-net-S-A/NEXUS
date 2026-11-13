@@ -23,8 +23,9 @@ https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
   Artura: pól firmy bot nie nadpisuje), a wersja bota trafia tylko do historii.
   Pole „bota” rozpoznaje się po historii: karta ma dokładnie wartość, którą bot
   ostatnio wpisał (`_bot_owned`); po ręcznej zmianie pole należy do człowieka.
-- **Stanowiska i odejścia osób** bot nadpisuje nowszą wartością, stara idzie do
-  historii (decyzja Artura z 13.11; budowa w kroku „Kontakty jako jedna lista”).
+- **Stanowiska i odejścia osób** bot nadpisuje nowszą wartością (także wpisane
+  ręcznie), stara idzie do historii; osoby z botów trafiają też do zakładki
+  Kontakty, odejście to „nie pracuje”. Zbudowane 13.11 → `kontakty-jedna-lista.md`.
 - **Osoby** (`people.add_now`): trafiają na mapę konta od razu, autor zapisu to
   osoba, która uruchomiła bieg, inaczej opiekun karty; pewność `confirmed`.
   Czeka tylko wynik, którego nie da się zapisać bez człowieka: marka z kilkoma
