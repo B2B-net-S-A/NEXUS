@@ -32,7 +32,7 @@ from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoiceLink
 from app.models.client_settlement import (
     ClientSettlement,
-    ClientSettlementIntegrationCost,
+    ClientSettlementExtra,
     ClientSettlementRuleSet,
 )
 from app.models.consultant_portal import CpDocument
@@ -293,21 +293,23 @@ async def _settlement(
 async def integration_by_contract(
     db: AsyncSession, contract_ids: list[int], month: str
 ) -> dict[int, Decimal]:
-    """Przyjęte koszty integracji osób w miesiącu (E5.1) — obniżają marżę."""
+    """Przyjęte koszty integracji osób w miesiącu (E5.1) — obniżają marżę.
+    Inne rodzaje dodatków (``kind``) marży tu nie zmieniają."""
 
     if not contract_ids:
         return {}
     rows = await db.execute(
         select(
-            ClientSettlementIntegrationCost.contract_id,
-            func.sum(ClientSettlementIntegrationCost.amount),
+            ClientSettlementExtra.contract_id,
+            func.sum(ClientSettlementExtra.amount),
         )
         .where(
-            ClientSettlementIntegrationCost.contract_id.in_(contract_ids),
-            ClientSettlementIntegrationCost.period_month == month,
-            ClientSettlementIntegrationCost.status == "approved",
+            ClientSettlementExtra.contract_id.in_(contract_ids),
+            ClientSettlementExtra.period_month == month,
+            ClientSettlementExtra.kind == "integration",
+            ClientSettlementExtra.status == "approved",
         )
-        .group_by(ClientSettlementIntegrationCost.contract_id)
+        .group_by(ClientSettlementExtra.contract_id)
     )
     return {int(cid): Decimal(total) for cid, total in rows.all() if total}
 

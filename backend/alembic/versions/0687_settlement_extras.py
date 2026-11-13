@@ -1,6 +1,7 @@
-"""Rozliczenia klientów E5.1: koszty integracji konsultanta ze zgodą DL-a.
+"""Rozliczenia klientów E5.1: dodatki do rozliczenia (``client_settlement_extras``),
+pierwszy rodzaj — koszty integracji konsultanta ze zgodą DL-a.
 
-Revision ID: 0687_settlement_integration_costs
+Revision ID: 0687_settlement_extras
 Revises: 0686_autofill_gaps_round4
 
 SQL i powody: ``app/services/client_settlements_schema.py`` (to samo źródło czyta
@@ -11,16 +12,16 @@ from alembic import op
 
 from app.services import client_settlements_schema as schema
 
-revision = "0687_settlement_integration_costs"
+revision = "0687_settlement_extras"
 down_revision = "0686_autofill_gaps_round4"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    for stmt in schema.INTEGRATION_DDL:
+    for stmt in schema.EXTRAS_DDL:
         op.execute(stmt)
 
 
 def downgrade() -> None:
-    op.execute("DROP TABLE IF EXISTS client_settlement_integration_costs CASCADE")
+    op.execute("DROP TABLE IF EXISTS client_settlement_extras CASCADE")

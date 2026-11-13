@@ -25,15 +25,16 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
-from app.models.client_settlement import ClientSettlementIntegrationCost
+from app.models.client_settlement import ClientSettlementExtra
 from app.models.contract import Contract
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.client_settlements import service
 from app.services.client_settlements.service import SettlementError
-from app.services.client_settlements_schema import INTEGRATION_DESCRIPTION_MAX
+from app.services.client_settlements_schema import EXTRA_DESCRIPTION_MAX
 
 RULE = "cl.integration_costs"
+KIND = "integration"  # rodzaj dodatku w ``client_settlement_extras``
 PENDING, APPROVED, REJECTED = "pending", "approved", "rejected"
 AMOUNT_MAX = Decimal("100000")
 MONEY = Decimal("0.01")
@@ -118,7 +119,7 @@ async def is_client_delivery_lead(db: AsyncSession, user: User, client_id: int) 
 def _same_person(contract: Contract):
     if contract.candidate_id is not None:
         return Contract.candidate_id == contract.candidate_id
-    return ClientSettlementIntegrationCost.contract_id == contract.id
+    return ClientSettlementExtra.contract_id == contract.id
 
 
 async def usage(
@@ -130,17 +131,18 @@ async def usage(
     year = int(month[:4])
     rows = await db.execute(
         select(
-            ClientSettlementIntegrationCost.status,
-            func.sum(ClientSettlementIntegrationCost.amount),
+            ClientSettlementExtra.status,
+            func.sum(ClientSettlementExtra.amount),
         )
-        .join(Contract, Contract.id == ClientSettlementIntegrationCost.contract_id)
+        .join(Contract, Contract.id == ClientSettlementExtra.contract_id)
         .where(
-            ClientSettlementIntegrationCost.client_id == client_id,
+            ClientSettlementExtra.client_id == client_id,
+            ClientSettlementExtra.kind == KIND,
             _same_person(contract),
-            ClientSettlementIntegrationCost.period_month.like(f"{year:04d}-%"),
-            ClientSettlementIntegrationCost.status.in_((PENDING, APPROVED)),
+            ClientSettlementExtra.period_month.like(f"{year:04d}-%"),
+            ClientSettlementExtra.status.in_((PENDING, APPROVED)),
         )
-        .group_by(ClientSettlementIntegrationCost.status)
+        .group_by(ClientSettlementExtra.status)
     )
     sums = {status: Decimal(total or 0) for status, total in rows.all()}
     _, limit = await rule_state(db, client_id, month)
@@ -160,7 +162,7 @@ def _clean_description(text: str) -> str:
     value = " ".join((text or "").replace("\x00", "").split())
     if len(value) < 3:
         raise SettlementError("Opisz koszt (np. czego dotyczy faktura).", status=422)
-    return value[:INTEGRATION_DESCRIPTION_MAX]
+    return value[:EXTRA_DESCRIPTION_MAX]
 
 
 def _over_limit(limit: Decimal, used: Decimal, year: int) -> SettlementError:
@@ -179,7 +181,7 @@ async def add(
     amount: Decimal,
     description: str,
     actor: User,
-) -> ClientSettlementIntegrationCost:
+) -> ClientSettlementExtra:
     """Wpis kosztu przy osobie i miesiącu; czeka na zgodę DL-a klienta."""
 
     contract = await db.get(Contract, contract_id, with_for_update=True)
@@ -196,10 +198,11 @@ async def add(
     used = await usage(db, contract, client_id, month)
     if limit is not None and used.approved + used.pending + value > limit:
         raise _over_limit(limit, used.approved + used.pending, year)
-    cost = ClientSettlementIntegrationCost(
+    cost = ClientSettlementExtra(
         client_id=client_id,
         contract_id=contract_id,
         period_month=month,
+        kind=KIND,
         amount=value,
         description=_clean_description(description),
         status=PENDING,
@@ -212,9 +215,13 @@ async def add(
 
 async def _cost(
     db: AsyncSession, cost_id: int, client_id: Optional[int]
-) -> ClientSettlementIntegrationCost:
-    cost = await db.get(ClientSettlementIntegrationCost, cost_id, with_for_update=True)
-    if cost is None or (client_id is not None and cost.client_id != client_id):
+) -> ClientSettlementExtra:
+    cost = await db.get(ClientSettlementExtra, cost_id, with_for_update=True)
+    if (
+        cost is None
+        or cost.kind != KIND
+        or (client_id is not None and cost.client_id != client_id)
+    ):
         raise SettlementError("Nie ma takiego kosztu integracji.", status=404)
     return cost
 
@@ -227,7 +234,7 @@ async def decide(
     actor: User,
     now: datetime,
     client_id: Optional[int] = None,
-) -> ClientSettlementIntegrationCost:
+) -> ClientSettlementExtra:
     """Zgoda albo odmowa DL-a klienta. Zgoda pilnuje limitu roku."""
 
     cost = await _cost(db, cost_id, client_id)
@@ -259,9 +266,7 @@ async def withdraw(db: AsyncSession, cost_id: int, contract_id: int) -> None:
     await db.flush()
 
 
-def _item(
-    cost: ClientSettlementIntegrationCost, person: Optional[str] = None
-) -> dict[str, Any]:
+def _item(cost: ClientSettlementExtra, person: Optional[str] = None) -> dict[str, Any]:
     out = {
         "id": cost.id,
         "contract_id": cost.contract_id,
@@ -287,16 +292,17 @@ async def card(db: AsyncSession, contract_id: int, month: str) -> dict[str, Any]
     year = int(month[:4])
     items = (
         await db.scalars(
-            select(ClientSettlementIntegrationCost)
-            .join(Contract, Contract.id == ClientSettlementIntegrationCost.contract_id)
+            select(ClientSettlementExtra)
+            .join(Contract, Contract.id == ClientSettlementExtra.contract_id)
             .where(
-                ClientSettlementIntegrationCost.client_id == client_id,
+                ClientSettlementExtra.client_id == client_id,
+                ClientSettlementExtra.kind == KIND,
                 _same_person(contract),
-                ClientSettlementIntegrationCost.period_month.like(f"{year:04d}-%"),
+                ClientSettlementExtra.period_month.like(f"{year:04d}-%"),
             )
             .order_by(
-                ClientSettlementIntegrationCost.period_month,
-                ClientSettlementIntegrationCost.id,
+                ClientSettlementExtra.period_month,
+                ClientSettlementExtra.id,
             )
         )
     ).all()
@@ -315,22 +321,21 @@ async def client_month(db: AsyncSession, client_id: int, month: str) -> dict[str
     year = int(month[:4])
     rows = (
         await db.execute(
-            select(ClientSettlementIntegrationCost, Contract)
-            .join(Contract, Contract.id == ClientSettlementIntegrationCost.contract_id)
+            select(ClientSettlementExtra, Contract)
+            .join(Contract, Contract.id == ClientSettlementExtra.contract_id)
             .where(
-                ClientSettlementIntegrationCost.client_id == client_id,
+                ClientSettlementExtra.client_id == client_id,
+                ClientSettlementExtra.kind == KIND,
                 or_(
-                    ClientSettlementIntegrationCost.period_month == month,
-                    (ClientSettlementIntegrationCost.status == PENDING)
-                    & ClientSettlementIntegrationCost.period_month.like(
-                        f"{year:04d}-%"
-                    ),
+                    ClientSettlementExtra.period_month == month,
+                    (ClientSettlementExtra.status == PENDING)
+                    & ClientSettlementExtra.period_month.like(f"{year:04d}-%"),
                 ),
             )
             .order_by(
-                ClientSettlementIntegrationCost.status != PENDING,
-                ClientSettlementIntegrationCost.period_month,
-                ClientSettlementIntegrationCost.id,
+                ClientSettlementExtra.status != PENDING,
+                ClientSettlementExtra.period_month,
+                ClientSettlementExtra.id,
             )
         )
     ).all()

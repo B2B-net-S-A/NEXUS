@@ -13,7 +13,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
 from app.core.security import hash_password
 from app.models.client_settlement import (
-    ClientSettlementIntegrationCost,
+    ClientSettlementExtra,
     ClientSettlementRuleSet,
 )
 from app.models.team_structure import DeliveryLeadClientAssignment
@@ -77,8 +77,8 @@ async def _assign(user_id: int, client_id: int) -> None:
 async def _drop(client_id: int, users: list[User]) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(
-            delete(ClientSettlementIntegrationCost).where(
-                ClientSettlementIntegrationCost.client_id == client_id
+            delete(ClientSettlementExtra).where(
+                ClientSettlementExtra.client_id == client_id
             )
         )
         await db.execute(

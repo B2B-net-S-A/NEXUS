@@ -349,7 +349,8 @@ reguły klienta jako katalog z poziomami.
     z planu fakturujemy tylko klienta.
   - Dokończone 13.11 (migracja 0687):
     - Koszty integracji `cl.integration_costs` (`integration_costs.py`, tabela
-      `client_settlement_integration_costs`): Finanse wpisują koszt na karcie osoby
+      `client_settlement_extras` z rodzajem `integration`, wspólna z dodatkami do
+      rozliczenia kontraktora): Finanse wpisują koszt na karcie osoby
       (kwota, czego dotyczy, miesiąc), DL klienta daje zgodę albo odrzuca; Finanse
       ani admin zgody nie zastępują. Limit z parametru `limit` na konsultanta
       (kandydat, bez niego kontrakt) u klienta w roku kalendarzowym miesiąca

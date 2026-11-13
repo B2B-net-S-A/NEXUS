@@ -1,5 +1,5 @@
 """Rozliczenia klientów (E1, E4, E5.1): rozliczenie osoby za miesiąc, wersje reguł
-klienta, faktury kontraktorów z KSeF i koszty integracji ze zgodą DL-a.
+klienta, faktury kontraktorów z KSeF i dodatki do rozliczenia (koszty integracji).
 
 CHECK-i i indeksy jak w ``app/services/client_settlements_schema.py`` (strażnik
 dryfu schematu porównuje model z bazą po migracji).
@@ -214,29 +214,29 @@ class ClientContractorInvoice(Base):
     )
 
 
-class ClientSettlementIntegrationCost(Base):
-    """Koszt integracji konsultanta na koszt B2B (reguła ``cl.integration_costs``)."""
+class ClientSettlementExtra(Base):
+    """Dodatek do rozliczenia osoby w miesiącu; rodzaj ``integration`` to koszt
+    integracji na koszt B2B (reguła ``cl.integration_costs``)."""
 
-    __tablename__ = "client_settlement_integration_costs"
+    __tablename__ = "client_settlement_extras"
     __table_args__ = (
+        CheckConstraint(schema.PERIOD_CHECK, name="ck_client_settlement_extras_period"),
+        CheckConstraint(schema.CK_EXTRA_KIND, name="ck_client_settlement_extras_kind"),
         CheckConstraint(
-            schema.PERIOD_CHECK, name="ck_client_settlement_integration_costs_period"
+            schema.CK_EXTRA_STATUS,
+            name="ck_client_settlement_extras_status",
         ),
         CheckConstraint(
-            schema.CK_INTEGRATION_STATUS,
-            name="ck_client_settlement_integration_costs_status",
-        ),
-        CheckConstraint(
-            schema.CK_INTEGRATION_AMOUNT,
-            name="ck_client_settlement_integration_costs_amount",
+            schema.CK_EXTRA_AMOUNT,
+            name="ck_client_settlement_extras_amount",
         ),
         Index(
-            "ix_client_settlement_integration_costs_contract",
+            "ix_client_settlement_extras_contract",
             "contract_id",
             "period_month",
         ),
         Index(
-            "ix_client_settlement_integration_costs_client",
+            "ix_client_settlement_extras_client",
             "client_id",
             "period_month",
         ),
@@ -250,9 +250,12 @@ class ClientSettlementIntegrationCost(Base):
         ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False
     )
     period_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="integration", default="integration"
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     description: Mapped[str] = mapped_column(
-        String(schema.INTEGRATION_DESCRIPTION_MAX), nullable=False
+        String(schema.EXTRA_DESCRIPTION_MAX), nullable=False
     )
     status: Mapped[str] = mapped_column(
         String(10), nullable=False, server_default="pending", default="pending"
