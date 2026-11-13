@@ -400,7 +400,7 @@ async def test_dopasowanie_miesiaca_faktury_po_kwocie_z_dodatkiem() -> None:
         await _add(contract_id, month, kind="referral", amount="700", approve=True)
         first = business_today().replace(day=1)
         async with AsyncSessionLocal() as db:
-            amounts = await ci._amounts(
+            amounts = await ci.settlement_amounts(
                 db, [contract_id], [month, f"{first - timedelta(days=40):%Y-%m}"]
             )
         assert amounts[(contract_id, month)] == Decimal("10700.00")

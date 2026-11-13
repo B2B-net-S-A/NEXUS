@@ -918,6 +918,7 @@ from app.models import equipment_intune as _equipment_intune_models  # noqa: F40
 from app.models import consultant_portal as _consultant_portal_models  # noqa: F401,E402
 from app.models import consultant_panel as _consultant_panel_models  # noqa: F401,E402
 from app.models import client_settlement as _client_settlement_models  # noqa: F401,E402
+from app.models import client_time_report as _client_time_report_models  # noqa: F401,E402
 from app.models import client_settlement_extra as _client_settlement_extra_models  # noqa: F401,E402
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
