@@ -76,6 +76,14 @@ startup_phase() {
 
 echo "=== Nexus ATS Backend Starting (as $(id -un)) ==="
 
+# Kroki DDL pominięte przez limit zamka albo czasu przy TYM starcie
+# (`app/services/startup_locks.record_skipped_ddl`). Przy rolling update stary
+# kontener obsługuje ruch, więc pominięcie jest realne i ma być widoczne:
+# `checks.migrations` w /api/health i `logger.error` przy starcie (→ Sentry).
+STARTUP_DDL_SKIPS_FILE="${STARTUP_DDL_SKIPS_FILE:-/tmp/nexus-startup-ddl-skips.jsonl}"
+export STARTUP_DDL_SKIPS_FILE
+rm -f "$STARTUP_DDL_SKIPS_FILE"
+
 # Wait for postgres to be ready
 startup_phase "wait-for-db"
 echo "Waiting for database..."
@@ -143,6 +151,8 @@ echo "Backfilling critical Phase 8 columns (idempotent)..."
 python - <<'PY' || echo "column backfill failed; continuing"
 import asyncio, json, os, re
 import asyncpg
+
+from app.services.startup_locks import record_skipped_ddl
 
 # Every statement here is idempotent. Order matters for enum ADD VALUE
 # (must run outside transaction) vs column adds (can run in tx).
@@ -10951,11 +10961,13 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill enum skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         for stmt in _COLUMN_STATEMENTS:
             try:
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill column skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         await _ensure_profile_rate_numeric(conn)
         # `_DATA_STATEMENTS` to backfille i seedy, nie DDL — wolno im trwać
         # (przerankowanie `candidate_documents` idzie po ~136 tys. wierszy).
@@ -10968,6 +10980,7 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         await _seed_repo_procedures(conn)
         await _seed_client_playbooks(conn)
         await _seed_plain_knowledge(conn)
@@ -10979,6 +10992,7 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill constraint skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         # Indeksy na końcu: najwolniejsze i najmniej krytyczne. Limit czasu na
         # instrukcję, żeby jeden wolny CREATE INDEX nie zawiesił startu
         # kontenera — nieudany indeks powtórzy się przy następnym starcie
@@ -10998,6 +11012,7 @@ async def backfill():
                     await conn.execute(stmt)
                 except Exception as e:
                     print(f"backfill index skip: {stmt!r} -> {e!r}")
+                    record_skipped_ddl(stmt, e)
         finally:
             # W finally, nie po pętli: wyjątki w środku są łykane, więc w
             # praktyce reset zawsze się wykonywał — ale gdyby cokolwiek
@@ -11051,6 +11066,7 @@ python - <<'PY' || echo "priority work schema finalization failed; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
+from app.services.startup_locks import record_skipped_ddl
 
 _FKS = (
     (
@@ -11175,6 +11191,7 @@ async def _guarded(label, statement):
             await conn.execute(text(statement))
     except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
         print(f"priority work schema finalization: {label} pominięte -> {exc!r}")
+        record_skipped_ddl(f"priority work: {label}", exc)
         return False
     return True
 
@@ -11215,6 +11232,7 @@ import asyncio
 from sqlalchemy import text
 
 from app.core.database import engine
+from app.services.startup_locks import record_skipped_ddl
 
 _DROPS = (
     (
@@ -11243,6 +11261,7 @@ async def main():
             print(f"embedding queue triggers: zdjęty {trigger}")
         except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
             print(f"embedding queue triggers: {trigger} pominięty -> {exc!r}")
+            record_skipped_ddl(f"embedding queue trigger: {trigger}", exc)
     await engine.dispose()
 
 

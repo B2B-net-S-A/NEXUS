@@ -433,18 +433,45 @@ def ssh(
     return run_cmd(command, timeout=timeout, what=what)
 
 
+# Backend szukany po roli procesu, nie po nazwie: po etapie B2 (osobna aplikacja
+# Coolify z rolling update) kontener nazywa się `<uuid aplikacji>-<czas>`, a nie
+# `backend-ocgkw…`. Format wypisuje tylko id, nazwę i znacznik, nigdy zmienne.
+WEB_CONTAINER = "rola web"
+WEB_ROLE_FORMAT = (
+    "{{.Id}} {{.Name}}{{range .Config.Env}}"
+    '{{if eq . "NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"}} web{{end}}{{end}}'
+)
+
+
 def prod_container(cfg: Config, prefix: str) -> str:
     """Nazwa i id zmieniają się przy wdrożeniu, więc ustalane przy każdym biegu."""
-    out = ssh(
-        cfg,
-        ["docker", "ps", "--no-trunc", "--format", "{{.ID}} {{.Names}}"],
-        what="Lista kontenerów produkcji",
-    ).stdout
-    ids = [
-        line.split()[0]
-        for line in out.splitlines()
-        if len(line.split()) == 2 and line.split()[1].startswith(prefix)
-    ]
+    if prefix == WEB_CONTAINER:
+        out = ssh(
+            cfg,
+            [
+                "sh",
+                "-c",
+                "docker ps -q | xargs -r docker inspect --format "
+                + shlex.quote(WEB_ROLE_FORMAT),
+            ],
+            what="Lista kontenerów produkcji",
+        ).stdout
+        ids = [
+            line.split()[0]
+            for line in out.splitlines()
+            if len(line.split()) == 3 and line.split()[2] == "web"
+        ]
+    else:
+        out = ssh(
+            cfg,
+            ["docker", "ps", "--no-trunc", "--format", "{{.ID}} {{.Names}}"],
+            what="Lista kontenerów produkcji",
+        ).stdout
+        ids = [
+            line.split()[0]
+            for line in out.splitlines()
+            if len(line.split()) == 2 and line.split()[1].startswith(prefix)
+        ]
     if len(ids) != 1:
         raise SyncError(
             f"Kontener {prefix}* na produkcji: {len(ids)} zamiast 1 (wdrożenie w toku?)"
@@ -465,7 +492,7 @@ def wait_for_prod_container(cfg: Config, prefix: str) -> str:
 
 
 def read_prod_settings(cfg: Config, allowed: tuple[str, ...]) -> dict:
-    backend = wait_for_prod_container(cfg, "backend-ocgkw")
+    backend = wait_for_prod_container(cfg, WEB_CONTAINER)
     out = ssh(
         cfg,
         ["docker", "exec", backend, "python", "-c", SETTINGS_SNIPPET, *allowed],

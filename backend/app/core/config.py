@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # (domyślnie: testy, staging z gałęzi, wycofanie), `web` = samo HTTP,
     # `worker` = pętle. → docs/claude/podstawy/web-i-worker-osobno.md
     NEXUS_PROCESS_ROLE: str = "all"
+    # Rolling update (etap B2): tyle sekund po SIGTERM proces dalej obsługuje
+    # żądania z `/api/health/live` = 503, żeby Traefik zdjął go z routingu.
+    # 0 = zamknięcie od razu (compose). → app/core/shutdown_drain.py
+    NEXUS_SHUTDOWN_DRAIN_SECONDS: float = 0
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
