@@ -288,7 +288,53 @@ async def send_reminders(
     return sent
 
 
+INVITES_PER_RUN = 100
+
+
+async def send_pending_invites(db: AsyncSession) -> int:
+    """Zaproszenia, których nie wysłało żądanie TCM (cała rola z „obowiązkowe dla roli”).
+
+    Tylko nowe zapisy (``invite_status=''``): nieudane ponawia TCM „Spróbuj ponownie”,
+    żeby pętla nie dobijała się co 5 minut do konta, którego Graph nie zna."""
+
+    if not teams.ready():
+        return 0
+    from app.models.training import TrainingRegistration  # noqa: PLC0415
+
+    today = business_today()
+    ids = (
+        await db.scalars(
+            select(Training.id)
+            .where(
+                Training.status == "signed",
+                Training.teams_status == "created",
+                Training.session_date.is_not(None),
+                Training.session_date >= today,
+                Training.id.in_(
+                    select(TrainingRegistration.training_id).where(
+                        TrainingRegistration.invite_status == ""
+                    )
+                ),
+            )
+            .order_by(Training.session_date)
+        )
+    ).all()
+    sent = 0
+    for training_id in ids:
+        if sent >= INVITES_PER_RUN:
+            break
+        training = await db.get(Training, training_id)
+        if training is None:
+            continue
+        sent += await teams.invite_pending(
+            db, training, limit=INVITES_PER_RUN - sent, statuses=("",)
+        )
+        await db.commit()
+    return sent
+
+
 async def run_once(db: AsyncSession) -> dict[str, Any]:
     reminders = await send_reminders(db)
+    invites = await send_pending_invites(db)
     recordings = await fetch_due(db)
-    return {"reminders": reminders, "recordings": recordings}
+    return {"reminders": reminders, "invites": invites, "recordings": recordings}

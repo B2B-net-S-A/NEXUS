@@ -448,6 +448,21 @@ async def test_mandatory_roles_register_and_invite_everyone_in_the_role(
     ).json()
     row = next(r for r in live["live"] if r["id"] == training_id)
     assert row["registered"] is True and row["mandatory"] is True
+    # Obowiązkowi nie zajmują miejsc z limitu: wolne miejsce zostaje dla chętnych.
+    assert row["taken"] == 0
+    volunteer = await app_client.post(
+        f"{STAFF}/library/{training_id}/registration",
+        headers=headers(recruiter),
+        json={"join": True},
+    )
+    assert volunteer.status_code == 200, volunteer.text
+    other = await make_user(UserRole.recruiter, name="Rita")
+    full = await app_client.post(
+        f"{STAFF}/library/{training_id}/registration",
+        headers=headers(other),
+        json={"join": True},
+    )
+    assert full.status_code == 409 and full.json()["detail"]["code"] == "no_seats"
     view = (await app_client.get(f"{STAFF}/{training_id}", headers=headers(tcm))).json()
     assert view["training"]["order"]["mandatory_roles"] == ["finance"]
     assert view["training"]["mandatory_registrations"] >= 1
@@ -594,3 +609,39 @@ async def test_tcm_publishes_topics_and_consultant_applies(
     )
     assert withdrawn.status_code == 200
     assert withdrawn.json()["application"]["topic_request_ids"] == []
+
+
+async def test_large_role_invites_go_in_batches_and_the_loop_sends_the_rest(
+    app_client,
+    graph,  # noqa: F811
+    monkeypatch,
+) -> None:
+    """Cała rola to dziesiątki zaproszeń: żądanie wysyła porcję, resztę pętla."""
+    monkeypatch.setattr(teams, "INVITES_PER_REQUEST", 2)
+    tcm = await make_user(UserRole.talent_community_manager, name="Tamara")
+    lecturer = await make_user(UserRole.recruiter, name="Lena")
+    people = [await make_user(UserRole.back_office, name=f"Bogna{i}") for i in range(3)]
+    training_id = await _employee_training(
+        app_client, tcm, lecturer, mandatory_roles=["back_office"]
+    )
+
+    async def statuses() -> dict[int, str]:
+        async with AsyncSessionLocal() as db:
+            rows = (
+                await db.scalars(
+                    select(TrainingRegistration).where(
+                        TrainingRegistration.training_id == training_id
+                    )
+                )
+            ).all()
+            return {row.user_id: row.invite_status for row in rows}
+
+    mine = {person.id for person in people}
+    before = await statuses()
+    assert mine <= set(before)
+    # Wszyscy w roli (także z innych testów) czekają poza porcją z żądania.
+    assert sum(1 for status in before.values() if status == "sent") == 2
+    async with AsyncSessionLocal() as db:
+        await recordings.send_pending_invites(db)
+    after = await statuses()
+    assert {after[person_id] for person_id in mine} == {"sent"}

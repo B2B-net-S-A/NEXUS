@@ -152,6 +152,9 @@ https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz.
   dzwonkiem). Obowiązkowy zapis nie liczy się do limitu miejsc i osoba nie wypisze się
   sama (409 `mandatory`). Rola zdjęta z listy zostawia zapis, już nieobowiązkowy. Nowa
   osoba w roli dochodzi przy kolejnej zmianie szkolenia albo „Spróbuj ponownie”.
+  Zaproszenie to osobne wywołanie Graph, a rola to dziesiątki osób, więc żądanie TCM
+  wysyła najwyżej `INVITES_PER_REQUEST` (10), resztę nowych zapisów pętla
+  `trainings_teams` (`send_pending_invites`, do 100 na bieg). Nieudane ponawia TCM.
 - **„Szukamy trenerów”** (`training_topic_requests`): TCM publikuje i zamyka tematy
   w zakładce „Zgłoszenia trenerów”, panel konsultanta pokazuje otwarte obok kalendarza.
   Zgłoszenie trenera jest jedno na konsultanta, więc temat to dopisek

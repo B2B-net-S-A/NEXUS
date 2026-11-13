@@ -460,17 +460,29 @@ async def invite(
     await db.flush()
 
 
-async def invite_pending(db: AsyncSession, training: Training) -> int:
+#: Zaproszeń w jednym żądaniu TCM: „obowiązkowe dla roli” (0698) to dziesiątki osób,
+#: a każde zaproszenie to osobne wywołanie Graph. Resztę wysyła pętla ``trainings_teams``.
+INVITES_PER_REQUEST = 10
+
+
+async def invite_pending(
+    db: AsyncSession,
+    training: Training,
+    *,
+    limit: Optional[int] = None,
+    statuses: tuple[str, ...] = ("", "failed"),
+) -> int:
     """Zaproszenia dla zapisanych przed założeniem spotkania albo po awarii."""
 
-    rows = (
-        await db.scalars(
-            select(TrainingRegistration).where(
-                TrainingRegistration.training_id == training.id,
-                TrainingRegistration.invite_status.in_(("", "failed")),
-            )
+    query = (
+        select(TrainingRegistration)
+        .where(
+            TrainingRegistration.training_id == training.id,
+            TrainingRegistration.invite_status.in_(statuses),
         )
-    ).all()
+        .order_by(TrainingRegistration.id)
+    )
+    rows = (await db.scalars(query.limit(limit) if limit else query)).all()
     for registration in rows:
         await invite(db, training, registration)
     return len(rows)
