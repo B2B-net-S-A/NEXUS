@@ -78,4 +78,25 @@ describe("ContractorInvoiceSection (Finanse, E4)", () => {
     expect(screen.getByText(/różnica 1 000,00 zł/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zatwierdź NIP" })).not.toBeInTheDocument();
   });
+
+  it("korekty: oznaczenie na liście i ostrzeżenia łańcucha z białą listą", () => {
+    renderSection({
+      state: "in_ksef",
+      invoices: [
+        { ...suggested.invoices[0], id: 1, nip_state: "known", invoice_number: "FV 1/10/2026", is_correction: false },
+        { ...suggested.invoices[0], id: 2, nip_state: "known", invoice_number: "2/K/11/2026", is_correction: true },
+      ],
+      checks: [
+        { state: "ok", title: "Kwota równa wyliczeniu z RCP", detail: null },
+        { state: "warn", title: "Korekty zostawiają 72,00 zł VAT", detail: "Faktura FV 1/10/2026 i 6 kor. po zsumowaniu: netto 0,00 zł." },
+        { state: "warn", title: "Zły stan przed w korekcie 2/K/11/2026", detail: "W korekcie: 96 h, 22%." },
+        { state: "warn", title: "Sprzedawca nie jest podatnikiem VAT, VAT nie do odliczenia", detail: null },
+        { state: "none", title: "Korekta 1/K/11/2026 bez zmian kwot", detail: null },
+      ],
+    });
+    expect(screen.getAllByText(/^korekta · wystawiona/)).toHaveLength(1);
+    expect(screen.getByText("Korekty zostawiają 72,00 zł VAT")).toBeInTheDocument();
+    expect(screen.getByText("Zły stan przed w korekcie 2/K/11/2026")).toBeInTheDocument();
+    expect(screen.getByText("Sprzedawca nie jest podatnikiem VAT, VAT nie do odliczenia")).toBeInTheDocument();
+  });
 });

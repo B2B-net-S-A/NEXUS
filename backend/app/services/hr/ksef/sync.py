@@ -583,6 +583,44 @@ async def _contractor_index(db: AsyncSession, now: datetime) -> Optional[Any]:
     return await contractor_invoices.load_index(db, now.astimezone(_ZONE).date())
 
 
+async def _contractor_checks(run: _Run) -> None:
+    """Treść korekt kontraktorów z XML-a i biała lista VAT (rozliczenia E4).
+
+    Po pobraniach Płac, z resztą budżetu pobrań przebiegu. 429 z KSeF idzie
+    dalej jak przy Płacach; każda inna awaria zostawia kontrolę „nie
+    sprawdzono” i nie zatrzymuje przebiegu.
+    """
+
+    from app.services.client_settlements import contractor_details  # noqa: PLC0415
+
+    today = run.now.astimezone(_ZONE).date()
+    try:
+        async with run.db.begin_nested():
+            counts = await contractor_details.fetch_details(
+                run.db, run.source, today=today, budget=run.downloads_left
+            )
+        await run.db.commit()
+        run.downloads_left -= counts["downloads"]
+        run.counts["contractor_details"] += counts["downloads"]
+    except KsefApiError as exc:
+        if exc.category == "rate_limited":
+            raise
+        logger.warning("ksef: treść korekt kontraktorów nieudana (%s)", exc.category)
+    except Exception:  # noqa: BLE001 — pobieranie idzie dalej
+        logger.exception("ksef: treść korekt kontraktorów nieudana")
+        run.counts["contractor_details_failed"] += 1
+    try:
+        async with run.db.begin_nested():
+            counts = await contractor_details.check_whitelist(
+                run.db, today=today, now=run.now
+            )
+        await run.db.commit()
+        run.counts["contractor_whitelist"] += counts["whitelist"]
+    except Exception:  # noqa: BLE001 — biała lista to dodatek
+        logger.exception("ksef: biała lista kontraktorów nieudana")
+        run.counts["contractor_whitelist_failed"] += 1
+
+
 async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None:
     """Faktura kosztowa spółki z samych metadanych → dokument wydatku (Zgody, 0486).
 
@@ -772,6 +810,8 @@ async def _execute(
                 await _refetch(run, start=refetch_from, seller_nip=seller_nip)
             else:
                 await _incremental(run, state)
+            if run.contractors is not None:
+                await _contractor_checks(run)
     except _BudgetSpent:
         partial = True
     except KsefApiError as exc:

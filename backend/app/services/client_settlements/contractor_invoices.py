@@ -18,6 +18,10 @@ kosztowe, ``approvals/cost_invoices.py``), bez pobierania XML-a: limit pobrań
 zostaje dla Płac. Dlatego termin płatności liczymy od numeru KSeF (data
 przyjęcia) i reguły ``ci.payment_days``, nie z treści faktury.
 
+Kontrole korekt (netto, VAT i brutto łańcucha, dokument korygowany, stan
+przed) i biała lista VAT: ``invoice_chain``; treść korekt z XML-a i status
+z wykazu MF zbiera ``contractor_details`` przy pobieraniu z KSeF.
+
 Miesiąc faktury: ten z miesiąca wystawienia i poprzedniego, w którym rozliczenie
 ma tę samą kwotę; bez równej kwoty — wystawiona od 25. dnia rozlicza bieżący
 miesiąc, wcześniej poprzedni (faktury za październik przychodzą 30.10–05.11).
@@ -41,7 +45,9 @@ from app.models.candidate import Candidate
 from app.models.client_settlement import ClientContractorInvoice, ClientSettlement
 from app.models.contract import Contract, ContractStatus
 from app.models.user import User
+from app.services.client_settlements import invoice_chain
 from app.services.client_settlements.rcp_checks import name_tokens
+from app.services.hr import white_list
 from app.services.hr.approvals.cost_invoices import fields_from_metadata
 from app.services.hr.payroll_periods import add_months
 
@@ -480,6 +486,7 @@ def card(
                         "detail": f"Faktura {_pln(net)} netto, wyliczenie {_pln(Decimal(cost))}, różnica {_pln(diff)}.",
                     }
                 )
+        checks.extend(invoice_chain.chain_checks(bound, amounts=amounts))
         need = clean_nip(_param(rules, "ci.buyer_nip", "nip"))
         if need and rules["ci.buyer_nip"]["level"] != "off":
             wrong = [i for i in bound if clean_nip(i.buyer_nip) != need]
@@ -495,6 +502,11 @@ def card(
                 )
             else:
                 checks.append({"state": "ok", "title": "NIP nabywcy zgodny"})
+        checks.extend(
+            invoice_chain.whitelist_checks(
+                bound, amounts=amounts, mode=white_list.current_mode()
+            )
+        )
         due = _due(bound[0], days)
         if due is not None:
             checks.append(
@@ -522,6 +534,7 @@ def card(
                 "seller_name": i.seller_name,
                 "seller_nip": i.seller_nip,
                 "nip_state": i.nip_state,
+                "is_correction": invoice_chain.is_correction(i),
                 "net_amount": f"{i.net_amount:.2f}"
                 if amounts and i.net_amount is not None
                 else None,

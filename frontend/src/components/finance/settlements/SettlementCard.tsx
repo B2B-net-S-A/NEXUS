@@ -236,6 +236,7 @@ export function ContractorInvoiceSection({ block, canWrite }: { block: Contracto
               </div>
               <p className="text-xs text-muted-foreground">
                 {[
+                  inv.is_correction ? "korekta" : null,
                   inv.issue_date ? `wystawiona ${new Date(inv.issue_date).toLocaleDateString("pl-PL")}` : null,
                   inv.due_date ? `płatność do ${new Date(inv.due_date).toLocaleDateString("pl-PL")}` : null,
                 ]
