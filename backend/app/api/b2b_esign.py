@@ -53,10 +53,12 @@ from app.api.deps import AdminUser
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.config import settings as app_config
 from app.core.database import get_db
+from app.core.http_headers import content_disposition
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_date
 from app.core.scheduling import business_today
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_document import B2BSigningDocument
 from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.candidate import Candidate
 from app.models.job import Job
@@ -67,6 +69,7 @@ from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
 from app.services import storage_service
 from app.services.b2b_contract_filename import contract_file_name
 from app.services.m365 import sender as m365_sender
+from app.services.b2b_esign import documents as esign_docs
 from app.services.b2b_esign import service
 from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign import settings as esign_settings
@@ -168,6 +171,20 @@ class EsignSendIn(BaseModel):
     days: int = Field(default=14, ge=1, le=30)
     # Osoby z NEXUSA w DW (27.10.2026) — tylko z ``cc_candidates`` okna.
     cc_user_ids: list[int] = Field(default_factory=list, max_length=10)
+    # Paczka (0687): pozycje listy klienta „Dokumenty do startu” obok umowy.
+    # ``None`` = wszystkie z ``documents`` okna; lista = wybór nadawcy.
+    start_document_ids: Optional[list[int]] = Field(default=None, max_length=20)
+
+
+class EsignDocumentOption(BaseModel):
+    id: int
+    name: str
+
+
+class EsignDocumentOut(BaseModel):
+    id: int
+    title: str
+    signed_at: Optional[datetime] = None
 
 
 class EsignRequestOut(BaseModel):
@@ -185,6 +202,10 @@ class EsignRequestOut(BaseModel):
     closed_at: Optional[datetime]
     close_reason: Optional[str]
     cc: list[EsignPerson] = Field(default_factory=list)
+    # Dokumenty paczki obok umowy (0687) — podpisuje je tylko kontraktor.
+    documents: list[EsignDocumentOut] = Field(default_factory=list)
+    # Kontraktor podpisał umowę, ale w paczce czekają jeszcze dokumenty.
+    contract_signed_at: Optional[datetime] = None
     # Kto obsługuje wysyłkę (po „Przejmij obsługę” — zastępca, 27.10.2026).
     handled_by_id: Optional[int] = None
     handled_by_name: Optional[str] = None
@@ -210,6 +231,9 @@ class EsignDefaultsOut(BaseModel):
     # Kogo można dodać do DW: zespół rekrutacji i autor, którzy sami
     # mogliby wysłać tę umowę (widzą stawki).
     cc_candidates: list[EsignCcPerson] = Field(default_factory=list)
+    # Wzory z listy klienta, których para jeszcze nie ma (0687) — okno
+    # zaznacza wszystkie.
+    documents: list[EsignDocumentOption] = Field(default_factory=list)
 
 
 class EsignRenewIn(BaseModel):
@@ -219,6 +243,12 @@ class EsignRenewIn(BaseModel):
 
 class EsignWithdrawIn(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class PublicSignDocument(BaseModel):
+    id: int
+    title: str
+    signed: bool
 
 
 class PublicSignView(BaseModel):
@@ -231,6 +261,9 @@ class PublicSignView(BaseModel):
     renewal_requested_at: Optional[datetime] = None
     # Do kiedy działa „Pobierz umowę podpisaną przez obie strony” (26.10.2026).
     signed_pdf_until: Optional[datetime] = None
+    # Paczka (0687): umowa już podpisana, a dokumenty obok niej.
+    contract_signed: bool = False
+    documents: list[PublicSignDocument] = Field(default_factory=list)
 
 
 # ── Pomocnicze ──────────────────────────────────────────────────────────────
@@ -273,6 +306,13 @@ async def _out(
         closed_at=request.closed_at,
         close_reason=request.close_reason,
         cc=[EsignPerson(id=uid, name=names[uid]) for uid in cc_ids if uid in names],
+        documents=[
+            EsignDocumentOut(id=d.id, title=d.title, signed_at=d.signed_at)
+            for d in await esign_docs.for_request(db, request.id)
+        ],
+        contract_signed_at=(
+            service.contract_signed_at(request) if request.contractor_pdf_path else None
+        ),
         handled_by_id=handler,
         handled_by_name=names.get(handler or -1),
     )
@@ -451,12 +491,31 @@ async def send_for_esign(
         allowed = {p.id for p in await _cc_candidates(db, row, current_user)}
         if not set(body.cc_user_ids) <= allowed:
             raise HTTPException(status_code=422, detail=MSG_CC)
+    chosen = esign_docs.choose(
+        await esign_docs.candidates(db, row), body.start_document_ids
+    )
     docx = await _render_generated_row_docx(db, row)
     try:
         pdf = await pdf_from_docx(docx)
     except PdfPreviewUnavailable as exc:
         logger.warning("[b2b_esign] PDF z DOCX niedostępny row=%d: %s", row.id, exc)
         raise HTTPException(status_code=503, detail=MSG_PDF) from exc
+    prepared: list[tuple[Any, bytes]] = []
+    for document in chosen:
+        try:
+            prepared.append(
+                (document, await esign_docs.render_pdf(document, row.render_payload))
+            )
+        except (PdfPreviewUnavailable, FileNotFoundError) as exc:
+            logger.warning(
+                "[b2b_esign] PDF dokumentu niedostępny row=%d document=%d: %s",
+                row.id,
+                document.id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=503, detail=esign_docs.doc_pdf_problem(document.name)
+            ) from exc
     request, token = await service.send(
         db,
         row=row,
@@ -468,6 +527,7 @@ async def send_for_esign(
         now=_now(),
         cc_user_ids=body.cc_user_ids,
     )
+    await esign_docs.attach(db, request, prepared)
     await db.commit()
     url = _sign_url(token)
     out = await _out(db, request)
@@ -497,6 +557,7 @@ async def _mail_link(
         url=url,
         expires_at=request.expires_at,
         renewed=renewed,
+        documents=[d.title for d in request.documents],
     )
     return await esign_mail.send_from(
         db,
@@ -538,6 +599,10 @@ async def esign_defaults(
         ],
         mailbox_connected=connected,
         cc_candidates=await _cc_candidates(db, row, current_user),
+        documents=[
+            EsignDocumentOption(id=d.id, name=d.name)
+            for d in await esign_docs.candidates(db, row)
+        ],
     )
 
 
@@ -1013,7 +1078,8 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
     number = row.contract_number if row else ""
     reason: str | None = None
     try:
-        contractor_signed_at = request.contractor_signed_at
+        # Paczka (0687): dzień podpisu umowy, nie ostatniego dokumentu.
+        contractor_signed_at = service.contract_signed_at(request)
         await confirm_generated_contract_fully_signed(
             generated_id=row_id,
             payload=B2BConfirmFullySignedRequest(),
@@ -1132,6 +1198,11 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
             service.renewal_requested_at(request) if status == "expired" else None
         ),
         signed_pdf_until=copy_until if copy_until and copy_until > now else None,
+        contract_signed=bool(request.contractor_pdf_path),
+        documents=[
+            PublicSignDocument(id=d.id, title=d.title, signed=bool(d.signed_pdf_path))
+            for d in await esign_docs.for_request(db, request.id)
+        ],
     )
 
 
@@ -1208,10 +1279,104 @@ async def public_sign_submit(
     signing = await service.contractor_submit(
         db, request=signing, data=data, validator=_validator(), now=now
     )
+    finished = signing.status == "contractor_signed"
     await db.commit()
     signing_id = signing.id
-    await _after_contractor_signed(db, signing_id)
+    if finished:
+        await _after_contractor_signed(db, signing_id)
     return await _public_view(db, await _fresh(db, signing_id))
+
+
+@public_router.get("/b2b-sign/{token}/documents/{document_id}/pdf")
+@limiter.limit("30/minute")
+async def public_document_pdf(
+    token: str,
+    document_id: int,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """PDF dokumentu z paczki (0687) — dopóki link czeka na podpis kontraktora."""
+    signing = await service.load_by_token(db, token)
+    if not service.is_link_live(signing, _now()):
+        raise HTTPException(status_code=410, detail=service.MSG_CLOSED)
+    item = await esign_docs.get_in_request(db, signing.id, document_id)
+    data = storage_service.read_b2b_signing_pdf(item.source_pdf_path)
+    return Response(
+        content=data,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition(
+                f"{item.title}.pdf", "attachment"
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@public_router.post(
+    "/b2b-sign/{token}/documents/{document_id}", response_model=PublicSignView
+)
+@limiter.limit("10/minute;60/hour")
+async def public_document_submit(
+    token: str,
+    document_id: int,
+    request: Request,  # wymagane przez slowapi
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> PublicSignView:
+    """Podpisany dokument z paczki. Ostatni podpisany plik (umowa albo
+    dokument) przekazuje umowę reprezentantowi B2B Network."""
+    now = _now()
+    signing = await service.contractor_precheck(db, token, now, for_contract=False)
+    data = await _upload_bytes(file)
+    signing, item = await esign_docs.contractor_submit(
+        db,
+        request=signing,
+        document_id=document_id,
+        data=data,
+        validator=_validator(),
+        now=now,
+    )
+    finished = signing.status == "contractor_signed"
+    await db.commit()
+    signing_id = signing.id
+    item_id = item.id
+    await _deliver_to_start_documents(db, signing_id, item_id, data, now)
+    if finished:
+        await _after_contractor_signed(db, signing_id)
+    return await _public_view(db, await _fresh(db, signing_id))
+
+
+async def _deliver_to_start_documents(
+    db: AsyncSession, request_id: int, item_id: int, data: bytes, now: datetime
+) -> None:
+    """Podpisany dokument w „Dokumentach do startu” pary. Awaria nie cofa
+    podpisu: plik zostaje przy wniosku, a DL dostanie go od rekrutera jak dotąd."""
+    new_path: Optional[str] = None
+    try:
+        request = await db.get(B2BSigningRequest, request_id)
+        item = await db.get(B2BSigningDocument, item_id)
+        row = (
+            await db.get(B2BGeneratedContract, request.generated_contract_id)
+            if request
+            else None
+        )
+        if row is None or item is None:
+            return
+        new_path, previous = await esign_docs.deliver_to_pair(
+            db, row=row, item=item, data=data, now=now
+        )
+        await db.commit()
+    except Exception:  # noqa: BLE001 — podpis jest zapisany
+        logger.exception(
+            "[b2b_esign] dokument nie trafił do Dokumentów do startu item=%d", item_id
+        )
+        await db.rollback()
+        if new_path:
+            storage_service.delete_start_document_file(new_path)
+        return
+    if previous:
+        storage_service.delete_start_document_file(previous)
 
 
 @public_router.post("/b2b-sign/{token}/renewal", response_model=PublicSignView)

@@ -52,12 +52,15 @@ export function SendForSignatureDialog({
   const [copied, setCopied] = useState(false);
   // DW (27.10.2026): mail z Twojej skrzynki, prowadzący rekrutację zaznaczony.
   const [cc, setCc] = useState<number[]>([]);
+  // Paczka (13.11.2026): wzory z listy klienta „Dokumenty do startu”, wszystkie zaznaczone.
+  const [docIds, setDocIds] = useState<number[]>([]);
 
   useEffect(() => {
     if (!defaults.data) return;
     setEmail(defaults.data.contractor_email ?? "");
     setSignerId(defaults.data.company_signers[0]?.id ?? null);
     setCc((defaults.data.cc_candidates ?? []).filter((p) => p.suggested).map((p) => p.id));
+    setDocIds((defaults.data.documents ?? []).map((d) => d.id));
   }, [defaults.data]);
 
   const send = useMutation({
@@ -67,6 +70,7 @@ export function SendForSignatureDialog({
         company_signer_id: signerId ?? 0,
         days,
         cc_user_ids: cc,
+        start_document_ids: docIds,
       }),
     onSuccess: (data) => {
       setResult(data);
@@ -226,6 +230,34 @@ export function SendForSignatureDialog({
                         </select>
                       </div>
                     </div>
+                    {(defaults.data.documents ?? []).length > 0 ? (
+                      <fieldset className="space-y-1.5" aria-describedby={`esign-docs-help-${row.id}`}>
+                        <legend className="text-sm font-medium">Do podpisu razem z umową</legend>
+                        <div className="flex flex-col gap-1">
+                          {(defaults.data.documents ?? []).map((document) => (
+                            <label key={document.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={docIds.includes(document.id)}
+                                onCheckedChange={(value) =>
+                                  setDocIds((prev) =>
+                                    value === true
+                                      ? [...prev, document.id]
+                                      : prev.filter((id) => id !== document.id),
+                                  )
+                                }
+                              />
+                              {document.name}
+                            </label>
+                          ))}
+                        </div>
+                        <p id={`esign-docs-help-${row.id}`} className="text-xs text-muted-foreground">
+                          Wzory z listy klienta „Dokumenty do startu”, których jeszcze brakuje.
+                          Kontraktor podpisuje wszystko pod jednym linkiem, a podpisany dokument od
+                          razu trafia do jego dokumentów do startu. Umowa przejdzie do podpisu za
+                          B2B Network po ostatnim podpisanym pliku.
+                        </p>
+                      </fieldset>
+                    ) : null}
                     {(defaults.data.cc_candidates ?? []).length > 0 ? (
                       <fieldset className="space-y-1.5" aria-describedby={`esign-cc-help-${row.id}`}>
                         <legend className="text-sm font-medium">3. Do wiadomości (DW)</legend>
@@ -271,8 +303,9 @@ export function SendForSignatureDialog({
                         className="mt-0.5"
                       />
                       <Label htmlFor={`esign-checked-${row.id}`} className="text-sm font-normal leading-snug">
-                        Sprawdziłam/em treść umowy. Po wysyłce PDF jest zamrożony — poprawka to
-                        wycofanie i nowa wysyłka.
+                        {docIds.length
+                          ? "Sprawdziłam/em treść umowy i dokumentów. Po wysyłce PDF-y są zamrożone — poprawka to wycofanie i nowa wysyłka."
+                          : "Sprawdziłam/em treść umowy. Po wysyłce PDF jest zamrożony — poprawka to wycofanie i nowa wysyłka."}
                       </Label>
                     </div>
                   </div>

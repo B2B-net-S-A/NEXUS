@@ -76,32 +76,71 @@ def _deadline(moment: datetime) -> str:
 
 
 def contractor_sign_message(
-    *, number: str, url: str, expires_at: datetime, renewed: bool = False
+    *,
+    number: str,
+    url: str,
+    expires_at: datetime,
+    renewed: bool = False,
+    documents: Sequence[str] = (),
 ) -> tuple[str, str]:
     """(temat, treść) maila do kontraktora z linkiem do podpisu.
 
     ``renewed``: nowy link po terminie na tym samym PDF-ie (27.10.2026) — plik
-    podpisany wcześniej nadal przejdzie, więc mail to mówi."""
+    podpisany wcześniej nadal przejdzie, więc mail to mówi. ``documents``:
+    nazwy dokumentów z paczki obok umowy (0687, 13.11.2026)."""
     num = html.escape(number)
+    package = bool(documents)
     steps = "".join(
         f'<li style="margin: 0 0 3px; {_FONT}">{step}</li>'
         for step in (
-            "Na stronie pobierz PDF umowy.",
-            "Podpisz go kwalifikowanym podpisem elektronicznym.",
-            "Wgraj podpisany plik na tej samej stronie.",
+            (
+                "Na stronie pobierz PDF umowy i każdego dokumentu.",
+                "Podpisz każdy plik kwalifikowanym podpisem elektronicznym.",
+                "Wgraj podpisane pliki na tej samej stronie.",
+            )
+            if package
+            else (
+                "Na stronie pobierz PDF umowy.",
+                "Podpisz go kwalifikowanym podpisem elektronicznym.",
+                "Wgraj podpisany plik na tej samej stronie.",
+            )
         )
     )
-    lead = (
-        f"poprzedni link do umowy o współpracy B2B nr {num} wygasł, przesyłam "
-        "nowy. Umowa się nie zmieniła: jeśli plik jest już podpisany, wgraj go "
-        "bez ponownego podpisu."
-        if renewed
-        else f"przesyłam do podpisu umowę o współpracy B2B nr {num}."
+    if renewed:
+        lead = (
+            f"poprzedni link do umowy o współpracy B2B nr {num} wygasł, przesyłam "
+            "nowy. Dokumenty się nie zmieniły: jeśli plik jest już podpisany, "
+            "wgraj go bez ponownego podpisu."
+            if package
+            else f"poprzedni link do umowy o współpracy B2B nr {num} wygasł, "
+            "przesyłam nowy. Umowa się nie zmieniła: jeśli plik jest już "
+            "podpisany, wgraj go bez ponownego podpisu."
+        )
+    else:
+        lead = (
+            f"przesyłam do podpisu umowę o współpracy B2B nr {num} i dokumenty "
+            "potrzebne do startu u klienta. Wszystko podpiszesz na jednej stronie."
+            if package
+            else f"przesyłam do podpisu umowę o współpracy B2B nr {num}."
+        )
+    listing = (
+        '<ul style="margin: 0 0 12px; padding-left: 22px">'
+        + "".join(
+            f'<li style="margin: 0 0 3px; {_FONT}">{html.escape(name)}</li>'
+            for name in (f"Umowa B2B nr {number}", *documents)
+        )
+        + "</ul>"
+        if package
+        else ""
     )
     body = (
         _p("Dzień dobry,")
         + _p(lead, margin="0")
-        + _button(url, "Otwórz umowę do podpisu")
+        + listing
+        + _button(
+            url,
+            "Otwórz dokumenty do podpisu" if package else "Otwórz umowę do podpisu",
+        )
         + _p(f"Link działa do {_deadline(expires_at)}.", small=True)
         + _p("<b>Jak podpisać</b>", margin="0 0 4px")
         + f'<ol style="margin: 0 0 12px; padding-left: 22px">{steps}</ol>'
@@ -112,10 +151,11 @@ def contractor_sign_message(
             small=True,
         )
     )
+    what = f"umowa B2B nr {number} i dokumenty" if package else f"umowa B2B nr {number}"
     subject = (
-        f"Nowy link: umowa B2B nr {number} do podpisu"
+        f"Nowy link: {what} do podpisu"
         if renewed
-        else f"Umowa B2B nr {number} do podpisu"
+        else f"{what[0].upper()}{what[1:]} do podpisu"
     )
     return subject, body
 

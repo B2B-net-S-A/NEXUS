@@ -63,7 +63,11 @@ export default async function B2BSignPage({ params }: PageProps) {
       <p className="mb-6 text-sm font-semibold text-foreground">B2B Network · podpis umowy</p>
       <div className="mb-2 flex items-center gap-3">
         <FileSignature className="h-7 w-7 text-primary" aria-hidden />
-        <h1 className="text-2xl font-semibold">Umowa o współpracy B2B nr {view.contract_number}</h1>
+        <h1 className="text-2xl font-semibold">
+          {view.documents?.length
+            ? `Umowa B2B nr ${view.contract_number} i dokumenty do startu`
+            : `Umowa o współpracy B2B nr ${view.contract_number}`}
+        </h1>
       </div>
       <p className="mb-1 text-muted-foreground">Podpisuje: {view.contractor_name}</p>
       <p className="mb-8 text-sm text-muted-foreground">
@@ -78,6 +82,9 @@ export default async function B2BSignPage({ params }: PageProps) {
         signedPdfUntil={signedPdfUntil}
         expiredOn={view.status === "expired" ? expires : null}
         renewalRequestedOn={view.renewal_requested_at ? dayPl(view.renewal_requested_at) : null}
+        contractNumber={view.contract_number}
+        contractSigned={Boolean(view.contract_signed)}
+        documents={view.documents ?? []}
       />
     </div>
   );

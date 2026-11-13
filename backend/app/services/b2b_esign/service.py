@@ -27,6 +27,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
+from app.models.b2b_signing_document import B2BSigningDocument
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.hr_leave import LeaveRequest
 from app.models.user import User
@@ -52,6 +53,9 @@ RENEWAL_REQUEST_EVERY = timedelta(hours=24)
 MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2B Network."
 MSG_ALREADY_SIGNED = (
     "Ta umowa jest już przez Ciebie podpisana. Czekamy na podpis B2B Network."
+)
+MSG_CONTRACT_DONE_DOCS_LEFT = (
+    "Umowa jest już przez Ciebie podpisana. Podpisz pozostałe dokumenty z listy."
 )
 MSG_CLOSED = "Ta umowa nie czeka już na podpis. Skontaktuj się z osobą z B2B Network."
 MSG_RACE = "Stan umowy zmienił się w trakcie sprawdzania podpisu. Odśwież stronę."
@@ -216,11 +220,57 @@ def _push(request: B2BSigningRequest, *entries: dict) -> None:
     request.events = [*(request.events or []), *entries]
 
 
+def push_event(
+    request: B2BSigningRequest, kind: str, at: datetime, **extra: object
+) -> None:
+    _push(request, _event(kind, at, **extra))
+
+
 def _event_time(entry: dict) -> datetime | None:
     try:
         return datetime.fromisoformat(str(entry.get("at")))
     except ValueError:
         return None
+
+
+def contract_signed_at(request: B2BSigningRequest) -> datetime | None:
+    """Kiedy kontraktor podpisał samą umowę. Przy paczce (0687) etap kontraktora
+    kończy ostatni dokument, a dzień podpisu umowy (premia 200%, „Placementy”)
+    to dzień podpisu umowy, nie NDA wgranego później."""
+    for entry in request.events or []:
+        if entry.get("kind") == "contract_signed":
+            at = _event_time(entry)
+            if at is not None:
+                return at
+    return request.contractor_signed_at
+
+
+async def unsigned_documents(db: AsyncSession, request_id: int) -> int:
+    """Dokumenty paczki, których kontraktor jeszcze nie podpisał."""
+    return int(
+        await db.scalar(
+            select(func.count(B2BSigningDocument.id)).where(
+                B2BSigningDocument.request_id == request_id,
+                B2BSigningDocument.signed_pdf_path.is_(None),
+            )
+        )
+        or 0
+    )
+
+
+async def finish_contractor_if_complete(
+    db: AsyncSession, locked: B2BSigningRequest, now: datetime
+) -> bool:
+    """Umowa i wszystkie dokumenty paczki podpisane → umowa idzie do
+    reprezentanta B2B Network. Wołający trzyma blokadę wniosku."""
+    if locked.status != "sent" or not locked.contractor_pdf_path:
+        return False
+    if await unsigned_documents(db, locked.id):
+        return False
+    locked.status = "contractor_signed"
+    locked.contractor_signed_at = now
+    await db.flush()
+    return True
 
 
 def renewal_requested_at(request: B2BSigningRequest) -> datetime | None:
@@ -372,7 +422,7 @@ async def close_open_requests(
     return len(open_requests)
 
 
-async def _lock_row_then_request(
+async def lock_row_then_request(
     db: AsyncSession, row_id: int, request_id: int
 ) -> tuple[B2BGeneratedContract | None, B2BSigningRequest]:
     """Wiersz rejestru, potem wniosek — ta sama kolejność co ręczne ścieżki
@@ -491,13 +541,16 @@ def _with_report(
 
 
 async def contractor_precheck(
-    db: AsyncSession, token: str, now: datetime
+    db: AsyncSession, token: str, now: datetime, *, for_contract: bool = True
 ) -> B2BSigningRequest:
     """Token, stan i limit prób — PRZED odczytem pliku (fałszywy link nie
-    zmusza serwera do przyjęcia 20 MB)."""
+    zmusza serwera do przyjęcia 20 MB). ``for_contract=False``: wgranie
+    dokumentu z paczki (0687)."""
     request = await load_by_token(db, token)
     if request.status in ("contractor_signed", "completed"):
         raise HTTPException(status_code=409, detail=MSG_ALREADY_SIGNED)
+    if for_contract and request.contractor_pdf_path:
+        raise HTTPException(status_code=409, detail=MSG_CONTRACT_DONE_DOCS_LEFT)
     if is_expired(request, now):
         raise HTTPException(status_code=410, detail=MSG_EXPIRED)
     if not is_link_live(request, now):
@@ -507,7 +560,7 @@ async def contractor_precheck(
     return request
 
 
-async def _count_failed_attempt(db: AsyncSession, request_id: int) -> None:
+async def count_failed_attempt(db: AsyncSession, request_id: int) -> None:
     locked = await _lock(db, request_id)
     locked.contractor_failed_attempts = (locked.contractor_failed_attempts or 0) + 1
     await db.commit()
@@ -529,7 +582,7 @@ async def contractor_submit(
     check_pdf_upload(data)
     problem = upload_problem(data, source)
     if problem:
-        await _count_failed_attempt(db, request_id)
+        await count_failed_attempt(db, request_id)
         raise HTTPException(status_code=422, detail=problem)
     # Walidacja trwa do 30 s — bez otwartej transakcji i bez połączenia z puli.
     # ``commit`` (nic nie zmieniono), nie ``rollback``: sesja ma
@@ -545,13 +598,17 @@ async def contractor_submit(
     if not verdict.accepted:
         # Awaria walidatora to nie wina kontraktora — nie zużywa prób.
         if verdict.code != "no_validator":
-            await _count_failed_attempt(db, request_id)
+            await count_failed_attempt(db, request_id)
         raise HTTPException(status_code=422, detail=verdict.message)
 
-    row, locked = await _lock_row_then_request(db, row_id, request_id)
+    row, locked = await lock_row_then_request(db, row_id, request_id)
     if not row_still_signable(row):
         raise HTTPException(status_code=409, detail=MSG_CLOSED)
-    if not is_link_live(locked, now) or locked.source_sha256 != source.sha256:
+    if (
+        not is_link_live(locked, now)
+        or locked.source_sha256 != source.sha256
+        or locked.contractor_pdf_path
+    ):
         raise HTTPException(status_code=409, detail=MSG_RACE)
     path, size = storage_service.save_b2b_signing_pdf(
         locked.id, "podpisana_przez_kontraktora.pdf", data
@@ -560,10 +617,13 @@ async def contractor_submit(
     locked.contractor_pdf_path = path
     locked.contractor_sha256 = signed.sha256
     locked.contractor_size = size
-    locked.contractor_signed_at = now
     locked.validation = _with_report(locked, "contractor", report)
-    locked.status = "contractor_signed"
     await db.flush()
+    if not await finish_contractor_if_complete(db, locked, now):
+        # Paczka (0687): umowa czeka na resztę dokumentów; dzień jej podpisu
+        # zostaje w dzienniku (``contract_signed_at``).
+        push_event(locked, "contract_signed", now)
+        await db.flush()
     return locked
 
 
@@ -616,7 +676,7 @@ async def company_submit(
     if not verdict.accepted:
         raise HTTPException(status_code=422, detail=verdict.message)
 
-    row, locked = await _lock_row_then_request(db, row_id, request_id)
+    row, locked = await lock_row_then_request(db, row_id, request_id)
     if not row_still_signable(row):
         raise HTTPException(status_code=409, detail=MSG_CLOSED)
     if (
@@ -699,7 +759,7 @@ async def relink(
     podpisał przed terminem, był odrzucany i podpisywał drugi raz. Tu wniosek
     wraca do ``sent`` z nowym tokenem; plik podpisany wcześniej przechodzi.
     Zwraca (wniosek, token linku)."""
-    row, locked = await _lock_row_then_request(db, row_id, request_id)
+    row, locked = await lock_row_then_request(db, row_id, request_id)
     if not is_expired(locked, now):
         raise HTTPException(
             status_code=409,

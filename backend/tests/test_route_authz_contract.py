@@ -363,6 +363,9 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/public/b2b-sign/{token}"),
     ("POST", "/api/public/b2b-sign/{token}"),
     ("GET", "/api/public/b2b-sign/{token}/pdf"),
+    # Paczka do podpisu (0687): dokumenty obok umowy pod tym samym tokenem.
+    ("POST", "/api/public/b2b-sign/{token}/documents/{document_id}"),
+    ("GET", "/api/public/b2b-sign/{token}/documents/{document_id}/pdf"),
     ("POST", "/api/public/b2b-sign/{token}/renewal"),
     ("GET", "/api/public/b2b-sign/{token}/signed-pdf"),
     ("POST", "/api/public/career/apply"),
