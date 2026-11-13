@@ -31,7 +31,7 @@ from app.api.sales_research_import import (
     preview_out,
 )
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.sales import SalesBotResult, SalesCompany
 from app.services.sales import bot_tasks, bots, client_gate, company_aliases, signals
 from app.services.sales import research_import, signal_targets
@@ -245,7 +245,7 @@ async def _open_result(
 
 @router.get("/{result_id}/preview", response_model=BotPeoplePreviewOut)
 # Przegląd liczy „Znamy teraz” skanem kandydatów, jak przegląd pliku (20/min).
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def preview_result(
     request: Request,  # wymagane przez slowapi
     result_id: int,
@@ -276,7 +276,7 @@ async def preview_result(
 
 @router.post("/{result_id}/people", response_model=BotPeopleAcceptOut)
 # Akceptacja wiersz po wierszu to jedno żądanie na klik, jak w imporcie listy.
-@limiter.limit("120/minute")
+@limiter.limit("120/minute", key_func=user_or_ip_key)
 async def accept_people(
     request: Request,  # wymagane przez slowapi
     result_id: int,
@@ -334,7 +334,7 @@ async def accept_people(
 
 @router.post("/companies/{company_id}/start", response_model=BotPeopleStartOut)
 # Każdy start to bieg bota (koszt po jego stronie): limit ponad regułę 24 godzin.
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def start_people_run(
     request: Request,  # wymagane przez slowapi
     company_id: int,

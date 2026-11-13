@@ -16,6 +16,16 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 
 
+@pytest.fixture(autouse=True)
+def _fresh_rate_limit_buckets():
+    """`/api/health/deep` ma limit per IP, a testy wołają go z jednego adresu."""
+    from app.core.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
+
+
 @pytest.fixture
 def env_with_metadata(monkeypatch):
     monkeypatch.setenv("GIT_SHA", "abc1234")
@@ -206,14 +216,15 @@ CORE_DEEP_CHECK_TABLES = {
 
 
 @pytest.mark.asyncio
-async def test_api_health_deep_returns_shape(env_with_metadata):
+async def test_api_health_deep_returns_shape(
+    env_with_metadata, app_client, app_auth_headers
+):
     """Shape holds regardless of DB availability: status/version/checks, with
     every core table present as a check key — including the contract_*_rates
-    children that slipped through the fast healthcheck on 2026-07-06."""
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        response = await ac.get("/api/health/deep")
+    children that slipped through the fast healthcheck on 2026-07-06.
+
+    Pełna treść tylko dla zalogowanego admina (pentest 13.11.2026)."""
+    response = await app_client.get("/api/health/deep", headers=app_auth_headers)
 
     body = response.json()
     assert body["status"] in {"healthy", "unhealthy"}
@@ -381,7 +392,8 @@ async def test_api_health_deep_fails_closed_on_b2b_signature_schema(monkeypatch)
     assert deep["status"] == "unhealthy"
     assert deep["checks"]["b2b_signature_schema"] == "unhealthy"
     assert deep["errors"]["b2b_signature_schema"] == "SchemaMismatch"
-    assert all(deep["checks"][name] == "healthy" for name in CORE_DEEP_CHECK_TABLES)
+    # Anonim widzi wyłącznie padnięte sondy — zdrowe tabele nie są wymienione.
+    assert not CORE_DEEP_CHECK_TABLES & deep["checks"].keys()
 
 
 @pytest.mark.asyncio
@@ -395,3 +407,133 @@ async def test_legacy_health_endpoint_still_works():
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
+
+
+# ── /api/health/deep anonimowo: tylko sygnał wdrożenia (pentest 13.11.2026) ──
+# Anonim dostawał 208 nazw tabel, raport dryfu schematu i liczby z importu
+# portfela klientów, a każde wywołanie to ok. 210 zapytań do bazy bez limitu.
+# Deploy czyta `status`, `version`, `checks`/`errors` (do logu) i
+# `postgres_started_at` — tylko to zostaje anonimowi, a `checks` zawiera
+# wyłącznie sondy padnięte.
+
+
+@pytest.fixture
+def _only_b2b_schema_drifts(monkeypatch):
+    """Hermetycznie: każdy SELECT przechodzi, katalog podpisu B2B jest niepełny."""
+    import app.core.database as db_module
+
+    class _CatalogResult:
+        def scalar_one(self):
+            return False
+
+    class _PartialSchemaSession:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, statement, *args, **kwargs):
+            if "expected_columns" in str(statement):
+                return _CatalogResult()
+            return object()
+
+        async def scalar(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(db_module, "AsyncSessionLocal", lambda: _PartialSchemaSession())
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_anonymous_sees_only_the_deploy_signal(
+    env_with_metadata, _only_b2b_schema_drifts
+):
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
+        deep_resp = await ac.get("/api/health/deep")
+
+    deep = deep_resp.json()
+    assert deep_resp.status_code == 503
+    assert set(deep) == {
+        "status",
+        "version",
+        "checked",
+        "checks",
+        "errors",
+        "postgres_started_at",
+    }
+    assert deep["status"] == "unhealthy"
+    assert deep["version"] == "abc1234"
+    # Atrapa sesji psuje też sondy katalogu (kolacja, priorytety) — liczy się,
+    # że widać wyłącznie padnięte, a żadnej zdrowej tabeli.
+    assert deep["checks"]["b2b_signature_schema"] == "unhealthy"
+    assert "healthy" not in deep["checks"].values()
+    assert not CORE_DEEP_CHECK_TABLES & deep["checks"].keys()
+    assert deep["errors"]["b2b_signature_schema"] == "SchemaMismatch"
+    assert deep["errors"].keys() <= deep["checks"].keys()
+    assert deep["checked"] > 100
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_is_rate_limited_per_address(_only_b2b_schema_drifts):
+    from app.core.rate_limit import limiter
+
+    was_enabled = limiter.enabled
+    limiter.enabled = True
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as ac:
+            statuses = [
+                (
+                    await ac.get(
+                        "/api/health/deep", headers={"X-Forwarded-For": "198.51.100.7"}
+                    )
+                ).status_code
+                for _ in range(11)
+            ]
+            other_address = await ac.get(
+                "/api/health/deep", headers={"X-Forwarded-For": "198.51.100.8"}
+            )
+    finally:
+        limiter.enabled = was_enabled
+
+    # Deploy woła sondę najwyżej ok. 4 razy na minutę (co 15 s) — 10 wystarcza.
+    assert statuses[:10] == [503] * 10
+    assert statuses[10] == 429
+    assert other_address.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_api_health_deep_full_report_needs_an_admin(app_client):
+    """Rekruter z ważnym tokenem dostaje to samo co anonim; admin — całość."""
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token, hash_password
+    from app.models.user import User, UserRole
+
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        recruiter = User(
+            email=f"deep-health-{tag}@example.com",
+            password_hash=hash_password(f"T3st_{tag}!Deep"),
+            name="Deep Health Recruiter",
+            role=UserRole.recruiter,
+            is_active=True,
+        )
+        db.add(recruiter)
+        await db.commit()
+        recruiter_id = recruiter.id
+
+    token = create_access_token(recruiter_id, UserRole.recruiter.value)
+    deep = (
+        await app_client.get(
+            "/api/health/deep", headers={"Authorization": f"Bearer {token}"}
+        )
+    ).json()
+
+    assert "client_portfolio_import" not in deep
+    assert "schema_compare" not in deep
+    assert "collation" not in deep

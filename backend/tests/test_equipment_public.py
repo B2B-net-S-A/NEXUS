@@ -223,13 +223,14 @@ async def test_sign_endpoint_is_rate_limited_per_token_and_per_address(
     try:
         same = [await sign("ten-sam-token") for _ in range(6)]
         limiter.reset()
-        # Seria różnych tokenów z jednego adresu: wspólny kubełek per IP.
-        rotating = [await sign(uuid.uuid4().hex) for _ in range(11)]
+        # Seria różnych tokenów z jednego adresu: limit trasy liczy się per
+        # funkcja (``key_style="endpoint"``), nie per adres z tokenem.
+        rotating = [await sign(uuid.uuid4().hex) for _ in range(6)]
     finally:
         limiter.reset()
         limiter.enabled = was_enabled
     assert same == [404] * 5 + [429]
-    assert rotating == [404] * 10 + [429]
+    assert rotating == [404] * 5 + [429]
 
 
 async def test_academy_participant_signs_by_link_like_anyone_else(

@@ -21,7 +21,7 @@ from app.api.deps import DeliveryLeadPlus
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.api.ws import notify_user
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.candidate_chat import (
     CandidateChatMention,
@@ -263,7 +263,7 @@ async def list_messages(
     response_model=CandidateChatMessageResponse,
     status_code=status.HTTP_201_CREATED,
 )
-@limiter.limit("30/minute")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def create_message(
     request: Request,
     candidate_id: int,
