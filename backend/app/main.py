@@ -246,6 +246,7 @@ from app.api import hr_payments as hr_payments_api
 from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
+from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
@@ -2240,6 +2241,13 @@ app.include_router(
 app.include_router(
     client_sales_invoices_api.finance_router,
     prefix="/api/finance/sales-invoices",
+    tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+# Wystawianie faktur sprzedaży do KSeF (E4) — szkice, numeracja, wysyłka.
+app.include_router(
+    client_issued_invoices_api.router,
+    prefix="/api/finance/issued-invoices",
     tags=["client-invoicing"],
     dependencies=_HR_PROGRAM,
 )

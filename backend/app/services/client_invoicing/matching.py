@@ -98,6 +98,9 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "original_missing",
     }
 )
+#: Przypisania, których automat nie przepina: ręczne Finansów i faktura
+#: wystawiona w NEXUSIE (E4) — ta wie, z którego zamówienia powstała.
+KEPT_METHODS: frozenset[str] = frozenset({"manual", "issued"})
 #: Ostatnia faktura po kolei w ``rematch_pending`` (``{"after_id": …}``).
 REMATCH_CURSOR_KEY = "client_sales_rematch_cursor"
 
@@ -426,9 +429,9 @@ async def auto_match(
     *,
     registry: Optional[clients.NipRegistry] = None,
 ) -> Decision:
-    """Dopasowanie automatyczne; ręcznych i pominiętych nie rusza."""
+    """Dopasowanie automatyczne; ręcznych, pominiętych i wystawionych w NEXUSIE nie rusza."""
 
-    if invoice.match_status == "ignored" or invoice.match_method == "manual":
+    if invoice.match_status == "ignored" or invoice.match_method in KEPT_METHODS:
         return Decision(reason=invoice.match_reason)
     registry = registry or await clients.nip_registry(db)
     if invoice.client_id is None:
@@ -484,6 +487,32 @@ async def auto_match(
     if decision.matched:
         await propagate_to_corrections(db, invoice)
     return decision
+
+
+async def link_issued(
+    db: AsyncSession,
+    invoice: ClientSalesInvoice,
+    *,
+    targets: Sequence[Target],
+    period: tuple[int, int],
+    actor_id: Optional[int],
+) -> None:
+    """Faktura wystawiona w NEXUSIE (E4) wiąże się z zamówieniem, z którego powstała.
+
+    Metoda ``issued`` — automat jej nie przepina (jak ręcznego przypisania),
+    a Finanse mogą ją cofnąć tak samo jak każde inne przypisanie.
+    """
+
+    await _replace_links(db, invoice, targets, period, actor_id)
+    invoice.match_status = "matched"
+    invoice.match_method = "issued"
+    invoice.match_reason = None
+    invoice.matched_by = actor_id
+    invoice.matched_at = _now()
+    invoice.ignore_reason = None
+    _clear_difference(invoice)
+    await db.flush()
+    await propagate_to_corrections(db, invoice)
 
 
 class MatchingError(ValueError):
