@@ -118,6 +118,7 @@ export const contractDocsSharePointApi = {
 /** Raport XLSX — natywny `fetch` z tokenem (jak dokumenty kontraktu). */
 export async function downloadRunReport(runId: number): Promise<void> {
   const res = await fetch(`${API_BASE}${BASE}/runs/${runId}/report.xlsx`, {
+    credentials: "include",
     headers: getAuthenticatedRequestHeaders(),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

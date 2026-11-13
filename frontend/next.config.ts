@@ -7,7 +7,8 @@ import { withSentryConfig } from "@sentry/nextjs";
 // wtyczek, brak <base>, brak ramkowania, formularze tylko do siebie i API).
 // Pełna polityka (skąd skrypty, style, połączenia) idzie równolegle jako
 // Report-Only z raportem do Sentry — zaostrzenie egzekwowanej polityki
-// dopiero po przejrzeniu raportów. Budowane z env w czasie buildu
+// dopiero po przejrzeniu raportów. Report-Only z nonce składa middleware
+// (`src/lib/csp.ts`); tu egzekwowane minimum z env w czasie buildu
 // (NEXT_PUBLIC_* to build argi), bez importu z `src/`.
 type CspEnv = {
   NODE_ENV?: string;
@@ -32,27 +33,10 @@ function originOf(raw: string | undefined): string | null {
  */
 export const DOCUMENT_PATHS = "/((?!_next/|.*\\..*).*)";
 
-/** Endpoint `security` Sentry z publicznego DSN (report-uri CSP). */
-export function sentryCspReportUri(dsn: string | undefined): string | null {
-  if (!dsn) return null;
-  try {
-    const url = new URL(dsn);
-    const projectId = url.pathname.replace(/^\/+|\/+$/g, "");
-    if (!url.username || !projectId) return null;
-    return `${url.protocol}//${url.host}/api/${projectId}/security/?sentry_key=${url.username}`;
-  } catch {
-    return null;
-  }
-}
-
 export function buildSecurityHeaders(
   env: CspEnv = process.env as CspEnv,
 ): { key: string; value: string }[] {
   const api = originOf(env.NEXT_PUBLIC_API_URL);
-  const ws = api ? api.replace(/^http/, "ws") : null;
-  const sentryUri = sentryCspReportUri(env.NEXT_PUBLIC_SENTRY_DSN);
-  const sentryOrigin = sentryUri ? new URL(sentryUri).origin : null;
-  const isProd = env.NODE_ENV === "production";
   const join = (...parts: (string | null | false | undefined)[]) =>
     parts.filter(Boolean).join(" ");
 
@@ -63,37 +47,6 @@ export function buildSecurityHeaders(
     join("form-action 'self'", api),
   ].join("; ");
 
-  const reportOnly = [
-    "default-src 'self'",
-    // Cloudflare (proxy przed frontem) sam wstrzykuje beacon Web Analytics —
-    // bez tych źródeł każda wizyta dawała raport CSP w Sentry (NEXUS-FE-19).
-    join(
-      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
-      !isProd && "'unsafe-eval'",
-    ),
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    join("img-src 'self' data: blob: https:", api),
-    "font-src 'self' data: https://fonts.gstatic.com",
-    join(
-      "connect-src 'self'",
-      api,
-      ws,
-      sentryOrigin,
-      "https://cloudflareinsights.com",
-      !isProd && "ws: http://localhost:*",
-    ),
-    "frame-src 'self' blob:",
-    "worker-src 'self' blob:",
-    "media-src 'self' blob: https:",
-    "object-src 'none'",
-    "base-uri 'self'",
-    "frame-ancestors 'none'",
-    join("form-action 'self'", api),
-    sentryUri ? `report-uri ${sentryUri}` : null,
-  ]
-    .filter(Boolean)
-    .join("; ");
-
   return [
     { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
     { key: "X-Frame-Options", value: "DENY" },
@@ -102,7 +55,9 @@ export function buildSecurityHeaders(
     { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), interest-cohort=()" },
     { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
     { key: "Content-Security-Policy", value: enforced },
-    { key: "Content-Security-Policy-Report-Only", value: reportOnly },
+    // Pełna polityka (Report-Only) idzie z `src/middleware.ts`, bo niesie
+    // nonce per żądanie — `src/lib/csp.ts`. Tu jej nie ma, inaczej dokument
+    // dostałby dwie polityki Report-Only.
   ];
 }
 

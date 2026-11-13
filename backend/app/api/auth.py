@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
@@ -10,6 +10,12 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.session_cookie import (
+    clear_session_cookie,
+    enforce_cookie_csrf,
+    session_cookie_token,
+    set_session_cookie,
+)
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -205,7 +211,10 @@ async def auth_methods(request: Request) -> AuthMethodsResponse:
 # konta firmowe i tak wchodzą przez SSO.
 @limiter.limit("30/minute")
 async def login(
-    request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)
+    request: Request,
+    response: Response,
+    data: LoginRequest,
+    db: AsyncSession = Depends(get_db),
 ):
     """Authenticate user and return JWT tokens. Rate-limited: 30 req/min per IP.
 
@@ -270,7 +279,7 @@ async def login(
             detail=_EMAIL_NOT_VERIFIED_DETAIL,
         )
     await resolve_effective_section_access(db, user)
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(
             user.id,
             user.role.value,
@@ -284,6 +293,10 @@ async def login(
             user.id, authorization_version=user.authorization_version
         ),
     )
+    # Sesja przeglądarki = ciasteczko HttpOnly (``core/session_cookie``).
+    # Token w ciele zostaje dla dodatku Outlooka, e2e i skryptów.
+    set_session_cookie(response, request, tokens.access_token)
+    return tokens
 
 
 @router.post(
@@ -585,6 +598,7 @@ async def me(
 @limiter.limit("3/minute")
 async def change_password(
     request: Request,
+    response: Response,
     data: ChangePasswordRequest,
     current_user: AuthenticatedUser,
     db: AsyncSession = Depends(get_db),
@@ -662,7 +676,7 @@ async def change_password(
     # Nowy access token bez ``fpc`` (flaga wyczyszczona wyżej) — middleware
     # przestaje odsyłać na /profile bez ponownego logowania.
     await resolve_effective_section_access(db, current_user)
-    return TokenResponse(
+    tokens = TokenResponse(
         access_token=create_access_token(
             current_user.id,
             current_user.role.value,
@@ -676,6 +690,48 @@ async def change_password(
             current_user.id, authorization_version=current_user.authorization_version
         ),
     )
+    # Stary token jest już martwy (podłoga wyżej) — ciasteczko dostaje nowy,
+    # inaczej przeglądarka wylogowałaby się zaraz po „Hasło zmienione”.
+    set_session_cookie(response, request, tokens.access_token)
+    return tokens
+
+
+@router.post("/session", status_code=status.HTTP_204_NO_CONTENT)
+async def adopt_session(
+    request: Request,
+    current_user: AuthenticatedUser,
+) -> Response:
+    """Przenieś sesję z nagłówka Bearer do ciasteczka HttpOnly."""
+    # Przejście z tokenu w ``localStorage`` (front sprzed 11.2026) bez
+    # wylogowania wszystkich oraz „Zaloguj jako” na stagingu. Tylko nagłówek:
+    # ciasteczko z ciasteczka nic nie zmienia, a token integracji OAuth nie
+    # może zostać sesją przeglądarki (omijałby zakres tras klienta).
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Brak tokenu do przeniesienia.",
+        )
+    if getattr(request.state, "oauth_client_id", None):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token integracji nie może być sesją przeglądarki.",
+        )
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    set_session_cookie(response, request, token)
+    return response
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(request: Request) -> Response:
+    """Usuń ciasteczko sesji przeglądarki."""
+    # JS nie skasuje ciasteczka HttpOnly — robi to tylko serwer. CSRF jak przy
+    # każdym zapisie ciasteczkiem: obca strona nie wyloguje nikogo po cichu.
+    if session_cookie_token(request):
+        enforce_cookie_csrf(request)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    clear_session_cookie(response, request)
+    return response
 
 
 @router.post("/forgot-password", status_code=status.HTTP_200_OK)

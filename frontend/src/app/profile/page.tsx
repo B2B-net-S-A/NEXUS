@@ -8,6 +8,7 @@ import { hasSectionAccess } from "@/lib/section-access";
 import api from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { adoptPasswordChangeSession } from "@/lib/password-change-session";
+import { COOKIE_SESSION, isCookieSession } from "@/lib/session";
 import { MyWinsCard } from "@/components/profile/MyWinsCard";
 import {
   User,
@@ -214,14 +215,21 @@ export default function ProfilePage() {
       // wylogowywało tuż po komunikacie o sukcesie.
       let adopted = false;
       try {
+        // Sesja w ciasteczku HttpOnly: API ustawiło już nowe ciasteczko,
+        // więc `/me` idzie bez nagłówka, a store zostaje przy znaczniku.
+        const cookieSession = isCookieSession(useAuthStore.getState().token);
         adopted = await adoptPasswordChangeSession(changed.data, {
           fetchMe: (accessToken) =>
             api
-              .get("/api/auth/me", {
-                headers: { Authorization: `Bearer ${accessToken}` },
-              })
+              .get(
+                "/api/auth/me",
+                cookieSession
+                  ? undefined
+                  : { headers: { Authorization: `Bearer ${accessToken}` } },
+              )
               .then((r) => r.data),
-          setAuth,
+          setAuth: (me, accessToken) =>
+            setAuth(me, cookieSession ? COOKIE_SESSION : accessToken),
           currentUser: user,
         });
         queryClient.invalidateQueries({ queryKey: ["user-profile"] });

@@ -26,7 +26,7 @@ export async function fetchOrderDocumentBlob(
 ): Promise<Blob> {
   const res = await fetch(
     `${API_BASE}/api/clients/${clientId}/orders/${orderId}/file`,
-    { headers: getAuthenticatedRequestHeaders() },
+    { credentials: "include", headers: getAuthenticatedRequestHeaders() },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();

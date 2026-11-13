@@ -77,11 +77,14 @@ docker exec nexus-staging-backend-1 python -m scripts.staging_login_as --user-id
 ```
 
 Pierwsza komenda wypisuje aktywne osoby w roli, druga sam token. W karcie
-przeglądarki (3100 albo 3101): `localStorage.clear()`, usuń cookie
-`nexus_access`, `localStorage.setItem('access_token', '<token>')`, otwórz
-`/login` — strona sprawdza token przez `/api/auth/me` i kończy logowanie.
-Zmiana roli = to samo z tokenem następnej osoby. Token nie trafia do repo,
-PR-a ani raportu.
+przeglądarki (3100 albo 3101): `localStorage.clear()`,
+`localStorage.setItem('access_token', '<token>')`, otwórz `/login` — strona
+przenosi token do ciasteczka HttpOnly (`POST /api/auth/session`, od 11.2026,
+`uprawnienia/sesja-w-ciasteczku-httponly-i-csrf.md`), usuwa go z
+localStorage i kończy logowanie przez `/api/auth/me`. Ciasteczka
+`nexus_access` nie da się już skasować z JS — zmiana roli to po prostu
+następny token tą samą drogą (adopcja nadpisuje ciasteczko). Token nie
+trafia do repo, PR-a ani raportu.
 
 - Wybieraj osobę, która ma dane w tym kroku: Delivery Lead na swoim kliencie,
   rekruter na swojej karcie. Id osoby i rekordu zapisuj w raporcie, nazwiska nie.

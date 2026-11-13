@@ -3,11 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import nextConfig, {
-  DOCUMENT_PATHS,
-  buildSecurityHeaders,
-  sentryCspReportUri,
-} from "../../../next.config";
+import nextConfig, { DOCUMENT_PATHS, buildSecurityHeaders } from "../../../next.config";
 
 type Header = { key: string; value: string };
 
@@ -32,39 +28,12 @@ describe("Content-Security-Policy", () => {
     expect(csp).toContain("form-action 'self' https://api.nexus.dynaminds.pl");
   });
 
-  it("Report-Only opisuje pełną politykę z API, WS i raportem do Sentry", () => {
-    const ro = header(buildSecurityHeaders(PROD), "Content-Security-Policy-Report-Only");
-    expect(ro).toContain("default-src 'self'");
-    expect(ro).toMatch(
-      /connect-src 'self' https:\/\/api\.nexus\.dynaminds\.pl wss:\/\/api\.nexus\.dynaminds\.pl https:\/\/o42\.ingest\.de\.sentry\.io/,
+  it("Report-Only nie idzie z next.config — niesie nonce, więc składa ją middleware", () => {
+    const keys = buildSecurityHeaders(PROD).map((h) => h.key);
+    expect(keys).not.toContain("Content-Security-Policy-Report-Only");
+    expect(header(buildSecurityHeaders({}), "Content-Security-Policy")).toContain(
+      "object-src 'none'",
     );
-    expect(ro).toContain(
-      "report-uri https://o42.ingest.de.sentry.io/api/77/security/?sentry_key=abc123",
-    );
-  });
-
-  it("dopuszcza beacon Cloudflare Web Analytics (wstrzykuje go proxy)", () => {
-    const ro = header(buildSecurityHeaders(PROD), "Content-Security-Policy-Report-Only");
-    expect(ro).toMatch(/script-src [^;]*https:\/\/static\.cloudflareinsights\.com/);
-    expect(ro).toMatch(/connect-src [^;]*https:\/\/cloudflareinsights\.com/);
-  });
-
-  it("w produkcji żadna polityka nie dopuszcza unsafe-eval", () => {
-    for (const h of buildSecurityHeaders(PROD)) {
-      expect(h.value).not.toContain("unsafe-eval");
-    }
-    const dev = header(
-      buildSecurityHeaders({ ...PROD, NODE_ENV: "development" }),
-      "Content-Security-Policy-Report-Only",
-    );
-    expect(dev).toContain("'unsafe-eval'");
-  });
-
-  it("brak env nie wywraca buildu", () => {
-    const headers = buildSecurityHeaders({});
-    expect(header(headers, "Content-Security-Policy")).toContain("object-src 'none'");
-    expect(header(headers, "Content-Security-Policy-Report-Only")).not.toContain("report-uri");
-    expect(sentryCspReportUri("nie-url")).toBeNull();
   });
 
   it("next.config podpina nagłówki pod każdą trasę", async () => {
@@ -73,7 +42,6 @@ describe("Content-Security-Policy", () => {
     expect(all?.headers.map((h) => h.key)).toEqual(
       expect.arrayContaining([
         "Content-Security-Policy",
-        "Content-Security-Policy-Report-Only",
         "X-Frame-Options",
       ]),
     );

@@ -117,6 +117,7 @@ export async function downloadClientForm(
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
   const res = await fetch(`${apiBase}${basePath(stageId)}/docx${kindQuery(kind)}`, {
     method: "GET",
+    credentials: "include",
     headers: getAuthenticatedRequestHeaders(),
   });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import localFont from "next/font/local";
 import "./globals.css";
 import { QueryProvider } from "@/components/QueryProvider";
@@ -12,6 +13,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { KpiNudgeToaster } from "@/components/v2/kpi/KpiNudgeToaster";
 import { OffLimitsConfirmHost } from "@/components/v2/recruitment/OffLimitsConfirmHost";
 import { IS_STAGING, StagingBadge } from "@/components/StagingBadge";
+import { NONCE_HEADER } from "@/lib/csp";
 
 // Fonts are self-hosted from `./fonts` on purpose — `next/font/google` fetches
 // the .woff2 files from fonts.gstatic.com AT BUILD TIME, and Coolify rebuilds
@@ -113,7 +115,11 @@ export const metadata: Metadata = {
 // Ciemne światy: lustro `DARK_WORLD_IDS` (test `theme-worlds-contract.test.ts`).
 const themeBootstrap = `(function(){try{var d=document.documentElement;var p="indigo",t="light",k=false,w="";var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["indigo","violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;if(s.kidsMode===true)k=true;if(typeof s.world==="string"&&/^[a-z]{2,16}$/.test(s.world)&&s.world!=="none"&&!k)w=s.world;}if(w){d.dataset.world=w;t=["arcade","space","rgb","blueprint","pitstop"].indexOf(w)>=0?"dark":"light";}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;if(k)d.dataset.kids="true";d.dataset.soft="true";}catch(e){var r=document.documentElement;r.dataset.theme="indigo";r.dataset.soft="true";}})();`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Nonce CSP z middleware (`src/lib/csp.ts`). Odczyt nagłówków czyni każdą
+  // stronę renderowaną per żądanie — świadomie: nonce statycznej strony
+  // byłby wspólny dla wszystkich, czyli żaden.
+  const nonce = (await headers()).get(NONCE_HEADER) ?? undefined;
   return (
     <html
       lang="pl"
@@ -121,7 +127,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${inter.variable} ${interCyrillic.variable} ${poppins.variable} ${baloo2.variable}`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
       </head>
       <body className="bg-background text-foreground font-sans antialiased">
         <ChunkReloadGuard />

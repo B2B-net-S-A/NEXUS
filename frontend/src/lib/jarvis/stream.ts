@@ -45,6 +45,7 @@ export async function streamJarvisChat(body: JarvisChatBody, options: StreamOpti
   const doFetch = options.fetchImpl ?? fetch;
   const response = await doFetch(`${API_BASE}/api/jarvis/chat`, {
     method: "POST",
+    credentials: "include",
     headers: getAuthenticatedRequestHeaders({
       "Content-Type": "application/json",
       Accept: "text/event-stream",
