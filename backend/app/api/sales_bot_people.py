@@ -33,7 +33,7 @@ from app.api.sales_research_import import (
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.sales import SalesBotResult, SalesCompany
-from app.services.sales import bot_tasks, client_gate, company_aliases, signals
+from app.services.sales import bot_tasks, bots, client_gate, company_aliases, signals
 from app.services.sales import research_import, signal_targets
 from app.services.sales.bot_tasks import people
 from app.services.sales.bot_tasks.people import CognismMapPerson
@@ -356,9 +356,12 @@ async def start_people_run(
         configured = signals.people_configured()
     else:
         _require_enabled()
-        configured = signals.configured()
+        configured = signals.configured(people.KIND)
     if not configured:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=NOT_CONFIGURED_DETAIL)
+    paused = await bots.paused_refusal(db, people.KIND, {"source": provider})
+    if paused:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=paused)
     company = await db.get(SalesCompany, company_id)
     if company is None or company.archived_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NO_COMPANY_DETAIL)
