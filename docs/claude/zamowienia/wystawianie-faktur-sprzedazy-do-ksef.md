@@ -114,3 +114,11 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 - Noty księgowe, wezwania do zapłaty, refaktury benefitów, faktura rozliczeniowa do zaliczek, korekta zaliczkowej,
   szablony cykliczne (604 w eBI24) i wystawianie seryjne jednym kliknięciem, wysyłka faktur mailem do klienta,
   certyfikat zamiast tokenu dla wysyłki, walidacja XSD FA(3) w CI, tryb offline KSeF.
+
+## Zamówienie zafakturowane poza NEXUSEM (14.11.2026)
+
+- „Wystaw za miesiąc” pokazuje przy zamówieniu numery faktur z KSeF wystawionych poza NEXUSEM (np. w eBI24),
+  powiązanych z nim za ten miesiąc (`client_sales_invoice_links`, metoda inna niż `issued`), jako „zafakturowane
+  w KSeF”, a szkic dla takiego zamówienia to 409 z numerem faktury. Poprawka to korekta albo odpięcie faktury
+  w „Do faktury”. Powód: przeklikanie na kopii produkcji 14.11.2026 — za październik 302 z 502 zamówień miało już
+  fakturę z eBI24, a lista pokazywała je jako „do wystawienia” (w miesiącu przejściowym druga faktura).

@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
@@ -34,8 +41,17 @@ import {
   useUploadStatement,
   type PlanItem,
 } from "@/lib/api/finance-payments";
-import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
-import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import {
+  downloadBlob,
+  fetchAuthenticatedDownload,
+} from "@/lib/authenticated-files";
+import {
+  CALM_AMOUNT,
+  CALM_EMPTY,
+  CALM_HEAD,
+  CALM_ROW,
+  CALM_SUBLINE,
+} from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -52,14 +68,27 @@ import {
 
 const CONTROL =
   "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
-const LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
+const LABEL =
+  "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 
-function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+function Section({
+  title,
+  aside,
+  children,
+}: {
+  title: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className={LABEL}>{title}</h2>
-        {aside ? <div className="ml-auto flex flex-wrap items-center gap-2">{aside}</div> : null}
+        {aside ? (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {aside}
+          </div>
+        ) : null}
       </div>
       {children}
     </section>
@@ -81,16 +110,26 @@ function SenderSettings({ canWrite }: { canWrite: boolean }) {
   return (
     <div className="rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-muted-foreground">Rachunek nadawcy (plik Elixir):</span>
+        <span className="text-muted-foreground">
+          Rachunek nadawcy (plik Elixir):
+        </span>
         {configured ? (
           <span className="font-mono text-xs">
-            {settings.data?.sender_name} · {formatAccount(settings.data?.sender_account)}
+            {settings.data?.sender_name} ·{" "}
+            {formatAccount(settings.data?.sender_account)}
           </span>
         ) : (
-          <span className="text-warning-muted-foreground">nie ustawiony — paczka tylko jako CSV</span>
+          <span className="text-warning-muted-foreground">
+            nie ustawiony — paczka tylko jako CSV
+          </span>
         )}
         {canWrite ? (
-          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setOpen((v) => !v)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => setOpen((v) => !v)}
+          >
             {open ? "Zamknij" : configured ? "Zmień" : "Ustaw"}
           </Button>
         ) : null}
@@ -107,7 +146,11 @@ function SenderSettings({ canWrite }: { canWrite: boolean }) {
                   showToast("Rachunek nadawcy zapisany.", "success");
                   setOpen(false);
                 },
-                onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zapisać."), "error"),
+                onError: (err) =>
+                  showToast(
+                    apiErrorMessage(err, "Nie udało się zapisać."),
+                    "error",
+                  ),
               },
             );
           }}
@@ -138,19 +181,26 @@ function SenderSettings({ canWrite }: { canWrite: boolean }) {
 function WhiteList({ item }: { item: PlanItem }) {
   const state = item.white_list.state;
   const variant =
-    state === "listed" ? "success" : state === "not_listed" || state === "unchecked" ? "danger" : "neutral";
+    state === "listed"
+      ? "success"
+      : state === "not_listed" || state === "unchecked"
+        ? "danger"
+        : "neutral";
   return (
     <span className="block min-w-0">
       <Badge
         size="sm"
         variant={item.white_list.informational ? "neutral" : variant}
         title={item.white_list.request_id ?? undefined}
+        className="h-auto whitespace-normal text-left"
       >
         {item.white_list.label}
         {item.white_list.informational ? " (informacyjnie — faktor)" : ""}
       </Badge>
       {item.white_list.request_id ? (
-        <span className={cn(CALM_SUBLINE, "truncate font-mono")}>{item.white_list.request_id}</span>
+        <span className={cn(CALM_SUBLINE, "truncate font-mono")}>
+          {item.white_list.request_id}
+        </span>
       ) : null}
     </span>
   );
@@ -177,116 +227,199 @@ function PlanTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-9" />
-            <TableHead className={`${CALM_HEAD} w-[8%]`}>Termin</TableHead>
-            <TableHead className={`${CALM_HEAD} w-[18%]`}>Sprzedawca</TableHead>
-            <TableHead className={`${CALM_HEAD} w-[14%]`}>Numer</TableHead>
-            <TableHead className={`${CALM_HEAD} w-[11%] text-right`}>Do zapłaty</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[10%]`}>Termin</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[20%]`}>Sprzedawca</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[17%]`}>Numer</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[12%] text-right`}>
+              Do zapłaty
+            </TableHead>
             <TableHead className={`${CALM_HEAD} w-[8%]`}>Tryb</TableHead>
-            <TableHead className={`${CALM_HEAD} w-[15%]`}>Rachunek</TableHead>
-            <TableHead className={`${CALM_HEAD} w-[11%]`}>Biała lista</TableHead>
-            <TableHead className={`${CALM_HEAD} w-[15%]`}>Uwagi</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[19%]`}>Rachunek</TableHead>
+            <TableHead className={`${CALM_HEAD} w-[14%]`}>
+              Biała lista
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((item) => (
-            <TableRow
-              key={item.entry_id}
-              className={cn(CALM_ROW, "align-top", !item.selectable && "text-muted-foreground")}
-            >
-              <TableCell>
-                <Checkbox
-                  aria-label={`Zaznacz ${item.invoice_number ?? "fakturę"}`}
-                  checked={selected.has(item.entry_id)}
-                  disabled={!canWrite || !item.selectable}
-                  onCheckedChange={(checked) => onSelect(item.entry_id, checked === true)}
-                />
-              </TableCell>
-              <TableCell className="whitespace-nowrap tabular-nums">
-                {item.due_date ? formatIsoDatePl(item.due_date) : <span className={CALM_EMPTY}>—</span>}
-              </TableCell>
-              <TableCell className="min-w-0">
-                <span className="block truncate">{item.seller_name ?? "—"}</span>
-                <span className={cn(CALM_SUBLINE, "truncate")}>
-                  {item.seller_nip ? `NIP ${item.seller_nip}` : "bez NIP-u"}
-                </span>
-              </TableCell>
-              <TableCell className="min-w-0">
-                <Link
-                  href={`/finance/costs/${item.entry_id}`}
-                  className="block truncate font-medium text-primary hover:underline"
+          {items.map((item) => {
+            const notes =
+              Boolean(item.block_label) ||
+              Boolean(item.account_note) ||
+              item.acks.length > 0 ||
+              item.hints.length > 0;
+            return (
+              <Fragment key={item.entry_id}>
+                <TableRow
+                  className={cn(
+                    CALM_ROW,
+                    "align-top",
+                    notes && "border-b-0",
+                    !item.selectable && "text-muted-foreground",
+                  )}
                 >
-                  {item.invoice_number ?? `Faktura #${item.entry_id}`}
-                </Link>
-                <span className={cn(CALM_SUBLINE, "truncate")} title={item.title}>
-                  {item.title || "—"}
-                </span>
-              </TableCell>
-              <TableCell className={CALM_AMOUNT}>
-                {formatMoney(item.to_pay ?? item.gross_amount, item.currency)}
-                {item.amount_note ? (
-                  <span className={cn(CALM_SUBLINE, "whitespace-normal text-right")}>
-                    {item.amount_note}
-                  </span>
-                ) : null}
-              </TableCell>
-              <TableCell>
-                {item.mode_label ? (
-                  <Badge size="sm" variant={item.mode === "standard" ? "outline" : "warning"}>
-                    {item.mode_label}
-                  </Badge>
-                ) : (
-                  <span className={CALM_EMPTY}>—</span>
-                )}
-              </TableCell>
-              <TableCell className="min-w-0">
-                <span className="block truncate font-mono text-xs" title={formatAccount(item.account)}>
-                  {formatAccount(item.account)}
-                </span>
-                {item.account_source_label ? (
-                  <span className={CALM_SUBLINE}>{item.account_source_label}</span>
-                ) : null}
-                {item.account_note ? (
-                  <span className="block text-xs text-warning-muted-foreground">
-                    {item.account_note}
-                  </span>
-                ) : null}
-              </TableCell>
-              <TableCell className="min-w-0">
-                {item.selectable ? <WhiteList item={item} /> : <span className={CALM_EMPTY}>—</span>}
-              </TableCell>
-              <TableCell className="min-w-0 space-y-1 text-xs">
-                {item.block_label ? <span className="block">{item.block_label}</span> : null}
-                {item.acks.map((ack) => (
-                  <label key={ack.code} className="flex items-start gap-1.5 text-warning-muted-foreground">
+                  <TableCell>
                     <Checkbox
-                      aria-label={`Sprawdzone: ${ack.label}`}
-                      checked={acknowledged.has(item.entry_id)}
-                      disabled={!canWrite}
-                      onCheckedChange={(checked) => onAcknowledge(item.entry_id, checked === true)}
+                      aria-label={`Zaznacz ${item.invoice_number ?? "fakturę"}`}
+                      checked={selected.has(item.entry_id)}
+                      disabled={!canWrite || !item.selectable}
+                      onCheckedChange={(checked) =>
+                        onSelect(item.entry_id, checked === true)
+                      }
                     />
-                    <span>{ack.label}</span>
-                  </label>
-                ))}
-                {item.hints.map((hint) => (
-                  <span key={hint.code} className="block text-muted-foreground">
-                    {hint.label}
-                  </span>
-                ))}
-              </TableCell>
-            </TableRow>
-          ))}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap tabular-nums">
+                    {item.due_date ? (
+                      formatIsoDatePl(item.due_date)
+                    ) : (
+                      <span className={CALM_EMPTY}>—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="min-w-0">
+                    <span className="block truncate">
+                      {item.seller_name ?? "—"}
+                    </span>
+                    <span className={cn(CALM_SUBLINE, "truncate")}>
+                      {item.seller_nip ? `NIP ${item.seller_nip}` : "bez NIP-u"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="min-w-0">
+                    <Link
+                      href={`/finance/costs/${item.entry_id}`}
+                      className="block truncate font-medium text-primary hover:underline"
+                    >
+                      {item.invoice_number ?? `Faktura #${item.entry_id}`}
+                    </Link>
+                    <span
+                      className={cn(CALM_SUBLINE, "truncate")}
+                      title={item.title}
+                    >
+                      {item.title || "—"}
+                    </span>
+                  </TableCell>
+                  <TableCell className={CALM_AMOUNT}>
+                    {formatMoney(
+                      item.to_pay ?? item.gross_amount,
+                      item.currency,
+                    )}
+                    {item.amount_note ? (
+                      <span
+                        className={cn(
+                          CALM_SUBLINE,
+                          "whitespace-normal text-right",
+                        )}
+                      >
+                        {item.amount_note}
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell>
+                    {item.mode_label ? (
+                      <Badge
+                        size="sm"
+                        variant={
+                          item.mode === "standard" ? "outline" : "warning"
+                        }
+                      >
+                        {item.mode_label}
+                      </Badge>
+                    ) : (
+                      <span className={CALM_EMPTY}>—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="min-w-0">
+                    <span
+                      className="block truncate font-mono text-xs"
+                      title={formatAccount(item.account)}
+                    >
+                      {formatAccount(item.account)}
+                    </span>
+                    {item.account_source_label ? (
+                      <span className={CALM_SUBLINE}>
+                        {item.account_source_label}
+                      </span>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="min-w-0">
+                    {item.selectable ? (
+                      <WhiteList item={item} />
+                    ) : (
+                      <span className={CALM_EMPTY}>—</span>
+                    )}
+                  </TableCell>
+                </TableRow>
+                {notes ? (
+                  <TableRow
+                    className={cn(
+                      CALM_ROW,
+                      !item.selectable && "text-muted-foreground",
+                    )}
+                  >
+                    <TableCell />
+                    {/* Uwagi pod wierszem, na całą szerokość: w wąskiej kolumnie przy
+                    1280 px jedna faktura zajmowała cały ekran (przeklikanie 14.11). */}
+                    <TableCell colSpan={7} className="space-y-1 pt-0 text-xs">
+                      {item.block_label ? (
+                        <span className="block">{item.block_label}</span>
+                      ) : null}
+                      {item.account_note ? (
+                        <span className="block text-warning-muted-foreground">
+                          {item.account_note}
+                        </span>
+                      ) : null}
+                      {item.acks.length > 0 ? (
+                        <label className="flex items-start gap-1.5 text-warning-muted-foreground">
+                          <Checkbox
+                            aria-label={`Sprawdzone: ${item.acks.map((ack) => ack.label).join("; ")}`}
+                            checked={acknowledged.has(item.entry_id)}
+                            disabled={!canWrite}
+                            onCheckedChange={(checked) =>
+                              onAcknowledge(item.entry_id, checked === true)
+                            }
+                          />
+                          <span className="space-y-0.5">
+                            {item.acks.map((ack) => (
+                              <span key={ack.code} className="block">
+                                {ack.label}
+                              </span>
+                            ))}
+                          </span>
+                        </label>
+                      ) : null}
+                      {item.hints.map((hint) => (
+                        <span
+                          key={hint.code}
+                          className="block text-muted-foreground"
+                        >
+                          {hint.label}
+                        </span>
+                      ))}
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
   );
 }
 
-function BatchItems({ batchId, canWrite }: { batchId: number; canWrite: boolean }) {
+function BatchItems({
+  batchId,
+  canWrite,
+}: {
+  batchId: number;
+  canWrite: boolean;
+}) {
   const detail = useBatchDetail(batchId);
   const release = useReleaseItem();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const { showToast } = useToast();
-  if (detail.isLoading) return <p className="px-3.5 pb-2 text-xs text-muted-foreground">Wczytywanie…</p>;
+  if (detail.isLoading)
+    return (
+      <p className="px-3.5 pb-2 text-xs text-muted-foreground">Wczytywanie…</p>
+    );
   if (detail.isError || !detail.data) {
     return <QueryStateNotice state="error" onRetry={() => detail.refetch()} />;
   }
@@ -294,25 +427,38 @@ function BatchItems({ batchId, canWrite }: { batchId: number; canWrite: boolean 
     <ul className="space-y-1 px-3.5 pb-2 text-xs">
       {detail.data.items.map((item) => (
         <li key={item.entry_id} className="flex flex-wrap items-center gap-x-2">
-          <span className={cn(item.status !== "active" && "text-muted-foreground line-through")}>
+          <span
+            className={cn(
+              item.status !== "active" && "text-muted-foreground line-through",
+            )}
+          >
             {item.invoice_number ?? `#${item.entry_id}`}
           </span>
           <span className="text-muted-foreground">{item.recipient_name}</span>
-          <span className="tabular-nums">{formatMoney(item.amount, item.currency)}</span>
+          <span className="tabular-nums">
+            {formatMoney(item.amount, item.currency)}
+          </span>
           {item.account_source === "ksef_factor" ? (
             <Badge size="sm" variant="warning">
               faktor
             </Badge>
           ) : null}
           <span className="text-muted-foreground">
-            {item.status === "done" ? "zapłacona" : item.status === "released" ? "zdjęta" : ""}
+            {item.status === "done"
+              ? "zapłacona"
+              : item.status === "released"
+                ? "zdjęta"
+                : ""}
           </span>
           {canWrite && item.status === "active" ? (
             <Button
               size="sm"
               variant="ghost"
               className="ml-auto"
-              loading={release.isPending && release.variables?.entryId === item.entry_id}
+              loading={
+                release.isPending &&
+                release.variables?.entryId === item.entry_id
+              }
               onClick={async () => {
                 const ok = await askConfirm({
                   title: "Zdjąć fakturę z paczki?",
@@ -326,8 +472,15 @@ function BatchItems({ batchId, canWrite }: { batchId: number; canWrite: boolean 
                   { batchId, entryId: item.entry_id },
                   {
                     onSuccess: () =>
-                      showToast("Faktura zdjęta z paczki — pobierz plik ponownie.", "success"),
-                    onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zdjąć faktury."), "error"),
+                      showToast(
+                        "Faktura zdjęta z paczki — pobierz plik ponownie.",
+                        "success",
+                      ),
+                    onError: (err) =>
+                      showToast(
+                        apiErrorMessage(err, "Nie udało się zdjąć faktury."),
+                        "error",
+                      ),
                   },
                 );
               }}
@@ -361,7 +514,10 @@ function Batches({ canWrite }: { canWrite: boolean }) {
       }
       void batches.refetch();
     } catch (err) {
-      showToast(apiErrorMessage(err, "Nie udało się pobrać pliku paczki."), "error");
+      showToast(
+        apiErrorMessage(err, "Nie udało się pobrać pliku paczki."),
+        "error",
+      );
     }
   };
   return (
@@ -371,25 +527,40 @@ function Batches({ canWrite }: { canWrite: boolean }) {
       ) : batches.isError ? (
         <QueryStateNotice state="error" onRetry={() => batches.refetch()} />
       ) : batches.isSuccess && items.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nie ma jeszcze paczek przelewów.</p>
+        <p className="text-sm text-muted-foreground">
+          Nie ma jeszcze paczek przelewów.
+        </p>
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border bg-card text-sm">
           {items.map((batch) => (
-            <li key={batch.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2">
+            <li
+              key={batch.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2"
+            >
               <span className="font-medium">#{batch.id}</span>
-              <span className="tabular-nums">{formatIsoDatePl(batch.execution_date)}</span>
+              <span className="tabular-nums">
+                {formatIsoDatePl(batch.execution_date)}
+              </span>
               <span className="text-muted-foreground">
                 {batch.count} · {formatMoney(batch.total, batch.currency)} ·{" "}
                 {batch.format === "elixir" ? "Elixir-O" : "CSV"}
               </span>
               <Badge
                 size="sm"
-                variant={batch.status === "done" ? "success" : batch.status === "cancelled" ? "neutral" : "info"}
+                variant={
+                  batch.status === "done"
+                    ? "success"
+                    : batch.status === "cancelled"
+                      ? "neutral"
+                      : "info"
+                }
               >
                 {batch.status_label}
               </Badge>
               {batch.created_by_name ? (
-                <span className="text-xs text-muted-foreground">{batch.created_by_name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {batch.created_by_name}
+                </span>
               ) : null}
               {batch.file_stale ? (
                 <Badge size="sm" variant="danger">
@@ -405,7 +576,11 @@ function Batches({ canWrite }: { canWrite: boolean }) {
                   size="sm"
                   variant="ghost"
                   aria-expanded={open === batch.id}
-                  onClick={() => setOpen((current) => (current === batch.id ? null : batch.id))}
+                  onClick={() =>
+                    setOpen((current) =>
+                      current === batch.id ? null : batch.id,
+                    )
+                  }
                 >
                   Pozycje
                 </Button>
@@ -434,8 +609,15 @@ function Batches({ canWrite }: { canWrite: boolean }) {
                       if (!ok) return;
                       cancel.mutate(batch.id, {
                         onSuccess: (result) =>
-                          showToast(`Paczka anulowana, zwolnione: ${result.released}.`, "success"),
-                        onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
+                          showToast(
+                            `Paczka anulowana, zwolnione: ${result.released}.`,
+                            "success",
+                          ),
+                        onError: (err) =>
+                          showToast(
+                            apiErrorMessage(err, "Nie udało się anulować."),
+                            "error",
+                          ),
                       });
                     }}
                   >
@@ -485,11 +667,20 @@ function Statement({ canWrite }: { canWrite: boolean }) {
                 if (!file) return;
                 upload.mutate(file, {
                   onSuccess: (result) => setSummary(describeStatement(result)),
-                  onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wczytać wyciągu."), "error"),
+                  onError: (err) =>
+                    showToast(
+                      apiErrorMessage(err, "Nie udało się wczytać wyciągu."),
+                      "error",
+                    ),
                 });
               }}
             />
-            <Button size="sm" variant="outline" loading={upload.isPending} onClick={() => input.current?.click()}>
+            <Button
+              size="sm"
+              variant="outline"
+              loading={upload.isPending}
+              onClick={() => input.current?.click()}
+            >
               Wgraj wyciąg
             </Button>
           </>
@@ -497,23 +688,31 @@ function Statement({ canWrite }: { canWrite: boolean }) {
       }
     >
       <p className="text-xs text-muted-foreground">
-        Obciążenia z wyciągu oznaczają faktury jako zapłacone. Przelewy do osób z zespołu zostają
-        Płacom, wpłaty klientów — „Fakturom do klientów”.
+        Obciążenia z wyciągu oznaczają faktury jako zapłacone. Przelewy do osób
+        z zespołu zostają Płacom, wpłaty klientów — „Fakturom do klientów”.
       </p>
       {summary ? (
-        <div className="rounded-lg border border-border bg-muted/40 px-3.5 py-2 text-sm">{summary}</div>
+        <div className="rounded-lg border border-border bg-muted/40 px-3.5 py-2 text-sm">
+          {summary}
+        </div>
       ) : null}
       {overview.isError ? (
         <QueryStateNotice state="error" onRetry={() => overview.refetch()} />
       ) : overview.isSuccess && lines.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nic nie czeka na sprawdzenie.</p>
+        <p className="text-sm text-muted-foreground">
+          Nic nie czeka na sprawdzenie.
+        </p>
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border bg-card text-sm">
           {lines.map((line) => (
             <li key={line.id} className="space-y-1 px-3.5 py-2">
               <div className="flex flex-wrap items-baseline gap-x-3">
-                <span className="tabular-nums">{formatIsoDatePl(line.booked_on)}</span>
-                <span className="font-medium tabular-nums">{formatMoney(line.amount, line.currency)}</span>
+                <span className="tabular-nums">
+                  {formatIsoDatePl(line.booked_on)}
+                </span>
+                <span className="font-medium tabular-nums">
+                  {formatMoney(line.amount, line.currency)}
+                </span>
                 <span className="min-w-0 flex-1 truncate" title={line.title}>
                   {line.counterparty_name ? `${line.counterparty_name} · ` : ""}
                   {line.title || "—"}
@@ -525,14 +724,26 @@ function Statement({ canWrite }: { canWrite: boolean }) {
                     onClick={async () => {
                       const reason = await askReason({
                         title: "Pominąć operację z wyciągu?",
-                        description: "Pominięta operacja nie oznaczy żadnej faktury jako zapłaconej.",
+                        description:
+                          "Pominięta operacja nie oznaczy żadnej faktury jako zapłaconej.",
                         confirmLabel: "Pomiń",
-                        field: { label: "Powód", placeholder: "np. przelew spoza faktur", minLength: 3, maxLength: 500 },
+                        field: {
+                          label: "Powód",
+                          placeholder: "np. przelew spoza faktur",
+                          minLength: 3,
+                          maxLength: 500,
+                        },
                       });
                       if (!reason) return;
                       ignore.mutate(
                         { id: line.id, reason },
-                        { onError: (err) => showToast(apiErrorMessage(err, "Nie udało się pominąć."), "error") },
+                        {
+                          onError: (err) =>
+                            showToast(
+                              apiErrorMessage(err, "Nie udało się pominąć."),
+                              "error",
+                            ),
+                        },
                       );
                     }}
                   >
@@ -540,7 +751,11 @@ function Statement({ canWrite }: { canWrite: boolean }) {
                   </Button>
                 ) : null}
               </div>
-              {line.reason ? <p className="text-xs text-warning-muted-foreground">{line.reason}</p> : null}
+              {line.reason ? (
+                <p className="text-xs text-warning-muted-foreground">
+                  {line.reason}
+                </p>
+              ) : null}
               {line.hints.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {line.hints.map((hint) => (
@@ -553,14 +768,22 @@ function Statement({ canWrite }: { canWrite: boolean }) {
                         assign.mutate(
                           { id: line.id, entryId: hint.entry_id },
                           {
-                            onSuccess: () => showToast("Zapłata przypisana.", "success"),
+                            onSuccess: () =>
+                              showToast("Zapłata przypisana.", "success"),
                             onError: (err) =>
-                              showToast(apiErrorMessage(err, "Nie udało się przypisać."), "error"),
+                              showToast(
+                                apiErrorMessage(
+                                  err,
+                                  "Nie udało się przypisać.",
+                                ),
+                                "error",
+                              ),
                           },
                         )
                       }
                     >
-                      Przypisz: {hint.invoice_number ?? `#${hint.entry_id}`} · {hint.seller_name ?? ""} ·{" "}
+                      Przypisz: {hint.invoice_number ?? `#${hint.entry_id}`} ·{" "}
+                      {hint.seller_name ?? ""} ·{" "}
                       {formatMoney(hint.gross_amount, hint.currency)}
                     </Button>
                   ))}
@@ -626,10 +849,13 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
         }
       >
         <p className="text-xs text-muted-foreground">
-          Faktury bez terminu płatności nie trafiają do paczki — termin wpisz na karcie faktury.
+          Faktury bez terminu płatności nie trafiają do paczki — termin wpisz na
+          karcie faktury.
         </p>
         {plan.isLoading ? (
-          <p className="py-6 text-sm text-muted-foreground">Sprawdzanie faktur i rachunków…</p>
+          <p className="py-6 text-sm text-muted-foreground">
+            Sprawdzanie faktur i rachunków…
+          </p>
         ) : plan.isError ? (
           <QueryStateNotice state="error" onRetry={() => plan.refetch()} />
         ) : plan.isSuccess && items.length === 0 ? (
@@ -649,7 +875,8 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
         {canWrite && items.length > 0 ? (
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-3.5 py-2.5 text-sm">
             <span>
-              Zaznaczone: <strong className="tabular-nums">{summary.count}</strong>
+              Zaznaczone:{" "}
+              <strong className="tabular-nums">{summary.count}</strong>
               {Object.entries(summary.totals).map(([currency, total]) => (
                 <span key={currency} className="ml-2 tabular-nums">
                   {formatMoney(total, currency)}
@@ -671,7 +898,9 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
               aria-label="Format pliku"
               value={batchFormat(summary.currency, format)}
               disabled={summary.currency !== null && summary.currency !== "PLN"}
-              onChange={(event) => setFormat(event.target.value as "elixir" | "csv")}
+              onChange={(event) =>
+                setFormat(event.target.value as "elixir" | "csv")
+              }
               className={CONTROL}
             >
               <option value="elixir">Elixir-O</option>
@@ -686,7 +915,10 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
                 create.mutate(
                   {
                     entry_ids: items
-                      .filter((item) => item.selectable && selected.has(item.entry_id))
+                      .filter(
+                        (item) =>
+                          item.selectable && selected.has(item.entry_id),
+                      )
                       .map((item) => item.entry_id),
                     acknowledged: Array.from(acknowledged),
                     execution_date: execution,
@@ -698,7 +930,11 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
                         `Paczka #${batch.id} utworzona: ${batch.count} · ${formatMoney(batch.total, batch.currency)}.`,
                         "success",
                       ),
-                    onError: (err) => showToast(apiErrorMessage(err, "Nie udało się utworzyć paczki."), "error"),
+                    onError: (err) =>
+                      showToast(
+                        apiErrorMessage(err, "Nie udało się utworzyć paczki."),
+                        "error",
+                      ),
                   },
                 )
               }
@@ -706,7 +942,9 @@ export function PaymentsTab({ canWrite = true }: { canWrite?: boolean }) {
               Utwórz paczkę
             </Button>
             {blocker && summary.count > 0 ? (
-              <span className="basis-full text-xs text-warning-muted-foreground">{blocker}</span>
+              <span className="basis-full text-xs text-warning-muted-foreground">
+                {blocker}
+              </span>
             ) : null}
           </div>
         ) : null}

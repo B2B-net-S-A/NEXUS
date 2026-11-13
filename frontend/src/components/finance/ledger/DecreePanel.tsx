@@ -31,7 +31,8 @@ import {
   type DraftRow,
 } from "./posting-model";
 
-const LABEL = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
+const LABEL =
+  "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
 const CONTROL =
   "h-8 rounded-md border border-border bg-background px-2 text-sm pointer-coarse:h-10";
 
@@ -43,29 +44,42 @@ function Positions({ section }: { section: DecreeSection }) {
         <tr className="text-left text-xs text-muted-foreground">
           <th className="py-1 font-medium">Konto</th>
           <th className="py-1 font-medium">Pozycja</th>
-          <th className="py-1 text-right font-medium">Wn</th>
-          <th className="py-1 text-right font-medium">Ma</th>
+          <th className="py-1 pl-3 text-right font-medium">Wn</th>
+          <th className="py-1 pl-3 text-right font-medium">Ma</th>
         </tr>
       </thead>
       <tbody>
         {section.positions.map((position, index) => (
-          <tr key={`${position.kind}-${index}`} className="border-t border-border align-top">
+          <tr
+            key={`${position.kind}-${index}`}
+            className="border-t border-border align-top"
+          >
             <td className="py-1 pr-2">
-              <span className="font-mono text-[12.5px]">{position.account ?? "—"}</span>
+              <span className="font-mono text-[12.5px]">
+                {position.account ?? "—"}
+              </span>
               {position.account_name ? (
-                <span className="block text-xs text-muted-foreground">{position.account_name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {position.account_name}
+                </span>
               ) : null}
             </td>
             <td className="py-1 pr-2 text-muted-foreground">
               {position.kind_label}
               {position.vat_rate ? ` · ${position.vat_rate}%` : ""}
-              {position.deduction_label ? ` · odliczenie ${position.deduction_label}` : ""}
+              {position.deduction_label
+                ? ` · odliczenie ${position.deduction_label}`
+                : ""}
             </td>
-            <td className="py-1 text-right tabular-nums">
-              {position.side === "debit" ? formatGrosze(toGrosze(position.amount) ?? 0) : ""}
+            <td className="py-1 pl-3 text-right tabular-nums whitespace-nowrap">
+              {position.side === "debit"
+                ? formatGrosze(toGrosze(position.amount) ?? 0)
+                : ""}
             </td>
-            <td className="py-1 text-right tabular-nums">
-              {position.side === "credit" ? formatGrosze(toGrosze(position.amount) ?? 0) : ""}
+            <td className="py-1 pl-3 text-right tabular-nums whitespace-nowrap">
+              {position.side === "credit"
+                ? formatGrosze(toGrosze(position.amount) ?? 0)
+                : ""}
             </td>
           </tr>
         ))}
@@ -73,10 +87,10 @@ function Positions({ section }: { section: DecreeSection }) {
           <td className="py-1" colSpan={2}>
             Razem
           </td>
-          <td className="py-1 text-right tabular-nums">
+          <td className="py-1 pl-3 text-right tabular-nums whitespace-nowrap">
             {formatGrosze(toGrosze(section.debit_total) ?? 0)}
           </td>
-          <td className="py-1 text-right tabular-nums">
+          <td className="py-1 pl-3 text-right tabular-nums whitespace-nowrap">
             {formatGrosze(toGrosze(section.credit_total) ?? 0)}
           </td>
         </tr>
@@ -97,11 +111,17 @@ function RowEditor({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={`Pozycja ${index + 1}`}>
+    <div
+      className="flex flex-wrap items-center gap-1.5"
+      role="group"
+      aria-label={`Pozycja ${index + 1}`}
+    >
       <select
         aria-label="Rodzaj pozycji"
         value={row.kind}
-        onChange={(event) => onChange({ ...row, kind: event.target.value as PositionKind })}
+        onChange={(event) =>
+          onChange({ ...row, kind: event.target.value as PositionKind })
+        }
         className={CONTROL}
       >
         {(Object.keys(KIND_LABELS) as PositionKind[]).map((kind) => (
@@ -120,7 +140,9 @@ function RowEditor({
       <select
         aria-label="Strona"
         value={row.side}
-        onChange={(event) => onChange({ ...row, side: event.target.value as Side })}
+        onChange={(event) =>
+          onChange({ ...row, side: event.target.value as Side })
+        }
         className={CONTROL}
       >
         <option value="debit">Wn</option>
@@ -134,7 +156,12 @@ function RowEditor({
         onChange={(event) => onChange({ ...row, amount: event.target.value })}
         className="h-8 w-28 text-right tabular-nums"
       />
-      <Button size="sm" variant="ghost" onClick={onRemove} aria-label={`Usuń pozycję ${index + 1}`}>
+      <Button
+        size="sm"
+        variant="ghost"
+        onClick={onRemove}
+        aria-label={`Usuń pozycję ${index + 1}`}
+      >
         Usuń
       </Button>
     </div>
@@ -167,7 +194,10 @@ export function DecreeEditor({
           aria-label="Rejestr"
           value={draft.register}
           onChange={(event) =>
-            setDraft((current) => ({ ...current, register: event.target.value as Register }))
+            setDraft((current) => ({
+              ...current,
+              register: event.target.value as Register,
+            }))
           }
           className={CONTROL}
         >
@@ -181,7 +211,12 @@ export function DecreeEditor({
           aria-label="Typ dokumentu"
           value={draft.doc_type}
           maxLength={8}
-          onChange={(event) => setDraft((current) => ({ ...current, doc_type: event.target.value }))}
+          onChange={(event) =>
+            setDraft((current) => ({
+              ...current,
+              doc_type: event.target.value,
+            }))
+          }
           className="h-8 w-20 font-mono uppercase"
         />
         <Input
@@ -190,7 +225,10 @@ export function DecreeEditor({
           value={draft.description}
           maxLength={255}
           onChange={(event) =>
-            setDraft((current) => ({ ...current, description: event.target.value }))
+            setDraft((current) => ({
+              ...current,
+              description: event.target.value,
+            }))
           }
           className="h-8 min-w-0 flex-1"
         />
@@ -213,16 +251,29 @@ export function DecreeEditor({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => setDraft((current) => ({ ...current, rows: [...current.rows, emptyRow()] }))}
+          onClick={() =>
+            setDraft((current) => ({
+              ...current,
+              rows: [...current.rows, emptyRow()],
+            }))
+          }
         >
           Dodaj pozycję
         </Button>
-        <span className={cn("tabular-nums", check.balanced ? "text-muted-foreground" : "text-destructive")}>
+        <span
+          className={cn(
+            "tabular-nums",
+            check.balanced ? "text-muted-foreground" : "text-destructive",
+          )}
+        >
           Wn {formatGrosze(check.debit)} · Ma {formatGrosze(check.credit)}
         </span>
       </div>
       {check.problems.length > 0 ? (
-        <ul className="space-y-0.5 text-xs text-destructive" aria-label="Do poprawy">
+        <ul
+          className="space-y-0.5 text-xs text-destructive"
+          aria-label="Do poprawy"
+        >
           {check.problems.map((problem) => (
             <li key={problem}>{problem}</li>
           ))}
@@ -242,7 +293,11 @@ export function DecreeEditor({
                 showToast("Dekret zapisany.", "success");
                 onDone();
               },
-              onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zapisać dekretu."), "error"),
+              onError: (err) =>
+                showToast(
+                  apiErrorMessage(err, "Nie udało się zapisać dekretu."),
+                  "error",
+                ),
             })
           }
         >
@@ -268,12 +323,22 @@ export function DecreePanel({
   const { showToast } = useToast();
   const canEdit = section.editable && !readOnly;
   return (
-    <section className="space-y-2 rounded-lg border border-border bg-card p-3.5" aria-label="Dekret do Symfonii FK">
+    <section
+      className="space-y-2 rounded-lg border border-border bg-card p-3.5"
+      aria-label="Dekret do Symfonii FK"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className={LABEL}>Dekret do Symfonii FK</h2>
-        {section.manual ? <Badge size="sm" variant="info">ręczny</Badge> : null}
+        {section.manual ? (
+          <Badge size="sm" variant="info">
+            ręczny
+          </Badge>
+        ) : null}
         {section.batch ? (
-          <Badge size="sm" variant={section.batch.status === "booked" ? "success" : "soft"}>
+          <Badge
+            size="sm"
+            variant={section.batch.status === "booked" ? "success" : "soft"}
+          >
             paczka {section.batch.number}
           </Badge>
         ) : null}
@@ -288,7 +353,9 @@ export function DecreePanel({
           <dt className="text-muted-foreground">Opis</dt>
           <dd className="min-w-0 break-words">{section.description ?? "—"}</dd>
           <dt className="text-muted-foreground">Reguła</dt>
-          <dd>{section.manual ? "korekta ręczna" : (section.rule?.label ?? "—")}</dd>
+          <dd>
+            {section.manual ? "korekta ręczna" : (section.rule?.label ?? "—")}
+          </dd>
           {fxLabel(section) ? (
             <>
               <dt className="text-muted-foreground">Waluta</dt>
@@ -298,7 +365,11 @@ export function DecreePanel({
         </dl>
       ) : null}
       {editing ? (
-        <DecreeEditor entryId={entryId} section={section} onDone={() => setEditing(false)} />
+        <DecreeEditor
+          entryId={entryId}
+          section={section}
+          onDone={() => setEditing(false)}
+        />
       ) : (
         <Positions section={section} />
       )}
@@ -320,8 +391,13 @@ export function DecreePanel({
             loading={recalc.isPending}
             onClick={() =>
               recalc.mutate(undefined, {
-                onSuccess: () => showToast("Dekret przeliczony z reguły.", "success"),
-                onError: (err) => showToast(apiErrorMessage(err, "Nie udało się przeliczyć."), "error"),
+                onSuccess: () =>
+                  showToast("Dekret przeliczony z reguły.", "success"),
+                onError: (err) =>
+                  showToast(
+                    apiErrorMessage(err, "Nie udało się przeliczyć."),
+                    "error",
+                  ),
               })
             }
           >

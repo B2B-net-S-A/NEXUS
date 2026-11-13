@@ -44,6 +44,7 @@ const TO_ISSUE: ToIssueClient[] = [
         people: 1,
         blocked: null,
         needs_amount: false,
+        invoiced_in_ksef: [],
         issued: [],
       },
       {
@@ -55,6 +56,7 @@ const TO_ISSUE: ToIssueClient[] = [
         people: 1,
         blocked: "Brak kwoty pozycji (czeka na zużycie MD albo stawkę): Ola Przykładowa.",
         needs_amount: false,
+        invoiced_in_ksef: [],
         issued: [],
       },
       {
@@ -66,7 +68,20 @@ const TO_ISSUE: ToIssueClient[] = [
         people: 1,
         blocked: null,
         needs_amount: false,
+        invoiced_in_ksef: [],
         issued: [{ id: 3, status: "draft", status_label: "Szkic", invoice_number: null }],
+      },
+      {
+        key: "g131",
+        kind: "md",
+        order_number: "ZAM/2026/131",
+        currency: "PLN",
+        expected_net: "18900.00",
+        people: 1,
+        blocked: null,
+        needs_amount: false,
+        invoiced_in_ksef: ["77/10/2026"],
+        issued: [],
       },
     ],
   },
@@ -210,6 +225,10 @@ describe("IssueMonthPanel", () => {
     expect(within(blocked).getByRole("checkbox")).toBeDisabled();
     expect(blocked).toHaveTextContent("czeka na zużycie MD");
     expect(within(screen.getByTestId("to-issue-g124")).getByRole("checkbox")).toBeDisabled();
+    // Zamówienie zafakturowane już w KSeF poza NEXUSEM (np. w eBI24) — bez drugiego szkicu.
+    const elsewhere = screen.getByTestId("to-issue-g131");
+    expect(within(elsewhere).getByRole("checkbox")).toBeDisabled();
+    expect(within(elsewhere).getByText("zafakturowane w KSeF")).toBeInTheDocument();
 
     await user.click(within(screen.getByTestId("to-issue-g118")).getByRole("checkbox"));
     await user.click(screen.getByRole("button", { name: "Utwórz szkice (1)" }));

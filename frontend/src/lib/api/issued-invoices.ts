@@ -8,7 +8,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
+import {
+  downloadBlob,
+  fetchAuthenticatedDownload,
+} from "@/lib/authenticated-files";
 
 import { invoicingKeys } from "./client-invoicing";
 
@@ -121,7 +124,14 @@ export interface ToIssueRow {
   blocked: string | null;
   /** Zamówienie kosztowe: kwotę pozycji wpisują Finanse w szkicu. */
   needs_amount: boolean;
-  issued: { id: number; status: IssuedStatus; status_label: string; invoice_number: string | null }[];
+  /** Numery faktur z KSeF spoza NEXUSA (np. z eBI24) powiązanych z zamówieniem za ten miesiąc. */
+  invoiced_in_ksef: string[];
+  issued: {
+    id: number;
+    status: IssuedStatus;
+    status_label: string;
+    invoice_number: string | null;
+  }[];
 }
 
 export interface ToIssueClient {
@@ -191,8 +201,10 @@ export type InvoicePatch = Partial<{
 
 export const issuedKeys = {
   all: ["issued-invoices"] as const,
-  settings: (period: string | null) => ["issued-invoices", "settings", period] as const,
-  toIssue: (year: number, month: number) => ["issued-invoices", "to-issue", year, month] as const,
+  settings: (period: string | null) =>
+    ["issued-invoices", "settings", period] as const,
+  toIssue: (year: number, month: number) =>
+    ["issued-invoices", "to-issue", year, month] as const,
   list: (view: "drafts" | "sent", period: string | null) =>
     ["issued-invoices", "list", view, period] as const,
   card: (id: number) => ["issued-invoices", "card", id] as const,
@@ -204,7 +216,10 @@ export const issuedPaths = {
   xml: (id: number) => `${BASE}/${id}/xml`,
 };
 
-export async function downloadIssuedFile(path: string, fallbackName: string): Promise<void> {
+export async function downloadIssuedFile(
+  path: string,
+  fallbackName: string,
+): Promise<void> {
   const { blob, filename } = await fetchAuthenticatedDownload(path);
   downloadBlob(blob, filename ?? fallbackName);
 }
@@ -219,8 +234,11 @@ export function useIssueSettings(period: string | null = null, enabled = true) {
   return useQuery({
     queryKey: issuedKeys.settings(period),
     queryFn: async () =>
-      (await api.get<IssueSettingsPayload>(`${BASE}/settings`, { params: periodParams(period) }))
-        .data,
+      (
+        await api.get<IssueSettingsPayload>(`${BASE}/settings`, {
+          params: periodParams(period),
+        })
+      ).data,
     enabled,
   });
 }
@@ -230,22 +248,32 @@ export function useToIssue(year: number, month: number, enabled = true) {
     queryKey: issuedKeys.toIssue(year, month),
     queryFn: async () =>
       (
-        await api.get<{ period: string; clients: ToIssueClient[] }>(`${BASE}/to-issue`, {
-          params: { year, month },
-        })
+        await api.get<{ period: string; clients: ToIssueClient[] }>(
+          `${BASE}/to-issue`,
+          {
+            params: { year, month },
+          },
+        )
       ).data,
     enabled,
   });
 }
 
-export function useIssuedList(view: "drafts" | "sent", period: string | null, enabled = true) {
+export function useIssuedList(
+  view: "drafts" | "sent",
+  period: string | null,
+  enabled = true,
+) {
   return useQuery({
     queryKey: issuedKeys.list(view, period),
     queryFn: async () =>
       (
-        await api.get<{ invoices: IssuedInvoiceRow[]; ksef: KsefIssueState }>(BASE, {
-          params: { view, ...periodParams(period) },
-        })
+        await api.get<{ invoices: IssuedInvoiceRow[]; ksef: KsefIssueState }>(
+          BASE,
+          {
+            params: { view, ...periodParams(period) },
+          },
+        )
       ).data,
     enabled,
   });
@@ -254,7 +282,8 @@ export function useIssuedList(view: "drafts" | "sent", period: string | null, en
 export function useIssuedCard(id: number) {
   return useQuery({
     queryKey: issuedKeys.card(id),
-    queryFn: async () => (await api.get<IssuedInvoiceCard>(`${BASE}/${id}`)).data,
+    queryFn: async () =>
+      (await api.get<IssuedInvoiceCard>(`${BASE}/${id}`)).data,
     enabled: Number.isFinite(id) && id > 0,
   });
 }
@@ -272,7 +301,8 @@ export function useSaveIssueSettings() {
   const invalidate = useInvalidate();
   return useMutation({
     mutationFn: async (settings: IssueSettings) =>
-      (await api.put<{ settings: IssueSettings }>(`${BASE}/settings`, settings)).data,
+      (await api.put<{ settings: IssueSettings }>(`${BASE}/settings`, settings))
+        .data,
     onSuccess: invalidate,
   });
 }
@@ -280,13 +310,21 @@ export function useSaveIssueSettings() {
 export function useSetSeriesNext() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: async (payload: { code: SeriesCode; year: number; month: number; next_number: number }) =>
+    mutationFn: async (payload: {
+      code: SeriesCode;
+      year: number;
+      month: number;
+      next_number: number;
+    }) =>
       (
-        await api.put<{ series: SeriesState[] }>(`${BASE}/series/${payload.code}`, {
-          year: payload.year,
-          month: payload.month,
-          next_number: payload.next_number,
-        })
+        await api.put<{ series: SeriesState[] }>(
+          `${BASE}/series/${payload.code}`,
+          {
+            year: payload.year,
+            month: payload.month,
+            next_number: payload.next_number,
+          },
+        )
       ).data,
     onSuccess: invalidate,
   });
@@ -300,7 +338,8 @@ export function useCreateDrafts() {
       month: number;
       keys: string[];
       split: "order" | "person";
-    }) => (await api.post<{ created: number[] }>(`${BASE}/drafts`, payload)).data,
+    }) =>
+      (await api.post<{ created: number[] }>(`${BASE}/drafts`, payload)).data,
     onSuccess: invalidate,
   });
 }
@@ -308,8 +347,11 @@ export function useCreateDrafts() {
 export function useCreateAdvance() {
   const invalidate = useInvalidate();
   return useMutation({
-    mutationFn: async (payload: { client_id: number; currency: IssueCurrency; received_on: string }) =>
-      (await api.post<IssuedInvoiceCard>(`${BASE}/advance`, payload)).data,
+    mutationFn: async (payload: {
+      client_id: number;
+      currency: IssueCurrency;
+      received_on: string;
+    }) => (await api.post<IssuedInvoiceCard>(`${BASE}/advance`, payload)).data,
     onSuccess: invalidate,
   });
 }
@@ -327,7 +369,8 @@ export function useDeleteIssued() {
   const invalidate = useInvalidate();
   return useMutation({
     mutationFn: async (id: number) =>
-      (await api.delete<{ result: "deleted" | "cancelled" }>(`${BASE}/${id}`)).data,
+      (await api.delete<{ result: "deleted" | "cancelled" }>(`${BASE}/${id}`))
+        .data,
     onSuccess: invalidate,
   });
 }

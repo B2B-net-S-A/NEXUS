@@ -879,3 +879,61 @@ def test_rate_day_skips_weekends_and_holidays():
     # 11.11 to święto: dostawa 12.11 → kurs z 10.11.
     assert issue.rate_day(date(2026, 11, 12)) == date(2026, 11, 10)
     assert issue.rate_day(date(2026, 10, 31)) == date(2026, 10, 30)
+
+
+async def test_order_invoiced_outside_nexus_is_not_drafted_again(client, seed):
+    """Faktura z eBI24 (odczytana z KSeF i powiązana z zamówieniem) blokuje szkic.
+
+    Przeklikanie na stagingu 14.11.2026: „Wystaw za miesiąc” pokazywało zamówienia
+    zafakturowane w eBI24 jako „do wystawienia” — w miesiącu przejściowym druga
+    faktura za to samo zamówienie.
+    """
+
+    group_id = seed.groups["118"]
+    async with AsyncSessionLocal() as db:
+        outside = ClientSalesInvoice(
+            ksef_number=f"{fx.COMPANY_NIP}-20261031-EB1000000077-01",
+            xml_sha256="0" * 64,
+            client_id=seed.client_id,
+            invoice_number="77/10/2026",
+            issue_date=date(2026, 10, 31),
+            currency="PLN",
+            net_amount=Decimal("25200.00"),
+            vat_amount=Decimal("5796.00"),
+            gross_amount=Decimal("30996.00"),
+            items=[],
+            order_refs=[],
+            match_status="matched",
+            match_method="order_number",
+            fetched_at=datetime.now(timezone.utc),
+        )
+        db.add(outside)
+        await db.flush()
+        db.add(
+            ClientSalesInvoiceLink(
+                invoice_id=outside.id,
+                order_group_id=group_id,
+                period_year=2026,
+                period_month=10,
+            )
+        )
+        await db.commit()
+
+    listing = (
+        await client.get(f"{BASE}/to-issue", params=OCTOBER, headers=_h(seed))
+    ).json()
+    rows = {
+        row["key"]: row
+        for entry in listing["clients"]
+        if entry["client_id"] == seed.client_id
+        for row in entry["rows"]
+    }
+    assert rows[f"g{group_id}"]["invoiced_in_ksef"] == ["77/10/2026"]
+
+    refused = await client.post(
+        f"{BASE}/drafts",
+        json={**OCTOBER, "keys": [f"g{group_id}"]},
+        headers=_h(seed),
+    )
+    assert refused.status_code == 409, refused.text
+    assert "77/10/2026" in refused.json()["detail"]
