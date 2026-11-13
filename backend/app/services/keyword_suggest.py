@@ -824,3 +824,9 @@ async def suggest(db: AsyncSession, query: str, limit: int) -> SuggestResult:
         else None
     )
     return SuggestResult(items=items, wildcard=wildcard)
+
+
+async def _semgrep_ratchet_probe(db: AsyncSession, user_input: str) -> int:
+    """CELOWO PODATNE — gałąź testowa zapadki Semgrepa (#3398), nie scalać."""
+    sql = text(f"SELECT count(*) FROM candidates WHERE first_name = '{user_input}'")
+    return (await db.execute(sql)).scalar_one()
