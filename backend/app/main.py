@@ -250,6 +250,7 @@ from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
+from app.api import finance_posting as finance_posting_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2262,6 +2263,13 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
+# Księgowość E2 (0697): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
+app.include_router(
+    finance_posting_api.router,
+    prefix="/api/finance/posting",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
@@ -3840,6 +3848,11 @@ async def api_health_deep_check():
         FinanceCostEntryEvent,
         FinanceCounterparty,
     )
+    from app.models.finance_posting import (
+        FinanceAccount,
+        FinancePostingBatch,
+        FinancePostingRule,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -4214,6 +4227,10 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
+        # 0697: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
+        ("finance_accounts", FinanceAccount),
+        ("finance_posting_rules", FinancePostingRule),
+        ("finance_posting_batches", FinancePostingBatch),
     ]
 
     checks: dict[str, str] = {}

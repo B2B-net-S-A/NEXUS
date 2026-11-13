@@ -54,6 +54,7 @@ PROGRAM_API_MODULES = {
     "app.api.trainings",
     "app.api.trainings_media",
     "app.api.finance_ledger",
+    "app.api.finance_posting",
 }
 PROGRAM_PREFIXES = (
     "/api/hr/",

@@ -29,6 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.services import finance_ledger_schema as schema
+from app.services import finance_posting_schema as posting_schema
 
 
 class FinanceCounterparty(Base):
@@ -105,6 +106,11 @@ class FinanceCostEntry(Base):
         CheckConstraint(schema.CK_REJECTED, name="ck_finance_cost_entries_rejected"),
         Index("ix_finance_cost_entries_stage", "stage", "received_at"),
         Index("ix_finance_cost_entries_seller", "seller_nip"),
+        Index(
+            "ix_finance_cost_entries_batch",
+            "batch_id",
+            postgresql_where=text(posting_schema.ENTRY_BATCH_WHERE),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -137,6 +143,11 @@ class FinanceCostEntry(Base):
     stage_changed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 0697 (E2): dekret do Symfonii FK i paczka eksportu, w której wpis czeka.
+    decree: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    batch_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("finance_posting_batches.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -151,8 +162,9 @@ class FinanceCostEntry(Base):
 class FinanceCostEntryEvent(Base):
     __tablename__ = "finance_cost_entry_events"
     __table_args__ = (
+        # Akcje E1 i E2 (0697 przebudowuje CHECK z 0695).
         CheckConstraint(
-            schema.CK_EVENT_ACTION, name="ck_finance_cost_entry_events_action"
+            posting_schema.CK_EVENT_ACTION, name="ck_finance_cost_entry_events_action"
         ),
         Index("ix_finance_cost_entry_events_entry", "entry_id", "id"),
     )

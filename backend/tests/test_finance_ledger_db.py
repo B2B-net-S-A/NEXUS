@@ -19,7 +19,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 
 from app.api import finance_ledger
 from app.core.database import AsyncSessionLocal
@@ -31,6 +31,7 @@ from app.models.finance_ledger import (
     FinanceCostEntryEvent,
     FinanceCounterparty,
 )
+from app.models.finance_posting import FinancePostingRule
 from app.models.hr_approval import ApprovalDocument
 from app.models.hr_settlement import EmployeeBillingDetails, PayrollInvoice
 from app.models.user import User, UserRole
@@ -110,6 +111,37 @@ async def _set(key: str, value) -> None:
         else:
             row.value = value
         await db.commit()
+
+
+async def _with_posting_rule(entry: FinanceCostEntry, nip: str) -> int:
+    """Kontrahent z kontem i reguła dekretu tylko dla niego (znika z kontrahentem)."""
+
+    async with AsyncSessionLocal() as db:
+        party = FinanceCounterparty(
+            id_type="nip", id_value=nip, name="Kontrahent Testowy", cost_account="201-2-901"
+        )
+        db.add(party)
+        await db.flush()
+        db.add(
+            FinancePostingRule(
+                category=entry.category,
+                counterparty_id=party.id,
+                cost_account="402-202",
+                vat_account="221",
+                deduction="full",
+                register="purchase",
+                doc_type="FVZ",
+                service_label="Usługi IT",
+                description_template="{usługa} {MM}/{RRRR}",
+            )
+        )
+        await db.execute(
+            update(FinanceCostEntry)
+            .where(FinanceCostEntry.id == entry.id)
+            .values(counterparty_id=party.id)
+        )
+        await db.commit()
+        return party.id
 
 
 async def _entry(source_type: str, source_id: int) -> FinanceCostEntry:
@@ -301,6 +333,9 @@ async def test_sciezka_od_poczekalni_do_gotowej_z_historia(world, client) -> Non
     assert wrong.status_code == 409
     assert "Z KSeF do przyjęcia" in wrong.json()["detail"]
 
+    # E2 (0697): „Gotowa do księgowania” wymaga kompletnego dekretu — kontrahent
+    # z kontem rozrachunkowym i reguła (tu reguła tego kontrahenta).
+    await _with_posting_rule(entry, world["nips"]["person"])
     for action, stage in (
         ("accept", "new"),
         ("verify", "verified"),
