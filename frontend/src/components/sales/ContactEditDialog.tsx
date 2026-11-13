@@ -54,7 +54,13 @@ export function ContactEditDialog({ contact, companyId, onClose }: ContactEditDi
   );
   const [extra, setExtra] = useState<Ref | null>(null);
   const others = contact.companies.filter((link) => !link.is_primary);
-  const here = companyId === undefined ? undefined : contact.companies.find((c) => c.company_id === companyId);
+  const linked = companyId === undefined ? undefined : contact.companies.find((c) => c.company_id === companyId);
+  // Kontakt z Atlasa bywa bez wiersza powiązania z firmą główną: zapis go założy.
+  const here =
+    linked ??
+    (companyId !== undefined && contact.company_id === companyId
+      ? { company_id: companyId, company_name: contact.company_name ?? "", role: null, title: contact.title, is_current: true }
+      : undefined);
   // Okno trzyma kontakt z chwili otwarcia, więc stan po zmianie pamiętamy tu.
   const [working, setWorkingState] = useState(here?.is_current ?? true);
 

@@ -52,6 +52,7 @@ async def _contact(
     title: Optional[str] = None,
     email: Optional[str] = None,
     updated: datetime = OLD,
+    link: bool = True,
 ) -> int:
     async with AsyncSessionLocal() as db:
         contact = SalesContact(
@@ -65,14 +66,15 @@ async def _contact(
         )
         db.add(contact)
         await db.flush()
-        db.add(
-            SalesCompanyContact(
-                company_id=company_id,
-                contact_id=contact.id,
-                title=title,
-                is_primary=True,
+        if link:
+            db.add(
+                SalesCompanyContact(
+                    company_id=company_id,
+                    contact_id=contact.id,
+                    title=title,
+                    is_primary=True,
+                )
             )
-        )
         await db.commit()
         return contact.id
 
@@ -158,6 +160,9 @@ async def test_bot_people_land_in_contacts_and_newer_titles_win(
                     email_source_url=SRC,
                     phone="+48 22 100 20 30",
                 ),
+                # Kontakt rozdzielony w tym zapisie, po nowej osobie: odczyt daty
+                # kontaktu po zapisie do bazy nie może wywrócić raportu.
+                _bot_person("Zofia Nawiasowa", title="Head of HR"),
             ]
         },
     )
@@ -251,6 +256,8 @@ async def test_person_who_left_is_kept_as_not_working_and_can_come_back(
     )
     ewa_id = await _contact(company_id, "Ewa Przykładowa", title="Prezes Zarządu")
     await _contact(company_id, "Adam Abacki", title="CTO")
+    # Kontakt z Atlasa bez wiersza powiązania z firmą główną.
+    bare_id = await _contact(company_id, "Beata Bezwiersza", link=False)
 
     reply = await _report(
         app_client,
@@ -270,6 +277,11 @@ async def test_person_who_left_is_kept_as_not_working_and_can_come_back(
                     "source_url": SRC,
                     "published": "2026-10-02",
                 },
+                {
+                    "full_name": "Beata Bezwiersza",
+                    "source_url": SRC,
+                    "published": "2026-10-02",
+                },
                 # Nieznana osoba, która odeszła, nie trafia do Kontaktów.
                 {
                     "full_name": "Ktoś Obcy",
@@ -279,9 +291,13 @@ async def test_person_who_left_is_kept_as_not_working_and_can_come_back(
             ]
         },
     )
-    assert reply["contact_changes"] == 2
+    assert reply["contact_changes"] == 3
     found = await _contacts(company_id)
     assert "Ktoś Obcy" not in found
+    async with AsyncSessionLocal() as db:
+        bare = await db.get(SalesCompanyContact, (company_id, bare_id))
+        # Firma główna ma swój jedyny wiersz z ``is_primary``, teraz „nie pracuje”.
+        assert (bare.is_primary, bare.is_current) == (True, False)
     ewa, ewa_link = found["Ewa Przykładowa"]
     assert ewa.archived_at is None
     assert (ewa_link.is_current, ewa_link.ended_at) == (False, date(2026, 10, 1))
@@ -293,7 +309,7 @@ async def test_person_who_left_is_kept_as_not_working_and_can_come_back(
     assert listed.status_code == 200, listed.text
     names = [item["full_name"] for item in listed.json()["items"]]
     assert names[0] == "Adam Abacki"
-    assert set(names[1:]) == {"Ewa Przykładowa", "Marek Mapowy"}
+    assert set(names[1:]) == {"Ewa Przykładowa", "Marek Mapowy", "Beata Bezwiersza"}
 
     by_name = {entry["name"]: entry for entry in await _entries_for(company_id)}
     assert by_name["Ewa Przykładowa"]["active"] is False
