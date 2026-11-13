@@ -73,6 +73,8 @@ class Result:
     blocking: bool = False
     #: MD (z mnożnikiem) ponad pulę zamówienia, bez zejścia i bez zapłaty.
     md_over: Optional[Decimal] = None
+    #: Dane odczytu dowodu poza kontrolami (np. ``kesu`` w E6.3).
+    meta: Optional[dict[str, Any]] = None
 
 
 def _md(value: Decimal) -> Decimal:
@@ -332,4 +334,5 @@ def compute(inp: Inputs) -> Result:
         groups,
         blocking=proof_blocking,
         md_over=over if over > 0 else None,
+        meta=dict(inp.proof.meta) if inp.proof is not None and inp.proof.meta else None,
     )

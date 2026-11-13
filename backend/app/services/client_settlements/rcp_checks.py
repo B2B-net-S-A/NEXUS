@@ -32,6 +32,8 @@ class ProofResult:
     groups: list[dict[str, Any]] = field(default_factory=list)
     blocking: bool = False
     warn: bool = False
+    #: Dane odczytu dla karty i listy (np. ``kesu`` w E6.3), poza kontrolami.
+    meta: dict[str, Any] = field(default_factory=dict)
 
 
 def _fmt(value: Decimal) -> str:
@@ -53,7 +55,11 @@ def _param_dec(
 
 def name_tokens(text: Optional[str]) -> set[str]:
     raw = (
-        unicodedata.normalize("NFKD", text or "")
+        unicodedata.normalize(
+            # „ł” nie rozkłada się w NFKD i ginęłoby przy ASCII („Miłosz” → „miosz”).
+            "NFKD",
+            (text or "").replace("ł", "l").replace("Ł", "L"),
+        )
         .encode("ascii", "ignore")
         .decode()
         .lower()
