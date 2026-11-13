@@ -1,6 +1,6 @@
-"""Wystawianie faktur sprzedaży z NEXUSA do KSeF (E4): SQL migracji ``0696_sales_invoice_issue`` i lustra entrypointu.
+"""Wystawianie faktur sprzedaży z NEXUSA do KSeF (E4): SQL migracji ``0695_sales_invoice_issue`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0696_sales_invoice_issue.py``
+Jedno źródło instrukcji dla ``alembic/versions/0695_sales_invoice_issue.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

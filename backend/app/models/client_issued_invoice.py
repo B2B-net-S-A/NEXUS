@@ -1,4 +1,4 @@
-"""Faktury sprzedaży wystawiane w NEXUSIE i wysyłane do KSeF (0696, E4).
+"""Faktury sprzedaży wystawiane w NEXUSIE i wysyłane do KSeF (0695, E4).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/client_invoice_issue_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji). Opis tabel i stanów
