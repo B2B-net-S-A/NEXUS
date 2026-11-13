@@ -36,6 +36,7 @@ from app.core.scheduling import (
     is_business_day,
     local_day_bounds,
 )
+from app.models.calendar_event import CalendarEvent, EventStatus
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
@@ -50,6 +51,7 @@ from app.services.sales import next_step
 from app.services.sales.kpi import OFFER_STAGE_KEY
 from app.services.sales.meeting_autopin import auto_pinned
 from app.services.sales.meeting_decisions import is_outlook
+from app.services.sales.outlook_activities import EVENT_SOURCE
 from app.services.sales.touch import last_touch_at, not_cancelled, touched_at
 
 REPLY_WINDOW_DAYS = 21
@@ -434,6 +436,32 @@ def _meeting_identity(activity: SalesActivity) -> tuple[str, str]:
     return ("id", str(activity.id))
 
 
+def _in_own_calendar(user_id: int, start_utc: datetime, end_utc: datetime) -> Any:
+    """Spotkanie z Outlooka, które stoi w kalendarzu osoby (jej skrzynka w NEXUSIE).
+
+    Aktywność ze spotkania jest jedna na firmę, a autorem jest skrzynka, która
+    zsynchronizowała je pierwsza (``outlook_activities.record``). Każda skrzynka
+    ma za to własną kopię w ``calendar_events`` z tym samym ``iCalUId``, więc
+    pozostali uczestnicy z NEXUSA dostają spotkanie stąd, bez drugiego wiersza
+    i bez zmiany autora, po którym liczą KPI i Skuteczność. Odrzucone albo usunięte
+    u siebie spotkanie ma status ``cancelled`` i znika tylko z dnia tej osoby.
+    Okno ±1 dzień: wydarzenie całodniowe ma w kalendarzu początek przesunięty.
+    """
+
+    return and_(
+        SalesActivity.external_source == EVENT_SOURCE,
+        SalesActivity.external_id.in_(
+            select(CalendarEvent.m365_ical_uid).where(
+                CalendarEvent.created_by == user_id,
+                CalendarEvent.m365_ical_uid.is_not(None),
+                CalendarEvent.status != EventStatus.cancelled,
+                CalendarEvent.start_time >= start_utc - timedelta(days=1),
+                CalendarEvent.start_time <= end_utc + timedelta(days=1),
+            )
+        ),
+    )
+
+
 def _meetings_between(
     start_utc: datetime, end_utc: datetime, user_id: Optional[int]
 ) -> list[Any]:
@@ -442,7 +470,8 @@ def _meetings_between(
 
     Spotkanie przy szansie osoby też jest jej (lista dzwoniących 13.11.2026: termin
     wpisany przez dzwoniącego albo zsynchronizowany z cudzej skrzynki ma autora
-    innego niż opiekun, a „Mój dzień” opiekuna go nie pokazywał).
+    innego niż opiekun, a „Mój dzień” opiekuna go nie pokazywał). Tak samo spotkanie
+    z Outlooka, które stoi w jej kalendarzu (``_in_own_calendar``).
     """
 
     return [
@@ -454,6 +483,7 @@ def _meetings_between(
                     SalesOpportunity.owner_user_id == user_id
                 )
             ),
+            _in_own_calendar(user_id, start_utc, end_utc),
         )
         if user_id is not None
         else SalesActivity.created_by_user_id.is_not(None),

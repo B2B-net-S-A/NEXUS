@@ -1,5 +1,5 @@
 # Outlook handlowców w Sprzedaży — bieżąca poczta i kalendarz (decyzja Artura 28.10.2026)
-<!-- indeks: skrzynka handlowca bez dostępu do kandydatów, zakres skrzynki sales_ok, dopasowanie po kontakcie i domenie, deduplikacja internetMessageId/iCalUId, odwołane spotkania, emails.web_link, przypięcie do szansy, szansa ze spotkania, bramka klienta -->
+<!-- indeks: skrzynka handlowca bez dostępu do kandydatów, zakres skrzynki sales_ok, dopasowanie po kontakcie i domenie, deduplikacja internetMessageId/iCalUId, autor = pierwsza skrzynka, Mój dzień każdego uczestnika _in_own_calendar, odwołane spotkania, emails.web_link, przypięcie do szansy, szansa ze spotkania, bramka klienta -->
 
 „Tak, jak w Atlasie”: maile i spotkania handlowca z kontaktami firm są
 widoczne dla każdego z „Sprzedaż: podgląd” — na osi firmy i (przez
@@ -64,6 +64,16 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
 - `iCalUId` leży też w `calendar_events.m365_ical_uid`: `@removed` z Graphu
   niesie samo id wydarzenia. Odwołane / usunięte spotkanie znika z osi, tylko
   gdy jeszcze się nie odbyło i nie stoi w kalendarzu innej osoby z NEXUSA.
+- **Autor aktywności to skrzynka, która zsynchronizowała spotkanie pierwsza**
+  (`on_conflict_do_nothing` w `record`), i tak zostaje: po autorze liczą KPI
+  i Skuteczność. „Mój dzień” pokazuje spotkanie każdemu uczestnikowi z NEXUSA,
+  który ma je w swoim kalendarzu: kopia w `calendar_events` (`created_by` = właściciel
+  skrzynki, ten sam `m365_ical_uid`, status inny niż `cancelled`) →
+  `my_day._in_own_calendar`. Jeden wiersz na osobę i dzień, bez drugiej aktywności
+  i bez migracji. Lista dzwoniących z 13.11.2026: prowadzący zaproszony przez
+  dzwoniącego nie widział spotkania. Kto odrzucił albo usunął spotkanie u siebie, temu
+  znika, a autorowi zostaje. Spotkanie bez dopasowanej firmy nie trafia do Sprzedaży
+  ani do „Mojego dnia”, bo wiersz dnia to karta firmy.
 - Zmiana `EVENT_SELECT` (0624: `iCalUId`, `webLink`) = nowy klucz
   `EVENT_SELECT_RESET_KEY` i jednorazowy pełny odczyt kalendarzy; kursorów
   poczty nie zerujemy — brak `webLink` w starej delcie zastępuje link
