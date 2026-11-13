@@ -552,6 +552,15 @@ def _apply_order(training: Training, data: OrderInput) -> None:
         raise TrainingError(
             422, "Link do spotkania musi zaczynać się od https://.", "bad_url"
         )
+    moved = (training.session_date, training.time_from, training.time_to) != (
+        data.session_date,
+        _time(data.time_from),
+        _time(data.time_to),
+    )
+    if moved:
+        # Nowy termin = nowe przypomnienia (przegląd kodu 13.11.2026).
+        training.reminder_day_at = None
+        training.reminder_soon_at = None
     training.title = title
     training.topic = _clean(data.topic, TITLE_MAX)
     training.description = _clean(data.description, DESCRIPTION_MAX)

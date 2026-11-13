@@ -146,8 +146,8 @@ async def sync_meeting(db: AsyncSession, training: Training, *, now: datetime) -
         return
     start, end = slot
     try:
+        email = await trainer_email(db, training)
         if not training.teams_event_id:
-            email = await trainer_email(db, training)
             payload = _build_event_payload(
                 title=training.title,
                 description=_description(training),
@@ -161,8 +161,8 @@ async def sync_meeting(db: AsyncSession, training: Training, *, now: datetime) -
             created = await graph.create_event(organizer(), payload)
             training.teams_event_id = created.graph_event_id
             training.join_url = created.join_url or training.join_url
-            await _configure_meeting(training, [email] if email else [])
-            training.recording_status = "waiting"
+            # Zapis przed konfiguracją: jej awaria nie może założyć drugiego wydarzenia.
+            await db.flush()
         else:
             await graph.update_event(
                 organizer(),
@@ -175,6 +175,12 @@ async def sync_meeting(db: AsyncSession, training: Training, *, now: datetime) -
                 ),
             )
             await reschedule_invites(db, training, start=start, end=end)
+        # Pusty stan nagrania = nagrywanie jeszcze nieskonfigurowane (pierwsza próba
+        # padła po założeniu wydarzenia). Ponowienie kończy konfigurację, bez tego
+        # pętla nagrań nigdy nie weźmie szkolenia (przegląd kodu 13.11.2026).
+        if not training.recording_status:
+            await _configure_meeting(training, [email] if email else [])
+            training.recording_status = "waiting"
         training.recording_next_at = end + timedelta(
             minutes=settings.TRAININGS_RECORDING_DELAY_MINUTES
         )

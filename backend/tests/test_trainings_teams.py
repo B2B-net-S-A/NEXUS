@@ -58,6 +58,7 @@ class FakeGraph:
         self.cancelled: list[str] = []
         self.presenters: list[list[str]] = []
         self.fail_create = False
+        self.meeting_misses = 0
         self.recordings: list[RecordingRef] = []
         self.attendance: Optional[list[AttendeeTime]] = None
         self.vtt = VTT
@@ -84,27 +85,38 @@ class FakeGraph:
     async def resolve_user_id(self, upn: str) -> str:
         return "organizer-oid"
 
-    async def find_online_meeting(self, user_id: str, join_url: str) -> str:
+    async def find_online_meeting(self, user_id: str, join_url: str) -> Optional[str]:
+        if self.meeting_misses:
+            self.meeting_misses -= 1
+            return None
         return "meeting-1"
 
     async def enable_auto_transcription(self, user_id: str, meeting_id: str) -> None:
         return None
 
-    async def set_presenters(self, user_id: str, meeting_id: str, emails: list[str]) -> str:
+    async def set_presenters(
+        self, user_id: str, meeting_id: str, emails: list[str]
+    ) -> str:
         self.presenters.append(emails)
         return "presenter"
 
-    async def list_recordings(self, user_id: str, meeting_id: str) -> list[RecordingRef]:
+    async def list_recordings(
+        self, user_id: str, meeting_id: str
+    ) -> list[RecordingRef]:
         return self.recordings
 
     async def stream_recording(self, user_id: str, meeting_id: str, recording_id: str):
         yield b"\x00\x00\x00\x18ftypmp42"
         yield b"0" * 64
 
-    async def list_transcripts(self, user_id: str, meeting_id: str) -> list[TranscriptRef]:
+    async def list_transcripts(
+        self, user_id: str, meeting_id: str
+    ) -> list[TranscriptRef]:
         return [TranscriptRef(id="tr-1", created="2026-11-12T17:30:00Z")]
 
-    async def transcript_vtt(self, user_id: str, meeting_id: str, transcript_id: str) -> str:
+    async def transcript_vtt(
+        self, user_id: str, meeting_id: str, transcript_id: str
+    ) -> str:
         return self.vtt
 
     async def attendance_report(self, user_id: str, meeting_id: str):
@@ -180,7 +192,9 @@ async def test_nexus_creates_the_meeting_and_each_sign_up_gets_its_own_invite(
     # Spotkanie główne: kalendarz szkolenia@, Teams, tylko prowadzący, stały transactionId.
     upn, payload = graph.created[0]
     assert upn == ORGANIZER and payload["isOnlineMeeting"] is True
-    assert [a["emailAddress"]["address"] for a in payload["attendees"]] == [lecturer.email]
+    assert [a["emailAddress"]["address"] for a in payload["attendees"]] == [
+        lecturer.email
+    ]
     assert payload["transactionId"] == f"nexus-training-{training_id}"
     assert graph.presenters == [[lecturer.email]]
     view = (await app_client.get(f"{STAFF}/{training_id}", headers=headers(tcm))).json()
@@ -197,7 +211,9 @@ async def test_nexus_creates_the_meeting_and_each_sign_up_gets_its_own_invite(
     assert joined.status_code == 200
     _, invite = graph.created[1]
     assert "isOnlineMeeting" not in invite
-    assert [a["emailAddress"]["address"] for a in invite["attendees"]] == [listener.email]
+    assert [a["emailAddress"]["address"] for a in invite["attendees"]] == [
+        listener.email
+    ]
     assert "meetup-join" in invite["body"]["content"]
     from_panel = await app_client.post(
         f"{BASE}/trainings/{training_id}/registration",
@@ -206,7 +222,9 @@ async def test_nexus_creates_the_meeting_and_each_sign_up_gets_its_own_invite(
     )
     assert from_panel.status_code == 200
     _, panel_invite = graph.created[2]
-    assert [a["emailAddress"]["address"] for a in panel_invite["attendees"]] == [person.email]
+    assert [a["emailAddress"]["address"] for a in panel_invite["attendees"]] == [
+        person.email
+    ]
 
     left = await app_client.post(
         f"{STAFF}/library/{training_id}/registration",
@@ -241,7 +259,9 @@ async def test_graph_failure_keeps_the_step_and_retry_creates_the_meeting(
     assert "graph down" in view["training"]["teams"]["error"]
 
     graph.fail_create = False
-    retried = await app_client.post(f"{STAFF}/{training_id}/teams", headers=headers(tcm))
+    retried = await app_client.post(
+        f"{STAFF}/{training_id}/teams", headers=headers(tcm)
+    )
     assert retried.status_code == 200, retried.text
     assert retried.json()["training"]["teams"]["status"] == "created"
 
@@ -250,6 +270,57 @@ async def test_graph_failure_keeps_the_step_and_retry_creates_the_meeting(
         f"{STAFF}/{training_id}/teams", headers=headers(recruiter)
     )
     assert refused.status_code == 403
+
+
+async def test_retry_finishes_a_meeting_whose_recording_setup_failed(
+    app_client, graph
+) -> None:
+    """Spotkanie powstało, ale Graph nie oddał jeszcze identyfikatora Teams:
+    ponowienie ma dokończyć nagrywanie, a nie tylko przesunąć wydarzenie."""
+    graph.meeting_misses = 1
+    tcm = await make_user(UserRole.talent_community_manager, name="Tamara")
+    lecturer = await make_user(UserRole.recruiter, name="Lena")
+    training_id = await _employee_training(app_client, tcm, lecturer)
+    first = (
+        await app_client.get(f"{STAFF}/{training_id}", headers=headers(tcm))
+    ).json()
+    assert first["training"]["teams"]["status"] == "failed"
+
+    retried = await app_client.post(
+        f"{STAFF}/{training_id}/teams", headers=headers(tcm)
+    )
+    assert retried.json()["training"]["teams"]["status"] == "created"
+    assert retried.json()["training"]["teams"]["recording"] == "waiting"
+    assert len(graph.created) == 1
+    async with AsyncSessionLocal() as db:
+        training = await db.get(Training, training_id)
+        assert training.teams_meeting_id == "meeting-1"
+
+
+async def test_moving_the_date_brings_reminders_back(app_client, graph) -> None:
+    tcm = await make_user(UserRole.talent_community_manager, name="Tamara")
+    lecturer = await make_user(UserRole.recruiter, name="Lena")
+    training_id = await _employee_training(app_client, tcm, lecturer)
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Training)
+            .where(Training.id == training_id)
+            .values(reminder_day_at=now, reminder_soon_at=now)
+        )
+        await db.commit()
+    moved = await app_client.put(
+        f"{STAFF}/{training_id}",
+        headers=headers(tcm),
+        json=_order(
+            deliverables=[],
+            session_date=(business_today() + timedelta(days=21)).isoformat(),
+        ),
+    )
+    assert moved.status_code == 200, moved.text
+    async with AsyncSessionLocal() as db:
+        training = await db.get(Training, training_id)
+        assert training.reminder_day_at is None and training.reminder_soon_at is None
 
 
 async def test_cancel_cancels_the_meeting_and_invites(app_client, graph) -> None:
@@ -330,7 +401,9 @@ async def test_recording_transcript_and_attendance_come_back_from_teams(
     async with AsyncSessionLocal() as db:
         assert await recordings.fetch_due(db) == {"waiting": 1}
 
-    graph.recordings = [RecordingRef(id="rec-1", created="2026-11-12T17:31Z", content_url=None)]
+    graph.recordings = [
+        RecordingRef(id="rec-1", created="2026-11-12T17:31Z", content_url=None)
+    ]
     graph.attendance = [
         AttendeeTime(name="Lucyna", email=listener.email, seconds=4260),
         AttendeeTime(name="Gość", email="gosc@example.com", seconds=600),
@@ -369,7 +442,9 @@ async def test_recording_transcript_and_attendance_come_back_from_teams(
     assert await _notifications(tcm.id, NotificationType.training_recording)
 
     # Przed decyzją TCM nagrania nie widać nikomu.
-    library = (await app_client.get(f"{STAFF}/library", headers=headers(listener))).json()
+    library = (
+        await app_client.get(f"{STAFF}/library", headers=headers(listener))
+    ).json()
     assert training_id not in [r["id"] for r in library["recordings"]]
 
     # Udostępnienie zapisanym: zapisana widzi i odtwarza, niezapisana nie.
@@ -378,7 +453,9 @@ async def test_recording_transcript_and_attendance_come_back_from_teams(
     )
     assert shared.status_code == 200, shared.text
     assert await _notifications(listener.id, NotificationType.training_recording)
-    library = (await app_client.get(f"{STAFF}/library", headers=headers(listener))).json()
+    library = (
+        await app_client.get(f"{STAFF}/library", headers=headers(listener))
+    ).json()
     item = next(r for r in library["recordings"] if r["id"] == training_id)
     assert item["scope"] == "registered"
     file_id = item["files"][0]["id"]
@@ -502,11 +579,15 @@ async def test_reminders_go_to_registered_staff_once(app_client, graph) -> None:
         first = await recordings.send_reminders(db, now=ten.astimezone(timezone.utc))
         second = await recordings.send_reminders(db, now=ten.astimezone(timezone.utc))
     assert first["day"] >= 1 and second["day"] == 0
-    assert len(await _notifications(listener.id, NotificationType.training_reminder)) == 1
+    assert (
+        len(await _notifications(listener.id, NotificationType.training_reminder)) == 1
+    )
 
 
 @pytest.mark.usefixtures("portal_all")
-async def test_tcm_signer_and_finance_hear_about_their_step(app_client, monkeypatch) -> None:
+async def test_tcm_signer_and_finance_hear_about_their_step(
+    app_client, monkeypatch
+) -> None:
     install_mailer(monkeypatch)
     person = await make_person()
     tcm = await make_user(UserRole.talent_community_manager, name="Tamara")
