@@ -33,6 +33,7 @@ from app.models.user import User
 from app.services.action_permissions import has_permission
 from app.services.sales import bot_card_history, bot_tasks, signals
 from app.services.sales.bot_tasks import enrich, people, question
+from app.services.sales import registry_cards
 
 logger = logging.getLogger(__name__)
 
@@ -330,34 +331,43 @@ async def company_bot_history(
     Osoby widzi tylko konto z „Sprzedaż: edycja” (jak mapę decydentów).
     """
 
-    if not bot_tasks.enabled():
+    bots_on = bot_tasks.enabled()
+    if not bots_on and not registry_cards.enabled():
         return HistoryOut(enabled=False, items=[])
     with_people = has_permission(current_user, "sales_edit")
     kinds = [enrich.KIND, people.KIND] if with_people else [enrich.KIND]
     rows = (
-        await db.execute(
-            select(
-                SalesBotResult.kind,
-                SalesBotResult.decided_at,
-                SalesBotResult.updated_at,
-                SalesBotResult.created_at,
-                SalesBotResult.payload,
+        []
+        if not bots_on
+        else (
+            await db.execute(
+                select(
+                    SalesBotResult.kind,
+                    SalesBotResult.decided_at,
+                    SalesBotResult.updated_at,
+                    SalesBotResult.created_at,
+                    SalesBotResult.payload,
+                )
+                .where(
+                    SalesBotResult.company_id == company_id,
+                    SalesBotResult.kind.in_(kinds),
+                    SalesBotResult.status.in_(("accepted", "partial")),
+                )
+                .order_by(SalesBotResult.created_at.desc(), SalesBotResult.id.desc())
+                .limit(HISTORY_SHOWN)
             )
-            .where(
-                SalesBotResult.company_id == company_id,
-                SalesBotResult.kind.in_(kinds),
-                SalesBotResult.status.in_(("accepted", "partial")),
-            )
-            .order_by(SalesBotResult.created_at.desc(), SalesBotResult.id.desc())
-            .limit(HISTORY_SHOWN)
-        )
-    ).all()
+        ).all()
+    )
+    custom = await db.scalar(
+        select(SalesCompany.custom_fields).where(SalesCompany.id == company_id)
+    )
     entries = bot_card_history.build(
         [
             (kind, decided or updated or created, payload)
             for kind, decided, updated, created, payload in rows
         ],
         with_people=with_people,
+        extra=bot_card_history.registry_entries(custom),
     )
     return HistoryOut(
         enabled=True,

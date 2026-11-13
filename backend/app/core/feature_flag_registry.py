@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="SALES_REGISTRY_ENABLED",
+        purpose="Dane firm Sprzedaży z białej listy VAT i KRS (noc i po zapisie NIP-u); włącza Artur po próbie na stagingu.",
+        decided=date(2026, 11, 13),
+        expires=date(2027, 1, 12),
+    ),
+    FeatureFlag(
         name="SALES_COGNISM_PEOPLE_ENABLED",
         purpose="Mapy decydentów z Cognism przez osobną rutynę Grok Bota.",
         decided=date(2026, 11, 12),
