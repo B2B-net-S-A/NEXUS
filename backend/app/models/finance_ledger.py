@@ -1,4 +1,4 @@
-"""Księgowość w Finansach (0695, E0 i E1): kontrahenci i kolejka kosztów.
+"""Księgowość w Finansach (0696, E0 i E1): kontrahenci i kolejka kosztów.
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/finance_ledger_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
@@ -162,7 +162,7 @@ class FinanceCostEntry(Base):
 class FinanceCostEntryEvent(Base):
     __tablename__ = "finance_cost_entry_events"
     __table_args__ = (
-        # Akcje E1 i E2 (0697 przebudowuje CHECK z 0695).
+        # Akcje E1 i E2 (0697 przebudowuje CHECK z 0696).
         CheckConstraint(
             posting_schema.CK_EVENT_ACTION, name="ck_finance_cost_entry_events_action"
         ),

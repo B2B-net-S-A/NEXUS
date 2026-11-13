@@ -2250,7 +2250,7 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
-# Księgowość (eBI24 → NEXUS, E0 i E1, 0695): kolejka kosztów i kartoteka kontrahentów.
+# Księgowość (eBI24 → NEXUS, E0 i E1, 0696): kolejka kosztów i kartoteka kontrahentów.
 app.include_router(
     finance_ledger_api.costs_router,
     prefix="/api/finance/costs",
@@ -4222,7 +4222,7 @@ async def api_health_deep_check():
         ("insight_decisions", InsightDecision),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
-        # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
+        # 0696: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
         # pobierania z KSeF pisze tu przy każdej fakturze.
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),

@@ -1,4 +1,4 @@
-"""Księgowość w Finansach (0695, E0 i E1) — trasy, hook źródeł i import z bazą.
+"""Księgowość w Finansach (0696, E0 i E1) — trasy, hook źródeł i import z bazą.
 
 Kolejka kosztów: wpis powstaje dla faktury ze źródła, przejścia etapów idą
 z historią, zły etap to 409, brak uprawnienia „Moduł Finanse” to 403, własna

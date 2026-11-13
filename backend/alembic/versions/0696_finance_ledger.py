@@ -1,7 +1,7 @@
 """Księgowość w Finansach (E0, E1): kartoteka kontrahentów i kolejka kosztów.
 
-Revision ID: 0695_finance_ledger
-Revises: 0694_trainings
+Revision ID: 0696_finance_ledger
+Revises: 0695_sales_invoice_issue
 
 Tabele ``finance_counterparties``, ``finance_cost_entries`` i
 ``finance_cost_entry_events`` oraz wpisy dla faktur, które już są w źródłach
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import finance_ledger_schema as schema
 
-revision = "0695_finance_ledger"
-down_revision = "0694_trainings"
+revision = "0696_finance_ledger"
+down_revision = "0695_sales_invoice_issue"
 branch_labels = None
 depends_on = None
 

@@ -1,4 +1,4 @@
-"""Finanse → „Koszty” i „Kontrahenci” (księgowość E0 i E1, 0695).
+"""Finanse → „Koszty” i „Kontrahenci” (księgowość E0 i E1, 0696).
 
 Prefiksy ``/api/finance/costs`` i ``/api/finance/counterparties``
 (``app/main.py``, za wyłącznikiem programu „Ludzi w NEXUSIE”). Bramki:
