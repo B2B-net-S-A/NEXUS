@@ -176,7 +176,7 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
         ) : recordings.length === 0 ? (
           <p className="text-sm text-muted-foreground">Nic nie pasuje do „{query.trim()}”.</p>
         ) : selected ? (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="min-w-0 space-y-3">
               <div>
                 <h3 className="text-lg font-semibold text-foreground">{selected.title}</h3>
@@ -218,7 +218,7 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
               {selected.description ? (
                 <p className="whitespace-pre-line text-sm text-foreground">{selected.description}</p>
               ) : null}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[repeat(2,minmax(0,1fr))]">
                 <Card size="sm" className="space-y-2 p-4">
                   <h4 className="text-sm font-semibold">Rozdziały</h4>
                   {selected.chapters.length === 0 ? (
