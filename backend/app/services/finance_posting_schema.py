@@ -1,6 +1,6 @@
-"""Księgowość w Finansach (E2): SQL migracji ``0696_finance_posting`` i lustra entrypointu.
+"""Księgowość w Finansach (E2): SQL migracji ``0697_finance_posting`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0696_finance_posting.py``
+Jedno źródło instrukcji dla ``alembic/versions/0697_finance_posting.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 
