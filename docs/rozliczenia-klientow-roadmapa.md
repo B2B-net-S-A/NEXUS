@@ -494,7 +494,11 @@ krokach E6.
       zadanie dla konsultanta „dodatkowa faktura na koszty”, netto kosztów
       dodatkowych do potwierdzenia przez rozliczenia (przyjęte brutto / 1,23).
   - Orlen, CeZ: czekają na odpowiedzi z E0.3.
-- E6.4 Nordea (293 osoby): najpierw instrukcja od rozliczeń.
+- E6.4 Nordea (293 osoby): plan N1–N4 i stan w `docs/rozliczenia-nordea-plan.md`.
+  N1 (13.11, osobny PR z migracją 0689): kartoteka numerów osób i NIDS z faktur
+  do klienta w KSeF, wersje raportu T4T, status osoby w miesiącu (raport ×
+  faktura kontraktora, godziny = netto ÷ stawka), ekran „Raport klienta (T4T)”
+  za regułą `report.time_for_teams`.
 - **Meta per klient:** reguły ustawione w „Reguły klienta”, jeden pełny miesiąc
   na stagingu, akceptacja autora instrukcji.
 

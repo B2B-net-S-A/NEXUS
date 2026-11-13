@@ -248,6 +248,10 @@ _KNOWN_CONTRACT_FKS = {
     # za kontraktem bez unikatu.
     ("client_settlements", "contract_id"),
     ("client_contractor_invoices", "contract_id"),
+    # Kartoteka raportu klienta (0689, Nordea N1): UNIQUE (klient, kontrakt,
+    # rodzaj, wartość) — ten sam numer osoby u obu duplikatów rozstrzyga
+    # ``_resolve_child_duplicates`` (potwierdzony wygrywa z podpowiedzią).
+    ("client_external_ids", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -3368,6 +3372,26 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["client_settlements_duplicates_removed"] = len(losers)
+
+    if ("client_external_ids", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, client_id, kind, value, state AS status "
+            "FROM client_external_ids WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (row["client_id"], row["kind"], row["value"]),
+            rank={"confirmed": 0, "suggested": 1, "rejected": 2},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM client_external_ids WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["client_external_ids_duplicates_removed"] = len(losers)
 
     if ("redeploy_queue_items", "contract_id") in present:
         rows = await _child_rows(
