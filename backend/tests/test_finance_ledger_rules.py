@@ -1,4 +1,4 @@
-"""Księgowość w Finansach (0696, E0 i E1) — reguły bez bazy.
+"""Księgowość w Finansach (0695, E0 i E1) — reguły bez bazy.
 
 Etapy kolejki kosztów i odmowy, flagi (MPP wyklucza NIE MPP), identyfikator
 kontrahenta (NIP z sumą kontrolną, PESEL, VAT UE), import pliku z eBI24

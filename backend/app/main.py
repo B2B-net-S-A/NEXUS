@@ -2250,7 +2250,7 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
-# Księgowość (eBI24 → NEXUS, E0 i E1, 0696): kolejka kosztów i kartoteka kontrahentów.
+# Księgowość (eBI24 → NEXUS, E0 i E1, 0695): kolejka kosztów i kartoteka kontrahentów.
 app.include_router(
     finance_ledger_api.costs_router,
     prefix="/api/finance/costs",
@@ -2263,7 +2263,7 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
-# Księgowość E2 (0697): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
+# Księgowość E2 (0696): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
 app.include_router(
     finance_posting_api.router,
     prefix="/api/finance/posting",
@@ -4222,12 +4222,12 @@ async def api_health_deep_check():
         ("insight_decisions", InsightDecision),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
-        # 0696: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
+        # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
         # pobierania z KSeF pisze tu przy każdej fakturze.
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
-        # 0697: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
+        # 0696: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
         ("finance_posting_batches", FinancePostingBatch),

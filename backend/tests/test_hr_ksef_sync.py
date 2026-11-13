@@ -89,7 +89,7 @@ async def _person(db, *, nip: str | None) -> User:
 
 async def _wipe(user_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
-        # Księgowość (0696): wpisy kolejki kosztów faktur z fikcyjnych NIP-ów.
+        # Księgowość (0695): wpisy kolejki kosztów faktur z fikcyjnych NIP-ów.
         await db.execute(
             delete(FinanceCostEntry).where(
                 FinanceCostEntry.seller_nip.in_(FIXTURE_NIPS)
@@ -475,7 +475,7 @@ async def test_bez_modulu_zgod_faktura_dostawcy_tylko_pominieta(env):
 
 
 async def test_ksiegowosc_bez_zgod_zapisuje_dostawce_i_wpisy_kolejki(env):
-    """Moduł „Księgowość” (0696) zapisuje fakturę dostawcy bez modułu „Zgody”
+    """Moduł „Księgowość” (0695) zapisuje fakturę dostawcy bez modułu „Zgody”
     — bez dopasowania do zgód — i każda zapisana faktura dostaje wpis kosztów."""
 
     await _set_setting(
