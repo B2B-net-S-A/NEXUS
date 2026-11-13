@@ -13,24 +13,24 @@
       "path": "backend/app/analytics/metrics.py",
       "line": 382,
       "fingerprint": "dd28b93ccf41da62",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Fragment milestone_scope to stały literał z placeholderem :scoped_user_ids (albo pusty); id osób, :start i :end przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/admin_engagement_inventory.py",
       "line": 564,
       "fingerprint": "dc69606dac2a4593",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_TOTALS_SQL to stała modułu; jedyna interpolacja {_LIVE} to literał \"('active', 'ending')\". Brak wartości z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/admin_pipeline_inventory.py",
       "line": 474,
       "fingerprint": "3675fdff96809ef0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_TOTALS_SQL to stała modułu; {_LATEST_CTE} i {_TERMINAL_ROW} to literały SQL zdefiniowane w tym samym pliku. Brak parametrów."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -45,96 +45,96 @@
       "path": "backend/app/api/candidates.py",
       "line": 876,
       "fingerprint": "d3b9bc574c2dbdf6",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_CURRENT_EXPERIENCE_SQL z literałów frozenset CURRENT_END_MARKERS (sprawdzane regexem [a-z]+), nazwa parametru z indeksu enumerate; tekst firmy przez bind (:cur_co_i)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/candidates.py",
       "line": 915,
       "fingerprint": "f461c10b65c59df2",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_CURRENT_EXPERIENCE_SQL z literałów CURRENT_END_MARKERS, nazwa parametru z indeksu enumerate; tytuł stanowiska przez bind (:cur_title_i)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/candidates.py",
       "line": 963,
       "fingerprint": "78a0ba79bf669ba9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_PAST_EXPERIENCE_SQL z literałów CURRENT_END_WORDS (regex [a-z]+), nazwa parametru z indeksu enumerate; nazwa firmy przez bind (:past_co_i)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/dashboard.py",
       "line": 127,
       "fingerprint": "fa39866f52463dd8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejenie stałej CREDITED_FROM_SNAPSHOT_CTE (same placeholdery :credited_*) z literałem; data i tablice migawki przez bind (:month_start, credited_bind)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_delivery_leads.py",
       "line": 126,
       "fingerprint": "8f0c1c83a66f6746",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "CTE i fragmenty to stałe modułów (insights_dl_scope, _HEADS, counts_in_hit_ratio_sql z frozenset); daty okna przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_delivery_leads.py",
       "line": 159,
       "fingerprint": "de5457622f615395",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "{_DL_HEAD_CTE} i {_JOBS_SCOPED_CTE} to stałe modułu insights_dl_scope; daty przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_delivery_leads.py",
       "line": 188,
       "fingerprint": "85f487ba26416868",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Stałe CTE + filled_in_opening_sql z literałem podzapytania i aliasami z kodu (in_opening_sql, excluded_pair_exists_sql). Zapytanie bez parametrów z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_delivery_leads.py",
       "line": 393,
       "fingerprint": "13bf70ccc83ea4a0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_CLIENT_DISPLAY_NAME_SQL i _CLIENT_VISIBLE_SQL to literały z insights_dl_scope; daty okna przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_delivery_leads.py",
       "line": 489,
       "fingerprint": "c6ce5eaa8ac842ee",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "months_sql z indeksów range(len(windows)) (months: Query ge=1 le=24) i nazw :s{i}/:e{i}; granice miesięcy i dl_id (int) przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_reconciliation.py",
       "line": 148,
       "fingerprint": "c87698c354165554",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejenie stałych VERIFIER_ANCHORED_CTE (kpi_panel, bez interpolacji) i _FAMILIES_CTE z literałem; okno i limit przez bind (:start, :end, :limit)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_reconciliation.py",
       "line": 185,
       "fingerprint": "aa336671e57738b5",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejenie stałych VERIFIER_ANCHORED_CTE i _FAMILIES_CTE z literałem; okno przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/insights_recruitment.py",
       "line": 774,
       "fingerprint": "65a8c9f551de16db",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "{unit} z zamkniętego słownika week/month/quarter, klucz z Query pattern ^(week|month|quarter)$; limit (int, ge/le) przez bind (:limit)."
     },
     {
       "rule": "python.lang.security.insecure-hash-algorithms.insecure-hash-algorithm-sha1",
@@ -149,40 +149,40 @@
       "path": "backend/app/api/notes.py",
       "line": 108,
       "fingerprint": "90d0ef1592d5adaf",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "DL_PAIR_AUTHOR_SQL to stały literał z client_rate_notes; id autora przez bind (:id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/reports.py",
       "line": 286,
       "fingerprint": "4bd46b9fdb013c7e",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejenie stałej CREDITED_FROM_SNAPSHOT_CTE z literałem; data okresu i tablice migawki przez bind (:period_start, credited_bind)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/reports.py",
       "line": 326,
       "fingerprint": "3df26c0f18683f5a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejenie stałej CREDITED_FROM_SNAPSHOT_CTE z literałem; data okresu i tablice migawki przez bind (:period_start, credited_bind)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/api/reports.py",
       "line": 847,
       "fingerprint": "5829e83afaa46ca8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "period_clause to literał z :period_start albo pusty napis; data przez bind (:period_start)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/cli/stage_cv_snapshot_offload.py",
       "line": 71,
       "fingerprint": "c29fd69c07559ce6",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "scope to literał 'AND id = ANY(:ids)' albo pusty; ids, after i size przez bind. Skrypt CLI, bez wejścia HTTP."
     },
     {
       "rule": "python.flask.security.audit.directly-returned-format-string.directly-returned-format-string",
@@ -197,32 +197,32 @@
       "path": "backend/app/models/equipment.py",
       "line": 55,
       "fingerprint": "7cd4b3754039e61f",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "column pochodzi z krotki stałych ITEM_UNIQUE_COLUMNS (nazwy kolumn); DDL indeksu, bez wartości z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/models/note.py",
       "line": 176,
       "fingerprint": "488eeb5a0b7200d3",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "DL_PAIR_AUTHOR_SQL to stały literał z client_rate_notes; id autora przez bind (:id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/models/sales.py",
       "line": 383,
       "fingerprint": "155d8a67ee1a92ac",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "schema.quoted(TASK_KINDS) skleja krotkę stałych ('task','call') z sales_schema; DDL indeksu częściowego, bez wejścia z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/allocation_schema_bootstrap.py",
       "line": 87,
       "fingerprint": "cd1827d7f3d9b13e",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "BOOT_LOCK_TIMEOUT to stała modułu startup_locks ('10s'); start aplikacji, bez wejścia z zewnątrz."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -237,24 +237,24 @@
       "path": "backend/app/services/board_placement_alerts.py",
       "line": 155,
       "fingerprint": "0923abe74adee17e",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejenie stałej VERIFIER_ANCHORED_CTE z literałem; kandydat i rekrutacja przez bind (:cand, :job)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_cc_assignment.py",
       "line": 221,
       "fingerprint": "3b6e4f9c2ce6ffbe",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "where z literałów warunków z placeholderami, limit_clause literał 'LIMIT :limit'; slugi, kursor i limit przez bind (:only_slugs, :start_after_id, :limit)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_followups.py",
       "line": 394,
       "fingerprint": "c5ff6173cd9ffeed",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_WAITING_SQL to stała; candidate_filter to literał 'AND cs.candidate_id = ANY(:candidate_ids)' albo pusty; id i daty przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -389,40 +389,40 @@
       "path": "backend/app/services/candidate_name_marker_repair.py",
       "line": 169,
       "fingerprint": "83ad9648e9661f8d",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "field z literału krotki ('name', 'lastname') w komprehensji słownika; id przez bind (:id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_rate_from.py",
       "line": 524,
       "fingerprint": "1f1a072c747e68fc",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "lock to jeden z dwóch literałów (FOR NO KEY UPDATE [SKIP LOCKED]) wybrany bool-em; id kandydatów (int-cast) przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_rate_observations.py",
       "line": 246,
       "fingerprint": "4171aa92038be6d1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "DL_PAIR_AUTHOR_SQL to stały literał z client_rate_notes; ids, kinds i pattern przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_search_predicates.py",
       "line": 1227,
       "fingerprint": "e6244dbf2b5caa5f",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "threshold to 0.5 albo 0.2 (literały) z literal_text_threshold albo None — nie pochodzi z tekstu zapytania."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/candidate_snippets.py",
       "line": 500,
       "fingerprint": "515ecc7b481ea7cd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "screening_skill_rows_sql dostaje literał warunku z :candidate_ids; tabela i poziom to stałe keyword_corpus; id przez bind."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -445,280 +445,288 @@
       "path": "backend/app/services/client_interview_terms.py",
       "line": 106,
       "fingerprint": "2387dad89b37cb33",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "pair_terms_lateral wołane z literałami kolumn ('pair.candidate_id', 'pair.job_id'); tablice id i :term_from przez bind."
+    },
+    {
+      "rule": "python.cryptography.security.mode-without-authentication.crypto-mode-without-authentication",
+      "path": "backend/app/services/client_invoicing/ksef_send.py",
+      "line": 169,
+      "fingerprint": "2cc8a50384a82c7e",
+      "status": "zweryfikowane",
+      "reason": "AES-256-CBC z PKCS#7 narzuca specyfikacja API KSeF 2.0 (sesja interaktywna); klucz sesji losowy, opakowany RSA-OAEP kluczem MF, integralność przez invoiceHash i encryptedInvoiceHash (SHA-256) w żądaniu."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 138,
       "fingerprint": "ccee56b24c00b49c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Lista tabel to stałe 'clients', 'client_aliases' i opcjonalnie 'candidates' (bool); brak wartości z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 883,
       "fingerprint": "22be159d6d3c92cd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwy tabel i kolumn z information_schema przez _validate_identifier (regex); id klienta przez bind (:source_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 1688,
       "fingerprint": "22be159d6d3c92cd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwy tabel i kolumn z information_schema przez _validate_identifier (regex); id klienta przez bind (:source_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 1710,
       "fingerprint": "467c4c588dbf4446",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela, kolumna i kolumny PK z information_schema przez _validate_identifier; id klienta przez bind (:source_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 1737,
       "fingerprint": "bd75dabf27d3b8e5",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumna z information_schema przez _validate_identifier; id źródła i celu przez bind (:source_id, :target_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 3191,
       "fingerprint": "7b4d5f0d624d2215",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Identyfikatory z ledgera w bazie, ale walidowane regexem i porównane z information_schema; nazwy :pk_i z indeksu, wartości PK przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_portfolio_import.py",
       "line": 3322,
       "fingerprint": "91b2c5ce55e736e0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Identyfikatory z ledgera (regex + zgodność z information_schema, inaczej return blocked); :pk_i z indeksu, wartości przez bind (:source_id, :target_id, :pk_i)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_rate_notes.py",
       "line": 219,
       "fingerprint": "f68dfff6456c6f6b",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawki to stałe modułu: DL_PAIR_AUTHOR_SQL (literał z rolami), DL_PAIR_SQL_PATTERN (stały regex) i note_kinds.DL_RATE/HUMAN (literały); zapytanie bez danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_response_metrics.py",
       "line": 329,
       "fingerprint": "56d9ced648116ab9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawki _LISTED_CLIENT_SQL i _CLIENT_SCOPE_SQL to stałe literały modułu; daty i lista klientów przez bind (:window_from, :window_to, :client_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/client_response_metrics.py",
       "line": 439,
       "fingerprint": "399ae18b3dd18d67",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawki _LISTED_CLIENT_SQL i _CLIENT_SCOPE_SQL to stałe literały modułu; data okna i id klientów przez bind (:window_from, :client_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/competition_rules.py",
       "line": 241,
       "fingerprint": "862226460c5a0282",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejany VERIFIER_ANCHORED_CTE to zwykły literał (bez f-stringa) z kpi_panel; okno, osoby przez bind (:start, :end, :uids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/competition_rules.py",
       "line": 396,
       "fingerprint": "4a1ef14dfc11afd4",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejany CREDITED_FROM_SNAPSHOT_CTE to stały literał z placeholderami :credited_*; wartości migawki i okno przez bind (credited_bind, :start, :end, :uids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/competitions.py",
       "line": 559,
       "fingerprint": "885fc68797b99659",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejany CREDITED_FROM_SNAPSHOT_CTE to stały literał; etap, okno i tablice migawki przez bind (:stage, :start, :end, :credited_*)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/competitions.py",
       "line": 673,
       "fingerprint": "5d475e8ef9d8e489",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejany CREDITED_FROM_SNAPSHOT_CTE to stały literał; okno i tablice migawki przez bind (:start, :end, :credited_*)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/competitions.py",
       "line": 1111,
       "fingerprint": "ee0931782d6dd149",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejany CREDITED_FROM_SNAPSHOT_CTE to stały literał; okno i tablice migawki przez bind (:start, :end, :credited_*)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/competitions.py",
       "line": 1434,
       "fingerprint": "15f94355898c449a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_HOF_ROLE_PREDICATE to stały literał z :roles; hof_limit_sql to \"LIMIT :limit\" albo pusty napis; role i limit przez bind (:roles, :limit)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1401,
       "fingerprint": "37660b3cb58a6c53",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sufiks to stały \" FOR UPDATE OF c\" albo pusty napis zależnie od bool lock; id kontraktów przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1421,
       "fingerprint": "2537eb5816943eb5",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwa tabeli sprawdzana _IDENT_RE; wołające podają stałe albo tabelę z białej listy trzech tabel stawek; id przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1498,
       "fingerprint": "fbd7551b6f146694",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwy tabel, kolumn i PK z katalogu pg_constraint/pg_attribute, każda przez _IDENT_RE; wartości przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1539,
       "fingerprint": "5b4ad355bfdb644c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwy tabel, kolumn i PK z katalogu pg_constraint, każda sprawdzona _IDENT_RE; id kontraktów przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1580,
       "fingerprint": "eb86e027ddf2bf13",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumna z katalogu tylko gdy są w stałym _KNOWN_CONTRACT_FKS, PK przez _IDENT_RE; id przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 1643,
       "fingerprint": "64d721f0bf498fda",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumny ze stałej krotki w pętli (activities/notifications); id przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 2998,
       "fingerprint": "654657bddda9fc9c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwy pól odrzucane poza białą listą _MERGEABLE_FIELDS | _CONTRACT_DERIVED_FIELDS; wartości przez bind (:v_<pole>, :contract_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3164,
       "fingerprint": "6cda179496206e13",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i fragment SET to stałe literały podane przez oba wywołania w _resolve_child_duplicates; id przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3175,
       "fingerprint": "701d0d2970e8eb18",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela to stały literał od wołających (equipment_tasks, hr_bonuses); klucz i id przez bind (:key, :id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3624,
       "fingerprint": "aa67848caad2622a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumna z katalogu tylko gdy są w stałym _KNOWN_CONTRACT_FKS (inaczej raise); target to stały literał; id przez bind (:survivor, :losers)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3658,
       "fingerprint": "306491a0f4c92c30",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "retained_clause to stały literał z :retained_ids albo pusty; id przez bind (:survivor, :losers, :retained_ids) po _positive_int."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3869,
       "fingerprint": "1beb1e91a342caf8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela sprawdzona białą listą trzech tabel stawek (inaczej raise); stawka, data, kontrakt przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 3970,
       "fingerprint": "eaeb22bd6a26cef1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela ze stałej krotki trzech tabel stawek w pętli; id przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/contract_merge.py",
       "line": 4464,
       "fingerprint": "5fd41f6b4cc81cb8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Klucze financial_values to stałe pola (rate_candidate, rate_client, framework_rate, _FINANCIAL_METADATA_FIELDS, waluty); plan liczony z bazy w apply; wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/credited_snapshot.py",
       "line": 75,
       "fingerprint": "8fe68e2d1aeb0780",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejany VERIFIER_ANCHORED_CTE to zwykły literał bez interpolacji z kpi_panel; zapytanie bez danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/critical_skills.py",
       "line": 525,
       "fingerprint": "3fc5f815d6225672",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawka note_kinds.ai_readable_sql() składa stałe SYSTEM_SOURCE i frozenset AI_EXCLUDED_KINDS (literały); id i typy notatek przez bind (:ids, :types)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/custom_metrics/engine.py",
       "line": 174,
       "fingerprint": "25df11c2b73a67e1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "CREDITED_FROM_SNAPSHOT_CTE to stały literał, TZ to stała 'Europe/Warsaw'; etapy, data i migawka przez bind (:stages expanding, :since, :credited_*)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/cv_backfill.py",
       "line": 523,
       "fingerprint": "d96936d209954dcd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "since_clause, after_clause, limit_clause to stałe literały wybierane po is None; wartości przez bind (:since, :after_id, :limit, :placeholders)."
     },
     {
       "rule": "python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5",
@@ -741,56 +749,56 @@
       "path": "backend/app/services/cv_reparse_batch.py",
       "line": 110,
       "fingerprint": "afe7396a0d565033",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "upper to stały literał z :until_id albo pusty, _scope() ze stałych modułu; kursor, rozmiar i źródło przez bind (:after_id, :until_id, :size, :current_source)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/cv_reparse_batch.py",
       "line": 135,
       "fingerprint": "afe7396a0d565033",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "upper to stały literał z :until_id albo pusty, _scope() ze stałych modułu; kursor, rozmiar i źródło przez bind (:after_id, :until_id, :size, :current_source)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/cv_schema_bootstrap.py",
       "line": 59,
       "fingerprint": "797e7900cd7fe780",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i definicja kolumny ze stałej krotki _ADDED_COLUMNS w module; brak danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/cv_schema_bootstrap.py",
       "line": 122,
       "fingerprint": "c0f0c39f68e1241e",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "BOOT_LOCK_TIMEOUT to stały literał \"10s\" z startup_locks; brak danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/departure_care.py",
       "line": 679,
       "fingerprint": "376806bb91feacb9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Szablon _OPEN_CARE_SQL to stały literał, {where} to złączenie stałych warunków z placeholderami; id i pary przez bind (:caretaker, :departed, :job, :cids, :jids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/duty_search.py",
       "line": 441,
       "fingerprint": "c692cbcf292bb53b",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "REGEX_STATEMENT_TIMEOUT_MS to stała int modułu (20_000); brak danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/duty_search.py",
       "line": 445,
       "fingerprint": "a754b264c0d1f8a8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "expr to same placeholdery :p{i} z range(len), POOL_SIZE to stała 150; wzorce (od modelu) wyłącznie przez bind (:p0, :p1, …)."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -821,16 +829,16 @@
       "path": "backend/app/services/experience_backfill.py",
       "line": 73,
       "fingerprint": "9f7703f1694325ce",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_CURRENT_WORDS_SQL to literały ze stałego frozensetu CURRENT_END_WORDS, pilnowanego regexem [a-z]+ przy imporcie; brak parametrów z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/experience_backfill.py",
       "line": 89,
       "fingerprint": "25607c85fb3c5c74",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "NO_RESULT_KEY to stały literał modułu (\"_experience_dates_no_result_at\"); brak danych z zewnątrz."
     },
     {
       "rule": "python.django.security.injection.raw-html-format.raw-html-format",
@@ -877,320 +885,320 @@
       "path": "backend/app/services/hybrid_search.py",
       "line": 308,
       "fingerprint": "5980ba5bcd52f5ec",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "tsquery_expr to same placeholdery :g{i} z range(len(groups)); treść grup must i limit przez bind (:g0…, :limit)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/inactive_client_cleanup.py",
       "line": 369,
       "fingerprint": "db019292fa24ef6d",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Schemat, tabela i kolumna z pg_constraint/pg_namespace albo metadanych ORM, każda przez _quoted (regex identyfikatora + cudzysłów); id przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/inactive_client_cleanup_signals.py",
       "line": 271,
       "fingerprint": "afd37b227314982c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela, kolumna i where ze stałej krotki NAME_REFERENCES w module, identyfikatory przez _quoted; brak danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_board.py",
       "line": 196,
       "fingerprint": "1207e43441d7b4c9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejany fragment to counts_in_hit_ratio_sql(\"j\"): alias literał i lista powodów ze stałej HIT_RATIO_NEUTRAL_CLOSE_REASONS; daty okna przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_board_yoy.py",
       "line": 223,
       "fingerprint": "e60fcd7c09c614d0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejany fragment to counts_in_hit_ratio_sql(\"j\"): alias literał i lista powodów ze stałej HIT_RATIO_NEUTRAL_CLOSE_REASONS; daty okna przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_dl_portfolio.py",
       "line": 93,
       "fingerprint": "f6d19608daffcdcd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane DL_HEAD_CTE i JOBS_SCOPED_CTE to stałe modułu insights_dl_scope (z literału _HEADS i counts_in_hit_ratio_sql); okno przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_dl_portfolio.py",
       "line": 115,
       "fingerprint": "dd793dda2cdca9bd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane DL_HEAD_CTE i JOBS_SCOPED_CTE to stałe modułu insights_dl_scope; okno placementów przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_dl_portfolio.py",
       "line": 197,
       "fingerprint": "67788159b36c51f1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane DL_HEAD_CTE i JOBS_SCOPED_CTE to stałe modułu insights_dl_scope; zapytanie bez wartości z zewnątrz (statusy to literały)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_dl_portfolio.py",
       "line": 234,
       "fingerprint": "d7a1c03ea26e7444",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Stałe CTE z insights_dl_scope; months_sql składany z int i z range(len(windows)) (6 okien) i nazw :s{i}/:e{i}; granice miesięcy i :board_from przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_dl_portfolio.py",
       "line": 281,
       "fingerprint": "e5ffb22cfb006227",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane DL_HEAD_CTE i JOBS_SCOPED_CTE to stałe modułu insights_dl_scope; okno przez bind (:start, :end)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_dl_portfolio.py",
       "line": 324,
       "fingerprint": "6fa1730d12eb075d",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "CLIENT_DISPLAY_NAME_SQL i CLIENT_VISIBLE_SQL to literały modułu insights_dl_scope; id klientów przez bind (:ids jako integer[])."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_in_flight.py",
       "line": 135,
       "fingerprint": "8daaa1a8c79fa824",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Fragmenty: _DEF_MAP_CTE, _KEY_CASE_SQL, _JOB_FILTER_SQL (col literał), _COLUMN_CASE_SQL ze stałej COLUMNS (repr), in_opening_sql z literałami; def_ids/def_keys, job_ids, owner_* przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_in_flight.py",
       "line": 241,
       "fingerprint": "4f8559b5b0a54002",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Fragmenty: _DEF_MAP_CTE, _KEY_CASE_SQL, _JOB_FILTER_SQL (col literał), excluded_hired_sql('cs'); :since, :def_ids, :def_keys, :job_ids przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_person_scope.py",
       "line": 57,
       "fingerprint": "4846a2cac022fa62",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejany _HOF_ROLE_PREDICATE to literał z competitions.py (używa :roles); id kont jako int() i role z PEOPLE_TABLE_ROLES przez bind (:ids, :roles)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_seniority.py",
       "line": 529,
       "fingerprint": "725007896a3c575b",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_PLACEMENTS_SQL to konkatenacja literałów: CREDITED_FROM_SNAPSHOT_CTE (unnest bindów) + stały SELECT; :as_of i tablice migawki przez bind (credited_bind)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_sources.py",
       "line": 222,
       "fingerprint": "53b347c661fe3bfb",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane _PORTAL_EVENTS, _PORTAL_FLAGS, _COUNTS to stałe modułu; okno i listy utm przez bind (:since, :until, :pracuj_utm, :portal_utm)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_sources.py",
       "line": 240,
       "fingerprint": "182d78cb065e412e",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane _PORTAL_EVENTS, _PORTAL_FLAGS, _COUNTS to stałe modułu; okno i listy utm przez bind (:since, :until, :pracuj_utm, :portal_utm)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_sources.py",
       "line": 257,
       "fingerprint": "ff81f6eec33511ad",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane _LINK_FLAGS (z excluded_hired_sql('cs')) i _COUNTS to stałe modułu; okno przez bind (:since, :until)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_sources.py",
       "line": 322,
       "fingerprint": "6a3c4c549011facd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejane _PORTAL_EVENTS, _PORTAL_FLAGS, _COUNTS to stałe modułu; source, limit, offset i okno przez bind (:source, :limit, :offset)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_sources.py",
       "line": 369,
       "fingerprint": "856caa820f0ed249",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "key_column/join/label z dwóch stałych gałęzi if source == SOURCE_LINK_GENERAL (literały); _LINK_FLAGS, _COUNTS stałe; source i okno przez bind (:source)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_stage_breakdown.py",
       "line": 274,
       "fingerprint": "da2dd7fa507c5eb6",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Fragmenty: _DEF_MAP_CTE, _KEY_CASE_SQL, _JOB_FILTER_SQL.format(col literał), excluded_hired_sql('cs'); okno, def_ids/def_keys, job_ids przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_stage_breakdown.py",
       "line": 330,
       "fingerprint": "8667d0cd4749e9ad",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Jedyny wklejany fragment to _JOB_FILTER_SQL.format(col=\"fm.job_id\") (literał); okno i job_ids przez bind (:start, :end, :job_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_stage_breakdown.py",
       "line": 354,
       "fingerprint": "8df5ed4075e6c3ab",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Jedyny wklejany fragment to _JOB_FILTER_SQL.format(col=\"rp.job_id\") (literał); okno i job_ids przez bind (:start, :end, :job_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_stage_breakdown.py",
       "line": 379,
       "fingerprint": "33663db4ed438281",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Fragmenty: _DEF_MAP_CTE, _KEY_CASE_SQL, _JOB_FILTER_SQL (col literał), excluded_hired_sql('l'), in_opening_sql('l','l.moved_at'); wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_stage_breakdown.py",
       "line": 438,
       "fingerprint": "ee8b60e1a37161ef",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Fragmenty: _DEF_MAP_CTE, _KEY_CASE_SQL, _JOB_FILTER_SQL (col literał); klucze końca i wzorce decyzji przez bind (:closed_by_keys, :candidate_decision, :client_decision)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_team_activity.py",
       "line": 188,
       "fingerprint": "a2ea019a133247a2",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "sql składany tylko z _window(literał kolumny, bounded: bool) — nazwy kolumn to literały w kodzie; since, until, limit przez bind (:since, :until, :limit)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 408,
       "fingerprint": "13e743e426773ee0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_REFUSAL_TOTALS_SQL to f-string ze stałą _CLASSIFIED; key wybiera tylko gałąź w Pythonie, nie trafia do SQL; since, silent, recent przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 416,
       "fingerprint": "5fe10fc5048a29c1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_REFUSALS_SQL to f-string ze stałymi _CLASSIFIED i PROTECTED_RE; since, repeat_min, repeat_share przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 818,
       "fingerprint": "13e743e426773ee0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_REFUSAL_TOTALS_SQL to f-string ze stałą _CLASSIFIED; key wybiera tylko gałąź w Pythonie, nie trafia do SQL; since, silent, recent przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 829,
       "fingerprint": "7601422da7f5cb7d",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Konkatenacja stałej _CV_SQL z literałem ' AND c.branded_finalized_at >= :since'; data przez bind (:since)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 839,
       "fingerprint": "0df0cd1a874fc1cd",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "f-string ze stałą _CLASSIFIED plus literały SELECT; since przez bind (:since)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 1142,
       "fingerprint": "5631afee6dea09a4",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_REASONS_SQL to f-string ze stałą _CLASSIFIED; since przez bind (:since)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 1193,
       "fingerprint": "23326b047ec0ba18",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "condition to jeden z trzech literałów (wybór po basis/bucket) plus literał ' AND c.client_id = :client_id'; bucket i basis z regexów trasy, client_id int; wartości przez bind (:kinds, :client_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/insights_wnioski.py",
       "line": 1244,
       "fingerprint": "55b18b8aa36431c6",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "f-string ze stałą _CLASSIFIED plus literały SELECT; since przez bind (:since)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_board_cards_to_proposals.py",
       "line": 471,
       "fingerprint": "f368a38f419608f6",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwa pola JSON z _DETAILS_FIELD (stałe 'moved'/'deleted') po _mode(), który odrzuca tryb spoza MODES; klucz i wpisy przez bind (:key, :value)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_board_cards_to_proposals.py",
       "line": 543,
       "fingerprint": "1187b5efd68f6e2b",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "SQL z qualifying_sql: stałe _BASE_SQL/_STATIC_DISQUALIFIERS/_SCOPE_SQL i predykaty FK z pg_constraint (quote_ident, kolumna cytowana z podwojeniem \"); job_ids i process_id przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_delivery_lead_fill.py",
       "line": 52,
       "fingerprint": "26fb440fd82547f7",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejone tylko stałe modułu _HEADS i _TARGET (literały SQL bez danych); brak wartości w tekście."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_delivery_lead_fill.py",
       "line": 62,
       "fingerprint": "571f6ad7a2c48447",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejone tylko stałe modułu _HEADS i _TARGET; id klientów przez bind (:client_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_delivery_lead_fill.py",
       "line": 90,
       "fingerprint": "6097f650a321e27c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_CLEAR_STALE to stała modułu złożona z literału i stałej _HEADS; brak wartości w tekście."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/job_delivery_lead_fill.py",
       "line": 91,
       "fingerprint": "a8e5e49ed7d823c0",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Stała _CLEAR_STALE + literał warunku; id klientów przez bind (:client_ids)."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1213,32 +1221,32 @@
       "path": "backend/app/services/kpi_engine.py",
       "line": 361,
       "fingerprint": "1edb19ea9f6d0d7a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Doklejona stała CREDITED_FROM_SNAPSHOT_CTE (literał z placeholderami); uid, stage, okno i migawka przez bind (:uid, :stage, :since, :until, credited_bind)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/kpi_engine.py",
       "line": 448,
       "fingerprint": "2de8ff0c1a5686e1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Stała CREDITED_FROM_SNAPSHOT_CTE i kolumny FILTER generowane z indeksu enumerate (nazwy :sN/:eN/pN w kodzie); daty i etapy przez bind (expanding :stages)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/kpi_panel.py",
       "line": 444,
       "fingerprint": "f6054175d64a4731",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Sklejone wyłącznie stałe modułu: CREDITED_FROM_SNAPSHOT_CTE, PRECISION_COHORT_CTE, PRECISION_R30_SQL; uid i daty przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/kpi_team.py",
       "line": 61,
       "fingerprint": "5a08a9ae815c2afb",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Stałe CTE z kpi_panel/credited_snapshot i client_job_filter('job_id') z literałem kodu; client_id i okno przez bind (:client_id, :period_start, :period_end)."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1269,8 +1277,8 @@
       "path": "backend/app/services/m365/mail_delivery_schema.py",
       "line": 57,
       "fingerprint": "366f7f1296955e55",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "BOOT_LOCK_TIMEOUT to stała modułu '10s'; brak danych z zewnątrz."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1285,8 +1293,8 @@
       "path": "backend/app/services/m365/startup_reset.py",
       "line": 60,
       "fingerprint": "0f9a16be1df4678c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "RESET_PENDING_SENDS_SQL wkleja stałą liczbę PENDING_SEND_MARGIN_MINUTES = 15; brak danych z zewnątrz."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1301,72 +1309,72 @@
       "path": "backend/app/services/must_text_evidence.py",
       "line": 854,
       "fingerprint": "06fcfff8f2198f8a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejony warunek note_kinds.ai_readable_sql() ze stałych rodzajów notatek i stały fragment `when`; ids, types, before przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/must_text_evidence.py",
       "line": 874,
       "fingerprint": "569a41cfc13f21bf",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Ten sam warunek ai_readable_sql() ze stałych i stały `when`; ids, types, before przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/must_text_evidence.py",
       "line": 885,
       "fingerprint": "651ba1abd67f902a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Warunek ai_readable_sql() ze stałych i stały `when`; ids, types, pattern (regex) i before przez bind (:pattern)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 256,
       "fingerprint": "59b45652be88e6d9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 334,
       "fingerprint": "59b45652be88e6d9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 349,
       "fingerprint": "59b45652be88e6d9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 392,
       "fingerprint": "59b45652be88e6d9",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_owned_pairs_cte(True) i _STAGE_RANK_SQL zbudowany z enuma STAGE_ORDER i indeksów enumerate; uid przez bind (:uid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/my_people.py",
       "line": 506,
       "fingerprint": "bd5ac25d1f8c4217",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_owned_pairs_cte(single_user=True) + literał; uid i ids przez bind (:uid, :ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/named_permissions_bootstrap.py",
       "line": 45,
       "fingerprint": "904aedbb55a2e0d3",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "BOOT_LOCK_TIMEOUT to stała modułu '10s'; brak danych z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
@@ -1461,72 +1469,72 @@
       "path": "backend/app/services/note_kind_backfill.py",
       "line": 33,
       "fingerprint": "4ecb6aaed1755b3d",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_SELECT_WITH_AUTHOR to literał z DL_PAIR_AUTHOR_SQL (stałe nazwy ról); limit przez bind (:lim)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/note_kind_backfill.py",
       "line": 41,
       "fingerprint": "693489964a0d25d8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_SELECT_WITH_AUTHOR (stałe) + literał; ids przez bind (:ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/note_kind_backfill.py",
       "line": 155,
       "fingerprint": "8162eecf3008e88f",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wklejona stała DL_PAIR_AUTHOR_SQL; rodzaj i wzorzec przez bind (:human, :pattern)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/notes_insights_extractor.py",
       "line": 165,
       "fingerprint": "0adb51cbba84d9a6",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "priority ze stałej note_kinds.AI_PRIORITY_KINDS, warunek z facts_readable_sql() (stałe rodzaje i SYSTEM_SOURCE); id kandydatów i limit przez bind (:ids, :lim)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_cleanup.py",
       "line": 96,
       "fingerprint": "92165931e6149a72",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumna z information_schema (FK do clients.id) przepuszczone przez _validate_identifier (^[a-z_][a-z0-9_]*$) i cytowane; id przez bind (:target_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_cleanup.py",
       "line": 152,
       "fingerprint": "31e837af40fb1911",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumna z information_schema.columns po _validate_identifier (^[a-z_][a-z0-9_]*$), cytowane; id przez bind (:target_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_cleanup.py",
       "line": 179,
       "fingerprint": "6a458f842ecf2354",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tabela i kolumny *_id/*_type z information_schema.columns po _validate_identifier; wartości typu to literały, id przez bind (:target_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_cleanup.py",
       "line": 392,
       "fingerprint": "cbb0bcce6e69d158",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "LOCK TABLE: stałe nazwy tabel, specs z information_schema i soft_tables z information_schema.columns, każda po _validate_identifier i cytowana; brak wartości."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/order_mail_ingest.py",
       "line": 2170,
       "fingerprint": "6e53196800246ea4",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Nazwy kolumn to klucze kwargs _write_state — wszyscy wołający podają stałe nazwy (last_status, stats...); wartości przez bind (:{k})."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1557,40 +1565,40 @@
       "path": "backend/app/services/placement_exclusions.py",
       "line": 360,
       "fingerprint": "df9da54eb412c752",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "SQL z modułowych stałych: _SERIES_CTE (SERIES_TZ), _INSERT_TAIL.format(where=...) z dniami z krotki HISTORICAL_SERIES_DAYS; próg, powód, wersja i lista id przez bind (:threshold, :reason, :rule_version, :only)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/placement_exclusions.py",
       "line": 363,
       "fingerprint": "42a397205a434d1c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Ta sama stała RULE_SQL (literał where); only_candidate_ids idzie przez bind CAST(:only AS integer[]), nie do tekstu SQL."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/placement_exclusions.py",
       "line": 380,
       "fingerprint": "42a397205a434d1c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Ta sama stała RULE_SQL (literał where); only_candidate_ids idzie przez bind CAST(:only AS integer[]), nie do tekstu SQL."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/plain_knowledge/knowledge.py",
       "line": 190,
       "fingerprint": "f17937cf3aef1732",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Interpolowane tylko stałe int modułu FAILED_RETRY_HOURS=24 i STALE_CLAIM_MINUTES=5 w interval; hasło i nazwa przez bind (:key, :display)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/plain_knowledge/knowledge.py",
       "line": 244,
       "fingerprint": "14bea0fd861ad742",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Interpolowane tylko stałe int FAILED_RETRY_HOURS i STALE_CLAIM_MINUTES; slug, nazwa, reguły i umiejętności przez bind (:slug, :name, :rules, :skills)."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1605,120 +1613,120 @@
       "path": "backend/app/services/priority_work_policy.py",
       "line": 387,
       "fingerprint": "03446b0f1cacf67c",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Tekst = VERIFIER_ANCHORED_CTE (zwykły literał w kpi_panel) po .replace z literałami + literał SELECT; id przypisań przez bind CAST(:assignment_ids AS INTEGER[])."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/ranking_lab.py",
       "line": 288,
       "fingerprint": "26dc41dcf6cb396e",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_ELIGIBLE_JOBS.format z dwoma literałami wybieranymi przez bool/None (closed, only); job_id i limit przez bind (:job_id, :limit)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/ranking_lab.py",
       "line": 315,
       "fingerprint": "af97bec126fd0ed8",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawiane tylko placeholdery generowane w kodzie: to_tsquery('simple', :q{i}) i cast(:v{i} as tsquery), i = indeks int z enumerate; tsquery i warianty przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
       "line": 82,
       "fingerprint": "6511965306c9fdf1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "CREDITED_FROM_SNAPSHOT_CTE (literał) + literały + client_job_filter(\"job_id\") (stały szablon z literałem kolumny); daty, klient i migawka przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
       "line": 238,
       "fingerprint": "fbc5c8a846ff2bef",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "person_filter tylko ze stałych _PERSON/_TEAM/_UNATTRIBUTED_FILTER (SQL budowany przy imporcie), stany z krotki DETAIL_STATES, client_job_filter z literałem; wartości przez bind (:stage, :user_ids, :client_id)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
       "line": 297,
       "fingerprint": "c2d1ce65147c2b5b",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "person_filter ze stałych modułu, ORDER BY z dict _DETAIL_ORDER_BY (literały), pair_terms_lateral z literałami kolumn; zapytania prebudowane przy imporcie w _DETAIL_SQL; wartości przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_activity.py",
       "line": 356,
       "fingerprint": "c2f4737246046a40",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "person_filter ze stałych _PERSON_FILTER/_TEAM_FILTER; SQL budowany raz przy imporcie w _CLIENTS_SQL; etapy, okres i osoby przez bind (:stages expanding, :period_start, :user_ids)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_rate_hints.py",
       "line": 215,
       "fingerprint": "5aea97d473655b7a",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Interpolowana tylko stała client_rate_notes.DL_PAIR_AUTHOR_SQL (literał warunku ról) i {{2,3}} (escapowany nawias); kandydat, autorzy, rodzaje i daty przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_rate_hints.py",
       "line": 296,
       "fingerprint": "fbb71c25985cd3e1",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Interpolowana tylko stała DL_PAIR_AUTHOR_SQL (literał); id notatek i rodzaj przez bind (:ids, :human)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/recruitment_trend.py",
       "line": 41,
       "fingerprint": "accdaf297317c538",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Konkatenacja stałej CREDITED_FROM_SNAPSHOT_CTE (literał) z literałem SELECT; okno i migawka przez bind (:from_ts, :to_ts, :credited_*)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/requirement_evidence.py",
       "line": 229,
       "fingerprint": "fd022519bdeabcbc",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() — warunek ze stałych rodzajów (AI_EXCLUDED_KINDS, SYSTEM_SOURCE); wzorzec regex z etykiet idzie przez bind (:pattern), też :cid, :types, :lim."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/screening_note_backfill.py",
       "line": 71,
       "fingerprint": "0f976c824fac2e05",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawiony tylko note_kinds.ai_readable_sql('n') ze stałych rodzajów i literału aliasu; zapytanie bez wartości z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/screening_reassign.py",
       "line": 393,
       "fingerprint": "2b58fcfa79ce8066",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Wstawiony tylko note_kinds.ai_readable_sql() ze stałych rodzajów; kandydat, rekrutacje i limit przez bind (:c, :jobs, :lim)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/signature_policy_bootstrap.py",
       "line": 74,
       "fingerprint": "0fae825709b7a464",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "BOOT_LOCK_TIMEOUT to stała modułu \"10s\" w startup_locks; brak wartości z zewnątrz."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/app/services/work_rhythm.py",
       "line": 873,
       "fingerprint": "5e4551f498be33a3",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "_CV_SENT_SQL to stała modułu: CREDITED_FROM_SNAPSHOT_CTE (literał) + literał SELECT; id osób, granice i migawka przez bind (:ids, :start, :end)."
     },
     {
       "rule": "python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure",
@@ -1733,80 +1741,80 @@
       "path": "backend/scripts/eval_manual_search_order.py",
       "line": 362,
       "fingerprint": "f96b6d9155e68383",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: wstawiane tylko placeholdery z kodu (to_tsquery('simple', :q{i}), cast(:v{i} as tsquery), i z enumerate); tsquery z must_skills z bazy idzie przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/eval_manual_search_order.py",
       "line": 442,
       "fingerprint": "7b882c05f90f92fc",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: ta sama lista placeholderów parts (:q{i}, :v{i}) złączona ' || '; wartości z bazy przez bind."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/merge_duplicate_candidates.py",
       "line": 132,
       "fingerprint": "fd91f20d3e31eba4",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: tabela z information_schema.columns (filtrowana _IDENT_RE), trigger z dict-stałej _APPEND_ONLY_TRIGGERS; brak wartości w SQL."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/merge_duplicate_candidates.py",
       "line": 134,
       "fingerprint": "9118ed90d3d9d970",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: jak wyżej — tabela z katalogu (information_schema, _IDENT_RE), trigger ze stałej _APPEND_ONLY_TRIGGERS."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/cardif_client_merge_repair.py",
       "line": 312,
       "fingerprint": "f963853853dfc140",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: nazwa tabeli z krotki stałej _UNKEYED_CLIENT_TABLES (3 literały); id klienta przez bind (:cid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/ezdrowie_client_merge_repair.py",
       "line": 80,
       "fingerprint": "b71bf3fbca708847",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: tabela i kolumna z katalogu (pg_constraint.conrelid::regclass, pg_attribute.attname) dla FK do clients; id klienta przez bind (:cid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/integration_profile_cleanup.py",
       "line": 47,
       "fingerprint": "ad16f232b90d1299",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: nazwy tabel z krotki stałej _HR_DATA_TABLES (8 literałów); id osoby przez bind (:uid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/settings_test_data_cleanup.py",
       "line": 106,
       "fingerprint": "ff1c30e10e6fd764",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: table to literał podany w każdym z 4 wywołań _delete_pinned (client_cv_rules, client_playbooks, ...); id i klient z PROD_PLAN przez bind (:id, :cid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/settings_test_data_cleanup.py",
       "line": 141,
       "fingerprint": "295ea3f479e303ea",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: table z literałowej krotki (client_cv_rule_events, client_cv_rule_publications); client_id przez bind (:cid)."
     },
     {
       "rule": "python.sqlalchemy.security.audit.avoid-sqlalchemy-text.avoid-sqlalchemy-text",
       "path": "backend/scripts/repairs/settings_test_data_cleanup.py",
       "line": 197,
       "fingerprint": "8e9e28482704f4c5",
-      "status": "do-przegladu",
-      "reason": "Stan z 13.11.2026 (wprowadzenie zapadki): f-string albo zmienna w text(); nieprzejrzane — do przeglądu."
+      "status": "zweryfikowane",
+      "reason": "Skrypt operatora: table z literałowej krotki (rejection_reasons, pipeline_stage_defs); id szablonu z PROD_PLAN przez bind (:id)."
     },
     {
       "rule": "typescript.react.security.audit.react-dangerouslysetinnerhtml.react-dangerouslysetinnerhtml",
