@@ -151,7 +151,7 @@ class Brief(BaseModel):
     )
     #: Karty bez branży, miasta albo wielkości też wchodzą (dziś ma je ~2% kart).
     include_unknown: bool = True
-    per_caller: int = Field(default=40, ge=5, le=200)
+    per_caller: int = Field(default=40, ge=1, le=200)
     caller_ids: list[int] = Field(min_length=1, max_length=10)
     auto_refill: bool = True
 
