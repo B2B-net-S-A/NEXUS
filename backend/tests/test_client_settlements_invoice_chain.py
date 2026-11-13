@@ -271,6 +271,8 @@ def test_przypadek_z_szescioma_korektami_daje_wszystkie_ostrzezenia() -> None:
         "Zły numer faktury korygowanej w 6/K/11/2026",
     ]
     assert len(warns) == 5
+    assert checks[0]["title"] == "Korekty zostawiają 72,00 zł VAT"
+    assert checks[-1]["state"] == "none"
     assert _titles(checks, "none") == ["Korekta 1/K/11/2026 bez zmian kwot"]
     assert "Korekty zgodne po netto, VAT i brutto" not in _titles(checks)
 
@@ -435,9 +437,9 @@ def test_korekta_bez_tresci_z_ksef_nie_sprawdzona_zamiast_falszywego_alarmu() ->
     docs[2].details = None
     docs[5].details = {"state": "failed", "error": "ksef:not_found"}
     checks = invoice_chain.chain_checks(docs, amounts=True)
-    assert checks[0]["state"] == "none"
-    assert checks[0]["title"] == "Korekty: nie sprawdzono łańcucha"
-    assert "2/K/11/2026, 5/K/11/2026" in checks[0]["detail"]
+    note = next(c for c in checks if c["title"] == "Korekty: nie sprawdzono łańcucha")
+    assert note["state"] == "none"
+    assert "2/K/11/2026, 5/K/11/2026" in note["detail"]
     assert not any(t.startswith("Korekty zostawiają") for t in _titles(checks))
 
 

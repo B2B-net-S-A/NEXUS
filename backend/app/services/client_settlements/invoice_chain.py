@@ -408,6 +408,14 @@ def _zero_check(doc: Document) -> list[dict[str, Any]]:
     ]
 
 
+def _corrections_word(count: int) -> str:
+    if count == 1:
+        return "1 korekta"
+    if count % 10 in (2, 3, 4) and count % 100 not in (12, 13, 14):
+        return f"{count} korekty"
+    return f"{count} korekt"
+
+
 def _residual(chain: Chain, amounts: bool) -> list[dict[str, Any]]:
     net = sum((_money(d.net_amount) for d in chain.docs), _ZERO)
     vat = sum((_money(d.vat_amount) for d in chain.docs), _ZERO)
@@ -415,7 +423,8 @@ def _residual(chain: Chain, amounts: bool) -> list[dict[str, Any]]:
     tolerance = _CENT * len(chain.docs)
     count = len(chain.corrections)
     summary = (
-        f"Faktura {_name(chain.root)} i {count} kor. po zsumowaniu: netto {_pln(net)}, "
+        f"Faktura {_name(chain.root)} i {_corrections_word(count)} po zsumowaniu: "
+        f"netto {_pln(net)}, "
         f"VAT {_pln(vat)}, brutto {_pln(gross)}."
         if amounts
         else None
@@ -477,6 +486,7 @@ def chain_checks(docs: list[Document], *, amounts: bool) -> list[dict[str, Any]]
         )
     ordered = sorted(docs, key=_order)
     by_ksef = {d.ksef_number: d for d in ordered}
+    residuals: list[dict[str, Any]] = []
     for chain in chains(ordered):
         state: Optional[State] = {}
         for doc in chain.docs:
@@ -488,7 +498,10 @@ def chain_checks(docs: list[Document], *, amounts: bool) -> list[dict[str, Any]]
                 checks.extend(_zero_check(doc))
             state = _apply(state, doc) if state is not None and _ok(doc) else None
         if not missing and not is_correction(chain.root) and chain.corrections:
-            checks.extend(_residual(chain, amounts))
+            residuals.extend(_residual(chain, amounts))
+    # Kwota, która zostaje w KSeF, najpierw; uwagi (bez zmian kwot,
+    # nie sprawdzono) po ostrzeżeniach.
+    checks = residuals + sorted(checks, key=lambda c: c["state"] != "warn")
     if not missing and not any(c["state"] == "warn" for c in checks):
         checks.insert(
             0, {"state": "ok", "title": "Korekty zgodne po netto, VAT i brutto"}
