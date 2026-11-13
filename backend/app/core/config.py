@@ -1347,6 +1347,16 @@ class Settings(BaseSettings):
     # Adres webhooka rutyny bota i jego klucz (nagłówek ``Authorization: Bearer``).
     GROK_BOT_WEBHOOK_URL: str = ""
     GROK_BOT_WEBHOOK_KEY: str = ""
+    # Cztery boty Sprzedaży, każdy z własną rutyną (decyzja Artura 13.11.2026,
+    # ``app/services/sales/bots.py``). Bot bez własnej pary idzie na wspólny webhook.
+    GROK_BOT_LEADS_WEBHOOK_URL: str = ""
+    GROK_BOT_LEADS_WEBHOOK_KEY: str = ""
+    GROK_BOT_RESEARCH_WEBHOOK_URL: str = ""
+    GROK_BOT_RESEARCH_WEBHOOK_KEY: str = ""
+    GROK_BOT_COMPANY_WEBHOOK_URL: str = ""
+    GROK_BOT_COMPANY_WEBHOOK_KEY: str = ""
+    GROK_BOT_CONTACTS_WEBHOOK_URL: str = ""
+    GROK_BOT_CONTACTS_WEBHOOK_KEY: str = ""
     # Osobna rutyna Groka dla map firm z panelu Cognism.
     GROK_BOT_PEOPLE_WEBHOOK_URL: str = ""
     GROK_BOT_PEOPLE_WEBHOOK_KEY: str = ""

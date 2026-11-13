@@ -48,6 +48,10 @@ const SUB_VIEWS: Partial<Record<SalesSection, { label: string; href: string }[]>
     { label: "Firmy", href: "/sales/companies" },
     { label: "Osoby", href: "/sales/contacts" },
   ],
+  leads: [
+    { label: "Leady", href: "/sales/leads" },
+    { label: "Boty", href: "/sales/bots" },
+  ],
 };
 
 /** Zakładka-rodzic na pasku: Kontakty pod Firmami, Zadania pod „Moim dniem”, Podsumowanie pod Szansami. */
@@ -93,6 +97,7 @@ export function activeSection(pathname: string): SalesSection {
   if (pathname.startsWith("/sales/companies")) return "companies";
   if (pathname.startsWith("/sales/tasks")) return "tasks";
   if (pathname.startsWith("/sales/leads")) return "leads";
+  if (pathname.startsWith("/sales/bots")) return "leads";
   return "opportunities";
 }
 
