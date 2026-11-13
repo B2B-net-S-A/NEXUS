@@ -598,10 +598,11 @@ async def me(
 @limiter.limit("3/minute")
 async def change_password(
     request: Request,
-    response: Response,
     data: ChangePasswordRequest,
     current_user: AuthenticatedUser,
     db: AsyncSession = Depends(get_db),
+    # Na końcu z domyślnym None: testy wołają handler bez warstwy FastAPI.
+    response: Response = None,  # type: ignore[assignment]
 ):
     """Self-service password change.
 
@@ -692,7 +693,8 @@ async def change_password(
     )
     # Stary token jest już martwy (podłoga wyżej) — ciasteczko dostaje nowy,
     # inaczej przeglądarka wylogowałaby się zaraz po „Hasło zmienione”.
-    set_session_cookie(response, request, tokens.access_token)
+    if response is not None:
+        set_session_cookie(response, request, tokens.access_token)
     return tokens
 
 
@@ -723,6 +725,7 @@ async def adopt_session(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
 async def logout(request: Request) -> Response:
     """Usuń ciasteczko sesji przeglądarki."""
     # JS nie skasuje ciasteczka HttpOnly — robi to tylko serwer. CSRF jak przy

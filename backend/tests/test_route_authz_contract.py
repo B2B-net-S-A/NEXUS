@@ -309,6 +309,9 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("PATCH", "/api/notifications/{notification_id}/read"),
     ("PATCH", "/api/users/me/preferences"),
     ("POST", "/api/auth/change-password"),
+    # Przeniesienie sesji z nagłówka Bearer do ciasteczka HttpOnly — każda
+    # zalogowana osoba, tylko własny token (`core/session_cookie`).
+    ("POST", "/api/auth/session"),
     # Talent Radar dla KAŻDEJ zalogowanej roli — decyzja produktowa Artura
     # 19.08 (poszła po 403 u Head of Recruitment). Wyniki to lista triage bez
     # kontaktu i stawek (salary wygaszone), a pełny profil kandydata pozostaje
@@ -336,6 +339,8 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     # Logowanie, rejestracja i zwrotki OAuth — z definicji przed sesją.
     ("POST", "/api/auth/forgot-password"),
     ("POST", "/api/auth/login"),
+    # Usunięcie ciasteczka sesji — działa też po wygaśnięciu tokenu.
+    ("POST", "/api/auth/logout"),
     ("GET", "/api/auth/methods"),
     ("GET", "/api/auth/microsoft/authorize"),
     ("GET", "/api/auth/microsoft/callback"),

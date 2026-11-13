@@ -99,8 +99,8 @@ def clear_session_cookie(response: Response, request: Request) -> None:
 
 
 def session_cookie_token(request: Request) -> Optional[str]:
-    value = request.cookies.get(SESSION_COOKIE_NAME)
-    return value or None
+    cookies = getattr(request, "cookies", None) or {}
+    return cookies.get(SESSION_COOKIE_NAME) or None
 
 
 def enforce_cookie_csrf(request: Request) -> None:
