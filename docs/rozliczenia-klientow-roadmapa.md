@@ -301,6 +301,19 @@ reguły klienta jako katalog z poziomami.
   sprawdzamy (jest tylko w XML-u). Miesiąc faktury: równa kwota w miesiącu
   wystawienia albo poprzednim, inaczej od 25. dnia bieżący, wcześniej poprzedni.
   Korekty sumują się z fakturą pierwotną po netto.
+- Kontrole korekt i białej listy (13.11, po teście Finansów na fakturze z sześcioma
+  korektami, którego sama suma netto nie łapała): XML FA pobieramy tylko dla korekt
+  i faktur, które one korygują (najwyżej 10 na przebieg KSeF, po Płacach), kolumny
+  `details` i `vat_whitelist` (migracja 0688). Na karcie osoby ostrzeżenia:
+  łańcuch po netto, VAT i brutto („Korekty zostawiają X zł VAT”), numer i data
+  faktury korygowanej kontra dokument wskazany numerem KSeF, „stan przed” kontra
+  stan dokumentu korygowanego (jego pozycje, jego zmiana albo stan łańcucha),
+  korekta bez zmian kwot jako uwaga; biała lista VAT na dzień wystawienia (VAT od
+  podmiotu spoza listy czynnych, „zw” od czynnego), wynik przy fakturze, najwyżej
+  60 ze 100 zapytań dziennie, awaria wykazu = „nie sprawdzono”. Korekta przechodzi
+  do kontraktu i miesiąca faktury, którą koryguje. Kod: `invoice_chain.py`,
+  `contractor_details.py`. Wymaga `WHITE_LIST_MODE=live`, inaczej biała lista
+  „nie sprawdzono (wyłączone)”.
 - Po wdrożeniu: znacznik pobierania na produkcji jest już za październikiem,
   więc faktury z października wymagają „Pobierz ponownie okres” (Płace).
 
