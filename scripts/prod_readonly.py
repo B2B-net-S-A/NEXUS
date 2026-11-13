@@ -40,7 +40,17 @@ _FIND_CONTAINER = (
     "[ -n \"$c\" ] || {{ echo 'Brak kontenera {prefix}*.' >&2; exit 3; }}; "
 )
 POSTGRES_PREFIX = "postgres-ocgkw"
-BACKEND_PREFIX = "backend-ocgkw"
+# Backend po roli procesu, nie po nazwie: po etapie B2 (osobna aplikacja Coolify
+# z rolling update) kontener nazywa się `<uuid aplikacji>-<czas>`. Format wypisuje
+# tylko nazwę i znacznik, nigdy wartości zmiennych. `docker ps` zaczyna od
+# najnowszego, więc przy nakładaniu wygrywa nowy kontener.
+_FIND_WEB_CONTAINER = (
+    "c=$(docker ps -q | xargs -r docker inspect --format "
+    "'{{.Name}}{{range .Config.Env}}"
+    '{{if eq . "NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"}} web{{end}}{{end}}\' '
+    "| awk '$2 == \"web\" { sub(\"^/\", \"\", $1); print $1; exit }'); "
+    "[ -n \"$c\" ] || { echo 'Brak kontenera backendu (NEXUS_PROCESS_ROLE=web).' >&2; exit 3; }; "
+)
 
 
 class Rejected(ValueError):
@@ -228,7 +238,7 @@ def env_remote_command(names: Sequence[str]) -> str:
     """
     names = validate_env_names(names)
     alternatives = "|".join(names)
-    return _FIND_CONTAINER.format(prefix=BACKEND_PREFIX) + (
+    return _FIND_WEB_CONTAINER + (
         "p=$(docker inspect -f '{{.State.Pid}}' \"$c\"); "
         '[ -r "/proc/$p/environ" ] || { echo "Brak dostępu do środowiska procesu $p." >&2; exit 4; }; '
         "tr '\\0' '\\n' < \"/proc/$p/environ\" | "
