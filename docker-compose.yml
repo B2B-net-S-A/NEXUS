@@ -102,7 +102,13 @@ services:
       - -c
       - effective_io_concurrency=200
       - -c
-      - max_connections=100             # bez zmian, jawnie — pula aplikacji to 20+40 na proces
+      # Było 100. Rolling update backendu i workera (etap B2) trzyma przez chwilę
+      # dwa procesy tej samej roli: 2 × web (40+10) + worker (15+15) = 130,
+      # do tego zapas 15 na zrzut bazy, blokady i docker exec. Pilnuje
+      # `tests/test_process_roles.py`. Pamięć: bezczynne połączenie to kilka MB,
+      # work_mem zajmuje tylko trwające zapytanie, więc 12g wystarcza.
+      # Zmiana wchodzi z restartem bazy, czyli z wieczornym wdrożeniem compose.
+      - max_connections=150
     # Domyślne /dev/shm w Dockerze to 64MB; przy równoległych zapytaniach Postgres
     # potrafi się o to rozbić ("could not resize shared memory segment").
     shm_size: 1gb
@@ -260,7 +266,7 @@ services:
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
       NEXUS_PROCESS_ROLE: worker
       WEB_CONCURRENCY: "1"
-      # Razem z backendem 50 + 30 = 80 przy max_connections=100.
+      # Przy nakładaniu (etap B2) 2 × 50 + 30 = 130 przy max_connections=150.
       DB_POOL_SIZE: "15"
       DB_MAX_OVERFLOW: "15"
     stop_grace_period: 15s

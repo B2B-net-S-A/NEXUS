@@ -58,6 +58,8 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",
+        # Tylko UPDATE stanu wysyłek i synchronizacji w bazie, bez Graph.
+        "m365_interrupted_reset",
         "access_usage",
         "critical_stats_cache",
         "process_bus",

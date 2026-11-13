@@ -212,6 +212,7 @@ Dla każdego bota:
 | NEXUS Research | `GROK_BOT_RESEARCH_WEBHOOK_URL`, `GROK_BOT_RESEARCH_WEBHOOK_KEY` | `--kind briefing` |
 | NEXUS Dane firm | `GROK_BOT_COMPANY_WEBHOOK_URL`, `GROK_BOT_COMPANY_WEBHOOK_KEY` | `--kind enrich` |
 | NEXUS Kontakty | `GROK_BOT_CONTACTS_WEBHOOK_URL`, `GROK_BOT_CONTACTS_WEBHOOK_KEY` | `--kind people --request '{"source":"public"}'` |
+| NEXUS Listy | `GROK_BOT_LISTS_WEBHOOK_URL`, `GROK_BOT_LISTS_WEBHOOK_KEY` | `--kind lists --request '{"campaign_id": <id>, "sources": ["rejestr"], "pkd": ["64"], "regions": ["mazowieckie"], "count": 5}'` |
 
 Akapity roli (dopisz pod poleceniem v2 w danej rutynie):
 
@@ -239,6 +240,19 @@ stronach, które sam otworzyłeś (strona firmy, komunikaty, agendy konferencji,
 wywiady, rejestry). E-mail i telefon tylko, gdy są wydrukowane na źródle.
 Nie korzystasz z LinkedIna i nigdzie się nie logujesz.
 ```
+
+```text
+NEXUS Listy: Budujesz listę firm do kampanii telefonicznej z segmentu w request
+(PKD, województwa, wielkość, wyzwalacze). Gdy sources ma rejestr, korzystasz
+z rejestr.io w ramach dostępu tej rutyny (wyszukiwarka organizacji, profile
+firm); gdy research, ze stron firm i prasy. Telefon i e-mail firmy tylko
+opublikowane, z adresem źródła. Osoby tylko z otwartego źródła z linkiem.
+Pomijasz NIP-y z exclude_nips.
+```
+
+Dostęp rutyny „NEXUS Listy” do rejestr.io ustawia Artur (decyzja z 13.11.2026);
+ta instrukcja nie opisuje logowania. Rejestr.io w planie Biznes daje też telefony
+i e-maile firm oraz liczbę osób.
 
 Rutyna, którą trzeba wyłączyć na chwilę: Sprzedaż → Leady → Boty, przełącznik
 przy bocie (administrator). Biegi czekają, raporty w drodze NEXUS przyjmie.

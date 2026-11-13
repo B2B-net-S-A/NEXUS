@@ -228,6 +228,18 @@ async def _ksef(
     }
 
 
+async def plan_month(
+    db: AsyncSession, client_id: Optional[int], year: int, month: int, today: date
+) -> bool:
+    """Czy plik za ten miesiąc to plan (estymacja, E5.3): trwa miesiąc z ``cl.estimate``."""
+
+    if client_id is None or (year, month) != (today.year, today.month):
+        return False
+    if not await module_settings.is_enabled(db):
+        return False
+    return await service.estimate_allowed(db, client_id, f"{year}-{month:02d}")
+
+
 async def estimate_todo(
     db: AsyncSession, contract_id: int, client_id: Optional[int], today: date
 ) -> Optional[dict[str, str]]:

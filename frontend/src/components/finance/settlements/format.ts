@@ -3,6 +3,8 @@ import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type {
   ClientInvoiceState,
   ContractorInvoiceState,
+  IntegrationCostStatus,
+  IntegrationUsage,
   KesuState,
   SettlementFilter,
   SettlementStatus,
@@ -120,4 +122,23 @@ export function nextMonths(today: string, count = 3): string[] {
 /** Rozliczamy miesiąc zamknięty: domyślnie poprzedni. */
 export function defaultMonth(today: string): string {
   return recentMonths(today, 2)[1];
+}
+
+/** Koszt integracji (E5.1): wpisują Finanse, przyjmuje DL klienta. */
+export const INTEGRATION_STATUS: Record<IntegrationCostStatus, { label: string; tone: StatusDotTone }> = {
+  pending: { label: "Czeka na DL-a", tone: "warning" },
+  approved: { label: "Zgoda DL-a", tone: "success" },
+  rejected: { label: "Odrzucony", tone: "neutral" },
+};
+
+/** „Wykorzystano 1 500 zł z 2 000 zł w 2026 · czeka 400 zł”. */
+export function integrationUsageText(usage: IntegrationUsage): string {
+  const parts = [
+    usage.limit
+      ? `Wykorzystano ${pln(usage.approved)} z ${pln(usage.limit)} w ${usage.year}`
+      : `Wykorzystano ${pln(usage.approved)} w ${usage.year} (bez limitu)`,
+  ];
+  if (Number(usage.pending) > 0) parts.push(`czeka ${pln(usage.pending)}`);
+  if (usage.remaining !== null) parts.push(`zostało ${pln(usage.remaining)}`);
+  return parts.join(" · ");
 }

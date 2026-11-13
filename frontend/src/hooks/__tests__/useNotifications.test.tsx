@@ -22,6 +22,7 @@ import {
 } from "@/hooks/useNotifications";
 import { NOTIFICATIONS_FALLBACK_POLL_MS } from "@/lib/polling";
 import { INTERVIEW_NOTIFY_EVENT } from "@/lib/interview-notifications";
+import { activePresenceKeys } from "@/lib/wsBus";
 import { CHAT_NOTIFY_EVENT } from "@/types/job-chat";
 
 /**
@@ -40,7 +41,10 @@ class FakeWebSocket {
   constructor() {
     FakeWebSocket.instances.push(this);
   }
-  send() {}
+  sent: string[] = [];
+  send(message: string) {
+    this.sent.push(message);
+  }
   close() {}
 }
 
@@ -91,6 +95,28 @@ describe("useNotifications — powrót połączenia i fallback", () => {
     expect(keys()).toContain(JSON.stringify(["kpis", "me", "today"]));
     // Ruchy kolegów z czasu przerwy — Tablica nie odświeża się przy focusie.
     expect(keys()).toContain(JSON.stringify(["kanban"]));
+    hook.unmount();
+  });
+
+  it("wdrożenie zamyka gniazdo: nowe połączenie wraca z subskrypcjami obecności", () => {
+    // Etap B2: stary kontener web przy rolling update zamyka wszystkie gniazda.
+    activePresenceKeys.add("candidate:5");
+    const { hook } = setup();
+    const first = FakeWebSocket.instances[0];
+    act(() => first.onopen?.());
+    act(() => first.onclose?.());
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const second = FakeWebSocket.instances[1];
+    expect(second).toBeDefined();
+    act(() => second.onopen?.());
+    expect(second.sent.map((m) => JSON.parse(m))).toContainEqual({
+      type: "presence:subscribe",
+      resource_type: "candidate",
+      resource_id: 5,
+    });
+    activePresenceKeys.delete("candidate:5");
     hook.unmount();
   });
 

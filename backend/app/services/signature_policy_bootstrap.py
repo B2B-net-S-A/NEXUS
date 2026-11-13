@@ -23,7 +23,11 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import text
 
-from app.services.startup_locks import BOOT_LOCK_TIMEOUT, is_lock_timeout
+from app.services.startup_locks import (
+    BOOT_LOCK_TIMEOUT,
+    is_lock_timeout,
+    record_skipped_ddl,
+)
 
 POLICY_LOCK = 734092782
 MIGRATION = (
@@ -81,6 +85,7 @@ async def main(engine=None) -> None:
         except Exception as exc:
             if not is_lock_timeout(exc):
                 raise
+            record_skipped_ddl("signature confirmation policy", exc)
             print(
                 "Signature confirmation policy skipped after a lock timeout "
                 f"(the next start retries): {type(exc).__name__}"

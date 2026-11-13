@@ -438,6 +438,14 @@ async def overview(
     from app.services.client_settlements import consultant as settlement_view
 
     for row in rows:
+        # Trwa miesiąc z estymacją: plik to plan, przycisk „Wyślij plan” (E5.4).
+        row["plan"] = await settlement_view.plan_month(
+            db,
+            contract.client_id if contract else None,
+            row["year"],
+            row["month"],
+            today,
+        )
         settlement = (
             await settlement_view.view(
                 db,
@@ -450,6 +458,12 @@ async def overview(
             else None
         )
         apply_settlement(row, settlement)
+        if row["plan"] and row["action"] == "send_invoice":
+            # Decyzja Artura z 10.11: miesiąc z planem konsultant fakturuje
+            # dopiero po RCP za cały miesiąc, nie po przyjęciu planu.
+            row["action"] = None
+            row["issue_invoice"] = False
+            row["invoice_label"] = "Faktura: po RCP za cały miesiąc"
     return rows
 
 
