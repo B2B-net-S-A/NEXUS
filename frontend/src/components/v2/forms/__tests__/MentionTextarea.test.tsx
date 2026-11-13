@@ -5,16 +5,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 
 const hook = vi.hoisted(() => ({ result: {} as Record<string, unknown> }));
-vi.mock("@/hooks/useMentionableUsers", () => ({
-  useMentionableUsers: () => hook.result,
-}));
-
-// Osoby przypisane do rekrutacji (`@wszyscy`) — zapytanie tylko dla pola rekrutacji.
+// Osoby przypisane do rekrutacji (`@wszyscy`) przychodzą w `assigned` tylko
+// dla pola rekrutacji z `withAssigned` — tak jak robi to prawdziwy hook.
 const assigned = vi.hoisted(() => ({ data: undefined as unknown, jobIds: [] as (number | null)[] }));
-vi.mock("@/hooks/useAssignedJobUsers", () => ({
-  useAssignedJobUsers: (jobId: number | null) => {
+vi.mock("@/hooks/useMentionableUsers", () => ({
+  useMentionableUsers: (
+    scope: { kind: string; jobId?: number },
+    opts: { withAssigned?: boolean } = {},
+  ) => {
+    const jobId = opts.withAssigned && scope.kind === "job" ? (scope.jobId ?? null) : null;
     assigned.jobIds.push(jobId);
-    return { data: jobId == null ? undefined : assigned.data };
+    return { ...hook.result, assigned: jobId == null ? undefined : assigned.data };
   },
 }));
 vi.mock("@/store/auth", async (importOriginal) => ({

@@ -14,7 +14,6 @@ import {
 import { Users } from "lucide-react";
 
 import { warsawToday } from "@/lib/warsaw-date";
-import { useAssignedJobUsers } from "@/hooks/useAssignedJobUsers";
 import {
   MentionScope,
   useMentionableUsers,
@@ -184,7 +183,7 @@ export function MentionTextarea({
     field.style.overflowY = fit ? (fit.scroll ? "auto" : "hidden") : "";
   }, [ref, value, rows, maxRows, autoGrow, width]);
 
-  const usersQuery = useMentionableUsers(scope, { withAbsences: true });
+  const usersQuery = useMentionableUsers(scope, { withAbsences: true, withAssigned: true });
   const users = usersQuery.data;
   const absences = usersQuery.absences;
   const today = warsawToday();
@@ -201,11 +200,11 @@ export function MentionTextarea({
 
   // „Wszyscy przypisani” (13.11.2026) — tylko w polu rekrutacji (czat,
   // notatki); serwer rozwija `@wszyscy` na tę samą listę przy zapisie.
-  const assignedQuery = useAssignedJobUsers(scope.kind === "job" ? scope.jobId : null);
+  const assigned = usersQuery.assigned;
   const myId = useAuthStore((s) => s.user?.id);
   const everyone = useMemo(
-    () => (assignedQuery.data ?? []).filter((u) => u.id !== myId),
-    [assignedQuery.data, myId],
+    () => (assigned ?? []).filter((u) => u.id !== myId),
+    [assigned, myId],
   );
   const options = useMemo<MentionOption[]>(() => {
     const people = filtered.map((user) => ({ kind: "user" as const, user }));
