@@ -50,7 +50,6 @@ function useTicket(fileId: number | null) {
     staleTime: TICKET_TTL,
     gcTime: TICKET_TTL,
     refetchOnWindowFocus: false,
-    retry: 1,
   });
 }
 
