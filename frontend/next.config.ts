@@ -67,8 +67,12 @@ export function buildSecurityHeaders(
     "default-src 'self'",
     // Cloudflare (proxy przed frontem) sam wstrzykuje beacon Web Analytics —
     // bez tych źródeł każda wizyta dawała raport CSP w Sentry (NEXUS-FE-19).
+    // 'wasm-unsafe-eval': worker pdf.js (src/lib/pdfjs-loader.ts) kompiluje
+    // dekodery WebAssembly (JPX/JBIG2, profile ICC) — bez tego każdy taki PDF
+    // dawał raport CSP (NEXUS-FE-6C). Dopuszcza tylko kompilację WASM, nie
+    // `eval()` JS.
     join(
-      "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://static.cloudflareinsights.com",
       !isProd && "'unsafe-eval'",
     ),
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",

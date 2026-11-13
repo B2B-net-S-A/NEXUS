@@ -51,13 +51,21 @@ describe("Content-Security-Policy", () => {
 
   it("w produkcji żadna polityka nie dopuszcza unsafe-eval", () => {
     for (const h of buildSecurityHeaders(PROD)) {
-      expect(h.value).not.toContain("unsafe-eval");
+      // Cytowany token — 'wasm-unsafe-eval' (tylko WASM) jest dozwolony.
+      expect(h.value).not.toContain("'unsafe-eval'");
     }
     const dev = header(
       buildSecurityHeaders({ ...PROD, NODE_ENV: "development" }),
       "Content-Security-Policy-Report-Only",
     );
     expect(dev).toContain("'unsafe-eval'");
+  });
+
+  it("dopuszcza kompilację WebAssembly workera pdf.js (NEXUS-FE-6C)", () => {
+    for (const env of [PROD, { ...PROD, NODE_ENV: "development" }]) {
+      const ro = header(buildSecurityHeaders(env), "Content-Security-Policy-Report-Only");
+      expect(ro).toMatch(/script-src [^;]*'wasm-unsafe-eval'/);
+    }
   });
 
   it("brak env nie wywraca buildu", () => {
