@@ -1255,10 +1255,13 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
 }
 
 /* ====================================================================
-   ŚWIATY — MAKIETA 13.11.2026 (nie commitować bez decyzji Artura).
+   ŚWIATY WYGLĄDU (decyzja Artura 13.11.2026, docs/claude/ui/swiaty-wygladu.md).
    [data-world="…"] na <html>, obok trybu gry (kids). Każdy świat
    podmienia tokeny i dokłada własną warstwę dekoracji; warstwa „Wyraźny”
-   jest pod światem wyłączona (:not([data-world]) wyżej).
+   jest pod światem wyłączona (:not([data-world]) wyżej). Nowy świat =
+   wpis w THEME_WORLDS, lustro w lib/worlds/world-ids.ts i na serwerze,
+   kontrast pilnuje theme-worlds-contract.test.ts. Czerwień zostaje dla
+   „pilne” — żaden świat nie ma czerwonych przycisków.
    ==================================================================== */
 @font-face {
   font-family: "NexusMono";
@@ -1561,7 +1564,7 @@ html[data-world="retro"] h3 {
   letter-spacing: 0.02em;
 }
 
-/* Kółka światów w menu „Wygląd” (makieta). */
+/* Kółka światów w menu „Wygląd”. */
 .world-swatch-arcade  { background: linear-gradient(135deg, hsl(186 100% 50%), hsl(310 100% 60%)); }
 .world-swatch-stadium { background: linear-gradient(135deg, hsl(152 75% 28%) 60%, hsl(44 95% 50%) 60%); }
 .world-swatch-space   { background: radial-gradient(circle at 70% 30%, hsl(265 95% 72%), hsl(232 55% 10%) 70%); }
@@ -1570,8 +1573,7 @@ html[data-world="retro"] h3 {
 .world-swatch-zen     { background: linear-gradient(135deg, hsl(40 30% 92%), hsl(152 22% 36%)); }
 
 /* ====================================================================
-   ŚWIATY, CZĘŚĆ 2 — MAKIETA 13.11.2026 (nie commitować bez decyzji).
-   Schemat jasny/ciemny wymusza świat (ThemeProvider dokłada albo zdejmuje
+   ŚWIATY, CZĘŚĆ 2. Schemat jasny/ciemny wymusza świat (ThemeProvider dokłada albo zdejmuje
    klasę .dark), więc ciemne światy dziedziczą resztę tokenów z .dark.
    ==================================================================== */
 
@@ -1963,7 +1965,7 @@ html[data-world="blueprint"] h1, html[data-world="blueprint"] h2 {
   html[data-world="rgb"] .bg-card:hover { animation: none !important; }
 }
 
-/* Kółka nowych światów w menu i w galerii (makieta). */
+/* Kółka nowych światów w menu „Wygląd”. */
 .world-swatch-sakura    { background: radial-gradient(circle at 35% 35%, #fbd3e1, #c2588e); }
 .world-swatch-latte     { background: linear-gradient(135deg, #efe3d3 50%, #6e4a2e 50%); }
 .world-swatch-lavender  { background: linear-gradient(135deg, #ece6fb, #7a59c9); }
@@ -1981,3 +1983,43 @@ html[data-world="tulips"] h1::after {
   content: ""; display: inline-block; width: 1.5em; height: 1.3em; margin-left: 0.35em; vertical-align: -0.2em;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 170 150'%3E%3Cpath d='M40,150 C38,104 42,78 40,58' stroke='%233d8a55' stroke-width='3' fill='none'/%3E%3Cpath d='M40,140 C14,120 16,90 34,80 C28,104 34,122 40,140 Z' fill='%234c9a62'/%3E%3Cpath d='M-13,0 C-15,-14 -10,-24 -6,-26 L-3,-15 L0,-28 L3,-15 L6,-26 C10,-24 15,-14 13,0 C9,8 -9,8 -13,0 Z' fill='%23e2445c' transform='translate(40 58)'/%3E%3Cpath d='M95,150 C93,115 97,100 95,80' stroke='%233d8a55' stroke-width='3' fill='none'/%3E%3Cpath d='M95,140 C69,120 71,90 89,80 C83,104 89,122 95,140 Z' fill='%234c9a62'/%3E%3Cpath d='M-13,0 C-15,-14 -10,-24 -6,-26 L-3,-15 L0,-28 L3,-15 L6,-26 C10,-24 15,-14 13,0 C9,8 -9,8 -13,0 Z' fill='%23f6b2c4' transform='translate(95 80)'/%3E%3Cpath d='M145,150 C143,100 147,70 145,50' stroke='%233d8a55' stroke-width='3' fill='none'/%3E%3Cpath d='M145,140 C119,120 121,90 139,80 C133,104 139,122 145,140 Z' fill='%234c9a62'/%3E%3Cpath d='M-13,0 C-15,-14 -10,-24 -6,-26 L-3,-15 L0,-28 L3,-15 L6,-26 C10,-24 15,-14 13,0 C9,8 -9,8 -13,0 Z' fill='%23f4c430' transform='translate(145 50)'/%3E%3C/svg%3E") center / contain no-repeat;
 }
+
+/* Miniatury światów w galerii (`WorldGallery`): kolory zostają w arkuszu,
+   nie w TSX. Kafelek czyta zmienne --wt-*. */
+.world-thumb-zen { --wt-bg: #f4f1ea; --wt-side: #ebe6dc; --wt-card: #fdfbf6; --wt-primary: #47705d; --wt-fg: #3a332b; }
+.world-thumb-latte { --wt-bg: #f1e9de; --wt-side: #44301f; --wt-card: #fdfaf5; --wt-primary: #7a5130; --wt-fg: #3a2a1c; }
+.world-thumb-lavender { --wt-bg: linear-gradient(180deg,#efeafd,#f3f0fb 60%,#e9e1f7); --wt-side: #e9e3f7; --wt-card: #ffffff; --wt-primary: #6a47b8; --wt-fg: #2e2347; }
+.world-thumb-botanic { --wt-bg: #ecf0e6; --wt-side: #1b3a2b; --wt-card: #fdfdf8; --wt-primary: #27674a; --wt-fg: #173326; }
+.world-thumb-marble { --wt-bg: linear-gradient(135deg,#f5f3f0,#e9e5df 45%,#f6f4f1); --wt-side: #1e1c19; --wt-card: #ffffff; --wt-primary: #8a6623; --wt-fg: #26231f; }
+.world-thumb-sakura { --wt-bg: radial-gradient(circle at 100% 0,#fbd6e3,#fdf0f4 60%); --wt-side: #fbe3ea; --wt-card: #ffffff; --wt-primary: #94386f; --wt-fg: #3b1f2f; }
+.world-thumb-holo { --wt-bg: linear-gradient(125deg,#ffe0f2,#ece0ff 30%,#d9f3ff 60%,#d9f7ec 85%,#fff7d9); --wt-side: #fbf2fd; --wt-card: #ffffff; --wt-primary: #9933cc; --wt-fg: #2b2147; }
+.world-thumb-sunset { --wt-bg: linear-gradient(170deg,#ffe6c2,#fbd3c6 45%,#f3d0e3 78%,#e3d9f0); --wt-side: #3b2a4d; --wt-card: #ffffff; --wt-primary: #b84a14; --wt-fg: #2c2140; }
+.world-thumb-arcade { --wt-bg: #0b0a1c; --wt-side: #07061a; --wt-card: #141233; --wt-primary: #00e5ff; --wt-fg: #d8f6fb; }
+.world-thumb-space { --wt-bg: radial-gradient(circle at 85% 10%,#3b2a7a,#0c1030 60%); --wt-side: #06081a; --wt-card: #171c3d; --wt-primary: #b28cff; --wt-fg: #e6e9f9; }
+.world-thumb-rgb { --wt-bg: radial-gradient(ellipse at 0 100%,#3b0f5c,#0e0e12 55%); --wt-side: #0a0a0d; --wt-card: #16161b; --wt-primary: #1fd16b; --wt-fg: #ecedf2; }
+.world-thumb-blueprint { --wt-bg: #123a63; --wt-side: #0b2a4d; --wt-card: #184a7a; --wt-primary: #ffd53d; --wt-fg: #eef6ff; }
+.world-thumb-stadium { --wt-bg: repeating-linear-gradient(90deg,#e9f1ea 0 18px,#dfeae1 18px 36px); --wt-side: #0d3a26; --wt-card: #ffffff; --wt-primary: #127a4c; --wt-fg: #123024; }
+.world-thumb-pitstop { --wt-bg: #151515; --wt-side: #0d0d0d; --wt-card: #1b1b1b; --wt-primary: #ff8a0a; --wt-fg: #f2f2f2; }
+.world-thumb-mountains { --wt-bg: #f0ebe1; --wt-side: #1b3a30; --wt-card: #fcfaf4; --wt-primary: #21634a; --wt-fg: #1a2f28; }
+.world-thumb-winter { --wt-bg: linear-gradient(180deg,#d3e6f6,#eef5fb 55%); --wt-side: #14223f; --wt-card: #ffffff; --wt-primary: #1b7058; --wt-fg: #16233b; }
+.world-thumb-tulips { --wt-bg: linear-gradient(180deg,#eaf4fb,#fdf9ea 55%); --wt-side: #21452f; --wt-card: #ffffff; --wt-primary: #2a6f45; --wt-fg: #1b2d22; }
+.world-thumb-none { --wt-bg: #f1f3f8; --wt-side: #f8f9fb; --wt-card: #ffffff; --wt-primary: #4f46e5; --wt-fg: #1e2433; }
+.world-thumb-game { --wt-bg: linear-gradient(135deg,#e5f6ff,#f3e8ff 50%,#fff7d6); --wt-side: #f3eaff; --wt-card: #ffffff; --wt-primary: #d61f7f; --wt-fg: #2a2560; }
+.world-thumb-retro { --wt-bg: radial-gradient(#11111122 1px,transparent 1px) 0 0/6px 6px,#f3ead2; --wt-side: #141414; --wt-card: #fdf8e8; --wt-primary: #1d4ed8; --wt-fg: #121212; }
+.world-swatch-game { background: linear-gradient(135deg, #e5f6ff, #f3e8ff 50%, #ffd6ec); }
+
+/* Stroje robota Jarvisa do światów (`JarvisOutfit`). */
+.jo-red { fill: #d62839; }
+.jo-white { fill: #ffffff; }
+.jo-white-stroke { stroke: #ffffff; opacity: 0.8; }
+.jo-ink { fill: #111111; }
+.jo-orange { fill: #ff8a0a; }
+.jo-green { fill: #127a4c; }
+.jo-gold { fill: #f2b705; }
+.jo-pink { fill: #f6a5c0; }
+.jo-yellow { fill: #f4c430; }
+.jo-leaf-stroke { stroke: #3d8a55; }
+.jo-brown { fill: #8a5a33; }
+.jo-glass { fill: #c9e6ff; fill-opacity: 0.18; stroke: #ffffff; stroke-opacity: 0.75; stroke-width: 2; }
+.jo-cyan { fill: #00d5ee; }
+.jo-magenta-stroke { stroke: #ff33d6; }

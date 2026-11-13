@@ -6,9 +6,11 @@ import { prefersReducedMotion } from "@/lib/prefers-reduced-motion";
  * Light gamification for the "Kids / game world" mode.
  *
  * `celebrate()` fires a (themed) confetti burst, an optional sound, and notifies
- * the mascot. It is a hard no-op unless Kids mode is on, so call sites stay
- * unconditional — the professional theme never sees an effect. Respects
- * `prefers-reduced-motion` (skips confetti; mascot/sound still acknowledge).
+ * the mascot. It is a no-op unless Kids mode or a world with its own
+ * celebration is on (13.11.2026: płatki w Sakurze, szachownica w Pit stopie,
+ * śnieg w Zimie…; Zen i „bez świata” — nic), so call sites stay unconditional.
+ * Respects `prefers-reduced-motion` (skips confetti; mascot/sound still
+ * acknowledge). Sound plays only in Kids mode.
  */
 
 /** Window event the mascot listens to so it can react (bounce) to a win. */
@@ -29,6 +31,73 @@ interface CelebrateOptions {
 const PALETTE = ["#ec4899", "#a855f7", "#38bdf8", "#facc15", "#34d399", "#fb7185"];
 
 type Confetti = typeof import("canvas-confetti");
+
+/** Kształt cząstek świata: wbudowany albo rysowany ścieżką SVG. */
+type WorldShape = "square" | "circle" | "star" | "petal" | "leaf";
+
+interface WorldCelebration {
+  colors: string[];
+  shapes: WorldShape[];
+  /** Lekkie cząstki opadają wolniej (płatki, śnieg). */
+  floaty?: boolean;
+  /** Płaskie cząstki bez obrotu 3D (piksele w Retro). */
+  flat?: boolean;
+}
+
+const PETAL_PATH = "M0,-8 C5,-8 8,-2 6,3 C4,7 1,8 0,6 C-1,8 -4,7 -6,3 C-8,-2 -5,-8 0,-8 Z";
+const LEAF_PATH = "M0,-10 C7,-6 7,6 0,10 C-7,6 -7,-6 0,-10 Z";
+
+/** Świętowanie per świat (`docs/claude/ui/swiaty-wygladu.md`). Zen celowo bez efektu. */
+export const WORLD_CELEBRATIONS: Readonly<Record<string, WorldCelebration>> = {
+  sakura: { colors: ["#f9b6cd", "#f48fb1", "#fde2ea", "#c2588e"], shapes: ["petal"], floaty: true },
+  tulips: { colors: ["#e2445c", "#f6b2c4", "#f4c430", "#4c9a62"], shapes: ["petal"], floaty: true },
+  lavender: { colors: ["#9b7fd1", "#b9a3e8", "#7a59c9", "#cfe0c8"], shapes: ["petal"], floaty: true },
+  botanic: { colors: ["#2f6b47", "#4f9a62", "#8bbf7a", "#c9d8a8"], shapes: ["leaf"], floaty: true },
+  latte: { colors: ["#6e4a2e", "#a8784e", "#e7d3b8", "#f4e9dc"], shapes: ["circle"] },
+  marble: { colors: ["#b08a3c", "#d9b862", "#f1e3b6", "#1c1a17"], shapes: ["star"] },
+  sunset: { colors: ["#ff9a5a", "#f06a6a", "#d9649a", "#8e5aa8", "#ffd166"], shapes: ["circle", "square"] },
+  holo: { colors: ["#ffb3e6", "#c9b3ff", "#a3e4ff", "#b3f5d9", "#fff2a8"], shapes: ["star", "circle"] },
+  arcade: { colors: ["#00e5ff", "#ff33d6", "#fff36b", "#7cff6b"], shapes: ["square"], flat: true },
+  space: { colors: ["#ffffff", "#c9d4ff", "#b28cff", "#7fe3ff"], shapes: ["star"] },
+  rgb: { colors: ["#ff3b3b", "#ffe83b", "#3bff6b", "#3bf2ff", "#5b6bff", "#ff3bf2"], shapes: ["square"] },
+  blueprint: { colors: ["#ffffff", "#ffd53d", "#9fd3ff"], shapes: ["square"], flat: true },
+  stadium: { colors: ["#127a4c", "#f2b705", "#ffffff"], shapes: ["square", "circle"] },
+  pitstop: { colors: ["#ffffff", "#111111", "#ff8a0a"], shapes: ["square"], flat: true },
+  mountains: { colors: ["#21634a", "#ff7a1a", "#ffffff", "#c62828"], shapes: ["leaf", "circle"] },
+  winter: { colors: ["#ffffff", "#e3f1fb", "#bfe0f5"], shapes: ["circle"], floaty: true },
+  retro: { colors: ["#1d4ed8", "#e53935", "#ffd400", "#111111"], shapes: ["square"], flat: true },
+};
+
+function worldShapes(confetti: Confetti, shapes: WorldShape[]): NonNullable<Parameters<Confetti>[0]>["shapes"] {
+  return shapes.map((shape) => {
+    if (shape === "petal" || shape === "leaf") {
+      const path = shape === "petal" ? PETAL_PATH : LEAF_PATH;
+      return confetti.shapeFromPath ? confetti.shapeFromPath({ path }) : "circle";
+    }
+    return shape;
+  });
+}
+
+function fireWorldConfetti(confetti: Confetti, fx: WorldCelebration, variant: CelebrateVariant, small: boolean): void {
+  const base = {
+    origin: { y: 0.7 },
+    colors: fx.colors,
+    shapes: worldShapes(confetti, fx.shapes),
+    flat: fx.flat ?? false,
+    gravity: fx.floaty ? 0.55 : 1,
+    drift: fx.floaty ? 0.6 : 0,
+    ticks: fx.floaty ? 320 : 200,
+    scalar: fx.shapes.includes("petal") || fx.shapes.includes("leaf") ? 1.4 : 1,
+    disableForReducedMotion: true,
+  };
+  if (small) {
+    confetti({ ...base, particleCount: 30, spread: 55, startVelocity: 32 });
+    return;
+  }
+  const big = variant === "hired" || variant === "levelup" || variant === "welcome";
+  confetti({ ...base, particleCount: big ? 110 : 70, spread: 75, startVelocity: 50 });
+  confetti({ ...base, particleCount: big ? 70 : 40, spread: 120, startVelocity: 32 });
+}
 
 function fireConfetti(confetti: Confetti, variant: CelebrateVariant, small: boolean): void {
   const origin = { y: 0.7 };
@@ -102,8 +171,9 @@ export function celebrateParty(): void {
 
 export function celebrate(options: CelebrateOptions = {}): void {
   if (typeof window === "undefined") return;
-  const { kidsMode, kidsSound } = useThemeStore.getState();
-  if (!kidsMode) return; // celebrate only in the game world
+  const { kidsMode, kidsSound, world } = useThemeStore.getState();
+  const worldFx = kidsMode ? undefined : WORLD_CELEBRATIONS[world];
+  if (!kidsMode && !worldFx) return; // tylko w trybie gry albo w świecie z własnym świętowaniem
 
   const variant = options.variant ?? "default";
 
@@ -124,7 +194,11 @@ export function celebrate(options: CelebrateOptions = {}): void {
 
   // canvas-confetti touches `window`/`document`, so load it lazily on the client.
   void import("canvas-confetti")
-    .then(({ default: confetti }) => fireConfetti(confetti, variant, options.small === true))
+    .then(({ default: confetti }) =>
+      worldFx
+        ? fireWorldConfetti(confetti, worldFx, variant, options.small === true)
+        : fireConfetti(confetti, variant, options.small === true)
+    )
     .catch(() => {
       /* confetti is purely decorative — ignore load failures */
     });

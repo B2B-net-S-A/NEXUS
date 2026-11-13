@@ -2048,10 +2048,18 @@
   {
    "id": "shell.appearance-menu",
    "area": "powłoka",
-   "opis": "Menu „Wygląd” w górnym pasku: motyw koloru, tryb gry i tryb ciemny w jednym przycisku (styl „Wyraźny” stały od 13.11.2026) (na telefonie te przełączniki są osobno w szufladzie nawigacji)",
+   "opis": "Menu „Wygląd” w górnym pasku: świat (bieżący + „Zmień” do galerii, „Wyłącz świat”), motyw koloru i tryb ciemny (ukryte przy włączonym świecie), robot Jarvisa; kropka „nowe” w sezonie (styl „Wyraźny” stały od 13.11.2026; na telefonie przełączniki są osobno w szufladzie nawigacji)",
    "file": "components/v2/shell/AppearanceMenu.tsx",
    "marker": "AppearanceMenu",
    "v3_home": "Górny pasek → Wygląd"
+  },
+  {
+   "id": "shell.world-gallery",
+   "area": "powłoka",
+   "opis": "Galeria światów wyglądu (18 + Gra) pogrupowana po klimacie, światy sezonowe tylko w terminie, wybór zapisany na koncie; otwierana z menu „Wygląd”, szuflady na telefonie i dymka robota",
+   "file": "components/v2/shell/WorldGallery.tsx",
+   "marker": "WorldGallery",
+   "v3_home": "Górny pasek → Wygląd → Świat"
   },
   {
    "id": "dl-send.board-card",
@@ -3209,7 +3217,14 @@
    "marker": "proposals-below-threshold",
    "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy"
   },
-  { "id": "board.sources-single-list", "area": "pozyskiwanie", "opis": "Jedna lista kandydatów za flagą SINGLE_CANDIDATE_LIST_ENABLED: filtry-plakietki (Wszyscy, Zgłosili się, Nowi w bazie, Z portali, Podobne, Znamy) zamiast zakładek „Nowi z ogłoszeń”, „Propozycje z bazy”, „Podobne rekrutacje”; narzędzie przepięć pod filtrem „Podobne”, zgłoszenia odłożone przez AI pod „Zgłosili się” i „Z portali”", "file": "components/v2/recruitment/AddCandidatesPanel.tsx", "marker": "single-list-filters", "v3_home": "okno „Kandydaci do dodania” → Kandydaci" },
+  {
+   "id": "board.sources-single-list",
+   "area": "pozyskiwanie",
+   "opis": "Jedna lista kandydatów za flagą SINGLE_CANDIDATE_LIST_ENABLED: filtry-plakietki (Wszyscy, Zgłosili się, Nowi w bazie, Z portali, Podobne, Znamy) zamiast zakładek „Nowi z ogłoszeń”, „Propozycje z bazy”, „Podobne rekrutacje”; narzędzie przepięć pod filtrem „Podobne”, zgłoszenia odłożone przez AI pod „Zgłosili się” i „Z portali”",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "single-list-filters",
+   "v3_home": "okno „Kandydaci do dodania” → Kandydaci"
+  },
   {
    "id": "board.sources-hidden-by-critical",
    "area": "pozyskiwanie",

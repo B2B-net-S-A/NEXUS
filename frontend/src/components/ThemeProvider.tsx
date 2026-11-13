@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { companyDate, worldAvailable } from "@/lib/worlds/seasons";
 import { useThemeStore, worldScheme } from "@/store/theme";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
@@ -9,9 +10,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const kidsMode = useThemeStore((s) => s.kidsMode);
 
   const world = useThemeStore((s) => s.world);
+  const worldBeforeSeason = useThemeStore((s) => s.worldBeforeSeason);
+  const setWorld = useThemeStore((s) => s.setWorld);
 
-  // Świat narzuca schemat (makieta 13.11.2026): ciemny świat dostaje klasę
-  // .dark, żeby warianty `dark:` w komponentach pasowały do jego tokenów.
+  // Świat narzuca schemat (`docs/claude/ui/swiaty-wygladu.md`): ciemny świat
+  // dostaje klasę .dark, żeby warianty `dark:` w komponentach pasowały do jego
+  // tokenów, a jasny ją zdejmuje.
   useEffect(() => {
     const root = document.documentElement;
     const forced = worldScheme(world);
@@ -44,6 +48,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       delete root.dataset.world;
     }
   }, [world]);
+
+  // Sezonowy świat po swoim terminie: powrót do świata sprzed sezonu.
+  useEffect(() => {
+    if (!worldAvailable(world, companyDate())) setWorld(worldBeforeSeason ?? "none");
+  }, [world, worldBeforeSeason, setWorld]);
 
   return <>{children}</>;
 }

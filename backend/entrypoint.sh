@@ -6140,6 +6140,10 @@ END $$""",
     # na życzenie konta. Model `User` deklaruje kolumnę — bez niej każdy odczyt
     # użytkownika pada. Lustro 1:1 — `test_stage_moves_candidate_recruiter.py`.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS stage_moves_all_led_jobs BOOLEAN NOT NULL DEFAULT false",
+    # 0693: świat wyglądu na koncie. Model `User` deklaruje `appearance_prefs` —
+    # bez kolumny każdy odczyt użytkownika (w tym logowanie) pada. Lustro 1:1
+    # z migracją — pilnuje `test_appearance_prefs.py`.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS appearance_prefs JSONB NOT NULL DEFAULT '{}'::jsonb",
     # 0427: maile wyłączone przez konto („Maile do Ciebie”). Model `User`
     # deklaruje kolumnę — bez niej każdy odczyt użytkownika pada. Lustro 1:1
     # z migracją — pilnuje `test_notification_email_prefs.py`.
