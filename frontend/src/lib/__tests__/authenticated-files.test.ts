@@ -50,7 +50,7 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/emails/1/attachments/2/download",
-        { headers: { Authorization: "Bearer jwt-123" } },
+        { credentials: "include", headers: { Authorization: "Bearer jwt-123" } },
       );
     });
 
@@ -64,6 +64,7 @@ describe("authenticated-files", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/contracts/7/documents/8/download",
         {
+          credentials: "include",
           headers: {
             Authorization: "Bearer jwt-admin",
             "X-Impersonate-User-Id": "42",
@@ -72,13 +73,15 @@ describe("authenticated-files", () => {
       );
     });
 
-    it("sends no Authorization header when there is no token", async () => {
+    it("cookie session: no Authorization, cookie + CSRF header instead", async () => {
       fetchMock.mockResolvedValue(fakeResponse(new Blob(["x"])));
 
       await fetchAuthenticatedBlob("/api/x");
 
+      // Token żyje w ciasteczku HttpOnly — JS go nie zna i nie wysyła.
       expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/x", {
-        headers: {},
+        credentials: "include",
+        headers: { "X-Nexus-CSRF": "1" },
       });
     });
 
@@ -89,7 +92,7 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "https://cdn.example.com/file.pdf",
-        { headers: {} },
+        { credentials: "include", headers: { "X-Nexus-CSRF": "1" } },
       );
     });
 
@@ -163,7 +166,7 @@ describe("authenticated-files", () => {
 
       expect(fetchMock).toHaveBeenCalledWith(
         "http://localhost:8000/api/emails/1/attachments/2/download",
-        { headers: { Authorization: "Bearer jwt" } },
+        { credentials: "include", headers: { Authorization: "Bearer jwt" } },
       );
       const anchor = appendSpy.mock.calls[0][0] as HTMLAnchorElement;
       expect(anchor.download).toBe("cv.pdf");

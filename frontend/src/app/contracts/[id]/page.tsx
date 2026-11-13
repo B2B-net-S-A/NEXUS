@@ -324,6 +324,7 @@ function GenerateDocumentButton({
     const url = `${base}/api/contract-templates/${templateId}/render?contract_id=${contractId}`;
     try {
       const resp = await fetch(url, {
+        credentials: "include",
         headers: getAuthenticatedRequestHeaders(),
       });
       // Komunikaty toastem, nie natywnym `alert()` (audyt 24.09, N7) —

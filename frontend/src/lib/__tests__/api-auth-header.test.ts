@@ -79,3 +79,31 @@ describe("api — nagłówek Authorization", () => {
     expect(headers.Authorization).toBeUndefined();
   });
 });
+
+describe("api — sesja w ciasteczku HttpOnly i CSRF", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("wysyła ciasteczko do API (withCredentials)", () => {
+    expect(api.defaults.withCredentials).toBe(true);
+  });
+
+  it("zapis bez tokenu w JS dostaje nagłówek CSRF", async () => {
+    const headers = await resolvedHeaders({ url: "/api/notes", method: "post", data: {} });
+    expect(headers["X-Nexus-CSRF"]).toBe("1");
+    expect(headers.Authorization).toBeUndefined();
+  });
+
+  it("odczyt nie dostaje nagłówka CSRF (bez zbędnego preflightu)", async () => {
+    const headers = await resolvedHeaders({ url: "/api/jobs", method: "get" });
+    expect(headers["X-Nexus-CSRF"]).toBeUndefined();
+  });
+
+  it("stara ścieżka (Bearer) nie wysyła CSRF — API sprzed ciasteczka odrzuciłoby preflight", async () => {
+    localStorage.setItem("access_token", "LEGACY");
+    const headers = await resolvedHeaders({ url: "/api/notes", method: "post", data: {} });
+    expect(headers.Authorization).toBe("Bearer LEGACY");
+    expect(headers["X-Nexus-CSRF"]).toBeUndefined();
+  });
+});
