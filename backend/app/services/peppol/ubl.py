@@ -27,7 +27,7 @@ Mapowanie (plan Nordei N2, prototyp z faktury z 11.2026):
 
 Kolejność elementów jest zgodna ze schematem UBL 2.1 (odbiorca sprawdza XSD).
 Sumy kontrolne: suma pozycji musi być równa netto z faktury (``P_13_*``), a VAT
-i brutto — kwotom z KSeF. Różnica = ``ConversionError``, bo e-faktura różna od
+(z ``P_14_x``) i brutto — dokładnie kwotom z KSeF. Różnica = ``ConversionError``, bo e-faktura różna od
 faktury w KSeF to dokument, którego nie wolno wysłać.
 """
 
@@ -90,6 +90,9 @@ _UNITS = {
     "miesiąc": "MON",
 }
 _STANDARD_RATES = {"23", "22", "8", "7", "5", "4", "3"}
+#: Stawka → pole VAT w FA(3) (``P_14_1`` 23/22%, ``P_14_2`` 8/7%, ``P_14_3`` 5%,
+#: ``P_14_4`` 4/3%).
+_VAT_FIELD = {"23": "P_14_1", "22": "P_14_1", "8": "P_14_2", "7": "P_14_2", "5": "P_14_3", "4": "P_14_4", "3": "P_14_4"}
 _REVERSE_RATES = {"np ii", "np", "oo"}
 _OUTSIDE_RATES = {"np i"}
 
@@ -473,17 +476,24 @@ def build(
     for line in lines:
         key = (line.category, line.percent)
         breakdown[key] = breakdown.get(key, _ZERO) + line.net * sign
-    vat_by_key = {
-        key: (taxable * key[1] / 100).quantize(_CENT, rounding=ROUND_HALF_UP)
-        for key, taxable in breakdown.items()
-    }
+    # VAT per stawka bierzemy z faktury (``P_14_x``), nie liczymy od netto:
+    # w korekcie KSeF ma różnicę VAT-ów zaokrąglonych osobno (100,02 → 100,04
+    # przy 23% to VAT 0,01, a 23% od 0,02 = 0,00). Reguła BR-CO-17 dopuszcza
+    # taką różnicę o grosz. Gdy kilka stawek trafia w jedno pole — liczymy.
+    fields = [_VAT_FIELD.get(_number(key[1])) if key[0] == "S" else None for key in breakdown]
+    vat_by_key = {}
+    for key, field in zip(breakdown, fields):
+        if field and fields.count(field) == 1 and field in doc.vat_by_field:
+            vat_by_key[key] = doc.vat_by_field[field] * sign
+        else:
+            vat_by_key[key] = (breakdown[key] * key[1] / 100).quantize(_CENT, rounding=ROUND_HALF_UP)
     vat_total = sum(vat_by_key.values(), _ZERO)
-    if abs(vat_total - doc.vat_total * sign) > _CENT:
-        raise ConversionError("vat_mismatch", lines=_money(vat_total), vat=_money(doc.vat_total * sign))
     net_total = total_net * sign
     gross = net_total + vat_total
-    if abs(gross - doc.gross_total * sign) > _CENT:
+    if gross != doc.gross_total * sign:
         raise ConversionError("gross_mismatch", ubl=_money(gross), gross=_money(doc.gross_total * sign))
+    if vat_total != doc.vat_total * sign:
+        raise ConversionError("vat_mismatch", lines=_money(vat_total), vat=_money(doc.vat_total * sign))
     tax_currency = None
     if currency != "PLN" and vat_total != 0:
         if doc.vat_total_pln is None:

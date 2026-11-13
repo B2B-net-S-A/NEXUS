@@ -15,6 +15,7 @@ export type EinvoiceStatus =
   | "waiting_receiver"
   | "invalid"
   | "ready"
+  | "sending"
   | "sent"
   | "delivered"
   | "rejected"

@@ -51,8 +51,13 @@ Peppol z API, bez własnego punktu dostępu.
 | korekta bez zmiany kwot (np. data sprzedaży) | bez e-faktury („Bez e-faktury”) |
 | PDF | wizualizacja z XML-a FA (WeasyPrint) w `AdditionalDocumentReference` |
 
-Kontrole: suma pozycji = netto faktury (`P_13_*`), VAT i brutto = kwoty z KSeF.
-Różnica oznacza, że e-faktura nie wyjdzie.
+Kontrole: suma pozycji = netto faktury (`P_13_*`), VAT per stawka z `P_14_x`,
+VAT i brutto dokładnie jak w KSeF. Różnica oznacza, że e-faktura nie wyjdzie.
+
+Stany: „Czeka na XML z KSeF”, „Brak adresu Peppol”, „Błąd walidacji” (z powodem),
+„Do wysłania”, „Wysyłka niepewna” (dostawca nie odpowiedział jednoznacznie —
+automat nie ponawia, osoba sprawdza u dostawcy), „Wysłana”, „Doręczona”,
+„Odrzucona” (z powodem), „Bez e-faktury” (korekta bez zmiany kwot).
 
 ## Odbiorcy (katalog Peppol, 13.11.2026)
 

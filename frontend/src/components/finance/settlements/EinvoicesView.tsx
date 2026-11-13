@@ -32,14 +32,17 @@ export const EINVOICE_STATUS: Record<EinvoiceStatus, { label: string; tone: Stat
   waiting_receiver: { label: "Brak adresu Peppol", tone: "warning" },
   invalid: { label: "Błąd walidacji", tone: "danger" },
   ready: { label: "Do wysłania", tone: "info" },
+  sending: { label: "Wysyłka niepewna", tone: "warning" },
   sent: { label: "Wysłana", tone: "info" },
   delivered: { label: "Doręczona", tone: "success" },
   rejected: { label: "Odrzucona", tone: "danger" },
   skipped: { label: "Bez e-faktury", tone: "neutral" },
 };
-const SENDABLE: readonly EinvoiceStatus[] = ["ready", "rejected"];
+// „Wysyłka niepewna” wysyła ręcznie osoba po sprawdzeniu u dostawcy (serwer
+// odmówi, gdy poprzednia próba trwa krócej niż 10 minut).
+const SENDABLE: readonly EinvoiceStatus[] = ["ready", "rejected", "sending"];
 /** Kolejność liczników i wierszy: najpierw to, co wymaga działania. */
-const ORDER: readonly EinvoiceStatus[] = ["invalid", "rejected", "ready", "waiting_receiver", "waiting_xml", "sent", "delivered", "skipped"];
+const ORDER: readonly EinvoiceStatus[] = ["invalid", "rejected", "sending", "ready", "waiting_receiver", "waiting_xml", "sent", "delivered", "skipped"];
 
 function when(iso: string | null): string {
   if (!iso) return "";
@@ -60,7 +63,7 @@ function StatusCell({ row }: { row: EinvoiceRow }) {
             </span>
           ))
         : null}
-      {row.status === "rejected" && row.delivery_detail ? (
+      {(row.status === "rejected" || row.status === "sending") && row.delivery_detail ? (
         <span className={cn(CALM_SUBLINE, "text-destructive")}>{row.delivery_detail}</span>
       ) : null}
       {row.status === "ready" && row.tested_at ? (
@@ -107,11 +110,16 @@ export function EinvoicesView({ clientId, month, canWrite }: { clientId: number;
 
   async function onSend(targets: EinvoiceRow[]) {
     if (!targets.length) return;
+    const uncertain = targets.filter((r) => r.status === "sending").length;
     const ok = await askConfirm({
       title: targets.length === 1 ? `Wysłać e-fakturę ${targets[0].invoice_number}?` : `Wysłać ${targets.length} e-faktur?`,
-      description: test
+      description:
+        (test
         ? "Tryb testowy: plik pójdzie na adres testowy odbiorcy w sieci Peppol, nie do księgowości klienta."
-        : "Tryb produkcyjny: e-faktura trafi do systemu klienta i nie da się jej wycofać. Zmiana kwoty wymaga korekty w KSeF.",
+        : "Tryb produkcyjny: e-faktura trafi do systemu klienta i nie da się jej wycofać. Zmiana kwoty wymaga korekty w KSeF.") +
+        (uncertain
+          ? ` Uwaga: ${uncertain === 1 ? "jedna faktura ma" : `${uncertain} faktur ma`} niepewną poprzednią wysyłkę — wyślij ponownie tylko, jeśli u dostawcy jej nie ma.`
+          : ""),
       confirmLabel: "Wyślij",
       variant: test ? "default" : "destructive",
     });

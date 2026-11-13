@@ -43,11 +43,23 @@ PENDING, DELIVERED, FAILED = "pending", "delivered", "failed"
 
 
 class ProviderError(RuntimeError):
-    """Dostawca nie przyjął żądania (sieć, uwierzytelnienie, walidacja, 5xx)."""
+    """Dostawca nie przyjął żądania (sieć, uwierzytelnienie, walidacja, 5xx).
 
-    def __init__(self, message: str, *, category: str = "error", retry: bool = False) -> None:
+    ``retry`` — dokument nie został odrzucony, można spróbować później;
+    ``uncertain`` — żądanie mogło dojść (przerwana odpowiedź, 5xx), więc ponowna
+    wysyłka bez sprawdzenia u dostawcy może dać drugą fakturę u klienta."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str = "error",
+        retry: bool = False,
+        uncertain: bool = False,
+    ) -> None:
         self.category = category
         self.retry = retry
+        self.uncertain = uncertain
         super().__init__(message)
 
 
@@ -56,8 +68,6 @@ class SendRequest:
     xml: bytes
     doctype_id: str
     recipient: str
-    #: Klucz idempotencji po naszej stronie (faktura + skrót pliku).
-    reference: str
 
 
 @dataclass(frozen=True)
@@ -187,12 +197,19 @@ class RecommandProvider:
             return
         logger.warning("[peppol] %s: HTTP %s", action, response.status_code)
         if response.status_code in (401, 403):
-            raise ProviderError("Dostawca Peppol odrzucił klucz API.", category="auth")
-        if response.status_code == 429 or response.status_code >= 500:
+            raise ProviderError("Dostawca Peppol odrzucił klucz API.", category="auth", retry=True)
+        if response.status_code == 429:
             raise ProviderError(
-                "Dostawca Peppol chwilowo nie odpowiada — spróbuj za kilka minut.",
+                "Dostawca Peppol ogranicza liczbę zapytań — spróbuj za kilka minut.",
+                category="rate_limited",
+                retry=True,
+            )
+        if response.status_code >= 500:
+            raise ProviderError(
+                f"Dostawca Peppol zwrócił błąd {response.status_code}.",
                 category="unavailable",
                 retry=True,
+                uncertain=action == "send",
             )
         raise ProviderError(_errors_text(self._json(response)), category="rejected")
 
@@ -206,10 +223,16 @@ class RecommandProvider:
         try:
             async with self._client() as client:
                 response = await client.post(f"/api/v1/{self.company_id}/send", json=body)
-        except httpx.HTTPError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             logger.warning("[peppol] send: %s", type(exc).__name__)
             raise ProviderError(
                 "Brak połączenia z dostawcą Peppol.", category="network", retry=True
+            ) from exc
+        except httpx.HTTPError as exc:
+            # Żądanie mogło dojść, a przerwała się odpowiedź.
+            logger.warning("[peppol] send: %s", type(exc).__name__)
+            raise ProviderError(
+                "Brak odpowiedzi dostawcy Peppol.", category="network", retry=True, uncertain=True
             ) from exc
         self._raise_for(response, "send")
         payload = self._json(response)

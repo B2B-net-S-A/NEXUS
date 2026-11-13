@@ -31,6 +31,8 @@ class UnsupportedInvoice(ValueError):
         super().__init__(code)
 
 VAT_PLN_FIELDS = ("P_14_1W", "P_14_2W", "P_14_3W", "P_14_4W")
+#: Pola VAT per stawka w FA(3) (kwoty w walucie faktury).
+VAT_RATE_FIELDS = ("P_14_1", "P_14_2", "P_14_3", "P_14_4", "P_14_5")
 
 
 @dataclass(frozen=True)
@@ -101,6 +103,8 @@ class FaDocument:
     net_total: Optional[Decimal]
     vat_total: Decimal
     vat_total_pln: Optional[Decimal]
+    #: VAT z faktury per pole (``P_14_1`` → kwota); w korekcie to różnice.
+    vat_by_field: dict[str, Decimal]
     gross_total: Decimal
     due_date: Optional[date]
     accounts: tuple[FaAccount, ...] = ()
@@ -252,6 +256,11 @@ def read(xml: bytes) -> FaDocument:
         net_total=base.net_amount,
         vat_total=base.vat_amount,
         vat_total_pln=_sum(invoice, VAT_PLN_FIELDS),
+        vat_by_field={
+            name: amount
+            for name in VAT_RATE_FIELDS
+            if (amount := _money(_text(invoice, name))) is not None
+        },
         gross_total=base.gross_amount,
         due_date=min(due_dates) if due_dates else None,
         accounts=tuple(accounts),

@@ -27,6 +27,16 @@ płatnej integracji EBI24 z Vismą Nordei. Opis etapu: `docs/rozliczenia-nordea-
   faktury w trybie produkcyjnym. Testowe adresy Nordei są w produkcyjnej sieci
   Peppol (katalog 13.11.2026), więc piaskownica dostawcy podłączona do sieci
   testowej Peppol do nich nie sięga.
+- **Jedna faktura = jedna wysyłka.** Wiersz przechodzi w `sending` (commit)
+  przed wywołaniem dostawcy, pod blokadą i ze świeżym odczytem — drugie
+  „Wyślij” albo automat go nie weźmie (13.11.2026 test z dwoma równoległymi
+  żądaniami dawał 3 wysyłki na 2 faktury). Przerwana odpowiedź albo 5xx po
+  wysłaniu zostawia `sending` („Wysyłka niepewna”): automat jej nie ponawia,
+  osoba może wysłać ręcznie po 10 minutach i sprawdzeniu u dostawcy. Recommand
+  nie ma klucza idempotencji przy wysyłce.
+- **VAT i brutto z KSeF, bez tolerancji.** VAT per stawka idzie z `P_14_x`
+  (w korekcie VAT-y przed i po są zaokrąglone osobno), a różnica brutto o grosz
+  blokuje wysyłkę.
 - **Automatyczna wysyłka tylko po włączeniu przez Finanse** (`auto_send`
   w `app_settings['peppol_einvoices']`).
 - **Dostawca przez adapter** (`peppol/providers.py`). Klucz i sekret tylko

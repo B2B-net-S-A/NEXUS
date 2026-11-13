@@ -21,6 +21,7 @@ from app.models.app_setting import AppSetting
 from app.models.client_einvoice import ClientSalesInvoiceEinvoice as Einvoice
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.services.hr.ksef.client import KsefApiError
+from app.services.peppol import providers as peppol_providers
 from app.services.peppol import service
 from app.services.peppol import settings as peppol_settings
 
@@ -28,6 +29,7 @@ pytestmark = pytest.mark.asyncio
 
 DATA = Path(__file__).parent / "data" / "peppol"
 PREFIX = "9876543210-20261106-EE"
+_ORIGINAL_SEND = peppol_providers.SimulatedProvider.send
 TEST_ADDRESS = "0088:7332545042126"
 
 
@@ -276,3 +278,102 @@ async def test_send_refuses_without_provider(env, monkeypatch):
     async with AsyncSessionLocal() as db:
         with pytest.raises(service.EinvoiceError):
             await service.send(db, [1], actor=None)
+
+
+async def test_concurrent_sends_deliver_each_invoice_once(env, monkeypatch):
+    import asyncio
+
+    from app.services.peppol import providers
+
+    first_id, first_xml = await _invoice(20, "fa_nordea_rabat_ae.xml")
+    second_id, second_xml = await _invoice(21, "fa_nordea_rabat_ae.xml")
+    await _capture(first_id, first_xml)
+    await _capture(second_id, second_xml)
+    ids = [(await _row(first_id)).id, (await _row(second_id)).id]
+    original = providers.SimulatedProvider.send
+    calls: list[str] = []
+
+    async def slow_send(self, request):
+        calls.append(request.recipient)
+        await asyncio.sleep(0.3)
+        return await original(self, request)
+
+    monkeypatch.setattr(providers.SimulatedProvider, "send", slow_send)
+
+    async def one_request():
+        async with AsyncSessionLocal() as db:
+            return await service.send(db, ids, actor=None)
+
+    first, second = await asyncio.gather(one_request(), one_request())
+
+    assert len(calls) == 2
+    assert first["sent"] + second["sent"] == 2
+
+
+async def test_uncertain_provider_answer_waits_for_a_person(env, monkeypatch):
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from app.services.peppol import providers
+
+    invoice_id, xml = await _invoice(22, "fa_nordea_rabat_ae.xml")
+    await _capture(invoice_id, xml)
+    row = await _row(invoice_id)
+    calls = []
+
+    async def timeout_after_accept(self, request):
+        calls.append(request.recipient)
+        raise providers.ProviderError("Brak odpowiedzi dostawcy.", category="network", retry=True, uncertain=True)
+
+    monkeypatch.setattr(providers.SimulatedProvider, "send", timeout_after_accept)
+    async with AsyncSessionLocal() as db:
+        result = await service.send(db, [row.id], actor=None)
+    assert result["sent"] == 0
+    row = await _row(invoice_id)
+    assert row.status == "sending"
+    assert "przed ponowną wysyłką" in row.delivery_detail
+
+    # Automat nie wysyła drugi raz.
+    async with AsyncSessionLocal() as db:
+        value = peppol_settings.validate_update(peppol_settings.normalize(None), {"auto_send": True})
+        db.add(AppSetting(key=peppol_settings.SETTING_KEY, value=value))
+        await db.commit()
+        await service.hourly(db)
+    assert len(calls) == 1
+
+    # Ręcznie od razu też nie (druga wysyłka mogłaby być w toku)...
+    async with AsyncSessionLocal() as db:
+        again = await service.send(db, [row.id], actor=None)
+    assert again["sent"] == 0 and len(calls) == 1
+
+    # ...a po czasie osoba może wysłać ponownie.
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Einvoice).where(Einvoice.id == row.id).values(updated_at=Einvoice.updated_at - timedelta(minutes=30))
+        )
+        await db.commit()
+    monkeypatch.setattr(providers.SimulatedProvider, "send", _ORIGINAL_SEND)
+    async with AsyncSessionLocal() as db:
+        manual = await service.send(db, [row.id], actor=None)
+    assert manual["sent"] == 1
+    assert (await _row(invoice_id)).status == "delivered"
+
+
+async def test_connection_refused_returns_invoice_to_ready(env, monkeypatch):
+    from app.services.peppol import providers
+
+    invoice_id, xml = await _invoice(23, "fa_nordea_rabat_ae.xml")
+    await _capture(invoice_id, xml)
+    row = await _row(invoice_id)
+
+    async def refused(self, request):
+        raise providers.ProviderError("Brak połączenia z dostawcą Peppol.", category="network", retry=True)
+
+    monkeypatch.setattr(providers.SimulatedProvider, "send", refused)
+    async with AsyncSessionLocal() as db:
+        await service.send(db, [row.id], actor=None)
+
+    row = await _row(invoice_id)
+    assert row.status == "ready"
+    assert row.sent_at is None

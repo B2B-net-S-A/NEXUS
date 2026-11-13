@@ -122,6 +122,9 @@ def _reset() -> None:
     global _pool
     with _pool_lock:
         if _pool is not None:
+            # Zawieszony Saxon nie skończy sam — zabijamy proces potomny.
+            for process in list(getattr(_pool, "_processes", {}).values()):
+                process.kill()
             _pool.shutdown(wait=False, cancel_futures=True)
         _pool = None
 

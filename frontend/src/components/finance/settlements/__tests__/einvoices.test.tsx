@@ -182,4 +182,24 @@ describe("Filtr stanu", () => {
     fireEvent.click(chip);
     expect(await screen.findByText("1/11/2026/UE")).toBeInTheDocument();
   });
+
+  it("niepewna wysyłka pokazuje powód i ostrzega przy ponownym wysłaniu", async () => {
+    mocks.confirm.mockResolvedValue(false);
+    renderView({
+      ...base,
+      counts: { sending: 1 },
+      rows: [
+        row(9, {
+          status: "sending",
+          status_label: "Wysyłka niepewna",
+          delivery_detail: "Brak odpowiedzi dostawcy Peppol. Sprawdź w panelu dostawcy, czy dokument wyszedł, przed ponowną wysyłką.",
+        }),
+      ],
+    });
+
+    expect(await screen.findByText(/Sprawdź w panelu dostawcy/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij" }));
+    await waitFor(() => expect(mocks.confirm).toHaveBeenCalled());
+    expect(mocks.confirm.mock.calls[0][0].description).toMatch(/niepewną poprzednią wysyłkę/);
+  });
 });

@@ -19,7 +19,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import and_, func, or_, select
@@ -43,12 +43,15 @@ REFRESH_MAX = 200
 HISTORY_MAX = 20
 PREPARABLE = frozenset({"waiting_xml", "waiting_receiver", "invalid", "ready", "skipped"})
 SENT = frozenset({"sent", "delivered", "rejected"})
+#: Po tym czasie „sending” bez wyniku można wysłać ponownie (ręcznie, po sprawdzeniu u dostawcy).
+SENDING_STALE = timedelta(minutes=10)
 
 STATUS_LABELS = {
     "waiting_xml": "Czeka na XML z KSeF",
     "waiting_receiver": "Brak adresu Peppol",
     "invalid": "Błąd walidacji",
     "ready": "Do wysłania",
+    "sending": "Wysyłka niepewna",
     "sent": "Wysłana",
     "delivered": "Doręczona",
     "rejected": "Odrzucona",
@@ -274,15 +277,42 @@ async def backfill_xml(db: AsyncSession, source: Any, budget: int) -> tuple[int,
 # ── Wysyłka i statusy ────────────────────────────────────────────────────────
 
 
-async def _pairs(db: AsyncSession, ids: list[int]) -> list[tuple[Einvoice, ClientSalesInvoice]]:
-    rows = await db.execute(
-        select(Einvoice, ClientSalesInvoice)
-        .join(ClientSalesInvoice, ClientSalesInvoice.id == Einvoice.invoice_id)
-        .where(Einvoice.id.in_(ids))
-        .order_by(ClientSalesInvoice.issue_date, Einvoice.id)
-        .with_for_update(of=Einvoice)
-    )
-    return [(row, invoice) for row, invoice in rows]
+async def _claim(
+    db: AsyncSession, einvoice_id: int, mode: str, *, manual: bool
+) -> tuple[Optional[Einvoice], Optional[ClientSalesInvoice], str, str]:
+    """Przejęcie wiersza do wysyłki: ``sending`` zapisane (commit) przed
+    wywołaniem dostawcy. Blokada wiersza i świeży odczyt po jej uzyskaniu —
+    drugie, równoległe „Wyślij” (albo automat) widzi już ``sending`` i odpuszcza.
+    Zwraca (wiersz, faktura, poprzedni stan, numer faktury) albo powód odmowy
+    w trzecim polu (wtedy bez wiersza)."""
+
+    pair = (
+        await db.execute(
+            select(Einvoice, ClientSalesInvoice)
+            .join(ClientSalesInvoice, ClientSalesInvoice.id == Einvoice.invoice_id)
+            .where(Einvoice.id == einvoice_id)
+            .with_for_update(of=Einvoice)
+            .execution_options(populate_existing=True)
+        )
+    ).first()
+    if pair is None:
+        await db.rollback()
+        return None, None, "Nie ma takiej e-faktury.", str(einvoice_id)
+    row, invoice = pair
+    number = invoice.invoice_number
+    status = effective_status(row, mode)
+    allowed = {"ready"} if not manual else {"ready", "rejected"}
+    stale = row.status == "sending" and row.updated_at is not None and _now() - row.updated_at > SENDING_STALE
+    if not (status in allowed or (manual and stale)):
+        current = row.status
+        await db.rollback()
+        if current == "sending":
+            return None, None, "Wysyłka w toku albo bez pewnej odpowiedzi dostawcy — sprawdź u dostawcy, ponowna wysyłka po 10 minutach.", number
+        return None, None, f"Stan „{STATUS_LABELS.get(status, status)}” — nie do wysłania.", number
+    previous = row.status
+    row.status = "sending"
+    await db.commit()
+    return row, invoice, previous, number
 
 
 def _record(row: Einvoice, entry: dict[str, Any]) -> None:
@@ -299,36 +329,46 @@ def _apply(row: Einvoice, result: providers.SendResult, moment: datetime) -> Non
         row.status = "sent"
 
 
+def _restore(row: Einvoice, previous: str) -> None:
+    """Powrót ze ``sending`` do stanu sprzed przejęcia (dokument nie wyszedł)."""
+
+    row.status = "ready" if previous == "sending" else previous
+
+
 async def _send_one(
     db: AsyncSession,
     provider: providers.PeppolProvider,
     row: Einvoice,
     invoice: ClientSalesInvoice,
+    previous: str,
     value: dict[str, Any],
     actor_id: Optional[int],
 ) -> Optional[str]:
-    """Wysyłka jednej faktury; zwraca powód, gdy nie wyszła."""
+    """Wysyłka przejętego wiersza (``sending``); zwraca powód, gdy nie wyszła."""
 
     mode = value["mode"]
-    status = effective_status(row, mode)
-    if status not in {"ready", "rejected"}:
-        return f"Stan „{STATUS_LABELS.get(status, status)}” — nie do wysłania."
-    if row.status in SENT and status == "ready":
-        # Faktura wysłana testowo, teraz tryb produkcyjny — przygotuj od nowa.
-        row.status = "ready"
-    if row.status == "rejected":
-        row.status = "ready"
-    await prepare(db, row, invoice, value)
-    if row.status != "ready":
-        return STATUS_LABELS.get(row.status, row.status)
     try:
         built = await _build(row, invoice, value, with_pdf=True)
-    except (LookupError, ubl.ConversionError, ubl.NothingToSend, validation.ValidationUnavailable) as exc:
+    except LookupError as missing:
+        row.status, row.problems = str(missing.args[0]), []
+        return STATUS_LABELS.get(row.status, row.status)
+    except ubl.NothingToSend as exc:
+        row.status, row.problems = "skipped", [_problem("nothing_to_send", str(exc))]
+        return str(exc)
+    except ubl.ConversionError as exc:
+        row.status, row.problems = "invalid", [_problem(exc.code, str(exc))]
+        return str(exc)
+    except (fa.InvoiceParseError, fa_reader.UnsupportedInvoice) as exc:
+        row.status, row.problems = "invalid", [_problem("parse", str(exc))]
+        return str(exc)
+    except validation.ValidationUnavailable as exc:
+        _restore(row, previous)
         return str(exc)
     blocking = validation.blocking(built.findings)
     if blocking:
         row.status, row.problems = "invalid", [finding.as_dict() for finding in built.findings]
         return blocking[0].text
+    row.document_type, row.problems = built.result.document_type, [f.as_dict() for f in built.findings]
     digest = hashlib.sha256(built.result.xml).hexdigest()
     moment = _now()
     try:
@@ -337,15 +377,26 @@ async def _send_one(
                 xml=built.result.xml,
                 doctype_id=built.result.doctype_id,
                 recipient=built.recipient,
-                reference=f"{invoice.id}:{digest[:16]}",
             )
         )
     except providers.ProviderError as exc:
+        entry = {"at": moment.isoformat(), "target": mode, "recipient": built.recipient, "detail": str(exc)[:300], "by": actor_id}
         if not exc.retry:
             row.status, row.sent_at, row.sent_by = "rejected", moment, actor_id
             row.target, row.recipient, row.provider = mode, built.recipient, provider.name
             row.delivery_detail = str(exc)[:500]
-            _record(row, {"at": moment.isoformat(), "target": mode, "recipient": built.recipient, "state": "failed", "detail": str(exc)[:300], "by": actor_id})
+            _record(row, {**entry, "state": "failed"})
+        elif exc.uncertain:
+            # Dostawca mógł przyjąć dokument: zostaje „sending” dla osoby,
+            # automat go nie ponowi (u odbiorcy byłaby druga faktura).
+            row.target, row.recipient, row.provider = mode, built.recipient, provider.name
+            row.delivery_detail = (
+                f"{exc} Sprawdź w panelu dostawcy, czy dokument wyszedł, przed ponowną wysyłką."
+            )[:500]
+            _record(row, {**entry, "state": "unknown"})
+        else:
+            _restore(row, previous)
+            row.delivery_detail = str(exc)[:500] if previous == "rejected" else row.delivery_detail
         return str(exc)
     row.target, row.recipient, row.provider = mode, built.recipient, provider.name
     row.provider_document_id = result.document_id[:128]
@@ -368,7 +419,11 @@ async def _send_one(
     return None if row.status != "rejected" else row.delivery_detail
 
 
-async def send(db: AsyncSession, ids: list[int], *, actor: Optional[User]) -> dict[str, Any]:
+async def send(
+    db: AsyncSession, ids: list[int], *, actor: Optional[User], automatic: bool = False
+) -> dict[str, Any]:
+    """Wysyłka wybranych; automat (``automatic``) bierze wyłącznie „Do wysłania”."""
+
     provider = providers.open_provider()
     if provider is None:
         raise EinvoiceError(providers.load_config().disabled_reason or "Wysyłka wyłączona.")
@@ -377,14 +432,25 @@ async def send(db: AsyncSession, ids: list[int], *, actor: Optional[User]) -> di
     if len(ids) > SEND_BATCH_MAX:
         raise EinvoiceError(f"Najwyżej {SEND_BATCH_MAX} faktur naraz.", 422)
     value = await settings.load(db)
+    await db.commit()
     sent, failed = 0, []
-    for row, invoice in await _pairs(db, ids):
-        reason = await _send_one(db, provider, row, invoice, value, actor.id if actor else None)
+    for einvoice_id in ids:
+        row, invoice, previous, number = await _claim(db, einvoice_id, value["mode"], manual=not automatic)
+        if row is None:
+            failed.append({"id": einvoice_id, "invoice_number": number, "reason": previous})
+            continue
+        try:
+            reason = await _send_one(db, provider, row, invoice, previous, value, actor.id if actor else None)
+        except Exception:
+            # Nieznany błąd po przejęciu: wiersz zostaje „sending” dla osoby.
+            await db.rollback()
+            logger.exception("[peppol] wysyłka e-faktury %s przerwana", einvoice_id)
+            raise
         await db.commit()
         if reason is None:
             sent += 1
         else:
-            failed.append({"id": row.id, "invoice_number": invoice.invoice_number, "reason": reason})
+            failed.append({"id": einvoice_id, "invoice_number": number, "reason": reason})
     return {"sent": sent, "failed": failed, "mode": value["mode"]}
 
 
@@ -433,7 +499,7 @@ async def hourly(db: AsyncSession) -> dict[str, int]:
             )
         )
         if ids:
-            auto = (await send(db, ids, actor=None))["sent"]
+            auto = (await send(db, ids, actor=None, automatic=True))["sent"]
     return {"created": created, "refreshed": refreshed, "auto_sent": auto}
 
 

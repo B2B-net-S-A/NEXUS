@@ -215,3 +215,43 @@ def test_price_that_does_not_divide_goes_as_line_allowance():
 def test_bad_receiver_id_is_refused():
     with pytest.raises(ubl.ConversionError):
         ubl.PeppolId.parse("7332545042126")
+
+
+def test_vat_comes_from_ksef_not_from_rounding_the_difference():
+    # Korekta 100,02 → 100,04 przy 23%: KSeF ma VAT różnicy 0,01 (23,01 − 23,00),
+    # a 23% od 0,02 to 0,00. E-faktura musi mieć kwoty z KSeF.
+    xml = (DATA / "fa_nordea_oddzial_23.xml").read_bytes()
+    xml = xml.replace(
+        b"<RodzajFaktury>VAT</RodzajFaktury>",
+        b"<RodzajFaktury>KOR</RodzajFaktury><PrzyczynaKorekty>Korekta</PrzyczynaKorekty><TypKorekty>2</TypKorekty>"
+        b"<DaneFaKorygowanej><DataWystFaKorygowanej>2026-10-02</DataWystFaKorygowanej><NrFaKorygowanej>9/10/2026</NrFaKorygowanej>"
+        b"<NrKSeF>1</NrKSeF><NrKSeFFaKorygowanej>9876543210-20261002-0A0B0C0D0E0F-11</NrKSeFFaKorygowanej></DaneFaKorygowanej>",
+    )
+    start = xml.index(b"    <FaWiersz>")
+    end = xml.index(b"    <Platnosc>")
+    xml = (
+        xml[:start]
+        + b"    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>Usluga</P_7><P_8A>szt.</P_8A><P_8B>1</P_8B><P_9A>100.04</P_9A><P_11>100.04</P_11><P_12>23</P_12></FaWiersz>\n"
+        + b"    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>Usluga</P_7><P_8A>szt.</P_8A><P_8B>1</P_8B><P_9A>100.02</P_9A><P_11>100.02</P_11><P_12>23</P_12><StanPrzed>1</StanPrzed></FaWiersz>\n"
+        + xml[end:]
+    )
+    xml = xml.replace(b"<P_13_1>25793.14</P_13_1>", b"<P_13_1>0.02</P_13_1>")
+    xml = xml.replace(b"<P_14_1>5932.42</P_14_1>", b"<P_14_1>0.01</P_14_1>")
+    xml = xml.replace(b"<P_15>31725.56</P_15>", b"<P_15>0.03</P_15>")
+
+    result = ubl.build(fa_reader.read(xml), sender=SENDER, receiver=RECEIVER)
+    root = _tree(result)
+
+    assert _texts(root, "cac:TaxTotal/cbc:TaxAmount") == ["0.01"]
+    assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["0.03"]
+    assert validation.blocking(validation.validate(result.xml)) == []
+
+
+def test_vat_different_from_ksef_by_a_cent_is_refused():
+    xml = (DATA / "fa_nordea_oddzial_23.xml").read_bytes()
+    xml = xml.replace(b"<P_14_1>5932.42</P_14_1>", b"<P_14_1>5932.43</P_14_1>")
+
+    with pytest.raises(ubl.ConversionError) as exc:
+        ubl.build(fa_reader.read(xml), sender=SENDER, receiver=RECEIVER)
+
+    assert exc.value.code == "gross_mismatch"

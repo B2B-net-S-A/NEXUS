@@ -15,6 +15,8 @@ z KSeF (``client_sales_invoices``) do nabywcy, który ma adres w sieci Peppol
 * ``status``: ``waiting_xml`` (czeka na XML z KSeF), ``waiting_receiver`` (podmiot
   bez adresu Peppol w danym trybie), ``invalid`` (konwersja albo reguły
   EN16931/Peppol nie przeszły — powód w ``problems``), ``ready`` (do wysłania),
+  ``sending`` (przejęta do wysyłki; zostaje, gdy odpowiedź dostawcy nie dała
+  pewności, czy dokument przyjął — wtedy decyduje osoba, nie automat),
   ``sent`` (przyjęta przez dostawcę, czeka na potwierdzenie), ``delivered``
   (punkt dostępu odbiorcy potwierdził), ``rejected`` (dostawca albo odbiorca
   odrzucił — powód w ``delivery_detail``), ``skipped`` (korekta bez zmiany
@@ -36,6 +38,7 @@ STATUSES: tuple[str, ...] = (
     "waiting_receiver",
     "invalid",
     "ready",
+    "sending",
     "sent",
     "delivered",
     "rejected",
