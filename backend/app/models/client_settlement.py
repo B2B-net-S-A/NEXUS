@@ -1,5 +1,5 @@
-"""Rozliczenia klientów (E1, E4): rozliczenie osoby za miesiąc, wersje reguł klienta
-i faktury kontraktorów z KSeF.
+"""Rozliczenia klientów (E1, E4, E5.1): rozliczenie osoby za miesiąc, wersje reguł
+klienta, faktury kontraktorów z KSeF i koszty integracji ze zgodą DL-a.
 
 CHECK-i i indeksy jak w ``app/services/client_settlements_schema.py`` (strażnik
 dryfu schematu porównuje model z bazą po migracji).
@@ -197,6 +197,69 @@ class ClientContractorInvoice(Base):
     )
     period_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
     nip_state: Mapped[str] = mapped_column(String(10), nullable=False)
+    decided_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class ClientSettlementIntegrationCost(Base):
+    """Koszt integracji konsultanta na koszt B2B (reguła ``cl.integration_costs``)."""
+
+    __tablename__ = "client_settlement_integration_costs"
+    __table_args__ = (
+        CheckConstraint(
+            schema.PERIOD_CHECK, name="ck_client_settlement_integration_costs_period"
+        ),
+        CheckConstraint(
+            schema.CK_INTEGRATION_STATUS,
+            name="ck_client_settlement_integration_costs_status",
+        ),
+        CheckConstraint(
+            schema.CK_INTEGRATION_AMOUNT,
+            name="ck_client_settlement_integration_costs_amount",
+        ),
+        Index(
+            "ix_client_settlement_integration_costs_contract",
+            "contract_id",
+            "period_month",
+        ),
+        Index(
+            "ix_client_settlement_integration_costs_client",
+            "client_id",
+            "period_month",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False
+    )
+    contract_id: Mapped[int] = mapped_column(
+        ForeignKey("contracts.id", ondelete="CASCADE"), nullable=False
+    )
+    period_month: Mapped[str] = mapped_column(String(7), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    description: Mapped[str] = mapped_column(
+        String(schema.INTEGRATION_DESCRIPTION_MAX), nullable=False
+    )
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default="pending", default="pending"
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     decided_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

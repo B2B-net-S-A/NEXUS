@@ -194,6 +194,9 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <td className="px-2 py-1.5 text-right tabular-nums">
                     {pln(r.margin)}
                     {pctText(r.margin_pct) ? <span className="block text-[11px] text-muted-foreground">{pctText(r.margin_pct)}</span> : null}
+                    {r.integration_cost ? (
+                      <span className="block text-[11px] text-muted-foreground">w tym −{pln(r.integration_cost)} integracja</span>
+                    ) : null}
                   </td>
                 ) : null}
                 <td className="px-3 py-1.5">

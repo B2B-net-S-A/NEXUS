@@ -2215,6 +2215,13 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
+# E5.1: Delivery Lead — marża i koszty integracji swoich klientów (sekcja Delivery).
+app.include_router(
+    client_settlements_api.delivery_router,
+    prefix="/api/my-clients",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 app.include_router(
     hr_lifecycle_api.router,
     prefix="/api/hr/lifecycle",

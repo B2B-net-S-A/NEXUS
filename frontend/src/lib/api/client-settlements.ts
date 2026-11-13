@@ -48,6 +48,8 @@ export interface SettlementRow {
   md_remaining_after: string | null;
   amount_cost: string | null;
   amount_revenue: string | null;
+  /** Przyjęte koszty integracji miesiąca (E5.1) — już odjęte od marży. */
+  integration_cost?: string | null;
   margin: string | null;
   margin_pct: string | null;
   contractor_invoice: ContractorInvoiceState;
@@ -179,6 +181,9 @@ export const settlementKeys = {
   clientDocuments: (clientId: number, month: string) =>
     ["client-settlements", "client-documents", clientId, month] as const,
   rules: (clientId: number, month: string) => ["client-settlements", "rules", clientId, month] as const,
+  integration: (contractId: number, month: string) =>
+    ["client-settlements", "integration", contractId, month] as const,
+  delivery: (clientId: number, month: string) => ["client-settlements", "delivery", clientId, month] as const,
 };
 
 export function useSettlementsModule(enabled = true) {
@@ -238,6 +243,8 @@ export interface ClientInvoiceRow {
   currency: string;
   net: string | null;
   cost: string | null;
+  /** Przyjęte koszty integracji miesiąca (E5.1) — już odjęte od marży. */
+  integration_cost?: string | null;
   margin: string | null;
   margin_pct: string | null;
   /** Nazwa pozycji z poprzedniej faktury do klienta (bez tego — nazwa zastępcza). */
@@ -463,6 +470,103 @@ export function useCopyClientRules(clientId: number) {
   return useMutation({
     mutationFn: async (sourceClientId: number) =>
       (await api.post<ClientRules>(`${BASE}/rules/${clientId}/copy-from/${sourceClientId}`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+
+// ── Koszty integracji (E5.1, reguła `cl.integration_costs`) ─────────────────
+
+export type IntegrationCostStatus = "pending" | "approved" | "rejected";
+
+/** Licznik roku konsultanta: limit z reguły klienta (`null` = bez limitu). */
+export interface IntegrationUsage {
+  year: number;
+  limit: string | null;
+  approved: string;
+  pending: string;
+  remaining: string | null;
+}
+
+export interface IntegrationCost {
+  id: number;
+  contract_id: number;
+  month: string;
+  amount: string;
+  description: string;
+  status: IntegrationCostStatus;
+  decided_at: string | null;
+  person?: string;
+  usage?: IntegrationUsage;
+}
+
+export interface IntegrationCard {
+  enabled: boolean;
+  usage: IntegrationUsage;
+  items: IntegrationCost[];
+}
+
+export function useIntegrationCosts(contractId: number | null, month: string) {
+  return useQuery({
+    queryKey: settlementKeys.integration(contractId ?? 0, month),
+    queryFn: async () =>
+      (await api.get<IntegrationCard>(`${BASE}/contract/${contractId}/integration-costs`, { params: { month } })).data,
+    enabled: contractId != null,
+  });
+}
+
+export function useAddIntegrationCost(contractId: number, month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async (body: { amount: string; description: string }) =>
+      (await api.post<IntegrationCard>(`${BASE}/contract/${contractId}/integration-costs`, body, { params: { month } }))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useWithdrawIntegrationCost(contractId: number, month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async (costId: number) =>
+      (await api.delete<IntegrationCard>(`${BASE}/contract/${contractId}/integration-costs/${costId}`, { params: { month } }))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+// ── Delivery Lead: marża i koszty integracji swoich klientów (E5.1) ────────
+// `/api/my-clients/{id}/settlements` — sekcja Delivery; kwoty według
+// `can_read_client_finance` (Finanse i DL u klienta z przypisania).
+
+export interface DeliverySettlements extends ClientInvoiceMonth {
+  integration: { enabled: boolean; limit: string | null; year: number; items: IntegrationCost[] };
+  /** Konto jest Delivery Leadem tego klienta — tylko ono przyjmuje koszty. */
+  can_decide: boolean;
+}
+
+const DELIVERY = (clientId: number) => `/api/my-clients/${clientId}/settlements`;
+
+export function useDeliverySettlements(clientId: number, month: string, enabled = true) {
+  return useQuery({
+    queryKey: settlementKeys.delivery(clientId, month),
+    queryFn: async () => (await api.get<DeliverySettlements>(DELIVERY(clientId), { params: { month } })).data,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useDecideIntegrationCost(clientId: number, month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async ({ costId, approve }: { costId: number; approve: boolean }) =>
+      (
+        await api.post<DeliverySettlements>(
+          `${DELIVERY(clientId)}/integration-costs/${costId}/${approve ? "approve" : "reject"}`,
+          null,
+          { params: { month } },
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }

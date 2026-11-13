@@ -14,6 +14,11 @@ Tabele:
   (``services/client_settlements/rules_catalog.py``), tu tylko poziom
   i parametry per klucz od miesiąca ``effective_from``. Miesiąc rozlicza się
   według najnowszej wersji nie późniejszej niż on.
+* ``client_settlement_integration_costs`` (E5.1) — koszty integracji konsultanta
+  na koszt B2B (klient ich nie zwraca), reguła ``cl.integration_costs``: limit na
+  konsultanta (kandydat, a bez niego kontrakt) na rok kalendarzowy miesiąca
+  kosztu. ``status``: ``pending`` (wpisały Finanse, czeka na DL-a klienta),
+  ``approved`` (zgoda DL-a — obniża marżę miesiąca), ``rejected``.
 * ``client_contractor_invoices`` (E4) — faktury kontraktorów z KSeF (``Subject2``)
   z samych metadanych, przypięte do kontraktu i miesiąca rozliczenia.
   ``nip_state``: ``known`` (NIP z kontraktu), ``suggested`` (NIP nieznany,
@@ -53,6 +58,10 @@ FIX_REASON_MAX = 1_000
 NIP_STATES: tuple[str, ...] = ("known", "suggested", "confirmed", "rejected")
 CK_NIP_STATE = f"nip_state IN ({quoted(NIP_STATES)})"
 SELLER_NAME_MAX = 255
+INTEGRATION_STATUSES: tuple[str, ...] = ("pending", "approved", "rejected")
+CK_INTEGRATION_STATUS = f"status IN ({quoted(INTEGRATION_STATUSES)})"
+CK_INTEGRATION_AMOUNT = "amount > 0"
+INTEGRATION_DESCRIPTION_MAX = 300
 INVOICE_NUMBER_MAX = 256
 
 TABLE_DDL: tuple[str, ...] = (
@@ -123,6 +132,23 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_client_contractor_invoices_period CHECK (period_month IS NULL OR {PERIOD_CHECK}),
     CONSTRAINT ck_client_contractor_invoices_nip_state CHECK ({CK_NIP_STATE})
 )""",
+    f"""CREATE TABLE IF NOT EXISTS client_settlement_integration_costs (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    period_month VARCHAR(7) NOT NULL,
+    amount NUMERIC(12, 2) NOT NULL,
+    description VARCHAR({INTEGRATION_DESCRIPTION_MAX}) NOT NULL,
+    status VARCHAR(10) NOT NULL DEFAULT 'pending',
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decided_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_client_settlement_integration_costs_period CHECK ({PERIOD_CHECK}),
+    CONSTRAINT ck_client_settlement_integration_costs_status CHECK ({CK_INTEGRATION_STATUS}),
+    CONSTRAINT ck_client_settlement_integration_costs_amount CHECK ({CK_INTEGRATION_AMOUNT})
+)""",
 )
 
 MD_SOURCES_SETTLEMENT: tuple[str, ...] = ("rcp", "manual")
@@ -149,7 +175,14 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_contractor_invoices (contract_id, period_month)",
     "CREATE INDEX IF NOT EXISTS ix_client_contractor_invoices_seller "
     "ON client_contractor_invoices (seller_nip)",
+    "CREATE INDEX IF NOT EXISTS ix_client_settlement_integration_costs_contract "
+    "ON client_settlement_integration_costs (contract_id, period_month)",
+    "CREATE INDEX IF NOT EXISTS ix_client_settlement_integration_costs_client "
+    "ON client_settlement_integration_costs (client_id, period_month)",
 )
+
+#: 0687 (E5.1): koszty integracji — sama nowa tabela i jej indeksy.
+INTEGRATION_DDL: tuple[str, ...] = (TABLE_DDL[-1], *INDEX_DDL[-2:])
 
 #: Trzecie źródło zużycia MD. Warunek w DO, żeby entrypoint nie przebudowywał
 #: CHECK-a przy każdym starcie (pełny skan tabeli pod blokadą).
@@ -175,6 +208,7 @@ TABLES: tuple[str, ...] = (
     "client_settlements",
     "client_settlement_rule_sets",
     "client_contractor_invoices",
+    "client_settlement_integration_costs",
 )
 
 ALL_DDL: tuple[str, ...] = (*TABLE_DDL, *COLUMN_DDL, *INDEX_DDL, *CONSTRAINT_DDL)

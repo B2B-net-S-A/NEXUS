@@ -83,7 +83,8 @@ export function groupFaq(
 }
 
 export function monthActionLabel(row: PortalMonth): string | null {
-  if (row.action === "send_report") return "Wyślij raport";
+  // Trwa miesiąc z estymacją (E5.4): plik za ten miesiąc to plan, nie raport.
+  if (row.action === "send_report") return row.plan ? "Wyślij plan" : "Wyślij raport";
   if (row.action === "send_invoice") return "Wyślij fakturę";
   return null;
 }

@@ -244,8 +244,17 @@ reguły klienta jako katalog z poziomami.
 - E2.2 Kontrole z katalogu: miesiąc, podpis, sumy MD od nowa (1 MD = 8 h,
   szablon BNP obcina do 0,99 MD), limit 24 h dziennie, weekend, nazwisko na RCP.
 - E2.3 Nadgodziny: mail akceptujący (`.msg`/`.eml`/PDF) jest w dokumentach miesiąca.
-  **Zostało:** data maila vs daty pracy i domena nadawcy — `.msg` wymaga biblioteki
-  (np. `extract-msg`, nowa zależność); do tego czasu kontrola „sprawdza człowiek”.
+  Zrobione 13.11 (`acceptance_mail.py`): czytamy każdą wiadomość łańcucha (nagłówek
+  pliku i bloki „From/Od … Sent/Wysłano/Data” w treści i w wydruku PDF), bo zgoda
+  przychodzi zwykle jako „FW: FW: …”. Data zgody = najwcześniejsza wiadomość
+  z domeny z parametru `extra.mail_accept` (dokładnie, bez poddomen: konsultant
+  BNP pisze z `external.` w domenie banku) i ma być nie później niż pierwszy dzień
+  pracy dodatkowej z RCP; ten sam parametr `domain` sprawdza mail przy Excelu
+  (`proof.excel_with_mail`). `.msg` czyta `olefile` (BSD, ok. 125 KB, decyzja Artura
+  z 13.11; `extract-msg` odpada — GPL i kilka zależności). Mail bez daty albo
+  nadawcy = „sprawdza człowiek”. Próbka BNP za październik: przełożony potwierdza
+  nadgodziny 02.11, razem z akceptacją RCP — przy `extra.mail_before` na
+  „Ostrzega” taka osoba dostaje uwagę „Akceptacja z 02.11.2026, po pracy dodatkowej”.
 - E2.0 Typy plików: XLSX, `.msg`, `.eml` dla dokumentów rozliczeń (wykrywane
   z treści jak dziś, bez rozszerzania pozostałych ścieżek `documents_store`).
 - E2.4 Uruchomienie kontroli w `documents.store` (oba kanały), wynik w
@@ -338,10 +347,24 @@ reguły klienta jako katalog z poziomami.
   - Decyzja Artura z 10.11: konsultant fakturuje miesiąc z planem dopiero po
     faktycznym RCP (dane do faktury po przyjęciu RCP z następnego miesiąca);
     z planu fakturujemy tylko klienta.
-  - Zostaje: marża dla DL-a swoich klientów (dziś tylko Finanse z dostępem do
-    kwot), koszty integracji `cl.integration_costs` (czeka na odpowiedź z E0.2
-    o roku limitu 2 000 zł), etykieta przycisku „Wyślij plan” zamiast „Wyślij
-    raport” w trwającym miesiącu.
+  - Dokończone 13.11 (migracja 0687):
+    - Koszty integracji `cl.integration_costs` (`integration_costs.py`, tabela
+      `client_settlement_integration_costs`): Finanse wpisują koszt na karcie osoby
+      (kwota, czego dotyczy, miesiąc), DL klienta daje zgodę albo odrzuca; Finanse
+      ani admin zgody nie zastępują. Limit z parametru `limit` na konsultanta
+      (kandydat, bez niego kontrakt) u klienta w roku kalendarzowym miesiąca
+      kosztu: wpis odmawia, gdy przyjęte i czekające z nowym przekroczą limit,
+      zgoda — gdy przyjęte z tym przekroczą; pusty limit = bez limitu. Czekający
+      koszt Finanse mogą cofnąć. Marżę miesiąca obniża tylko koszt ze zgodą
+      (lista miesiąca, „Do faktury dla klienta”, widok DL-a).
+    - Marża dla DL-a swoich klientów: `GET /api/my-clients/{id}/settlements`
+      (sekcja Delivery, bo DL nie ma modułu Finanse) zwraca „Do faktury dla
+      klienta” z marżą w zł i % według `can_read_client_finance` i koszty
+      integracji do decyzji (`…/integration-costs/{id}/approve|reject`). Na ekranie:
+      Klient → Faktury → „Rozliczenie miesiąca i marża”. Wyłączony moduł = 404.
+    - Panel konsultanta: w trwającym miesiącu z `cl.estimate` przycisk „Wyślij plan”
+      (pole `plan` w wierszu miesiąca), a przyjęty plan nie otwiera „Wyślij fakturę”
+      przed RCP za cały miesiąc (decyzja z 10.11).
 
 ### E6. Kolejni klienci (każdy po odpowiedziach z E0.3)
 
@@ -516,10 +539,10 @@ Dwa źródła, oba z danymi tylko poza repo:
 |---|---|---|
 | E0 | w toku: E0.1 rozstrzygnięte (NIP z KSeF w E4.0), E0.2 odpowiedzi BNP (10.11), E0.3 Alior, Bosch, Velo, PKO (12.11), CeZ i Orlen czekają; E0.4 instrukcja w osobnej sesji | odpowiedzi w E0.2 i E0.3, reguły E6 w `rules_catalog.py` |
 | E1 | gotowe lokalnie (09.11), czeka na wspólny PR z E2–E5 | 22 testy BE (silnik, katalog, serwis na kopii z 09.11), 331 FE; ścieżka na kopii BNP październik: przyjęcie zdejmuje MD, ponowne nadpisuje, brak MD odmawia; zrzuty `e1r-*.png` |
-| E2 | gotowe lokalnie (09.11) poza datą maila w E2.3 | 3 prawdziwe RCP z `BNP.zip` (2 PDF z podpisem, 1 XLSX) odczytane przez `documents.store`; osoba z nadgodzinami: MD z RCP × stawka = kwota z jej faktury; z mailami „Bez uwag”, przyjęcie zbiorcze zdjęło MD; 40 testów rozliczeń + 156 portalu |
+| E2 | gotowe (09.11), E2.3 data i domena maila 13.11 | E2.3: próbki BNP `.msg` (łańcuch FW) i PDF z wydrukiem odczytane — zgoda z domeny banku z właściwą datą; 12 testów bez bazy (`.eml`, `.msg` z kontenera OLE, daty w 5 układach, domena bez poddomen, przed/po/ten sam dzień). Wcześniej: 3 prawdziwe RCP z `BNP.zip` (2 PDF z podpisem, 1 XLSX) odczytane przez `documents.store`; osoba z nadgodzinami: MD z RCP × stawka = kwota z jej faktury; z mailami „Bez uwag”, przyjęcie zbiorcze zdjęło MD; 40 testów rozliczeń + 156 portalu |
 | E3 | gotowe lokalnie (10.11), styl A bez kroków; E3.2 dane do skopiowania dokończone z E4 | panel jako konsultant BNP na kopii: „Do zrobienia” = „Wyślij fakturę · <kwota> netto”, „Faktury” z wynikiem sprawdzenia i danymi do faktury, 1280 i 390 px; 200 testów BE (portal + rozliczenia), 349 FE; zrzuty `e3-*.png` |
 | E4 | gotowe lokalnie (10.11) | 3 prawdziwe faktury konsultantów BNP za październik (wizualizacje KSeF z próbek, metadane odtworzone lokalnie) przypięte po imieniu i nazwisku do właściwych osób i miesiąca, kwoty = wyliczenie co do grosza (3 z 3); zatwierdzenie NIP-u przez API zmienia stan na „W KSeF”; panel konsultanta i karta Finansów przeklikane 1280 i 390 px; 9 testów BE E4, 8 FE; prawdziwego pobrania z KSeF lokalnie nie ma (token tylko na produkcji) |
-| E5 | gotowe lokalnie (10.11), bez marży dla DL-a i kosztów integracji (E0.2) | kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
+| E5 | gotowe (10.11), marża dla DL-a, koszty integracji i „Wyślij plan” 13.11 | 13.11: 6 testów na bazie (limit roku, drugi koszt ponad limit, koniec roku, obniżony limit przy zgodzie, odmowa bez zgody DL-a, marża DL-a przez API i 403 dla obcego DL-a), wzorzec authz z 6 trasami. Wcześniej: kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
 | E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE; staging z kopii 10.11 (12.11): listopad 6 osób z syntetycznych Time Sheet, MD × stawka klienta w EUR równe kwocie z bloku ESP za październik (próbka), SDC bez autora i nazwisk, plan grudnia jednej osoby 16 MD → faktura z planu; druga osoba „Brak MD”, bo nowa linia zamówienia jest w szkicu (dane, nie kod) |
 | E7 | decyzja 12.11: wszyscy klienci od listopada (panel `all`, kontrole tylko BNP); czeka M365, zmienna skrzynki i włączenie modułów | — |
 | E8 | do zrobienia (E8.1 po instrukcji z osobnej sesji) | — |

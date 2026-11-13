@@ -30,7 +30,11 @@ from app.models.client import Client
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoiceLink
-from app.models.client_settlement import ClientSettlement, ClientSettlementRuleSet
+from app.models.client_settlement import (
+    ClientSettlement,
+    ClientSettlementIntegrationCost,
+    ClientSettlementRuleSet,
+)
 from app.models.consultant_portal import CpDocument
 from app.models.contract import Contract, ContractStatus
 from app.models.md_consumption import ClientOrderMdConsumption
@@ -43,6 +47,7 @@ from app.services.client_order_lines import (
     upsert_consumption,
 )
 from app.services.client_settlements import (
+    acceptance_mail,
     contractor_invoices,
     rcp_bnp,
     rcp_checks,
@@ -285,21 +290,51 @@ async def _settlement(
     return await db.scalar(stmt)
 
 
+async def integration_by_contract(
+    db: AsyncSession, contract_ids: list[int], month: str
+) -> dict[int, Decimal]:
+    """Przyjęte koszty integracji osób w miesiącu (E5.1) — obniżają marżę."""
+
+    if not contract_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ClientSettlementIntegrationCost.contract_id,
+            func.sum(ClientSettlementIntegrationCost.amount),
+        )
+        .where(
+            ClientSettlementIntegrationCost.contract_id.in_(contract_ids),
+            ClientSettlementIntegrationCost.period_month == month,
+            ClientSettlementIntegrationCost.status == "approved",
+        )
+        .group_by(ClientSettlementIntegrationCost.contract_id)
+    )
+    return {int(cid): Decimal(total) for cid, total in rows.all() if total}
+
+
 def _margin(
-    cost: Optional[Decimal], revenue: Optional[Decimal]
+    cost: Optional[Decimal],
+    revenue: Optional[Decimal],
+    integration: Decimal = Decimal("0"),
 ) -> tuple[Optional[str], Optional[str]]:
     if cost is None or revenue is None:
         return None, None
-    margin = Decimal(revenue) - Decimal(cost)
+    margin = Decimal(revenue) - Decimal(cost) - integration
     pct = None if Decimal(revenue) == 0 else margin / Decimal(revenue) * 100
     return _dec(margin, 2), _dec(pct, 1)
 
 
 def _row(
-    person: Person, s: Optional[ClientSettlement], has_report: bool, amounts: bool
+    person: Person,
+    s: Optional[ClientSettlement],
+    has_report: bool,
+    amounts: bool,
+    integration: Decimal = Decimal("0"),
 ) -> dict[str, Any]:
     status = s.status if s else ("checking" if has_report else "missing")
-    margin, pct = _margin(s.amount_cost, s.amount_revenue) if s else (None, None)
+    margin, pct = (
+        _margin(s.amount_cost, s.amount_revenue, integration) if s else (None, None)
+    )
     remaining = None
     if s and s.checks:
         remaining = next(
@@ -336,6 +371,7 @@ def _row(
         "md_remaining_after": remaining,
         "amount_cost": _dec(s.amount_cost, 2) if s and amounts else None,
         "amount_revenue": _dec(s.amount_revenue, 2) if s and amounts else None,
+        "integration_cost": _dec(integration, 2) if amounts and integration else None,
         "margin": margin if amounts else None,
         "margin_pct": pct if amounts else None,
         "contractor_invoice": "none",
@@ -403,10 +439,17 @@ async def month_view(
     issued = await _issued_orders(
         db, [s.order_id for s in settlements.values() if s.order_id], month
     )
+    integration = await integration_by_contract(db, ids, month) if amounts else {}
     rows = []
     for person in people:
         settlement = settlements.get(person.contract.id)
-        row = _row(person, settlement, person.contract.id in reports, amounts)
+        row = _row(
+            person,
+            settlement,
+            person.contract.id in reports,
+            amounts,
+            integration.get(person.contract.id, Decimal("0")),
+        )
         row["order_number"] = numbers.get(person.contract.id)
         row["contractor_invoice"] = contractor_invoices.state(
             settlement, invoices.get(person.contract.id, []), rules
@@ -644,6 +687,24 @@ async def read_rcp(
     return await asyncio.to_thread(_read_rcp, content, mime)
 
 
+async def _mails(
+    report: CpDocument, reports: list[CpDocument]
+) -> list[acceptance_mail.MailMessage]:
+    """Wiadomości z maili miesiąca (E2.3): ``.msg``, ``.eml`` i wydruk PDF poza RCP.
+    PDF bez nagłówków maila (np. faktura kosztowa) nic nie wnosi."""
+
+    found: list[acceptance_mail.MailMessage] = []
+    for doc in reports:
+        if doc.id == report.id or doc.mime not in acceptance_mail.MIMES:
+            continue
+        try:
+            content = portal_documents.path_for(doc.file_path).read_bytes()
+        except OSError:
+            continue
+        found.extend(await asyncio.to_thread(acceptance_mail.read, content, doc.mime))
+    return found
+
+
 async def _proof(
     report: Optional[CpDocument],
     reports: list[CpDocument],
@@ -666,7 +727,8 @@ async def _proof(
         )
         return None
     parsed, signatures = await read_rcp(content, report.mime)
-    has_mail = any(d.mime in MAIL_MIMES for d in reports)
+    mails = await _mails(report, reports)
+    has_mail = any(d.mime in MAIL_MIMES for d in reports) or bool(mails)
     if parsed is None:
         # Nie szablon RCP BNP: może Time Sheet w godzinach (E6.2).
         sheet = await asyncio.to_thread(timesheet.parse, content, report.mime)
@@ -687,6 +749,7 @@ async def _proof(
         person_name=person_name,
         has_mail=has_mail,
         rules=rules,
+        mails=mails,
     )
 
 

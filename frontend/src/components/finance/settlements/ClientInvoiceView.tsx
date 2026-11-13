@@ -169,6 +169,9 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {pln(r.margin)}
                       <span className="block text-[11px] text-muted-foreground">{pctText(r.margin_pct)}</span>
+                      {r.integration_cost ? (
+                        <span className="block text-[11px] text-muted-foreground">w tym −{pln(r.integration_cost)} integracja</span>
+                      ) : null}
                     </td>
                   ) : null}
                 </tr>

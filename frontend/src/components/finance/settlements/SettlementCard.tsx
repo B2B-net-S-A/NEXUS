@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
+import { IntegrationCostsSection } from "./IntegrationCostsSection";
 
 const ICON: Record<CheckState, ReactNode> = {
   ok: <Check aria-hidden className="size-3" />,
@@ -145,6 +146,7 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
           {canWrite ? <MdForm detail={d} month={month} kind={kind} /> : null}
           <Computation detail={d} />
           {d.contractor_invoice && kind === "actual" ? <ContractorInvoiceSection block={d.contractor_invoice} canWrite={canWrite} /> : null}
+          {kind === "actual" ? <IntegrationCostsSection contractId={contractId} month={month} canWrite={canWrite} /> : null}
         </div>
         <section className="min-w-0 rounded-xl border bg-card p-3">
           <h3 className="text-sm font-semibold">Co sprawdziliśmy</h3>

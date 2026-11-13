@@ -6,18 +6,22 @@ MD z RCP i grupy kontroli. Reguła na poziomie „Blokuje”, która nie przesz�
 blokuje przyjęcie (``blocking``); „Ostrzega” daje uwagę; „Wyłączone” nie
 sprawdzamy wcale.
 
-Czego tu nie ma: czy mail akceptujący przyszedł przed pracą i z jakiej domeny
-(treść maila czyta E2.3 w kolejnym kroku) — taka kontrola ma stan „none”
-i opis, że sprawdza człowiek.
+Mail akceptujący (E2.3): ``mails`` to wiadomości z łańcucha maila
+(``acceptance_mail.read``). Data zgody to najwcześniejsza wiadomość z domeny
+klienta i ma być nie później niż pierwszy dzień pracy dodatkowej; domena
+nadawcy z parametru reguły. Mail bez daty albo bez nadawcy = „sprawdza człowiek”.
 """
 
 from __future__ import annotations
 
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
+from app.services.client_settlements import acceptance_mail
+from app.services.client_settlements.acceptance_mail import MailMessage
 from app.services.client_settlements.rcp_bnp import ParsedRcp, SignatureInfo
 
 PDF = "application/pdf"
@@ -106,6 +110,7 @@ def evaluate(
     person_name: str,
     has_mail: bool,
     rules: Mapping[str, Mapping[str, Any]],
+    mails: Sequence[MailMessage] = (),
 ) -> ProofResult:
     result = ProofResult(md_regular=None, md_extra=None)
     rcp = _Group(result, rules, "RCP")
@@ -164,6 +169,12 @@ def evaluate(
         if rcp.on("proof.excel_with_mail"):
             if has_mail:
                 rcp.ok("Excel z mailem akceptującym usługi")
+                _check_domain(
+                    rcp,
+                    "proof.excel_with_mail",
+                    _param(rules, "proof.excel_with_mail", "domain"),
+                    mails,
+                )
             else:
                 rcp.fail(
                     "proof.excel_with_mail",
@@ -252,15 +263,17 @@ def evaluate(
         weekend = parsed.weekend_days
         if weekend:
             extra.ok("Weekend: dni " + ", ".join(str(d) for d in weekend))
+        domain = _param(rules, "extra.mail_accept", "domain")
         if extra.on("extra.mail_accept"):
             if has_mail:
                 extra.ok("Mail akceptujący pracę dodatkową jest")
+                _check_domain(extra, "extra.mail_accept", domain, mails)
             else:
                 extra.fail(
                     "extra.mail_accept", "Brak maila z akceptacją pracy dodatkowej"
                 )
         if extra.on("extra.mail_before") and has_mail:
-            extra.info("Czy akceptacja była przed pracą: sprawdza człowiek")
+            _check_before(extra, parsed, month, domain, mails)
     extra.close()
 
     if parsed.travel_total and parsed.travel_total > 0:
@@ -272,3 +285,61 @@ def evaluate(
         result.warn = True
         travel.close()
     return result
+
+
+def _day(value: date) -> str:
+    return value.strftime("%d.%m.%Y")
+
+
+def _check_domain(
+    group: _Group, key: str, raw: str, mails: Sequence[MailMessage]
+) -> None:
+    allowed = acceptance_mail.domains(raw)
+    if not allowed:
+        return
+    senders = sorted({m.domain for m in mails if m.domain})
+    if not senders:
+        group.info(
+            "Nadawcy maila nie odczytano: domenę sprawdza człowiek",
+            "Wymagana: " + ", ".join(allowed) + ".",
+        )
+    elif acceptance_mail.from_domain(mails, allowed):
+        group.ok("Akceptacja z domeny " + ", ".join(allowed))
+    else:
+        group.fail(
+            key,
+            "Mail akceptujący spoza domeny klienta",
+            f"Wymagana: {', '.join(allowed)}; w mailu: {', '.join(senders)}.",
+        )
+
+
+def _check_before(
+    group: _Group,
+    parsed: ParsedRcp,
+    month: str,
+    domain: str,
+    mails: Sequence[MailMessage],
+) -> None:
+    """Zgoda nie później niż pierwszy dzień pracy dodatkowej (ten sam dzień = przed)."""
+
+    days = parsed.weekend_days
+    accepted = acceptance_mail.acceptance_date(mails, acceptance_mail.domains(domain))
+    if not days or accepted is None:
+        group.info(
+            "Czy akceptacja była przed pracą: sprawdza człowiek",
+            None if days else "Z RCP nie wynika, w które dni była praca dodatkowa.",
+        )
+        return
+    year, mon = (int(x) for x in month.split("-"))
+    first = date(year, mon, min(days))
+    if accepted <= first:
+        group.ok(
+            f"Akceptacja z {_day(accepted)}, przed pracą dodatkową",
+            f"Pierwszy dzień pracy dodatkowej: {_day(first)}.",
+        )
+    else:
+        group.fail(
+            "extra.mail_before",
+            f"Akceptacja z {_day(accepted)}, po pracy dodatkowej",
+            f"Pierwszy dzień pracy dodatkowej: {_day(first)}.",
+        )
