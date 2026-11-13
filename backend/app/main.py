@@ -1444,6 +1444,8 @@ app.add_middleware(
         "X-Generated-Contract-Id",
         # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
         "X-Document-Id",
+        # Paczka eksportu do Symfonii FK (finance_posting.py).
+        "X-File-SHA256",
         # Paczka CV (candidates.py).
         "X-Included-Count",
         "X-Skipped-Count",
