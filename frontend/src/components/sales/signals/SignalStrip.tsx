@@ -48,7 +48,7 @@ export function SignalStrip({ companyId }: { companyId: number }) {
             </>
           )}
         </p>
-        {signal.why_now && <p className="mt-0.5 text-xs text-muted-foreground">Dlaczego teraz (wniosek bota): {signal.why_now}</p>}
+        {signal.why_now && <p className="mt-0.5 text-xs text-muted-foreground">Dlaczego teraz: {signal.why_now}</p>}
       </div>
       {canEdit && <SignalActions lead={lead} />}
     </Card>

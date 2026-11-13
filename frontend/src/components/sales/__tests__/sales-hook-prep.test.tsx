@@ -40,7 +40,7 @@ describe("haczyk na karcie rozmowy", () => {
     const section = screen.getByRole("region", { name: "Haczyk do rozmowy" });
     expect(section).toHaveAttribute("data-tour", "sales.calling.hook");
     expect(screen.getByText(hook.sentence)).toBeInTheDocument();
-    expect(screen.getByText("Bot · sprawdź źródło")).toBeInTheDocument();
+    expect(screen.queryByText("Bot · sprawdź źródło")).not.toBeInTheDocument();
     const links = screen.getAllByRole("link", { name: /źródło/ });
     // Link spoza http(s) nie staje się odnośnikiem, fakt zostaje.
     expect(links).toHaveLength(1);

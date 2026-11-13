@@ -346,7 +346,7 @@ function ResearchReview({ preview, fileName, onReset, bot }: ResearchReviewProps
       </Table>
       <p className="text-xs text-muted-foreground">
         {bot
-          ? "Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem „Grok Bot”, linkiem i datą publikacji. Bot podaje tylko osoby i kontakty ze stron, które otworzył: sprawdź źródło przed telefonem. Nic się nie wysyła i nie dzwoni samo."
+          ? "Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem „Grok Bot”, linkiem i datą publikacji. Bot podaje tylko osoby i kontakty ze stron, które otworzył. Nic się nie wysyła i nie dzwoni samo."
           : "Osoba trafia na mapę ze statusem „bez kontaktu”, ze źródłem i dzisiejszą datą. Nic się nie wysyła i nie dzwoni samo."}
       </p>
       {confirmDialog}

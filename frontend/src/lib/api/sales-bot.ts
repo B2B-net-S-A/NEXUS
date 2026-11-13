@@ -9,7 +9,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-import { salesKeys } from "./sales";
 
 export type EnrichFieldKey =
   | "domain"
@@ -61,15 +60,6 @@ export interface EnrichState {
   result: EnrichResult | null;
 }
 
-export interface AcceptOutcome {
-  id: number;
-  status: EnrichResult["status"];
-  company_id: number;
-  applied: EnrichFieldKey[];
-  rejected: EnrichFieldKey[];
-  notes: string[];
-}
-
 export interface AnswerLine {
   text: string;
   url?: string | null;
@@ -97,7 +87,39 @@ const POLL_MS = 20_000;
 export const salesBotKeys = {
   enrich: (companyId: number) => ["sales", "company", companyId, "bot-enrich"] as const,
   questions: (companyId: number) => ["sales", "company", companyId, "bot-questions"] as const,
+  history: (companyId: number) => ["sales", "company", companyId, "bot-history"] as const,
 };
+
+export interface BotHistoryLine {
+  label: string;
+  after: string | null;
+  before: string | null;
+  source: string | null;
+  note: string | null;
+  other_company: { id: number; name: string } | null;
+}
+
+export interface BotHistoryEntry {
+  at: string;
+  /** „Dane firm” albo „Kontakty”. */
+  bot: string;
+  lines: BotHistoryLine[];
+}
+
+export interface BotHistory {
+  enabled: boolean;
+  items: BotHistoryEntry[];
+}
+
+/** Historia karty: co boty wpisały od razu i skąd (jedyny ślad pochodzenia, 13.11.2026). */
+export function useCompanyBotHistory(companyId: number) {
+  return useQuery({
+    queryKey: salesBotKeys.history(companyId),
+    queryFn: async () =>
+      (await api.get<BotHistory>(`/api/sales/companies/${companyId}/bot-history`)).data,
+    enabled: Number.isFinite(companyId) && companyId > 0,
+  });
+}
 
 export function useCompanyEnrich(companyId: number) {
   return useQuery({
@@ -118,32 +140,6 @@ export function useStartEnrich(companyId: number) {
   });
 }
 
-/** Przyjęcie albo odrzucenie pól propozycji; zapis zmienia kartę, więc odświeżamy i ją. */
-export function useDecideEnrich(companyId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (vars: { resultId: number; fields?: EnrichFieldKey[]; reject?: EnrichFieldKey[] }) =>
-      (
-        await api.post<AcceptOutcome>(`/api/sales/bot-results/${vars.resultId}/accept`, {
-          ...(vars.fields ? { fields: vars.fields } : {}),
-          reject: vars.reject ?? [],
-        })
-      ).data,
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: salesBotKeys.enrich(companyId) });
-      void queryClient.invalidateQueries({ queryKey: salesKeys.company(companyId), exact: true });
-    },
-  });
-}
-
-export function useRejectEnrich(companyId: number) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (resultId: number) =>
-      (await api.post(`/api/sales/bot-results/${resultId}/reject`, {})).data,
-    onSettled: () => void queryClient.invalidateQueries({ queryKey: salesBotKeys.enrich(companyId) }),
-  });
-}
 
 export function useCompanyQuestions(companyId: number) {
   return useQuery({

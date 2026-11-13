@@ -4,7 +4,6 @@ import { Bot, ExternalLink } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { safeHref } from "@/components/sales/format";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -70,16 +69,12 @@ export function Block({ label, children }: { label: ReactNode; children: ReactNo
   );
 }
 
-/** Nagłówek bloku z oznaczeniem, że to wniosek bota, a nie fakt ze źródła. */
+/**
+ * Nagłówek bloku z wnioskiem bota. Od 13.11.2026 (decyzja Artura) bez plakietki
+ * „wniosek bota”: dane od botów są zapisane od razu, źródło stoi obok tekstu.
+ */
 export function BotConclusion({ children }: { children: ReactNode }) {
-  return (
-    <span className="flex flex-wrap items-center gap-2">
-      {children}
-      <Badge variant="neutral" size="sm">
-        wniosek bota, nie fakt
-      </Badge>
-    </span>
-  );
+  return <span className="flex flex-wrap items-center gap-2">{children}</span>;
 }
 
 export function SourceLink({ url }: { url: string | null | undefined }) {
