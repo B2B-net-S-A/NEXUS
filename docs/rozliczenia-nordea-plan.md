@@ -392,6 +392,6 @@ zrzuty `shots/nordea-*.png`), dane wstrzykiwane przy zrzucie, w kodzie bez nazwi
 | Etap | Stan | Dowód |
 |---|---|---|
 | N1 | gotowe lokalnie (13.11), PR z migracją 0689 | wrzesień z 5 wersji na kopii z 13.11 = tabela planu; październik: sprawdzana osoba 112 h od v2; testy silnika, odczytu, kartoteki, (a)–(c) i ekranu; zrzuty 1280 × 720 i 390 px (lokalnie, z nazwiskami) |
-| N2 | kod gotowy (13.11), PR z migracją 0690; wysyłka do Nordei czeka na kanał od technika Vismy | `docs/rozliczenia-nordea-n2-peppol.md`: testy konwersji i walidacji, 59 faktur z listopada na kopii bez uwag, staging z `simulate` |
+| N2 | kod gotowy (13.11), PR z migracją 0692; wysyłka do Nordei czeka na kanał od technika Vismy | `docs/rozliczenia-nordea-n2-peppol.md`: testy konwersji i walidacji, 59 faktur z listopada na kopii bez uwag, staging z `simulate` |
 | N3 | plan (10.11) | — |
 | N4 | plan (10.11) | — |

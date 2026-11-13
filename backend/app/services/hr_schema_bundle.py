@@ -90,7 +90,7 @@ MODULES = (
     client_settlements,
     # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T (13.11.2026).
     client_time_reports,
-    # 0690: e-faktury Peppol do klientów (plan Nordei N2, 13.11.2026).
+    # 0692: e-faktury Peppol do klientów (plan Nordei N2, 13.11.2026).
     client_einvoices,
 )
 
