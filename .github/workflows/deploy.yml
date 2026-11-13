@@ -503,7 +503,8 @@ jobs:
           CO_URL: ${{ secrets.COOLIFY_URL }}
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
-          FRONTEND_APP_REQUIRED: "false"
+          # Compose nie ma już usługi `frontend`: bez frontu z domenami Deploy dałby 404.
+          FRONTEND_APP_REQUIRED: "true"
         run: python3 .github/scripts/coolify_frontend_app.py preflight
 
       # ── Pomiar przerwy widzianej przez użytkowników (reaudyt 14.09.2026) ──

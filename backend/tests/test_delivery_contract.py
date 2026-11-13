@@ -110,21 +110,17 @@ def test_compose_joins_the_frontend_app_network() -> None:
     assert "nexus-front" in networks, networks
 
 
-def test_frontend_does_not_wait_for_the_backend_to_become_healthy() -> None:
-    """Frontend odtwarza się niezależnie od backendu (reaudyt 14.09.2026).
+def test_frontend_is_not_a_compose_service() -> None:
+    """Front jest osobną aplikacją Coolify z rolling update (etap B1, 11.2026).
 
-    Wcześniej `depends_on: backend: condition: service_healthy` porządkowało
-    pierwszy start, ale przy każdym deployu Compose zatrzymywał frontend na
-    cały czas migracji backendu. Zmierzone przy deployu #1509: ~105 s „no
-    available server” na froncie wobec ~52 s na API. Powrót tej zależności
-    przywraca dłuższą przerwę bez żadnego sygnału w CI — stąd ten test.
+    W compose Coolify zatrzymuje przy wdrożeniu wszystkie kontenery naraz
+    (także bazę), więc front leżał 5–9 s przy każdym wdrożeniu, a wcześniej,
+    z `depends_on: backend`, ~105 s (#1509). Powrót usługi `frontend` do tego
+    pliku przywraca przerwę i drugi front za tymi samymi domenami. Wycofanie
+    przepięcia: docs/claude/podstawy/przerwa-przy-wdrozeniu.md.
     """
-    depends_on = _service("frontend").get("depends_on") or {}
-    names = set(depends_on) if isinstance(depends_on, (dict, list)) else set()
-    assert "backend" not in names, (
-        "frontend znów zależy od backendu — przy każdym deployu będzie czekał "
-        f"na migracje i leżał dłużej niż API: {depends_on!r}"
-    )
+    compose = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+    assert "frontend" not in (compose.get("services") or {})
 
 
 def test_backend_graceful_stop_fits_inside_the_container_grace_period() -> None:
