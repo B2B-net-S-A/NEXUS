@@ -8,6 +8,7 @@ da się powiedzieć, czyje sprawy pokazać. Kontrakt zakończony działa jeszcze
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
@@ -75,6 +76,50 @@ async def resolve_by_email(
         row.candidate_id if row.candidate_id else f"c{row.id}" for row in contracts
     }
     return contracts[0] if len(people) == 1 else None
+
+
+def _tokens(text: Optional[str]) -> set[str]:
+    raw = unicodedata.normalize(
+        "NFKD", (text or "").replace("ł", "l").replace("Ł", "L")
+    )
+    folded = raw.encode("ascii", "ignore").decode().lower().replace("-", " ")
+    return {token for token in folded.split() if token}
+
+
+async def resolve_by_name(
+    db: AsyncSession, full_name: str, *, settings: PortalSettings, today: date
+) -> Optional[Contract]:
+    """Kontrakt po imieniu i nazwisku z tematu maila od koordynatora (E6.3).
+
+    Tylko dla maili, które z formatu tematu niosą osobę (KEŚU z Jiry): nadawcą
+    jest koordynator, a nie konsultant. Ta sama osoba w dwóch kandydatach albo
+    dwie osoby o tym nazwisku = ``None`` (karta do ręcznego przypisania).
+    """
+
+    wanted = _tokens(full_name)
+    if len(wanted) < 2:
+        return None
+    lowered = [part.lower() for part in full_name.replace("-", " ").split() if part]
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(func.lower(Candidate.lastname).in_(lowered))
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    matches = [
+        contract
+        for contract, first, last in rows
+        if _tokens(f"{first or ''} {last or ''}") == wanted
+        and eligible(contract, today)
+        # Osoba z KEŚU nic nie wysyła i nie musi mieć aktywnego panelu; w pilotażu
+        # czytnik bierze jednak tylko osoby z pilotażu.
+        and (settings.state == "all" or settings.open_for(contract.id))
+    ]
+    if not matches or len({c.candidate_id for c in matches}) != 1:
+        return None
+    return matches[0]
 
 
 async def load_consultant(

@@ -85,6 +85,8 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
     }
   }
   const issued = rows.filter((r) => r.state === "issued").length;
+  // KEŚU bez podpisu klienta (E6.3): pozycje są, ale faktura czeka.
+  const signing = rows.filter((r) => r.state === "awaiting_signature").length;
 
   return (
     <div className="space-y-3">
@@ -95,7 +97,9 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
               Faktura do {data.client_name} za {monthLabel(month)}
             </h2>
             <p className="max-w-[70ch] text-xs text-muted-foreground">
-              {ready.length} do wystawienia, {rows.length - ready.length} wystawione, {waiting} czeka na przyjęcie RCP. Pozycje mają
+              {ready.length} do wystawienia, {issued} wystawione,{" "}
+              {signing > 0 ? `${signing} czeka na podpis klienta, ` : ""}
+              {waiting} czeka na przyjęcie RCP. Pozycje mają
               nazwy z ostatniej faktury za to zamówienie; wklej je do programu do faktur. Wystawiona faktura wróci z KSeF sama, a jej RCP
               dostaje nazwę z numeru KSeF.
             </p>

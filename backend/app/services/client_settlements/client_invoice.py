@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.client_settlement import ClientSettlement
-from app.services.client_settlements import service
+from app.services.client_settlements import kesu, service
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
@@ -247,6 +247,52 @@ def positions(
     return out
 
 
+def extra_costs(
+    s: ClientSettlement,
+    items: list[Position],
+    rules: dict[str, dict[str, Any]],
+    *,
+    name: str,
+    currency: str = PLN,
+) -> list[Position]:
+    """Koszty dodatkowe z KEŚU na fakturze głównej (``cl.extra_costs_on_invoice``, E6.3).
+
+    KEŚU podaje koszty brutto i liczy „Razem w PLN BRUTTO” razem z usługą, więc
+    netto kosztów = brutto / 1,23 (brutto faktury = „Razem” z KEŚU). Parametr
+    ``item`` pusty = jedna pozycja na całość, nazwa = osobna pozycja.
+    """
+
+    rule = rules["cl.extra_costs_on_invoice"]
+    data = service.meta_of(s).get("kesu")
+    if rule["level"] == "off" or not isinstance(data, dict) or currency != PLN:
+        return items
+    gross = Decimal(str(data.get("extra_costs") or "0"))
+    if gross <= 0:
+        return items
+    net = _money(gross / kesu.VAT)
+    label = str(rule["params"].get("item") or "").strip()
+    if label:
+        return [*items, Position(label, "usł.", Decimal("1"), net, net, "extra_costs")]
+    base = next((p for p in items if p.kind == "base"), None)
+    if base is None or base.unit_price is None:
+        # Bez stawki na linii zamówienia nie da się podać jednej pozycji
+        # „usługa z kosztami”: koszty idą osobno, kwota usługi czeka na stawkę.
+        return [
+            *items,
+            Position(
+                f"{name}; koszty dodatkowe",
+                "usł.",
+                Decimal("1"),
+                net,
+                net,
+                "extra_costs",
+            ),
+        ]
+    total = base.net + net
+    merged = Position(base.name, "usł.", Decimal("1"), total, total, "base", currency)
+    return [merged if p is base else p for p in items]
+
+
 def _correction(
     estimate: ClientSettlement,
     actual: ClientSettlement,
@@ -401,6 +447,10 @@ async def invoice_month(
             if chosen is not None
             else []
         )
+        if chosen is not None and chosen.kind == service.ACTUAL:
+            items = extra_costs(
+                chosen, items, rules, name=name, currency=price.currency
+            )
         if prev_estimate is not None and prev_actual is not None:
             correction = _correction(
                 prev_estimate,
@@ -421,7 +471,11 @@ async def invoice_month(
         issued = next((inv for period, inv in history if period == month), None)
         out.update(
             currency=price.currency,
-            state="issued" if issued else "ready",
+            state="issued"
+            if issued
+            else "awaiting_signature"
+            if service.waits_for_signature(chosen, rules)
+            else "ready",
             positions=[p.as_dict() for p in items]
             if amounts
             else [{**p.as_dict(), "unit_price": None, "net": None} for p in items],

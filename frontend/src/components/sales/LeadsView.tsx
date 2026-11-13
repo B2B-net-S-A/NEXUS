@@ -31,6 +31,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { NewFirmsInbox } from "./bot-modes/NewFirmsInbox";
+import { LeadDossier, firstLeadOfCompany } from "./LeadDossier";
 import { WinBackInbox } from "./bot-modes/WinBackInbox";
 import { safeHref } from "./format";
 import { ResearchImport } from "./research-import/ResearchImport";
@@ -105,7 +106,14 @@ function NewLeadDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o
   );
 }
 
-function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
+interface LeadRowProps {
+  lead: Lead;
+  canEdit: boolean;
+  /** Teczka firmy tylko przy pierwszym leadzie tej firmy na liście. */
+  showDossier: boolean;
+}
+
+function LeadRow({ lead, canEdit, showDossier }: LeadRowProps) {
   const router = useRouter();
   const convert = useConvertLead();
   const update = useUpdateLead();
@@ -118,11 +126,12 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
           {lead.company_name ?? "—"} <span className="text-muted-foreground">· {lead.title}</span>
         </p>
         {lead.summary && <p className="line-clamp-2 text-muted-foreground">{lead.summary}</p>}
+        {showDossier && <LeadDossier dossier={lead.dossier} />}
         <LeadPayloadLine payload={lead.payload} />
         <p className="text-xs text-muted-foreground">
           {LEAD_SOURCE_LABELS[lead.source]}
           {lead.signal_at ? ` · ${formatIsoDatePl(lead.signal_at)}` : ""}
-          {lead.score ? ` · ocena ${lead.score}` : ""}
+          {lead.score && lead.source !== "research" ? ` · ocena ${lead.score}` : ""}
           {lead.dismissed_reason ? ` · ${lead.dismissed_reason}` : ""}
           {safeHref(lead.url) && (
             <>
@@ -262,6 +271,7 @@ function LeadsList({ switcher }: { switcher: ReactNode }) {
   const [creating, setCreating] = useState(false);
   const leads = useLeads({ status, q });
   const items = leads.data?.items ?? [];
+  const withDossier = firstLeadOfCompany(items);
   const state = resolveViewState({
     isLoading: leads.isLoading,
     error: leads.error,
@@ -306,7 +316,7 @@ function LeadsList({ switcher }: { switcher: ReactNode }) {
       ) : (
         <ul className="divide-y divide-border rounded-lg border border-border bg-card">
           {items.map((lead) => (
-            <LeadRow key={lead.id} lead={lead} canEdit={canEdit} />
+            <LeadRow key={lead.id} lead={lead} canEdit={canEdit} showDossier={withDossier.has(lead.id)} />
           ))}
         </ul>
       )}

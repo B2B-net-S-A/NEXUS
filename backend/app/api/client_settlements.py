@@ -497,6 +497,56 @@ async def client_document_file(
     )
 
 
+# ── KEŚU klienta z Jirą (E6.3) ───────────────────────────────────────────────
+
+
+@router.get("/contract/{contract_id}/kesu/package")
+async def kesu_package(
+    contract_id: int,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """PDF do podpisu spółki: KEŚU ze stawką MD i faktury kosztów w jednym pliku."""
+
+    await _open(db, current_user)
+    if not has_financial_access(current_user):
+        # KEŚU ze stawką to kwoty: tylko konta z dostępem do kwot.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Paczka KEŚU ma kwoty.")
+    try:
+        content, name = await service.kesu_package(db, contract_id, month)
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition(name, "attachment")},
+    )
+
+
+@router.post("/contract/{contract_id}/pay-on-mail")
+async def pay_on_mail(
+    contract_id: int,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Podpisujący KEŚU nieobecny: zapłata po mailowej akceptacji (``pay.mail_accept_fallback``)."""
+
+    await _open(db, current_user)
+    try:
+        await service.pay_on_mail(
+            db, contract_id, month, actor=current_user, now=local_now()
+        )
+        await _commit(db)
+        return await service.detail(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
+    except SettlementError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+
+
 # ── Koszty integracji (E5.1) ─────────────────────────────────────────────────
 
 

@@ -218,7 +218,7 @@ SECTIONS: tuple[Section, ...] = (
                 "travel.extra_costs_confirm",
                 "Koszty dodatkowe potwierdza osoba rozliczająca klienta",
                 "warn",
-                "E6",
+                "E6.3",
                 hint="Nie blokuje automatycznie: zanim NEXUS oznaczy koszt dodatkowy "
                 "jako błąd albo go odrzuci, potwierdza to osoba rozliczająca klienta.",
             ),
@@ -263,14 +263,15 @@ SECTIONS: tuple[Section, ...] = (
                 "pay.after_client_signature",
                 "Zapłata po podpisie klienta na dokumencie osoby",
                 "off",
-                "E6",
+                "E6.3",
             ),
             Rule(
                 "pay.mail_accept_fallback",
                 "Mail z akceptacją zastępuje podpis, gdy podpisujący jest nieobecny",
                 "off",
-                "E6",
-                hint="Tylko gdy nie ma zastępstwa; podpisany dokument sprawdzamy później.",
+                "E6.3",
+                hint="Tylko gdy nie ma zastępstwa; podpisany dokument sprawdzamy później. "
+                "Finanse zaznaczają to na karcie osoby.",
             ),
             Rule(
                 "pay.per_person",
@@ -323,7 +324,7 @@ SECTIONS: tuple[Section, ...] = (
                 "cl.extra_costs_on_invoice",
                 "Koszty dodatkowe na fakturze głównej",
                 "off",
-                "E6",
+                "E6.3",
                 {"item": ""},
                 (ParamField("item", "osobna pozycja"),),
                 "Puste = doliczone do pozycji głównej, nazwa = osobna pozycja.",
@@ -357,8 +358,9 @@ SECTIONS: tuple[Section, ...] = (
                 "cl.after_signed_document",
                 "Faktura do klienta po podpisanym dokumencie",
                 "off",
-                "E6",
-                hint="Dokument na cały miesiąc czeka na wszystkie osoby.",
+                "E6.3",
+                hint="KEŚU (E6.3): „Do faktury” dopiero po drugim podpisie w odesłanym "
+                "pliku. Dokument na cały miesiąc czeka na wszystkie osoby.",
             ),
             Rule(
                 "cl.send_to",

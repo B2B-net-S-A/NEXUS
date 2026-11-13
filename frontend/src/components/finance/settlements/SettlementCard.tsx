@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
 import { IntegrationCostsSection } from "./IntegrationCostsSection";
+import { KesuSection } from "./KesuSection";
 
 const ICON: Record<CheckState, ReactNode> = {
   ok: <Check aria-hidden className="size-3" />,
@@ -143,6 +144,9 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
       <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-2">
         <div className="min-w-0 space-y-3">
           <Documents detail={d} />
+          {d.kesu && kind === "actual" ? (
+            <KesuSection contractId={contractId} month={month} person={d.person} block={d.kesu} canWrite={canWrite} />
+          ) : null}
           {canWrite ? <MdForm detail={d} month={month} kind={kind} /> : null}
           <Computation detail={d} />
           {d.contractor_invoice && kind === "actual" ? <ContractorInvoiceSection block={d.contractor_invoice} canWrite={canWrite} /> : null}
@@ -238,6 +242,7 @@ export function ContractorInvoiceSection({ block, canWrite }: { block: Contracto
               </div>
               <p className="text-xs text-muted-foreground">
                 {[
+                  inv.is_correction ? "korekta" : null,
                   inv.issue_date ? `wystawiona ${new Date(inv.issue_date).toLocaleDateString("pl-PL")}` : null,
                   inv.due_date ? `płatność do ${new Date(inv.due_date).toLocaleDateString("pl-PL")}` : null,
                 ]

@@ -38,6 +38,7 @@ from app.services.consultant_portal_schema import (
     DOCUMENT_KINDS,
     FILE_NAME_MAX,
 )
+from app.services.client_settlements import kesu
 from app.services.hr import documents_store
 
 logger = logging.getLogger(__name__)
@@ -55,12 +56,15 @@ ALREADY_DECIDED = "Ten dokument ma już decyzję."
 
 
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+#: KEŚU z Jiry klienta (E6.3): rozszerzenie .xls, w środku XML Spreadsheet 2003.
+KESU_MIME = kesu.KESU_MIME
 MSG_MIME = "application/vnd.ms-outlook"
 EML_MIME = "message/rfc822"
 #: Rozliczenia (roadmapa E2.0): RCP w Excelu i mail z akceptacją z Outlooka
 #: albo jako .eml. Tylko w portalu konsultanta; reszta ``documents_store`` bez zmian.
 SETTLEMENT_EXTENSIONS: dict[str, str] = {
     XLSX_MIME: "xlsx",
+    KESU_MIME: "xls",
     MSG_MIME: "msg",
     EML_MIME: "eml",
 }
@@ -105,6 +109,8 @@ def check_settlement_file(content: bytes) -> tuple[str, str]:
             return XLSX_MIME, hashlib.sha256(content).hexdigest()
         if _is_msg(content):
             return MSG_MIME, hashlib.sha256(content).hexdigest()
+        if kesu.is_kesu_file(content):
+            return KESU_MIME, hashlib.sha256(content).hexdigest()
         if documents_store.sniff_mime(content) is None and _is_eml(content):
             return EML_MIME, hashlib.sha256(content).hexdigest()
     try:
@@ -661,4 +667,6 @@ async def assign_contract(
         )
     document.contract_id = contract_id
     document.updated_at = now
+    # KEŚU albo RCP przypisane ręcznie liczy się tak samo jak przypisane przez czytnik.
+    await _refresh_settlement(db, document)
     return document

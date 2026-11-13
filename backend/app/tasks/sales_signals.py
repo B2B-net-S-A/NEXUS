@@ -10,7 +10,8 @@ poniedziałek miesiąca od 7:00 (albo przy pierwszym obrocie po nim) „Warto wr
 i „Nowe centra IT” (``SALES_BOT_TASKS_ENABLED``). Z obiema flagami
 (``SALES_SIGNALS_ENABLED`` i ``SALES_BOT_TASKS_ENABLED``) w dzień roboczy od 16:00
 jeszcze haczyk przed telefonem i teczka przed spotkaniem na następny dzień roboczy
-(``services/sales/hook_prep_targets.py``).
+(``services/sales/hook_prep_targets.py``). Przy flagze zadań co godzinę teczka leada:
+Dane firm, Kontakty i Research dla firm nowych leadów (``services/sales/lead_dossier.py``).
 Logi są publiczne: same liczby. → docs/claude/sprzedaz/sygnaly-grok-bot.md
 """
 
@@ -30,8 +31,10 @@ from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
 from app.services.sales import bot_tasks
 from app.services.sales import hook_prep_targets as hook_prep
+from app.services.sales import lead_dossier
 from app.services.sales import signal_targets as targets
 from app.services.sales import signals
+from app.services.sales import registry_cards
 from app.services.sales.bot_tasks import enrich
 from app.services.sales.bot_tasks.call_hook import CALL_HOOK
 from app.services.sales.bot_tasks.signals_briefing import MEETING_PREP
@@ -246,6 +249,7 @@ async def tick(
         **{kind: 0 for kind in MONTHLY_KINDS},
         CALL_HOOK: 0,
         MEETING_PREP: 0,
+        "dossier": 0,
     }
     if bot_tasks_ready:
         done["enrich"] = await _night_enrich(db, now=now, local=local)
@@ -257,6 +261,9 @@ async def tick(
         # Haczyk i teczka to biegi ``briefing``: kanał punktów i flaga zadań naraz.
         if bot_tasks_ready:
             done.update(await hooks_and_prep(db, now=now, local=local))
+    if bot_tasks_ready:
+        # Po punktach i haczykach: ich biegi z tej chwili blokują powtórkę w teczce.
+        done["dossier"] = sum((await lead_dossier.order(db, now=now)).values())
     done["people"] = await _start_cognism_people(db, now=now)
     return done
 
@@ -272,7 +279,9 @@ async def sales_signals_loop() -> None:
         logger.warning(
             "sales_signals_loop enabled without Cognism webhook configuration"
         )
-    if not (legacy_ready or bot_tasks_ready or cognism_ready):
+    # Rejestry państwowe (biała lista VAT, KRS) nie potrzebują bota ani webhooka.
+    registry_ready = registry_cards.enabled()
+    if not (legacy_ready or bot_tasks_ready or cognism_ready or registry_ready):
         logger.info("sales_signals_loop disabled")
         return
     beat = loop_heartbeat.register(
@@ -289,11 +298,19 @@ async def sales_signals_loop() -> None:
                     legacy_ready=legacy_ready,
                     bot_tasks_ready=bot_tasks_ready,
                 )
+            if registry_ready:
+                # Noc 1–6: paczka kart do rejestrów (``services/sales/registry_cards.py``),
+                # we własnej sesji, bo sprawdzenie zamyka transakcję przed siecią.
+                # Liczby loguje samo sprawdzenie.
+                async with AsyncSessionLocal() as db:
+                    await registry_cards.night_step(
+                        db, now=datetime.now(timezone.utc), local=local_now()
+                    )
             if any(done.values()):
                 logger.info(
                     "sales_signals tick expired=%d signals=%d briefing=%d "
                     "enrich=%d people=%d winback=%d discovery=%d "
-                    "call_hook=%d meeting_prep=%d",
+                    "call_hook=%d meeting_prep=%d dossier=%d",
                     done["expired"],
                     done["signals"],
                     done["briefing"],
@@ -303,6 +320,7 @@ async def sales_signals_loop() -> None:
                     done["discovery"],
                     done[CALL_HOOK],
                     done[MEETING_PREP],
+                    done["dossier"],
                 )
         except asyncio.CancelledError:
             raise

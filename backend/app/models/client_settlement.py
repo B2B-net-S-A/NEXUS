@@ -197,6 +197,13 @@ class ClientContractorInvoice(Base):
     )
     period_month: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
     nip_state: Mapped[str] = mapped_column(String(10), nullable=False)
+    #: Treść z XML-a FA (korekty i faktury korygowane): ``state``, ``items``,
+    #: ``corrected``, ``reason`` — ``contractor_details.py``.
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    #: Status sprzedawcy na białej liście VAT na dzień wystawienia.
+    vat_whitelist: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=True
+    )
     decided_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

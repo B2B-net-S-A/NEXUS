@@ -16,6 +16,7 @@ import {
 } from "@/lib/api/sales";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
+import { LeadDossier } from "../LeadDossier";
 import { SignalActions } from "./SignalActions";
 import { TalkingPoints } from "./TalkingPoints";
 
@@ -119,6 +120,7 @@ export function SignalPanel({ lead, reasons }: SignalPanelProps) {
             <p className="text-xs leading-snug text-muted-foreground">{lead.summary}</p>
           </Block>
         )}
+        <LeadDossier dossier={lead.dossier} compact />
         {signal.why_now && (
           <Block label="Dlaczego teraz">
             <p className="text-xs leading-snug text-muted-foreground">{signal.why_now}</p>

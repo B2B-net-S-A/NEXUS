@@ -7,8 +7,8 @@ zgody. Czytamy więc każdą wiadomość łańcucha: nagłówek pliku (``.eml``,
 Kontrolę (data zgody przed pracą dodatkową, domena nadawcy) robi
 ``rcp_checks.evaluate``; tu tylko odczyt.
 
-``.msg`` (Outlook) czyta ``olefile`` (BSD, decyzja Artura z 13.11.2026):
-nadawca, nagłówki transportowe z datą i treść tekstowa wiadomości.
+``.msg`` i ``.eml`` czyta wspólny czytnik ``mail_file`` (kontener OLE bez
+zależności, z E6.3 Aliora): nadawca, nagłówki transportowe z datą i treść.
 """
 
 from __future__ import annotations
@@ -21,8 +21,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from email import policy
 from email.parser import BytesParser
-from email.utils import parseaddr, parsedate_to_datetime
+from email.utils import parsedate_to_datetime
 from typing import Iterable, Optional
+
+from app.services.client_settlements import mail_file
 
 logger = logging.getLogger(__name__)
 
@@ -195,74 +197,20 @@ def _html_text(markup: str) -> str:
     return html.unescape(re.sub(r"<[^>]+>", " ", markup))
 
 
-def _from_eml(content: bytes) -> list[MailMessage]:
-    message = BytesParser(policy=policy.default).parsebytes(content)
-    outer_date = None
-    try:
-        outer_date = parsedate_to_datetime(str(message.get("Date", ""))).date()
-    except (TypeError, ValueError, IndexError):
-        outer_date = None
-    outer = MailMessage(
-        _address(parseaddr(str(message.get("From", "")))[1]), outer_date
-    )
-    body = message.get_body(preferencelist=("plain", "html"))
-    text = ""
-    if body is not None:
-        try:
-            text = body.get_content()
-        except (LookupError, ValueError):
-            text = ""
-        if body.get_content_subtype() == "html":
-            text = _html_text(text)
-    return [outer, *quoted_messages(text)]
-
-
-def _stream_text(ole, name: str) -> str:
-    if ole.exists(f"{name}001F"):
-        return (
-            ole.openstream(f"{name}001F")
-            .read()
-            .decode("utf-16-le", "ignore")
-            .rstrip("\x00")
-        )
-    if ole.exists(f"{name}001E"):
-        return (
-            ole.openstream(f"{name}001E")
-            .read()
-            .decode("cp1250", "ignore")
-            .rstrip("\x00")
-        )
-    return ""
-
-
-def _from_msg(content: bytes) -> list[MailMessage]:
-    import olefile
-
-    if not olefile.isOleFile(io.BytesIO(content)):
+def _from_mail_file(content: bytes, mime: str) -> list[MailMessage]:
+    mail = mail_file.read(content, mime)
+    if mail is None:
         return []
-    with olefile.OleFileIO(io.BytesIO(content)) as ole:
-        sender = (
-            _stream_text(ole, "__substg1.0_5D01")  # PR_SENDER_SMTP_ADDRESS
-            or _stream_text(ole, "__substg1.0_0C1F")  # PR_SENDER_EMAIL_ADDRESS
-            or _stream_text(ole, "__substg1.0_0065")  # PR_SENT_REPRESENTING_EMAIL
-        )
-        headers = _stream_text(ole, "__substg1.0_007D")  # PR_TRANSPORT_MESSAGE_HEADERS
-        body = _stream_text(ole, "__substg1.0_1000")  # PR_BODY
-        if not body and ole.exists("__substg1.0_10130102"):  # PR_HTML
-            raw = ole.openstream("__substg1.0_10130102").read()
-            body = _html_text(raw.decode("utf-8", "ignore"))
-    outer_date = None
-    if headers:
-        parsed = BytesParser(policy=policy.default).parsebytes(
-            headers.encode("utf-8", "ignore"), headersonly=True
-        )
-        outer_date = parse_date(str(parsed.get("Date", "")))
-        sender = (
-            sender
-            if "@" in (sender or "")
-            else parseaddr(str(parsed.get("From", "")))[1]
-        )
-    outer = MailMessage(_address(sender or ""), outer_date)
+    headers = BytesParser(policy=policy.default).parsebytes(
+        mail.headers.encode("utf-8", "ignore"), headersonly=True
+    )
+    outer = MailMessage(
+        _address(mail.sender) or _address(str(headers.get("From", ""))),
+        parse_date(str(headers.get("Date", ""))),
+    )
+    body = mail.body
+    if "<html" in body[:500].lower() or "<body" in body[:2000].lower():
+        body = _html_text(body)
     return [outer, *quoted_messages(body)]
 
 
@@ -278,10 +226,8 @@ def read(content: bytes, mime: str) -> list[MailMessage]:
     """Wiadomości z pliku maila; plik nie do odczytu = pusta lista (sprawdza człowiek)."""
 
     try:
-        if mime == EML:
-            return _from_eml(content)
-        if mime == MSG:
-            return _from_msg(content)
+        if mime in (EML, MSG):
+            return _from_mail_file(content, mime)
         if mime == PDF:
             return _from_pdf(content)
     except Exception as exc:  # noqa: BLE001 — zły plik nie blokuje rozliczenia

@@ -386,3 +386,56 @@ Testy: `backend/tests/test_sales_bot_company_unit.py`,
 `frontend/src/components/sales/__tests__/sales-signals.test.tsx`,
 `frontend/src/components/sales/__tests__/sales-hook-prep.test.tsx`,
 `frontend/src/components/sales/__tests__/sales-bot-modes.test.tsx`.
+
+## Teczka leada (decyzja Artura 13.11.2026, krok 4 planu botów)
+
+Nowy lead z kartą firmy (`sales_leads.company_id`) z dowolnego źródła (sygnały,
+„Warto wrócić”, „Nowe centra IT” po „Załóż konto”, import, wpis ręczny) sam zamawia
+dla tej firmy trzy biegi: Dane firm (`enrich`), Kontakty ze źródeł publicznych
+(`people`) i Research (`briefing`, tryb z `signal_targets.modes_for`: `first_call`,
+a po rozmowie `ongoing`). Zanim handlowiec otworzy lead, widzi przy nim teczkę.
+Raport z makietą: https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
+Kod: `services/sales/lead_dossier.py`, krok pętli `tasks/sales_signals.py`.
+
+- **Zamówienie w tle, nie w żądaniu:** pętla `sales_signals` (co 15 minut), tylko przy
+  `SALES_BOT_TASKS_ENABLED`, po punktach i haczykach z tego obrotu. Błąd bota ani
+  webhooka nie dotyka leada. Do bota idą tylko nazwa i domena (`start_run`).
+- **Które firmy:** leady `new`/`contacted` z ostatnich 7 dni z kartą, najświeższy
+  najpierw. Bez zamówienia: lead bez karty, karta w archiwum, „Nie kontaktować”,
+  nasza firma, klient NEXUSA (`signal_targets.eligible_companies`, te same bramki co
+  mapa osób).
+- **Jedna teczka na firmę, nie na lead:** firma z biegiem danego rodzaju z ostatnich
+  7 dni nie wraca (nieudany start webhooka blokuje godzinę, potem ponowienie; w
+  `briefing` liczą się tryby z punktami, haczyk nie; w `people` bez biegów Cognism).
+  Dodatkowo: wynik `enrich`/`people` czekający na przegląd (`new`/`partial`), punkty
+  młodsze niż 7 dni i każdy bieg `briefing` z 24 godzin blokują swój rodzaj.
+- **Kolejność Dane firm → Kontakty → Research:** karta bez domeny z trwającym biegiem
+  `enrich` czeka z Kontaktami i Researchem do następnego obrotu po raporcie (domena
+  daje botowi lepszy trop). Karta z domeną nie czeka.
+- **Limit:** jeden bieg pętli na rodzaj na godzinę (przycisk na karcie się nie liczy),
+  najwyżej 10 firm na bieg. Gdy w tej godzinie poszedł już bieg pętli tego rodzaju
+  (np. punkty dla nowych leadów przy `SALES_SIGNALS_ENABLED`), teczka czeka.
+- **Odczyt:** pole `dossier` w `GET /api/sales/leads` (też `GET /{id}`, skrzynki
+  „Sygnały bota” i „Warto wrócić” czytają tę samą listę), liczone z danych NEXUSA
+  jednym zapytaniem dla całej listy (`lead_dossier.dossiers`): branża, miasto, NIP,
+  strona (domena albo host strony bez `www.`), osoby na karcie (firma główna kontaktu
+  albo bieżące powiązanie, bez archiwum) i ile z nich ma e-mail (bez „Nie
+  kontaktować”), opiekun karty, do 4 stanowisk decyzyjnych (poziom 1–2 z
+  `research_file.level_from_title`, kontakty bez „Nie kontaktować”) i liczba punktów
+  z `sales_company_briefings`. Karta bez żadnej z tych danych: `dossier = null`.
+  Mapa Cognism nie wchodzi do teczki (jej odczyt wymaga „Sprzedaż: edycja”, a lista
+  leadów to „podgląd”); dołączy, gdy osoby z mapy trafią do Kontaktów.
+- **Ekran:** blok `components/sales/LeadDossier.tsx` pod opisem leada w „Wszystkie
+  leady” (w grupie leadów jednej firmy tylko przy pierwszym), w panelu sygnału
+  i w panelu „Warto wrócić” (w wąskim panelu jedna kolumna): „Firma”, „Znamy”,
+  „Decydenci”, „Na pierwszą rozmowę” z linkiem do karty firmy. Strona to tylko
+  wartość w kształcie domeny (import z Atlasa ma w polu domeny też nazwy spółek). Bez słów „bot”, „wniosek”, „sprawdź”. Pusta linia znika,
+  pusta teczka nie rysuje bloku; błąd zapytania to komunikat listy, nie pusta lista.
+- **Wiersz leada:** źródło `research` to „Bot Leady”, bez „ocena N” (Artur nie chce
+  oznaczeń bota na ekranach roboczych). Inne źródła ocenę zachowują.
+- Logi: same liczby (rodzaj i liczba firm), bez nazw.
+
+Testy: `backend/tests/test_sales_lead_dossier_unit.py`,
+`backend/tests/test_sales_lead_dossier_api.py` (drugi lead tej samej firmy, klient
+NEXUSA, „Nie kontaktować”, wyłączona flaga, czekanie na Dane firm, pole `dossier`),
+`frontend/src/components/sales/__tests__/sales-lead-dossier.test.tsx`.

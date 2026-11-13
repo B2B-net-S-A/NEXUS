@@ -280,6 +280,11 @@ def _patch(monkeypatch, started: list, *, flag: bool) -> None:
     monkeypatch.setattr(loop.targets, "new_company_ids", nothing)
     monkeypatch.setattr(loop.targets, "refresh_company_ids", nothing)
 
+    async def no_dossier(*_a, **_k):
+        return {}
+
+    monkeypatch.setattr(loop.lead_dossier, "order", no_dossier)
+
 
 @pytest.mark.asyncio
 async def test_monthly_runs_start_from_the_first_monday_once(monkeypatch) -> None:

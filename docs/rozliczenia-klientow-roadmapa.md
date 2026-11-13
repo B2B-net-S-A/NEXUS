@@ -250,8 +250,9 @@ reguły klienta jako katalog z poziomami.
   z domeny z parametru `extra.mail_accept` (dokładnie, bez poddomen: konsultant
   BNP pisze z `external.` w domenie banku) i ma być nie później niż pierwszy dzień
   pracy dodatkowej z RCP; ten sam parametr `domain` sprawdza mail przy Excelu
-  (`proof.excel_with_mail`). `.msg` czyta `olefile` (BSD, ok. 125 KB, decyzja Artura
-  z 13.11; `extract-msg` odpada — GPL i kilka zależności). Mail bez daty albo
+  (`proof.excel_with_mail`). `.msg` czyta wspólny czytnik `mail_file.py`
+  z E6.3 Aliora (kontener OLE bez zależności); `olefile`, zgodzony przez Artura
+  13.11, okazał się zbędny, a `extract-msg` odpada (GPL). Mail bez daty albo
   nadawcy = „sprawdza człowiek”. Próbka BNP za październik: przełożony potwierdza
   nadgodziny 02.11, razem z akceptacją RCP — przy `extra.mail_before` na
   „Ostrzega” taka osoba dostaje uwagę „Akceptacja z 02.11.2026, po pracy dodatkowej”.
@@ -310,6 +311,19 @@ reguły klienta jako katalog z poziomami.
   sprawdzamy (jest tylko w XML-u). Miesiąc faktury: równa kwota w miesiącu
   wystawienia albo poprzednim, inaczej od 25. dnia bieżący, wcześniej poprzedni.
   Korekty sumują się z fakturą pierwotną po netto.
+- Kontrole korekt i białej listy (13.11, po teście Finansów na fakturze z sześcioma
+  korektami, którego sama suma netto nie łapała): XML FA pobieramy tylko dla korekt
+  i faktur, które one korygują (najwyżej 10 na przebieg KSeF, po Płacach), kolumny
+  `details` i `vat_whitelist` (migracja 0688). Na karcie osoby ostrzeżenia:
+  łańcuch po netto, VAT i brutto („Korekty zostawiają X zł VAT”), numer i data
+  faktury korygowanej kontra dokument wskazany numerem KSeF, „stan przed” kontra
+  stan dokumentu korygowanego (jego pozycje, jego zmiana albo stan łańcucha),
+  korekta bez zmian kwot jako uwaga; biała lista VAT na dzień wystawienia (VAT od
+  podmiotu spoza listy czynnych, „zw” od czynnego), wynik przy fakturze, najwyżej
+  60 ze 100 zapytań dziennie, awaria wykazu = „nie sprawdzono”. Korekta przechodzi
+  do kontraktu i miesiąca faktury, którą koryguje. Kod: `invoice_chain.py`,
+  `contractor_details.py`. Wymaga `WHITE_LIST_MODE=live`, inaczej biała lista
+  „nie sprawdzono (wyłączone)”.
 - Po wdrożeniu: znacznik pobierania na produkcji jest już za październikiem,
   więc faktury z października wymagają „Pobierz ponownie okres” (Płace).
 
@@ -455,6 +469,55 @@ krokach E6.
     przypisania. Koszty dodatkowe na fakturze głównej
     (`cl.extra_costs_on_invoice`). Oświadczeń o własnym transporcie nie
     przyjmujemy do NEXUS-a; panel nie pokazuje jazdy własnym autem.
+  - Jak zrobione (13.11, osobny PR, bez migracji):
+    - Czytnik rozliczenia@: mail z Jiry („Rozliczenie kontraktora <osoba> za
+      miesiąc MM-RRRR”) i odpowiedź „KEŚU <miesiąc> - <osoba>” przypisuje do
+      kontraktu po imieniu i nazwisku z tematu, nie po nadawcy (koordynator,
+      opiekun klienta). Jedna pasująca osoba = przypisanie, inaczej karta do
+      ręcznego przypisania; w pilotażu tylko osoby z pilotażu
+      (`identity.resolve_by_name`). Mail z Jiry zapisuje się też cały (EML
+      z Graph `$value`), bo treść ma opiekuna i czas akceptacji. Załączniki
+      „oświadczenie … transport/samochód” są pomijane. Ręczne przypisanie
+      dokumentu przelicza rozliczenie tak samo jak czytnik.
+    - Plik `.xls` z Jiry to XML Spreadsheet 2003 (zdublowany nagłówek XML,
+      niezamienione `&`): `client_settlements/kesu.py` czyta go sam (typ
+      `application/vnd.ms-excel`), MSG bez nowej zależności
+      (`client_settlements/mail_file.py`, czytnik kontenera OLE), EML z biblioteki
+      standardowej. MD = godziny z dni / `fields.md_hours`.
+    - Stawka MD do KEŚU: stawka klienta z kontraktu (godzinowa × godziny MD,
+      dzienna wprost, tylko zł). „Razem w PLN BRUTTO” = stawka MD / godziny MD
+      × 1,23 × godziny + „Suma kosztów dodatkowych”, jak formuły w pliku klienta.
+      Różnicę ze stawką linii zamówienia karta pokazuje tylko, gdy jest.
+      Na dwóch prawdziwych KEŚU za październik (jedno z noclegiem) kwota
+      zgadza się co do grosza z podpisanym KEŚU, a MD × stawka kosztowa
+      z fakturą kontraktora (sprawdzone na próbkach; w testach w repo stawki
+      są fikcyjne, a pliki KEŚU zanonimizowane).
+    - Karta osoby („KEŚU z Jiry”): opiekun i czas akceptacji, godziny i dni,
+      stawka i „Razem brutto” (kwoty tylko z dostępem do kwot), „Paczka do
+      podpisu (PDF)” = KEŚU ze stawką i faktury kosztów z maila z Jiry w jednym
+      pliku (pyHanko), „Mail do opiekuna” = adres opiekuna z linii „To:” maila
+      z Jiry, temat i treść ze wzoru rozliczeń. Na liście: stan KEŚU przy RCP
+      i pasek „Do podpisu spółki / Czeka na podpis klienta / Oba podpisy”.
+    - Podpisy: dwa ważne podpisy w odesłanym PDF = podpisane, jeden = „Czeka na
+      podpis klienta”; kto podpisał, nie sprawdzamy. Podpisany plik po
+      przyjęciu odświeża sam stan KEŚU, bez zmiany przyjętych MD i kwot.
+    - `cl.after_signed_document`: „Do faktury dla klienta” dopiero po podpisie
+      klienta (stan `awaiting_signature`). `pay.after_client_signature`:
+      w „Fakturze kontraktora” kontrola zapłaty; `pay.mail_accept_fallback`:
+      przycisk „Podpisujący nieobecny” zapisuje zapłatę po mailowej akceptacji
+      (w danych rozliczenia, przeżywa przeliczenie), podpisane KEŚU zostaje do
+      sprawdzenia. `cl.extra_costs_on_invoice`: koszty z KEŚU na fakturze
+      głównej, netto = brutto / 1,23 (brutto faktury = „Razem” z KEŚU); pusty
+      parametr = jedna pozycja na całość, nazwa = osobna pozycja.
+      `travel.extra_costs_confirm`: koszty dodatkowe zawsze tylko ostrzegają.
+      Te pięć reguł ma etap E6.3.
+    - Reguły Aliora ustawiają Finanse w „Reguły klienta” (dane, nie kod):
+      `pay.after_client_signature` „Blokuje”, `pay.mail_accept_fallback`
+      „Ostrzega”, `cl.after_signed_document` „Blokuje”,
+      `cl.extra_costs_on_invoice` (pozycja według decyzji rozliczeń).
+    - Zostaje: limity delegacji (hotel do 340 zł, pociąg 2. klasa) jako reguły,
+      zadanie dla konsultanta „dodatkowa faktura na koszty”, netto kosztów
+      dodatkowych do potwierdzenia przez rozliczenia (przyjęte brutto / 1,23).
   - Orlen, CeZ: czekają na odpowiedzi z E0.3.
 - E6.4 Nordea (293 osoby): najpierw instrukcja od rozliczeń.
 - **Meta per klient:** reguły ustawione w „Reguły klienta”, jeden pełny miesiąc

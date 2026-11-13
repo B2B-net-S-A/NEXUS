@@ -17,7 +17,10 @@ Co bierzemy:
   wskazałaby zły miesiąc,
 * pozycje ``FaWiersz`` w kształcie czytanym przez widok rozbieżności:
   ``name, quantity, unit, unit_price, net, vat_rate`` (kwoty jako napisy
-  dziesiętne z kropką); wiersz „stan przed korektą” ma ``before_correction``.
+  dziesiętne z kropką); wiersz „stan przed korektą” ma ``before_correction``,
+* dokumenty korygowane — każde ``DaneFaKorygowanej`` (numer KSeF, numer
+  faktury, data wystawienia) i ``PrzyczynaKorekty``; kontrola łańcucha korekt
+  faktur kontraktorów (rozliczenia klientów E4) porównuje je z dokumentem.
 
 XML z zewnątrz: bez DTD i encji (odrzucamy ``<!DOCTYPE``), bez sieci, limit
 rozmiaru (KSeF przyjmuje do 3 MB z załącznikiem) i liczby pozycji.
@@ -104,6 +107,10 @@ class ParsedInvoice:
     vat_amount: Decimal
     gross_amount: Decimal
     items: list[dict[str, Any]] = field(default_factory=list)
+    #: Wszystkie ``DaneFaKorygowanej``: ``ksef_number``, ``invoice_number``,
+    #: ``issue_date`` (ISO) — korekta może wskazywać kilka faktur.
+    corrected: tuple[dict[str, Optional[str]], ...] = ()
+    correction_reason: Optional[str] = None
 
 
 def _parser() -> etree.XMLParser:
@@ -183,6 +190,20 @@ def _items(fa: Any) -> list[dict[str, Any]]:
             item["before_correction"] = True
         items.append(item)
     return items
+
+
+def _corrected(fa: Any) -> tuple[dict[str, Optional[str]], ...]:
+    out = []
+    for node in fa.iterfind("{*}DaneFaKorygowanej"):
+        day = _date(_text(node, "DataWystFaKorygowanej"))
+        out.append(
+            {
+                "ksef_number": _text(node, "NrKSeFFaKorygowanej", limit=64),
+                "invoice_number": _text(node, "NrFaKorygowanej", limit=256),
+                "issue_date": day.isoformat() if day else None,
+            }
+        )
+    return tuple(out[:MAX_ITEMS])
 
 
 def _row_dates(fa: Any) -> list[date]:
@@ -288,4 +309,6 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         vat_amount=vat if vat is not None else Decimal("0.00"),
         gross_amount=gross,
         items=items,
+        corrected=_corrected(fa),
+        correction_reason=_text(fa, "PrzyczynaKorekty", limit=256),
     )

@@ -71,15 +71,18 @@ def test_ekran_ma_wszystkie_sekcje_i_pola():
 E6_RULES = {
     "proof.accept_has_hours",
     "fields.md_month_limit",
+    "pay.per_person",
+    "cl.client_document",
+    "cl.cost_mail_block",
+    "cl.send_to",
+}
+#: Reguły, które sprawdza obieg KEŚU (E6.3, Alior).
+E6_3_RULES = {
     "travel.extra_costs_confirm",
     "pay.after_client_signature",
     "pay.mail_accept_fallback",
-    "pay.per_person",
     "cl.extra_costs_on_invoice",
-    "cl.client_document",
-    "cl.cost_mail_block",
     "cl.after_signed_document",
-    "cl.send_to",
 }
 
 
@@ -88,6 +91,7 @@ def test_reguly_z_odpowiedzi_rozliczen_czekaja_na_e6():
 
     assert E6_RULES <= set(catalog.RULES)
     assert {catalog.RULES[k].stage for k in E6_RULES} == {"E6"}
+    assert {catalog.RULES[k].stage for k in E6_3_RULES} == {"E6.3"}
     payment = next(s for s in catalog.SECTIONS if s.key == "payment")
     assert {r.key for r in payment.rules} == {
         "pay.after_client_signature",

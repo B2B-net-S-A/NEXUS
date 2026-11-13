@@ -22,7 +22,10 @@ export type SettlementStatus =
   | "accepted";
 /** Faktura kontraktora z KSeF (E4); `nip_check` — NIP z faktury czeka na Finanse (E4.0). */
 export type ContractorInvoiceState = "none" | "can_issue" | "in_ksef" | "differs" | "nip_check";
-export type ClientInvoiceState = "waiting" | "ready" | "issued";
+/** `awaiting_signature` — KEŚU bez podpisu klienta (E6.3, `cl.after_signed_document`). */
+export type ClientInvoiceState = "waiting" | "ready" | "issued" | "awaiting_signature";
+/** Stan KEŚU osoby w miesiącu (E6.3, klient z Jirą). */
+export type KesuState = "to_company" | "awaiting_client" | "signed";
 export type CheckState = "ok" | "warn" | "fail" | "none";
 export type RuleLevel = "block" | "warn" | "off";
 export type SettlementFilter = "todo" | "missing" | "needs_fix" | "accepted" | "all";
@@ -54,6 +57,44 @@ export interface SettlementRow {
   margin_pct: string | null;
   contractor_invoice: ContractorInvoiceState;
   client_invoice: ClientInvoiceState;
+  /** KEŚU z Jiry (E6.3): stan, opiekun i czas, bez kwot. */
+  kesu?: KesuSummary | null;
+}
+
+export interface KesuSummary {
+  state: KesuState;
+  state_label: string;
+  approver: string | null;
+  accepted_at: string | null;
+  hours: string | null;
+  days: number | null;
+}
+
+export interface KesuPayment {
+  state: CheckState;
+  title: string;
+  detail: string | null;
+  can_pay: boolean;
+  on_mail: boolean;
+  /** Reguła pozwala zapłacić po mailowej akceptacji, gdy podpisujący jest nieobecny. */
+  can_use_mail: boolean;
+}
+
+/** KEŚU na karcie osoby. Kwoty i stawki tylko z dostępem do kwot (inaczej `null`). */
+export interface KesuBlock extends KesuSummary {
+  approver_email: string | null;
+  md_hours: string;
+  rate_md: string | null;
+  rate_contract: string | null;
+  rate_order: string | null;
+  fee_gross: string | null;
+  extra_costs: string | null;
+  total_gross: string | null;
+  rate_differs: boolean;
+  mail: { to: string | null; to_name: string | null; subject: string; body: string };
+  payment: KesuPayment | null;
+  invoice_waits: boolean;
+  package_ready: boolean;
 }
 
 export interface SettlementMonth {
@@ -124,6 +165,7 @@ export interface SettlementDetail {
   checks: SettlementCheckGroup[];
   order: { md_total: string | null; md_charged: string | null; md_remaining_after: string | null } | null;
   contractor_invoice?: ContractorInvoiceBlock;
+  kesu?: KesuBlock | null;
 }
 
 export interface ContractorInvoice {
@@ -136,6 +178,8 @@ export interface ContractorInvoice {
   seller_nip: string;
   /** `known` — NIP z kontraktu, `suggested` — do zatwierdzenia, `confirmed` — zatwierdzony. */
   nip_state: "known" | "suggested" | "confirmed";
+  /** Faktura korygująca (kwoty to różnice). */
+  is_correction?: boolean;
   net_amount: string | null;
   gross_amount: string | null;
   due_date: string | null;
@@ -386,6 +430,13 @@ export async function fetchSettlementDocument(contractId: number, documentId: nu
   return (await api.get<Blob>(`${BASE}/contract/${contractId}/documents/${documentId}`, { responseType: "blob" })).data;
 }
 
+/** Paczka do podpisu spółki: KEŚU ze stawką i faktury kosztów w jednym PDF (E6.3). */
+export async function fetchKesuPackage(contractId: number, month: string): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/contract/${contractId}/kesu/package`, { params: { month }, responseType: "blob" })
+  ).data;
+}
+
 export function useClientRules(clientId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.rules(clientId ?? 0, month),
@@ -431,6 +482,16 @@ export function useNeedsFixSettlement(month: string, kind: SettlementKind = "act
       (
         await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/needs-fix`, { reason }, { params: { month, kind } })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Podpisujący KEŚU nieobecny: zapłata konsultanta po mailowej akceptacji (E6.3). */
+export function usePayOnMail(month: string) {
+  const invalidate = useInvalidateSettlements();
+  return useMutation({
+    mutationFn: async (contractId: number) =>
+      (await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/pay-on-mail`, null, { params: { month } })).data,
     onSuccess: invalidate,
   });
 }
