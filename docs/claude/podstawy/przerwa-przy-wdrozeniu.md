@@ -65,6 +65,12 @@ czyli wolne pierwsze zapytania, i zerwane połączenia wszystkich zadań w tle.
   ma być widoczny jako błąd, a nie cicho iść dalej.
 - **Pula połączeń.** 2 × 60 potencjalnych połączeń przy `max_connections=100`.
 
+## Pomiar
+
+Każdy bieg Deploy raportuje przerwę frontu i API oraz restart Postgresa
+(`.github/scripts/deploy_downtime_report.py`). Odbiór każdego etapu to te liczby na
+kolejnych wdrożeniach, nie sam zielony workflow.
+
 ## Sieć osobnych aplikacji: `nexus-front`, nie `coolify`
 
 Ustalone na kodzie Coolify 4.5.3 (13.11.2026). Aplikacja z Dockerfile dołącza
@@ -80,9 +86,3 @@ sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). 
   z najwyższego poziomu do każdej usługi, co tu jest nieszkodliwe, bo w `nexus-front`
   są tylko kontenery NEXUSA i proxy,
 - `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.
-
-## Pomiar
-
-Każdy bieg Deploy raportuje przerwę frontu i API oraz restart Postgresa
-(`.github/scripts/deploy_downtime_report.py`). Odbiór każdego etapu to te liczby na
-kolejnych wdrożeniach, nie sam zielony workflow.
