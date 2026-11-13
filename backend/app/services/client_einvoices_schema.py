@@ -1,6 +1,6 @@
-"""E-faktury Peppol do klientów (plan Nordei N2): SQL migracji ``0689_client_einvoices`` i lustra entrypointu.
+"""E-faktury Peppol do klientów (plan Nordei N2): SQL migracji ``0690_client_einvoices`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0689_client_einvoices.py``
+Jedno źródło instrukcji dla ``alembic/versions/0690_client_einvoices.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

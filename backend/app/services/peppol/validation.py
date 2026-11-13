@@ -20,6 +20,7 @@ Walidujemy wyłącznie XML zbudowany przez ``ubl.build`` (nie plik z zewnątrz).
 from __future__ import annotations
 
 import asyncio
+import logging
 import multiprocessing
 import re
 import threading
@@ -36,6 +37,7 @@ RULE_FILES = ("CEN-EN16931-UBL.xsl", "PEPPOL-EN16931-UBL.xsl")
 SVRL = "http://purl.oclc.org/dsdl/svrl"
 MAX_FINDINGS = 50
 TIMEOUT_SECONDS = 120
+logger = logging.getLogger(__name__)
 _PREFIX_RE = re.compile(r"^\[[^\]]+\]\s*-\s*")
 _PREDICATE_RE = re.compile(r"Q\{[^}]*\}")
 
@@ -152,6 +154,7 @@ def _parse(results: list[str]) -> list[Finding]:
 
 
 def _unavailable(exc: BaseException) -> ValidationUnavailable:
+    logger.warning("[peppol] walidator niedostępny: %s", type(exc).__name__)
     if isinstance(exc, BrokenProcessPool):
         _reset()
         return ValidationUnavailable("Walidator e-faktur przerwał pracę — spróbuj ponownie.")

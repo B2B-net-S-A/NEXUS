@@ -1,4 +1,4 @@
-"""E-faktura Peppol przy fakturze sprzedażowej z KSeF (0689, plan Nordei N2).
+"""E-faktura Peppol przy fakturze sprzedażowej z KSeF (0690, plan Nordei N2).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/client_einvoices_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji). Opis stanów —
