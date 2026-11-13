@@ -550,7 +550,7 @@ def webhook_body(
     companies: list[SalesCompany],
     feedback: dict[str, Any],
 ) -> dict[str, Any]:
-    """Treść dla bota: tylko nazwy i domeny firm, bez osób, CV i kontaktów.
+    """Treść dla bota: nazwy, domeny, NIP i KRS firm, bez osób, CV i kontaktów.
 
     v2 (0684) dokłada ``task`` i ``report_format`` z rejestru zadań oraz ``request``
     biegu, czyli pola, które rodzaj sam wysyła botowi. Pola v1 zostają, bo rutyna
@@ -579,6 +579,10 @@ def webhook_body(
                 if cognism and company.legal_name
                 else {}
             ),
+            # NIP i KRS firmy mogą iść do bota (decyzja Artura 13.11.2026):
+            # identyfikatory firm, publiczne w KRS, bez danych osób.
+            **({"nip": company.nip} if company.nip else {}),
+            **({"krs": company.krs} if company.krs else {}),
             **({"mode": modes[str(company.id)]} if str(company.id) in modes else {}),
         }
         for company in companies

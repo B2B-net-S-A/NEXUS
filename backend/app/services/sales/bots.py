@@ -53,6 +53,7 @@ KIND_BOT: dict[str, str] = {
     "question": RESEARCH,
     "enrich": COMPANY,
     "people": CONTACTS,
+    "lists": LISTS,
 }
 #: Prefiks zmiennych webhooka bota; Cognism ma dotychczasowe nazwy.
 _WEBHOOK_PREFIX: dict[str, str] = {

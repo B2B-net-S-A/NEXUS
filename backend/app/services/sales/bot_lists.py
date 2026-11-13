@@ -35,6 +35,7 @@ from app.models.sales import (
     SalesCompany,
     SalesContact,
     SalesOpportunity,
+    SalesSignalRun,
 )
 from app.models.user import User
 from app.services import sales_schema as schema
@@ -84,7 +85,7 @@ _ROLE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 
 SIZE_BUCKETS: tuple[str, ...] = ("1-49", "50-249", "250-999", "1000+")
 SOURCES: tuple[str, ...] = ("base", "rejestr", "research", "cognism")
-SOURCE_LABELS = {
+SOURCE_LABELS: dict[str, str] = {
     "base": "baza NEXUSA",
     "rejestr": "rejestr.io",
     "research": "research",
@@ -138,8 +139,10 @@ class Brief(BaseModel):
     industries: list[str] = Field(default_factory=list, max_length=10)
     #: Kody PKD (dział 2 cyfry albo dokładniej) dla źródeł zewnętrznych (L3).
     pkd: list[str] = Field(default_factory=list, max_length=15)
-    #: Województwa dla źródeł zewnętrznych, miasta siedziby dla bazy.
+    #: Województwa dla źródeł zewnętrznych (rejestr.io, research).
     regions: list[str] = Field(default_factory=list, max_length=16)
+    #: Miasta siedziby dla bazy NEXUSA (karta ma miasto, nie województwo).
+    cities: list[str] = Field(default_factory=list, max_length=16)
     sizes: list[Literal[SIZE_BUCKETS]] = Field(  # type: ignore[valid-type]
         default_factory=list, max_length=4
     )
@@ -154,8 +157,10 @@ class Brief(BaseModel):
     per_caller: int = Field(default=40, ge=5, le=200)
     caller_ids: list[int] = Field(min_length=1, max_length=10)
     auto_refill: bool = True
+    #: L4: bot szuka firm podobnych do tych, z którymi kampania umówiła spotkanie.
+    lookalike: bool = False
 
-    @field_validator("industries", "regions")
+    @field_validator("industries", "regions", "cities")
     @classmethod
     def _words(cls, values: list[str]) -> list[str]:
         cleaned = [re.sub(r"\s+", " ", v).strip()[:60] for v in values]
@@ -278,7 +283,7 @@ def _matches_segment(brief: Brief, row: Any) -> bool:
 
     if not fits(brief.industries, row.industry, contains=True):
         return False
-    if not fits(brief.regions, row.hq_city, contains=True):
+    if not fits(brief.cities, row.hq_city, contains=True):
         return False
     if brief.sizes:
         bucket = size_bucket(row.size_range)
@@ -390,6 +395,8 @@ class BuildResult:
     per_caller: dict[int, int]
     skipped: dict[str, int]
     candidates: int
+    #: Ile firm zlecono botowi (rejestr.io, research); dojdą po raporcie.
+    requested: int = 0
 
 
 async def _new_per_caller(
@@ -444,10 +451,14 @@ async def build(
     have = await _new_per_caller(db, campaign.id, list(callers))
     need = {uid: max(0, brief.per_caller - have.get(uid, 0)) for uid in callers}
     total = sum(need.values())
-    if total == 0 or "base" not in brief.sources:
+    if total == 0:
         return BuildResult(campaign.id, 0, dict.fromkeys(callers, 0), {}, 0)
     # Zapas na odpady w bramkach (klient, cudzy rekord, powtórka NIP-u).
-    candidates = await base_candidates(db, brief, limit=total * 2, now=moment)
+    candidates = (
+        await base_candidates(db, brief, limit=total * 2, now=moment)
+        if "base" in brief.sources
+        else []
+    )
     rows: list[ListRow] = []
     assigned: dict[int, int] = dict.fromkeys(callers, 0)
     for line, candidate in enumerate(candidates, start=2):
@@ -473,24 +484,13 @@ async def build(
                 caller=callers[uid],
             )
         )
-    people = calling_import.caller_keys(list(callers.items()))
-    plan, added = await calling_import.apply_import(
+    per_caller, skipped, added = await _apply_rows(
         db,
         campaign.id,
-        ListFile(rows=rows, without_company=0),
-        contact_source=f"{BUILD_NOTE} · {SOURCE_LABELS['base']}",
-        assignee_id=next(iter(callers)),
-        user_id=user_id or next(iter(callers)),
-        people=people,
+        callers,
+        {"base": rows},
+        user_id=user_id,
     )
-    per_caller: dict[int, int] = dict.fromkeys(callers, 0)
-    skipped: dict[str, int] = {}
-    for row_plan in plan.rows:
-        if row_plan.fate in calling_import.ADDABLE:
-            uid = row_plan.assignee_id or next(iter(callers))
-            per_caller[uid] = per_caller.get(uid, 0) + 1
-        else:
-            skipped[row_plan.fate] = skipped.get(row_plan.fate, 0) + 1
     campaign.bot_built_at = moment
     logger.info(
         "bot_lists campaign=%s candidates=%d added=%d skipped=%d",
@@ -499,7 +499,241 @@ async def build(
         added,
         sum(skipped.values()),
     )
-    return BuildResult(campaign.id, added, per_caller, skipped, len(candidates))
+    left = total - added
+    requested = await start_external(db, campaign, brief, left, now=moment)
+    return BuildResult(
+        campaign.id, added, per_caller, skipped, len(candidates), requested
+    )
+
+
+async def _apply_rows(
+    db: AsyncSession,
+    campaign_id: int,
+    callers: dict[int, str],
+    rows_by_source: dict[str, list[ListRow]],
+    *,
+    user_id: Optional[int],
+) -> tuple[dict[int, int], dict[str, int], int]:
+    """Zapis wierszy przez bramki importu, osobno dla każdego źródła („Skąd kontakt”)."""
+
+    people = calling_import.caller_keys(list(callers.items()))
+    per_caller: dict[int, int] = dict.fromkeys(callers, 0)
+    skipped: dict[str, int] = {}
+    added = 0
+    for source, rows in rows_by_source.items():
+        if not rows:
+            continue
+        plan, count = await calling_import.apply_import(
+            db,
+            campaign_id,
+            ListFile(rows=rows, without_company=0),
+            contact_source=f"{BUILD_NOTE} · {SOURCE_LABELS[source]}",
+            assignee_id=next(iter(callers)),
+            user_id=user_id or next(iter(callers)),
+            people=people,
+        )
+        added += count
+        for row_plan in plan.rows:
+            if row_plan.fate in calling_import.ADDABLE:
+                uid = row_plan.assignee_id or next(iter(callers))
+                per_caller[uid] = per_caller.get(uid, 0) + 1
+            else:
+                skipped[row_plan.fate] = skipped.get(row_plan.fate, 0) + 1
+    return per_caller, skipped, added
+
+
+# ── L3–L4: firmy z rejestr.io i researchu (rodzaj biegu ``lists``) ───────
+
+EXTERNAL = ("rejestr", "research")
+#: Bieg ``lists`` tej kampanii z ostatnich 2 godzin (token żyje tyle) nie startuje drugi raz.
+EXTERNAL_COOLDOWN = timedelta(hours=2)
+
+
+async def _like_firms(db: AsyncSession, campaign_id: int) -> list[dict[str, Any]]:
+    rows = (
+        await db.execute(
+            select(
+                SalesCompany.name,
+                SalesCompany.nip,
+                SalesCompany.domain,
+                SalesCompany.industry,
+                SalesCompany.hq_city,
+            )
+            .join(SalesCallRecord, SalesCallRecord.company_id == SalesCompany.id)
+            .where(
+                SalesCallRecord.campaign_id == campaign_id,
+                SalesCallRecord.state == "meeting_booked",
+                SalesCompany.archived_at.is_(None),
+            )
+            .distinct()
+            .limit(10)
+        )
+    ).all()
+    return [
+        {
+            "name": row.name[:300],
+            "nip": row.nip,
+            "domain": row.domain,
+            "industry": row.industry,
+            "city": row.hq_city,
+        }
+        for row in rows
+    ]
+
+
+async def _recent_nips(db: AsyncSession, *, now: datetime) -> list[str]:
+    rows = await db.execute(
+        select(SalesCompany.nip)
+        .join(SalesCallRecord, SalesCallRecord.company_id == SalesCompany.id)
+        .where(
+            SalesCompany.nip.is_not(None),
+            SalesCallRecord.created_at >= now - RECENT_CALL_WINDOW,
+        )
+        .distinct()
+        .limit(300)
+    )
+    return [nip for nip in rows.scalars() if nip]
+
+
+def external_request(
+    campaign_id: int,
+    brief: Brief,
+    count: int,
+    *,
+    exclude_nips: list[str],
+    like: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Zlecenie ``lists`` dla bota: segment briefu bez danych osób."""
+
+    return {
+        "campaign_id": campaign_id,
+        "pkd": list(brief.pkd),
+        "regions": list(brief.regions),
+        "sizes": list(brief.sizes),
+        "triggers": list(brief.triggers),
+        "roles": [ROLE_LABELS[role] for role in brief.roles],
+        "sources": [s for s in brief.sources if s in EXTERNAL],
+        "count": max(1, min(count, 50)),
+        "exclude_nips": exclude_nips[:300],
+        "like": like if brief.lookalike else [],
+    }
+
+
+async def start_external(
+    db: AsyncSession,
+    campaign: SalesCallCampaign,
+    brief: Brief,
+    missing: int,
+    *,
+    now: datetime,
+) -> int:
+    """Zleć botowi brakujące firmy; zwraca liczbę zleconych (0, gdy nie ma po co).
+
+    Uwaga: ``signals.start_run`` robi commit przed wywołaniem webhooka.
+    """
+
+    from app.services.sales import bot_tasks, signals
+
+    if missing <= 0 or not any(s in brief.sources for s in EXTERNAL):
+        return 0
+    if not bot_tasks.allowed_to_start("lists"):
+        return 0
+    recent = (
+        await db.execute(
+            select(SalesSignalRun.id).where(
+                SalesSignalRun.kind == "lists",
+                SalesSignalRun.started_at >= now - EXTERNAL_COOLDOWN,
+                SalesSignalRun.request["campaign_id"].as_integer() == campaign.id,
+            )
+        )
+    ).first()
+    if recent is not None:
+        return 0
+    request = external_request(
+        campaign.id,
+        brief,
+        missing,
+        exclude_nips=await _recent_nips(db, now=now),
+        like=await _like_firms(db, campaign.id) if brief.lookalike else [],
+    )
+    run = await signals.start_run(db, "lists", [], now=now, request=request)
+    return request["count"] if run is not None else 0
+
+
+def firm_rows(
+    firms: list[Any], brief: Brief, callers: dict[int, str], need: dict[int, int]
+) -> dict[str, list[ListRow]]:
+    """Firmy z raportu jako wiersze listy, z osobą tylko w roli z briefu."""
+
+    from app.services.sales.research_file import valid_email, valid_phone
+
+    out: dict[str, list[ListRow]] = {s: [] for s in EXTERNAL}
+    assigned = dict.fromkeys(callers, 0)
+    for line, firm in enumerate(firms, start=2):
+        open_callers = [uid for uid in callers if assigned[uid] < need.get(uid, 0)]
+        if not open_callers:
+            break
+        uid = min(open_callers, key=lambda u: (assigned[u] / max(need[u], 1), u))
+        phone = valid_phone(firm.phone) if firm.phone and firm.phone_source else None
+        email = valid_email(firm.email) if firm.email and firm.email_source else None
+        person = firm.person
+        if person is not None and role_of(person.title) not in brief.roles:
+            person = None
+        website = firm.website or (f"https://{firm.domain}" if firm.domain else None)
+        why = [SOURCE_LABELS[firm.source]]
+        if firm.pkd:
+            why.append(f"PKD {firm.pkd}")
+        if firm.city:
+            why.append(firm.city)
+        if firm.employees:
+            why.append(f"{firm.employees} osób")
+        if firm.trigger is not None:
+            why.append(firm.trigger.text)
+        assigned[uid] += 1
+        out[firm.source].append(
+            ListRow(
+                line=line,
+                company=firm.company,
+                person=person.full_name if person else None,
+                title=person.title if person and person.title else None,
+                phone=phone,
+                email=email,
+                website=website,
+                nip=firm.nip,
+                industry=firm.pkd or None,
+                note=f"{BUILD_NOTE}: " + " · ".join(why)[:900],
+                caller=callers[uid],
+            )
+        )
+    return out
+
+
+async def ingest_firms(
+    db: AsyncSession, campaign_id: int, firms: list[Any], *, now: datetime
+) -> BuildResult:
+    """Raport ``lists``: firmy do kampanii od razu, przez bramki importu."""
+
+    campaign = await calling_import.campaign_or_none(db, campaign_id)
+    brief = load_brief(campaign) if campaign is not None else None
+    if campaign is None or brief is None:
+        return BuildResult(campaign_id, 0, {}, {}, len(firms))
+    users = (
+        await db.execute(
+            select(User.id, User.name).where(
+                User.id.in_(brief.caller_ids), User.is_active.is_(True)
+            )
+        )
+    ).all()
+    callers = {int(uid): name for uid, name in users if name}
+    if not callers:
+        return BuildResult(campaign_id, 0, {}, {}, len(firms))
+    have = await _new_per_caller(db, campaign.id, list(callers))
+    need = {uid: max(0, brief.per_caller - have.get(uid, 0)) for uid in callers}
+    rows = firm_rows(firms, brief, callers, need)
+    per_caller, skipped, added = await _apply_rows(
+        db, campaign.id, callers, rows, user_id=None
+    )
+    return BuildResult(campaign.id, added, per_caller, skipped, len(firms))
 
 
 def refill_due(local: datetime) -> bool:
