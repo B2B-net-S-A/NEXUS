@@ -230,28 +230,32 @@ async def login(
     # Break-glass: konta z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS`` przechodzą przez
     # bramkę mimo wyłączonej flagi (dalej zwykłe sprawdzenie poświadczeń niżej) —
     # inaczej wyłączenie flagi zamknęłoby admina bez ścieżki SSO na stałe.
-    if not settings.PASSWORD_LOGIN_ENABLED and not _password_login_break_glass(
-        data.email
-    ):
+    #
+    # Pentest 13.11.2026: adres spoza listy dostawał 503, a adres z listy 401,
+    # więc anonim ustalał adres konta awaryjnego. Z pustą listą 503 dostają
+    # wszyscy (nie ma czego wyliczać); z niepustą adres spoza listy dostaje to
+    # samo 401 co złe hasło, a jego konta nie sprawdzamy wcale.
+    password_login_disabled = not settings.PASSWORD_LOGIN_ENABLED
+    if password_login_disabled and not settings.password_login_break_glass_email_set:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
         )
-    # Runda 9 (R9-N1-1): adres bez rozróżniania wielkości liter — konto
-    # założone w panelu admina mogło mieć wielkie litery.
-    user = await find_user_by_email(db, data.email)
-    # Guard SSO-only userów: ``password_hash IS NULL`` po migracji 0081 oznacza
-    # konto zalogowane przez Microsoft SSO i bez bcrypt hash — odmów cicho,
-    # nie ujawniając czy konto istnieje.
-    if (
-        not user
-        or not user.password_hash
-        # bcrypt (~100 ms) w wątku — na pętli zdarzeń jedynego procesu
-        # wstrzymywał każde inne żądanie (R9-N9-10).
-        or not await asyncio.to_thread(
-            verify_password, data.password, user.password_hash
-        )
-    ):
+    user = None
+    if not password_login_disabled or _password_login_break_glass(data.email):
+        # Runda 9 (R9-N1-1): adres bez rozróżniania wielkości liter — konto
+        # założone w panelu admina mogło mieć wielkie litery.
+        user = await find_user_by_email(db, data.email)
+    # bcrypt liczony zawsze, także bez konta i dla kont SSO-only
+    # (``password_hash IS NULL`` po migracji 0081): ``verify_password`` spala
+    # wtedy koszt na atrapie. Pentest 13.11.2026 zmierzył 181 ms dla konta
+    # z hasłem i 4 ms dla nieistniejącego — czas zdradzał, kto ma konto.
+    # W wątku, bo na pętli zdarzeń jedynego procesu wstrzymywał każde inne
+    # żądanie (R9-N9-10).
+    password_ok = await asyncio.to_thread(
+        verify_password, data.password, user.password_hash if user else None
+    )
+    if not user or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
         )
@@ -699,13 +703,17 @@ async def forgot_password(
     # Activity audit log dla każdego requestu (nawet nieznany email — ślad dla
     # analizy bezpieczeństwa). Adres z ``PASSWORD_LOGIN_BREAK_GLASS_EMAILS``
     # pomija bramkę, żeby admin awaryjny mógł odzyskać hasło mimo wyłączonej flagi.
-    if not settings.PASSWORD_LOGIN_ENABLED and not _password_login_break_glass(
-        data.email
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
-        )
+    # Jak w `/login` (pentest 13.11.2026): z niepustą listą adres spoza niej
+    # dostaje tę samą generyczną odpowiedź co adres z listy, bez maila — 503
+    # zdradzałoby, który adres jest kontem awaryjnym.
+    if not settings.PASSWORD_LOGIN_ENABLED:
+        if not settings.password_login_break_glass_email_set:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=_PASSWORD_LOGIN_DISABLED_DETAIL,
+            )
+        if not _password_login_break_glass(data.email):
+            return {"detail": _FORGOT_GENERIC_DETAIL}
     requester_ip = request.client.host if request.client else None
 
     # Lookup bez rozróżniania wielkości liter (R9-N1-1) — konto założone

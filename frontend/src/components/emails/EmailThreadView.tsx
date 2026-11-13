@@ -42,6 +42,31 @@ import {
 import { planThreadReply, type ReplyPlan } from "@/lib/email-reply-target";
 import EmailCompose from "./EmailCompose";
 
+/**
+ * Link z ``target`` w treści maila dostaje ``rel="noopener noreferrer"``
+ * (pentest 13.11.2026: bez tego otwarta karta miała ``window.opener`` i mogła
+ * podmienić NEXUSA na stronę phishingową — reverse tabnabbing). ``rel`` z maila
+ * nadpisujemy, bo mógł nieść ``opener``.
+ */
+function forceSafeLinkRel(node: Element) {
+  if (node.hasAttribute("target")) {
+    node.setAttribute("rel", "noopener noreferrer");
+  }
+}
+
+/** Hook tylko na czas tego wywołania — DOMPurify jest globalny dla aplikacji. */
+function sanitizeEmailHtml(raw: string): string {
+  DOMPurify.addHook("afterSanitizeAttributes", forceSafeLinkRel);
+  try {
+    return DOMPurify.sanitize(raw, {
+      ADD_ATTR: ["target"],
+      FORBID_TAGS: ["style", "script"],
+    });
+  } finally {
+    DOMPurify.removeHook("afterSanitizeAttributes", forceSafeLinkRel);
+  }
+}
+
 interface EmailThreadViewProps {
   candidateId: number;
   /** Adres kandydata — „Odpowiedz” celuje wyłącznie w jego maile. */
@@ -140,10 +165,7 @@ function ThreadMessageCard({
   const bodyHtml = useMemo(() => {
     const raw = fullMessage?.body_html ?? email.body_html ?? "";
     if (!raw) return "";
-    return DOMPurify.sanitize(raw, {
-      ADD_ATTR: ["target"],
-      FORBID_TAGS: ["style", "script"],
-    });
+    return sanitizeEmailHtml(raw);
   }, [fullMessage?.body_html, email.body_html]);
 
   const senderLabel = email.from_name
