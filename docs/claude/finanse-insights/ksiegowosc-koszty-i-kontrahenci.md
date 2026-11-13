@@ -105,7 +105,7 @@ Symfonii (E2) ma sekcję na końcu; przelewy E3, wystawianie faktur E4 — nie d
   (`/finance/costs` przekierowuje do zakładki).
 - Podgląd jako inna osoba jest tylko do odczytu (bez zaznaczania i przycisków).
 
-## Dekret i eksport (E2, 0697)
+## Dekret i eksport (E2, 0698)
 
 Finanse opisywały w eBI24 każdą fakturę dekretem do Symfonii FK i eksportowały
 plikiem. Wzorce z pomiaru 13.11.2026 (1 442 dokumenty): koszt kontraktora

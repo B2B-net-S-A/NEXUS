@@ -102,7 +102,7 @@ MODULES = (
     finance_ledger,
     # 0696: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
     client_invoice_issue,
-    # 0697: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
+    # 0698: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
     finance_posting,
 )
 

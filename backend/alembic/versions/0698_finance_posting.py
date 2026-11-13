@@ -1,7 +1,7 @@
 """Księgowość w Finansach (E2): plan kont, reguły dekretu, dekret wpisu i paczki eksportu.
 
-Revision ID: 0697_finance_posting
-Revises: 0696_sales_invoice_issue
+Revision ID: 0698_finance_posting
+Revises: 0697_training_teams
 
 Tabele ``finance_accounts``, ``finance_posting_rules`` i
 ``finance_posting_batches``, kolumny ``decree`` i ``batch_id`` w
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import finance_posting_schema as schema
 
-revision = "0697_finance_posting"
-down_revision = "0696_sales_invoice_issue"
+revision = "0698_finance_posting"
+down_revision = "0697_training_teams"
 branch_labels = None
 depends_on = None
 

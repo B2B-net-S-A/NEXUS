@@ -1,4 +1,4 @@
-"""Finanse → dekret i eksport do Symfonii FK (księgowość E2, 0697).
+"""Finanse → dekret i eksport do Symfonii FK (księgowość E2, 0698).
 
 Prefiks ``/api/finance/posting`` (``app/main.py``, za wyłącznikiem programu
 „Ludzi w NEXUSIE”). Bramki jak w E1: sekcja Finanse (router), uprawnienie
