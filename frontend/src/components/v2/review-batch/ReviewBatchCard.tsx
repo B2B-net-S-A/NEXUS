@@ -27,6 +27,8 @@ import { knownFactLabels } from "@/lib/new-column-queue";
 import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { cn } from "@/lib/utils";
 
+import { hasKeyFacts, ReviewBatchKeyFactsBlock } from "./ReviewBatchKeyFacts";
+
 /**
  * Jedna osoba z porcji dnia (makieta M7, decyzje Artura z 07.11.2026): wszystko
  * do decyzji na jednym widoku, decyzja jednym klawiszem, bez pomijania.
@@ -129,10 +131,13 @@ export function ReviewBatchCard({
   item,
   onDecided,
   hideJob = false,
+  onPickRequirement,
 }: {
   item: ReviewBatchItem;
   onDecided: () => void;
   hideJob?: boolean;
+  /** Klik w pozycję „Kluczowe”: CV po prawej szuka tej frazy. */
+  onPickRequirement?: (label: string) => void;
 }) {
   const move = usePipelineMoveCore({ jobId: item.job_id });
   const { rejectionReasons } = useJobPipelineTemplate(item.job_id);
@@ -266,6 +271,14 @@ export function ReviewBatchCard({
           </div>
         </div>
         {order ? <p className="text-xs text-muted-foreground">{order}</p> : null}
+        {hasKeyFacts(item.key_facts) ? (
+          <ReviewBatchKeyFactsBlock
+            facts={item.key_facts}
+            restMatched={item.matched_must.length}
+            restTotal={item.matched_must.length + item.missing_must.length}
+            onPick={onPickRequirement}
+          />
+        ) : (
         <div className="flex flex-wrap gap-1.5" aria-label="Musi mieć">
           {item.matched_must.map((m) => (
             <span key={`m-${m}`} className="rounded bg-success/15 px-1.5 py-0.5 text-xs text-success">
@@ -278,6 +291,7 @@ export function ReviewBatchCard({
             </span>
           ))}
         </div>
+        )}
         <div className="flex flex-wrap gap-1.5 text-xs">
           {item.availability_status === "actively_looking" ? (
             <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">Aktywnie szuka</span>

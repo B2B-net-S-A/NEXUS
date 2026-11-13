@@ -23,7 +23,7 @@ import pytest
 import pytest_asyncio
 from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
@@ -395,6 +395,30 @@ async def test_engine_skips_the_person_at_that_client_after_whole_client_reason(
 
     assert await _fill(next_job) == [single_job, ok]
     assert await _fill(elsewhere) == [refused, employed, single_job, ok]
+
+
+async def test_engine_skips_people_refused_for_no_polish_unless_the_job_says_so(
+    monkeypatch,
+):
+    """12.11.2026 (R4): odrzucona za „Brak polskiego” nie wraca do porcji
+    innej rekrutacji, chyba że ta wprost mówi, że polski nie jest potrzebny."""
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    _client, (rejected_here, polish_job, english_job) = await _client_with_jobs(3)
+    no_polish, ok = await _people(2)
+    await _feedback(no_polish, rejected_here, "no_polish", whole_client=False)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Job)
+            .where(Job.id == english_job)
+            .values(champion_profile={"basics": {"language": "English only, C1"}})
+        )
+        await db.commit()
+    scores = {no_polish: 90, ok: 70}
+    await _pool(polish_job, scores)
+    await _pool(english_job, scores)
+
+    assert await _fill(polish_job) == [ok]
+    assert await _fill(english_job) == [no_polish, ok]
 
 
 async def test_move_with_whole_client_withdraws_the_other_card(api_client, monkeypatch):

@@ -406,7 +406,24 @@ def system_exclusions(job_id: int, *, fresh_seat_returns: bool = True) -> list:
             == select(Job.client_id).where(Job.id == job_id).scalar_subquery(),
         )
     )
-    return [removed, hired_now, refused_client, not_looking_now()]
+    # „Brak polskiego” (12.11.2026): osoba odrzucona za brak polskiego nie wraca
+    # do porcji, chyba że rekrutacja wprost mówi, że polski nie jest potrzebny.
+    from app.services.review_batch_facts import NO_POLISH_NEEDED_RE, NO_POLISH_REASON
+
+    polish_not_needed = (
+        select(Job.id)
+        .where(
+            Job.id == job_id,
+            func.coalesce(Job.champion_profile["basics"]["language"].astext, "").op(
+                "~*"
+            )(NO_POLISH_NEEDED_RE),
+        )
+        .exists()
+    )
+    refused_polish = select(AutofillFeedback.candidate_id).where(
+        AutofillFeedback.reason == NO_POLISH_REASON, ~polish_not_needed
+    )
+    return [removed, hired_now, refused_client, refused_polish, not_looking_now()]
 
 
 async def ranked_picks(

@@ -73,6 +73,13 @@ export interface ReviewBatchCaution {
   title: string
 }
 
+/** Dowód krytycznej: oś technologii z CV / tylko wzmianka / nigdzie (12.11.2026). */
+export type KeyEvidence = "experience" | "mention" | "none"
+export interface ReviewBatchKeyFacts {
+  critical: { label: string; state: KeyEvidence; detail: string }[]
+  polish: { state: "native" | "level" | "no" | "unknown"; detail: string }
+}
+
 export interface ReviewBatchItem {
   process_id: number
   stage_id: number | null
@@ -95,6 +102,8 @@ export interface ReviewBatchItem {
   order_active?: boolean
   order_in_budget?: boolean
   why?: ReviewBatchWhy
+  /** „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski. */
+  key_facts?: ReviewBatchKeyFacts | null
 }
 
 export interface ReviewBatchTeamRow {
