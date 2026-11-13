@@ -94,7 +94,7 @@ def _text(limit: int):
     return AfterValidator(check)
 
 
-def _digits_only(value: Optional[str]) -> Optional[str]:
+def digits_only(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     digits = re.sub(r"\D", "", str(value))
@@ -104,7 +104,7 @@ def _digits_only(value: Optional[str]) -> Optional[str]:
 Name = Annotated[Optional[str], _text(500)]
 Address = Annotated[Optional[str], _text(300)]
 Short = Annotated[Optional[str], _text(60)]
-Digits = Annotated[Optional[str], AfterValidator(_digits_only)]
+Digits = Annotated[Optional[str], AfterValidator(digits_only)]
 
 
 class _External(BaseModel):
@@ -243,7 +243,7 @@ def valid_nip(value: Optional[str]) -> Optional[str]:
 
 
 def valid_krs(value: Optional[str]) -> Optional[str]:
-    digits = _digits_only(value)
+    digits = digits_only(value)
     if not digits or len(digits) > 10 or not int(digits):
         return None
     return digits.zfill(10)
@@ -252,7 +252,7 @@ def valid_krs(value: Optional[str]) -> Optional[str]:
 def valid_regon(value: Optional[str]) -> Optional[str]:
     """REGON 9 albo 14 cyfr; KRS pisze 9-cyfrowy jako 14 z „00000” na końcu."""
 
-    digits = _digits_only(value)
+    digits = digits_only(value)
     if not digits:
         return None
     if len(digits) == 14 and digits.endswith("00000"):

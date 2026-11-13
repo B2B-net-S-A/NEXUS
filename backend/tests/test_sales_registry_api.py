@@ -14,16 +14,18 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import local_now
-from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
+from app.models.app_setting import AppSetting
+from app.models.sales import SalesBotResult, SalesCompany
 from app.services.sales import registry
 from app.services.sales import registry_cards as cards
+from app.services.sales.bot_tasks import enrich
 from tests.test_sales_companies_api import _headers, _user
-from tests.test_sales_signals_api import _company
+from tests.test_sales_signals_api import _company, _run
 
 DATA = Path(__file__).parent / "data" / "sales_registry"
 COMPANIES = "/api/sales/companies"
@@ -61,7 +63,7 @@ def _krs_answer(krs: str, nip: str, **over: Any) -> dict[str, Any]:
 
 
 class FakeRegistries:
-    """Rejestry w pamięci: ``vat[nip]`` → wpis albo brak, ``krs[numer]`` → odpowiedź."""
+    """Rejestry w pamięci: ``vat[nip]`` → wpis, ``krs[numer]`` → odpowiedź odpisu."""
 
     def __init__(self) -> None:
         self.vat: dict[str, dict[str, Any]] = {}
@@ -93,11 +95,18 @@ class FakeRegistries:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
 
 
+async def _reset_usage() -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AppSetting).where(AppSetting.key == cards.USAGE_KEY))
+        await db.commit()
+
+
 @pytest.fixture
-def fake(monkeypatch) -> FakeRegistries:
+async def fake(monkeypatch) -> FakeRegistries:
     registries = FakeRegistries()
     monkeypatch.setattr(registry, "BACKOFF_SECONDS", 0)
     monkeypatch.setattr(cards, "new_client", registries.client)
+    await _reset_usage()
     return registries
 
 
@@ -113,20 +122,12 @@ async def _card(company_id: int) -> SalesCompany:
         return await db.get(SalesCompany, company_id)
 
 
-async def _history(company_id: int) -> list[SalesBotResult]:
-    async with AsyncSessionLocal() as db:
-        return list(
-            (
-                await db.scalars(
-                    select(SalesBotResult)
-                    .where(
-                        SalesBotResult.kind == cards.KIND,
-                        SalesBotResult.company_id == company_id,
-                    )
-                    .order_by(SalesBotResult.id)
-                )
-            ).all()
-        )
+async def _history(company_id: int) -> list[dict[str, Any]]:
+    return list((await _card(company_id)).custom_fields.get(cards.HISTORY) or [])
+
+
+def _lines(history: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {line["field"]: line for entry in history for line in entry["lines"]}
 
 
 @pytest.mark.asyncio
@@ -135,7 +136,10 @@ async def test_empty_fields_filled_human_field_kept_and_history_written(fake) ->
     fake.vat[nip] = _vat_answer(nip, krs)
     fake.krs[krs] = httpx.Response(200, json=_krs_answer(krs, nip))
     company = await _company(
-        f"Rejestr {uuid.uuid4().hex[:8]}", nip=nip, legal_name="Nazwa handlowca"
+        f"Rejestr {uuid.uuid4().hex[:8]}",
+        nip=nip,
+        legal_name="Nazwa handlowca",
+        custom_fields={"inne": "zostaje"},
     )
 
     summary = await _check([company])
@@ -148,27 +152,55 @@ async def test_empty_fields_filled_human_field_kept_and_history_written(fake) ->
         "Bielsko-Biała",
         "PL",
     )
-    [entry] = await _history(company)
-    assert entry.status == "accepted"
-    payload = entry.payload
-    assert payload["actor"] == cards.ACTOR
-    assert payload["state"] == registry.ACTIVE
-    assert payload["vat_status"] == "active"
-    assert payload["outcomes"]["legal_name"] == {
-        "result": cards.KEPT,
-        "current": "Nazwa handlowca",
-    }
-    assert payload["outcomes"]["krs"]["result"] == cards.APPLIED
-    assert payload["fields"]["krs"]["url"].endswith(
-        f"/OdpisAktualny/{krs}?rejestr=P&format=json"
-    )
-    assert payload["checked_key"] == f"{nip}|{krs}"
+    custom = card.custom_fields
+    assert custom["inne"] == "zostaje"
+    assert custom[cards.CHECKED_KEY] == f"{nip}|{krs}"
+    assert custom[cards.STATE] == registry.ACTIVE
+    assert custom[cards.CHECKED_AT]
+    [entry] = custom[cards.HISTORY]
+    assert entry["source"] == "krs"
+    lines = _lines(custom[cards.HISTORY])
+    assert lines["legal_name"]["result"] == cards.KEPT
+    assert lines["legal_name"]["before"] == "Nazwa handlowca"
+    assert lines["krs"]["result"] == cards.APPLIED
+    assert lines["krs"]["url"].endswith(f"/OdpisAktualny/{krs}?rejestr=P&format=json")
+    assert "nip" not in lines  # zgodny NIP nie jest zmianą
     assert (summary.checked, summary.applied_fields, summary.kept_fields) == (1, 4, 1)
     assert (summary.mf_queries, summary.krs_queries) == (1, 1)
     async with AsyncSessionLocal() as db:
-        run = await db.get(SalesSignalRun, entry.run_id)
-        assert (run.kind, run.status, run.token_hash) == ("registry", "received", None)
-        assert run.report["checked"] == 1 and run.report["mf_queries"] == 1
+        used = await cards.usage(db, now=datetime.now(timezone.utc))
+    assert used["mf_queries"] == 1
+
+
+@pytest.mark.asyncio
+async def test_field_written_by_enrich_bot_is_updated_from_registry(fake) -> None:
+    nip = _nip()
+    fake.vat[nip] = _vat_answer(nip, None)
+    company = await _company(
+        f"Od bota {uuid.uuid4().hex[:8]}", nip=nip, hq_city="Katowice"
+    )
+    run_id, _ = await _run([company], kind=enrich.KIND, status="received")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            SalesBotResult(
+                run_id=run_id,
+                kind=enrich.KIND,
+                company_id=company,
+                status="accepted",
+                payload={
+                    "fields": {"hq_city": {"value": "Katowice"}},
+                    "outcomes": {"hq_city": {"result": enrich.APPLIED}},
+                },
+                fingerprint=f"test|{uuid.uuid4().hex}",
+            )
+        )
+        await db.commit()
+
+    await _check([company])
+
+    assert (await _card(company)).hq_city == "Bielsko-Biała"
+    line = _lines(await _history(company))["hq_city"]
+    assert (line["result"], line["before"]) == (cards.APPLIED, "Katowice")
 
 
 @pytest.mark.asyncio
@@ -183,8 +215,7 @@ async def test_nip_from_krs_already_on_other_card_is_history_only(fake) -> None:
     card = await _card(company)
     assert card.nip is None
     assert card.regon == "111222333"
-    [entry] = await _history(company)
-    taken = entry.payload["outcomes"]["nip"]
+    taken = _lines(await _history(company))["nip"]
     assert (taken["result"], taken["other_id"]) == (cards.TAKEN, other)
     # Bez NIP-u na karcie MF nie był pytany.
     assert not any(call.startswith("/api/search") for call in fake.calls)
@@ -201,10 +232,15 @@ async def test_removed_company_only_gets_history_and_stays_active(fake) -> None:
     card = await _card(company)
     assert card.archived_at is None
     assert (card.nip, card.legal_name, card.regon) == (None, None, None)
+    assert card.custom_fields[cards.STATE] == registry.REMOVED
     [entry] = await _history(company)
-    assert entry.payload["state"] == registry.REMOVED
-    assert entry.payload["removed_on"] == "17.03.2016"
-    assert entry.payload["fields"] == {}
+    [line] = entry["lines"]
+    assert (line["field"], line["result"], line["after"], line["removed_on"]) == (
+        "state",
+        cards.INACTIVE,
+        registry.REMOVED,
+        "17.03.2016",
+    )
     assert summary.inactive == 1
 
 
@@ -217,17 +253,9 @@ async def test_registry_timeout_leaves_card_untouched_and_due(fake) -> None:
     summary = await _check([company])
 
     assert (summary.checked, summary.errors) == (0, 1)
-    assert await _history(company) == []
+    card = await _card(company)
+    assert cards.CHECKED_AT not in card.custom_fields
     async with AsyncSessionLocal() as db:
-        run = (
-            await db.scalars(
-                select(SalesSignalRun)
-                .where(SalesSignalRun.kind == cards.KIND)
-                .order_by(SalesSignalRun.id.desc())
-                .limit(1)
-            )
-        ).one()
-        assert run.status == "failed"
         due = await cards.due_company_ids(
             db, now=datetime.now(timezone.utc), limit=10, only=[company]
         )
@@ -235,10 +263,31 @@ async def test_registry_timeout_leaves_card_untouched_and_due(fake) -> None:
 
 
 @pytest.mark.asyncio
+async def test_krs_outage_with_vat_answer_still_checks_the_card(fake) -> None:
+    nip, krs = _nip(), _krs()
+    fake.vat[nip] = _vat_answer(nip, krs)
+    fake.krs[krs] = httpx.Response(503)
+    company = await _company(f"Bez KRS {uuid.uuid4().hex[:8]}", nip=nip)
+
+    summary = await _check([company])
+
+    # Odpowiedź MF nie przepada: wynik z białej listy, KRS wróci za 30 dni.
+    assert (summary.checked, summary.errors) == (1, 0)
+    assert summary.cards[company]["krs_unavailable"] is True
+    line = _lines(await _history(company))["regon"]
+    assert line["url"].startswith("https://wl-api.mf.gov.pl/")
+    assert (await _card(company)).krs == krs
+
+
+@pytest.mark.asyncio
 async def test_checked_card_waits_30_days_unless_number_changes(fake) -> None:
     nip = _nip()
     company = await _company(f"Trzydzieści {uuid.uuid4().hex[:8]}", nip=nip)
     await _check([company])
+    # NIP-u nie ma w wykazie: stan „brak w rejestrze”, bez wpisu historii.
+    card = await _card(company)
+    assert card.custom_fields[cards.STATE] == registry.NOT_FOUND
+    assert await _history(company) == []
     now = datetime.now(timezone.utc)
     async with AsyncSessionLocal() as db:
         assert await cards.due_company_ids(db, now=now, limit=10, only=[company]) == []
@@ -253,24 +302,36 @@ async def test_checked_card_waits_30_days_unless_number_changes(fake) -> None:
         assert await cards.due_company_ids(db, now=now, limit=10, only=[company]) == [
             company
         ]
-    # NIP-u nie ma w wykazie: wpis „brak w rejestrze”, karta bez zmian.
-    [entry] = await _history(company)
-    assert entry.payload["state"] == registry.NOT_FOUND
 
 
 @pytest.mark.asyncio
-async def test_repeated_check_confirms_once_then_only_refreshes(fake) -> None:
+async def test_repeated_check_without_change_adds_no_history(fake) -> None:
     nip = _nip()
     fake.vat[nip] = _vat_answer(nip, None)
     company = await _company(f"Dwa razy {uuid.uuid4().hex[:8]}", nip=nip)
     await _check([company])
+    first = await _history(company)
     await _check([company])
-    first, second = await _history(company)
+    assert await _history(company) == first
+    assert _lines(first)["regon"]["result"] == cards.APPLIED
+
+
+@pytest.mark.asyncio
+async def test_history_keeps_last_thirty_entries(fake) -> None:
+    nip = _nip()
+    fake.vat[nip] = _vat_answer(nip, None)
+    old = [
+        {"at": "2026-01-01T00:00:00+00:00", "source": "vat", "lines": [{"field": "x"}]}
+    ] * cards.HISTORY_KEEP
+    company = await _company(
+        f"Długa {uuid.uuid4().hex[:8]}",
+        nip=nip,
+        custom_fields={cards.HISTORY: old},
+    )
     await _check([company])
-    # Trzecie sprawdzenie z tym samym wynikiem nie dokłada wiersza historii.
-    assert [row.id for row in await _history(company)] == [first.id, second.id]
-    assert first.payload["outcomes"]["regon"]["result"] == cards.APPLIED
-    assert second.payload["outcomes"]["regon"]["result"] == cards.SAME
+    history = await _history(company)
+    assert len(history) == cards.HISTORY_KEEP
+    assert history[-1]["lines"][0]["field"] != "x"
 
 
 @pytest.mark.asyncio
@@ -283,21 +344,17 @@ async def test_daily_mf_budget_stops_vat_queries(fake) -> None:
 
 
 @pytest.mark.asyncio
-async def test_night_step_runs_once_an_hour_between_one_and_six(
+async def test_night_step_runs_once_an_hour_and_save_does_not_take_the_hour(
     fake, monkeypatch
 ) -> None:
     monkeypatch.setattr(settings, "SALES_REGISTRY_ENABLED", True)
     owner = await _user("sales_edit")
-    nip = _nip()
+    saved = await _company(f"Po bocie {uuid.uuid4().hex[:8]}", nip=_nip())
     company = await _company(
-        f"Noc {uuid.uuid4().hex[:8]}", nip=nip, owner_user_id=owner.id
+        f"Noc {uuid.uuid4().hex[:8]}", nip=_nip(), owner_user_id=owner.id
     )
-    async with AsyncSessionLocal() as db:
-        # Inne biegi nocne z tej bazy nie mogą zjeść godziny ani limitu.
-        await db.execute(
-            delete(SalesSignalRun).where(SalesSignalRun.kind == cards.KIND)
-        )
-        await db.commit()
+    # Sprawdzenie po zapisie (np. po nocnym raporcie bota) nie zabiera godziny nocy.
+    await cards.check_after_save([saved])
     original = cards.due_company_ids
 
     async def only_ours(db, *, now, limit, only=None):
@@ -314,7 +371,7 @@ async def test_night_step_runs_once_an_hour_between_one_and_six(
         assert await cards.night_step(db, now=now, local=night) == 1
     async with AsyncSessionLocal() as db:
         assert await cards.night_step(db, now=now, local=night) == 0
-    assert len(await _history(company)) == 1
+    assert (await _card(company)).custom_fields[cards.CHECKED_AT]
 
 
 @pytest.mark.asyncio
@@ -328,15 +385,15 @@ async def test_night_step_off_without_flag(fake, monkeypatch) -> None:
     assert fake.calls == []
 
 
-# ── Wyzwalacz po zapisie NIP-u na ekranie Firmy ──────────────────────────
+# ── Ekran: wyzwalacz po zapisie NIP-u i historia karty ───────────────────
 
 
 @pytest.fixture
-def spawned(monkeypatch) -> list[tuple[list[int], int | None]]:
-    calls: list[tuple[list[int], int | None]] = []
+def spawned(monkeypatch) -> list[list[int]]:
+    calls: list[list[int]] = []
 
-    async def record(company_ids: list[int], *, user_id: int | None = None) -> None:
-        calls.append((company_ids, user_id))
+    async def record(company_ids: list[int]) -> None:
+        calls.append(company_ids)
 
     monkeypatch.setattr(cards, "check_after_save", record)
     return calls
@@ -360,7 +417,7 @@ async def test_saving_new_nip_starts_registry_check(
         f"{COMPANIES}/{company}", json={"nip": _nip()}, headers=_headers(editor)
     )
     assert saved.status_code == 200, saved.text
-    assert spawned == [([company], editor.id)]
+    assert spawned == [[company]]
 
     created = await app_client.post(
         COMPANIES,
@@ -368,7 +425,7 @@ async def test_saving_new_nip_starts_registry_check(
         headers=_headers(editor),
     )
     assert created.status_code == 201, created.text
-    assert spawned[-1] == ([created.json()["id"]], editor.id)
+    assert spawned[-1] == [created.json()["id"]]
 
 
 @pytest.mark.asyncio
@@ -386,44 +443,24 @@ async def test_no_registry_check_with_flag_off(
 
 
 @pytest.mark.asyncio
-async def test_krs_outage_with_vat_answer_records_vat_only(fake) -> None:
-    nip, krs = _nip(), _krs()
-    fake.vat[nip] = _vat_answer(nip, krs)
-    fake.krs[krs] = httpx.Response(503)
-    company = await _company(f"Bez KRS {uuid.uuid4().hex[:8]}", nip=nip)
-
-    summary = await _check([company])
-
-    # Odpowiedź MF nie przepada: wpis z białej listy, KRS wróci za 30 dni.
-    assert (summary.checked, summary.errors) == (1, 0)
-    [entry] = await _history(company)
-    assert entry.payload["krs_unavailable"] is True
-    assert entry.payload["fields"]["regon"]["source"] == "vat"
-    assert (await _card(company)).krs == krs
-
-
-@pytest.mark.asyncio
-async def test_check_after_bot_report_does_not_take_the_night_hour(
-    fake, monkeypatch
+async def test_card_history_shows_registry_entries(
+    app_client, fake, monkeypatch
 ) -> None:
     monkeypatch.setattr(settings, "SALES_REGISTRY_ENABLED", True)
-    saved = await _company(f"Po bocie {uuid.uuid4().hex[:8]}", nip=_nip())
-    night_card = await _company(f"Nocą {uuid.uuid4().hex[:8]}", nip=_nip())
-    async with AsyncSessionLocal() as db:
-        await db.execute(
-            delete(SalesSignalRun).where(SalesSignalRun.kind == cards.KIND)
-        )
-        await db.commit()
-    # Bieg po raporcie bota: bez osoby, jak noc, ale z innym znacznikiem.
-    await cards.check_after_save([saved])
-    original = cards.due_company_ids
+    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", False)
+    krs = _krs()
+    fake.removed.add(krs)
+    company = await _company(f"Historia {uuid.uuid4().hex[:8]}", krs=krs)
+    await _check([company])
+    viewer = await _user("sales_view")
 
-    async def only_night(db, *, now, limit, only=None):
-        return await original(db, now=now, limit=limit, only=[night_card])
+    response = await app_client.get(
+        f"{COMPANIES}/{company}/bot-history", headers=_headers(viewer)
+    )
 
-    monkeypatch.setattr(cards, "due_company_ids", only_night)
-    async with AsyncSessionLocal() as db:
-        night = local_now().replace(hour=2)
-        assert (
-            await cards.night_step(db, now=datetime.now(timezone.utc), local=night) == 1
-        )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["enabled"] is True
+    [entry] = body["items"]
+    assert entry["bot"] == "Rejestry (KRS)"
+    assert entry["lines"][0]["after"] == "firma wykreślona z KRS"

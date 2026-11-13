@@ -615,7 +615,7 @@ async def create_company(
     _apply(company, fields)
     db.add(company)
     await db.commit()
-    _check_registry(company, "|", user_id=current_user.id)
+    _check_registry(company, "|")
     return await _load(db, company.id)
 
 
@@ -652,16 +652,16 @@ async def update_company(
     before = registry_cards.checked_key(company)
     _apply(company, fields)
     await db.commit()
-    _check_registry(company, before, user_id=current_user.id)
+    _check_registry(company, before)
     return await _load(db, company_id)
 
 
-def _check_registry(company: SalesCompany, before: str, *, user_id: int) -> None:
+def _check_registry(company: SalesCompany, before: str) -> None:
     """Nowy NIP albo KRS na karcie: sprawdzenie w rejestrach od razu, w tle."""
 
     if registry_cards.enabled() and registry_cards.identifiers_changed(before, company):
         spawn(
-            registry_cards.check_after_save([company.id], user_id=user_id),
+            registry_cards.check_after_save([company.id]),
             "sales_registry_after_save",
         )
 

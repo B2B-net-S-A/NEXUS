@@ -1028,9 +1028,6 @@ BOT_RUN_KINDS: tuple[str, ...] = (
     "winback",
     "discovery",
     "people",
-    # 0688: sprawdzenie kart w rejestrach państwowych (``services/sales/registry.py``),
-    # bieg bez bota i bez tokenu, od razu ``received``.
-    "registry",
 )
 BOT_BRIEFING_MODES: tuple[str, ...] = (*BRIEFING_MODES, "call_hook", "meeting_prep")
 BOT_RESULT_STATUSES: tuple[str, ...] = ("new", "accepted", "rejected", "partial")
@@ -1076,25 +1073,6 @@ BOT_TASKS_DDL: tuple[str, ...] = (
     "ON sales_bot_results (kind, status, created_at DESC)",
     "CREATE INDEX IF NOT EXISTS ix_sales_bot_results_company "
     "ON sales_bot_results (company_id)",
-)
-
-# 0688: rodzaj biegu ``registry``. Ten sam wzór co w ``BOT_TASKS_DDL``: podmiana
-# CHECK-a tylko wtedy, gdy definicja nie zna jeszcze nowego rodzaju.
-REGISTRY_DDL: tuple[str, ...] = (
-    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
-    "WHERE conname = 'ck_sales_signal_runs_kind' "
-    "AND pg_get_constraintdef(oid) LIKE '%registry%') THEN "
-    "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind; "
-    "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
-    f"CHECK ({CK_BOT_RUN_KIND}); END IF; END $$",
-)
-
-REGISTRY_DOWNGRADE_DDL: tuple[str, ...] = (
-    "DELETE FROM sales_signal_runs WHERE kind = 'registry'",
-    "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind",
-    "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind CHECK (kind IN ("
-    + quoted(tuple(kind for kind in BOT_RUN_KINDS if kind != "registry"))
-    + "))",
 )
 
 BOT_TASKS_DOWNGRADE_DDL: tuple[str, ...] = (

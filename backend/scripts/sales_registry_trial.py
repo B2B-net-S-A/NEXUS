@@ -5,9 +5,10 @@ robi się z hosta: skrypt łączy się z bazą stagingu (``DATABASE_URL`` na
 ``127.0.0.1:5433``), bierze karty do sprawdzenia w tej samej kolejności co noc
 (``registry_cards.due_company_ids``) i pyta prawdziwe rejestry.
 
-Domyślnie na sucho: ten sam przebieg co pętla, na końcu wycofanie, bez biegu i bez
-historii. ``--apply`` zapisuje wynik w tej bazie (wymaga rodzaju ``registry``,
-migracja 0688). Skrypt odmawia bazy spoza ``localhost``: produkcji nie dotyka.
+Domyślnie na sucho: ten sam przebieg co pętla, na końcu wycofanie, bez zapisu
+historii i licznika MF. ``--apply`` zapisuje wynik w tej bazie (karty,
+``custom_fields``, licznik w ``app_settings``). Skrypt odmawia bazy spoza
+``localhost``: produkcji nie dotyka.
 
 Na standardowym wyjściu same liczby. Nazwy kart i wartości z rejestrów idą do
 pliku ``--list-out`` poza repozytorium. Reguły:

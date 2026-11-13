@@ -7,7 +7,7 @@ Odpowiedzi to nagrania prawdziwych API z 13.11.2026 z fikcyjnymi nazwami i numer
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -15,7 +15,7 @@ import httpx
 import pytest
 
 from app.models.sales import SalesCompany
-from app.services.sales import registry
+from app.services.sales import bot_card_history, registry
 from app.services.sales import registry_cards as cards
 
 DATA = Path(__file__).parent / "data" / "sales_registry"
@@ -240,7 +240,7 @@ def test_states_for_vat_only_cards() -> None:
 
 
 @pytest.mark.asyncio
-async def test_human_field_stays_and_only_empty_fields_are_filled() -> None:
+async def test_human_field_stays_and_empty_fields_are_filled() -> None:
     vat, krs = _records()
     company = SalesCompany(
         id=1,
@@ -265,29 +265,179 @@ async def test_human_field_stays_and_only_empty_fields_are_filled() -> None:
     )
     assert company.hq_country is None
     assert outcomes == {
-        "legal_name": {"result": cards.KEPT, "current": "Nazwa wpisana ręcznie"},
+        "legal_name": {"result": cards.KEPT, "before": "Nazwa wpisana ręcznie"},
         "nip": {"result": cards.SAME},
         "krs": {"result": cards.SAME},
-        "regon": {"result": cards.APPLIED, "previous": None},
-        "hq_city": {"result": cards.KEPT, "current": "Katowice"},
+        "regon": {"result": cards.APPLIED, "before": None},
+        "hq_city": {"result": cards.KEPT, "before": "Katowice"},
     }
 
 
-def test_fingerprint_follows_values_not_check_time() -> None:
-    payload = {
-        "fields": {"regon": {"value": "111222333"}},
-        "outcomes": {"regon": {"result": "applied"}},
-        "state": "active",
-        "vat_status": "active",
-        "checked_key": f"{ACTIVE_NIP}|",
-        "checked_at": "2026-11-13T01:00:00+00:00",
-    }
-    later = {**payload, "checked_at": "2026-12-20T01:00:00+00:00"}
-    assert cards.fingerprint(7, payload) == cards.fingerprint(7, later)
-    assert cards.fingerprint(7, payload) != cards.fingerprint(
-        7, {**payload, "state": "removed"}
+@pytest.mark.asyncio
+async def test_field_with_last_automat_value_is_updated() -> None:
+    vat, krs = _records()
+    company = SalesCompany(
+        id=1,
+        name="Przykładowa",
+        normalized_name="przykladowa",
+        nip=ACTIVE_NIP,
+        krs="0000111222",
+        legal_name="Stara nazwa od bota",
+        hq_city="Katowice",
+        hq_country="PL",
     )
-    assert len(cards.fingerprint(7, payload)) <= 200
+    from_bot = {"legal_name": "stara  NAZWA od bota"}
+    from_registry = {"hq_city": "Katowice"}
+    outcomes = await cards.apply_registry(
+        None,  # type: ignore[arg-type]
+        company,
+        cards.proposed_fields(vat, krs),
+        owned=(from_registry, from_bot),
+    )
+    assert company.legal_name == ("PRZYKŁADOWA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ")
+    assert company.hq_city == "Bielsko-Biała"
+    assert outcomes["legal_name"] == {
+        "result": cards.APPLIED,
+        "before": "Stara nazwa od bota",
+    }
+    assert outcomes["hq_city"]["before"] == "Katowice"
+    assert outcomes["hq_country"] == {"result": cards.SAME}
+
+
+def test_registry_owned_takes_last_applied_value() -> None:
+    history = [
+        {"lines": [{"field": "hq_city", "after": "Katowice", "result": "applied"}]},
+        {"lines": [{"field": "hq_city", "after": "Gliwice", "result": "kept"}]},
+        {"lines": [{"field": "regon", "after": "111222333", "result": "applied"}]},
+    ]
+    assert cards.registry_owned(history) == {
+        "hq_city": "Katowice",
+        "regon": "111222333",
+    }
+
+
+def test_history_groups_lines_by_registry_and_skips_same() -> None:
+    vat, krs = _records()
+    fields = cards.proposed_fields(vat, krs)
+    fields["krs"] = {**fields["krs"], "source": "vat"}
+    outcomes = {
+        "legal_name": {"result": cards.SAME},
+        "regon": {"result": cards.APPLIED, "before": None},
+        "krs": {"result": cards.TAKEN, "other_id": 7, "other_name": "Inna"},
+    }
+    at = datetime(2026, 11, 13, 1, 0, tzinfo=timezone.utc)
+    entries = cards.history_entries(
+        fields, outcomes, state=registry.ACTIVE, vat=vat, krs=krs, at=at
+    )
+    assert sorted(entries, key=lambda entry: entry["source"]) == [
+        {
+            "at": "2026-11-13T01:00:00+00:00",
+            "source": "krs",
+            "lines": [
+                {
+                    "field": "regon",
+                    "before": None,
+                    "after": "111222333",
+                    "result": "applied",
+                    "url": fields["regon"]["url"],
+                }
+            ],
+        },
+        {
+            "at": "2026-11-13T01:00:00+00:00",
+            "source": "vat",
+            "lines": [
+                {
+                    "field": "krs",
+                    "before": None,
+                    "after": "0000111222",
+                    "result": "taken",
+                    "url": fields["krs"]["url"],
+                    "other_id": 7,
+                    "other_name": "Inna",
+                }
+            ],
+        },
+    ]
+    assert (
+        cards.history_entries(
+            fields,
+            {"legal_name": {"result": cards.SAME}},
+            state="active",
+            vat=vat,
+            krs=krs,
+            at=at,
+        )
+        == []
+    )
+
+
+def test_removed_company_history_line_and_card_history_entry() -> None:
+    removed = registry.KrsRecord(
+        krs="0000555666",
+        state=registry.REMOVED,
+        url=registry.krs_url("0000555666"),
+        removed_on="17.03.2016",
+    )
+    at = datetime(2026, 11, 13, 1, 0, tzinfo=timezone.utc)
+    entries = cards.history_entries(
+        {}, {}, state=registry.REMOVED, vat=None, krs=removed, at=at
+    )
+    [entry] = bot_card_history.registry_entries({"registry_history": entries})
+    assert entry.bot == "Rejestry (KRS)"
+    [line] = entry.lines
+    assert (line.label, line.after, line.note, line.source) == (
+        "Stan w rejestrze",
+        "firma wykreślona z KRS",
+        "od 17.03.2016, karta zostaje",
+        removed.url,
+    )
+
+
+def test_card_history_maps_registry_lines_and_survives_junk() -> None:
+    custom = {
+        "registry_history": [
+            "zły wpis",
+            {"at": "nie-data", "lines": []},
+            {
+                "at": "2026-11-13T01:00:00+00:00",
+                "source": "vat",
+                "lines": [
+                    {
+                        "field": "legal_name",
+                        "before": "Ręczna",
+                        "after": "Z REJESTRU",
+                        "result": "kept",
+                        "url": "https://wl-api.mf.gov.pl/x",
+                    },
+                    {
+                        "field": "nip",
+                        "after": ACTIVE_NIP,
+                        "result": "taken",
+                        "other_id": 9,
+                        "other_name": "Druga",
+                        "url": "https://wl-api.mf.gov.pl/x",
+                    },
+                    {"field": "nieznane", "after": "x", "result": "applied"},
+                ],
+            },
+        ]
+    }
+    [entry] = bot_card_history.registry_entries(custom)
+    assert entry.bot == "Rejestry (biała lista VAT)"
+    kept, taken = entry.lines
+    assert (kept.label, kept.before, kept.after, kept.note) == (
+        "Nazwa prawna",
+        "Ręczna",
+        "Z REJESTRU",
+        bot_card_history.KEPT_NOTE,
+    )
+    assert (taken.other_company_id, taken.other_company_name) == (9, "Druga")
+    older = bot_card_history.Entry(
+        at=datetime(2026, 11, 1, tzinfo=timezone.utc), bot="Dane firm"
+    )
+    built = bot_card_history.build([], with_people=False, extra=[older, entry])
+    assert [item.bot for item in built] == [entry.bot, "Dane firm"]
 
 
 def test_identifiers_changed_only_on_new_number() -> None:

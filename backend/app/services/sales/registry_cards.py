@@ -3,50 +3,56 @@
 Decyzja Artura z 13.11.2026 (krok 6 planu botów). Klient rejestrów i walidacja
 odpowiedzi: ``services/sales/registry.py``.
 
-Zapis od razu, tą samą ścieżką co ekran Firmy (``companies.apply_fields``),
-wyłącznie w puste pola. Pole z inną wartością zostaje, a wartość z rejestru
-idzie tylko do historii karty. NIP albo KRS z innej niezarchiwizowanej karty
-niczego nie zmienia (scalanie kart jest ręczne), historia ma link do tamtej
-karty. Firma wykreślona, w likwidacji albo w upadłości: wpis w historii, bez
-archiwizacji, a wykreślona nie daje żadnych pól.
+Zapis od razu, tą samą ścieżką co ekran Firmy (``companies.apply_fields``):
+puste pole i pole wpisane przez automat (rejestr albo bot ``enrich``, gdy karta
+ma dokładnie jego ostatnią wartość) dostają wartość z rejestru. Pole wpisane
+przez człowieka zostaje, a wartość z rejestru idzie tylko do historii karty.
+NIP albo KRS z innej niezarchiwizowanej karty niczego nie zmienia (scalanie
+kart jest ręczne), historia ma link do tamtej karty. Firma wykreślona,
+w likwidacji albo w upadłości: wpis w historii, bez archiwizacji, a wykreślona
+nie daje żadnych pól.
 
-Historia karty to wiersz ``sales_bot_results`` rodzaju ``registry`` ze
-statusem ``accepted`` (ten sam kształt ``payload.fields``/``outcomes`` co
-zapis od razu bota ``enrich``), a każde sprawdzenie ma swój bieg
-``sales_signal_runs`` (bez tokenu, od razu ``received``) z samymi liczbami.
+Bez migracji i bez biegów bota (decyzja z sesji botów 13.11): historia leży
+w ``sales_companies.custom_fields``:
+
+* ``registry_history`` — wpisy ``{at, source, lines: [{field, before, after,
+  result, other_id?, other_name?, url}]}``, najnowsze na końcu, ostatnie 30;
+  ``result``: ``applied``, ``kept``, ``taken``, ``inactive``. Sprawdzenie bez
+  zmian nie dokłada wpisu;
+* ``registry_checked_at`` i ``registry_checked_key`` (NIP i KRS karty w chwili
+  sprawdzenia) — karta nie wraca przez 30 dni, chyba że zmieni się numer;
+* ``registry_state`` — ostatni stan firmy w rejestrze.
+
+Ekran pokazuje historię przez ``bot_card_history.registry_entries``.
 
 Kiedy: noc 1:00–6:00 (krok pętli ``tasks/sales_signals.py``, paczka 30 kart na
 godzinę) i zaraz po zapisaniu NIP-u albo KRS-u na karcie. Limit MF (100
 zapytań ``search`` dziennie) dzielą Sprzedaż i Rozliczenia
 (``services/hr/white_list.py``), więc Sprzedaż bierze najwyżej
-``DAILY_MF_QUERIES``. Logi to same liczby, bez nazw firm.
+``DAILY_MF_QUERIES``; licznik dnia i godzina ostatniej paczki nocnej leżą
+w ``app_settings`` (``USAGE_KEY``). Logi to same liczby, bez nazw firm.
 Reguły: ``docs/claude/sprzedaz/dane-firm-z-rejestrow.md``.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import httpx
-from sqlalchemy import Integer, exists, func, or_, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import DateTime, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_date, local_day_start_utc
-from app.models.sales import (
-    SalesBotResult,
-    SalesCompany,
-    SalesOpportunity,
-    SalesSignalRun,
-)
+from app.core.scheduling import business_date
+from app.models.app_setting import AppSetting
+from app.models.sales import SalesCompany, SalesOpportunity
 from app.services.sales import companies as company_service
+from app.services.sales.bot_tasks import enrich
 from app.services.sales.registry import (
     ACTIVE,
     BANKRUPTCY,
@@ -61,21 +67,16 @@ from app.services.sales.registry import (
     RegistryQuotaExceeded,
     RegistryUnavailable,
     VatRecord,
-    _digits_only,
+    digits_only,
     fetch_krs,
     fetch_vat,
     new_client,
     valid_krs,
     valid_nip,
     valid_regon,
-    vat_url,
 )
 
 logger = logging.getLogger(__name__)
-
-KIND = "registry"
-#: Kto w historii karty.
-ACTOR = "Dane firm (automat)"
 
 #: Zapytania MF Sprzedaży na dzień (z limitu 100 wspólnego z Rozliczeniami).
 DAILY_MF_QUERIES = 25
@@ -83,17 +84,24 @@ DAILY_MF_QUERIES = 25
 NIGHT_HOURS = (1, 6)
 NIGHT_EVERY = timedelta(hours=1)
 NIGHT_BATCH = MF_BATCH
-#: Skąd bieg (``sales_signal_runs.request.trigger``).
-NIGHT = "night"
-SAVE = "save"
 #: Karta sprawdzona nie wraca przez 30 dni (zmiana NIP-u albo KRS-u wraca od razu).
 RESEND_AFTER = timedelta(days=30)
+#: Tyle ostatnich wpisów historii zostaje w ``custom_fields``.
+HISTORY_KEEP = 30
+
+#: ``app_settings``: ``{day, mf_queries, night_at}`` — licznik MF i ostatnia noc.
+USAGE_KEY = "sales_registry_usage"
+HISTORY = "registry_history"
+CHECKED_AT = "registry_checked_at"
+CHECKED_KEY = "registry_checked_key"
+STATE = "registry_state"
 
 #: Wynik pola w historii karty (nazwy jak w ``bot_tasks/enrich.py``).
 APPLIED = "applied"
 SAME = "same"
 KEPT = "kept"
 TAKEN = "taken"
+INACTIVE = "inactive"
 
 #: Pola karty, które rejestr może uzupełnić, w kolejności zapisu.
 FIELDS: tuple[str, ...] = (
@@ -133,20 +141,6 @@ def _target(company_id: int, nip: Optional[str], krs: Optional[str]) -> Target:
     )
 
 
-def _last_check():
-    """Ostatnie sprawdzenie karty: kiedy i co (``payload.checked_key``)."""
-
-    return (
-        select(
-            SalesBotResult.company_id.label("company_id"),
-            func.max(SalesBotResult.updated_at).label("checked_at"),
-        )
-        .where(SalesBotResult.kind == KIND)
-        .group_by(SalesBotResult.company_id)
-        .subquery()
-    )
-
-
 async def due_company_ids(
     db: AsyncSession, *, now: datetime, limit: int, only: Optional[list[int]] = None
 ) -> list[int]:
@@ -156,32 +150,31 @@ async def due_company_ids(
     key = func.concat(
         func.coalesce(SalesCompany.nip, ""), "|", func.coalesce(SalesCompany.krs, "")
     )
-    same_key = exists().where(
-        SalesBotResult.kind == KIND,
-        SalesBotResult.company_id == SalesCompany.id,
-        SalesBotResult.payload["checked_key"].astext == key,
-        SalesBotResult.updated_at > now - RESEND_AFTER,
-    )
+    last_key = SalesCompany.custom_fields[CHECKED_KEY].astext
+    last_at = cast(SalesCompany.custom_fields[CHECKED_AT].astext, DateTime(True))
     open_deal = exists().where(
         SalesOpportunity.company_id == SalesCompany.id,
         SalesOpportunity.status == "open",
         SalesOpportunity.archived_at.is_(None),
     )
-    last = _last_check()
     statement = (
         select(SalesCompany.id)
-        .outerjoin(last, last.c.company_id == SalesCompany.id)
         .where(
             SalesCompany.archived_at.is_(None),
             or_(
                 func.nullif(func.trim(SalesCompany.nip), "").is_not(None),
                 func.nullif(func.trim(SalesCompany.krs), "").is_not(None),
             ),
-            ~same_key,
+            or_(
+                last_key.is_(None),
+                last_key != key,
+                last_at.is_(None),
+                last_at <= now - RESEND_AFTER,
+            ),
         )
         .order_by(
             or_(SalesCompany.owner_user_id.is_not(None), open_deal).desc(),
-            last.c.checked_at.asc().nulls_first(),
+            last_at.asc().nulls_first(),
             SalesCompany.id,
         )
         .limit(limit)
@@ -191,29 +184,60 @@ async def due_company_ids(
     return list((await db.scalars(statement)).all())
 
 
-async def mf_queries_today(db: AsyncSession, *, now: datetime) -> int:
-    start = local_day_start_utc(business_date(now))
-    used = await db.scalar(
-        select(
-            func.coalesce(
-                func.sum(SalesSignalRun.report["mf_queries"].astext.cast(Integer)), 0
-            )
-        ).where(SalesSignalRun.kind == KIND, SalesSignalRun.started_at >= start)
-    )
-    return int(used or 0)
+# ── Licznik MF i noc (app_settings) ──────────────────────────────────────
+
+
+def _usage_today(value: Optional[dict[str, Any]], now: datetime) -> dict[str, Any]:
+    day = business_date(now).isoformat()
+    value = dict(value or {})
+    if value.get("day") != day:
+        value = {"day": day, "mf_queries": 0, "night_at": value.get("night_at")}
+    return value
+
+
+async def usage(db: AsyncSession, *, now: datetime) -> dict[str, Any]:
+    row = await db.get(AppSetting, USAGE_KEY)
+    return _usage_today(row.value if row else None, now)
+
+
+async def _reserve(
+    db: AsyncSession, *, now: datetime, wanted: int, cap: int, night: bool
+) -> int:
+    """Zarezerwuj zapytania MF pod blokadą wiersza; zwraca, ile wolno zużyć.
+
+    Rezerwacja przed siecią, więc dwa równoległe sprawdzenia (noc i zapis
+    z ekranu) nie przekroczą dziennego limitu Sprzedaży.
+    """
+
+    row = await db.get(AppSetting, USAGE_KEY, with_for_update=True)
+    value = _usage_today(row.value if row else None, now)
+    granted = max(0, min(wanted, cap - int(value.get("mf_queries") or 0)))
+    value["mf_queries"] = int(value.get("mf_queries") or 0) + granted
+    if night:
+        value["night_at"] = now.isoformat()
+    if row is None:
+        db.add(AppSetting(key=USAGE_KEY, value=value))
+    else:
+        row.value = value
+    await db.commit()
+    return granted
 
 
 # ── Porównanie z kartą ───────────────────────────────────────────────────
 
 
 def _same(key: str, current: Any, value: Any) -> bool:
+    if current in (None, "") or value in (None, ""):
+        return False
     if key in ("nip", "krs", "regon"):
         normalize = {
             "nip": company_service.nip_digits,
             "krs": valid_krs,
             "regon": valid_regon,
         }[key]
-        return (normalize(current) or _digits_only(current)) == value
+        return (normalize(str(current)) or digits_only(str(current))) == (
+            normalize(str(value)) or digits_only(str(value))
+        )
     return (
         " ".join(str(current).split()).casefold()
         == " ".join(str(value).split()).casefold()
@@ -270,6 +294,23 @@ def registry_state(
     return ACTIVE
 
 
+def registry_owned(history: list[dict[str, Any]]) -> dict[str, Any]:
+    """Ostatnia wartość, którą rejestr wpisał w każde pole karty."""
+
+    owned: dict[str, Any] = {}
+    for entry in history:
+        for line in entry.get("lines") or []:
+            if line.get("result") == APPLIED and line.get("field") in FIELDS:
+                owned[line["field"]] = line.get("after")
+    return owned
+
+
+def _automat_value(key: str, current: Any, owned: tuple[dict[str, Any], ...]) -> bool:
+    """Pole należy do automatu, gdy karta ma dokładnie jego ostatnią wartość."""
+
+    return any(key in values and _same(key, current, values[key]) for values in owned)
+
+
 async def _taken_by(
     db: AsyncSession, company_id: int, key: str, value: str
 ) -> Optional[SalesCompany]:
@@ -291,9 +332,16 @@ async def _taken_by(
 
 
 async def apply_registry(
-    db: AsyncSession, company: SalesCompany, fields: dict[str, dict[str, Any]]
+    db: AsyncSession,
+    company: SalesCompany,
+    fields: dict[str, dict[str, Any]],
+    owned: tuple[dict[str, Any], ...] = (),
 ) -> dict[str, dict[str, Any]]:
-    """Wpisz pola z rejestru w puste pola karty; zwraca wynik każdego pola do historii."""
+    """Wpisz pola z rejestru na kartę; zwraca wynik każdego pola do historii.
+
+    ``owned``: ostatnie wartości automatów (rejestr, bot ``enrich``). Pole
+    z taką wartością wolno nadpisać, inne niepuste pole należy do człowieka.
+    """
 
     outcomes: dict[str, dict[str, Any]] = {}
     updates: dict[str, Any] = {}
@@ -303,11 +351,12 @@ async def apply_registry(
             continue
         value = item["value"]
         current = getattr(company, key)
-        if current not in (None, "") and str(current).strip():
-            if _same(key, current, value):
-                outcomes[key] = {"result": SAME}
-            else:
-                outcomes[key] = {"result": KEPT, "current": str(current)[:500]}
+        filled = current not in (None, "") and bool(str(current).strip())
+        if filled and _same(key, current, value):
+            outcomes[key] = {"result": SAME}
+            continue
+        if filled and not _automat_value(key, current, owned):
+            outcomes[key] = {"result": KEPT, "before": str(current)[:500]}
             continue
         if key in ("nip", "krs"):
             other = await _taken_by(db, company.id, key, value)
@@ -319,7 +368,10 @@ async def apply_registry(
                 }
                 continue
         updates[key] = value
-        outcomes[key] = {"result": APPLIED, "previous": None}
+        outcomes[key] = {
+            "result": APPLIED,
+            "before": str(current)[:500] if filled else None,
+        }
     if "hq_country" in updates and outcomes.get("hq_city", {}).get("result") not in (
         APPLIED,
         SAME,
@@ -332,51 +384,51 @@ async def apply_registry(
     return outcomes
 
 
-def fingerprint(company_id: int, payload: dict[str, Any]) -> str:
-    material = json.dumps(
-        {
-            "fields": {k: v["value"] for k, v in payload["fields"].items()},
-            "outcomes": {k: v["result"] for k, v in payload["outcomes"].items()},
-            "state": payload["state"],
-            "vat_status": payload.get("vat_status"),
-            "checked_key": payload["checked_key"],
-        },
-        sort_keys=True,
-        ensure_ascii=False,
-    )
-    return f"{KIND}|{company_id}|{hashlib.sha256(material.encode()).hexdigest()[:40]}"
+def history_entries(
+    fields: dict[str, dict[str, Any]],
+    outcomes: dict[str, dict[str, Any]],
+    *,
+    state: str,
+    vat: Optional[VatRecord],
+    krs: Optional[KrsRecord],
+    at: datetime,
+) -> list[dict[str, Any]]:
+    """Wpisy historii z jednego sprawdzenia, po jednym na rejestr ze zmianą."""
 
-
-async def _record(
-    db: AsyncSession,
-    run: SalesSignalRun,
-    company: SalesCompany,
-    payload: dict[str, Any],
-    now: datetime,
-) -> None:
-    """Wpis historii karty; to samo sprawdzenie drugi raz odświeża tylko datę."""
-
-    statement = insert(SalesBotResult).values(
-        run_id=run.id,
-        kind=KIND,
-        company_id=company.id,
-        status="accepted",
-        payload=payload,
-        fingerprint=fingerprint(company.id, payload),
-        decided_at=now,
-        created_at=now,
-        updated_at=now,
-    )
-    await db.execute(
-        statement.on_conflict_do_update(
-            constraint="uq_sales_bot_results_fingerprint",
-            set_={
-                "payload": statement.excluded.payload,
-                "run_id": statement.excluded.run_id,
-                "updated_at": statement.excluded.updated_at,
-            },
+    by_source: dict[str, list[dict[str, Any]]] = {}
+    for key in FIELDS:
+        outcome = outcomes.get(key)
+        if outcome is None or outcome["result"] == SAME:
+            continue
+        item = fields[key]
+        line: dict[str, Any] = {
+            "field": key,
+            "before": outcome.get("before"),
+            "after": item["value"],
+            "result": outcome["result"],
+            "url": item["url"],
+        }
+        if outcome["result"] == TAKEN:
+            line["other_id"] = outcome["other_id"]
+            line["other_name"] = outcome["other_name"]
+        by_source.setdefault(item["source"], []).append(line)
+    if state in INACTIVE_STATES:
+        record = vat if state == VAT_REMOVED else krs
+        source = "vat" if state == VAT_REMOVED else "krs"
+        by_source.setdefault(source, []).append(
+            {
+                "field": "state",
+                "before": None,
+                "after": state,
+                "result": INACTIVE,
+                "url": record.url if record is not None else None,
+                "removed_on": krs.removed_on if krs is not None else None,
+            }
         )
-    )
+    return [
+        {"at": at.isoformat(), "source": source, "lines": lines}
+        for source, lines in by_source.items()
+    ]
 
 
 # ── Sprawdzenie ──────────────────────────────────────────────────────────
@@ -397,8 +449,7 @@ class Summary:
     mf_queries: int = 0
     krs_queries: int = 0
     quota_exceeded: bool = False
-    states: dict[str, int] = field(default_factory=dict)
-    #: Wynik na kartę (``payload`` historii): tylko dla wywołującego, nie do logu.
+    #: Wynik na kartę: tylko dla wywołującego (skrypt próby), nie do logu.
     cards: dict[int, dict[str, Any]] = field(default_factory=dict)
 
     def report(self) -> dict[str, Any]:
@@ -436,8 +487,7 @@ async def _lookups(
     summary: Summary,
 ) -> dict[int, _Lookup]:
     found = {t.company_id: _Lookup() for t in targets}
-    with_nip = [t for t in targets if t.nip]
-    nips = list(dict.fromkeys(t.nip for t in with_nip))
+    nips = list(dict.fromkeys(t.nip for t in targets if t.nip))
     vat: dict[str, Optional[VatRecord]] = {}
     for start in range(0, len(nips), MF_BATCH):
         if summary.mf_queries >= mf_budget or summary.quota_exceeded:
@@ -464,12 +514,25 @@ async def _lookups(
             try:
                 lookup.krs = await fetch_krs(client, krs)
             except RegistryUnavailable:
-                # Karta z odpowiedzią MF dostaje wpis z samej białej listy (KRS
+                # Karta z odpowiedzią MF dostaje wynik z samej białej listy (KRS
                 # wróci za 30 dni), żeby awaria KRS nie zjadała co godzinę
                 # kolejnych zapytań z limitu MF. Bez MF karta wraca w kolejnym biegu.
                 lookup.krs_failed = True
                 lookup.failed = not lookup.vat_done
     return found
+
+
+def _count(summary: Summary, state: str, outcomes: dict[str, dict[str, Any]]) -> None:
+    summary.checked += 1
+    summary.inactive += state in INACTIVE_STATES
+    summary.not_found += state == NOT_FOUND
+    summary.invalid_nip += state == INVALID_NIP
+    for outcome in outcomes.values():
+        result = outcome["result"]
+        summary.applied_fields += result == APPLIED
+        summary.kept_fields += result == KEPT
+        summary.same_fields += result == SAME
+        summary.taken_fields += result == TAKEN
 
 
 async def check_companies(
@@ -479,16 +542,15 @@ async def check_companies(
     now: datetime,
     client: Optional[httpx.AsyncClient] = None,
     mf_budget: int = DAILY_MF_QUERIES,
-    requested_by_user_id: Optional[int] = None,
+    night: bool = False,
     dry_run: bool = False,
-    trigger: str = SAVE,
 ) -> Summary:
     """Sprawdź karty w rejestrach i zapisz wynik; commit robi ta funkcja.
 
-    Zapytania do rejestrów idą poza transakcją: najpierw odczyt numerów, potem
-    sieć, na końcu blokada wierszy, ponowne porównanie z kartą i zapis.
-    ``dry_run`` (skrypt próby): ten sam przebieg bez biegu i historii, na końcu
-    wycofanie; wynik kart w ``summary.cards``.
+    Kolejność: odczyt numerów i rezerwacja zapytań MF (commit), sieć poza
+    transakcją, na końcu blokada wiersza karty, ponowne porównanie numerów
+    i zapis. ``dry_run`` (skrypt próby): bez rezerwacji, na końcu wycofanie;
+    wynik kart w ``summary.cards``.
     """
 
     summary = Summary()
@@ -503,31 +565,23 @@ async def check_companies(
     summary.companies = len(targets)
     if not targets:
         return summary
-    remaining = max(0, mf_budget - await mf_queries_today(db, now=now))
-    await db.rollback()
+    wanted = math.ceil(len({t.nip for t in targets if t.nip}) / MF_BATCH)
+    if dry_run:
+        used = int((await usage(db, now=now)).get("mf_queries") or 0)
+        granted = max(0, min(wanted, mf_budget - used))
+        await db.rollback()
+    else:
+        granted = await _reserve(db, now=now, wanted=wanted, cap=mf_budget, night=night)
 
     on_date = business_date(now)
     own = client is None
     client = client or new_client()
     try:
-        found = await _lookups(client, targets, on_date, remaining, summary)
+        found = await _lookups(client, targets, on_date, granted, summary)
     finally:
         if own:
             await client.aclose()
 
-    run: Optional[SalesSignalRun] = None
-    if not dry_run:
-        run = SalesSignalRun(
-            kind=KIND,
-            status="received",
-            company_ids=[t.company_id for t in targets],
-            started_at=now,
-            received_at=now,
-            requested_by_user_id=requested_by_user_id,
-            request={"trigger": trigger},
-        )
-        db.add(run)
-        await db.flush()
     for target in targets:
         lookup = found[target.company_id]
         if lookup.failed:
@@ -539,53 +593,40 @@ async def check_companies(
         if checked_key(company) != target.key:
             # Ktoś zmienił NIP albo KRS w trakcie: wynik dotyczy starych numerów.
             continue
+        custom = dict(company.custom_fields or {})
+        history = list(custom.get(HISTORY) or [])
+        bot = (await enrich._bot_owned(db, [company.id])).get(company.id, {})
         state = registry_state(lookup.vat, lookup.krs, target)
         fields = proposed_fields(lookup.vat, lookup.krs)
-        outcomes = await apply_registry(db, company, fields)
-        sources = {
-            name: record.url
-            for name, record in (("vat", lookup.vat), ("krs", lookup.krs))
-            if record is not None
+        outcomes = await apply_registry(
+            db, company, fields, owned=(registry_owned(history), bot)
+        )
+        entries = history_entries(
+            fields, outcomes, state=state, vat=lookup.vat, krs=lookup.krs, at=now
+        )
+        company.custom_fields = {
+            **custom,
+            HISTORY: (history + entries)[-HISTORY_KEEP:],
+            CHECKED_AT: now.isoformat(),
+            CHECKED_KEY: checked_key(company),
+            STATE: state,
         }
-        if target.nip and lookup.vat is None and lookup.vat_done:
-            sources["vat"] = vat_url(target.nip, on_date)
-        payload: dict[str, Any] = {
-            "actor": ACTOR,
-            "checked_at": now.isoformat(),
-            "checked_key": checked_key(company),
+        summary.cards[company.id] = {
             "state": state,
             "vat_status": lookup.vat.vat_status if lookup.vat else None,
-            "removed_on": lookup.krs.removed_on if lookup.krs else None,
             "krs_unavailable": lookup.krs_failed,
-            "sources": sources,
             "fields": fields,
             "outcomes": outcomes,
+            "entries": entries,
         }
-        if run is not None:
-            await _record(db, run, company, payload, now)
-        summary.cards[company.id] = payload
-        summary.checked += 1
-        summary.states[state] = summary.states.get(state, 0) + 1
-        summary.inactive += state in INACTIVE_STATES
-        summary.not_found += state == NOT_FOUND
-        summary.invalid_nip += state == INVALID_NIP
-        for outcome in outcomes.values():
-            result = outcome["result"]
-            summary.applied_fields += result == APPLIED
-            summary.kept_fields += result == KEPT
-            summary.same_fields += result == SAME
-            summary.taken_fields += result == TAKEN
-    if run is None:
+        _count(summary, state, outcomes)
+    if dry_run:
         await db.rollback()
         return summary
-    run.report = summary.report()
-    if summary.checked == 0 and summary.errors:
-        run.status, run.error = "failed", "rejestr bez odpowiedzi"
     await db.commit()
     logger.info(
-        "sales_registry run=%s companies=%d checked=%d applied=%d kept=%d same=%d "
-        "taken=%d inactive=%d not_found=%d errors=%d mf=%d krs=%d quota=%s",
-        run.id,
+        "sales_registry companies=%d checked=%d applied=%d kept=%d same=%d "
+        "taken=%d inactive=%d not_found=%d errors=%d mf=%d krs=%d quota=%s night=%s",
         summary.companies,
         summary.checked,
         summary.applied_fields,
@@ -598,6 +639,7 @@ async def check_companies(
         summary.mf_queries,
         summary.krs_queries,
         summary.quota_exceeded,
+        night,
     )
     return summary
 
@@ -615,26 +657,18 @@ async def night_step(db: AsyncSession, *, now: datetime, local: datetime) -> int
     start, end = NIGHT_HOURS
     if not enabled() or not start <= local.hour < end:
         return 0
-    night = local.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(
-        timezone.utc
-    )
-    last = await db.scalar(
-        select(func.max(SalesSignalRun.started_at)).where(
-            SalesSignalRun.kind == KIND,
-            # Bieg po zapisie (ekran, raport bota w nocy) nie zjada godziny nocy.
-            SalesSignalRun.request["trigger"].astext == NIGHT,
-            SalesSignalRun.started_at >= night,
-        )
-    )
-    if last is not None and last > now - NIGHT_EVERY:
+    today = await usage(db, now=now)
+    last = today.get("night_at")
+    # Sprawdzenie po zapisie (ekran, raport bota w nocy) nie zjada godziny nocy.
+    if last and datetime.fromisoformat(last) > now - NIGHT_EVERY:
         return 0
-    if await mf_queries_today(db, now=now) >= DAILY_MF_QUERIES:
+    if int(today.get("mf_queries") or 0) >= DAILY_MF_QUERIES:
         return 0
     ids = await due_company_ids(db, now=now, limit=NIGHT_BATCH)
     if not ids:
         return 0
     try:
-        summary = await check_companies(db, ids, now=now, trigger=NIGHT)
+        summary = await check_companies(db, ids, now=now, night=True)
     except Exception as exc:  # noqa: BLE001
         # Komunikat błędu bazy niesie parametry zapytania (nazwy, NIP-y), a logi
         # są publiczne: sam typ wyjątku.
@@ -644,9 +678,7 @@ async def night_step(db: AsyncSession, *, now: datetime, local: datetime) -> int
     return summary.checked
 
 
-async def check_after_save(
-    company_ids: list[int], *, user_id: Optional[int] = None
-) -> None:
+async def check_after_save(company_ids: list[int]) -> None:
     """Po zapisaniu NIP-u albo KRS-u (ekran Firmy, bot): od razu, we własnej sesji."""
 
     if not enabled() or not company_ids:
@@ -657,7 +689,7 @@ async def check_after_save(
         if not ids:
             return
         try:
-            await check_companies(db, ids, now=now, requested_by_user_id=user_id)
+            await check_companies(db, ids, now=now)
         except Exception as exc:  # noqa: BLE001
             # Jak w ``night_step``: bez parametrów zapytania w publicznym logu.
             logger.warning("sales_registry after save failed: %s", type(exc).__name__)
