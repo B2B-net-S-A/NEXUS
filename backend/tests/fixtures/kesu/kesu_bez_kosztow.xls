@@ -1,0 +1,672 @@
+<?xml version="1.0"?>
+				<?mso-application pro<?xml version="1.0"?>
+				<?mso-application progid="Excel.Sheet"?>
+				<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+				xmlns:o="urn:schemas-microsoft-com:office:office"
+				xmlns:x="urn:schemas-microsoft-com:office:excel"
+				xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+				xmlns:c="urn:schemas-microsoft-com:office:component:spreadsheet"
+				xmlns:html="http://www.w3.org/TR/REC-html40"
+				xmlns:x2="http://schemas.microsoft.com/office/excel/2003/xml"
+				xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+				<DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+				<Version>16.00</Version>
+				</DocumentProperties>
+				<OfficeDocumentSettings xmlns="urn:schemas-microsoft-com:office:office">
+				<Colors>
+				<Color>
+					<Index>3</Index>
+					<RGB>#000000</RGB>
+				</Color>
+				<Color>
+					<Index>4</Index>
+					<RGB>#0000EE</RGB>
+				</Color>
+				<Color>
+					<Index>5</Index>
+					<RGB>#006600</RGB>
+				</Color>
+				<Color>
+					<Index>6</Index>
+					<RGB>#333333</RGB>
+				</Color>
+				<Color>
+					<Index>7</Index>
+					<RGB>#808080</RGB>
+				</Color>
+				<Color>
+					<Index>8</Index>
+					<RGB>#996600</RGB>
+				</Color>
+				<Color>
+					<Index>9</Index>
+					<RGB>#C0C0C0</RGB>
+				</Color>
+				<Color>
+					<Index>10</Index>
+					<RGB>#CC0000</RGB>
+				</Color>
+				<Color>
+					<Index>11</Index>
+					<RGB>#CCFFCC</RGB>
+				</Color>
+				<Color>
+					<Index>12</Index>
+					<RGB>#DDDDDD</RGB>
+				</Color>
+				<Color>
+					<Index>13</Index>
+					<RGB>#E7E6E6</RGB>
+				</Color>
+				<Color>
+					<Index>14</Index>
+					<RGB>#FF0000</RGB>
+				</Color>
+				<Color>
+					<Index>15</Index>
+					<RGB>#FFCCCC</RGB>
+				</Color>
+				<Color>
+					<Index>16</Index>
+					<RGB>#FFFFCC</RGB>
+				</Color>
+				<Color>
+					<Index>17</Index>
+					<RGB>#FFFFFF</RGB>
+				</Color>
+				</Colors>
+				</OfficeDocumentSettings>
+				<ExcelWorkbook xmlns="urn:schemas-microsoft-com:office:excel">
+				<WindowHeight>32767</WindowHeight>
+				<WindowWidth>32767</WindowWidth>
+				<WindowTopX>32767</WindowTopX>
+				<WindowTopY>32767</WindowTopY>
+				<ProtectStructure>False</ProtectStructure>
+				<ProtectWindows>False</ProtectWindows>
+				</ExcelWorkbook>
+				<Styles>
+				<Style ss:ID="Default" ss:Name="Normal">
+				<Alignment ss:Vertical="Bottom"/>
+				<Borders/>
+				<Font ss:FontName="Calibri" x:CharSet="238" x:Family="Swiss" ss:Size="11"
+					ss:Color="#000000"/>
+				<Interior/>
+				<NumberFormat/>
+				<Protection/>
+				</Style>
+				<Style ss:ID="s62" ss:Name="Default">
+				<Alignment ss:Vertical="Bottom"/>
+				<Font ss:FontName="Calibri" ss:Size="12" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s83" ss:Parent="s62">
+				<Alignment ss:Horizontal="Left" ss:Vertical="Top" ss:WrapText="1"/>
+				<Borders/>
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="s85" ss:Parent="s62">
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s86" ss:Parent="s62">
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000"/>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				</Style>
+				<Style ss:ID="s88" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders/>
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="s89" ss:Parent="s62">
+				<Alignment ss:Vertical="Center"/>
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s90" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000" ss:Bold="1"/>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				</Style>
+				<Style ss:ID="s91" ss:Parent="s62">
+				<Alignment ss:Horizontal="Left" ss:Vertical="Bottom"/>
+				<Font ss:FontName="Arial" ss:Size="9" ss:Color="#000000"/>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				</Style>
+				<Style ss:ID="s92" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+				<Font ss:FontName="Calibri" ss:Size="7" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s93" ss:Parent="s62">
+				<Alignment ss:Vertical="Center"/>
+				<Font ss:FontName="Arial" ss:Size="7" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="s94" ss:Parent="s62">
+				<Font ss:FontName="Calibri" ss:Size="7" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s95" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Arial" ss:Size="7" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="s96" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Arial" ss:Size="7"/>
+				</Style>
+				<Style ss:ID="s97" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Arial" ss:Size="7" ss:Color="#000000"/>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				</Style>
+				<Style ss:ID="s98" >
+				<Alignment ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Arial" ss:Size="7" ss:Color="#000000"/>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				</Style>
+				<Style ss:ID="s99" ss:Parent="s62">
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Calibri" ss:Size="7" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s100" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Arial" ss:Size="7" ss:Color="#000000" ss:Bold="1"/>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				</Style>
+				<Style ss:ID="s101" ss:Parent="s62">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"
+					ss:Color="#000000"/>
+				</Borders>
+				<Font ss:FontName="Arial" ss:Size="7" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s102" ss:Parent="s62">
+				<Alignment ss:Vertical="Center"/>
+				<Font ss:FontName="Arial" ss:Size="8" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="s103" ss:Parent="s62">
+				<Font ss:FontName="Calibri" ss:Size="8" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="s104" ss:Parent="s62">
+				<Alignment ss:Vertical="Center"/>
+				<Font ss:FontName="Arial" ss:Size="8" ss:Color="#000000"/>
+				</Style>
+				<Style ss:ID="s106" ss:Parent="s62">
+				<Alignment ss:Horizontal="Right" ss:Vertical="Bottom"/>
+				<Borders/>
+				<Font ss:FontName="Calibri" ss:Size="8" ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="m335242916">
+				<Alignment ss:Horizontal="Center" ss:Vertical="Bottom"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+				</Borders>
+				<Interior ss:Color="#E7E6E6" ss:Pattern="Solid"/>
+				<Font ss:FontName="Calibri" x:CharSet="238" x:Family="Swiss" ss:Size="11"
+					ss:Color="#000000" ss:Bold="1"/>
+				</Style>
+				<Style ss:ID="m335242936">
+				<Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
+				<Borders>
+					<Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1"/>
+					<Border ss:Position="Left" ss:LineStyle="Continuous" ss:Weight="1"/>
+					<Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1"/>
+					<Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="1"/>
+				</Borders>
+				<Font ss:FontName="Aptos" x:Family="Swiss" ss:Size="7" ss:Color="#000000"/>
+				</Style>
+				</Styles>
+				<Worksheet ss:Name="102026">
+					<Table ss:ExpandedColumnCount="1024" ss:ExpandedRowCount="49" x:FullColumns="1"
+						x:FullRows="1" ss:StyleID="s62">
+						<Column ss:StyleID="s62" ss:Width="65.25"/>
+						<Column ss:StyleID="s62" ss:Width="60"/>
+						<Column ss:StyleID="s62" ss:Width="216"/>
+						<Column ss:StyleID="s62" ss:Width="48.75"/>
+						<Column ss:StyleID="s62" ss:Width="49.5"/>
+						<Column ss:StyleID="s62" ss:Width="54"/>
+						<Column ss:StyleID="s62" ss:Width="49.5" ss:Span="1017"/>
+						<Row ss:AutoFitHeight="0" ss:Height="21.9375">
+							<Cell ss:MergeAcross="2" ss:StyleID="s83"><Data ss:Type="String">Karta Ewidencji Świadczenia Usług      </Data></Cell>
+						</Row>
+						<Row ss:AutoFitHeight="0" ss:Height="15">
+							<Cell ss:StyleID="s85"/>
+							<Cell ss:StyleID="s85"/>
+							<Cell ss:StyleID="s86"><Data ss:Type="String">Imię i nazwisko: Kozłowska Ewa</Data></Cell>
+						</Row>
+						<Row ss:AutoFitHeight="0" ss:Height="15" ss:Hidden="1">
+							<Cell ss:MergeAcross="2" ss:MergeDown="1" ss:StyleID="s88"/>
+						</Row>
+						<Row ss:AutoFitHeight="0" ss:Height="0.9375" ss:Hidden="1"/>
+						<Row ss:AutoFitHeight="0" ss:Height="15.9375">
+							<Cell ss:StyleID="s89"/>
+							<Cell ss:StyleID="s85"/>
+							<Cell ss:StyleID="s85"><Data ss:Type="String">Stanowisko: Projektant</Data></Cell>
+						</Row>
+						<Row ss:AutoFitHeight="0" ss:Height="15.9375">
+							<Cell ss:StyleID="s89"/>
+							<Cell ss:StyleID="s85"/>
+							<Cell ss:StyleID="s85"/>
+						</Row>
+						<Row ss:AutoFitHeight="0" ss:Height="15">
+							<Cell ss:StyleID="s85"><Data ss:Type="String">Miesiąc:</Data></Cell>
+							<Cell ss:StyleID="s90"><Data ss:Type="Number">10</Data></Cell>
+							<Cell ss:StyleID="s91"><Data ss:Type="String">Rok:    2026</Data></Cell>
+							<Cell ss:StyleID="s92"/>
+						</Row>
+						<Row ss:AutoFitHeight="0" ss:Height="36.9375">
+							<Cell ss:StyleID="s95"><Data ss:Type="String">Dzień</Data></Cell>
+							<Cell ss:StyleID="s95"><Data ss:Type="String">Miejsce świadczenia usług</Data></Cell>
+							<Cell ss:StyleID="s96"><ss:Data ss:Type="String"
+							xmlns="http://www.w3.org/TR/REC-html40">Opis wykonywanych zadań <B><Font
+								html:Color="#000000">(w tym wskazanie systemu)</Font></B><Font>        </Font></ss:Data></Cell>
+							<Cell ss:StyleID="s95"><Data ss:Type="String">Liczba godzin (P)</Data></Cell>
+							<Cell ss:StyleID="s95"><Data ss:Type="String">Stawka MD PLN netto</Data></Cell>
+							<Cell ss:StyleID="s95"><Data ss:Type="String">Wynagrodzenie PLN Brutto</Data></Cell>
+						</Row><Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">1</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-101: Praca nad zgłoszeniem TEST-101 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">2</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-102: Praca nad zgłoszeniem TEST-102 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">3</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">4</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">5</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-103: Praca nad zgłoszeniem TEST-103 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">6</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-104: Praca nad zgłoszeniem TEST-104 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">7</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-105: Praca nad zgłoszeniem TEST-105 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-106: Praca nad zgłoszeniem TEST-106 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">9</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">10</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">11</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">12</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">13</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-107: Praca nad zgłoszeniem TEST-107 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">14</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-108: Praca nad zgłoszeniem TEST-108 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">15</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-109: Praca nad zgłoszeniem TEST-109 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">16</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-110: Praca nad zgłoszeniem TEST-110 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">17</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">18</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">19</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-111: Praca nad zgłoszeniem TEST-111 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">20</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-112: Praca nad zgłoszeniem TEST-112 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">21</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-113: Praca nad zgłoszeniem TEST-113 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">22</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-114: Praca nad zgłoszeniem TEST-114 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">23</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-115: Praca nad zgłoszeniem TEST-115 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">24</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">25</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">26</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-116: Praca nad zgłoszeniem TEST-116 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">27</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-117: Praca nad zgłoszeniem TEST-117 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">28</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-118: Praca nad zgłoszeniem TEST-118 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">29</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-119: Praca nad zgłoszeniem TEST-119 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">30</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String">zdalnie</Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String">TEST-120: Praca nad zgłoszeniem TEST-120 &#xA;TEST-7: Show & Tell</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">8</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				<Row ss:AutoFitHeight="1">
+					<Cell ss:StyleID="s95"><Data ss:Type="Number">31</Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s98"><Data ss:Type="String"></Data></Cell>
+					<Cell ss:StyleID="s97"><Data ss:Type="Number">0</Data></Cell>
+					<Cell ss:StyleID="s99"/>
+					<Cell ss:StyleID="s99" ss:Formula="=(RC[-1]/8)*1.23*RC[-2]"><Data
+		ss:Type="Number">0</Data></Cell>
+				</Row>
+				
+		<Row ss:AutoFitHeight="0" ss:Height="32.0625">
+			<Cell ss:StyleID="s95"><Data ss:Type="String">Suma godzin przepracowanych</Data></Cell>
+			<Cell ss:StyleID="s100"><Data ss:Type="Number">160</Data></Cell>
+			<Cell ss:Index="4" ss:StyleID="s101"/>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="32.0625">
+			<Cell ss:StyleID="s95"><Data ss:Type="String">Suma dni przepracowanych </Data></Cell>
+			<Cell ss:StyleID="s100"><Data ss:Type="Number">20.00</Data></Cell>
+			<Cell ss:Index="4" ss:StyleID="s92"/>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="32.0625">
+			<Cell ss:StyleID="s95"><Data ss:Type="String">Suma kosztów dodatkowych</Data></Cell>
+			<Cell ss:StyleID="s95"><Data ss:Type="Number">0</Data></Cell>
+			<Cell ss:Index="4" ss:StyleID="s92"/>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="32.0625">
+			<Cell ss:StyleID="s95"><Data ss:Type="String">Wartość przekazanych praw autorskich </Data></Cell>
+			<Cell ss:StyleID="s95" ss:Formula="=SUM(R[-34]C[4]:R[-4]C[4])"><Data ss:Type="Number">0</Data></Cell>
+			<Cell ss:Index="4" ss:StyleID="s92"/>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="32.0625">
+			<Cell ss:StyleID="s95"><Data ss:Type="String">Razem w PLN BRUTTO  </Data></Cell>
+			<Cell ss:StyleID="s95" ss:Formula="=SUM(R[-1]C+R[-2]C)"><Data ss:Type="Number">0</Data></Cell>
+			<Cell ss:Index="4" ss:StyleID="s92"/>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="24">
+			<Cell ss:StyleID="s103"><Data ss:Type="String">Data:</Data></Cell>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="9.9375">
+			<Cell ss:StyleID="s104"/>
+			<Cell ss:StyleID="s103"><Data ss:Type="String">Dostawca:</Data></Cell>
+			<Cell ss:MergeAcross="1" ss:StyleID="s106"><Data ss:Type="String">Zamawiający:</Data></Cell>
+		</Row>
+		
+		<Row ss:AutoFitHeight="0" ss:Height="14.0625">
+			<Cell ss:StyleID="s103"/>
+		</Row>
+		<Row ss:AutoFitHeight="0">
+			<Cell ss:Index="2" ss:MergeAcross="8" ss:StyleID="m335242916"><Data
+			ss:Type="String">ZAŁĄCZNIK NR 1 DO KARTY EWIDENCJI ŚWIADCZENIA USŁUG</Data></Cell>
+		</Row>
+		<Row ss:AutoFitHeight="0" ss:Height="346.0625">
+		<Cell ss:Index="2" ss:StyleID="s100"><Data ss:Type="String">Oświadczenie Wykonawcy (treść skrócona w teście)</Data></Cell>
+		<Cell ss:MergeAcross="7" ss:StyleID="m335242936"><ss:Data ss:Type="String"
+		xmlns="http://www.w3.org/TR/REC-html40"><Font html:Color="#000000">1. Strony potwierdzają, że w ramach wynagrodzenia z tytułu realizacji Zamówienia w Okresie Rozliczeniowym, którego dotyczy niniejsza Karta Ewidencji Świadczenia Usług Wykonawca, przeniósł rzecz Zamawiającego autorskie prawa majątkowe do Utworów udostępnionych Zamawiającemu w ramach realizacji Zamówienia (w tym w ramach realizacji Prac Informatycznych) w Okresie Rozliczeniowym, którego wykonanie potwierdza niniejsza Karta Ewidencji Świadczenia Usług (dalej: „Utwory”), na następujących polach eksploatacji:&#10;</Font><Font
+		html:Face="Aptos Narrow" x:Family="Swiss" html:Color="#000000">  </Font><Font
+		html:Color="#000000">1.1. w odniesieniu do Utworów będących programami komputerowymi – na polach eksploatacji obejmujących:&#10;    a. trwałe lub czasowe zwielokrotnianie programu komputerowego w całości lub w części jakimikolwiek środkami i w jakiejkolwiek formie,&#10;    b. tłumaczenie, przystosowywanie, zmiany układu oraz wszelkie inne zmiany w programie komputerowym oraz wszelkie modyfikacje programu komputerowego,&#10;    c. rozpowszechnianie programu komputerowego, w tym użyczenie lub najem programu komputerowego lub jego kopii;&#10; 1.2. w odniesieniu do Utworów niestanowiących programów komputerowych na polach eksploatacji obejmujących:&#10;    a. w zakresie utrwalania i zwielokrotniania Utworów – wytwarzanie określoną techniką egzemplarzy Utworów, w tym techniką drukarską, reprograficzną, zapisu magnetycznego oraz techniką cyfrową,&#10;    b. w zakresie obrotu oryginałem albo egzemplarzami, na których Utwory utrwalono – wprowadzenie do obrotu, użyczenie lub najem oryginału albo egzemplarzy,&#10;    c. w zakresie rozpowszechniania Utworów w sposób inny niż obrót oryginałem albo egzemplarzami, na których Utwory utrwalono – publiczne wykonanie, wystawienie, wyświetlenie, odtworzenie oraz nadawanie i reemitowanie, a także publiczne udostępnianie Utworów w taki sposób, aby każdy mógł mieć do nich dostęp w miejscu i czasie przez siebie wybranym.&#10;(dalej: „</Font><B><Font
+			html:Color="#000000">Przeniesienie autorskich praw majątkowych</Font></B><Font
+		html:Color="#000000">”).&#10;&#10;2. Ponadto, w ramach wynagrodzenia z tytułu realizacji Zamówienia w Okresie Rozliczeniowym, którego dotyczy niniejsza Karta Ewidencji Świadczenia Usług Wykonawca przeniósł na rzecz Zamawiającego prawa zezwalania na wykonywanie zależnych praw autorskich do opracowań Utworów (lub ich poszczególnych elementów) to jest na rozporządzanie i korzystanie z takich opracowań na polach eksploatacji wskazanych w pkt. 1 powyżej (dalej: „</Font><B><Font
+			html:Color="#000000">Zezwolenie na wykonywanie praw zależnych</Font></B><Font
+		html:Color="#000000">”).&#10;&#10;3. Strony potwierdzają, że Przeniesienie autorskich praw majątkowych oraz przeniesienie Zezwolenia na wykonywanie praw zależnych do Utworów udostępnionych w Okresie Rozliczeniowym, którego dotyczy niniejsza Karta Ewidencji Świadczenia Usług nastąpiło z momentem udostępnienia takich Utworów, a w przypadku gdyby okazało się, że pomimo oświadczenia Wykonawcy do dnia podpisania Karty Ewidencji Świadczenia Usług nie doszło z jakiejkolwiek przyczyny do Przeniesienia autorskich praw majątkowych lub przeniesienia Zezwolenia na wykonywanie praw zależnych do Utworów udostępnionych w Okresie Rozliczeniowym, którego dotyczy niniejsza Karta Ewidencji Świadczenia Usług Wykonawca, z chwilą podpisania niniejszej Karty Ewidencji Świadczenia Usług, przenosi autorskie prawa majątkowe do takich Utworów oraz przenosi zezwolenie na wykonywanie praw zależnych do Utworów na polach eksploatacji opisanych w pkt. 1 powyżej w ramach wynagrodzenia z tytułu realizacji Zamówienia w Okresie Rozliczeniowym, którego dotyczy niniejsza Karta Ewidencji Świadczenia Usług.&#10;&#10;4. W przypadku, o którym mowa w pkt. 3 powyżej Strony oświadczają, że korzystanie przez Zamawiającego z Utworów na polach eksploatacji opisanych w pkt. 1 powyżej od momentu ich udostępnienia do momentu podpisania Karty Ewidencji Świadczenia Usług nie stanowiło naruszenia autorskich praw majątkowych Wykonawcy, a Wykonawca, w ramach wynagrodzenia z tytułu realizacji Zamówienia w Okresie Rozliczeniowym, którego dotyczy niniejsza Karta Ewidencji Świadczenia Usług udzielił Zamawiającemu licencji na korzystanie z Utworów na polach eksploatacji opisanych w pkt. 1 powyżej oraz zezwolenia na wykonywanie zależnych praw autorskich do opracowań Utworów oraz upoważnienia do udzielania innym podmiotom zezwoleń na wykonywanie zależnych praw autorskich do opracowań Utworów na polach eksploatacji opisanych w pkt. 1 powyżej od momentu udostępnienia Utworów do momentu Przeniesienia autorskich praw majątkowych wraz z możliwością udzielania sublicencji innym podmiotom.</Font></ss:Data></Cell>
+	</Row>
+		
+		</Table>
+		<WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+		<Selected/>
+		<TopRowVisible>1</TopRowVisible>
+		<Panes>
+			<Pane>
+			<Number>3</Number>
+			<ActiveRow>10</ActiveRow>
+			<ActiveCol>1</ActiveCol>
+			</Pane>
+		</Panes>
+		<ProtectObjects>False</ProtectObjects>
+		<ProtectScenarios>False</ProtectScenarios>
+		</WorksheetOptions>
+		<x:WorksheetOptions/>
+		</Worksheet>
+		</Workbook>

@@ -44,6 +44,8 @@ from app.services.client_order_lines import (
 )
 from app.services.client_settlements import (
     contractor_invoices,
+    kesu,
+    kesu_flow,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
@@ -74,6 +76,8 @@ ORDER_STATUSES = (
     ClientOrderStatus.completed,
 )
 MD_MAX = Decimal("31")
+#: Zapłata konsultanta po mailowej akceptacji, gdy podpisujący KEŚU jest nieobecny.
+PAY_ON_MAIL = "pay_on_mail"
 #: „Imię Nazwisko” jak na liście kontraktów; puste części pomija.
 _FULL_NAME = func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), "")
 
@@ -413,6 +417,11 @@ async def month_view(
         )
         if settlement is not None and settlement.order_id in issued:
             row["client_invoice"] = "issued"
+        elif row["client_invoice"] == "ready" and waits_for_signature(
+            settlement, rules
+        ):
+            row["client_invoice"] = "awaiting_signature"
+        row["kesu"] = kesu_summary(settlement)
         rows.append(row)
     return {
         "client_id": client_id,
@@ -580,16 +589,45 @@ async def detail(
             "md_charged": _dec(s.md_charged) if s else None,
             "md_remaining_after": remaining,
         },
-        "contractor_invoice": contractor_invoices.card(
-            s, invoices, rules, amounts=amounts
+        "contractor_invoice": _with_payment(
+            contractor_invoices.card(s, invoices, rules, amounts=amounts), s, rules
         ),
+        "kesu": kesu_card(
+            s, person=person.name, month=month, rules=rules, amounts=amounts
+        )
+        if kind == ACTUAL
+        else None,
     }
+
+
+def _with_payment(
+    card: dict[str, Any],
+    s: Optional[ClientSettlement],
+    rules: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    pay = payment(s, rules)
+    if pay is not None:
+        card["checks"] = [
+            *card["checks"],
+            {"state": pay["state"], "title": pay["title"], "detail": pay["detail"]},
+        ]
+    return card
 
 
 # ── Zapis ────────────────────────────────────────────────────────────────────
 
 
+def meta_of(s: Optional[ClientSettlement]) -> dict[str, Any]:
+    """Dane przy kontrolach: pozostałość MD, nadwyżka, KEŚU, zapłata po mailu."""
+
+    for item in (s.checks if s else None) or []:
+        if isinstance(item, dict) and "remaining_after" in item:
+            return item
+    return {}
+
+
 def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> None:
+    kept = meta_of(s).get(PAY_ON_MAIL)
     s.status = result.status
     s.md_onboarding = result.md_onboarding
     s.md_charged = result.md_charged
@@ -598,13 +636,15 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
     s.lines = result.lines
     # Pozostałość po zejściu trzymamy przy kontrolach, żeby lista miesiąca nie
     # pytała zamówień osoba po osobie.
-    s.checks = [
-        *result.checks,
-        {
-            "remaining_after": _dec(result.md_remaining_after),
-            "md_over": _dec(result.md_over),
-        },
-    ]
+    meta: dict[str, Any] = {
+        "remaining_after": _dec(result.md_remaining_after),
+        "md_over": _dec(result.md_over),
+        **(result.meta or {}),
+    }
+    if kept:
+        # Decyzja Finansów o zapłacie po mailu przeżywa przeliczenie (E6.3).
+        meta[PAY_ON_MAIL] = kept
+    s.checks = [*result.checks, meta]
     s.order_id = order.order_id if order else None
 
 
@@ -700,11 +740,27 @@ async def _recompute(
     report = next(
         (d for d in reports if d.mime in RCP_MIMES), reports[0] if reports else None
     )
-    s.report_document_id = report.id if report else None
     rules = await rules_for(db, s.client_id, s.period_month)
-    proof = await _proof(
-        report, reports, month=s.period_month, person_name=person.name, rules=rules
-    )
+    proof: Optional[rcp_checks.ProofResult] = None
+    if kesu_flow.has_source(reports):
+        # KEŚU z Jiry (E6.3): arkusz albo mail z arkuszem, podpisy w PDF-ach.
+        proof = await kesu_flow.proof(
+            db,
+            reports,
+            contract_id=s.contract_id,
+            month=s.period_month,
+            person_name=person.name,
+            order_rate_md=state.rate_revenue if state else None,
+            rules=rules,
+        )
+        if proof is not None:
+            source = proof.meta["kesu"].get("document_id")
+            report = next((d for d in reports if d.id == source), report)
+    s.report_document_id = report.id if report else None
+    if proof is None:
+        proof = await _proof(
+            report, reports, month=s.period_month, person_name=person.name, rules=rules
+        )
     # Wpis Finansów wygrywa z odczytem pliku; bez wpisu MD bierzemy z RCP.
     if proof is not None and proof.md_regular is not None and s.md_source != "manual":
         s.md_regular = proof.md_regular
@@ -1043,11 +1099,229 @@ async def refresh_for_document(db: AsyncSession, document: CpDocument) -> None:
     kind = await kind_for_upload(db, document.contract_id, month, uploaded)
     s = await _get_or_create(db, document.contract_id, month, None, kind=kind)
     if s.status == "accepted":
+        # Podpisane KEŚU przychodzi po przyjęciu (E6.3): odświeżamy tylko stan
+        # KEŚU (podpisy), bez zmiany przyjętych MD i kwot.
+        await _refresh_kesu(db, s)
         return
     result, state, _order = await _recompute(db, s)
     _store(s, result, state)
     if s.md_regular is None:
         s.status = "checking"
+
+
+# ── KEŚU (E6.3) ──────────────────────────────────────────────────────────────
+
+#: Pola KEŚU z kwotami: tylko dla kont z dostępem do kwot.
+KESU_AMOUNTS = (
+    "rate_md",
+    "rate_contract",
+    "rate_order",
+    "fee_gross",
+    "extra_costs",
+    "total_gross",
+)
+
+
+def kesu_state(s: Optional[ClientSettlement]) -> Optional[str]:
+    data = meta_of(s).get("kesu")
+    return str(data["state"]) if isinstance(data, dict) and data.get("state") else None
+
+
+def kesu_summary(s: Optional[ClientSettlement]) -> Optional[dict[str, Any]]:
+    """KEŚU na liście miesiąca: stan, opiekun, czas akceptacji, godziny (bez kwot)."""
+
+    data = meta_of(s).get("kesu")
+    if not isinstance(data, dict):
+        return None
+    return {
+        "state": data.get("state"),
+        "state_label": kesu.STATE_LABELS.get(str(data.get("state")), ""),
+        "approver": data.get("approver"),
+        "accepted_at": data.get("accepted_at"),
+        "hours": data.get("hours"),
+        "days": data.get("days"),
+    }
+
+
+def waits_for_signature(
+    s: Optional[ClientSettlement], rules: dict[str, dict[str, Any]]
+) -> bool:
+    """Faktura do klienta czeka na podpis klienta na KEŚU (``cl.after_signed_document``)."""
+
+    state = kesu_state(s)
+    return (
+        state is not None
+        and state != kesu.SIGNED
+        and rules["cl.after_signed_document"]["level"] != "off"
+    )
+
+
+def payment(
+    s: Optional[ClientSettlement], rules: dict[str, dict[str, Any]]
+) -> Optional[dict[str, Any]]:
+    """Kiedy wolno zapłacić konsultantowi (``pay.after_client_signature``).
+
+    Po podpisie klienta na KEŚU; awaryjnie (``pay.mail_accept_fallback``) po
+    mailowej akceptacji, gdy podpisujący jest nieobecny — wtedy podpisane KEŚU
+    zostaje do sprawdzenia później. ``None`` = reguła wyłączona albo bez KEŚU.
+    """
+
+    state = kesu_state(s)
+    rule = rules["pay.after_client_signature"]["level"]
+    if state is None or rule == "off":
+        return None
+    on_mail = meta_of(s).get(PAY_ON_MAIL)
+    fallback = rules["pay.mail_accept_fallback"]["level"] != "off"
+    if state == kesu.SIGNED:
+        return {
+            "state": "ok",
+            "title": "Można zapłacić: KEŚU podpisane przez klienta",
+            "detail": "Podpisane KEŚU po zapłacie po mailu sprawdzone."
+            if on_mail
+            else None,
+            "can_pay": True,
+            "on_mail": bool(on_mail),
+            "can_use_mail": False,
+        }
+    if on_mail:
+        return {
+            "state": "warn",
+            "title": "Można zapłacić po akceptacji mailowej",
+            "detail": "Podpisujący nieobecny. Podpisane KEŚU sprawdzimy, gdy wróci.",
+            "can_pay": True,
+            "on_mail": True,
+            "can_use_mail": False,
+        }
+    return {
+        "state": "fail" if rule == "block" else "warn",
+        "title": "Zapłata czeka na podpis klienta na KEŚU",
+        "detail": "Gdy podpisujący jest nieobecny i nie ma zastępstwa, można zapłacić "
+        "po akceptacji mailowej."
+        if fallback
+        else None,
+        "can_pay": False,
+        "on_mail": False,
+        "can_use_mail": fallback,
+    }
+
+
+def kesu_card(
+    s: Optional[ClientSettlement],
+    *,
+    person: str,
+    month: str,
+    rules: dict[str, dict[str, Any]],
+    amounts: bool,
+) -> Optional[dict[str, Any]]:
+    data = meta_of(s).get("kesu")
+    if not isinstance(data, dict):
+        return None
+    block: dict[str, Any] = {k: v for k, v in data.items() if k != "document_id"}
+    if not amounts:
+        block.update({key: None for key in KESU_AMOUNTS})
+    contract, order = data.get("rate_contract"), data.get("rate_order")
+    block["rate_differs"] = bool(
+        contract and order and abs(Decimal(contract) - Decimal(order)) > Decimal("0.01")
+    )
+    block["state_label"] = kesu.STATE_LABELS.get(str(data.get("state")), "")
+    block["mail"] = kesu.mail_draft(
+        person=person,
+        month=month,
+        approver=data.get("approver"),
+        approver_email=data.get("approver_email"),
+    )
+    block["payment"] = payment(s, rules)
+    block["invoice_waits"] = waits_for_signature(s, rules)
+    block["package_ready"] = data.get("rate_md") is not None
+    return block
+
+
+async def pay_on_mail(
+    db: AsyncSession, contract_id: int, month: str, *, actor: User, now: datetime
+) -> ClientSettlement:
+    """Finanse: podpisujący KEŚU nieobecny, płacimy po mailowej akceptacji."""
+
+    s = await _settlement(db, contract_id, month, for_update=True)
+    if s is None or kesu_state(s) is None:
+        raise SettlementError("Ta osoba nie ma KEŚU za ten miesiąc.")
+    rules = await rules_for(db, s.client_id, month)
+    if rules["pay.mail_accept_fallback"]["level"] == "off":
+        raise SettlementError(
+            "Reguła klienta nie pozwala płacić po mailowej akceptacji."
+        )
+    if kesu_state(s) == kesu.SIGNED:
+        raise SettlementError("KEŚU jest już podpisane przez klienta.")
+    meta = meta_of(s)
+    if not meta.get("kesu", {}).get("approver"):
+        raise SettlementError("Brak maila z Jiry z akceptacją opiekuna.")
+    stamp = {"by": actor.id, "at": now.isoformat()}
+    s.checks = [
+        *(c for c in s.checks if c is not meta),
+        {**meta, PAY_ON_MAIL: stamp},
+    ]
+    s.updated_by = actor.id
+    return s
+
+
+async def _refresh_kesu(db: AsyncSession, s: ClientSettlement) -> None:
+    if kesu_state(s) is None:
+        return
+    person = await _contract(db, s.contract_id)
+    reports = await _month_reports(db, s.contract_id, s.period_month, kind=s.kind)
+    order = await _order_for(db, s.contract_id, s.period_month)
+    proof = await kesu_flow.proof(
+        db,
+        reports,
+        contract_id=s.contract_id,
+        month=s.period_month,
+        person_name=person.name,
+        order_rate_md=order.md_rate_revenue if order else None,
+        rules=await rules_for(db, s.client_id, s.period_month),
+    )
+    if proof is None:
+        return
+    meta = meta_of(s)
+    fresh = {g["title"]: g for g in proof.groups}
+    s.checks = [
+        *(
+            fresh.get(c.get("title"), c) if isinstance(c, dict) else c
+            for c in s.checks
+            if c is not meta
+        ),
+        {**meta, "kesu": proof.meta["kesu"]},
+    ]
+
+
+async def kesu_package(
+    db: AsyncSession, contract_id: int, month: str
+) -> tuple[bytes, str]:
+    """Paczka PDF do podpisu spółki: KEŚU ze stawką i faktury kosztów."""
+
+    person = await _contract(db, contract_id)
+    reports = await _month_reports(db, contract_id, month)
+    rules = await rules_for(db, person.contract.client_id, month)
+    order = await _order_for(db, contract_id, month)
+    try:
+        content = await kesu_flow.package(
+            db,
+            reports,
+            contract_id=contract_id,
+            month=month,
+            rules=rules,
+            order_rate_md=order.md_rate_revenue if order else None,
+        )
+    except Exception as exc:  # noqa: BLE001 — PDF z zewnątrz bywa uszkodzony
+        logger.warning("rozliczenia KEŚU: paczka nie powstała (%s)", type(exc).__name__)
+        raise SettlementError(
+            "Nie udało się złożyć paczki: jedna z faktur kosztów ma nieczytelny PDF. "
+            "Pobierz pliki osobno z karty osoby."
+        ) from None
+    if content is None:
+        raise SettlementError(
+            "Nie ma KEŚU albo stawki klienta, więc paczki nie da się złożyć.",
+            status=404,
+        )
+    return content, kesu.package_name(person.name, month)
 
 
 # ── Klienci i reguły ─────────────────────────────────────────────────────────

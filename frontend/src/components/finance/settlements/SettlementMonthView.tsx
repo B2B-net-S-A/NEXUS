@@ -14,13 +14,14 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   useAcceptBatch,
   useSettlementMonth,
+  type KesuState,
   type SettlementFilter,
   type SettlementRow,
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
 import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
-import { CLIENT_INVOICE, CONTRACTOR_INVOICE, FILTERS, STATUS, matchesFilter, mdText, monthLabel, pctText, pln } from "./format";
+import { CLIENT_INVOICE, CONTRACTOR_INVOICE, FILTERS, KESU, STATUS, matchesFilter, mdText, monthLabel, pctText, pln } from "./format";
 
 interface SettlementMonthViewProps {
   clientId: number;
@@ -73,6 +74,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
     <div className="space-y-2.5">
       {confirmDialog}
       <ClientDocumentsPanel clientId={clientId} month={month} />
+      <KesuSummaryBar rows={data.rows} />
       <div className="flex flex-wrap items-center gap-1">
         {FILTERS.map((f) => (
           <button
@@ -164,11 +166,19 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <span className="block truncate text-[11px] tabular-nums text-muted-foreground">
                     {r.order_number ?? <span className="text-warning-muted-foreground">Brak numeru zamówienia</span>}
                   </span>
+                  {r.kesu?.approver ? (
+                    <span className="block truncate text-[11px] text-muted-foreground">Opiekun: {r.kesu.approver}</span>
+                  ) : null}
                 </td>
                 <td className="px-2 py-1.5">
                   <StatusDot tone={STATUS[r.status].tone} note={r.issues ?? undefined}>
                     {STATUS[r.status].label}
                   </StatusDot>
+                  {r.kesu ? (
+                    <span className="mt-0.5 block">
+                      <StatusDot tone={KESU[r.kesu.state].tone}>KEŚU: {KESU[r.kesu.state].label.toLowerCase()}</StatusDot>
+                    </span>
+                  ) : null}
                 </td>
                 <td className="px-2 py-1.5 text-right tabular-nums">
                   {mdText(r.md_regular)}
@@ -205,5 +215,26 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** KEŚU klienta z Jirą (E6.3): ile kart czeka na podpis spółki, ile na klienta. */
+function KesuSummaryBar({ rows }: { rows: SettlementRow[] }) {
+  const withKesu = rows.filter((r) => r.kesu);
+  if (withKesu.length === 0) return null;
+  const count = (state: KesuState) => withKesu.filter((r) => r.kesu?.state === state).length;
+  const toInvoice = rows.filter((r) => r.client_invoice === "ready").length;
+  return (
+    <section aria-label="KEŚU w miesiącu" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border bg-card px-3 py-2 text-[13px]">
+      <span className="font-semibold">KEŚU z Jiry</span>
+      {(["to_company", "awaiting_client", "signed"] as const).map((state) => (
+        <StatusDot key={state} tone={KESU[state].tone}>
+          {KESU[state].label}: <span className="tabular-nums">{count(state)}</span>
+        </StatusDot>
+      ))}
+      <span className="text-muted-foreground">
+        Do faktury dla klienta: <span className="tabular-nums">{toInvoice}</span>
+      </span>
+    </section>
   );
 }

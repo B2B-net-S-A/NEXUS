@@ -31,7 +31,7 @@ from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
 from app.models.user import User
 from app.services.action_permissions import has_permission
-from app.services.sales import bot_card_history, bot_tasks, signals
+from app.services.sales import bot_card_history, bot_tasks, bots, signals
 from app.services.sales.bot_tasks import enrich, question
 from app.services.sales import registry_cards
 
@@ -215,6 +215,9 @@ async def ask_bot(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from None
+    paused = await bots.paused_refusal(db, question.KIND)
+    if paused:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=paused)
     run = await signals.start_run(
         db,
         question.KIND,
@@ -307,6 +310,9 @@ async def start_enrich(
     )
     if recent is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=COOLDOWN_DETAIL)
+    paused = await bots.paused_refusal(db, enrich.KIND)
+    if paused:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=paused)
     run = await signals.start_run(
         db, enrich.KIND, [company_id], now=now, requested_by_user_id=user_id
     )
