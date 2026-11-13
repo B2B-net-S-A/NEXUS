@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import importlib.util
 import io
@@ -247,19 +248,63 @@ DOMAINS = (
 )
 
 
+# Wycinek etykiet, które Coolify 4.5.3 generuje dla aplikacji z domeną (fqdnLabelsForTraefik).
+COOLIFY_LABELS = [
+    "traefik.enable=true",
+    "traefik.http.middlewares.gzip-sse.compress=true",
+    "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https",
+    "traefik.http.routers.http-0-x.entryPoints=http",
+    "traefik.http.routers.http-0-x.middlewares=redirect-to-https",
+    "traefik.http.routers.http-0-x.rule=Host(`app.example.pl`) && PathPrefix(`/`)",
+    "traefik.http.routers.https-0-x.entryPoints=https",
+    "traefik.http.routers.https-0-x.middlewares=gzip-sse",
+    "traefik.http.routers.https-0-x.rule=Host(`app.example.pl`) && PathPrefix(`/`)",
+    "traefik.http.routers.https-0-x.tls=true",
+    "traefik.http.routers.https-1-x.rule=Host(`kariera.example.pl`) && PathPrefix(`/`)",
+    "traefik.http.routers.https-1-x.tls=true",
+]
+
+
 def switch_api(domains=DOMAINS, raw=COMPOSE_RAW, fqdn=""):
     calls = []
     deploy = deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG})
+    labels = base64.b64encode("\n".join(COOLIFY_LABELS).encode()).decode()
 
     def request(method, path, payload=None):
         calls.append((method, path, payload))
         if path == "applications/src":
             return {"docker_compose_domains": domains, "docker_compose_raw": raw}
         if path == "applications/x" and method == "GET":
-            return {"status": "running:healthy", "fqdn": fqdn, "redirect": "non-www"}
+            return {"status": "running:healthy", "fqdn": fqdn, "redirect": "non-www", "custom_labels": labels}
         return deploy(method, path, payload)
 
     return request, calls
+
+
+class RetryLabelTests(unittest.TestCase):
+    def test_every_router_gets_retry_first_in_its_chain(self):
+        labels = frontend_app.with_retry(COOLIFY_LABELS)
+        self.assertIn("traefik.http.routers.https-0-x.middlewares=nexus-front-retry,gzip-sse", labels)
+        self.assertIn("traefik.http.routers.http-0-x.middlewares=nexus-front-retry,redirect-to-https", labels)
+        self.assertIn("traefik.http.routers.https-1-x.middlewares=nexus-front-retry", labels)
+        self.assertIn("traefik.http.middlewares.nexus-front-retry.retry.attempts=3", labels)
+        self.assertIn("traefik.http.middlewares.nexus-front-retry.retry.initialinterval=100ms", labels)
+        self.assertEqual(len([line for line in labels if ".middlewares=" in line and ".routers." in line]), 3)
+
+    def test_applying_twice_changes_nothing(self):
+        once = frontend_app.with_retry(COOLIFY_LABELS)
+        self.assertEqual(frontend_app.with_retry(once), once)
+
+    def test_labels_without_routers_stop_the_switch(self):
+        with self.assertRaises(ValueError):
+            frontend_app.with_retry(["traefik.enable=true"])
+
+    def test_labels_are_read_plain_or_base64(self):
+        plain = "\n".join(COOLIFY_LABELS)
+        encoded = base64.b64encode(plain.encode()).decode()
+        self.assertEqual(frontend_app.decode_labels(plain), COOLIFY_LABELS)
+        self.assertEqual(frontend_app.decode_labels(encoded), COOLIFY_LABELS)
+        self.assertEqual(frontend_app.decode_labels(None), [])
 
 
 class SwitchTests(unittest.TestCase):
@@ -279,10 +324,20 @@ class SwitchTests(unittest.TestCase):
                 {
                     "domains": "https://app.example.pl,https://kariera.example.pl",
                     "force_domain_override": True,
+                    "is_container_label_readonly_enabled": True,
                     "redirect": "non-www",
                 },
             ),
         )
+        path, labels_patch = patches[1]
+        self.assertEqual(path, "applications/x")
+        self.assertIs(labels_patch["is_container_label_readonly_enabled"], False)
+        self.assertEqual(labels_patch["rolling_update_drain_seconds"], 10)
+        self.assertEqual(labels_patch["stop_grace_period"], 30)
+        written = base64.b64decode(labels_patch["custom_labels"]).decode().splitlines()
+        self.assertEqual(written, frontend_app.with_retry(COOLIFY_LABELS))
+        labelled = calls.index(("PATCH", "applications/x", labels_patch))
+        self.assertLess(labelled, next(i for i, c in enumerate(calls) if c[1].startswith("deploy?")))
         rolled = next(i for i, c in enumerate(calls) if c[1].startswith("deploy?"))
         released = calls.index(
             (

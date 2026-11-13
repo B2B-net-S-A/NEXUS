@@ -21,6 +21,8 @@ ani ciała odpowiedzi API.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
 import re
@@ -38,6 +40,19 @@ MODES = {"plan", "create", "deploy", "switch", "rollback", "stop", "trigger", "w
 REDIRECTS = {"www", "non-www", "both"}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 UUID_RE = re.compile(r"[A-Za-z0-9_-]+")
+# Zero błędów przy podmianie kontenera (cel Artura 13.11): Traefik ponawia żądanie,
+# gdy połączenie z kontenerem padło przed odpowiedzią (stary po SIGTERM zamyka
+# gniazdo, a jeszcze jest w puli). Next standalone kończy żądania w toku przed
+# wyjściem (`server.close()` w `start-server.js`), Coolify czeka `drain` sekund
+# na przejęcie ruchu przez nowy kontener, potem `docker stop` z `grace`.
+RETRY_MIDDLEWARE = "nexus-front-retry"
+RETRY_LABELS = (
+    f"traefik.http.middlewares.{RETRY_MIDDLEWARE}.retry.attempts=3",
+    f"traefik.http.middlewares.{RETRY_MIDDLEWARE}.retry.initialinterval=100ms",
+)
+SHUTDOWN_SETTINGS = {"rolling_update_drain_seconds": 10, "stop_grace_period": 30}
+ROUTER_RULE_RE = re.compile(r"traefik\.http\.routers\.([^.=]+)\.rule=")
+ROUTER_MIDDLEWARES_RE = re.compile(r"traefik\.http\.routers\.([^.=]+)\.middlewares=(.*)")
 
 # Tylko to, co czyta front: `grep process.env frontend/` i ARG-i w frontend/Dockerfile.
 # Dziś kontener frontu dostaje cały skarbiec (ok. 200 zmiennych, także klucze API).
@@ -314,6 +329,67 @@ def domain_rows(domains: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
     return rows
 
 
+def decode_labels(raw: Any) -> list[str]:
+    """`custom_labels` z API: Coolify trzyma je raz jawnie, raz w base64."""
+    text = str(raw or "")
+    try:
+        decoded = base64.b64decode(text, validate=True).decode("utf-8")
+        if "traefik." in decoded:
+            text = decoded
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        pass
+    return [line for line in text.splitlines() if line.strip()]
+
+
+def with_retry(labels: list[str]) -> list[str]:
+    """Etykiety wygenerowane przez Coolify + retry na początku łańcucha każdego routera."""
+    routers = list(dict.fromkeys(m.group(1) for m in map(ROUTER_RULE_RE.match, labels) if m))
+    if not routers:
+        raise ValueError("etykiety aplikacji frontu nie mają routerów — domeny nie zapisane?")
+    out, chained = [], set()
+    for line in labels:
+        match = ROUTER_MIDDLEWARES_RE.fullmatch(line)
+        if match:
+            chained.add(match.group(1))
+            names = [name for name in match.group(2).split(",") if name]
+            if RETRY_MIDDLEWARE not in names:
+                names.insert(0, RETRY_MIDDLEWARE)
+            line = f"traefik.http.routers.{match.group(1)}.middlewares={','.join(names)}"
+        out.append(line)
+    out += [f"traefik.http.routers.{r}.middlewares={RETRY_MIDDLEWARE}" for r in routers if r not in chained]
+    return out + [label for label in RETRY_LABELS if label not in out]
+
+
+def set_domains(request: Request, app_uuid: str, domains: str, redirect: Any) -> None:
+    """Domeny + etykiety z retry; dalej etykiety trzyma aplikacja, nie Coolify.
+
+    Przy `is_container_label_readonly_enabled=true` Coolify przepisuje etykiety
+    z domen przy każdym PATCH domen, więc najpierw generuje je on, potem dokładamy
+    retry i wyłączamy przepisywanie (inaczej zmiana domen zgubiłaby retry).
+    """
+    path = "applications/" + app_uuid
+    payload: dict[str, Any] = {
+        "domains": domains,
+        "force_domain_override": True,
+        "is_container_label_readonly_enabled": True,
+    }
+    if redirect in REDIRECTS:
+        payload["redirect"] = redirect
+    request("PATCH", path, payload)
+    labels = with_retry(decode_labels((request("GET", path) or {}).get("custom_labels")))
+    request(
+        "PATCH",
+        path,
+        {
+            "custom_labels": base64.b64encode("\n".join(labels).encode("utf-8")).decode("ascii"),
+            "is_container_label_readonly_enabled": False,
+            **SHUTDOWN_SETTINGS,
+        },
+    )
+    chained = [label for label in labels if ".routers." in label and RETRY_MIDDLEWARE in label]
+    print(f"etykiety frontu: {len(labels)}, routery z retry: {len(chained)}")
+
+
 def switch(request: Request, source_uuid: str, commit: str, **timing: Any) -> None:
     """Przepięcie domen frontu z compose na `nexus-frontend` bez przerwy.
 
@@ -330,10 +406,7 @@ def switch(request: Request, source_uuid: str, commit: str, **timing: Any) -> No
     front = domains.get(COMPOSE_SERVICE) or {}
     if not front.get("domain"):
         raise ValueError("compose nie ma domen frontu — przepięcie już zrobione?")
-    payload: dict[str, Any] = {"domains": front["domain"], "force_domain_override": True}
-    if front.get("redirect") in REDIRECTS:
-        payload["redirect"] = front["redirect"]
-    request("PATCH", "applications/" + app["uuid"], payload)
+    set_domains(request, app["uuid"], front["domain"], front.get("redirect"))
     deploy(request, commit, **timing)
     rest = {name: entry for name, entry in domains.items() if name != COMPOSE_SERVICE}
     request("PATCH", path, {"docker_compose_domains": domain_rows(rest)})
