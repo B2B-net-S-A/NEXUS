@@ -32,10 +32,11 @@ async def play(
     scope = media.scope_of(file_id, t, now=media.utcnow())
     if scope is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, EXPIRED)
-    if scope == "lib":
-        # Wycofane z biblioteki = bilet przestaje działać od razu.
+    if scope in ("lib", "reg"):
+        # Wycofane z biblioteki albo cofnięte udostępnienie = bilet przestaje działać od razu.
+        check = core.library_file if scope == "lib" else core.shared_file
         try:
-            item = await core.library_file(db, file_id)
+            item = await check(db, file_id)
         except TrainingError:
             raise HTTPException(status.HTTP_403_FORBIDDEN, EXPIRED) from None
     else:

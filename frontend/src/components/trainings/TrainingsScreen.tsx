@@ -17,7 +17,9 @@ import {
   trainingPaths,
   useCompanySignatureFor,
   usePendingSignatures,
+  useRateTraining,
   useRegistration,
+  searchTranscript,
   useSaveTrainingSettings,
   useTrainerApplications,
   useTrainingLibrary,
@@ -30,11 +32,14 @@ import { useUrlTab } from "@/lib/url-tab";
 import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
+import { TrainingCalendar } from "./TrainingCalendar";
 import { TrainingLibrary } from "./TrainingLibrary";
+import { warsawToday } from "./training-model";
 import { PendingSignatures, TrainerApplications, TrainingRegister } from "./TrainingRegister";
 import { useRunAction } from "./use-run-action";
 
-const TABS = ["library", "organize", "applications", "sign"] as const;
+// „library” zostaje jako stary adres zakładki nagrań (linki sprzed 0697).
+const TABS = ["calendar", "recordings", "library", "organize", "applications", "sign"] as const;
 type Tab = (typeof TABS)[number];
 
 function QueryGate({
@@ -63,21 +68,51 @@ function QueryGate({
   return <>{children}</>;
 }
 
-function LibraryTab() {
+function CalendarTab() {
   const library = useTrainingLibrary();
   const registration = useRegistration();
   const run = useRunAction();
   return (
     <QueryGate query={library} isEmpty={false} empty={null}>
       {library.data ? (
-        <TrainingLibrary
-          library={library.data}
+        <TrainingCalendar
+          live={library.data.live}
+          today={warsawToday()}
           busy={registration.isPending}
           onRegister={(id, join) =>
             run(
               () => registration.mutateAsync({ id, join }),
-              join ? "Zapisano na szkolenie." : "Wypisano ze szkolenia.",
+              join ? "Zapisano. Zaproszenie trafi do Twojego kalendarza." : "Wypisano ze szkolenia.",
               "Nie udało się zmienić zapisu.",
+            )
+          }
+        />
+      ) : null}
+    </QueryGate>
+  );
+}
+
+function LibraryTab() {
+  const library = useTrainingLibrary();
+  const rate = useRateTraining();
+  const run = useRunAction();
+  return (
+    <QueryGate query={library} isEmpty={false} empty={null}>
+      {library.data ? (
+        <TrainingLibrary
+          library={library.data}
+          onSearchTranscript={async (id, q) => {
+            try {
+              return await searchTranscript(id, q);
+            } catch {
+              return null;
+            }
+          }}
+          onRate={(id, rating) =>
+            run(
+              () => rate.mutateAsync({ id, rating, comment: "" }),
+              "Dziękujemy za ocenę.",
+              "Nie udało się zapisać oceny.",
             )
           }
           getMediaUrl={async (file) => {
@@ -232,7 +267,10 @@ function SignTab() {
 }
 
 function tabsFor(me: TrainingsMe | undefined, pendingCount: number): TabbedNavItem[] {
-  const tabs: TabbedNavItem[] = [{ value: "library", label: "Biblioteka" }];
+  const tabs: TabbedNavItem[] = [
+    { value: "calendar", label: "Kalendarz" },
+    { value: "recordings", label: "Nagrania" },
+  ];
   if (me?.can_read) tabs.push({ value: "organize", label: "Organizuję" });
   if (me?.can_manage) tabs.push({ value: "applications", label: "Zgłoszenia trenerów" });
   if (me?.is_company_signer && pendingCount > 0) {
@@ -250,16 +288,17 @@ export function TrainingsScreen() {
   const [requested, selectTab] = useUrlTab<Tab>({
     requested: searchParams.get("tab"),
     validTabs: TABS,
-    defaultTab: "library",
+    defaultTab: "calendar",
   });
   const tabs = tabsFor(me.data, pending.data?.length ?? 0);
-  const current: Tab = tabs.some((tab) => tab.value === requested) ? requested : "library";
+  const asked: Tab = requested === "library" ? "recordings" : requested;
+  const current: Tab = tabs.some((tab) => tab.value === asked) ? asked : "calendar";
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Szkolenia"
-        description="Nagrania i materiały ze szkoleń, zapisy na szkolenia na żywo."
+        description="Kalendarz szkoleń na żywo w Teams, nagrania z transkryptem i materiały."
         density="compact"
         actions={
           me.data?.can_manage ? (
@@ -284,7 +323,8 @@ export function TrainingsScreen() {
           tabs={tabs}
         />
       ) : null}
-      {current === "library" ? <LibraryTab /> : null}
+      {current === "calendar" ? <CalendarTab /> : null}
+      {current === "recordings" ? <LibraryTab /> : null}
       {current === "organize" ? <OrganizeTab isAdmin={hasRole(user, "admin")} /> : null}
       {current === "applications" ? <ApplicationsTab /> : null}
       {current === "sign" ? <SignTab /> : null}

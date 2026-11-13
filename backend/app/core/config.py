@@ -1647,6 +1647,14 @@ class Settings(BaseSettings):
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
+    # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
+    # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.
+    TRAININGS_TEAMS_MAILBOX: str = ""
+    TRAININGS_TEAMS_ENABLED: bool = False
+    # Pętla nagrań szkoleń: po ilu minutach od końca pytać Graph i kiedy się poddać.
+    TRAININGS_RECORDING_DELAY_MINUTES: int = 20
+    TRAININGS_RECORDING_GIVE_UP_HOURS: int = 72
     # Wspólny numer back office'u pokazywany w panelu. Pusty = panel nie ma wiersza z numerem.
     CONSULTANT_PORTAL_SUPPORT_PHONE: str = ""
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —

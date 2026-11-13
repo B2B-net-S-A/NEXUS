@@ -2808,5 +2808,17 @@
     "where": "Menu → Firma → Szkolenia",
     "href": "/trainings",
     "dot_anchor": "trainings.library"
+  },
+  {
+    "id": "szkolenia-kalendarz-teams",
+    "pr": 3397,
+    "title": "Szkolenia: kalendarz, zaproszenie do Outlooka i nagranie z transkryptem",
+    "why": "Po „Zapisz się” zaproszenie trafia do Twojego kalendarza, a dzień wcześniej przyjdzie przypomnienie. W „Nagraniach” znajdziesz słowo, które padło na szkoleniu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
+    "where": "Menu → Firma → Szkolenia → Kalendarz",
+    "href": "/trainings",
+    "dot_anchor": "trainings.calendar"
   }
 ]

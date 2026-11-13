@@ -36,6 +36,8 @@ export interface TrainingsMe {
   can_read: boolean;
   can_pay: boolean;
   is_company_signer: boolean;
+  /** 0697: spotkanie Teams zakłada NEXUS, więc formularz nie pyta o link. */
+  teams_ready?: boolean;
 }
 
 export interface TrainingDeliverable {
@@ -103,6 +105,7 @@ export interface TrainingOrder {
   deliverables: TrainingDeliverable[];
   knowledge_test: boolean;
   extra_terms: string;
+  seat_limit?: number | null;
 }
 
 export interface TrainingQuote {
@@ -151,6 +154,10 @@ export interface TrainingView {
   files: TrainingFileRow[];
   registrations: number;
   attendance: number;
+  teams?: TrainingTeams;
+  shared_registered_at?: string | null;
+  feedback?: TrainingFeedbackSummary;
+  transcript?: boolean;
   published_at: string | null;
   can_publish: boolean;
   chapters: TrainingChapter[];
@@ -158,6 +165,20 @@ export interface TrainingView {
   cancel_reason: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** Spotkanie Teams założone przez NEXUS (0697) i stan nagrania z Teams. */
+export interface TrainingTeams {
+  status: "created" | "failed" | "cancelled" | null;
+  error: string | null;
+  synced_at: string | null;
+  recording: "waiting" | "imported" | "none" | "failed" | null;
+}
+
+export interface TrainingFeedbackSummary {
+  count: number;
+  average: number | null;
+  comments?: string[];
 }
 
 /** `core.list_row` — wiersz rejestru „Organizuję”. */
@@ -193,6 +214,9 @@ export interface LibraryRecording {
   session_date: string | null;
   duration_minutes: number | null;
   trainer_kind: TrainerKind;
+  /** „registered” = nagranie tylko dla zapisanych (przed zapłatą trenera B2B). */
+  scope?: "library" | "registered";
+  registered?: boolean;
   chapters: TrainingChapter[];
   files: LibraryFile[];
 }
@@ -205,8 +229,26 @@ export interface LiveTraining {
   time_from: string;
   time_to: string;
   platform: string;
+  description?: string;
+  trainer_kind?: TrainerKind;
+  seat_limit?: number | null;
+  taken?: number;
   registered: boolean;
+  /** Ja prowadzę to szkolenie: bez zapisu, z linkiem prowadzącego. */
+  leading?: boolean;
   join_url: string | null;
+  /** Spotkanie założył NEXUS: zapis wysyła zaproszenie do kalendarza. */
+  invited?: boolean;
+}
+
+export interface TranscriptHit {
+  second: number;
+  text: string;
+}
+
+export interface TranscriptSearch {
+  available: boolean;
+  hits: TranscriptHit[];
 }
 
 export interface TrainingLibrary {
@@ -291,6 +333,7 @@ export interface OrderInput {
   deliverables: DeliverableInput[];
   knowledge_test: boolean;
   extra_terms: string;
+  seat_limit?: number | null;
 }
 
 export interface CreateInput extends OrderInput {
@@ -576,6 +619,27 @@ export function useMarkPaid(id: number) {
 
 export function usePublishTraining(id: number) {
   return useTrainingCommand(async (publish: boolean) => post(`/${id}/publish`, { publish }));
+}
+
+export function useShareWithRegistered(id: number) {
+  return useTrainingCommand(async (share: boolean) => post(`/${id}/share`, { share }));
+}
+
+export function useRetryTeams(id: number) {
+  return useTrainingCommand(async () => post(`/${id}/teams`));
+}
+
+export function useRateTraining() {
+  const invalidate = useInvalidateTrainings();
+  return useMutation({
+    mutationFn: async ({ id, rating, comment }: { id: number; rating: number; comment: string }) =>
+      (await api.post<{ rating: number }>(`${BASE}/library/${id}/feedback`, { rating, comment })).data,
+    onSuccess: invalidate,
+  });
+}
+
+export async function searchTranscript(id: number, q: string): Promise<TranscriptSearch> {
+  return (await api.get<TranscriptSearch>(`${BASE}/library/${id}/transcript`, { params: { q } })).data;
 }
 
 export function useImportAttendance(id: number) {

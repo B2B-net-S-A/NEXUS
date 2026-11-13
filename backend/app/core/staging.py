@@ -90,6 +90,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "consultant_portal_transcripts",
         "consultant_portal_ratings",
         "consultant_portal_mailbox",
+        # 0697: Graph (nagrania szkoleń z OneDrive szkolenia@) i dzwonki do ludzi.
+        "trainings_teams",
         "cv_generation",
         "cv_approval",
         "cv_source_cleanup",
