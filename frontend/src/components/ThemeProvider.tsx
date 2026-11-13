@@ -6,7 +6,6 @@ import { useThemeStore } from "@/store/theme";
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = useThemeStore((s) => s.theme);
   const palette = useThemeStore((s) => s.palette);
-  const softUi = useThemeStore((s) => s.softUi);
   const kidsMode = useThemeStore((s) => s.kidsMode);
 
   useEffect(() => {
@@ -18,14 +17,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     document.documentElement.dataset.theme = palette;
   }, [palette]);
 
+  // Styl „Wyraźny” (cienie) jest stały od 13.11.2026 — bez przełącznika.
   useEffect(() => {
-    const root = document.documentElement;
-    if (softUi) {
-      root.dataset.soft = "true";
-    } else {
-      delete root.dataset.soft;
-    }
-  }, [softUi]);
+    document.documentElement.dataset.soft = "true";
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;

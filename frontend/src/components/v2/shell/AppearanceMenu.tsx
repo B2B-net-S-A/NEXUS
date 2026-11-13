@@ -17,7 +17,7 @@ import { PaletteMenuItems } from "./PaletteSwitcher";
 import { useKidsModeToggle } from "./ThemeControls";
 
 /**
- * „Wygląd” w górnym pasku: motyw koloru, styl interfejsu, tryb gry i tryb
+ * „Wygląd” w górnym pasku: motyw koloru, tryb gry i tryb
  * ciemny w jednym menu (decyzja Artura 13.10.2026). Trzy osobne przyciski
  * po 32 px zabierały 112 px — to miejsce zajmuje przycisk Ligi Mistrzów.
  * Na telefonie przełączniki zostają osobno w szufladzie nawigacji.

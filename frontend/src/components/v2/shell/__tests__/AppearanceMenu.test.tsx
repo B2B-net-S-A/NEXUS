@@ -38,11 +38,13 @@ async function openMenu() {
 }
 
 describe("AppearanceMenu", () => {
-  it("jeden przycisk „Wygląd” z motywem, stylem, trybem gry i trybem ciemnym", async () => {
+  it("jeden przycisk „Wygląd” z motywem, trybem gry i trybem ciemnym — bez stylu interfejsu", async () => {
     render(<AppearanceMenu />);
     await openMenu();
     expect(await screen.findByText("Motyw koloru")).toBeInTheDocument();
-    expect(screen.getByText("Styl interfejsu")).toBeInTheDocument();
+    // Styl „Wyraźny” jest stały od 13.11.2026 — w menu nie ma wyboru stylu.
+    expect(screen.queryByText("Styl interfejsu")).toBeNull();
+    expect(screen.queryByText("Klasyczny (płaski)")).toBeNull();
     expect(screen.getByRole("menuitemcheckbox", { name: "Tryb gry" })).toHaveAttribute("aria-checked", "false");
     expect(screen.getByRole("menuitemcheckbox", { name: "Tryb ciemny" })).toHaveAttribute("aria-checked", "false");
   });

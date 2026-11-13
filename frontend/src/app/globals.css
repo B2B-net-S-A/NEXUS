@@ -392,8 +392,8 @@
      tints the page canvas a soft slate so white cards visibly "sit" on it;
      dark mode lifts cards further off the background. Corners get rounder
      via --radius (rounded-sm/md/lg are var-driven) and the decorative layer
-     at the end of this file adds card borders + soft shadows. Default ON;
-     "Klasyczny" in the palette picker removes the attribute → flat look.
+     at the end of this file adds card borders + soft shadows. Always ON
+     since 13.11.2026 — „Klasyczny (płaski)” zniknął z menu „Wygląd”.
      These blocks MUST stay above the KIDS blocks so that, when both modes
      are active, Kids wins by source order (equal specificity).
      =================================================================== */

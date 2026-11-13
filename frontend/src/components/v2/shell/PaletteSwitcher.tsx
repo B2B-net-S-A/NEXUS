@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Layers, Palette, Square } from "lucide-react";
+import { Check, Palette } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
@@ -15,20 +14,19 @@ import { THEME_PALETTES, useThemeStore } from "@/store/theme";
 
 /**
  * Quick color-theme picker. Lets each user choose a palette (accent + chrome +
- * sidebar) and the interface style (soft depth vs flat). Persisted per-browser
+ * sidebar). Persisted per-browser
  * via the theme store. Od 13.10.2026 w górnym pasku stoi menu „Wygląd”
  * (`AppearanceMenu`), a ten przycisk zostaje w szufladzie nawigacji.
  */
 /**
- * Pozycje menu motywu: paleta koloru i styl interfejsu. Wspólne dla tego
+ * Pozycje menu motywu: paleta koloru. Styl interfejsu jest od 13.11.2026 zawsze
+ * „Wyraźny” (cienie) i nie ma go w menu — decyzja Artura. Wspólne dla tego
  * przełącznika (szuflada nawigacji na telefonie) i menu „Wygląd” w górnym
  * pasku — jedna lista, żeby nowa paleta nie trafiała tylko w jedno miejsce.
  */
 export function PaletteMenuItems() {
   const palette = useThemeStore((s) => s.palette);
   const setPalette = useThemeStore((s) => s.setPalette);
-  const softUi = useThemeStore((s) => s.softUi);
-  const setSoftUi = useThemeStore((s) => s.setSoftUi);
   return (
     <>
       <DropdownMenuLabel>Motyw koloru</DropdownMenuLabel>
@@ -53,18 +51,6 @@ export function PaletteMenuItems() {
           </DropdownMenuItem>
         );
       })}
-      <DropdownMenuSeparator />
-      <DropdownMenuLabel>Styl interfejsu</DropdownMenuLabel>
-      <DropdownMenuItem onSelect={() => setSoftUi(true)} className="cursor-pointer gap-2.5">
-        <Layers className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="flex-1">Wyraźny (cienie)</span>
-        {softUi && <Check className="h-4 w-4 shrink-0 text-foreground" />}
-      </DropdownMenuItem>
-      <DropdownMenuItem onSelect={() => setSoftUi(false)} className="cursor-pointer gap-2.5">
-        <Square className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-        <span className="flex-1">Klasyczny (płaski)</span>
-        {!softUi && <Check className="h-4 w-4 shrink-0 text-foreground" />}
-      </DropdownMenuItem>
     </>
   );
 }

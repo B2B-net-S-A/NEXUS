@@ -2048,7 +2048,7 @@
   {
    "id": "shell.appearance-menu",
    "area": "powłoka",
-   "opis": "Menu „Wygląd” w górnym pasku: motyw koloru, styl interfejsu, tryb gry i tryb ciemny w jednym przycisku (na telefonie te przełączniki są osobno w szufladzie nawigacji)",
+   "opis": "Menu „Wygląd” w górnym pasku: motyw koloru, tryb gry i tryb ciemny w jednym przycisku (styl „Wyraźny” stały od 13.11.2026) (na telefonie te przełączniki są osobno w szufladzie nawigacji)",
    "file": "components/v2/shell/AppearanceMenu.tsx",
    "marker": "AppearanceMenu",
    "v3_home": "Górny pasek → Wygląd"
