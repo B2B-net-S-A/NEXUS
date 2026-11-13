@@ -105,7 +105,8 @@ konto `env -u GH_TOKEN gh`), każdy krok zmieniający produkcję w oknie wdroże
    `nexus-front-retry` (Traefik `retry`, 3 próby od 100 ms) na początku łańcucha każdego
    routera, i wyłącza przepisywanie etykiet przez Coolify
    (`is_container_label_readonly_enabled=false`), bo inaczej kolejny PATCH domen zgubiłby
-   retry. Zmiana domen frontu = ponowne dołożenie retry (funkcja `set_domains`), nie edycja
+   retry. Logika etykiet jest wspólna dla frontu i backendu (B2): `.github/scripts/coolify_labels.py`.
+   Zmiana domen frontu = ponowne dołożenie retry (funkcja `set_domains`), nie edycja
    w panelu. Do tego `rolling_update_drain_seconds=10` i `stop_grace_period=30`.
 
    Dlaczego bez błędów przy podmianie: Coolify startuje nowy kontener, czeka na healthcheck
