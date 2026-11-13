@@ -19,7 +19,7 @@ Tabele:
   ``nip_state``: ``known`` (NIP z kontraktu), ``suggested`` (NIP nieznany,
   sprzedawca nazywa się jak osoba z kontraktu — czeka na Finanse), ``confirmed``
   (Finanse zatwierdziły NIP), ``rejected`` (to nie ta osoba).
-  Od 0687 (13.11.2026) ``details`` — treść z XML-a FA pobierana tylko dla korekt
+  Od 0688 (13.11.2026) ``details`` — treść z XML-a FA pobierana tylko dla korekt
   i faktur, które korygują (pozycje ze stanem przed, dokumenty korygowane),
   i ``vat_whitelist`` — status sprzedawcy na białej liście VAT na dzień
   wystawienia. Oba JSONB, puste = jeszcze nie sprawdzono.
@@ -134,7 +134,7 @@ CK_SETTLEMENT_MD_SOURCE = (
     f"md_source IS NULL OR md_source IN ({quoted(MD_SOURCES_SETTLEMENT)})"
 )
 
-#: 0687: treść korekt z XML-a i biała lista VAT przy fakturach kontraktorów (E4).
+#: 0688: treść korekt z XML-a i biała lista VAT przy fakturach kontraktorów (E4).
 CONTRACTOR_CHECKS_DDL: tuple[str, ...] = (
     "ALTER TABLE client_contractor_invoices ADD COLUMN IF NOT EXISTS details JSONB NULL",
     "ALTER TABLE client_contractor_invoices ADD COLUMN IF NOT EXISTS vat_whitelist JSONB NULL",

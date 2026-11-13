@@ -304,7 +304,7 @@ reguły klienta jako katalog z poziomami.
 - Kontrole korekt i białej listy (13.11, po teście Finansów na fakturze z sześcioma
   korektami, którego sama suma netto nie łapała): XML FA pobieramy tylko dla korekt
   i faktur, które one korygują (najwyżej 10 na przebieg KSeF, po Płacach), kolumny
-  `details` i `vat_whitelist` (migracja 0687). Na karcie osoby ostrzeżenia:
+  `details` i `vat_whitelist` (migracja 0688). Na karcie osoby ostrzeżenia:
   łańcuch po netto, VAT i brutto („Korekty zostawiają X zł VAT”), numer i data
   faktury korygowanej kontra dokument wskazany numerem KSeF, „stan przed” kontra
   stan dokumentu korygowanego (jego pozycje, jego zmiana albo stan łańcucha),
