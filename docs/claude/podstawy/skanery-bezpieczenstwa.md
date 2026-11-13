@@ -84,7 +84,17 @@ traversal ani audytu znanych podatności zależności na PR-ze.
   (`_qualified_identifier`, pola z listy `casts`), `keyword_suggest.py` (stałe
   wyrażenie + bind), fałszywe alarmy „token w logu”, md5/sha1 jako skrót
   tożsamości, `dangerouslySetInnerHTML` po DOMPurify. 170 to `text()` z
-  f-stringiem albo zmienną w `backend/app` i `backend/scripts`, `do-przegladu`.
+  f-stringiem albo zmienną w `backend/app` i `backend/scripts`, wprowadzone
+  jako `do-przegladu`.
+- Przegląd tych 170 (13.11.2026, PR po #3398): wszystkie `zweryfikowane`,
+  żadna wartość wklejana do SQL nie pochodzi z żądania, pliku ani maila.
+  Wklejane są stałe modułu (CTE typu `CREDITED_FROM_SNAPSHOT_CTE`), gałęzie
+  literałów wybierane boolem, nazwy parametrów `:p{i}` z `enumerate`, białe
+  listy (słownik, `Query(pattern=…)`, zbiór pól) i nazwy z katalogu bazy po
+  regexie `^[a-z_][a-z0-9_]*$`. Każdy wpis ma własny powód ze źródłem
+  wartości i bindami. Doszło AES-CBC w `ksef_send.py` (wymóg API KSeF).
+  Baseline: 229 wpisów, 0 `do-przegladu`; nowy wpis od teraz tylko jako
+  `zweryfikowane` z konkretnym powodem.
 - Zależności: python-jose 3.5.0 (PYSEC-2026-4298) i ecdsa 0.19.2
   (PYSEC-2026-1325) bez wydania z poprawką; każde `jwt.decode` ma jawne
   `algorithms=`. Termin 15.02.2027. npm: brak high/critical w zależnościach
