@@ -913,6 +913,7 @@ from app.models import hr_agreement as _hr_agreement_models  # noqa: F401,E402
 from app.models import hr_approval as _hr_approval_models  # noqa: F401,E402
 from app.models import client_sales_invoice as _client_sales_invoice_models  # noqa: F401,E402
 from app.models import client_einvoice as _client_einvoice_models  # noqa: F401,E402
+from app.models import client_issued_invoice as _client_issued_invoice_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
@@ -922,7 +923,7 @@ from app.models import client_settlement as _client_settlement_models  # noqa: F
 from app.models import client_time_report as _client_time_report_models  # noqa: F401,E402
 from app.models import training as _training_models  # noqa: F401,E402  (0694 szkolenia)
 from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E402  (0695 księgowość)
-from app.models import finance_posting as _finance_posting_models  # noqa: F401,E402  (0696 dekret i eksport)
+from app.models import finance_posting as _finance_posting_models  # noqa: F401,E402  (0697 dekret i eksport)
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.

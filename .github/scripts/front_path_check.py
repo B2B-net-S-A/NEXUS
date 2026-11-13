@@ -32,6 +32,10 @@ CHECK_HOST = "front-check.nexus.b2bnetwork.pl"
 CALLBACK_PATH = "/auth/microsoft/callback?error=access_denied"
 BROKEN_MARK = "backend_unreachable"
 
+# Ten sam UA co sondy w deploy.yml (SMOKE_UA). Domyślny `Python-urllib` z runnera
+# dostawał 403 na działającym froncie (13.11.2026), więc Deploy był czerwony bez awarii.
+USER_AGENT = "dynaminds-smoke-test/1.0 (+github-actions; nexus)"
+
 # (status, nagłówki małymi literami, ciało); status 0 = brak połączenia.
 Fetch = Callable[[str, "str | None"], tuple[int, dict[str, str], bytes]]
 
@@ -45,7 +49,10 @@ _OPENER = urllib.request.build_opener(_NoRedirect)
 
 
 def fetch(url: str, host: str | None = None) -> tuple[int, dict[str, str], bytes]:
-    request = urllib.request.Request(url, headers={"Host": host} if host else {})
+    headers = {"User-Agent": USER_AGENT}
+    if host:
+        headers["Host"] = host
+    request = urllib.request.Request(url, headers=headers)
     try:
         with _OPENER.open(request, timeout=10) as response:
             headers = {k.lower(): v for k, v in response.headers.items()}

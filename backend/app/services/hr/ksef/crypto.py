@@ -19,6 +19,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 TOKEN_KEY_USAGE = "KsefTokenEncryption"
+#: Klucz do szyfrowania klucza AES sesji wysyłki faktur (wystawianie, E4).
+SYMMETRIC_KEY_USAGE = "SymmetricKeyEncryption"
 
 
 class PublicKeyError(ValueError):
@@ -56,11 +58,17 @@ def _load_public_key(encoded: str) -> rsa.RSAPublicKey:
 def pick_token_key(certificates: Iterable[dict[str, Any]], now: datetime) -> TokenKey:
     """Najnowszy ważny klucz z przeznaczeniem ``KsefTokenEncryption``."""
 
+    return pick_key(certificates, now, TOKEN_KEY_USAGE)
+
+
+def pick_key(
+    certificates: Iterable[dict[str, Any]], now: datetime, usage: str
+) -> TokenKey:
+    """Najnowszy ważny klucz MF o danym przeznaczeniu (``usage``)."""
+
     candidates: list[TokenKey] = []
     for item in certificates:
-        if not isinstance(item, dict) or TOKEN_KEY_USAGE not in (
-            item.get("usage") or []
-        ):
+        if not isinstance(item, dict) or usage not in (item.get("usage") or []):
             continue
         valid_from, valid_to = (
             _instant(item.get("validFrom")),
@@ -80,7 +88,7 @@ def pick_token_key(certificates: Iterable[dict[str, Any]], now: datetime) -> Tok
             )
         )
     if not candidates:
-        raise PublicKeyError("brak ważnego klucza KsefTokenEncryption")
+        raise PublicKeyError(f"brak ważnego klucza {usage}")
     return max(
         candidates,
         key=lambda c: c.valid_from or datetime.min.replace(tzinfo=now.tzinfo),

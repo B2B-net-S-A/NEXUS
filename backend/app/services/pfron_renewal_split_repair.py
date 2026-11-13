@@ -167,6 +167,10 @@ HANDLED_FOREIGN_KEYS: tuple[tuple[str, str], ...] = (
     # kopii produkcji z 11.09.2026 (split=3), rozliczeń wtedy nie było.
     ("client_settlements", "order_id"),
     ("client_orders", "predecessor_order_id"),
+    # Dopisane 13.11.2026 (wystawianie faktur sprzedaży, 0696_sales_invoice_issue):
+    # korekta przeszła na produkcji wcześniej (paragon jak niżej), a wystawionych
+    # faktur wtedy nie było, więc nie ma czego przenosić.
+    ("client_issued_invoices", "order_id"),
     # Dopisane 18.10.2026 (faktury do klientów z KSeF): korekta przeszła na
     # produkcji wcześniej (paragon `0306_pfron_renewal_split_repair`), więc
     # wiązań faktur z zamówieniami nie ma czego przenosić.

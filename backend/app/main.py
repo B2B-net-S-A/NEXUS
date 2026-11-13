@@ -246,6 +246,7 @@ from app.api import hr_payments as hr_payments_api
 from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
+from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
@@ -2245,6 +2246,13 @@ app.include_router(
     tags=["client-invoicing"],
     dependencies=_HR_PROGRAM,
 )
+# Wystawianie faktur sprzedaży do KSeF (E4) — szkice, numeracja, wysyłka.
+app.include_router(
+    client_issued_invoices_api.router,
+    prefix="/api/finance/issued-invoices",
+    tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
 # E-faktury Peppol (plan Nordei N2) — przed routerem rozliczeń (wspólny prefiks).
 app.include_router(
     client_einvoices_api.router,
@@ -2265,7 +2273,7 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
-# Księgowość E2 (0696): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
+# Księgowość E2 (0697): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
 app.include_router(
     finance_posting_api.router,
     prefix="/api/finance/posting",
@@ -4229,7 +4237,7 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
-        # 0696: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
+        # 0697: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
         ("finance_posting_batches", FinancePostingBatch),

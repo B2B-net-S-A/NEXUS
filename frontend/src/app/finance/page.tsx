@@ -53,7 +53,7 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   "order-pdfs":
     "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
   "sales-invoices":
-    "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
+    "Faktury do klientów: wystawianie do KSeF, dopasowanie do zamówień, wpłaty z wyciągu i zaległości",
   "rate-divergences":
     "Nocny raport: gdzie stawka z kontraktu różni się od stawki linii zamówienia MD",
   settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",

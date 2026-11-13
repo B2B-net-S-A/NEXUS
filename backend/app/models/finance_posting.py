@@ -1,4 +1,4 @@
-"""Księgowość w Finansach (0696, E2): plan kont, reguły dekretu, paczki eksportu.
+"""Księgowość w Finansach (0697, E2): plan kont, reguły dekretu, paczki eksportu.
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/finance_posting_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
