@@ -3,7 +3,6 @@
 import { ExternalLink } from "lucide-react";
 
 import { safeHref } from "@/components/sales/format";
-import { Badge } from "@/components/ui/badge";
 import { useCompanyBriefing } from "@/lib/api/sales";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
@@ -43,9 +42,6 @@ export function TalkingPoints({ companyId, showEmpty = false, className }: Talki
         <h3 className="text-xs font-medium text-foreground">
           Punkty do rozmowy {MODE_LABELS[briefing.mode]}
         </h3>
-        <Badge variant="neutral" size="sm">
-          Research bota, sprawdź źródło
-        </Badge>
         <span className="text-xs text-muted-foreground">{formatIsoDatePl(briefing.generated_at)}</span>
       </div>
       <ul className="list-disc space-y-0.5 pl-4">

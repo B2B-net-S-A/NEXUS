@@ -2542,8 +2542,8 @@
   {
     "id": "sprzedaz-bot-uzupelnia-karte",
     "pr": 3331,
-    "title": "Karta firmy: „Uzupełnij z bota”",
-    "why": "Bot szuka domeny, NIP-u, miasta, branży, wielkości i firmy matki ze źródłami. Każde pole przyjmujesz albo odrzucasz sam: nic nie zapisuje się na karcie bez Ciebie.",
+    "title": "Karta firmy: „Uzupełnij dane”",
+    "why": "Bot szuka domeny, NIP-u, miasta, branży, wielkości i firmy matki i wpisuje je od razu w puste pola karty. Pole wpisane ręcznie zostaje. Skąd przyszła wartość, widać w Aktywnościach karty.",
     "tier": "dot",
     "shipped_on": "2026-11-12",
     "audience": {
@@ -2589,8 +2589,8 @@
   {
     "id": "sprzedaz-bot-osoby-do-przegladu",
     "pr": 3334,
-    "title": "Osoby od bota czekają na przegląd",
-    "why": "Osoby od bota przeglądasz jak listę z pliku: nic nie trafia na mapę bez Twojej akceptacji, a przy osobie zostaje źródło i data. Konto z wynikiem ma plakietkę „Osoby od bota”.",
+    "title": "Osoby od bota od razu na mapie",
+    "why": "Bot dopisuje decydentów ze źródłem i datą od razu na mapę konta. Przegląd zostaje tylko wtedy, gdy marka ma kilka kart i trzeba wskazać właściwą; takie konto ma plakietkę „Osoby od bota”.",
     "tier": "dot",
     "shipped_on": "2026-11-12",
     "audience": {
@@ -2660,7 +2660,7 @@
     "id": "sprzedaz-haczyk-przed-telefonem",
     "pr": 3332,
     "title": "Dzwonienie: haczyk na otwarcie rozmowy",
-    "why": "Pod nazwą firmy bot podsuwa jedno zdanie na otwarcie i do dwóch faktów o firmie z linkiem do źródła. Przygotowuje je dzień roboczy wcześniej. Zanim nawiążesz, sprawdź źródło.",
+    "why": "Pod nazwą firmy bot podsuwa jedno zdanie na otwarcie i do dwóch faktów o firmie z linkiem do źródła. Przygotowuje je dzień roboczy wcześniej.",
     "tier": "dot",
     "shipped_on": "2026-11-12",
     "audience": {

@@ -47,13 +47,24 @@ klient API `lib/api/sales-bot-people.ts`.
   Firma bez nowych osób nie dostaje wiersza.
 - Odpowiedź dla bota i logi to same liczby (`numbers_only`).
 
+## Zapis od razu (decyzja Artura 13.11.2026)
+
+Osoby z raportu trafiają na mapę od razu (`people.add_now` w `_ingest`), tą samą
+ścieżką co przegląd (`apply` → `research_import.accept`), z pewnością `confirmed`
+i bez decyzji handlowca (`decided_by_user_id` puste). Autor zapisu: osoba, która
+uruchomiła bieg, inaczej opiekun karty; opiekun karty zostaje opiekunem nowego
+konta. Przegląd niżej zostaje tylko dla wyników, których nie da się zapisać bez
+człowieka: marka z kilkoma kartami (`CHOOSE`) i karta bez opiekuna przy biegu
+z pętli. Odpowiedź dla bota ma liczby `added` i `waiting`. Ślad: historia karty
+(`sygnaly-grok-bot.md`, „Zapis od razu”).
+
 ## Przegląd i zapis (jak lista z researchu)
 
 - **Leady → „Lista z researchu” → „Osoby od bota”** (konto z „Sprzedaż: edycja”):
   lista wyników do przeglądu, „Przejrzyj” otwiera ten sam ekran co plik
   (`ResearchReview`): stany firmy, „Już na mapie”, poziom, ostrzeżenia
   i „Znamy teraz”. Wiersz to osoba z wyniku zamieniona w `ResearchRow`
-  (`people.to_rows`), pewność zawsze „do weryfikacji”.
+  (`people.to_rows`), pewność `confirmed` (do 13.11.2026 „do weryfikacji”).
 - **Cel to karta firmy, o którą pytano bota** (`people.pin`), regułami importu:
   klient NEXUSA i nasza firma zostają odmową, „Nie kontaktować” blokuje, a gdy inna
   karta tej marki ma konto w lejku, kartę wskazuje człowiek. Karta bez konta dostaje

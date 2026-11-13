@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), uzupełnianie kart enrich, Uzupełnij z bota, przyjęcie pól, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), zapis od razu bez potwierdzania (13.11), pole człowieka zostaje, historia karty bot-history, uzupełnianie kart enrich, Uzupełnij dane, apply_now, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -9,6 +9,38 @@ stan z 09.11 wieczorem: https://claude.ai/artifact/4o8XBacuSzBgQK8iY1Jq8d.
 To zmienia decyzję z 27.10.2026 „leady bez silnika” (`sprzedaz-w-nexusie-decyzje-i-reguly.md`,
 sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.11 wybrał
 „Buduj od razu”. Skan ogłoszeń z portali i LinkedIna dalej jest poza zakresem.
+
+## Zapis od razu, bez potwierdzania (decyzja Artura 13.11.2026)
+
+Artur 13.11.2026: dane od botów są od razu potwierdzone, bez „Przyjmij” i bez
+oznaczeń „bot”, „wniosek”, „do weryfikacji”, „sprawdź źródło” na ekranach
+roboczych. Każde pole i każdą osobę można poprawić jak zwykle. Ta sekcja ma
+pierwszeństwo przed starszymi opisami przyjmowania niżej. Makiety:
+https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
+
+- **Pola firmy** (`enrich.apply_now`): puste pole i pole, które wcześniej wpisał
+  bot, dostają wartość od razu. Pole wpisane przez człowieka zostaje (decyzja
+  Artura: pól firmy bot nie nadpisuje), a wersja bota trafia tylko do historii.
+  Pole „bota” rozpoznaje się po historii: karta ma dokładnie wartość, którą bot
+  ostatnio wpisał (`_bot_owned`); po ręcznej zmianie pole należy do człowieka.
+- **Stanowiska i odejścia osób** bot nadpisuje nowszą wartością, stara idzie do
+  historii (decyzja Artura z 13.11; budowa w kroku „Kontakty jako jedna lista”).
+- **Osoby** (`people.add_now`): trafiają na mapę konta od razu, autor zapisu to
+  osoba, która uruchomiła bieg, inaczej opiekun karty; pewność `confirmed`.
+  Czeka tylko wynik, którego nie da się zapisać bez człowieka: marka z kilkoma
+  kartami (trzeba wskazać kartę) i karta bez opiekuna przy biegu z pętli.
+- **Dubel domeny albo NIP-u** z inną kartą niczego nie zmienia: wpis w historii
+  z linkiem do tamtej karty, scalanie zostaje ręczne.
+- **Historia karty** to jedyny ślad pochodzenia: `GET /api/sales/companies/{id}/bot-history`
+  („Sprzedaż: podgląd”; osoby tylko z „Sprzedaż: edycja”), zakładka Aktywności
+  (`bot/BotCardHistory.tsx`). Źródłem są wiersze `sales_bot_results` (status
+  `accepted`, `payload.outcomes`: `applied` z `previous`, `kept` z `current`,
+  `taken` z drugą kartą, `skipped` z uwagą), bez migracji. Kod:
+  `services/sales/bot_card_history.py`.
+- Etykiety „Bot · wniosek, sprawdź źródło”, „Research bota, sprawdź źródło”,
+  „Bot · sprawdź źródło”, „wniosek bota (nie fakt)” zniknęły z Ofert, punktów do
+  rozmowy, haczyka, panelu sygnału, „Warto wrócić” i „Zapytaj bota”. Link do
+  źródła przy tekście zostaje.
 
 ## Przepływ
 
@@ -46,7 +78,8 @@ sekcja Leady) i pozycję „skan prasy” z listy „Poza zakresem”: Artur 09.
   raport podaje klienta i Delivery Leada; lead nie powstaje, jak przy ręcznym leadzie).
 - Lead dostaje opiekuna firmy jako osobę przypisaną. Siła → `score`: silny 85,
   średni 60, słaby 30.
-- **„Dlaczego teraz” to wniosek bota, nie fakt.** Ekran tak to podpisuje. Lead nie
+- **„Dlaczego teraz” to wniosek bota.** Od 13.11.2026 ekran nie dokleja plakietki
+  (decyzja Artura „bez oznaczeń”), obok stoi źródło sygnału. Lead nie
   daje prawa do zimnego kontaktu (art. 398 PKE), wejście przez istniejące relacje.
 
 ## Punkty do rozmowy
@@ -81,7 +114,7 @@ albo wprost, że bot nic nie znalazł.
   (`generated_at`, `points`) jednym zapytaniem dla wszystkich wierszy; z wyłączoną flagą,
   w „W toku” i bez wiersza punktów `null`.
 - **Ekran:** pod podpisem szansy do dwóch punktów „DD.MM.RRRR: tekst” z linkiem do źródła
-  (tylko http(s), `safeHref`) i podpisem „Bot · wniosek, sprawdź źródło”. Punkty starsze
+  (tylko http(s), `safeHref`) i linkiem do źródła (podpis „Bot · wniosek, sprawdź źródło” usunięty 13.11.2026). Punkty starsze
   niż wejście oferty na etap też widać. Tekst się zawija, link zostaje cały.
 - Testy: `test_sales_signals_unit.py` (wybór firm, pusta odpowiedź), `test_sales_offers.py`
   (`bot_points`, wybór z bazą), `sales-offers.test.tsx`.
@@ -138,8 +171,8 @@ więc kolejny rodzaj to nowy moduł bez migracji i bez zmiany rutyny bota.
 - **Bot może ODSYŁAĆ osoby** dla rodzaju `people` (decyzja Artura 12.11.2026): osoby
   decyzyjne tylko z opublikowanego źródła z linkiem, bez zgadywanych e-maili
   i telefonów. NEXUS osób do bota nie wysyła. Model raportu `people` musi to
-  wymuszać polami (bez pól kontaktu, których źródło nie podaje), a wynik idzie do
-  decyzji handlowca, nie od razu do kontaktów. Zbudowane: mapy z kontaktami ze
+  wymuszać polami (bez pól kontaktu, których źródło nie podaje), a od 13.11.2026 wynik trafia
+  od razu na mapę (sekcja „Zapis od razu”). Zbudowane: mapy z kontaktami ze
   źródeł publicznych, przegląd jak lista z researchu → `mapy-decydentow-od-bota.md`.
   Osobna rutyna Cognism odsyła dopasowanych decydentów do mapy karty firmy.
   Odczyt mapy wymaga „Sprzedaż: edycja”.
@@ -200,7 +233,7 @@ na poniedziałek, przed świętem na dzień po nim. Kod: `services/sales/hook_pr
   numery firm z biegu, liczone jak `first_call`), a z którą rozmowy już trwają.
   Punkty (≤4, ze źródłami) nadpisują wiersz firmy jak dotąd.
 - **Ekrany:** karta rozmowy w „Dzwonieniu” pokazuje haczyk pod nazwą firmy z podpisem
-  „Bot · sprawdź źródło” (`calling/CallHook.tsx`, pole `call_hook` w
+  linkami do źródeł (`calling/CallHook.tsx`, pole `call_hook` w
   `GET /api/sales/signals/briefings/{id}`, puste bez flagi zadań). Teczkę pokazują
   „Przygotowanie do spotkania” w „Moim dniu” i karta przekazanego spotkania
   (`TalkingPoints`, „Punkty do rozmowy przed spotkaniem”). Brak, wyłączona flaga
@@ -238,7 +271,7 @@ Makiety: `LeadsBotModes.tsx` z gałęzi makiet. Przetargów z makiety nie buduje
   inaczej opiekun przegranej, gdy pracuje w Sprzedaży, inaczej nikt.
 - **Leady → „Warto wrócić”** (`components/sales/bot-modes/WinBackInbox.tsx`, lista
   `GET /api/sales/leads?origin=winback`): przegrana (link do szansy, data, powód), co się
-  zmieniło ze źródłem, „Dlaczego teraz” z podpisem „wniosek bota, nie fakt”.
+  zmieniło ze źródłem, „Dlaczego teraz” (bez plakietki od 13.11.2026).
   „Zaplanuj powrót” to zwykłe zadanie przy firmie (`POST /api/sales/activities`)
   u osoby z leada, a lead przechodzi na „W kontakcie”. Zadanie nie wisi na przegranej
   szansie, bo lista Zadania nie pokazuje pozycji przy przegranych. Bez osoby w Sprzedaży
@@ -292,29 +325,27 @@ Moduł `services/sales/bot_tasks/enrich.py`, trasy `api/sales_company_bot.py`.
   cofa. Przedział pracowników to propozycja „Wielkości” (`tier`: do 249 osób „Mała”,
   250–999 „Średnia”, od 1000 „Duża”) z `size_range`; „Strategiczna” to decyzja
   handlowa, więc bot jej nie proponuje.
-- **Przyjęcie pole po polu:** `POST /api/sales/bot-results/{id}/accept`
-  z `{fields, reject}`. Zapis idzie tą samą ścieżką co ekran Firmy
-  (`companies.apply_fields`). Bez `fields` („Przyjmij wszystkie”) przyjmuje tylko
-  pola puste na karcie: pole z inną wartością nadpisuje się wyłącznie wybrane
-  pojedynczo, a ekran pokazuje obecną wartość obok propozycji. Decyzje leżą
-  w `payload.decisions`; wynik ma status `partial`, dopóki zostało pole bez decyzji,
-  potem `accepted` (choć jedno przyjęte) albo `rejected`. „Odrzuć resztę” to zwykłe
-  odrzucenie wyniku.
-- **Domena albo NIP z innej karty** (niezarchiwizowanej) to 409 z nazwą tamtej karty
-  i bez żadnej zmiany: scalenie kart to osobny krok
+- **Zapis od razu** (od 13.11.2026, `apply_now` przy przyjęciu raportu): ta sama
+  ścieżka co ekran Firmy (`companies.apply_fields`), reguły pól w sekcji „Zapis od
+  razu” na górze. Wiersz wyniku dostaje status `accepted` i `payload.outcomes`;
+  akcji przyjęcia nie ma (`accept` rodzaju to 409). Stare propozycje `new`/`partial`
+  tej firmy znikają przy następnym raporcie.
+- **Domena albo NIP z innej karty** (niezarchiwizowanej) nie trafia na kartę, wynik
+  pola to `taken` z nazwą tamtej karty (historia): scalenie kart to osobny krok
   (`scalanie-kart-firm-i-domeny.md`). Domena wyliczona ze strony www (gdy karta nie
-  ma domeny) przy takim konflikcie nie trafia na kartę, strona tak, a odpowiedź ma
-  uwagę.
+  ma domeny) przy takim konflikcie też nie trafia na kartę (`apply_fields` dostaje
+  wprost `domain=None`), strona tak.
 - **Spółka matka** staje się `parent_company_id` tylko wtedy, gdy po nazwie
   kanonicznej pasuje dokładnie jedna inna karta, która nie ma tej firmy za swoją
-  matkę. Inaczej pole zostaje bez decyzji, a odpowiedź ma uwagę („ustaw ręcznie”).
-- **Przycisk „Uzupełnij z bota”** w nagłówku karty („Sprzedaż: edycja”,
+  matkę. Inaczej pole ma wynik `skipped` z uwagą w historii.
+- **Przycisk „Uzupełnij dane”** w nagłówku karty („Sprzedaż: edycja”,
   `POST /api/sales/companies/{id}/enrich`, 20 na godzinę na osobę). Ta sama karta
   nie wraca do bota przez 2 godziny od poprzedniego biegu, który nie padł (409).
-  Stan karty: `GET /{id}/enrich` (ostatni bieg i propozycja `new`/`partial`).
+  Stan karty: `GET /{id}/enrich` (ostatni bieg; karta pokazuje tylko „Szukam
+  danych firmy” i po biegu odświeża fakty i historię).
 - **Noc:** krok pętli `tasks/sales_signals.py` między 1:00 a 6:00 (kalendarz firmy),
   najwyżej jeden bieg na godzinę i 5 na noc, po 20 kart: bez domeny, z opiekunem
-  albo trwającą szansą, bez otwartej propozycji i niesprawdzane nocą przez 30 dni.
+  albo trwającą szansą i niesprawdzane nocą przez 30 dni.
   Liczą się tylko biegi pętli (`requested_by_user_id` puste). Pętla startuje, gdy
   włączona jest `SALES_SIGNALS_ENABLED` albo `SALES_BOT_TASKS_ENABLED`; każda część
   pilnuje swojej flagi. Na stagingu pętla jest zablokowana.

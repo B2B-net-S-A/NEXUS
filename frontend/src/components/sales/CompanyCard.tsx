@@ -30,6 +30,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { ActivityTimeline } from "./ActivityTimeline";
 import { AskBotCard } from "./bot/AskBotCard";
+import { BotCardHistory } from "./bot/BotCardHistory";
 import { EnrichButton, EnrichCard } from "./bot/EnrichCard";
 import { BotPeopleAction } from "./bot-people/BotPeopleAction";
 import { CompanyDecisionMap } from "./bot-people/CompanyDecisionMap";
@@ -298,7 +299,7 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-4">
                 <CompanyFacts company={data} onLink={canEdit ? () => setLinking(true) : undefined} />
-                <EnrichCard company={data} canEdit={canEdit && !data.archived_at} />
+                <EnrichCard companyId={data.id} />
                 <TalkingPoints companyId={companyId} className="rounded-lg border border-border bg-card px-3 py-2" />
                 <CompanyOpportunities companyId={companyId} />
               </div>
@@ -311,7 +312,12 @@ export function CompanyCard({ companyId }: CompanyCardProps) {
           {tab === "people" && <WhoWeKnowPanel companyId={companyId} companyName={data.name} />}
           {tab === "contacts" && <ContactsSection companyId={companyId} />}
           {tab === "decision-map" && <CompanyDecisionMap companyId={companyId} query={decisionMap} />}
-          {tab === "activities" && <ActivityTimeline companyId={companyId} />}
+          {tab === "activities" && (
+            <div className="space-y-4">
+              <BotCardHistory companyId={companyId} />
+              <ActivityTimeline companyId={companyId} />
+            </div>
+          )}
           {tab === "files" && <FilesSection owner={{ company_id: companyId }} />}
         </div>
       ) : null}

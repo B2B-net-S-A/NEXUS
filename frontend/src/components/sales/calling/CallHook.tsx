@@ -3,7 +3,6 @@
 import { ExternalLink } from "lucide-react";
 
 import { safeHref } from "@/components/sales/format";
-import { Badge } from "@/components/ui/badge";
 import { useCompanyBriefing } from "@/lib/api/sales";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
@@ -25,9 +24,6 @@ export function CallHook({ companyId }: { companyId: number }) {
     >
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-xs font-medium text-foreground">Na otwarcie</h3>
-        <Badge variant="neutral" size="sm">
-          Bot · sprawdź źródło
-        </Badge>
       </div>
       <p className="text-sm leading-snug text-foreground">{hook.sentence}</p>
       <ul className="space-y-0.5">

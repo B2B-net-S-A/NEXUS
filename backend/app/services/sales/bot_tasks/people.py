@@ -79,7 +79,7 @@ from app.services.sales.calling_file import phone_digits
 from app.services.sales.companies import mail_domain
 from app.services.sales.factories import COMPANY_DO_NOT_CONTACT
 from app.services.sales.research_file import (
-    TO_VERIFY,
+    CONFIRMED,
     ResearchRow,
     level_from_title,
     person_key,
@@ -507,19 +507,24 @@ async def _ingest(
             }
         )
     new = await save_results(db, run, rows, now)
+    added, waiting = await add_now(db, run, now=now)
     # Logi są publiczne: same liczby.
     logger.info(
-        "sales_bot people run=%s firms=%d people=%d results_new=%d",
+        "sales_bot people run=%s firms=%d people=%d results_new=%d added=%d waiting=%d",
         run.id,
         len(firms),
         people_total,
         new,
+        added,
+        waiting,
     )
     return {
         "firms": len(firms),
         "people": people_total,
         "results": len(rows),
         "results_new": new,
+        "added": added,
+        "waiting": waiting,
         "no_people": len(report.no_people),
         "dropped": dropped,
     }
@@ -561,7 +566,7 @@ def to_rows(result: SalesBotResult, company: SalesCompany) -> list[ResearchRow]:
             linkedin_url=person.get("linkedin_url"),
             source_url=person.get("source_url"),
             domain=company.domain or None,
-            confidence=TO_VERIFY,
+            confidence=CONFIRMED,
             decision_level=_level(person),
             warnings=tuple(person.get("warnings") or ()),
         )
@@ -666,7 +671,7 @@ async def apply(
             linkedin_url=person.get("linkedin_url"),
             source_url=person.get("source_url"),
             domain=company.domain or None,
-            confidence=TO_VERIFY,
+            confidence=CONFIRMED,
             decision_level=pick.decision_level or _level(person),
             company_id=pick.company_id,
             source_published=person.get("published"),
@@ -734,6 +739,78 @@ async def _accept_all(
         "added": sum(o.result == research_import.ADDED for o in outcomes),
         "open": open_count(result),
     }
+
+
+async def add_now(
+    db: AsyncSession, run: SalesSignalRun, *, now: datetime
+) -> tuple[int, int]:
+    """Osoby z biegu trafiają na mapę od razu (decyzja Artura z 13.11.2026).
+
+    Autor zapisu: osoba, która uruchomiła bieg, inaczej opiekun karty. Czeka
+    tylko wynik, którego nie da się zapisać bez człowieka: marka z kilkoma
+    kartami (trzeba wskazać kartę) albo karta bez opiekuna przy biegu z pętli.
+    Zwraca liczbę dodanych osób i wyników, które czekają. Commit robi wywołujący.
+    """
+
+    results = (
+        (
+            await db.execute(
+                select(SalesBotResult)
+                .where(
+                    SalesBotResult.run_id == run.id,
+                    SalesBotResult.kind == KIND,
+                    SalesBotResult.status.in_(("new", "partial")),
+                )
+                .order_by(SalesBotResult.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    added = waiting = 0
+    for result in results:
+        company = await db.get(SalesCompany, result.company_id)
+        if company is None or company.archived_at is not None:
+            continue
+        actor = run.requested_by_user_id or company.owner_user_id
+        plan, _ = await review_plan(db, result)
+        target = plan.companies[0] if plan.companies else None
+        if actor is None or (
+            target is not None and target.state == research_import.CHOOSE
+        ):
+            waiting += 1
+            continue
+        company_id = (
+            target.company_id
+            if target is not None and target.company_id is not None
+            else company.id
+        )
+        done = {
+            line for line, value in decided_lines(result).items() if value in HANDLED
+        }
+        picks = [
+            Pick(line=int(person["line"]), company_id=company_id)
+            for person in _people(result)
+            if int(person["line"]) not in done
+        ]
+        try:
+            outcomes = await apply(
+                db,
+                result,
+                picks,
+                user_id=actor,
+                owner_user_id=company.owner_user_id or actor,
+                now=now,
+            )
+        except AcceptRefused:
+            waiting += 1
+            continue
+        # Zapis automatu, nie decyzja handlowca.
+        result.decided_by_user_id = None
+        added += sum(o.result == research_import.ADDED for o in outcomes)
+        if result.status != "accepted":
+            waiting += 1
+    return added, waiting
 
 
 PEOPLE = BotTask(

@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 
 import { TruncatedText } from "@/components/ds/TruncatedText";
 import { safeHref } from "@/components/sales/format";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import {
   SIGNAL_STRENGTH_LABELS,
@@ -121,14 +120,7 @@ export function SignalPanel({ lead, reasons }: SignalPanelProps) {
           </Block>
         )}
         {signal.why_now && (
-          <Block
-            label="Dlaczego teraz"
-            aside={
-              <Badge variant="neutral" size="sm">
-                Wniosek bota, nie fakt
-              </Badge>
-            }
-          >
+          <Block label="Dlaczego teraz">
             <p className="text-xs leading-snug text-muted-foreground">{signal.why_now}</p>
           </Block>
         )}

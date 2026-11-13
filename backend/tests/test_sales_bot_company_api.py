@@ -193,7 +193,7 @@ async def _enrich_result(app_client, company: int, firm: dict[str, Any]) -> int:
                 select(SalesBotResult.id).where(
                     SalesBotResult.company_id == company,
                     SalesBotResult.kind == "enrich",
-                    SalesBotResult.status == "new",
+                    SalesBotResult.run_id == run_id,
                 )
             )
         ).scalar_one()
@@ -222,7 +222,7 @@ async def test_enrich_button_starts_once_per_two_hours(app_client, bot_on) -> No
 
 
 @pytest.mark.asyncio
-async def test_enrich_accept_applies_chosen_fields_and_refuses_conflicts(
+async def test_enrich_report_writes_the_card_at_once_without_overwriting_people(
     app_client, monkeypatch
 ) -> None:
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
@@ -243,61 +243,51 @@ async def test_enrich_accept_applies_chosen_fields_and_refuses_conflicts(
             "parent_name": _f(f"Grupa Matka {tag} S.A."),
         },
     )
+    async with AsyncSessionLocal() as db:
+        card = await db.get(SalesCompany, company)
+        assert (card.nip, card.tier, card.size_range) == (nip, "mid_market", "250-999")
+        assert (card.parent_company_id, card.hq_city, card.domain) == (
+            parent,
+            "Gdańsk",
+            None,
+        )
+        result = await db.get(SalesBotResult, result_id)
+        assert result.status == "accepted" and result.decided_by_user_id is None
+        outcomes = result.payload["outcomes"]
+        assert outcomes["hq_city"] == {"result": "kept", "current": "Gdańsk"}
+        assert outcomes["domain"]["result"] == "taken"
+        assert outcomes["domain"]["other_name"] == f"Inna {tag}"
+
     editor = await _user("sales_edit")
     state = (
         await app_client.get(f"{COMPANIES}/{company}/enrich", headers=_headers(editor))
     ).json()
-    assert state["result"]["id"] == result_id
-    assert set(state["result"]["payload"]["fields"]) == {
-        "domain",
-        "nip",
-        "hq_city",
-        "tier",
-        "parent_name",
-    }
-
-    conflict = await app_client.post(
-        f"{RESULTS}/{result_id}/accept",
-        json={"fields": ["domain", "nip"]},
-        headers=_headers(editor),
+    assert state["result"] is None and state["run"]["status"] == "received"
+    # Nie ma już czego przyjmować.
+    refused = await app_client.post(
+        f"{RESULTS}/{result_id}/accept", json={}, headers=_headers(editor)
     )
-    assert conflict.status_code == 409
-    assert f"„Inna {tag}”" in conflict.json()["detail"]
-    async with AsyncSessionLocal() as db:
-        card = await db.get(SalesCompany, company)
-        assert (card.domain, card.nip) == (None, None)
-
-    # „Przyjmij wszystkie” bez domeny: tylko puste pola, miasto zostaje.
-    accepted = await app_client.post(
-        f"{RESULTS}/{result_id}/accept",
-        json={"fields": ["nip", "tier", "parent_name"], "reject": ["domain"]},
-        headers=_headers(editor),
-    )
-    assert accepted.status_code == 200, accepted.text
-    assert accepted.json()["status"] == "partial"
-    async with AsyncSessionLocal() as db:
-        card = await db.get(SalesCompany, company)
-        assert (card.nip, card.tier, card.size_range) == (nip, "mid_market", "250-999")
-        assert (card.parent_company_id, card.hq_city) == (parent, "Gdańsk")
-
-    closed = await app_client.post(
-        f"{RESULTS}/{result_id}/reject", headers=_headers(editor)
-    )
-    assert closed.status_code == 200
-    state = (
-        await app_client.get(f"{COMPANIES}/{company}/enrich", headers=_headers(editor))
-    ).json()
-    assert state["result"] is None
+    assert refused.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_newer_enrich_replaces_undecided_older_proposal(
+async def test_bot_updates_its_own_value_until_someone_edits_the_field(
     app_client, monkeypatch
 ) -> None:
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
     company = await _company(f"Karta {uuid.uuid4().hex[:8]}")
-    first = await _enrich_result(app_client, company, {"hq_city": _f("Kraków")})
+    await _enrich_result(app_client, company, {"hq_city": _f("Kraków")})
     second = await _enrich_result(app_client, company, {"hq_city": _f("Poznań")})
-    assert first != second
     async with AsyncSessionLocal() as db:
-        assert await db.get(SalesBotResult, first) is None
+        card = await db.get(SalesCompany, company)
+        assert card.hq_city == "Poznań"
+        result = await db.get(SalesBotResult, second)
+        assert result.payload["outcomes"]["hq_city"] == {
+            "result": "applied",
+            "previous": "Kraków",
+        }
+        card.hq_city = "Gdynia"
+        await db.commit()
+    await _enrich_result(app_client, company, {"hq_city": _f("Sopot")})
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(SalesCompany, company)).hq_city == "Gdynia"
