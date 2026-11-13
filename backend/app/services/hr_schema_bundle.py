@@ -23,6 +23,7 @@ from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_einvoices_schema as client_einvoices
+from app.services import client_invoice_issue_schema as client_invoice_issue
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -98,6 +99,8 @@ MODULES = (
     trainings,
     # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów (E0, E1, 13.11.2026).
     finance_ledger,
+    # 0696: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
+    client_invoice_issue,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
