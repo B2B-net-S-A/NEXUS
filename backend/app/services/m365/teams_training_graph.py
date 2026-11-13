@@ -72,6 +72,26 @@ async def set_presenters(
     return "everyone"
 
 
+async def rehearsal_settings(user_id: str, meeting_id: str) -> None:
+    """Próba techniczna (0698): bez nagrywania, bez poczekalni, każdy prezentuje.
+
+    Polityka nagrywania automatycznego skrzynki szkolenia@ obejmuje każde jej
+    spotkanie, więc próbę trzeba wyłączyć wprost."""
+
+    async with _client() as gc:
+        await gc.patch(
+            f"{_user(user_id)}/onlineMeetings/{meeting_id}",
+            json={
+                "recordAutomatically": False,
+                "allowedPresenters": "everyone",
+                "lobbyBypassSettings": {
+                    "scope": "everyone",
+                    "isDialInBypassEnabled": False,
+                },
+            },
+        )
+
+
 @dataclass(frozen=True)
 class RecordingRef:
     id: str

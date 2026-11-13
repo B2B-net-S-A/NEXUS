@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { OrderInput } from "@/lib/api/trainings";
 
-import { DELIVERABLE_LABELS, type DeliverableDraft } from "./training-model";
+import { DELIVERABLE_LABELS, mandatoryRoleLabel, type DeliverableDraft } from "./training-model";
 
 function numberOrNull(value: string): number | null {
   if (value.trim() === "") return null;
@@ -110,6 +110,64 @@ interface OrderFieldsProps {
   employee?: boolean;
   /** 0697: spotkanie Teams zakłada NEXUS, więc pola z linkiem nie ma. */
   teamsReady?: boolean;
+  /** 0698: role do „Obowiązkowe dla roli” (z `/api/trainings/me`). */
+  roles?: readonly string[];
+}
+
+interface MeetingOptionsProps {
+  value: OrderInput;
+  set: <K extends keyof OrderInput>(key: K, next: OrderInput[K]) => void;
+  roles: readonly string[];
+  disabled?: boolean;
+}
+
+/** 0698: próba techniczna z prowadzącym i role, dla których szkolenie jest obowiązkowe. */
+function MeetingOptions({ value, set, roles, disabled }: MeetingOptionsProps) {
+  const chosen = value.mandatory_roles ?? [];
+  const toggle = (role: string, on: boolean) =>
+    set("mandatory_roles", on ? [...chosen, role] : chosen.filter((item) => item !== role));
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      <label
+        htmlFor="order-rehearsal"
+        className="flex items-start gap-2 rounded-md border border-border p-3 text-sm"
+      >
+        <Checkbox
+          id="order-rehearsal"
+          checked={value.rehearsal === true}
+          disabled={disabled}
+          onCheckedChange={(checked) => set("rehearsal", checked === true)}
+        />
+        <span>
+          <span className="font-medium text-foreground">Próba techniczna 2 dni robocze wcześniej</span>
+          <span className="block text-xs text-muted-foreground">
+            15 minut z prowadzącym o godzinie szkolenia: dźwięk, kamera, udostępnianie ekranu. Bez
+            nagrywania, link w panelu trenera.
+          </span>
+        </span>
+      </label>
+      {roles.length > 0 ? (
+        <fieldset className="rounded-md border border-border p-3" disabled={disabled}>
+          <legend className="px-1 text-sm font-medium text-foreground">Obowiązkowe dla roli</legend>
+          <p className="mb-2 text-xs text-muted-foreground">
+            Każda aktywna osoba w roli zostanie zapisana i dostanie zaproszenie, bez klikania „Zapisz
+            się”. Wypisać się sama nie może.
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+            {roles.map((role) => (
+              <label key={role} className="flex items-center gap-1.5 text-sm">
+                <Checkbox
+                  checked={chosen.includes(role)}
+                  onCheckedChange={(checked) => toggle(role, checked === true)}
+                />
+                {mandatoryRoleLabel(role)}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
+    </div>
+  );
 }
 
 /** Pola zamówienia (szkic Zał. 1) — te same przy zakładaniu i przy edycji. */
@@ -121,6 +179,7 @@ export function OrderFields({
   disabled,
   employee = false,
   teamsReady = false,
+  roles = [],
 }: OrderFieldsProps) {
   const set = <K extends keyof OrderInput>(key: K, next: OrderInput[K]) =>
     onChange({ ...value, [key]: next });
@@ -254,6 +313,7 @@ export function OrderFields({
           />
         </FormField>
       </div>
+      <MeetingOptions value={value} set={set} roles={roles} disabled={disabled} />
       {employee ? null : (
         <>
           <div className="grid gap-3 md:grid-cols-[12rem_minmax(0,1fr)]">

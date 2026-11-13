@@ -129,6 +129,8 @@ class TestFeatureKeyEnum:
             # 0678: „Kto już to robił” — rozbicie celu i ocena CV.
             "duty_search_plan",
             "duty_search_judge",
+            # 0698: rozdziały i podsumowanie nagrania szkolenia z transkryptu.
+            "training_transcript_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

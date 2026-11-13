@@ -648,6 +648,23 @@ export function TrainerScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const application = saved.data?.application ?? null;
+  // 0698: „Zgłoś się na temat” z „Szukamy trenerów” otwiera formularz z `?temat=<id>`.
+  const [topicId, setTopicId] = useState<number | null>(null);
+  const trainings = usePortalQuery(portalKeys.trainings, portalApi.trainings, topicId !== null);
+  const wanted = trainings.data?.wanted_topics?.find((item) => item.id === topicId) ?? null;
+
+  useEffect(() => {
+    const raw = new URLSearchParams(window.location.search).get("temat");
+    const parsed = raw ? Number(raw) : NaN;
+    if (Number.isInteger(parsed) && parsed > 0) setTopicId(parsed);
+  }, []);
+
+  useEffect(() => {
+    if (!wanted || application) return;
+    setTopics((list) => (list.includes(wanted.title) ? list : [...list, wanted.title]));
+    setProposalTitle((current) => current || wanted.title);
+    setAudience((current) => current || wanted.audience);
+  }, [wanted, application]);
 
   useEffect(() => {
     if (!application) return;
@@ -692,6 +709,7 @@ export function TrainerScreen() {
         audience: audience.trim(),
         availability: availability.trim(),
         materials: materials.trim(),
+        ...(wanted && !application ? { topic_request_id: wanted.id } : {}),
       });
       // Próbka dochodzi do zapisanego zgłoszenia: serwer przyjmuje ją dopiero po pierwszym wysłaniu.
       if (sample) await portalApi.trainerSample(sample);
@@ -752,6 +770,12 @@ export function TrainerScreen() {
           title="Zostań trenerem"
           lead="Szkolenia prowadzisz zdalnie dla konsultantów B2B Network. Na każde szkolenie dostaniesz od nas zamówienie z terminem i wycenisz je przed podpisaniem umowy."
         />
+        {wanted && !application ? (
+          <p className="rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm" data-testid="trainer-wanted-topic">
+            Zgłaszasz się na temat, którego szukamy: <span className="font-medium">{wanted.title}</span>. Dopisz
+            swoje doświadczenie, a temat trafi do zgłoszenia.
+          </p>
+        ) : null}
         <Panel>
           <form className="space-y-4" onSubmit={submit}>
             <fieldset className="space-y-1.5">

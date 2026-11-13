@@ -207,6 +207,9 @@ class AIFeatureKey(str, enum.Enum):
     # do sprawdzenia w CV i ocena CV z cytatem (wyszukiwanie po obowiązkach).
     duty_search_plan = "duty_search_plan"
     duty_search_judge = "duty_search_judge"
+    # 0698 (13.11.2026): rozdziały z prawdziwymi sekundami i podsumowanie szkolenia
+    # z transkryptu Teams; dodatek do nagrania, nigdy warunek publikacji.
+    training_transcript_summary = "training_transcript_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -260,6 +263,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.sales_meeting_client_summary: "Sprzedaż — podsumowanie spotkania do wysłania klientowi",
     AIFeatureKey.duty_search_plan: "„Kto już to robił” — rozbicie celu projektu na rzeczy do sprawdzenia w CV",
     AIFeatureKey.duty_search_judge: "„Kto już to robił” — ocena CV względem celu projektu z cytatem",
+    AIFeatureKey.training_transcript_summary: "Szkolenia — rozdziały i podsumowanie nagrania z transkryptu",
 }
 
 
@@ -488,6 +492,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Tekst CV ok. 100 najbliższych osób (do 14 tys. znaków na osobę)",
         "Cel projektu i rzeczy do sprawdzenia w CV z rozbicia celu",
         "(bez imion, nazwisk z profilu, notatek, stawek, nazwy klienta i kontaktów)",
+    ],
+    AIFeatureKey.training_transcript_summary: [
+        "Tytuł i opis szkolenia, plan agendy i transkrypt z Teams ze znacznikami czasu",
+        "(bez nazw mówców, zapisanych osób, kwot, umowy i danych trenera)",
     ],
 }
 

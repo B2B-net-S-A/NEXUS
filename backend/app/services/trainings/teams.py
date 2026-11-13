@@ -33,12 +33,20 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.scheduling import DEFAULT_TZ
+from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.contract import Contract
 from app.models.training import Training, TrainingRegistration
 from app.models.user import User
+from app.services.trainings_schema import REHEARSAL_MINUTES
 
 logger = logging.getLogger(__name__)
+
+#: Próba techniczna (0698): tyle dni roboczych przed szkoleniem, o tej samej godzinie.
+REHEARSAL_BUSINESS_DAYS = 2
+REHEARSAL_NOTICE = (
+    "Próba techniczna przed szkoleniem: sprawdzamy dźwięk, kamerę i udostępnianie "
+    "ekranu. Próba nie jest nagrywana."
+)
 
 NOTICE = (
     "Szkolenie jest nagrywane i transkrybowane. Nagranie z transkryptem trafi do "
@@ -76,6 +84,21 @@ def window(training: Training) -> Optional[tuple[datetime, datetime]]:
     if end <= start:
         end = start + timedelta(minutes=training.duration_minutes or 60)
     return start, end
+
+
+def rehearsal_window(training: Training) -> Optional[tuple[datetime, datetime]]:
+    """15 minut z prowadzącym dwa dni robocze przed szkoleniem, o godzinie startu."""
+
+    slot = window(training)
+    if slot is None:
+        return None
+    start = slot[0]
+    remaining = REHEARSAL_BUSINESS_DAYS
+    while remaining:
+        start -= timedelta(days=1)
+        if is_business_day(start):
+            remaining -= 1
+    return start, start + timedelta(minutes=REHEARSAL_MINUTES)
 
 
 def _description(training: Training, *, join_url: str = "") -> str:
@@ -189,7 +212,118 @@ async def sync_meeting(db: AsyncSession, training: Training, *, now: datetime) -
         training.teams_synced_at = now
     except Exception as exc:  # noqa: BLE001 — awaria Graph nie cofa kroku
         _fail(training, exc, now)
+    if training.teams_status == "created":
+        await sync_rehearsal(db, training, now=now)
     await db.flush()
+
+
+def _clear_rehearsal(training: Training, status: str) -> None:
+    training.rehearsal_event_id = None
+    training.rehearsal_join_url = ""
+    training.rehearsal_status = status
+
+
+async def sync_rehearsal(
+    db: AsyncSession, training: Training, *, now: datetime
+) -> None:
+    """Próba techniczna (0698): osobne 15-minutowe spotkanie z prowadzącym.
+
+    Ta sama skrzynka szkolenia@, bez nagrywania i bez zapisanych. Zaznaczona
+    w zamówieniu, przesuwa się z terminem, a odznaczona albo przy odwołaniu
+    szkolenia jest odwoływana. Termin, który już minął (zamówienie na ostatnią
+    chwilę), daje stan ``skipped`` zamiast spotkania w przeszłości. Awaria
+    Graph nie rusza spotkania głównego: zostaje ``rehearsal_status=failed``
+    i „Spróbuj ponownie” zakłada próbę razem z resztą."""
+
+    from app.services.m365 import teams_prep_graph as graph  # noqa: PLC0415
+    from app.services.m365.calendar import (  # noqa: PLC0415
+        _build_event_payload,
+        build_update_payload,
+    )
+
+    slot = rehearsal_window(training)
+    wanted = training.rehearsal and training.status == "signed" and slot is not None
+    try:
+        if not wanted:
+            if training.rehearsal_event_id:
+                await graph.cancel_event(
+                    organizer(),
+                    training.rehearsal_event_id,
+                    "Próba techniczna została odwołana.",
+                )
+                _clear_rehearsal(training, "cancelled")
+            elif not training.rehearsal:
+                _clear_rehearsal(training, "")
+            return
+        assert slot is not None
+        start, end = slot
+        title = f"Próba techniczna: {training.title}"[:255]
+        if not training.rehearsal_event_id:
+            if start <= now:
+                training.rehearsal_start = start
+                _clear_rehearsal(training, "skipped")
+                return
+            email = await trainer_email(db, training)
+            payload = _build_event_payload(
+                title=title,
+                description=f"<p>{html.escape(REHEARSAL_NOTICE)}</p>",
+                start=start,
+                end=end,
+                attendee_emails=[email] if email else [],
+                want_teams=True,
+                transaction_id=(
+                    f"nexus-training-{training.id}-rehearsal-{int(start.timestamp())}"
+                ),
+            )
+            payload["allowNewTimeProposals"] = False
+            created = await graph.create_event(organizer(), payload)
+            training.rehearsal_event_id = created.graph_event_id
+            training.rehearsal_join_url = created.join_url or ""
+            await db.flush()
+            await _configure_rehearsal(training)
+        elif training.rehearsal_start != start:
+            await graph.update_event(
+                organizer(),
+                training.rehearsal_event_id,
+                build_update_payload(
+                    title=title,
+                    description=f"<p>{html.escape(REHEARSAL_NOTICE)}</p>",
+                    start=start,
+                    end=end,
+                ),
+            )
+        training.rehearsal_start = start
+        training.rehearsal_status = "created"
+    except Exception as exc:  # noqa: BLE001 — próba nie rusza spotkania głównego
+        training.rehearsal_status = "failed"
+        logger.warning(
+            "trainings_teams: rehearsal failed training=%s err=%s",
+            training.id,
+            type(exc).__name__,
+        )
+
+
+async def _configure_rehearsal(training: Training) -> None:
+    """Bez nagrywania i bez poczekalni. Porażka zostaje w logu: próba i tak się odbędzie."""
+
+    from app.services.m365 import teams_prep_graph as graph  # noqa: PLC0415
+    from app.services.m365 import teams_training_graph as tgraph  # noqa: PLC0415
+
+    try:
+        user_id = await graph.resolve_user_id(organizer())
+        meeting_id = (
+            await graph.find_online_meeting(user_id, training.rehearsal_join_url)
+            if user_id and training.rehearsal_join_url
+            else None
+        )
+        if user_id and meeting_id:
+            await tgraph.rehearsal_settings(user_id, meeting_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "trainings_teams: rehearsal settings failed training=%s err=%s",
+            training.id,
+            type(exc).__name__,
+        )
 
 
 async def _configure_meeting(training: Training, presenters: list[str]) -> None:
@@ -219,6 +353,9 @@ async def cancel_meeting(
     comment = "Szkolenie zostało odwołane."
     try:
         await graph.cancel_event(organizer(), training.teams_event_id, comment)
+        if training.rehearsal_event_id:
+            await graph.cancel_event(organizer(), training.rehearsal_event_id, comment)
+            _clear_rehearsal(training, "cancelled")
         for registration in await _invited(db, training.id):
             await graph.cancel_event(organizer(), registration.invite_event_id, comment)
             registration.invite_status = "cancelled"

@@ -59,6 +59,7 @@ from app.services.trainings import (
     signing,
     storage,
     teams,
+    topics,
 )
 from app.services.trainings.errors import TrainingError
 from app.services.trainings_schema import (
@@ -66,6 +67,8 @@ from app.services.trainings_schema import (
     NOTE_MAX,
     TEXT_MAX,
     TITLE_MAX,
+    TOPIC_DESCRIPTION_MAX,
+    TRAINER_SHORT_MAX,
 )
 
 router = APIRouter()
@@ -184,6 +187,9 @@ class OrderBody(BaseModel):
     deliverables: list[Deliverable] = Field(default_factory=list, max_length=4)
     knowledge_test: bool = False
     extra_terms: str = Field(default="", max_length=TEXT_MAX)
+    # 0698: próba techniczna z prowadzącym i „obowiązkowe dla roli”.
+    rehearsal: bool = False
+    mandatory_roles: list[str] = Field(default_factory=list, max_length=20)
 
     def to_input(self) -> core.OrderInput:
         return core.OrderInput(
@@ -203,6 +209,8 @@ class OrderBody(BaseModel):
             knowledge_test=self.knowledge_test,
             extra_terms=self.extra_terms,
             seat_limit=self.seat_limit,
+            rehearsal=self.rehearsal,
+            mandatory_roles=tuple(self.mandatory_roles),
         )
 
 
@@ -290,6 +298,8 @@ async def me(current_user: Viewer, db: AsyncSession = Depends(get_db)) -> dict:
         "is_company_signer": await signing.is_company_signer(db, current_user),
         # 0697: spotkanie Teams zakłada NEXUS — formularz nie pyta wtedy o link.
         "teams_ready": teams.ready(),
+        # 0698: role do „obowiązkowe dla roli”.
+        "mandatory_roles": list(core.MANDATORY_ROLES),
     }
 
 
@@ -449,6 +459,7 @@ async def applications(
                 "availability": application.availability,
                 "materials": application.materials,
                 "sample_name": application.sample_name,
+                "wanted_topics": await topics.titles(db, application.topic_request_ids),
                 "case_id": application.case_id,
                 "sent_at": application.updated_at.isoformat(),
             }
@@ -478,6 +489,64 @@ async def application_sample(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+# ── „Szukamy trenerów” (TCM, 0698) ──────────────────────────────────────────
+
+
+class TopicBody(BaseModel):
+    title: str = Field(min_length=1, max_length=TITLE_MAX)
+    description: str = Field(default="", max_length=TOPIC_DESCRIPTION_MAX)
+    audience: str = Field(default="", max_length=TRAINER_SHORT_MAX)
+    open: bool = True
+
+
+@router.get("/topics")
+async def list_topics(
+    current_user: Manager, db: AsyncSession = Depends(get_db)
+) -> dict:
+    return {"topics": await topics.staff_list(db)}
+
+
+@router.post("/topics", status_code=status.HTTP_201_CREATED)
+async def create_topic(
+    body: TopicBody, current_user: Manager, db: AsyncSession = Depends(get_db)
+) -> dict:
+    try:
+        await topics.create(
+            db,
+            title=body.title,
+            description=body.description,
+            audience=body.audience,
+            actor_id=current_user.id,
+        )
+    except TrainingError as exc:
+        raise _translate(exc) from exc
+    await db.commit()
+    return {"topics": await topics.staff_list(db)}
+
+
+@router.put("/topics/{topic_id}")
+async def update_topic(
+    topic_id: int,
+    body: TopicBody,
+    current_user: Manager,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        await topics.update(
+            db,
+            topic_id,
+            title=body.title,
+            description=body.description,
+            audience=body.audience,
+            is_open=body.open,
+            now=_now(),
+        )
+    except TrainingError as exc:
+        raise _translate(exc) from exc
+    await db.commit()
+    return {"topics": await topics.staff_list(db)}
 
 
 # ── Folder SharePointa (admin) ───────────────────────────────────────────────
@@ -569,8 +638,12 @@ async def _sync_teams(db: AsyncSession, training: Training) -> None:
     """Spotkanie Teams za stanem szkolenia, po zatwierdzeniu kroku (0697).
 
     Graph trwa sekundy i bywa niedostępny, więc krok w NEXUSIE jest już zapisany;
-    wynik spotkania ląduje w ``teams_status`` w osobnej transakcji."""
+    wynik spotkania ląduje w ``teams_status`` w osobnej transakcji. Zapisy
+    „obowiązkowe dla roli” (0698) powstają też bez Teams: dzwonki przypomnień
+    działają bez Graph."""
 
+    await core.enroll_mandatory(db, training, today=business_today())
+    await db.commit()
     await teams.sync_meeting(db, training, now=_now())
     if training.teams_status == "created":
         await teams.invite_pending(db, training)

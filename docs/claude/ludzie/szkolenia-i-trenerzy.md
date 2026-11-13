@@ -1,5 +1,5 @@
 # Szkolenia i trenerzy — zamówienie, wycena A–E, umowa szkoleniowa, pliki, biblioteka (0694)
-<!-- indeks: szkolenia, spotkanie Teams z NEXUSA, szkolenia@, zaproszenie po zapisie, limit miejsc, nagranie z Teams, transkrypt, ocena szkolenia, nagranie dla zapisanych, trener, umowa szkoleniowa, Załącznik nr 1, wycena A–E, podpis kwalifikowany, przekazanie plików, faktura trenera, biblioteka nagrań, zapisy na szkolenie, obecność z Teams, SharePoint szkoleń, Akademia Compassa -->
+<!-- indeks: szkolenia, rozdziały z transkryptu, podsumowanie szkolenia AI, próba techniczna, obowiązkowe dla roli, Szukamy trenerów, tematy dla trenerów, spotkanie Teams z NEXUSA, szkolenia@, zaproszenie po zapisie, limit miejsc, nagranie z Teams, transkrypt, ocena szkolenia, nagranie dla zapisanych, trener, umowa szkoleniowa, Załącznik nr 1, wycena A–E, podpis kwalifikowany, przekazanie plików, faktura trenera, biblioteka nagrań, zapisy na szkolenie, obecność z Teams, SharePoint szkoleń, Akademia Compassa -->
 
 Decyzje Artura z 13.11.2026 (makiety: https://claude.ai/artifact/JTaxcwJQSG7fkNLqbGkwh4).
 Szkolenia i biblioteka nagrań są w NEXUSIE. Akademia w Compassie nie startuje, a Compass
@@ -123,8 +123,45 @@ Analiza i makiety: https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz. Kod:
   reprezentant o umowie, Finanse o fakturze, zapisani pracownicy przypomnienie dzień
   wcześniej od 9:00 i 15 min przed oraz o nagraniu. Bez kwot w treści.
 
+## S4: rozdziały AI, próba techniczna, obowiązkowe dla roli, „Szukamy trenerów” (0698)
+
+Kod: `services/trainings/ai_summary.py`, `topics.py`, `teams.sync_rehearsal`,
+`core.enroll_mandatory`. Makiety: sekcja 5 artefaktu
+https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz.
+
+- **Rozdziały i podsumowanie z transkryptu to dodatek (F49
+  `training_transcript_summary`, GPT-6 Luna z Sonnetem 5).** Po imporcie nagrania
+  z transkryptem `recordings.process` woła model poza blokiem importu: awaria, brak
+  klucza albo zła odpowiedź zostawia rozdziały z agendy i nagranie bez podsumowania
+  (`training_transcripts.summary_status`). Rozdziały z AI zastępują agendę w
+  `core.chapters` tylko, gdy są (co najmniej dwa).
+- **Początek rozdziału to znacznik jednej z linii transkryptu.** Inną sekundę kod
+  odrzuca, bo rozdział z wymyśloną sekundą przewija film w złe miejsce. Przy kilku
+  plikach nagrania (Teams tnie co 4 h) osie czasu się powtarzają, więc wtedy tylko
+  podsumowanie. Model nie dostaje nazw mówców.
+- **Próba techniczna** (opcja w zamówieniu, `trainings.rehearsal`): osobne 15-minutowe
+  spotkanie w tej samej skrzynce szkolenia@, 2 dni robocze przed szkoleniem o godzinie
+  startu, tylko z prowadzącym. Bez nagrywania wprost (`rehearsal_settings`), bo polityka
+  nagrywania automatycznego skrzynki obejmuje każde jej spotkanie. Przesuwa się
+  z terminem, odznaczona albo przy odwołaniu szkolenia jest odwoływana; termin
+  w przeszłości = `skipped`. Awaria nie rusza spotkania głównego, „Spróbuj ponownie”
+  zakłada ją razem z resztą. Link: karta trenera w panelu i kalendarz prowadzącego-pracownika.
+- **„Obowiązkowe dla roli”** (`trainings.mandatory_roles`, role z `/me`): przy zapisie
+  terminu (`_sync_teams`) każda aktywna osoba w roli dostaje zapis z
+  `mandatory=true` i zaproszenie; zapis powstaje też bez Teams (przypomnienia idą
+  dzwonkiem). Obowiązkowy zapis nie liczy się do limitu miejsc i osoba nie wypisze się
+  sama (409 `mandatory`). Rola zdjęta z listy zostawia zapis, już nieobowiązkowy. Nowa
+  osoba w roli dochodzi przy kolejnej zmianie szkolenia albo „Spróbuj ponownie”.
+- **„Szukamy trenerów”** (`training_topic_requests`): TCM publikuje i zamyka tematy
+  w zakładce „Zgłoszenia trenerów”, panel konsultanta pokazuje otwarte obok kalendarza.
+  Zgłoszenie trenera jest jedno na konsultanta, więc temat to dopisek
+  (`cp_trainer_applications.topic_request_ids`) i linia w opisie sprawy. Bez zgłoszenia
+  „Zgłoś się na temat” otwiera formularz „Zostań trenerem” z tematem (`?temat=<id>`),
+  bo TCM potrzebuje doświadczenia, nie samego kliknięcia.
+
 ## Poza zakresem (13.11.2026)
 
 Stan zapłaty z eBI24 zamiast przycisku Finansów, postęp oglądania, test wiedzy
-w bibliotece, rozdziały i podsumowanie z transkryptu przez model AI, próba techniczna
-z trenerem, „obowiązkowe dla roli”, „Szukamy trenerów” w panelu.
+w bibliotece, „termin wstępny” szkolenia trenera B2B przed podpisem, dopisanie do
+obowiązkowego szkolenia osoby, która weszła w rolę po zapisie terminu (bez zmiany
+szkolenia).

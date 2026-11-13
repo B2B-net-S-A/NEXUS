@@ -188,6 +188,10 @@ export const PREVIEW_TRAININGS: PortalTrainings = {
     ],
   },
   applied: true,
+  wanted_topics: [
+    { id: 51, title: "Terraform i IaC dla zespołów bankowych", description: "2 h na żywo z ćwiczeniami.", audience: "rekruterzy IT", applied: true },
+    { id: 52, title: "Testy kontraktowe (Pact) w mikroserwisach", description: "", audience: "", applied: false },
+  ],
 };
 
 export const PREVIEW_APPLICATION: PortalTrainerApplication = {

@@ -16,7 +16,7 @@ import type {
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 
-import { chapterTime, fileExtension, isPlayable } from "./training-model";
+import { chapterClock, chapterSecond, chapterTime, fileExtension, isPlayable } from "./training-model";
 
 interface TrainingLibraryProps {
   library: Library;
@@ -208,7 +208,6 @@ export function TrainingLibrary({
     video.currentTime = second;
     void video.play().catch(() => undefined);
   };
-  const seek = (minute: number) => seekSecond(minute * 60);
 
   return (
     <div className="space-y-5">
@@ -308,6 +307,12 @@ export function TrainingLibrary({
               {selected.description ? (
                 <p className="whitespace-pre-line text-sm text-foreground">{selected.description}</p>
               ) : null}
+              {selected.summary ? (
+                <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+                  <p className="text-xs font-medium text-muted-foreground">Podsumowanie (AI z transkryptu)</p>
+                  <p className="whitespace-pre-line text-foreground">{selected.summary}</p>
+                </div>
+              ) : null}
               {recordingFile && onSearchTranscript ? (
                 <TranscriptBox key={`transcript-${selected.id}`} recordingId={selected.id} onSearch={onSearchTranscript} onSeekSecond={seekSecond} />
               ) : null}
@@ -323,10 +328,12 @@ export function TrainingLibrary({
                           <button
                             type="button"
                             className="flex w-full gap-3 rounded px-1 py-0.5 text-left hover:bg-muted"
-                            onClick={() => seek(chapter.start_minute)}
+                            onClick={() => seekSecond(chapterSecond(chapter))}
                           >
-                            <span className="w-12 shrink-0 tabular-nums text-muted-foreground">
-                              {chapterTime(chapter.start_minute)}
+                            <span className="w-14 shrink-0 tabular-nums text-muted-foreground">
+                              {chapter.source === "transcript"
+                                ? chapterClock(chapterSecond(chapter))
+                                : chapterTime(chapter.start_minute)}
                             </span>
                             <span>{chapter.title}</span>
                           </button>
