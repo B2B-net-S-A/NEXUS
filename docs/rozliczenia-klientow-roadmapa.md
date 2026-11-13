@@ -347,7 +347,7 @@ reguły klienta jako katalog z poziomami.
   - Decyzja Artura z 10.11: konsultant fakturuje miesiąc z planem dopiero po
     faktycznym RCP (dane do faktury po przyjęciu RCP z następnego miesiąca);
     z planu fakturujemy tylko klienta.
-  - Dokończone 13.11 (migracja 0687):
+  - Dokończone 13.11 (migracja 0688):
     - Koszty integracji `cl.integration_costs` (`integration_costs.py`, tabela
       `client_settlement_extras` z rodzajem `integration`, wspólna z dodatkami do
       rozliczenia kontraktora): Finanse wpisują koszt na karcie osoby
