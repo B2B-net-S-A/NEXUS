@@ -202,6 +202,43 @@ async def _fill_from_contacts(db: AsyncSession, entries: list[dict[str, Any]]) -
                 entry["from_contact"].append(field)
 
 
+async def _mark_gone(
+    db: AsyncSession,
+    maps: Sequence[CompanyMap],
+    people: list[list[dict[str, Any]]],
+) -> None:
+    """Osoba, której kontakt w tej firmie „nie pracuje”, ma na mapie ``active = False``.
+
+    Stan żyje w kontakcie (``sales_company_contacts.is_current``), więc mapa
+    i zakładka Kontakty mówią to samo, a człowiek cofa go w jednym miejscu.
+    """
+
+    pairs = {
+        (company_id, entry["nexus_contact_id"])
+        for (company_id, _), entries in zip(maps, people)
+        for entry in entries
+        if entry["nexus_contact_id"]
+    }
+    if not pairs:
+        return
+    gone = set(
+        (
+            await db.execute(
+                select(
+                    SalesCompanyContact.company_id, SalesCompanyContact.contact_id
+                ).where(
+                    SalesCompanyContact.contact_id.in_({c for _, c in pairs}),
+                    SalesCompanyContact.is_current.is_(False),
+                )
+            )
+        ).all()
+    )
+    for (company_id, _), entries in zip(maps, people):
+        for entry in entries:
+            if (company_id, entry["nexus_contact_id"]) in gone:
+                entry["active"] = False
+
+
 async def decision_people(
     db: AsyncSession, maps: Sequence[CompanyMap]
 ) -> list[list[dict[str, Any]]]:
@@ -223,8 +260,10 @@ async def decision_people(
             entry["nexus_contact_id"] = contact_id
             entry["from_contact"] = []
             entry["do_not_contact"] = bool(entry.get("do_not_contact"))
+            entry["active"] = True
         people.append(entries)
     await _fill_from_contacts(db, [entry for entries in people for entry in entries])
+    await _mark_gone(db, maps, people)
     return people
 
 

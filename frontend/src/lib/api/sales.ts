@@ -286,6 +286,8 @@ export interface DecisionMapEntry {
   /** Data publikacji źródła (osoby od bota, „Grok Bot”). */
   source_published_at?: string | null;
   source_confidence?: "confirmed" | "to_verify" | null;
+  /** `false`: kontakt tej osoby w firmie „nie pracuje” (odejście ze źródła albo ręcznie). */
+  active?: boolean;
 }
 
 export type DecisionFromContactField = "email" | "phone" | "linkedin_url" | "notes";

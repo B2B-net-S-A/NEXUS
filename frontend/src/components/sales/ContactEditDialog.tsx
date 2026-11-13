@@ -24,6 +24,8 @@ import { CompanyPicker } from "./CompanyPicker";
 
 interface ContactEditDialogProps {
   contact: SalesContact;
+  /** Karta firmy, z której otwarto okno: przełącznik „nie pracuje” dotyczy tej firmy. */
+  companyId?: number;
   onClose: () => void;
 }
 
@@ -31,7 +33,7 @@ interface ContactEditDialogProps {
  * Edycja kontaktu sprzedaży: dane, firma główna, inne firmy (osoba bywa
  * w kilku — w Atlasie 224 takie powiązania) i archiwum, gdy odeszła.
  */
-export function ContactEditDialog({ contact, onClose }: ContactEditDialogProps) {
+export function ContactEditDialog({ contact, companyId, onClose }: ContactEditDialogProps) {
   const update = useUpdateSalesContact(contact.id);
   const archive = useArchiveSalesContact();
   const link = useLinkContactCompany(contact.id);
@@ -52,6 +54,23 @@ export function ContactEditDialog({ contact, onClose }: ContactEditDialogProps) 
   );
   const [extra, setExtra] = useState<Ref | null>(null);
   const others = contact.companies.filter((link) => !link.is_primary);
+  const here = companyId === undefined ? undefined : contact.companies.find((c) => c.company_id === companyId);
+  // Okno trzyma kontakt z chwili otwarcia, więc stan po zmianie pamiętamy tu.
+  const [working, setWorkingState] = useState(here?.is_current ?? true);
+
+  const setWorking = (next: boolean) => {
+    if (!here) return;
+    link.mutate(
+      { company_id: here.company_id, role: here.role, title: here.title, is_current: next },
+      {
+        onSuccess: () => {
+          setWorkingState(next);
+          showSuccess(next ? "Osoba znów pracuje w tej firmie." : "Oznaczono: nie pracuje w tej firmie.");
+        },
+        onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać zmiany.")),
+      },
+    );
+  };
   const set = (key: keyof typeof form) => (value: string) => setForm((current) => ({ ...current, [key]: value }));
 
   const save = () => {
@@ -135,6 +154,16 @@ export function ContactEditDialog({ contact, onClose }: ContactEditDialogProps) 
             <Input id={`sales-contact-${key}`} value={form[key]} onChange={(event) => set(key)(event.target.value)} />
           </div>
         ))}
+        {here && (
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+            <span className="text-sm text-foreground">
+              {working ? `Pracuje w: ${here.company_name}` : `Nie pracuje w: ${here.company_name}`}
+            </span>
+            <Button size="sm" variant="outline" loading={link.isPending} onClick={() => setWorking(!working)}>
+              {working ? "Oznacz: nie pracuje" : "Pracuje tutaj"}
+            </Button>
+          </div>
+        )}
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="sales-contact-primary">Firma główna</Label>
           <CompanyPicker id="sales-contact-primary" value={primary} onChange={setPrimary} />
