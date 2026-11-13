@@ -8,6 +8,7 @@
  * żeby widoczność pozycji dało się udowodnić testem bez montowania shellu.
  */
 import {
+  BookOpenCheck,
   Briefcase,
   Building2,
   Calendar,
@@ -79,7 +80,10 @@ export type NavFeatureFlag =
   | "hrBackOffice"
   // Szkolenia (13.11.2026): biblioteka dla każdego zalogowanego, gdy program
   // „Ludzie w NEXUSIE” jest włączony (`/api/trainings` wisi za `_HR_PROGRAM`).
-  | "hrTrainings";
+  | "hrTrainings"
+  // Księgowość (K1, 13.11.2026): pozycja tylko przy otwartym module księgi
+  // (`/api/accounting/config` → `open`; wyłączony moduł widzi admin).
+  | "accounting";
 
 export type NavSectionKey =
   | "sourcing"
@@ -112,6 +116,8 @@ export type NavVisibilityOptions = {
     /** Program „Ludzie w NEXUSIE” włączony = „Szkolenia” dla każdego. */
     trainings?: boolean;
   };
+  /** Księgowość otwarta dla tej osoby (moduł włączony albo admin). */
+  accounting?: boolean;
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -599,6 +605,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Księgowość (K1, 13.11.2026): księga NEXUSA — dokumenty, obroty i salda,
+  // plan kont. Uprawnienie „Moduł Finanse” + otwarty moduł (flaga `accounting`).
+  {
+    id: "accounting",
+    href: "/accounting",
+    label: "Księgowość",
+    icon: BookOpenCheck,
+    section: "finance",
+    permission: "finance_module",
+    featureFlag: "accounting",
+    placement: "primary",
+    paletteKeywords: ["księga", "dziennik", "obroty", "salda", "plan kont", "pk", "symfonia"],
+    inPalette: true,
+  },
   // Sprzedaż (Atlas → NEXUS, 26.10.2026): firmy, szanse, kontakty, zadania.
   // Bez sekcji produktu (jak „Ludzie”) — decyduje uprawnienie „Sprzedaż: podgląd”.
   {
@@ -760,7 +780,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"],
+    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"],
   },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment", "trainings"] },
 ];
@@ -797,6 +817,8 @@ function featureFlagOn(
       return opts.hr?.backOffice ?? false;
     case "hrTrainings":
       return opts.hr?.trainings ?? false;
+    case "accounting":
+      return opts.accounting ?? false;
   }
 }
 

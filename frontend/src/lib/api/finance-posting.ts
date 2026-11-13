@@ -13,7 +13,8 @@ import { fetchAuthenticatedDownload, downloadBlob } from "@/lib/authenticated-fi
 
 const POSTING = "/api/finance/posting";
 
-export type AccountKind = "cost" | "vat" | "settlement" | "revenue";
+/** `other` — konto księgi spoza dekretu faktur (K1, 0699); ekran planu kont E2 go nie ustawia. */
+export type AccountKind = "cost" | "vat" | "settlement" | "revenue" | "other";
 export type Deduction = "full" | "none";
 export type Register = "purchase" | "sale";
 export type PositionKind = "cost" | "vat" | "counterparty";

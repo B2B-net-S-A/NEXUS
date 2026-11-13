@@ -30,6 +30,8 @@ vi.mock("@/hooks/useCandidateContactFeature", () => ({
   useCandidateContactFeature: () => ({ enabled: false }),
 }));
 // Stan modułu „Ludzie w NEXUSIE” też idzie z react-query — moduł wyłączony.
+// Księgowość (K1): pozycja z `/api/accounting/config` — tu zamknięta.
+vi.mock("@/lib/api/accounting", () => ({ useAccountingNavOpen: () => false }));
 vi.mock("@/lib/api/hr", () => ({
   useHrNavState: () => ({ myTime: false, people: hrNav.people, equipment: false }),
   useHrProgram: () => false,

@@ -43,6 +43,8 @@ const KIND_LABELS: Record<AccountKind, string> = {
   vat: "VAT",
   settlement: "rozrachunek",
   revenue: "przychód",
+  // 0699 (K1): konta księgi spoza dekretu faktur — zakłada je plan kont w Księgowości.
+  other: "inne",
 };
 const KIND_ORDER: readonly AccountKind[] = ["cost", "vat", "settlement", "revenue"];
 

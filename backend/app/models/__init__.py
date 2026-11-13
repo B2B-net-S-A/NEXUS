@@ -924,6 +924,7 @@ from app.models import client_time_report as _client_time_report_models  # noqa:
 from app.models import training as _training_models  # noqa: F401,E402  (0694 szkolenia)
 from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E402  (0695 księgowość)
 from app.models import finance_posting as _finance_posting_models  # noqa: F401,E402  (0698 dekret i eksport)
+from app.models import ledger as _ledger_models  # noqa: F401,E402  (0699 księga NEXUSA)
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.

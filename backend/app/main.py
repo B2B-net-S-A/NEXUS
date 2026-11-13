@@ -252,6 +252,7 @@ from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_posting as finance_posting_api
+from app.api import ledger as ledger_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2280,6 +2281,13 @@ app.include_router(
     finance_posting_api.router,
     prefix="/api/finance/posting",
     tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Księga NEXUSA (K1, 0699): dokumenty, dziennik, obroty, plan kont — `/accounting`.
+app.include_router(
+    ledger_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
     dependencies=_HR_PROGRAM,
 )
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.

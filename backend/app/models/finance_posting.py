@@ -30,13 +30,19 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.services import finance_posting_schema as schema
+from app.services import ledger_schema
 
 
 class FinanceAccount(Base):
     __tablename__ = "finance_accounts"
     __table_args__ = (
         UniqueConstraint("number", name="uq_finance_accounts_number"),
-        CheckConstraint(schema.CK_ACCOUNT_KIND, name="ck_finance_accounts_kind"),
+        # 0699 (K1): rodzaj ``other`` dla kont spoza dekretu faktur.
+        CheckConstraint(ledger_schema.CK_ACCOUNT_KIND, name="ck_finance_accounts_kind"),
+        CheckConstraint(ledger_schema.CK_ACCOUNT_TYPE, name="ck_finance_accounts_type"),
+        CheckConstraint(
+            ledger_schema.CK_ACCOUNT_DICTIONARY, name="ck_finance_accounts_dictionary"
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -45,6 +51,16 @@ class FinanceAccount(Base):
     kind: Mapped[str] = mapped_column(String(12), nullable=False)
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    # 0699 (K1, księga NEXUSA): syntetyka, typ konta, słownik analityki,
+    # pozycja sprawozdania (opis w ``app/services/ledger_schema.py``).
+    parent_number: Mapped[Optional[str]] = mapped_column(
+        String(schema.ACCOUNT_MAX), nullable=True
+    )
+    account_type: Mapped[Optional[str]] = mapped_column(String(12), nullable=True)
+    dictionary: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    report_line: Mapped[Optional[str]] = mapped_column(
+        String(ledger_schema.REPORT_LINE_MAX), nullable=True
     )
     updated_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

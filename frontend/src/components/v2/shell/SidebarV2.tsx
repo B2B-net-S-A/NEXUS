@@ -34,6 +34,7 @@ import { WorldGalleryButton } from "./WorldGallery";
 import { useThemeStore } from "@/store/theme";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useHrNavState, useHrProgram } from "@/lib/api/hr";
+import { useAccountingNavOpen } from "@/lib/api/accounting";
 import { useOwnHiringMembership } from "@/lib/api/ownHiring";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
@@ -100,10 +101,13 @@ export function SidebarV2({
   // „Szkolenia” (13.11.2026) widzi każdy, gdy program „Ludzi” jest włączony.
   const hrProgram = useHrProgram(Boolean(user));
   const ownHiring = useOwnHiringMembership(user);
+  // Księgowość (K1): pozycja przy otwartym module księgi.
+  const accounting = useAccountingNavOpen(user);
   const navOptions = {
     contactQueueEnabled: contactFeature.enabled,
     hr: { ...hrNav, trainings: hrProgram },
     ownHiring,
+    accounting,
   };
   const primaryGroups = visiblePrimaryGroups(user, navOptions);
   const moreGroups = visibleMoreGroups(user, navOptions);
