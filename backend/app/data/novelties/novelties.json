@@ -2727,5 +2727,18 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "b2b.esign.package"
+  },
+  {
+    "id": "czat-wszyscy-przypisani",
+    "pr": 3373,
+    "title": "@wszyscy w czacie i notatkach rekrutacji",
+    "why": "Po „@” na górze listy jest „Wszyscy przypisani”. Jeden wybór oznacza rekruterów, Delivery Leada i przypisanych do rekrutacji. Pod polem widać, kto dostanie wzmiankę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Rekrutacja → Historia i czat → Czat zespołu (też notatki w panelu osoby)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.chat.compose"
   }
 ]

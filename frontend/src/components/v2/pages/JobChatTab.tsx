@@ -623,7 +623,10 @@ export default function JobChatTab({
           <p className="text-xs text-muted-foreground">{EXPANDED_COMPOSE_HINT}</p>
         ) : null}
         <div className={cn("flex items-end gap-2", composeExpanded && "min-h-0 flex-1")}>
-          <div className={cn("flex-1", composeExpanded && "h-full")}>
+          <div
+            className={cn("flex-1", composeExpanded && "h-full")}
+            data-tour="jobs.chat.compose"
+          >
             <MentionTextarea
               value={text}
               onChange={setText}
