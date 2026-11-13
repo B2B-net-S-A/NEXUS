@@ -112,6 +112,8 @@ class QueueOut(BaseModel):
     today_counts: DayCountsOut
     yesterday: date
     yesterday_counts: DayCountsOut
+    #: Osoby z otwartymi rekordami kampanii: wybór osoby nad kolejką (13.11.2026).
+    callers: list[Ref] = []
 
 
 class RecordTableOut(BaseModel):
@@ -355,6 +357,7 @@ async def call_queue(
         today_counts=DayCountsOut(**queue.today_counts.__dict__),
         yesterday=queue.yesterday,
         yesterday_counts=DayCountsOut(**queue.yesterday_counts.__dict__),
+        callers=[Ref(id=id_, name=name) for id_, name in queue.callers],
     )
 
 

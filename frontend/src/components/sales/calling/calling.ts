@@ -5,6 +5,7 @@ import type { BadgeProps } from "@/components/ui/badge";
 import { CALL_OUTCOME_LABELS } from "@/lib/api/sales";
 import type {
   CallQueue,
+  CorrectableState,
   DayCounts,
   ImportFate,
   ImportPreview,
@@ -17,52 +18,61 @@ import { formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { plural } from "../my-day";
 
-export const SECTION_ORDER: QueueSection[] = ["callbacks", "meetings", "new"];
+export const SECTION_ORDER: QueueSection[] = [
+  "callbacks",
+  "no_answer",
+  "meetings",
+  "new",
+];
 
 export const SECTION_TITLES: Record<QueueSection, string> = {
   callbacks: "Oddzwonienia na dziś",
+  // Lista dzwoniących 13.11.2026: „Nie odebrał” ma własną zakładkę, bez względu na datę.
+  no_answer: "Nie odebrane",
   meetings: "Spotkania bez terminu · ustal datę",
   new: "Nowe rekordy kampanii",
 };
 
-/** Wyniki z datą powrotu: klik otwiera wybór dnia, reszta zapisuje się od razu. */
-export const DATED_OUTCOMES = ["call_back", "not_now", "not_interested"] as const;
+/** Wyniki z wyborem terminu: klik otwiera wybór dnia, reszta zapisuje się od razu. */
+export const DATED_OUTCOMES = ["call_back", "offer_sent"] as const;
 export type DatedOutcome = (typeof DATED_OUTCOMES)[number];
 
-/** `days: null` = „Nigdy” (tylko „Nie zainteresowany”: rekord nie wraca do kolejki). */
-export const DATE_PRESETS: Record<DatedOutcome, { label: string; days: number | null }[]> = {
+/**
+ * `days: null` = „Bez ponownego kontaktu” (tylko oferta: rekord nie wraca do kolejki).
+ * Lista dzwoniących 13.11.2026: oferta pyta, czy i kiedy wrócić.
+ */
+export const DATE_PRESETS: Record<
+  DatedOutcome,
+  { label: string; days: number | null }[]
+> = {
   call_back: [
     { label: "Jutro", days: 1 },
     { label: "Za 3 dni", days: 3 },
     { label: "Za tydzień", days: 7 },
   ],
-  not_now: [
-    { label: "Za miesiąc", days: 30 },
-    { label: "Za kwartał", days: 90 },
-    { label: "Za pół roku", days: 180 },
-  ],
-  // Decyzja Artura 11.11.2026: domyślnie pół roku, do wyboru 3 / 12 miesięcy albo nigdy.
-  not_interested: [
-    { label: "Za 3 miesiące", days: 91 },
-    { label: "Za pół roku", days: 182 },
-    { label: "Za rok", days: 365 },
-    { label: "Nigdy", days: null },
+  offer_sent: [
+    { label: "Za 3 dni", days: 3 },
+    { label: "Za tydzień", days: 7 },
+    { label: "Za 2 tygodnie", days: 14 },
+    { label: "Bez ponownego kontaktu", days: null },
   ],
 };
 
 /**
- * Wyniki w kolejności przycisków i klawiszy 1–7 (decyzja Artura 11.11.2026: wynik
- * z klawiatury, potem od razu następna osoba — jak wpisywanie w Excelu, tylko szybciej).
+ * Wyniki w kolejności przycisków i klawiszy 1–5 (decyzja Artura 11.11.2026: wynik
+ * z klawiatury, potem od razu następna osoba). 13.11.2026 zdjęte „Nie zainteresowany”
+ * i „Nie teraz”; stare rekordy z tym stanem zostają w Tabeli.
  */
 export const KEYED_OUTCOMES: QueueOutcome[] = [
   "no_answer",
   "call_back",
   "offer_sent",
   "meeting_booked",
-  "not_interested",
   "bad_contact",
-  "not_now",
 ];
+
+/** „Klawisze 1–5”: zakres z listy wyników, żeby podpis nie rozjechał się z przyciskami. */
+export const KEYS_RANGE = `1–${KEYED_OUTCOMES.length}`;
 
 /** Krótszy podpis na przycisku karty (364 px); pełny zostaje w historii i podpowiedzi. */
 export function outcomeButtonLabel(outcome: QueueOutcome): string {
@@ -149,10 +159,24 @@ export function resolveSelection(
 }
 
 export function queueLine(queue: CallQueue): string {
-  const { callbacks, meetings, new: fresh, later } = queue.counts;
+  const {
+    callbacks,
+    no_answer: unanswered,
+    meetings,
+    new: fresh,
+    later,
+  } = queue.counts;
   return [
     `${callbacks} do oddzwonienia`,
-    plural(meetings, "spotkanie bez terminu", "spotkania bez terminu", "spotkań bez terminu"),
+    ...(unanswered > 0
+      ? [plural(unanswered, "nieodebrany", "nieodebrane", "nieodebranych")]
+      : []),
+    plural(
+      meetings,
+      "spotkanie bez terminu",
+      "spotkania bez terminu",
+      "spotkań bez terminu",
+    ),
     plural(fresh, "nowy w kolejce", "nowe w kolejce", "nowych w kolejce"),
     ...(later > 0 ? [`${later} wróci w swoim dniu`] : []),
   ].join(" · ");
@@ -286,3 +310,66 @@ export function dayLine(counts: DayCounts): string {
     plural(counts.meetings, "spotkanie", "spotkania", "spotkań"),
   ].join(" · ");
 }
+
+// ── Przypomnienia i zmiana statusu z Tabeli (lista dzwoniących 13.11.2026) ───
+
+export interface ReminderGroup {
+  title: string;
+  items: QueueItem[];
+}
+
+/** Terminy po dniach: zaległe, dziś, jutro, później; puste grupy odpadają. */
+export function reminderGroups(
+  items: readonly QueueItem[],
+  today: string,
+  tomorrow: string,
+): ReminderGroup[] {
+  const groups: ReminderGroup[] = [
+    { title: "Zaległe", items: [] },
+    { title: "Dziś", items: [] },
+    { title: "Jutro", items: [] },
+    { title: "Później", items: [] },
+  ];
+  for (const item of items) {
+    const due = item.due_on ?? today;
+    const index = due < today ? 0 : due === today ? 1 : due <= tomorrow ? 2 : 3;
+    groups[index].items.push(item);
+  }
+  return groups.filter((group) => group.items.length > 0);
+}
+
+/** Statusy do wyboru w Tabeli: poprawka bez telefonu; spotkanie i sprzeciw tylko z karty. */
+export const CORRECTABLE_STATES: CorrectableState[] = [
+  "no_answer",
+  "call_back",
+  "offer_sent",
+  "bad_contact",
+];
+
+/** Można poprawić status rekordu kampanii, który nie jest zamknięty spotkaniem ani sprzeciwem. */
+export function canCorrect(item: QueueItem): boolean {
+  return (
+    item.record_id !== null &&
+    item.state !== "meeting_booked" &&
+    item.state !== "do_not_contact"
+  );
+}
+
+/** „pt 13.11, 14:05”: ostatnia modyfikacja rekordu w kalendarzu firmy. */
+export function modifiedLabel(
+  iso: string | null | undefined,
+  timeZone = "Europe/Warsaw",
+): string {
+  if (!iso) return "—";
+  const moment = new Date(iso);
+  if (Number.isNaN(moment.getTime())) return "—";
+  const time = moment.toLocaleTimeString("pl-PL", {
+    timeZone,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${weekdayOf(iso, timeZone)}, ${time}`;
+}
+
+/** `?view=reminders`: link z „Mojego dnia” otwiera Dzwonienie na zakładce „Przypomnienia”. */
+export const REMINDERS_VIEW = "reminders";

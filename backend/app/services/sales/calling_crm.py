@@ -60,7 +60,7 @@ def record_facts(
         "record_id": record.id,
         "campaign_id": record.campaign_id,
         "service": service,
-        "person": _person(record, contact),
+        "person_name": _person(record, contact),
         "title": record.person_title or (contact.title if contact else None),
         "phone": record.phone,
         "email": record.email or (contact.email if contact else None),

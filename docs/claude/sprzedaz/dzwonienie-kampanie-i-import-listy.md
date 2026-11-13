@@ -28,6 +28,10 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
 
 ## Kolejka
 
+> 13.11.2026: kolejka ma wybór osoby, wynik zapisuje każdy z „Sprzedaż: edycja”,
+> „Nie zainteresowany” i „Nie teraz” zdjęte, „Nie odebrane” to osobna sekcja, a oferta
+> zakłada lead w Leadach: `dzwonienie-lista-zmian-od-dzwoniacych-13-11.md`.
+
 - **Zawsze zalogowanej osoby, w stałej kolejności:** oddzwonienia na dziś, spotkania bez
   terminu, nowe rekordy kampanii. Bez celu dziennego, paska postępu, rankingu i
   przełącznika „pokaż osobę”: to narzędzie pracy, nie kontroli (jak „Mój dzień”).

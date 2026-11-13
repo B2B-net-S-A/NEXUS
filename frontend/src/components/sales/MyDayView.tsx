@@ -17,6 +17,7 @@ import { BookMeetingDialog } from "./handoff/BookMeetingForm";
 import { useMyDayHandoffs } from "./handoff/MyDayHandoffs";
 import { dayHeading, dayLine, isDayEmpty, OFFERS_PREVIEW, plural } from "./my-day";
 import { MyDayPrepCard } from "./MyDayPrepCard";
+import { MyDayReminders } from "./MyDayReminders";
 import { MyDayRowItem } from "./MyDayRowItem";
 import { MyDaySignals } from "./signals/MyDaySignals";
 
@@ -127,6 +128,7 @@ function DayContent({ day: fullDay, canEdit }: { day: MyDay; canEdit: boolean })
           onRetry={() => void handoffs.refetch()}
         />
       )}
+      <MyDayReminders today={day.today} />
       {isDayEmpty(day) && queue.count === 0 ? (
         <div className="rounded-lg border border-border bg-card">
           <EmptyState

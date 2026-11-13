@@ -335,6 +335,7 @@ async def test_queue_is_own_by_default_and_shows_another_caller_on_request(
     }
     # Stary parametr ``user_id`` niczego nie przełącza; wybór osoby to ``caller_id``.
     assert (await _queue(app_client, caller, user_id=other.id))["new"] == []
+    assert other.id in {person["id"] for person in queue["callers"]}
     shown = await _queue(app_client, caller, caller_id=other.id)
     assert [item["key"] for item in shown["new"]] == [f"r:{theirs}"]
     assert [item["key"] for item in shown["callbacks"]] == [f"o:{lead}"]

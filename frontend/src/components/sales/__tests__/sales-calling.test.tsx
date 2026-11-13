@@ -24,6 +24,9 @@ const campaigns = vi.fn();
 const preview = vi.fn();
 const importList = vi.fn();
 const briefing = vi.fn();
+const changeState = vi.fn();
+const editRecord = vi.fn();
+const reminders = vi.fn();
 const askConfirm = vi.fn();
 const showError = vi.fn();
 const showSuccess = vi.fn();
@@ -39,7 +42,10 @@ const mutation = (mutate: ReturnType<typeof vi.fn>) => ({
 
 vi.mock("@/lib/api/sales-calling", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales-calling")>()),
-  useCallQueue: (campaignId: number | null) => queue(campaignId),
+  useCallQueue: (campaignId: number | null, callerId: number | null = null) => queue(campaignId, callerId),
+  useChangeState: () => mutation(changeState),
+  useEditRecord: () => mutation(editRecord),
+  useCallReminders: (scope: string) => reminders(scope),
   useCallRecords: (filters: unknown) => records(filters),
   usePreviewExcel: () => ({ ...mutation(previewExcel), data: excelData }),
   useTransferExcel: () => mutation(transferExcel),
@@ -172,8 +178,9 @@ function item(overrides: Partial<QueueItem> = {}): QueueItem {
 function callQueue(overrides: Partial<CallQueue> = {}): CallQueue {
   const base: CallQueue = {
     today: "2026-11-10",
-    counts: { callbacks: 0, meetings: 0, new: 0, later: 0 },
+    counts: { callbacks: 0, no_answer: 0, meetings: 0, new: 0, later: 0 },
     callbacks: [],
+    no_answer: [],
     meetings: [],
     new: [],
     campaigns: [],
@@ -186,6 +193,7 @@ function callQueue(overrides: Partial<CallQueue> = {}): CallQueue {
     ...base,
     counts: {
       callbacks: base.callbacks.length,
+      no_answer: base.no_answer.length,
       meetings: base.meetings.length,
       new: base.new.length,
       later: 0,
@@ -217,6 +225,19 @@ function cardData(overrides: Partial<CallCardData> = {}): CallCardData {
 
 const ok = <T,>(data: T) => ({ data, isLoading: false, error: null, isSuccess: true, refetch: vi.fn() });
 
+/** Filtry Tabeli w zapytaniu: domyślne plus zmienione w teście. */
+const filters = (overrides: Record<string, unknown> = {}) => ({
+  state: null,
+  campaignId: null,
+  search: "",
+  scope: "mine",
+  callerId: null,
+  callbackFrom: "",
+  callbackTo: "",
+  page: 0,
+  ...overrides,
+});
+
 const callback = item({
   key: "o:21",
   section: "callbacks",
@@ -244,6 +265,9 @@ beforeEach(() => {
   card.mockReturnValue(ok(cardData()));
   campaigns.mockReturnValue(ok([{ id: 3, name: "Kampania Testowa", service: null, script: null, total: 0, counts: {} }]));
   saveOutcome.mockResolvedValue({ record_id: 1 });
+  changeState.mockResolvedValue({ record_id: 1 });
+  editRecord.mockResolvedValue({});
+  reminders.mockReturnValue(ok([]));
   createActivity.mockResolvedValue({});
   briefing.mockReturnValue({ isSuccess: false });
 });
@@ -268,7 +292,7 @@ describe("podpisy kolejki", () => {
         "2026-11-10",
       ),
     ).toBe("Oferta ogólna wysłana pt 06.11 · 2. rozmowa · termin minął pon 09.11");
-    expect(queueLine(callQueue({ callbacks: [callback], counts: { callbacks: 1, meetings: 4, new: 148, later: 2 } }))).toBe(
+    expect(queueLine(callQueue({ callbacks: [callback], counts: { callbacks: 1, no_answer: 0, meetings: 4, new: 148, later: 2 } }))).toBe(
       "1 do oddzwonienia · 4 spotkania bez terminu · 148 nowych w kolejce · 2 wróci w swoim dniu",
     );
   });
@@ -399,21 +423,78 @@ describe("kolejka", () => {
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ item: fresh, outcome: "meeting_booked", opportunity_id: 77 });
   });
 
-  it("„Oddzwonić” i „Nie teraz” pytają o dzień, reszta nie", () => {
+  it("„Oddzwonić” i oferta pytają o termin, a oferta może być bez ponownego kontaktu", async () => {
     render(<CallQueueView />);
     fireEvent.click(screen.getByRole("button", { name: "Oddzwonić…" }));
     expect(saveOutcome).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Za 3 dni" }));
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "call_back", callback_on: "2026-11-13" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Nie teraz…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Oferta ogólna wysłana…" }));
+    expect(saveOutcome).toHaveBeenCalledTimes(1);
     fireEvent.change(screen.getByLabelText("Inna data"), { target: { value: "2027-01-15" } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
-    expect(saveOutcome.mock.calls[1][0]).toMatchObject({ outcome: "not_now", callback_on: "2027-01-15" });
+    expect(saveOutcome.mock.calls[1][0]).toMatchObject({ outcome: "offer_sent", callback_on: "2027-01-15" });
+    // Po zapisie karta przechodzi do następnej osoby: wybór terminu zaczyna się od nowa.
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledTimes(2));
 
-    fireEvent.click(screen.getByRole("button", { name: "Oferta ogólna wysłana" }));
-    expect(saveOutcome.mock.calls[2][0]).toMatchObject({ outcome: "offer_sent" });
-    expect(saveOutcome.mock.calls[2][0].callback_on).toBeUndefined();
+    fireEvent.click(screen.getByRole("button", { name: "Oferta ogólna wysłana…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bez ponownego kontaktu" }));
+    expect(saveOutcome.mock.calls[2][0]).toMatchObject({ outcome: "offer_sent", never: true });
+  });
+
+  it("„Nie zainteresowany” i „Nie teraz” zniknęły z wyników (13.11.2026)", () => {
+    render(<CallQueueView />);
+    expect(screen.queryByRole("button", { name: /Nie zainteresowany/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Nie teraz/ })).not.toBeInTheDocument();
+    expect(screen.getByText("Klawisze 1–5 zapisują wynik, potem od razu następna osoba.")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "6" });
+    fireEvent.keyDown(window, { key: "7" });
+    expect(saveOutcome).not.toHaveBeenCalled();
+  });
+
+  it("„Nie odebrane” mają własną sekcję kolejki", () => {
+    const missed = item({ key: "r:4", record_id: 4, section: "no_answer", state: "no_answer", company: { id: 14, name: "Cisza S.A." } });
+    queue.mockReturnValue(ok(callQueue({ callbacks: [callback], no_answer: [missed], new: [fresh] })));
+    render(<CallQueueView />);
+    const section = screen.getByRole("region", { name: "Nie odebrane" });
+    expect(within(section).getByText("Cisza S.A.")).toBeInTheDocument();
+    expect(screen.getByText(/1 nieodebrany/)).toBeInTheDocument();
+  });
+
+  it("wybór osoby nad kolejką pokazuje kolejkę innej osoby (13.11.2026)", () => {
+    queue.mockReturnValue(
+      ok(callQueue({ new: [fresh], callers: [{ id: 5, name: "Ja" }, { id: 9, name: "Marcel Testowy" }] })),
+    );
+    render(<CallQueueView />);
+    const picker = screen.getByLabelText("Czyja kolejka");
+    // Siebie nie ma na liście: „Moja kolejka” to wartość domyślna.
+    expect(within(picker).queryByText("Ja")).not.toBeInTheDocument();
+    fireEvent.change(picker, { target: { value: "9" } });
+    expect(queue).toHaveBeenLastCalledWith(null, 9);
+  });
+
+  it("karta: adres do skopiowania, uwagi o firmie i edycja danych kontaktowych", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    card.mockReturnValue(ok(cardData({ note: "Typ usługi: Body leasing\nSzukają Javy" })));
+    queue.mockReturnValue(ok(callQueue({ new: [fresh] })));
+    render(<CallQueueView />);
+    expect(screen.getByText(/Szukają Javy/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Kopiuj adres jan@firma-testowa.example" }));
+    expect(writeText).toHaveBeenCalledWith("jan@firma-testowa.example");
+
+    fireEvent.click(screen.getByRole("button", { name: /Edytuj dane/ }));
+    fireEvent.change(screen.getByLabelText("Telefon"), { target: { value: " 601 222 333 " } });
+    fireEvent.change(screen.getByLabelText("Adres e-mail"), { target: { value: "nowy@firma-testowa.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz dane" }));
+    expect(editRecord.mock.calls[0][0]).toMatchObject({
+      record_id: 1,
+      phone: "601 222 333",
+      email: "nowy@firma-testowa.example",
+      person_name: "Jan Testowy",
+    });
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zapisano dane kontaktowe."));
   });
 
   it("„Nie kontaktować” zapisuje dopiero po potwierdzeniu", async () => {
@@ -434,7 +515,7 @@ describe("kolejka", () => {
     expect(saveOutcome).not.toHaveBeenCalled();
     const form = screen.getByRole("button", { name: "Formularz szansy" });
     const props = JSON.parse(form.getAttribute("data-props") ?? "{}");
-    expect(props).toMatchObject({ contactId: 31, service: "Usługa" });
+    expect(props).toMatchObject({ contactId: 31, service: "Usługa", invite: { email: "jan@firma-testowa.example" } });
     expect(props.company.id).toBeGreaterThan(0);
     fireEvent.click(form);
     expect(saveOutcome.mock.calls[0][0]).toMatchObject({ item: fresh, outcome: "meeting_booked", opportunity_id: 77 });
@@ -487,7 +568,7 @@ describe("kolejka", () => {
     const { unmount } = render(<CallQueueView />);
     expect(screen.queryByRole("button", { name: /Kopiuj numer/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Nie odebrał" })).toBeDisabled();
-    expect(screen.getByText(/w kolejce innej osoby/)).toBeInTheDocument();
+    expect(screen.getByText(/Wynik rozmowy zapisuje osoba z uprawnieniem/)).toBeInTheDocument();
     unmount();
 
     canEdit = false;
@@ -527,7 +608,7 @@ describe("kolejka", () => {
     );
     render(<CallQueueView />);
     fireEvent.click(screen.getByRole("button", { name: "Druga Kampania" }));
-    expect(queue).toHaveBeenLastCalledWith(4);
+    expect(queue).toHaveBeenLastCalledWith(4, null);
   });
 });
 
@@ -613,22 +694,15 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zapisano: Nie odebrał."));
   });
 
-  it("klawisz 6 to „Zły numer”, a 5 otwiera wybór powrotu „Nie zainteresowany”", () => {
+  it("klawisz 5 to „Zły numer”, a 3 otwiera wybór terminu oferty", () => {
     render(<CallQueueView />);
-    fireEvent.keyDown(window, { key: "5" });
+    fireEvent.keyDown(window, { key: "3" });
     expect(saveOutcome).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Nigdy" }));
-    expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "not_interested", never: true });
-    fireEvent.keyDown(window, { key: "6" });
+    fireEvent.click(screen.getByRole("button", { name: "Za tydzień" }));
+    expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "offer_sent", callback_on: "2026-11-17" });
+    fireEvent.keyDown(window, { key: "5" });
     expect(saveOutcome.mock.calls[1][0]).toMatchObject({ outcome: "bad_contact" });
-    expect(screen.getByRole("button", { name: "Zły numer" })).toHaveAttribute("aria-keyshortcuts", "6");
-  });
-
-  it("„Nie zainteresowany” ma powrót za pół roku do wyboru", () => {
-    render(<CallQueueView />);
-    fireEvent.click(screen.getByRole("button", { name: "Nie zainteresowany…" }));
-    fireEvent.click(screen.getByRole("button", { name: "Za pół roku" }));
-    expect(saveOutcome.mock.calls[0][0]).toMatchObject({ outcome: "not_interested", callback_on: "2027-05-11" });
+    expect(screen.getByRole("button", { name: "Zły numer" })).toHaveAttribute("aria-keyshortcuts", "5");
   });
 
   it("bez uprawnienia do zapisu klawisze nic nie robią", () => {
@@ -662,20 +736,16 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     );
   });
 
-  it("tabela filtruje po wyniku i otwiera tę samą kartę", () => {
+  it("tabela filtruje po statusie i otwiera tę samą kartę", () => {
     const closed = item({ key: "r:5", record_id: 5, state: "not_interested", company: { id: 11, name: "Odmowa Sp. z o.o." } });
     records.mockReturnValue(ok({ items: [fresh, closed], total: 2, counts: { new: 1, not_interested: 1 } }));
     render(<CallQueueView />);
     fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
-    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "mine", callerId: null });
+    expect(records).toHaveBeenLastCalledWith(filters());
+    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Ostatnia modyfikacja" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Nie zainteresowany\s*1/ }));
-    expect(records).toHaveBeenLastCalledWith({
-      state: "not_interested",
-      campaignId: null,
-      search: "",
-      scope: "mine",
-      callerId: null,
-    });
+    expect(records).toHaveBeenLastCalledWith(filters({ state: "not_interested" }));
     fireEvent.click(screen.getByRole("button", { name: "Odmowa Sp. z o.o." }));
     expect(screen.getByLabelText("Rozmowa: Odmowa Sp. z o.o.")).toBeInTheDocument();
   });
@@ -692,13 +762,50 @@ describe("po Excelu dzwoniących (decyzje 11.11.2026)", () => {
     fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
     expect(screen.queryByRole("columnheader", { name: "Kto dzwoni" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Wszyscy" }));
-    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "all", callerId: null });
+    expect(records).toHaveBeenLastCalledWith(filters({ scope: "all" }));
     expect(screen.getByRole("columnheader", { name: "Kto dzwoni" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "Druga Osoba" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Kto dzwoni"), { target: { value: "9" } });
-    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "all", callerId: 9 });
+    expect(records).toHaveBeenLastCalledWith(filters({ scope: "all", callerId: 9 }));
     fireEvent.click(screen.getByRole("radio", { name: "Moje" }));
-    expect(records).toHaveBeenLastCalledWith({ state: null, campaignId: null, search: "", scope: "mine", callerId: null });
+    expect(records).toHaveBeenLastCalledWith(filters());
+  });
+
+  it("tabela zmienia status bez telefonu, filtruje daty powrotu i ma kolejne strony", async () => {
+    const missed = item({ key: "r:6", record_id: 6, state: "no_answer", company: { id: 13, name: "Cisza S.A." } });
+    records.mockReturnValue(ok({ items: [missed], total: 239, counts: { no_answer: 239 } }));
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Tabela" }));
+    fireEvent.change(screen.getByLabelText("Zmień status: Cisza S.A."), { target: { value: "offer_sent" } });
+    expect(changeState.mock.calls[0][0]).toEqual({ record_id: 6, state: "offer_sent" });
+    await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Status: Oferta ogólna wysłana."));
+    // Zmiana statusu nie otwiera karty rozmowy.
+    expect(screen.queryByLabelText("Rozmowa: Cisza S.A.")).not.toBeInTheDocument();
+
+    expect(screen.getByText("1–1 z 239")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Następne" }));
+    expect(records).toHaveBeenLastCalledWith(filters({ page: 1 }));
+    fireEvent.change(screen.getByLabelText("Powrót od"), { target: { value: "2026-11-16" } });
+    expect(records).toHaveBeenLastCalledWith(filters({ callbackFrom: "2026-11-16" }));
+  });
+
+  it("„Przypomnienia” grupują terminy powrotów po dniach", () => {
+    reminders.mockReturnValue(
+      ok([
+        item({ key: "r:7", record_id: 7, state: "offer_sent", due_on: "2026-11-09", company: { id: 15, name: "Zaległa S.A." } }),
+        item({ key: "r:8", record_id: 8, state: "call_back", due_on: "2026-11-10", company: { id: 16, name: "Dzisiejsza S.A." } }),
+        item({ key: "r:9", record_id: 9, state: "call_back", due_on: "2026-11-20", company: { id: 17, name: "Późna S.A." } }),
+      ]),
+    );
+    render(<CallQueueView />);
+    fireEvent.click(screen.getByRole("radio", { name: "Przypomnienia" }));
+    expect(reminders).toHaveBeenLastCalledWith("mine");
+    expect(within(screen.getByRole("region", { name: "Zaległe" })).getByText("Zaległa S.A.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Dziś" })).getByText("Dzisiejsza S.A.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Później" })).getByText("Późna S.A.")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Jutro" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Późna S.A."));
+    expect(screen.getByLabelText("Rozmowa: Późna S.A.")).toBeInTheDocument();
   });
 
   it("awaria tabeli nie wygląda jak pusta lista", () => {

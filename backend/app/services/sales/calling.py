@@ -181,6 +181,8 @@ class Queue:
     today_counts: DayCounts = DayCounts()
     yesterday: Optional[date] = None
     yesterday_counts: DayCounts = DayCounts()
+    #: Osoby z otwartymi rekordami kampanii: wybór osoby w kolejce (13.11.2026).
+    callers: tuple[tuple[int, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -669,10 +671,29 @@ async def load_queue(
         new_total=records.new_total,
         later=later,
         campaigns=records.campaigns,
+        callers=await queue_callers(db),
         today_counts=await day_counts(db, counter, today),
         yesterday=previous_business_day(today),
         yesterday_counts=await day_counts(db, counter, previous_business_day(today)),
     )
+
+
+async def queue_callers(db: AsyncSession) -> tuple[tuple[int, str], ...]:
+    """Kto ma otwarte rekordy kampanii: lista wyboru osoby nad kolejką."""
+
+    rows = (
+        await db.execute(
+            select(User.id, User.name)
+            .join(SalesCallRecord, SalesCallRecord.assigned_user_id == User.id)
+            .where(
+                SalesCallRecord.campaign_id.is_not(None),
+                SalesCallRecord.state.in_(OPEN_STATES),
+            )
+            .group_by(User.id, User.name)
+            .order_by(User.name)
+        )
+    ).all()
+    return tuple((int(row[0]), row[1] or "") for row in rows)
 
 
 # ── Haczyk bota: firmy z kolejki na następny dzień roboczy ────────────────
