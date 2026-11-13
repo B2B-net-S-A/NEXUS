@@ -35,6 +35,13 @@ export interface EsignSettings {
   pilot_user_ids: number[] | null;
 }
 
+/** Dokument paczki obok umowy (0687): podpisuje go tylko kontraktor. */
+export interface EsignDocument {
+  id: number;
+  title: string;
+  signed_at: string | null;
+}
+
 export interface EsignRequest {
   id: number;
   generated_contract_id: number;
@@ -51,6 +58,10 @@ export interface EsignRequest {
   close_reason: string | null;
   /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
   cc?: EsignPerson[];
+  /** Dokumenty paczki (NDA, oświadczenia) obok umowy (13.11.2026). */
+  documents?: EsignDocument[];
+  /** Umowa podpisana, w paczce czekają jeszcze dokumenty. */
+  contract_signed_at?: string | null;
   /** Kto obsługuje wysyłkę (po „Przejmij obsługę” zastępca). */
   handled_by_id?: number | null;
   handled_by_name?: string | null;
@@ -65,6 +76,8 @@ export interface EsignDefaults {
   company_signers: EsignPerson[];
   mailbox_connected: boolean;
   cc_candidates?: EsignCcPerson[];
+  /** Wzory z listy klienta „Dokumenty do startu”, których para jeszcze nie ma. */
+  documents?: EsignPerson[];
 }
 
 export interface EsignSendResult {
@@ -91,6 +104,15 @@ export interface PublicSignView {
   renewal_requested_at?: string | null;
   /** Do kiedy link daje pobrać umowę podpisaną przez obie strony (26.10.2026). */
   signed_pdf_until?: string | null;
+  /** Paczka (0687): umowa już podpisana przez kontraktora. */
+  contract_signed?: boolean;
+  documents?: PublicSignDocument[];
+}
+
+export interface PublicSignDocument {
+  id: number;
+  title: string;
+  signed: boolean;
 }
 
 export const ESIGN_SETTINGS_KEY = ["b2b-esign-settings"] as const;
@@ -126,6 +148,8 @@ export const b2bEsignApi = {
       company_signer_id: number;
       days: number;
       cc_user_ids?: number[];
+      /** Paczka: wybrane pozycje listy klienta; bez pola = wszystkie. */
+      start_document_ids?: number[];
     },
   ) =>
     api

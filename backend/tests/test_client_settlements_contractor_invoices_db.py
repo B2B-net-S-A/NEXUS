@@ -411,3 +411,99 @@ async def test_panel_konsultanta_dane_do_faktury_a_potem_faktura_w_ksef() -> Non
     finally:
         await _cleanup(client_id, [candidate_id])
         await _restore(previous)
+
+
+async def test_korekty_z_ksef_ostrzezenia_na_karcie_osoby(monkeypatch) -> None:
+    """Przypadek z testu Finansów 13.11.2026 (zanonimizowany) od metadanych KSeF
+    przez pobranie XML-a korekt i białą listę do karty osoby."""
+
+    import httpx
+
+    from app.services.client_settlements import contractor_details
+    from app.services.hr import white_list
+    from app.services.hr.ksef.client import KsefApiError
+    from tests.test_client_settlements_invoice_chain import case_for
+
+    client_id = await _client()
+    # Biała lista sprawdza sumę kontrolną NIP-u.
+    while True:
+        digits = [random.randint(0, 9) for _ in range(9)]
+        check = sum(w * d for w, d in zip((6, 5, 7, 2, 3, 4, 5, 6, 7), digits)) % 11
+        if check < 10:
+            nip = "".join(map(str, digits)) + str(check)
+            break
+    first, last = f"Adam{_tag()}", f"Przykładowy{_tag()}"
+    contract_id, candidate_id = await _person(
+        client_id, first=first, last=last, nip=nip
+    )
+    documents = case_for(nip)
+
+    class Source:
+        async def download_invoice(self, ksef_number: str) -> bytes:
+            for entry in documents:
+                if entry[2] == ksef_number:
+                    return entry[6]
+            raise KsefApiError("not_ready")
+
+    def registry(request: httpx.Request) -> httpx.Response:
+        meta = {"requestId": "req-1", "requestDateTime": "13-11-2026 10:00:00"}
+        return httpx.Response(200, json={"result": {"subject": None, **meta}})
+
+    transport = httpx.MockTransport(registry)
+    monkeypatch.setattr(
+        white_list,
+        "_http_client",
+        lambda base_url: httpx.AsyncClient(base_url=base_url, transport=transport),
+    )
+    monkeypatch.setattr(white_list.settings, "WHITE_LIST_MODE", "live")
+    # Wspólna baza testów: inne wiersze nie mogą zjeść limitów przebiegu.
+    monkeypatch.setattr(contractor_details, "MAX_DOWNLOADS", 1000)
+    monkeypatch.setattr(contractor_details, "WHITELIST_PER_RUN", 1000)
+    monkeypatch.setattr(contractor_details, "WHITELIST_DAILY_SHARE", 1000)
+    monkeypatch.setattr(white_list, "DAILY_LIMITS", {"search": 1000, "check": 1000})
+    white_list.reset_memory()
+    today, now = date(2026, 11, 13), local_now()
+    try:
+        await _rules(client_id)
+        await _settlement(client_id, contract_id, "2026-10", "8400.00")
+        for number, issue, ksef, net, vat, gross, _xml in documents:
+            item = _item(nip, f"{first} {last}", net, date.fromisoformat(issue))
+            item.update(
+                ksefNumber=ksef,
+                invoiceNumber=number,
+                vatAmount=vat,
+                grossAmount=gross,
+                invoiceType="Kor" if "/K/" in number else "Vat",
+            )
+            assert await _consider(item) == ci.KNOWN
+        async with AsyncSessionLocal() as db:
+            counts = await contractor_details.fetch_details(
+                db, Source(), today=today, budget=1000
+            )
+            await contractor_details.check_whitelist(db, today=today, now=now)
+            await db.commit()
+        assert counts["downloads"] >= 7
+        stored = await _invoice(documents[1][2])
+        assert stored.details["state"] == "ok"
+        assert stored.details["corrected"][0]["ksef_number"] == documents[0][2]
+        assert stored.vat_whitelist["status"] == "absent"
+
+        async with AsyncSessionLocal() as db:
+            card = await service.detail(db, contract_id, "2026-10", amounts=True)
+        block = card["contractor_invoice"]
+        assert block["state"] == ci.IN_KSEF
+        titles = [c["title"] for c in block["checks"]]
+        assert "Kwota równa wyliczeniu z RCP" in titles
+        for title in (
+            "Korekty zostawiają 72,00 zł VAT",
+            "Zły stan przed w korekcie 2/K/11/2026",
+            "Zły stan przed w korekcie 3/K/11/2026",
+            "Zły numer faktury korygowanej w 5/K/11/2026",
+            "Zły numer faktury korygowanej w 6/K/11/2026",
+            "Sprzedawca nie jest podatnikiem VAT, VAT nie do odliczenia",
+        ):
+            assert title in titles
+        assert "Korekta 1/K/11/2026 bez zmian kwot" in titles
+    finally:
+        white_list.reset_memory()
+        await _cleanup(client_id, [candidate_id])

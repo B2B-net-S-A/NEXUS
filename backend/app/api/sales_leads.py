@@ -33,6 +33,7 @@ from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales import company_dates
 from app.services.sales import leads as service
 from app.services.sales import bot_tasks, signals
+from app.services.sales.lead_dossier import LeadDossier, dossiers
 from app.services.sales.companies import http_url
 from app.services.sales.offers import works_in_sales
 
@@ -102,6 +103,8 @@ class LeadOut(BaseModel):
     #: Osoba przypisana i czy pracuje w Sprzedaży (aktywna, z uprawnieniem Sprzedaży).
     assignee: Optional[Ref] = None
     assignee_in_sales: bool = False
+    #: Teczka firmy leada (karta, kogo znamy, decydenci, punkty); brak danych = ``null``.
+    dossier: Optional[LeadDossier] = None
 
 
 class LeadList(BaseModel):
@@ -115,7 +118,7 @@ class LeadList(BaseModel):
 
 
 async def _outs(db: AsyncSession, leads: list[SalesLead]) -> list[LeadOut]:
-    """Leady z osobą przypisaną; jedno zapytanie o konta na całą listę."""
+    """Leady z osobą przypisaną i teczką firmy; po jednym zapytaniu na całą listę."""
 
     ids = sorted({lead.assignee_user_id for lead in leads if lead.assignee_user_id})
     users: dict[int, User] = {}
@@ -125,6 +128,7 @@ async def _outs(db: AsyncSession, leads: list[SalesLead]) -> list[LeadOut]:
             for user in (await db.scalars(select(User).where(User.id.in_(ids)))).all()
         }
         await resolve_effective_access(db, list(users.values()))
+    files = await dossiers(db, (lead.company_id for lead in leads if lead.company_id))
     out = []
     for lead in leads:
         item = LeadOut.model_validate(lead, from_attributes=True)
@@ -132,6 +136,7 @@ async def _outs(db: AsyncSession, leads: list[SalesLead]) -> list[LeadOut]:
         if user is not None:
             item.assignee = Ref(id=user.id, name=user.name or user.email)
             item.assignee_in_sales = works_in_sales(user)
+        item.dossier = files.get(lead.company_id or 0)
         out.append(item)
     return out
 

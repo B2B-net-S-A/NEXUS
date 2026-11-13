@@ -9,6 +9,10 @@
  *
  * 27.10.2026: po terminie strona mówi, kiedy minął, i daje „Poproś o nowy
  * link”. Nowy link prowadzi do tego samego PDF-a, więc podpisany plik przejdzie.
+ *
+ * 13.11.2026 (paczka, 0687): obok umowy mogą być dokumenty do startu (NDA,
+ * oświadczenie). Każdy plik pobiera się i wgrywa osobno na tej samej stronie;
+ * umowa idzie do B2B Network po ostatnim podpisanym pliku.
  */
 
 import { useState } from "react";
@@ -20,6 +24,7 @@ import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   signedPdfProblem,
+  type PublicSignDocument,
   type PublicSignState,
   type PublicSignView,
 } from "@/lib/api/b2bEsign";
@@ -154,15 +159,202 @@ function ToolGuide() {
   );
 }
 
+interface PackageEntry {
+  key: string;
+  title: string;
+  signed: boolean;
+  pdfUrl: string;
+  submitUrl: string;
+  fallbackName: string;
+}
+
+function packageEntries(
+  token: string,
+  contractNumber: string,
+  contractSigned: boolean,
+  documents: PublicSignDocument[],
+): PackageEntry[] {
+  return [
+    {
+      key: "contract",
+      title: `Umowa B2B nr ${contractNumber}`,
+      signed: contractSigned,
+      pdfUrl: `${base(token)}/pdf`,
+      submitUrl: base(token),
+      fallbackName: "Umowa B2B.pdf",
+    },
+    ...documents.map((d) => ({
+      key: `document-${d.id}`,
+      title: d.title,
+      signed: d.signed,
+      pdfUrl: `${base(token)}/documents/${d.id}/pdf`,
+      submitUrl: `${base(token)}/documents/${d.id}`,
+      fallbackName: `${d.title}.pdf`,
+    })),
+  ];
+}
+
+function UploadRow({
+  entry,
+  onView,
+  onExpired,
+}: {
+  entry: PackageEntry;
+  onView: (view: PublicSignView) => void;
+  onExpired: () => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const problem = file ? signedPdfProblem(file) : null;
+
+  if (entry.signed) {
+    return (
+      <li className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 text-sm">
+        <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden />
+        <span className="font-medium text-foreground">{entry.title}</span>
+        <span className="ml-auto text-muted-foreground">podpis przyjęty</span>
+      </li>
+    );
+  }
+
+  const submit = async () => {
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(entry.submitUrl, { method: "POST", body: form });
+      if (res.status === 410) {
+        onExpired();
+        return;
+      }
+      if (!res.ok) {
+        setError(await errorText(res));
+        return;
+      }
+      onView((await res.json()) as PublicSignView);
+    } catch {
+      setError("Brak połączenia z serwerem. Spróbuj ponownie.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="space-y-3 rounded-lg border border-border bg-card px-4 py-3">
+      <p className="text-sm font-medium text-foreground">{entry.title}</p>
+      <SignedPdfField
+        id={`b2b-sign-file-${entry.key}`}
+        label="Podpisany PDF"
+        file={file}
+        onFile={setFile}
+        disabled={busy}
+      />
+      {error ? <Alert variant="error" title="Podpis nie został przyjęty" description={error} /> : null}
+      <Button type="button" disabled={!file || Boolean(problem) || busy} onClick={() => void submit()}>
+        {busy ? (
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        ) : (
+          <Upload className="h-4 w-4" aria-hidden />
+        )}
+        {busy ? "Sprawdzam podpis…" : "Wyślij podpisany plik"}
+      </Button>
+    </li>
+  );
+}
+
+function PackageSteps({
+  token,
+  contractNumber,
+  contractSigned,
+  documents,
+  onView,
+  onExpired,
+}: {
+  token: string;
+  contractNumber: string;
+  contractSigned: boolean;
+  documents: PublicSignDocument[];
+  onView: (view: PublicSignView) => void;
+  onExpired: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const entries = packageEntries(token, contractNumber, contractSigned, documents);
+  const done = entries.filter((e) => e.signed).length;
+  return (
+    <ol className="space-y-6">
+      <li className="space-y-2">
+        <p className="font-semibold">1. Pobierz dokumenty ({entries.length})</p>
+        <p className="text-sm text-muted-foreground">
+          Przeczytaj każdy PDF. Nie zmieniaj w nich niczego, NEXUS porówna pliki z wysłanymi.
+        </p>
+        <ul className="space-y-2">
+          {entries.map((entry) => (
+            <li
+              key={entry.key}
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm"
+            >
+              <span className="font-medium text-foreground">{entry.title}</span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                disabled={entry.signed}
+                onClick={async () => {
+                  setError(null);
+                  setError(await savePdf(entry.pdfUrl, entry.fallbackName));
+                }}
+              >
+                <Download className="h-4 w-4" aria-hidden /> Pobierz PDF
+              </Button>
+            </li>
+          ))}
+        </ul>
+        {error ? <Alert variant="error" title="Nie udało się pobrać pliku" description={error} /> : null}
+      </li>
+      <li className="space-y-2">
+        <p className="font-semibold">2. Podpisz każdy plik podpisem kwalifikowanym: wybierz, czym podpisujesz</p>
+        <ToolGuide />
+      </li>
+      <li className="space-y-3">
+        <p className="font-semibold">
+          3. Wgraj podpisane pliki · podpisane {done} z {entries.length}
+        </p>
+        <ul className="space-y-3">
+          {entries.map((entry) => (
+            <UploadRow key={entry.key} entry={entry} onView={onView} onExpired={onExpired} />
+          ))}
+        </ul>
+        <p className="flex items-center gap-1 text-xs text-muted-foreground">
+          <CheckCircle2 className="h-3 w-3" aria-hidden /> Sprawdzenie podpisu może potrwać do
+          pół minuty na plik. Umowa trafi do B2B Network po ostatnim podpisanym pliku.
+        </p>
+      </li>
+    </ol>
+  );
+}
+
 export default function B2BSignForm({
   token,
   initialState,
   signedPdfUntil = null,
   expiredOn = null,
   renewalRequestedOn = null,
+  contractNumber = "",
+  contractSigned = false,
+  documents = [],
 }: {
   token: string;
   initialState: PublicSignState;
+  /** Numer umowy do listy paczki. */
+  contractNumber?: string;
+  /** Paczka (0687): umowa już podpisana przez kontraktora. */
+  contractSigned?: boolean;
+  /** Paczka (0687): dokumenty obok umowy; pusta lista = sama umowa jak dotąd. */
+  documents?: PublicSignDocument[];
   /** Data (dd.mm.rrrr), do której link daje pobrać kopię; null = kopii w linku nie ma. */
   signedPdfUntil?: string | null;
   /** Data (dd.mm.rrrr) końca terminu, gdy link wygasł. */
@@ -171,6 +363,7 @@ export default function B2BSignForm({
   renewalRequestedOn?: string | null;
 }) {
   const [state, setState] = useState<PublicSignState>(initialState);
+  const [packageView, setPackageView] = useState({ contractSigned, documents });
   const [requestedOn, setRequestedOn] = useState<string | null>(renewalRequestedOn);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -212,7 +405,11 @@ export default function B2BSignForm({
       <Alert
         variant="success"
         title="Dziękujemy, podpis przyjęty"
-        description="Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2B Network."
+        description={
+          packageView.documents.length
+            ? "Wszystkie podpisy kwalifikowane sprawdzone. Umowa trafia do podpisu B2B Network."
+            : "Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2B Network."
+        }
       />
     );
   }
@@ -273,6 +470,25 @@ export default function B2BSignForm({
         variant="warning"
         title="Ta umowa nie czeka już na podpis"
         description="Link wygasł albo wysyłka została wycofana. Skontaktuj się z osobą z B2B Network."
+      />
+    );
+  }
+
+  if (packageView.documents.length) {
+    return (
+      <PackageSteps
+        token={token}
+        contractNumber={contractNumber}
+        contractSigned={packageView.contractSigned}
+        documents={packageView.documents}
+        onView={(view) => {
+          setPackageView({
+            contractSigned: Boolean(view.contract_signed),
+            documents: view.documents ?? [],
+          });
+          setState(view.status);
+        }}
+        onExpired={() => setState("expired")}
       />
     );
   }

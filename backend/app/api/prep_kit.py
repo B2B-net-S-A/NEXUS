@@ -86,6 +86,20 @@ def _salary_info_for_overview(job: Job, *, include_finance: bool = False) -> str
     return ""
 
 
+def _client_overview_line(client: Optional[Client]) -> str:
+    """Pierwsze zdanie przeglądu klienta; branża tylko wtedy, gdy ją znamy.
+
+    Do 11.2026 brak `clients.industry` zamieniał się w „IT”, a branżę ma
+    niewielu klientów, więc kartka na rozmowę w banku podawała kandydatowi
+    fałszywą branżę. Bez danych zdanie nie zgaduje.
+    """
+    client_name = client.name if client else "Klient"
+    client_industry = (getattr(client, "industry", None) or "").strip()
+    if not client_industry:
+        return f"{client_name}."
+    return f"{client_name} — firma z branży {client_industry}."
+
+
 def _must_have_gaps(job, candidate) -> list[str]:
     """Luki względem MUST rekrutacji (M03-B04).
 
@@ -262,8 +276,6 @@ async def generate_prep_kit(
     # ── BUILD PREP KIT ───────────────────────────────────────────────────────
 
     # 1. CLIENT OVERVIEW
-    client_name = client.name if client else "Klient"
-    client_industry = getattr(client, "industry", None) or "IT"
     # 0278: remote_policy jest nullable (bez domyślnej "hybrid" po stronie
     # bazy/schematu) — brak wartości NIE jest równoznaczny z hybrydą, więc
     # fallback musi nazwać brak danych, nie zgadywać tryb.
@@ -299,7 +311,7 @@ async def generate_prep_kit(
     culture_summary = " ".join(culture_parts[:2]) if culture_parts else ""
 
     overview_lines = [
-        f"{client_name} — firma z branży {client_industry}.",
+        _client_overview_line(client),
         f"Rekrutacja na stanowisko: {job.title}.",
         f"Model pracy: {job_remote}.{salary_info}",
     ]

@@ -19,6 +19,10 @@ Tabele:
   ``nip_state``: ``known`` (NIP z kontraktu), ``suggested`` (NIP nieznany,
   sprzedawca nazywa się jak osoba z kontraktu — czeka na Finanse), ``confirmed``
   (Finanse zatwierdziły NIP), ``rejected`` (to nie ta osoba).
+  Od 0688 (13.11.2026) ``details`` — treść z XML-a FA pobierana tylko dla korekt
+  i faktur, które korygują (pozycje ze stanem przed, dokumenty korygowane),
+  i ``vat_whitelist`` — status sprzedawcy na białej liście VAT na dzień
+  wystawienia. Oba JSONB, puste = jeszcze nie sprawdzono.
 
 Zejście MD przy przyjęciu RCP idzie przez ``upsert_consumption`` ze źródłem
 ``settlement`` — dlatego CHECK źródła w ``client_order_md_consumptions`` dostaje
@@ -130,6 +134,12 @@ CK_SETTLEMENT_MD_SOURCE = (
     f"md_source IS NULL OR md_source IN ({quoted(MD_SOURCES_SETTLEMENT)})"
 )
 
+#: 0688: treść korekt z XML-a i biała lista VAT przy fakturach kontraktorów (E4).
+CONTRACTOR_CHECKS_DDL: tuple[str, ...] = (
+    "ALTER TABLE client_contractor_invoices ADD COLUMN IF NOT EXISTS details JSONB NULL",
+    "ALTER TABLE client_contractor_invoices ADD COLUMN IF NOT EXISTS vat_whitelist JSONB NULL",
+)
+
 #: E2: skąd MD w rozliczeniu — odczyt RCP albo wpis Finansów (wpis wygrywa z odczytem).
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE client_settlements ADD COLUMN IF NOT EXISTS md_source VARCHAR(8) NULL",
@@ -138,6 +148,7 @@ COLUMN_DDL: tuple[str, ...] = (
         CHECK ({CK_SETTLEMENT_MD_SOURCE});
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$""",
+    *CONTRACTOR_CHECKS_DDL,
 )
 
 INDEX_DDL: tuple[str, ...] = (

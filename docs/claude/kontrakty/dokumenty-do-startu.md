@@ -102,6 +102,14 @@ w treści i bez myślników, jak maile podpisu umów. NDA ma dane z umowy
 tylko telefonicznie. Bez połączonej skrzynki zostaje „Skopiuj treść”. Klucz wysyłki
 pozwala na jeden mail od osoby dziennie.
 
+## Paczka do podpisu z umową (13.11.2026)
+
+Wzory z listy klienta (NDA, oświadczenie o niekaralności i inne) idą do
+podpisu kwalifikowanego razem z umową B2B, pod jednym linkiem. Podpisany plik
+sam staje się plikiem pozycji pary. Reguły: `podpis-umowy-b2b-w-nexusie.md`,
+sekcja „Paczka do podpisu”. Mail „Wyślij listę konsultantowi” zostaje dla
+reszty (PESEL, KRK, dyplomy) i dla klientów spoza drogi e-podpisu.
+
 ## Etap 2 (po decyzji Artura)
 
 Placement warunkowy: po terminie brakującej pozycji wypada z Ligi, celów i premii,

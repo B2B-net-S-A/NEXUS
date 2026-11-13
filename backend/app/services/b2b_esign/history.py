@@ -124,6 +124,9 @@ def _event_entry(
         "taken_over": "Obsługa wysyłki przejęta: przypomnienia i kopia z tej skrzynki",
         "signer_changed": "Za B2B Network podpisze inna osoba z listy "
         "(poprzedniej nie ma już w ustawieniach)",
+        # Paczka (0687, 13.11.2026).
+        "contract_signed": "Kontraktor podpisał umowę, czekają pozostałe dokumenty",
+        "document_signed": f"Kontraktor podpisał: {event.get('title') or 'dokument'}",
     }
     label = labels.get(str(kind))
     if label is None:

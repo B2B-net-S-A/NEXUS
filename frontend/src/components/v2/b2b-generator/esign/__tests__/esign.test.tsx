@@ -106,6 +106,7 @@ describe("SendForSignatureDialog", () => {
         company_signer_id: 9,
         days: 3,
         cc_user_ids: [],
+        start_document_ids: [],
       }),
     );
     expect(await within(dialog).findByLabelText("Link do podpisu")).toHaveValue(
@@ -572,5 +573,97 @@ describe("CompanySignaturesPanel przy błędzie (audyt 22.10, F87)", () => {
     mocks.mine.mockResolvedValue([]);
     await userEvent.click(screen.getByRole("button", { name: "Ponów" }));
     await waitFor(() => expect(mocks.mine).toHaveBeenCalledTimes(2));
+  });
+});
+
+describe("paczka do podpisu: umowa i dokumenty do startu (13.11.2026)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("okno zaznacza wszystkie dokumenty z listy klienta, a odznaczony nie idzie", async () => {
+    mocks.defaults.mockResolvedValue({
+      contractor_name: "Piotr Przykładowy",
+      contractor_email: "piotr@example.com",
+      company_signers: [{ id: 9, name: "Olaf Reprezentant" }],
+      mailbox_connected: true,
+      documents: [
+        { id: 31, name: "NDA klienta" },
+        { id: 32, name: "Oświadczenie o niekaralności" },
+      ],
+    });
+    mocks.send.mockResolvedValue({
+      request: { contractor_email: "piotr@example.com" },
+      sign_url: "https://nexus.example/sign/b2b/abc",
+      mail_sent: true,
+      mail_problem: null,
+    });
+    wrap(<SendForSignatureDialog row={ROW} onClose={() => undefined} />);
+    const dialog = await screen.findByRole("dialog");
+    const docs = await within(dialog).findByRole("group", { name: /Do podpisu razem z umową/ });
+    expect(within(docs).getByRole("checkbox", { name: /NDA klienta/ })).toBeChecked();
+    const statement = within(docs).getByRole("checkbox", { name: /Oświadczenie o niekaralności/ });
+    expect(statement).toBeChecked();
+    await userEvent.click(statement);
+    await userEvent.click(within(dialog).getByLabelText(/Sprawdziłam\/em treść umowy i dokumentów/));
+    await userEvent.click(within(dialog).getByRole("button", { name: /Wyślij link do kontraktora/ }));
+    await waitFor(() =>
+      expect(mocks.send).toHaveBeenCalledWith(
+        5,
+        expect.objectContaining({ start_document_ids: [31] }),
+      ),
+    );
+  });
+
+  it("strona kontraktora: każdy plik osobno, umowa już podpisana ma znacznik", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        contract_number: "1610/2026",
+        contractor_name: "Piotr Przykładowy",
+        status: "signed_by_you",
+        expires_at: null,
+        contract_signed: true,
+        documents: [{ id: 4, title: "NDA klienta", signed: true }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <B2BSignForm
+        token="t"
+        initialState="waiting"
+        contractNumber="1610/2026"
+        contractSigned
+        documents={[{ id: 4, title: "NDA klienta", signed: false }]}
+      />,
+    );
+    expect(screen.getByText("1. Pobierz dokumenty (2)")).toBeInTheDocument();
+    expect(screen.getByText(/podpisane 1 z 2/)).toBeInTheDocument();
+    expect(screen.getByText("podpis przyjęty")).toBeInTheDocument();
+    const input = document.getElementById("b2b-sign-file-document-4") as HTMLInputElement;
+    await userEvent.upload(input, new File(["%PDF-1.7"], "nda.pdf", { type: "application/pdf" }));
+    await userEvent.click(screen.getByRole("button", { name: /Wyślij podpisany plik/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(
+      /\/api\/public\/b2b-sign\/t\/documents\/4$/,
+    );
+    expect(await screen.findByText("Dziękujemy, podpis przyjęty")).toBeInTheDocument();
+    expect(screen.getByText(/Wszystkie podpisy kwalifikowane sprawdzone/)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("paczka bez myślników „—” w tekście dla konsultanta", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    const { container } = render(
+      <B2BSignForm
+        token="t"
+        initialState="waiting"
+        contractNumber="1610/2026"
+        documents={[{ id: 4, title: "NDA klienta", signed: false }]}
+      />,
+    );
+    expect(container.textContent).not.toContain("—");
   });
 });

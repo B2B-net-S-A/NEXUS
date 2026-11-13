@@ -1,5 +1,22 @@
 [
   {
+    "id": "sprzedaz-leady-teczka",
+    "pr": 3363,
+    "title": "Leady: teczka firmy przy leadzie",
+    "why": "Pod opisem leada widzisz dane firmy, kogo znamy, decydentów i punkty na pierwszą rozmowę. Nowy lead sam uzupełnia kartę, kontakty i punkty.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": [
+        "sales_view"
+      ]
+    },
+    "where": "Sprzedaż → Leady",
+    "href": "/sales/leads",
+    "dot_anchor": "sales.leads.dossier",
+    "used_anchor": "sales.leads.dossier.card"
+  },
+  {
     "id": "porcja-kluczowe-z-dowodem",
     "pr": 3354,
     "title": "Porcja dnia: kluczowe wymagania z dowodem",
@@ -2689,6 +2706,27 @@
     "href": "/sales/my-day",
     "dot_anchor": "sales.my-day.prep-points",
     "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "podpis-paczka-umowa-nda",
+    "pr": 3361,
+    "title": "Umowa i NDA do podpisu jednym linkiem",
+    "why": "„Wyślij do podpisu” dokłada dokumenty do startu z listy klienta, np. NDA. Kontraktor podpisuje wszystko na jednej stronie, a podpisane NDA samo odhacza się w dokumentach do startu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.package"
   },
   {
     "id": "sprzedaz-leady-boty",

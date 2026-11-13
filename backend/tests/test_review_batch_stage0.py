@@ -259,6 +259,46 @@ async def test_overdue_screening_blocks_again_until_closed(batch_on):
     assert status.overdue_screenings == 0 and status.met is True
 
 
+async def test_overdue_screening_in_a_job_the_person_left_does_not_block(batch_on):
+    """13.11.2026: zejście z priorytetu zdejmuje rekrutera (``park_team``), więc
+    jego S bez wyniku nie blokuje i stoi w „Do domknięcia” bez terminu. Po
+    powrocie (``restore_team``) 2 dni robocze liczą się od powrotu."""
+    from app.services.job_previous_recruiters import park_team, restore_team
+
+    a = await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    late, fresh = await _fill(world["job_id"])
+    await _age_batch_screening(world["job_id"], late, a)
+    await _move(world["job_id"], fresh, PipelineStage.rejected, a)
+    assert (await _status(a)).overdue_screenings == 1
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        await park_team(
+            db,
+            job,
+            reason="priority",
+            actor_id=None,
+            notify=False,
+            release_assignments=True,
+        )
+        await db.commit()
+    status = await _status(a)
+    assert status.overdue_screenings == 0
+    row = next(r for r in status.open_today_screenings if r.candidate_id == late)
+    assert row.parked is True and row.overdue is False
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        await restore_team(db, job, actor_id=None, notify=False)
+        await db.commit()
+    status = await _status(a)
+    assert status.overdue_screenings == 0
+    row = next(r for r in status.open_today_screenings if r.candidate_id == late)
+    assert row.parked is False and row.overdue is False
+
+
 async def _rewrite_process(job_id: int, cid: int, **changes) -> None:
     async with AsyncSessionLocal() as db:
         process = (

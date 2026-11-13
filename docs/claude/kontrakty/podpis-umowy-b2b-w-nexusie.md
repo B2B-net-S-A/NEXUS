@@ -164,6 +164,50 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   podpisu kontraktora; premia 200% liczy ten dzień
   (`data-podpisu-z-podpisu-konsultanta.md`).
 
+## Paczka do podpisu: umowa i dokumenty do startu pod jednym linkiem (0687, 13.11.2026)
+
+Decyzja Artura z 13.11.2026: kontraktor podpisuje za jednym razem umowę, NDA,
+oświadczenie o niekaralności i każdy inny wzór z listy klienta „Dokumenty do
+startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
+
+- **Co wchodzi do paczki** (`services/b2b_esign/documents.candidates`): każda
+  pozycja listy klienta typu „plik” z wgranym wzorem (DOCX albo PDF), której
+  para (kandydat, rekrutacja) jeszcze nie ma. Klient bez listy = sama umowa, jak
+  dotąd. Okno wysyłki zaznacza wszystkie, nadawca może odznaczyć
+  (`start_document_ids`; pozycja spoza listy = 422).
+- **PDF dokumentu** powstaje przy wysyłce i jest zamrożony jak umowa
+  (`b2b_signing_documents`, odcisk i długość): PDF wzoru bez zmian, DOCX
+  z danymi z umowy (`fill_from_agreement`) przez ten sam konwerter co umowa.
+  Awaria konwersji = 503 z nazwą dokumentu, wysyłka nie powstaje.
+- **Dokument podpisuje tylko kontraktor**, podpisem kwalifikowanym z jego
+  nazwiskiem w certyfikacie (`judge(required_signers=[kontraktor])`); te same
+  bramki co umowa: plik zaczyna się bajtami wydanego PDF-a, limit nieudanych
+  prób linku, walidacja bez blokady, zapis pod blokadą wiersza, wniosku
+  i dokumentu. Reprezentant B2B Network podpisuje nadal tylko umowę.
+- **Umowa idzie do reprezentanta po ostatnim podpisanym pliku**
+  (`service.finish_contractor_if_complete`), niezależnie od kolejności. Do tego
+  czasu wniosek zostaje `sent` (plakietki „U kontraktora”, przypomnienia
+  i termin działają jak dotąd), a umowy nie da się wgrać drugi raz (409).
+- **Dzień podpisu umowy = dzień podpisu samej umowy**, nie ostatniego
+  dokumentu: przy paczce zapis `contract_signed` w `events`, a
+  `service.contract_signed_at` daje go `_after_both_signed` (premia 200%,
+  „Placementy”). `contractor_signed_at` to chwila przekazania do firmy.
+- **Podpisany dokument od razu trafia do „Dokumentów do startu”** pary jako
+  plik pozycji (`documents.deliver_to_pair`, nazwa „… (podpis w NEXUSIE).pdf”,
+  `delivered_by` puste, bo wgrał kontraktor z linku). Liczy się od razu, DL
+  może go zwrócić jak każdy plik. Awaria tego kroku nie cofa podpisu.
+- **Strona kontraktora** (`/sign/b2b/{token}`) przy paczce pokazuje listę
+  plików do pobrania, wspólny przewodnik po narzędziach i osobne wgranie
+  każdego pliku z licznikiem „podpisane X z N”. Trasy:
+  `GET /api/public/b2b-sign/{token}/documents/{id}/pdf` i
+  `POST /api/public/b2b-sign/{token}/documents/{id}` (ten sam token, limit żądań).
+- **Mail z linkiem** wymienia umowę i dokumenty (`mail.contractor_sign_message(documents=…)`).
+- **Historia umowy** dostaje „Kontraktor podpisał umowę, czekają pozostałe
+  dokumenty” i „Kontraktor podpisał: <dokument>”.
+- Przy integracji z dostawcą podpisu w przeglądarce (oferta KIR mSzafir,
+  certyfikat „multi” na kilka podpisów po jednym potwierdzeniu tożsamości)
+  paczka zostaje bez zmian: dostawca zastępuje tylko „pobierz i wgraj”.
+
 ## Reszta systemu przy umowie w podpisie (etap 1b, 21.10.2026)
 
 - **Dzwonki `signature_*` stoją za sekcją Sourcing** (bramka Generatora), nie
@@ -237,5 +281,6 @@ kontraktu przed podpisem (audyt 21.10.2026). Nie przywracaj go.
 
 PR 1 plik przy „Oznacz jako podpisaną” (#2530) · PR 2 rdzeń (ten plik) ·
 PR 2b usunięcie starego toru (21.10.2026) · PR 3 walidator pyHanko z listą UE (DSS później) · PR 4 ekrany, mail z linkiem,
-przypomnienia · PR 5 automatyka po podpisie i powiadomienia · etap 2 „Podpisz
-w przeglądarce” u dostawcy (SIGNIUS / KIR mSzafir) po ofertach.
+przypomnienia · PR 5 automatyka po podpisie i powiadomienia · paczka umowa + dokumenty do
+startu (0687, 13.11.2026) · etap 2 „Podpisz w przeglądarce” u dostawcy
+(SIGNIUS / KIR mSzafir) po ofertach.

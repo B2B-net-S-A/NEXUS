@@ -134,6 +134,8 @@ export interface ContractorInvoice {
   seller_nip: string;
   /** `known` — NIP z kontraktu, `suggested` — do zatwierdzenia, `confirmed` — zatwierdzony. */
   nip_state: "known" | "suggested" | "confirmed";
+  /** Faktura korygująca (kwoty to różnice). */
+  is_correction?: boolean;
   net_amount: string | null;
   gross_amount: string | null;
   due_date: string | null;
