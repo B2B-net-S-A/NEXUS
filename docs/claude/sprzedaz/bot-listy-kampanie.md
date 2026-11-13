@@ -1,5 +1,5 @@
 # Bot Listy: listy do dzwonienia z briefu kampanii — decyzje Artura 13.11.2026
-<!-- indeks: Bot Listy, brief kampanii bot_brief (0690), Zbuduj listę, dosypka w poniedziałek 7:00 zawsze do pełnej paczki, Co działa po roli i źródle, rola Manager/Lead przed zarządem, kolejność ról z wyników, bramki importu listy, baza NEXUSA jako pierwsze źródło, rejestr.io w Grok Bocie (L3), NIP i KRS do bota, plan Biznes, podobne firmy (L4), SALES_BOT_LISTS_ENABLED, /api/sales/bot-lists -->
+<!-- indeks: Bot Listy, brief kampanii bot_brief (0691), Zbuduj listę, dosypka w poniedziałek 7:00 zawsze do pełnej paczki, Co działa po roli i źródle, rola Manager/Lead przed zarządem, kolejność ról z wyników, bramki importu listy, baza NEXUSA jako pierwsze źródło, rejestr.io w Grok Bocie (L3), NIP i KRS do bota, plan Biznes, podobne firmy (L4), SALES_BOT_LISTS_ENABLED, /api/sales/bot-lists -->
 
 Artur 13.11.2026 zapytał o bota, który przygotowuje listy pod cold calle z wybranymi
 kampaniami. Raport z makietami: https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV
@@ -21,7 +21,7 @@ Import pliku zostaje bez zmian.
 
 ## Brief i budowa (L1, `services/sales/bot_lists.py`)
 
-- **Brief** w `sales_call_campaigns.bot_brief` (0690, lustro w `entrypoint.sh`,
+- **Brief** w `sales_call_campaigns.bot_brief` (0691, lustro w `entrypoint.sh`,
   `sales_schema.BOT_LISTS_DDL`), model `bot_lists.Brief` (`extra="forbid"`): role,
   słowa branży, miasta, wielkości (`1-49`…`1000+`), PKD i województwa (dla L3),
   wyzwalacze, źródła, `include_unknown` (domyślnie tak: karty bez danych też wchodzą),
