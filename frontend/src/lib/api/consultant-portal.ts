@@ -219,6 +219,11 @@ export interface PortalTraining {
   can_sign: boolean;
   can_deliver: boolean;
   can_invoice: boolean;
+  /** Link do spotkania Teams dla prowadzącego; jest dopiero po podpisie umowy. */
+  join_url?: string | null;
+  registrations?: number;
+  recording_ready?: boolean;
+  feedback?: { count: number; average: number | null; comments?: string[] };
 }
 
 export interface PortalTrainingRow {
@@ -257,6 +262,9 @@ export interface LibraryRecording {
   session_date: string | null;
   duration_minutes: number | null;
   trainer_kind: "consultant" | "employee";
+  /** „registered” = nagranie tylko dla zapisanych (0697). */
+  scope?: "library" | "registered";
+  registered?: boolean;
   chapters: TrainingChapter[];
   files: LibraryFile[];
 }
@@ -269,8 +277,19 @@ export interface LibraryLive {
   time_from: string;
   time_to: string;
   platform: string;
+  description?: string;
+  seat_limit?: number | null;
+  taken?: number;
   registered: boolean;
+  leading?: boolean;
   join_url: string | null;
+  /** Spotkanie założył NEXUS: zapis wysyła zaproszenie na adres z umowy. */
+  invited?: boolean;
+}
+
+export interface PortalTranscriptSearch {
+  available: boolean;
+  hits: { second: number; text: string }[];
 }
 
 export interface PortalTrainings {
@@ -576,6 +595,10 @@ export const portalApi = {
   },
   register: (id: number, join: boolean) =>
     postJson<{ registered: boolean }>(`/trainings/${id}/registration`, { join }),
+  rate: (id: number, rating: number) =>
+    postJson<{ rating: number }>(`/trainings/${id}/feedback`, { rating, comment: "" }),
+  transcript: (id: number, q: string) =>
+    getJson<PortalTranscriptSearch>(`/trainings/${id}/transcript?q=${encodeURIComponent(q)}`),
 };
 
 export const portalKeys = {

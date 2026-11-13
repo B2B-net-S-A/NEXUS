@@ -145,22 +145,70 @@ describe("TrainingCard i TrainingLibrary", () => {
     expect(screen.queryByText("Przekazanie plików", { selector: "h2" })).toBeNull();
   });
 
-  it("biblioteka: zapis na żywo i lista nagrań", async () => {
-    const { TrainingLibrary } = await import("../TrainingLibrary");
+  it("kalendarz: zapis na żywo, zapisany na górze z „Dołącz”", async () => {
+    const { TrainingCalendar } = await import("../TrainingCalendar");
     const { LIBRARY } = await import("@/app/preview/trainings/fixtures");
     const onRegister = vi.fn().mockResolvedValue(true);
-    render(
-      <TrainingLibrary
-        library={LIBRARY}
-        onRegister={onRegister}
-        getMediaUrl={() => new Promise(() => undefined)}
-        onDownload={vi.fn()}
-      />,
-    );
+    render(<TrainingCalendar live={LIBRARY.live} today="2026-11-20" onRegister={onRegister} />);
     await userEvent.click(screen.getByRole("button", { name: "Zapisz się" }));
     expect(onRegister).toHaveBeenCalledWith(902, true);
-    expect(screen.getByRole("link", { name: "Dołącz" })).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByRole("link", { name: /Dołącz/ })).toHaveAttribute("rel", "noopener noreferrer");
+    expect(screen.getByText("Jesteś zapisany")).toBeInTheDocument();
+  });
+
+  it("kalendarz: pełne szkolenie nie przyjmuje zapisu", async () => {
+    const { TrainingCalendar } = await import("../TrainingCalendar");
+    render(
+      <TrainingCalendar
+        today="2026-11-20"
+        onRegister={vi.fn()}
+        live={[
+          {
+            id: 1,
+            title: "Pełne",
+            topic: "",
+            session_date: "2026-12-01",
+            time_from: "10:00",
+            time_to: "11:00",
+            platform: "Microsoft Teams",
+            registered: false,
+            join_url: null,
+            seat_limit: 2,
+            taken: 2,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Brak miejsc" })).toBeDisabled();
+    expect(screen.getByText("brak wolnych miejsc")).toBeInTheDocument();
+  });
+
+  it("nagrania: lista, tematy, transkrypt i ocena", async () => {
+    const { TrainingLibrary } = await import("../TrainingLibrary");
+    const { LIBRARY } = await import("@/app/preview/trainings/fixtures");
+    const onSearch = vi.fn().mockResolvedValue({ available: true, hits: [{ second: 1912, text: "Zgoda RODO" }] });
+    const onRate = vi.fn().mockResolvedValue(true);
+    const library = {
+      ...LIBRARY,
+      recordings: LIBRARY.recordings.map((r, i) => (i === 0 ? { ...r, registered: true, scope: "registered" as const } : r)),
+    };
+    render(
+      <TrainingLibrary
+        library={library}
+        getMediaUrl={() => new Promise(() => undefined)}
+        onDownload={vi.fn()}
+        onSearchTranscript={onSearch}
+        onRate={onRate}
+      />,
+    );
     expect(screen.getByRole("heading", { name: "Cyberbezpieczeństwo w pracy z AI" })).toBeInTheDocument();
+    expect(screen.getByText("dla zapisanych")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Szukaj w transkrypcie"), "rodo");
+    await userEvent.click(screen.getByRole("button", { name: "Szukaj" }));
+    expect(onSearch).toHaveBeenCalledWith(LIBRARY.recordings[0].id, "rodo");
+    expect(await screen.findByText("31:52")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Oceń na 4 z 5" }));
+    expect(onRate).toHaveBeenCalledWith(LIBRARY.recordings[0].id, 4);
     await userEvent.type(screen.getByLabelText("Szukaj w nagraniach i materiałach"), "dora");
     expect(screen.getByRole("heading", { name: "DORA w praktyce projektu" })).toBeInTheDocument();
   });

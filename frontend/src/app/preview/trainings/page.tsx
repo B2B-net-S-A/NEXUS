@@ -17,6 +17,7 @@ import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { TrainingCard, type TrainingCardActions } from "@/components/trainings/TrainingCard";
+import { TrainingCalendar } from "@/components/trainings/TrainingCalendar";
 import { TrainingLibrary } from "@/components/trainings/TrainingLibrary";
 
 import {
@@ -83,12 +84,10 @@ function Harness() {
         <span className="text-muted-foreground">Dane fikcyjne, bez zapytań.</span>
       </nav>
       {state === "library" ? (
-        <TrainingLibrary
-          library={LIBRARY}
-          onRegister={nothing}
-          getMediaUrl={pending}
-          onDownload={() => undefined}
-        />
+        <div className="space-y-6">
+          <TrainingCalendar live={LIBRARY.live} today={TODAY} onRegister={nothing} />
+          <TrainingLibrary library={LIBRARY} getMediaUrl={pending} onDownload={() => undefined} />
+        </div>
       ) : (
         <TrainingCard
           view={state === "quote" ? QUOTED : HANDOVER}

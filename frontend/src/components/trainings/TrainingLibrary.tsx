@@ -1,25 +1,129 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Download, PlayCircle, Search } from "lucide-react";
+import { Download, PlayCircle, Search, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import type { LibraryFile, LibraryRecording, LiveTraining, TrainingLibrary as Library } from "@/lib/api/trainings";
+import { Badge } from "@/components/ui/badge";
+import type {
+  LibraryFile,
+  LibraryRecording,
+  TrainingLibrary as Library,
+  TranscriptSearch,
+} from "@/lib/api/trainings";
 import { formatIsoDatePl } from "@/lib/date-pl";
-import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
 import { chapterTime, fileExtension, isPlayable } from "./training-model";
 
 interface TrainingLibraryProps {
   library: Library;
-  onRegister: (id: number, join: boolean) => Promise<boolean>;
   /** Adres odtwarzania z biletem; `null` = nie da się teraz odtworzyć. */
   getMediaUrl: (file: LibraryFile) => Promise<string | null>;
   onDownload: (file: LibraryFile) => void;
+  /** 0697: wyszukiwanie w transkrypcie nagrania (gdy jest). */
+  onSearchTranscript?: (id: number, q: string) => Promise<TranscriptSearch | null>;
+  /** 0697: ocena 1–5 od osoby zapisanej na szkolenie. */
+  onRate?: (id: number, rating: number) => Promise<boolean>;
   busy?: boolean;
+}
+
+function clock(second: number): string {
+  const h = Math.floor(second / 3600);
+  const m = Math.floor((second % 3600) / 60);
+  const s = second % 60;
+  const mm = String(m).padStart(h ? 2 : 1, "0");
+  return `${h ? `${h}:` : ""}${mm}:${String(s).padStart(2, "0")}`;
+}
+
+function TranscriptBox({
+  recordingId,
+  onSearch,
+  onSeekSecond,
+}: {
+  recordingId: number;
+  onSearch: (id: number, q: string) => Promise<TranscriptSearch | null>;
+  onSeekSecond: (second: number) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [result, setResult] = useState<TranscriptSearch | null>(null);
+  const [failed, setFailed] = useState(false);
+  const search = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!q.trim()) return;
+    const found = await onSearch(recordingId, q.trim());
+    setFailed(found === null);
+    setResult(found);
+  };
+  return (
+    <Card size="sm" className="space-y-2 p-4">
+      <h4 className="text-sm font-semibold">Szukaj w tym, co padło na szkoleniu</h4>
+      <form onSubmit={search} className="flex gap-2">
+        <Input
+          aria-label="Szukaj w transkrypcie"
+          placeholder="np. RODO"
+          value={q}
+          onChange={(event) => setQ(event.target.value)}
+        />
+        <Button size="sm" type="submit" variant="outline">
+          Szukaj
+        </Button>
+      </form>
+      {failed ? <p className="text-sm text-destructive">Nie udało się przeszukać transkryptu.</p> : null}
+      {result && !result.available ? (
+        <p className="text-sm text-muted-foreground">To nagranie nie ma transkryptu.</p>
+      ) : null}
+      {result && result.available ? (
+        result.hits.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nic nie pasuje do „{q.trim()}”.</p>
+        ) : (
+          <ol className="space-y-1 text-sm">
+            {result.hits.map((hit) => (
+              <li key={`${hit.second}-${hit.text}`}>
+                <button
+                  type="button"
+                  className="flex w-full gap-3 rounded px-1 py-0.5 text-left hover:bg-muted"
+                  onClick={() => onSeekSecond(hit.second)}
+                >
+                  <span className="w-14 shrink-0 tabular-nums text-muted-foreground">{clock(hit.second)}</span>
+                  <span>{hit.text}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        )
+      ) : null}
+    </Card>
+  );
+}
+
+function Rating({ onRate }: { onRate: (rating: number) => Promise<boolean> }) {
+  const [given, setGiven] = useState<number | null>(null);
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-sm">
+      <span className="mr-1 text-muted-foreground">Jak było?</span>
+      {[1, 2, 3, 4, 5].map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-label={`Oceń na ${value} z 5`}
+          aria-pressed={given === value}
+          className="rounded p-0.5 hover:bg-muted"
+          onClick={async () => {
+            if (await onRate(value)) setGiven(value);
+          }}
+        >
+          <Star
+            className={cn("h-4 w-4", given !== null && value <= given ? "fill-warning text-warning" : "text-muted-foreground")}
+            aria-hidden
+          />
+        </button>
+      ))}
+      {given ? <span className="ml-1 text-xs text-muted-foreground">Dziękujemy.</span> : null}
+    </div>
+  );
 }
 
 function hours(minutes: number | null): string | null {
@@ -43,60 +147,27 @@ function matches(recording: LibraryRecording, needle: string): boolean {
   return haystack.includes(needle);
 }
 
-function LiveRow({
-  item,
-  onRegister,
-  busy,
-}: {
-  item: LiveTraining;
-  onRegister: TrainingLibraryProps["onRegister"];
-  busy?: boolean;
-}) {
-  const join = item.join_url ? safeExternalHref(item.join_url) : null;
-  return (
-    <li className="grid items-center gap-2 rounded-lg border border-border bg-card px-4 py-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:gap-4">
-      <span className="inline-flex w-fit rounded-full bg-info-muted px-2.5 py-0.5 text-xs font-medium text-info-muted-foreground">
-        Na żywo {formatIsoDatePl(item.session_date)}
-        {item.time_from ? ` · ${item.time_from}` : ""}
-      </span>
-      <span className="min-w-0 text-sm">
-        <span className="font-medium text-foreground">{item.title}</span>
-        <span className="text-muted-foreground">
-          {item.time_from && item.time_to ? ` · ${item.time_from}–${item.time_to}` : ""}
-          {item.platform ? ` · ${item.platform}` : ""}
-        </span>
-      </span>
-      <span className="flex flex-wrap items-center gap-2">
-        {item.registered && join ? (
-          <a
-            href={join}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm font-medium text-primary hover:underline"
-          >
-            Dołącz
-          </a>
-        ) : null}
-        <Button
-          size="sm"
-          variant={item.registered ? "outline" : "primary"}
-          disabled={busy}
-          onClick={() => onRegister(item.id, !item.registered)}
-        >
-          {item.registered ? "Wypisz się" : "Zapisz się"}
-        </Button>
-      </span>
-    </li>
-  );
-}
-
 /** Biblioteka szkoleń: na żywo z zapisem, nagranie na górze, rozdziały i materiały pod spodem. */
-export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, busy }: TrainingLibraryProps) {
+export function TrainingLibrary({
+  library,
+  getMediaUrl,
+  onDownload,
+  onSearchTranscript,
+  onRate,
+}: TrainingLibraryProps) {
   const [query, setQuery] = useState("");
+  const [topic, setTopic] = useState<string | null>(null);
   const needle = query.trim().toLocaleLowerCase("pl");
+  const topics = useMemo(
+    () => [...new Set(library.recordings.map((recording) => recording.topic).filter(Boolean))].sort(),
+    [library.recordings],
+  );
   const recordings = useMemo(
-    () => library.recordings.filter((recording) => matches(recording, needle)),
-    [library.recordings, needle],
+    () =>
+      library.recordings.filter(
+        (recording) => matches(recording, needle) && (topic === null || recording.topic === topic),
+      ),
+    [library.recordings, needle, topic],
   );
   const [selectedId, setSelectedId] = useState<number | null>(library.recordings[0]?.id ?? null);
   const selected =
@@ -131,26 +202,16 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recordingFile?.id]);
 
-  const seek = (minute: number) => {
+  const seekSecond = (second: number) => {
     const video = videoRef.current;
     if (!video) return;
-    video.currentTime = minute * 60;
+    video.currentTime = second;
     void video.play().catch(() => undefined);
   };
+  const seek = (minute: number) => seekSecond(minute * 60);
 
   return (
     <div className="space-y-5">
-      {library.live.length > 0 ? (
-        <section aria-label="Na żywo" className="space-y-2">
-          <h2 className="text-sm font-semibold text-foreground">Na żywo</h2>
-          <ul className="space-y-2">
-            {library.live.map((item) => (
-              <LiveRow key={item.id} item={item} onRegister={onRegister} busy={busy} />
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
       <section aria-label="Nagrania" className="space-y-3" data-tour="trainings.library">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-foreground">Nagrania</h2>
@@ -169,6 +230,25 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
           </div>
         </div>
 
+        {topics.length > 1 ? (
+          <div className="flex flex-wrap gap-1" role="group" aria-label="Tematy">
+            {[null, ...topics].map((value) => (
+              <button
+                key={value ?? "all"}
+                type="button"
+                aria-pressed={topic === value}
+                onClick={() => setTopic(value)}
+                className={cn(
+                  "rounded-full border px-2.5 py-0.5 text-xs",
+                  topic === value ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground",
+                )}
+              >
+                {value ?? "Wszystkie"}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         {library.recordings.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
             W bibliotece nie ma jeszcze nagrań. Pojawią się po opublikowaniu szkolenia.
@@ -179,7 +259,14 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
           <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
             <div className="min-w-0 space-y-3">
               <div>
-                <h3 className="text-lg font-semibold text-foreground">{selected.title}</h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-semibold text-foreground">{selected.title}</h3>
+                  {selected.scope === "registered" ? (
+                    <Badge variant="info" size="md">
+                      dla zapisanych
+                    </Badge>
+                  ) : null}
+                </div>
                 <p className="text-sm text-muted-foreground">
                   {[
                     selected.session_date ? `Szkolenie ${formatIsoDatePl(selected.session_date)}` : null,
@@ -215,8 +302,14 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
                   To szkolenie ma same materiały, bez nagrania.
                 </p>
               )}
+              {selected.registered && onRate ? (
+                <Rating key={`rate-${selected.id}`} onRate={(rating) => onRate(selected.id, rating)} />
+              ) : null}
               {selected.description ? (
                 <p className="whitespace-pre-line text-sm text-foreground">{selected.description}</p>
+              ) : null}
+              {recordingFile && onSearchTranscript ? (
+                <TranscriptBox key={`transcript-${selected.id}`} recordingId={selected.id} onSearch={onSearchTranscript} onSeekSecond={seekSecond} />
               ) : null}
               <div className="grid grid-cols-[minmax(0,1fr)] gap-4 md:grid-cols-[repeat(2,minmax(0,1fr))]">
                 <Card size="sm" className="space-y-2 p-4">

@@ -34,9 +34,10 @@ interface TrainingFilesPanelProps {
   busy?: boolean;
 }
 
-/** Faktura i pliki wewnętrzne nigdy nie idą do uczestników (serwer i tak odmówi). */
+/** Faktura nigdy nie idzie do uczestników (serwer i tak odmówi). Plik wewnętrzny idzie tylko
+ * po świadomym zaznaczeniu: bez tego szkolenie pracownika nie miało jak dać ludziom materiałów. */
 function canShare(file: TrainingFileRow): boolean {
-  return file.kind === "deliverable" || file.kind === "recording";
+  return file.kind === "deliverable" || file.kind === "recording" || file.kind === "internal";
 }
 
 export function TrainingFilesPanel({
@@ -206,8 +207,8 @@ export function TrainingFilesPanel({
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">
-        Pliki wewnętrzne (obecność, ankieta, źródła) nie trafiają do uczestników. Nagranie publikuje
-        druga osoba, nie ta, która je wgrała.
+        Pliki wewnętrzne (obecność, ankieta, źródła) trafiają do uczestników tylko po zaznaczeniu „dla
+        uczestników”. Nagranie publikuje druga osoba, nie ta, która je wgrała.
       </p>
     </div>
   );

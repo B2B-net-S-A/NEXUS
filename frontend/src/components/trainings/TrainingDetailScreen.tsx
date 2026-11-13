@@ -25,6 +25,8 @@ import {
   useTrainingPartner,
   useTrainingPeople,
   useTrainingsMe,
+  useRetryTeams,
+  useShareWithRegistered,
   useUpdateTraining,
   useUploadTrainingFile,
 } from "@/lib/api/trainings";
@@ -70,6 +72,8 @@ export function TrainingDetailScreen({ id }: { id: number }) {
   const paid = useMarkPaid(id);
   const publish = usePublishTraining(id);
   const attendance = useImportAttendance(id);
+  const retryTeams = useRetryTeams(id);
+  const share = useShareWithRegistered(id);
   const busy = [
     update,
     send,
@@ -83,6 +87,8 @@ export function TrainingDetailScreen({ id }: { id: number }) {
     paid,
     publish,
     attendance,
+    retryTeams,
+    share,
   ].some((mutation) => mutation.isPending);
 
   const state = resolveViewState({
@@ -181,6 +187,14 @@ export function TrainingDetailScreen({ id }: { id: number }) {
         () => attendance.mutateAsync(file),
         (result) => `Wczytano obecność: ${result.imported} osób, rozpoznanych ${result.matched}.`,
         "Nie udało się wczytać raportu obecności.",
+      ),
+    retryTeams: () =>
+      run(() => retryTeams.mutateAsync(), "Spotkanie w Teams gotowe.", "Nie udało się założyć spotkania w Teams."),
+    shareRegistered: (value) =>
+      run(
+        () => share.mutateAsync(value),
+        value ? "Zapisani widzą nagranie." : "Cofnięto udostępnienie nagrania.",
+        "Nie udało się zmienić udostępnienia nagrania.",
       ),
   };
 
