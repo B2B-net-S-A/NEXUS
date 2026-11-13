@@ -121,7 +121,7 @@ export function SignalPanel({ lead, reasons }: SignalPanelProps) {
             <p className="text-xs leading-snug text-muted-foreground">{lead.summary}</p>
           </Block>
         )}
-        <LeadDossier dossier={lead.dossier} />
+        <LeadDossier dossier={lead.dossier} compact />
         {signal.why_now && (
           <Block
             label="Dlaczego teraz"

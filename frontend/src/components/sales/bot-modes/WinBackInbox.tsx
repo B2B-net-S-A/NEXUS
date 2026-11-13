@@ -249,7 +249,7 @@ function WinBackPanel({ lead, reasons }: { lead: Lead; reasons?: readonly string
           )}
         </div>
       </Block>
-      <LeadDossier dossier={lead.dossier} />
+      <LeadDossier dossier={lead.dossier} compact />
       {signal.why_now && (
         <Block label={<BotConclusion>Dlaczego teraz</BotConclusion>}>
           <p className="text-xs text-muted-foreground">{signal.why_now}</p>

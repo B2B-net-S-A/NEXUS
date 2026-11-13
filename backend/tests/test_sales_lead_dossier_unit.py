@@ -43,6 +43,9 @@ def test_decision_makers_empty_without_decision_titles() -> None:
         ("example.com", "https://www.other.pl", "example.com"),
         (None, "https://www.example.pl/o-nas", "example.pl"),
         ("  ", None, None),
+        # Nazwa spółki w polu domeny (import z Atlasa): nie udaje strony.
+        ("nazwa spółki sp. z o.o.", None, None),
+        ("nazwa spółki sp. z o.o.", "https://firma.example.pl", "firma.example.pl"),
         (None, None, None),
     ],
 )

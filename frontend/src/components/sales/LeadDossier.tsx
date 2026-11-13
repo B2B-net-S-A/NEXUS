@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import type { Lead, LeadDossier as Dossier } from "@/lib/api/sales";
 import { countPl } from "@/lib/plural-pl";
+import { cn } from "@/lib/utils";
 
 /** NIP z 10 cyfr jako 000-000-00-00; inny zapis bez zmian. */
 export function formatNip(nip: string): string {
@@ -25,7 +26,13 @@ function Line({ label, children }: { label: string; children: ReactNode }) {
  * Teczka leada (decyzja Artura 13.11.2026): firma, kogo znamy, decydenci i punkty
  * na pierwszą rozmowę, liczone z danych NEXUSA. Pusta teczka nie rysuje bloku.
  */
-export function LeadDossier({ dossier }: { dossier: Dossier | null | undefined }) {
+interface LeadDossierProps {
+  dossier: Dossier | null | undefined;
+  /** Wąski panel obok listy: jedna kolumna zamiast dwóch. */
+  compact?: boolean;
+}
+
+export function LeadDossier({ dossier, compact = false }: LeadDossierProps) {
   if (!dossier) return null;
   const company = [
     dossier.industry,
@@ -68,7 +75,10 @@ export function LeadDossier({ dossier }: { dossier: Dossier | null | undefined }
   return (
     <div
       data-testid="lead-dossier"
-      className="mt-2 grid gap-x-6 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs sm:grid-cols-2"
+      className={cn(
+        "mt-2 grid gap-x-6 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs",
+        !compact && "sm:grid-cols-2",
+      )}
     >
       {lines}
     </div>

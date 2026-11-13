@@ -396,8 +396,9 @@ Kod: `services/sales/lead_dossier.py`, krok pętli `tasks/sales_signals.py`.
   leadów to „podgląd”); dołączy, gdy osoby z mapy trafią do Kontaktów.
 - **Ekran:** blok `components/sales/LeadDossier.tsx` pod opisem leada w „Wszystkie
   leady” (w grupie leadów jednej firmy tylko przy pierwszym), w panelu sygnału
-  i w panelu „Warto wrócić”: „Firma”, „Znamy”, „Decydenci”, „Na pierwszą rozmowę”
-  z linkiem do karty firmy. Bez słów „bot”, „wniosek”, „sprawdź”. Pusta linia znika,
+  i w panelu „Warto wrócić” (w wąskim panelu jedna kolumna): „Firma”, „Znamy”,
+  „Decydenci”, „Na pierwszą rozmowę” z linkiem do karty firmy. Strona to tylko
+  wartość w kształcie domeny (import z Atlasa ma w polu domeny też nazwy spółek). Bez słów „bot”, „wniosek”, „sprawdź”. Pusta linia znika,
   pusta teczka nie rysuje bloku; błąd zapytania to komunikat listy, nie pusta lista.
 - **Wiersz leada:** źródło `research` to „Bot Leady”, bez „ocena N” (Artur nie chce
   oznaczeń bota na ekranach roboczych). Inne źródła ocenę zachowują.

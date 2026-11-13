@@ -25,6 +25,7 @@ listy leadów: karta, kontakty, opiekun i punkty z ``sales_company_briefings``.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Iterable, Optional
 from urllib.parse import urlparse
@@ -269,12 +270,22 @@ class LeadDossier(BaseModel):
         )
 
 
+_DOMAIN = re.compile(r"^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}$")
+
+
+def _domain(value: Optional[str]) -> Optional[str]:
+    """Wartość, która wygląda na domenę; import z Atlasa ma w tym polu też nazwy spółek."""
+
+    host = (value or "").strip().lower().rstrip(".")
+    host = host[4:] if host.startswith("www.") else host
+    return host if _DOMAIN.match(host) else None
+
+
 def _host(domain: Optional[str], website_url: Optional[str]) -> Optional[str]:
-    value = (domain or "").strip()
-    if not value and website_url:
-        value = urlparse(website_url.strip()).hostname or ""
-    value = value.lower()
-    return (value[4:] if value.startswith("www.") else value) or None
+    """Domena karty, a bez niej host strony www (bez ``www.``)."""
+
+    from_url = urlparse((website_url or "").strip()).hostname if website_url else None
+    return _domain(domain) or _domain(from_url)
 
 
 def decision_makers(titles: Iterable[Optional[str]]) -> list[str]:
