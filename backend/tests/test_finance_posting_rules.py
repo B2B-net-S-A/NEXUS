@@ -29,7 +29,9 @@ from app.services.finance_ledger.export_formats import (
 
 NOW = datetime(2026, 11, 13, 10, 0, tzinfo=timezone.utc)
 PLAN = {
-    "402-203": posting.AccountView("402-203", "Usługi obce — kontraktorzy", "cost", True),
+    "402-203": posting.AccountView(
+        "402-203", "Usługi obce — kontraktorzy", "cost", True
+    ),
     "402-202": posting.AccountView("402-202", "Usługi obce", "cost", True),
     "409-906": posting.AccountView("409-906", "Pozostałe koszty", "cost", True),
     "409-998": posting.AccountView("409-998", "Pozostałe koszty", "cost", False),
@@ -67,6 +69,9 @@ def _input(**overrides) -> posting.DecreeInput:
         "gross": Decimal("12300.00"),
         "invoice_number": "FV/1/10/2026",
         "period": date(2026, 10, 1),
+        "issue_date": date(2026, 11, 4),
+        "fx_rate": None,
+        "fx_date": None,
     }
     values.update(overrides)
     return posting.DecreeInput(**values)
@@ -130,9 +135,7 @@ def test_bez_odliczenia_vat_brutto_w_koszt() -> None:
 
 def test_korekta_odwraca_strony() -> None:
     decree = posting.compute(
-        _input(
-            net=Decimal("-100.00"), vat=Decimal("-23.00"), gross=Decimal("-123.00")
-        ),
+        _input(net=Decimal("-100.00"), vat=Decimal("-23.00"), gross=Decimal("-123.00")),
         [_rule()],
         PLAN,
         now=NOW,
@@ -155,7 +158,9 @@ def test_brak_vat_na_fakturze_wylicza_sie_z_brutto() -> None:
 
 
 def test_brak_konta_kontrahenta_blokuje() -> None:
-    decree = posting.compute(_input(counterparty_account=None), [_rule()], PLAN, now=NOW)
+    decree = posting.compute(
+        _input(counterparty_account=None), [_rule()], PLAN, now=NOW
+    )
     issues = posting.check(decree, PLAN)
     assert len(issues) == 1
     assert "nie ma konta rozrachunkowego" in issues[0]
@@ -164,7 +169,10 @@ def test_brak_konta_kontrahenta_blokuje() -> None:
 
 def test_brak_kontrahenta_w_kartotece_blokuje() -> None:
     decree = posting.compute(
-        _input(counterparty_id=None, counterparty_account=None), [_rule()], PLAN, now=NOW
+        _input(counterparty_id=None, counterparty_account=None),
+        [_rule()],
+        PLAN,
+        now=NOW,
     )
     assert posting.check(decree, PLAN) == [posting.NO_COUNTERPARTY]
 
@@ -176,9 +184,106 @@ def test_brak_reguly_blokuje() -> None:
     assert issues and "Benefity" in issues[0]
 
 
-def test_waluta_obca_wymaga_recznego_dekretu() -> None:
-    decree = posting.compute(_input(currency="EUR"), [_rule()], PLAN, now=NOW)
-    assert any("EUR" in issue for issue in posting.check(decree, PLAN))
+# ── Waluta obca: kurs NBP z ostatniego dnia roboczego przed wystawieniem ──────
+
+
+@pytest.mark.parametrize(
+    ("issued", "expected"),
+    [
+        (date(2026, 11, 16), date(2026, 11, 13)),  # poniedziałek → piątek
+        (date(2026, 11, 12), date(2026, 11, 10)),  # 11.11 to święto
+        (date(2026, 1, 2), date(2025, 12, 31)),  # 1.01 to święto
+        (date(2026, 11, 4), date(2026, 11, 3)),  # dzień roboczy przed
+    ],
+)
+def test_dzien_kursu_to_ostatni_dzien_roboczy_przed_wystawieniem(
+    issued: date, expected: date
+) -> None:
+    assert posting.rate_day(issued) == expected
+
+
+def test_waluta_obca_po_kursie_nbp_w_groszach_i_zbilansowana() -> None:
+    decree = posting.compute(
+        _input(
+            currency="EUR",
+            net=Decimal("1000.00"),
+            vat=Decimal("230.00"),
+            gross=Decimal("1230.00"),
+            issue_date=date(2026, 11, 4),
+            fx_rate=Decimal("4.2512"),
+            fx_date=date(2026, 11, 3),
+        ),
+        [_rule()],
+        PLAN,
+        now=NOW,
+    )
+    assert decree["problems"] == []
+    assert decree["currency"] == "EUR"
+    assert (decree["fx_rate"], decree["fx_date"]) == ("4.2512", "2026-11-03")
+    # brutto 1230 × 4,2512 = 5228,98; VAT 230 × 4,2512 = 977,78; netto = różnica.
+    assert _sides(decree) == [
+        ("cost", "402-203", "debit", 425_120),
+        ("vat", "221", "debit", 97_778),
+        ("counterparty", "201-2-901", "credit", 522_898),
+    ]
+    assert posting.check(decree, PLAN) == []
+
+
+def test_brak_kursu_nbp_z_tego_dnia_blokuje() -> None:
+    decree = posting.compute(
+        _input(currency="EUR", issue_date=date(2026, 11, 16)), [_rule()], PLAN, now=NOW
+    )
+    assert "Brak kursu NBP EUR z dnia 13.11.2026" in posting.check(decree, PLAN)
+    assert decree["positions"] == []
+
+
+def test_waluta_obca_bez_daty_wystawienia() -> None:
+    decree = posting.compute(
+        _input(currency="EUR", issue_date=None), [_rule()], PLAN, now=NOW
+    )
+    assert any("daty wystawienia" in issue for issue in posting.check(decree, PLAN))
+
+
+# ── Kwoty źródła zmienione po dekrecie ───────────────────────────────────────
+
+
+def test_zmiana_brutto_zrodla_po_dekrecie_to_wada() -> None:
+    decree = posting.compute(_input(), [_rule()], PLAN, now=NOW)
+    assert posting.amount_issue(decree, Decimal("12300.00"), "PLN") is None
+    assert (
+        posting.amount_issue(decree, Decimal("12177.00"), "PLN")
+        == posting.AMOUNTS_CHANGED
+    )
+    # Korekta: brutto ujemne, rozrachunek po stronie Wn — porównujemy wartość.
+    negative = posting.compute(
+        _input(net=Decimal("-100"), vat=Decimal("-23"), gross=Decimal("-123")),
+        [_rule()],
+        PLAN,
+        now=NOW,
+    )
+    assert posting.amount_issue(negative, Decimal("-123.00"), "PLN") is None
+
+
+def test_zmiana_brutto_waluty_obcej_liczona_po_kursie_z_dekretu() -> None:
+    decree = posting.compute(
+        _input(
+            currency="EUR",
+            net=Decimal("1000"),
+            vat=Decimal("230"),
+            gross=Decimal("1230"),
+            issue_date=date(2026, 11, 4),
+            fx_rate=Decimal("4.2512"),
+            fx_date=date(2026, 11, 3),
+        ),
+        [_rule()],
+        PLAN,
+        now=NOW,
+    )
+    assert posting.amount_issue(decree, Decimal("1230.00"), "EUR") is None
+    assert (
+        posting.amount_issue(decree, Decimal("1229.00"), "EUR")
+        == posting.AMOUNTS_CHANGED
+    )
 
 
 def test_brak_kwot_netto_i_vat() -> None:
@@ -256,7 +361,12 @@ def test_reczny_dekret_bez_bilansu_to_422() -> None:
     with pytest.raises(LedgerError) as error:
         _manual(
             [
-                {"kind": "cost", "account": "402-202", "side": "debit", "amount": "100"},
+                {
+                    "kind": "cost",
+                    "account": "402-202",
+                    "side": "debit",
+                    "amount": "100",
+                },
                 {
                     "kind": "counterparty",
                     "account": "201-2-901",
@@ -273,10 +383,22 @@ def test_reczny_dekret_bez_bilansu_to_422() -> None:
     ("position", "fragment"),
     [
         ({"kind": "cost", "account": "999", "side": "debit", "amount": "1"}, "999"),
-        ({"kind": "vat", "account": "402-202", "side": "debit", "amount": "1"}, "rodzaj"),
-        ({"kind": "cost", "account": "=1+1", "side": "debit", "amount": "1"}, "niepoprawny"),
-        ({"kind": "cost", "account": "402-202", "side": "debit", "amount": "0"}, "zera"),
-        ({"kind": "cost", "account": "402-202", "side": "debit", "amount": "1.001"}, "dwa"),
+        (
+            {"kind": "vat", "account": "402-202", "side": "debit", "amount": "1"},
+            "rodzaj",
+        ),
+        (
+            {"kind": "cost", "account": "=1+1", "side": "debit", "amount": "1"},
+            "niepoprawny",
+        ),
+        (
+            {"kind": "cost", "account": "402-202", "side": "debit", "amount": "0"},
+            "zera",
+        ),
+        (
+            {"kind": "cost", "account": "402-202", "side": "debit", "amount": "1.001"},
+            "dwa",
+        ),
     ],
 )
 def test_reczny_dekret_zle_pozycje(position, fragment: str) -> None:
@@ -300,7 +422,9 @@ def test_wzor_opisu() -> None:
         )
         == "Usługi IT 09/2026 — FV/9"
     )
-    assert posting.validate_template(" {usługa}  {MM}/{RRRR} ") == "{usługa} {MM}/{RRRR}"
+    assert (
+        posting.validate_template(" {usługa}  {MM}/{RRRR} ") == "{usługa} {MM}/{RRRR}"
+    )
     with pytest.raises(LedgerError) as error:
         posting.validate_template("{usluga} {MM}")
     assert error.value.status == 422 and "{usluga}" in error.value.message
@@ -331,7 +455,7 @@ def _row(**overrides) -> ExportRow:
     values = {
         "register": "Zakup",
         "doc_type": "FVZ",
-        "invoice_number": "=HYPERLINK(\"http://zly.example\")",
+        "invoice_number": '=HYPERLINK("http://zly.example")',
         "ksef_number": "1234567890-20261105-ABCDEF-AB",
         "issue_date": date(2026, 11, 4),
         "received_date": date(2026, 11, 5),

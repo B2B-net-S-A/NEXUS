@@ -14,7 +14,14 @@ Pozycje jak w eBI24 (kwoty w groszach, faktura ma jedną sumę netto i VAT —
 * Wn konto VAT: VAT (tylko przy odliczeniu 100% i VAT ≠ 0),
 * Ma rozrachunek z kontrahentem: brutto.
 
-Korekta (brutto < 0) odwraca strony. Dekret powstaje przy przejściu do
+Korekta (brutto < 0) odwraca strony. Faktura w walucie obcej: kwoty w PLN po
+kursie NBP z ostatniego dnia roboczego przed datą wystawienia (kalendarz
+``core/scheduling.is_business_day``, kurs z tabeli ``fx_rates`` bez wywołań
+sieci) — brutto i VAT × kurs, netto jako różnica, żeby dekret się bilansował;
+brak kursu z tego dnia = wada dekretu. Dekret pamięta walutę, kurs i dzień
+kursu. Rozrachunek różny od brutto źródła (× kurs z dekretu) = wada „Kwoty
+faktury zmieniły się po dekrecie”: źródło potrafi zmienić kwoty po dekrecie
+(bliźniak z KSeF dla PDF-a, ``hr/ksef/sync._bind_twin``). Dekret powstaje przy przejściu do
 „Zweryfikowane” i na żądanie („Przelicz”); przy „Gotowa do księgowania”
 dekret wyliczany liczy się od nowa, a ręczny zostaje. Niekompletny dekret
 blokuje „Gotowa do księgowania”. Po „Gotowa” i po zaksięgowaniu dekretu się
@@ -24,15 +31,17 @@ nie zmienia (najpierw „Cofnij”).
 from __future__ import annotations
 
 import re
+from zoneinfo import ZoneInfo
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_date
+from app.core.scheduling import DEFAULT_TZ, business_date, is_business_day
+from app.models.fx_rate import FxRate
 from app.models.client_settlement import ClientContractorInvoice
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_posting import (
@@ -93,6 +102,7 @@ NO_COUNTERPARTY = (
     "Sprzedawcy nie ma w kartotece kontrahentów — zaimportuj kartotekę z eBI24."
 )
 NO_AMOUNTS = "Faktura nie ma kwoty netto ani VAT — popraw dekret ręcznie."
+AMOUNTS_CHANGED = "Kwoty faktury zmieniły się po dekrecie — Cofnij i przelicz."
 NOT_EDITABLE = (
     "Dekret zmieniasz przed „Gotowa do księgowania” — najpierw cofnij fakturę o krok."
 )
@@ -137,6 +147,24 @@ class DecreeInput:
     invoice_number: Optional[str]
     #: Pierwszy dzień miesiąca usługi (źródło, potem data wystawienia, wpływu).
     period: Optional[date]
+    issue_date: Optional[date] = None
+    #: Kurs NBP waluty z dnia ``rate_day(issue_date)`` (``None`` = brak w tabeli).
+    fx_rate: Optional[Decimal] = None
+    fx_date: Optional[date] = None
+
+
+def rate_day(issued: date) -> date:
+    """Ostatni dzień roboczy przed dniem wystawienia (dzień kursu NBP)."""
+
+    day = issued - timedelta(days=1)
+    zone = ZoneInfo(DEFAULT_TZ)
+    while not is_business_day(datetime(day.year, day.month, day.day, 12, tzinfo=zone)):
+        day -= timedelta(days=1)
+    return day
+
+
+def _rate_text(rate: Decimal) -> str:
+    return format(Decimal(rate).normalize(), "f")
 
 
 def grosze(value: Decimal) -> int:
@@ -319,25 +347,43 @@ def compute(
             f"Kontrahent „{inp.counterparty_name or '—'}” nie ma konta "
             "rozrachunkowego w kartotece — uzupełnij je w „Kontrahenci”."
         )
+    fx: dict[str, Any] = {}
+    multiplier: Optional[Decimal] = Decimal("1")
     if inp.currency != "PLN":
-        problems.append(
-            f"Faktura w {inp.currency} — wpisz pozycje w PLN ręcznie (po kursie NBP)."
-        )
+        multiplier = None
+        if inp.issue_date is None:
+            problems.append(
+                f"Faktura w {inp.currency} bez daty wystawienia — nie da się ustalić "
+                "kursu NBP."
+            )
+        elif inp.fx_rate is None:
+            day = inp.fx_date or rate_day(inp.issue_date)
+            problems.append(f"Brak kursu NBP {inp.currency} z dnia {day:%d.%m.%Y}")
+        else:
+            multiplier = Decimal(inp.fx_rate)
+            fx = {
+                "fx_rate": _rate_text(multiplier),
+                "fx_date": inp.fx_date.isoformat() if inp.fx_date else None,
+            }
     positions: list[dict[str, Any]] = []
     amounts = _amounts(inp)
     if amounts is None:
         problems.append(NO_AMOUNTS)
-    else:
+    elif multiplier is not None:
         net, vat, gross = amounts
         rate = vat_rate(net, vat)
         debit, credit = ("credit", "debit") if gross < 0 else ("debit", "credit")
-        cost = gross if rule.deduction == "none" else net
+        # Brutto i VAT po kursie, netto jako różnica — dekret się bilansuje.
+        gross_g = grosze(abs(gross) * multiplier)
+        vat_g = grosze(abs(vat) * multiplier)
+        net_g = gross_g - vat_g if multiplier != 1 else grosze(abs(net))
+        cost_g = gross_g if rule.deduction == "none" else net_g
         candidates = [
             {
                 "kind": "cost",
                 "account": rule.cost_account,
                 "side": debit,
-                "amount": grosze(abs(cost)),
+                "amount": cost_g,
                 "vat_rate": rate,
                 "deduction": rule.deduction,
             }
@@ -348,7 +394,7 @@ def compute(
                     "kind": "vat",
                     "account": rule.vat_account,
                     "side": debit,
-                    "amount": grosze(abs(vat)),
+                    "amount": vat_g,
                     "vat_rate": rate,
                     "deduction": "full",
                 }
@@ -358,7 +404,7 @@ def compute(
                 "kind": "counterparty",
                 "account": inp.counterparty_account,
                 "side": credit,
-                "amount": grosze(abs(gross)),
+                "amount": gross_g,
                 "vat_rate": None,
                 "deduction": None,
             }
@@ -366,6 +412,7 @@ def compute(
         positions = [item for item in candidates if item["amount"] != 0]
     return {
         **base,
+        **fx,
         "rule_id": rule.id,
         "register": rule.register,
         "doc_type": rule.doc_type,
@@ -425,6 +472,32 @@ def check(decree: Optional[dict[str, Any]], plan: dict[str, AccountView]) -> lis
             f"Suma Wn ({money_pl(debit)}) różni się od sumy Ma ({money_pl(credit)})."
         )
     return list(dict.fromkeys(issues))
+
+
+def amount_issue(
+    decree: Optional[dict[str, Any]], gross: Optional[Decimal], currency: Optional[str]
+) -> Optional[str]:
+    """Rozrachunek dekretu ≠ brutto źródła (× kurs z dekretu) → wada."""
+
+    if not decree or gross is None:
+        return None
+    positions = [
+        item
+        for item in decree.get("positions") or []
+        if item.get("kind") == "counterparty"
+    ]
+    if not positions:
+        return None
+    if (currency or "PLN") != "PLN":
+        rate = decree.get("fx_rate")
+        if not rate:
+            # Dekret ręczny bez kursu (np. kursu nie było) — nie ma z czym porównać.
+            return None
+        expected = grosze(abs(Decimal(gross)) * Decimal(rate))
+    else:
+        expected = grosze(abs(Decimal(gross)))
+    actual = sum(int(item.get("amount") or 0) for item in positions)
+    return None if actual == expected else AMOUNTS_CHANGED
 
 
 def _amount_of(raw: Any) -> int:
@@ -503,7 +576,9 @@ def manual_decree(
     return {
         "manual": True,
         "computed_at": now.isoformat(),
-        "currency": "PLN",
+        "currency": previous.get("currency") or "PLN",
+        "fx_rate": previous.get("fx_rate"),
+        "fx_date": previous.get("fx_date"),
         "period": previous.get("period"),
         "rule_id": previous.get("rule_id"),
         "register": register,
@@ -604,6 +679,7 @@ async def load_inputs(
                 row.gross_amount,
                 row.invoice_number,
                 period or _month_start(row.issue_date),
+                row.issue_date,
             )
     if ids := by_type.get("contractor_invoice"):
         rows = await db.execute(
@@ -629,6 +705,7 @@ async def load_inputs(
                 row.gross_amount,
                 row.invoice_number,
                 period or _month_start(row.issue_date),
+                row.issue_date,
             )
     if ids := by_type.get("approval_document"):
         rows = await db.execute(
@@ -650,6 +727,7 @@ async def load_inputs(
                 row.gross_amount,
                 row.invoice_number,
                 _month_start(row.issue_date),
+                row.issue_date,
             )
     party_ids = {e.counterparty_id for e in entries if e.counterparty_id is not None}
     parties: dict[int, tuple[str, Optional[str]]] = {}
@@ -662,31 +740,78 @@ async def load_inputs(
             ).where(FinanceCounterparty.id.in_(party_ids))
         )
         parties = {row.id: (row.name, row.cost_account) for row in rows.all()}
+    rates = await _rates(db, sources.values())
     result: dict[int, DecreeInput] = {}
     for entry in entries:
         source = sources.get((entry.source_type, entry.source_id))
-        currency, net, vat, gross, number, period = source or (
+        currency, net, vat, gross, number, period, issued = source or (
             "PLN",
             None,
             None,
             None,
             None,
             None,
+            None,
         )
+        currency = (currency or "PLN").upper()
+        fx_date = rate_day(issued) if issued and currency != "PLN" else None
         name, account = parties.get(entry.counterparty_id or 0, (None, None))
         result[entry.id] = DecreeInput(
             category=entry.category,
             counterparty_id=entry.counterparty_id if name is not None else None,
             counterparty_name=name,
             counterparty_account=account,
-            currency=currency or "PLN",
+            currency=currency,
             net=net,
             vat=vat,
             gross=gross,
             invoice_number=number,
             period=period or _month_start(business_date(entry.received_at)),
+            issue_date=issued,
+            fx_rate=rates.get((currency, fx_date)) if fx_date else None,
+            fx_date=fx_date,
         )
     return result
+
+
+async def _rates(
+    db: AsyncSession, sources: Iterable[tuple[Any, ...]]
+) -> dict[tuple[str, date], Decimal]:
+    """Kurs NBP dokładnie z dnia ``rate_day`` (bez szukania wstecz i bez sieci)."""
+
+    wanted: set[tuple[str, date]] = set()
+    for source in sources:
+        currency, issued = (source[0] or "PLN").upper(), source[6]
+        if currency != "PLN" and issued:
+            wanted.add((currency, rate_day(issued)))
+    if not wanted:
+        return {}
+    rows = await db.execute(
+        select(FxRate.currency, FxRate.effective_date, FxRate.rate_to_pln).where(
+            FxRate.currency.in_({currency for currency, _ in wanted}),
+            FxRate.effective_date.in_({day for _, day in wanted}),
+        )
+    )
+    return {
+        (row.currency, row.effective_date): Decimal(row.rate_to_pln)
+        for row in rows.all()
+        if (row.currency, row.effective_date) in wanted
+    }
+
+
+def issues_for(
+    decree: Optional[dict[str, Any]],
+    plan: dict[str, AccountView],
+    gross: Optional[Decimal],
+    currency: Optional[str],
+) -> list[str]:
+    """Kontrola dekretu i zgodność rozrachunku z brutto źródła."""
+
+    issues = check(decree, plan)
+    drift = amount_issue(decree, gross, currency)
+    if drift and drift not in issues:
+        issues.append(drift)
+    return issues
 
 
 async def load_context(
@@ -712,7 +837,8 @@ def ensure_ready(entry: FinanceCostEntry, ctx: Context, *, now: datetime) -> Non
     """Przed „Gotowa do księgowania”: świeży dekret i kontrola (409 z powodem)."""
 
     refresh(entry, ctx, now=now)
-    issues = check(entry.decree, ctx.plan)
+    inp = ctx.inputs[entry.id]
+    issues = issues_for(entry.decree, ctx.plan, inp.gross, inp.currency)
     if issues:
         raise LedgerError(first_issue(issues))
 
@@ -804,7 +930,12 @@ def positions_payload(
 
 
 async def section(
-    db: AsyncSession, entry: FinanceCostEntry, *, own: bool
+    db: AsyncSession,
+    entry: FinanceCostEntry,
+    *,
+    own: bool,
+    gross: Optional[Decimal] = None,
+    currency: Optional[str] = None,
 ) -> dict[str, Any]:
     """„Dekret do Symfonii FK” na karcie faktury (M2)."""
 
@@ -845,7 +976,9 @@ async def section(
         "debit_total": money(debit),
         "credit_total": money(credit),
         "balanced": debit == credit and debit > 0,
-        "issues": check(entry.decree, plan),
+        "issues": issues_for(entry.decree, plan, gross, currency),
+        "fx_rate": decree.get("fx_rate"),
+        "fx_date": decree.get("fx_date"),
         "editable": entry.stage in EDITABLE_STAGES and not own,
         "batch": batch,
     }

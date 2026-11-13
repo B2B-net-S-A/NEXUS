@@ -125,6 +125,15 @@ _FORWARD = {
 
 OWN_INVOICE_DETAIL = "To Twoja faktura — jej status zmienia ktoś inny z Finansów."
 BOOKED_DETAIL = "Zaksięgowanej faktury tu nie zmieniasz."
+#: Kategoria wybiera regułę dekretu — po „Gotowa” dekret już się nie przelicza.
+CATEGORY_READY_DETAIL = (
+    "Faktura jest „Gotowa do księgowania” — najpierw Cofnij, potem zmień kategorię "
+    "(dekret przeliczy się przy weryfikacji)."
+)
+CATEGORY_IN_BATCH_DETAIL = (
+    "Faktura jest w paczce eksportu do Symfonii — najpierw anuluj paczkę "
+    "w „Księgowanie”, potem Cofnij i zmień kategorię."
+)
 IN_BATCH_DETAIL = (
     "Faktura jest w paczce eksportu do Symfonii — anuluj paczkę w „Księgowanie”, "
     "żeby ją cofnąć."
@@ -604,7 +613,9 @@ async def card(
     )
     from app.services.finance_ledger import posting  # noqa: PLC0415
 
-    payload["decree"] = await posting.section(db, entry, own=payload["own"])
+    payload["decree"] = await posting.section(
+        db, entry, own=payload["own"], gross=row.gross_amount, currency=row.currency
+    )
     events = (
         await db.execute(
             select(FinanceCostEntryEvent, User.name)
@@ -837,6 +848,10 @@ async def update(
         category = changes["category"]
         if category not in CATEGORIES:
             raise LedgerError("Nieznana kategoria.", status=422)
+        if category != entry.category and entry.batch_id is not None:
+            raise LedgerError(CATEGORY_IN_BATCH_DETAIL)
+        if category != entry.category and entry.stage == "ready":
+            raise LedgerError(CATEGORY_READY_DETAIL)
         if category != entry.category:
             _event(
                 db,

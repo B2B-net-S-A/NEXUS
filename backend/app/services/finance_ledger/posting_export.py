@@ -9,7 +9,10 @@ konta w planie).
 plik i jego SHA-256) i zapisuje bajty pliku — ponowne pobranie tej paczki daje
 ten sam plik. Wpis w paczce zostaje „Gotowy”, ale nie cofa się go (najpierw
 „Anuluj paczkę”). „Oznacz jako zaksięgowane” przestawia wpisy paczki na
-``booked``. Jedna wada dowolnego wpisu = paczka nie powstaje (409 z powodem).
+``booked``. Faktury z wadą dekretu (też kwoty źródła zmienione po dekrecie)
+„Pobierz plik” pomija — zostają „Gotowe”, z powodami na liście, i wchodzą do
+następnej paczki; same wadliwe = paczka nie powstaje (409). Kwoty źródła
+zmienione po pobraniu blokują „Oznacz jako zaksięgowane” (409).
 
 Faktury osób zespołu (D2) widzą tylko Płace i admin: osoba bez Płac nie widzi
 ich na liście, nie wkłada do paczki i nie widzi paczek, które je mają.
@@ -95,7 +98,11 @@ async def _items(
     plan = await posting.load_plan(db)
     return [
         Item(
-            row.FinanceCostEntry, row, posting.check(row.FinanceCostEntry.decree, plan)
+            row.FinanceCostEntry,
+            row,
+            posting.issues_for(
+                row.FinanceCostEntry.decree, plan, row.gross_amount, row.currency
+            ),
         )
         for row in rows
     ]
@@ -118,6 +125,7 @@ def _item_payload(item: Item) -> dict[str, Any]:
         "doc_type": decree.get("doc_type") or None,
         "description": decree.get("description") or None,
         "manual": bool(decree.get("manual")),
+        "exportable": not item.issues,
         "debit_total": posting.money(debit),
         "credit_total": posting.money(credit),
         "issues": item.issues,
@@ -132,7 +140,10 @@ async def preview(db: AsyncSession, month: date, *, payroll: bool) -> dict[str, 
         if not chosen:
             continue
         debit = credit = 0
+        # Sumy rejestru = to, co pójdzie do pliku (faktury z wadą są pomijane).
         for item in chosen:
+            if item.issues:
+                continue
             d, c = posting.totals((item.entry.decree or {}).get("positions") or [])
             debit += d
             credit += c
@@ -146,19 +157,35 @@ async def preview(db: AsyncSession, month: date, *, payroll: bool) -> dict[str, 
                 "balanced": debit == credit,
             }
         )
-    blocked = sum(1 for item in items if item.issues)
+    skipped = skipped_payload(items)
     return {
         "month": month.strftime("%Y-%m"),
         "registers": registers,
         "count": len(items),
-        "blocked": blocked,
-        "can_export": bool(items) and blocked == 0,
+        "blocked": len(skipped),
+        "skipped": skipped,
+        "can_export": len(skipped) < len(items),
         "formats": [
             {"key": fmt.key, "label": fmt.label, "extension": fmt.extension}
             for fmt in FORMATS.values()
         ],
         "default_format": DEFAULT_FORMAT,
     }
+
+
+def skipped_payload(items: list[Item]) -> list[dict[str, Any]]:
+    """Faktury z wadą dekretu — „Pobierz plik” je pomija, zostają „Gotowe”."""
+
+    return [
+        {
+            "id": item.entry.id,
+            "invoice_number": item.row.invoice_number,
+            "seller_name": item.row.seller_name or item.row.counterparty_name,
+            "issues": item.issues,
+        }
+        for item in items
+        if item.issues
+    ]
 
 
 def export_rows(items: list[Item]) -> list[ExportRow]:
@@ -273,7 +300,9 @@ async def create_batch(
     actor_id: int,
     now: datetime,
     payroll: bool,
-) -> FinancePostingBatch:
+) -> tuple[FinancePostingBatch, list[dict[str, Any]]]:
+    """Paczka z faktur bez wady; zwraca też listę pominiętych (z powodami)."""
+
     fmt = FORMATS.get(file_format)
     if fmt is None:
         raise LedgerError("Nieznany format pliku.", status=422)
@@ -283,12 +312,14 @@ async def create_batch(
         raise LedgerError(
             "Za ten miesiąc nie ma faktur „Gotowych do księgowania” spoza paczek."
         )
-    blocked = [item for item in items if item.issues]
-    if blocked:
-        first = blocked[0]
+    skipped = [item for item in items if item.issues]
+    items = [item for item in items if not item.issues]
+    skipped_list = skipped_payload(skipped)
+    if not items:
+        first = skipped[0]
         number = first.row.invoice_number or f"#{first.entry.id}"
         raise LedgerError(
-            f"Paczka nie powstała: {len(blocked)} z {len(items)} faktur ma wadę "
+            f"Paczka nie powstała: każda z {len(skipped)} gotowych faktur ma wadę "
             f"dekretu. Pierwsza — {number}: {first.issues[0]}"
         )
     rows = export_rows(items)
@@ -336,7 +367,7 @@ async def create_batch(
             detail={"batch": number},
         )
     await db.flush()
-    return batch
+    return batch, skipped_list
 
 
 async def _batch(
@@ -390,6 +421,15 @@ async def book_batch(
             f"Wpisy paczki {batch.number} zmieniły się od pobrania — anuluj ją "
             "i pobierz plik od nowa."
         )
+    inputs = await posting.load_inputs(db, entries)
+    for entry in entries:
+        inp = inputs[entry.id]
+        if posting.amount_issue(entry.decree, inp.gross, inp.currency):
+            number = inp.invoice_number or f"#{entry.id}"
+            raise LedgerError(
+                f"Kwoty faktury {number} zmieniły się po dekrecie — plik paczki "
+                f"{batch.number} jest nieaktualny. Anuluj paczkę, Cofnij i przelicz."
+            )
     for entry in entries:
         _event(
             db,

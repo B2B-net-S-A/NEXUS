@@ -19,17 +19,22 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from openpyxl import load_workbook
+from datetime import date
+from decimal import Decimal
+
 from sqlalchemy import delete, select, update
 
 from app.api import finance_ledger, finance_posting
 from app.core.database import AsyncSessionLocal
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
+from app.models.fx_rate import FxRate
 from app.models.finance_posting import (
     FinanceAccount,
     FinancePostingBatch,
     FinancePostingRule,
 )
 from app.models.hr_approval import ApprovalDocument
+from app.models.hr_settlement import PayrollInvoice
 from app.services.finance_ledger import costs as ledger
 from app.services.hr.approvals import cost_invoices
 from tests.test_finance_ledger_db import (  # noqa: F401  (fixture ``world``)
@@ -78,17 +83,26 @@ async def clean_batches():
         await db.commit()
 
 
-async def _expense(world, *, number: str, net: str, vat: str, gross: str) -> int:
+async def _expense(
+    world,
+    *,
+    number: str,
+    net: str,
+    vat: str,
+    gross: str,
+    currency: str = "PLN",
+    issued: str = "2026-11-03",
+) -> int:
     ksef = _ksef_number(world["nips"]["supplier"])
     item = {
         "ksefNumber": ksef,
         "invoiceNumber": number,
-        "issueDate": "2026-11-03",
+        "issueDate": issued,
         "seller": {"nip": world["nips"]["supplier"], "name": "Dostawca Testowy"},
         "netAmount": net,
         "vatAmount": vat,
         "grossAmount": gross,
-        "currency": "PLN",
+        "currency": currency,
     }
     async with AsyncSessionLocal() as db:
         await cost_invoices.store(
@@ -238,17 +252,23 @@ async def test_konto_i_regula_walidacja(world, client) -> None:
         assert bad_template.status_code == 422
     finally:
         async with AsyncSessionLocal() as db:
-            await db.execute(delete(FinanceAccount).where(FinanceAccount.number == number))
+            await db.execute(
+                delete(FinanceAccount).where(FinanceAccount.number == number)
+            )
             await db.commit()
 
 
 async def test_regula_kontrahenta_przed_ogolna_kategorii(world, client) -> None:
     headers = _headers(world["accountant"])
-    entry_id = await _expense(world, number="D/11/21", net="100.00", vat="23.00", gross="123.00")
+    entry_id = await _expense(
+        world, number="D/11/21", net="100.00", vat="23.00", gross="123.00"
+    )
     party = await _supplier(world, account="201-2-903")
     # Kategoria „Kontraktorzy” ma regułę ogólną (402-203); reguła tego
     # dostawcy w tej kategorii daje 409-906.
-    await client.patch(f"{COSTS}/{entry_id}", json={"category": "contractor"}, headers=headers)
+    await client.patch(
+        f"{COSTS}/{entry_id}", json={"category": "contractor"}, headers=headers
+    )
     special = await client.post(
         f"{POSTING}/rules",
         json={
@@ -265,7 +285,9 @@ async def test_regula_kontrahenta_przed_ogolna_kategorii(world, client) -> None:
     card = (await client.get(f"{COSTS}/{entry_id}", headers=headers)).json()
     decree = card["decree"]
     assert decree["rule"]["id"] == special.json()["id"]
-    assert [(p["account"], p["side_label"], p["amount"]) for p in decree["positions"]] == [
+    assert [
+        (p["account"], p["side_label"], p["amount"]) for p in decree["positions"]
+    ] == [
         ("409-906", "Wn", "100.00"),
         ("221", "Wn", "23.00"),
         ("201-2-903", "Ma", "123.00"),
@@ -274,10 +296,14 @@ async def test_regula_kontrahenta_przed_ogolna_kategorii(world, client) -> None:
     assert decree["issues"] == [] and decree["balanced"] is True
 
     off = await client.patch(
-        f"{POSTING}/rules/{special.json()['id']}", json={"active": False}, headers=headers
+        f"{POSTING}/rules/{special.json()['id']}",
+        json={"active": False},
+        headers=headers,
     )
     assert off.status_code == 200
-    again = await client.post(f"{POSTING}/entries/{entry_id}/recalculate", headers=headers)
+    again = await client.post(
+        f"{POSTING}/entries/{entry_id}/recalculate", headers=headers
+    )
     assert again.status_code == 200, again.text
     assert again.json()["decree"]["positions"][0]["account"] == "402-203"
 
@@ -287,7 +313,9 @@ async def test_regula_kontrahenta_przed_ogolna_kategorii(world, client) -> None:
 
 async def test_brak_konta_kontrahenta_blokuje_gotowa(world, client) -> None:
     headers = _headers(world["accountant"])
-    entry_id = await _expense(world, number="D/11/22", net="10.00", vat="2.30", gross="12.30")
+    entry_id = await _expense(
+        world, number="D/11/22", net="10.00", vat="2.30", gross="12.30"
+    )
     party = await _supplier(world, account=None)
     await _office_rule(client, headers, party)
     await _to_verified(client, headers, [entry_id])
@@ -319,7 +347,9 @@ async def _entry_by_id(entry_id: int) -> FinanceCostEntry:
 
 async def test_reczna_korekta_bilans_i_blokada_po_gotowej(world, client) -> None:
     headers = _headers(world["accountant"])
-    entry_id = await _expense(world, number="D/11/23", net="100.00", vat="23.00", gross="123.00")
+    entry_id = await _expense(
+        world, number="D/11/23", net="100.00", vat="23.00", gross="123.00"
+    )
     party = await _supplier(world, account="201-2-905")
     await _office_rule(client, headers, party)
     await _to_verified(client, headers, [entry_id])
@@ -330,8 +360,18 @@ async def test_reczna_korekta_bilans_i_blokada_po_gotowej(world, client) -> None
             "doc_type": "FVZ",
             "description": "Biuro 11/2026",
             "positions": [
-                {"kind": "cost", "account": "402-202", "side": "debit", "amount": "60.00"},
-                {"kind": "cost", "account": "409-906", "side": "debit", "amount": "40.00"},
+                {
+                    "kind": "cost",
+                    "account": "402-202",
+                    "side": "debit",
+                    "amount": "60.00",
+                },
+                {
+                    "kind": "cost",
+                    "account": "409-906",
+                    "side": "debit",
+                    "amount": "40.00",
+                },
                 {"kind": "vat", "account": "221", "side": "debit", "amount": "23.00"},
                 {
                     "kind": "counterparty",
@@ -364,9 +404,13 @@ async def test_reczna_korekta_bilans_i_blokada_po_gotowej(world, client) -> None
         f"{POSTING}/entries/{entry_id}/decree", json=body("123.00"), headers=headers
     )
     assert locked.status_code == 409
-    recalc = await client.post(f"{POSTING}/entries/{entry_id}/recalculate", headers=headers)
+    recalc = await client.post(
+        f"{POSTING}/entries/{entry_id}/recalculate", headers=headers
+    )
     assert recalc.status_code == 409
-    history = (await client.get(f"{COSTS}/{entry_id}", headers=headers)).json()["history"]
+    history = (await client.get(f"{COSTS}/{entry_id}", headers=headers)).json()[
+        "history"
+    ]
     assert "decree" in [item["action"] for item in history]
 
 
@@ -377,14 +421,20 @@ async def test_paczka_plik_powtarzalny_zaksiegowanie_i_blokada(
     world, client, clean_batches
 ) -> None:
     headers = _headers(world["accountant"])
-    first = await _expense(world, number="=HYPERLINK(\"x\")", net="100.00", vat="23.00", gross="123.00")
-    second = await _expense(world, number="D/11/25", net="50.00", vat="11.50", gross="61.50")
+    first = await _expense(
+        world, number='=HYPERLINK("x")', net="100.00", vat="23.00", gross="123.00"
+    )
+    second = await _expense(
+        world, number="D/11/25", net="50.00", vat="11.50", gross="61.50"
+    )
     party = await _supplier(world, account="201-2-906")
     await _office_rule(client, headers, party)
     await _to_verified(client, headers, [first, second])
     assert (await _act(client, headers, [first, second], "ready")).status_code == 200
 
-    preview = await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=headers)
+    preview = await client.get(
+        f"{POSTING}/export", params={"month": MONTH}, headers=headers
+    )
     assert preview.status_code == 200, preview.text
     data = preview.json()
     purchase = next(r for r in data["registers"] if r["register"] == "purchase")
@@ -394,7 +444,9 @@ async def test_paczka_plik_powtarzalny_zaksiegowanie_i_blokada(
     assert data["blocked"] == 0 and data["can_export"] is True
 
     created = await client.post(
-        f"{POSTING}/batches", json={"month": MONTH, "format": "neutral_xlsx"}, headers=headers
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_xlsx"},
+        headers=headers,
     )
     assert created.status_code == 201, created.text
     batch = created.json()
@@ -411,7 +463,9 @@ async def test_paczka_plik_powtarzalny_zaksiegowanie_i_blokada(
     assert one.headers["x-file-sha256"] == batch["file_sha256"]
     sheet = load_workbook(io.BytesIO(one.content)).active
     header = [cell.value for cell in sheet[1]]
-    rows = [dict(zip(header, [c.value for c in row])) for row in sheet.iter_rows(min_row=2)]
+    rows = [
+        dict(zip(header, [c.value for c in row])) for row in sheet.iter_rows(min_row=2)
+    ]
     mine = [row for row in rows if row["ID Symfonii kontrahenta"]]
     injected = [row for row in mine if str(row["Numer faktury"]).startswith("'=")]
     assert len(injected) == 3  # koszt, VAT, rozrachunek
@@ -438,11 +492,15 @@ async def test_paczka_plik_powtarzalny_zaksiegowanie_i_blokada(
     assert entry.stage == "booked"
     again = await client.post(f"{POSTING}/batches/{batch['id']}/book", headers=headers)
     assert again.status_code == 409
-    cancel = await client.post(f"{POSTING}/batches/{batch['id']}/cancel", headers=headers)
+    cancel = await client.post(
+        f"{POSTING}/batches/{batch['id']}/cancel", headers=headers
+    )
     assert cancel.status_code == 409
 
     # Zaksięgowana: dekretu i etapu się nie zmienia.
-    locked = await client.post(f"{POSTING}/entries/{first}/recalculate", headers=headers)
+    locked = await client.post(
+        f"{POSTING}/entries/{first}/recalculate", headers=headers
+    )
     assert locked.status_code == 409
     assert locked.json()["detail"] == ledger.BOOKED_DETAIL
     assert (await _act(client, headers, [first], "back")).status_code == 409
@@ -459,18 +517,24 @@ async def test_anulowana_paczka_oddaje_wpisy_i_wada_blokuje_paczke(
     world, client, clean_batches
 ) -> None:
     headers = _headers(world["accountant"])
-    entry_id = await _expense(world, number="D/11/26", net="10.00", vat="2.30", gross="12.30")
+    entry_id = await _expense(
+        world, number="D/11/26", net="10.00", vat="2.30", gross="12.30"
+    )
     party = await _supplier(world, account="201-2-907")
     await _office_rule(client, headers, party)
     await _to_verified(client, headers, [entry_id])
     assert (await _act(client, headers, [entry_id], "ready")).status_code == 200
 
     batch = await client.post(
-        f"{POSTING}/batches", json={"month": MONTH, "format": "neutral_csv"}, headers=headers
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
     )
     assert batch.status_code == 201, batch.text
     content = (
-        await client.get(f"{POSTING}/batches/{batch.json()['id']}/file", headers=headers)
+        await client.get(
+            f"{POSTING}/batches/{batch.json()['id']}/file", headers=headers
+        )
     ).content
     assert content.startswith("﻿".encode())
     assert "201-2-907" in content.decode("utf-8-sig")
@@ -493,7 +557,9 @@ async def test_anulowana_paczka_oddaje_wpisy_i_wada_blokuje_paczke(
         entry.decree = decree
         await db.commit()
     refused = await client.post(
-        f"{POSTING}/batches", json={"month": MONTH, "format": "neutral_csv"}, headers=headers
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
     )
     assert refused.status_code == 409
     assert "Paczka nie powstała" in refused.json()["detail"]
@@ -535,20 +601,34 @@ async def test_faktury_zespolu_poza_eksportem_osoby_bez_plac(
         )
         await db.commit()
     await _to_verified(client, accountant, [payroll_entry.id])
-    assert (await _act(client, accountant, [payroll_entry.id], "ready")).status_code == 200
-
-    hidden = (await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=only)).json()
-    assert payroll_entry.id not in [e["id"] for r in hidden["registers"] for e in r["entries"]]
-    seen = (
-        await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=accountant)
-    ).json()
-    assert payroll_entry.id in [e["id"] for r in seen["registers"] for e in r["entries"]]
     assert (
-        await client.post(f"{POSTING}/entries/{payroll_entry.id}/recalculate", headers=only)
+        await _act(client, accountant, [payroll_entry.id], "ready")
+    ).status_code == 200
+
+    hidden = (
+        await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=only)
+    ).json()
+    assert payroll_entry.id not in [
+        e["id"] for r in hidden["registers"] for e in r["entries"]
+    ]
+    seen = (
+        await client.get(
+            f"{POSTING}/export", params={"month": MONTH}, headers=accountant
+        )
+    ).json()
+    assert payroll_entry.id in [
+        e["id"] for r in seen["registers"] for e in r["entries"]
+    ]
+    assert (
+        await client.post(
+            f"{POSTING}/entries/{payroll_entry.id}/recalculate", headers=only
+        )
     ).status_code == 404
 
     created = await client.post(
-        f"{POSTING}/batches", json={"month": MONTH, "format": "neutral_xlsx"}, headers=accountant
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_xlsx"},
+        headers=accountant,
     )
     assert created.status_code == 201, created.text
     batch = created.json()
@@ -561,7 +641,9 @@ async def test_faktury_zespolu_poza_eksportem_osoby_bez_plac(
     assert (
         await client.post(f"{POSTING}/batches/{batch['id']}/book", headers=only)
     ).status_code == 404
-    cancelled = await client.post(f"{POSTING}/batches/{batch['id']}/cancel", headers=accountant)
+    cancelled = await client.post(
+        f"{POSTING}/batches/{batch['id']}/cancel", headers=accountant
+    )
     assert cancelled.status_code == 200
 
 
@@ -581,3 +663,291 @@ async def test_bez_modulu_finanse_403(world, client) -> None:
         headers=denied,
     )
     assert created.status_code == 403
+
+
+# ── Poprawki po przeglądzie (13.11) ──────────────────────────────────────────
+
+
+async def _vat23_expense(world, *, number: str, gross: str = "123.00") -> int:
+    """Faktura dostawcy z VAT 23% liczonym od brutto (``Do opisu`` po przyjęciu)."""
+
+    vat = (Decimal(gross) * 23 / 123).quantize(Decimal("0.01"))
+    return await _expense(
+        world,
+        number=number,
+        net=f"{Decimal(gross) - vat:.2f}",
+        vat=f"{vat:.2f}",
+        gross=gross,
+    )
+
+
+async def _source_gross(entry_id: int, gross: str, vat: str | None = None) -> None:
+    """Źródło zmienia kwoty po dekrecie (jak ``_bind_twin`` przy bliźniaku z KSeF)."""
+
+    values = {"gross_amount": Decimal(gross)}
+    if vat is not None:
+        values["vat_amount"] = Decimal(vat)
+    async with AsyncSessionLocal() as db:
+        entry = await db.get(FinanceCostEntry, entry_id)
+        await db.execute(
+            update(ApprovalDocument)
+            .where(ApprovalDocument.id == entry.source_id)
+            .values(**values)
+        )
+        await db.commit()
+
+
+async def test_kategoria_po_gotowej_i_w_paczce_to_409(
+    world, client, clean_batches
+) -> None:
+    headers = _headers(world["accountant"])
+    entry_id = await _vat23_expense(world, number="D/11/31")
+    party = await _supplier(world, account="201-2-911")
+    await _office_rule(client, headers, party)
+    await _to_verified(client, headers, [entry_id])
+    assert (await _act(client, headers, [entry_id], "ready")).status_code == 200
+
+    ready = await client.patch(
+        f"{COSTS}/{entry_id}", json={"category": "contractor"}, headers=headers
+    )
+    assert ready.status_code == 409
+    assert "Cofnij" in ready.json()["detail"]
+    assert (await _entry_by_id(entry_id)).category == "office"
+    # Flagi i notatka po „Gotowa” dalej wolno.
+    note = await client.patch(
+        f"{COSTS}/{entry_id}", json={"note": "ok"}, headers=headers
+    )
+    assert note.status_code == 200
+
+    batch = await client.post(
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
+    )
+    assert batch.status_code == 201, batch.text
+    in_batch = await client.patch(
+        f"{COSTS}/{entry_id}", json={"category": "contractor"}, headers=headers
+    )
+    assert in_batch.status_code == 409
+    assert "paczk" in in_batch.json()["detail"]
+
+
+async def test_zmiana_brutto_zrodla_po_dekrecie(world, client, clean_batches) -> None:
+    headers = _headers(world["accountant"])
+    early = await _vat23_expense(world, number="D/11/32", gross="12300.00")
+    party = await _supplier(world, account="201-2-912")
+    await _office_rule(client, headers, party)
+    await _to_verified(client, headers, [early])
+    assert (await _act(client, headers, [early], "ready")).status_code == 200
+
+    # Paczka powstała, potem źródło zmieniło brutto → zaksięgować nie wolno.
+    batch = await client.post(
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
+    )
+    assert batch.status_code == 201, batch.text
+    await _source_gross(early, "12177.00")
+    book = await client.post(
+        f"{POSTING}/batches/{batch.json()['id']}/book", headers=headers
+    )
+    assert book.status_code == 409
+    assert "D/11/32" in book.json()["detail"]
+    assert (await _entry_by_id(early)).stage == "ready"
+    cancel = await client.post(
+        f"{POSTING}/batches/{batch.json()['id']}/cancel", headers=headers
+    )
+    assert cancel.status_code == 200
+
+    # Po anulowaniu: wpis z wadą na liście, poza paczką.
+    preview = (
+        await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=headers)
+    ).json()
+    skipped = {item["id"]: item for item in preview["skipped"]}
+    assert skipped[early]["issues"] == [
+        "Kwoty faktury zmieniły się po dekrecie — Cofnij i przelicz."
+    ]
+    refused = await client.post(
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
+    )
+    assert refused.status_code == 409
+    assert "Paczka nie powstała" in refused.json()["detail"]
+    assert (await _entry_by_id(early)).batch_id is None
+
+
+async def test_paczka_pomija_faktury_z_wada_i_bierze_je_nastepnym_razem(
+    world, client, clean_batches
+) -> None:
+    headers = _headers(world["accountant"])
+    good = await _vat23_expense(world, number="D/11/33")
+    bad = await _vat23_expense(world, number="D/11/34")
+    party = await _supplier(world, account="201-2-913")
+    await _office_rule(client, headers, party)
+    await _to_verified(client, headers, [good, bad])
+    assert (await _act(client, headers, [good, bad], "ready")).json()["changed"] == 2
+    await _source_gross(bad, "124.00", vat="24.00")
+
+    preview = (
+        await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=headers)
+    ).json()
+    assert preview["can_export"] is True
+    assert [item["id"] for item in preview["skipped"]] == [bad]
+    batch = await client.post(
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
+    )
+    assert batch.status_code == 201, batch.text
+    assert good in batch.json()["entry_ids"] and bad not in batch.json()["entry_ids"]
+    assert [item["id"] for item in batch.json()["skipped"]] == [bad]
+    content = (
+        await client.get(
+            f"{POSTING}/batches/{batch.json()['id']}/file", headers=headers
+        )
+    ).content.decode("utf-8-sig")
+    assert "D/11/33" in content and "D/11/34" not in content
+    left = await _entry_by_id(bad)
+    assert (left.stage, left.batch_id) == ("ready", None)
+
+    # Naprawa (Cofnij → przelicz → Gotowa) i następna paczka bierze fakturę.
+    assert (await _act(client, headers, [bad], "back")).status_code == 200
+    assert (await _act(client, headers, [bad], "ready")).status_code == 200
+    second = await client.post(
+        f"{POSTING}/batches",
+        json={"month": MONTH, "format": "neutral_csv"},
+        headers=headers,
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["entry_ids"] == [bad]
+    assert second.json()["skipped"] == []
+
+
+async def test_waluta_obca_po_kursie_nbp_z_dnia_roboczego_przed_wystawieniem(
+    world, client
+) -> None:
+    headers = _headers(world["accountant"])
+    entry_id = await _expense(
+        world,
+        number="EU/11/1",
+        net="1000.00",
+        vat="230.00",
+        gross="1230.00",
+        currency="EUR",
+        issued="2026-11-04",
+    )
+    party = await _supplier(world, account="201-2-914")
+    await _office_rule(client, headers, party)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(FxRate).where(
+                FxRate.currency == "EUR", FxRate.effective_date == date(2026, 11, 3)
+            )
+        )
+        # Kurs z dnia wystawienia nie liczy się — tylko z dnia roboczego przed.
+        db.add(
+            FxRate(
+                currency="EUR",
+                effective_date=date(2026, 11, 4),
+                rate_to_pln=Decimal("9.9"),
+            )
+        )
+        await db.commit()
+    try:
+        await _to_verified(client, headers, [entry_id])
+        blocked = await _act(client, headers, [entry_id], "ready")
+        assert blocked.status_code == 409
+        assert "Brak kursu NBP EUR z dnia 03.11.2026" in blocked.json()["detail"]
+
+        async with AsyncSessionLocal() as db:
+            db.add(
+                FxRate(
+                    currency="EUR",
+                    effective_date=date(2026, 11, 3),
+                    rate_to_pln=Decimal("4.2512"),
+                )
+            )
+            await db.commit()
+        done = await _act(client, headers, [entry_id], "ready")
+        assert done.status_code == 200, done.text
+        card = (await client.get(f"{COSTS}/{entry_id}", headers=headers)).json()
+        decree = card["decree"]
+        assert (decree["currency"], decree["fx_rate"], decree["fx_date"]) == (
+            "EUR",
+            "4.2512",
+            "2026-11-03",
+        )
+        assert [(p["account"], p["amount"]) for p in decree["positions"]] == [
+            ("402-202", "4251.20"),
+            ("221", "977.78"),
+            ("201-2-914", "5228.98"),
+        ]
+        assert decree["issues"] == []
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FxRate).where(
+                    FxRate.currency == "EUR",
+                    FxRate.effective_date.in_([date(2026, 11, 3), date(2026, 11, 4)]),
+                )
+            )
+            await db.commit()
+
+
+async def test_pominiete_faktury_zespolu_tylko_dla_plac(world, client) -> None:
+    """D2 w liście pominiętych: osoba bez Płac nie widzi faktury zespołu z wadą."""
+
+    accountant = _headers(world["accountant"])
+    only = _headers(world["module_only"])
+    payroll_entry = await _entry("payroll_invoice", world["person_invoice"].id)
+    async with AsyncSessionLocal() as db:
+        party = FinanceCounterparty(
+            id_type="nip",
+            id_value=world["nips"]["person"],
+            name="Osoba Testowa",
+            cost_account="201-2-915",
+        )
+        db.add(party)
+        await db.flush()
+        db.add(
+            FinancePostingRule(
+                category="team",
+                counterparty_id=party.id,
+                cost_account="402-202",
+                vat_account="221",
+                deduction="full",
+                register="purchase",
+                doc_type="FVZ",
+                service_label="Usługi IT",
+                description_template="{usługa} {MM}/{RRRR}",
+            )
+        )
+        await db.execute(
+            update(FinanceCostEntry)
+            .where(FinanceCostEntry.id == payroll_entry.id)
+            .values(counterparty_id=party.id)
+        )
+        await db.commit()
+    await _to_verified(client, accountant, [payroll_entry.id])
+    assert (
+        await _act(client, accountant, [payroll_entry.id], "ready")
+    ).status_code == 200
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(PayrollInvoice)
+            .where(PayrollInvoice.id == world["person_invoice"].id)
+            .values(gross_amount=Decimal("12177.00"))
+        )
+        await db.commit()
+
+    seen = (
+        await client.get(
+            f"{POSTING}/export", params={"month": MONTH}, headers=accountant
+        )
+    ).json()
+    assert payroll_entry.id in [item["id"] for item in seen["skipped"]]
+    hidden = (
+        await client.get(f"{POSTING}/export", params={"month": MONTH}, headers=only)
+    ).json()
+    assert payroll_entry.id not in [item["id"] for item in hidden["skipped"]]

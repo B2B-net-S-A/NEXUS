@@ -319,7 +319,7 @@ async def create_batch(
 ) -> dict[str, Any]:
     await _open(db, current_user)
     try:
-        batch = await posting_export.create_batch(
+        batch, skipped = await posting_export.create_batch(
             db,
             _month(body.month),
             body.format,
@@ -328,6 +328,7 @@ async def create_batch(
             payroll=is_payroll(current_user),
         )
         payload = await posting_export.batch_payload(db, batch)
+        payload["skipped"] = skipped
     except costs.LedgerError as exc:
         await db.rollback()
         raise _fail(exc) from exc
