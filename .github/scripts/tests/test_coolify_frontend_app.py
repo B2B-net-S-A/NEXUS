@@ -281,32 +281,6 @@ def switch_api(domains=DOMAINS, raw=COMPOSE_RAW, fqdn=""):
     return request, calls
 
 
-class RetryLabelTests(unittest.TestCase):
-    def test_every_router_gets_retry_first_in_its_chain(self):
-        labels = frontend_app.with_retry(COOLIFY_LABELS)
-        self.assertIn("traefik.http.routers.https-0-x.middlewares=nexus-front-retry,gzip-sse", labels)
-        self.assertIn("traefik.http.routers.http-0-x.middlewares=nexus-front-retry,redirect-to-https", labels)
-        self.assertIn("traefik.http.routers.https-1-x.middlewares=nexus-front-retry", labels)
-        self.assertIn("traefik.http.middlewares.nexus-front-retry.retry.attempts=3", labels)
-        self.assertIn("traefik.http.middlewares.nexus-front-retry.retry.initialinterval=100ms", labels)
-        self.assertEqual(len([line for line in labels if ".middlewares=" in line and ".routers." in line]), 3)
-
-    def test_applying_twice_changes_nothing(self):
-        once = frontend_app.with_retry(COOLIFY_LABELS)
-        self.assertEqual(frontend_app.with_retry(once), once)
-
-    def test_labels_without_routers_stop_the_switch(self):
-        with self.assertRaises(ValueError):
-            frontend_app.with_retry(["traefik.enable=true"])
-
-    def test_labels_are_read_plain_or_base64(self):
-        plain = "\n".join(COOLIFY_LABELS)
-        encoded = base64.b64encode(plain.encode()).decode()
-        self.assertEqual(frontend_app.decode_labels(plain), COOLIFY_LABELS)
-        self.assertEqual(frontend_app.decode_labels(encoded), COOLIFY_LABELS)
-        self.assertEqual(frontend_app.decode_labels(None), [])
-
-
 class SwitchTests(unittest.TestCase):
     def run_switch(self, request):
         with contextlib.redirect_stdout(io.StringIO()) as out:
@@ -335,7 +309,7 @@ class SwitchTests(unittest.TestCase):
         self.assertEqual(labels_patch["rolling_update_drain_seconds"], 10)
         self.assertEqual(labels_patch["stop_grace_period"], 30)
         written = base64.b64decode(labels_patch["custom_labels"]).decode().splitlines()
-        self.assertEqual(written, frontend_app.with_retry(COOLIFY_LABELS))
+        self.assertEqual(written, frontend_app.with_retry(COOLIFY_LABELS, "nexus-front-retry"))
         labelled = calls.index(("PATCH", "applications/x", labels_patch))
         self.assertLess(labelled, next(i for i, c in enumerate(calls) if c[1].startswith("deploy?")))
         rolled = next(i for i, c in enumerate(calls) if c[1].startswith("deploy?"))

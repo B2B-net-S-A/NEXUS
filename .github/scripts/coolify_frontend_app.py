@@ -21,8 +21,6 @@ ani ciała odpowiedzi API.
 
 from __future__ import annotations
 
-import base64
-import binascii
 import json
 import os
 import re
@@ -30,7 +28,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from coolify_labels import SHUTDOWN_SETTINGS, decode_labels, encode_labels, with_retry  # noqa: E402
 
 APP_NAME = "nexus-frontend"
 BRANCH = "main"
@@ -40,19 +42,8 @@ MODES = {"plan", "create", "deploy", "switch", "rollback", "stop", "trigger", "w
 REDIRECTS = {"www", "non-www", "both"}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 UUID_RE = re.compile(r"[A-Za-z0-9_-]+")
-# Zero błędów przy podmianie kontenera (cel Artura 13.11): Traefik ponawia żądanie,
-# gdy połączenie z kontenerem padło przed odpowiedzią (stary po SIGTERM zamyka
-# gniazdo, a jeszcze jest w puli). Next standalone kończy żądania w toku przed
-# wyjściem (`server.close()` w `start-server.js`), Coolify czeka `drain` sekund
-# na przejęcie ruchu przez nowy kontener, potem `docker stop` z `grace`.
+# Retry Traefika i łagodne wyłączanie: .github/scripts/coolify_labels.py
 RETRY_MIDDLEWARE = "nexus-front-retry"
-RETRY_LABELS = (
-    f"traefik.http.middlewares.{RETRY_MIDDLEWARE}.retry.attempts=3",
-    f"traefik.http.middlewares.{RETRY_MIDDLEWARE}.retry.initialinterval=100ms",
-)
-SHUTDOWN_SETTINGS = {"rolling_update_drain_seconds": 10, "stop_grace_period": 30}
-ROUTER_RULE_RE = re.compile(r"traefik\.http\.routers\.([^.=]+)\.rule=")
-ROUTER_MIDDLEWARES_RE = re.compile(r"traefik\.http\.routers\.([^.=]+)\.middlewares=(.*)")
 
 # Tylko to, co czyta front: `grep process.env frontend/` i ARG-i w frontend/Dockerfile.
 # Dziś kontener frontu dostaje cały skarbiec (ok. 200 zmiennych, także klucze API).
@@ -329,37 +320,6 @@ def domain_rows(domains: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
     return rows
 
 
-def decode_labels(raw: Any) -> list[str]:
-    """`custom_labels` z API: Coolify trzyma je raz jawnie, raz w base64."""
-    text = str(raw or "")
-    try:
-        decoded = base64.b64decode(text, validate=True).decode("utf-8")
-        if "traefik." in decoded:
-            text = decoded
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        pass
-    return [line for line in text.splitlines() if line.strip()]
-
-
-def with_retry(labels: list[str]) -> list[str]:
-    """Etykiety wygenerowane przez Coolify + retry na początku łańcucha każdego routera."""
-    routers = list(dict.fromkeys(m.group(1) for m in map(ROUTER_RULE_RE.match, labels) if m))
-    if not routers:
-        raise ValueError("etykiety aplikacji frontu nie mają routerów — domeny nie zapisane?")
-    out, chained = [], set()
-    for line in labels:
-        match = ROUTER_MIDDLEWARES_RE.fullmatch(line)
-        if match:
-            chained.add(match.group(1))
-            names = [name for name in match.group(2).split(",") if name]
-            if RETRY_MIDDLEWARE not in names:
-                names.insert(0, RETRY_MIDDLEWARE)
-            line = f"traefik.http.routers.{match.group(1)}.middlewares={','.join(names)}"
-        out.append(line)
-    out += [f"traefik.http.routers.{r}.middlewares={RETRY_MIDDLEWARE}" for r in routers if r not in chained]
-    return out + [label for label in RETRY_LABELS if label not in out]
-
-
 def set_domains(request: Request, app_uuid: str, domains: str, redirect: Any) -> None:
     """Domeny + etykiety z retry; dalej etykiety trzyma aplikacja, nie Coolify.
 
@@ -376,12 +336,14 @@ def set_domains(request: Request, app_uuid: str, domains: str, redirect: Any) ->
     if redirect in REDIRECTS:
         payload["redirect"] = redirect
     request("PATCH", path, payload)
-    labels = with_retry(decode_labels((request("GET", path) or {}).get("custom_labels")))
+    labels = with_retry(
+        decode_labels((request("GET", path) or {}).get("custom_labels")), RETRY_MIDDLEWARE
+    )
     request(
         "PATCH",
         path,
         {
-            "custom_labels": base64.b64encode("\n".join(labels).encode("utf-8")).decode("ascii"),
+            "custom_labels": encode_labels(labels),
             "is_container_label_readonly_enabled": False,
             **SHUTDOWN_SETTINGS,
         },

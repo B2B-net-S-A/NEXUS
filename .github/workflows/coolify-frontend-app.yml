@@ -38,7 +38,9 @@ jobs:
         with:
           sparse-checkout: .github/scripts
       - name: Verify output redaction
-        run: python3 -m unittest discover -s .github/scripts/tests -p test_coolify_frontend_app.py
+        run: |
+          python3 -m unittest discover -s .github/scripts/tests -p test_coolify_frontend_app.py
+          python3 -m unittest discover -s .github/scripts/tests -p test_coolify_labels.py
       - name: Run
         env:
           CO_URL: ${{ secrets.COOLIFY_URL }}
