@@ -664,7 +664,7 @@ async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None
 
 
 async def _ledger_entry(run: _Run, ksef_number: str) -> None:
-    """Wpis w kolejce kosztów Finansów dla właśnie zapisanej faktury (0696).
+    """Wpis w kolejce kosztów Finansów dla właśnie zapisanej faktury (0695).
 
     Awaria nie cofa zapisu faktury: wpis dołoży ``_ledger_catch_up`` na końcu
     przebiegu albo entrypoint przy starcie.

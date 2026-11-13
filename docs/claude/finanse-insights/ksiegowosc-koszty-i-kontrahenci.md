@@ -1,4 +1,4 @@
-# Księgowość w Finansach: Koszty i Kontrahenci (E0, E1, 0696, 13.11.2026)
+# Księgowość w Finansach: Koszty i Kontrahenci (E0, E1, 0695, 13.11.2026)
 
 Firma wymienia eBI24 (obieg faktur) na NEXUS. Ten etap to kartoteka
 kontrahentów z kontami Symfonii (E0) i jedna kolejka faktur kosztowych ze
