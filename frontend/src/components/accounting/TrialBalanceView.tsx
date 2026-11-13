@@ -9,7 +9,7 @@ import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/li
 import { cn } from "@/lib/utils";
 
 import { useAccounting } from "./AccountingShell";
-import { MONTHS_PL, datePl, findPeriod, gr } from "./ledger-model";
+import { MONTHS_PL, analyticsLabel, datePl, findPeriod, gr } from "./ledger-model";
 
 const CLASS_NAMES: Record<string, string> = {
   "0": "Aktywa trwałe",
@@ -30,6 +30,7 @@ function Amount({ value }: { value: number }) {
 }
 
 type Scope = "month" | "ytd" | "year";
+type AmountKey = "bo_wn" | "bo_ma" | "wn" | "ma" | "saldo_wn" | "saldo_ma";
 
 export function TrialBalanceView() {
   const { config, period } = useAccounting();
@@ -58,6 +59,10 @@ export function TrialBalanceView() {
     );
   }
   const data = trial.data;
+  const compact = account != null;
+  const keys: readonly AmountKey[] = compact
+    ? ["wn", "ma", "saldo_wn", "saldo_ma"]
+    : ["bo_wn", "bo_ma", "wn", "ma", "saldo_wn", "saldo_ma"];
   const range =
     from === to ? MONTHS_PL[from - 1] : `${MONTHS_PL[from - 1]}–${MONTHS_PL[to - 1]}`;
 
@@ -98,29 +103,29 @@ export function TrialBalanceView() {
             </div>
           ) : data ? (
             <div className="overflow-x-auto rounded-lg border border-border bg-card">
-              <table className="w-full min-w-[760px] table-fixed text-sm">
+              {/* Przy otwartej karcie konta bez kolumn BO — saldo zostaje na ekranie 1280 px. */}
+              <table className={cn("w-full table-fixed text-sm", compact ? "min-w-[540px]" : "min-w-[760px]")}>
                 <colgroup>
-                  <col className="w-[13%]" />
+                  <col className={compact ? "w-[16%]" : "w-[13%]"} />
                   <col />
-                  <col className="w-[11%]" />
-                  <col className="w-[11%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[12%]" />
+                  {keys.map((key) => (
+                    <col key={key} className={compact ? "w-[17%]" : key.startsWith("bo_") ? "w-[11%]" : "w-[12%]"} />
+                  ))}
                 </colgroup>
                 <thead>
                   <tr className="border-b border-border/70">
                     <th className={cn(CALM_HEAD, "px-3 py-2 text-left")} rowSpan={2}>Konto</th>
                     <th className={cn(CALM_HEAD, "px-2 py-2 text-left")} rowSpan={2}>Nazwa</th>
-                    <th className={cn(CALM_HEAD, "px-2 pt-2 text-center")} colSpan={2}>Bilans otwarcia</th>
+                    {compact ? null : (
+                      <th className={cn(CALM_HEAD, "px-2 pt-2 text-center")} colSpan={2}>Bilans otwarcia</th>
+                    )}
                     <th className={cn(CALM_HEAD, "px-2 pt-2 text-center")} colSpan={2}>Obroty: {range}</th>
                     <th className={cn(CALM_HEAD, "px-3 pt-2 text-center")} colSpan={2}>Saldo, zł</th>
                   </tr>
                   <tr className="border-b border-border/70">
-                    {["Wn", "Ma", "Wn", "Ma", "Wn", "Ma"].map((label, index) => (
-                      <th key={index} className={cn(CALM_HEAD, "px-2 pb-1.5 text-right", index === 5 && "pr-3")}>
-                        {label}
+                    {keys.map((key, index) => (
+                      <th key={key} className={cn(CALM_HEAD, "px-2 pb-1.5 text-right", index === keys.length - 1 && "pr-3")}>
+                        {key.endsWith("_wn") || key === "wn" ? "Wn" : "Ma"}
                       </th>
                     ))}
                   </tr>
@@ -134,8 +139,16 @@ export function TrialBalanceView() {
                           <td className="px-3 py-1.5 text-[12px] font-semibold" colSpan={2}>
                             Zespół {cls} · {CLASS_NAMES[cls] ?? "Inne"}
                           </td>
-                          {(["bo_wn", "bo_ma", "wn", "ma", "saldo_wn", "saldo_ma"] as const).map((key, index) => (
-                            <td key={key} className={cn(CALM_AMOUNT, "px-2 py-1.5 text-[12px]", index === 5 && "pr-3", index > 1 && index < 4 && "font-semibold")}>
+                          {keys.map((key, index) => (
+                            <td
+                              key={key}
+                              className={cn(
+                                CALM_AMOUNT,
+                                "px-2 py-1.5 text-[12px]",
+                                index === keys.length - 1 && "pr-3",
+                                (key === "wn" || key === "ma") && "font-semibold",
+                              )}
+                            >
                               <Amount value={sum(key)} />
                             </td>
                           ))}
@@ -149,14 +162,13 @@ export function TrialBalanceView() {
                             <td className="px-3 py-1.5 font-medium tabular-nums text-primary">{row.account}</td>
                             <td className="min-w-0 px-2 py-1.5">
                               <span className="block truncate">{row.name}</span>
-                              {row.analytics ? <span className={CALM_SUBLINE}>{row.analytics} kont analitycznych</span> : null}
+                              {row.analytics ? <span className={CALM_SUBLINE}>{analyticsLabel(row.analytics)}</span> : null}
                             </td>
-                            <td className={cn(CALM_AMOUNT, "px-2 py-1.5")}><Amount value={row.bo_wn} /></td>
-                            <td className={cn(CALM_AMOUNT, "px-2 py-1.5")}><Amount value={row.bo_ma} /></td>
-                            <td className={cn(CALM_AMOUNT, "px-2 py-1.5")}><Amount value={row.wn} /></td>
-                            <td className={cn(CALM_AMOUNT, "px-2 py-1.5")}><Amount value={row.ma} /></td>
-                            <td className={cn(CALM_AMOUNT, "px-2 py-1.5")}><Amount value={row.saldo_wn} /></td>
-                            <td className={cn(CALM_AMOUNT, "px-3 py-1.5")}><Amount value={row.saldo_ma} /></td>
+                            {keys.map((key, index) => (
+                              <td key={key} className={cn(CALM_AMOUNT, "px-2 py-1.5", index === keys.length - 1 && "pr-3")}>
+                                <Amount value={row[key]} />
+                              </td>
+                            ))}
                           </tr>
                         ))}
                       </Fragment>
@@ -166,8 +178,8 @@ export function TrialBalanceView() {
                 <tfoot>
                   <tr className="border-t-2 border-border">
                     <td className="px-3 py-2 font-semibold" colSpan={2}>Razem</td>
-                    {(["bo_wn", "bo_ma", "wn", "ma", "saldo_wn", "saldo_ma"] as const).map((key, index) => (
-                      <td key={key} className={cn(CALM_AMOUNT, "px-2 py-2 font-semibold", index === 5 && "pr-3")}>
+                    {keys.map((key, index) => (
+                      <td key={key} className={cn(CALM_AMOUNT, "px-2 py-2 font-semibold", index === keys.length - 1 && "pr-3")}>
                         {gr(data.totals[key])}
                       </td>
                     ))}

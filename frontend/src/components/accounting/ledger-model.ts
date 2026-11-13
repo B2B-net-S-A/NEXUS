@@ -182,3 +182,12 @@ export function visibleTabs(config: LedgerConfig | undefined): AreaTab[] {
   const open = new Set(config.modules.filter((item) => item.open).map((item) => item.key));
   return ACCOUNTING_TABS.filter((tab) => tab.module === null || open.has(tab.module));
 }
+
+/** „1 konto analityczne”, „3 konta analityczne”, „5 kont analitycznych”. */
+export function analyticsLabel(count: number): string {
+  const lastTwo = count % 100;
+  const last = count % 10;
+  if (count === 1) return "1 konto analityczne";
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return `${count} konta analityczne`;
+  return `${count} kont analitycznych`;
+}

@@ -70,14 +70,19 @@ export function DocumentForm({
     editing ? fromCard(editing) : [newLine("debit"), newLine("credit")],
   );
   const check = useMemo(() => checkDraft(lines), [lines]);
+  // Problemy pokazujemy dopiero po pierwszej zmianie pozycji — pusty formularz
+  // nie świeci na czerwono, zanim ktoś cokolwiek wpisze.
+  const [touched, setTouched] = useState(Boolean(editing));
   const postable = useMemo(
     () => (chart.data ?? []).filter((account) => account.active && (account.postable || account.dictionary)),
     [chart.data],
   );
   const saving = create.isPending || update.isPending;
 
-  const patch = (key: string, changes: Partial<DraftLine>) =>
+  const patch = (key: string, changes: Partial<DraftLine>) => {
+    setTouched(true);
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...changes } : line)));
+  };
 
   const submit = () => {
     if (check.problems.length) return;
@@ -232,7 +237,7 @@ export function DocumentForm({
               </span>
             </div>
           </div>
-          {check.problems.length ? (
+          {touched && check.problems.length ? (
             <p role="status" className="text-[12.5px] text-destructive">
               {check.problems[0]}
             </p>

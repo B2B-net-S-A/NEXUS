@@ -475,6 +475,14 @@ async def approve(
     return {"approved": approved, "refused": refused}
 
 
+def _document_label(doc: LedgerDocument) -> str:
+    """„PK 2/10/2026” albo „FVZ FV/12/2026” — typ raz, nawet gdy jest w numerze."""
+
+    if doc.number.upper().startswith(f"{doc.doc_type} "):
+        return doc.number
+    return f"{doc.doc_type} {doc.number}"
+
+
 async def reverse(
     db: AsyncSession,
     doc_id: int,
@@ -517,7 +525,7 @@ async def reverse(
         op_date=day,
         doc_date=day,
         description=engine.clean_description(
-            f"Storno {original.doc_type} {original.number}: {reason}"
+            f"Storno {_document_label(original)}: {reason}"
         ),
         counterparty_id=original.counterparty_id,
         currency=original.currency,

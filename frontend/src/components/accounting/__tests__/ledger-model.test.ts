@@ -4,6 +4,7 @@ import type { LedgerConfig } from "@/lib/api/accounting";
 
 import {
   activeTab,
+  analyticsLabel,
   checkDraft,
   findPeriod,
   gr,
@@ -164,5 +165,15 @@ describe("zakładki i okres", () => {
     expect(findPeriod(CONFIG, { year: 2026, month: 10 }).period?.drafts).toBe(1);
     expect(findPeriod(CONFIG, { year: 2026, month: 9 }).period).toBeNull();
     expect(findPeriod(CONFIG, { year: 2027, month: 1 }).year).toBeNull();
+  });
+});
+
+describe("odmiana", () => {
+  it("odmienia konta analityczne", () => {
+    expect(analyticsLabel(1)).toBe("1 konto analityczne");
+    expect(analyticsLabel(3)).toBe("3 konta analityczne");
+    expect(analyticsLabel(5)).toBe("5 kont analitycznych");
+    expect(analyticsLabel(12)).toBe("12 kont analitycznych");
+    expect(analyticsLabel(22)).toBe("22 konta analityczne");
   });
 });
