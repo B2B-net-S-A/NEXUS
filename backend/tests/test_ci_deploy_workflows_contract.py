@@ -269,7 +269,7 @@ def test_frontend_app_deploys_inside_the_probe_window_from_the_compose_commit() 
 
     Wyzwalany po compose (z commitu, który compose ustalił) i przed smoke'iem
     `version.json`, więc sonda mierzy jego rolling update, a raport wie, że front
-    to osobna aplikacja (cel ≤ 2 s).
+    to osobna aplikacja (cel: 0 próbek bez 200).
     """
     steps = _load("deploy.yml")["jobs"]["deploy"]["steps"]
     names = [s.get("name") for s in steps]

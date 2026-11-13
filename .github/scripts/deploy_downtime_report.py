@@ -16,7 +16,8 @@ webhookiem i po smoke teście).
 
 Od etapu B1 (11.2026) front jest osobną aplikacją Coolify z rolling update,
 wdrażaną w tym samym biegu (``--frontend-app true``). Raport mówi wtedy, który
-mechanizm zmierzył, i ostrzega, gdy front przekroczy cel 2 s.
+mechanizm zmierzył, i ostrzega przy każdej próbce frontu bez 200: odbiór etapu to
+zero błędów widocznych dla ludzi (cel Artura z 13.11), nie krótka przerwa.
 """
 
 from __future__ import annotations
@@ -30,8 +31,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 TARGETS = ("frontend", "api")
-# Cel etapu B1: rolling update frontu = przerwa nie dłuższa niż jedna próbka sondy.
-FRONTEND_APP_TARGET_SECONDS = 2
+# Cel etapu B1: rolling update frontu z retry Traefika = żadna próbka bez 200.
+FRONTEND_APP_MAX_BAD_SAMPLES = 0
 _NO_VALUE = {"", "null", "none", "missing", "unknown"}
 
 
@@ -133,7 +134,7 @@ def render_summary(
         "",
         (
             "Front: osobna aplikacja Coolify `nexus-frontend` (rolling update), "
-            f"cel ≤ {FRONTEND_APP_TARGET_SECONDS} s."
+            f"cel: {FRONTEND_APP_MAX_BAD_SAMPLES} próbek bez 200."
             if frontend_app
             else "Front: usługa w compose (zatrzymywana razem z resztą)."
         ),
@@ -160,10 +161,10 @@ def render_notices(
             f"(próbki bez 200: {r.bad_samples}/{r.samples}, kody: {codes})"
         )
     front = next((r for r in results if r.target == "frontend"), None)
-    if frontend_app and front and front.longest_seconds > FRONTEND_APP_TARGET_SECONDS:
+    if frontend_app and front and front.bad_samples > FRONTEND_APP_MAX_BAD_SAMPLES:
         notices.append(
-            f"::warning title=Front ponad cel::nexus-frontend: {front.longest_seconds} s przerwy "
-            f"przy rolling update (cel ≤ {FRONTEND_APP_TARGET_SECONDS} s)"
+            f"::warning title=Front ponad cel::nexus-frontend: {front.bad_samples} próbek bez 200, "
+            f"najdłużej {front.longest_seconds} s (cel: {FRONTEND_APP_MAX_BAD_SAMPLES} próbek)"
         )
     notices.append(f"::notice title=Postgres::Postgres restartował: {POSTGRES_LABELS[postgres]}")
     return notices
