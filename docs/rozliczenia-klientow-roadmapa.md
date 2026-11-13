@@ -433,7 +433,7 @@ krokach E6.
     przyjmujemy do NEXUS-a; panel nie pokazuje jazdy własnym autem.
   - Orlen, CeZ: czekają na odpowiedzi z E0.3.
 - E6.4 Nordea (293 osoby): plan N1–N4 i stan w `docs/rozliczenia-nordea-plan.md`.
-  N1 (13.11, osobny PR z migracją 0690): kartoteka numerów osób i NIDS z faktur
+  N1 (13.11, osobny PR z migracją 0689): kartoteka numerów osób i NIDS z faktur
   do klienta w KSeF, wersje raportu T4T, status osoby w miesiącu (raport ×
   faktura kontraktora, godziny = netto ÷ stawka), ekran „Raport klienta (T4T)”
   za regułą `report.time_for_teams`.
