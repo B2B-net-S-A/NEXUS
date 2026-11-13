@@ -23,6 +23,12 @@
   --color-destructive-muted-foreground: hsl(
     var(--destructive-muted-foreground)
   );
+  /* Czerwony TEKST ma własny token (13.11.2026). Tailwind 4 szuka koloru
+     `text-*` najpierw w `--text-color-*`, a dopiero potem w `--color-*`, więc
+     `text-destructive` bierze `--destructive-text`, a tło i ramka
+     (`bg-destructive`, `border-destructive`) zostają na `--destructive`.
+     Wartości i powód są przy `--destructive-text` w `:root` i `.dark`. */
+  --text-color-destructive: hsl(var(--destructive-text));
 
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
@@ -248,6 +254,7 @@
     --accent-foreground: 222 20% 20%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
+    --destructive-text: var(--destructive);  /* `text-destructive` — w jasnym bez zmian */
     --border: 220 16% 90%;
     --input: 220 16% 90%;
     --ring: 243 75% 56%;
@@ -312,6 +319,11 @@
     --accent-foreground: 210 20% 96%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 0 0% 98%;
+    /* `--destructive` to tło przycisku pod jasny napis; jako tekst na karcie
+       dawało ≈ 1,8:1 („P0 · minęło …”, komunikaty błędów). Czerwony tekst
+       bierze jasną czerwień plakietek: na karcie ≈ 7,4:1, na tle
+       `--destructive-muted` ≈ 5,9:1 (AA). Ciemny „Tryb gry” dostaje swoją. */
+    --destructive-text: var(--destructive-muted-foreground);
     --border: 222 16% 17%;
     --input: 222 16% 17%;
     --ring: 243 76% 60%;
