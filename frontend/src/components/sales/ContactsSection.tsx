@@ -75,7 +75,7 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
   };
 
   return (
-    <Card className="space-y-3 p-4">
+    <Card className="space-y-3 p-4" data-tour="sales.company.contacts">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-foreground">Kontakty w firmie</h2>
         {canEdit && !adding && (

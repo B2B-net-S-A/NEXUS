@@ -1,5 +1,20 @@
 [
   {
+    "id": "sprzedaz-kontakty-jedna-lista",
+    "pr": 3372,
+    "title": "Karta firmy: Kontakty to jedna lista osób",
+    "why": "Osoby, które znajdą bot Kontakty i Cognism, są od razu w Kontaktach karty. Nowsze stanowisko ze źródła zastępuje stare, a kto odszedł z firmy, stoi na końcu jako „nie pracuje”. Stan cofasz w oknie kontaktu, a skąd przyszła zmiana, widać w Aktywnościach.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy → Kontakty",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.contacts",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
     "id": "sprzedaz-leady-teczka",
     "pr": 3363,
     "title": "Leady: teczka firmy przy leadzie",
