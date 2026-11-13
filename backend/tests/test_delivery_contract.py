@@ -93,6 +93,18 @@ def test_backend_healthcheck_start_period_covers_a_heavy_migration() -> None:
     )
 
 
+def test_compose_joins_the_frontend_app_network() -> None:
+    """Front jako osobna aplikacja Coolify woła `http://backend:8000` (etap B1).
+
+    Aplikacja z Dockerfile stoi wyłącznie w sieci swojego destination
+    (`nexus-front`). Bez tej sieci w compose SSR i logowanie Microsoft
+    (`/auth/microsoft/callback`) nie dochodzą do backendu.
+    """
+    compose = yaml.safe_load(_COMPOSE.read_text(encoding="utf-8"))
+    network = (compose.get("networks") or {}).get("nexus-front") or {}
+    assert network.get("external") is True and network.get("name") == "nexus-front"
+
+
 def test_frontend_does_not_wait_for_the_backend_to_become_healthy() -> None:
     """Frontend odtwarza się niezależnie od backendu (reaudyt 14.09.2026).
 

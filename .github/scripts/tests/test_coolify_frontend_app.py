@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import importlib.util
 import io
@@ -179,6 +180,34 @@ class DeployTests(unittest.TestCase):
             frontend_app.deploy(request, SHA, poll_seconds=0, health_polls=2)
         return out.getvalue()
 
+    def test_deploy_pins_the_commit_before_queueing(self):
+        calls = []
+        api = deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG})
+
+        def request(method, path, payload=None):
+            calls.append((method, path, payload))
+            return api(method, path, payload)
+
+        self.run_deploy(request)
+        pin = calls.index(("PATCH", "applications/x", {"git_commit_sha": SHA}))
+        queued = next(i for i, c in enumerate(calls) if c[1].startswith("deploy?"))
+        self.assertLess(pin, queued)
+
+    def test_trigger_refuses_anything_but_a_full_sha(self):
+        for commit in ["", "HEAD", SHA[:7], SHA + "; rm -rf /"]:
+            with self.subTest(commit=commit), self.assertRaises(ValueError):
+                frontend_app.trigger(deploy_api({}), commit)
+
+    def test_compose_commit_waits_until_coolify_resolves_head(self):
+        answers = iter([{"status": "queued", "commit": "HEAD"}, {"status": "in_progress", "commit": SHA}])
+        self.assertEqual(
+            frontend_app.compose_commit(lambda *a, **k: next(answers), "c", poll_seconds=0), SHA
+        )
+
+    def test_compose_failure_leaves_front_alone(self):
+        with self.assertRaises(ValueError):
+            frontend_app.compose_commit(lambda *a, **k: {"status": "failed", "commit": "HEAD"}, "c", poll_seconds=0)
+
     def test_healthy_container_with_matching_build_passes_without_leaking_logs(self):
         out = self.run_deploy(deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG}))
         self.assertIn("running:healthy", out)
@@ -209,7 +238,199 @@ class DeployTests(unittest.TestCase):
 
         with contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaises(ValueError):
-                frontend_app.deploy(request, poll_seconds=0)
+                frontend_app.deploy(request, SHA, poll_seconds=0)
+
+
+COMPOSE_RAW_NO_NETWORK = "services:\n  postgres:\n    image: x\n  backend:\n    build: .\n"
+COMPOSE_RAW = COMPOSE_RAW_NO_NETWORK + "\nnetworks:\n  nexus-front:\n    external: true\n    name: nexus-front\n"
+DOMAINS = (
+    '{"backend": {"domain": "https://api.example.pl"},'
+    ' "frontend": {"domain": "https://app.example.pl,https://kariera.example.pl", "redirect": "non-www"}}'
+)
+
+
+# Wycinek etykiet, które Coolify 4.5.3 generuje dla aplikacji z domeną (fqdnLabelsForTraefik).
+COOLIFY_LABELS = [
+    "traefik.enable=true",
+    "traefik.http.middlewares.gzip-sse.compress=true",
+    "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https",
+    "traefik.http.routers.http-0-x.entryPoints=http",
+    "traefik.http.routers.http-0-x.middlewares=redirect-to-https",
+    "traefik.http.routers.http-0-x.rule=Host(`app.example.pl`) && PathPrefix(`/`)",
+    "traefik.http.routers.https-0-x.entryPoints=https",
+    "traefik.http.routers.https-0-x.middlewares=gzip-sse",
+    "traefik.http.routers.https-0-x.rule=Host(`app.example.pl`) && PathPrefix(`/`)",
+    "traefik.http.routers.https-0-x.tls=true",
+    "traefik.http.routers.https-1-x.rule=Host(`kariera.example.pl`) && PathPrefix(`/`)",
+    "traefik.http.routers.https-1-x.tls=true",
+]
+
+
+def switch_api(domains=DOMAINS, raw=COMPOSE_RAW, fqdn=""):
+    calls = []
+    deploy = deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG})
+    labels = base64.b64encode("\n".join(COOLIFY_LABELS).encode()).decode()
+
+    def request(method, path, payload=None):
+        calls.append((method, path, payload))
+        if path == "applications/src":
+            return {"docker_compose_domains": domains, "docker_compose_raw": raw}
+        if path == "applications/x" and method == "GET":
+            return {"status": "running:healthy", "fqdn": fqdn, "redirect": "non-www", "custom_labels": labels}
+        return deploy(method, path, payload)
+
+    return request, calls
+
+
+class SwitchTests(unittest.TestCase):
+    def run_switch(self, request):
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            frontend_app.switch(request, "src", SHA, poll_seconds=0, health_polls=2)
+        return out.getvalue()
+
+    def test_new_app_serves_the_domains_before_compose_lets_go(self):
+        request, calls = switch_api()
+        out = self.run_switch(request)
+        patches = [(c[1], c[2]) for c in calls if c[0] == "PATCH"]
+        self.assertEqual(
+            patches[0],
+            (
+                "applications/x",
+                {
+                    "domains": "https://app.example.pl,https://kariera.example.pl",
+                    "force_domain_override": True,
+                    "is_container_label_readonly_enabled": True,
+                    "redirect": "non-www",
+                },
+            ),
+        )
+        path, labels_patch = patches[1]
+        self.assertEqual(path, "applications/x")
+        self.assertIs(labels_patch["is_container_label_readonly_enabled"], False)
+        self.assertEqual(labels_patch["rolling_update_drain_seconds"], 10)
+        self.assertEqual(labels_patch["stop_grace_period"], 30)
+        written = base64.b64decode(labels_patch["custom_labels"]).decode().splitlines()
+        self.assertEqual(written, frontend_app.with_retry(COOLIFY_LABELS, "nexus-front-retry"))
+        labelled = calls.index(("PATCH", "applications/x", labels_patch))
+        self.assertLess(labelled, next(i for i, c in enumerate(calls) if c[1].startswith("deploy?")))
+        rolled = next(i for i, c in enumerate(calls) if c[1].startswith("deploy?"))
+        released = calls.index(
+            (
+                "PATCH",
+                "applications/src",
+                {"docker_compose_domains": [{"name": "backend", "domain": "https://api.example.pl"}]},
+            )
+        )
+        self.assertLess(rolled, released, "compose oddaje domeny dopiero po zdrowym wdrożeniu frontu")
+        self.assertIn("przeniesiono domen frontu: 2", out)
+        self.assertNotIn("app.example.pl", out)
+
+    def test_unhealthy_front_keeps_domains_in_compose(self):
+        request, calls = switch_api()
+        deploy = deploy_api({"status": "failed"})
+
+        def failing(method, path, payload=None):
+            if path.startswith("deploy?") or path.startswith("deployments/"):
+                return deploy(method, path, payload)
+            return request(method, path, payload)
+
+        with self.assertRaises(ValueError):
+            self.run_switch(failing)
+        self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] == "PATCH"])
+
+    def test_switch_before_compose_joins_the_network_is_refused(self):
+        # Healthcheck frontu (`wget /`) nie sprawdza backendu, więc bez tej odmowy ruch
+        # trafiłby na front, który nie widzi `backend:8000` (logowanie Microsoft, SSR).
+        request, calls = switch_api(raw=COMPOSE_RAW_NO_NETWORK)
+        with self.assertRaises(ValueError):
+            self.run_switch(request)
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+
+    def test_switch_twice_is_refused(self):
+        request, calls = switch_api(domains='{"backend": {"domain": "https://api.example.pl"}}')
+        with self.assertRaises(ValueError):
+            self.run_switch(request)
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+
+
+def preflight_api(networks=("nexus-front",), apps=None, fqdn="", domains=DOMAINS):
+    def request(method, path, payload=None):
+        assert method == "GET", "preflight tylko czyta"
+        if path == "applications/src":
+            return {"destination": {"server": {"uuid": "srv"}}, "docker_compose_domains": domains}
+        if path == "servers/srv/destinations":
+            return [{"uuid": "d-" + n, "network": n} for n in ("coolify", *networks)]
+        if path == "applications":
+            return apps if apps is not None else [{"name": frontend_app.APP_NAME, "uuid": "x"}]
+        if path == "applications/x":
+            return {"fqdn": fqdn}
+        raise AssertionError(path)
+
+    return request
+
+
+BACKEND_ONLY = '{"backend": {"domain": "https://api.example.pl"}}'
+
+
+class PreflightTests(unittest.TestCase):
+    def check(self, request, required):
+        with contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.preflight(request, "src", required)
+
+    def test_missing_network_stops_deploy_before_compose(self):
+        with self.assertRaises(ValueError):
+            self.check(preflight_api(networks=()), False)
+
+    def test_network_is_enough_before_the_switch(self):
+        self.check(preflight_api(), False)
+
+    def test_after_cutover_front_must_own_the_domains(self):
+        cases = [
+            preflight_api(fqdn="", domains=BACKEND_ONLY),  # aplikacja bez domen → 404
+            preflight_api(fqdn="https://app.example.pl", domains=DOMAINS),  # switch nie zrobiony
+            preflight_api(apps=[], domains=BACKEND_ONLY),  # brak aplikacji
+        ]
+        for request in cases:
+            with self.subTest(), self.assertRaises(ValueError):
+                self.check(request, True)
+        self.check(preflight_api(fqdn="https://app.example.pl", domains=BACKEND_ONLY), True)
+
+
+class DeployTargetTests(unittest.TestCase):
+    def test_front_without_domains_is_left_to_compose(self):
+        self.assertIsNone(frontend_app.deploy_target(preflight_api(fqdn="")))
+        self.assertIsNone(frontend_app.deploy_target(preflight_api(apps=[])))
+        self.assertEqual(frontend_app.deploy_target(preflight_api(fqdn="https://app.example.pl")), "x")
+
+
+class RollbackTests(unittest.TestCase):
+    def test_rollback_needs_compose_with_frontend_service(self):
+        request, calls = switch_api(fqdn="https://app.example.pl")
+        with self.assertRaises(ValueError):
+            frontend_app.rollback(request, "src")
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+
+    def test_rollback_gives_domains_back_to_compose(self):
+        raw = COMPOSE_RAW + "  frontend:\n    build: ./frontend\n"
+        request, calls = switch_api(
+            domains='{"backend": {"domain": "https://api.example.pl"}}', raw=raw, fqdn="https://app.example.pl"
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.rollback(request, "src")
+        self.assertIn(
+            (
+                "PATCH",
+                "applications/src",
+                {
+                    "docker_compose_domains": [
+                        {"name": "backend", "domain": "https://api.example.pl"},
+                        {"name": "frontend", "domain": "https://app.example.pl", "redirect": "non-www"},
+                    ],
+                    "force_domain_override": True,
+                },
+            ),
+            calls,
+        )
 
 
 if __name__ == "__main__":

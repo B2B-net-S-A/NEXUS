@@ -492,6 +492,20 @@ jobs:
           fi
           echo "Provisioned a dedicated candidate identity fingerprint key."
 
+      # Front jako osobna aplikacja Coolify (etap B1). Coolify najpierw zatrzymuje
+      # WSZYSTKIE kontenery compose, a brak sieci zewnętrznej `nexus-front` odkrywa
+      # dopiero przy `up` — wtedy leży cała produkcja. Ta bramka sprawdza sieć przed
+      # wyzwoleniem compose; po przepięciu (`FRONTEND_APP_REQUIRED=true`) także to, że
+      # front ma domeny, a compose już ich nie ma. → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
+      - name: Frontend app preflight
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          FRONTEND_APP_REQUIRED: "false"
+        run: python3 .github/scripts/coolify_frontend_app.py preflight
+
       # ── Pomiar przerwy widzianej przez użytkowników (reaudyt 14.09.2026) ──
       # Zielony deploy i końcowy healthcheck NIE mówią, czy użytkownicy dostali
       # w trakcie 503. 14.09 deploy #1509 zakończył się sukcesem, a niezależne
@@ -673,6 +687,32 @@ jobs:
           done
           echo "::error::Deployment $DEPLOYMENT_UUID still '$status' after 15 min — treating as failed. Run the 'Coolify Ops' workflow to inspect/cancel it."
           exit 1
+
+      # Front wdraża się dopiero po udanym compose, z commitu, który compose zbudował
+      # (`git_commit_sha`): padnięta budowa backendu nie zostawia nowego frontu ze
+      # starym API, a `version.json` ma SHA backendu. Rolling update z retry Traefika
+      # — sonda wyżej mierzy go w tym samym biegu. Aplikacja bez domen (przed
+      # `switch`) = krok pomija front, bo ruch obsługuje jeszcze usługa w compose.
+      - name: Trigger frontend app deployment
+        id: frontend_trigger
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          COMPOSE_DEPLOYMENT_UUID: ${{ steps.trigger.outputs.deployment_uuid }}
+        run: python3 .github/scripts/coolify_frontend_app.py trigger
+
+      # Status wdrożenia frontu, SHA w logu builda (bez wypisywania logu) i stan
+      # `running:healthy`. Smoke `version.json` niżej sprawdza to samo z zewnątrz.
+      - name: Wait for frontend app deployment
+        if: ${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          FRONTEND_DEPLOYMENT_UUID: ${{ steps.frontend_trigger.outputs.deployment_uuid }}
+        run: python3 .github/scripts/coolify_frontend_app.py wait
 
       # ── Smoke test scalony z jobem deploy (2026-08-07) ──────────────
       # Był osobnym jobem z `needs: deploy`. Same testy trwają ~5 s, a
@@ -1046,6 +1086,7 @@ jobs:
         if: ${{ always() && steps.downtime_meter.outcome == 'success' }}
         env:
           APP_URL: ${{ vars.APP_URL }}
+          FRONTEND_APP: ${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}
         run: |
           set +e
           probe_dir="$RUNNER_TEMP/downtime-probe"
@@ -1063,6 +1104,7 @@ jobs:
             --samples "$samples" --target "${RELEASE_SHA:-$TARGET_SHA}" \
             --postgres-before "$(cat "$probe_dir/pg_before" 2>/dev/null)" \
             --postgres-after "$pg_after" \
+            --frontend-app "$FRONTEND_APP" \
             --summary-out "$probe_dir/summary.md" \
             --notice-out "$probe_dir/notices.txt" \
             || { echo "::warning::Skrypt raportu przerwy padł — brak pomiaru dla tego deployu."; exit 0; }

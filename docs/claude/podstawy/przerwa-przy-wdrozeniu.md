@@ -110,3 +110,55 @@ sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). 
   z najwyższego poziomu do każdej usługi, co tu jest nieszkodliwe, bo w `nexus-front`
   są tylko kontenery NEXUSA i proxy,
 - `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.
+
+## Etap B1: front jako aplikacja `nexus-frontend` — kolejność
+
+Wszystko przez workflow „Coolify frontend app” (`coolify-frontend-app.yml`, tylko z maina,
+konto `env -u GH_TOKEN gh`), każdy krok zmieniający produkcję w oknie wdrożeń.
+
+1. `mode=plan` — odczyt: identyfikatory, sieć `nexus-front`, zmienne, usługi compose z domeną.
+2. `mode=create` — destination `nexus-front` (sieć + `coolify-proxy`) i aplikacja bez domeny.
+3. `mode=deploy` — wdrożenie próbne; zielone = `finished`, SHA w `version.json` z logu builda,
+   kontener `running:healthy`.
+4. PR z `networks: nexus-front` w `docker-compose.yml` wchodzi dopiero po kroku 2 i musi być
+   wdrożony przed krokiem 5: od niego front widzi `backend`. Coolify zatrzymuje wszystkie
+   kontenery compose, zanim odkryje brak sieci zewnętrznej, więc Deploy ma bramkę
+   „Frontend app preflight” przed wyzwoleniem compose (brak sieci = czerwony bieg, produkcja
+   nietknięta). Ten sam PR dodaje do Deploy kroki frontu: po udanym compose wdrażają
+   `nexus-frontend` z tego samego commitu, ale tylko gdy aplikacja ma domeny (przed `switch`
+   pomijają). `switch` odmawia, gdy wdrożony compose nie ma sieci `nexus-front`.
+5. Po „przepnij” Artura: `mode=switch` — aplikacja dostaje domeny frontu i wdraża się
+   (rolling update), dopiero potem compose oddaje domeny frontu w Coolify. Do następnego
+   wdrożenia compose Traefik ma dla tych domen dwa zdrowe kontenery.
+   `switch` zapisuje też etykiety: te, które Coolify wygenerował z domen, plus middleware
+   `nexus-front-retry` (Traefik `retry`, 3 próby od 100 ms) na początku łańcucha każdego
+   routera, i wyłącza przepisywanie etykiet przez Coolify
+   (`is_container_label_readonly_enabled=false`), bo inaczej kolejny PATCH domen zgubiłby
+   retry. Logika etykiet jest wspólna dla frontu i backendu (B2): `.github/scripts/coolify_labels.py`.
+   Zmiana domen frontu = ponowne dołożenie retry (funkcja `set_domains`), nie edycja
+   w panelu. Do tego `rolling_update_drain_seconds=10` i `stop_grace_period=30`.
+
+   Dlaczego bez błędów przy podmianie: Coolify startuje nowy kontener, czeka na healthcheck
+   i 10 s na przejęcie ruchu (etykiety obu kontenerów są identyczne, więc Traefik ma jedną
+   pulę z dwoma serwerami), potem `docker stop`. Next standalone na SIGTERM przestaje
+   przyjmować połączenia i kończy żądania w toku (`server.close()` w
+   `next/dist/server/lib/start-server.js`; `node` jest PID 1, więc dostaje sygnał). Żądanie,
+   które Traefik wyśle w tej chwili do starego kontenera, dostaje odmowę połączenia
+   i `retry` ponawia je na nowym.
+6. PR usuwający usługę `frontend` z compose do kolejki (bramka Deploy wymaga od niego, żeby
+   front miał domeny, a compose ich nie miał — `FRONTEND_APP_REQUIRED=true`). Jego
+   wdrożenie zdejmuje stary kontener; od niego raport przerwy mierzy front jako
+   osobną aplikację (`--frontend-app true`). Odbiór: 0 próbek frontu bez 200 na kolejnych
+   wdrożeniach; każda zła próbka to ostrzeżenie w biegu Deploy.
+
+Sprawdzenie po 5 i 6: `curl -s https://nexus.b2bnetwork.pl/version.json` (SHA maina),
+kilka razy `curl -sI 'https://nexus.b2bnetwork.pl/auth/microsoft/callback?error=access_denied'`
+(302 z backendu, nie 5xx: front doszedł do `backend:8000`), logowanie i jedna strona SSR.
+
+**Wycofanie.**
+- Zły kod frontu: `mode=deploy` z `commit=<poprzedni SHA>` — rolling update, bez przerwy.
+- Zła aplikacja frontu przed krokiem 6: `mode=rollback` (domeny wracają do compose;
+  wczytany compose ma jeszcze usługę `frontend`), Deploy z `force_rebuild=true`, potem `mode=stop`.
+- Po kroku 6: revert PR-a z kroku 6 i Deploy (front dalej obsługuje `nexus-frontend`), potem
+  `mode=rollback`, Deploy z `force_rebuild=true` (stary front dostaje domeny), na końcu `mode=stop`.
+  Każdy Deploy compose to przerwa API, więc w oknie wdrożeń.

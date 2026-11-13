@@ -464,3 +464,16 @@ volumes:
   postgres_data:
   qdrant_data:
   uploads_data:
+
+# Sieć wspólna z aplikacją frontu `nexus-frontend` (destination `nexus-front`
+# w Coolify): front woła `http://backend:8000` (INTERNAL_API_URL). Coolify
+# dopisuje każdą sieć z tego poziomu do każdej usługi; w `nexus-front` są tylko
+# kontenery NEXUSA i `coolify-proxy`, więc `postgres` czy `backend` nie mają tam
+# drugiego właściciela. NIE `connect_to_docker_network`: wspólna sieć `coolify`
+# ma własną usługę `postgres` Coolify. Sieć zakłada
+# `coolify_frontend_app.py create`; bez niej wdrożenie compose pada.
+# → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
+networks:
+  nexus-front:
+    external: true
+    name: nexus-front
