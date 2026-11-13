@@ -8,6 +8,15 @@ Przy **każdej** pracy nad UI/UX/designem (nowy ekran, komponent, reskin, layout
 Firmowy design system jest na tokenach (slate+indygo, 7 palet, dark/soft/kids) — **token-first, nigdy hardcoded kolory**. Wzorzec dla wszystkich 4 apek (Compass/Atlas/ELEVATE = ten sam kanon). Kluczowe ścieżki:
 - **Kit komponentów:** `frontend/src/components/ds/` (StatCard, DataTable, PageHeader, FilterBar, AppModal, EmptyState, Leaderboard/Podium, MatchCard, Kanban, TabbedNav, FormGroup, FunnelChart). Bloki: `frontend/src/components/blocks/` (AuthShell — split-screen login). Prymitywy shadcn: `frontend/src/components/ui/`.
 - **Tokeny:** `frontend/src/app/globals.css` + `frontend/tailwind.config.ts`. `--accent` = subtelny neutral (hover), **NIE** brand → emfaza zawsze przez `--primary`.
+- **Czerwony napis (13.11.2026):** `text-destructive` bierze własny token
+  `--destructive-text` (w `@theme` jako `--text-color-destructive`), a
+  `bg-destructive` i `border-destructive` zostają na `--destructive`. W trybie
+  ciemnym `--destructive` to ciemna czerwień tła przycisku pod jasny napis:
+  jako tekst dawała ok. 1,8:1 i „P0 · minęło …” na `/jobs` albo „zaległy 36 dni”
+  na pulpicie były prawie niewidoczne. Czerwony napis to więc `text-destructive`,
+  bez `dark:text-red-*` i bez `text-[hsl(var(--destructive))]`, a ramka w kolorze
+  napisu to `border-current`. Tryb jasny się nie zmienił; pilnuje
+  `frontend/src/lib/__tests__/theme-destructive-text-contract.test.ts`.
 - **Workflow + cheatsheet color→token: `frontend/docs/ds/ADDING-BLOCKS.md` + `frontend/scripts/add-block.sh` — PRZECZYTAJ przed dodaniem jakiegokolwiek bloku/prymitywu.**
 - **Gotchas:** (1) NIE `npx shadcn add` — przeformatowuje `tailwind.config`, remapuje `--sidebar`→`--sidebar-background`, bumpuje deps; pobieraj pliki z rejestru bezpośrednio (`add-block.sh`). (2) Jeśli bump radix wywali type-check na `@hello-pangea/dnd` „`--radix-${string}`" → `"overrides": {"@radix-ui/react-primitive":"2.1.4"}` + **pełny** `rm -rf node_modules package-lock.json && npm install`. (3) **NIE** odpalaj `build` równolegle z `dev`/`start` (oba piszą `.next` → korupcja: unstyled/500).
 - **Warstwy (14.10.2026):** `Dialog` (więc i `ConfirmV2`), `Popover`,
