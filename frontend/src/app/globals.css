@@ -1119,6 +1119,13 @@ body:has(aside[data-person-panel][data-cover]:not([hidden])) [data-app-sidebar] 
 .cv-paper[data-cv-lang="en"] .ProseMirror > h2 + p[data-cv-in="education"]::before {
   content: "Dates      Names of University/degrees";
 }
+/* Bez dat w żadnym wierszu Word ma jedną kolumnę (13.11.2026). */
+.cv-paper[data-cv-lang="pl"] .ProseMirror > h2 + p[data-cv-in="education"][data-cv-no-dates]::before {
+  content: "Nazwa uczelni/kierunek";
+}
+.cv-paper[data-cv-lang="en"] .ProseMirror > h2 + p[data-cv-in="education"][data-cv-no-dates]::before {
+  content: "Names of University/degrees";
+}
 /* Umiejętności i języki to w Wordzie punkty, choć w edytorze akapity. */
 .cv-paper .ProseMirror > p[data-cv-in="skills"],
 .cv-paper .ProseMirror > p[data-cv-in="languages"] {
