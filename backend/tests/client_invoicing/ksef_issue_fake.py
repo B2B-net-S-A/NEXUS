@@ -47,10 +47,29 @@ class FakeKsefIssue(FakeKsef):
         self.received: list[bytes] = []
         self.closed: list[str] = []
         self.accepted: dict[str, str] = {}
+        #: Wysyłka pliku: faktura zapisana, a potem ta odpowiedź (albo wyjątek
+        #: sieci) — KSeF dostał plik, NEXUS nie dostał odpowiedzi.
+        self.after_store: list[Any] = []
+        #: Numer faktury → numer KSeF dla zapytania o metadane po numerze (po 440).
+        self.known_numbers: dict[str, str] = {}
         self._technical = 0
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/v2")
+        if request.method == "POST" and path == "/invoices/query/metadata":
+            body = json.loads(request.content) if request.content else {}
+            if "invoiceNumber" in body:
+                self.calls.append(request)
+                if not self._authorized(request):
+                    return httpx.Response(401, json={"status": 401})
+                number = body["invoiceNumber"]
+                found = self.known_numbers.get(number)
+                invoices = (
+                    [{"ksefNumber": found, "invoiceNumber": number}] if found else []
+                )
+                return httpx.Response(
+                    200, json={"invoices": invoices, "hasMore": False}
+                )
         if not path.startswith("/sessions"):
             return super().handler(request)
         self.calls.append(request)
@@ -139,6 +158,11 @@ class FakeKsefIssue(FakeKsef):
         self.received.append(xml)
         reference = self._next("20261120-EE-0000000000")
         session["invoices"][reference] = xml
+        if self.after_store:
+            outcome = self.after_store.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
         return httpx.Response(202, json={"referenceNumber": reference})
 
     def _status(self, session: dict[str, Any], reference: str) -> httpx.Response:
@@ -167,6 +191,7 @@ class FakeKsefIssue(FakeKsef):
                     f"E4{self._technical:010X}",
                 )
             payload["ksefNumber"] = self.accepted[reference]
+            self.known_numbers.setdefault(number, self.accepted[reference])
             payload["acquisitionDate"] = format_instant(self.clock())
         elif code >= 400:
             payload["status"]["details"] = list(self.reject_details)

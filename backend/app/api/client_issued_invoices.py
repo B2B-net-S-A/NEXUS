@@ -18,6 +18,7 @@ admin widzi ekrany zawsze (jak „Faktury do klientów”).
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date
@@ -27,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import FinanceModuleUser
@@ -45,7 +47,9 @@ from app.services.client_invoicing import (
 )
 from app.services.client_invoicing import settings as module_settings
 from app.services.client_invoice_issue_schema import SERIES
+from app.services.hr.ksef.client import KsefApiError
 
+logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 VIEW_STATUSES = {
@@ -413,7 +417,36 @@ async def send(
         )
     # Numer i XML zapisane przed rozmową z KSeF; blokada serii puszcza tutaj.
     await db.commit()
-    result = await ksef_send.transmit(config, xml, client_factory=_client_factory())
+
+    async def remember(progress: ksef_send.TransmitResult) -> None:
+        # Sesja (i numer pliku) w bazie, zanim pójdzie dalej: padnięcie procesu
+        # w trakcie zostawia fakturę do „Sprawdź status”, nie martwą.
+        await db.execute(
+            sql_update(ClientIssuedInvoice)
+            .where(ClientIssuedInvoice.id == invoice_id)
+            .values(
+                ksef_session_ref=progress.session_ref,
+                ksef_invoice_ref=progress.invoice_ref,
+            )
+        )
+        await db.commit()
+
+    try:
+        result = await ksef_send.transmit(
+            config, xml, client_factory=_client_factory(), on_progress=remember
+        )
+    except Exception:  # noqa: BLE001 — stan faktury musi zostać rozstrzygnięty
+        logger.exception("[client-invoicing] wysyłka faktury %s przerwana", invoice_id)
+        await db.rollback()
+        invoice = await _invoice(db, invoice_id)
+        # Bez zapisanej sesji plik nie mógł dotrzeć (sesja zapisuje się przed
+        # wysyłką pliku) — faktura wraca do ponownej wysyłki z tym samym numerem.
+        result = ksef_send.TransmitResult(
+            stage="send" if invoice.ksef_session_ref else "open",
+            session_ref=invoice.ksef_session_ref,
+            invoice_ref=invoice.ksef_invoice_ref,
+            error=KsefApiError("internal"),
+        )
     invoice = await _invoice(db, invoice_id, lock=True)
     await issue.apply_result(db, invoice, result, actor_id=current_user.id)
     await db.commit()
@@ -441,13 +474,16 @@ async def check(
     if not invoice.ksef_session_ref:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Wysyłka nie otworzyła sesji w KSeF — wyślij fakturę ponownie.",
+            "Wysyłka nie otworzyła sesji w KSeF, więc plik nie dotarł. Po "
+            f"{int(issue.STALE_UNSENT_AFTER.total_seconds() // 60)} minutach od "
+            "wysyłki fakturę można wysłać ponownie albo wycofać.",
         )
     result = await ksef_send.check(
         config,
         session_ref=invoice.ksef_session_ref,
         invoice_ref=invoice.ksef_invoice_ref,
         ksef_number=invoice.ksef_number,
+        xml=invoice.xml.encode("utf-8") if invoice.xml else None,
         client_factory=_client_factory(),
     )
     invoice = await _invoice(db, invoice_id, lock=True)

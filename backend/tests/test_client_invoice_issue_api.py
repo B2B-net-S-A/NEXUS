@@ -13,9 +13,10 @@ z kursem NBP. Dane fikcyjne.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
@@ -34,6 +35,7 @@ from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoi
 from app.models.contract import RateUnit
 from app.models.fx_rate import FxRate
 from app.services.client_invoicing import issue, issue_settings, ksef_send, numbering
+from app.services.hr.ksef import numbers
 from app.services.hr.ksef.client import forget_sessions
 from tests._ksef_fake import Clock
 from tests.client_invoicing import helpers as fx
@@ -476,8 +478,8 @@ async def test_parallel_numbering_waits_on_series_lock(client, seed):
             await db.commit()
             return int(invoice.number_seq)
 
-    numbers = await asyncio.gather(*(number(invoice_id) for invoice_id in ids))
-    assert sorted(numbers) == [1, 2, 3]
+    assigned = await asyncio.gather(*(number(invoice_id) for invoice_id in ids))
+    assert sorted(assigned) == [1, 2, 3]
 
     async with AsyncSessionLocal() as db:
         duplicate = await db.get(ClientIssuedInvoice, ids[0])
@@ -601,3 +603,279 @@ async def test_failed_link_still_keeps_the_ksef_number(client, seed, monkeypatch
     assert card["status"] == "accepted"
     assert card["ksef_number"] is not None
     assert card["sales_invoice_id"] is None
+
+
+# ── Przegląd 13.11: wynik nieznany, duplikat, przerwana wysyłka ─────────────
+
+
+async def _series_next() -> int:
+    async with AsyncSessionLocal() as db:
+        series = await db.get(ClientInvoiceSeries, ("PL", 2026, 11))
+        return series.next_number
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [lambda: httpx.Response(503), lambda: httpx.ReadTimeout("koniec czasu")],
+    ids=["503", "timeout"],
+)
+async def test_lost_answer_keeps_invoice_in_flight_until_checked(client, seed, outcome):
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    seed.fake.after_store = [outcome()]
+    card = await _send(client, seed, invoice_id)
+    # KSeF ma plik — faktura nie wraca do edycji ani do ponownej wysyłki.
+    assert card["status"] == "sending"
+    assert card["invoice_number"] == "1/11/2026"
+    assert card["editable"] is False and card["can_send"] is False
+    assert card["can_check"] is True
+    assert "nie wysyłaj jej ponownie" in card["ksef_status_text"]
+    assert len(seed.fake.received) == 1
+    assert (
+        await client.delete(f"{BASE}/{invoice_id}", headers=_h(seed))
+    ).status_code == 409
+    assert (
+        await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    ).status_code == 409
+    assert await _series_next() == 2
+
+    checked = await client.post(f"{BASE}/{invoice_id}/check", headers=_h(seed))
+    assert checked.status_code == 200, checked.text
+    assert checked.json()["status"] == "accepted"
+    assert checked.json()["invoice_number"] == "1/11/2026"
+    assert len(seed.fake.received) == 1
+
+
+async def test_duplicate_after_lost_answer_is_not_rejected(client, seed):
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    seed.fake.after_store = [httpx.Response(503)]
+    await _send(client, seed, invoice_id)
+    # KSeF przetworzył plik jako duplikat — numeru KSeF pierwszej jeszcze nie zna.
+    seed.fake.invoice_codes = [440]
+    duplicate = (
+        await client.post(f"{BASE}/{invoice_id}/check", headers=_h(seed))
+    ).json()
+    assert duplicate["status"] == "sent"
+    assert duplicate["editable"] is False and duplicate["can_send"] is False
+    assert "KSeF ma już fakturę o numerze 1/11/2026" in duplicate["ksef_status_text"]
+    assert (
+        await client.delete(f"{BASE}/{invoice_id}", headers=_h(seed))
+    ).status_code == 409
+
+    known = numbers.make(fx.COMPANY_NIP, date(2026, 11, 20), "E400000D0F01")
+    seed.fake.known_numbers["1/11/2026"] = known
+    resolved = (
+        await client.post(f"{BASE}/{invoice_id}/check", headers=_h(seed))
+    ).json()
+    assert resolved["status"] == "accepted"
+    assert resolved["ksef_number"] == known
+    assert await _series_next() == 2
+
+
+async def test_crash_after_session_open_leaves_a_checkable_invoice(
+    client, seed, monkeypatch
+):
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    real = ksef_send.transmit
+
+    async def crashing(config, xml, **kwargs):
+        progress = kwargs["on_progress"]
+
+        async def stop_after_send(result):
+            await progress(result)
+            if result.stage == "status":
+                raise RuntimeError("proces padł")
+
+        kwargs["on_progress"] = stop_after_send
+        result = await real(config, xml, **kwargs)
+        raise RuntimeError("proces padł") from result.error
+
+    monkeypatch.setattr(ksef_send, "transmit", crashing)
+    card = await _send(client, seed, invoice_id)
+    assert card["status"] in ("sending", "sent")
+    assert card["can_check"] is True and card["editable"] is False
+    monkeypatch.setattr(ksef_send, "transmit", real)
+    checked = (await client.post(f"{BASE}/{invoice_id}/check", headers=_h(seed))).json()
+    assert checked["status"] == "accepted"
+
+
+async def test_crash_before_session_returns_invoice_with_its_number(
+    client, seed, monkeypatch
+):
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+
+    async def crashing(*_args, **_kwargs):
+        raise RuntimeError("proces padł przed sesją")
+
+    monkeypatch.setattr(ksef_send, "transmit", crashing)
+    card = await _send(client, seed, invoice_id)
+    assert card["status"] == "failed"
+    assert card["invoice_number"] == "1/11/2026"
+    assert card["editable"] is True
+    monkeypatch.undo()
+    monkeypatch.setattr(settings, "KSEF_CONTEXT_NIP", fx.COMPANY_NIP)
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_MODE", "test")
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", TOKEN)
+    monkeypatch.setattr(ksef_send, "default_client", factory(seed.fake))
+    monkeypatch.setattr(api, "business_today", lambda: TODAY)
+    again = await _send(client, seed, invoice_id)
+    assert again["status"] == "accepted"
+    assert again["invoice_number"] == "1/11/2026"
+
+
+async def test_sending_without_session_unlocks_after_a_few_minutes(client, seed):
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    async with AsyncSessionLocal() as db:
+        invoice = await db.get(ClientIssuedInvoice, invoice_id)
+        invoice.status = "sending"
+        await numbering.assign(db, invoice, pattern="{n}/{mm}/{yyyy}")
+        invoice.sent_at = datetime.now(timezone.utc)
+        await db.commit()
+    fresh = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert fresh["editable"] is False and fresh["can_check"] is False
+    assert (
+        await client.delete(f"{BASE}/{invoice_id}", headers=_h(seed))
+    ).status_code == 409
+
+    async with AsyncSessionLocal() as db:
+        invoice = await db.get(ClientIssuedInvoice, invoice_id)
+        invoice.sent_at = datetime.now(timezone.utc) - timedelta(minutes=10)
+        await db.commit()
+    stale = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert stale["editable"] is True and stale["can_send"] is True
+    withdrawn = await client.delete(f"{BASE}/{invoice_id}", headers=_h(seed))
+    assert withdrawn.json() == {"result": "deleted"}
+    assert await _series_next() == 1
+
+
+# ── Przegląd 13.11: korekta korekty, zaliczkowa ─────────────────────────────
+
+
+async def _correct(client, seed, invoice_id: int, quantity: str) -> dict:
+    created = await client.post(
+        f"{BASE}/{invoice_id}/correction",
+        json={"reason": "Zużycie MD po weryfikacji klienta"},
+        headers=_h(seed),
+    )
+    assert created.status_code == 201, created.text
+    correction = created.json()
+    line = {**correction["lines"][0], "quantity": quantity}
+    await client.put(
+        f"{BASE}/{correction['id']}", json={"lines": [line]}, headers=_h(seed)
+    )
+    return correction
+
+
+async def test_second_correction_starts_from_the_first_one(client, seed):
+    await _settings(client, seed)
+    original_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    await _send(client, seed, original_id)  # 21 MD × 1200
+    first = await _correct(client, seed, original_id, "20")
+    in_progress = await client.post(
+        f"{BASE}/{original_id}/correction",
+        json={"reason": "Druga korekta za wcześnie"},
+        headers=_h(seed),
+    )
+    assert in_progress.status_code == 409
+    assert (await _send(client, seed, first["id"]))["net"] == "-1200.00"
+
+    second = await _correct(client, seed, original_id, "22")
+    assert [line["quantity"] for line in second["lines_before"]] == ["20"]
+    sent = await _send(client, seed, second["id"])
+    assert sent["invoice_number"] == "KOR/2/11/2026"
+    # 20 → 22 MD: +2 × 1200, a nie różnica od faktury pierwotnej (+1200).
+    assert sent["net"] == "2400.00"
+    fa_node = etree.fromstring(seed.fake.received[-1]).find("{*}Fa")
+    assert fa_node.findtext("{*}P_13_1") == "2400.00"
+
+
+async def test_advance_invoice_cannot_be_corrected_as_vat(client, seed):
+    await _settings(client, seed)
+    created = await client.post(
+        f"{BASE}/advance",
+        json={
+            "client_id": seed.client_id,
+            "currency": "PLN",
+            "received_on": "2026-11-18",
+        },
+        headers=_h(seed),
+    )
+    advance = created.json()
+    line = {**advance["lines"][0], "unit_price": "10000"}
+    await client.put(
+        f"{BASE}/{advance['id']}",
+        json={"lines": [line], "buyer": BUYER},
+        headers=_h(seed),
+    )
+    sent = await _send(client, seed, advance["id"])
+    assert sent["status"] == "accepted"
+    card = (await client.get(f"{BASE}/{advance['id']}", headers=_h(seed))).json()
+    assert card["can_correct"] is False
+    refused = await client.post(
+        f"{BASE}/{advance['id']}/correction",
+        json={"reason": "Zmiana zaliczki"},
+        headers=_h(seed),
+    )
+    assert refused.status_code == 409
+    assert "KOR_ZAL" in refused.json()["detail"]
+
+
+# ── Przegląd 13.11: kurs NBP z dokładnego dnia ──────────────────────────────
+
+
+async def test_missing_nbp_table_on_the_last_workday_is_a_problem(client, seed):
+    async with AsyncSessionLocal() as db:
+        order_id = await fx.periodic_order(
+            db,
+            seed.client_id,
+            "ZAM/2026/EUR-DZIURA",
+            rate="9000",
+            unit=RateUnit.monthly,
+            currency="EUR",
+        )
+        await db.execute(
+            delete(FxRate).where(
+                FxRate.currency == "EUR",
+                FxRate.effective_date.between(date(2026, 11, 26), date(2026, 11, 30)),
+            )
+        )
+        db.add(
+            FxRate(
+                currency="EUR",
+                effective_date=date(2026, 11, 26),
+                rate_to_pln=Decimal("4.2600"),
+                source="NBP",
+            )
+        )
+        await db.commit()
+    await _settings(client, seed)
+    invoice_id = await _draft(client, seed, f"o{order_id}")
+    # Dostawa 30.11 (poniedziałek): kurs z 27.11 (piątek) — w bazie jest tylko 26.11.
+    card = (
+        await client.put(
+            f"{BASE}/{invoice_id}",
+            json={"period_from": "2026-11-01", "period_to": "2026-11-30"},
+            headers=_h(seed),
+        )
+    ).json()
+    assert card["fx"] is None
+    assert any("27.11.2026" in problem for problem in card["problems"])
+    assert card["can_send"] is False
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(FxRate).where(
+                FxRate.currency == "EUR", FxRate.effective_date == date(2026, 11, 26)
+            )
+        )
+        await db.commit()
+
+
+def test_rate_day_skips_weekends_and_holidays():
+    assert issue.rate_day(date(2026, 11, 30)) == date(2026, 11, 27)
+    # 11.11 to święto: dostawa 12.11 → kurs z 10.11.
+    assert issue.rate_day(date(2026, 11, 12)) == date(2026, 11, 10)
+    assert issue.rate_day(date(2026, 10, 31)) == date(2026, 10, 30)

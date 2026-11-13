@@ -23,13 +23,15 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Any, Optional, Sequence
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.client import Client
 from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.models.client_sales_invoice import (
@@ -59,13 +61,16 @@ from app.services.client_sales_invoices_schema import CURRENCIES
 from app.services.hr.calendar import month_range
 
 logger = logging.getLogger(__name__)
+_ZONE = ZoneInfo(DEFAULT_TZ)
 
 ZERO = Decimal("0.00")
 EDITABLE = frozenset({"draft", "rejected", "failed"})
 SENDABLE = EDITABLE
 CHECKABLE = frozenset({"sending", "sent"})
-#: Kurs NBP starszy o tyle dni od dnia przed datą dostawy to brak kursu w cache.
-FX_MAX_GAP_DAYS = 7
+#: Wysyłka bez otwartej sesji KSeF starsza niż tyle = przerwana, zanim plik
+#: mógł dotrzeć (sesja zapisuje się w bazie zaraz po otwarciu) — da się ją
+#: wysłać ponownie albo wycofać.
+STALE_UNSENT_AFTER = timedelta(minutes=5)
 LINE_NAME_MAX = 512
 MAX_LINES = 200
 HISTORY_MAX = 50
@@ -112,6 +117,20 @@ def _note(
     entry = {"at": _now().isoformat(timespec="seconds"), "event": event, "by": actor_id}
     entry.update({key: value for key, value in extra.items() if value is not None})
     invoice.history = [*(invoice.history or []), entry][-HISTORY_MAX:]
+
+
+def stale_unsent(invoice: ClientIssuedInvoice, now: Optional[datetime] = None) -> bool:
+    """``sending`` bez sesji KSeF dłużej niż kilka minut: wysyłka przerwana
+    (padnięcie procesu) przed otwarciem sesji — plik nie dotarł do KSeF."""
+
+    if invoice.status != "sending" or invoice.ksef_session_ref:
+        return False
+    started = invoice.sent_at
+    return started is None or (now or _now()) - started > STALE_UNSENT_AFTER
+
+
+def editable(invoice: ClientIssuedInvoice) -> bool:
+    return invoice.status in EDITABLE or stale_unsent(invoice)
 
 
 # ── Pozycje i kwoty ─────────────────────────────────────────────────────────
@@ -171,20 +190,32 @@ def recompute(invoice: ClientIssuedInvoice) -> fa3_build.Totals:
     return result
 
 
+def rate_day(delivery: date) -> date:
+    """Ostatni dzień roboczy przed datą dostawy (pon–pt bez świąt ustawowych)."""
+
+    day = delivery - timedelta(days=1)
+    while not is_business_day(datetime.combine(day, time(12), tzinfo=_ZONE)):
+        day -= timedelta(days=1)
+    return day
+
+
 async def fx_for(
     db: AsyncSession, currency: str, delivery: Optional[date]
 ) -> tuple[Optional[Decimal], Optional[date]]:
-    """Kurs średni NBP z ostatniego dnia roboczego przed datą dostawy."""
+    """Kurs średni NBP z DOKŁADNIE ostatniego dnia roboczego przed datą dostawy.
+
+    Brak tabeli z tego dnia w ``fx_rates`` (dziura w pobieraniu) to brak kursu,
+    nie kurs z wcześniejszego dnia — ten byłby niezgodny z art. 31a ustawy o VAT.
+    """
 
     if currency == "PLN" or delivery is None:
         return None, None
-    snapshot = await fx_service.get_rate_snapshot_to_pln(
-        db, currency, on=delivery - timedelta(days=1)
-    )
+    target = rate_day(delivery)
+    snapshot = await fx_service.get_rate_snapshot_to_pln(db, currency, on=target)
     if (
         snapshot is None
         or snapshot.source != "NBP"
-        or (delivery - snapshot.effective_date).days > FX_MAX_GAP_DAYS
+        or snapshot.effective_date != target
     ):
         return None, None
     return snapshot.rate_to_pln, snapshot.effective_date
@@ -487,8 +518,11 @@ async def update(
 ) -> ClientIssuedInvoice:
     """Edycja szkicu albo faktury odrzuconej/niewysłanej (bez commita)."""
 
-    if invoice.status not in EDITABLE:
-        raise IssueError("Tę fakturę można już tylko skorygować.")
+    if not editable(invoice):
+        raise IssueError(
+            "Faktura jest w KSeF albo w drodze do niego — można ją tylko sprawdzić "
+            "albo skorygować."
+        )
     if "issue_date" in payload:
         issue_date = _date(payload["issue_date"], "Data wystawienia")
         if issue_date is None:
@@ -564,7 +598,7 @@ async def delete(
     Zwraca ``deleted`` albo ``cancelled``.
     """
 
-    if invoice.status not in EDITABLE:
+    if not editable(invoice):
         raise IssueError(
             "Faktura jest w KSeF albo w drodze do niego — nie da się jej usunąć."
         )
@@ -601,11 +635,32 @@ async def create_correction(
 ) -> ClientIssuedInvoice:
     if original.status != "accepted" or original.invoice_type == "KOR":
         raise IssueError("Korektę wystawia się do faktury przyjętej w KSeF.")
+    if original.invoice_type == "ZAL":
+        raise IssueError(
+            "Korekty faktury zaliczkowej (KOR_ZAL) NEXUS jeszcze nie wystawia."
+        )
+    corrections = list(
+        await db.scalars(
+            select(ClientIssuedInvoice)
+            .where(
+                ClientIssuedInvoice.corrects_id == original.id,
+                ClientIssuedInvoice.status != "cancelled",
+            )
+            .order_by(ClientIssuedInvoice.accepted_at, ClientIssuedInvoice.id)
+        )
+    )
+    if any(item.status != "accepted" for item in corrections):
+        raise IssueError(
+            "Ta faktura ma już korektę w toku — wyślij albo wycofaj ją najpierw."
+        )
     note = " ".join((reason or "").split())
     if len(note) < 3:
         raise IssueError("Podaj przyczynę korekty (co najmniej 3 znaki).", 422)
     settings = await issue_settings.load(db)
-    lines = [clean_line(line) for line in original.lines or []]
+    # Stan przed = stan po ostatniej przyjętej korekcie (inaczej druga korekta
+    # liczyłaby różnicę od faktury pierwotnej).
+    latest = corrections[-1] if corrections else original
+    lines = [clean_line(line) for line in latest.lines or []]
     invoice = ClientIssuedInvoice(
         client_id=original.client_id,
         invoice_type="KOR",
@@ -724,9 +779,12 @@ async def problems(
         if invoice.lines == invoice.lines_before:
             out.append("Korekta nie zmienia żadnej pozycji.")
     if invoice.currency != "PLN" and invoice.fx_rate is None:
+        delivery = invoice.period_to or invoice.sale_date or invoice.issue_date
         out.append(
-            f"Brak kursu NBP {invoice.currency} z dnia roboczego przed datą dostawy "
-            "— kursy pobiera NEXUS codziennie, sprawdź datę dostawy."
+            f"Brak kursu NBP {invoice.currency} z dnia "
+            f"{rate_day(delivery).strftime('%d.%m.%Y')} (ostatni dzień roboczy przed "
+            "datą dostawy) — NEXUS nie ma tej tabeli kursów; kurs z innego dnia "
+            "byłby niezgodny z art. 31a ustawy o VAT."
         )
     codes = {line.get("vat_rate") for line in invoice.lines or []}
     if "zw" in codes and not settings["exemption_basis"]:
@@ -818,7 +876,7 @@ async def prepare_send(
                 config.disabled_reason or "", "Wysyłka wyłączona."
             )
         )
-    if invoice.status not in SENDABLE:
+    if not editable(invoice):
         raise IssueError("Ta faktura jest już w KSeF albo w drodze do niego.")
     settings = await issue_settings.load(db)
     await _refresh_fx(db, invoice)
@@ -855,7 +913,14 @@ async def apply_result(
     *,
     actor_id: Optional[int],
 ) -> None:
-    """Zapis wyniku wysyłki albo „Sprawdź status” (bez commita)."""
+    """Zapis wyniku wysyłki albo „Sprawdź status” (bez commita).
+
+    Do edycji (i do zwolnienia numeru przy wycofaniu) wraca tylko faktura,
+    która na pewno nie weszła do KSeF: sesja nie powstała, KSeF jawnie odmówił
+    pliku albo odrzucił fakturę po weryfikacji. Wynik nieznany (zerwane
+    połączenie, 5xx, awaria) i duplikat (440 — faktura o tym numerze już jest
+    w KSeF) zostają w drodze, do „Sprawdź status”.
+    """
 
     if result.session_ref:
         invoice.ksef_session_ref = result.session_ref[:64]
@@ -868,7 +933,11 @@ async def apply_result(
         invoice.status = "accepted"
         invoice.ksef_number = status.ksef_number
         invoice.ksef_status_code = status.code
-        invoice.ksef_status_text = None
+        invoice.ksef_status_text = (
+            "Faktura była już w KSeF (duplikat) — numer KSeF dociągnięty."
+            if result.resolved_duplicate
+            else None
+        )
         invoice.ksef_acquired_at = status.acquired_at
         invoice.accepted_at = invoice.accepted_at or _now()
         _note(invoice, "accepted", actor_id, ksef_number=status.ksef_number)
@@ -884,18 +953,35 @@ async def apply_result(
             )
             await db.refresh(invoice)
         return
-    if status is not None and not status.pending and status.code is not None:
+    if status is not None and status.duplicate:
+        invoice.status = "sent"
+        invoice.ksef_status_code = status.code
+        invoice.ksef_status_text = (
+            f"KSeF ma już fakturę o numerze {invoice.invoice_number} — nie wysyłaj "
+            "jej ponownie. „Sprawdź status” dociągnie jej numer KSeF."
+        )[:500]
+        _note(invoice, "duplicate", actor_id, code=status.code)
+    elif status is not None and not status.pending and status.code is not None:
         invoice.status = "rejected"
         invoice.ksef_status_code = status.code
         invoice.ksef_status_text = status.text
         _note(invoice, "rejected", actor_id, code=status.code)
-    elif result.error is not None and result.stage in ("open", "send"):
+    elif result.definitely_not_sent or (
+        result.missing_in_session and _older_than(invoice, STALE_UNSENT_AFTER)
+    ):
         # Plik nie dotarł do KSeF albo KSeF go nie przyjął do przetwarzania —
         # faktura nie istnieje w obrocie, numer zostaje przy niej do ponownej wysyłki.
         invoice.status = "failed"
-        invoice.ksef_status_code = result.error.code or result.error.status
-        invoice.ksef_status_text = result.error.message[:500]
-        _note(invoice, "failed", actor_id, reason=result.error.category)
+        if result.error is not None:
+            invoice.ksef_status_code = result.error.code or result.error.status
+            invoice.ksef_status_text = result.error.message[:500]
+            _note(invoice, "failed", actor_id, reason=result.error.category)
+        else:
+            invoice.ksef_status_code = None
+            invoice.ksef_status_text = (
+                "KSeF nie ma tej faktury w sesji — plik nie dotarł. Wyślij ponownie."
+            )
+            _note(invoice, "failed", actor_id, reason="missing_in_session")
     else:
         invoice.status = (
             "sent" if result.invoice_ref or invoice.ksef_invoice_ref else "sending"
@@ -905,10 +991,15 @@ async def apply_result(
             invoice.ksef_status_text = status.text
         elif result.error is not None:
             invoice.ksef_status_text = (
-                f"Wynik nieznany: {result.error.message} Sprawdź status za chwilę."
+                f"Wynik nieznany: {result.error.message} Faktura mogła trafić do "
+                "KSeF — nie wysyłaj jej ponownie, użyj „Sprawdź status”."
             )[:500]
         _note(invoice, "pending", actor_id)
     await db.flush()
+
+
+def _older_than(invoice: ClientIssuedInvoice, age: timedelta) -> bool:
+    return invoice.sent_at is None or _now() - invoice.sent_at > age
 
 
 async def link_sales_invoice(
@@ -1056,9 +1147,7 @@ async def payload(
     if not full:
         return data
     blocking = (
-        await problems(db, invoice, settings, config)
-        if invoice.status in SENDABLE
-        else []
+        await problems(db, invoice, settings, config) if editable(invoice) else []
     )
     corrects = (
         await db.get(ClientIssuedInvoice, invoice.corrects_id)
@@ -1097,10 +1186,13 @@ async def payload(
             "has_xml": bool(invoice.xml),
             "sales_invoice_id": invoice.sales_invoice_id,
             "problems": blocking,
-            "editable": invoice.status in EDITABLE,
-            "can_send": invoice.status in SENDABLE and not blocking and config.enabled,
-            "can_check": invoice.status in CHECKABLE and config.enabled,
+            "editable": editable(invoice),
+            "can_send": editable(invoice) and not blocking and config.enabled,
+            "can_check": invoice.status in CHECKABLE
+            and bool(invoice.ksef_session_ref)
+            and config.enabled,
             "can_correct": invoice.status == "accepted"
+            and invoice.invoice_type == "VAT"
             and invoice.invoice_type != "KOR",
             "history": list(invoice.history or [])[-20:],
         }

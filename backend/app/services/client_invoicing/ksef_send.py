@@ -30,8 +30,11 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Awaitable, Callable, Optional
+
+import httpx
+from lxml import etree
 
 from cryptography.hazmat.primitives import hashes, padding as sym_padding
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -41,6 +44,7 @@ from app.core.config import settings
 from app.services.client_invoicing.fa3_build import SCHEMA_VERSION, SYSTEM_CODE
 from app.services.hr.ksef import crypto, numbers
 from app.services.hr.ksef.client import (
+    SERVER_ERRORS,
     KsefApiError,
     KsefClient,
     _error_for,
@@ -69,6 +73,13 @@ DISABLED_REASONS = {
 STATUS_POLL_DELAYS = (1.0, 1.0, 2.0, 2.0, 3.0, 5.0)
 STATUS_ACCEPTED = 200
 STATUS_PENDING = frozenset({100, 150})
+#: „Duplikat faktury”: KSeF ma już fakturę sprzedawcy o tym numerze — ta
+#: faktura JEST w obrocie (np. pierwsza wysyłka doszła, a odpowiedź przepadła).
+STATUS_DUPLICATE = 440
+#: Błędy wysyłki pliku, po których nie wiadomo, czy KSeF go dostał (zerwane
+#: połączenie, 5xx, nieczytelna odpowiedź, awaria w NEXUSIE). Taka faktura nie
+#: może wrócić do edycji ani zwolnić numeru — rozstrzyga „Sprawdź status”.
+UNCERTAIN_CATEGORIES = frozenset({"unavailable", "invalid_response", "internal"})
 UPO_MAX_BYTES = 2 * 1024 * 1024
 #: Opisy kodów statusu faktury w sesji (dokumentacja MF, KSeF 2.0).
 INVOICE_STATUS_LABELS = {
@@ -194,6 +205,10 @@ class InvoiceStatus:
         return self.code in STATUS_PENDING
 
     @property
+    def duplicate(self) -> bool:
+        return self.code == STATUS_DUPLICATE
+
+    @property
     def text(self) -> str:
         label = INVOICE_STATUS_LABELS.get(self.code or 0) or self.description
         parts = [f"{label} (kod {self.code})" if self.code else label]
@@ -260,15 +275,70 @@ class KsefIssueClient(KsefClient):
             "encryptedInvoiceContent": base64.b64encode(encrypted).decode("ascii"),
             "offlineMode": False,
         }
-        response = await self._authorized(
-            "POST", f"/sessions/online/{session}/invoices", json_body=body
-        )
+        response = await self._post_once(f"/sessions/online/{session}/invoices", body)
+        if response.status_code in SERVER_ERRORS:
+            raise KsefApiError("unavailable", status=response.status_code)
+        if response.status_code == 429:
+            raise KsefApiError("rate_limited", status=429)
         if response.status_code not in (200, 201, 202):
             raise _error_for(response)
         reference = _json_object(response).get("referenceNumber")
         if not isinstance(reference, str) or not reference:
             raise KsefApiError("invalid_response", status=response.status_code)
         return reference
+
+    async def _post_once(self, path: str, body: dict[str, Any]) -> httpx.Response:
+        """POST pliku faktury BEZ automatycznego ponawiania (``_send`` ponawia
+        po zerwanym połączeniu i 5xx). KSeF mógł już przyjąć plik, a druga
+        wysyłka tej samej faktury dałaby duplikat."""
+
+        if self._http is None:
+            raise RuntimeError("KsefClient używaj w async with")
+        bearer = await self.access_token()
+        self.requests += 1
+        try:
+            return await self._http.request(
+                "POST", path, json=body, headers={"Authorization": f"Bearer {bearer}"}
+            )
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "ksef-issue: brak odpowiedzi na wysyłkę (%s)", type(exc).__name__
+            )
+            raise KsefApiError("unavailable") from None
+
+    async def find_by_number(
+        self, invoice_number: str, issue_date: date
+    ) -> Optional[str]:
+        """Numer KSeF faktury sprzedawcy o danym numerze (po duplikacie 440)."""
+
+        start = datetime.combine(
+            issue_date - timedelta(days=1), time(0), tzinfo=timezone.utc
+        )
+        body = {
+            "subjectType": "Subject1",
+            "dateRange": {
+                "dateType": "Issue",
+                "from": start.isoformat(),
+                "to": (start + timedelta(days=3)).isoformat(),
+            },
+            "invoiceNumber": invoice_number,
+        }
+        response = await self._authorized(
+            "POST",
+            "/invoices/query/metadata",
+            json_body=body,
+            params={"pageOffset": 0, "pageSize": 10, "sortOrder": "Asc"},
+        )
+        if response.status_code != 200:
+            raise _error_for(response)
+        for item in _json_object(response).get("invoices") or []:
+            if (
+                isinstance(item, dict)
+                and item.get("invoiceNumber") == invoice_number
+                and numbers.is_valid(item.get("ksefNumber"))
+            ):
+                return item["ksefNumber"]
+        return None
 
     async def invoice_status(self, session: str, invoice: str) -> InvoiceStatus:
         response = await self._authorized(
@@ -327,6 +397,31 @@ class TransmitResult:
     status: Optional[InvoiceStatus] = None
     upo: Optional[bytes] = None
     error: Optional[KsefApiError] = None
+    #: „Sprawdź status”: sesja nie ma żadnej faktury (plik nie dotarł).
+    missing_in_session: bool = False
+    #: Numer KSeF dociągnięty po duplikacie (440) — faktura była już w KSeF.
+    resolved_duplicate: bool = False
+
+    @property
+    def uncertain(self) -> bool:
+        """Plik mógł dotrzeć do KSeF, ale wyniku nie znamy."""
+
+        return (
+            self.stage in ("send", "status")
+            and self.error is not None
+            and self.error.category in UNCERTAIN_CATEGORIES
+        )
+
+    @property
+    def definitely_not_sent(self) -> bool:
+        """Sesja nie powstała albo KSeF jawnie odmówił przyjęcia pliku."""
+
+        if self.error is None or self.status is not None:
+            return False
+        return self.stage == "open" or (self.stage == "send" and not self.uncertain)
+
+
+Progress = Callable[["TransmitResult"], Awaitable[Any]]
 
 
 ClientFactory = Callable[[IssueConfig], KsefIssueClient]
@@ -354,14 +449,53 @@ async def _poll(
     return status
 
 
+def _number_and_date(xml: bytes) -> tuple[Optional[str], Optional[date]]:
+    try:
+        fa = etree.fromstring(xml).find("{*}Fa")
+        number = fa.findtext("{*}P_2")
+        day = date.fromisoformat(fa.findtext("{*}P_1") or "")
+    except (etree.XMLSyntaxError, AttributeError, ValueError):
+        return None, None
+    return number, day
+
+
+async def _resolve_duplicate(
+    client: KsefIssueClient, result: TransmitResult, xml: Optional[bytes]
+) -> None:
+    """Po 440 szukamy numeru KSeF przyjętej wcześniej faktury o tym numerze."""
+
+    if result.status is None or not result.status.duplicate or xml is None:
+        return
+    number, day = _number_and_date(xml)
+    if not number or day is None:
+        return
+    try:
+        found = await client.find_by_number(number, day)
+    except KsefApiError as exc:
+        logger.info("ksef-issue: numer KSeF po duplikacie niedostępny (%s)", exc.label)
+        return
+    if found:
+        result.status = InvoiceStatus(
+            code=STATUS_ACCEPTED, description="", ksef_number=found
+        )
+        result.resolved_duplicate = True
+
+
 async def transmit(
     config: IssueConfig,
     xml: bytes,
     *,
     client_factory: ClientFactory = default_client,
     sleep: Callable[[float], Awaitable[Any]] = asyncio.sleep,
+    on_progress: Optional[Progress] = None,
 ) -> TransmitResult:
-    """Otwiera sesję, wysyła fakturę, czeka chwilę na wynik, zamyka sesję."""
+    """Otwiera sesję, wysyła fakturę, czeka chwilę na wynik, zamyka sesję.
+
+    ``on_progress`` dostaje wynik zaraz po otwarciu sesji i po przyjęciu pliku
+    do przetwarzania — wywołujący zapisuje numery referencyjne, zanim pójdzie
+    dalej (padnięcie procesu nie zostawia faktury bez sesji). Wyjątek spoza
+    ``KsefApiError`` nie wychodzi stąd: kończy się błędem ``internal``.
+    """
 
     result = TransmitResult(stage="open")
     key = SessionKey.random()
@@ -369,11 +503,16 @@ async def transmit(
         try:
             result.session_ref = await client.open_session(key)
             result.stage = "send"
+            if on_progress is not None:
+                await on_progress(result)
             result.invoice_ref = await client.send_invoice(result.session_ref, key, xml)
             result.stage = "status"
+            if on_progress is not None:
+                await on_progress(result)
             result.status = await _poll(
                 client, result.session_ref, result.invoice_ref, sleep
             )
+            await _resolve_duplicate(client, result, xml)
         except KsefApiError as exc:
             logger.warning(
                 "ksef-issue: wysyłka przerwana na etapie %s (%s)",
@@ -381,10 +520,13 @@ async def transmit(
                 exc.label,
             )
             result.error = exc
+        except Exception:  # noqa: BLE001 — wynik musi wrócić do zapisu stanu faktury
+            logger.exception("ksef-issue: awaria na etapie %s", result.stage)
+            result.error = KsefApiError("internal")
         if result.session_ref:
             try:
                 await client.close_session(result.session_ref)
-            except KsefApiError:
+            except Exception:  # noqa: BLE001 — KSeF zamknie sesję sam
                 logger.info(
                     "ksef-issue: zamknięcie sesji nieudane — KSeF zamknie ją sam"
                 )
@@ -414,6 +556,7 @@ async def check(
     session_ref: str,
     invoice_ref: Optional[str],
     ksef_number: Optional[str],
+    xml: Optional[bytes] = None,
     client_factory: ClientFactory = default_client,
 ) -> TransmitResult:
     """„Sprawdź status”: wynik faktury w sesji i UPO (bez ponownej wysyłki)."""
@@ -425,14 +568,16 @@ async def check(
         try:
             if result.invoice_ref is None:
                 refs = await client.session_invoice_refs(session_ref)
-                result.invoice_ref = refs[0] if len(refs) == 1 else None
-                if result.invoice_ref is None:
+                if not refs:
                     result.stage = "send"
+                    result.missing_in_session = True
                     return result
+                result.invoice_ref = refs[-1]
             if ksef_number is None:
                 result.status = await client.invoice_status(
                     session_ref, result.invoice_ref
                 )
+                await _resolve_duplicate(client, result, xml)
                 ksef_number = (
                     result.status.ksef_number if result.status.accepted else None
                 )
@@ -443,7 +588,8 @@ async def check(
         except KsefApiError as exc:
             result.error = exc
             return result
-        result.upo = await _upo(client, session_ref, ksef_number)
+        if not result.resolved_duplicate:
+            result.upo = await _upo(client, session_ref, ksef_number)
     return result
 
 

@@ -19,12 +19,14 @@ Tabele:
   - ``draft`` — szkic bez numeru; usunięcie nie zostawia śladu w numeracji,
   - ``sending`` — numer nadany, XML zapisany, trwa wysyłka (zostaje, gdy
     odpowiedź KSeF nie dała pewności — „Sprawdź status”),
-  - ``sent`` — KSeF przyjął plik do przetwarzania, czeka na wynik,
+  - ``sent`` — KSeF przyjął plik do przetwarzania, czeka na wynik (także
+    duplikat 440: faktura o tym numerze już jest w KSeF),
   - ``accepted`` — przyjęta, ma numer KSeF; łączy się z wpisem
     ``client_sales_invoices`` (``sales_invoice_id``, ten sam numer KSeF —
     odczyt z KSeF nie robi duplikatu),
   - ``rejected`` — KSeF odrzucił fakturę (kod i powód), ``failed`` — wysyłka
-    nie doszła do KSeF (limit, awaria). Obie zostają przy numerze: faktura
+    na pewno nie doszła do KSeF (sesja nie powstała, KSeF jawnie odmówił
+    pliku). Wynik nieznany to ``sending``/``sent``, nie ``failed``. Obie zostają przy numerze: faktura
     nie weszła do obrotu, więc po poprawce idzie ponownie z tym samym numerem,
   - ``cancelled`` — odrzucona faktura wycofana, a jej numer nie był ostatni
     w serii: wiersz zostaje jako ślad niewykorzystanego numeru (powód

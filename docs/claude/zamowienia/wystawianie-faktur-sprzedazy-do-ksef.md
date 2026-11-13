@@ -32,9 +32,9 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   `uq_client_issued_invoices_number` to druga zapora. Numer i XML są zapisane (commit) przed rozmową z KSeF.
 - „Następny numer” per seria i miesiąc ustawiają Finanse w ustawieniach — przejście z eBI24 w połowie miesiąca
   kontynuuje numerację. Nie da się go ustawić na numer już wydany (409).
-- **Odrzucenie przez KSeF (decyzja do potwierdzenia przez Artura):** faktura odrzucona (`rejected`) albo
-  niewysłana (`failed`) nie istnieje w obrocie, ale **zatrzymuje swój numer** — po poprawce idzie ponownie
-  z tym samym numerem, więc w zwykłym przebiegu dziury nie ma. Data wystawienia może się zmienić tylko w tym
+- **Odrzucenie przez KSeF (decyzja Artura z 13.11.2026):** faktura odrzucona (`rejected`) albo
+  na pewno niewysłana (`failed`) nie istnieje w obrocie, ale **zatrzymuje swój numer** — po poprawce idzie
+  ponownie z tym samym numerem, więc w zwykłym przebiegu dziury nie ma. Data wystawienia może się zmienić tylko w tym
   samym miesiącu. Wycofanie takiej faktury: gdy jej numer jest ostatni w serii, wraca do puli (licznik
   w dół, wiersz znika); gdy nie jest ostatni, faktura zostaje jako `cancelled` z opisem „numer
   niewykorzystany” — to jedyne źródło dziury i jest udokumentowane przy numerze.
@@ -55,8 +55,10 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 
 - `fa3_build.py`: `FA (3)` / `1-0E`, kolejność elementów jak w schemacie MF. Wartość pozycji = ilość × cena
   (do grosza), VAT od sumy netto w stawce. Stawki `P_12`: 23, 8, 5, 0 KR, 0 EX, zw, np I, np II.
-- Waluta obca: kurs średni NBP z ostatniego dnia roboczego **przed** datą dostawy (koniec okresu usługi) z
-  `fx_rates` (`source='NBP'`, najwyżej 7 dni wstecz — inaczej brak kursu i wysyłka czeka). `KursWaluty`
+- Waluta obca: kurs średni NBP z **dokładnie** ostatniego dnia roboczego przed datą dostawy (koniec okresu
+  usługi; pon–pt bez świąt ustawowych, `core/scheduling.is_business_day`) z `fx_rates` (`source='NBP'`).
+  Brak tabeli z tego dnia (dziura w pobieraniu kursów) to problem „brak kursu NBP z dnia X” i wysyłka czeka —
+  kurs z wcześniejszego dnia byłby niezgodny z art. 31a ustawy o VAT (przegląd 13.11.2026). `KursWaluty`
   w pozycji, `P_14_xW` = VAT × kurs w złotych. Korekta bierze kurs faktury korygowanej.
 - Test „round-trip”: zbudowany XML czyta `hr/ksef/fa.py` i `fa_sales.py` (te same parsery co faktury z KSeF).
   **XSD FA(3) nie ma w repo** — walidacji XSD nie ma; pierwszą wysyłkę zrób w trybie `test` (MF waliduje schemat).
@@ -68,8 +70,23 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   odczytu `KSEF_TOKEN` go nie ma. Ustawiane wyłącznie workflow „Coolify set env”.
 - Sesja interaktywna (`ksef_send.py`): AES-256-CBC, klucz szyfrowany RSA-OAEP kluczem MF
   `SymmetricKeyEncryption`, `POST /sessions/online`, faktura, status (ok. 14 s odpytywania), zamknięcie, UPO.
-  Wynik: 200 = `accepted` (numer KSeF), 4xx = `rejected` (kod i opis), błąd przed przyjęciem pliku = `failed`,
-  w toku albo zerwana odpowiedź = `sent`/`sending` → „Sprawdź status” (bez ponownej wysyłki).
+  Wynik przetwarzania: 200 = `accepted` (numer KSeF), inny kod 4xx/5xx = `rejected` (kod i opis).
+- **Do edycji, ponownej wysyłki i zwolnienia numeru wraca tylko faktura, która na pewno nie weszła do KSeF**
+  (przegląd 13.11.2026): sesja nie powstała, KSeF jawnie odmówił pliku (4xx z błędem, 429, 401/403) albo
+  odrzucił fakturę po weryfikacji. Wtedy `failed`/`rejected`.
+- **Wynik nieznany = faktura w drodze.** Po otwarciu sesji zerwane połączenie, timeout, 5xx, nieczytelna
+  odpowiedź albo awaria w NEXUSIE dają `sending`/`sent`: bez edycji, bez wycofania, tylko „Sprawdź status”
+  (lista faktur sesji → status). Plik faktury idzie jednym `POST` **bez automatycznego ponawiania**
+  (`KsefIssueClient._post_once`) — wspólny `_send` ponawia po 5xx i zerwanym połączeniu, a KSeF mógł już
+  przyjąć plik. Odczyt z KSeF ponawia jak dotąd.
+- **440 „duplikat faktury” = faktura o tym numerze już jest w KSeF** (np. pierwsza wysyłka doszła, odpowiedź
+  przepadła). Nie `rejected`: `sent` bez edycji i bez zwalniania numeru; numer KSeF dociągamy zapytaniem
+  o metadane po numerze faktury (`find_by_number`) — od razu albo przy „Sprawdź status”.
+- **Sesja zapisuje się w bazie zaraz po otwarciu** (callback `on_progress` z `transmit`, commit przed wysłaniem
+  pliku; tak samo numer referencyjny pliku). Padnięcie procesu w trakcie zostawia fakturę do „Sprawdź status”.
+  Wyjątek przed otwarciem sesji = `failed` (plik nie mógł dotrzeć). `sending` bez sesji starsze niż 5 minut
+  (`STALE_UNSENT_AFTER`) — proces padł przed otwarciem sesji — da się wysłać ponownie z tym samym numerem
+  albo wycofać. „Sprawdź status” na sesji bez faktury po 5 minutach = `failed` (plik nie dotarł).
 - Przyjęta faktura od razu trafia do `client_sales_invoices` z tym samym numerem KSeF (`sync.store_invoice`
   na naszym XML-u), więc pętla `sales_ksef_fetch` jej nie dubluje, i wiąże się z zamówieniem metodą
   **`issued`** — automat jej nie przepina (jak `manual`), Finanse mogą cofnąć. Korekta idzie za pierwotną
@@ -83,8 +100,12 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 
 ## Korekta i zaliczkowa
 
-- Korekta tylko do faktury przyjętej w KSeF: szkic z pozycjami pierwotnej jako „stan przed” (`StanPrzed`) i „po”,
-  sumy = różnice, przyczyna obowiązkowa, `DaneFaKorygowanej` z numerem KSeF pierwotnej.
+- Korekta tylko do faktury VAT przyjętej w KSeF: szkic z „stanem przed” (`StanPrzed`) i „po”, sumy = różnice,
+  przyczyna obowiązkowa, `DaneFaKorygowanej` z numerem KSeF pierwotnej.
+- **„Stan przed” = stan po ostatniej przyjętej korekcie** (przegląd 13.11.2026): po KOR1 21 → 20 MD kolejna
+  korekta 20 → 22 daje +2 MD, nie różnicę od faktury pierwotnej. Druga korekta, gdy poprzednia jest jeszcze
+  w toku (szkic, w drodze, odrzucona), dostaje 409.
+- **Faktury zaliczkowej NEXUS nie koryguje** (409): jej korekta to `KOR_ZAL`, nie `KOR` — następny etap.
 - Zaliczkowa minimalnie: klient, waluta, data otrzymania (`P_6`), wiersze w `Zamowienie`, zaliczka na pełną
   wartość zamówienia. Zaliczka częściowa i faktura rozliczeniowa (`ROZ`) — następny etap.
 

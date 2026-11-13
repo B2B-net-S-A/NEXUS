@@ -179,6 +179,115 @@ def test_config_disabled_reasons(config, reason) -> None:
         assert payload["disabled_reason"] == ksef_send.DISABLED_REASONS[reason]
 
 
+@pytest.mark.parametrize(
+    "outcome",
+    [httpx.Response(503), httpx.ReadTimeout("koniec czasu")],
+    ids=["503", "timeout"],
+)
+async def test_lost_answer_to_stored_invoice_is_uncertain_and_not_retried(
+    fake, outcome
+) -> None:
+    # KSeF zapisał plik, a odpowiedź nie doszła: druga wysyłka dałaby duplikat.
+    fake.after_store = [outcome]
+    result = await ksef_send.transmit(
+        CONFIG, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert result.stage == "send"
+    assert result.error is not None and result.error.category == "unavailable"
+    assert result.uncertain is True
+    assert result.definitely_not_sent is False
+    assert len(fake.received) == 1
+    assert fake.count("POST", f"/sessions/online/{result.session_ref}/invoices") == 1
+
+
+async def test_explicit_refusal_of_the_file_is_definite(fake) -> None:
+    fake.script[("POST", "/sessions/online/")] = [_error_response(21405)]
+    result = await ksef_send.transmit(
+        CONFIG, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert result.uncertain is False
+    assert result.definitely_not_sent is True
+
+
+async def test_duplicate_440_resolves_the_ksef_number_of_the_invoice_in_ksef(
+    fake,
+) -> None:
+    known = numbers.make(COMPANY_NIP, date(2026, 11, 20), "E40000000AAA")
+    fake.known_numbers["1/11/2026"] = known
+    fake.invoice_codes = [440]
+    result = await ksef_send.transmit(
+        CONFIG, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert result.status is not None and result.status.accepted
+    assert result.status.ksef_number == known
+    assert result.resolved_duplicate is True
+
+
+async def test_duplicate_without_match_stays_duplicate(fake) -> None:
+    fake.invoice_codes = [440]
+    result = await ksef_send.transmit(
+        CONFIG, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert result.status is not None and result.status.duplicate
+    assert not result.status.accepted
+
+
+async def test_progress_is_reported_before_the_file_goes_out(fake) -> None:
+    seen: list[tuple[str, int]] = []
+
+    async def remember(progress: ksef_send.TransmitResult) -> None:
+        seen.append((progress.stage, len(fake.received)))
+        assert progress.session_ref
+
+    await ksef_send.transmit(
+        CONFIG,
+        _xml(),
+        client_factory=factory(fake),
+        sleep=_no_sleep,
+        on_progress=remember,
+    )
+    assert seen == [("send", 0), ("status", 1)]
+
+
+async def test_unexpected_error_after_session_is_uncertain(fake) -> None:
+    async def broken(_progress: ksef_send.TransmitResult) -> None:
+        if _progress.stage == "status":
+            raise RuntimeError("awaria w NEXUSIE")
+
+    result = await ksef_send.transmit(
+        CONFIG,
+        _xml(),
+        client_factory=factory(fake),
+        sleep=_no_sleep,
+        on_progress=broken,
+    )
+    assert result.error is not None and result.error.category == "internal"
+    assert result.uncertain is True
+
+
+async def test_check_reports_an_empty_session(fake) -> None:
+    fake.script[("POST", "/sessions/online/")] = [httpx.Response(429)]
+    sent = await ksef_send.transmit(
+        CONFIG, _xml(), client_factory=factory(fake), sleep=_no_sleep
+    )
+    assert sent.definitely_not_sent
+    checked = await ksef_send.check(
+        CONFIG,
+        session_ref=sent.session_ref,
+        invoice_ref=None,
+        ksef_number=None,
+        client_factory=factory(fake),
+    )
+    assert checked.missing_in_session is True
+
+
+def _error_response(code: int) -> httpx.Response:
+    return httpx.Response(
+        400,
+        json={"exception": {"exceptionDetailList": [{"exceptionCode": code}]}},
+    )
+
+
 def test_load_config_defaults_to_off(monkeypatch) -> None:
     from app.core.config import settings
 
