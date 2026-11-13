@@ -57,6 +57,15 @@ class RetryLabelTests(unittest.TestCase):
         self.assertEqual(labels_mod.decode_labels(encoded), COOLIFY_LABELS)
         self.assertEqual(labels_mod.decode_labels(None), [])
 
+    def test_shutdown_settings_per_application(self):
+        self.assertEqual(
+            labels_mod.shutdown_settings(15, 60),
+            {"rolling_update_drain_seconds": 15, "stop_grace_period": 60},
+        )
+        for drain, grace in [(-1, 30), (301, 30), (10, 0), (10, 3601)]:
+            with self.subTest(drain=drain, grace=grace), self.assertRaises(ValueError):
+                labels_mod.shutdown_settings(drain, grace)
+
     def test_shutdown_gives_traffic_time_to_move(self):
         self.assertGreater(labels_mod.SHUTDOWN_SETTINGS["rolling_update_drain_seconds"], 5)
         self.assertGreaterEqual(labels_mod.SHUTDOWN_SETTINGS["stop_grace_period"], 30)
