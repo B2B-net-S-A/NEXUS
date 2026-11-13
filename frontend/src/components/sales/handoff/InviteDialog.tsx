@@ -35,7 +35,7 @@ function InviteForm({ handoff, draft, onClose }: { handoff: Handoff; draft: Invi
       .map((recipient) => recipient.address)
       .join(", "),
   );
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(draft.message ?? "");
   const [error, setError] = useState<string | null>(null);
   const addresses = parseAddresses(to);
   const blocked = draft.recipients.filter((recipient) => recipient.blocked);

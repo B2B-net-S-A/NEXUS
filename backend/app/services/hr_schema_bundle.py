@@ -24,6 +24,7 @@ from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
+from app.services import client_time_reports_schema as client_time_reports
 from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
@@ -86,6 +87,8 @@ MODULES = (
     bonus_guarantee,
     # 0679: rozliczenia klientów E1 (09.11.2026).
     client_settlements,
+    # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T (13.11.2026).
+    client_time_reports,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

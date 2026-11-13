@@ -157,7 +157,7 @@ def _month(day: date) -> str:
     return f"{day.year}-{day.month:02d}"
 
 
-async def _amounts(
+async def settlement_amounts(
     db: AsyncSession, contract_ids: Iterable[int], months: list[str]
 ) -> dict[tuple[int, str], Decimal]:
     rows = await db.execute(
@@ -195,11 +195,26 @@ async def _place(
     issue: Optional[date],
     net: Optional[Decimal],
 ) -> tuple[Optional[Contractor], Optional[str]]:
-    """Osoba i miesiąc: równa kwota rozliczenia rozstrzyga, potem dzień wystawienia."""
+    """Osoba i miesiąc: równa kwota rozliczenia rozstrzyga, potem dzień wystawienia.
+
+    Kwota osoby to wyliczenie z RCP, a bez niego godziny zatwierdzone w raporcie
+    klienta (T4T) × stawka (odpowiedź rozliczeń 13.11): spółka wystawiająca za
+    kilka osób i dwie osoby z jednej spółki o różnych stawkach rozstrzygają się
+    tak samo. Jedna faktura za pracę osoby u dwóch klientów pasuje do sumy jej
+    rozliczeń i trafia do kontraktu z większą kwotą. Bez jednoznacznego wyniku
+    faktura zostaje bez osoby do ręcznego przypisania.
+    """
+
+    from app.services.client_settlements import time_reports  # noqa: PLC0415 (cykl)
 
     months = _months(issue)
     if net is not None and months:
-        amounts = await _amounts(db, (p.contract_id for p in people), months)
+        ids = [p.contract_id for p in people]
+        amounts = await settlement_amounts(db, ids, months)
+        for key, value in (
+            await time_reports.expected_amounts(db, ids, months)
+        ).items():
+            amounts.setdefault(key, value)
         hits = [
             (person, month)
             for person in people
@@ -208,9 +223,40 @@ async def _place(
         ]
         if len({person.contract_id for person, _ in hits}) == 1:
             return hits[0]
+        if not hits:
+            shared = _shared_hit(people, months, amounts, net)
+            if shared is not None:
+                return shared
     if len({p.contract_id for p in people}) == 1:
         return people[0], _default_period(issue)
     return None, _default_period(issue)
+
+
+def _shared_hit(
+    people: list[Contractor],
+    months: list[str],
+    amounts: dict[tuple[int, str], Decimal],
+    net: Decimal,
+) -> Optional[tuple[Contractor, str]]:
+    """Osoba z kontraktami u kilku klientów: netto = suma jej rozliczeń w miesiącu."""
+
+    by_candidate: dict[int, list[Contractor]] = {}
+    for person in people:
+        if person.candidate_id is not None:
+            by_candidate.setdefault(person.candidate_id, []).append(person)
+    hits: list[tuple[Contractor, str]] = []
+    for contracts in by_candidate.values():
+        if len({c.contract_id for c in contracts}) < 2:
+            continue
+        for month in months:
+            known = [
+                (amounts[(c.contract_id, month)], c)
+                for c in contracts
+                if (c.contract_id, month) in amounts
+            ]
+            if len(known) >= 2 and sum(a for a, _ in known) == net:
+                hits.append((max(known, key=lambda ac: ac[0])[1], month))
+    return hits[0] if len(hits) == 1 else None
 
 
 def _suggestion_people(

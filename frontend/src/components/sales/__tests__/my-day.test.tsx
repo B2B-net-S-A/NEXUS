@@ -21,6 +21,7 @@ const showError = vi.fn();
 const showSuccess = vi.fn();
 const companyPeople = vi.fn();
 const bookProps = vi.fn();
+const reminders = vi.fn();
 let canEdit = true;
 
 const mutation = (mutate: ReturnType<typeof vi.fn>) => ({ mutate, isPending: false });
@@ -37,6 +38,10 @@ vi.mock("@/lib/api/sales", async (original) => ({
   useUpdateSalesContact: () => mutation(updateContact),
   useCompanyPeople: () => companyPeople(),
   useCompanyBriefing: () => ({ isSuccess: false }),
+}));
+vi.mock("@/lib/api/sales-calling", async (original) => ({
+  ...(await original<typeof import("@/lib/api/sales-calling")>()),
+  useCallReminders: (scope: string, callerId: number | null, until: string | null) => reminders(scope, callerId, until),
 }));
 vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales-handoffs")>()),
@@ -149,6 +154,7 @@ function handoff(overrides: Partial<Handoff> = {}): Handoff {
 }
 
 beforeEach(() => {
+  reminders.mockReturnValue({ data: [], isSuccess: true, isError: false, refetch: vi.fn() });
   vi.clearAllMocks();
   canEdit = true;
   handoffs.mockReturnValue(handoffsOk(noHandoffs));
@@ -201,6 +207,41 @@ describe("podpisy i przekierowanie", () => {
 });
 
 describe("kolejka dnia", () => {
+  it("przypomnienia z Dzwonienia na dziś stoją nad kolejką (13.11.2026)", () => {
+    myDay.mockReturnValue(ok(day()));
+    reminders.mockReturnValue({
+      isSuccess: true,
+      refetch: vi.fn(),
+      data: [
+        {
+          key: "r:7",
+          section: "callbacks",
+          record_id: 7,
+          opportunity_id: null,
+          opportunity_title: null,
+          company: { id: 15, name: "Oddzwoń S.A." },
+          campaign: null,
+          person_name: "Jan Testowy",
+          person_title: null,
+          phone: null,
+          state: "call_back",
+          due_on: day().today,
+          attempts: 1,
+          last_outcome_at: null,
+          since: "2026-11-06T10:00:00Z",
+        },
+      ],
+      isError: false,
+    });
+    render(<MyDayView />);
+    expect(reminders).toHaveBeenLastCalledWith("mine", null, day().today);
+    const section = screen.getByRole("region", { name: "Przypomnienia na dziś" });
+    expect(section.textContent).toContain("Oddzwoń S.A.");
+    expect(screen.getByRole("link", { name: "Wszystkie przypomnienia (1)" }).getAttribute("href")).toBe(
+      "/sales/calling?view=reminders",
+    );
+  });
+
   it("pusty stan dopiero po sukcesie", () => {
     myDay.mockReturnValue(ok(day()));
     render(<MyDayView />);

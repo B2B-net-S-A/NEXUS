@@ -438,11 +438,23 @@ def _meetings_between(
     start_utc: datetime, end_utc: datetime, user_id: Optional[int]
 ) -> list[Any]:
     """Spotkania osoby z kalendarza (także termin z „Umów spotkanie”, którego autorem
-    jest prowadzący); ``None``: spotkania każdej osoby ze Sprzedaży."""
+    jest prowadzący); ``None``: spotkania każdej osoby ze Sprzedaży.
+
+    Spotkanie przy szansie osoby też jest jej (lista dzwoniących 13.11.2026: termin
+    wpisany przez dzwoniącego albo zsynchronizowany z cudzej skrzynki ma autora
+    innego niż opiekun, a „Mój dzień” opiekuna go nie pokazywał).
+    """
 
     return [
         SalesActivity.kind == "meeting",
-        SalesActivity.created_by_user_id == user_id
+        or_(
+            SalesActivity.created_by_user_id == user_id,
+            SalesActivity.opportunity_id.in_(
+                select(SalesOpportunity.id).where(
+                    SalesOpportunity.owner_user_id == user_id
+                )
+            ),
+        )
         if user_id is not None
         else SalesActivity.created_by_user_id.is_not(None),
         SalesActivity.occurred_at >= start_utc,

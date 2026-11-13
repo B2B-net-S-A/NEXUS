@@ -111,6 +111,8 @@ class InviteDraftOut(BaseModel):
     meeting_at: Optional[datetime]
     duration_minutes: int
     sent_at: Optional[datetime]
+    #: Treść zaproszenia od umawiającego (13.11.2026).
+    message: Optional[str] = None
 
 
 class HostBusyOut(BaseModel):
@@ -368,6 +370,7 @@ async def invite_draft(
         meeting_at=found.meeting_at,
         duration_minutes=found.duration_minutes,
         sent_at=found.sent_at,
+        message=found.message,
     )
 
 

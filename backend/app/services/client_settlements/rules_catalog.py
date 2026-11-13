@@ -365,6 +365,21 @@ SECTIONS: tuple[Section, ...] = (
             ),
         ),
     ),
+    Section(
+        "client_report",
+        "Raport klienta (T4T)",
+        (
+            Rule(
+                "report.time_for_teams",
+                "Raport godzin od klienta (Time for Teams) porównany z fakturą kontraktora",
+                "off",
+                "N1",
+                hint="Włączona daje podzakładkę „Raport klienta (T4T)”: wersje raportu od "
+                "klienta, kartoteka numerów osób i status każdej osoby w miesiącu. "
+                "Liczą się tylko godziny w statusie 2 (Approved).",
+            ),
+        ),
+    ),
 )
 
 RULES: dict[str, Rule] = {

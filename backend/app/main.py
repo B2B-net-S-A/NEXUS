@@ -247,6 +247,7 @@ from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_settlements as client_settlements_api
+from app.api import client_time_reports as client_time_reports_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -272,6 +273,7 @@ from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_bot_results as sales_bot_results_api
 from app.api import sales_bot_people as sales_bot_people_api
+from app.api import sales_bots as sales_bots_api
 from app.api import sales_company_bot as sales_company_bot_api
 from app.api import sales_calling as sales_calling_api
 from app.api import sales_my_day as sales_my_day_api
@@ -2215,6 +2217,13 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
+# Rozliczenia Nordei N1: raport klienta (T4T), kartoteka numerów osób.
+app.include_router(
+    client_time_reports_api.router,
+    prefix="/api/finance/settlements/time-reports",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 app.include_router(
     hr_lifecycle_api.router,
     prefix="/api/hr/lifecycle",
@@ -2301,6 +2310,7 @@ app.include_router(
 app.include_router(
     sales_company_bot_api.router, prefix="/api/sales/companies", tags=["sales"]
 )
+app.include_router(sales_bots_api.router, prefix="/api/sales/bots", tags=["sales"])
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(
     sales_calling_api.router, prefix="/api/sales/calling", tags=["sales"]
