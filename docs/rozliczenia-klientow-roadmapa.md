@@ -506,9 +506,13 @@ krokach E6.
       w „Fakturze kontraktora” kontrola zapłaty; `pay.mail_accept_fallback`:
       przycisk „Podpisujący nieobecny” zapisuje zapłatę po mailowej akceptacji
       (w danych rozliczenia, przeżywa przeliczenie), podpisane KEŚU zostaje do
-      sprawdzenia. `cl.extra_costs_on_invoice`: koszty z KEŚU na fakturze
-      głównej, netto = brutto / 1,23 (brutto faktury = „Razem” z KEŚU); pusty
-      parametr = jedna pozycja na całość, nazwa = osobna pozycja.
+      sprawdzenia. `cl.extra_costs_on_invoice`: koszty z KEŚU wchodzą jako
+      zgłoszony dodatek (delegacja „na fakturę dla klienta”, źródło KEŚU,
+      netto = brutto / 1,23, więc brutto faktury = „Razem” z KEŚU) i trafiają
+      na fakturę główną dopiero po zatwierdzeniu przez Finanse; pusty parametr
+      = jedna pozycja na całość, nazwa = osobna pozycja (13.11, dodatki do
+      rozliczenia). Nowy odczyt KEŚU poprawia kwotę zgłoszenia, ale nie
+      decyzję Finansów.
       `travel.extra_costs_confirm`: koszty dodatkowe zawsze tylko ostrzegają.
       Te pięć reguł ma etap E6.3.
     - Reguły Aliora ustawiają Finanse w „Reguły klienta” (dane, nie kod):

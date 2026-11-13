@@ -29,6 +29,10 @@ rozliczeniowego i dopytywały o dokumenty delegacji.
 - **Finanse** na karcie osoby w Finanse → Rozliczenia: zatwierdzają, odrzucają
   (zawsze z powodem), zaznaczają „Na fakturę dla klienta”, dołączają pliki, a dodatek
   wpisany przez siebie mają od razu zatwierdzony.
+- **KEŚU (Alior):** „Suma kosztów dodatkowych” z KEŚU tworzy jedno zgłoszenie na
+  (kontrakt, miesiąc): delegacja „na fakturę dla klienta”, źródło `kesu`, netto =
+  brutto / 1,23. Nowy odczyt KEŚU poprawia kwotę tylko przed decyzją Finansów
+  (`extras.sync_from_kesu`). Drugiej ścieżki kosztów KEŚU w fakturze dla klienta nie ma.
 - **Konsultant** w panelu widzi swoje dodatki ze stanem i powodem odrzucenia (bez
   źródła i bez informacji, czy fakturujemy klientowi) i sam zgłasza delegację; bez
   dokumentu panel jej nie przyjmie.
