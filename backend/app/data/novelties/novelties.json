@@ -2786,6 +2786,18 @@
     "dot_anchor": "jobs.chat.compose"
   },
   {
+    "id": "swiaty-wygladu",
+    "pr": 3388,
+    "title": "Światy wyglądu: kilkanaście motywów zamiast jednego trybu gry",
+    "why": "W „Wyglądzie” → „Świat” wybierzesz klimat NEXUSA: Sakura, Latte, Lawenda, Pit stop, Góry, Kosmos i inne. Wybór idzie za Tobą na każdy komputer.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {},
+    "where": "Górny pasek → Wygląd → Świat",
+    "href": "/",
+    "dot_anchor": "appearance.menu"
+  },
+  {
     "id": "szkolenia-biblioteka-nagran",
     "pr": 3386,
     "title": "Szkolenia: nagrania, materiały i zapisy w NEXUSIE",

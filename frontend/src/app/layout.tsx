@@ -110,7 +110,8 @@ export const metadata: Metadata = {
 
 // Applied before first paint to prevent a flash of the wrong theme/palette.
 // Mirrors the zustand-persist shape of `src/store/theme.ts` (key "nexus-theme").
-const themeBootstrap = `(function(){try{var d=document.documentElement;var p="indigo",t="light",k=false,so=true;var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["indigo","violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;if(s.kidsMode===true)k=true;if(s.softUi===false)so=false;}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;if(k)d.dataset.kids="true";if(so)d.dataset.soft="true";}catch(e){var r=document.documentElement;r.dataset.theme="indigo";r.dataset.soft="true";}})();`;
+// Ciemne światy: lustro `DARK_WORLD_IDS` (test `theme-worlds-contract.test.ts`).
+const themeBootstrap = `(function(){try{var d=document.documentElement;var p="indigo",t="light",k=false,w="";var raw=localStorage.getItem("nexus-theme");if(raw){var s=(JSON.parse(raw)||{}).state||{};if(s.theme==="dark"||s.theme==="light")t=s.theme;if(["indigo","violet","blue","green","orange","rose","graphite"].indexOf(s.palette)>=0)p=s.palette;if(s.kidsMode===true)k=true;if(typeof s.world==="string"&&/^[a-z]{2,16}$/.test(s.world)&&s.world!=="none"&&!k)w=s.world;}if(w){d.dataset.world=w;t=["arcade","space","rgb","blueprint","pitstop"].indexOf(w)>=0?"dark":"light";}if(t==="dark")d.classList.add("dark");d.dataset.theme=p;if(k)d.dataset.kids="true";d.dataset.soft="true";}catch(e){var r=document.documentElement;r.dataset.theme="indigo";r.dataset.soft="true";}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
