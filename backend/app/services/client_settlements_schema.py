@@ -194,7 +194,7 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_settlement_extras (client_id, period_month)",
 )
 
-#: 0688 (E5.1): dodatki do rozliczenia (pierwszy rodzaj: koszty integracji).
+#: 0689 (E5.1): dodatki do rozliczenia (pierwszy rodzaj: koszty integracji).
 EXTRAS_DDL: tuple[str, ...] = (TABLE_DDL[-1], *INDEX_DDL[-2:])
 
 #: Trzecie źródło zużycia MD. Warunek w DO, żeby entrypoint nie przebudowywał
