@@ -33,8 +33,10 @@ from app.models.contract import Contract
 from app.models.training import (
     Training,
     TrainingAttendance,
+    TrainingFeedback,
     TrainingFile,
     TrainingRegistration,
+    TrainingTranscript,
 )
 from app.models.user import User
 from app.services.candidate_followups import add_business_days
@@ -86,6 +88,10 @@ STATUS_LABELS: dict[str, str] = {
     "cancelled": "Anulowane",
 }
 
+#: Szkolenie pracownika nie ma umowy: po wysłaniu jest ``signed``, ale „Umowa podpisana”
+#: myliło TCM na liście (analiza 13.11.2026), więc etykieta zależy od prowadzącego.
+EMPLOYEE_READY_LABEL = "Gotowe do szkolenia"
+
 NOT_FOUND = "Nie ma takiego szkolenia."
 WRONG_STATUS = "To szkolenie jest już na innym etapie. Odśwież stronę."
 
@@ -96,6 +102,12 @@ def _clean(value: Optional[str], limit: int) -> str:
 
 def _iso(value: Optional[datetime | date]) -> Optional[str]:
     return value.isoformat() if value is not None else None
+
+
+def status_label(training: Training) -> str:
+    if training.status == "signed" and training.trainer_kind == "employee":
+        return EMPLOYEE_READY_LABEL
+    return STATUS_LABELS[training.status]
 
 
 def _wrong_status() -> TrainingError:
@@ -278,6 +290,7 @@ def _order(training: Training) -> dict[str, Any]:
         "deliverables": training.deliverables,
         "knowledge_test": training.knowledge_test,
         "extra_terms": training.extra_terms,
+        "seat_limit": training.seat_limit,
     }
 
 
@@ -349,7 +362,7 @@ async def staff_view(
     return {
         "id": training.id,
         "status": training.status,
-        "status_label": STATUS_LABELS[training.status],
+        "status_label": status_label(training),
         "trainer_kind": training.trainer_kind,
         "trainer_contract_id": training.trainer_contract_id,
         "trainer_user_id": training.trainer_user_id,
@@ -365,6 +378,15 @@ async def staff_view(
         "files": [_file_row(f) for f in files],
         "registrations": registrations or 0,
         "attendance": attendance or 0,
+        "teams": {
+            "status": training.teams_status or None,
+            "error": training.teams_error or None,
+            "synced_at": _iso(training.teams_synced_at),
+            "recording": training.recording_status or None,
+        },
+        "shared_registered_at": _iso(training.shared_registered_at),
+        "feedback": await feedback_summary(db, training.id, with_comments=True),
+        "transcript": await db.get(TrainingTranscript, training.id) is not None,
         "published_at": _iso(training.published_at),
         "can_publish": can_publish(training),
         "chapters": chapters(training),
@@ -383,7 +405,7 @@ async def trainer_view(db: AsyncSession, training: Training) -> dict[str, Any]:
     return {
         "id": training.id,
         "status": training.status,
-        "status_label": STATUS_LABELS[training.status],
+        "status_label": status_label(training),
         "order": _order(training),
         "quote": _quote(training),
         "fees": _fees(training),
@@ -391,6 +413,21 @@ async def trainer_view(db: AsyncSession, training: Training) -> dict[str, Any]:
         "payment": _payment(training),
         "handover": handover(training, files),
         "invoices": [_file_row(f) for f in files if f.kind == "invoice"],
+        # Link do spotkania trener dostaje po podpisie umowy, bo dopiero wtedy prowadzi
+        # (do 13.11.2026 panel pisał „link damy my”, a linku nie było nigdzie).
+        "join_url": (training.join_url or None)
+        if training.status == "signed"
+        else None,
+        "registrations": await db.scalar(
+            select(func.count())
+            .select_from(TrainingRegistration)
+            .where(TrainingRegistration.training_id == training.id)
+        )
+        or 0,
+        "recording_ready": any(
+            f.kind == "recording" and f.status == "accepted" for f in files
+        ),
+        "feedback": await feedback_summary(db, training.id, with_comments=True),
         "can_quote": training.status in ("ordered", "returned"),
         "can_sign": training.status == "accepted"
         and training.agreement_pdf_path is not None,
@@ -405,7 +442,7 @@ def list_row(training: Training, *, name: str, show_fees: bool) -> dict[str, Any
         "id": training.id,
         "title": training.title,
         "status": training.status,
-        "status_label": STATUS_LABELS[training.status],
+        "status_label": status_label(training),
         "trainer_kind": training.trainer_kind,
         "trainer_contract_id": training.trainer_contract_id,
         "trainer_name": name,
@@ -440,6 +477,7 @@ class OrderInput:
     deliverables: tuple[dict[str, Any], ...] = ()
     knowledge_test: bool = False
     extra_terms: str = ""
+    seat_limit: Optional[int] = None
 
 
 def _time(value: str) -> str:
@@ -504,7 +542,12 @@ def _apply_order(training: Training, data: OrderInput) -> None:
         raise TrainingError(
             422, "Liczba uczestników musi być dodatnia.", "bad_participants"
         )
+    if data.seat_limit is not None and not (1 <= data.seat_limit <= 10_000):
+        raise TrainingError(422, "Limit miejsc musi być dodatni.", "bad_seats")
     join_url = _clean(data.join_url, 1_000)
+    if training.teams_event_id:
+        # Spotkanie założył NEXUS (0695): link należy do niego, formularz go nie nadpisze.
+        join_url = training.join_url
     if join_url and not join_url.startswith("https://"):
         raise TrainingError(
             422, "Link do spotkania musi zaczynać się od https://.", "bad_url"
@@ -524,6 +567,7 @@ def _apply_order(training: Training, data: OrderInput) -> None:
     training.deliverables = normalize_deliverables(data.deliverables)
     training.knowledge_test = data.knowledge_test
     training.extra_terms = _clean(data.extra_terms, TEXT_MAX)
+    training.seat_limit = data.seat_limit
 
 
 async def create(
@@ -571,7 +615,11 @@ async def update_order(
     db: AsyncSession, training_id: int, data: OrderInput
 ) -> Training:
     training = await get(db, training_id, lock=True)
-    if training.status not in EDITABLE_ORDER:
+    # Szkolenie pracownika nie ma umowy, więc można je przełożyć także po wysłaniu
+    # (0695: spotkanie i zaproszenia przesuwają się same). Termin szkolenia trenera
+    # B2B stoi w podpisanym Zał. 1, dlatego po umowie zostaje zablokowany.
+    reschedulable = training.status == "signed" and training.trainer_kind == "employee"
+    if training.status not in EDITABLE_ORDER and not reschedulable:
         raise _wrong_status()
     _apply_order(training, data)
     await db.flush()
@@ -882,7 +930,9 @@ async def set_for_participants(
             TrainingFile.id == file_id, TrainingFile.training_id == training_id
         )
     )
-    if item is None or item.kind in ("invoice", "internal"):
+    # Plik TCM („wewnętrzny”) może pójść do uczestników po świadomym zaznaczeniu:
+    # bez tego szkolenie pracownika nie miało jak dać ludziom materiałów (13.11.2026).
+    if item is None or item.kind == "invoice":
         raise TrainingError(404, "Nie ma takiego pliku.", "file_not_found")
     item.for_participants = value
     await db.flush()
@@ -973,10 +1023,25 @@ async def library(
     user_id: Optional[int] = None,
     contract_ids: tuple[int, ...] = (),
 ) -> dict[str, Any]:
+    mine_query = select(TrainingRegistration.training_id)
+    if user_id is not None:
+        mine_query = mine_query.where(TrainingRegistration.user_id == user_id)
+    else:
+        mine_query = mine_query.where(
+            TrainingRegistration.contract_id.in_(contract_ids or (0,))
+        )
+    registered = set((await db.scalars(mine_query)).all())
     published = (
         await db.scalars(
             select(Training)
-            .where(Training.published_at.is_not(None), Training.status == "signed")
+            .where(
+                Training.status == "signed",
+                (Training.published_at.is_not(None))
+                | (
+                    Training.shared_registered_at.is_not(None)
+                    & Training.id.in_(registered or {0})
+                ),
+            )
             .order_by(Training.session_date.desc().nulls_last(), Training.id.desc())
             .limit(200)
         )
@@ -993,14 +1058,19 @@ async def library(
             .limit(50)
         )
     ).all()
-    mine_query = select(TrainingRegistration.training_id)
-    if user_id is not None:
-        mine_query = mine_query.where(TrainingRegistration.user_id == user_id)
-    else:
-        mine_query = mine_query.where(
-            TrainingRegistration.contract_id.in_(contract_ids or (0,))
-        )
-    registered = set((await db.scalars(mine_query)).all())
+    seats = dict(
+        (
+            await db.execute(
+                select(TrainingRegistration.training_id, func.count())
+                .where(
+                    TrainingRegistration.training_id.in_(
+                        [t.id for t in upcoming] or [0]
+                    )
+                )
+                .group_by(TrainingRegistration.training_id)
+            )
+        ).all()
+    )
     file_rows = (
         await db.scalars(
             select(TrainingFile).where(
@@ -1022,6 +1092,9 @@ async def library(
                 "session_date": _iso(t.session_date),
                 "duration_minutes": t.duration_minutes,
                 "trainer_kind": t.trainer_kind,
+                # „registered” = nagranie tylko dla zapisanych (przed zapłatą trenera B2B).
+                "scope": "library" if t.published_at is not None else "registered",
+                "registered": t.id in registered,
                 "chapters": chapters(t),
                 "files": [
                     {
@@ -1045,8 +1118,26 @@ async def library(
                 "time_from": t.time_from,
                 "time_to": t.time_to,
                 "platform": t.platform,
+                "description": t.description,
+                "trainer_kind": t.trainer_kind,
+                "seat_limit": t.seat_limit,
+                "taken": int(seats.get(t.id, 0)),
                 "registered": t.id in registered,
-                "join_url": t.join_url if t.id in registered else None,
+                # Prowadzący nie zapisuje się na własne szkolenie; link ma w karcie.
+                "leading": (user_id is not None and t.trainer_user_id == user_id)
+                or (
+                    t.trainer_contract_id is not None
+                    and t.trainer_contract_id in contract_ids
+                ),
+                "join_url": t.join_url
+                if t.id in registered
+                or (user_id is not None and t.trainer_user_id == user_id)
+                or (
+                    t.trainer_contract_id is not None
+                    and t.trainer_contract_id in contract_ids
+                )
+                else None,
+                "invited": t.teams_status == "created",
             }
             for t in upcoming
         ],
@@ -1081,8 +1172,11 @@ async def register(
     user_id: Optional[int] = None,
     contract_id: Optional[int] = None,
     join: bool,
-) -> None:
-    training = await get(db, training_id)
+) -> Optional[str]:
+    """Zapis albo wypis. Zwraca identyfikator zaproszenia w kalendarzu, które trzeba
+    odwołać po wypisie (``teams.uninvite_event``), bo wiersz zapisu już znika."""
+    # Blokada wiersza: dwa równoległe zapisy nie przekroczą limitu miejsc.
+    training = await get(db, training_id, lock=True)
     if (
         training.status != "signed"
         or training.session_date is None
@@ -1097,15 +1191,28 @@ async def register(
     else:
         query = query.where(TrainingRegistration.contract_id == contract_id)
     existing = await db.scalar(query)
+    if join and existing is None and training.seat_limit:
+        taken = await db.scalar(
+            select(func.count())
+            .select_from(TrainingRegistration)
+            .where(TrainingRegistration.training_id == training_id)
+        )
+        if (taken or 0) >= training.seat_limit:
+            raise TrainingError(
+                409, "Na to szkolenie nie ma już wolnych miejsc.", "no_seats"
+            )
     if join and existing is None:
         db.add(
             TrainingRegistration(
                 training_id=training_id, user_id=user_id, contract_id=contract_id
             )
         )
-    elif not join and existing is not None:
+    removed_invite: Optional[str] = None
+    if not join and existing is not None:
+        removed_invite = existing.invite_event_id
         await db.delete(existing)
     await db.flush()
+    return removed_invite
 
 
 async def trainer_trainings(
@@ -1122,3 +1229,231 @@ async def trainer_trainings(
         )
     ).all()
     return [list_row(t, name="", show_fees=True) for t in rows]
+
+
+# ── Nagranie dla zapisanych, oceny, transkrypt (0695) ──────────────────────
+
+
+async def shared_file(db: AsyncSession, file_id: int) -> TrainingFile:
+    """Plik szkolenia udostępnionego zapisanym; tę samą bramkę sprawdza bilet ``reg``."""
+
+    row = (
+        await db.execute(
+            select(TrainingFile)
+            .join(Training, Training.id == TrainingFile.training_id)
+            .where(
+                TrainingFile.id == file_id,
+                *_LIBRARY_FILE,
+                Training.shared_registered_at.is_not(None),
+                Training.status == "signed",
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise TrainingError(404, "Nie ma takiego pliku.", "file_not_found")
+    return row
+
+
+async def is_registered(
+    db: AsyncSession,
+    training_id: int,
+    *,
+    user_id: Optional[int] = None,
+    contract_ids: Iterable[int] = (),
+) -> bool:
+    query = select(TrainingRegistration.id).where(
+        TrainingRegistration.training_id == training_id
+    )
+    if user_id is not None:
+        query = query.where(TrainingRegistration.user_id == user_id)
+    else:
+        query = query.where(
+            TrainingRegistration.contract_id.in_(tuple(contract_ids) or (0,))
+        )
+    return await db.scalar(query.limit(1)) is not None
+
+
+async def viewer_file(
+    db: AsyncSession,
+    file_id: int,
+    *,
+    user_id: Optional[int] = None,
+    contract_ids: Iterable[int] = (),
+) -> tuple[TrainingFile, str]:
+    """Plik z biblioteki (``lib``) albo z nagrania dla zapisanych (``reg``)."""
+
+    try:
+        return await library_file(db, file_id), "lib"
+    except TrainingError:
+        item = await shared_file(db, file_id)
+        if not await is_registered(
+            db, item.training_id, user_id=user_id, contract_ids=contract_ids
+        ):
+            raise
+        return item, "reg"
+
+
+async def share_registered(
+    db: AsyncSession, training_id: int, *, actor: User, now: datetime, share: bool
+) -> Training:
+    """Nagranie dla zapisanych przed zapłatą (decyzja Artura 13.11.2026).
+
+    Przed zapłatą firma ma licencję na to szkolenie (§ 8 ust. 4 umowy), więc
+    nagranie widzą tylko zapisani na nie; cała biblioteka dalej czeka na zapłatę.
+    Ta sama zasada czterech oczu co przy publikacji."""
+
+    training = await get(db, training_id, lock=True)
+    if not share:
+        training.shared_registered_at = None
+        training.shared_registered_by = None
+        await db.flush()
+        return training
+    if training.status != "signed":
+        raise _wrong_status()
+    files = await files_of(db, training_id)
+    recordings = [
+        f
+        for f in files
+        if f.kind == "recording" and f.for_participants and f.status == "accepted"
+    ]
+    if not recordings:
+        raise TrainingError(
+            422, "To szkolenie nie ma jeszcze nagrania.", "no_recording"
+        )
+    if any(f.uploaded_by_user_id == actor.id for f in recordings):
+        raise TrainingError(
+            403,
+            "Nagranie zatwierdza druga osoba, nie ta, która je wgrała.",
+            "four_eyes",
+        )
+    training.shared_registered_at = now
+    training.shared_registered_by = actor.id
+    await db.flush()
+    return training
+
+
+async def rate(
+    db: AsyncSession,
+    training_id: int,
+    *,
+    today: date,
+    rating: int,
+    comment: str,
+    user_id: Optional[int] = None,
+    contract_id: Optional[int] = None,
+) -> None:
+    """Ocena 1–5 po szkoleniu, tylko od zapisanego. Druga ocena poprawia pierwszą."""
+
+    training = await get(db, training_id)
+    if (
+        training.status != "signed"
+        or training.session_date is None
+        or training.session_date > today
+    ):
+        raise TrainingError(409, "Ocenisz szkolenie po jego terminie.", "too_early")
+    if not 1 <= rating <= 5:
+        raise TrainingError(422, "Ocena to liczba od 1 do 5.", "bad_rating")
+    contract_ids = (contract_id,) if contract_id is not None else ()
+    if not await is_registered(
+        db, training_id, user_id=user_id, contract_ids=contract_ids
+    ):
+        raise TrainingError(
+            403, "Ocenić mogą osoby zapisane na szkolenie.", "not_registered"
+        )
+    query = select(TrainingFeedback).where(TrainingFeedback.training_id == training_id)
+    query = (
+        query.where(TrainingFeedback.user_id == user_id)
+        if user_id is not None
+        else query.where(TrainingFeedback.contract_id == contract_id)
+    )
+    row = await db.scalar(query)
+    if row is None:
+        row = TrainingFeedback(
+            training_id=training_id, user_id=user_id, contract_id=contract_id
+        )
+        db.add(row)
+    row.rating = rating
+    row.comment = _clean(comment, 1_000)
+    await db.flush()
+
+
+async def feedback_summary(
+    db: AsyncSession, training_id: int, *, with_comments: bool
+) -> dict[str, Any]:
+    rows = (
+        await db.scalars(
+            select(TrainingFeedback)
+            .where(TrainingFeedback.training_id == training_id)
+            .order_by(TrainingFeedback.created_at.desc())
+        )
+    ).all()
+    average = round(sum(r.rating for r in rows) / len(rows), 1) if rows else None
+    out: dict[str, Any] = {"count": len(rows), "average": average}
+    if with_comments:
+        # Bez nazwisk: trener i TCM widzą treść, nie autora.
+        out["comments"] = [r.comment for r in rows if r.comment][:50]
+    return out
+
+
+async def my_rating(
+    db: AsyncSession,
+    training_id: int,
+    *,
+    user_id: Optional[int] = None,
+    contract_id: Optional[int] = None,
+) -> Optional[int]:
+    query = select(TrainingFeedback.rating).where(
+        TrainingFeedback.training_id == training_id
+    )
+    query = (
+        query.where(TrainingFeedback.user_id == user_id)
+        if user_id is not None
+        else query.where(TrainingFeedback.contract_id == contract_id)
+    )
+    return await db.scalar(query)
+
+
+def _vtt_lines(vtt: str) -> list[tuple[int, str]]:
+    """``(sekunda, tekst)`` z VTT; nazwy mówców (``<v Imię>``) wypadają."""
+
+    import re  # noqa: PLC0415
+
+    cue = re.compile(r"^(\d{1,2}:)?(\d{2}):(\d{2})\.\d{3}\s+-->")
+    tag = re.compile(r"<[^>]+>")
+    out: list[tuple[int, str]] = []
+    second: Optional[int] = None
+    for raw in vtt.splitlines():
+        line = raw.strip()
+        match = cue.match(line)
+        if match:
+            hours = int((match.group(1) or "0:")[:-1])
+            second = hours * 3600 + int(match.group(2)) * 60 + int(match.group(3))
+            continue
+        if not line or line == "WEBVTT" or second is None or line.isdigit():
+            continue
+        text = tag.sub("", line).strip()
+        if text:
+            out.append((second, text))
+    return out
+
+
+async def transcript_search(
+    db: AsyncSession, training_id: int, needle: str, *, limit: int = 30
+) -> dict[str, Any]:
+    """Miejsca w nagraniu, w których padło szukane słowo (bez rozróżniania wielkości liter)."""
+
+    row = await db.get(TrainingTranscript, training_id)
+    if row is None or not row.vtt:
+        return {"available": False, "hits": []}
+    lines = _vtt_lines(row.vtt)
+    query = needle.strip().casefold()
+    hits = (
+        [
+            {"second": second, "text": text[:300]}
+            for second, text in lines
+            if query in text.casefold()
+        ][:limit]
+        if query
+        else []
+    )
+    return {"available": True, "hits": hits}

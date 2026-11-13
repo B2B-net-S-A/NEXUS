@@ -297,3 +297,27 @@ Nagranie i transkrypt zostają też w OneDrive i Teams organizatora. Usunięcie
 kandydata w NEXUSIE (art. 17) kasuje transkrypt i ocenę w NEXUSIE; kopię
 w M365 obejmuje polityka retencji tenanta (domyślnie nagrania Teams wygasają
 po 120 dniach).
+
+## Szkolenia w Teams (0695, 13.11.2026)
+
+Spotkania szkoleń zakłada NEXUS w kalendarzu osobnego konta szkolenia@ (decyzja
+Artura z 13.11.2026). Ta sama rejestracja „NEXUS Teams Prep”. Kroki admina:
+
+1. Załóż konto `szkolenia@b2bnetwork.pl` z licencją obejmującą Teams i OneDrive
+   (nagranie spotkania ląduje w OneDrive organizatora; skrzynka współdzielona bez
+   licencji nie nagrywa).
+2. Dodaj je do grupy `NEXUS-Meetings-Scope` i przypisz polityki
+   `NEXUS-TeamsPrep-ApplicationAccess` oraz `NEXUS-TeamsPrep-AutoRecording`.
+   Opcjonalnie `Set-CsTeamsMeetingPolicy -NewMeetingRecordingExpirationDays -1`
+   dla tego konta; NEXUS i tak kopiuje nagranie do folderu szkoleń.
+3. Rejestracja „NEXUS Teams Prep” → API permissions → Microsoft Graph →
+   Application: dodaj `OnlineMeetingRecording.Read.All` (pobranie nagrania)
+   i `OnlineMeetingArtifact.Read.All` (raport obecności), potem „Grant admin consent”.
+4. Workflow „Coolify set env”: `TRAININGS_TEAMS_MAILBOX=szkolenia@b2bnetwork.pl`,
+   `TRAININGS_TEAMS_ENABLED=true`.
+5. Sprawdzenie: szkolenie pracownika z datą → „Zatwierdź” → na karcie „Spotkanie
+   w Teams: założone”; zapis drugiego konta → zaproszenie w jego Outlooku; po
+   krótkim spotkaniu testowym w ciągu ok. 30 min nagranie i obecność w karcie.
+
+Bez kroku 3 spotkania i zaproszenia działają, a nagranie po 72 h dostaje stan
+„Teams nie oddał nagrania” (TCM wgrywa ręcznie, jak przed 0695).

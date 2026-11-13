@@ -262,6 +262,7 @@ _KNOWN_CONTRACT_FKS = {
     ("training_files", "uploaded_by_contract_id"),
     ("training_registrations", "contract_id"),
     ("training_attendance", "contract_id"),
+    ("training_feedback", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -3218,8 +3219,8 @@ async def _resolve_child_duplicates(
       Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”,
     * ``cp_activations`` i ``cp_trainer_applications`` — jeden wiersz na kontrakt:
       zostaje wiersz zachowanego (aktywacja: aktywna przed wyłączoną), reszta jest kasowana,
-    * ``training_registrations`` — jeden zapis na (szkolenie, kontrakt): zostaje zapis
-      zachowanego, a bez niego najstarszy.
+    * ``training_registrations`` i ``training_feedback`` — jeden zapis i jedna ocena na
+      (szkolenie, kontrakt): zostaje wiersz zachowanego, a bez niego najstarszy.
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3383,6 +3384,26 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["training_registrations_duplicates_removed"] = len(losers)
+
+    if ("training_feedback", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, training_id, 'rated' AS status "
+            "FROM training_feedback WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["training_id"],
+            rank={"rated": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM training_feedback WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["training_feedback_duplicates_removed"] = len(losers)
 
     if ("client_settlements", "contract_id") in present:
         rows = await _child_rows(

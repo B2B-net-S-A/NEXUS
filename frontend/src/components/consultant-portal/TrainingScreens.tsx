@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarClock, Download, Headphones, PlayCircle, Search, Video } from "lucide-react";
+import { ArrowLeft, CalendarClock, Download, Headphones, PlayCircle, Search, Star, Video } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
   type LibraryRecording,
   type PortalTrainingRow,
   type PortalTrainings,
+  type PortalTranscriptSearch,
 } from "@/lib/api/consultant-portal";
 import { cn } from "@/lib/utils";
 
@@ -34,8 +35,8 @@ import { clockLabel, isPlayable, extensionLabel, minutesLabel, moneyLabel, short
 export type TrainingsTab = "recordings" | "live" | "mine";
 
 const TABS: { key: TrainingsTab; label: string }[] = [
+  { key: "live", label: "Kalendarz" },
   { key: "recordings", label: "Nagrania" },
-  { key: "live", label: "Na żywo" },
   { key: "mine", label: "Prowadzę" },
 ];
 
@@ -55,7 +56,8 @@ function useTicket(fileId: number | null) {
 
 /** Zakładka startowa: trener z ruchem po swojej stronie trafia od razu do „Prowadzę”. */
 export function defaultTab(data: PortalTrainings, today: string): TrainingsTab {
-  return data.mine.some((row) => stageOf(row, today).yours) ? "mine" : "recordings";
+  if (data.mine.some((row) => stageOf(row, today).yours)) return "mine";
+  return data.library.live.length > 0 ? "live" : "recordings";
 }
 
 function matches(recording: LibraryRecording, query: string): boolean {
@@ -169,19 +171,35 @@ function useRegistration(row: LibraryLive) {
   return { busy, error, toggle };
 }
 
+function isFull(row: LibraryLive): boolean {
+  return Boolean(row.seat_limit && (row.taken ?? 0) >= row.seat_limit);
+}
+
+function seatsOf(row: LibraryLive): string | null {
+  if (!row.seat_limit) return null;
+  const free = Math.max(0, row.seat_limit - (row.taken ?? 0));
+  return free === 0 ? "brak wolnych miejsc" : `${free} wolnych miejsc`;
+}
+
 function LiveRow({ row }: { row: LibraryLive }) {
   const { busy, error, toggle } = useRegistration(row);
-  const joinHref = row.registered ? safeExternalHref(row.join_url) : null;
+  const joinHref = row.registered || row.leading ? safeExternalHref(row.join_url) : null;
   return (
     <li className="py-3 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="min-w-0 text-sm">
           <span className="block font-medium">{row.title}</span>
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
             <CalendarClock aria-hidden className="size-3.5" /> {liveWhen(row)}
-            {row.platform ? `, ${row.platform}` : ""}
+            {row.platform ? `, ${row.platform}, nagrywane` : ""}
+            {seatsOf(row) ? `, ${seatsOf(row)}` : ""}
             {row.registered ? <Badge variant="success" className="ml-1">Zapisano</Badge> : null}
           </span>
+          {row.registered && row.invited ? (
+            <span className="mt-0.5 block text-xs text-success-muted-foreground">
+              Zaproszenie Teams wysłaliśmy na adres z umowy.
+            </span>
+          ) : null}
         </span>
         <span className="flex flex-wrap gap-2">
           {joinHref ? (
@@ -191,9 +209,18 @@ function LiveRow({ row }: { row: LibraryLive }) {
               </a>
             </Button>
           ) : null}
-          <Button size="sm" variant={row.registered ? "ghost" : "outline"} disabled={busy} onClick={toggle}>
-            {row.registered ? "Wypisz się" : "Zapisz się"}
-          </Button>
+          {row.leading ? (
+            <Badge variant="soft">Prowadzisz</Badge>
+          ) : (
+            <Button
+              size="sm"
+              variant={row.registered ? "ghost" : "outline"}
+              disabled={busy || (!row.registered && isFull(row))}
+              onClick={toggle}
+            >
+              {row.registered ? "Wypisz się" : isFull(row) ? "Brak miejsc" : "Zapisz się"}
+            </Button>
+          )}
         </span>
       </div>
       {error ? (
@@ -207,7 +234,7 @@ function LiveRow({ row }: { row: LibraryLive }) {
 
 export function LiveList({ rows }: { rows: LibraryLive[] }) {
   return (
-    <Panel title="Na żywo">
+    <Panel title="Kalendarz szkoleń">
       {rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nie ma teraz zapowiedzianych szkoleń. Damy znać mailem o kolejnych.</p>
       ) : (
@@ -218,7 +245,7 @@ export function LiveList({ rows }: { rows: LibraryLive[] }) {
         </ul>
       )}
       <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-        Link do spotkania zobaczysz tutaj po zapisaniu się.
+        Po zapisie wyślemy zaproszenie Teams na adres z umowy. Link zobaczysz też tutaj.
       </p>
     </Panel>
   );
@@ -282,6 +309,98 @@ function MaterialRow({ file }: { file: LibraryFile }) {
   );
 }
 
+function clockOf(second: number): string {
+  const h = Math.floor(second / 3600);
+  const m = Math.floor((second % 3600) / 60);
+  const s = String(second % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+function PortalTranscript({ id, onSeek }: { id: number; onSeek: (second: number) => void }) {
+  const [q, setQ] = useState("");
+  const [result, setResult] = useState<PortalTranscriptSearch | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const search = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!q.trim()) return;
+    setError(null);
+    try {
+      setResult(await portalApi.transcript(id, q.trim()));
+    } catch (failure) {
+      setError(apiErrorMessage(failure, "Nie udało się przeszukać transkryptu."));
+    }
+  };
+  return (
+    <Panel title="Szukaj w tym, co padło na szkoleniu">
+      <form onSubmit={search} className="flex gap-2">
+        <Input aria-label="Szukaj w transkrypcie" placeholder="np. RODO" value={q} onChange={(e) => setQ(e.target.value)} />
+        <Button size="sm" variant="outline" type="submit">
+          <Search aria-hidden className="size-3.5" /> Szukaj
+        </Button>
+      </form>
+      {error ? (
+        <p role="alert" className="mt-2 text-xs text-destructive">
+          {error}
+        </p>
+      ) : null}
+      {result && !result.available ? <p className="mt-2 text-sm text-muted-foreground">To nagranie nie ma transkryptu.</p> : null}
+      {result?.available ? (
+        result.hits.length === 0 ? (
+          <p className="mt-2 text-sm text-muted-foreground">Nic nie pasuje do „{q.trim()}”.</p>
+        ) : (
+          <ol className="mt-2 space-y-0.5 text-sm">
+            {result.hits.map((hit) => (
+              <li key={`${hit.second}-${hit.text}`}>
+                <button type="button" className="flex w-full gap-3 rounded px-1 py-0.5 text-left hover:bg-muted" onClick={() => onSeek(hit.second)}>
+                  <span className="w-14 shrink-0 tabular-nums text-muted-foreground">{clockOf(hit.second)}</span>
+                  <span>{hit.text}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        )
+      ) : null}
+    </Panel>
+  );
+}
+
+function PortalRating({ id }: { id: number }) {
+  const [given, setGiven] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const rate = async (value: number) => {
+    setError(null);
+    try {
+      await portalApi.rate(id, value);
+      setGiven(value);
+    } catch (failure) {
+      setError(apiErrorMessage(failure, "Nie udało się zapisać oceny."));
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-1 text-sm">
+      <span className="mr-1 text-muted-foreground">Jak było?</span>
+      {[1, 2, 3, 4, 5].map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-label={`Oceń na ${value} z 5`}
+          aria-pressed={given === value}
+          className="rounded p-0.5 hover:bg-muted"
+          onClick={() => void rate(value)}
+        >
+          <Star aria-hidden className={cn("size-4", given !== null && value <= given ? "fill-warning text-warning" : "text-muted-foreground")} />
+        </button>
+      ))}
+      {given ? <span className="ml-1 text-xs text-muted-foreground">Dziękujemy.</span> : null}
+      {error ? (
+        <span role="alert" className="ml-1 text-xs text-destructive">
+          {error}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function RecordingView({ recording, onBack }: { recording: LibraryRecording; onBack: () => void }) {
   const video = recording.files.find((file) => file.kind === "recording" && isPlayable(file) === "video") ?? null;
   const materials = recording.files.filter((file) => file !== video);
@@ -334,8 +453,20 @@ export function RecordingView({ recording, onBack }: { recording: LibraryRecordi
               </div>
             )}
           </div>
+          {recording.registered ? <PortalRating id={recording.id} /> : null}
           {recording.description ? (
             <p className="whitespace-pre-line text-sm text-muted-foreground">{recording.description}</p>
+          ) : null}
+          {video ? (
+            <PortalTranscript
+              id={recording.id}
+              onSeek={(second) => {
+                const element = player.current;
+                if (!element) return;
+                element.currentTime = second;
+                void element.play().catch(() => undefined);
+              }}
+            />
           ) : null}
           <Panel title="Materiały">
             {materials.length === 0 ? (

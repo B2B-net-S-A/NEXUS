@@ -24,6 +24,7 @@ import { HandoverReview } from "./HandoverReview";
 import { OrderFields } from "./OrderFields";
 import { PeoplePanel } from "./PeoplePanel";
 import { PublishPanel } from "./PublishPanel";
+import { TeamsPanel } from "./TeamsPanel";
 import { QuoteTable } from "./QuoteTable";
 import { TrainingFilesPanel } from "./TrainingFilesPanel";
 import { TrainingStatusBadge, TrainingSteps } from "./TrainingStatus";
@@ -63,6 +64,9 @@ export interface TrainingCardActions {
   markPaid: (paid: boolean) => Promise<boolean>;
   publish: (publish: boolean) => Promise<boolean>;
   importAttendance: (file: File) => Promise<boolean>;
+  /** 0695: ponowienie spotkania Teams i udostępnienie nagrania zapisanym. */
+  retryTeams?: () => Promise<boolean>;
+  shareRegistered?: (share: boolean) => Promise<boolean>;
 }
 
 export interface TrainingCardProps {
@@ -121,11 +125,13 @@ function OrderSection({
   canManage,
   actions,
   busy,
+  teamsReady = false,
 }: {
   view: TrainingView;
   canManage: boolean;
   actions: TrainingCardActions;
   busy?: boolean;
+  teamsReady?: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [order, setOrder] = useState<OrderInput>(() => orderFromView(view));
@@ -134,7 +140,11 @@ function OrderSection({
   );
   const [problem, setProblem] = useState<string | null>(null);
   const employee = view.trainer_kind === "employee";
-  const editable = canManage && EDITABLE_ORDER.includes(view.status);
+  // Szkolenie pracownika nie ma umowy, więc można je przełożyć także po zatwierdzeniu
+  // (spotkanie i zaproszenia przesuwają się same, 0695).
+  const editable =
+    canManage &&
+    (EDITABLE_ORDER.includes(view.status) || (view.status === "signed" && view.trainer_kind === "employee"));
 
   const startEdit = () => {
     setOrder(orderFromView(view));
@@ -174,6 +184,7 @@ function OrderSection({
             onDeliverablesChange={setDrafts}
             disabled={busy}
             employee={employee}
+            teamsReady={teamsReady}
           />
           {problem ? (
             <p role="alert" className="text-sm text-destructive">
@@ -199,6 +210,7 @@ function OrderSection({
             />
             <Fact label="Platforma" value={view.order.platform} />
             <Fact label="Uczestników" value={view.order.expected_participants} />
+            <Fact label="Limit miejsc" value={view.order.seat_limit ? String(view.order.seat_limit) : "bez limitu"} />
             {employee ? null : (
               <Fact label="Wycena do" value={view.order.quote_due_on ? formatIsoDatePl(view.order.quote_due_on) : null} />
             )}
@@ -364,7 +376,13 @@ export function TrainingCard({
 
   const planning = (
     <>
-      <OrderSection view={view} canManage={me.can_manage} actions={actions} busy={busy} />
+      <OrderSection
+        view={view}
+        canManage={me.can_manage}
+        actions={actions}
+        busy={busy}
+        teamsReady={me.teams_ready === true}
+      />
       {showQuote ? (
         <QuoteSection
           view={view}
@@ -485,6 +503,17 @@ export function TrainingCard({
         </div>
 
         <aside className="min-w-0 space-y-4">
+          {signed || view.teams?.status ? (
+            <Section title="Spotkanie w Teams">
+              <TeamsPanel
+                view={view}
+                me={me}
+                onRetry={actions.retryTeams ?? (async () => false)}
+                onShare={actions.shareRegistered ?? (async () => false)}
+                busy={busy}
+              />
+            </Section>
+          ) : null}
           {signed ? (
             <Section title={consultant ? "Zapłata i biblioteka" : "Biblioteka"}>
               <PublishPanel

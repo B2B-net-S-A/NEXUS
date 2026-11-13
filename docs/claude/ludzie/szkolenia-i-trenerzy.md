@@ -1,5 +1,5 @@
 # Szkolenia i trenerzy — zamówienie, wycena A–E, umowa szkoleniowa, pliki, biblioteka (0694)
-<!-- indeks: szkolenia, trener, umowa szkoleniowa, Załącznik nr 1, wycena A–E, podpis kwalifikowany, przekazanie plików, faktura trenera, biblioteka nagrań, zapisy na szkolenie, obecność z Teams, SharePoint szkoleń, Akademia Compassa -->
+<!-- indeks: szkolenia, spotkanie Teams z NEXUSA, szkolenia@, zaproszenie po zapisie, limit miejsc, nagranie z Teams, transkrypt, ocena szkolenia, nagranie dla zapisanych, trener, umowa szkoleniowa, Załącznik nr 1, wycena A–E, podpis kwalifikowany, przekazanie plików, faktura trenera, biblioteka nagrań, zapisy na szkolenie, obecność z Teams, SharePoint szkoleń, Akademia Compassa -->
 
 Decyzje Artura z 13.11.2026 (makiety: https://claude.ai/artifact/JTaxcwJQSG7fkNLqbGkwh4).
 Szkolenia i biblioteka nagrań są w NEXUSIE. Akademia w Compassie nie startuje, a Compass
@@ -80,7 +80,51 @@ w NEXUSIE, `/konsultant/szkolenia` i `/konsultant/trener` w panelu.
   szkolenie rozstrzyga `_resolve_child_duplicates`. **Usunięcie kandydata** kasuje zapisy
   i anonimizuje obecność; szkolenie z umową zostaje.
 
+## Teams, zapisy i nagranie z NEXUSA (0695, decyzje Artura 13.11.2026)
+
+Analiza i makiety: https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz. Kod:
+`services/trainings/teams.py` (spotkanie i zaproszenia), `recordings.py` (pętla
+`trainings_teams`: przypomnienia, nagranie, transkrypt, obecność), `signals.py`
+(dzwonki), `services/m365/teams_training_graph.py` (Graph).
+
+- **Spotkanie zakłada NEXUS w kalendarzu skrzynki szkolenia@**
+  (`TRAININGS_TEAMS_MAILBOX`, `TRAININGS_TEAMS_ENABLED`), gdy szkolenie jest `signed`
+  i ma datę z godziną. Osobne konto z licencją Teams i OneDrive, bo nagranie ląduje
+  w OneDrive organizatora; nie konto TCM (odejście osoby albo 120 dni = utrata) i nie
+  wsparcie@ (decyzja Artura: wyjątek od jednej skrzynki, bez czytnika poczty).
+  Wyłączone albo bez skrzynki = link wkleja TCM jak przed 0695.
+- **Webinaru Teams z rejestracją nie zakładamy**: Graph pozwala na to tylko
+  zalogowanemu człowiekowi. Rejestrację, limit miejsc (`seat_limit`, blokada wiersza
+  przy zapisie) i przypomnienia robi NEXUS.
+- **Zapis = osobne wydarzenie z linkiem** w kalendarzu zapisanego, bez własnego
+  spotkania Teams. Nie dopisujemy ludzi do spotkania głównego, bo PATCH listy
+  uczestników wysyła aktualizację każdemu. Konsultant dostaje zaproszenie tylko przy
+  otwartym panelu (`open_for`), jak każdy mail panelu.
+- **Bez poczekalni, prowadzący prezenterem** (`set_presenters`): skrzynki szkolenia@ nikt
+  nie obsługuje na żywo. Gdy Graph odrzuci rolę prezentera gościa (trener B2B),
+  zostaje `allowedPresenters=everyone`.
+- **Awaria Graph nie cofa kroku**: `teams_status=failed` + „Spróbuj ponownie”
+  (`POST /api/trainings/{id}/teams`). Graph wołamy po commicie kroku.
+- **Nagranie wraca samo**: pętla co 5 min, ok. 20 min po końcu, kopiuje MP4
+  strumieniem do magazynu szkoleń (nie do pamięci, 1 GB+), transkrypt VTT do
+  `training_transcripts`, obecność z Graph zamiast CSV. Po 72 h bez nagrania
+  `recording_status=none`. Uprawnienia ponad prepy: `OnlineMeetingRecording.Read.All`,
+  `OnlineMeetingArtifact.Read.All`.
+- **Nagranie dla zapisanych przed zapłatą** (`share_registered`, bilet `reg`):
+  przed zapłatą firma ma licencję na to szkolenie (§ 8 ust. 4). Cała biblioteka dalej
+  po zapłacie. Przed pierwszym użyciem opinia prawnika. Cztery oczy jak przy publikacji;
+  nagranie z Teams nie ma wgrywającego, więc zatwierdza jedna osoba z TCM.
+- **Przełożenie szkolenia pracownika po zatwierdzeniu** jest dozwolone (nie ma umowy);
+  szkolenia trenera B2B po umowie nie (termin stoi w podpisanym Zał. 1).
+- **Plik TCM dla uczestników**: plik wewnętrzny idzie do uczestników tylko po zaznaczeniu
+  (inaczej szkolenie pracownika nie miało jak dać materiałów).
+- **Ocena 1–5** tylko od zapisanego, po terminie; trener i TCM widzą średnią i treść
+  bez nazwisk. **Dzwonki** (`training_*`, osobiste): TCM o wycenie, pliku i nagraniu,
+  reprezentant o umowie, Finanse o fakturze, zapisani pracownicy przypomnienie dzień
+  wcześniej od 9:00 i 15 min przed oraz o nagraniu. Bez kwot w treści.
+
 ## Poza zakresem (13.11.2026)
 
-Dzwonki dla TCM o nowej wycenie i podpisie (ekran `/trainings` pokazuje stany), stan
-zapłaty z eBI24 zamiast przycisku Finansów, postęp oglądania, test wiedzy w bibliotece.
+Stan zapłaty z eBI24 zamiast przycisku Finansów, postęp oglądania, test wiedzy
+w bibliotece, rozdziały i podsumowanie z transkryptu przez model AI, próba techniczna
+z trenerem, „obowiązkowe dla roli”, „Szukamy trenerów” w panelu.

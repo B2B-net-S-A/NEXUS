@@ -24,8 +24,10 @@ from typing import Literal, Optional
 from app.core.config import settings
 
 TTL = timedelta(hours=6)
-Scope = Literal["lib", "own"]
-SCOPES: tuple[str, ...] = ("lib", "own")
+Scope = Literal["lib", "own", "reg"]
+#: ``reg`` (0695) = nagranie udostępnione zapisanym przed zapłatą; trasa odtwarzania
+#: sprawdza przy każdym żądaniu, czy udostępnienie nadal trwa.
+SCOPES: tuple[str, ...] = ("lib", "own", "reg")
 _PURPOSE = b"training-media:v2"
 
 

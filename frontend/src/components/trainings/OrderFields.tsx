@@ -108,6 +108,8 @@ interface OrderFieldsProps {
   disabled?: boolean;
   /** Szkolenie pracownika nie ma umowy, więc nie ma też Zał. 1 ani wyceny. */
   employee?: boolean;
+  /** 0695: spotkanie Teams zakłada NEXUS, więc pola z linkiem nie ma. */
+  teamsReady?: boolean;
 }
 
 /** Pola zamówienia (szkic Zał. 1) — te same przy zakładaniu i przy edycji. */
@@ -118,6 +120,7 @@ export function OrderFields({
   onDeliverablesChange,
   disabled,
   employee = false,
+  teamsReady = false,
 }: OrderFieldsProps) {
   const set = <K extends keyof OrderInput>(key: K, next: OrderInput[K]) =>
     onChange({ ...value, [key]: next });
@@ -203,22 +206,29 @@ export function OrderFields({
             onChange={(event) => set("platform", event.target.value)}
           />
         </FormField>
-        <FormField
-          label="Link do spotkania"
-          htmlFor="order-join"
-          description="Widzą go tylko zapisani."
-          className="lg:col-span-2"
-        >
-          <Input
-            id="order-join"
-            type="url"
-            placeholder="https://teams.microsoft.com/…"
-            value={value.join_url}
-            maxLength={1000}
-            disabled={disabled}
-            onChange={(event) => set("join_url", event.target.value)}
-          />
-        </FormField>
+        {teamsReady ? (
+          <div className="rounded-md border border-dashed border-border px-3 py-2 text-xs text-muted-foreground lg:col-span-2">
+            Spotkanie Teams z nagrywaniem założy NEXUS, gdy szkolenie będzie gotowe (po wysłaniu albo po
+            podpisie umowy). Zapisani dostaną zaproszenie do kalendarza.
+          </div>
+        ) : (
+          <FormField
+            label="Link do spotkania"
+            htmlFor="order-join"
+            description="Widzą go tylko zapisani."
+            className="lg:col-span-2"
+          >
+            <Input
+              id="order-join"
+              type="url"
+              placeholder="https://teams.microsoft.com/…"
+              value={value.join_url}
+              maxLength={1000}
+              disabled={disabled}
+              onChange={(event) => set("join_url", event.target.value)}
+            />
+          </FormField>
+        )}
         <FormField label="Liczba uczestników" htmlFor="order-participants">
           <Input
             id="order-participants"
@@ -227,6 +237,20 @@ export function OrderFields({
             value={value.expected_participants ?? ""}
             disabled={disabled}
             onChange={(event) => set("expected_participants", numberOrNull(event.target.value))}
+          />
+        </FormField>
+        <FormField
+          label="Limit miejsc"
+          htmlFor="order-seats"
+          description="Puste = bez limitu. Po zapełnieniu zapis się zamyka."
+        >
+          <Input
+            id="order-seats"
+            type="number"
+            min={1}
+            value={value.seat_limit ?? ""}
+            disabled={disabled}
+            onChange={(event) => set("seat_limit", numberOrNull(event.target.value))}
           />
         </FormField>
       </div>

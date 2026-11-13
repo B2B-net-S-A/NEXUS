@@ -28,6 +28,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     status,
@@ -43,7 +44,7 @@ from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
 from app.models.consultant_panel import CpTrainerApplication
 from app.models.contract import Contract
-from app.models.training import Training, TrainingAttendance, TrainingFile
+from app.models.training import Training, TrainingFile
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import audit
@@ -57,6 +58,7 @@ from app.services.trainings import (
     samples,
     signing,
     storage,
+    teams,
 )
 from app.services.trainings.errors import TrainingError
 from app.services.trainings_schema import (
@@ -176,6 +178,7 @@ class OrderBody(BaseModel):
     platform: str = Field(default="Microsoft Teams", max_length=TITLE_MAX)
     join_url: str = Field(default="", max_length=1_000)
     expected_participants: Optional[int] = Field(default=None, ge=1, le=10_000)
+    seat_limit: Optional[int] = Field(default=None, ge=1, le=10_000)
     quote_due_on: Optional[date] = None
     participant_materials: str = Field(default="", max_length=TEXT_MAX)
     deliverables: list[Deliverable] = Field(default_factory=list, max_length=4)
@@ -199,6 +202,7 @@ class OrderBody(BaseModel):
             deliverables=tuple(item.model_dump() for item in self.deliverables),
             knowledge_test=self.knowledge_test,
             extra_terms=self.extra_terms,
+            seat_limit=self.seat_limit,
         )
 
 
@@ -284,6 +288,8 @@ async def me(current_user: Viewer, db: AsyncSession = Depends(get_db)) -> dict:
         "can_read": is_manager(current_user) or is_finance(current_user),
         "can_pay": is_finance(current_user),
         "is_company_signer": await signing.is_company_signer(db, current_user),
+        # 0695: spotkanie Teams zakłada NEXUS — formularz nie pyta wtedy o link.
+        "teams_ready": teams.ready(),
     }
 
 
@@ -304,7 +310,7 @@ async def library_file(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     try:
-        item = await core.library_file(db, file_id)
+        item, _scope = await core.viewer_file(db, file_id, user_id=current_user.id)
         return await storage.stream(
             item, range_header=request.headers.get("range"), download=download
         )
@@ -317,10 +323,10 @@ async def library_ticket(
     file_id: int, current_user: Viewer, db: AsyncSession = Depends(get_db)
 ) -> dict:
     try:
-        await core.library_file(db, file_id)
+        _item, scope = await core.viewer_file(db, file_id, user_id=current_user.id)
     except TrainingError as exc:
         raise _translate(exc) from exc
-    return {"url": media.url(file_id, scope="lib", now=_now())}
+    return {"url": media.url(file_id, scope=scope, now=_now())}
 
 
 @router.post("/library/{training_id}/registration")
@@ -331,7 +337,7 @@ async def registration(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await core.register(
+        removed_invite = await core.register(
             db,
             training_id,
             today=business_today(),
@@ -341,7 +347,73 @@ async def registration(
     except TrainingError as exc:
         raise _translate(exc) from exc
     await db.commit()
+    # Zaproszenie w kalendarzu po zatwierdzeniu zapisu: awaria Graph go nie cofa.
+    await teams.registration_changed(
+        db,
+        training_id,
+        join=body.join,
+        user_id=current_user.id,
+        removed_invite=removed_invite,
+    )
+    await db.commit()
     return {"registered": body.join}
+
+
+class FeedbackBody(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=1_000)
+
+
+@router.post("/library/{training_id}/feedback")
+async def feedback(
+    training_id: int,
+    body: FeedbackBody,
+    current_user: Viewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        await core.rate(
+            db,
+            training_id,
+            today=business_today(),
+            rating=body.rating,
+            comment=body.comment,
+            user_id=current_user.id,
+        )
+    except TrainingError as exc:
+        raise _translate(exc) from exc
+    await db.commit()
+    return {"rating": body.rating}
+
+
+@router.get("/library/{training_id}/transcript")
+async def transcript(
+    training_id: int,
+    current_user: Viewer,
+    q: str = Query(default="", max_length=100),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Wyszukiwanie w transkrypcie: tylko szkolenie w bibliotece albo udostępnione mnie."""
+
+    if not await _can_view_recording(db, training_id, user_id=current_user.id):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            {"message": core.NOT_FOUND, "code": "not_found"},
+        )
+    return await core.transcript_search(db, training_id, q)
+
+
+async def _can_view_recording(
+    db: AsyncSession, training_id: int, *, user_id: int
+) -> bool:
+    training = await db.get(Training, training_id)
+    if training is None or training.status != "signed":
+        return False
+    if training.published_at is not None:
+        return True
+    return training.shared_registered_at is not None and await core.is_registered(
+        db, training_id, user_id=user_id
+    )
 
 
 # ── Zgłoszenia trenerów ──────────────────────────────────────────────────────
@@ -493,6 +565,18 @@ async def get_training(
     return {"training": await _view(db, training)}
 
 
+async def _sync_teams(db: AsyncSession, training: Training) -> None:
+    """Spotkanie Teams za stanem szkolenia, po zatwierdzeniu kroku (0695).
+
+    Graph trwa sekundy i bywa niedostępny, więc krok w NEXUSIE jest już zapisany;
+    wynik spotkania ląduje w ``teams_status`` w osobnej transakcji."""
+
+    await teams.sync_meeting(db, training, now=_now())
+    if training.teams_status == "created":
+        await teams.invite_pending(db, training)
+    await db.commit()
+
+
 @router.put("/{training_id}")
 async def update_training(
     training_id: int,
@@ -505,6 +589,7 @@ async def update_training(
     except TrainingError as exc:
         raise _translate(exc) from exc
     await db.commit()
+    await _sync_teams(db, training)
     return {"training": await _view(db, training)}
 
 
@@ -520,6 +605,29 @@ async def send_order(
     from app.services.trainings import notify
 
     await notify.order_sent(db, training)
+    await _sync_teams(db, training)
+    return {"training": await _view(db, training)}
+
+
+@router.post("/{training_id}/teams")
+async def retry_teams(
+    training_id: int, current_user: Manager, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """„Spróbuj ponownie”: spotkanie i brakujące zaproszenia po awarii Graph."""
+
+    if not teams.ready():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            {
+                "message": "Spotkania Teams z NEXUSA nie są jeszcze włączone.",
+                "code": "teams_off",
+            },
+        )
+    try:
+        training = await core.get(db, training_id)
+    except TrainingError as exc:
+        raise _translate(exc) from exc
+    await _sync_teams(db, training)
     return {"training": await _view(db, training)}
 
 
@@ -535,6 +643,7 @@ async def cancel_training(
     except TrainingError as exc:
         raise _translate(exc) from exc
     await db.commit()
+    await _sync_teams(db, training)
     return {"training": await _view(db, training)}
 
 
@@ -659,6 +768,7 @@ async def company_signature(
     from app.services.trainings import notify
 
     await notify.agreement_signed(db, training)
+    await _sync_teams(db, training)
     return {"training": await core.staff_view(db, training, show_fees=False)}
 
 
@@ -846,6 +956,42 @@ async def publish(
         )
     except TrainingError as exc:
         raise _translate(exc) from exc
+    if body.publish and training.shared_registered_at is None:
+        # Zapisani dowiadują się o nagraniu raz: przy udostępnieniu albo przy publikacji.
+        from app.services.trainings import signals
+
+        await signals.recording_available(
+            db, training, await signals.registered_user_ids(db, training.id)
+        )
+    await db.commit()
+    return {"training": await _view(db, training)}
+
+
+class ShareBody(BaseModel):
+    share: bool
+
+
+@router.post("/{training_id}/share")
+async def share_registered(
+    training_id: int,
+    body: ShareBody,
+    current_user: Manager,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Nagranie dla zapisanych przed zapłatą trenera (§ 8 ust. 4, decyzja 13.11.2026)."""
+
+    try:
+        training = await core.share_registered(
+            db, training_id, actor=current_user, now=_now(), share=body.share
+        )
+    except TrainingError as exc:
+        raise _translate(exc) from exc
+    if body.share:
+        from app.services.trainings import signals
+
+        await signals.recording_available(
+            db, training, await signals.registered_user_ids(db, training.id)
+        )
     await db.commit()
     return {"training": await _view(db, training)}
 
@@ -879,26 +1025,7 @@ async def import_attendance(
         rows = await attendance.match(db, attendance.parse_teams_report(data))
     except TrainingError as exc:
         raise _translate(exc) from exc
-    existing = (
-        await db.scalars(
-            select(TrainingAttendance).where(
-                TrainingAttendance.training_id == training_id
-            )
-        )
-    ).all()
-    for row in existing:
-        await db.delete(row)
-    for row in rows:
-        db.add(
-            TrainingAttendance(
-                training_id=training_id,
-                display_name=row.name[:255],
-                email=(row.email or "")[:255],
-                minutes=row.minutes,
-                user_id=row.user_id,
-                contract_id=row.contract_id,
-            )
-        )
+    await attendance.replace_rows(db, training_id, rows)
     await db.commit()
     return {
         "imported": len(rows),

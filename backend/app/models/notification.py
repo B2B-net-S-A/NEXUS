@@ -420,6 +420,13 @@ class NotificationType(str, enum.Enum):
     back_office_assigned = "back_office_assigned"
     portal_low_rating = "portal_low_rating"
     portal_monthly_review = "portal_monthly_review"
+    # 0695: szkolenia — TCM, reprezentant, Finanse i uczestnicy (osobiste).
+    training_quote = "training_quote"
+    training_file = "training_file"
+    training_sign = "training_sign"
+    training_invoice = "training_invoice"
+    training_reminder = "training_reminder"
+    training_recording = "training_recording"
     equipment_task = "equipment_task"
     equipment_protocol_signed = "equipment_protocol_signed"
     # 0479: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.

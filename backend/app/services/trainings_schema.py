@@ -198,6 +198,85 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
+#: 0695 (13.11.2026, decyzje Artura po analizie szkoleń): spotkanie Teams zakłada NEXUS
+#: w kalendarzu skrzynki szkolenia@, zapis wysyła osobne zaproszenie, a nagranie,
+#: transkrypt i obecność wracają z Graph. Stany spotkania i nagrania to wolny tekst
+#: z małej listy (bez CHECK-a), bo ich znaczenie czyta tylko kod szkoleń.
+TEAMS_STATUSES: tuple[str, ...] = ("", "created", "failed", "cancelled")
+RECORDING_STATUSES: tuple[str, ...] = ("", "waiting", "imported", "none", "failed")
+INVITE_STATUSES: tuple[str, ...] = ("", "sent", "failed", "skipped", "cancelled")
+FEEDBACK_COMMENT_MAX = 1_000
+CK_FEEDBACK_RATING = "rating BETWEEN 1 AND 5"
+CK_FEEDBACK_WHO = CK_REGISTRATION_WHO
+
+TEAMS_TABLE_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS training_transcripts (
+    training_id INTEGER PRIMARY KEY REFERENCES trainings(id) ON DELETE CASCADE,
+    vtt TEXT NOT NULL DEFAULT '',
+    fetched_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    f"""CREATE TABLE IF NOT EXISTS training_feedback (
+    id SERIAL PRIMARY KEY,
+    training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+    contract_id INTEGER NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    rating SMALLINT NOT NULL,
+    comment VARCHAR({FEEDBACK_COMMENT_MAX}) NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_training_feedback_rating CHECK ({CK_FEEDBACK_RATING}),
+    CONSTRAINT ck_training_feedback_who CHECK ({CK_FEEDBACK_WHO})
+)""",
+)
+
+TEAMS_COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS seat_limit INTEGER NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS teams_event_id VARCHAR(300) NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS teams_meeting_id VARCHAR(500) NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    "teams_status VARCHAR(20) NOT NULL DEFAULT ''",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    f"teams_error VARCHAR({NOTE_MAX}) NOT NULL DEFAULT ''",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS teams_synced_at TIMESTAMPTZ NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    "recording_status VARCHAR(20) NOT NULL DEFAULT ''",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS recording_next_at TIMESTAMPTZ NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS shared_registered_at TIMESTAMPTZ NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS shared_registered_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS reminder_day_at TIMESTAMPTZ NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS reminder_soon_at TIMESTAMPTZ NULL",
+    "ALTER TABLE training_registrations ADD COLUMN IF NOT EXISTS "
+    "invite_event_id VARCHAR(300) NULL",
+    "ALTER TABLE training_registrations ADD COLUMN IF NOT EXISTS "
+    "invite_status VARCHAR(20) NOT NULL DEFAULT ''",
+)
+
+TEAMS_INDEX_DDL: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_trainings_recording_due "
+    "ON trainings (recording_next_at) WHERE recording_status = 'waiting'",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_training_feedback_user "
+    "ON training_feedback (training_id, user_id) WHERE user_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_training_feedback_contract "
+    "ON training_feedback (training_id, contract_id) WHERE contract_id IS NOT NULL",
+)
+
+#: Dzwonki szkoleń: TCM (wycena, plik od trenera, nagranie do zatwierdzenia),
+#: reprezentant (umowa do podpisu), Finanse (faktura trenera), uczestnik
+#: (przypomnienie, nagranie dostępne). Odbiorcę wybiera kod szkoleń, więc to typy
+#: osobiste (``hr_notification_schema.PERSONAL_TYPES``).
+NOTIFICATION_TYPES: tuple[str, ...] = (
+    "training_quote",
+    "training_file",
+    "training_sign",
+    "training_invoice",
+    "training_reminder",
+    "training_recording",
+)
+ENUM_DDL: tuple[str, ...] = tuple(
+    f"ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS '{value}'"
+    for value in NOTIFICATION_TYPES
+)
+
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE cp_trainer_applications ADD COLUMN IF NOT EXISTS "
     f"proposal_title VARCHAR({TITLE_MAX}) NOT NULL DEFAULT ''",
@@ -229,6 +308,10 @@ INDEX_DDL: tuple[str, ...] = (
     "ON training_attendance (training_id)",
 )
 
+TABLE_DDL = (*TABLE_DDL, *TEAMS_TABLE_DDL)
+COLUMN_DDL = (*COLUMN_DDL, *TEAMS_COLUMN_DDL)
+INDEX_DDL = (*INDEX_DDL, *TEAMS_INDEX_DDL)
+
 CONSTRAINT_DDL: tuple[str, ...] = ()
 DATA_DDL: tuple[str, ...] = ()
 
@@ -237,7 +320,29 @@ TABLES: tuple[str, ...] = (
     "training_files",
     "training_registrations",
     "training_attendance",
+    "training_transcripts",
+    "training_feedback",
 )
+TEAMS_TABLES: tuple[str, ...] = ("training_transcripts", "training_feedback")
+#: Kolumny 0695 (downgrade je zdejmuje).
+TEAMS_COLUMNS: dict[str, tuple[str, ...]] = {
+    "trainings": (
+        "seat_limit",
+        "teams_event_id",
+        "teams_meeting_id",
+        "teams_status",
+        "teams_error",
+        "teams_synced_at",
+        "recording_status",
+        "recording_next_at",
+        "shared_registered_at",
+        "shared_registered_by",
+        "reminder_day_at",
+        "reminder_soon_at",
+    ),
+    "training_registrations": ("invite_event_id", "invite_status"),
+}
+TEAMS_DDL: tuple[str, ...] = (*TEAMS_TABLE_DDL, *TEAMS_COLUMN_DDL, *TEAMS_INDEX_DDL)
 
 #: Kolumny dokładane do ``cp_trainer_applications`` (downgrade je zdejmuje).
 APPLICATION_COLUMNS: tuple[str, ...] = (
