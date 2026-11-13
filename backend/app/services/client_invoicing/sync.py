@@ -18,6 +18,11 @@ z pobieraniem faktur od osób. Na produkcji 20 zapytań o metadane i 64 pobrania
 faktury na godzinę: faktury od osób biorą do 8 i 40, ta pętla do 6 i 20.
 Blokada 429 zapisana przez którąkolwiek ścieżkę wstrzymuje obie.
 
+E-faktury Peppol (plan Nordei N2, ``services/peppol``): XML faktury do odbiorcy
+Peppol zapisujemy przy pobraniu (bez dodatkowego zapytania), a faktury zapisane
+wcześniej doczytujemy z resztki budżetu tego przebiegu (najwyżej
+``peppol.service.BACKFILL_MAX``) — limit Płac zostaje nietknięty.
+
 Zapisujemy każdą fakturę, w której spółka jest sprzedawcą (to nasze faktury
 do klientów). Tryb ``simulate`` czyta katalog ``<KSEF_SIMULATE_DIR>/sales``.
 Logi: identyfikatory i liczby — bez numerów KSeF, NIP-ów i kwot.
@@ -55,6 +60,8 @@ from app.services.hr.ksef.client import (
 )
 from app.services.hr.ksef.environment import KsefConfig, load_config
 from app.services.hr.ksef.source import InvoiceSource, SimulatedSource, open_source
+from app.services.client_settlements import settings as settlements_settings
+from app.services.peppol import service as einvoices
 
 logger = logging.getLogger(__name__)
 
@@ -385,6 +392,8 @@ async def _download_and_store(
         await run.db.rollback()
         _problem(run, ksef_number, "db:constraint")
         return
+    if invoice is not None:
+        await _capture_einvoice(run, invoice, xml)
     await run.db.commit()
     run.pending.pop(ksef_number, None)
     if invoice is None:
@@ -393,6 +402,37 @@ async def _download_and_store(
     run.counts["saved"] += 1
     if invoice.match_status == "matched":
         run.counts["matched"] += 1
+
+
+async def _capture_einvoice(run: _Run, invoice: ClientSalesInvoice, xml: bytes) -> None:
+    """XML faktury do odbiorcy Peppol — błąd e-faktury nie zatrzymuje pobierania."""
+
+    try:
+        async with run.db.begin_nested():
+            if await einvoices.capture(run.db, invoice, xml):
+                run.counts["einvoices"] += 1
+    except Exception:  # noqa: BLE001 — faktura zostaje zapisana, e-faktura dojdzie z doczytania
+        logger.exception("[client-invoicing] e-faktura dla faktury %s nieudana", invoice.id)
+
+
+async def _einvoice_backfill(run: _Run) -> None:
+    """XML faktur do odbiorców Peppol zapisanych wcześniej — z resztki budżetu."""
+
+    if run.downloads_left <= 0 or not await settlements_settings.is_enabled(run.db):
+        return
+    budget = min(run.downloads_left, einvoices.BACKFILL_MAX)
+    try:
+        attempted, loaded = await einvoices.backfill_xml(run.db, run.source, budget)
+    except KsefApiError:
+        await run.db.commit()
+        raise
+    except Exception:  # noqa: BLE001 — doczytanie ponowi następny przebieg
+        await run.db.rollback()
+        logger.exception("[client-invoicing] doczytanie XML-a e-faktur nieudane")
+        return
+    run.downloads_left -= attempted
+    run.counts["einvoice_xml"] += loaded
+    await run.db.commit()
 
 
 async def _consider(run: _Run, item: dict[str, Any]) -> None:
@@ -529,6 +569,7 @@ async def _execute(
         async with run.source:
             await _retry_pending(run)
             await _incremental(run, state)
+            await _einvoice_backfill(run)
     except _BudgetSpent:
         partial = True
     except KsefApiError as exc:
@@ -547,6 +588,13 @@ async def _execute(
         except Exception:  # noqa: BLE001 — ponowne dopasowanie nie zatrzymuje stanu
             await db.rollback()
             logger.exception("[client-invoicing] ponowne dopasowanie nieudane")
+        if await settlements_settings.is_enabled(db):
+            try:
+                result = await einvoices.hourly(db)
+                run.counts["einvoices_sent"] = result["auto_sent"]
+            except Exception:  # noqa: BLE001 — statusy e-faktur dociągnie następny przebieg
+                await db.rollback()
+                logger.exception("[client-invoicing] statusy e-faktur nieudane")
 
     counts = dict(run.counts)
     counts["requests"] = run.source.requests

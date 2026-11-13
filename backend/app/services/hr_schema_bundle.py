@@ -22,6 +22,7 @@ from app.services import viewer_role_schema as viewer_role
 from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
+from app.services import client_einvoices_schema as client_einvoices
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -89,6 +90,8 @@ MODULES = (
     client_settlements,
     # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T (13.11.2026).
     client_time_reports,
+    # 0690: e-faktury Peppol do klientów (plan Nordei N2, 13.11.2026).
+    client_einvoices,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
