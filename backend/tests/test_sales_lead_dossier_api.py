@@ -1,7 +1,7 @@
 """Teczka leada z bazą: zamówienie biegów w tle i pole ``dossier`` listy leadów.
 
 Baza testowa jest wspólna dla przebiegu, więc zamówienie liczy się w chwili daleko
-w przyszłości (``LATER``): biegi innych testów nie wpadają w okna 1 godziny
+w przyszłości (``_later()``): biegi innych testów nie wpadają w okna 1 godziny
 i 7 dni, a każdy test zawęża firmy do własnych (``company_ids``).
 """
 
@@ -31,8 +31,12 @@ from tests.test_sales_companies_api import _headers, _user
 from tests.test_sales_signals_api import _company
 
 LEADS = "/api/sales/leads"
-LATER = datetime.now(timezone.utc) + timedelta(days=400)
-FUTURE = LATER - timedelta(days=30)
+
+
+def _later() -> datetime:
+    """Chwila daleko w przyszłości, liczona w teście (nie przy imporcie modułu)."""
+
+    return datetime.now(timezone.utc) + timedelta(days=400)
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -40,21 +44,25 @@ async def _forget_the_future() -> AsyncIterator[None]:
     """Biegi, leady i punkty z przyszłości znikają: inne testy czytają „ostatni bieg”."""
 
     yield
+    future = _later() - timedelta(days=30)
     async with AsyncSessionLocal() as db:
         await db.execute(
-            delete(SalesSignalRun).where(SalesSignalRun.started_at > FUTURE)
+            delete(SalesSignalRun).where(SalesSignalRun.started_at > future)
         )
-        await db.execute(delete(SalesLead).where(SalesLead.created_at > FUTURE))
+        await db.execute(delete(SalesLead).where(SalesLead.created_at > future))
         await db.execute(
             delete(SalesCompanyBriefing).where(
-                SalesCompanyBriefing.generated_at > FUTURE
+                SalesCompanyBriefing.generated_at > future
             )
         )
         await db.commit()
 
 
-async def _lead(company_id: int | None, *, at: datetime = LATER, **over: Any) -> int:
+async def _lead(
+    company_id: int | None, *, at: datetime | None = None, **over: Any
+) -> int:
     tag = uuid.uuid4().hex
+    at = at or _later()
     async with AsyncSessionLocal() as db:
         lead = SalesLead(
             source=over.pop("source", "manual"),
@@ -92,7 +100,7 @@ async def test_new_lead_orders_three_runs_once_per_company(monkeypatch) -> None:
     await _lead(company)
 
     async with AsyncSessionLocal() as db:
-        done = await lead_dossier.order(db, now=LATER, company_ids=[company])
+        done = await lead_dossier.order(db, now=_later(), company_ids=[company])
     assert done == {"enrich": 1, "people": 1, "briefing": 1}
     assert [(kind, ids) for kind, ids, _ in calls] == [
         ("enrich", [company]),
@@ -103,7 +111,7 @@ async def test_new_lead_orders_three_runs_once_per_company(monkeypatch) -> None:
 
     # Drugi lead tej samej firmy po dwóch godzinach: teczka już zamówiona.
     calls.clear()
-    later = LATER + timedelta(hours=2)
+    later = _later() + timedelta(hours=2)
     await _lead(company, at=later)
     async with AsyncSessionLocal() as db:
         assert await lead_dossier.order(db, now=later, company_ids=[company]) == {
@@ -122,7 +130,7 @@ async def test_people_and_points_wait_for_company_data_without_domain(
     _capture(monkeypatch, calls)
     company = await _company(f"Bez domeny {uuid.uuid4().hex[:8]}")
     await _lead(company)
-    now = LATER + timedelta(days=1)
+    now = _later() + timedelta(days=1)
 
     async with AsyncSessionLocal() as db:
         await lead_dossier.order(db, now=now, company_ids=[company])
@@ -158,7 +166,7 @@ async def test_nexus_client_do_not_contact_and_no_card_get_nothing(monkeypatch) 
     await _lead(client_company)
     await _lead(blocked)
     await _lead(None)
-    now = LATER + timedelta(days=2)
+    now = _later() + timedelta(days=2)
 
     async with AsyncSessionLocal() as db:
         done = await lead_dossier.order(
@@ -174,7 +182,7 @@ async def test_waiting_people_result_and_fresh_points_block_their_kind(
 ) -> None:
     calls: list = []
     _capture(monkeypatch, calls)
-    now = LATER + timedelta(days=3)
+    now = _later() + timedelta(days=3)
     company = await _company(f"Czeka {uuid.uuid4().hex[:8]}", domain="czeka.example")
     await _lead(company, at=now)
     async with AsyncSessionLocal() as db:
