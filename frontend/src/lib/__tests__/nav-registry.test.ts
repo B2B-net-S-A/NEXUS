@@ -108,8 +108,19 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
       // „Umowy klientów” (04.11.2026): tylko z uprawnienia, domyślnie admin.
       ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"]],
-      ["Firma", ["insights", "people", "equipment"]],
+      // „Szkolenia” (13.11.2026): każdy zalogowany przy włączonym programie „Ludzi”.
+      ["Firma", ["insights", "people", "equipment", "trainings"]],
     ]);
+  });
+
+  it("„Szkolenia” widzi każda rola przy włączonym programie, bez niego nikt", () => {
+    const hr = { myTime: false, people: false, equipment: false, care: false };
+    for (const role of ["recruiter", "finance", "delivery_lead", "admin"] as UserRole[]) {
+      const on = visibleNavEntries(userOf(role), { contactQueueEnabled: true, hr: { ...hr, trainings: true } });
+      const off = visibleNavEntries(userOf(role), { contactQueueEnabled: true, hr });
+      expect(on.map((entry) => entry.id)).toContain("trainings");
+      expect(off.map((entry) => entry.id)).not.toContain("trainings");
+    }
   });
 });
 

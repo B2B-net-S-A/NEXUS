@@ -49,6 +49,7 @@ from app.services import hr_notification_schema as notifications
 from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
+from app.services import trainings_schema as trainings
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -92,6 +93,8 @@ MODULES = (
     client_time_reports,
     # 0692: e-faktury Peppol do klientów (plan Nordei N2, 13.11.2026).
     client_einvoices,
+    # 0693: szkolenia i trenerzy — zamówienie, wycena, umowa, pliki (13.11.2026).
+    trainings,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

@@ -96,21 +96,202 @@ export interface PortalSettlement {
   payment_days: number;
 }
 
-export type TrainerForm = "online_or_onsite" | "online" | "onsite";
-
+/** Zgłoszenie trenera (13.11.2026): bez formy i stawki za dzień, bo szkolenia są
+ * wyłącznie zdalne (§ 3 umowy szkoleniowej), a cenę trener podaje w wycenie zamówienia. */
 export interface PortalTrainerInput {
   topics: string[];
   experience: string;
-  form: TrainerForm;
-  day_rate: string;
+  proposal_title: string;
+  proposal_hours: string;
+  audience: string;
   availability: string;
   materials: string;
 }
 
 export interface PortalTrainerApplication extends PortalTrainerInput {
+  sample_name: string | null;
   sent_at: string;
   waiting: { who: "nobody" | "us" | "other" | "done"; label: string };
 }
+
+// ── Szkolenia: lustro `backend/app/services/trainings/core.py` ───────────────
+
+export type TrainingStatus =
+  | "draft"
+  | "ordered"
+  | "quoted"
+  | "returned"
+  | "accepted"
+  | "trainer_signed"
+  | "signed"
+  | "cancelled";
+
+export type DeliverableKey = "materials" | "presentation" | "audio" | "other";
+export type FeeKey = "fee_prep" | "fee_delivery" | "fee_presentation" | "fee_audio" | "fee_rights";
+export type HandoverState = "missing" | "submitted" | "accepted" | "returned";
+
+export interface TrainingDeliverable {
+  key: DeliverableKey;
+  label: string;
+  required: boolean;
+  format: string;
+  due_days: number | null;
+}
+
+export interface TrainingAgendaItem {
+  title: string;
+  minutes: number | null;
+}
+
+export interface TrainingFileRow {
+  id: number;
+  kind: "deliverable" | "recording" | "invoice" | "internal";
+  deliverable_key: DeliverableKey | null;
+  status: "submitted" | "accepted" | "returned" | "replaced";
+  file_name: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  uploaded_at: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  fix_due_on: string | null;
+  for_participants: boolean;
+}
+
+export interface TrainingHandoverItem {
+  key: DeliverableKey;
+  label: string;
+  format: string;
+  due_days: number | null;
+  required: boolean;
+  state: HandoverState;
+  files: TrainingFileRow[];
+}
+
+export interface TrainingFee {
+  key: FeeKey;
+  label: string;
+  /** Element zamówienia, bez którego pozycja nie dotyczy (C: prezentacja, D: audio). */
+  needs: DeliverableKey | null;
+  amount: string | null;
+}
+
+/** Widok trenera: jego kwoty tak, uwagi wewnętrzne i zapisy uczestników nie. */
+export interface PortalTraining {
+  id: number;
+  status: TrainingStatus;
+  status_label: string;
+  order: {
+    title: string;
+    topic: string;
+    description: string;
+    session_date: string | null;
+    time_from: string;
+    time_to: string;
+    duration_minutes: number | null;
+    platform: string;
+    expected_participants: number | null;
+    quote_due_on: string | null;
+    participant_materials: string;
+    deliverables: TrainingDeliverable[];
+    knowledge_test: boolean;
+    extra_terms: string;
+  };
+  quote: {
+    agenda: TrainingAgendaItem[];
+    own_materials: string;
+    third_party_materials: string;
+    quote_note: string;
+    return_note: string | null;
+    quoted_at: string | null;
+  };
+  fees: { items: TrainingFee[]; total: string | null };
+  agreement: {
+    number: string | null;
+    generated_at: string | null;
+    trainer_signed_at: string | null;
+    company_signed_at: string | null;
+  };
+  payment: { invoice_ready_at: string | null; paid_at: string | null };
+  handover: TrainingHandoverItem[];
+  invoices: TrainingFileRow[];
+  can_quote: boolean;
+  can_sign: boolean;
+  can_deliver: boolean;
+  can_invoice: boolean;
+}
+
+export interface PortalTrainingRow {
+  id: number;
+  title: string;
+  status: TrainingStatus;
+  status_label: string;
+  trainer_kind: "consultant" | "employee";
+  trainer_name: string;
+  session_date: string | null;
+  total: string | null;
+  invoice_ready_at: string | null;
+  paid_at: string | null;
+  published_at: string | null;
+  can_publish: boolean;
+}
+
+export interface TrainingChapter {
+  title: string;
+  start_minute: number;
+}
+
+export interface LibraryFile {
+  id: number;
+  kind: "deliverable" | "recording" | "invoice" | "internal";
+  file_name: string;
+  content_type: string | null;
+  size_bytes: number | null;
+}
+
+export interface LibraryRecording {
+  id: number;
+  title: string;
+  topic: string;
+  description: string;
+  session_date: string | null;
+  duration_minutes: number | null;
+  trainer_kind: "consultant" | "employee";
+  chapters: TrainingChapter[];
+  files: LibraryFile[];
+}
+
+export interface LibraryLive {
+  id: number;
+  title: string;
+  topic: string;
+  session_date: string | null;
+  time_from: string;
+  time_to: string;
+  platform: string;
+  registered: boolean;
+  join_url: string | null;
+}
+
+export interface PortalTrainings {
+  mine: PortalTrainingRow[];
+  library: { recordings: LibraryRecording[]; live: LibraryLive[] };
+  applied: boolean;
+}
+
+export interface PortalQuoteInput {
+  agenda: TrainingAgendaItem[];
+  fee_prep: string | null;
+  fee_delivery: string | null;
+  fee_presentation: string | null;
+  fee_audio: string | null;
+  fee_rights: string | null;
+  own_materials: string;
+  third_party_materials: string;
+  quote_note: string;
+}
+
+export type AgreementVersion = "draft" | "trainer" | "signed";
 
 export interface PortalFaqItem {
   id: number;
@@ -295,6 +476,18 @@ async function postJson<T>(path: string, body?: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+function fileForm(file: File): FormData {
+  const form = new FormData();
+  form.set("file", file);
+  return form;
+}
+
+async function postFile(path: string, file: File): Promise<{ training: PortalTraining }> {
+  return (await (await request(path, { method: "POST", body: fileForm(file) })).json()) as {
+    training: PortalTraining;
+  };
+}
+
 export const portalApi = {
   status: () => getJson<{ open: boolean }>("/status"),
   requestLink: (email: string) => postJson<{ message: string }>("/link", { email }),
@@ -341,6 +534,31 @@ export const portalApi = {
     (
       await request("/trainer", { method: "PUT", body: JSON.stringify(body) })
     ).json() as Promise<{ application: PortalTrainerApplication }>,
+  trainerSample: async (file: File) =>
+    (await (await request("/trainer/sample", { method: "POST", body: fileForm(file) })).json()) as {
+      application: PortalTrainerApplication;
+    },
+  trainings: () => getJson<PortalTrainings>("/trainings"),
+  training: (id: number) => getJson<{ training: PortalTraining }>(`/trainings/${id}`),
+  saveQuote: async (id: number, body: PortalQuoteInput) =>
+    (
+      await request(`/trainings/${id}/quote`, { method: "PUT", body: JSON.stringify(body) })
+    ).json() as Promise<{ training: PortalTraining }>,
+  agreementPdf: async (id: number, version: AgreementVersion): Promise<Blob> =>
+    (await request(`/trainings/${id}/agreement.pdf?version=${version}`)).blob(),
+  uploadSignature: (id: number, file: File) => postFile(`/trainings/${id}/agreement/signature`, file),
+  uploadDeliverable: (id: number, key: DeliverableKey, file: File) =>
+    postFile(`/trainings/${id}/deliverables/${key}`, file),
+  uploadInvoice: (id: number, file: File) => postFile(`/trainings/${id}/invoice`, file),
+  trainingFile: async (fileId: number): Promise<Blob> =>
+    (await request(`/trainings/files/${fileId}?download=true`)).blob(),
+  /** Adres pliku dla `<video>`/`<audio>`: odtwarzacz nie wyśle nagłówka sesji, więc bilet. */
+  fileTicket: async (fileId: number) => {
+    const { url } = await getJson<{ url: string }>(`/trainings/files/${fileId}/ticket`);
+    return { url: url.startsWith("/") ? `${API_BASE}${url}` : url };
+  },
+  register: (id: number, join: boolean) =>
+    postJson<{ registered: boolean }>(`/trainings/${id}/registration`, { join }),
 };
 
 export const portalKeys = {
@@ -355,6 +573,9 @@ export const portalKeys = {
   settlement: ["consultant-portal", "settlement"] as const,
   equipment: ["consultant-portal", "equipment"] as const,
   trainer: ["consultant-portal", "trainer"] as const,
+  trainings: ["consultant-portal", "trainings"] as const,
+  training: (id: number) => ["consultant-portal", "training", id] as const,
+  ticket: (fileId: number) => ["consultant-portal", "ticket", fileId] as const,
 };
 
 const retryExcept401 = (count: number, error: unknown): boolean =>

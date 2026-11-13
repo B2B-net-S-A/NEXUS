@@ -52,7 +52,7 @@ class EraseOutcome:
 
 
 async def erase_panel_data(db: AsyncSession, candidate_id: int) -> None:
-    """Panel konsultanta trzyma własne kopie adresu i treść zgłoszenia trenera."""
+    """Panel konsultanta trzyma własne kopie adresu, treść zgłoszenia trenera i zapisy na szkolenia."""
 
     from app.models.consultant_panel import CpActivation, CpTrainerApplication
     from app.models.consultant_portal import CpDocument, CpLink, CpSession
@@ -77,6 +77,20 @@ async def erase_panel_data(db: AsyncSession, candidate_id: int) -> None:
             email="",
             deactivated_at=func.coalesce(CpActivation.deactivated_at, func.now()),
         )
+    )
+    # Szkolenia (0690): zapis na szkolenie i obecność to dane osoby, nie umowy.
+    # Szkolenie z umową szkoleniową zostaje (dokument rozliczeniowy), bez zmian.
+    from app.models.training import TrainingAttendance, TrainingRegistration
+
+    await db.execute(
+        delete(TrainingRegistration).where(
+            TrainingRegistration.contract_id.in_(contract_ids)
+        )
+    )
+    await db.execute(
+        update(TrainingAttendance)
+        .where(TrainingAttendance.contract_id.in_(contract_ids))
+        .values(contract_id=None, display_name="", email="")
     )
 
 

@@ -260,6 +260,8 @@ from app.api import back_office as back_office_api
 from app.api import consultant_panel as consultant_panel_api
 from app.api import consultant_portal as consultant_portal_api
 from app.api import consultant_portal_staff as consultant_portal_staff_api
+from app.api import trainings as trainings_api
+from app.api import trainings_media as trainings_media_api
 from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
 from app.api import sales_company_people as sales_company_people_api
@@ -1343,6 +1345,14 @@ app.add_middleware(
     BodySizeLimitMiddleware,
     max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
     path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
+    # Szkolenia (0690): nagranie z Teams i pliki trenera do 2 GB, tylko te dwie trasy.
+    pattern_limits=[
+        (r"/api/trainings/\d+/files", 2_100 * 1024 * 1024),
+        (
+            r"/api/public/consultant-portal/trainings/\d+/deliverables/[a-z]+",
+            2_100 * 1024 * 1024,
+        ),
+    ],
 )
 # Licznik użycia obszarów, domyślnie wyłączony (`ACCESS_USAGE_COUNTER_ENABLED`):
 # tylko dolicza w pamięci, zapis robi pętla `access_usage`.
@@ -2387,6 +2397,19 @@ app.include_router(
 app.include_router(
     consultant_portal_staff_api.router,
     prefix="/api/back-office/portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Szkolenia i trenerzy (0690, 13.11.2026): zamówienie, wycena, umowa, pliki, biblioteka.
+app.include_router(
+    trainings_api.router,
+    prefix="/api/trainings",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    trainings_media_api.router,
+    prefix="/api/public/training-media",
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )

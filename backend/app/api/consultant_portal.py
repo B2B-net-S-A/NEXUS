@@ -20,6 +20,7 @@ szczegółów wewnętrznych.
 """
 
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Annotated, Literal, Optional
 
 from fastapi import (
@@ -36,6 +37,7 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal, get_db
@@ -62,6 +64,16 @@ from app.services.consultant_panel_schema import (
 from app.services.consultant_portal_schema import COMMENT_MAX, REASON_MAX, TOPICS
 from app.services.equipment import protocols as equipment_protocols
 from app.services.equipment.errors import EquipmentError
+from app.models.training import Training, TrainingFile
+from app.services.trainings import agreement_files
+from app.services.trainings import core as training_core
+from app.services.trainings import media as training_media
+from app.services.trainings import samples as trainer_samples
+from app.services.trainings import signing as training_signing
+from app.services.trainings import storage as training_storage
+from app.services.trainings.errors import TrainingError
+from app.services.trainings_schema import TEXT_MAX as TRAINING_TEXT_MAX
+from app.services.trainings_schema import TITLE_MAX as TRAINER_TITLE_MAX
 
 router = APIRouter()
 
@@ -640,10 +652,15 @@ async def trainer(
 
 
 class TrainerRequest(BaseModel):
+    """Bez formy i stawki za dzień (13.11.2026): szkolenia są wyłącznie zdalne (§ 3 umowy
+    szkoleniowej), a cenę trener podaje w wycenie zamówienia. Stare pola ``form`` i
+    ``day_rate`` z otwartej karty przeglądarki są ignorowane."""
+
     topics: list[str] = Field(min_length=1, max_length=20)
     experience: str = Field(min_length=3, max_length=TRAINER_TEXT_MAX)
-    form: Literal["online_or_onsite", "online", "onsite"] = "online_or_onsite"
-    day_rate: str = Field(default="", max_length=TRAINER_SHORT_MAX)
+    proposal_title: str = Field(default="", max_length=TRAINER_TITLE_MAX)
+    proposal_hours: str = Field(default="", max_length=TRAINER_SHORT_MAX)
+    audience: str = Field(default="", max_length=TRAINER_SHORT_MAX)
     availability: str = Field(default="", max_length=TRAINER_SHORT_MAX)
     materials: str = Field(default="", max_length=MATERIAL_URL_MAX)
 
@@ -663,11 +680,350 @@ async def save_trainer(
             context,
             topics=payload.topics,
             experience=payload.experience,
-            form=payload.form,
-            day_rate=payload.day_rate,
+            proposal_title=payload.proposal_title,
+            proposal_hours=payload.proposal_hours,
+            audience=payload.audience,
             availability=payload.availability,
             materials=payload.materials,
         )
     except PortalError as exc:
         raise _translate(exc) from exc
     return {"application": application}
+
+
+@router.post("/trainer/sample")
+@limiter.limit("10/minute;30/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def save_trainer_sample(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    file: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    data = await file.read(trainer_samples.MAX_BYTES + 1)
+    if len(data) > trainer_samples.MAX_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, trainer_samples.REJECTED)
+    try:
+        application = await panel.save_trainer_sample(
+            db, context, file_name=file.filename or "", content=data
+        )
+    except PortalError as exc:
+        raise _translate(exc) from exc
+    return {"application": application}
+
+
+# ── Szkolenia: moje szkolenia, wycena, umowa, pliki, biblioteka ─────────────
+
+
+def _training_error(exc: TrainingError) -> HTTPException:
+    return HTTPException(exc.status, {"message": exc.message, "code": exc.code})
+
+
+class AgendaItem(BaseModel):
+    title: str = Field(default="", max_length=TRAINER_TITLE_MAX)
+    minutes: Optional[int] = Field(default=None, ge=0, le=600)
+
+
+class QuoteRequest(BaseModel):
+    agenda: list[AgendaItem] = Field(min_length=1, max_length=20)
+    fee_prep: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=2
+    )
+    fee_delivery: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=2
+    )
+    fee_presentation: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=2
+    )
+    fee_audio: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=2
+    )
+    fee_rights: Optional[Decimal] = Field(
+        default=None, ge=0, max_digits=12, decimal_places=2
+    )
+    own_materials: str = Field(default="", max_length=TRAINING_TEXT_MAX)
+    third_party_materials: str = Field(default="", max_length=TRAINING_TEXT_MAX)
+    quote_note: str = Field(default="", max_length=TRAINING_TEXT_MAX)
+
+
+class JoinRequest(BaseModel):
+    join: bool
+
+
+@router.get("/trainings")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def trainings(
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    consultant = context.consultant
+    return {
+        "mine": await training_core.trainer_trainings(db, consultant.contract_ids),
+        "library": await training_core.library(
+            db, today=business_today(), contract_ids=consultant.contract_ids
+        ),
+        "applied": await panel.trainer_application(db, context) is not None,
+    }
+
+
+@router.get("/trainings/{training_id}")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def training_detail(
+    training_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        training = await training_core.for_trainer(
+            db, training_id, context.consultant.contract_ids
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    return {"training": await training_core.trainer_view(db, training)}
+
+
+@router.put("/trainings/{training_id}/quote")
+@limiter.limit("10/minute;60/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def training_quote(
+    training_id: int,
+    payload: QuoteRequest,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        training = await training_core.submit_quote(
+            db,
+            training_id,
+            context.consultant.contract_ids,
+            training_core.QuoteInput(
+                agenda=tuple(item.model_dump() for item in payload.agenda),
+                fees={
+                    "fee_prep": payload.fee_prep,
+                    "fee_delivery": payload.fee_delivery,
+                    "fee_presentation": payload.fee_presentation,
+                    "fee_audio": payload.fee_audio,
+                    "fee_rights": payload.fee_rights,
+                },
+                own_materials=payload.own_materials,
+                third_party_materials=payload.third_party_materials,
+                quote_note=payload.quote_note,
+            ),
+            now=_now(),
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    await db.commit()
+    return {"training": await training_core.trainer_view(db, training)}
+
+
+@router.get("/trainings/{training_id}/agreement.pdf")
+@limiter.limit("30/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def training_agreement_pdf(
+    training_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    version: Literal["draft", "trainer", "signed"] = "draft",
+    db: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    try:
+        training = await training_core.for_trainer(
+            db, training_id, context.consultant.contract_ids
+        )
+        return agreement_files.response(training, version)
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+
+
+@router.post("/trainings/{training_id}/agreement/signature")
+@limiter.limit("10/minute;30/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def training_agreement_signature(
+    training_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    file: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    data = await file.read(documents.MAX_FILE_BYTES + 1)
+    if len(data) > documents.MAX_FILE_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, FILE_TOO_LARGE)
+    try:
+        await training_core.for_trainer(
+            db, training_id, context.consultant.contract_ids
+        )
+        training = await training_signing.trainer_upload(
+            db, training_id, data, now=_now()
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    await db.commit()
+    return {"training": await training_core.trainer_view(db, training)}
+
+
+@router.post("/trainings/{training_id}/deliverables/{key}", status_code=201)
+@limiter.limit("20/minute;120/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def training_deliverable(
+    training_id: int,
+    key: Literal["materials", "presentation", "audio", "other"],
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    file: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        training = await training_core.check_deliverable(
+            db, training_id, context.consultant.contract_ids, key
+        )
+        stored = await training_storage.save(
+            db,
+            training_id=training.id,
+            training_title=training.title,
+            session_year=(training.session_date or business_today()).year,
+            file_name=file.filename or "plik",
+            content_type=file.content_type or "application/octet-stream",
+            source=file,
+        )
+        await training_core.add_deliverable(
+            db,
+            training,
+            key=key,
+            stored=stored,
+            file_name=file.filename or "plik",
+            contract_id=training.trainer_contract_id or context.consultant.contract_id,
+            now=_now(),
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    await db.commit()
+    return {"training": await training_core.trainer_view(db, training)}
+
+
+@router.post("/trainings/{training_id}/invoice", status_code=201)
+@limiter.limit("10/minute;30/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def training_invoice(
+    training_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    file: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        training = await training_core.for_trainer(
+            db, training_id, context.consultant.contract_ids
+        )
+        if training.invoice_ready_at is None or training.paid_at is not None:
+            raise TrainingError(
+                409,
+                "Fakturę wgrasz po przyjęciu wszystkich plików z Załącznika nr 1.",
+                "not_ready",
+            )
+        if not (file.filename or "").lower().endswith(".pdf"):
+            raise TrainingError(422, "Fakturę wgraj jako PDF.", "invoice_pdf")
+        stored = await training_storage.save(
+            db,
+            training_id=training.id,
+            training_title=training.title,
+            session_year=(training.session_date or business_today()).year,
+            file_name=file.filename or "faktura.pdf",
+            content_type="application/pdf",
+            source=file,
+        )
+        await training_core.add_file(
+            db,
+            training,
+            kind="invoice",
+            stored=stored,
+            file_name=file.filename or "faktura.pdf",
+            now=_now(),
+            contract_id=training.trainer_contract_id,
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    await db.commit()
+    return {"training": await training_core.trainer_view(db, training)}
+
+
+async def _portal_training_file(
+    db: AsyncSession, context: PortalContext, file_id: int
+) -> TrainingFile:
+    """Plik własnego szkolenia (trener) albo plik z biblioteki (każdy z panelem)."""
+
+    own = await db.scalar(
+        select(TrainingFile)
+        .join(Training, Training.id == TrainingFile.training_id)
+        .where(
+            TrainingFile.id == file_id,
+            Training.trainer_contract_id.in_(context.consultant.contract_ids),
+            Training.status != "draft",
+            TrainingFile.kind.in_(("deliverable", "invoice")),
+        )
+    )
+    return own or await training_core.library_file(db, file_id)
+
+
+@router.get("/trainings/files/{file_id}")
+@limiter.limit("120/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def training_file(
+    file_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    download: bool = False,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    try:
+        item = await _portal_training_file(db, context, file_id)
+        return await training_storage.stream(
+            item, range_header=request.headers.get("range"), download=download
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+
+
+@router.get("/trainings/files/{file_id}/ticket")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def training_file_ticket(
+    file_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        await _portal_training_file(db, context, file_id)
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    return {"url": training_media.url(file_id, now=_now())}
+
+
+@router.post("/trainings/{training_id}/registration")
+@limiter.limit("20/minute")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def training_registration(
+    training_id: int,
+    payload: JoinRequest,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        await training_core.register(
+            db,
+            training_id,
+            today=business_today(),
+            contract_id=context.consultant.contract_id,
+            join=payload.join,
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    await db.commit()
+    return {"registered": payload.join}

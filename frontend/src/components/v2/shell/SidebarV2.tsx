@@ -31,7 +31,7 @@ import { useSidebarPinned } from "./useSidebarPinned";
 import { PaletteSwitcher } from "./PaletteSwitcher";
 import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
 import { hasSectionAccess } from "@/lib/section-access";
-import { useHrNavState } from "@/lib/api/hr";
+import { useHrNavState, useHrProgram } from "@/lib/api/hr";
 import { useOwnHiringMembership } from "@/lib/api/ownHiring";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
@@ -94,8 +94,14 @@ export function SidebarV2({
   // Szyna = rdzeń pracy w grupach z nagłówkami, reszta pod „Więcej". Bramka
   // widoczności jest w rejestrze jedna — obie listy to ten sam zbiór, podzielony.
   const hrNav = useHrNavState(user);
+  // „Szkolenia” (13.11.2026) widzi każdy, gdy program „Ludzi” jest włączony.
+  const hrProgram = useHrProgram(Boolean(user));
   const ownHiring = useOwnHiringMembership(user);
-  const navOptions = { contactQueueEnabled: contactFeature.enabled, hr: hrNav, ownHiring };
+  const navOptions = {
+    contactQueueEnabled: contactFeature.enabled,
+    hr: { ...hrNav, trainings: hrProgram },
+    ownHiring,
+  };
   const primaryGroups = visiblePrimaryGroups(user, navOptions);
   const moreGroups = visibleMoreGroups(user, navOptions);
 

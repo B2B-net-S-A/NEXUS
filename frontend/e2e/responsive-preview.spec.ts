@@ -237,6 +237,9 @@ const PAGES = [
   "/preview/client-invoicing?state=finance",
   "/preview/client-invoicing?state=to-invoice",
   "/preview/client-invoicing?state=credits",
+  "/preview/trainings",
+  "/preview/trainings?state=handover",
+  "/preview/trainings?state=library",
 ] as const;
 
 async function pageOverflowPx(page: Page): Promise<number> {
