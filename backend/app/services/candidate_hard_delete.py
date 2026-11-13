@@ -78,7 +78,7 @@ async def erase_panel_data(db: AsyncSession, candidate_id: int) -> None:
             deactivated_at=func.coalesce(CpActivation.deactivated_at, func.now()),
         )
     )
-    # Szkolenia (0690): zapis na szkolenie i obecność to dane osoby, nie umowy.
+    # Szkolenia (0693): zapis na szkolenie i obecność to dane osoby, nie umowy.
     # Szkolenie z umową szkoleniową zostaje (dokument rozliczeniowy), bez zmian.
     from app.models.training import TrainingAttendance, TrainingRegistration
 

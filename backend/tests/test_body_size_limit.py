@@ -139,7 +139,7 @@ async def test_chunked_multipart_upload_over_limit_is_413_not_400():
 
 
 def test_pattern_limit_matches_only_the_whole_path():
-    """Szkolenia (0690): 2 GB tylko dla tras uploadu plików, nie dla sąsiednich."""
+    """Szkolenia (0693): 2 GB tylko dla tras uploadu plików, nie dla sąsiednich."""
 
     async def app(scope, receive, send):  # pragma: no cover - nie wołana
         return None

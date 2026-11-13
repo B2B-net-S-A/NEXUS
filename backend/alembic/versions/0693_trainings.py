@@ -1,7 +1,7 @@
 """Szkolenia i trenerzy: zamówienie, wycena A–E, umowa szkoleniowa, pliki, biblioteka.
 
-Revision ID: 0690_trainings
-Revises: 0689_client_time_reports
+Revision ID: 0693_trainings
+Revises: 0692_client_einvoices
 
 SQL i powody: ``app/services/trainings_schema.py`` (to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import trainings_schema as schema
 
-revision = "0690_trainings"
-down_revision = "0689_client_time_reports"
+revision = "0693_trainings"
+down_revision = "0692_client_einvoices"
 branch_labels = None
 depends_on = None
 

@@ -1,6 +1,6 @@
-"""Szkolenia i trenerzy (decyzja Artura 13.11.2026): SQL migracji ``0690_trainings`` i lustra entrypointu.
+"""Szkolenia i trenerzy (decyzja Artura 13.11.2026): SQL migracji ``0693_trainings`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0690_trainings.py`` i ``entrypoint.sh``
+JEDNO źródło instrukcji dla ``alembic/versions/0693_trainings.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``).
 
 Szkolenie prowadzi konsultant z umową szkoleniową B2B albo pracownik. Umowa szkoleniowa

@@ -1,4 +1,4 @@
-"""Szkolenie od zamówienia do biblioteki (0690). Dane fikcyjne — repo jest publiczne.
+"""Szkolenie od zamówienia do biblioteki (0693). Dane fikcyjne — repo jest publiczne.
 
 Pilnuje reguł, których macierz uprawnień nie widzi, bo siedzą w treści handlera:
 
