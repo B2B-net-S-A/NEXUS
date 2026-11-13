@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -46,10 +47,13 @@ from app.services.client_settlements import (
     contractor_invoices,
     kesu,
     kesu_flow,
+    mail_text,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
+    signoffs,
     timesheet,
+    timesheet_pko,
 )
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.engine import Inputs, OrderState, Result, compute
@@ -202,14 +206,38 @@ async def _order_state(
             )
         )
         available = Decimal(order.md_remaining) + Decimal(this_month or 0)
+    rate_cost, rate_revenue = md_rates(order)
     return OrderState(
         order_id=order.id,
         number=number,
         md_total=order.md_total,
         md_available=available,
-        rate_cost=order.md_rate_cost,
-        rate_revenue=order.md_rate_revenue,
+        rate_cost=rate_cost,
+        rate_revenue=rate_revenue,
     )
+
+
+#: Godziny w MD dla linii ze stawką godzinową (jak ``fields.md_hours`` domyślnie).
+HOURS_PER_MD = Decimal("8")
+
+
+def md_rates(order: Any) -> tuple[Optional[Decimal], Optional[Decimal]]:
+    """Stawki MD linii. Linia ze stawką godzinową bez stawek MD (PKO: stawka za
+    godzinę w zł, bez puli MD) liczy MD × 8 h × stawka za godzinę."""
+
+    cost = getattr(order, "md_rate_cost", None)
+    revenue = getattr(order, "md_rate_revenue", None)
+    unit = getattr(order, "rate_unit", None)
+    unit = getattr(unit, "value", unit)
+    currency = (getattr(order, "rate_client_currency", None) or "PLN").upper()
+    if unit == "hourly" and currency == "PLN":
+        client_rate = getattr(order, "rate_client", None)
+        candidate_rate = getattr(order, "rate_candidate", None)
+        if revenue is None and client_rate is not None:
+            revenue = Decimal(client_rate) * HOURS_PER_MD
+        if cost is None and candidate_rate is not None:
+            cost = Decimal(candidate_rate) * HOURS_PER_MD
+    return cost, revenue
 
 
 async def _onboarding_used(db: AsyncSession, contract_id: int, month: str) -> Decimal:
@@ -227,6 +255,8 @@ async def _onboarding_used(db: AsyncSession, contract_id: int, month: str) -> De
 RCP_MIMES = (
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # Time Sheet klienta z makrami (PKO, E6.1): czytamy tylko wartości.
+    timesheet_pko.XLSM,
 )
 MAIL_MIMES = ("application/vnd.ms-outlook", "message/rfc822")
 
@@ -464,8 +494,10 @@ async def _order_numbers(
         return {}
     first, last = month_bounds(month)
     rows = await db.execute(
-        select(ClientOrder.contract_id, ClientOrderGroup.order_number)
-        .join(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
+        select(
+            ClientOrder.contract_id, ClientOrderGroup.order_number, ClientOrder.title
+        )
+        .outerjoin(ClientOrderGroup, ClientOrderGroup.id == ClientOrder.order_group_id)
         .where(
             ClientOrder.contract_id.in_(contract_ids),
             ClientOrder.status.in_(ORDER_STATUSES),
@@ -474,7 +506,27 @@ async def _order_numbers(
         )
         .order_by(ClientOrder.start_date.asc().nullsfirst(), ClientOrder.id)
     )
-    return {contract_id: number for contract_id, number in rows.all()}
+    out: dict[int, str] = {}
+    for contract_id, number, title in rows.all():
+        # PKO, Velo: numer zamówienia stoi w tytule linii (E6.1), grupa go nie ma.
+        found = number or number_from_title(title)
+        if found:
+            out[contract_id] = found
+    return out
+
+
+_ORDER_PREFIX = re.compile(r"^\s*zam[óo]wienie\s+(nr\.?\s*)?", re.IGNORECASE)
+
+
+def number_from_title(title: Optional[str]) -> Optional[str]:
+    """„Zamówienie nr 9001/2026” → „9001/2026”; tytuł opisowy → ``None``."""
+
+    if not title:
+        return None
+    text = _ORDER_PREFIX.sub("", title).strip()
+    if re.fullmatch(r"[\w./-]{2,40}", text) and re.search(r"\d", text):
+        return text
+    return None
 
 
 async def _contract(db: AsyncSession, contract_id: int) -> Person:
@@ -581,7 +633,11 @@ async def detail(
         "lines": lines,
         "total_md": total_md,
         "total_net": _dec(s.amount_cost, 2) if s and amounts else None,
-        "checks": [c for c in (s.checks if s else []) if "remaining_after" not in c],
+        "checks": [
+            c
+            for c in (s.checks if s else [])
+            if "remaining_after" not in c and signoffs.SIGNED_KEY not in c
+        ],
         "order": None
         if state is None
         else {
@@ -628,6 +684,7 @@ def meta_of(s: Optional[ClientSettlement]) -> dict[str, Any]:
 
 def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> None:
     kept = meta_of(s).get(PAY_ON_MAIL)
+    signed = signoffs.marker(s.checks)
     s.status = result.status
     s.md_onboarding = result.md_onboarding
     s.md_charged = result.md_charged
@@ -645,6 +702,8 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
         # Decyzja Finansów o zapłacie po mailu przeżywa przeliczenie (E6.3).
         meta[PAY_ON_MAIL] = kept
     s.checks = [*result.checks, meta]
+    # Podpisany arkusz albo protokół (E6) zostaje przy przeliczeniu.
+    s.checks = signoffs.with_marker(s.checks, signed)
     s.order_id = order.order_id if order else None
 
 
@@ -684,6 +743,74 @@ async def read_rcp(
     return await asyncio.to_thread(_read_rcp, content, mime)
 
 
+def _read_mails(reports: list[CpDocument]) -> list[mail_text.Mail]:
+    mails = []
+    for document in reports:
+        if document.mime not in MAIL_MIMES:
+            continue
+        try:
+            content = portal_documents.path_for(document.file_path).read_bytes()
+        except OSError:
+            continue
+        mail = mail_text.read(content, document.mime)
+        if mail is not None:
+            mails.append(mail)
+    return mails
+
+
+async def _acceptance(
+    result: Optional[rcp_checks.ProofResult],
+    reports: list[CpDocument],
+    *,
+    month: str,
+    hours: Optional[Decimal],
+    rules: dict[str, dict[str, Any]],
+) -> Optional[rcp_checks.ProofResult]:
+    """``proof.accept_has_hours`` (E6.1): mail akceptacji z liczbą godzin albo MD
+    za rozliczany miesiąc. Brak = zadanie „Popraw akceptację” dla konsultanta."""
+
+    if rules["proof.accept_has_hours"]["level"] == "off":
+        return result
+    result = result or rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    mails = await asyncio.to_thread(_read_mails, reports)
+    verdict = mail_text.judge(
+        mails,
+        month=month,
+        hours=hours,
+        md=result.md_regular if hours is None else None,
+    )
+    group = rcp_checks._Group(result, rules, "Akceptacja")
+    if verdict.ok:
+        group.ok(verdict.title, verdict.detail)
+    else:
+        group.fail("proof.accept_has_hours", verdict.title, verdict.detail)
+        if group.checks:
+            group.checks[-1]["todo"] = "Popraw akceptację"
+    group.close()
+    return result
+
+
+async def _other_md(
+    db: AsyncSession, contract: Optional[Contract], month: str
+) -> Decimal:
+    """MD tej samej osoby u innych klientów w miesiącu (``fields.md_month_limit``)."""
+
+    if contract is None or contract.candidate_id is None:
+        return Decimal("0")
+    total = await db.scalar(
+        select(func.coalesce(func.sum(ClientSettlement.md_regular), 0))
+        .join(Contract, Contract.id == ClientSettlement.contract_id)
+        .where(
+            Contract.candidate_id == contract.candidate_id,
+            Contract.client_id != contract.client_id,
+            ClientSettlement.period_month == month,
+            ClientSettlement.kind == ACTUAL,
+            ClientSettlement.status != "needs_fix",
+        )
+    )
+    return Decimal(total or 0)
+
+
 async def _proof(
     report: Optional[CpDocument],
     reports: list[CpDocument],
@@ -691,11 +818,12 @@ async def _proof(
     month: str,
     person_name: str,
     rules: dict[str, dict[str, Any]],
+    other_md: Decimal = Decimal("0"),
 ) -> Optional[rcp_checks.ProofResult]:
     """Odczyt RCP z pliku i kontrole (E2). Brak pliku RCP = ``None``."""
 
     if report is None or report.mime not in RCP_MIMES:
-        return None
+        return await _acceptance(None, reports, month=month, hours=None, rules=rules)
     try:
         content = portal_documents.path_for(report.file_path).read_bytes()
     except OSError as exc:
@@ -707,17 +835,44 @@ async def _proof(
         return None
     parsed, signatures = await read_rcp(content, report.mime)
     has_mail = any(d.mime in MAIL_MIMES for d in reports)
+    working_days = len(business_days(*month_bounds(month)))
     if parsed is None:
+        # Szablon klienta w godzinach z makrami (E6.1, PKO).
+        pko = await asyncio.to_thread(timesheet_pko.parse, content, report.mime)
+        if pko is not None:
+            result = timesheet_pko.evaluate(
+                pko,
+                month=month,
+                person_name=person_name,
+                rules=rules,
+                working_days=working_days,
+                other_md=other_md,
+            )
+            return await _acceptance(
+                result,
+                reports,
+                month=month,
+                hours=pko.total_hours if pko.entries else None,
+                rules=rules,
+            )
         # Nie szablon RCP BNP: może Time Sheet w godzinach (E6.2).
         sheet = await asyncio.to_thread(timesheet.parse, content, report.mime)
         if sheet is not None:
-            return timesheet.evaluate(
+            result = timesheet.evaluate(
                 sheet,
                 month=month,
                 person_name=person_name,
                 has_mail=has_mail,
                 rules=rules,
-                working_days=len(business_days(*month_bounds(month))),
+                working_days=working_days,
+                other_md=other_md,
+            )
+            return await _acceptance(
+                result,
+                reports,
+                month=month,
+                hours=sheet.total_hours if sheet.entries else None,
+                rules=rules,
             )
     return rcp_checks.evaluate(
         parsed,
@@ -759,13 +914,19 @@ async def _recompute(
     s.report_document_id = report.id if report else None
     if proof is None:
         proof = await _proof(
-            report, reports, month=s.period_month, person_name=person.name, rules=rules
+            report,
+            reports,
+            month=s.period_month,
+            person_name=person.name,
+            rules=rules,
+            other_md=await _other_md(db, person.contract, s.period_month),
         )
     # Wpis Finansów wygrywa z odczytem pliku; bez wpisu MD bierzemy z RCP.
     if proof is not None and proof.md_regular is not None and s.md_source != "manual":
         s.md_regular = proof.md_regular
         s.md_extra = proof.md_extra or None
         s.md_source = "rcp"
+    proof = _signed_checks(proof, s, rules)
     result = compute(
         Inputs(
             md_regular=s.md_regular,
@@ -775,12 +936,78 @@ async def _recompute(
             onboarding_used_before=await _onboarding_used(
                 db, s.contract_id, s.period_month
             ),
-            has_report=report is not None,
+            has_report=report is not None or signoffs.marker(s.checks) is not None,
             onboarding_eligible=_onboarding_eligible(person.contract, s.period_month),
             proof=proof,
         )
     )
     return result, state, order
+
+
+def _signed_checks(
+    proof: Optional[rcp_checks.ProofResult],
+    s: ClientSettlement,
+    rules: dict[str, dict[str, Any]],
+) -> Optional[rcp_checks.ProofResult]:
+    """Arkusz zbiorczy osoby (E6.2, Velo): ``pay.per_person`` — zapłata po
+    podpisanym arkuszu tej osoby, bez czekania na pozostałe."""
+
+    if rules["pay.per_person"]["level"] == "off":
+        return proof
+    proof = proof or rcp_checks.ProofResult(md_regular=None, md_extra=None)
+    group = rcp_checks._Group(proof, rules, "Arkusz zbiorczy")
+    signed = signoffs.signed_state(s.checks, signoffs.SHEET)
+    if signed and signed.get("complete"):
+        when = str(signed.get("signed_at") or "")[:10]
+        when = f"{when[8:10]}.{when[5:7]}" if len(when) == 10 else ""
+        group.ok(
+            "Arkusz podpisany przez klienta"
+            + (f": {signed['signer']}" if signed.get("signer") else "")
+            + (f", {when}" if when else ""),
+        )
+        md = signed.get("md")
+        if (
+            md
+            and s.md_regular is not None
+            and abs(Decimal(md) - Decimal(s.md_regular)) > Decimal("0.005")
+        ):
+            group.warn(
+                f"W arkuszu {rcp_checks._fmt(Decimal(md))} MD, w Time Sheet "
+                f"{rcp_checks._fmt(Decimal(s.md_regular))} MD",
+                "Do zapłaty i faktury idzie MD z rozliczenia; sprawdź, który zapis jest dobry.",
+            )
+    else:
+        group.fail(
+            "pay.per_person",
+            "Arkusz czeka na podpis klienta",
+            "Zapłata po podpisanym arkuszu tej osoby.",
+        )
+    group.close()
+    return proof
+
+
+async def recompute_and_store(db: AsyncSession, s: ClientSettlement) -> None:
+    result, state, _order = await _recompute(db, s)
+    _store(s, result, state)
+    if s.md_regular is None:
+        s.status = "checking"
+
+
+async def contracts_with_settlement(
+    db: AsyncSession, client_id: int, month: str
+) -> set[int]:
+    return set(
+        (
+            await db.scalars(
+                select(ClientSettlement.contract_id).where(
+                    ClientSettlement.client_id == client_id,
+                    ClientSettlement.period_month == month,
+                    ClientSettlement.kind == ACTUAL,
+                    ClientSettlement.status != "needs_fix",
+                )
+            )
+        ).all()
+    )
 
 
 async def _get_or_create(
@@ -1089,9 +1316,16 @@ async def refresh_for_document(db: AsyncSession, document: CpDocument) -> None:
     """Po wgraniu RCP (panel albo mail, E2.4): rozliczenie miesiąca liczy się od
     nowa z pliku. Przyjęte rozliczenie zostaje — nowy plik czeka na Finanse."""
 
-    if document.kind != "report" or document.contract_id is None:
+    if document.kind != "report":
         return
     if not await module_settings.is_enabled(db):
+        return
+    # Podpisany arkusz zbiorczy albo protokół od klienta (E6): po treści, nie po
+    # nadawcy; rozpoznany plik nie jest RCP żadnej osoby.
+    now = document.updated_at or datetime.now(ZoneInfo(DEFAULT_TZ))
+    if await signoffs.apply(db, document, now=now):
+        return
+    if document.contract_id is None:
         return
     month = f"{document.period_year}-{document.period_month:02d}"
     # Domyślna data z bazy nie zawsze jest już w obiekcie po flush.

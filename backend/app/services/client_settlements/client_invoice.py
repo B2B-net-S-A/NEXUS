@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.client_order import ClientOrder
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.client_settlement import ClientSettlement
-from app.services.client_settlements import kesu, service
+from app.services.client_settlements import kesu, service, signoffs
 from app.services.client_settlements.rcp_checks import name_tokens
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
@@ -160,7 +160,8 @@ def client_price(order: Optional[ClientOrder]) -> ClientPrice:
     ):
         rate = Decimal(order.rate_client)
         return ClientPrice(rate, currency, Decimal(order.md_rate_revenue) / rate)
-    return ClientPrice(order.md_rate_revenue, PLN, Decimal("1"))
+    # Linia ze stawką godzinową bez stawki MD (PKO): MD × 8 h × stawka za godzinę.
+    return ClientPrice(service.md_rates(order)[1], PLN, Decimal("1"))
 
 
 def _multiplier(s: ClientSettlement) -> Decimal:
@@ -376,6 +377,12 @@ async def invoice_month(
     groups = {o.order_group_id for o in orders.values() if o.order_group_id is not None}
     invoices = await _group_invoices(db, groups)
     rules = await service.rules_for(db, client_id, month)
+    # E6: faktura do klienta po podpisanym protokole albo arkuszach (wszystkich).
+    document_kind = (
+        signoffs.document_rule(rules, month)
+        if rules["cl.after_signed_document"]["level"] != "off"
+        else None
+    )
     suffix_rule = rules["cl.overtime_item"]
     overtime_suffix = (
         str(suffix_rule["params"].get("suffix") or "_nadgodziny")
@@ -383,11 +390,20 @@ async def invoice_month(
         else None
     )
     rows = []
+    signed_by_row: list[bool] = []
+    # KEŚU (E6.3) ma własne wstrzymanie („Czeka na podpis klienta”).
+    with_kesu = False
     for row in view["rows"]:
         contract_id = row["contract_id"]
         estimate = by_key.get((contract_id, month, service.ESTIMATE))
         actual = by_key.get((contract_id, month, service.ACTUAL))
         chosen = estimate or actual
+        with_kesu = with_kesu or service.kesu_state(chosen) is not None
+        signed_by_row.append(
+            bool(document_kind)
+            and actual is not None
+            and signoffs.is_complete(actual.checks, document_kind)
+        )
         out: dict[str, Any] = {
             "contract_id": contract_id,
             "person": row["person"],
@@ -490,11 +506,26 @@ async def invoice_month(
                     None if net_pln == 0 else f"{margin / net_pln * 100:.1f}"
                 )
         rows.append(out)
+    hold = None
+    if document_kind is not None and not with_kesu:
+        unsigned = sum(1 for signed in signed_by_row if not signed)
+        if unsigned or not rows:
+            hold = {
+                "kind": document_kind,
+                "label": "Czeka na podpisany protokół odbioru"
+                if document_kind == signoffs.PROTOCOL
+                else "Czeka na podpisane arkusze zbiorcze: bez podpisu "
+                f"{unsigned} z {len(rows)} osób",
+            }
+            for row in rows:
+                if row["state"] == "ready":
+                    row["state"] = "awaiting_signature"
     return {
         "client_id": client_id,
         "client_name": view["client_name"],
         "month": month,
         "can_see_amounts": amounts,
+        "signature_hold": hold,
         "rows": rows,
     }
 

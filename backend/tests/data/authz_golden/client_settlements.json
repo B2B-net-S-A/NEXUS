@@ -44,6 +44,7 @@
   "GET /api/finance/settlements/module": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/accept-batch": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/settlements/client-documents/signed": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/accept": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/needs-fix": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/pay-on-mail": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

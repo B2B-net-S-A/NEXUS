@@ -74,7 +74,7 @@ function MonthRow({ row }: { row: PortalMonth }) {
               type="file"
               hidden
               aria-label={action}
-              accept=".pdf,.xlsx,.msg,.eml,.docx,.jpg,.jpeg,.png"
+              accept=".pdf,.xlsx,.xlsm,.msg,.eml,.docx,.jpg,.jpeg,.png"
               onChange={(event) => upload(event.target.files?.[0])}
             />
             <Button size="sm" disabled={busy} onClick={() => input.current?.click()}>

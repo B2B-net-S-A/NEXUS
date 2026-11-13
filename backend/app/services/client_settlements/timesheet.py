@@ -27,6 +27,7 @@ from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
+from app.services.client_settlements import timesheet_pko
 from app.services.client_settlements.rcp_bnp import _dec
 from app.services.client_settlements.rcp_checks import (
     ProofResult,
@@ -301,6 +302,7 @@ def evaluate(
     has_mail: bool,
     rules: Mapping[str, Mapping[str, Any]],
     working_days: int,
+    other_md: Decimal = Decimal("0"),
 ) -> ProofResult:
     """Kontrole Time Sheet z katalogu reguł; MD z godzin, bez pracy dodatkowej."""
 
@@ -398,16 +400,6 @@ def evaluate(
                 f"{_fmt(days[worst_day])} h w dniu {worst_day.strftime('%d.%m')}",
                 f"Limit {_fmt(limit)} h.",
             )
-    if sums.on("fields.md_month_limit") and working_days > 0:
-        if result.md_regular <= working_days:
-            sums.ok(
-                f"{_fmt(result.md_regular)} MD przy {working_days} dniach roboczych"
-            )
-        else:
-            sums.fail(
-                "fields.md_month_limit",
-                f"{_fmt(result.md_regular)} MD przy {working_days} dniach roboczych",
-                "Więcej MD niż dni roboczych: sprawdź, czy godziny nie są za dwóch klientów.",
-            )
+    timesheet_pko.month_limit(sums, result.md_regular, working_days, other_md)
     sums.close()
     return result

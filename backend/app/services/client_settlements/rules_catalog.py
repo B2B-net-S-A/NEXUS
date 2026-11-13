@@ -76,7 +76,7 @@ SECTIONS: tuple[Section, ...] = (
                 "proof.accept_has_hours",
                 "Prośba o akceptację podaje liczbę godzin lub MD za miesiąc",
                 "off",
-                "E6",
+                "E6.1",
                 hint="Liczba musi być w treści maila do akceptującego. Przy prośbach "
                 "nadpisywanych co miesiąc liczy się akceptacja za rozliczany miesiąc; "
                 "akceptować może ktoś inny niż koordynator.",
@@ -158,7 +158,7 @@ SECTIONS: tuple[Section, ...] = (
                 "fields.md_month_limit",
                 "MD osoby w miesiącu nie więcej niż dni robocze",
                 "warn",
-                "E6",
+                "E6.2",
                 hint="Więcej MD to zwykle zapis za dwóch klientów. Wyłącz, gdy osoba "
                 "realizuje u klienta kilka projektów i miesięczny limit nie obowiązuje.",
             ),
@@ -269,7 +269,7 @@ SECTIONS: tuple[Section, ...] = (
                 "pay.per_person",
                 "Zapłata po podpisanym dokumencie osoby, bez czekania na pozostałe",
                 "off",
-                "E6",
+                "E6.2",
             ),
         ),
     ),
@@ -325,16 +325,19 @@ SECTIONS: tuple[Section, ...] = (
                 "cl.client_document",
                 "Dokument do podpisu klienta z NEXUS-a",
                 "off",
-                "E6",
-                {"kind": "", "per": "", "from": ""},
+                "E6.2",
+                {"kind": "", "per": "", "from": "", "header": ""},
                 (
                     ParamField(
                         "kind", "rodzaj", "np. protokół, arkusz, potwierdzenie usług"
                     ),
-                    ParamField("per", "na", "osoba / projekt / cały miesiąc"),
+                    ParamField("per", "na", "projekt / podpisujący / cały miesiąc"),
                     ParamField("from", "od miesiąca", "RRRR-MM"),
+                    ParamField("header", "nagłówek", "np. załącznik do umowy"),
                 ),
-                "Każdy dokument do pobrania osobno, żeby wysłać go od razu, gdy jest gotowy.",
+                "Każdy dokument do pobrania osobno, żeby wysłać go od razu, gdy jest gotowy. "
+                "„Podpisujący”: arkusz zbiorczy na osobę podpisującą u klienta (menedżer "
+                "u klienta z kontraktu). „Cały miesiąc”: jeden protokół na wszystkie osoby.",
             ),
             Rule(
                 "cl.cost_mail_block",
@@ -352,13 +355,15 @@ SECTIONS: tuple[Section, ...] = (
                 "off",
                 "E6.3",
                 hint="KEŚU (E6.3): „Do faktury” dopiero po drugim podpisie w odesłanym "
-                "pliku. Dokument na cały miesiąc czeka na wszystkie osoby.",
+                "pliku. PKO (E6.1): po podpisanym zbiorczym protokole, Velo (E6.2): po "
+                "podpisanych arkuszach wszystkich osób. Dokument na cały miesiąc czeka "
+                "na wszystkie osoby.",
             ),
             Rule(
                 "cl.send_to",
                 "Adres wysyłki paczki do klienta",
                 "off",
-                "E6",
+                "E6.1",
                 {"email": ""},
                 (ParamField("email", "adres"),),
                 "Dokument z podpisami, dowody pracy i akceptacje w jednym mailu.",

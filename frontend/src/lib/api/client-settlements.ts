@@ -22,7 +22,7 @@ export type SettlementStatus =
   | "accepted";
 /** Faktura kontraktora z KSeF (E4); `nip_check` — NIP z faktury czeka na Finanse (E4.0). */
 export type ContractorInvoiceState = "none" | "can_issue" | "in_ksef" | "differs" | "nip_check";
-/** `awaiting_signature` — KEŚU bez podpisu klienta (E6.3, `cl.after_signed_document`). */
+/** `awaiting_signature` — czeka na podpis klienta: KEŚU (E6.3), protokół albo arkusze (E6.1, E6.2); reguła `cl.after_signed_document`. */
 export type ClientInvoiceState = "waiting" | "ready" | "issued" | "awaiting_signature";
 /** Stan KEŚU osoby w miesiącu (E6.3, klient z Jirą). */
 export type KesuState = "to_company" | "awaiting_client" | "signed";
@@ -295,6 +295,8 @@ export interface ClientInvoiceMonth {
   client_name: string;
   month: string;
   can_see_amounts: boolean;
+  /** Faktura do klienta po podpisanym dokumencie (E6); `null` — nic nie wstrzymuje. */
+  signature_hold?: { kind: "protocol" | "sheet"; label: string } | null;
   rows: ClientInvoiceRow[];
 }
 
@@ -387,11 +389,56 @@ export interface ClientDocumentCostBlock {
   text: string | null;
 }
 
+/** Protokół odbioru na wszystkie osoby miesiąca (E6.1, PKO). */
+export interface ClientDocumentProtocol {
+  people: number;
+  accepted: number;
+  /** Komplet: wszystkie osoby miesiąca przyjęte. Dopiero wtedy protokół i paczka. */
+  ready: boolean;
+  /** Adres paczki z reguły `cl.send_to`. */
+  send_to: string | null;
+  /** Klient podpisał protokół (rozpoznany po treści i dwóch podpisach). */
+  signed: boolean;
+  signed_by: string | null;
+  missing_roles: string[];
+  missing_orders: string[];
+  waiting: { person: string; status: SettlementStatus }[];
+  hours: string;
+  /** Tylko dla kont z dostępem do kwot. */
+  net: string | null;
+  files: { person: string; timesheet: boolean }[];
+}
+
+/** Arkusze zbiorcze per osoba podpisująca u klienta (E6.2, Velo). */
+export interface ClientDocumentSheets {
+  signers: { signer: string; people: number; md: string; signed: number }[];
+  rows: {
+    contract_id: number;
+    person: string;
+    signer: string;
+    md: string | null;
+    status: SettlementStatus;
+    signed: boolean;
+    signed_by: string | null;
+    signed_at: string | null;
+    amount: string | null;
+  }[];
+  without_sheet: { person: string; status: SettlementStatus }[];
+  all_signed: boolean;
+  net: string | null;
+}
+
+export type ClientDocumentFileKind = "protocol" | "package" | "sheet" | "sheets" | "invoice_sheet";
+
 export interface ClientDocumentsMonth {
   client_id: number;
   month: string;
   /** Reguła obejmuje miesiąc i dokument jest na projekt. */
   enabled: boolean;
+  /** Brak = dokument na projekt (Service Delivery Confirmation). */
+  layout?: "month" | "signer";
+  protocol?: ClientDocumentProtocol;
+  sheets?: ClientDocumentSheets;
   kind: string;
   /** `FORECAST` — z planu miesiąca (estymacja), `ACTUAL` — z Time Sheet. */
   stage: "ACTUAL" | "FORECAST" | null;
@@ -416,6 +463,35 @@ export async function fetchClientDocument(clientId: number, month: string, proje
       responseType: "blob",
     })
   ).data;
+}
+
+/** Protokół, paczka i arkusze (E6.1, E6.2); `signer` tylko przy jednym arkuszu. */
+export async function fetchClientDocumentFile(
+  clientId: number,
+  month: string,
+  kind: ClientDocumentFileKind,
+  signer?: string,
+): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/client-documents/file`, {
+      params: { client_id: clientId, month, kind, signer },
+      responseType: "blob",
+    })
+  ).data;
+}
+
+/** Podpisany przez klienta protokół albo arkusz wgrany ręcznie (rozpoznanie po treści). */
+export function useUploadSignedDocument(month: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("month", month);
+      form.append("file", file);
+      return (await api.post<{ document_id: number; recognized: boolean }>(`${BASE}/client-documents/signed`, form)).data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["client-settlements"] }),
+  });
 }
 
 /** Plik RCP albo maila z karty osoby (do sprawdzenia przed przyjęciem). */

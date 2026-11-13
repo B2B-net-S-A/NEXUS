@@ -7,9 +7,19 @@ Faktury kontraktorów z KSeF (E4): zatwierdzenie albo odrzucenie podpowiedzi NIP
 """
 
 from decimal import Decimal
-from typing import Any, Optional
+from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,13 +32,16 @@ from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today, local_now
 from app.models.user import User
 from app.models.consultant_portal import CpDocument
+from app.services.client_settlements import client_documents as many_documents
 from app.services.client_settlements import (
     client_invoice,
     contractor_invoices,
     service,
     service_confirmation,
+    signoffs,
 )
 from app.services.consultant_portal import documents as portal_documents
+from app.services.consultant_portal.auth import PortalError
 from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.service import SettlementError
 
@@ -443,15 +456,26 @@ async def client_documents(
     month: str = Query(..., pattern=MONTH_PATTERN),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Potwierdzenia usług miesiąca klienta per projekt (reguła ``cl.client_document``)."""
+    """Dokumenty dla klienta z reguły ``cl.client_document``: potwierdzenia usług
+    per projekt (E6.2), protokół odbioru na cały miesiąc (E6.1) albo arkusze
+    zbiorcze per podpisujący (E6.2)."""
 
     await _open(db, current_user)
+    amounts = has_financial_access(current_user)
     try:
-        return await service_confirmation.collect(
-            db, client_id, month, amounts=has_financial_access(current_user)
-        )
+        many = await many_documents.collect(db, client_id, month, amounts=amounts)
+        if many is not None:
+            return many
+        return await service_confirmation.collect(db, client_id, month, amounts=amounts)
     except SettlementError as exc:
         raise _fail(exc) from exc
+
+
+#: ``protocol`` i ``package`` — PKO (E6.1); ``sheet``, ``sheets`` i
+#: ``invoice_sheet`` — arkusze Velo (E6.2); bez ``kind`` — PDF projektu (E6.2).
+DOCUMENT_FILE_KINDS = r"^(protocol|package|sheet|sheets|invoice_sheet)$"
+#: Dokumenty z kwotami (stawki, wartości) tylko dla kont z dostępem do kwot.
+WITH_AMOUNTS = {"protocol", "package", "invoice_sheet"}
 
 
 @router.get("/client-documents/file")
@@ -459,19 +483,46 @@ async def client_document_file(
     current_user: FinanceModuleUser,
     client_id: int = Query(..., ge=1),
     month: str = Query(..., pattern=MONTH_PATTERN),
-    project: str = Query(..., min_length=1, max_length=200),
+    project: Optional[str] = Query(None, min_length=1, max_length=200),
+    kind: Optional[str] = Query(None, pattern=DOCUMENT_FILE_KINDS),
+    signer: Optional[str] = Query(None, min_length=1, max_length=255),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await _open(db, current_user)
-    try:
-        content, name = await service_confirmation.document(
-            db, client_id, month, project
+    if kind in WITH_AMOUNTS and not has_financial_access(current_user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Ten dokument ma kwoty: potrzebny dostęp do kwot.",
         )
+    try:
+        if kind == "protocol":
+            content, name = await many_documents.protocol_pdf(db, client_id, month)
+        elif kind == "package":
+            content, name = await many_documents.package_zip(db, client_id, month)
+        elif kind == "sheet":
+            if not signer:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY, "Wybierz podpisującego."
+                )
+            content, name = await many_documents.sheet_pdf(db, client_id, month, signer)
+        elif kind == "sheets":
+            content, name = await many_documents.sheets_zip(db, client_id, month)
+        elif kind == "invoice_sheet":
+            content, name = await many_documents.invoice_sheet_pdf(db, client_id, month)
+        else:
+            if not project:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY, "Wybierz projekt."
+                )
+            content, name = await service_confirmation.document(
+                db, client_id, month, project
+            )
     except SettlementError as exc:
         raise _fail(exc) from exc
+    media = "application/zip" if name.endswith(".zip") else "application/pdf"
     return Response(
         content,
-        media_type="application/pdf",
+        media_type=media,
         headers={"Content-Disposition": content_disposition(name, "attachment")},
     )
 
@@ -524,3 +575,49 @@ async def pay_on_mail(
     except SettlementError as exc:
         await db.rollback()
         raise _fail(exc) from exc
+
+
+@router.post("/client-documents/signed")
+async def client_document_signed(
+    current_user: FinanceModuleUser,
+    month: Annotated[str, Form(pattern=MONTH_PATTERN)],
+    file: Annotated[UploadFile, File()],
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Podpisany przez klienta protokół albo arkusz zbiorczy wgrany przez Finanse
+    (gdy nie przyszedł na rozliczenia@). Rozpoznanie po treści, jak z maila."""
+
+    await _open(db, current_user)
+    data = await file.read(portal_documents.MAX_FILE_BYTES + 1)
+    if len(data) > portal_documents.MAX_FILE_BYTES:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, "Plik ma ponad 20 MB.")
+    year, mon = (int(x) for x in month.split("-"))
+    now = local_now()
+    try:
+        stored = await portal_documents.store(
+            db,
+            contract_id=None,
+            kind="report",
+            year=year,
+            month=mon,
+            content=data,
+            file_name=file.filename,
+            channel="portal",
+            now=now,
+        )
+    except PortalError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    document = stored.document
+    # Zapis już rozpoznaje dokument (jak z maila); drugi raz tylko, gdy nie wyszło
+    # (np. ten sam plik wgrany wcześniej, zanim osoby miały rozliczenia).
+    if document.status == "received" and not await signoffs.apply(
+        db, document, now=now
+    ):
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Nie rozpoznano podpisanego protokołu ani arkusza zbiorczego: potrzebny PDF "
+            "z podpisem elektronicznym i osobami z tego miesiąca.",
+        )
+    await _commit(db)
+    return {"document_id": document.id, "recognized": True}
