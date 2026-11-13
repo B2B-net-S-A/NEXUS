@@ -1,6 +1,6 @@
 # Osobna aplikacja Coolify dla frontu: próba rolling update bez przejmowania ruchu.
 # Plan: docs/claude/podstawy/przerwa-przy-wdrozeniu.md. `create` nie daje domeny,
-# więc Traefik nie kieruje na nią ruchu. `deploy` buduje na serwerze produkcji, więc
+# więc Traefik nie kieruje na nią ruchu; aplikacja stoi w osobnej sieci `nexus-front`. `deploy` buduje na serwerze produkcji, więc
 # w dzień roboczy tylko 18:00–08:00, jak każde wdrożenie.
 name: Coolify frontend app
 
@@ -39,4 +39,5 @@ jobs:
           CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
           MODE: ${{ inputs.mode }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: python3 .github/scripts/coolify_frontend_app.py "$MODE"

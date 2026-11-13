@@ -65,6 +65,22 @@ czyli wolne pierwsze zapytania, i zerwane połączenia wszystkich zadań w tle.
   ma być widoczny jako błąd, a nie cicho iść dalej.
 - **Pula połączeń.** 2 × 60 potencjalnych połączeń przy `max_connections=100`.
 
+## Sieć osobnych aplikacji: `nexus-front`, nie `coolify`
+
+Ustalone na kodzie Coolify 4.5.3 (13.11.2026). Aplikacja z Dockerfile dołącza
+wyłącznie do sieci swojego destination (`--network` w opcjach `docker run` jest
+ignorowane). Przełącznik `connect_to_docker_network` na aplikacji compose wpina do
+wspólnej sieci `coolify` **każdą** usługę (`parsers.php`, `applicationParser`), a w tej
+sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). Backend
+łączy się z `postgres:5432`, więc nazwa miałaby dwa adresy. Dlatego:
+
+- front (i później backend) stoi w osobnym destination `nexus-front`; Coolify przy jego
+  założeniu tworzy sieć i podłącza do niej `coolify-proxy`,
+- compose dołącza `nexus-front` jako sieć zewnętrzną; parser dopisuje każdą sieć
+  z najwyższego poziomu do każdej usługi, co tu jest nieszkodliwe, bo w `nexus-front`
+  są tylko kontenery NEXUSA i proxy,
+- `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.
+
 ## Pomiar
 
 Każdy bieg Deploy raportuje przerwę frontu i API oraz restart Postgresa
