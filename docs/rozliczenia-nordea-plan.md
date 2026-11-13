@@ -206,7 +206,7 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
 - **Jak zrobione (13.11, decyzje Artura A1–A5 z 13.11: najpierw tylko N1,
   godziny z netto ÷ stawka bez XML-a, bez wysyłki wiadomości, kwoty widzą
   Finanse i DL przez `can_read_client_finance`):**
-  - Migracja 0688 (`client_time_reports_schema.py`, lustro w entrypoincie):
+  - Migracja 0689 (`client_time_reports_schema.py`, lustro w entrypoincie):
     `client_external_ids`, `client_time_reports`, `client_time_report_rows`.
     Kolumn godzin w `client_settlements` nie dodaliśmy: status osoby liczy się
     przy odczycie z wierszy wersji i faktur, więc nowa faktura z KSeF albo
@@ -382,7 +382,7 @@ zrzuty `shots/nordea-*.png`), dane wstrzykiwane przy zrzucie, w kodzie bez nazwi
 
 | Etap | Stan | Dowód |
 |---|---|---|
-| N1 | gotowe lokalnie (13.11), PR z migracją 0688 | wrzesień z 5 wersji na kopii z 13.11 = tabela planu; październik: sprawdzana osoba 112 h od v2; testy silnika, odczytu, kartoteki, (a)–(c) i ekranu; zrzuty 1280 × 720 i 390 px (lokalnie, z nazwiskami) |
+| N1 | gotowe lokalnie (13.11), PR z migracją 0689 | wrzesień z 5 wersji na kopii z 13.11 = tabela planu; październik: sprawdzana osoba 112 h od v2; testy silnika, odczytu, kartoteki, (a)–(c) i ekranu; zrzuty 1280 × 720 i 390 px (lokalnie, z nazwiskami) |
 | N2 | plan (10.11) | — |
 | N3 | plan (10.11) | — |
 | N4 | plan (10.11) | — |
