@@ -4,14 +4,15 @@
 // Wersja raportu z licznikami statusów, filtr „zmiany od poprzedniej wersji”,
 // lista osób z tygodniami T4T; karta osoby otwiera się w miejscu listy.
 import { useMemo, useRef, useState } from "react";
-import { FileSpreadsheet, Search, Upload } from "lucide-react";
+import { Download, FileSpreadsheet, Search, Upload } from "lucide-react";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useTimeReportMonth, useUploadTimeReport, type TimeReportMonth, type TimeReportRow, type WeekCell } from "@/lib/api/client-time-reports";
+import { downloadNextRound, useTimeReportMonth, useUploadTimeReport, type TimeReportMonth, type TimeReportRow, type WeekCell } from "@/lib/api/client-time-reports";
+import { downloadBlob } from "@/lib/authenticated-files";
 import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 
@@ -124,6 +125,22 @@ function VersionBar({
   const index = data.versions.findIndex((v) => v.id === data.version_id);
   const current = index >= 0 ? data.versions[index] : null;
   const last = data.periods.at(-1);
+  const { showError } = useToast();
+  const [downloading, setDownloading] = useState(false);
+  const pending = data.counts.all - (data.counts.ok ?? 0);
+
+  async function nextRound() {
+    setDownloading(true);
+    try {
+      const blob = await downloadNextRound(clientId, month, data.version_id === data.versions.at(-1)?.id ? null : data.version_id);
+      downloadBlob(blob, `lista-kolejna-tura-${month}.xlsx`);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się pobrać listy."));
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div className="space-y-2 rounded-xl border bg-card px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -157,6 +174,11 @@ function VersionBar({
               </button>
             ))}
           </div>
+        ) : null}
+        {current ? (
+          <Button size="sm" variant="outline" className="ml-auto" disabled={downloading || pending === 0} onClick={() => void nextRound()}>
+            <Download aria-hidden className="size-3.5" /> Lista do kolejnej tury ({pending})
+          </Button>
         ) : null}
       </div>
       {canWrite ? <UploadForm clientId={clientId} month={month} onUploaded={() => onVersion(null)} /> : null}
@@ -261,7 +283,7 @@ function UploadForm({ clientId, month, onUploaded }: { clientId: number; month: 
 function Counters({ data }: { data: TimeReportMonth }) {
   const total = data.counts.all || 1;
   // „Brak w raporcie” i „Bez kartoteki” tylko, gdy ktoś taki jest.
-  const optional = new Set(["not_in_report", "unmatched"]);
+  const optional = new Set(["other_amount", "not_in_report", "unmatched"]);
   const shown = T4T_COUNTERS.filter((k) => !optional.has(k) || (data.counts[k] ?? 0) > 0);
   return (
     <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">

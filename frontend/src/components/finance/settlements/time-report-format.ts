@@ -4,40 +4,17 @@ import type { TimeReportPeriod, TimeReportRow, TimeReportStatus, WeekCell } from
 
 export const T4T_STATUS: Record<TimeReportStatus, { label: string; tone: StatusDotTone; next: string }> = {
   ok: { label: "Zgodne", tone: "success", next: "Do faktury dla klienta" },
-  waiting: {
-    label: "Czekamy",
-    tone: "neutral",
-    next: "Czekamy na kolejny raport",
-  },
-  no_approval: {
-    label: "Brak akceptacji",
-    tone: "warning",
-    next: "Wyjaśnij z konsultantem",
-  },
-  differs: {
-    label: "Rozbieżność",
-    tone: "danger",
-    next: "Wyjaśnij z konsultantem",
-  },
-  no_invoice: {
-    label: "Brak faktury",
-    tone: "info",
-    next: "Czekamy na fakturę w KSeF",
-  },
-  not_in_report: {
-    label: "Brak w raporcie",
-    tone: "info",
-    next: "Zapytaj Cost Control o osobę",
-  },
-  unmatched: {
-    label: "Bez kartoteki",
-    tone: "warning",
-    next: "Uzupełnij kartotekę",
-  },
+  waiting: { label: "Czekamy", tone: "neutral", next: "Czekamy na kolejny raport" },
+  no_approval: { label: "Brak akceptacji", tone: "warning", next: "Wyjaśnij z konsultantem" },
+  differs: { label: "Rozbieżność", tone: "danger", next: "Wyjaśnij z konsultantem" },
+  other_amount: { label: "Inna kwota", tone: "warning", next: "Sprawdź dodatek na fakturze" },
+  no_invoice: { label: "Brak faktury", tone: "info", next: "Czekamy na fakturę w KSeF" },
+  not_in_report: { label: "Brak w raporcie", tone: "info", next: "Zapytaj Cost Control o osobę" },
+  unmatched: { label: "Bez kartoteki", tone: "warning", next: "Uzupełnij kartotekę" },
 };
 
 /** Kolejność liczników nad listą. */
-export const T4T_COUNTERS: TimeReportStatus[] = ["ok", "waiting", "no_approval", "differs", "no_invoice", "not_in_report", "unmatched"];
+export const T4T_COUNTERS: TimeReportStatus[] = ["ok", "waiting", "no_approval", "differs", "other_amount", "no_invoice", "not_in_report", "unmatched"];
 
 export type T4tFilter = "todo" | "waiting" | "changed" | "ok" | "all";
 
@@ -49,7 +26,7 @@ export const T4T_FILTERS: { key: T4tFilter; label: string }[] = [
   { key: "all", label: "Wszyscy" },
 ];
 
-const TODO: ReadonlySet<TimeReportStatus> = new Set(["no_approval", "differs", "no_invoice", "not_in_report", "unmatched"]);
+const TODO: ReadonlySet<TimeReportStatus> = new Set(["no_approval", "differs", "other_amount", "no_invoice", "not_in_report", "unmatched"]);
 
 export function matchesT4tFilter(filter: T4tFilter, row: Pick<TimeReportRow, "status" | "changed">): boolean {
   switch (filter) {

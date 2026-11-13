@@ -18,6 +18,7 @@ Widok włącza reguła klienta ``report.time_for_teams`` (dane, nie nazwa klient
 from __future__ import annotations
 
 import hashlib
+import io
 import re
 from collections import defaultdict
 from dataclasses import dataclass
@@ -181,6 +182,7 @@ async def fill_from_ksef(
         entry["months"].add(_month_of(year, month, issue_date))
     found: dict[tuple[int, str, str], _Span] = {}
     skipped = 0
+    contracts = await _contracts(db, client_id)
     for entry in by_invoice.values():
         names = " ".join(
             str(item.get("name") or "")
@@ -192,6 +194,17 @@ async def fill_from_ksef(
             skipped += 1
             continue
         contract_id = next(iter(entry["contracts"]))
+        # Faktura przypięta do linii zamówienia innej osoby (kopia z 13.11: jedna
+        # linia z czterema numerami) nie może dać numeru: opis pozycji musi
+        # wymieniać osobę z kontraktu.
+        person = contracts.get(contract_id)
+        if (
+            person is None
+            or len(person.tokens) < 2
+            or not person.tokens <= _tokens(names)
+        ):
+            skipped += 1
+            continue
         bounds = [month_bounds(m) for m in entry["months"]]
         first, last = min(b[0] for b in bounds), max(b[1] for b in bounds)
         values = [(PERSON_NO, v) for v in people] + [
@@ -237,12 +250,44 @@ async def fill_from_ksef(
                 changed = True
         updated += changed
     await db.flush()
+    suggested = await _suggest_for_reports(db, client_id)
     return {
         "invoices": len(by_invoice),
         "added": added,
         "updated": updated,
         "skipped": skipped,
+        "suggested": suggested,
     }
+
+
+async def _suggest_for_reports(db: AsyncSession, client_id: int) -> int:
+    """Podpowiedzi dla osób z najnowszej wersji raportu każdego miesiąca."""
+
+    latest: dict[str, int] = {}
+    for report in (
+        await db.scalars(
+            select(ClientTimeReport)
+            .where(ClientTimeReport.client_id == client_id)
+            .order_by(ClientTimeReport.received_on, ClientTimeReport.version_no)
+        )
+    ).all():
+        latest[report.period_month] = report.id
+    added = 0
+    for month, report_id in sorted(latest.items()):
+        people = {
+            number: name
+            for number, name in (
+                await db.execute(
+                    select(
+                        ClientTimeReportRow.person_no, ClientTimeReportRow.person_name
+                    )
+                    .where(ClientTimeReportRow.report_id == report_id)
+                    .distinct()
+                )
+            ).all()
+        }
+        added += await suggest_from_report(db, client_id, month, people)
+    return added
 
 
 @dataclass(frozen=True)
@@ -301,7 +346,9 @@ def _tokens(text: Optional[str]) -> frozenset[str]:
     return frozenset(name_tokens(folded))
 
 
-def _same_person(report_tokens: frozenset[str], contract_tokens: frozenset[str]) -> bool:
+def _same_person(
+    report_tokens: frozenset[str], contract_tokens: frozenset[str]
+) -> bool:
     """Imię i nazwisko z raportu ↔ z kontraktu; drugie imię po jednej stronie nie przeszkadza."""
 
     if len(report_tokens) < 2 or len(contract_tokens) < 2:
@@ -644,9 +691,20 @@ class InvoiceHours:
 
 
 def invoice_hours(
-    contract: Contract, invoices: list[ClientContractorInvoice], month: str
+    contract: Contract,
+    invoices: list[ClientContractorInvoice],
+    month: str,
+    *,
+    extras: Decimal = Decimal("0"),
+    shared: Decimal = Decimal("0"),
 ) -> Optional[InvoiceHours]:
-    """Godziny z faktury kontraktora: netto ÷ stawka kosztowa (N1.4)."""
+    """Godziny z faktury kontraktora: netto ÷ stawka kosztowa (N1.4).
+
+    ``extras`` — zatwierdzone dodatki do rozliczenia (polecenie, weryfikacja,
+    szkolenie; odpowiedź rozliczeń R1 z 13.11, mechanizm w osobnym PR-ze), które
+    kontraktor dolicza do faktury. ``shared`` — część faktury za pracę u innego
+    klienta, gdy jedna faktura obejmuje oba kontrakty osoby (przypadek c).
+    """
 
     if not invoices:
         return None
@@ -664,7 +722,16 @@ def invoice_hours(
         return InvoiceHours(
             None, None, None, "Faktura bez kwoty netto w KSeF.", tuple(bound)
         )
-    net = sum((Decimal(n) for n in nets), Decimal("0"))
+    invoiced = sum((Decimal(n) for n in nets), Decimal("0"))
+    net = invoiced - extras - shared
+    notes = []
+    if shared > 0:
+        notes.append(
+            "Faktura obejmuje też pracę u innego klienta: odjęta kwota jego rozliczenia."
+        )
+    if extras > 0:
+        notes.append("Odjęte zatwierdzone dodatki do rozliczenia.")
+    note = " ".join(notes) or None
     first, _ = month_bounds(month)
     raw_rate = contract.effective_candidate_rate(first)
     rate = Decimal(raw_rate) if raw_rate else None
@@ -690,8 +757,119 @@ def invoice_hours(
             tuple(bound),
         )
     return InvoiceHours(
-        hours.quantize(HOURS_Q, rounding=ROUND_HALF_UP), net, rate, None, tuple(bound)
+        hours.quantize(HOURS_Q, rounding=ROUND_HALF_UP),
+        invoiced,
+        rate,
+        note,
+        tuple(bound),
     )
+
+
+def _hours_to_amount(
+    contract: Contract, hours: Decimal, month: str
+) -> Optional[Decimal]:
+    first, _ = month_bounds(month)
+    raw = contract.effective_candidate_rate(first)
+    if not raw:
+        return None
+    rate = Decimal(raw)
+    if contract.rate_unit == RateUnit.hourly:
+        amount = hours * rate
+    elif contract.rate_unit == RateUnit.daily:
+        amount = hours / engine.HOURS_PER_DAY * rate
+    else:
+        return None
+    return amount.quantize(HOURS_Q, rounding=ROUND_HALF_UP)
+
+
+async def _approved_by_contract(
+    db: AsyncSession, contract_ids: list[int], months: list[str]
+) -> dict[tuple[int, str], Decimal]:
+    """Godziny w statusie 2 z najnowszej wersji raportu: (kontrakt, miesiąc) → h."""
+
+    if not contract_ids or not months:
+        return {}
+    numbers: dict[tuple[int, str], list[int]] = defaultdict(list)
+    for client_id, contract_id, value in (
+        await db.execute(
+            select(
+                ClientExternalId.client_id,
+                ClientExternalId.contract_id,
+                ClientExternalId.value,
+            ).where(
+                ClientExternalId.contract_id.in_(contract_ids),
+                ClientExternalId.kind == PERSON_NO,
+                ClientExternalId.state == CONFIRMED,
+            )
+        )
+    ).all():
+        numbers[(client_id, value)].append(contract_id)
+    if not numbers:
+        return {}
+    clients = {client_id for client_id, _ in numbers}
+    latest: dict[tuple[int, str], int] = {}
+    for report in (
+        await db.scalars(
+            select(ClientTimeReport)
+            .where(
+                ClientTimeReport.client_id.in_(clients),
+                ClientTimeReport.period_month.in_(months),
+            )
+            .order_by(ClientTimeReport.received_on, ClientTimeReport.version_no)
+        )
+    ).all():
+        latest[(report.client_id, report.period_month)] = report.id
+    if not latest:
+        return {}
+    by_report = {rid: key for key, rid in latest.items()}
+    out: dict[tuple[int, str], Decimal] = defaultdict(Decimal)
+    for report_id, person_no, hours in (
+        await db.execute(
+            select(
+                ClientTimeReportRow.report_id,
+                ClientTimeReportRow.person_no,
+                func.sum(ClientTimeReportRow.hours),
+            )
+            .where(
+                ClientTimeReportRow.report_id.in_(list(by_report)),
+                ClientTimeReportRow.status == engine.APPROVED,
+            )
+            .group_by(ClientTimeReportRow.report_id, ClientTimeReportRow.person_no)
+        )
+    ).all():
+        client_id, month = by_report[report_id]
+        for contract_id in numbers.get((client_id, person_no), []):
+            out[(contract_id, month)] += Decimal(hours)
+    return dict(out)
+
+
+async def expected_amounts(
+    db: AsyncSession, contract_ids: list[int], months: list[str]
+) -> dict[tuple[int, str], Decimal]:
+    """Oczekiwana kwota faktury kontraktora z raportu klienta: godziny w statusie
+    2 × stawka kosztowa. Dopasowanie faktury do osoby (``contractor_invoices._place``)
+    używa jej tam, gdzie nie ma rozliczenia z RCP."""
+
+    approved = await _approved_by_contract(db, contract_ids, months)
+    if not approved:
+        return {}
+    contracts = {
+        c.id: c
+        for c in (
+            await db.scalars(
+                select(Contract)
+                .options(selectinload(Contract.candidate_rate_schedule))
+                .where(Contract.id.in_({cid for cid, _ in approved}))
+            )
+        ).all()
+    }
+    out: dict[tuple[int, str], Decimal] = {}
+    for (contract_id, month), hours in approved.items():
+        contract = contracts.get(contract_id)
+        amount = _hours_to_amount(contract, hours, month) if contract else None
+        if amount is not None:
+            out[(contract_id, month)] = amount
+    return out
 
 
 @dataclass
@@ -739,6 +917,10 @@ async def _load(db: AsyncSession, client_id: int, month: str) -> _Month:
         if cid in contracts
         and (hours := invoice_hours(contracts[cid].contract, items, month)) is not None
     }
+    approved = await _approved_by_contract(db, list(contracts), [month])
+    invoices.update(
+        await _shared_invoices(db, client_id, month, contracts, found, approved)
+    )
     return _Month(
         client,
         month,
@@ -751,6 +933,75 @@ async def _load(db: AsyncSession, client_id: int, month: str) -> _Month:
         invoices,
         numbers_by_contract,
     )
+
+
+async def _shared_invoices(
+    db: AsyncSession,
+    client_id: int,
+    month: str,
+    contracts: dict[int, _Contract],
+    found: dict[int, list[ClientContractorInvoice]],
+    approved: dict[tuple[int, str], Decimal],
+) -> dict[int, InvoiceHours]:
+    """Jedna faktura za pracę osoby u dwóch klientów (odpowiedź rozliczeń 13.11, c).
+
+    Kontrakt osoby u innego klienta bez własnej faktury za miesiąc, z kwotą
+    rozliczenia (RCP albo raport klienta): jego kwotę odejmujemy od faktury,
+    jeśli dopiero wtedy godziny są równe zatwierdzonym w raporcie. Faktura
+    przypięta do drugiego kontraktu działa tak samo w drugą stronę.
+    """
+
+    by_candidate: dict[int, list[int]] = defaultdict(list)
+    for cid, c in contracts.items():
+        if c.contract.candidate_id is not None:
+            by_candidate[c.contract.candidate_id].append(cid)
+    if not by_candidate:
+        return {}
+    siblings: dict[int, list[Contract]] = defaultdict(list)
+    for sibling in (
+        await db.scalars(
+            select(Contract)
+            .options(selectinload(Contract.candidate_rate_schedule))
+            .where(
+                Contract.candidate_id.in_(list(by_candidate)),
+                Contract.client_id != client_id,
+            )
+        )
+    ).all():
+        siblings[sibling.candidate_id].append(sibling)
+    if not siblings:
+        return {}
+    sibling_ids = [s.id for items in siblings.values() for s in items]
+    amounts = await contractor_invoices.settlement_amounts(db, sibling_ids, [month])
+    for key, value in (await expected_amounts(db, sibling_ids, [month])).items():
+        amounts.setdefault(key, value)
+    sibling_invoices = await contractor_invoices.for_month(db, sibling_ids, month)
+    out: dict[int, InvoiceHours] = {}
+    for candidate_id, own_ids in by_candidate.items():
+        for cid in own_ids:
+            target = approved.get((cid, month))
+            if target is None:
+                continue
+            contract = contracts[cid].contract
+            for sibling in siblings.get(candidate_id, []):
+                share = amounts.get((sibling.id, month))
+                if share is None:
+                    continue
+                if found.get(cid) and not sibling_invoices.get(sibling.id):
+                    items = found[cid]
+                elif not found.get(cid) and sibling_invoices.get(sibling.id):
+                    items = sibling_invoices[sibling.id]
+                else:
+                    continue
+                hours = invoice_hours(contract, items, month, shared=share)
+                if (
+                    hours is not None
+                    and hours.hours is not None
+                    and abs(hours.hours - target) <= engine.TOLERANCE
+                ):
+                    out[cid] = hours
+                    break
+    return out
 
 
 def _classify(
@@ -1154,3 +1405,56 @@ async def ids_view(db: AsyncSession, client_id: int, month: str) -> dict[str, An
             )
         ],
     }
+
+
+NEXT_ROUND_HEADER = ("Imię i nazwisko", "Numer osoby", "NIDS", "Status w NEXUS-ie")
+_STATUS_LABEL = {
+    engine.OK: "Zgodne",
+    engine.WAITING: "Czekamy",
+    engine.NO_APPROVAL: "Brak akceptacji",
+    engine.DIFFERS: "Rozbieżność",
+    engine.OTHER_AMOUNT: "Inna kwota",
+    engine.NO_INVOICE: "Brak faktury",
+    engine.NOT_IN_REPORT: "Brak w raporcie",
+    UNMATCHED: "Bez kartoteki",
+}
+
+
+async def next_round(
+    db: AsyncSession, client_id: int, month: str, *, version_id: Optional[int] = None
+) -> tuple[bytes, int]:
+    """Lista osób do kolejnej tury raportu u klienta (odpowiedź rozliczeń R2):
+    wszyscy bez zgodności i bez faktury, z numerem osoby z kartoteki."""
+
+    import openpyxl
+
+    view = await month_view(db, client_id, month, version_id=version_id)
+    data_numbers: dict[int, list[str]] = defaultdict(list)
+    for e in await _ids(db, client_id):
+        if e.kind == PERSON_NO and e.state == CONFIRMED:
+            data_numbers[e.contract_id].append(e.value)
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    sheet.title = "Lista"
+    sheet.append(NEXT_ROUND_HEADER)
+    count = 0
+    for row in view["rows"]:
+        if row["status"] == engine.OK:
+            continue
+        number = row["person_no"] or ", ".join(
+            sorted(data_numbers.get(row["contract_id"] or 0, []))
+        )
+        sheet.append(
+            (
+                row["name"],
+                number,
+                ", ".join(row["projects"]),
+                _STATUS_LABEL.get(row["status"], row["status"]),
+            )
+        )
+        count += 1
+    for column, width in zip("ABCD", (34, 14, 28, 20)):
+        sheet.column_dimensions[column].width = width
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+    return buffer.getvalue(), count

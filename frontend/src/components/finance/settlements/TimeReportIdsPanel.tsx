@@ -36,7 +36,7 @@ export function TimeReportIdsPanel({ clientId, month, canWrite }: TimeReportIdsP
   async function runFill() {
     try {
       const r = await fill.mutateAsync(clientId);
-      showSuccess(`Faktury z KSeF: ${r.invoices}, nowe pozycje kartoteki: ${r.added}, uzupełnione: ${r.updated}.`);
+      showSuccess(`Faktury z KSeF: ${r.invoices}, nowe pozycje kartoteki: ${r.added}, uzupełnione: ${r.updated}, podpowiedzi z raportu: ${r.suggested}.`);
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się uzupełnić kartoteki z KSeF."));
     }

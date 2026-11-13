@@ -14,6 +14,9 @@ Statusy (reguły z prezentacji rozliczeń, liczby września w planie):
   brakuje godzin, które zmieszczą się w ostatnim przedziale (dni robocze
   od jego początku do końca miesiąca × 8 h, bez świąt), a wcześniej
   nic nie czeka na akceptację.
+* ``other_amount`` „Inna kwota” — faktura nie dzieli się na pełne godziny przy
+  stawce z kontraktu: możliwy dodatek doliczony do godzin (polecenie,
+  delegacja; odpowiedź rozliczeń R1 z 13.11), a nie twarda rozbieżność godzin.
 * ``differs`` „Rozbieżność” — każda inna różnica godzin.
 * ``no_invoice`` „Brak faktury” — osoba jest w raporcie, faktury kontraktora
   za miesiąc nie ma (albo nie da się policzyć jej godzin).
@@ -32,9 +35,10 @@ OK = "ok"
 NO_APPROVAL = "no_approval"
 WAITING = "waiting"
 DIFFERS = "differs"
+OTHER_AMOUNT = "other_amount"
 NO_INVOICE = "no_invoice"
 NOT_IN_REPORT = "not_in_report"
-STATUSES = (OK, NO_APPROVAL, WAITING, DIFFERS, NO_INVOICE, NOT_IN_REPORT)
+STATUSES = (OK, NO_APPROVAL, WAITING, DIFFERS, OTHER_AMOUNT, NO_INVOICE, NOT_IN_REPORT)
 
 APPROVED = 2
 SUBMITTED = 1
@@ -206,6 +210,12 @@ def classify(
                 f"({_span(last)})."
             )
             return outcome(WAITING)
+    if abs(invoice_hours - invoice_hours.to_integral_value()) > TOLERANCE:
+        notes.append(
+            f"Faktura daje {_fmt(invoice_hours)} h przy stawce z kontraktu: "
+            "możliwy dodatek (polecenie, delegacja)."
+        )
+        return outcome(OTHER_AMOUNT)
     if missing < 0:
         notes.append(f"Raport ma o {_fmt(-missing)} h więcej niż faktura.")
     else:

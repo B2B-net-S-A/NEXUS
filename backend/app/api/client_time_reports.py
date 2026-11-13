@@ -11,7 +11,16 @@ import re
 from datetime import date
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+)
 from fastapi import status as http_status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +29,7 @@ from app.api.deps import FinanceModuleUser
 from app.api.financial_access import can_read_client_finance
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today, local_now
 from app.models.user import User
 from app.services.access_scope import resolve_delivery_lead_finance_client_ids
@@ -133,6 +143,35 @@ async def upload(
     except SettlementError as exc:
         await db.rollback()
         raise _fail(exc) from exc
+
+
+@router.get("/next-round")
+async def next_round(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    version_id: Optional[int] = Query(None, ge=1),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Excel z osobami do kolejnej tury raportu u klienta (bez zgodności i bez faktury)."""
+
+    await _open(db, current_user)
+    try:
+        content, count = await time_reports.next_round(
+            db, client_id, month, version_id=version_id
+        )
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": content_disposition(
+                f"lista-kolejna-tura-{month}.xlsx", "attachment"
+            ),
+            "X-Rows": str(count),
+        },
+    )
 
 
 @router.get("/person/{key}")

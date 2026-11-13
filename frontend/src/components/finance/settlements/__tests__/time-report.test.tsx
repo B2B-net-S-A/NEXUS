@@ -10,6 +10,7 @@ import { countT4tFilter, hoursText, matchesSearch, matchesT4tFilter, periodLabel
 const mocks = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), success: vi.fn(), error: vi.fn() }));
 
 vi.mock("@/lib/api", () => ({ api: { get: mocks.get, post: mocks.post, put: vi.fn() } }));
+vi.mock("@/lib/authenticated-files", () => ({ downloadBlob: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showSuccess: mocks.success, showError: mocks.error }) }));
 
 const PERIODS = [
@@ -70,7 +71,7 @@ const MONTH: TimeReportMonth = {
   version_id: 2,
   previous_version_id: 1,
   periods: PERIODS,
-  counts: { ok: 1, waiting: 1, no_approval: 0, differs: 1, no_invoice: 0, not_in_report: 0, unmatched: 0, changed: 1, all: 3 },
+  counts: { ok: 1, waiting: 1, no_approval: 0, differs: 1, other_amount: 0, no_invoice: 0, not_in_report: 0, unmatched: 0, changed: 1, all: 3 },
   rows: ROWS,
 };
 

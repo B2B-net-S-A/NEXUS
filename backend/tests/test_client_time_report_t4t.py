@@ -188,3 +188,17 @@ def test_imie_i_nazwisko_z_drugim_imieniem():
     )
     assert not time_reports._same_person({"jan", "testowy"}, frozenset({"jan", "inny"}))
     assert not time_reports._same_person({"testowy"}, frozenset({"testowy"}))
+
+
+def test_dodatki_i_czesc_innego_klienta_odjete_od_netto():
+    hours = time_reports.invoice_hours(
+        _contract("100"),
+        [_invoice("20100.00")],
+        "2026-09",
+        extras=Decimal("500.00"),
+        shared=Decimal("2000.00"),
+    )
+    assert hours is not None and hours.hours == Decimal("176.00")
+    assert hours.net == Decimal("20100.00")
+    assert "innego klienta" in (hours.note or "")
+    assert "dodatki" in (hours.note or "")

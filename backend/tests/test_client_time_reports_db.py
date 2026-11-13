@@ -97,7 +97,7 @@ async def _sales_invoice(client_id: int, contract_id: int, item: str) -> None:
     async with AsyncSessionLocal() as db:
         group = ClientOrderGroup(
             client_id=client_id,
-            order_number=f"T4T-{client_id}",
+            order_number=f"T4T-{client_id}-{uuid.uuid4().hex[:6]}",
             start_date=date(2026, 1, 1),
             status="active",
             order_type="md",
@@ -116,7 +116,7 @@ async def _sales_invoice(client_id: int, contract_id: int, item: str) -> None:
         )
         db.add(line)
         invoice = ClientSalesInvoice(
-            ksef_number=f"T4T-{uuid.uuid4().hex[:20]}",
+            ksef_number=f"9990000001-20260930-{uuid.uuid4().hex[:12].upper()}-AB",
             xml_sha256="b" * 64,
             client_id=client_id,
             invoice_number=f"FS {uuid.uuid4().hex[:4]}/09/2026",
@@ -135,7 +135,10 @@ async def _sales_invoice(client_id: int, contract_id: int, item: str) -> None:
         await db.flush()
         db.add(
             ClientSalesInvoiceLink(
-                invoice_id=invoice.id, order_id=line.id, period_year=2026, period_month=9
+                invoice_id=invoice.id,
+                order_id=line.id,
+                period_year=2026,
+                period_month=9,
             )
         )
         await db.commit()
@@ -177,7 +180,9 @@ async def _upload(client_id: int, content: bytes, received: date) -> dict:
 
 async def _view(client_id: int, version_id: int | None = None) -> dict:
     async with AsyncSessionLocal() as db:
-        return await time_reports.month_view(db, client_id, MONTH, version_id=version_id)
+        return await time_reports.month_view(
+            db, client_id, MONTH, version_id=version_id
+        )
 
 
 async def _drop(client_id: int, contract_ids: list[int]) -> None:
@@ -201,12 +206,26 @@ async def test_kartoteka_wersje_i_statusy_osob():
     ewa = await _person(client_id, "Ewa", "Próbna")
     try:
         await _sales_invoice(
-            client_id, jan, f"NIDS:{NIDS}, IT Developer, Contact: X, Firma ID:M000001"
+            client_id,
+            jan,
+            f"NIDS:{NIDS}, IT Developer, Contact: Osoba Kontaktowa, Jan Testowy ID:M000001",
+        )
+        # Faktura innej osoby przypięta do linii zamówienia Jana nie daje numeru.
+        await _sales_invoice(
+            client_id,
+            jan,
+            "NIDS:2020-000009, IT Tester, Contact: X, Inna Osoba ID:M000077",
         )
         async with AsyncSessionLocal() as db:
             filled = await time_reports.fill_from_ksef(db, client_id, now=local_now())
             await db.commit()
-        assert filled == {"invoices": 1, "added": 2, "updated": 0, "skipped": 0}
+        assert filled == {
+            "invoices": 2,
+            "added": 2,
+            "updated": 0,
+            "skipped": 1,
+            "suggested": 0,
+        }
 
         await _contractor_invoice(jan, "17600.00")
         await _contractor_invoice(anna, "17600.00")
@@ -302,7 +321,16 @@ async def test_raport_za_inny_miesiac_i_zly_numer_odrzucone():
     try:
         october = _xlsx(
             [
-                [NIDS, "Jan Testowy", "M000001", datetime(2026, 10, 1), datetime(2026, 10, 4), None, 8, 2]
+                [
+                    NIDS,
+                    "Jan Testowy",
+                    "M000001",
+                    datetime(2026, 10, 1),
+                    datetime(2026, 10, 4),
+                    None,
+                    8,
+                    2,
+                ]
             ]
         )
         with pytest.raises(SettlementError, match="za 2026-10"):

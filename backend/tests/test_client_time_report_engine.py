@@ -145,7 +145,14 @@ def test_status_0_i_3_nie_licza_sie_do_zadnych_godzin():
 
 def test_tolerancja_grosza_przy_godzinach_z_netto_przez_stawke():
     assert _run(_full(), "176.01").status == engine.OK
-    assert _run(_full(), "176.02").status == engine.DIFFERS
+    assert _run(_full(), "175").status == engine.DIFFERS
+
+
+def test_faktura_w_niepelnych_godzinach_to_inna_kwota_nie_rozbieznosc():
+    # Polecenie doliczone do godzin: netto ÷ stawka nie daje pełnych godzin (R1, 13.11).
+    outcome = _run(_full(), "178.50")
+    assert outcome.status == engine.OTHER_AMOUNT
+    assert "możliwy dodatek" in outcome.notes[0]
 
 
 def test_tygodnie_w_kolejnosci_przedzialow_z_pustymi():

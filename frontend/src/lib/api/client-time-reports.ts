@@ -11,7 +11,7 @@ import { api } from "@/lib/api";
 
 const BASE = "/api/finance/settlements/time-reports";
 
-export type TimeReportStatus = "ok" | "no_approval" | "waiting" | "differs" | "no_invoice" | "not_in_report" | "unmatched";
+export type TimeReportStatus = "ok" | "no_approval" | "waiting" | "differs" | "other_amount" | "no_invoice" | "not_in_report" | "unmatched";
 export type TimeReportCountKey = TimeReportStatus | "changed" | "all";
 /** [zatwierdzone (2), złożone (1)] w przedziale T4T. */
 export type WeekCell = [string, string];
@@ -272,6 +272,7 @@ export function useFillIdsFromKsef() {
           added: number;
           updated: number;
           skipped: number;
+          suggested: number;
         }>(`${BASE}/ids/fill`, null, {
           params: { client_id: clientId },
         })
@@ -296,4 +297,14 @@ export function useAddId() {
       (await api.post<{ id: number; state: string }>(`${BASE}/ids`, input)).data,
     onSuccess: invalidate,
   });
+}
+
+/** Excel z osobami do kolejnej tury raportu u klienta (bez zgodności i bez faktury). */
+export async function downloadNextRound(clientId: number, month: string, versionId: number | null): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/next-round`, {
+      params: { client_id: clientId, month, ...(versionId ? { version_id: versionId } : {}) },
+      responseType: "blob",
+    })
+  ).data;
 }

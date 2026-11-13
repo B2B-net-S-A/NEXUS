@@ -34,6 +34,7 @@
   "GET /api/finance/settlements/time-reports": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/time-reports/clients": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/time-reports/ids": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/time-reports/next-round": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/time-reports/person/{key}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/time-reports": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/time-reports/ids": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
