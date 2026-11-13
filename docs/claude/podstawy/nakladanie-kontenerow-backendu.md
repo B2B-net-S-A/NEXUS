@@ -43,6 +43,29 @@ Liczby zależą od siebie; zmiana jednej = przeliczenie reszty.
 Compose (do przepięcia) zostaje przy drenażu 0: tam Coolify zatrzymuje wszystko naraz,
 więc czekanie tylko wydłużałoby przerwę.
 
+## Sieci
+
+Aplikacje backendu i workera stoją w destination `nexus-front`, tym samym co front (etap B1).
+Do sieci `coolify` nie dołączamy, bo jest w niej `postgres` Coolify.
+
+- **Sieć wpisana jawnie w każdej usłudze compose, z którą rozmawia osobna aplikacja.**
+  Coolify 4.5.3 nie przenosi sieci z najwyższego poziomu compose do usług: `parsers.php:1735`
+  wstawia ją jako `null`, a `:1775` przyjmuje tylko napis i tablicę, więc sieć znika bez
+  błędu. 13.11.2026 front po przepięciu nie widział `backend:8000` i logowanie Microsoft
+  kończyło się `backend_unreachable` (#3389: `networks: [nexus-front]` w `backend`).
+  Przed startem aplikacji backendu i workera to samo dostają `postgres` i `qdrant`.
+  Sieć bazową Coolify usługa dostaje i tak; dowód to backend po #3389, który dalej widzi
+  `postgres`. Pilnuje tego `backend/tests/test_compose_networks_contract.py`.
+- **Front znajduje backend po aliasie `backend`.** Aplikacja z Dockerfile dostaje w sieci
+  destination alias równy nazwie kontenera, a ta zmienia się przy każdym wdrożeniu. Dodatkowe
+  aliasy ustawia pole `custom_network_aliases` (`ApplicationDeploymentJob.php:4479-4495`,
+  API `PATCH /applications/{uuid}`). Aplikacja backendu dostaje alias `backend`, więc
+  `INTERNAL_API_URL=http://backend:8000` we froncie zostaje bez zmian. W chwili przepięcia
+  alias `backend` mają naraz usługa compose i aplikacja, a DNS Dockera zwraca adresy obu.
+  Obie obsługują ruch, więc przerwy nie ma. Wyłączenie `backend` w compose zostawia już tylko
+  aplikację. W czasie rolling update alias mają stary i nowy kontener; stary jest wtedy
+  w drenażu i dalej odpowiada.
+
 ## Gniazda
 
 Stary kontener zamyka gniazda (czat, obecność, `pipeline_changed`) przy zamknięciu.
@@ -63,6 +86,7 @@ M365 sprząta `m365_interrupted_reset`).
 
 ## Co jeszcze musi być spełnione
 
+- Sieci: `postgres` i `qdrant` jawnie w `nexus-front`, alias `backend` dla aplikacji (wyżej).
 - Pule: `max_connections=150` na 2 × web + worker (`web-i-worker-osobno.md`).
 - Schemat zgodny wstecz: `migracje-zgodne-wstecz.md`.
 - DDL pominięty przy żywym ruchu: `checks.migrations: degraded` + Sentry.

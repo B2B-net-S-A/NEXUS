@@ -40,7 +40,13 @@ app_prefix=${backend_image%_backend:*}
 case "$app_prefix" in
     ""|*[!a-z0-9]*) fail "ambiguous application image tags" ;;
 esac
-printf '%s\n' "$images" | grep -Fxq "${app_prefix}_frontend:${sha}" || fail "frontend/backend commit tags disagree"
+# Front jest od 11.2026 osobną aplikacją Coolify (`nexus-frontend`), więc compose
+# zwykle nie ma obrazu frontu. Jeśli wróci (wycofanie przepięcia), musi mieć
+# dokładnie ten sam commit co backend.
+frontend_images=$(printf '%s\n' "$images" | grep -E '_frontend:' || true)
+if [ -n "$frontend_images" ] && [ "$frontend_images" != "${app_prefix}_frontend:${sha}" ]; then
+    fail "frontend/backend commit tags disagree"
+fi
 
 echo "NEXUS_RELEASE_BUILD_VERIFIED release=$sha source=coolify-image-tags"
 # Explicit CLI build args override any stale/default values in parsed YAML.
