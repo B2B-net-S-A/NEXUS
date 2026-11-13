@@ -1029,7 +1029,7 @@ _BOT_RUN_KINDS_0684: tuple[str, ...] = (
     "discovery",
     "people",
 )
-#: 0690 dokłada ``lists`` (Bot Listy, firmy pod kampanię z rejestr.io i researchu).
+#: 0691 dokłada ``lists`` (Bot Listy, firmy pod kampanię z rejestr.io i researchu).
 BOT_RUN_KINDS: tuple[str, ...] = (*_BOT_RUN_KINDS_0684, "lists")
 BOT_BRIEFING_MODES: tuple[str, ...] = (*BRIEFING_MODES, "call_hook", "meeting_prep")
 BOT_RESULT_STATUSES: tuple[str, ...] = ("new", "accepted", "rejected", "partial")
