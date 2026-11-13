@@ -99,7 +99,8 @@ def facts_summary(
         f"Uwagi: {facts['note']}" if facts.get("note") else None,
         f"Z rozmowy: {call_note.strip()}" if call_note and call_note.strip() else None,
     ]
-    return "\n".join(line for line in lines if line)
+    # Kropka zamiast nowej linii: lista Leadów skleja linie podsumowania w jedną.
+    return " · ".join(line for line in lines if line)
 
 
 async def _service(db: AsyncSession, record: SalesCallRecord) -> Optional[str]:

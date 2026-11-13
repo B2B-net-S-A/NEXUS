@@ -10,7 +10,7 @@ import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { REMINDERS_VIEW, STATE_TONES, stateLabel } from "./calling/calling";
 
 /** Tyle przypomnień widać w „Moim dniu”; resztę pokazuje zakładka w Dzwonieniu. */
-export const MY_DAY_REMINDERS = 8;
+export const MY_DAY_REMINDERS = 5;
 
 /**
  * „Mój dzień” → „Przypomnienia na dziś” (lista dzwoniących 13.11.2026): terminy powrotów

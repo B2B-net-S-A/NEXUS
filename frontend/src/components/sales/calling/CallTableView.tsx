@@ -29,7 +29,6 @@ import { CallCard, type MeetingStage } from "./CallCard";
 import {
   canCorrect,
   CORRECTABLE_STATES,
-  KEYS_RANGE,
   modifiedLabel,
   nextKey,
   STATE_TONES,
@@ -231,8 +230,9 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
       ) : viewState !== "ready" ? (
         <QueryStateNotice state={viewState} onRetry={() => void query.refetch()} />
       ) : (
-        // „Wszyscy” ma o kolumnę więcej: bez wybranej osoby tabela bierze całą szerokość (1280 px).
-        <div className={cn("grid items-start gap-3", (selected || !everyone) && "lg:grid-cols-[minmax(0,1fr)_364px]")}>
+        // Bez wybranej osoby tabela bierze całą szerokość: przy 1280 px panel podpowiedzi
+        // ucinał „Ostatnią modyfikację” (przeklikanie 13.11.2026).
+        <div className={cn("grid items-start gap-3", selected && "lg:grid-cols-[minmax(0,1fr)_364px]")}>
           <div className="min-w-0 overflow-x-auto rounded-lg border border-border bg-card">
             <RecordTable
               items={items}
@@ -264,12 +264,7 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
                 onSaved={() => setSelectedKey(upcomingKey)}
               />
             </div>
-          ) : everyone ? null : (
-            <p className="hidden rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground lg:block">
-              Kliknij osobę w tabeli: obok otworzy się karta rozmowy z wynikami
-              (klawisze {KEYS_RANGE}).
-            </p>
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -387,7 +382,7 @@ function StatusCell({
       {editable ? (
         <SalesSelect
           ariaLabel={`Zmień status: ${item.company.name}`}
-          className="h-7 w-40 text-xs"
+          className="h-7 w-48 whitespace-nowrap text-xs"
           value=""
           onValueChange={pick}
           options={options}

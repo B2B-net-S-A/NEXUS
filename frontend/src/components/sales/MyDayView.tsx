@@ -128,14 +128,16 @@ function DayContent({ day: fullDay, canEdit }: { day: MyDay; canEdit: boolean })
           onRetry={() => void handoffs.refetch()}
         />
       )}
-      <MyDayReminders today={day.today} />
       {isDayEmpty(day) && queue.count === 0 ? (
-        <div className="rounded-lg border border-border bg-card">
-          <EmptyState
-            icon={CheckCircle2}
-            title="Czysto. Nic pilnego."
-            description="Nowe maile, zaległe kroki i spotkania pojawią się tu same."
-          />
+        <div className="space-y-3">
+          <MyDayReminders today={day.today} />
+          <div className="rounded-lg border border-border bg-card">
+            <EmptyState
+              icon={CheckCircle2}
+              title="Czysto. Nic pilnego."
+              description="Nowe maile, zaległe kroki i spotkania pojawią się tu same."
+            />
+          </div>
         </div>
       ) : (
         <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1fr)_364px]">
@@ -144,6 +146,8 @@ function DayContent({ day: fullDay, canEdit }: { day: MyDay; canEdit: boolean })
               <div className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">{queue.sections}</div>
             )}
             {!isDayEmpty(day) && <DayQueue day={day} canEdit={canEdit} />}
+            {/* Pod kolejką dnia: spotkania o godzinie zostają na pierwszym ekranie (1280 × 720). */}
+            <MyDayReminders today={day.today} />
           </div>
           {queue.card ?? (day.prep && <MyDayPrepCard prep={day.prep} canEdit={canEdit} />)}
         </div>
