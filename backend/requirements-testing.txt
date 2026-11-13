@@ -1,5 +1,5 @@
 # Test-only dependencies; intentionally excluded from the production image.
-hypothesis==6.168.0
+hypothesis==6.168.5
 time-machine==3.5.1
 pytest-rerunfailures==16.7
 pytest-xdist==3.8.0
