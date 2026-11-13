@@ -120,9 +120,18 @@ def _collect_files(
     return found
 
 
+def _trusted(reports: list[CpDocument]) -> list[CpDocument]:
+    """KEŚU, akceptacja z Jiry i podpisy tylko z rozliczenia@ (także przypisane
+    ręcznie przez Finanse), nigdy z panelu konsultanta: konsultant nie może sam
+    dołożyć „podpisanego” KEŚU, które otwiera zapłatę."""
+
+    return [d for d in reports if d.channel != "portal"]
+
+
 async def collect(db: AsyncSession, reports: list[CpDocument]) -> Collected:
     """KEŚU, akceptacja z Jiry, podpisy i faktury kosztów z plików miesiąca."""
 
+    reports = _trusted(reports)
     files = [(d, c) for d in reports if (c := _read(d)) is not None]
     message_ids = [
         d.graph_message_id for d in reports if d.graph_message_id is not None
@@ -149,7 +158,7 @@ async def collect(db: AsyncSession, reports: list[CpDocument]) -> Collected:
 
 
 def has_source(reports: list[CpDocument]) -> bool:
-    return any(d.mime in SOURCE_MIMES for d in reports)
+    return any(d.mime in SOURCE_MIMES for d in _trusted(reports))
 
 
 def md_hours(rules: dict[str, dict[str, Any]]) -> Decimal:

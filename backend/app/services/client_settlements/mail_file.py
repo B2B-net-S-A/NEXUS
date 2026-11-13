@@ -22,8 +22,7 @@ MSG_MIME = "application/vnd.ms-outlook"
 EML_MIME = "message/rfc822"
 OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _FREE, _END = 0xFFFFFFFF, 0xFFFFFFFE
-#: Granice ochronne: plik rozliczenia ma najwyżej kilka MB.
-_MAX_SECTORS = 200_000
+#: Granica ochronna katalogu; łańcuchy sektorów ogranicza rozmiar pliku.
 _MAX_ENTRIES = 20_000
 
 
@@ -62,17 +61,29 @@ class _Cfb:
         minifat_start, _minifat_count, difat_start, difat_count = struct.unpack_from(
             "<IIII", data, 0x3C
         )
+        # Każdy sektor pliku najwyżej raz: pętle w FAT/DIFAT z pliku z zewnątrz
+        # nie mogą rozdmuchać pamięci (plik ma najwyżej kilka MB).
+        self.limit = len(data) // self.sector
         difat = list(struct.unpack_from("<109I", data, 0x4C))
         per = self.sector // 4
-        current, guard = difat_start, 0
-        while current not in (_FREE, _END) and difat_count > 0 and guard < 10_000:
+        current, seen = difat_start, set()
+        while current not in (_FREE, _END) and difat_count > 0:
+            if current in seen or len(seen) >= self.limit:
+                raise _Broken("difat loop")
+            seen.add(current)
             values = struct.unpack_from(f"<{per}I", data, self._offset(current))
             difat.extend(values[:-1])
-            current, difat_count, guard = values[-1], difat_count - 1, guard + 1
+            current, difat_count = values[-1], difat_count - 1
+        if fat_count > self.limit:
+            raise _Broken("fat count")
         self.fat: list[int] = []
+        used: set[int] = set()
         for index in difat[:fat_count]:
             if index in (_FREE, _END):
                 continue
+            if index in used:
+                raise _Broken("fat repeated")
+            used.add(index)
             self.fat.extend(struct.unpack_from(f"<{per}I", data, self._offset(index)))
         self.minifat = (
             list(struct.unpack(f"<{len(raw) // 4}I", raw))
@@ -115,13 +126,14 @@ class _Cfb:
 
     def _chain(self, start: int) -> bytes:
         parts: list[bytes] = []
-        current, steps = start, 0
-        while current not in (_FREE, _END) and steps < _MAX_SECTORS:
-            if current >= len(self.fat):
-                raise _Broken("fat")
+        current, seen = start, set()
+        while current not in (_FREE, _END):
+            if current >= len(self.fat) or current in seen or len(seen) >= self.limit:
+                raise _Broken("fat chain")
+            seen.add(current)
             offset = self._offset(current)
             parts.append(self.data[offset : offset + self.sector])
-            current, steps = self.fat[current], steps + 1
+            current = self.fat[current]
         return b"".join(parts)
 
     def read(self, index: int) -> bytes:
@@ -129,14 +141,15 @@ class _Cfb:
         size = int(entry["size"])
         if size < self.cutoff:
             parts: list[bytes] = []
-            current, steps = int(entry["start"]), 0
-            while current not in (_FREE, _END) and steps < _MAX_SECTORS:
-                if current >= len(self.minifat):
-                    raise _Broken("minifat")
+            current, seen = int(entry["start"]), set()
+            while current not in (_FREE, _END):
+                if current >= len(self.minifat) or current in seen:
+                    raise _Broken("minifat chain")
+                seen.add(current)
                 parts.append(
                     self.ministream[current * self.mini : (current + 1) * self.mini]
                 )
-                current, steps = self.minifat[current], steps + 1
+                current = self.minifat[current]
             return b"".join(parts)[:size]
         return self._chain(int(entry["start"]))[:size]
 

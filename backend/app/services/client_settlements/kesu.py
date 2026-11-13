@@ -69,8 +69,8 @@ _ACCEPTED = re.compile(
 _TO_LINE = re.compile(r"^\s*(?:To|Do)\s*:\s*(?P<to>.+)$", re.IGNORECASE | re.M)
 _ADDRESS = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
 _STATEMENT = re.compile(
-    r"o[sś]wiadczeni\w*.*(?:transport|doja|samoch|auto|pojazd|przejazd)"
-    r"|(?:transport|samoch|pojazd)\w*.*o[sś]wiadczeni",
+    r"o[sś]wiadczeni\w*.*(?:transport|doja[zź]d|samoch[oó]d|pojazd|przejazd)"
+    r"|(?:transport|samoch[oó]d|pojazd)\w*.*o[sś]wiadczeni",
     re.IGNORECASE,
 )
 _BARE_AMP = re.compile(r"&(?!#?[A-Za-z0-9]+;)")
@@ -214,6 +214,10 @@ def _grid(content: bytes) -> Optional[list[dict[int, tuple[str, Optional[str]]]]
     for row in table.findall(f"{{{_NS}}}Row")[:_MAX_ROWS]:
         index = row.get(f"{{{_NS}}}Index")
         row_no = int(index) if index and index.isdigit() else row_no + 1
+        if row_no > _MAX_ROWS:
+            # KEŚU ma ok. 50 wierszy; numer z pliku z zewnątrz nie może
+            # rozdmuchać listy pustych wierszy.
+            return None
         while len(rows) < row_no - 1:
             rows.append({})
         cells: dict[int, tuple[str, Optional[str]]] = {}

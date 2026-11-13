@@ -31,6 +31,8 @@ from app.services.client_settlements import client_invoice, kesu, service
 from app.services.client_settlements.service import SettlementError
 from app.services.consultant_portal import mailbox
 from tests._signed_pdf import signed_by
+from app.models.user import UserRole
+from tests.care_announcements_seed import make_user
 from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
     portal_all,
     portal_restored,
@@ -171,9 +173,27 @@ async def test_obieg_keszu_z_jiry_do_faktury_i_zaplaty(tmp_path, monkeypatch) ->
             f"{mon}-{year} zaakceptowane przez opiekuna"
         )
         sheet = _kesu_for(month, f"{person.split()[1]} {person.split()[0]}")
+        # Ten sam temat od obcego adresu: osoby z tematu nie przypisujemy.
+        forged = f"forged-{run}"
+        await _read(
+            FakeMailbox(
+                [_message(forged, "ktos@obcy.example", subject)],
+                {forged: [_attachment("10-2026-ei1.xls", sheet)]},
+                {forged: _jira_eml(subject, person, month, sheet)},
+            )
+        )
+        async with AsyncSessionLocal() as db:
+            stray = (
+                await db.scalars(
+                    select(CpDocument).where(CpDocument.graph_message_id == forged)
+                )
+            ).all()
+            assert stray and {d.contract_id for d in stray} == {None}
+
+        coordinator = await make_user(UserRole.recruiter, name="Koordynator")
         reader = FakeMailbox(
-            # Nadawcą jest koordynator, nie konsultant: osoba z tematu.
-            [_message(jira_id, "koordynator@dostawca.example", subject)],
+            # Nadawcą jest koordynator (konto NEXUS-a), nie konsultant: osoba z tematu.
+            [_message(jira_id, coordinator.email.lower(), subject)],
             {jira_id: [_attachment("10-2026-ei1.xls", sheet)]},
             {jira_id: _jira_eml(subject, person, month, sheet)},
         )
@@ -252,7 +272,21 @@ async def test_obieg_keszu_z_jiry_do_faktury_i_zaplaty(tmp_path, monkeypatch) ->
             assert card["kesu"]["payment"]["on_mail"] is True
             assert card["kesu"]["invoice_waits"] is True
 
+        # Odpowiedź z innej domeny niż opiekuna z Jiry: karta do ręcznego przypisania.
         both = await signed_by(("Spółka", at), ("Klient", at))
+        fake_reply = f"fake-{run}"
+        await _read(
+            FakeMailbox(
+                [_message(fake_reply, "ktos@obcy.example", reply)],
+                {fake_reply: [_attachment(f"KESU {mon}.{year}-sig.pdf", both)]},
+                {},
+            )
+        )
+        async with AsyncSessionLocal() as db:
+            view = await service.month_view(db, client_id, month, amounts=True)
+            row = next(r for r in view["rows"] if r["contract_id"] == contract_id)
+            assert row["kesu"]["state"] == kesu.AWAITING_CLIENT
+
         await _read(
             FakeMailbox(
                 [_message(re_two, "inna.osoba@klient.example", reply)],

@@ -441,3 +441,52 @@ def test_mail_do_opiekuna_ze_wzoru_rozliczen() -> None:
     assert draft["to"] == "Pawel.Opiekun@klient.example"
     assert draft["subject"] == "KEŚU październik - Ewa Kozłowska"
     assert "z naszym podpisem" in draft["body"]
+
+
+def test_keszu_z_ogromnym_numerem_wiersza_nie_zjada_pamieci() -> None:
+    """``ss:Index`` z pliku z zewnątrz nie może rozdmuchać listy wierszy."""
+
+    evil = (
+        b'<?xml version="1.0"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+        b'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="a"><Table>'
+        b'<Row><Cell><Data ss:Type="String">Karta Ewidencji</Data></Cell></Row>'
+        b'<Row ss:Index="99999999"><Cell><Data ss:Type="String">x</Data></Cell></Row>'
+        b"</Table></Worksheet></Workbook>"
+    )
+    import tracemalloc
+
+    tracemalloc.start()
+    assert kesu.parse(evil) is None
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 20 * 1024 * 1024
+
+
+def test_msg_z_petla_w_lancuchu_sektorow_nie_zjada_pamieci() -> None:
+    import struct
+    import tracemalloc
+
+    sector = 4096
+    header = bytearray(sector)
+    header[:8] = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+    struct.pack_into("<HHH", header, 0x1C, 0xFFFE, 12, 6)
+    struct.pack_into("<I", header, 0x2C, 1)  # jeden sektor FAT
+    struct.pack_into("<I", header, 0x30, 1)  # katalog od sektora 1
+    struct.pack_into("<IIIII", header, 0x38, 4096, 0xFFFFFFFE, 0, 0xFFFFFFFE, 0)
+    struct.pack_into("<109I", header, 0x4C, 0, *([0xFFFFFFFF] * 108))
+    fat = [0xFFFFFFFD, 1] + [0xFFFFFFFF] * (
+        sector // 4 - 2
+    )  # sektor 1 wskazuje sam na siebie
+    data = bytes(header) + struct.pack(f"<{sector // 4}I", *fat) + bytes(sector)
+    tracemalloc.start()
+    assert mail_file.read(data, mail_file.MSG_MIME) is None
+    _current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 20 * 1024 * 1024
+
+
+def test_oswiadczenie_o_prawach_autorskich_to_nie_oswiadczenie_o_transporcie() -> None:
+    assert not kesu.is_transport_statement(
+        "Oswiadczenie_o_przeniesieniu_praw_autorskich_10_2026.pdf"
+    )
+    assert not kesu.is_transport_statement("Oświadczenie autora.pdf")
