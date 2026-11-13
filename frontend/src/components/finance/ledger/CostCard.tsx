@@ -27,6 +27,8 @@ import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore } from "@/store/auth";
 
 import { Concerning } from "./CostsTab";
+import { DecreePanel } from "./DecreePanel";
+import { categoryLocked } from "./posting-model";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -89,6 +91,12 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function historyText(item: CostCardData["history"][number]): string {
+  if (item.action === "decree") {
+    return item.detail.manual ? "Dekret poprawiony ręcznie" : "Dekret przeliczony z reguły";
+  }
+  if (item.action === "export") return `W paczce eksportu ${item.detail.batch ?? ""}`.trim();
+  if (item.action === "unexport") return `Paczka ${item.detail.batch ?? ""} anulowana`.replace("  ", " ");
+  if (item.action === "book") return `Zaksięgowana (paczka ${item.detail.batch ?? "—"})`;
   if (item.action === "reject") return `Odrzucona: ${item.detail.reason ?? ""}`.trim();
   if (item.to_stage_label && item.action === "back") return `Cofnięta do „${item.to_stage_label}”`;
   if (item.to_stage_label) return item.action_label;
@@ -133,7 +141,12 @@ function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) 
         <select
           id="cost-category"
           value={card.category}
-          disabled={locked || patch.isPending}
+          disabled={locked || categoryLocked(card.stage, card.decree?.batch?.status === "exported") || patch.isPending}
+          title={
+            card.stage === "ready"
+              ? "Po „Gotowa do księgowania” najpierw Cofnij — kategoria wybiera regułę dekretu."
+              : undefined
+          }
           onChange={(event) =>
             save({ category: event.target.value as CostCategory }, "Kategoria zapisana.")
           }
@@ -214,7 +227,7 @@ function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) 
   );
 }
 
-/** Karta faktury kosztowej (makieta M2, bez dekretu — dekret to E2). */
+/** Karta faktury kosztowej (makieta M2, z dekretem do Symfonii FK z E2). */
 export function CostCard({ id }: { id: number }) {
   const card = useCostCard(id);
   const action = useCostAction();
@@ -331,6 +344,9 @@ export function CostCard({ id }: { id: number }) {
         </div>
         <div className="space-y-3.5">
           <Bookkeeping card={data} locked={locked} />
+          {data.decree ? (
+            <DecreePanel entryId={data.id} section={data.decree} readOnly={impersonating || data.own} />
+          ) : null}
           {!data.own && !impersonating && stageButtons(data.stage, data.from_ksef).length > 0 ? (
             <div className="flex flex-wrap justify-end gap-2">
               {stageButtons(data.stage, data.from_ksef).map((button) => (

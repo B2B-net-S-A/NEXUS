@@ -709,7 +709,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "back_office", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach rozliczenia RCP konsultantów, faktury do klientów (wystawianie do KSeF i odczyt z KSeF) i wydatki ze zgodą.",
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, zmiany w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach RCP konsultantów, faktury do klientów (wystawianie i odczyt z KSeF), wydatki ze zgodą i Księgowość.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -744,12 +744,12 @@
       "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Rozliczenia, Koszty, Kontrahenci, Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów, Wydatki ze zgodą (część przy włączonych modułach)."},
+      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Rozliczenia, Koszty, Kontrahenci, Księgowanie, Plan kont, Wyniki, Archiwum, Import MD, Zmiany w zamówieniach, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów, Wydatki ze zgodą (część za modułem)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},
       {"id": "finance.approved-expenses", "label": "Wydatki ze zgodą", "describe": "Kafle miesiąca, Do rozliczenia, Subskrypcje, Faktury bez zgody i suma miesiąca według rodzaju."},
-      {"id": "finance.costs", "label": "Koszty", "describe": "Faktury kosztowe po etapach: Z KSeF do przyjęcia, Do opisu, Zweryfikowane, Gotowe do księgowania; Przyjmij, Odrzuć z powodem i Zweryfikuj dla zaznaczonych."}
+      {"id": "finance.costs", "label": "Koszty", "describe": "Faktury kosztowe po etapach: Z KSeF do przyjęcia, Do opisu, Zweryfikowane, Gotowe do księgowania; akcje dla zaznaczonych, na karcie dekret do Symfonii FK."}
     ],
     "help_slug": null,
     "sources": [

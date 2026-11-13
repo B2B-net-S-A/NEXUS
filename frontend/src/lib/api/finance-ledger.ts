@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { DecreeSection } from "@/lib/api/finance-posting";
 
 const COSTS = "/api/finance/costs";
 const PARTIES = "/api/finance/counterparties";
@@ -69,7 +70,7 @@ export interface CostHistoryItem {
   from_stage: CostStage | null;
   to_stage: CostStage | null;
   to_stage_label: string | null;
-  detail: { reason?: string; from?: unknown; to?: unknown };
+  detail: { reason?: string; from?: unknown; to?: unknown; batch?: string; manual?: boolean };
   actor: string | null;
 }
 
@@ -79,6 +80,8 @@ export interface CostCard extends CostRow {
   symfonia_partner_id: string | null;
   stage_changed_at: string | null;
   history: CostHistoryItem[];
+  /** Dekret do Symfonii FK (E2). */
+  decree: DecreeSection;
 }
 
 export interface CostQueue {
