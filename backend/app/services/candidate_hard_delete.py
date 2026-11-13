@@ -80,8 +80,15 @@ async def erase_panel_data(db: AsyncSession, candidate_id: int) -> None:
     )
     # Szkolenia (0694): zapis na szkolenie i obecność to dane osoby, nie umowy.
     # Szkolenie z umową szkoleniową zostaje (dokument rozliczeniowy), bez zmian.
-    from app.models.training import TrainingAttendance, TrainingRegistration
+    from app.models.training import (
+        TrainingAttendance,
+        TrainingFeedback,
+        TrainingRegistration,
+    )
 
+    await db.execute(
+        delete(TrainingFeedback).where(TrainingFeedback.contract_id.in_(contract_ids))
+    )
     await db.execute(
         delete(TrainingRegistration).where(
             TrainingRegistration.contract_id.in_(contract_ids)

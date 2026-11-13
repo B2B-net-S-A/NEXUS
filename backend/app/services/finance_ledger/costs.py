@@ -14,6 +14,10 @@ Etapy jak w eBI24: poczekalnia KSeF (``received``: Przyjmij / Odrzuć) →
 „Zaksięgowane” (``booked``, ustawia je eksport do Symfonii w E2). Cofnięcie
 idzie o jeden krok. Nikt nie zmienia etapu własnej faktury (faktura osoby
 zespołu z jego kontem).
+
+E2 (``posting.py``): „Zweryfikuj” wylicza dekret, „Gotowa do księgowania”
+wymaga kompletnego dekretu, a faktury w paczce eksportu nie cofa się, dopóki
+paczki nie anulują.
 """
 
 from __future__ import annotations
@@ -102,6 +106,10 @@ ACTION_LABELS = {
     "note": "Notatka",
     "due_date": "Termin płatności",
     "account": "Rachunek odbiorcy",
+    "decree": "Dekret",
+    "export": "W paczce eksportu",
+    "unexport": "Paczka anulowana",
+    "book": "Zaksięgowana",
 }
 STAGE_ACTIONS = ("accept", "reject", "verify", "ready", "back")
 FLAG_ACTIONS = ("flag_add", "flag_remove")
@@ -119,6 +127,19 @@ _FORWARD = {
 
 OWN_INVOICE_DETAIL = "To Twoja faktura — jej status zmienia ktoś inny z Finansów."
 BOOKED_DETAIL = "Zaksięgowanej faktury tu nie zmieniasz."
+#: Kategoria wybiera regułę dekretu — po „Gotowa” dekret już się nie przelicza.
+CATEGORY_READY_DETAIL = (
+    "Faktura jest „Gotowa do księgowania” — najpierw Cofnij, potem zmień kategorię "
+    "(dekret przeliczy się przy weryfikacji)."
+)
+CATEGORY_IN_BATCH_DETAIL = (
+    "Faktura jest w paczce eksportu do Symfonii — najpierw anuluj paczkę "
+    "w „Księgowanie”, potem Cofnij i zmień kategorię."
+)
+IN_BATCH_DETAIL = (
+    "Faktura jest w paczce eksportu do Symfonii — anuluj paczkę w „Księgowanie”, "
+    "żeby ją cofnąć."
+)
 
 
 class LedgerError(Exception):
@@ -598,6 +619,11 @@ async def card(
         symfonia_partner_id=row.symfonia_partner_id,
         stage_changed_at=_iso(entry.stage_changed_at),
     )
+    from app.services.finance_ledger import posting  # noqa: PLC0415
+
+    payload["decree"] = await posting.section(
+        db, entry, own=payload["own"], gross=row.gross_amount, currency=row.currency
+    )
     events = (
         await db.execute(
             select(FinanceCostEntryEvent, User.name)
@@ -768,6 +794,13 @@ async def act(
     waiting = (
         await payment_state.waiting_entry_ids(db, found) if payment_flag else set()
     )
+    from app.services.finance_ledger import posting  # noqa: PLC0415
+
+    ctx = (
+        await posting.load_context(db, entries)
+        if action in ("verify", "ready")
+        else None
+    )
     changed = 0
     for entry in entries:
         if entry.id in own:
@@ -782,9 +815,15 @@ async def act(
             continue
         try:
             if action in STAGE_ACTIONS:
+                if action == "back" and entry.batch_id is not None:
+                    raise LedgerError(IN_BATCH_DETAIL)
+                if action == "ready" and entry.stage == "verified":
+                    posting.ensure_ready(entry, ctx, now=now)
                 _apply_stage(
                     db, entry, action, reason=reason, actor_id=actor_id, now=now
                 )
+                if action == "verify":
+                    posting.refresh(entry, ctx, now=now)
                 changed += 1
             elif _apply_flag(
                 db, entry, flag, on=action == "flag_add", actor_id=actor_id, now=now
@@ -842,6 +881,10 @@ async def update(
         category = changes["category"]
         if category not in CATEGORIES:
             raise LedgerError("Nieznana kategoria.", status=422)
+        if category != entry.category and entry.batch_id is not None:
+            raise LedgerError(CATEGORY_IN_BATCH_DETAIL)
+        if category != entry.category and entry.stage == "ready":
+            raise LedgerError(CATEGORY_READY_DETAIL)
         if category != entry.category:
             _event(
                 db,
@@ -852,6 +895,10 @@ async def update(
                 detail={"from": entry.category, "to": category},
             )
             entry.category = category
+            if entry.stage in ("new", "verified") and entry.decree:
+                from app.services.finance_ledger import posting  # noqa: PLC0415
+
+                posting.refresh(entry, await posting.load_context(db, [entry]), now=now)
     if "flags" in changes:
         flags = clean_flags(changes["flags"] or [])
         if flags != list(entry.flags or []):

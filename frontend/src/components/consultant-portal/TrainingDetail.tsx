@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Download, FileText, Plus, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, Check, Download, FileText, Plus, Trash2, Upload, Video } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
   type TrainingAgendaItem,
   type TrainingHandoverItem,
 } from "@/lib/api/consultant-portal";
+import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
 import { Fact, Failure, Loading, Panel } from "./PanelScreens";
@@ -807,11 +808,71 @@ export function InvoiceCard({ training }: { training: PortalTraining }) {
 
 // ── Ekran szkolenia ──────────────────────────────────────────────────────────
 
+/** Dzień szkolenia: trener wchodzi tym samym linkiem co uczestnicy, jako prowadzący. */
+function LeadCard({ training }: { training: PortalTraining }) {
+  const { order } = training;
+  const href = training.join_url ? safeExternalHref(training.join_url) : null;
+  const hours = order.time_from && order.time_to ? `, ${order.time_from}–${order.time_to}` : "";
+  return (
+    <section className="rounded-xl border border-primary bg-primary/5 p-4">
+      <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Szkolenie</p>
+      <h2 className="mt-1 text-lg font-semibold">
+        {shortDay(order.session_date)}
+        {hours}
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        {training.registrations ? `Zapisanych: ${training.registrations}. ` : ""}
+        Spotkanie nagrywa się samo, nagrywania nie włączasz.
+      </p>
+      {href ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button asChild size="sm">
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              <Video aria-hidden className="size-3.5" /> Dołącz jako prowadzący
+            </a>
+          </Button>
+          <span className="text-xs text-muted-foreground">Wejdź 15 minut wcześniej, żeby sprawdzić dźwięk i ekran.</span>
+        </div>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">
+          Link do spotkania pojawi się tutaj, gdy Talent Community założy spotkanie.
+        </p>
+      )}
+      <p className="mt-2 text-xs text-muted-foreground">Pliki z Załącznika nr 1 przekażesz po szkoleniu.</p>
+    </section>
+  );
+}
+
+/** Po szkoleniu: nagranie z Teams i oceny uczestników (bez nazwisk). */
+function AfterCard({ training }: { training: PortalTraining }) {
+  const feedback = training.feedback;
+  if (!training.recording_ready && !(feedback && feedback.count > 0)) return null;
+  return (
+    <Panel title="Po szkoleniu">
+      {training.recording_ready ? (
+        <p className="text-sm text-muted-foreground">Nagranie z Teams jest już w szkoleniu. Nie musisz go wgrywać.</p>
+      ) : null}
+      {feedback && feedback.count > 0 ? (
+        <div className="mt-2 space-y-1">
+          <p className="text-sm font-medium">
+            Ocena uczestników: {feedback.average?.toFixed(1).replace(".", ",")} / 5 ({feedback.count})
+          </p>
+          {(feedback.comments ?? []).slice(0, 5).map((comment, index) => (
+            <p key={index} className="text-xs text-muted-foreground">
+              „{comment}”
+            </p>
+          ))}
+        </div>
+      ) : null}
+    </Panel>
+  );
+}
+
 function SubLine({ training }: { training: PortalTraining }) {
   const { order } = training;
   const parts = ["Zamówienie od Talent Community"];
   if (training.can_quote && order.quote_due_on) parts.push(`odpowiedz do ${shortDay(order.quote_due_on)}`);
-  parts.push(`szkolenie zdalne w ${order.platform || "Teams"} (link damy my)`);
+  parts.push(`szkolenie zdalne w ${order.platform || "Teams"}`);
   return <p className="text-sm text-muted-foreground">{parts.join(" · ")}</p>;
 }
 
@@ -853,13 +914,8 @@ export function TrainingDetailView({ training, today = warsawToday() }: { traini
       {status === "signed" ? (
         <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="min-w-0 space-y-4">
-            {step === 3 ? (
-              <Banner>
-                Szkolenie {shortDay(training.order.session_date)}
-                {training.order.time_from ? `, ${training.order.time_from}` : ""}. Link do spotkania wyślemy przed
-                szkoleniem. Pliki przekażesz po szkoleniu.
-              </Banner>
-            ) : null}
+            {step === 3 ? <LeadCard training={training} /> : null}
+            <AfterCard training={training} />
             <HandoverChecklist training={training} />
             <InvoiceCard training={training} />
           </div>

@@ -1,8 +1,8 @@
 {
-  "entry": "5af8b2b0db01f105fd737e40907e48c0568c8adb5eb79402392575533119704a",
+  "entry": "def551560a12afce7ca8d15c301fdad0b92e5a4066fb0f930c326fe70765a504",
   "guide": "finance",
   "sources": {
-    "frontend/src/app/finance/page.tsx": "5fc46f0642479d3a81627372fa5cf787116d6739ec473c1209d9653bf66af68a",
+    "frontend/src/app/finance/page.tsx": "022d1c7930005d7008e204dd6621032f1d1e5fe6496432ea8d5c7b73e6f8f6b3",
     "frontend/src/components/finance/MdImportWorkspace.tsx": "e8c1dc1d0647147687534b19c3e8699c0be4c5005ee1077811d360868f421986",
     "frontend/src/components/finance/OrderChangesPanel.tsx": "d6c9252529ac61dc69a8f3b41166f08e9b5449bbe1f37fac10bbdc2397d6f663"
   }

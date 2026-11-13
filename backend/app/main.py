@@ -252,6 +252,7 @@ from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_payments as finance_payments_api
+from app.api import finance_posting as finance_posting_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -1181,6 +1182,8 @@ async def lifespan(app: FastAPI):
             "consultant_portal_mailbox": asyncio.create_task(
                 hr_loops.consultant_portal_mailbox_loop()
             ),
+            # 0697: przypomnienia o szkoleniach i nagranie/transkrypt/obecność z Teams.
+            "trainings_teams": asyncio.create_task(hr_loops.trainings_teams_loop()),
             "admin_cases_mail_ingest": asyncio.create_task(
                 hr_loops.admin_cases_mail_ingest_loop()
             ),
@@ -1448,6 +1451,8 @@ app.add_middleware(
         # Paczka przelewów kosztów (finance_payments.py).
         "X-Batch-File-Sha256",
         "X-Batch-File-Changed",
+        # Paczka eksportu do Symfonii FK (finance_posting.py).
+        "X-File-SHA256",
         # Paczka CV (candidates.py).
         "X-Included-Count",
         "X-Skipped-Count",
@@ -2278,6 +2283,13 @@ app.include_router(
 app.include_router(
     finance_payments_api.router,
     prefix="/api/finance/payments",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Księgowość E2 (0698): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
+app.include_router(
+    finance_posting_api.router,
+    prefix="/api/finance/posting",
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
@@ -3867,6 +3879,11 @@ async def api_health_deep_check():
         FinancePaymentBatch,
         FinancePaymentBatchItem,
     )
+    from app.models.finance_posting import (
+        FinanceAccount,
+        FinancePostingBatch,
+        FinancePostingRule,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -4248,6 +4265,10 @@ async def api_health_deep_check():
         ("finance_payment_batch_items", FinancePaymentBatchItem),
         ("finance_cost_payment_records", FinanceCostPaymentRecord),
         ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
+        # 0698: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
+        ("finance_accounts", FinanceAccount),
+        ("finance_posting_rules", FinancePostingRule),
+        ("finance_posting_batches", FinancePostingBatch),
     ]
 
     checks: dict[str, str] = {}

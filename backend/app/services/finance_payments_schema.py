@@ -28,7 +28,9 @@ nie w niej — kolejka E1 zostaje bez zmian:
 from __future__ import annotations
 
 from app.services.consultant_portal_schema import quoted
-from app.services.finance_ledger_schema import CK_EVENT_ACTION
+
+# Pełna lista akcji (E1 + E2 + E3): przebudowa z samą listą E1 wyrzuciłaby akcje dekretu (E2).
+from app.services.finance_posting_schema import CK_EVENT_ACTION
 
 PAYMENT_STATES: tuple[str, ...] = ("unpaid", "in_batch", "paid", "partially_paid")
 PAID_SOURCES: tuple[str, ...] = ("statement", "manual", "other_path")
@@ -196,6 +198,7 @@ BEGIN
         SELECT 1 FROM pg_constraint
         WHERE conname = 'ck_finance_cost_entry_events_action'
           AND pg_get_constraintdef(oid) LIKE '%''account''%'
+          AND pg_get_constraintdef(oid) LIKE '%unexport%'
     ) THEN
         ALTER TABLE finance_cost_entry_events
             DROP CONSTRAINT IF EXISTS ck_finance_cost_entry_events_action;

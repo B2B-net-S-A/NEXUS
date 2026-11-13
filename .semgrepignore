@@ -1,0 +1,24 @@
+# Semgrep — czego nie skanujemy i dlaczego.
+# Opis zapadki i skanerów: docs/claude/podstawy/skanery-bezpieczenstwa.md
+# Ten plik ZASTĘPUJE domyślne wykluczenia Semgrepa, więc stoją tu wszystkie.
+
+:include .gitignore
+.git/
+node_modules/
+.next/
+build/
+dist/
+*.min.js
+
+# Testy: fikcyjne dane, surowe SQL i HTML w asercjach. Znalezisko w teście
+# nie jest podatnością aplikacji, a zaszumiłoby baseline.
+backend/tests/
+frontend/e2e/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+
+# Migracje Alembica biegną raz przy wdrożeniu, bez wejścia użytkownika;
+# f-stringi w nich składają nazwy tabel i kolumn ze stałych w pliku.
+backend/alembic/versions/

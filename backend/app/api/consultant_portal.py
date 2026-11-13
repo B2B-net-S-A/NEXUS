@@ -70,7 +70,9 @@ from app.services.trainings import core as training_core
 from app.services.trainings import media as training_media
 from app.services.trainings import raw_upload as training_raw_upload
 from app.services.trainings import samples as trainer_samples
+from app.services.trainings import signals as training_signals
 from app.services.trainings import signing as training_signing
+from app.services.trainings import teams as training_teams
 from app.services.trainings import storage as training_storage
 from app.services.trainings.errors import TrainingError
 from app.services.trainings_schema import TEXT_MAX as TRAINING_TEXT_MAX
@@ -817,6 +819,7 @@ async def training_quote(
             ),
             now=_now(),
         )
+        await training_signals.quote_submitted(db, training)
     except TrainingError as exc:
         raise _training_error(exc) from exc
     await db.commit()
@@ -862,6 +865,8 @@ async def training_agreement_signature(
         training = await training_signing.trainer_upload(
             db, training_id, data, now=_now()
         )
+        if training.status == "trainer_signed":
+            await training_signals.awaiting_company_signature(db, training)
     except TrainingError as exc:
         raise _training_error(exc) from exc
     await db.commit()
@@ -904,6 +909,7 @@ async def training_deliverable(
             contract_id=training.trainer_contract_id or context.consultant.contract_id,
             now=_now(),
         )
+        await training_signals.file_submitted(db, training, upload.file_name)
     except TrainingError as exc:
         raise _training_error(exc) from exc
     await db.commit()
@@ -950,6 +956,7 @@ async def training_invoice(
             now=_now(),
             contract_id=training.trainer_contract_id,
         )
+        await training_signals.invoice_uploaded(db, training)
     except TrainingError as exc:
         raise _training_error(exc) from exc
     await db.commit()
@@ -974,7 +981,9 @@ async def _portal_training_file(
     )
     if own is not None:
         return own, "own"
-    return await training_core.library_file(db, file_id), "lib"
+    return await training_core.viewer_file(
+        db, file_id, contract_ids=context.consultant.contract_ids
+    )
 
 
 @router.get("/trainings/files/{file_id}")
@@ -1012,6 +1021,65 @@ async def training_file_ticket(
     return {"url": training_media.url(file_id, scope=scope, now=_now())}
 
 
+class FeedbackRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=1_000)
+
+
+@router.post("/trainings/{training_id}/feedback")
+@limiter.limit("20/minute")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def training_feedback(
+    training_id: int,
+    payload: FeedbackRequest,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        await training_core.rate(
+            db,
+            training_id,
+            today=business_today(),
+            rating=payload.rating,
+            comment=payload.comment,
+            contract_id=context.consultant.contract_id,
+        )
+    except TrainingError as exc:
+        raise _training_error(exc) from exc
+    await db.commit()
+    return {"rating": payload.rating}
+
+
+@router.get("/trainings/{training_id}/transcript")
+@limiter.limit("60/minute")
+@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+async def training_transcript(
+    training_id: int,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    q: str = "",
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    training = await db.get(Training, training_id)
+    visible = (
+        training is not None
+        and training.status == "signed"
+        and (
+            training.published_at is not None
+            or (
+                training.shared_registered_at is not None
+                and await training_core.is_registered(
+                    db, training_id, contract_ids=context.consultant.contract_ids
+                )
+            )
+        )
+    )
+    if not visible:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, training_core.NOT_FOUND)
+    return await training_core.transcript_search(db, training_id, q[:100])
+
+
 @router.post("/trainings/{training_id}/registration")
 @limiter.limit("20/minute")
 @limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
@@ -1023,7 +1091,7 @@ async def training_registration(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await training_core.register(
+        removed_invite = await training_core.register(
             db,
             training_id,
             today=business_today(),
@@ -1032,5 +1100,14 @@ async def training_registration(
         )
     except TrainingError as exc:
         raise _training_error(exc) from exc
+    await db.commit()
+    # Zaproszenie Teams na adres z umowy po zatwierdzeniu zapisu (tylko przy otwartym panelu).
+    await training_teams.registration_changed(
+        db,
+        training_id,
+        join=payload.join,
+        contract_id=context.consultant.contract_id,
+        removed_invite=removed_invite,
+    )
     await db.commit()
     return {"registered": payload.join}
