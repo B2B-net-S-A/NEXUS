@@ -21,6 +21,13 @@ import {
 import { CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
+const CHANNELS: Record<string, string> = {
+  off: "brak",
+  simulate: "symulacja",
+  visma_direct: "bezpośrednio do Vismy (czeka na technika Vismy)",
+  recommand: "dostawca Peppol (Recommand)",
+};
+
 export function EinvoiceSettingsPanel({ onClose }: { onClose: () => void }) {
   const query = useEinvoiceSettings();
   const save = useSaveEinvoiceSettings();
@@ -96,7 +103,7 @@ export function EinvoiceSettingsPanel({ onClose }: { onClose: () => void }) {
           Wysyłka automatyczna
         </label>
         <span className="text-xs text-muted-foreground">
-          Dostawca: {data.provider === "off" ? "brak" : data.provider} · e-faktury od {data.since}
+          Kanał: {CHANNELS[data.provider] ?? data.provider} · e-faktury od {data.since}
         </span>
       </div>
       <div className="overflow-x-auto">

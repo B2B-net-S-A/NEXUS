@@ -2,10 +2,12 @@
 
 <!-- indeks: services/peppol, UBL BIS 3 z FA(3), Schematron w osobnym procesie, budżet KSeF pętli sprzedaży, tryb testowy, dostawca z API -->
 
-Decyzja Artura z 13.11.2026: NEXUS robi z faktury w KSeF e-fakturę Peppol BIS
-Billing 3, a doręcza ją dostawca Peppol z API. Bez własnego punktu dostępu
-(członkostwo OpenPeppol i certyfikacja to kilka tysięcy euro rocznie) i bez
-płatnej integracji EBI24 z Vismą Nordei. Opis etapu: `docs/rozliczenia-nordea-n2-peppol.md`.
+Decyzje Artura z 13.11.2026: NEXUS robi z faktury w KSeF e-fakturę Peppol BIS
+Billing 3 (format bazowy, walidowany przed wysyłką). Doręcza ją najpierw
+kanałem bezpośrednim do Vismy Nordei (Proceedo), a zapasowo przez dostawcę
+Peppol z API. Bez własnego punktu dostępu (członkostwo OpenPeppol i
+certyfikacja to kilka tysięcy euro rocznie) i bez płatnej integracji EBI24.
+Faktury do Nordei zostają per konsultant (uzgodnione z Nordeą). Opis etapu: `docs/rozliczenia-nordea-n2-peppol.md`.
 
 - **Źródło to XML z KSeF, nie PDF ani EBI24.** Pętla faktur sprzedażowych
   (`client_invoicing/sync.py`) oddaje pobrany plik do `peppol.service.capture`
@@ -39,7 +41,10 @@ płatnej integracji EBI24 z Vismą Nordei. Opis etapu: `docs/rozliczenia-nordea-
   blokuje wysyłkę.
 - **Automatyczna wysyłka tylko po włączeniu przez Finanse** (`auto_send`
   w `app_settings['peppol_einvoices']`).
-- **Dostawca przez adapter** (`peppol/providers.py`). Klucz i sekret tylko
+- **Kanał przez adapter** (`peppol/providers.py`). `visma_direct` ma tylko
+  nazwę i powód wyłączenia, dopóki technik Vismy nie poda kanału (cXML
+  Proceedo albo OIO UBL przez HTTPS/SFTP, adres, uwierzytelnienie, test).
+  Nie implementuj go bez tej specyfikacji. Klucz i sekret tylko
   workflow „Coolify set env” (`PEPPOL_API_KEY`, `PEPPOL_API_SECRET`,
   `PEPPOL_COMPANY_ID`, `PEPPOL_PROVIDER`, `PEPPOL_SENDER_ID`). Staging i testy:
   `PEPPOL_PROVIDER=simulate`.

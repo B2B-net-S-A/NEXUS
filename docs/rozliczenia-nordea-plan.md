@@ -265,9 +265,10 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
 
 Zmiana z 13.11.2026: zamiast plików do ręcznego wgrania w Vismie (R6: Visma
 przyjmuje tylko pojedynczo) NEXUS robi e-fakturę Peppol BIS Billing 3 z XML-a
-faktury w KSeF, a doręcza ją dostawca Peppol z API (decyzja Artura, bez własnego
-punktu dostępu i bez płatnej integracji EBI24). Pełny opis, mapowanie i stan:
-`docs/rozliczenia-nordea-n2-peppol.md`.
+faktury w KSeF i doręcza ją sam. Najpierw kanałem bezpośrednim do Vismy Nordei
+(Proceedo, specyfikacja od technika Vismy), zapasowo przez dostawcę Peppol
+z API (decyzje Artura; bez własnego punktu dostępu i bez płatnej integracji
+EBI24). Pełny opis, mapowanie i stan: `docs/rozliczenia-nordea-n2-peppol.md`.
 
 - N2.1 XML FA(3) z pętli faktur sprzedażowych, bez dodatkowych pobrań; zaległe
   z resztki budżetu tej pętli (limit Płac nietknięty).
@@ -275,11 +276,9 @@ punktu dostępu i bez płatnej integracji EBI24). Pełny opis, mapowanie i stan:
   błąd = faktura nie wychodzi, powód na ekranie.
 - N2.3 Ekran „E-faktury (Peppol)” w Rozliczeniach: stan przy fakturze, „Wyślij”
   pojedynczo i dla zaznaczonych, plik UBL, tryb test/produkcja, wyłącznik automatu.
-- N2.4 Dostawca i test na adresie testowym Nordei — czeka na odpowiedź Nordei
-  (13.11.2026: Artur czeka, bo kanał może być bezpłatny).
-- **Kolejny krok (odłożony 13.11.2026):** faktury per projekt (NIDS) zamiast per
-  konsultant — prośba Nordei, bez kodu w N2; konwerter już przenosi wiele
-  pozycji z NIDS.
+- N2.4 Kanał i test na adresie testowym Nordei: najpierw `visma_direct`
+  (czeka na technika Vismy), zapasowo dostawca Peppol z API.
+- Uzgodnione z Nordeą: faktury zostają per konsultant.
 - **Meta:** faktura z rabatem i odwrotnym obciążeniem, faktura w EUR, korekta
   na minus i na plus przechodzą walidację; wysyłka na adres testowy Nordei
   z potwierdzeniem doręczenia; Finanse potwierdzają fakturę w Vismie.
@@ -393,6 +392,6 @@ zrzuty `shots/nordea-*.png`), dane wstrzykiwane przy zrzucie, w kodzie bez nazwi
 | Etap | Stan | Dowód |
 |---|---|---|
 | N1 | gotowe lokalnie (13.11), PR z migracją 0689 | wrzesień z 5 wersji na kopii z 13.11 = tabela planu; październik: sprawdzana osoba 112 h od v2; testy silnika, odczytu, kartoteki, (a)–(c) i ekranu; zrzuty 1280 × 720 i 390 px (lokalnie, z nazwiskami) |
-| N2 | kod gotowy (13.11), PR z migracją 0690; wysyłka do Nordei czeka na dostawcę | `docs/rozliczenia-nordea-n2-peppol.md`: testy konwersji i walidacji, 59 faktur z listopada na kopii bez uwag, staging z `simulate` |
+| N2 | kod gotowy (13.11), PR z migracją 0690; wysyłka do Nordei czeka na kanał od technika Vismy | `docs/rozliczenia-nordea-n2-peppol.md`: testy konwersji i walidacji, 59 faktur z listopada na kopii bez uwag, staging z `simulate` |
 | N3 | plan (10.11) | — |
 | N4 | plan (10.11) | — |

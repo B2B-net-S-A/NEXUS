@@ -85,3 +85,16 @@ async def test_send_errors_say_whether_the_document_may_have_gone(handler, retry
         await _provider(handler).send(REQUEST)
 
     assert (exc.value.retry, exc.value.uncertain) == (retry, uncertain)
+
+
+def test_visma_direct_is_named_but_waits_for_specification(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PEPPOL_PROVIDER", "visma_direct")
+
+    config = providers.load_config()
+
+    assert config.name == "visma_direct"
+    assert not config.enabled
+    assert "technika Vismy" in config.disabled_reason
+    assert providers.open_provider() is None

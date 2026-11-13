@@ -12,8 +12,10 @@ tylko w prywatnym artefakcie.
 Nordea przyjmuje e-faktury w Peppol BIS 3, OIO UBL albo EHF. Faktura z KSeF do
 niej nie trafia, więc Finanse przepisują ok. 300 faktur miesięcznie (jedna na
 konsultanta) ręcznie w Vismie Nordei. Integracja EBI24 z Vismą była za droga.
-Decyzja Artura z 13.11.2026: NEXUS przygotowuje e-fakturę, a doręcza ją dostawca
-Peppol z API, bez własnego punktu dostępu.
+Decyzja Artura z 13.11.2026: NEXUS przygotowuje e-fakturę (Peppol BIS 3 jako
+format bazowy, walidowany przed wysyłką). Doręczenie najpierw kanałem
+bezpośrednim do Vismy Nordei (Proceedo), a dostawca Peppol z API to plan
+zapasowy. Własnego punktu dostępu nie budujemy.
 
 ## Przepływ
 
@@ -70,16 +72,31 @@ automat nie ponawia, osoba sprawdza u dostawcy), „Wysłana”, „Doręczona�
 Drugi adres testowy Nordei to 0088:7332545042089 („Nordea Bank Abp (test)”).
 Który z nich ma iść, rozstrzyga odpowiedź Nordei. Adresy zmienia się w ustawieniach ekranu.
 
-**Ważne:** testowe adresy Nordei są w produkcyjnej sieci Peppol
+**Ważne (dotyczy zapasu przez Peppol):** testowe adresy Nordei są w produkcyjnej sieci Peppol
 (directory.peppol.eu); w katalogu sieci testowej ich nie ma. Piaskownica
 dostawcy podłączona do testowej sieci Peppol do nich nie sięga. Wysyłka testowa
 wymaga konta produkcyjnego u dostawcy (koszt ok. jednego dokumentu za próbę).
 
-## Dostawca
+## Kanał doręczenia
 
-Adapter `services/peppol/providers.py`: `simulate` (staging, testy) i Recommand
-(REST, surowy UBL, stan doręczenia `pending` / `delivered` / `failed`). Porównanie
-z 13.11.2026 (z dokumentacji i cenników, bez testu w praktyce):
+Adapter `services/peppol/providers.py` (`PEPPOL_PROVIDER`): `simulate` (staging,
+testy), `visma_direct` i `recommand`.
+
+**1. Kanał bezpośredni do Vismy Nordei (pierwszy wybór, 13.11.2026).** Visma po
+stronie Nordei to Proceedo. Formularz onboardingu Nordei wymienia formaty:
+Peppol BIS Billing 3, EHF 3.0, EDIFACT D96 INVOIC, Svefaktura, FINVOICE, OIO XML,
+OIO UBL 2.02, e2b XML i cXML (Proceedo). W mailu z 31.10.2025 Cost Control
+proponował integrację z Vismą i przydzielenie technika Vismy. Czekamy na
+technika: kanał (cXML Proceedo albo OIO UBL przez HTTPS lub SFTP), adres,
+uwierzytelnienie, środowisko testowe i adres testowy do pierwszej faktury.
+`visma_direct` ma dziś tylko nazwę i powód wyłączenia — bez specyfikacji
+implementacja byłaby zgadywaniem. Gdy przyjdzie: klasa z `send` i `status`,
+a przy formacie innym niż BIS 3 konwersja z gotowego, zwalidowanego UBL BIS 3.
+
+**2. Dostawca Peppol z API (zapas, gdy Visma odmówi kanału bezpośredniego).**
+Recommand jest zaimplementowany (REST, surowy UBL, stan doręczenia `pending` /
+`delivered` / `failed`). Wybór dostawcy wraca do Artura dopiero po odmowie
+Vismy. Porównanie z 13.11.2026 (z dokumentacji i cenników, bez testu w praktyce):
 
 | Dostawca | Surowy UBL przez REST | Koszt przy ok. 300/mies. | Uwagi |
 |---|---|---|---|
@@ -88,8 +105,7 @@ z 13.11.2026 (z dokumentacji i cenników, bez testu w praktyce):
 | Storecove (NL) | tak | ok. €300 (licencja od €3 300/rok) | ISO 27001, KSeF w tym samym API |
 | eConnect (NL) | tak | wycena, umowa 3 lata | — |
 
-Decyzja Artura z 13.11.2026: najpierw odpowiedź Nordei, bo kanał może być
-bezpłatny. Do tego czasu na produkcji `PEPPOL_PROVIDER=off` (ekran pokazuje
+Do czasu wyboru kanału na produkcji `PEPPOL_PROVIDER=off` (ekran pokazuje
 stany i plik UBL do pobrania, przycisk wysyłki jest wyłączony).
 
 ## Ekran
@@ -104,15 +120,14 @@ produkcyjnym do „Do wysłania” z dopiskiem „Test doręczony”.
 
 ## Kolejne kroki
 
-- **Faktury per projekt zamiast per konsultant** (prośba Nordei, Artur odłożył
-  13.11.2026): jedna faktura na NIDS ze wszystkimi osobami projektu. Bez kodu
-  w N2. To zmiana wystawiania w EBI24 (albo N4.2), konwerter jej nie wymaga,
-  bo już przenosi wiele pozycji z NIDS w `AccountingCost`.
-- Odpowiedź Nordei (format, adres testowy, kontakt techniczny, bezpłatny
-  kanał) → wybór dostawcy → konto → `PEPPOL_*` przez „Coolify set env” → test na
-  adres testowy → potwierdzenie Finansów z Vismy → tryb produkcyjny.
-- Invoice Response (akceptacja albo odrzucenie przez Nordeę) — gdy dostawca
-  ją przekaże.
+- Odpowiedź technika Vismy (kanał, adres, uwierzytelnienie, środowisko
+  i adres testowy) → `visma_direct` → test na adresie testowym →
+  potwierdzenie Finansów z Vismy → tryb produkcyjny. Artur wysyła odpowiedź do
+  Nordei sam (wątek z 31.10.2025); kontakt techniczny po naszej stronie: Artur.
+- Gdy Visma odmówi kanału bezpośredniego: wybór dostawcy Peppol (Artur),
+  konto, `PEPPOL_*` przez „Coolify set env”, test na adres testowy Nordei.
+- Invoice Response (akceptacja albo odrzucenie przez Nordeę) — gdy kanał ją przekaże.
+- Uzgodnione z Nordeą: faktury zostają per konsultant.
 
 ## Stan
 
@@ -122,4 +137,4 @@ produkcyjnym do „Do wysłania” z dopiskiem „Test doręczony”.
 | Walidacja EN16931 + Peppol | gotowe | 5 próbek bez uwag; ten sam wynik dla 59 faktur do Nordei z listopada na kopii produkcji z 13.11 (FA odtworzone z pozycji, bo lokalnie nie ma KSeF); dodatkowo XSD UBL 2.1 lokalnie |
 | Zapis XML z KSeF, doczytanie | gotowe | `tests/test_peppol_service_db.py` |
 | Wysyłka | gotowe z `simulate` | staging: 4 faktury „Doręczona” na 0088:7332545042126, PDF w załączniku |
-| Wysyłka przez dostawcę do Nordei | czeka | brak konta u dostawcy (decyzja Artura po odpowiedzi Nordei) |
+| Wysyłka do Nordei | czeka | kanał bezpośredni: specyfikacja od technika Vismy; zapas Peppol: wybór dostawcy po odmowie Vismy |

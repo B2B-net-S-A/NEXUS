@@ -1710,10 +1710,11 @@ class Settings(BaseSettings):
     EBI24_ACCOUNT_UUID: str = ""
     EBI24_COMMUNICATION_KEY: str = ""
     EBI24_SECRET_PHRASE: str = ""
-    # E-faktury Peppol (`app/services/peppol/`, plan Nordei N2): dostawca z API,
-    # bez własnego punktu dostępu. off = nic nie wychodzi (domyślnie),
-    # simulate = pliki w PEPPOL_SIMULATE_DIR (staging, testy), recommand = API
-    # Recommand (klucz i sekret konta). Klucz i sekret tylko przez workflow
+    # E-faktury Peppol (`app/services/peppol/`, plan Nordei N2): kanał doręczenia.
+    # off = nic nie wychodzi (domyślnie), simulate = pliki w PEPPOL_SIMULATE_DIR
+    # (staging, testy), visma_direct = kanał bezpośredni do Vismy Nordei (czeka
+    # na specyfikację od technika Vismy), recommand = dostawca Peppol z API
+    # (plan zapasowy; klucz i sekret konta). Klucz i sekret tylko przez workflow
     # „Coolify set env”, nigdy w repo ani w logach. PEPPOL_SENDER_ID = nasz adres
     # w sieci Peppol od dostawcy („9945:PL…”); pusty = 9945 i NIP sprzedawcy.
     PEPPOL_PROVIDER: str = "off"

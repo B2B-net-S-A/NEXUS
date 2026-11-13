@@ -125,10 +125,10 @@ describe("E-faktury Peppol (Nordea N2)", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("bez dostawcy przyciski wysyłki są wyłączone i widać powód", async () => {
-    renderView({ ...base, provider: "off", provider_ready: false, provider_detail: "Wysyłka e-faktur jest wyłączona (brak dostawcy Peppol)." });
+  it("bez kanału doręczenia przyciski wysyłki są wyłączone i widać powód", async () => {
+    renderView({ ...base, provider: "off", provider_ready: false, provider_detail: "Wysyłka e-faktur jest wyłączona (brak kanału doręczenia)." });
 
-    expect(await screen.findByText(/brak dostawcy Peppol/)).toBeInTheDocument();
+    expect(await screen.findByText(/brak kanału doręczenia/)).toBeInTheDocument();
     screen.getAllByRole("button", { name: "Wyślij" }).forEach((button) => expect(button).toBeDisabled());
   });
 

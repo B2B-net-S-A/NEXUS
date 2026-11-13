@@ -1,8 +1,18 @@
-"""Dostawca Peppol z API — adapter, żeby zmiana dostawcy nie ruszała reszty.
+"""Kanał doręczenia e-faktury — adapter, żeby zmiana kanału nie ruszała reszty.
 
-NEXUS nie ma własnego punktu dostępu (członkostwo OpenPeppol i certyfikacja to
-koszt kilku tysięcy euro rocznie). Gotowy i zwalidowany UBL oddajemy
-dostawcy, a on doręcza go do punktu dostępu odbiorcy i zgłasza wynik.
+Kolejność (decyzja Artura z 13.11.2026):
+
+1. ``visma_direct`` — kanał bezpośredni do Vismy Nordei (Proceedo): cXML
+   Proceedo albo OIO UBL przez HTTPS lub SFTP. Szczegóły (adres,
+   uwierzytelnienie, środowisko testowe, format) poda technik Vismy, o którego
+   Nordea zaproponowała w mailu z 31.10.2025. Do tego czasu kanał ma tylko
+   nazwę i powód wyłączenia — implementacja bez specyfikacji byłaby zgadywaniem.
+   Gdy przyjdzie: nowa klasa z ``send``/``status`` i, jeśli Visma chce inny
+   format niż BIS 3, konwersja z gotowego UBL BIS 3 (ten zostaje formatem
+   bazowym, walidowanym przed wysyłką).
+2. ``recommand`` (i inni dostawcy Peppol z API) — plan zapasowy, gdy Visma
+   odmówi kanału bezpośredniego. NEXUS nie ma własnego punktu dostępu
+   (członkostwo OpenPeppol i certyfikacja to kilka tysięcy euro rocznie).
 
 Interfejs (``PeppolProvider``):
 
@@ -36,7 +46,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-PROVIDERS = ("off", "simulate", "recommand")
+PROVIDERS = ("off", "simulate", "visma_direct", "recommand")
+VISMA_DIRECT_PENDING = (
+    "Kanał bezpośredni do Vismy Nordei czeka na dane od technika Vismy "
+    "(adres, uwierzytelnienie, środowisko testowe)."
+)
 REQUEST_TIMEOUT = httpx.Timeout(60.0, connect=10.0)
 #: Stany doręczenia w NEXUS-ie: przyjęta (czeka), doręczona, odrzucona.
 PENDING, DELIVERED, FAILED = "pending", "delivered", "failed"
@@ -276,7 +290,9 @@ class ProviderConfig:
 def load_config() -> ProviderConfig:
     name = (settings.PEPPOL_PROVIDER or "off").strip().lower()
     if name not in PROVIDERS or name == "off":
-        return ProviderConfig("off", "Wysyłka e-faktur jest wyłączona (brak dostawcy Peppol).")
+        return ProviderConfig("off", "Wysyłka e-faktur jest wyłączona (brak kanału doręczenia).")
+    if name == "visma_direct":
+        return ProviderConfig(name, VISMA_DIRECT_PENDING)
     if name == "recommand" and not (
         settings.PEPPOL_API_KEY and settings.PEPPOL_API_SECRET and settings.PEPPOL_COMPANY_ID
     ):
