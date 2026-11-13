@@ -199,7 +199,7 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
   const data = list.data;
   const items = data?.items ?? [];
   return (
-    <div className="space-y-3" data-help="finance.counterparties">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <input
           type="search"
