@@ -47,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.export_safety import safe_row
 from app.core.scheduling import DEFAULT_TZ
 from app.models.app_setting import AppSetting
-from app.models.client_settlement import ClientContractorInvoice
+from app.models.client_settlement import ClientContractorInvoice, ClientSettlement
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_payments import (
     FinanceCostPayment,
@@ -58,6 +58,7 @@ from app.models.finance_payments import (
 )
 from app.models.hr_settlement import PayrollInvoice, PayrollPayment, PayrollSettlement
 from app.models.user import User
+from app.services.client_settlements import service as settlement_service
 from app.services.finance_ledger import costs
 from app.services.finance_ledger import payment_rules as rules
 from app.services.finance_ledger import payment_state
@@ -437,10 +438,18 @@ class PlanItem:
     acks: list[str] = field(default_factory=list)
     hints: list[str] = field(default_factory=list)
     batch_id: Optional[int] = None
+    #: Tytuł reguły zapłaty z rozliczeń klienta (blokada albo odhaczenie).
+    gate_title: Optional[str] = None
 
     @property
     def entry_id(self) -> int:
         return self.row.entry.id
+
+
+def _gate_label(item: PlanItem, code: Optional[str]) -> Optional[str]:
+    if code != "client_signature" or not item.gate_title:
+        return None
+    return f"{item.gate_title} (reguła rozliczeń klienta)."
 
 
 def item_payload(item: PlanItem) -> dict[str, Any]:
@@ -471,8 +480,12 @@ def item_payload(item: PlanItem) -> dict[str, Any]:
         },
         "selectable": item.block is None,
         "block": item.block,
-        "block_label": rules.BLOCK_LABELS.get(item.block or ""),
-        "acks": [{"code": code, "label": rules.ACK_LABELS[code]} for code in item.acks],
+        "block_label": _gate_label(item, item.block)
+        or rules.BLOCK_LABELS.get(item.block or ""),
+        "acks": [
+            {"code": code, "label": _gate_label(item, code) or rules.ACK_LABELS[code]}
+            for code in item.acks
+        ],
         "hints": [
             {"code": code, "label": rules.HINT_LABELS[code]} for code in item.hints
         ],
@@ -508,6 +521,66 @@ async def _month_net(
         if key in keys:
             totals[key] += Decimal(other.net)
     return dict(totals)
+
+
+async def _client_gates(
+    db: AsyncSession, rows: list[PayRow]
+) -> dict[int, dict[str, Any]]:
+    """Reguła zapłaty z rozliczeń klientów (``pay.after_client_signature``).
+
+    Faktura kontraktora klienta → rozliczenie osoby za miesiąc faktury
+    (kontrakt + ``period_month``, rodzaj ``actual``) → ``service.payment``.
+    Brak kontraktu, miesiąca albo rozliczenia = bez ograniczeń (``None``).
+    """
+
+    ids = {
+        row.entry.source_id: row.entry.id
+        for row in rows
+        if row.entry.source_type == "contractor_invoice"
+    }
+    if not ids:
+        return {}
+    invoices = (
+        await db.execute(
+            select(
+                ClientContractorInvoice.id,
+                ClientContractorInvoice.contract_id,
+                ClientContractorInvoice.period_month,
+            ).where(
+                ClientContractorInvoice.id.in_(ids),
+                ClientContractorInvoice.contract_id.is_not(None),
+                ClientContractorInvoice.period_month.is_not(None),
+            )
+        )
+    ).all()
+    if not invoices:
+        return {}
+    keys = {(contract_id, month) for _id, contract_id, month in invoices}
+    settlements = {
+        (s.contract_id, s.period_month): s
+        for s in await db.scalars(
+            select(ClientSettlement).where(
+                ClientSettlement.kind == "actual",
+                ClientSettlement.contract_id.in_({c for c, _m in keys}),
+                ClientSettlement.period_month.in_({m for _c, m in keys}),
+            )
+        )
+    }
+    rule_sets: dict[tuple[int, str], dict[str, dict[str, Any]]] = {}
+    result: dict[int, dict[str, Any]] = {}
+    for invoice_id, contract_id, month in invoices:
+        settlement = settlements.get((contract_id, month))
+        if settlement is None:
+            continue
+        key = (settlement.client_id, month)
+        if key not in rule_sets:
+            rule_sets[key] = await settlement_service.rules_for(
+                db, settlement.client_id, month
+            )
+        gate = settlement_service.payment(settlement, rule_sets[key])
+        if gate is not None:
+            result[ids[invoice_id]] = gate
+    return result
 
 
 async def _white_list(
@@ -567,6 +640,7 @@ async def plan(
     paid = await _paid_sums(db, ids)
     states = await payment_state.for_entries(db, [row.entry for row in rows])
     month_net = await _month_net(db, rows, payroll=payroll)
+    gates = await _client_gates(db, rows)
     items: list[PlanItem] = []
     for row in rows:
         entry = row.entry
@@ -595,6 +669,12 @@ async def plan(
         if active is not None:
             item.block = "in_batch"
             continue
+        gate = gates.get(entry.id)
+        if gate is not None and not gate.get("can_pay"):
+            item.gate_title = str(gate.get("title") or "")
+            if gate.get("state") == "fail":
+                item.block = "client_signature"
+                continue
         if row.gross is None or row.gross <= 0:
             item.block = "no_amount"
             continue
@@ -654,6 +734,8 @@ async def plan(
             item.acks.append("white_list")
         if mode.suggested:
             item.acks.append("mpp_suggested")
+        if item.gate_title is not None:
+            item.acks.append("client_signature")
         month_key = (
             (entry.seller_nip, row.issue_date.year, row.issue_date.month)
             if entry.seller_nip and row.issue_date

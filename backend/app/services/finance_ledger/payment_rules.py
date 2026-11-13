@@ -64,12 +64,15 @@ BLOCK_LABELS: dict[str, str] = {
     "mpp_no_nip": "MPP wymaga NIP-u sprzedawcy.",
     "mpp_no_vat": "MPP wymaga kwoty VAT z faktury.",
     "title_too_long": "Tytuł MPP nie mieści się w 4 liniach po 35 znaków.",
+    "client_signature": "Zapłata czeka na podpis klienta na KEŚU (reguła rozliczeń klienta).",
 }
 #: Ostrzeżenia do świadomego odhaczenia przy tworzeniu paczki.
 ACK_LABELS: dict[str, str] = {
     "white_list": "Rachunek nie jest potwierdzony w wykazie VAT, a faktura ma ponad "
     "15 000 zł brutto — zapłata może nie być kosztem i grozi solidarną "
     "odpowiedzialnością za VAT.",
+    "client_signature": "Zapłata czeka na podpis klienta na KEŚU — reguła klienta "
+    "ostrzega, nie blokuje (rozliczenia klientów).",
     "mpp_suggested": "Faktura od 15 000 zł brutto bez flagi MPP / NIE MPP — sprawdź, "
     "czy podzielona płatność jest obowiązkowa (zał. 15).",
 }

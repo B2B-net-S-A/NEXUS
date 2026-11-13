@@ -131,8 +131,18 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
   (`statements.decide`) albo które Płace już zapisały z tego pliku, zostają
   tamtej ścieżce (licznik „zespół (Płace)”). Faktury kontraktorów klientów
   i dokumenty wydatków nie mają w NEXUSIE innej ścieżki zapłaty — płacimy je tu.
-  Bramka „zapłata po podpisie KEŚU” z rozliczeń klientów nie jest sprawdzana
-  w paczce (decyzja otwarta).
+  Decyzja Artura z 13.11.2026: faktury osób zespołu nigdy nie wchodzą do paczki
+  kosztów, a do planu trafiają tylko faktury z terminem ≤ wybranej daty.
+- **Bramka zapłaty z rozliczeń klientów** (`pay.after_client_signature`,
+  `client_settlements/service.payment`, decyzja z 13.11.2026): faktura
+  kontraktora klienta → rozliczenie osoby za miesiąc faktury (kontrakt +
+  `period_month`, rodzaj `actual`) → reguły klienta na ten miesiąc
+  (`payments._client_gates`). `can_pay: False` przy poziomie `block` (stan
+  `fail`) = wiersz zablokowany z tytułem reguły („Zapłata czeka na podpis
+  klienta na KEŚU”), nie wejdzie do paczki; przy poziomie `warn` = ostrzeżenie
+  do świadomego odhaczenia (jak biała lista). KEŚU podpisane albo zapłata po
+  mailowej akceptacji (`pay_on_mail`) = bez ograniczeń; reguła wyłączona, brak
+  KEŚU, kontraktu, miesiąca albo rozliczenia (`payment` zwraca `None`) — też.
 - **Rachunek odbiorcy**: wpisany na karcie > z faktury w KSeF (kontraktorzy
   klientów: `Platnosc/RachunekBankowy/NrRB` zapisywane od E3 w `details.accounts`
   przy pobraniu XML-a; dokumenty wydatków XML-a nie mają) > z kartoteki

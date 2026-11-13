@@ -28,6 +28,11 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
+from app.models.client_settlement import (
+    ClientContractorInvoice,
+    ClientSettlement,
+    ClientSettlementRuleSet,
+)
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_payments import (
     FinanceCostPayment,
@@ -44,6 +49,8 @@ from app.services.hr import white_list
 from app.services.hr.approvals import cost_invoices
 from app.services.hr.bank.accounts import iban_check_digits
 from tests._permission_grants import grant_permissions
+from tests.test_client_audit_2026_09_24 import _candidate, _client, _contract
+from tests.test_client_audit_2026_09_24 import _cleanup as cleanup_client
 
 PAY = "/api/finance/payments"
 COSTS = "/api/finance/costs"
@@ -682,3 +689,152 @@ async def test_rachunek_nadawcy_walidowany(world, client, account) -> None:
         headers=_headers(world["accountant"]),
     )
     assert response.status_code == 422
+
+
+# ── Bramka zapłaty z rozliczeń klientów (KEŚU) ───────────────────────────────
+
+
+async def _contractor_entry(
+    world: World, *, rule: str, kesu: str, on_mail: bool = False
+) -> tuple[int, int]:
+    """Faktura kontraktora klienta z rozliczeniem miesiąca i regułą klienta."""
+
+    client_id = await _client()
+    contract_id = await _contract(client_id, await _candidate())
+    nip = world["nips"]["c"]
+    month = "2026-10"
+    meta = {"remaining_after": None, "kesu": {"state": kesu}}
+    if on_mail:
+        meta["pay_on_mail"] = True
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientSettlementRuleSet(
+                client_id=client_id,
+                effective_from="2020-01",
+                rules={"pay.after_client_signature": {"level": rule}},
+            )
+        )
+        db.add(
+            ClientSettlement(
+                contract_id=contract_id,
+                client_id=client_id,
+                period_month=month,
+                status="accepted",
+                checks=[meta],
+            )
+        )
+        invoice = ClientContractorInvoice(
+            ksef_number=_ksef(nip),
+            seller_nip=nip,
+            seller_name="Kontraktor Testowy",
+            invoice_number=f"K/{random.randint(1, 99999)}/10/2026",
+            issue_date=date(2026, 11, 2),
+            gross_amount=Decimal("1230.00"),
+            net_amount=Decimal("1000.00"),
+            vat_amount=Decimal("230.00"),
+            contract_id=contract_id,
+            period_month=month,
+            nip_state="known",
+        )
+        db.add(invoice)
+        await db.commit()
+        await ledger.catch_up(db)
+        entry = await db.scalar(
+            select(FinanceCostEntry).where(
+                FinanceCostEntry.source_type == "contractor_invoice",
+                FinanceCostEntry.source_id == invoice.id,
+            )
+        )
+        entry.stage = "new"
+        entry.due_date = world["today"] - timedelta(days=1)
+        db.add(FinanceCostPayment(entry_id=entry.id, account=_nrb(71)))
+        await db.commit()
+        entry_id = entry.id
+    world["listed"].add(_nrb(71))
+    world.setdefault("clients", []).append(client_id)
+    return entry_id, client_id
+
+
+async def _drop_client(client_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(ClientContractorInvoice).where(
+                ClientContractorInvoice.contract_id.in_(
+                    select(ClientSettlement.contract_id).where(
+                        ClientSettlement.client_id == client_id
+                    )
+                )
+            )
+        )
+        await db.execute(
+            delete(ClientSettlement).where(ClientSettlement.client_id == client_id)
+        )
+        await db.execute(
+            delete(ClientSettlementRuleSet).where(
+                ClientSettlementRuleSet.client_id == client_id
+            )
+        )
+        await db.commit()
+    await cleanup_client(client_id)
+
+
+@pytest.mark.parametrize(
+    ("rule", "kesu", "on_mail", "expected"),
+    [
+        ("block", "awaiting_client", False, "blocked"),
+        ("block", "signed", False, "free"),
+        ("block", "awaiting_client", True, "free"),
+        ("warn", "awaiting_client", False, "ack"),
+        ("off", "awaiting_client", False, "free"),
+    ],
+)
+async def test_zaplata_kontraktora_czeka_na_podpis_klienta_na_kesu(
+    world, client, rule, kesu, on_mail, expected
+) -> None:
+    entry, client_id = await _contractor_entry(
+        world, rule=rule, kesu=kesu, on_mail=on_mail
+    )
+    headers = _headers(world["accountant"])
+    try:
+        plan = _items(
+            await client.post(f"{PAY}/plan", json={}, headers=headers), [entry]
+        )
+        row = plan[entry]
+        if expected == "blocked":
+            assert row["block"] == "client_signature"
+            assert row["block_label"].startswith(
+                "Zapłata czeka na podpis klienta na KEŚU"
+            )
+            refused = await client.post(
+                f"{PAY}/batches", json={"entry_ids": [entry]}, headers=headers
+            )
+            assert refused.status_code == 409
+            assert refused.json()["detail"]["code"] == "blocked"
+            return
+        assert row["selectable"] is True
+        if expected == "ack":
+            assert [ack["code"] for ack in row["acks"]] == ["client_signature"]
+            assert row["acks"][0]["label"].startswith("Zapłata czeka na podpis")
+            refused = await client.post(
+                f"{PAY}/batches", json={"entry_ids": [entry]}, headers=headers
+            )
+            assert refused.json()["detail"]["code"] == "needs_ack"
+            created = await client.post(
+                f"{PAY}/batches",
+                json={"entry_ids": [entry], "acknowledged": [entry]},
+                headers=headers,
+            )
+        else:
+            assert row["acks"] == []
+            created = await client.post(
+                f"{PAY}/batches", json={"entry_ids": [entry]}, headers=headers
+            )
+        assert created.status_code == 200, created.text
+        assert await _state(entry) == "in_batch"
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FinanceCostEntry).where(FinanceCostEntry.id == entry)
+            )
+            await db.commit()
+        await _drop_client(client_id)
