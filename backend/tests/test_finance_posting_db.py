@@ -1,4 +1,4 @@
-"""Dekret i eksport do Symfonii FK (E2, 0697) — trasy z bazą.
+"""Dekret i eksport do Symfonii FK (E2, 0696) — trasy z bazą.
 
 Zasiew planu kont i reguły kontraktora, reguła kontrahenta przed ogólną,
 dekret przy weryfikacji, brak konta kontrahenta blokuje „Gotowa do

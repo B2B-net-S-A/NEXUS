@@ -333,7 +333,7 @@ async def test_sciezka_od_poczekalni_do_gotowej_z_historia(world, client) -> Non
     assert wrong.status_code == 409
     assert "Z KSeF do przyjęcia" in wrong.json()["detail"]
 
-    # E2 (0697): „Gotowa do księgowania” wymaga kompletnego dekretu — kontrahent
+    # E2 (0696): „Gotowa do księgowania” wymaga kompletnego dekretu — kontrahent
     # z kontem rozrachunkowym i reguła (tu reguła tego kontrahenta).
     await _with_posting_rule(entry, world["nips"]["person"])
     for action, stage in (

@@ -2263,7 +2263,7 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
-# Księgowość E2 (0697): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
+# Księgowość E2 (0696): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
 app.include_router(
     finance_posting_api.router,
     prefix="/api/finance/posting",
@@ -4227,7 +4227,7 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
-        # 0697: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
+        # 0696: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
         ("finance_posting_batches", FinancePostingBatch),

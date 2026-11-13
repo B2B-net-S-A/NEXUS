@@ -143,7 +143,7 @@ class FinanceCostEntry(Base):
     stage_changed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # 0697 (E2): dekret do Symfonii FK i paczka eksportu, w której wpis czeka.
+    # 0696 (E2): dekret do Symfonii FK i paczka eksportu, w której wpis czeka.
     decree: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
     batch_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("finance_posting_batches.id", ondelete="SET NULL"), nullable=True
@@ -162,7 +162,7 @@ class FinanceCostEntry(Base):
 class FinanceCostEntryEvent(Base):
     __tablename__ = "finance_cost_entry_events"
     __table_args__ = (
-        # Akcje E1 i E2 (0697 przebudowuje CHECK z 0695).
+        # Akcje E1 i E2 (0696 przebudowuje CHECK z 0695).
         CheckConstraint(
             posting_schema.CK_EVENT_ACTION, name="ck_finance_cost_entry_events_action"
         ),

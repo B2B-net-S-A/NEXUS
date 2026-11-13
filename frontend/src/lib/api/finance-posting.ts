@@ -1,4 +1,4 @@
-// Finanse → dekret do Symfonii FK, plan kont i eksport (księgowość E2, 0697).
+// Finanse → dekret do Symfonii FK, plan kont i eksport (księgowość E2, 0696).
 //
 // Lustro `backend/app/api/finance_posting.py`. Bramki jak w E1 („Moduł
 // Finanse” i moduł „Księgowość”). Dekret, kontrolę i paczki liczy serwer;

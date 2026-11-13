@@ -1,4 +1,4 @@
-"""Dekret do Symfonii FK (E2, 0697) — reguły bez bazy.
+"""Dekret do Symfonii FK (E2, 0696) — reguły bez bazy.
 
 Dopasowanie reguły (kontrahent przed kategorią, tylko aktywne), pozycje
 Wn/Ma z kwot faktury, bilans, brak kontrahenta albo konta, waluta obca,
