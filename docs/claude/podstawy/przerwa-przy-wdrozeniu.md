@@ -81,6 +81,36 @@ sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). 
   są tylko kontenery NEXUSA i proxy,
 - `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.
 
+## Etap B1: front jako aplikacja `nexus-frontend` — kolejność
+
+Wszystko przez workflow „Coolify frontend app” (`coolify-frontend-app.yml`, tylko z maina,
+konto `env -u GH_TOKEN gh`), każdy krok zmieniający produkcję w oknie wdrożeń.
+
+1. `mode=plan` — odczyt: identyfikatory, sieć `nexus-front`, zmienne, usługi compose z domeną.
+2. `mode=create` — destination `nexus-front` (sieć + `coolify-proxy`) i aplikacja bez domeny.
+3. `mode=deploy` — wdrożenie próbne; zielone = `finished`, SHA w `version.json` z logu builda,
+   kontener `running:healthy`.
+4. PR z `networks: nexus-front` w `docker-compose.yml` wchodzi dopiero po kroku 2 (bez sieci
+   wdrożenie compose pada) i musi być wdrożony przed krokiem 5: od niego front widzi `backend`.
+5. Po „przepnij” Artura: `mode=switch` — aplikacja dostaje domeny frontu i wdraża się
+   (rolling update), dopiero potem compose oddaje domeny frontu w Coolify. Do następnego
+   wdrożenia compose Traefik ma dla tych domen dwa zdrowe kontenery.
+6. PR usuwający usługę `frontend` z compose (z krokami frontu w Deploy) do kolejki. Jego
+   wdrożenie zdejmuje stary kontener; od niego raport przerwy mierzy front jako
+   osobną aplikację (`--frontend-app true`, ostrzeżenie powyżej 2 s).
+
+Sprawdzenie po 5 i 6: `curl -s https://nexus.b2bnetwork.pl/version.json` (SHA maina),
+kilka razy `curl -sI 'https://nexus.b2bnetwork.pl/auth/microsoft/callback?error=access_denied'`
+(302 z backendu, nie 5xx: front doszedł do `backend:8000`), logowanie i jedna strona SSR.
+
+**Wycofanie.**
+- Zły kod frontu: `mode=deploy` z `commit=<poprzedni SHA>` — rolling update, bez przerwy.
+- Zła aplikacja frontu przed krokiem 6: `mode=rollback` (domeny wracają do compose;
+  wczytany compose ma jeszcze usługę `frontend`), Deploy z `force_rebuild=true`, potem `mode=stop`.
+- Po kroku 6: revert PR-a z kroku 6 i Deploy (front dalej obsługuje `nexus-frontend`), potem
+  `mode=rollback`, Deploy z `force_rebuild=true` (stary front dostaje domeny), na końcu `mode=stop`.
+  Każdy Deploy compose to przerwa API, więc w oknie wdrożeń.
+
 ## Pomiar
 
 Każdy bieg Deploy raportuje przerwę frontu i API oraz restart Postgresa
