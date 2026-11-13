@@ -1465,6 +1465,16 @@ except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
 
+# 0687: paczka do podpisu, dokumenty obok umowy B2B
+# (`app/services/b2b_esign/documents_schema.py`).
+try:
+    from app.services.b2b_esign import documents_schema as _b2b_signing_documents_schema
+
+    _B2B_SIGNING_DOCUMENTS_DDL = list(_b2b_signing_documents_schema.TABLE_DDL)
+except Exception as _b2b_signing_documents_schema_err:  # noqa: BLE001
+    print(f"b2b signing documents schema unavailable: {_b2b_signing_documents_schema_err!r}")
+    _B2B_SIGNING_DOCUMENTS_DDL = []
+
 # 0649: dokumenty do startu (`app/services/start_documents_schema.py`).
 try:
     from app.services import start_documents_schema as _start_documents_schema
@@ -7205,6 +7215,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
+    # 0687: po `b2b_signing_requests` i `client_start_documents`.
+    *_B2B_SIGNING_DOCUMENTS_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,
