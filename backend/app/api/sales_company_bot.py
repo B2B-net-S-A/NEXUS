@@ -31,8 +31,9 @@ from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
 from app.models.user import User
 from app.services.action_permissions import has_permission
-from app.services.sales import bot_card_history, bot_tasks, registry_cards, signals
+from app.services.sales import bot_card_history, bot_tasks, signals
 from app.services.sales.bot_tasks import enrich, people, question
+from app.services.sales import registry_cards
 
 logger = logging.getLogger(__name__)
 
