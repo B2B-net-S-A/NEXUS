@@ -96,8 +96,13 @@ konto `env -u GH_TOKEN gh`), każdy krok zmieniający produkcję w oknie wdroże
 2. `mode=create` — destination `nexus-front` (sieć + `coolify-proxy`) i aplikacja bez domeny.
 3. `mode=deploy` — wdrożenie próbne; zielone = `finished`, SHA w `version.json` z logu builda,
    kontener `running:healthy`.
-4. PR z `networks: nexus-front` w `docker-compose.yml` wchodzi dopiero po kroku 2 (bez sieci
-   wdrożenie compose pada) i musi być wdrożony przed krokiem 5: od niego front widzi `backend`.
+4. PR z `networks: nexus-front` w `docker-compose.yml` wchodzi dopiero po kroku 2 i musi być
+   wdrożony przed krokiem 5: od niego front widzi `backend`. Coolify zatrzymuje wszystkie
+   kontenery compose, zanim odkryje brak sieci zewnętrznej, więc Deploy ma bramkę
+   „Frontend app preflight” przed wyzwoleniem compose (brak sieci = czerwony bieg, produkcja
+   nietknięta). Ten sam PR dodaje do Deploy kroki frontu: po udanym compose wdrażają
+   `nexus-frontend` z tego samego commitu, ale tylko gdy aplikacja ma domeny (przed `switch`
+   pomijają). `switch` odmawia, gdy wdrożony compose nie ma sieci `nexus-front`.
 5. Po „przepnij” Artura: `mode=switch` — aplikacja dostaje domeny frontu i wdraża się
    (rolling update), dopiero potem compose oddaje domeny frontu w Coolify. Do następnego
    wdrożenia compose Traefik ma dla tych domen dwa zdrowe kontenery.
@@ -116,7 +121,8 @@ konto `env -u GH_TOKEN gh`), każdy krok zmieniający produkcję w oknie wdroże
    `next/dist/server/lib/start-server.js`; `node` jest PID 1, więc dostaje sygnał). Żądanie,
    które Traefik wyśle w tej chwili do starego kontenera, dostaje odmowę połączenia
    i `retry` ponawia je na nowym.
-6. PR usuwający usługę `frontend` z compose (z krokami frontu w Deploy) do kolejki. Jego
+6. PR usuwający usługę `frontend` z compose do kolejki (bramka Deploy wymaga od niego, żeby
+   front miał domeny, a compose ich nie miał — `FRONTEND_APP_REQUIRED=true`). Jego
    wdrożenie zdejmuje stary kontener; od niego raport przerwy mierzy front jako
    osobną aplikację (`--frontend-app true`). Odbiór: 0 próbek frontu bez 200 na kolejnych
    wdrożeniach; każda zła próbka to ostrzeżenie w biegu Deploy.

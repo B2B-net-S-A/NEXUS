@@ -264,20 +264,26 @@ def test_downtime_report_splits_targets_and_reads_postgres_start() -> None:
     )
 
 
-def test_frontend_app_deploys_inside_the_probe_window_from_the_compose_commit() -> None:
-    """Etap B1: front jako osobna aplikacja Coolify wdraża się w tym samym biegu.
+def test_frontend_app_is_gated_before_compose_and_deployed_after_it() -> None:
+    """Etap B1: osobna aplikacja frontu w tym samym biegu Deploy.
 
-    Wyzwalany po compose (z commitu, który compose ustalił) i przed smoke'iem
-    `version.json`, więc sonda mierzy jego rolling update, a raport wie, że front
-    to osobna aplikacja (cel: 0 próbek bez 200).
+    Bramka przed compose (Coolify zatrzymuje wszystko, zanim odkryje brak sieci
+    `nexus-front`), front dopiero po udanym compose (padnięty backend nie zostawia
+    nowego frontu ze starym API) i przed smoke'iem `version.json`, a raport wie,
+    że front to osobna aplikacja (cel: 0 próbek bez 200).
     """
     steps = _load("deploy.yml")["jobs"]["deploy"]["steps"]
     names = [s.get("name") for s in steps]
+    preflight = _step(steps, "Frontend app preflight")
     trigger = _step(steps, "Trigger frontend app deployment")
     wait = _step(steps, "Wait for frontend app deployment")
-    assert names.index("Trigger deployment") < names.index("Trigger frontend app deployment")
+    assert names.index("Frontend app preflight") < names.index("Trigger deployment")
+    assert "coolify_frontend_app.py preflight" in preflight["run"]
+    # Compose bez usługi `frontend`: front musi mieć domeny, zanim compose ruszy.
+    assert preflight["env"]["FRONTEND_APP_REQUIRED"] == "true"
     assert (
-        names.index("Trigger frontend app deployment")
+        names.index("Wait for deployment to finish (fail fast on server-side failure)")
+        < names.index("Trigger frontend app deployment")
         < names.index("Wait for frontend app deployment")
         < names.index("Frontend osiągalny (aplikacja użytkownika)")
     )
@@ -287,9 +293,11 @@ def test_frontend_app_deploys_inside_the_probe_window_from_the_compose_commit() 
     )
     assert "coolify_frontend_app.py trigger" in trigger["run"]
     assert "coolify_frontend_app.py wait" in wait["run"]
+    assert wait["if"] == "${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}"
     report = _step(steps, "Report user-facing downtime")
     assert (
-        report["env"]["FRONTEND_APP"] == "${{ steps.frontend_trigger.outcome == 'success' }}"
+        report["env"]["FRONTEND_APP"]
+        == "${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}"
     )
     assert '--frontend-app "$FRONTEND_APP"' in report["run"]
 
