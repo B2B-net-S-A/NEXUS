@@ -263,6 +263,12 @@ jobs:
           # zmiennej repo: 22.10 zmiana na 8-18 w kodzie nie zadziałała, bo
           # stara zmienna `DEPLOY_FREEZE_WINDOW=7-19` ją nadpisywała (29.10).
           FREEZE_WINDOW: "8-18"
+          # Wieczorne grupowanie (13.11.2026, decyzja Artura): pon–pt
+          # 18:00–21:59 merge nie przebudowuje produkcji od razu, tylko czeka
+          # na slot budzika 20:05 / 22:05 — każde wdrożenie to ok. 90 s
+          # przerwy API i restart bazy, a 12.11 było ich 7 jednego wieczoru.
+          # Ręczny bieg wdraża od razu. → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
+          BATCH_WINDOW: "18-22"
           EMERGENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency && '--emergency' || '' }}
           # Tekst od człowieka tylko przez `env:` — interpolacja `${{ }}` w `run`
           # wkleiłaby go do skryptu powłoki.
@@ -273,6 +279,7 @@ jobs:
           python3 .github/scripts/select_release_sha.py select \
             --repo "${{ github.repository }}" --branch main \
             --target "$TARGET_SHA" --freeze-window "$FREEZE_WINDOW" \
+            --batch-window "$BATCH_WINDOW" \
             --reason "$DEPLOY_REASON" \
             $TARGET_UNVERIFIED $SCHEDULED $EMERGENCY
           if [ -n "$EMERGENCY" ]; then

@@ -78,7 +78,8 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
 
 ## Import listy
 
-- **To nie jest silnik leadów.** Listę przygotowuje człowiek i musi podać „Skąd kontakt”
+- **Plik to nie silnik leadów.** Od 13.11.2026 listę może też złożyć Bot Listy z briefu
+  kampanii, tymi samymi bramkami (`bot-listy-kampanie.md`). Plik przygotowuje człowiek i musi podać „Skąd kontakt”
   (zapis przy każdym rekordzie). Bez tego pola import to 422; sam podgląd go nie wymaga.
 - **Najpierw los każdego wiersza, potem zapis.** Podgląd niczego nie zapisuje, a zapis
   liczy plan jeszcze raz pod jedną blokadą importu (`pg_advisory_xact_lock`), więc drugi

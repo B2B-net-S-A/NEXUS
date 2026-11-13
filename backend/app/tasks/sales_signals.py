@@ -29,7 +29,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import is_business_day, local_now
 from app.models.sales import SalesSignalRun
 from app.services import loop_heartbeat
-from app.services.sales import bot_tasks
+from app.services.sales import bot_lists, bot_tasks
 from app.services.sales import hook_prep_targets as hook_prep
 from app.services.sales import lead_dossier
 from app.services.sales import signal_targets as targets
@@ -281,7 +281,15 @@ async def sales_signals_loop() -> None:
         )
     # Rejestry państwowe (biała lista VAT, KRS) nie potrzebują bota ani webhooka.
     registry_ready = registry_cards.enabled()
-    if not (legacy_ready or bot_tasks_ready or cognism_ready or registry_ready):
+    # Bot Listy z bazy też nie potrzebuje bota (decyzja Artura 13.11.2026).
+    lists_ready = bool(settings.SALES_BOT_LISTS_ENABLED)
+    if not (
+        legacy_ready
+        or bot_tasks_ready
+        or cognism_ready
+        or registry_ready
+        or lists_ready
+    ):
         logger.info("sales_signals_loop disabled")
         return
     beat = loop_heartbeat.register(
@@ -305,6 +313,14 @@ async def sales_signals_loop() -> None:
                 async with AsyncSessionLocal() as db:
                     await registry_cards.night_step(
                         db, now=datetime.now(timezone.utc), local=local_now()
+                    )
+            local = local_now()
+            if lists_ready and bot_lists.refill_due(local):
+                # Poniedziałek od 7:00: dosypka list kampanii z briefem, raz w tygodniu
+                # (``bot_built_at``), zawsze do poziomu paczki.
+                async with AsyncSessionLocal() as db:
+                    done["lists"] = await bot_lists.refill_campaigns(
+                        db, now=datetime.now(timezone.utc)
                     )
             if any(done.values()):
                 logger.info(
