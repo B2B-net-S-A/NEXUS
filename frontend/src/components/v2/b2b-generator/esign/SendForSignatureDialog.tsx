@@ -231,7 +231,11 @@ export function SendForSignatureDialog({
                       </div>
                     </div>
                     {(defaults.data.documents ?? []).length > 0 ? (
-                      <fieldset className="space-y-1.5" aria-describedby={`esign-docs-help-${row.id}`}>
+                      <fieldset
+                        className="space-y-1.5"
+                        aria-describedby={`esign-docs-help-${row.id}`}
+                        data-tour="b2b.esign.package"
+                      >
                         <legend className="text-sm font-medium">Do podpisu razem z umową</legend>
                         <div className="flex flex-col gap-1">
                           {(defaults.data.documents ?? []).map((document) => (

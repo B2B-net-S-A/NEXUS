@@ -2689,5 +2689,26 @@
     "href": "/sales/my-day",
     "dot_anchor": "sales.my-day.prep-points",
     "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
+    "id": "podpis-paczka-umowa-nda",
+    "pr": 3361,
+    "title": "Umowa i NDA do podpisu jednym linkiem",
+    "why": "„Wyślij do podpisu” dokłada dokumenty do startu z listy klienta, np. NDA. Kontraktor podpisuje wszystko na jednej stronie, a podpisane NDA samo odhacza się w dokumentach do startu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "b2b.esign.package"
   }
 ]
