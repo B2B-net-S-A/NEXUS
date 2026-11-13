@@ -44,7 +44,7 @@ traversal ani audytu znanych podatności zależności na PR-ze.
   pochodzi wartość, gdzie jest bind albo escapowanie):
 
   ```bash
-  pip install semgrep==1.136.0   # ta sama wersja co w baseline („semgrep”)
+  pip install semgrep==1.136.0 setuptools==75.8.0   # wersja jak „semgrep” w baseline
   semgrep scan --metrics=off --config p/python --config p/fastapi \
     --config p/typescript --config p/react --json --output semgrep.json backend frontend
   python3 .github/scripts/semgrep_ratchet.py update --results semgrep.json \
@@ -58,6 +58,9 @@ traversal ani audytu znanych podatności zależności na PR-ze.
 
 ## Pułapki
 
+- **Semgrep 1.136 na Pythonie 3.12 potrzebuje `setuptools`** (`pkg_resources`
+  przez opentelemetry); bez niego każdy bieg kończył się `ModuleNotFoundError`
+  i czerwienią „nie zakończył skanu” (pierwszy bieg #3398).
 - **Jawnie podany plik Semgrep skanuje nawet wtedy, gdy `.semgrepignore` go
   pomija.** Dlatego PR skanuje katalogi `backend frontend` z `--include=/ścieżka`
   dla każdego zmienionego pliku (`semgrep_ratchet.py include-args`).

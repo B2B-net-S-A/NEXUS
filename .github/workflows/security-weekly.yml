@@ -42,7 +42,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Zainstaluj Semgrep
-        run: pip install semgrep==1.136.0
+        # setuptools: Semgrep 1.136 importuje `pkg_resources` (przez opentelemetry),
+        # a Python 3.12 z setup-python go nie ma — bez tego ModuleNotFoundError
+        # (pierwszy bieg #3398, 13.11.2026). 75.8 to wydanie z `pkg_resources`.
+        run: pip install semgrep==1.136.0 setuptools==75.8.0
       - name: Semgrep
         run: |
           set -euo pipefail

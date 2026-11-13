@@ -1328,6 +1328,6 @@ def test_security_scanners_block_prs_and_run_weekly() -> None:
         assert "p/secrets" not in scan, "Sekrety łapie gitleaks."
         assert "--metrics=off" in scan
     for install in installs:
-        assert install.strip() == f"pip install semgrep=={baseline['semgrep']}"
+        assert install.strip().startswith(f"pip install semgrep=={baseline['semgrep']} ")
     # Jawne pliki omijają .semgrepignore — PR skanuje katalogi z --include.
     assert "include-args" in scans[0] and scans[0].rstrip().count("backend frontend") == 1
