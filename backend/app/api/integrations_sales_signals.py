@@ -25,8 +25,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.tasks import spawn
 from app.models.sales import SalesSignalRun
 from app.services.sales import bot_tasks, signals
+from app.services.sales import registry_cards
 
 logger = logging.getLogger(__name__)
 
@@ -139,4 +141,11 @@ async def receive_report(
         db, task, run, report, now=datetime.now(timezone.utc)
     )
     await db.commit()
+    if run.kind == "enrich" and registry_cards.enabled():
+        # NIP wpisany przez bota idzie od razu do rejestrów (tylko karty bez
+        # sprawdzenia z tym numerem, ``registry_cards.due_company_ids``).
+        spawn(
+            registry_cards.check_after_save([int(cid) for cid in run.company_ids]),
+            "sales_registry_after_enrich",
+        )
     return {"status": "received", **task.reply(summary)}

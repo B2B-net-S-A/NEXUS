@@ -1358,6 +1358,10 @@ class Settings(BaseSettings):
     # karta firmy, pytania, odzyskiwanie, nowe centra, mapy osób. OFF do udanej
     # próby polecenia v2 rutyny bota; ``signals`` i ``briefing`` działają bez niej.
     SALES_BOT_TASKS_ENABLED: bool = False
+    # Dane firm z rejestrów państwowych (biała lista VAT MF i KRS) na karty Sprzedaży:
+    # noc 1–6 i zaraz po zapisaniu NIP-u albo KRS-u (``services/sales/registry.py``).
+    # OFF do próby na stagingu z kopią produkcji.
+    SALES_REGISTRY_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.

@@ -1,0 +1,21 @@
+{
+  "odpis": {
+    "rodzaj": "Aktualny",
+    "naglowekA": {"rejestr": "RejP", "numerKRS": "0000111222", "stanPozycji": 1},
+    "dane": {
+      "dzial1": {
+        "danePodmiotu": {
+          "formaPrawna": "SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+          "identyfikatory": {"regon": "11122233300000", "nip": "1112223332"},
+          "nazwa": "PRZYKŁADOWA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ"
+        },
+        "siedzibaIAdres": {
+          "siedziba": {"kraj": "POLSKA", "wojewodztwo": "ŚLĄSKIE", "miejscowosc": "BIELSKO-BIAŁA"},
+          "adres": {"ulica": "UL. TESTOWA", "nrDomu": "1", "miejscowosc": "BIELSKO-BIAŁA", "kodPocztowy": "43-300", "kraj": "POLSKA"}
+        }
+      },
+      "dzial2": {},
+      "dzial6": {}
+    }
+  }
+}

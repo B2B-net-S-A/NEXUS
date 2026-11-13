@@ -1,0 +1,14 @@
+{
+  "odpis": {
+    "rodzaj": "Pełny",
+    "naglowekP": {
+      "rejestr": "RejP",
+      "numerKRS": "0000555666",
+      "wpis": [
+        {"numerWpisu": 1, "opis": "REJESTRACJA W KRAJOWYM REJESTRZE SĄDOWYM", "dataWpisu": "01.02.2003"},
+        {"numerWpisu": 2, "opis": "WYKREŚLENIE Z KRAJOWEGO REJESTRU SĄDOWEGO", "dataWpisu": "17.03.2016"}
+      ]
+    },
+    "dane": {"dzial1": {"danePodmiotu": {"identyfikatory": [{"regon": "55566677700000", "nip": "5556667776"}]}}}
+  }
+}
