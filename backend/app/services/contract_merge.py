@@ -252,7 +252,7 @@ _KNOWN_CONTRACT_FKS = {
     # rodzaj, wartość) — ten sam numer osoby u obu duplikatów rozstrzyga
     # ``_resolve_child_duplicates`` (potwierdzony wygrywa z podpowiedzią).
     ("client_external_ids", "contract_id"),
-    # Dodatki do rozliczenia (0690, E5.1; koszty integracji ze zgodą DL-a):
+    # Dodatki do rozliczenia (0691, E5.1; koszty integracji ze zgodą DL-a):
     # bez unikatu — idą za kontraktem w całości, limit roku liczy się na kandydata.
     ("client_settlement_extras", "contract_id"),
 }
