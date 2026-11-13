@@ -1,0 +1,47 @@
+{
+  "result": {
+    "entries": [
+      {
+        "identifier": "1112223332",
+        "subjects": [
+          {
+            "name": "PRZYKŁADOWA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ",
+            "nip": "1112223332",
+            "statusVat": "Czynny",
+            "regon": "111222333",
+            "pesel": null,
+            "krs": "0000111222",
+            "residenceAddress": "UL. TESTOWA 1, 43-300 BIELSKO-BIAŁA",
+            "workingAddress": null,
+            "representatives": [],
+            "authorizedClerks": [],
+            "partners": [],
+            "registrationLegalDate": "2001-01-01",
+            "removalDate": null,
+            "accountNumbers": ["00000000000000000000000000"],
+            "hasVirtualAccounts": false,
+            "newFieldFromMf": "pominięte"
+          }
+        ]
+      },
+      {"identifier": "4445556665", "subjects": []},
+      {
+        "identifier": "7778889998",
+        "subjects": [
+          {
+            "name": "DAWNA FIRMA\u0007 TESTOWA",
+            "nip": "7778889998",
+            "statusVat": "Niezarejestrowany",
+            "regon": "777888999",
+            "krs": null,
+            "residenceAddress": "UL. PRÓBNA 2, 00-950 WARSZAWA",
+            "removalDate": "2025-01-31",
+            "accountNumbers": []
+          }
+        ]
+      }
+    ],
+    "requestDateTime": "13-11-2026 12:00:00",
+    "requestId": "test-0001"
+  }
+}

@@ -32,6 +32,7 @@ from app.api.sales_gates import (
     is_admin,
 )
 from app.core.database import get_db
+from app.core.tasks import spawn
 from app.models.client import Client
 from app.models.sales import SalesCompany, SalesOpportunity
 from app.models.user import User
@@ -39,6 +40,7 @@ from app.services import sales_schema as schema
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.sales import calls as sales_calls
 from app.services.sales import companies as service
+from app.services.sales import registry_cards
 from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
 from app.services.sales.merge import merge_companies
 
@@ -613,6 +615,7 @@ async def create_company(
     _apply(company, fields)
     db.add(company)
     await db.commit()
+    _check_registry(company, "|")
     return await _load(db, company.id)
 
 
@@ -646,9 +649,21 @@ async def update_company(
         if required in fields and fields[required] is None:
             fields.pop(required)
     await _check_links(db, company_id=company_id, fields=fields)
+    before = registry_cards.checked_key(company)
     _apply(company, fields)
     await db.commit()
+    _check_registry(company, before)
     return await _load(db, company_id)
+
+
+def _check_registry(company: SalesCompany, before: str) -> None:
+    """Nowy NIP albo KRS na karcie: sprawdzenie w rejestrach od razu, w tle."""
+
+    if registry_cards.enabled() and registry_cards.identifiers_changed(before, company):
+        spawn(
+            registry_cards.check_after_save([company.id]),
+            "sales_registry_after_save",
+        )
 
 
 @router.post("/{company_id}/calls", status_code=status.HTTP_204_NO_CONTENT)
