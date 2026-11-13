@@ -27,6 +27,7 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { ExtrasSection } from "./ExtrasSection";
 import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
 import { IntegrationCostsSection } from "./IntegrationCostsSection";
 import { KesuSection } from "./KesuSection";
@@ -149,6 +150,9 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
           ) : null}
           {canWrite ? <MdForm detail={d} month={month} kind={kind} /> : null}
           <Computation detail={d} />
+          {d.extras && kind === "actual" ? (
+            <ExtrasSection contractId={contractId} month={month} block={d.extras} canWrite={canWrite} />
+          ) : null}
           {d.contractor_invoice && kind === "actual" ? <ContractorInvoiceSection block={d.contractor_invoice} canWrite={canWrite} /> : null}
           {kind === "actual" ? <IntegrationCostsSection contractId={contractId} month={month} canWrite={canWrite} /> : null}
         </div>

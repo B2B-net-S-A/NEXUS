@@ -167,6 +167,7 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
                     {!r.template ? (
                       <p className="mt-0.5 text-[11px] text-warning-muted-foreground">Bez poprzedniej faktury: nazwa zastępcza, sprawdź opis.</p>
                     ) : null}
+                    {r.extras_note ? <p className="mt-0.5 text-[11px] text-warning-muted-foreground">{r.extras_note}</p> : null}
                   </td>
                   {data.can_see_amounts ? <td className="px-2 py-1.5 text-right tabular-nums">{money(r.net, r.currency)}</td> : null}
                   {data.can_see_amounts ? (

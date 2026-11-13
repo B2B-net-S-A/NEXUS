@@ -57,6 +57,7 @@
   "POST /api/public/consultant-portal/rating": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/rating-form": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/session": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/settlement/extras": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "PUT /api/public/consultant-portal/trainer": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
  }
 }

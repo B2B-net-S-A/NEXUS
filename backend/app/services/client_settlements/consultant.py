@@ -17,6 +17,7 @@ from typing import Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.client_settlements import contractor_invoices, service
+from app.services.client_settlements import extras as settlement_extras
 from app.services.multi_consultant_orders import format_md
 from app.services.client_settlements import settings as module_settings
 
@@ -157,9 +158,23 @@ async def view(
 
         last = date(year, month, calendar.monthrange(year, month)[1])
         days = await payment_days(db, client_id, period)
+        approved = [
+            e
+            for e in (
+                await settlement_extras.for_contracts(db, [contract_id], period)
+            ).get(contract_id, [])
+            if e.status == settlement_extras.APPROVED
+            and settlement_extras.counts_on_invoice(e)
+        ]
         amount = _dec(s.amount_cost, 2)
+        total = _dec(
+            None
+            if s.amount_cost is None
+            else Decimal(s.amount_cost) + sum((e.amount for e in approved), Decimal(0)),
+            2,
+        )
         result["invoice"] = {
-            "amount_net": amount,
+            "amount_net": total,
             "sale_date": last.isoformat(),
             "payment_days": days,
             # E3.2: pola do przepisania w programie do faktur (kopiowanie, nie
@@ -171,6 +186,18 @@ async def view(
                 "quantity": "1",
                 "net": amount,
             },
+            # Zatwierdzone dodatki (polecenie, delegacja…) osobnymi pozycjami;
+            # kwota netto faktury = usługi + dodatki.
+            "extra_items": [
+                {
+                    "description": f"{settlement_extras.KIND_LABELS[e.kind]}: {e.description}"
+                    if e.description != settlement_extras.KIND_LABELS[e.kind]
+                    else e.description,
+                    "quantity": "1",
+                    "net": f"{Decimal(e.amount):.2f}",
+                }
+                for e in approved
+            ],
             "ksef": await _ksef(db, s, client_id, period, days),
         }
         over = service.md_over(s)
@@ -208,13 +235,18 @@ async def _ksef(
     if not invoices or client_id is None:
         return None
     rules = await service.rules_for(db, client_id, period)
-    state = contractor_invoices.state(s, invoices, rules)
+    added = (
+        await settlement_extras.expected_by_contract(db, [s.contract_id], period)
+    ).get(s.contract_id)
+    state = contractor_invoices.state(s, invoices, rules, added)
     first = invoices[0]
     due = first.acquired_at.date() + timedelta(days=days) if first.acquired_at else None
     net = sum((i.net_amount or 0) for i in invoices)
     label = (
         "Faktura w KSeF: inna kwota niż rozliczenie"
         if state == contractor_invoices.DIFFERS
+        else "Faktura w KSeF: dodatek czeka na zatwierdzenie Finansów"
+        if state == contractor_invoices.EXTRA_PENDING
         else "Faktura w KSeF"
         + (f": płatność do {due.strftime('%d.%m.%Y')}" if due else "")
     )
@@ -268,3 +300,92 @@ async def estimate_todo(
         + (f". Co poprawić: {plan.fix_reason}" if plan and plan.fix_reason else ""),
         "href": "/konsultant/faktury",
     }
+
+
+# ── Dodatki widziane przez konsultanta ───────────────────────────────────────
+
+
+async def own_extras(
+    db: AsyncSession, contract_id: int, year: int, month: int
+) -> Optional[list[dict[str, Any]]]:
+    """Dodatki osoby w miesiącu ze stanem (``None`` przy wyłączonym module).
+
+    Bez źródła wewnętrznego, osób z Finansów i tego, czy fakturujemy dodatek
+    klientowi — konsultant widzi tylko swoją kwotę i decyzję."""
+
+    if not await module_settings.is_enabled(db):
+        return None
+    period = f"{year}-{month:02d}"
+    items = (await settlement_extras.for_contracts(db, [contract_id], period)).get(
+        contract_id, []
+    )
+    docs = await settlement_extras.documents_for(db, [e.id for e in items])
+    return [
+        {
+            "id": e.id,
+            "kind_label": settlement_extras.KIND_LABELS.get(e.kind, e.kind),
+            "description": e.description,
+            "amount": f"{Decimal(e.amount):.2f}",
+            "status": e.status,
+            "status_label": settlement_extras.STATUS_LABELS.get(e.status, e.status),
+            "reason": e.decision_note
+            if e.status == settlement_extras.REJECTED
+            else None,
+            "documents": len(docs.get(e.id, [])),
+        }
+        for e in items
+        if settlement_extras.counts_on_invoice(e)
+    ]
+
+
+async def add_travel(
+    db: AsyncSession,
+    contract_id: int,
+    *,
+    year: int,
+    month: int,
+    amount: Any,
+    description: Optional[str],
+    files: list[tuple[bytes, Optional[str]]],
+    now: Any,
+) -> Any:
+    """Delegacja zgłoszona w panelu: stan „zgłoszony”, czeka na Finanse.
+
+    Bez dokumentu nie przyjmujemy — Finanse dziś dopytują właśnie o nie."""
+
+    if not await module_settings.is_enabled(db):
+        raise settlement_extras.ExtraError(
+            "Zgłaszanie kosztów w panelu jeszcze nie działa — wyślij je mailem.",
+            status=404,
+        )
+    if not files:
+        raise settlement_extras.ExtraError(
+            "Dołącz dokumenty delegacji: fakturę, paragon albo bilety."
+        )
+    extra = await settlement_extras.create(
+        db,
+        contract_id,
+        f"{year}-{month:02d}",
+        kind=settlement_extras.TRAVEL,
+        amount=amount,
+        description=settlement_extras.clean_text(
+            description,
+            minimum=3,
+            maximum=300,
+            label="Opisz delegację: dokąd i kiedy.",
+        ),
+        source=settlement_extras.SOURCE_PORTAL,
+        actor_id=None,
+        now=now,
+        kinds=(settlement_extras.TRAVEL,),
+    )
+    for content, name in files:
+        await settlement_extras.add_document(
+            db,
+            extra,
+            content=content,
+            file_name=name,
+            channel="portal",
+            uploaded_by=None,
+        )
+    return extra

@@ -506,9 +506,13 @@ krokach E6.
       w „Fakturze kontraktora” kontrola zapłaty; `pay.mail_accept_fallback`:
       przycisk „Podpisujący nieobecny” zapisuje zapłatę po mailowej akceptacji
       (w danych rozliczenia, przeżywa przeliczenie), podpisane KEŚU zostaje do
-      sprawdzenia. `cl.extra_costs_on_invoice`: koszty z KEŚU na fakturze
-      głównej, netto = brutto / 1,23 (brutto faktury = „Razem” z KEŚU); pusty
-      parametr = jedna pozycja na całość, nazwa = osobna pozycja.
+      sprawdzenia. `cl.extra_costs_on_invoice`: koszty z KEŚU wchodzą jako
+      zgłoszony dodatek (delegacja „na fakturę dla klienta”, źródło KEŚU,
+      netto = brutto / 1,23, więc brutto faktury = „Razem” z KEŚU) i trafiają
+      na fakturę główną dopiero po zatwierdzeniu przez Finanse; pusty parametr
+      = jedna pozycja na całość, nazwa = osobna pozycja (13.11, dodatki do
+      rozliczenia). Nowy odczyt KEŚU poprawia kwotę zgłoszenia, ale nie
+      decyzję Finansów.
       `travel.extra_costs_confirm`: koszty dodatkowe zawsze tylko ostrzegają.
       Te pięć reguł ma etap E6.3.
     - Reguły Aliora ustawiają Finanse w „Reguły klienta” (dane, nie kod):
@@ -526,6 +530,26 @@ krokach E6.
   za regułą `report.time_for_teams`.
 - **Meta per klient:** reguły ustawione w „Reguły klienta”, jeden pełny miesiąc
   na stagingu, akceptacja autora instrukcji.
+
+### Dodatki do rozliczenia kontraktora (13.11.2026, wspólne dla klientów)
+
+Potrzeba Finansów z 13.11: kontraktor dolicza do faktury premię za polecenie,
+weryfikację techniczną, szkolenie albo delegację. Reguła:
+`docs/claude/finanse-insights/dodatki-do-rozliczenia-kontraktora.md`.
+
+- Dane: `client_settlement_extras` i `client_settlement_extra_documents`
+  (tabela z 0690, kolumny i dokumenty z 0691, lustro w `entrypoint.sh` przez `hr_schema_bundle`). Koszty
+  integracji BNP (`cl.integration_costs`) to ten sam model, rodzaj `integration`.
+- Zgłoszenie: z karty sprawy w back office (kto, okres, kwota), przez Finanse na
+  karcie osoby, przez konsultanta w panelu (delegacja z dokumentami). Zgłoszony
+  dodatek czeka na Finanse; wpis Finansów jest od razu zatwierdzony.
+- Wyliczenie: `ci.amount` porównuje fakturę z wyliczeniem + zatwierdzone dodatki;
+  różnica równa zgłoszonemu dodatkowi = stan „Czeka na dodatek” (uwaga, nie błąd).
+- Panel: zatwierdzone dodatki osobnymi pozycjami w danych do faktury.
+- Faktura do klienta: dodatek z „Na fakturę dla klienta” według
+  `cl.extra_costs_on_invoice`; zatwierdzone dodatki są kosztem w marży.
+- Zostaje: limit kwot dodatków per rodzaj (np. stała stawka za weryfikację), dzwonek
+  dla Finansów o nowym zgłoszeniu, odczyt dodatku z treści maila sprawy.
 
 ### E8. Jedna skrzynka wsparcie@ (decyzja Artura z 09.11.2026)
 

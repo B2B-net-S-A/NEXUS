@@ -464,6 +464,14 @@ async def overview(
             row["action"] = None
             row["issue_invoice"] = False
             row["invoice_label"] = "Faktura: po RCP za cały miesiąc"
+        # Dodatki do faktury (polecenie, delegacja): stan zgłoszeń osoby.
+        row["extras"] = (
+            await settlement_view.own_extras(
+                db, context.consultant.contract_id, row["year"], row["month"]
+            )
+            if contract
+            else None
+        )
     return rows
 
 

@@ -17,7 +17,7 @@ import asyncio
 import logging
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -49,6 +49,7 @@ from app.services.client_order_lines import (
 from app.services.client_settlements import (
     acceptance_mail,
     contractor_invoices,
+    extras as settlement_extras,
     kesu,
     kesu_flow,
     rcp_bnp,
@@ -463,6 +464,8 @@ async def month_view(
     numbers = await _order_numbers(db, ids, month)
     rules = await rules_for(db, client_id, month)
     invoices = await contractor_invoices.for_month(db, ids, month)
+    extra_items = await settlement_extras.for_contracts(db, ids, month)
+    added = {cid: settlement_extras.totals(items) for cid, items in extra_items.items()}
     issued = await _issued_orders(
         db, [s.order_id for s in settlements.values() if s.order_id], month
     )
@@ -477,9 +480,30 @@ async def month_view(
             amounts,
             integration.get(person.contract.id, Decimal("0")),
         )
+        cost_add, revenue_add = settlement_extras.margin_shift(
+            extra_items.get(person.contract.id, [])
+        )
+        if amounts and settlement is not None and (cost_add or revenue_add):
+            # Zatwierdzone dodatki: koszt miesiąca; fakturowane klientowi — też przychód.
+            row["margin"], row["margin_pct"] = _margin(
+                None
+                if settlement.amount_cost is None
+                else settlement.amount_cost + cost_add,
+                None
+                if settlement.amount_revenue is None
+                else settlement.amount_revenue + revenue_add,
+                integration.get(person.contract.id, Decimal("0")),
+            )
         row["order_number"] = numbers.get(person.contract.id)
         row["contractor_invoice"] = contractor_invoices.state(
-            settlement, invoices.get(person.contract.id, []), rules
+            settlement,
+            invoices.get(person.contract.id, []),
+            rules,
+            added.get(person.contract.id),
+        )
+        # Dodatki do zatwierdzenia (polecenie, delegacja) — znacznik w wierszu.
+        row["extras_pending"] = len(
+            getattr(added.get(person.contract.id), "pending", ())
         )
         if settlement is not None and settlement.order_id in issued:
             row["client_invoice"] = "issued"
@@ -605,6 +629,9 @@ async def detail(
         contract_id, []
     )
     rules = await rules_for(db, person.contract.client_id, month)
+    extra_items = (await settlement_extras.for_contracts(db, [contract_id], month)).get(
+        contract_id, []
+    )
     estimate = (
         await _settlement(db, contract_id, month, kind=ESTIMATE)
         if kind == ACTUAL
@@ -656,7 +683,18 @@ async def detail(
             "md_remaining_after": remaining,
         },
         "contractor_invoice": _with_payment(
-            contractor_invoices.card(s, invoices, rules, amounts=amounts), s, rules
+            contractor_invoices.card(
+                s,
+                invoices,
+                rules,
+                amounts=amounts,
+                extras=settlement_extras.totals(extra_items),
+            ),
+            s,
+            rules,
+        ),
+        "extras": await settlement_extras.block(
+            db, contract_id, month, amounts=amounts, items=extra_items
         ),
         "kesu": kesu_card(
             s, person=person.name, month=month, rules=rules, amounts=amounts
@@ -840,6 +878,7 @@ async def _recompute(
         if proof is not None:
             source = proof.meta["kesu"].get("document_id")
             report = next((d for d in reports if d.id == source), report)
+            await _sync_kesu_extra(db, s, proof.meta["kesu"])
     s.report_document_id = report.id if report else None
     if proof is None:
         proof = await _proof(
@@ -1347,6 +1386,29 @@ async def pay_on_mail(
     return s
 
 
+async def _sync_kesu_extra(
+    db: AsyncSession, s: ClientSettlement, data: dict[str, Any]
+) -> None:
+    """Koszty dodatkowe z KEŚU → zgłoszony dodatek na fakturę dla klienta
+    (jedna ścieżka kosztów z dodatkami Finansów, back office'u i panelu)."""
+
+    if s.kind != ACTUAL:
+        return
+    try:
+        gross = Decimal(str(data.get("extra_costs") or "0"))
+    except ArithmeticError:
+        gross = Decimal("0")
+    await settlement_extras.sync_from_kesu(
+        db,
+        contract_id=s.contract_id,
+        client_id=s.client_id,
+        month=s.period_month,
+        gross=gross,
+        vat=kesu.VAT,
+        now=datetime.now(timezone.utc),
+    )
+
+
 async def _refresh_kesu(db: AsyncSession, s: ClientSettlement) -> None:
     if kesu_state(s) is None:
         return
@@ -1364,6 +1426,7 @@ async def _refresh_kesu(db: AsyncSession, s: ClientSettlement) -> None:
     )
     if proof is None:
         return
+    await _sync_kesu_extra(db, s, proof.meta["kesu"])
     meta = meta_of(s)
     fresh = {g["title"]: g for g in proof.groups}
     s.checks = [
