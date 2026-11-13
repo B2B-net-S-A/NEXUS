@@ -1445,6 +1445,9 @@ app.add_middleware(
         "X-Generated-Contract-Id",
         # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
         "X-Document-Id",
+        # Paczka przelewów kosztów (finance_payments.py).
+        "X-Batch-File-Sha256",
+        "X-Batch-File-Changed",
         # Paczka CV (candidates.py).
         "X-Included-Count",
         "X-Skipped-Count",
