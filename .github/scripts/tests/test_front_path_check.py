@@ -72,6 +72,21 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(paths.fetch("https://app/login"), (0, {}, b""))
 
 
+    def test_probe_identifies_itself_as_the_smoke_test(self):
+        # 13.11.2026: bez własnego User-Agent (urllib) runner dostawał 403 na
+        # /login, /version.json i callbacku, choć front działał; sonda przerwy
+        # z tym samym UA co tu dostawała z tego samego runnera 200.
+        from unittest import mock
+
+        with mock.patch.object(paths._OPENER, "open", side_effect=OSError("x")) as opened:
+            paths.fetch("https://app/login")
+            paths.fetch("http://203.0.113.7/login", paths.CHECK_HOST)
+        for call in opened.call_args_list:
+            request = call.args[0]
+            self.assertIn("dynaminds-smoke-test", request.get_header("User-agent") or "")
+        self.assertEqual(opened.call_args_list[1].args[0].get_header("Host"), paths.CHECK_HOST)
+
+
 class WatchTests(unittest.TestCase):
     def test_two_bad_rounds_in_a_row_stop_the_watch(self):
         calls = []
