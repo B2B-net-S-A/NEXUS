@@ -9,18 +9,28 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 | Godzina (Warszawa) | Rutyna | Co robi |
 |---|---|---|
 | 00:11, codziennie | Nocna kopia stagingu (launchd, bez modelu) | `nightly_sync.py` z kopii w `~/.claude/nexus-rutyny/bin/kopia/`: flagi z produkcji, nowa kopia bazy, dosłanie plików CV, Qdrant, strażnik rankingu (`staging-na-laptopie.md`) |
-| 01:05, pon. i czw. | Strażnik Nowości | PR-y ze zmianą ekranu a `novelties.json`, także tytuły `fix` |
+| 01:05, codziennie | Strażnik Nowości | PR-y ze zmianą ekranu a `novelties.json`, także tytuły `fix` |
 | 02:00, codziennie | Dyżurny | Alarmy na GitHubie i wiszące PR-y |
 | 03:17, pon.–pt. | Odświeżenie stagingu (launchd, bez modelu) | `refresh_code.sh` z kopii w `bin/kopia`: kod z `origin/main` tuż przed Testerem, baza bez zmian |
-| 03:30, pon.–pt. | Tester | PR-y od poprzedniego biegu na stagingu, każdą dotkniętą rolą przy 1280 × 720, najwyżej 10 |
-| 06:30 | Domykacz wdrożeń | `/api/health` względem maina i listy „po wdrożeniu” |
-| 07:30, pon.–pt. | Poranny raport | Jedna sesja z pytaniami do Artura |
+| 03:30, codziennie | Tester | PR-y od poprzedniego biegu na stagingu, każdą dotkniętą rolą przy 1280 × 720, najwyżej 10 |
+| 06:30, codziennie | Domykacz wdrożeń | `/api/health` względem maina i listy „po wdrożeniu” |
+| 07:30, codziennie | Poranny raport | Jedna sesja z pytaniami do Artura |
 | 08:30, codziennie | Zegarek (launchd, bez modelu) | Oczekiwane biegi kontra ślady `.ok`, świeżość `OK pg` i tabele biegów na produkcji: brak śladu albo zrzutu to czerwień, powiadomienie na laptopie i ping poza laptop |
 
 - **Działają na laptopie jako zadania w aplikacji Claude**, bo potrzebują
   stagingu, `gh` i klucza SSH. Zamknięta aplikacja = bieg przy następnym
   uruchomieniu. Crona GitHuba nie używamy: spóźnia się do 7 godzin, a jego logi
   są publiczne.
+- **Harmonogram aplikacji jest przypisany do konta Claude.** Po przelogowaniu
+  aplikacji na inne konto zadania zostają w rejestrze starego konta
+  (`~/Library/Application Support/Claude/claude-code-sessions/<konto>/<org>/scheduled-tasks.json`)
+  i nikt ich nie uruchamia. Tak było w nocach 10–13.11.2026. Launchd działał
+  dalej, więc Zegarek co rano pokazywał czerwień z „brak śladu po biegu”.
+  13.11 rutyny założono na nowym koncie jako `nexus-*-3`. Gdy brakuje
+  wszystkich rutyn z modelem naraz, najpierw sprawdź `list_scheduled_tasks`.
+  Od tego dnia rutyny z modelem biegną codziennie, także w weekend (decyzja
+  Artura z 13.11.2026). Odświeżenie stagingu zostaje na pon.–pt., bo w weekend
+  kod wymienia Nocna kopia.
 - **Godziny wynikają z audytu z 08.11.2026.** Aplikacja dodaje kilka minut opóźnienia.
   PR Strażnika o 02:30 kończył wdrożenie 3–4 min przed backupem produkcji i 06.11
   zabrał zrzut, a odświeżenie o 01:00 omijało PR-y scalone przed Testerem. Odśmiecacz
