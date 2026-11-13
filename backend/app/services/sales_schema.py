@@ -1091,7 +1091,7 @@ BOT_TASKS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# 0690: Bot Listy (decyzja Artura 13.11.2026) — brief kampanii, z którego bot buduje
+# 0691: Bot Listy (decyzja Artura 13.11.2026) — brief kampanii, z którego bot buduje
 # i dosypuje listę do dzwonienia (``services/sales/bot_lists.py``).
 BOT_LISTS_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_call_campaigns ADD COLUMN IF NOT EXISTS bot_brief JSONB NULL",
