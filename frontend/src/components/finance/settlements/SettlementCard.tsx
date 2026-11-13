@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
+import { KesuSection } from "./KesuSection";
 
 const ICON: Record<CheckState, ReactNode> = {
   ok: <Check aria-hidden className="size-3" />,
@@ -142,6 +143,9 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
       <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-2">
         <div className="min-w-0 space-y-3">
           <Documents detail={d} />
+          {d.kesu && kind === "actual" ? (
+            <KesuSection contractId={contractId} month={month} person={d.person} block={d.kesu} canWrite={canWrite} />
+          ) : null}
           {canWrite ? <MdForm detail={d} month={month} kind={kind} /> : null}
           <Computation detail={d} />
           {d.contractor_invoice && kind === "actual" ? <ContractorInvoiceSection block={d.contractor_invoice} canWrite={canWrite} /> : null}
