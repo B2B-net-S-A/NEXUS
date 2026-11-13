@@ -262,7 +262,7 @@ export interface LibraryRecording {
   session_date: string | null;
   duration_minutes: number | null;
   trainer_kind: "consultant" | "employee";
-  /** „registered” = nagranie tylko dla zapisanych (0696). */
+  /** „registered” = nagranie tylko dla zapisanych (0697). */
   scope?: "library" | "registered";
   registered?: boolean;
   chapters: TrainingChapter[];

@@ -23,9 +23,9 @@ interface TrainingLibraryProps {
   /** Adres odtwarzania z biletem; `null` = nie da się teraz odtworzyć. */
   getMediaUrl: (file: LibraryFile) => Promise<string | null>;
   onDownload: (file: LibraryFile) => void;
-  /** 0696: wyszukiwanie w transkrypcie nagrania (gdy jest). */
+  /** 0697: wyszukiwanie w transkrypcie nagrania (gdy jest). */
   onSearchTranscript?: (id: number, q: string) => Promise<TranscriptSearch | null>;
-  /** 0696: ocena 1–5 od osoby zapisanej na szkolenie. */
+  /** 0697: ocena 1–5 od osoby zapisanej na szkolenie. */
   onRate?: (id: number, rating: number) => Promise<boolean>;
   busy?: boolean;
 }

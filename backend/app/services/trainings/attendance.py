@@ -285,7 +285,7 @@ async def match(db: AsyncSession, rows: list[AttendanceRow]) -> list[AttendanceR
 async def replace_rows(
     db: AsyncSession, training_id: int, rows: list[AttendanceRow]
 ) -> None:
-    """Nowy raport zastępuje poprzedni (CSV z Teams albo raport z Graph, 0696)."""
+    """Nowy raport zastępuje poprzedni (CSV z Teams albo raport z Graph, 0697)."""
 
     from sqlalchemy import delete  # noqa: PLC0415
 

@@ -80,7 +80,7 @@ w NEXUSIE, `/konsultant/szkolenia` i `/konsultant/trener` w panelu.
   szkolenie rozstrzyga `_resolve_child_duplicates`. **Usunięcie kandydata** kasuje zapisy
   i anonimizuje obecność; szkolenie z umową zostaje.
 
-## Teams, zapisy i nagranie z NEXUSA (0696, decyzje Artura 13.11.2026)
+## Teams, zapisy i nagranie z NEXUSA (0697, decyzje Artura 13.11.2026)
 
 Analiza i makiety: https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz. Kod:
 `services/trainings/teams.py` (spotkanie i zaproszenia), `recordings.py` (pętla
@@ -92,7 +92,7 @@ Analiza i makiety: https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz. Kod:
   i ma datę z godziną. Osobne konto z licencją Teams i OneDrive, bo nagranie ląduje
   w OneDrive organizatora; nie konto TCM (odejście osoby albo 120 dni = utrata) i nie
   wsparcie@ (decyzja Artura: wyjątek od jednej skrzynki, bez czytnika poczty).
-  Wyłączone albo bez skrzynki = link wkleja TCM jak przed 0696.
+  Wyłączone albo bez skrzynki = link wkleja TCM jak przed 0697.
 - **Webinaru Teams z rejestracją nie zakładamy**: Graph pozwala na to tylko
   zalogowanemu człowiekowi. Rejestrację, limit miejsc (`seat_limit`, blokada wiersza
   przy zapisie) i przypomnienia robi NEXUS.

@@ -298,7 +298,7 @@ kandydata w NEXUSIE (art. 17) kasuje transkrypt i ocenę w NEXUSIE; kopię
 w M365 obejmuje polityka retencji tenanta (domyślnie nagrania Teams wygasają
 po 120 dniach).
 
-## Szkolenia w Teams (0696, 13.11.2026)
+## Szkolenia w Teams (0697, 13.11.2026)
 
 Spotkania szkoleń zakłada NEXUS w kalendarzu osobnego konta szkolenia@ (decyzja
 Artura z 13.11.2026). Ta sama rejestracja „NEXUS Teams Prep”. Kroki admina:
@@ -320,4 +320,4 @@ Artura z 13.11.2026). Ta sama rejestracja „NEXUS Teams Prep”. Kroki admina:
    krótkim spotkaniu testowym w ciągu ok. 30 min nagranie i obecność w karcie.
 
 Bez kroku 3 spotkania i zaproszenia działają, a nagranie po 72 h dostaje stan
-„Teams nie oddał nagrania” (TCM wgrywa ręcznie, jak przed 0696).
+„Teams nie oddał nagrania” (TCM wgrywa ręcznie, jak przed 0697).

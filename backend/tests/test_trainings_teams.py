@@ -1,4 +1,4 @@
-"""Szkolenia w Teams (0696): spotkanie z NEXUSA, zaproszenia, nagranie, oceny.
+"""Szkolenia w Teams (0697): spotkanie z NEXUSA, zaproszenia, nagranie, oceny.
 
 Graph jest udawany (``FakeGraph``) — sprawdzamy, co NEXUS zleca Microsoftowi i co
 zapisuje, gdy Microsoft odpowie albo nie. Dane fikcyjne — repo jest publiczne.

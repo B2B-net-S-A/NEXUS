@@ -1,4 +1,4 @@
-"""Graph app-only dla szkoleń w Teams (0696): opcje spotkania, nagranie, obecność.
+"""Graph app-only dla szkoleń w Teams (0697): opcje spotkania, nagranie, obecność.
 
 Ta sama rejestracja co prepy („NEXUS Teams Prep”, ``teams_prep_auth``). Nagranie
 i obecność wymagają dwóch uprawnień aplikacji ponad to, co mają prepy:

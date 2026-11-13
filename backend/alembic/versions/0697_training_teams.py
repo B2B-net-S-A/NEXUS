@@ -1,7 +1,7 @@
 """Szkolenia w Teams: spotkanie z NEXUSA, zaproszenia, nagranie, transkrypt, oceny.
 
-Revision ID: 0696_training_teams
-Revises: 0695_finance_ledger
+Revision ID: 0697_training_teams
+Revises: 0696_sales_invoice_issue
 
 SQL i powody: ``app/services/trainings_schema.py`` (``TEAMS_DDL``; to samo źródło
 czyta ``entrypoint.sh`` przez ``hr_schema_bundle``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import trainings_schema as schema
 
-revision = "0696_training_teams"
-down_revision = "0695_finance_ledger"
+revision = "0697_training_teams"
+down_revision = "0696_sales_invoice_issue"
 branch_labels = None
 depends_on = None
 

@@ -420,7 +420,7 @@ class NotificationType(str, enum.Enum):
     back_office_assigned = "back_office_assigned"
     portal_low_rating = "portal_low_rating"
     portal_monthly_review = "portal_monthly_review"
-    # 0696: szkolenia — TCM, reprezentant, Finanse i uczestnicy (osobiste).
+    # 0697: szkolenia — TCM, reprezentant, Finanse i uczestnicy (osobiste).
     training_quote = "training_quote"
     training_file = "training_file"
     training_sign = "training_sign"
