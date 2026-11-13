@@ -106,9 +106,12 @@ sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). 
 
 - front (i później backend) stoi w osobnym destination `nexus-front`; Coolify przy jego
   założeniu tworzy sieć i podłącza do niej `coolify-proxy`,
-- compose dołącza `nexus-front` jako sieć zewnętrzną; parser dopisuje każdą sieć
-  z najwyższego poziomu do każdej usługi, co tu jest nieszkodliwe, bo w `nexus-front`
-  są tylko kontenery NEXUSA i proxy,
+- compose deklaruje `nexus-front` jako sieć zewnętrzną, a usługa `backend` dołącza do niej
+  **jawnie** (`networks: [nexus-front]`). Sama sieć z najwyższego poziomu nie wystarcza:
+  parser dopisuje ją do usług jako `null` (`parsers.php:1735`), a przy składaniu listy
+  sieci przepuszcza tylko napisy i tablice (`:1775`), więc po cichu ją gubi. 13.11.2026
+  front po przepięciu nie widział przez to `backend:8000` (logowanie Microsoft:
+  `backend_unreachable`),
 - `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.
 
 ## Etap B1: front jako aplikacja `nexus-frontend` — kolejność

@@ -15,6 +15,7 @@ import {
   FileSignature,
   FileText,
   GitBranch,
+  GraduationCap,
   Handshake,
   Heart,
   HelpCircle,
@@ -75,7 +76,10 @@ export type NavFeatureFlag =
   | "hrPeople"
   | "hrEquipment"
   | "hrCare"
-  | "hrBackOffice";
+  | "hrBackOffice"
+  // Szkolenia (13.11.2026): biblioteka dla każdego zalogowanego, gdy program
+  // „Ludzie w NEXUSIE” jest włączony (`/api/trainings` wisi za `_HR_PROGRAM`).
+  | "hrTrainings";
 
 export type NavSectionKey =
   | "sourcing"
@@ -99,7 +103,15 @@ export type NavVisibilityOptions = {
   /** Czy ta osoba należy do procesu rekrutacji własnej (po członkostwie, nie roli). */
   ownHiring?: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
-  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
+  hr?: {
+    myTime: boolean;
+    people: boolean;
+    equipment: boolean;
+    care: boolean;
+    backOffice?: boolean;
+    /** Program „Ludzie w NEXUSIE” włączony = „Szkolenia” dla każdego. */
+    trainings?: boolean;
+  };
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -656,6 +668,19 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Szkolenia (13.11.2026, zamiast Akademii Compassa): biblioteka nagrań i zapisy
+  // dla każdego; zamówienia, umowy i publikacja dla TCM, Finansów i admina.
+  {
+    id: "trainings",
+    href: "/trainings",
+    label: "Szkolenia",
+    icon: GraduationCap,
+    section: "system",
+    featureFlag: "hrTrainings",
+    placement: "primary",
+    paletteKeywords: ["szkolenia", "nagrania", "webinar", "akademia", "trener", "materiały"],
+    inPalette: true,
+  },
   // Opieka nad konsultantami (moduł `care`): opiekunowie kontraktów (DL, TCM),
   // Head of Recruitment (kolejka technologii) i admin — oraz od 22.10.2026
   // osoby ze sprawami administracja@ (same sprawy). Kto widzi pozycję, liczy
@@ -737,7 +762,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
     title: "Klienci i umowy",
     ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"],
   },
-  { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
+  { key: "company", title: "Firma", ids: ["insights", "people", "equipment", "trainings"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
@@ -770,6 +795,8 @@ function featureFlagOn(
       return (opts.hr?.care ?? false) && !opts.hr?.backOffice;
     case "hrBackOffice":
       return opts.hr?.backOffice ?? false;
+    case "hrTrainings":
+      return opts.hr?.trainings ?? false;
   }
 }
 

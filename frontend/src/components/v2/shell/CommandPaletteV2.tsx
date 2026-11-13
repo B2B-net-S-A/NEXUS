@@ -388,6 +388,7 @@ export function CommandPaletteV2({
             equipment: hrEquipment,
             care: hrCare,
             backOffice: hrBackOffice,
+            trainings: hrProgram,
           },
         },
         (capability) => can[capability],
@@ -398,7 +399,17 @@ export function CommandPaletteV2({
         icon: entry.icon,
         keywords: entry.paletteKeywords ?? [],
       })),
-    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare, hrBackOffice],
+    [
+      user,
+      contactFeature.enabled,
+      can,
+      hrMyTime,
+      hrPeople,
+      hrEquipment,
+      hrCare,
+      hrBackOffice,
+      hrProgram,
+    ],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają

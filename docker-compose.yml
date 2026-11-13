@@ -190,6 +190,12 @@ services:
     stop_grace_period: 15s
     expose:
       - "8000"
+    # Jawnie, nie przez sieć z najwyższego poziomu: Coolify 4.5.3 dopisuje ją do
+    # usługi jako `null` i gubi przy składaniu listy sieci (parsers.php:1735, :1775),
+    # więc front `nexus-frontend` nie widział `backend:8000` (13.11.2026). Sieć bazowa
+    # Coolify dochodzi sama; alias `backend` compose nadaje w każdej sieci usługi.
+    networks:
+      - nexus-front
     depends_on:
       postgres:
         condition: service_healthy
@@ -429,10 +435,10 @@ volumes:
   uploads_data:
 
 # Sieć wspólna z aplikacją frontu `nexus-frontend` (destination `nexus-front`
-# w Coolify): front woła `http://backend:8000` (INTERNAL_API_URL). Coolify
-# dopisuje każdą sieć z tego poziomu do każdej usługi; w `nexus-front` są tylko
-# kontenery NEXUSA i `coolify-proxy`, więc `postgres` czy `backend` nie mają tam
-# drugiego właściciela. NIE `connect_to_docker_network`: wspólna sieć `coolify`
+# w Coolify): front woła `http://backend:8000` (INTERNAL_API_URL). Dołącza do niej
+# tylko `backend`, jawnym `networks:` w usłudze — sieć z tego poziomu Coolify
+# do usług nie dopisuje (gubi ją jako `null`). W `nexus-front` są tylko kontenery
+# NEXUSA i `coolify-proxy`, więc `backend` nie ma tam drugiego właściciela. NIE `connect_to_docker_network`: wspólna sieć `coolify`
 # ma własną usługę `postgres` Coolify. Sieć zakłada
 # `coolify_frontend_app.py create`; bez niej wdrożenie compose pada.
 # → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
