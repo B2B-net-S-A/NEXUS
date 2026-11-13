@@ -1,6 +1,6 @@
 """Bot Listy: listy do dzwonienia z briefu kampanii (decyzje Artura 13.11.2026).
 
-Kampania dostaje brief (``sales_call_campaigns.bot_brief``, 0691): do kogo dzwonimy
+Kampania dostaje brief (``sales_call_campaigns.bot_brief``, 0690): do kogo dzwonimy
 (rola), segment, źródła, paczka na osobę tygodniowo i osoby dzwoniące. Bot wybiera
 osoby i zapisuje je do kampanii **od razu**, przez te same bramki co import listy
 (``calling_import.apply_import``): klient NEXUSA, sprzeciw, otwarta szansa, cudzy

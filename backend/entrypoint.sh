@@ -1361,7 +1361,7 @@ try:
         *_sales_schema.CALL_OUTCOMES_V2_DDL,
         # 0684: zadania bota — rodzaje biegów, zlecenie biegu, wyniki do decyzji.
         *_sales_schema.BOT_TASKS_DDL,
-        # 0691: Bot Listy — brief kampanii dzwonienia.
+        # 0690: Bot Listy — brief kampanii dzwonienia.
         *_sales_schema.BOT_LISTS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
