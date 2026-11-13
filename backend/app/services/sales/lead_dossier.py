@@ -307,14 +307,27 @@ def decision_makers(titles: Iterable[Optional[str]]) -> list[str]:
 
 
 def _members(ids: list[int]):
-    """Osoby karty: firma główna kontaktu albo bieżące powiązanie z firmą."""
+    """Osoby karty: firma główna kontaktu albo bieżące powiązanie z firmą.
 
+    Osoba „nie pracuje” w tej firmie (powiązanie ``is_current = false``,
+    ``kontakty-jedna-lista.md``) nie liczy się, także gdy to jej firma główna.
+    """
+
+    gone = (
+        select(SalesCompanyContact.contact_id)
+        .where(
+            SalesCompanyContact.company_id == SalesContact.company_id,
+            SalesCompanyContact.contact_id == SalesContact.id,
+            SalesCompanyContact.is_current.is_(False),
+        )
+        .exists()
+    )
     return union_all(
         select(
             SalesContact.company_id.label("company_id"),
             SalesContact.id.label("contact_id"),
             literal(None, String).label("title"),
-        ).where(SalesContact.company_id.in_(ids)),
+        ).where(SalesContact.company_id.in_(ids), ~gone),
         select(
             SalesCompanyContact.company_id,
             SalesCompanyContact.contact_id,
