@@ -90,9 +90,6 @@ function BotPointsNote({ botPoints }: { botPoints: OfferBotPoints | null }) {
       aria-label="Punkty od bota"
       data-tour="sales.offers.bot-points"
     >
-      <Badge variant="neutral" size="sm">
-        Bot · wniosek, sprawdź źródło
-      </Badge>
       {points.length === 0 ? (
         <p>Bot nie znalazł nic nowego od wysłania oferty.</p>
       ) : (

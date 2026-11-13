@@ -120,11 +120,11 @@ describe("groupSignals", () => {
 });
 
 describe("SignalsInbox", () => {
-  it("shows the run line, the signal panel and the bot-inference label", () => {
+  it("shows the run line and the signal panel without a bot-inference label", () => {
     render(<SignalsInbox />);
     expect(screen.getByText(/20 firm sprawdzonych, 4 warte sprawdzenia, 7 słabych, 1 bez sygnału/)).toBeInTheDocument();
     expect(screen.getByText(/Do sprawdzenia \(1\)/)).toBeInTheDocument();
-    expect(screen.getByText("Wniosek bota, nie fakt")).toBeInTheDocument();
+    expect(screen.queryByText("Wniosek bota, nie fakt")).not.toBeInTheDocument();
     expect(screen.getByText("Ewa Testowa")).toBeInTheDocument();
     expect(screen.getByText("Nowy dyrektor IT")).toBeInTheDocument();
   });

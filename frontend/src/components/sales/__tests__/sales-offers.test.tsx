@@ -428,7 +428,7 @@ describe("punkty bota przy „Do decyzji”", () => {
     render(<OffersView />);
     const row = within(rowOf("Druga Firma"));
 
-    expect(row.getByText("Bot · wniosek, sprawdź źródło")).toBeInTheDocument();
+    expect(row.queryByText("Bot · wniosek, sprawdź źródło")).not.toBeInTheDocument();
     expect(row.getByText(/Bank ogłosił nowy program migracji danych/)).toBeInTheDocument();
     expect(row.getByText("03.11.2026:", { exact: false })).toBeInTheDocument();
     expect(row.getByText(/Nowy dyrektor IT/)).toBeInTheDocument();
@@ -447,7 +447,6 @@ describe("punkty bota przy „Do decyzji”", () => {
     render(<OffersView />);
     const row = within(rowOf("Druga Firma"));
     expect(row.getByText("Bot nie znalazł nic nowego od wysłania oferty.")).toBeInTheDocument();
-    expect(row.getByText("Bot · wniosek, sprawdź źródło")).toBeInTheDocument();
   });
 
   it("bez punktów (null) i w „W toku” nic nie pokazuje", () => {

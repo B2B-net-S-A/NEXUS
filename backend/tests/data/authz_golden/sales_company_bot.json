@@ -31,6 +31,7 @@
   "back_office"
  ],
  "routes": {
+  "GET /api/sales/companies/{company_id}/bot-history": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/{company_id}/enrich": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/companies/{company_id}/questions": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/companies/{company_id}/ask": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

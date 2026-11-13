@@ -62,11 +62,7 @@ function QuestionItem({
             {item.answer.map((line, index) => (
               <li key={index} className="text-sm text-foreground">
                 {line.text}{" "}
-                {line.url ? (
-                  <SourceLink url={line.url} className="ml-1" />
-                ) : (
-                  <span className="ml-1 text-xs text-muted-foreground">wniosek bota</span>
-                )}
+                {line.url && <SourceLink url={line.url} className="ml-1" />}
               </li>
             ))}
           </ul>
