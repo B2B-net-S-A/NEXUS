@@ -138,18 +138,44 @@ Makiety M2 (sekcja dekretu) i M3 (eksport): ten sam artefakt co wyżej.
   w „Do opisu”/„Zweryfikowane”; „Gotowa do księgowania” liczy dekret wyliczany
   od nowa, a ręczny zostawia. **Niekompletny dekret blokuje „Gotowa”** (409
   z powodem): brak reguły, sprzedawca spoza kartoteki, kontrahent bez konta
-  rozrachunkowego, brak kwot, konto spoza planu, bilans Wn ≠ Ma, **waluta inna
-  niż PLN** (dekret w PLN wpisuje się ręcznie, kursu NBP NEXUS nie liczy).
+  rozrachunkowego, brak kwot, konto spoza planu, bilans Wn ≠ Ma, brak kursu NBP,
+  kwoty źródła zmienione po dekrecie.
+- **Waluta obca** (decyzja Artura 13.11.2026, ta sama zasada co w E4): dekret
+  w PLN po kursie NBP z **dokładnie ostatniego dnia roboczego przed datą
+  wystawienia** (`posting.rate_day`, kalendarz `core/scheduling.is_business_day`,
+  kurs z tabeli `fx_rates`, bez wywołań sieci i bez szukania starszego kursu).
+  Brutto i VAT × kurs (w groszach), netto jako różnica — dekret się bilansuje.
+  Brak kursu z tego dnia = wada „Brak kursu NBP {waluta} z dnia DD.MM.RRRR”
+  (blokuje „Gotowa”); brak daty wystawienia — też wada. Dekret pamięta walutę,
+  kurs i dzień kursu (`fx_rate`, `fx_date`), karta je pokazuje; ręczna korekta
+  je zachowuje.
+- **Kwoty źródła zmienione po dekrecie**: źródło potrafi zmienić kwoty już po
+  dekrecie (PDF dostaje bliźniaka z KSeF, `hr/ksef/sync._bind_twin`). Suma
+  pozycji rozrachunku ≠ `abs(brutto)` źródła (dla waluty × kurs z dekretu) =
+  wada „Kwoty faktury zmieniły się po dekrecie — Cofnij i przelicz”
+  (`posting.amount_issue`): w „Gotowa”, na karcie, na liście miesiąca (wpis poza
+  paczką) i przy „Oznacz jako zaksięgowane” — paczka z takim wpisem dostaje 409
+  (plik jest nieaktualny: anuluj paczkę, Cofnij, przelicz). Ręczny dekret waluty
+  obcej bez kursu nie ma z czym porównać — przechodzi.
+- **Kategorii nie zmienia się po „Gotowa” ani w paczce** (409 „najpierw Cofnij
+  / anuluj paczkę”, lista na karcie zablokowana): kategoria wybiera regułę,
+  a po „Gotowa” dekret się już nie przelicza — zostałby stary.
 - Ręczna korekta (`PUT …/entries/{id}/decree`) tylko w „Do opisu”
   i „Zweryfikowane”; Wn ≠ Ma albo konto kosztu/VAT spoza planu = 422. Po
   „Gotowa” dekret zmienia się po „Cofnij”, po zaksięgowaniu wcale. Historia
   wpisu: `decree`, `export`, `unexport`, `book`.
 - **Eksport miesiąca** (Finanse → „Księgowanie”, `posting_export.py`): miesiąc
   wpływu (jak filtr kolejki), wpisy „Gotowe” spoza paczek per rejestr z sumami
-  Wn/Ma i kontrolą. „Pobierz plik” zakłada **paczkę** (`finance_posting_batches`:
-  numer `RRRR-MM/n`, kto i kiedy, lista wpisów, bajty pliku i SHA-256) —
-  ponowne pobranie paczki oddaje zapisane bajty, więc ten sam plik. Jedna wada
-  dowolnego wpisu = paczka nie powstaje. Wpisu w paczce nie cofa się (najpierw
+  Wn/Ma i kontrolą (sumy rejestru liczą tylko faktury bez wady). „Pobierz plik”
+  zakłada **paczkę** (`finance_posting_batches`: numer `RRRR-MM/n`, kto i kiedy,
+  lista wpisów, bajty pliku i SHA-256) — ponowne pobranie paczki oddaje zapisane
+  bajty, więc ten sam plik. **Faktury z wadą dekretu paczka pomija** (decyzja
+  Artura 13.11.2026): zostają „Gotowe”, ekran „Księgowanie” pokazuje je z
+  powodami („Pominięte w paczce”, też w odpowiedzi `POST /batches` jako
+  `skipped`), po poprawce wchodzą do następnej paczki. Same wadliwe = paczka nie
+  powstaje (409). Lista pominiętych trzyma D2 (osoba bez Płac nie widzi faktur
+  zespołu). Miesiąc eksportu zostaje miesiącem wpływu (decyzja Artura 13.11.2026).
+  Wpisu w paczce nie cofa się (najpierw
   „Anuluj paczkę”, wpisy wracają na listę jako „Gotowe”). „Oznacz jako
   zaksięgowane” przestawia wpisy paczki na `booked`.
 - **Format pliku**: formatu importu Symfonii FK nie znamy (czekamy na próbkę od

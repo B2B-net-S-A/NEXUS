@@ -4,6 +4,7 @@
 // tu tylko szkic ręcznej korekty: kwoty w groszach, sumy Wn/Ma, czy można
 // zapisać, i podgląd opisu z wzoru reguły. Serwer sprawdza bilans jeszcze raz.
 
+import type { CostStage } from "@/lib/api/finance-ledger";
 import type {
   DecreeInput,
   DecreeSection,
@@ -183,6 +184,19 @@ export function unknownTemplateFields(template: string): string[] {
   return [...template.matchAll(/\{([^{}]*)\}/g)]
     .map((match) => match[1])
     .filter((name) => !known.has(name));
+}
+
+/** Kategoria wybiera regułę dekretu: po „Gotowa”, w paczce i po zaksięgowaniu
+ * jej nie zmienia się (serwer odmawia 409) — najpierw Cofnij / anuluj paczkę. */
+export function categoryLocked(stage: CostStage, inBatch: boolean): boolean {
+  return inBatch || stage === "ready" || stage === "booked";
+}
+
+/** „Kurs NBP EUR 4,2512 z 03.11.2026” albo `null` dla PLN. */
+export function fxLabel(section: DecreeSection): string | null {
+  if (!section.fx_rate || !section.currency || section.currency === "PLN") return null;
+  const day = section.fx_date ? section.fx_date.split("-").reverse().join(".") : "—";
+  return `Kurs NBP ${section.currency} ${section.fx_rate.replace(".", ",")} z ${day}`;
 }
 
 /** Poprzedni miesiąc „RRRR-MM” (eksport robi się zwykle za miniony miesiąc). */

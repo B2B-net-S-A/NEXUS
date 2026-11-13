@@ -76,6 +76,8 @@ const SECTION: DecreeSection = {
   issues: ["Kontrahent „Dostawca Testowy” nie ma konta rozrachunkowego w kartotece — uzupełnij je w „Kontrahenci”."],
   editable: true,
   batch: null,
+  fx_rate: null,
+  fx_date: null,
 };
 
 function renderPanel(section: DecreeSection = SECTION, readOnly = false) {
@@ -103,6 +105,11 @@ describe("DecreePanel", () => {
       "nie ma konta rozrachunkowego",
     );
     expect(screen.getByText("Kontraktorzy")).toBeInTheDocument();
+  });
+
+  it("waluta obca: kurs NBP i jego dzień na karcie", () => {
+    renderPanel({ ...SECTION, currency: "EUR", fx_rate: "4.2512", fx_date: "2026-11-03" });
+    expect(screen.getByText("Kurs NBP EUR 4,2512 z 03.11.2026")).toBeInTheDocument();
   });
 
   it("po „Gotowa” i w podglądzie nie ma przycisków zmiany", () => {

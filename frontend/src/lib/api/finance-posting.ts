@@ -92,6 +92,9 @@ export interface DecreeSection {
   issues: string[];
   editable: boolean;
   batch: { id: number; number: string; status: BatchStatus } | null;
+  /** Waluta obca: kurs NBP z ostatniego dnia roboczego przed wystawieniem. */
+  fx_rate: string | null;
+  fx_date: string | null;
 }
 
 export interface DecreeInput {
@@ -117,8 +120,17 @@ export interface ExportEntry {
   doc_type: string | null;
   description: string | null;
   manual: boolean;
+  /** Bez wady dekretu — pójdzie do pliku. */
+  exportable: boolean;
   debit_total: string;
   credit_total: string;
+  issues: string[];
+}
+
+export interface SkippedEntry {
+  id: number;
+  invoice_number: string | null;
+  seller_name: string | null;
   issues: string[];
 }
 
@@ -158,6 +170,8 @@ export interface ExportPreview {
   registers: ExportRegister[];
   count: number;
   blocked: number;
+  /** Faktury z wadą — „Pobierz plik” je pomija, zostają „Gotowe”. */
+  skipped: SkippedEntry[];
   can_export: boolean;
   formats: { key: string; label: string; extension: string }[];
   default_format: string;
@@ -297,7 +311,7 @@ export function useBatchCreate() {
   const invalidate = useBatchInvalidate();
   return useMutation({
     mutationFn: async (body: { month: string; format: string }) =>
-      (await api.post<PostingBatch>(`${POSTING}/batches`, body)).data,
+      (await api.post<PostingBatch & { skipped: SkippedEntry[] }>(`${POSTING}/batches`, body)).data,
     onSettled: invalidate,
   });
 }

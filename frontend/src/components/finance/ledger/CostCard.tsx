@@ -28,6 +28,7 @@ import { useAuthStore } from "@/store/auth";
 
 import { Concerning } from "./CostsTab";
 import { DecreePanel } from "./DecreePanel";
+import { categoryLocked } from "./posting-model";
 import {
   CATEGORY_LABELS,
   CATEGORY_ORDER,
@@ -140,7 +141,12 @@ function Bookkeeping({ card, locked }: { card: CostCardData; locked: boolean }) 
         <select
           id="cost-category"
           value={card.category}
-          disabled={locked || patch.isPending}
+          disabled={locked || categoryLocked(card.stage, card.decree?.batch?.status === "exported") || patch.isPending}
+          title={
+            card.stage === "ready"
+              ? "Po „Gotowa do księgowania” najpierw Cofnij — kategoria wybiera regułę dekretu."
+              : undefined
+          }
           onChange={(event) =>
             save({ category: event.target.value as CostCategory }, "Kategoria zapisana.")
           }

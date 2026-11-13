@@ -25,6 +25,7 @@ import {
   draftToInput,
   emptyRow,
   formatGrosze,
+  fxLabel,
   toGrosze,
   type Draft,
   type DraftRow,
@@ -288,6 +289,12 @@ export function DecreePanel({
           <dd className="min-w-0 break-words">{section.description ?? "—"}</dd>
           <dt className="text-muted-foreground">Reguła</dt>
           <dd>{section.manual ? "korekta ręczna" : (section.rule?.label ?? "—")}</dd>
+          {fxLabel(section) ? (
+            <>
+              <dt className="text-muted-foreground">Waluta</dt>
+              <dd>{fxLabel(section)}</dd>
+            </>
+          ) : null}
         </dl>
       ) : null}
       {editing ? (

@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { DecreeSection } from "@/lib/api/finance-posting";
 
 import {
+  categoryLocked,
   checkDraft,
+  fxLabel,
   draftFromSection,
   draftToInput,
   emptyRow,
@@ -69,6 +71,8 @@ const SECTION: DecreeSection = {
   issues: [],
   editable: true,
   batch: null,
+  fx_rate: null,
+  fx_date: null,
 };
 
 describe("kwoty", () => {
@@ -149,5 +153,22 @@ describe("wzór opisu", () => {
   it("eksport domyślnie za poprzedni miesiąc", () => {
     expect(previousMonth("2026-11-13")).toBe("2026-10");
     expect(previousMonth("2027-01-02")).toBe("2026-12");
+  });
+});
+
+describe("poprawki po przeglądzie (13.11)", () => {
+  it("kategorii nie zmienia się po „Gotowa”, w paczce ani po zaksięgowaniu", () => {
+    expect(categoryLocked("verified", false)).toBe(false);
+    expect(categoryLocked("new", false)).toBe(false);
+    expect(categoryLocked("ready", false)).toBe(true);
+    expect(categoryLocked("ready", true)).toBe(true);
+    expect(categoryLocked("booked", false)).toBe(true);
+  });
+
+  it("kurs NBP na karcie po polsku, bez kursu nic", () => {
+    expect(fxLabel({ ...SECTION, currency: "EUR", fx_rate: "4.2512", fx_date: "2026-11-03" })).toBe(
+      "Kurs NBP EUR 4,2512 z 03.11.2026",
+    );
+    expect(fxLabel(SECTION)).toBeNull();
   });
 });

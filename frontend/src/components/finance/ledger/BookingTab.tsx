@@ -130,7 +130,14 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
       { month, format: chosenFormat },
       {
         onSuccess: async (batch) => {
-          showToast(`Paczka ${batch.number} gotowa — pobieram plik.`, "success");
+          const skipped = batch.skipped?.length ?? 0;
+          showToast(
+            `Paczka ${batch.number} gotowa — pobieram plik.` +
+              (skipped
+                ? ` Pominięto ${countPl(skipped, "fakturę", "faktury", "faktur")} z wadą dekretu.`
+                : ""),
+            "success",
+          );
           try {
             await downloadBatchFile(batch);
           } catch (err) {
@@ -157,7 +164,7 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
         {data ? (
           <span className="text-xs text-muted-foreground">
             {countPl(data.count, "faktura gotowa", "faktury gotowe", "faktur gotowych")} do księgowania
-            {data.blocked > 0 ? ` · z wadą: ${data.blocked}` : ""}
+            {data.blocked > 0 ? ` · z wadą (pominie je plik): ${data.blocked}` : ""}
           </span>
         ) : null}
         <div className={cn("ml-auto flex flex-wrap items-center gap-2", !canWrite && "hidden")}>
@@ -180,7 +187,8 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
       </div>
       <p className="text-xs text-muted-foreground">
         Format importu Symfonii FK czeka na próbkę od Finansów — plik ma wiersz na pozycję dekretu. „Pobierz plik”
-        zakłada paczkę z numerem; po imporcie w Symfonii oznacz ją jako zaksięgowaną.
+        zakłada paczkę z numerem z faktur bez wady (sumy rejestru liczą tylko je); po imporcie w Symfonii oznacz
+        ją jako zaksięgowaną.
       </p>
 
       {preview.isLoading ? (
@@ -209,7 +217,13 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
             </header>
             <ul>
               {register.entries.map((entry) => (
-                <li key={entry.id} className="border-t border-border px-3.5 py-2 text-sm first:border-t-0">
+                <li
+                  key={entry.id}
+                  className={cn(
+                    "border-t border-border px-3.5 py-2 text-sm first:border-t-0",
+                    !entry.exportable && "bg-muted/40",
+                  )}
+                >
                   <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                     <Link href={`/finance/costs/${entry.id}`} className="font-medium text-primary hover:underline">
                       {entry.invoice_number ?? `Faktura #${entry.id}`}
@@ -234,6 +248,24 @@ export function BookingTab({ canWrite = true }: { canWrite?: boolean }) {
           </section>
         ))
       )}
+
+      {data && data.skipped.length > 0 ? (
+        <section className="rounded-lg border border-warning/25 bg-warning-muted px-3.5 py-2 text-sm text-warning-muted-foreground">
+          <h2 className={cn(LABEL, "text-warning-muted-foreground")}>
+            Pominięte w paczce ({data.skipped.length}) — zostają „Gotowe”, wejdą do następnej paczki po poprawce
+          </h2>
+          <ul aria-label="Pominięte w paczce" className="mt-1 space-y-1">
+            {data.skipped.map((item) => (
+              <li key={item.id}>
+                <Link href={`/finance/costs/${item.id}`} className="font-medium underline">
+                  {item.invoice_number ?? `Faktura #${item.id}`}
+                </Link>
+                {item.seller_name ? ` · ${item.seller_name}` : ""}: {item.issues.join(" ")}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {data && data.batches.length > 0 ? (
         <section aria-label="Paczki miesiąca" className="rounded-lg border border-border bg-card px-3.5 py-1">
