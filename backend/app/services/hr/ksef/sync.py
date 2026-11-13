@@ -15,10 +15,12 @@ Trzy wejścia, jeden przebieg (``_Run``):
 
 Do ``payroll_invoices`` zapisujemy wyłącznie faktury od NIP-ów
 z ``employee_billing_details``. Pozostałe (dostawcy firmy) przy włączonym
-module „Zgody” stają się dokumentami wydatków z samych metadanych
-(``approvals/cost_invoices.py``, licznik ``costs`` obok ``skipped``, bez
-pobierania XML-a); przy wyłączonym to tylko licznik ``skipped`` — bez numeru,
-NIP-u i kwot w bazie i w logach. Faktura od znanego NIP-u: XML z KSeF → ``fa``
+module „Zgody” albo „Księgowość” stają się dokumentami wydatków z samych
+metadanych (``approvals/cost_invoices.py``, licznik ``costs`` obok ``skipped``,
+bez pobierania XML-a; bez „Zgód” bez dopasowania do zgód); przy obu
+wyłączonych to tylko licznik ``skipped`` — bez numeru, NIP-u i kwot w bazie
+i w logach. Każda zapisana faktura dostaje wpis w kolejce kosztów Finansów
+(``finance_ledger/costs.py``), a koniec przebiegu dokłada brakujące. Faktura od znanego NIP-u: XML z KSeF → ``fa``
 → wiersz ``payroll_invoices`` (unikalny numer KSeF, skrót SHA-256 XML-a;
 samego XML-a nie trzymamy). Ta sama faktura dopięta wcześniej przez Płace
 jako PDF (ten sam NIP sprzedawcy, numer i waluta) nie dostaje drugiego
@@ -63,6 +65,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import DEFAULT_TZ
 from app.models.app_setting import AppSetting
 from app.models.hr_settlement import EmployeeBillingDetails, PayrollInvoice
+from app.services.finance_ledger import settings as accounting
 from app.services.hr import audit, job_runs, settlements
 from app.services.hr.ksef import fa, numbers
 from app.services.hr.ksef.client import (
@@ -126,8 +129,11 @@ class _Run:
     downloads_left: int = MAX_DOWNLOADS
     #: ``permanentStorageDate`` ostatniego przetworzonego rekordu bieżącego okna.
     progress: Optional[str] = None
-    #: Moduł „Zgody” włączony: faktury kosztowe spółki zapisujemy z metadanych.
+    #: Moduł „Zgody” albo „Księgowość” włączony: faktury kosztowe spółki
+    #: zapisujemy z metadanych.
     store_costs: bool = False
+    #: Dopasowanie faktury kosztowej do zgód — tylko przy włączonych „Zgodach”.
+    match_costs: bool = True
     #: Moduł rozliczeń klientów włączony: faktury kontraktorów (E4) przed kosztami.
     contractors: Optional[Any] = None
 
@@ -513,6 +519,7 @@ async def _download_and_store(
         run.counts["duplicates"] += 1
         return
     run.counts["saved"] += 1
+    await _ledger_entry(run, ksef_number)
     if invoice.match_status == "matched":
         run.counts["matched"] += 1
 
@@ -569,6 +576,7 @@ async def _store_contractor(run: _Run, item: dict[str, Any], ksef_number: str) -
         return False
     await run.db.commit()
     run.counts["contractors"] += 1
+    await _ledger_entry(run, ksef_number)
     if stored == contractor_invoices.SUGGESTED:
         run.counts["contractors_suggested"] += 1
     return True
@@ -626,7 +634,8 @@ async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None
 
     Bez pobierania XML-a (budżet pobrań zostaje dla faktur kontraktorów).
     Awaria zapisu nie zatrzymuje przebiegu — faktura wróci przy „Pobierz
-    ponownie okres”.
+    ponownie okres”. Przy wyłączonych „Zgodach” (zapis dla „Księgowości”)
+    dokument nie szuka zgody — zostaje „bez zgody” do kolejki kosztów.
     """
 
     from app.services.hr.approvals import cost_invoices  # noqa: PLC0415
@@ -634,7 +643,11 @@ async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None
     try:
         async with run.db.begin_nested():
             state = await cost_invoices.store(
-                run.db, item, ksef_number=ksef_number, now=run.now
+                run.db,
+                item,
+                ksef_number=ksef_number,
+                now=run.now,
+                match=run.match_costs,
             )
     except Exception:  # noqa: BLE001 — pobieranie idzie dalej
         logger.exception("ksef: zapis faktury kosztowej nieudany")
@@ -647,6 +660,39 @@ async def _store_cost(run: _Run, item: dict[str, Any], ksef_number: str) -> None
     run.counts["costs"] += 1
     if state == "pinned":
         run.counts["costs_pinned"] += 1
+    await _ledger_entry(run, ksef_number)
+
+
+async def _ledger_entry(run: _Run, ksef_number: str) -> None:
+    """Wpis w kolejce kosztów Finansów dla właśnie zapisanej faktury (0695).
+
+    Awaria nie cofa zapisu faktury: wpis dołoży ``_ledger_catch_up`` na końcu
+    przebiegu albo entrypoint przy starcie.
+    """
+
+    from app.services.finance_ledger import costs as ledger  # noqa: PLC0415
+
+    try:
+        async with run.db.begin_nested():
+            await ledger.enqueue_ksef(run.db, ksef_number)
+        await run.db.commit()
+    except Exception:  # noqa: BLE001 — pobieranie idzie dalej
+        logger.exception("ksef: wpis do kolejki kosztów nieudany")
+        run.counts["ledger_failed"] += 1
+
+
+async def _ledger_catch_up(db: AsyncSession) -> None:
+    """Wpisy kolejki kosztów dla faktur bez wpisu — też PDF-ów wgranych ręcznie."""
+
+    from app.services.finance_ledger import costs as ledger  # noqa: PLC0415
+
+    try:
+        async with db.begin_nested():
+            await ledger.catch_up(db)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — stan przebiegu zapisujemy mimo to
+        await db.rollback()
+        logger.exception("ksef: uzupełnienie kolejki kosztów nieudane")
 
 
 async def _retry_pending(run: _Run) -> None:
@@ -783,6 +829,7 @@ async def _execute(
     state = await load_state(db)
     pending_all: dict[str, list[dict[str, Any]]] = dict(state.get("pending") or {})
     key = config.state_key
+    approvals_on = bool((await load_modules(db)).get(HrModule.approvals))
     run = _Run(
         db=db,
         config=config,
@@ -797,7 +844,8 @@ async def _execute(
         problems=list(state.get("problems") or []),
         requests_left=MAX_METADATA_REQUESTS,
         downloads_left=MAX_DOWNLOADS,
-        store_costs=bool((await load_modules(db)).get(HrModule.approvals)),
+        store_costs=approvals_on or await accounting.is_enabled(db),
+        match_costs=approvals_on,
         contractors=await _contractor_index(db, now),
     )
     error: Optional[KsefApiError] = None
@@ -822,6 +870,7 @@ async def _execute(
         logger.exception("ksef: przebieg przerwany")
         error = KsefApiError("internal")
 
+    await _ledger_catch_up(db)
     counts = dict(run.counts)
     counts["requests"] = run.source.requests
     counts["pending"] = len(run.pending)
