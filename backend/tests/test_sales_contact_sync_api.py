@@ -25,7 +25,7 @@ from app.models.sales import (
     SalesOpportunity,
     SalesOpportunityEvent,
 )
-from app.services.sales import contact_sync, factories
+from app.services.sales import contact_sync, factories, lead_dossier
 from app.services.sales.bot_tasks import people
 from app.services.sales.decision_map import decision_entries
 from app.services.sales.motion import decision_people
@@ -310,6 +310,11 @@ async def test_person_who_left_is_kept_as_not_working_and_can_come_back(
     names = [item["full_name"] for item in listed.json()["items"]]
     assert names[0] == "Adam Abacki"
     assert set(names[1:]) == {"Ewa Przykładowa", "Marek Mapowy", "Beata Bezwiersza"}
+
+    # Teczka leada nie liczy osoby, która nie pracuje (firma główna też).
+    async with AsyncSessionLocal() as db:
+        dossier = (await lead_dossier.dossiers(db, [company_id]))[company_id]
+    assert dossier.known == 1
 
     by_name = {entry["name"]: entry for entry in await _entries_for(company_id)}
     assert by_name["Ewa Przykładowa"]["active"] is False

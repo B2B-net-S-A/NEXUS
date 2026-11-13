@@ -58,7 +58,8 @@ w rutynie Cognism), historia w `services/sales/bot_card_history.py`
   dostaje przy odczycie `active = false` (`motion._mark_gone`), mapa Cognism tak
   samo (`read_cognism_map`), więc jedna zmiana w Kontaktach zmienia wszystkie
   widoki. Kolejka do pierwszego kontaktu w Fabrykach IT pomija osoby, które
-  odeszły (`factories.waits_for_first_contact`). `active = false` od Cognism
+  odeszły (`factories.waits_for_first_contact`), a teczka leada ich nie liczy
+  i nie pokazuje ich stanowisk (`lead_dossier._members`). `active = false` od Cognism
   nie ukrywa już osoby na mapie Cognism (do 13.11 znikała).
 - **„Imię Nazwisko (Stanowisko)” w polu nazwiska** rozdziela się przy każdym
   zapisie botów dla tej firmy, tylko gdy stanowisko było puste i przed nawiasem
