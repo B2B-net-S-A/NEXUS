@@ -10,7 +10,9 @@ export type FinanceViewMode =
   | "approved-expenses"
   | "settlements"
   | "costs"
-  | "counterparties";
+  | "counterparties"
+  | "booking"
+  | "accounts";
 
 const VIEW_MODES: readonly FinanceViewMode[] = [
   "results",
@@ -24,6 +26,8 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "settlements",
   "costs",
   "counterparties",
+  "booking",
+  "accounts",
 ];
 
 /** `?view=` → widok; nieznany albo brak = „Wyniki miesięczne” (FE-N09). */
