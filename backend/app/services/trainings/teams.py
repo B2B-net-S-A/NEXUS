@@ -1,4 +1,4 @@
-"""Spotkanie szkolenia w Teams zakłada NEXUS (0695, decyzje Artura 13.11.2026).
+"""Spotkanie szkolenia w Teams zakłada NEXUS (0696, decyzje Artura 13.11.2026).
 
 Do tej daty TCM wklejał link ze spotkania założonego we własnym Teams: nagranie
 lądowało w OneDrive tej osoby i wygasało po 120 dniach, trener w panelu linku nie

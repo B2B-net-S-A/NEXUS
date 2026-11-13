@@ -546,7 +546,7 @@ def _apply_order(training: Training, data: OrderInput) -> None:
         raise TrainingError(422, "Limit miejsc musi być dodatni.", "bad_seats")
     join_url = _clean(data.join_url, 1_000)
     if training.teams_event_id:
-        # Spotkanie założył NEXUS (0695): link należy do niego, formularz go nie nadpisze.
+        # Spotkanie założył NEXUS (0696): link należy do niego, formularz go nie nadpisze.
         join_url = training.join_url
     if join_url and not join_url.startswith("https://"):
         raise TrainingError(
@@ -625,7 +625,7 @@ async def update_order(
 ) -> Training:
     training = await get(db, training_id, lock=True)
     # Szkolenie pracownika nie ma umowy, więc można je przełożyć także po wysłaniu
-    # (0695: spotkanie i zaproszenia przesuwają się same). Termin szkolenia trenera
+    # (0696: spotkanie i zaproszenia przesuwają się same). Termin szkolenia trenera
     # B2B stoi w podpisanym Zał. 1, dlatego po umowie zostaje zablokowany.
     reschedulable = training.status == "signed" and training.trainer_kind == "employee"
     if training.status not in EDITABLE_ORDER and not reschedulable:
@@ -1240,7 +1240,7 @@ async def trainer_trainings(
     return [list_row(t, name="", show_fees=True) for t in rows]
 
 
-# ── Nagranie dla zapisanych, oceny, transkrypt (0695) ──────────────────────
+# ── Nagranie dla zapisanych, oceny, transkrypt (0696) ──────────────────────
 
 
 async def shared_file(db: AsyncSession, file_id: int) -> TrainingFile:

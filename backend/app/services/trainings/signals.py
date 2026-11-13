@@ -1,4 +1,4 @@
-"""Dzwonki szkoleń (0695): kto dowiaduje się o kroku, który czeka na niego.
+"""Dzwonki szkoleń (0696): kto dowiaduje się o kroku, który czeka na niego.
 
 Do 13.11.2026 o kolejnych krokach wiedział tylko trener (maile z ``notify.py``):
 TCM nie wiedział o wycenie ani pliku, reprezentant o umowie do podpisu, Finanse

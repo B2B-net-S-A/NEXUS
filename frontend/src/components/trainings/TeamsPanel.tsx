@@ -41,7 +41,7 @@ function ratingsLabel(count: number): string {
   return `${count} ${last >= 2 && last <= 4 && !teen ? "oceny" : "ocen"}`;
 }
 
-/** Spotkanie Teams założone przez NEXUS (0695), nagranie z Teams i oceny uczestników. */
+/** Spotkanie Teams założone przez NEXUS (0696), nagranie z Teams i oceny uczestników. */
 export function TeamsPanel({ view, me, onRetry, onShare, busy }: TeamsPanelProps) {
   const teams = view.teams;
   const link = view.join_url ? safeExternalHref(view.join_url) : null;

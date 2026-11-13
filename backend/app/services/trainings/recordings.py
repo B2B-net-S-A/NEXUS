@@ -1,4 +1,4 @@
-"""Po szkoleniu: nagranie, transkrypt i obecność same wracają z Teams (0695).
+"""Po szkoleniu: nagranie, transkrypt i obecność same wracają z Teams (0696).
 
 Do 13.11.2026 TCM szukał nagrania w OneDrive organizatora, pobierał do 2 GB
 i wgrywał je w NEXUSIE, a obecność eksportował z Teams jako CSV. Teraz pętla

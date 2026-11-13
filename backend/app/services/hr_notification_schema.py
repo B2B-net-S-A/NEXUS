@@ -64,7 +64,7 @@ PERSONAL_TYPES: tuple[str, ...] = (
     # Kolejka back office'u — do kierownika i do osoby z przydziałem (0637).
     *BACK_OFFICE_TYPES,
     *CONSULTANT_PORTAL_TYPES,
-    # 0695: szkolenia (dzwonki TCM, reprezentanta, Finansów i uczestników).
+    # 0696: szkolenia (dzwonki TCM, reprezentanta, Finansów i uczestników).
     *TRAINING_TYPES,
 )
 

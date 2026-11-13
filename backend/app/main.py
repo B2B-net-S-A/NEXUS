@@ -1179,7 +1179,7 @@ async def lifespan(app: FastAPI):
             "consultant_portal_mailbox": asyncio.create_task(
                 hr_loops.consultant_portal_mailbox_loop()
             ),
-            # 0695: przypomnienia o szkoleniach i nagranie/transkrypt/obecność z Teams.
+            # 0696: przypomnienia o szkoleniach i nagranie/transkrypt/obecność z Teams.
             "trainings_teams": asyncio.create_task(hr_loops.trainings_teams_loop()),
             "admin_cases_mail_ingest": asyncio.create_task(
                 hr_loops.admin_cases_mail_ingest_loop()

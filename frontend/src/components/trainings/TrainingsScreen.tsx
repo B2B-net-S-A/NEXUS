@@ -38,7 +38,7 @@ import { warsawToday } from "./training-model";
 import { PendingSignatures, TrainerApplications, TrainingRegister } from "./TrainingRegister";
 import { useRunAction } from "./use-run-action";
 
-// „library” zostaje jako stary adres zakładki nagrań (linki sprzed 0695).
+// „library” zostaje jako stary adres zakładki nagrań (linki sprzed 0696).
 const TABS = ["calendar", "recordings", "library", "organize", "applications", "sign"] as const;
 type Tab = (typeof TABS)[number];
 

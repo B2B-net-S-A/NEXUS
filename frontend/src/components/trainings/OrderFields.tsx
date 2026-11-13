@@ -108,7 +108,7 @@ interface OrderFieldsProps {
   disabled?: boolean;
   /** Szkolenie pracownika nie ma umowy, więc nie ma też Zał. 1 ani wyceny. */
   employee?: boolean;
-  /** 0695: spotkanie Teams zakłada NEXUS, więc pola z linkiem nie ma. */
+  /** 0696: spotkanie Teams zakłada NEXUS, więc pola z linkiem nie ma. */
   teamsReady?: boolean;
 }
 

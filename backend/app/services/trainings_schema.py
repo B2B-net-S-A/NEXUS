@@ -198,7 +198,7 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-#: 0695 (13.11.2026, decyzje Artura po analizie szkoleń): spotkanie Teams zakłada NEXUS
+#: 0696 (13.11.2026, decyzje Artura po analizie szkoleń): spotkanie Teams zakłada NEXUS
 #: w kalendarzu skrzynki szkolenia@, zapis wysyła osobne zaproszenie, a nagranie,
 #: transkrypt i obecność wracają z Graph. Stany spotkania i nagrania to wolny tekst
 #: z małej listy (bez CHECK-a), bo ich znaczenie czyta tylko kod szkoleń.
@@ -324,7 +324,7 @@ TABLES: tuple[str, ...] = (
     "training_feedback",
 )
 TEAMS_TABLES: tuple[str, ...] = ("training_transcripts", "training_feedback")
-#: Kolumny 0695 (downgrade je zdejmuje).
+#: Kolumny 0696 (downgrade je zdejmuje).
 TEAMS_COLUMNS: dict[str, tuple[str, ...]] = {
     "trainings": (
         "seat_limit",

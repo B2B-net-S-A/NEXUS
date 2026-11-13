@@ -288,7 +288,7 @@ async def me(current_user: Viewer, db: AsyncSession = Depends(get_db)) -> dict:
         "can_read": is_manager(current_user) or is_finance(current_user),
         "can_pay": is_finance(current_user),
         "is_company_signer": await signing.is_company_signer(db, current_user),
-        # 0695: spotkanie Teams zakłada NEXUS — formularz nie pyta wtedy o link.
+        # 0696: spotkanie Teams zakłada NEXUS — formularz nie pyta wtedy o link.
         "teams_ready": teams.ready(),
     }
 
@@ -566,7 +566,7 @@ async def get_training(
 
 
 async def _sync_teams(db: AsyncSession, training: Training) -> None:
-    """Spotkanie Teams za stanem szkolenia, po zatwierdzeniu kroku (0695).
+    """Spotkanie Teams za stanem szkolenia, po zatwierdzeniu kroku (0696).
 
     Graph trwa sekundy i bywa niedostępny, więc krok w NEXUSIE jest już zapisany;
     wynik spotkania ląduje w ``teams_status`` w osobnej transakcji."""

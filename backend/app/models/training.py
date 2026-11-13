@@ -186,7 +186,7 @@ class Training(Base):
         DateTime(timezone=True), nullable=True
     )
     cancel_reason: Mapped[str] = _text(schema.NOTE_MAX)
-    # 0695: spotkanie Teams z NEXUSA, nagranie z Graph, udostępnienie zapisanym.
+    # 0696: spotkanie Teams z NEXUSA, nagranie z Graph, udostępnienie zapisanym.
     seat_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     teams_event_id: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     teams_meeting_id: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -324,7 +324,7 @@ class TrainingAttendance(Base):
 
 
 class TrainingTranscript(Base):
-    """Transkrypt VTT spotkania (0695); osobna tabela, żeby lista szkoleń go nie ładowała."""
+    """Transkrypt VTT spotkania (0696); osobna tabela, żeby lista szkoleń go nie ładowała."""
 
     __tablename__ = "training_transcripts"
 
@@ -340,7 +340,7 @@ class TrainingTranscript(Base):
 
 
 class TrainingFeedback(Base):
-    """Ocena szkolenia 1–5 od zapisanego albo obecnego (0695)."""
+    """Ocena szkolenia 1–5 od zapisanego albo obecnego (0696)."""
 
     __tablename__ = "training_feedback"
     __table_args__ = (

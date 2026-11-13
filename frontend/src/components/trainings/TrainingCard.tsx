@@ -64,7 +64,7 @@ export interface TrainingCardActions {
   markPaid: (paid: boolean) => Promise<boolean>;
   publish: (publish: boolean) => Promise<boolean>;
   importAttendance: (file: File) => Promise<boolean>;
-  /** 0695: ponowienie spotkania Teams i udostępnienie nagrania zapisanym. */
+  /** 0696: ponowienie spotkania Teams i udostępnienie nagrania zapisanym. */
   retryTeams?: () => Promise<boolean>;
   shareRegistered?: (share: boolean) => Promise<boolean>;
 }
@@ -141,7 +141,7 @@ function OrderSection({
   const [problem, setProblem] = useState<string | null>(null);
   const employee = view.trainer_kind === "employee";
   // Szkolenie pracownika nie ma umowy, więc można je przełożyć także po zatwierdzeniu
-  // (spotkanie i zaproszenia przesuwają się same, 0695).
+  // (spotkanie i zaproszenia przesuwają się same, 0696).
   const editable =
     canManage &&
     (EDITABLE_ORDER.includes(view.status) || (view.status === "signed" && view.trainer_kind === "employee"));

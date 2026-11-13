@@ -1647,9 +1647,9 @@ class Settings(BaseSettings):
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
-    # Szkolenia w Teams (0695, decyzja Artura 13.11.2026): organizatorem spotkań jest
+    # Szkolenia w Teams (0696, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
-    # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0695.
+    # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0696.
     TRAININGS_TEAMS_MAILBOX: str = ""
     TRAININGS_TEAMS_ENABLED: bool = False
     # Pętla nagrań szkoleń: po ilu minutach od końca pytać Graph i kiedy się poddać.

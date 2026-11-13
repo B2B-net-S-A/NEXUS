@@ -36,7 +36,7 @@ export interface TrainingsMe {
   can_read: boolean;
   can_pay: boolean;
   is_company_signer: boolean;
-  /** 0695: spotkanie Teams zakłada NEXUS, więc formularz nie pyta o link. */
+  /** 0696: spotkanie Teams zakłada NEXUS, więc formularz nie pyta o link. */
   teams_ready?: boolean;
 }
 
@@ -167,7 +167,7 @@ export interface TrainingView {
   updated_at: string | null;
 }
 
-/** Spotkanie Teams założone przez NEXUS (0695) i stan nagrania z Teams. */
+/** Spotkanie Teams założone przez NEXUS (0696) i stan nagrania z Teams. */
 export interface TrainingTeams {
   status: "created" | "failed" | "cancelled" | null;
   error: string | null;

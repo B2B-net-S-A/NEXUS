@@ -129,7 +129,7 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.start_documents_reminder,
         T.start_documents_returned,
         T.suggest_next_step,
-        # 0695: szkolenia — wycena, plik od trenera, umowa do podpisu, faktura.
+        # 0696: szkolenia — wycena, plik od trenera, umowa do podpisu, faktura.
         T.training_file,
         T.training_invoice,
         T.training_quote,
@@ -197,7 +197,7 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.password_reset_requested,
         T.portal_low_rating,
         T.portal_monthly_review,
-        # 0695: przypomnienie o szkoleniu i nagranie dostępne / do zatwierdzenia.
+        # 0696: przypomnienie o szkoleniu i nagranie dostępne / do zatwierdzenia.
         T.training_recording,
         T.training_reminder,
         T.powercalling_kpi,
