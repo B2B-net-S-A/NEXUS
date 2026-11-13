@@ -189,6 +189,60 @@ z `report_format` (token dalej ważny, można poprawić i wysłać raz jeszcze);
    → „Osoby od bota”. Sprawdź przy kilku osobach, że link źródła otwiera stronę
    z tą osobą, a e-mail i telefon (jeśli są) stoją na stronie z ich linku.
 
+## Cztery rutyny (13.11.2026)
+
+Od 13.11.2026 (decyzja Artura) każdy z czterech botów ma własną rutynę
+(`docs/claude/sprzedaz/cztery-boty-sprzedazy.md`). Dopóki rutyna bota nie
+istnieje, jego biegi idą na wspólną rutynę z poleceniem v2, więc nic nie
+trzeba robić naraz. Rutyna Cognism zostaje bez zmian.
+
+Dla każdego bota:
+
+1. W Grok Bocie (konto Artura, aplikacja desktopowa) nowa rutyna z wyzwalaczem
+   „When a webhook fires”, nazwa jak w tabeli niżej.
+2. Polecenie: całe polecenie v2 z sekcji 4, a pod nim akapit roli bota z tabeli.
+3. Adres i klucz webhooka jako sekrety repo, potem „Coolify set env”
+   z `value_from_secret` dla zmiennych z tabeli. Wdrożenie.
+4. Próba skryptem z sekcji 4 dla jednego rodzaju tego bota; bieg ma przejść
+   na `received`. Ekran Sprzedaż → Leady → Boty pokaże „własna rutyna”.
+
+| Rutyna | Zmienne | Rodzaje do próby |
+|---|---|---|
+| NEXUS Leady | `GROK_BOT_LEADS_WEBHOOK_URL`, `GROK_BOT_LEADS_WEBHOOK_KEY` | `--kind signals` |
+| NEXUS Research | `GROK_BOT_RESEARCH_WEBHOOK_URL`, `GROK_BOT_RESEARCH_WEBHOOK_KEY` | `--kind briefing` |
+| NEXUS Dane firm | `GROK_BOT_COMPANY_WEBHOOK_URL`, `GROK_BOT_COMPANY_WEBHOOK_KEY` | `--kind enrich` |
+| NEXUS Kontakty | `GROK_BOT_CONTACTS_WEBHOOK_URL`, `GROK_BOT_CONTACTS_WEBHOOK_KEY` | `--kind people --request '{"source":"public"}'` |
+
+Akapity roli (dopisz pod poleceniem v2 w danej rutynie):
+
+```text
+NEXUS Leady: Szukasz zdarzeń, po których firma może kupić usługi IT: nowe
+projekty, budżety, zmiany zarządu, centra IT, przejęcia. Każde zdarzenie to
+jeden sygnał z datą i adresem źródła. Nie oceniaj osób, nie podawaj kontaktów.
+```
+
+```text
+NEXUS Research: Przygotowujesz handlowca do rozmowy. Piszesz krótko, po polsku,
+fakty z ostatnich miesięcy z adresem i datą. Nie wymyślaj powodów rozmowy,
+których źródło nie podaje.
+```
+
+```text
+NEXUS Dane firm: Uzupełniasz kartę firmy. NIP, KRS, REGON i adres bierz najpierw
+z rejestrów publicznych (KRS, CEIDG, Wykaz podatników VAT), stronę i domenę
+z oficjalnej strony firmy. Pole, którego nie potwierdzisz, pomijasz.
+```
+
+```text
+NEXUS Kontakty: Szukasz osób decyzyjnych wymienionych z imienia i nazwiska na
+stronach, które sam otworzyłeś (strona firmy, komunikaty, agendy konferencji,
+wywiady, rejestry). E-mail i telefon tylko, gdy są wydrukowane na źródle.
+Nie korzystasz z LinkedIna i nigdzie się nie logujesz.
+```
+
+Rutyna, którą trzeba wyłączyć na chwilę: Sprzedaż → Leady → Boty, przełącznik
+przy bocie (administrator). Biegi czekają, raporty w drodze NEXUS przyjmie.
+
 ## Mapy decydentów z Cognism
 
 Osobna rutyna „NEXUS Decydenci Cognism” uruchamia się przez webhook i używa
