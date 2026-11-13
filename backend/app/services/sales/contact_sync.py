@@ -96,6 +96,9 @@ class Seen:
 class _Known:
     contact: SalesContact
     link: Optional[SalesCompanyContact]
+    #: ``updated_at`` z chwili wczytania: po zapisie do bazy SQLAlchemy go
+    #: przeterminowuje, a leniwy odczyt w sesji async kończy się błędem.
+    updated: datetime
     marks: set[str] = field(default_factory=set)
 
 
@@ -180,7 +183,12 @@ async def _contacts(db: AsyncSession, company_id: int) -> list[_Known]:
         )
     ).all()
     return [
-        _Known(contact, link, marks(contact.full_name, contact.email))
+        _Known(
+            contact,
+            link,
+            contact.updated_at or contact.created_at,
+            marks(contact.full_name, contact.email),
+        )
         for contact, link in rows
     ]
 
@@ -226,10 +234,12 @@ async def _last_writes(db: AsyncSession, company_id: int) -> dict[int, Writes]:
     return writes
 
 
-def human_date(contact: SalesContact, writes: Optional[Writes]) -> Optional[date]:
-    """Dzień ostatniej zmiany kontaktu przez człowieka (albo import), jeśli jest znany."""
+def human_date(updated: datetime, writes: Optional[Writes]) -> Optional[date]:
+    """Dzień ostatniej zmiany kontaktu przez człowieka (albo import), jeśli jest znany.
 
-    updated = contact.updated_at or contact.created_at
+    ``updated`` to ``updated_at`` kontaktu sprzed zmian w tym zapisie.
+    """
+
     if writes is None or updated > writes.at + _SAME_WRITE:
         return business_date(updated) if updated else None
     return writes.human
@@ -239,20 +249,20 @@ def _latest(*days: Optional[date]) -> date:
     return max((day for day in days if day is not None), default=date.min)
 
 
-def title_state(contact: SalesContact, writes: Optional[Writes]) -> date:
+def title_state(updated: datetime, writes: Optional[Writes]) -> date:
     """Data obecnego stanowiska: ręczna zmiana albo źródło ostatnich zapisów automatu."""
 
-    return _latest(human_date(contact, writes), writes.as_of if writes else None)
+    return _latest(human_date(updated, writes), writes.as_of if writes else None)
 
 
-def work_state(contact: SalesContact, writes: Optional[Writes]) -> date:
+def work_state(updated: datetime, writes: Optional[Writes]) -> date:
     """Data stanu „pracuje / nie pracuje”: ręczna zmiana albo opublikowane źródło.
 
     Odczyt Cognism się nie liczy: profil w Cognism bywa nieaktualny, więc nie
     dowodzi, że osoba wciąż pracuje, i nie blokuje datowanej informacji o odejściu.
     """
 
-    return _latest(human_date(contact, writes), writes.published if writes else None)
+    return _latest(human_date(updated, writes), writes.published if writes else None)
 
 
 def _fits(value: Optional[str], column: str) -> Optional[str]:
@@ -315,7 +325,7 @@ def _tidy_names(
                 None,
                 before=raw,
                 after=f"{name} · {title}",
-                human=human_date(contact, last.get(contact.id)),
+                human=human_date(item.updated, last.get(contact.id)),
             )
         )
     return changes
@@ -459,15 +469,23 @@ async def sync(
             continue
         handled.add(contact.id)
         writes = last.get(contact.id)
-        human = human_date(contact, writes)
+        human = human_date(match.updated, writes)
         current = match.link is None or match.link.is_current
         if not seen.working:
-            if current and newer(seen.as_of, work_state(contact, writes)):
+            if current and newer(seen.as_of, work_state(match.updated, writes)):
                 if match.link is None:
-                    match.link = SalesCompanyContact(
-                        company_id=company_id, contact_id=contact.id
-                    )
-                    db.add(match.link)
+                    # Kontakt z Atlasa bez wiersza powiązania: firma główna dostaje
+                    # swój jedyny wiersz z ``is_primary``, inna firma zwykły.
+                    if contact.company_id == company_id:
+                        await set_primary_company(db, contact, company_id)
+                        match.link = await db.get(
+                            SalesCompanyContact, (company_id, contact.id)
+                        )
+                    else:
+                        match.link = SalesCompanyContact(
+                            company_id=company_id, contact_id=contact.id
+                        )
+                        db.add(match.link)
                 match.link.is_current = False
                 match.link.ended_at = seen.left_on
                 changes.append(
@@ -477,7 +495,9 @@ async def sync(
         if not current:
             # Wraca tylko źródło z datą publikacji nowszą niż odejście albo człowiek;
             # odczyt Cognism to stan profilu, który bywa nieaktualny.
-            if seen.source != BOT or not newer(seen.as_of, work_state(contact, writes)):
+            if seen.source != BOT or not newer(
+                seen.as_of, work_state(match.updated, writes)
+            ):
                 continue
             match.link.is_current = True
             match.link.ended_at = None
@@ -487,7 +507,7 @@ async def sync(
         title_now = _title_here(match)
         if same_title(title_now, seen.title):
             continue
-        if title_now and not newer(seen.as_of, title_state(contact, writes)):
+        if title_now and not newer(seen.as_of, title_state(match.updated, writes)):
             continue
         _set_title(match, company_id, seen.title)
         changes.append(

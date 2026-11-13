@@ -10,7 +10,6 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 from pydantic import ValidationError
 
-from app.models.sales import SalesContact
 from app.services.sales import bot_card_history as history
 from app.services.sales import contact_sync
 from app.services.sales.bot_tasks.people import FirmPeople, LeftPerson
@@ -56,10 +55,10 @@ def test_newer_needs_a_dated_source_strictly_after_the_current_state() -> None:
     assert not contact_sync.newer(None, state)
 
 
-def _contact(updated: datetime) -> SalesContact:
-    return SalesContact(
-        full_name="Jan Fikcyjny", created_at=updated, updated_at=updated
-    )
+def _contact(updated: datetime) -> datetime:
+    """``updated_at`` kontaktu z chwili wczytania."""
+
+    return updated
 
 
 WROTE = datetime(2026, 11, 13, 10, 0, tzinfo=timezone.utc)

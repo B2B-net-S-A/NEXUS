@@ -116,6 +116,27 @@ describe("lista Kontakty", () => {
   });
 });
 
+describe("okno kontaktu bez wiersza powiązania", () => {
+  it("kontakt z Atlasa bez powiązania z firmą główną też da się oznaczyć", () => {
+    const bare = { ...person(4, "Beata Bezwiersza", true, "CFO"), companies: [] };
+    contacts.mockReturnValue({
+      data: { items: [bare], total: 1 },
+      isLoading: false,
+      isSuccess: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+    link.mockClear();
+    render(<ContactsSection companyId={COMPANY} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edytuj" }));
+    fireEvent.click(screen.getByRole("button", { name: "Oznacz: nie pracuje" }));
+    expect(link).toHaveBeenCalledWith(
+      { company_id: COMPANY, role: null, title: "CFO", is_current: false },
+      expect.anything(),
+    );
+  });
+});
+
 describe("mapa decyzyjna", () => {
   it("osoba, której kontakt nie pracuje, ma plakietkę zamiast stanowiska", () => {
     const motion = {
