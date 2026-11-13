@@ -175,7 +175,7 @@ export function BotsView() {
   }
   if (!query.data) return <p className="py-6 text-sm text-muted-foreground">Wczytywanie botów…</p>;
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" data-tour="sales.bots.list">
       <p className="max-w-3xl text-sm text-muted-foreground">
         Wynik bota zapisuje się od razu w karcie, bez „Przyjmij”. Każde pole i każdą osobę można poprawić jak zwykle;
         pola firmy poprawionego ręcznie bot już nie zmienia. Skąd przyszła wartość, widać w historii karty (Aktywności).
