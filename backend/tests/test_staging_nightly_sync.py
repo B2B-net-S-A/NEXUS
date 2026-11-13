@@ -365,6 +365,54 @@ def test_dump_retry_keeps_the_first_deadline(no_sleep, monkeypatch):
     assert calls == [30]
 
 
+def test_web_container_is_found_by_role_not_by_name(monkeypatch):
+    """Etap B2: backend jako aplikacja z Dockerfile nazywa się `<uuid>-<czas>`."""
+    seen = []
+
+    def fake_ssh(cfg, remote, *, what, timeout=120):
+        seen.append(remote)
+        return subprocess.CompletedProcess(
+            remote,
+            0,
+            stdout=(
+                "aaa /abc123-20261113 web\nbbb /worker-ocgkw-1\nccc /postgres-ocgkw-1\n"
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(sync, "ssh", fake_ssh)
+    assert sync.prod_container(FakeCfg, sync.WEB_CONTAINER) == "aaa"
+    assert seen[0][:2] == ["sh", "-c"] and "NEXUS_PROCESS_ROLE=web" in seen[0][2]
+
+
+def test_two_web_containers_mean_a_deploy_in_progress(monkeypatch):
+    monkeypatch.setattr(
+        sync,
+        "ssh",
+        lambda cfg, remote, *, what, timeout=120: subprocess.CompletedProcess(
+            remote, 0, stdout="aaa /new web\nbbb /old web\n", stderr=""
+        ),
+    )
+    with pytest.raises(sync.SyncError, match="2 zamiast 1"):
+        sync.prod_container(FakeCfg, sync.WEB_CONTAINER)
+
+
+def test_settings_are_read_from_the_web_container(monkeypatch):
+    asked = []
+    monkeypatch.setattr(
+        sync, "wait_for_prod_container", lambda cfg, which: asked.append(which) or "id"
+    )
+    monkeypatch.setattr(
+        sync,
+        "ssh",
+        lambda cfg, remote, *, what, timeout=120: subprocess.CompletedProcess(
+            remote, 0, stdout='{"X_ENABLED": "true"}\n', stderr=""
+        ),
+    )
+    assert sync.read_prod_settings(FakeCfg, ("X_ENABLED",)) == {"X_ENABLED": "true"}
+    assert asked == [sync.WEB_CONTAINER]
+
+
 def test_missing_production_container_is_awaited(monkeypatch):
     monkeypatch.setattr(sync.time, "sleep", lambda seconds: None)
     answers = [sync.SyncError("0 zamiast 1"), sync.SyncError("0 zamiast 1"), "id"]

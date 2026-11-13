@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.sales import SalesSignalRun
@@ -65,6 +66,8 @@ def _enabled(bot: str) -> bool:
 
     if bot == bots.COGNISM:
         return signals.people_enabled()
+    if bot == bots.LISTS:
+        return bool(settings.SALES_BOT_LISTS_ENABLED)
     if bot in (bots.LEADS, bots.RESEARCH):
         # Sygnały i punkty chodzą na starej fladze, reszta na fladze zadań.
         return signals.enabled() or bot_tasks.enabled()

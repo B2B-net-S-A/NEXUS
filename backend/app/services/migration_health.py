@@ -109,8 +109,42 @@ async def alembic_revision_state(session: Any) -> dict[str, Any]:
     return out
 
 
-def migrations_verdict(state: dict[str, Any], startup: Optional[dict[str, Any]]) -> str:
-    """Werdykt ``checks.migrations`` z rewizji i wyniku startu."""
+def migrations_verdict(
+    state: dict[str, Any],
+    startup: Optional[dict[str, Any]],
+    skipped_ddl: Optional[list[dict[str, str]]] = None,
+) -> str:
+    """Werdykt ``checks.migrations`` z rewizji, wyniku startu i pominiętego DDL."""
+    verdict = _revisions_verdict(state, startup)
+    if skipped_ddl and verdict == "healthy":
+        return f"degraded: {skipped_ddl_summary(skipped_ddl)}"
+    if skipped_ddl:
+        return f"{verdict}; {skipped_ddl_summary(skipped_ddl)}"
+    return verdict
+
+
+def skipped_ddl_summary(skipped_ddl: list[dict[str, str]]) -> str:
+    return (
+        f"{len(skipped_ddl)} startup DDL step(s) skipped by lock/statement timeout, "
+        "next start retries"
+    )
+
+
+def skipped_ddl_message(skipped_ddl: list[dict[str, str]]) -> Optional[str]:
+    """Treść jednorazowego ``logger.error`` przy starcie (→ Sentry).
+
+    Etykiety kroków pochodzą z kodu (``entrypoint.sh``), bez danych z bazy.
+    """
+    if not skipped_ddl:
+        return None
+    steps = "; ".join(
+        f"{row['step'][:120]} [{row['sqlstate']}]" for row in skipped_ddl[:10]
+    )
+    more = f" (+{len(skipped_ddl) - 10} more)" if len(skipped_ddl) > 10 else ""
+    return f"{skipped_ddl_summary(skipped_ddl)}: {steps}{more}"
+
+
+def _revisions_verdict(state: dict[str, Any], startup: Optional[dict[str, Any]]) -> str:
     startup_failed = startup is not None and not startup.get("ok")
     failure = (
         f"alembic upgrade failed at startup (exit {startup.get('exit_code')})"

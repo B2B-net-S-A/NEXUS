@@ -860,6 +860,10 @@ class SalesCallCampaign(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL")
     )
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: Brief Bota Listy (0690): rola, segment, źródła, paczka, osoby dzwoniące.
+    bot_brief: Mapped[Optional[dict]] = mapped_column(JSONB)
+    #: Kiedy bot ostatnio dosypał listę tej kampanii.
+    bot_built_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class SalesCallDayTotal(Base, TimestampMixin):

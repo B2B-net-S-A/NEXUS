@@ -30,11 +30,15 @@ ENVS = [
 ]
 
 
-def fake_api(apps=None):
+def fake_api(apps=None, destinations=None):
     calls = []
 
     def request(method, path, payload=None):
         calls.append((method, path, payload))
+        if path == "servers/srv/destinations":
+            if method == "POST":
+                return {"uuid": "front-net", "network": payload["network"]}
+            return destinations or [{"uuid": "dest", "network": "coolify"}]
         if path == "projects":
             return [{"uuid": "prj"}]
         if path == "projects/prj":
@@ -95,13 +99,29 @@ class CreateTests(unittest.TestCase):
         self.assertEqual(payload["build_pack"], "dockerfile")
         self.assertNotIn("ports_mappings", payload, "mapowanie portów wyłącza rolling update")
 
-    def test_create_copies_envs_and_joins_shared_network(self):
+    def test_create_copies_envs_into_own_network_and_leaves_compose_alone(self):
         request, calls = fake_api()
         with contextlib.redirect_stdout(io.StringIO()):
             frontend_app.create(request, "src")
         posted = [c for c in calls if c[1] == "applications/new/envs"]
         self.assertEqual(len(posted), 4)
-        self.assertIn(("PATCH", "applications/src", {"connect_to_docker_network": True}), calls)
+        self.assertIn(
+            ("POST", "servers/srv/destinations", {"name": "nexus-front", "network": "nexus-front"}),
+            calls,
+        )
+        app = next(c[2] for c in calls if c[1] == "applications/private-deploy-key")
+        self.assertEqual(app["destination_uuid"], "front-net")
+        self.assertIs(app["is_consistent_container_name_enabled"], False)
+        # `connect_to_docker_network` wpiąłby `postgres` NEXUSA do sieci z `postgres` Coolify.
+        self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] != "GET"])
+
+    def test_create_reuses_existing_network(self):
+        request, calls = fake_api(destinations=[{"uuid": "net1", "network": "nexus-front"}])
+        with contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.create(request, "src")
+        self.assertFalse([c for c in calls if c[1] == "servers/srv/destinations" and c[0] == "POST"])
+        app = next(c[2] for c in calls if c[1] == "applications/private-deploy-key")
+        self.assertEqual(app["destination_uuid"], "net1")
 
     def test_create_refuses_a_second_application(self):
         request, calls = fake_api(apps=[{"name": frontend_app.APP_NAME, "uuid": "x"}])
@@ -133,7 +153,52 @@ class OutputTests(unittest.TestCase):
         self.assertFalse([c for c in calls if c[0] != "GET"], "plan tylko czyta")
 
 
+def deploy_api(deployment, app_status="running:healthy"):
+    def request(method, path, payload=None):
+        if path == "applications":
+            return [{"name": frontend_app.APP_NAME, "uuid": "x"}]
+        if path.startswith("deploy?"):
+            return {"deployments": [{"deployment_uuid": "d"}]}
+        if path == "deployments/d":
+            return deployment
+        if path == "applications/x":
+            return {"status": app_status}
+        raise AssertionError(path)
+
+    return request
+
+
+SHA = "a" * 40
+BUILD_LOG = '[{"output": "version.json → /app/public/version.json (sha=' + SHA + ')"}, {"output": "' + SECRET + '"}]'
+
+
 class DeployTests(unittest.TestCase):
+    def run_deploy(self, request):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            frontend_app.deploy(request, SHA, poll_seconds=0, health_polls=2)
+        return out.getvalue()
+
+    def test_healthy_container_with_matching_build_passes_without_leaking_logs(self):
+        out = self.run_deploy(deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG}))
+        self.assertIn("running:healthy", out)
+        self.assertIn("w logu builda: tak", out)
+        self.assertNotIn(SECRET, out)
+
+    def test_unhealthy_container_is_an_error(self):
+        request = deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG}, "running:unhealthy")
+        with self.assertRaises(ValueError):
+            self.run_deploy(request)
+
+    def test_build_with_other_sha_is_an_error(self):
+        logs = BUILD_LOG.replace(SHA, "unknown")
+        with self.assertRaises(ValueError):
+            self.run_deploy(deploy_api({"status": "finished", "commit": SHA, "logs": logs}))
+
+    def test_missing_logs_are_reported_not_assumed(self):
+        out = self.run_deploy(deploy_api({"status": "finished", "commit": SHA}))
+        self.assertIn("niepotwierdzone", out)
+
     def test_failed_deployment_is_an_error(self):
         def request(method, path, payload=None):
             if path == "applications":

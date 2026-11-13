@@ -1,5 +1,20 @@
 [
   {
+    "id": "sprzedaz-kontakty-jedna-lista",
+    "pr": 3372,
+    "title": "Karta firmy: Kontakty to jedna lista osób",
+    "why": "Osoby od bota Kontakty i z Cognism są od razu w Kontaktach. Nowsze stanowisko zastępuje stare, a kto odszedł, stoi na końcu jako „nie pracuje”. Stan cofasz w oknie kontaktu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy → Kontakty",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.contacts",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
     "id": "sprzedaz-leady-teczka",
     "pr": 3363,
     "title": "Leady: teczka firmy przy leadzie",
@@ -2741,6 +2756,21 @@
     "where": "Sprzedaż → Leady → Boty",
     "href": "/sales/bots",
     "dot_anchor": "sales.bots.list"
+  },
+  {
+    "id": "sprzedaz-bot-listy",
+    "pr": 3378,
+    "title": "Kampanie: Bot Listy buduje listę do dzwonienia",
+    "why": "Opisz, do kogo dzwonimy, a bot złoży listę z bazy i dosypie ją w poniedziałek. „Co działa” pokazuje, które role kończą się spotkaniem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Dzwonienie → Kampanie → Bot Listy",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.bot-lists",
+    "requires_setting": "SALES_BOT_LISTS_ENABLED"
   },
   {
     "id": "czat-wszyscy-przypisani",
