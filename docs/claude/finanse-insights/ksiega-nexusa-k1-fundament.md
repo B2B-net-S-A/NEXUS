@@ -49,9 +49,25 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
   numeracja ciągła w roku pod blokadą wiersza roku, w kolejności daty operacji
   w zaznaczeniu). Zatwierdzony dokument jest trwały: serwis odmawia zmiany
   i usunięcia (409), a **wyzwalacz w bazie** (`ledger_guard_approved`) nie
-  przepuści UPDATE ani DELETE dokumentu i jego pozycji (dane dokumentu,
-  wrażliwość, kontrahent i źródło; wolno tylko oznaczyć storno i dopisać `meta`). Jednorazowe sprzątanie
-  (testy, `scripts/repairs`) ustawia `SET LOCAL nexus.ledger_purge = 'on'`.
+  przepuści UPDATE ani DELETE dokumentu i jego pozycji (wszystkie dane
+  dokumentu z `meta`, kursem i datą zatwierdzenia; pozycji nie przenosi się
+  z zatwierdzonego ani do niego). Wolno tylko raz oznaczyć storno
+  (`reversed_by_id` na dokument, który go odwraca) i wyczyścić autora albo
+  zatwierdzającego po usunięciu konta. Znacznik dla przyszłych paczek
+  (np. „wysłany do Symfonii”) trzymaj w osobnej tabeli, nie w `meta`.
+  Jednorazowe sprzątanie (testy, `scripts/repairs`) ustawia
+  `SET LOCAL nexus.ledger_purge = 'on'`.
+- **Blokady** (przegląd poprawności 14.11.2026): każdy zapis bierze najpierw
+  blokadę wiersza roku (`years.lock_period` / `lock_year`, lata rosnąco),
+  potem wiersz dokumentu, i dopiero wtedy czyta stan okresu, rok dokumentu
+  i licznik dziennika (`lock_year` czyta rok na nowo — `populate_existing`).
+  Odczyt okresu przed blokadą wpuszczał szkic i storno do miesiąca
+  zamykanego w tej samej chwili, a stary licznik dawał dwa zapisy z tym samym
+  numerem. Nowa ścieżka zapisu (K2 adaptery, K3 automaty) idzie przez
+  `create_draft` / `approve` / `reverse`, nie przez własne `INSERT`-y.
+- **Numer automatyczny** (`PK 7/03/2026`) = największy użyty numer tego typu
+  i miesiąca + 1 (po numerach, nie po liczbie dokumentów): usunięty albo
+  przeniesiony szkic nie zwalnia numeru, który nosi inny dokument.
 - **Storno** zatwierdzonego: nowy dokument `ST` z tymi samymi kontami
   i stronami, kwoty z minusem (storno czerwone), od razu zatwierdzony
   w bieżącym otwartym okresie. Raz na dokument; storna się nie odwraca.
@@ -62,7 +78,7 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
 
 ## Plan kont
 
-- Jedna tabela kont z E2 (`finance_accounts`), rozszerzona w 0699 o konto
+- Jedna tabela kont z E2 (`finance_accounts`), rozszerzona w 0700 o konto
   nadrzędne, typ (aktywne/pasywne/aktywno-pasywne/wynikowe/pozabilansowe),
   słownik analityki i pozycję sprawozdania; rodzaj `other` dla kont spoza
   dekretu faktur. Nie zakładaj drugiej tabeli kont.

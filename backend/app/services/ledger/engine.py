@@ -294,10 +294,24 @@ def clean_description(raw: Optional[str]) -> str:
     return clean_text(raw, DESCRIPTION_MAX)
 
 
+def auto_number_suffix(day: date) -> str:
+    return f"/{day.month:02d}/{day.year}"
+
+
 def auto_number(doc_type: str, seq: int, day: date) -> str:
     """Numer dokumentu bez numeru ze źródła: ``PK 3/10/2026``."""
 
-    return f"{doc_type} {seq}/{day.month:02d}/{day.year}"
+    return f"{doc_type} {seq}{auto_number_suffix(day)}"
+
+
+def auto_number_seq(number: str, doc_type: str, day: date) -> Optional[int]:
+    """``PK 3/10/2026`` → 3 dla typu PK i października 2026; inny numer → None."""
+
+    prefix, suffix = f"{doc_type} ", auto_number_suffix(day)
+    if not (number.startswith(prefix) and number.endswith(suffix)):
+        return None
+    middle = number[len(prefix) : len(number) - len(suffix)]
+    return int(middle) if middle.isdigit() else None
 
 
 def period_label(year: int, month: int) -> str:

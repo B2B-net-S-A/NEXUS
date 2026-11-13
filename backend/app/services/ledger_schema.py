@@ -30,9 +30,12 @@ instrukcja idempotentna. Plan: https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar
   rodzaj ``other`` dla kont spoza dekretu faktur (0xx, 1xx, 8xx…).
 
 **Trwałość zapisów** pilnuje baza, nie tylko serwis: wyzwalacze nie pozwalają
-zmienić ani usunąć zatwierdzonego dokumentu i jego pozycji (wolno tylko
-oznaczyć storno). Jednorazowe sprzątanie (testy, naprawy w ``scripts/repairs``)
-ustawia ``SET LOCAL nexus.ledger_purge = 'on'`` w swojej transakcji.
+zmienić ani usunąć zatwierdzonego dokumentu i jego pozycji. Wolno tylko raz
+oznaczyć storno (``reversed_by_id`` na dokument, który odwraca ten) i wyczyścić
+autora albo zatwierdzającego, gdy jego konto znika (``ON DELETE SET NULL``).
+Pozycji nie przenosi się z zatwierdzonego dokumentu ani do niego. Jednorazowe
+sprzątanie (testy, naprawy w ``scripts/repairs``) ustawia
+``SET LOCAL nexus.ledger_purge = 'on'`` w swojej transakcji.
 """
 
 from __future__ import annotations
@@ -257,14 +260,27 @@ BEGIN
             IF (NEW.doc_type, NEW.number, NEW.op_date, NEW.doc_date, NEW.description,
                 NEW.year_id, NEW.period_id, NEW.status, NEW.journal_no,
                 NEW.debit_total, NEW.credit_total, NEW.currency, NEW.fx_rate,
-                NEW.reverses_id, NEW.sensitivity, NEW.counterparty_id,
-                NEW.source_type, NEW.source_id)
+                NEW.fx_date, NEW.reverses_id, NEW.sensitivity, NEW.counterparty_id,
+                NEW.source_type, NEW.source_id, NEW.meta, NEW.created_at,
+                NEW.approved_at)
                IS DISTINCT FROM
                (OLD.doc_type, OLD.number, OLD.op_date, OLD.doc_date, OLD.description,
                 OLD.year_id, OLD.period_id, OLD.status, OLD.journal_no,
                 OLD.debit_total, OLD.credit_total, OLD.currency, OLD.fx_rate,
-                OLD.reverses_id, OLD.sensitivity, OLD.counterparty_id,
-                OLD.source_type, OLD.source_id) THEN
+                OLD.fx_date, OLD.reverses_id, OLD.sensitivity, OLD.counterparty_id,
+                OLD.source_type, OLD.source_id, OLD.meta, OLD.created_at,
+                OLD.approved_at)
+               OR (NEW.created_by IS DISTINCT FROM OLD.created_by
+                   AND NEW.created_by IS NOT NULL)
+               OR (NEW.approved_by IS DISTINCT FROM OLD.approved_by
+                   AND NEW.approved_by IS NOT NULL)
+               OR (OLD.reversed_by_id IS NOT NULL
+                   AND NEW.reversed_by_id IS DISTINCT FROM OLD.reversed_by_id)
+               OR (OLD.reversed_by_id IS NULL AND NEW.reversed_by_id IS NOT NULL
+                   AND NOT EXISTS (
+                       SELECT 1 FROM ledger_documents AS storno
+                       WHERE storno.id = NEW.reversed_by_id
+                         AND storno.reverses_id = OLD.id)) THEN
                 RAISE EXCEPTION 'Zatwierdzony dokument jest trwały — popraw go stornem (dokument %).', OLD.id
                     USING ERRCODE = 'check_violation';
             END IF;
@@ -272,15 +288,22 @@ BEGIN
         IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
         RETURN NEW;
     END IF;
-    SELECT status INTO doc_status FROM ledger_documents
-        WHERE id = COALESCE(NEW.document_id, OLD.document_id);
-    IF doc_status = 'approved' THEN
-        RAISE EXCEPTION 'Pozycje zatwierdzonego dokumentu są trwałe (dokument %).',
-            COALESCE(NEW.document_id, OLD.document_id)
-            USING ERRCODE = 'check_violation';
+    IF TG_OP <> 'INSERT' THEN
+        SELECT status INTO doc_status FROM ledger_documents WHERE id = OLD.document_id;
+        IF doc_status = 'approved' THEN
+            RAISE EXCEPTION 'Pozycje zatwierdzonego dokumentu są trwałe (dokument %).',
+                OLD.document_id USING ERRCODE = 'check_violation';
+        END IF;
     END IF;
-    IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
-    RETURN NEW;
+    IF TG_OP <> 'DELETE' THEN
+        SELECT status INTO doc_status FROM ledger_documents WHERE id = NEW.document_id;
+        IF doc_status = 'approved' THEN
+            RAISE EXCEPTION 'Pozycje zatwierdzonego dokumentu są trwałe (dokument %).',
+                NEW.document_id USING ERRCODE = 'check_violation';
+        END IF;
+        RETURN NEW;
+    END IF;
+    RETURN OLD;
 END $$"""
 
 #: Rodzaj ``other`` w CHECK-u planu kont z E2. Warunek w DO, żeby entrypoint

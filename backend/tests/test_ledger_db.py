@@ -13,6 +13,7 @@ przyszłości, żeby nie zderzyć się z innymi testami na wspólnej bazie.
 
 from __future__ import annotations
 
+import asyncio
 import random
 import uuid
 from datetime import date, datetime, timezone
@@ -38,10 +39,11 @@ from app.models.ledger import (
     LedgerYear,
 )
 from app.models.user import User, UserRole
+from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import documents as ledger_documents
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger import years as ledger_years
-from app.services.ledger.documents import DocumentSpec
+from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger_schema import PURGE_SETTING
 from tests._permission_grants import grant_permissions
@@ -550,7 +552,8 @@ async def test_period_close_needs_empty_buffer_and_blocks_posting(client, world)
                 .order_by(LedgerEvent.id)
             )
         )
-    assert actions == ["close", "reopen"]
+    # Ślad miesiąca: szkic z czerwca (utworzony i usunięty), zamknięcie, otwarcie.
+    assert actions == ["create", "delete", "close", "reopen"]
 
 
 # ── Dokumenty płacowe (D2) ───────────────────────────────────────────────────
@@ -980,3 +983,301 @@ async def test_service_refuses_second_document_for_same_source(world):
 def test_now_is_timezone_aware():
     assert ledger_api._now().tzinfo == timezone.utc
     assert isinstance(ledger_api._now(), datetime)
+
+
+# ── Współbieżność, numery, wyzwalacz (przegląd poprawności 14.11.2026) ──────
+#
+# Druga transakcja rusza, gdy pierwsza trzyma blokadę roku, i musi zobaczyć
+# stan po jej commicie: zamknięty okres, przesunięty licznik dziennika,
+# dokument przeniesiony do innego roku.
+
+LOCK_WAIT = 1.0
+_NOW = datetime(2026, 11, 14, 12, 0, tzinfo=timezone.utc)
+
+
+def _pk(world, day: date, amount: int = 10_000) -> DocumentSpec:
+    acc = world["acc"]
+    return DocumentSpec(
+        doc_type="PK",
+        op_date=day,
+        doc_date=day,
+        lines=[
+            LineIn(side="debit", account=acc["cost"], amount=amount),
+            LineIn(side="credit", account=acc["cash"], amount=amount),
+        ],
+    )
+
+
+def _viewer(world) -> Viewer:
+    return Viewer(user_id=world["admin"].id, admin=True, payroll=True, approver=True)
+
+
+async def _period_id(year: int, month: int) -> int:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(
+            select(LedgerPeriod.id)
+            .join(LedgerYear, LedgerYear.id == LedgerPeriod.year_id)
+            .where(LedgerYear.year == year, LedgerPeriod.month == month)
+        )
+
+
+async def _draft(world, day: date) -> int:
+    async with AsyncSessionLocal() as db:
+        doc = await ledger_documents.create_draft(
+            db, _pk(world, day), actor_id=world["admin"].id
+        )
+        await db.commit()
+        return doc.id
+
+
+async def _approved(world, day: date) -> int:
+    doc_id = await _draft(world, day)
+    async with AsyncSessionLocal() as db:
+        result = await ledger_documents.approve(
+            db, [doc_id], viewer=_viewer(world), now=_NOW
+        )
+        await db.commit()
+    assert result["refused"] == []
+    return doc_id
+
+
+async def _while_locked(hold, contender):
+    """``hold(s1)`` bierze blokady; ``contender(s2)`` rusza i czeka na commit s1.
+
+    Zwraca wynik ``contender`` albo jego ``LedgerError``.
+    """
+
+    s1, s2 = AsyncSessionLocal(), AsyncSessionLocal()
+    try:
+        await hold(s1)
+        task = asyncio.create_task(contender(s2))
+        await asyncio.sleep(LOCK_WAIT)
+        assert not task.done(), "druga transakcja ma czekać na blokadę"
+        await s1.commit()
+        try:
+            result = await task
+        except LedgerError as exc:
+            await s2.rollback()
+            return exc
+        await s2.commit()
+        return result
+    finally:
+        await s1.close()
+        await s2.close()
+
+
+async def _journal_continuous(year: int) -> list[int]:
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
+        numbers = sorted(
+            await db.scalars(
+                select(LedgerDocument.journal_no).where(
+                    LedgerDocument.year_id == row.id,
+                    LedgerDocument.journal_no.is_not(None),
+                )
+            )
+        )
+    assert numbers == list(range(1, row.next_journal_no)), (numbers, row.next_journal_no)
+    return numbers
+
+
+async def test_draft_waits_for_period_close_and_is_refused(world):
+    year, admin = world["year"], world["admin"].id
+    may = await _period_id(year, 5)
+
+    async def hold(db):
+        await ledger_years.close_period(db, may, actor_id=admin, now=_NOW)
+
+    async def contender(db):
+        return await ledger_documents.create_draft(
+            db, _pk(world, date(year, 5, 20)), actor_id=admin
+        )
+
+    outcome = await _while_locked(hold, contender)
+    assert isinstance(outcome, LedgerError) and outcome.status == 409
+
+
+async def test_storno_waits_for_period_close_and_is_refused(world):
+    year, admin = world["year"], world["admin"].id
+    original = await _approved(world, date(year, 3, 2))
+    june = await _period_id(year, 6)
+
+    async def hold(db):
+        await ledger_years.close_period(db, june, actor_id=admin, now=_NOW)
+
+    async def contender(db):
+        return await ledger_documents.reverse(
+            db,
+            original,
+            viewer=_viewer(world),
+            day=date(year, 6, 15),
+            reason="test wyścigu",
+            now=_NOW,
+        )
+
+    outcome = await _while_locked(hold, contender)
+    assert isinstance(outcome, LedgerError) and outcome.status == 409
+    await _journal_continuous(year)
+
+
+async def test_draft_move_waits_for_period_close_and_is_refused(world):
+    year, admin = world["year"], world["admin"].id
+    draft = await _draft(world, date(year, 7, 2))
+    august = await _period_id(year, 8)
+
+    async def hold(db):
+        await ledger_years.close_period(db, august, actor_id=admin, now=_NOW)
+
+    async def contender(db):
+        return await ledger_documents.update_draft(
+            db, draft, _pk(world, date(year, 8, 9)), viewer=_viewer(world)
+        )
+
+    outcome = await _while_locked(hold, contender)
+    assert isinstance(outcome, LedgerError) and outcome.status == 409
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(LedgerDocument, draft)
+    assert doc.op_date == date(year, 7, 2)
+
+
+async def test_storno_after_concurrent_approval_takes_next_journal_number(world):
+    year = world["year"]
+    original = await _approved(world, date(year, 3, 2))
+    waiting = await _draft(world, date(year, 3, 3))
+
+    async def hold(db):
+        result = await ledger_documents.approve(
+            db, [waiting], viewer=_viewer(world), now=_NOW
+        )
+        assert result["approved"] == [{"id": waiting, "journal_no": 2}]
+
+    async def contender(db):
+        return await ledger_documents.reverse(
+            db,
+            original,
+            viewer=_viewer(world),
+            day=date(year, 4, 1),
+            reason="test wyścigu",
+            now=_NOW,
+        )
+
+    storno = await _while_locked(hold, contender)
+    assert not isinstance(storno, LedgerError)
+    assert storno.journal_no == 3
+    assert await _journal_continuous(year) == [1, 2, 3]
+
+
+async def test_approval_refuses_document_moved_to_other_year_meanwhile(world):
+    year, admin = world["year"], world["admin"].id
+    async with AsyncSessionLocal() as db:
+        await ledger_years.ensure_year(db, year - 1, actor_id=admin)
+        await db.commit()
+    draft = await _draft(world, date(year - 1, 12, 20))
+
+    async def hold(db):
+        await ledger_documents.update_draft(
+            db, draft, _pk(world, date(year, 1, 15)), viewer=_viewer(world)
+        )
+
+    async def contender(db):
+        return await ledger_documents.approve(
+            db, [draft], viewer=_viewer(world), now=_NOW
+        )
+
+    outcome = await _while_locked(hold, contender)
+    assert outcome["approved"] == []
+    assert [item["status"] for item in outcome["refused"]] == [409]
+    assert await _journal_continuous(year - 1) == []
+    assert await _journal_continuous(year) == []
+    async with AsyncSessionLocal() as db:
+        again = await ledger_documents.approve(
+            db, [draft], viewer=_viewer(world), now=_NOW
+        )
+        await db.commit()
+    assert again["approved"] == [{"id": draft, "journal_no": 1}]
+    assert await _journal_continuous(year) == [1]
+
+
+async def test_auto_numbers_never_repeat_after_delete_or_move(world):
+    year = world["year"]
+    first = await _draft(world, date(year, 3, 1))
+    second = await _draft(world, date(year, 3, 2))
+    moved = await _draft(world, date(year, 3, 3))
+    async with AsyncSessionLocal() as db:
+        await ledger_documents.delete_draft(db, first, viewer=_viewer(world))
+        await ledger_documents.update_draft(
+            db, moved, _pk(world, date(year, 4, 3)), viewer=_viewer(world)
+        )
+        await db.commit()
+    third = await _draft(world, date(year, 3, 4))
+    async with AsyncSessionLocal() as db:
+        numbers = list(
+            await db.scalars(
+                select(LedgerDocument.number).where(
+                    LedgerDocument.id.in_([second, moved, third])
+                )
+            )
+        )
+        trail = await db.scalar(
+            select(LedgerEvent.period_id).where(
+                LedgerEvent.action == "delete",
+                LedgerEvent.detail["number"].astext.like(f"%/03/{year}"),
+            )
+        )
+    assert len(set(numbers)) == 3, numbers
+    assert trail == await _period_id(year, 3)
+
+
+async def test_trigger_allows_only_storno_mark_and_user_removal(world):
+    year = world["year"]
+    doc_id = await _approved(world, date(year, 9, 1))
+    other = await _approved(world, date(year, 9, 2))
+    draft = await _draft(world, date(year, 9, 3))
+    blocked = (
+        {"fx_date": date(year, 9, 1)},
+        {"meta": {"inne": True}},
+        {"approved_at": _NOW.replace(hour=13)},
+        {"approved_by": world["finance"].id},
+        {"created_by": world["finance"].id},
+        {"reversed_by_id": other},
+    )
+    async with AsyncSessionLocal() as db:
+        for values in blocked:
+            with pytest.raises(DBAPIError):
+                await db.execute(
+                    update(LedgerDocument)
+                    .where(LedgerDocument.id == doc_id)
+                    .values(**values)
+                )
+            await db.rollback()
+        with pytest.raises(DBAPIError):
+            await db.execute(
+                update(LedgerLine)
+                .where(LedgerLine.document_id == doc_id)
+                .values(document_id=draft)
+            )
+        await db.rollback()
+        await db.execute(
+            update(LedgerDocument)
+            .where(LedgerDocument.id == doc_id)
+            .values(approved_by=None, created_by=None)
+        )
+        await db.rollback()
+    async with AsyncSessionLocal() as db:
+        storno = await ledger_documents.reverse(
+            db,
+            doc_id,
+            viewer=_viewer(world),
+            day=date(year, 9, 20),
+            reason="test wyzwalacza",
+            now=_NOW,
+        )
+        await db.commit()
+        assert storno.reverses_id == doc_id
+        with pytest.raises(DBAPIError):
+            await db.execute(
+                update(LedgerDocument)
+                .where(LedgerDocument.id == doc_id)
+                .values(reversed_by_id=None)
+            )
+        await db.rollback()

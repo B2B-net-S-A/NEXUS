@@ -8,9 +8,12 @@
 * Okres zamyka osoba z listy „Księgowi”, gdy w buforze nie ma dokumentów z tego
   miesiąca. Zamknięty okres nie przyjmuje dokumentów ani zatwierdzeń. Otwiera
   go ponownie tylko admin, z powodem w śladzie.
-* Zmiany stanu okresu i numeracja dziennika idą pod blokadą wiersza roku
-  (``FOR UPDATE``) — zatwierdzenie i zamknięcie tego samego okresu nie mijają
-  się w połowie.
+* Zmiany stanu okresu, nowe dokumenty i numeracja dziennika idą pod blokadą
+  wiersza roku (``FOR UPDATE``), a stan roku i okresu czyta się dopiero po
+  blokadzie — szkic, storno albo zatwierdzenie czekające na zamknięcie
+  okresu widzi go zamkniętym, a licznik dziennika po cudzym commicie
+  (przegląd poprawności 14.11.2026). Kolejność: rok (rosnąco), potem wiersz
+  dokumentu.
 """
 
 from __future__ import annotations
@@ -73,36 +76,68 @@ async def ensure_year(
 
 
 async def lock_year(db: AsyncSession, year_id: int) -> LedgerYear:
-    row = await db.get(LedgerYear, year_id, with_for_update=True)
+    """Wiersz roku pod ``FOR UPDATE``, przeczytany na nowo po blokadzie.
+
+    Rok bywa już w sesji sprzed czekania na blokadę — bez ``populate_existing``
+    licznik dziennika i stan byłyby sprzed cudzego commita (dwa zapisy z tym
+    samym numerem). Sesja nie może mieć wtedy niezapisanych zmian roku.
+    """
+
+    row = await db.get(
+        LedgerYear, year_id, with_for_update=True, populate_existing=True
+    )
     if row is None:
         raise LedgerError("Nie ma takiego roku obrotowego.", status=404)
     return row
 
 
-async def period_for(
-    db: AsyncSession, day: date, *, require_open: bool = True
-) -> tuple[LedgerYear, LedgerPeriod]:
-    """Rok i okres daty operacji; brak roku albo zamknięty okres = 409."""
-
-    year = await db.scalar(select(LedgerYear).where(LedgerYear.year == day.year))
-    if year is None:
+async def year_id_for(db: AsyncSession, day: date) -> int:
+    year_id = await db.scalar(select(LedgerYear.id).where(LedgerYear.year == day.year))
+    if year_id is None:
         raise LedgerError(
             f"Nie ma roku obrotowego {day.year} — załóż go w Ustawieniach Księgowości.",
             status=409,
         )
-    period = await db.scalar(
-        select(LedgerPeriod).where(
-            LedgerPeriod.year_id == year.id, LedgerPeriod.month == day.month
+    return int(year_id)
+
+
+def _require_open(year: LedgerYear, period: LedgerPeriod) -> None:
+    if year.status != "open" or period.status != "open":
+        raise LedgerError(
+            f"Okres {_period_label(year.year, period.month)} jest zamknięty — "
+            "dokumentów w nim nie dodaje się, nie zmienia ani nie zatwierdza.",
+            status=409,
         )
+
+
+async def require_open_period(
+    db: AsyncSession, period_id: int, year: LedgerYear
+) -> LedgerPeriod:
+    """Okres przeczytany na nowo; ``year`` = jego rok, już pod blokadą."""
+
+    period = await db.get(LedgerPeriod, period_id, populate_existing=True)
+    if period is None or period.year_id != year.id:  # pragma: no cover
+        raise LedgerError("Brak okresu w roku obrotowym.", status=409)
+    _require_open(year, period)
+    return period
+
+
+async def lock_period(db: AsyncSession, day: date) -> tuple[LedgerYear, LedgerPeriod]:
+    """Rok daty pod blokadą i jej otwarty okres; brak roku albo zamknięty = 409.
+
+    Zamknięcie okresu bierze tę samą blokadę, więc sprawdzony tu stan trwa do
+    końca transakcji.
+    """
+
+    year = await lock_year(db, await year_id_for(db, day))
+    period = await db.scalar(
+        select(LedgerPeriod)
+        .where(LedgerPeriod.year_id == year.id, LedgerPeriod.month == day.month)
+        .execution_options(populate_existing=True)
     )
     if period is None:  # pragma: no cover — rok zawsze ma 12 okresów
         raise LedgerError("Brak okresu w roku obrotowym.", status=409)
-    if require_open and (year.status != "open" or period.status != "open"):
-        raise LedgerError(
-            f"Okres {_period_label(day.year, day.month)} jest zamknięty — "
-            "dokumentów w nim nie dodaje się ani nie zatwierdza.",
-            status=409,
-        )
+    _require_open(year, period)
     return year, period
 
 

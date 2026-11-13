@@ -15,6 +15,13 @@
   zespołu) widzą tylko Płace i admin (D2) — osoba bez Płac nie ma ich na
   liście ani w licznikach, karta daje 404, zatwierdzenie odmawia 404. Sumy
   kont w obrotach i saldach je obejmują, bo księga musi się bilansować.
+* **Blokady**: zapis bierze najpierw blokadę roku (``years.lock_period`` /
+  ``lock_year``, lata rosnąco), potem wiersz dokumentu, a stan okresu, rok
+  dokumentu i licznik dziennika sprawdza dopiero po nich — tak samo jak
+  zamknięcie okresu (przegląd poprawności 14.11.2026).
+* **Numer automatyczny** (``PK 7/03/2026``) = największy użyty w tym miesiącu
+  + 1, liczony po numerach, nie po liczbie dokumentów — usunięty albo
+  przeniesiony szkic nie zwalnia numeru, który nosi inny dokument.
 """
 
 from __future__ import annotations
@@ -154,12 +161,16 @@ async def _event(
     *,
     actor_id: Optional[int],
     document_id: Optional[int] = None,
+    period_id: Optional[int] = None,
     detail: Optional[dict[str, Any]] = None,
 ) -> None:
+    """Ślad dokumentu; ``period_id`` zostaje, gdy usunięty szkic traci id."""
+
     db.add(
         LedgerEvent(
             action=action,
             document_id=document_id,
+            period_id=period_id,
             actor_id=actor_id,
             detail=detail or {},
         )
@@ -177,15 +188,20 @@ def _check_spec(spec: DocumentSpec) -> None:
         raise LedgerError("Źródło dokumentu wymaga typu i identyfikatora.", status=422)
 
 
-async def _next_seq(db: AsyncSession, doc_type: str, period_id: int) -> int:
-    count = await db.scalar(
-        select(func.count())
-        .select_from(LedgerDocument)
-        .where(
-            LedgerDocument.period_id == period_id, LedgerDocument.doc_type == doc_type
+async def _next_seq(db: AsyncSession, doc_type: str, day: date) -> int:
+    """Największy numer automatyczny typu w miesiącu daty + 1 (pod blokadą roku).
+
+    Bez filtra po typie i roku dokumentu: szkic zmieniony na inny typ albo
+    przeniesiony do innego miesiąca zachowuje numer i dalej go zajmuje.
+    """
+
+    numbers = await db.scalars(
+        select(LedgerDocument.number).where(
+            LedgerDocument.number.like(f"{doc_type} %{engine.auto_number_suffix(day)}")
         )
     )
-    return int(count or 0) + 1
+    used = (engine.auto_number_seq(number, doc_type, day) for number in numbers)
+    return max((seq for seq in used if seq is not None), default=0) + 1
 
 
 async def _write_lines(
@@ -215,7 +231,7 @@ async def create_draft(
     """Nowy dokument w buforze (bez commita). Źródło z dokumentem = 409."""
 
     _check_spec(spec)
-    year, period = await years.period_for(db, spec.op_date)
+    year, period = await years.lock_period(db, spec.op_date)
     plan = await load_plan(db)
     result = engine.ensure_valid(spec.lines, plan)
     await _counterparty_exists(db, spec.counterparty_id)
@@ -231,9 +247,8 @@ async def create_draft(
         )
         if existing is not None:
             raise LedgerError("To źródło ma już dokument w księdze.", status=409)
-    await years.lock_year(db, year.id)
     number = engine.clean_number(spec.number) or engine.auto_number(
-        spec.doc_type, await _next_seq(db, spec.doc_type, period.id), spec.op_date
+        spec.doc_type, await _next_seq(db, spec.doc_type, spec.op_date), spec.op_date
     )
     doc = LedgerDocument(
         year_id=year.id,
@@ -264,19 +279,14 @@ async def create_draft(
         "create",
         actor_id=actor_id,
         document_id=doc.id,
+        period_id=period.id,
         detail={"number": doc.number, "type": doc.doc_type, "total": result.debit},
     )
     await db.flush()
     return doc
 
 
-async def update_draft(
-    db: AsyncSession, doc_id: int, spec: DocumentSpec, *, viewer: Viewer
-) -> LedgerDocument:
-    """Poprawka dokumentu z bufora (bez commita): nowe daty, opis i pozycje."""
-
-    _check_spec(spec)
-    doc = await _visible_document(db, doc_id, viewer, lock=True)
+def _check_editable(doc: LedgerDocument) -> None:
     if doc.status != "draft":
         raise LedgerError("Zatwierdzony dokument popraw stornem.", status=409)
     if doc.source_type is not None:
@@ -288,8 +298,46 @@ async def update_draft(
             "albo usunąć.",
             status=409,
         )
-    await years.period_for(db, doc.op_date)
-    year, period = await years.period_for(db, spec.op_date)
+
+
+async def _locked_draft(
+    db: AsyncSession, doc_id: int, viewer: Viewer, *, also_year_id: Optional[int] = None
+) -> tuple[LedgerDocument, dict[int, LedgerYear]]:
+    """Szkic pod blokadą: najpierw jego rok (i ``also_year_id``), potem wiersz.
+
+    Szkic przeniesiony przez kogoś do innego roku między odczytem a blokadą
+    = 409 (rok, którego nie trzymamy, mógłby się w tym czasie zamknąć).
+    """
+
+    doc = await _visible_document(db, doc_id, viewer)
+    if doc.status != "draft":
+        raise LedgerError("Zatwierdzony dokument popraw stornem.", status=409)
+    locked = {
+        year_id: await years.lock_year(db, year_id)
+        for year_id in sorted({doc.year_id, also_year_id or doc.year_id})
+    }
+    doc = await _visible_document(db, doc_id, viewer, lock=True)
+    if doc.status != "draft":
+        raise LedgerError("Zatwierdzony dokument popraw stornem.", status=409)
+    if doc.year_id not in locked:
+        raise LedgerError(
+            "Dokument zmienił się w międzyczasie — odśwież go i spróbuj ponownie.",
+            status=409,
+        )
+    await years.require_open_period(db, doc.period_id, locked[doc.year_id])
+    return doc, locked
+
+
+async def update_draft(
+    db: AsyncSession, doc_id: int, spec: DocumentSpec, *, viewer: Viewer
+) -> LedgerDocument:
+    """Poprawka dokumentu z bufora (bez commita): nowe daty, opis i pozycje."""
+
+    _check_spec(spec)
+    target_year_id = await years.year_id_for(db, spec.op_date)
+    doc, _ = await _locked_draft(db, doc_id, viewer, also_year_id=target_year_id)
+    _check_editable(doc)
+    year, period = await years.lock_period(db, spec.op_date)
     plan = await load_plan(db)
     result = engine.ensure_valid(spec.lines, plan)
     await _counterparty_exists(db, spec.counterparty_id)
@@ -327,6 +375,7 @@ async def update_draft(
         "update",
         actor_id=viewer.user_id,
         document_id=doc.id,
+        period_id=period.id,
         detail={
             "before": before,
             "after": {
@@ -343,17 +392,18 @@ async def update_draft(
 async def delete_draft(db: AsyncSession, doc_id: int, *, viewer: Viewer) -> None:
     """Usunięcie szkicu (bez commita); ślad zostaje z numerem i typem."""
 
-    doc = await _visible_document(db, doc_id, viewer, lock=True)
+    doc = await _visible_document(db, doc_id, viewer)
     if doc.status != "draft":
         raise LedgerError(
             "Zatwierdzonego dokumentu nie usuwa się — zrób storno.", status=409
         )
-    await years.period_for(db, doc.op_date)
+    doc, _ = await _locked_draft(db, doc_id, viewer)
     await _event(
         db,
         "delete",
         actor_id=viewer.user_id,
         document_id=doc.id,
+        period_id=doc.period_id,
         detail={"number": doc.number, "type": doc.doc_type, "total": doc.debit_total},
     )
     await db.flush()
@@ -395,10 +445,17 @@ async def _approval_refusal(
         return 404, PAYROLL_HIDDEN_DETAIL
     if doc.status != "draft":
         return 409, f"Dokument {doc.number} jest już zatwierdzony."
+    if doc.year_id != year.id:
+        # Ktoś przeniósł szkic do innego roku, gdy czekaliśmy na blokadę —
+        # numer z licznika tego roku zrobiłby lukę tu i dublet tam.
+        return 409, (
+            f"Dokument {doc.number} zmienił rok obrotowy w trakcie zatwierdzania — "
+            "odśwież listę i zatwierdź go jeszcze raz."
+        )
     if year.status != "open":
         return 409, f"Rok obrotowy {year.year} jest zamknięty."
     try:
-        await years.period_for(db, doc.op_date)
+        await years.require_open_period(db, doc.period_id, year)
     except LedgerError as exc:
         return exc.status, exc.message
     result = engine.check(await _lines_of(db, doc.id), plan)
@@ -467,6 +524,7 @@ async def approve(
                 "approve",
                 actor_id=viewer.user_id,
                 document_id=doc.id,
+                period_id=doc.period_id,
                 detail={"journal_no": doc.journal_no, "number": doc.number},
             )
             approved.append({"id": doc.id, "journal_no": doc.journal_no})
@@ -501,9 +559,7 @@ async def reverse(
     reason = " ".join((reason or "").split())
     if len(reason) < 3:
         raise LedgerError("Podaj powód storna.", status=422)
-    original = await _visible_document(db, doc_id, viewer)
-    year, period = await years.period_for(db, day)
-    await years.lock_year(db, year.id)
+    year, period = await years.lock_period(db, day)
     original = await _visible_document(db, doc_id, viewer, lock=True)
     if original.status != "approved":
         raise LedgerError(
@@ -542,12 +598,11 @@ async def reverse(
     db.add(storno)
     await db.flush()
     await _write_lines(db, storno, lines)
-    year_row = await years.lock_year(db, year.id)
     storno.status = "approved"
-    storno.journal_no = year_row.next_journal_no
+    storno.journal_no = year.next_journal_no
     storno.approved_by = viewer.user_id
     storno.approved_at = now
-    year_row.next_journal_no += 1
+    year.next_journal_no += 1
     await db.flush()
     original.reversed_by_id = storno.id
     await _event(
@@ -555,6 +610,7 @@ async def reverse(
         "reverse",
         actor_id=viewer.user_id,
         document_id=original.id,
+        period_id=period.id,
         detail={
             "storno_id": storno.id,
             "reason": reason,
@@ -566,6 +622,7 @@ async def reverse(
         "create",
         actor_id=viewer.user_id,
         document_id=storno.id,
+        period_id=period.id,
         detail={"number": storno.number, "type": "ST", "reverses": original.id},
     )
     await db.flush()
