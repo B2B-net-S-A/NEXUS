@@ -22,6 +22,16 @@ interface ContactsSectionProps {
 
 const EMPTY = { full_name: "", title: "", email: "", phone: "" };
 
+/** Osoba „nie pracuje” w tej firmie: powiązanie z firmą ma `is_current = false`. */
+export function isGone(contact: SalesContact, companyId: number): boolean {
+  return contact.companies.some((link) => link.company_id === companyId && !link.is_current);
+}
+
+/** „Nie pracuje” na końcu listy, reszta w kolejności z serwera (decyzja Artura 13.11.2026). */
+export function sortGoneLast(items: SalesContact[], companyId: number): SalesContact[] {
+  return [...items.filter((c) => !isGone(c, companyId)), ...items.filter((c) => isGone(c, companyId))];
+}
+
 /** Osoby po stronie firmy (decydenci, kupcy) i szybkie dodanie kontaktu. */
 export function ContactsSection({ companyId }: ContactsSectionProps) {
   const contacts = useSalesContacts(companyId);
@@ -32,7 +42,7 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(EMPTY);
   const [editing, setEditing] = useState<SalesContact | null>(null);
-  const items = contacts.data?.items ?? [];
+  const items = sortGoneLast(contacts.data?.items ?? [], companyId);
   const state = resolveViewState({
     isLoading: contacts.isLoading,
     error: contacts.error,
@@ -65,7 +75,7 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
   };
 
   return (
-    <Card className="space-y-3 p-4">
+    <Card className="space-y-3 p-4" data-tour="sales.company.contacts">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-foreground">Kontakty w firmie</h2>
         {canEdit && !adding && (
@@ -123,12 +133,20 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
             // Osoba może być tu nie główną firmą (np. była albo druga praca).
             const here = contact.companies.find((link) => link.company_id === companyId);
             const title = here?.title ?? contact.title;
+            const gone = Boolean(here && !here.is_current);
             return (
-            <li key={contact.id} className="group flex flex-wrap items-start justify-between gap-x-4 py-2 text-sm">
+            <li
+              key={contact.id}
+              className={`group flex flex-wrap items-start justify-between gap-x-4 py-2 text-sm ${gone ? "opacity-60" : ""}`}
+            >
               <div>
-                <p className="font-medium text-foreground">
+                <p className={`font-medium ${gone ? "text-muted-foreground" : "text-foreground"}`}>
                   {contact.full_name}
-                  {here && !here.is_current && <span className="ml-1 text-xs font-normal text-muted-foreground">(była)</span>}
+                  {gone && (
+                    <Badge variant="neutral" size="sm" className="ml-1.5 align-middle">
+                      nie pracuje
+                    </Badge>
+                  )}
                   {contact.company_id !== companyId && contact.company_name && (
                     <span className="ml-1 text-xs font-normal text-muted-foreground">· teraz {contact.company_name}</span>
                   )}
@@ -175,7 +193,7 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
           })}
         </ul>
       )}
-      {editing && <ContactEditDialog contact={editing} onClose={() => setEditing(null)} />}
+      {editing && <ContactEditDialog contact={editing} companyId={companyId} onClose={() => setEditing(null)} />}
     </Card>
   );
 }

@@ -305,6 +305,90 @@ async def test_meeting_at_my_opportunity_is_mine_whoever_wrote_it(app_client) ->
 
 
 @pytest.mark.asyncio
+async def test_outlook_meeting_is_in_my_day_of_every_attendee_once(app_client) -> None:
+    """Lista dzwoniących 13.11.2026: spotkanie z Outlooka zapisuje się raz na firmę,
+    z autorem z tej skrzynki, która zsynchronizowała je pierwsza. Drugi uczestnik
+    z NEXUSA (np. prowadzący, gdy zaprosił go dzwoniący) ma je w swoim kalendarzu,
+    więc ma je też w „Moim dniu” — jeden wiersz, bez drugiej aktywności."""
+
+    from types import SimpleNamespace
+
+    from app.services.m365 import sync as sync_mod
+    from app.services.m365.access import MailboxScope
+
+    sales_only = MailboxScope(candidates=False, sales=True)
+    caller = await _user("sales_view", "sales_edit")
+    host = await _user("sales_view", "sales_edit")
+    stranger = await _user("sales_view", "sales_edit")
+    domain = f"wspolne-{uuid.uuid4().hex[:8]}.example"
+    company = await _company("Wspólne", domain=domain)
+    when = _today_noon().astimezone(timezone.utc)
+    uid = f"ical-{uuid.uuid4().hex}"
+
+    def copy_in(user: Any) -> dict[str, Any]:
+        return {
+            "id": f"ev-{uuid.uuid4().hex[:8]}",
+            "iCalUId": uid,
+            "changeKey": "ck1",
+            "subject": "Spotkanie z klientem",
+            "bodyPreview": "Agenda",
+            "body": {"content": "Agenda"},
+            "start": {"dateTime": when.replace(tzinfo=None).isoformat()},
+            "end": {
+                "dateTime": (when + timedelta(minutes=45))
+                .replace(tzinfo=None)
+                .isoformat()
+            },
+            "organizer": {"emailAddress": {"address": caller.email}},
+            "attendees": [
+                {"emailAddress": {"address": f"klient@{domain}"}},
+                {"emailAddress": {"address": host.email}},
+            ],
+            "sensitivity": "normal",
+        }
+
+    host_copy = copy_in(host)
+    async with AsyncSessionLocal() as db:
+        for user, event in ((caller, copy_in(caller)), (host, host_copy)):
+            conn = SimpleNamespace(id=user.id, user_id=user.id, mailbox_upn=user.email)
+            await sync_mod._upsert_event(db, conn, event, scope=sales_only)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(SalesActivity).where(
+                    SalesActivity.external_source == EVENT,
+                    SalesActivity.external_id == uid,
+                )
+            )
+        ).all()
+    # Jedna aktywność, autor z pierwszej skrzynki: KPI i Skuteczność liczą jak dotąd.
+    assert [(row.company_id, row.created_by_user_id) for row in rows] == [
+        (company, caller.id)
+    ]
+
+    for user in (caller, host):
+        day = await _day(app_client, user)
+        assert day["counts"]["meetings"] == 1, user.email
+        assert [row["company"]["id"] for row in day["meetings"]] == [company]
+    assert (await _day(app_client, stranger))["counts"]["meetings"] == 0
+
+    # Prowadzący usuwa spotkanie u siebie (odrzucił): znika z jego dnia, u autora zostaje.
+    async with AsyncSessionLocal() as db:
+        conn = SimpleNamespace(id=host.id, user_id=host.id, mailbox_upn=host.email)
+        await sync_mod._upsert_event(
+            db,
+            conn,
+            {"id": host_copy["id"], "@removed": {"reason": "deleted"}},
+            scope=sales_only,
+        )
+        await db.commit()
+    assert (await _day(app_client, host))["counts"]["meetings"] == 0
+    assert (await _day(app_client, caller))["counts"]["meetings"] == 1
+
+
+@pytest.mark.asyncio
 async def test_cancelled_automatic_and_other_days_are_not_todays_meetings(
     app_client,
 ) -> None:

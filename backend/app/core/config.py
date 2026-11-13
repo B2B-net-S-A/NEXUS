@@ -1357,6 +1357,8 @@ class Settings(BaseSettings):
     GROK_BOT_COMPANY_WEBHOOK_KEY: str = ""
     GROK_BOT_CONTACTS_WEBHOOK_URL: str = ""
     GROK_BOT_CONTACTS_WEBHOOK_KEY: str = ""
+    GROK_BOT_LISTS_WEBHOOK_URL: str = ""
+    GROK_BOT_LISTS_WEBHOOK_KEY: str = ""
     # Osobna rutyna Groka dla map firm z panelu Cognism.
     GROK_BOT_PEOPLE_WEBHOOK_URL: str = ""
     GROK_BOT_PEOPLE_WEBHOOK_KEY: str = ""
@@ -1368,6 +1370,9 @@ class Settings(BaseSettings):
     # karta firmy, pytania, odzyskiwanie, nowe centra, mapy osób. OFF do udanej
     # próby polecenia v2 rutyny bota; ``signals`` i ``briefing`` działają bez niej.
     SALES_BOT_TASKS_ENABLED: bool = False
+    # Bot Listy (0690, ``services/sales/bot_lists.py``): listy do dzwonienia z briefu
+    # kampanii, na razie z bazy NEXUSA. Bez bota i webhooka, więc domyślnie włączony.
+    SALES_BOT_LISTS_ENABLED: bool = True
     # Dane firm z rejestrów państwowych (biała lista VAT MF i KRS) na karty Sprzedaży:
     # noc 1–6 i zaraz po zapisaniu NIP-u albo KRS-u (``services/sales/registry.py``).
     # OFF do próby na stagingu z kopią produkcji.

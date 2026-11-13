@@ -836,6 +836,10 @@ def test_deploy_waits_for_the_evening_window() -> None:
     quiet = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
     assert quiet["env"]["FREEZE_WINDOW"] == freeze
     assert '--freeze-window "$FREEZE_WINDOW"' in step["run"]
+    # Wieczorne grupowanie (13.11.2026): merge'e 18:00–21:59 wdraża slot
+    # budzika, nie każdy merge osobno.
+    assert step["env"]["BATCH_WINDOW"] == "18-22"
+    assert '--batch-window "$BATCH_WINDOW"' in step["run"]
     assert "$SCHEDULED" in step["run"]
     assert step["env"]["SCHEDULED"] == (
         "${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') "

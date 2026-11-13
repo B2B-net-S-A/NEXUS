@@ -48,7 +48,7 @@ from pydantic import (
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.models.sales import (
     SalesBotResult,
     SalesCallRecord,
@@ -61,7 +61,12 @@ from app.models.sales import (
 )
 from app.services.company_names import normalize_company_name
 from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS
-from app.services.sales import client_gate, company_aliases, research_import
+from app.services.sales import (
+    client_gate,
+    company_aliases,
+    contact_sync,
+    research_import,
+)
 from app.services.sales.bot_tasks.base import (
     AcceptRefused,
     BotTask,
@@ -288,11 +293,30 @@ class BotPerson(BaseModel):
         return list(self._warnings)
 
 
+class LeftPerson(BaseModel):
+    """Osoba, która według opublikowanego źródła odeszła z firmy (13.11.2026).
+
+    Tylko ze źródła z linkiem i datą publikacji; bez zgadywania odejść. Kontakt
+    dostaje stan „nie pracuje”, nic się nie kasuje (``contact_sync``).
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    full_name: RequiredText = Field(max_length=255)
+    #: Stanowisko, które osoba zajmowała w tej firmie.
+    title: Optional[str] = Field(default=None, max_length=255)
+    source_url: SourceUrl = Field(max_length=1000)
+    published: date
+    #: Dzień odejścia, gdy źródło go podaje.
+    left_on: Optional[date] = None
+
+
 class FirmPeople(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     company_ref: int
     people: list[BotPerson] = Field(default_factory=list, max_length=MAX_PEOPLE)
+    left: list[LeftPerson] = Field(default_factory=list, max_length=MAX_PEOPLE)
 
 
 class PeopleReport(BaseModel):
@@ -320,6 +344,9 @@ def _task_text(run: SalesSignalRun, ctx: TaskContext) -> str:
         "profilu jest na stronie, którą otworzyłeś. Nigdzie się nie loguj. "
         f"area: jedno z {', '.join(AREAS)}. level_hint: 1 zarząd i VP (Chief, "
         "CTO, prezes, członek zarządu), 2 Head, Director, dyrektor, 3 pozostali. "
+        "Jeśli opublikowane źródło mówi, że osoba odeszła z firmy albo ktoś inny "
+        "zajął jej stanowisko, wpisz ją do left z source_url, published i left_on "
+        "(dzień odejścia, gdy źródło go podaje). Nie zgaduj odejść. "
         "Firmy, w których nie znalazłeś nikogo, wpisz do no_people."
     )
 
@@ -343,6 +370,15 @@ def _report_format() -> dict[str, Any]:
                         "phone": "<tylko gdy wydrukowany na źródle>",
                         "phone_source_url": "https://...",
                         "linkedin_url": "<tylko link ze strony, którą otworzyłeś>",
+                    }
+                ],
+                "left": [
+                    {
+                        "full_name": "...",
+                        "title": "<stanowisko, które zajmowała>",
+                        "source_url": "https://...",
+                        "published": "RRRR-MM-DD",
+                        "left_on": "<RRRR-MM-DD, gdy źródło podaje>",
                     }
                 ],
             }
@@ -446,6 +482,123 @@ async def _known_marks(
     return known
 
 
+Objections = tuple[set[tuple[int, str]], set[str], set[str]]
+
+
+def _objected(
+    objections: Objections,
+    company_id: int,
+    name: str,
+    email: Optional[str],
+    phone: Optional[str],
+) -> bool:
+    """Osoba ze sprzeciwem wobec kontaktu (kontakt, zapis rozmowy) zostaje poza Kontaktami."""
+
+    names, emails, phones = objections
+    return (
+        (company_id, person_key(name)) in names
+        or (valid_email(email) or None) in emails
+        or (phone_digits(phone) or None) in phones
+    )
+
+
+async def _contact_targets(
+    db: AsyncSession, company_ids: Sequence[int]
+) -> list[SalesCompany]:
+    """Karty, na których bot może zapisać osoby: bez klienta NEXUSA, naszej firmy
+    i „Nie kontaktować” (te same odmowy co mapa i import listy)."""
+
+    if not company_ids:
+        return []
+    companies = list(
+        (
+            await db.execute(
+                select(SalesCompany)
+                .where(
+                    SalesCompany.id.in_(list(company_ids)),
+                    SalesCompany.archived_at.is_(None),
+                )
+                .order_by(SalesCompany.id)
+            )
+        ).scalars()
+    )
+    clients = await client_gate.match_companies(
+        db,
+        [
+            client_gate.CompanyIdentity(c.id, c.client_id, c.normalized_name)
+            for c in companies
+        ],
+    )
+    return [
+        company
+        for company in companies
+        if company.id not in clients
+        and company.status != COMPANY_DO_NOT_CONTACT
+        and not company_aliases.is_own_company(company.normalized_name)
+    ]
+
+
+async def _sync_contacts(
+    db: AsyncSession, run: SalesSignalRun, firms: dict[int, FirmPeople], now: datetime
+) -> int:
+    """Osoby z raportu w zakładce Kontakty, nowsze stanowiska i odejścia (13.11.2026).
+
+    Także osoby, które firma już zna: dla nich liczy się stanowisko i odejście.
+    Zwraca liczbę zmian (logi i odpowiedź dla bota to same liczby).
+    """
+
+    companies = await _contact_targets(db, sorted(firms))
+    if not companies:
+        return 0
+    objections = await _cognism_objections(db, {c.id for c in companies})
+    latest = business_today() + timedelta(days=1)
+    total = 0
+    for company in companies:
+        firm = firms[company.id]
+        seen: list[contact_sync.Seen] = []
+        for person in firm.people:
+            if _objected(
+                objections, company.id, person.full_name, person.email, person.phone
+            ):
+                continue
+            published = person.published
+            seen.append(
+                contact_sync.Seen(
+                    full_name=person.full_name,
+                    source=contact_sync.BOT,
+                    source_url=person.source_url,
+                    as_of=published if published and published <= latest else None,
+                    title=person.title,
+                    email=person.email,
+                    phone=person.phone,
+                    linkedin_url=person.linkedin_url,
+                )
+            )
+        for gone in firm.left:
+            # Data z przyszłości to błąd odczytu; zapowiedziane odejście jeszcze nie.
+            if gone.published > latest or (gone.left_on and gone.left_on > latest):
+                continue
+            if _objected(objections, company.id, gone.full_name, None, None):
+                continue
+            seen.append(
+                contact_sync.Seen(
+                    full_name=gone.full_name,
+                    source=contact_sync.BOT,
+                    source_url=gone.source_url,
+                    as_of=gone.published,
+                    title=gone.title,
+                    working=False,
+                    left_on=gone.left_on,
+                )
+            )
+        if not seen:
+            continue
+        changes = await contact_sync.sync(db, company.id, seen, now=now)
+        await contact_sync.record(db, run, company.id, contact_sync.BOT, changes, now)
+        total += len(changes)
+    return total
+
+
 async def _ingest(
     db: AsyncSession, run: SalesSignalRun, report: PeopleReport, now: datetime
 ) -> dict[str, Any]:
@@ -458,9 +611,11 @@ async def _ingest(
             continue
         # Ta sama firma drugi raz w raporcie: osoby doklejone do pierwszej.
         if firm.company_ref in firms:
-            merged = [*firms[firm.company_ref].people, *firm.people][:MAX_PEOPLE]
+            first = firms[firm.company_ref]
             firms[firm.company_ref] = FirmPeople.model_construct(
-                company_ref=firm.company_ref, people=merged
+                company_ref=firm.company_ref,
+                people=[*first.people, *firm.people][:MAX_PEOPLE],
+                left=[*first.left, *firm.left][:MAX_PEOPLE],
             )
         else:
             firms[firm.company_ref] = firm
@@ -473,6 +628,9 @@ async def _ingest(
                 )
             )
         ).scalars()
+    )
+    contact_changes = await _sync_contacts(
+        db, run, {cid: firms[cid] for cid in existing}, now
     )
     known = await _known_marks(db, sorted(existing))
     today = business_today()
@@ -510,13 +668,15 @@ async def _ingest(
     added, waiting = await add_now(db, run, now=now)
     # Logi są publiczne: same liczby.
     logger.info(
-        "sales_bot people run=%s firms=%d people=%d results_new=%d added=%d waiting=%d",
+        "sales_bot people run=%s firms=%d people=%d results_new=%d added=%d "
+        "waiting=%d contact_changes=%d",
         run.id,
         len(firms),
         people_total,
         new,
         added,
         waiting,
+        contact_changes,
     )
     return {
         "firms": len(firms),
@@ -525,6 +685,7 @@ async def _ingest(
         "results_new": new,
         "added": added,
         "waiting": waiting,
+        "contact_changes": contact_changes,
         "no_people": len(report.no_people),
         "dropped": dropped,
     }
@@ -909,7 +1070,8 @@ class CognismMapPerson(BaseModel):
     source_url: str
     observed_at: AwareDatetime
     source: Literal["cognism"] = COGNISM_SOURCE
-    active: Literal[True] = True
+    #: ``False``: osoba nie pracuje już w firmie (Cognism albo kontakt „nie pracuje”).
+    active: bool = True
     email: Optional[str] = None
     email_observed_at: Optional[AwareDatetime] = None
     phone: Optional[str] = None
@@ -1033,6 +1195,10 @@ def _visible_cognism_people(
             reason: datetime.fromisoformat(at)
             for reason, at in suppressions.get(_cognism_key(person), {}).items()
         }
+        # Odejście nie ukrywa osoby (13.11.2026): zostaje na mapie jako nieaktywna.
+        inactive_at = blocked.pop("inactive", None)
+        if inactive_at is not None and _observation(person) <= inactive_at:
+            person = {**person, "active": False}
         if not blocked:
             visible.append(person)
             continue
@@ -1138,6 +1304,24 @@ def _cognism_contact(
     )
 
 
+def _cognism_seen(person: CognismPerson, row: dict[str, Any]) -> contact_sync.Seen:
+    """Osoba z Cognism dla zakładki Kontakty: kontakty tylko te, które przeszły filtr."""
+
+    phone = row.get("phone")
+    mobile = row.get("phone_type") == "mobile"
+    return contact_sync.Seen(
+        full_name=person.full_name,
+        source=contact_sync.COGNISM,
+        source_url=person.source_url,
+        as_of=business_date(person.observed_at),
+        title=person.title,
+        email=row.get("email"),
+        phone=None if mobile else phone,
+        mobile_phone=phone if mobile else None,
+        working=person.active,
+    )
+
+
 async def _cognism_objections(
     db: AsyncSession, company_ids: set[int]
 ) -> tuple[set[tuple[int, str]], set[str], set[str]]:
@@ -1191,8 +1375,13 @@ async def read_cognism_map(
     if not entries or company.status == COMPANY_DO_NOT_CONTACT:
         return []
     names, emails, phones = await _cognism_objections(db, {company.id})
+    gone = await contact_sync.gone_marks(db, company.id)
     return [
-        CognismMapPerson.model_validate(person)
+        CognismMapPerson.model_validate(
+            {**person, "active": False}
+            if contact_sync.marks(person["full_name"], person.get("email")) & gone
+            else person
+        )
         for person in entries
         if (company.id, person_key(person["full_name"])) not in names
         and person.get("email") not in emails
@@ -1211,7 +1400,7 @@ async def _ingest_cognism(
     ambiguous: set[int] = set()
     no_people: set[int] = set()
     not_found: set[int] = set()
-    unknown = stored = suppressed = 0
+    unknown = stored = suppressed = contact_changes = 0
     for firm in report.firms:
         cid = firm.company_ref
         if cid not in allowed:
@@ -1275,6 +1464,7 @@ async def _ingest_cognism(
         removed: set[str] = set()
         provider_suppressions: dict[str, dict[str, str]] = {}
         pinned_profiles = set(hint.profile_ids or []) if hint is not None else set()
+        seen_people: list[contact_sync.Seen] = []
         for person in firm.people:
             if (
                 not run.started_at - _CLOCK_SKEW
@@ -1286,6 +1476,17 @@ async def _ingest_cognism(
             key = _cognism_key(row)
             if pinned_profiles and key not in pinned_profiles:
                 continue
+            previous = by_key.get(key, {})
+            objected = (
+                (cid, person_key(person.full_name)) in names
+                or valid_email(person.email) in emails
+                or previous.get("email") in emails
+                or phone_digits(person.phone) in phones
+                or phone_digits(previous.get("phone")) in phones
+            )
+            if not objected and person.dnc is not True:
+                # Flaga „Do Not Call” ukrywa osobę na mapie, więc i w Kontaktach.
+                seen_people.append(_cognism_seen(person, row))
             if not person.active or person.dnc is True:
                 marks = provider_suppressions.setdefault(key, {})
                 for reason, applies in (
@@ -1302,14 +1503,7 @@ async def _ingest_cognism(
                         marks[reason] = row["observed_at"]
                 suppressed += 1
                 continue
-            previous = by_key.get(key, {})
-            if (
-                (cid, person_key(person.full_name)) in names
-                or valid_email(person.email) in emails
-                or previous.get("email") in emails
-                or phone_digits(person.phone) in phones
-                or phone_digits(previous.get("phone")) in phones
-            ):
+            if objected:
                 removed.add(key)
                 suppressed += 1
                 continue
@@ -1333,6 +1527,10 @@ async def _ingest_cognism(
                 {_cognism_key(row) for row in fresh}
                 & {_cognism_key(row) for row in visible}
             )
+        if seen_people:
+            changes = await contact_sync.sync(db, cid, seen_people, now=now)
+            await contact_sync.record(db, run, cid, contact_sync.COGNISM, changes, now)
+            contact_changes += len(changes)
     return {
         "firms": len(allowed),
         "processed": len(processed),
@@ -1343,6 +1541,7 @@ async def _ingest_cognism(
         "not_processed": len(allowed - processed - ambiguous),
         "unknown_company": unknown,
         "suppressed": suppressed,
+        "contact_changes": contact_changes,
         "processed_company_ids": sorted(processed),
         "no_people_company_ids": sorted(no_people),
         "not_found_company_ids": sorted(not_found),
