@@ -1029,7 +1029,7 @@ _BOT_RUN_KINDS_0684: tuple[str, ...] = (
     "discovery",
     "people",
 )
-#: 0691 dokłada ``lists`` (Bot Listy, firmy pod kampanię z rejestr.io i researchu).
+#: 0690 dokłada ``lists`` (Bot Listy, firmy pod kampanię z rejestr.io i researchu).
 BOT_RUN_KINDS: tuple[str, ...] = (*_BOT_RUN_KINDS_0684, "lists")
 BOT_BRIEFING_MODES: tuple[str, ...] = (*BRIEFING_MODES, "call_hook", "meeting_prep")
 BOT_RESULT_STATUSES: tuple[str, ...] = ("new", "accepted", "rejected", "partial")
@@ -1093,7 +1093,7 @@ BOT_TASKS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# 0691: Bot Listy (decyzja Artura 13.11.2026) — brief kampanii, z którego bot buduje
+# 0690: Bot Listy (decyzja Artura 13.11.2026) — brief kampanii, z którego bot buduje
 # i dosypuje listę do dzwonienia (``services/sales/bot_lists.py``).
 BOT_LISTS_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_call_campaigns ADD COLUMN IF NOT EXISTS bot_brief JSONB NULL",
