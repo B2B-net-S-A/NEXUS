@@ -416,7 +416,43 @@ export function emptyOrder(): OrderInput {
     deliverables: [],
     knowledge_test: false,
     extra_terms: "",
+    rehearsal: false,
+    mandatory_roles: [],
   };
+}
+
+/** Etykiety ról w „Obowiązkowe dla roli” (0698); nieznana rola pokazuje się kluczem. */
+export const MANDATORY_ROLE_LABELS: Record<string, string> = {
+  admin: "Administratorzy",
+  head_of_recruitment: "Head of Recruitment",
+  delivery_lead: "Delivery Leadzi",
+  talent_community_manager: "Talent Community Managerowie",
+  finance: "Finanse",
+  recruiter: "Rekruterzy",
+  trainee: "Praktykanci",
+  automation: "Automatyzacje",
+  employee: "Pracownicy (Ludzie)",
+  board: "Rada nadzorcza",
+  back_office: "Back office",
+};
+
+export function mandatoryRoleLabel(role: string): string {
+  return MANDATORY_ROLE_LABELS[role] ?? role;
+}
+
+/** „wt 18 lis, 15:00” z chwili startu próby (strefa przeglądarki = firma). */
+export function rehearsalLabel(start: string | null): string | null {
+  if (!start) return null;
+  const date = new Date(start);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("pl-PL", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Warsaw",
+  }).format(date);
 }
 
 export function orderFromView(view: Pick<TrainingView, "order" | "join_url">): OrderInput {
@@ -435,6 +471,21 @@ export function formatBytes(size: number | null): string {
   if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1).replace(".", ",")} MB`;
   return `${(size / 1024 / 1024 / 1024).toFixed(1).replace(".", ",")} GB`;
+}
+
+/** Sekunda startu rozdziału: dokładna z transkryptu, z agendy minuta × 60. */
+export function chapterSecond(chapter: { start_minute: number; start_second?: number }): number {
+  return chapter.start_second ?? chapter.start_minute * 60;
+}
+
+/** „12:40” albo „1:02:10” z sekundy startu rozdziału. */
+export function chapterClock(second: number): string {
+  const h = Math.floor(second / 3600);
+  const m = Math.floor((second % 3600) / 60);
+  const sec = Math.floor(second % 60);
+  const mm = String(m).padStart(h > 0 ? 2 : 1, "0");
+  const ss = String(sec).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 /** „01:35” z minuty startu rozdziału. */

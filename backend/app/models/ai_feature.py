@@ -210,6 +210,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0712 (15.11.2026): katalog raportów klienta — obowiązki raportowe
     # odczytane z fragmentów umów ramowych jako propozycje dla DL-a.
     client_report_requirements = "client_report_requirements"
+    # 0698 (13.11.2026): rozdziały z prawdziwymi sekundami i podsumowanie szkolenia
+    # z transkryptu Teams; dodatek do nagrania, nigdy warunek publikacji.
+    training_transcript_summary = "training_transcript_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -264,6 +267,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.duty_search_plan: "„Kto już to robił” — rozbicie celu projektu na rzeczy do sprawdzenia w CV",
     AIFeatureKey.duty_search_judge: "„Kto już to robił” — ocena CV względem celu projektu z cytatem",
     AIFeatureKey.client_report_requirements: "Raporty dla klientów — obowiązki raportowe z umów ramowych",
+    AIFeatureKey.training_transcript_summary: "Szkolenia — rozdziały i podsumowanie nagrania z transkryptu",
 }
 
 
@@ -497,6 +501,9 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.client_report_requirements: [
         "Do 40 fragmentów umowy ramowej i aneksów klienta ze słowami o raportach i rozliczeniu",
         "(bez danych kandydatów, kontraktów i stawek z NEXUSA; treść umów jak w Jarvisie)",
+    AIFeatureKey.training_transcript_summary: [
+        "Tytuł i opis szkolenia, plan agendy i transkrypt z Teams ze znacznikami czasu",
+        "(bez nazw mówców, zapisanych osób, kwot, umowy i danych trenera)",
     ],
 }
 

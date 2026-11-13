@@ -71,6 +71,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F47 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
 | F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F49 | client_report_requirements       | claude-sonnet-5 (z Haiku)|
+| F50 | training_transcript_summary      | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -605,6 +606,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "fragmentu — to samo czytanie dokumentu co odczyt kosztu (F33), więc jego model. Rzadko "
         "(przycisk „Znajdź w umowach”). Dodatek: bez modelu DL dostaje fragmenty ze słowami "
         "kluczowymi i wpisuje raport sam; propozycja obowiązuje dopiero po potwierdzeniu DL-a.",
+    AIFeatureKey.training_transcript_summary: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("TRAINING_TRANSCRIPT_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F50 (S4 szkoleń 13.11.2026, POZA badaniem 16.09). Rozdziały i podsumowanie "
+        "nagrania szkolenia z transkryptu Teams: to samo streszczenie transkryptu co F40 i F43, "
+        "plus wybór początku rozdziału spośród znaczników czasu z transkryptu (kod odrzuca "
+        "sekundę, której w transkrypcie nie ma). Dodatek: awaria modelu zostawia rozdziały "
+        "z agendy i nagranie bez podsumowania, nic nie blokuje.",
     ),
 }
 

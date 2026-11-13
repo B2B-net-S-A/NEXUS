@@ -206,6 +206,10 @@ class CpTrainerApplication(Base):
     )
     sample_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     sample_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # 0698: tematy z „Szukamy trenerów”, na które konsultant się zgłosił.
+    topic_request_ids: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

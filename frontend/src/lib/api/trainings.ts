@@ -38,6 +38,8 @@ export interface TrainingsMe {
   is_company_signer: boolean;
   /** 0697: spotkanie Teams zakłada NEXUS, więc formularz nie pyta o link. */
   teams_ready?: boolean;
+  /** 0698: role, które można wskazać w „Obowiązkowe dla roli”. */
+  mandatory_roles?: string[];
 }
 
 export interface TrainingDeliverable {
@@ -106,6 +108,18 @@ export interface TrainingOrder {
   knowledge_test: boolean;
   extra_terms: string;
   seat_limit?: number | null;
+  /** 0698: próba techniczna z prowadzącym (15 min, 2 dni robocze wcześniej). */
+  rehearsal?: boolean;
+  /** 0698: role, w których każdy aktywny jest zapisany i zaproszony (tylko widok TCM). */
+  mandatory_roles?: string[];
+}
+
+/** Próba techniczna z prowadzącym (0698). `join_url` dopiero po założeniu spotkania. */
+export interface TrainingRehearsal {
+  status: "created" | "failed" | "skipped" | "cancelled" | null;
+  start: string | null;
+  minutes: number;
+  join_url: string | null;
 }
 
 export interface TrainingQuote {
@@ -132,6 +146,9 @@ export interface TrainingPayment {
 export interface TrainingChapter {
   title: string;
   start_minute: number;
+  /** 0698: sekunda startu; z transkryptu (AI) dokładna, z agendy = minuta × 60. */
+  start_second?: number;
+  source?: "transcript" | "agenda";
 }
 
 /** `core.staff_view` — karta szkolenia. `fees` = `null`, gdy serwer nie pokazuje kwot. */
@@ -153,11 +170,16 @@ export interface TrainingView {
   handover: TrainingHandoverItem[];
   files: TrainingFileRow[];
   registrations: number;
+  mandatory_registrations?: number;
+  rehearsal?: TrainingRehearsal | null;
   attendance: number;
   teams?: TrainingTeams;
   shared_registered_at?: string | null;
   feedback?: TrainingFeedbackSummary;
   transcript?: boolean;
+  /** 0698: podsumowanie nagrania z transkryptu (model AI, dodatek). */
+  summary?: string | null;
+  summary_status?: "done" | "failed" | "skipped" | null;
   published_at: string | null;
   can_publish: boolean;
   chapters: TrainingChapter[];
@@ -217,6 +239,8 @@ export interface LibraryRecording {
   /** „registered” = nagranie tylko dla zapisanych (przed zapłatą trenera B2B). */
   scope?: "library" | "registered";
   registered?: boolean;
+  /** 0698: podsumowanie z transkryptu (model AI). */
+  summary?: string | null;
   chapters: TrainingChapter[];
   files: LibraryFile[];
 }
@@ -239,6 +263,10 @@ export interface LiveTraining {
   join_url: string | null;
   /** Spotkanie założył NEXUS: zapis wysyła zaproszenie do kalendarza. */
   invited?: boolean;
+  /** 0698: zapis z „Obowiązkowe dla roli” — bez „Wypisz się”. */
+  mandatory?: boolean;
+  /** 0698: próba techniczna, tylko gdy prowadzę. */
+  rehearsal?: TrainingRehearsal | null;
 }
 
 export interface TranscriptHit {
@@ -269,8 +297,29 @@ export interface TrainerApplication {
   availability: string;
   materials: string;
   sample_name: string | null;
+  /** 0698: tematy z „Szukamy trenerów”, na które się zgłosił. */
+  wanted_topics?: string[];
   case_id: number | null;
   sent_at: string;
+}
+
+/** „Szukamy trenerów” (0698): temat, na który TCM szuka prowadzącego. */
+export interface TrainingTopic {
+  id: number;
+  title: string;
+  description: string;
+  audience: string;
+  status: "open" | "closed";
+  created_at: string | null;
+  closed_at: string | null;
+  applicants: number;
+}
+
+export interface TopicInput {
+  title: string;
+  description: string;
+  audience: string;
+  open: boolean;
 }
 
 export interface PendingSignature {
@@ -334,6 +383,8 @@ export interface OrderInput {
   knowledge_test: boolean;
   extra_terms: string;
   seat_limit?: number | null;
+  rehearsal?: boolean;
+  mandatory_roles?: string[];
 }
 
 export interface CreateInput extends OrderInput {
@@ -359,6 +410,7 @@ export const trainingKeys = {
   partner: (id: number) => ["trainings", "partner", id] as const,
   people: (id: number) => ["trainings", "people", id] as const,
   applications: ["trainings", "applications"] as const,
+  topics: ["trainings", "topics"] as const,
   pending: ["trainings", "signatures", "pending"] as const,
   settings: ["trainings", "settings"] as const,
   users: (q: string) => ["trainings", "users", q] as const,
@@ -664,6 +716,29 @@ export function useRegistration() {
     mutationFn: async ({ id, join }: { id: number; join: boolean }) =>
       (await api.post<{ registered: boolean }>(`${BASE}/library/${id}/registration`, { join }))
         .data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useTrainingTopics(enabled = true) {
+  return useQuery({
+    queryKey: trainingKeys.topics,
+    queryFn: async () =>
+      (await api.get<{ topics: TrainingTopic[] }>(`${BASE}/topics`)).data.topics,
+    enabled,
+    retry: false,
+  });
+}
+
+/** Nowy temat (`id` = null) albo zmiana istniejącego, w tym zamknięcie. */
+export function useSaveTrainingTopic() {
+  const invalidate = useInvalidateTrainings();
+  return useMutation({
+    mutationFn: async ({ id, input }: { id: number | null; input: TopicInput }) =>
+      (id === null
+        ? await api.post<{ topics: TrainingTopic[] }>(`${BASE}/topics`, input)
+        : await api.put<{ topics: TrainingTopic[] }>(`${BASE}/topics/${id}`, input)
+      ).data.topics,
     onSuccess: invalidate,
   });
 }

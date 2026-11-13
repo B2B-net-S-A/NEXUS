@@ -64,6 +64,7 @@
   "POST /api/public/consultant-portal/rating-form": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/session": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/trainer/sample": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/trainer/topics/{topic_id}": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/trainings/{training_id}/agreement/signature": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/trainings/{training_id}/deliverables/{key}": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/trainings/{training_id}/feedback": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBB",

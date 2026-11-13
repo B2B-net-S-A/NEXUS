@@ -209,6 +209,21 @@ class Training(Base):
     reminder_soon_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 0698 (S4): próba techniczna z prowadzącym i „obowiązkowe dla roli”.
+    rehearsal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    rehearsal_start: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    rehearsal_event_id: Mapped[Optional[str]] = mapped_column(
+        String(300), nullable=True
+    )
+    rehearsal_join_url: Mapped[str] = _text(schema.PATH_MAX)
+    rehearsal_status: Mapped[str] = _text(20)
+    mandatory_roles: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )
 
 
 class TrainingFile(Base):
@@ -301,6 +316,10 @@ class TrainingRegistration(Base):
     )
     invite_event_id: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     invite_status: Mapped[str] = _text(20)
+    # 0698: zapis z „obowiązkowe dla roli” — osoba nie wypisuje się sama.
+    mandatory: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
 
 
 class TrainingAttendance(Base):
@@ -337,6 +356,14 @@ class TrainingTranscript(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # 0698: podsumowanie i rozdziały z modelu AI (dodatek, F49).
+    summary: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="", default=""
+    )
+    ai_chapters: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb"), default=list
+    )
+    summary_status: Mapped[str] = _text(20)
 
 
 class TrainingFeedback(Base):
@@ -376,4 +403,35 @@ class TrainingFeedback(Base):
     comment: Mapped[str] = _text(schema.FEEDBACK_COMMENT_MAX)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class TrainingTopicRequest(Base):
+    """„Szukamy trenerów” (0698): temat, na który TCM szuka prowadzącego w panelu."""
+
+    __tablename__ = "training_topic_requests"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_TOPIC_STATUS, name="ck_training_topic_requests_status"
+        ),
+        Index(
+            "ix_training_topic_requests_open",
+            "created_at",
+            postgresql_where=text("status = 'open'"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(schema.TITLE_MAX), nullable=False)
+    description: Mapped[str] = _text(schema.TOPIC_DESCRIPTION_MAX)
+    audience: Mapped[str] = _text(schema.TRAINER_SHORT_MAX)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="open", default="open"
+    )
+    created_by: Mapped[Optional[int]] = _user_fk()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

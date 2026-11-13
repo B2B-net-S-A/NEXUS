@@ -666,6 +666,8 @@ class TrainerRequest(BaseModel):
     audience: str = Field(default="", max_length=TRAINER_SHORT_MAX)
     availability: str = Field(default="", max_length=TRAINER_SHORT_MAX)
     materials: str = Field(default="", max_length=MATERIAL_URL_MAX)
+    # 0698: formularz otwarty z „Zgłoś się na temat” w „Szukamy trenerów”.
+    topic_request_id: Optional[int] = None
 
 
 @router.put("/trainer")
@@ -688,6 +690,32 @@ async def save_trainer(
             audience=payload.audience,
             availability=payload.availability,
             materials=payload.materials,
+            topic_request_id=payload.topic_request_id,
+        )
+    except PortalError as exc:
+        raise _translate(exc) from exc
+    return {"application": application}
+
+
+class TopicJoinRequest(BaseModel):
+    join: bool
+
+
+@router.post("/trainer/topics/{topic_id}")
+@limiter.limit("10/minute;30/hour")
+@limiter.shared_limit(SHARED_WRITE, scope="consultant-portal-write")
+async def trainer_topic(
+    topic_id: int,
+    payload: TopicJoinRequest,
+    context: Session,
+    request: Request,  # wymagane przez limiter slowapi
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Zgłoś się na temat” (0698): temat z „Szukamy trenerów” do zgłoszenia trenera."""
+
+    try:
+        application = await panel.save_trainer_topic(
+            db, context, topic_id, join=payload.join
         )
     except PortalError as exc:
         raise _translate(exc) from exc
@@ -768,6 +796,7 @@ async def trainings(
             db, today=business_today(), contract_ids=consultant.contract_ids
         ),
         "applied": await panel.trainer_application(db, context) is not None,
+        "wanted_topics": await panel.wanted_topics(db, context),
     }
 
 

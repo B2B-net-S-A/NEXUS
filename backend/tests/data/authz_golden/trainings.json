@@ -41,6 +41,7 @@
   "GET /api/trainings/me": "PPPPPPPDPPPPPPPPPPPPPPPPPDPPP",
   "GET /api/trainings/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/trainings/signatures/pending": "PPPPPPPDPPPPPPPPPPPPPPPPPDPPP",
+  "GET /api/trainings/topics": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "GET /api/trainings/{training_id}": "PPDDPDDDPDDDPPDDDPDDDDDDDDDDD",
   "GET /api/trainings/{training_id}/agreement.pdf": "PPPPPPPDPPPPPPPPPPPPPPPPPDPPP",
   "GET /api/trainings/{training_id}/files/{file_id}": "PPDDPDDDPDDDPPDDDPDDDDDDDDDDD",
@@ -50,6 +51,7 @@
   "POST /api/trainings": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "POST /api/trainings/library/{training_id}/feedback": "PPPPPPPDPPPPPPPPPPPPPPPPPDPPP",
   "POST /api/trainings/library/{training_id}/registration": "PPPPPPPDPPPPPPPPPPPPPPPPPDPPP",
+  "POST /api/trainings/topics": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "POST /api/trainings/{training_id}/accept": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "POST /api/trainings/{training_id}/agreement": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "POST /api/trainings/{training_id}/agreement/company-signature": "PPPPPPPDPPPPPPPPPPPPPPPPPDPPP",
@@ -64,6 +66,7 @@
   "POST /api/trainings/{training_id}/share": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "POST /api/trainings/{training_id}/teams": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "PUT /api/trainings/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/trainings/topics/{topic_id}": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "PUT /api/trainings/{training_id}": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD",
   "PUT /api/trainings/{training_id}/files/{file_id}/participants": "PDDDPDDDPDDDPPDDDDDDDDDDDDDDD"
  }

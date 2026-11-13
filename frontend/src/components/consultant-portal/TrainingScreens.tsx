@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, CalendarClock, Download, Headphones, PlayCircle, Search, Star, Video } from "lucide-react";
+import { ArrowLeft, CalendarClock, Download, Headphones, Megaphone, PlayCircle, Search, Star, Video } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import {
   type PortalTrainingRow,
   type PortalTrainings,
   type PortalTranscriptSearch,
+  type WantedTopic,
 } from "@/lib/api/consultant-portal";
 import { cn } from "@/lib/utils";
 
@@ -251,6 +252,88 @@ export function LiveList({ rows }: { rows: LibraryLive[] }) {
   );
 }
 
+/** „Szukamy trenerów” (0698): tematy od Talent Community z „Zgłoś się na temat”. */
+function WantedTopicRow({ topic, applied }: { topic: WantedTopic; applied: boolean }) {
+  const client = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toggle = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await portalApi.trainerTopic(topic.id, !topic.applied);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: portalKeys.trainings }),
+        client.invalidateQueries({ queryKey: portalKeys.trainer }),
+      ]);
+    } catch (failure) {
+      setError(apiErrorMessage(failure, "Nie udało się zapisać zgłoszenia. Spróbuj ponownie."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <li className="py-2.5 first:pt-0 last:pb-0">
+      <p className="flex items-start gap-2 text-sm">
+        <Megaphone aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0">
+          <span className="block font-medium">{topic.title}</span>
+          {topic.audience ? <span className="block text-xs text-muted-foreground">dla: {topic.audience}</span> : null}
+          {topic.description ? (
+            <span className="mt-0.5 block whitespace-pre-line text-xs text-muted-foreground">{topic.description}</span>
+          ) : null}
+        </span>
+      </p>
+      <div className="mt-1.5 pl-5">
+        {!applied ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/konsultant/trener?temat=${topic.id}`}>Zgłoś się na temat</Link>
+          </Button>
+        ) : topic.applied ? (
+          <span className="flex flex-wrap items-center gap-2">
+            <Badge variant="success">Zgłoszono</Badge>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={toggle}>
+              Wycofaj
+            </Button>
+          </span>
+        ) : (
+          <Button size="sm" variant="outline" disabled={busy} onClick={toggle}>
+            Zgłoś się na temat
+          </Button>
+        )}
+        {error ? (
+          <p role="alert" className="mt-1 text-xs text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+export function WantedTopics({ topics, applied }: { topics: WantedTopic[]; applied: boolean }) {
+  return (
+    <Panel title="Szukamy trenerów">
+      {topics.length === 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Teraz nie szukamy trenera na konkretny temat. Zgłoszenie z własnym tematem przyjmujemy zawsze.
+        </p>
+      ) : (
+        <ul className="divide-y">
+          {topics.map((topic) => (
+            <WantedTopicRow key={topic.id} topic={topic} applied={applied} />
+          ))}
+        </ul>
+      )}
+      <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+        {applied
+          ? "Temat dopiszemy do Twojego zgłoszenia trenera. Odezwiemy się z zamówieniem."
+          : "Najpierw krótkie zgłoszenie trenera: tematy i doświadczenie. Temat dopiszemy do niego."}
+      </p>
+    </Panel>
+  );
+}
+
 // ── Nagrania ─────────────────────────────────────────────────────────────────
 
 function sizeLabel(bytes: number | null): string {
@@ -408,11 +491,11 @@ export function RecordingView({ recording, onBack }: { recording: LibraryRecordi
   const player = useRef<HTMLVideoElement>(null);
   const [chapter, setChapter] = useState<number | null>(null);
 
-  const seek = (index: number, minute: number) => {
+  const seek = (index: number, second: number) => {
     setChapter(index);
     const element = player.current;
     if (!element) return;
-    element.currentTime = minute * 60;
+    element.currentTime = second;
     void element.play().catch(() => undefined);
   };
 
@@ -457,6 +540,12 @@ export function RecordingView({ recording, onBack }: { recording: LibraryRecordi
           {recording.description ? (
             <p className="whitespace-pre-line text-sm text-muted-foreground">{recording.description}</p>
           ) : null}
+          {recording.summary ? (
+            <Panel title="W skrócie">
+              <p className="whitespace-pre-line text-sm">{recording.summary}</p>
+              <p className="mt-2 text-xs text-muted-foreground">Podsumowanie przygotował model AI z transkryptu.</p>
+            </Panel>
+          ) : null}
           {video ? (
             <PortalTranscript
               id={recording.id}
@@ -490,13 +579,15 @@ export function RecordingView({ recording, onBack }: { recording: LibraryRecordi
                   <button
                     type="button"
                     disabled={!video}
-                    onClick={() => seek(index, row.start_minute)}
+                    onClick={() => seek(index, row.start_second ?? row.start_minute * 60)}
                     className={cn(
                       "flex w-full items-start gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent disabled:cursor-default disabled:hover:bg-transparent",
                       chapter === index && "bg-primary/10 text-primary",
                     )}
                   >
-                    <span className="shrink-0 font-mono text-xs text-muted-foreground">{clockLabel(row.start_minute)}</span>
+                    <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                      {row.source === "transcript" ? clockOf(row.start_second ?? 0) : clockLabel(row.start_minute)}
+                    </span>
                     <span className="min-w-0">{row.title}</span>
                   </button>
                 </li>
@@ -650,7 +741,12 @@ export function TrainingsView({
       {tab === "recordings" && !recording ? (
         <RecordingsList rows={data.library.recordings} next={data.library.live[0] ?? null} onOpen={setOpen} />
       ) : null}
-      {tab === "live" ? <LiveList rows={data.library.live} /> : null}
+      {tab === "live" ? (
+        <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <LiveList rows={data.library.live} />
+          <WantedTopics topics={data.wanted_topics ?? []} applied={data.applied} />
+        </div>
+      ) : null}
       {tab === "mine" ? <MyTrainings rows={data.mine} applied={data.applied} today={today} /> : null}
     </div>
   );
