@@ -1706,6 +1706,13 @@ class Settings(BaseSettings):
     KSEF_CERTIFICATE_KEY_PASSWORD: str = ""
     # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
     KSEF_SIMULATE_DIR: str = ""
+    # Wystawianie faktur sprzedaży z NEXUSA do KSeF (E4, `services/client_invoicing/
+    # ksef_send.py`): off = „Wyślij do KSeF” nieaktywny (domyślnie), test = KSeF
+    # testowy MF, prod = produkcja MF. Kontekst = KSEF_CONTEXT_NIP. Token z
+    # uprawnieniem „wystawianie faktur” (InvoiceWrite) — osobny od KSEF_TOKEN, który
+    # ma tylko odczyt. Sekret — tylko przez workflow „Coolify set env”.
+    KSEF_SALES_ISSUE_MODE: str = "off"
+    KSEF_SALES_ISSUE_TOKEN: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
     # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.

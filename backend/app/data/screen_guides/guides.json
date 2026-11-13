@@ -709,7 +709,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "back_office", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach rozliczenia RCP konsultantów, faktury do klientów z KSeF i wydatki ze zgodą.",
+    "what": "Tu rozliczasz miesiąc: wyniki, import MD, audyt zmian w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach rozliczenia RCP konsultantów, faktury do klientów (wystawianie do KSeF i odczyt z KSeF) i wydatki ze zgodą.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -732,8 +732,8 @@
         "anchor": "finance.approved-expenses"
       },
       {
-        "q": "Gdzie są PDF-y zamówień za miesiąc?",
-        "a": "W trybie „Zamówienia PDF”: miesiąc startu, potem klient i pliki do pobrania.",
+        "q": "Jak wystawić fakturę do klienta w KSeF?",
+        "a": "„Faktury do klientów” → „Wystaw za miesiąc”: zaznacz zamówienia i „Utwórz szkice”. Szkic poprawisz na karcie faktury, numer z serii dostaje dopiero przy „Wyślij do KSeF”. Dane sprzedawcy, rachunki i „następny numer” serii są w „Ustawienia wystawiania”.",
         "anchor": "finance.modes"
       }
     ],
