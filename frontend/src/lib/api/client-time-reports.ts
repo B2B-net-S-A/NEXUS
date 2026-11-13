@@ -254,7 +254,7 @@ export function useUploadTimeReport() {
       form.append("received_on", input.receivedOn);
       if (input.sheet) form.append("sheet", input.sheet);
       form.append("file", input.file);
-      return (await api.post<UploadResult>(BASE, form)).data;
+      return (await api.post<UploadResult>(BASE, form, { headers: { "Content-Type": "multipart/form-data" } })).data;
     },
     onSuccess: (result) => {
       if (!result.needs_sheet) void invalidate();
