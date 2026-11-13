@@ -86,7 +86,7 @@ export function WorldGallery({ open, onOpenChange, now }: WorldGalleryProps) {
           </DialogDescription>
         </DialogHeader>
         <DialogBody>
-          <div ref={bodyRef} className="flex flex-col gap-4" data-tour="appearance.world-gallery">
+          <div ref={bodyRef} className="flex flex-col gap-4">
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
