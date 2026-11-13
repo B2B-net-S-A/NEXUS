@@ -249,6 +249,7 @@ from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
+from app.api import finance_ledger as finance_ledger_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2248,6 +2249,19 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
+# Księgowość (eBI24 → NEXUS, E0 i E1, 0695): kolejka kosztów i kartoteka kontrahentów.
+app.include_router(
+    finance_ledger_api.costs_router,
+    prefix="/api/finance/costs",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    finance_ledger_api.counterparties_router,
+    prefix="/api/finance/counterparties",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
@@ -3821,6 +3835,11 @@ async def api_health_deep_check():
         SalesPipelineStage,
         SalesTarget,
     )
+    from app.models.finance_ledger import (
+        FinanceCostEntry,
+        FinanceCostEntryEvent,
+        FinanceCounterparty,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -4190,6 +4209,11 @@ async def api_health_deep_check():
         ("insight_decisions", InsightDecision),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
+        # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
+        # pobierania z KSeF pisze tu przy każdej fakturze.
+        ("finance_counterparties", FinanceCounterparty),
+        ("finance_cost_entries", FinanceCostEntry),
+        ("finance_cost_entry_events", FinanceCostEntryEvent),
     ]
 
     checks: dict[str, str] = {}

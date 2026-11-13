@@ -116,6 +116,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   // 23.10.2026: /insights/autofill — „Jakość podpowiedzi systemu”.
   autofill: "Jakość podpowiedzi systemu",
   finance: "Finanse",
+  // 13.11.2026: /finance/costs/[id] — karta faktury kosztowej (księgowość E1).
+  costs: "Koszty",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",
@@ -180,6 +182,11 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   opportunities: async (id) => {
     const r = await api.get(`/api/sales/opportunities/${id}`);
     return r.data.title ?? id;
+  },
+  // Finanse → Koszty → numer faktury kosztowej.
+  costs: async (id) => {
+    const r = await api.get(`/api/finance/costs/${id}`);
+    return r.data.invoice_number ?? id;
   },
 };
 

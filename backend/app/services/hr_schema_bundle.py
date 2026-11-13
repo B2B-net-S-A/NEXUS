@@ -32,6 +32,7 @@ from app.services import contract_care_schema as contract_care
 from app.services import equipment_extras_schema as equipment_extras
 from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
+from app.services import finance_ledger_schema as finance_ledger
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
 from app.services import hr_agreements_schema as agreements
@@ -95,6 +96,8 @@ MODULES = (
     client_einvoices,
     # 0694: szkolenia i trenerzy — zamówienie, wycena, umowa, pliki (13.11.2026).
     trainings,
+    # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów (E0, E1, 13.11.2026).
+    finance_ledger,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

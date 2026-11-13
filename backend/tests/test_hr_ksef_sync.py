@@ -20,6 +20,7 @@ from sqlalchemy import delete, select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
+from app.models.finance_ledger import FinanceCostEntry
 from app.models.hr_approval import ApprovalDocument
 from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import PayrollPeriod
@@ -30,6 +31,7 @@ from app.models.hr_settlement import (
     PayrollSettlement,
 )
 from app.models.user import User, UserRole
+from app.services.finance_ledger import settings as accounting
 from app.services.hr import job_runs, settlements
 from app.services.hr.ksef import client as ksef_client
 from app.services.hr.ksef import sync
@@ -87,6 +89,12 @@ async def _person(db, *, nip: str | None) -> User:
 
 async def _wipe(user_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
+        # Księgowość (0695): wpisy kolejki kosztów faktur z fikcyjnych NIP-ów.
+        await db.execute(
+            delete(FinanceCostEntry).where(
+                FinanceCostEntry.seller_nip.in_(FIXTURE_NIPS)
+            )
+        )
         await db.execute(
             delete(PayrollInvoice).where(PayrollInvoice.seller_nip.in_(FIXTURE_NIPS))
         )
@@ -464,6 +472,40 @@ async def test_bez_modulu_zgod_faktura_dostawcy_tylko_pominieta(env):
             )
         )
     assert cost is None
+
+
+async def test_ksiegowosc_bez_zgod_zapisuje_dostawce_i_wpisy_kolejki(env):
+    """Moduł „Księgowość” (0695) zapisuje fakturę dostawcy bez modułu „Zgody”
+    — bez dopasowania do zgód — i każda zapisana faktura dostaje wpis kosztów."""
+
+    await _set_setting(
+        HR_MODULES_SETTING,
+        {key: key != "approvals" for key in HR_MODULE_KEYS},
+    )
+    await _set_setting(accounting.SETTING_KEY, {"enabled": True})
+    try:
+        result = await env.run()
+    finally:
+        await _set_setting(accounting.SETTING_KEY, None)
+    assert result["costs"] == 1
+    assert "ledger_failed" not in result
+    async with AsyncSessionLocal() as db:
+        cost = await db.scalar(
+            select(ApprovalDocument).where(
+                ApprovalDocument.ksef_number == SUPPLIER_INVOICE
+            )
+        )
+        entries = list(
+            await db.scalars(
+                select(FinanceCostEntry).where(
+                    FinanceCostEntry.seller_nip.in_(FIXTURE_NIPS)
+                )
+            )
+        )
+    assert (cost.status, cost.match_reason) == ("unmatched", None)
+    kinds = sorted((entry.source_type, entry.stage) for entry in entries)
+    assert ("approval_document", "received") in kinds
+    assert kinds.count(("payroll_invoice", "received")) == result["saved"]
 
 
 async def test_tryb_off_brak_tokenu_i_modul_wylaczony(env, monkeypatch):
