@@ -41,7 +41,11 @@ export function ReviewBatchKeyFactsBlock({
 }) {
   const polish = POLISH[facts.polish.state];
   return (
-    <div className="space-y-1.5" data-testid="review-key-facts" data-tour="review-batch.key-facts">
+    <div
+      className="space-y-1.5"
+      data-testid="review-key-facts"
+      data-tour="review-batch.key-facts"
+    >
       <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
         Kluczowe w tej rekrutacji
       </div>

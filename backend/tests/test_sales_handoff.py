@@ -163,7 +163,9 @@ async def test_booking_creates_opportunity_for_the_host(app_client) -> None:
     caller, host = await _pair()
     stages = await _stages(app_client, caller)
     name = f"Firma Nowa {_tag()}"
-    when = _in(3)
+    # Tydzień naprzód: „za 3 dni” w piątek to poniedziałek, a dzień przed nim
+    # roboczy (piątek) to już faza „confirm” — test padał w każdy piątek.
+    when = _in(7)
     booked = await _booked(
         app_client,
         caller,
