@@ -52,6 +52,7 @@ from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.equipment import protocols as equipment_protocols
 from app.services.hr import client_pack
 from app.services.trainings import samples as trainer_samples
+from app.services.trainings import topics as trainer_topics
 from app.services.trainings.errors import TrainingError
 from app.services.trainings_schema import TITLE_MAX as TRAINER_TITLE_MAX
 
@@ -494,6 +495,10 @@ async def _trainer_row(
         "availability": application.availability,
         "materials": application.materials,
         "sample_name": application.sample_name,
+        # 0698: tematy z „Szukamy trenerów”, na które konsultant się zgłosił.
+        "topic_request_ids": [
+            i for i in application.topic_request_ids or [] if isinstance(i, int)
+        ],
         "sent_at": application.updated_at.isoformat(),
         # Opiekun przypisany do sprawy to „Po naszej stronie”, nie „Czeka na
         # przydzielenie osoby” (do 13.11.2026 szło tu zawsze ``None``).
@@ -514,10 +519,68 @@ async def trainer_application(
     return await _trainer_row(db, application)
 
 
-def _trainer_description(application: CpTrainerApplication) -> str:
+async def _trainer_application_row(
+    db: AsyncSession, context: PortalContext, *, lock: bool = False
+) -> Optional[CpTrainerApplication]:
+    query = select(CpTrainerApplication).where(
+        CpTrainerApplication.contract_id.in_(context.consultant.contract_ids)
+    )
+    return await db.scalar(query.with_for_update() if lock else query)
+
+
+async def wanted_topics(
+    db: AsyncSession, context: PortalContext
+) -> list[dict[str, Any]]:
+    """Otwarte tematy „Szukamy trenerów” z zaznaczeniem, na które konsultant się zgłosił."""
+
+    application = await _trainer_application_row(db, context)
+    return await trainer_topics.open_topics(
+        db, application.topic_request_ids if application else []
+    )
+
+
+async def _refresh_trainer_case(
+    db: AsyncSession, application: CpTrainerApplication
+) -> None:
+    case = await db.get(AdminCase, application.case_id) if application.case_id else None
+    if case is not None:
+        case.description = _trainer_description(
+            application, await trainer_topics.titles(db, application.topic_request_ids)
+        )
+
+
+async def save_trainer_topic(
+    db: AsyncSession, context: PortalContext, topic_id: int, *, join: bool
+) -> dict[str, Any]:
+    """„Zgłoś się na temat”: dopisek do istniejącego zgłoszenia trenera.
+
+    Bez zgłoszenia panel otwiera formularz „Zostań trenerem” z tematem, bo TCM
+    potrzebuje doświadczenia i propozycji, nie samego kliknięcia."""
+
+    application = await _trainer_application_row(db, context, lock=True)
+    if application is None:
+        raise PortalError(
+            "Najpierw wyślij zgłoszenie trenera, potem zgłaszaj się na tematy.",
+            status=409,
+            code="no_application",
+        )
+    try:
+        await trainer_topics.toggle(db, application, topic_id, join=join)
+    except TrainingError as exc:
+        raise PortalError(exc.message, status=exc.status, code=exc.code) from exc
+    await _refresh_trainer_case(db, application)
+    await db.flush()
+    await db.refresh(application)
+    return await _trainer_row(db, application) or {}
+
+
+def _trainer_description(
+    application: CpTrainerApplication, wanted: Optional[list[str]] = None
+) -> str:
     return "\n".join(
         [
             f"Tematy: {', '.join(application.topics) or 'nie podano'}",
+            f"Zgłoszenie na tematy „Szukamy trenerów”: {', '.join(wanted or []) or 'brak'}",
             f"Propozycja szkolenia: {application.proposal_title or 'nie podano'}",
             f"Czas na żywo: {application.proposal_hours or 'nie podano'}",
             f"Dla kogo: {application.audience or 'nie podano'}",
@@ -541,6 +604,7 @@ async def save_trainer_application(
     audience: str,
     availability: str,
     materials: str,
+    topic_request_id: Optional[int] = None,
 ) -> dict[str, Any]:
     """Pierwsze wysłanie zakłada sprawę, a kolejne poprawiają to samo zgłoszenie.
 
@@ -570,8 +634,16 @@ async def save_trainer_application(
     application.audience = _clean(audience, TRAINER_SHORT_MAX)
     application.availability = _clean(availability, TRAINER_SHORT_MAX)
     application.materials = _clean(materials, MATERIAL_URL_MAX)
+    if topic_request_id is not None:
+        # Formularz otwarty z „Zgłoś się na temat” (0698).
+        try:
+            await trainer_topics.toggle(db, application, topic_request_id, join=True)
+        except TrainingError as exc:
+            raise PortalError(exc.message, status=exc.status, code=exc.code) from exc
     await db.flush()
-    description = _trainer_description(application)
+    description = _trainer_description(
+        application, await trainer_topics.titles(db, application.topic_request_ids)
+    )
     case = await db.get(AdminCase, application.case_id) if application.case_id else None
     if case is None:
         case, _created = await open_automatic_case(
@@ -614,9 +686,7 @@ async def save_trainer_sample(
     application.sample_path = relative
     application.sample_name = _clean(file_name, 255) or "próbka"
     application.sample_size = len(content)
-    case = await db.get(AdminCase, application.case_id) if application.case_id else None
-    if case is not None:
-        case.description = _trainer_description(application)
+    await _refresh_trainer_case(db, application)
     await db.flush()
     await db.refresh(application)
     return await _trainer_row(db, application) or {}

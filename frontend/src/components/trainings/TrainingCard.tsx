@@ -31,7 +31,10 @@ import { TrainingStatusBadge, TrainingSteps } from "./TrainingStatus";
 import {
   CANCELLABLE,
   EDITABLE_ORDER,
+  chapterClock,
+  chapterSecond,
   chapterTime,
+  mandatoryRoleLabel,
   deliverablesFromOrder,
   deliverablesPayload,
   formatAmount,
@@ -126,12 +129,14 @@ function OrderSection({
   actions,
   busy,
   teamsReady = false,
+  roles = [],
 }: {
   view: TrainingView;
   canManage: boolean;
   actions: TrainingCardActions;
   busy?: boolean;
   teamsReady?: boolean;
+  roles?: readonly string[];
 }) {
   const [editing, setEditing] = useState(false);
   const [order, setOrder] = useState<OrderInput>(() => orderFromView(view));
@@ -185,6 +190,7 @@ function OrderSection({
             disabled={busy}
             employee={employee}
             teamsReady={teamsReady}
+            roles={roles}
           />
           {problem ? (
             <p role="alert" className="text-sm text-destructive">
@@ -215,6 +221,20 @@ function OrderSection({
               <Fact label="Wycena do" value={view.order.quote_due_on ? formatIsoDatePl(view.order.quote_due_on) : null} />
             )}
             <Fact label="Temat" value={view.order.topic} />
+            <Fact
+              label="Próba techniczna"
+              value={view.order.rehearsal ? "tak, 15 min, 2 dni robocze wcześniej" : "nie"}
+            />
+            <Fact
+              label="Obowiązkowe dla"
+              value={
+                view.order.mandatory_roles?.length
+                  ? `${view.order.mandatory_roles.map(mandatoryRoleLabel).join(", ")}${
+                      view.mandatory_registrations ? ` (zapisano ${view.mandatory_registrations})` : ""
+                    }`
+                  : "nikogo"
+              }
+            />
           </dl>
           {view.order.description ? (
             <p className="whitespace-pre-line text-sm text-foreground">{view.order.description}</p>
@@ -382,6 +402,7 @@ export function TrainingCard({
         actions={actions}
         busy={busy}
         teamsReady={me.teams_ready === true}
+        roles={me.mandatory_roles ?? []}
       />
       {showQuote ? (
         <QuoteSection
@@ -542,13 +563,27 @@ export function TrainingCard({
               </p>
             ) : null}
           </Section>
+          {view.summary ? (
+            <Section title="Podsumowanie (AI z transkryptu)">
+              <p className="whitespace-pre-line text-sm text-foreground">{view.summary}</p>
+            </Section>
+          ) : null}
           {view.chapters.length > 0 ? (
             <Section title="Rozdziały nagrania">
+              <p className="text-xs text-muted-foreground">
+                {view.chapters[0]?.source === "transcript"
+                  ? "Z transkryptu: czas to prawdziwe miejsce w nagraniu."
+                  : view.summary_status === "failed"
+                    ? "Z agendy: model nie podzielił transkryptu, nagranie działa bez tego."
+                    : "Z agendy: suma minut poprzednich modułów."}
+              </p>
               <ol className="space-y-1 text-sm">
                 {view.chapters.map((chapter, index) => (
                   <li key={`${chapter.title}-${index}`} className="flex gap-3">
-                    <span className="w-12 shrink-0 tabular-nums text-muted-foreground">
-                      {chapterTime(chapter.start_minute)}
+                    <span className="w-14 shrink-0 tabular-nums text-muted-foreground">
+                      {chapter.source === "transcript"
+                        ? chapterClock(chapterSecond(chapter))
+                        : chapterTime(chapter.start_minute)}
                     </span>
                     <span>{chapter.title}</span>
                   </li>

@@ -308,9 +308,79 @@ INDEX_DDL: tuple[str, ...] = (
     "ON training_attendance (training_id)",
 )
 
-TABLE_DDL = (*TABLE_DDL, *TEAMS_TABLE_DDL)
-COLUMN_DDL = (*COLUMN_DDL, *TEAMS_COLUMN_DDL)
-INDEX_DDL = (*INDEX_DDL, *TEAMS_INDEX_DDL)
+#: 0698 (S4, 13.11.2026): rozdziały i podsumowanie z transkryptu przez model AI,
+#: próba techniczna z trenerem, „obowiązkowe dla roli” i tematy „Szukamy trenerów”.
+TOPIC_STATUSES: tuple[str, ...] = ("open", "closed")
+CK_TOPIC_STATUS = f"status IN ({quoted(TOPIC_STATUSES)})"
+AI_SUMMARY_STATUSES: tuple[str, ...] = ("", "done", "failed", "skipped")
+REHEARSAL_STATUSES: tuple[str, ...] = ("", "created", "failed", "skipped", "cancelled")
+REHEARSAL_MINUTES = 15
+TOPIC_DESCRIPTION_MAX = 1_000
+AI_SUMMARY_FEATURE = "training_transcript_summary"
+
+S4_TABLE_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS training_topic_requests (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR({TITLE_MAX}) NOT NULL,
+    description VARCHAR({TOPIC_DESCRIPTION_MAX}) NOT NULL DEFAULT '',
+    audience VARCHAR({TRAINER_SHORT_MAX}) NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'open',
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    closed_at TIMESTAMPTZ NULL,
+    CONSTRAINT ck_training_topic_requests_status CHECK ({CK_TOPIC_STATUS})
+)""",
+)
+
+S4_COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    "rehearsal BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS rehearsal_start TIMESTAMPTZ NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    "rehearsal_event_id VARCHAR(300) NULL",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    f"rehearsal_join_url VARCHAR({PATH_MAX}) NOT NULL DEFAULT ''",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    "rehearsal_status VARCHAR(20) NOT NULL DEFAULT ''",
+    "ALTER TABLE trainings ADD COLUMN IF NOT EXISTS "
+    "mandatory_roles JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE training_registrations ADD COLUMN IF NOT EXISTS "
+    "mandatory BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE training_transcripts ADD COLUMN IF NOT EXISTS "
+    "summary TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE training_transcripts ADD COLUMN IF NOT EXISTS "
+    "ai_chapters JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE training_transcripts ADD COLUMN IF NOT EXISTS "
+    "summary_status VARCHAR(20) NOT NULL DEFAULT ''",
+    "ALTER TABLE cp_trainer_applications ADD COLUMN IF NOT EXISTS "
+    "topic_request_ids JSONB NOT NULL DEFAULT '[]'::jsonb",
+)
+
+S4_INDEX_DDL: tuple[str, ...] = (
+    "CREATE INDEX IF NOT EXISTS ix_training_topic_requests_open "
+    "ON training_topic_requests (created_at) WHERE status = 'open'",
+)
+
+S4_TABLES: tuple[str, ...] = ("training_topic_requests",)
+#: Kolumny 0698 (downgrade je zdejmuje).
+S4_COLUMNS: dict[str, tuple[str, ...]] = {
+    "trainings": (
+        "rehearsal",
+        "rehearsal_start",
+        "rehearsal_event_id",
+        "rehearsal_join_url",
+        "rehearsal_status",
+        "mandatory_roles",
+    ),
+    "training_registrations": ("mandatory",),
+    "training_transcripts": ("summary", "ai_chapters", "summary_status"),
+    "cp_trainer_applications": ("topic_request_ids",),
+}
+S4_DDL: tuple[str, ...] = (*S4_TABLE_DDL, *S4_COLUMN_DDL, *S4_INDEX_DDL)
+
+TABLE_DDL = (*TABLE_DDL, *TEAMS_TABLE_DDL, *S4_TABLE_DDL)
+COLUMN_DDL = (*COLUMN_DDL, *TEAMS_COLUMN_DDL, *S4_COLUMN_DDL)
+INDEX_DDL = (*INDEX_DDL, *TEAMS_INDEX_DDL, *S4_INDEX_DDL)
 
 CONSTRAINT_DDL: tuple[str, ...] = ()
 DATA_DDL: tuple[str, ...] = ()
@@ -322,6 +392,7 @@ TABLES: tuple[str, ...] = (
     "training_attendance",
     "training_transcripts",
     "training_feedback",
+    "training_topic_requests",
 )
 TEAMS_TABLES: tuple[str, ...] = ("training_transcripts", "training_feedback")
 #: Kolumny 0697 (downgrade je zdejmuje).

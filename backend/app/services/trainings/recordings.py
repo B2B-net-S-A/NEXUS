@@ -10,7 +10,9 @@ po końcu spotkania i:
    w OneDrive skrzynki szkolenia@,
 2. zapisuje transkrypt VTT (wyszukiwanie w bibliotece),
 3. zastępuje obecność raportem z Graph (to samo dopasowanie co CSV),
-4. daje TCM dzwonek „Nagranie do zatwierdzenia”.
+4. daje TCM dzwonek „Nagranie do zatwierdzenia”,
+5. po zatwierdzeniu importu prosi model o rozdziały i podsumowanie (0698,
+   ``ai_summary``); to dodatek, jego awaria niczego nie cofa.
 
 Nagranie wchodzi jako przyjęte i „dla uczestników”, ale ludzie zobaczą je dopiero
 po decyzji TCM (udostępnienie zapisanym albo publikacja). Nagrania nie wgrał
@@ -31,7 +33,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.scheduling import business_today
 from app.models.training import Training, TrainingFile, TrainingTranscript
-from app.services.trainings import attendance, core, signals, storage, teams
+from app.services.trainings import (
+    ai_summary,
+    attendance,
+    core,
+    signals,
+    storage,
+    teams,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +175,7 @@ async def process(db: AsyncSession, training_id: int, *, now: datetime) -> str:
         return "skip"
     slot = teams.window(training)
     ended = slot[1] if slot else now
+    has_transcript = False
     try:
         user_id = await graph.resolve_user_id(teams.organizer())
         if not user_id:
@@ -181,7 +191,9 @@ async def process(db: AsyncSession, training_id: int, *, now: datetime) -> str:
         # Transkrypt i obecność to dodatki: ich brak nie zatrzymuje nagrania.
         for step in (_import_transcript, _import_attendance):
             try:
-                await step(db, training, user_id)
+                result = await step(db, training, user_id)
+                if step is _import_transcript:
+                    has_transcript = bool(result)
             except Exception:  # noqa: BLE001
                 logger.warning(
                     "trainings_recordings: %s failed training=%s",
@@ -192,7 +204,6 @@ async def process(db: AsyncSession, training_id: int, *, now: datetime) -> str:
         training.recording_next_at = None
         await signals.recording_ready(db, training)
         await db.commit()
-        return "imported"
     except Exception as exc:  # noqa: BLE001
         await db.rollback()
         logger.warning(
@@ -208,6 +219,17 @@ async def process(db: AsyncSession, training_id: int, *, now: datetime) -> str:
             await db.commit()
             return "failed"
         return "waiting"
+    # Po zatwierdzeniu nagrania: rozdziały i podsumowanie z modelu (0698, F49). To
+    # dodatek, więc poza blokiem wyżej — jego awaria nie cofa importu.
+    if has_transcript:
+        try:
+            await ai_summary.summarize(db, training_id)
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.warning(
+                "trainings_recordings: summary failed training=%s", training_id
+            )
+    return "imported"
 
 
 async def fetch_due(
@@ -266,7 +288,53 @@ async def send_reminders(
     return sent
 
 
+INVITES_PER_RUN = 100
+
+
+async def send_pending_invites(db: AsyncSession) -> int:
+    """Zaproszenia, których nie wysłało żądanie TCM (cała rola z „obowiązkowe dla roli”).
+
+    Tylko nowe zapisy (``invite_status=''``): nieudane ponawia TCM „Spróbuj ponownie”,
+    żeby pętla nie dobijała się co 5 minut do konta, którego Graph nie zna."""
+
+    if not teams.ready():
+        return 0
+    from app.models.training import TrainingRegistration  # noqa: PLC0415
+
+    today = business_today()
+    ids = (
+        await db.scalars(
+            select(Training.id)
+            .where(
+                Training.status == "signed",
+                Training.teams_status == "created",
+                Training.session_date.is_not(None),
+                Training.session_date >= today,
+                Training.id.in_(
+                    select(TrainingRegistration.training_id).where(
+                        TrainingRegistration.invite_status == ""
+                    )
+                ),
+            )
+            .order_by(Training.session_date)
+        )
+    ).all()
+    sent = 0
+    for training_id in ids:
+        if sent >= INVITES_PER_RUN:
+            break
+        training = await db.get(Training, training_id)
+        if training is None:
+            continue
+        sent += await teams.invite_pending(
+            db, training, limit=INVITES_PER_RUN - sent, statuses=("",)
+        )
+        await db.commit()
+    return sent
+
+
 async def run_once(db: AsyncSession) -> dict[str, Any]:
     reminders = await send_reminders(db)
+    invites = await send_pending_invites(db)
     recordings = await fetch_due(db)
-    return {"reminders": reminders, "recordings": recordings}
+    return {"reminders": reminders, "invites": invites, "recordings": recordings}

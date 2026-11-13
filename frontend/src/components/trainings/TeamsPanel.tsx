@@ -7,6 +7,8 @@ import type { TrainingView, TrainingsMe } from "@/lib/api/trainings";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { safeExternalHref } from "@/lib/safe-href";
 
+import { rehearsalLabel } from "./training-model";
+
 interface TeamsPanelProps {
   view: Pick<
     TrainingView,
@@ -20,6 +22,7 @@ interface TeamsPanelProps {
     | "feedback"
     | "registrations"
     | "payment"
+    | "rehearsal"
   >;
   me: Pick<TrainingsMe, "can_manage" | "teams_ready">;
   onRetry: () => Promise<boolean>;
@@ -32,6 +35,13 @@ const RECORDING_LABEL: Record<string, string> = {
   imported: "Nagranie, transkrypt i obecność są już w szkoleniu.",
   none: "Teams nie oddał nagrania. Wgraj je ręcznie, jeśli powstało.",
   failed: "Nie udało się pobrać nagrania z Teams. Wgraj je ręcznie.",
+};
+
+const REHEARSAL_LABEL: Record<string, string> = {
+  created: "Próba techniczna z prowadzącym",
+  failed: "Nie udało się założyć próby technicznej. „Spróbuj ponownie” założy ją razem ze spotkaniem.",
+  skipped: "Na próbę techniczną było za późno: termin próby już minął.",
+  cancelled: "Próba techniczna odwołana.",
 };
 
 function ratingsLabel(count: number): string {
@@ -103,6 +113,22 @@ export function TeamsPanel({ view, me, onRetry, onShare, busy }: TeamsPanelProps
           <Button size="sm" variant="ghost" onClick={() => void copy()}>
             <Copy className="h-3.5 w-3.5" aria-hidden /> Kopiuj link
           </Button>
+        </div>
+      ) : null}
+
+      {view.rehearsal?.status ? (
+        <div className="space-y-1 border-t border-border pt-2" data-testid="teams-rehearsal">
+          <p className={view.rehearsal.status === "failed" ? "text-destructive" : "text-muted-foreground"}>
+            {REHEARSAL_LABEL[view.rehearsal.status]}
+            {view.rehearsal.status === "created" && view.rehearsal.start
+              ? `: ${rehearsalLabel(view.rehearsal.start)}, ${view.rehearsal.minutes} min, bez nagrywania.`
+              : ""}
+          </p>
+          {view.rehearsal.status === "failed" && me.can_manage && teams?.status === "created" ? (
+            <Button size="sm" variant="outline" disabled={busy} onClick={() => void onRetry()}>
+              <RotateCw className="h-3.5 w-3.5" aria-hidden /> Spróbuj ponownie
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

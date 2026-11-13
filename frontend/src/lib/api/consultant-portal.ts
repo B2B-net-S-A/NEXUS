@@ -106,10 +106,14 @@ export interface PortalTrainerInput {
   audience: string;
   availability: string;
   materials: string;
+  /** 0698: formularz otwarty z „Zgłoś się na temat”. */
+  topic_request_id?: number | null;
 }
 
 export interface PortalTrainerApplication extends PortalTrainerInput {
   sample_name: string | null;
+  /** 0698: tematy „Szukamy trenerów”, na które się zgłosiłem. */
+  topic_request_ids?: number[];
   sent_at: string;
   waiting: { who: "nobody" | "us" | "other" | "done"; label: string };
 }
@@ -222,6 +226,13 @@ export interface PortalTraining {
   /** Link do spotkania Teams dla prowadzącego; jest dopiero po podpisie umowy. */
   join_url?: string | null;
   registrations?: number;
+  /** 0698: próba techniczna z NEXUSEM (15 min, bez nagrywania), po podpisie umowy. */
+  rehearsal?: {
+    status: "created" | "failed" | "skipped" | "cancelled" | null;
+    start: string | null;
+    minutes: number;
+    join_url: string | null;
+  } | null;
   recording_ready?: boolean;
   feedback?: { count: number; average: number | null; comments?: string[] };
 }
@@ -244,6 +255,9 @@ export interface PortalTrainingRow {
 export interface TrainingChapter {
   title: string;
   start_minute: number;
+  /** 0698: sekunda startu; z transkryptu (AI) dokładna. */
+  start_second?: number;
+  source?: "transcript" | "agenda";
 }
 
 export interface LibraryFile {
@@ -265,6 +279,8 @@ export interface LibraryRecording {
   /** „registered” = nagranie tylko dla zapisanych (0697). */
   scope?: "library" | "registered";
   registered?: boolean;
+  /** 0698: podsumowanie z transkryptu (model AI). */
+  summary?: string | null;
   chapters: TrainingChapter[];
   files: LibraryFile[];
 }
@@ -292,10 +308,20 @@ export interface PortalTranscriptSearch {
   hits: { second: number; text: string }[];
 }
 
+/** „Szukamy trenerów” (0698): temat, na który B2B Network szuka prowadzącego. */
+export interface WantedTopic {
+  id: number;
+  title: string;
+  description: string;
+  audience: string;
+  applied: boolean;
+}
+
 export interface PortalTrainings {
   mine: PortalTrainingRow[];
   library: { recordings: LibraryRecording[]; live: LibraryLive[] };
   applied: boolean;
+  wanted_topics?: WantedTopic[];
 }
 
 export interface PortalQuoteInput {
@@ -574,6 +600,10 @@ export const portalApi = {
     (await (await request("/trainer/sample", { method: "POST", body: fileForm(file) })).json()) as {
       application: PortalTrainerApplication;
     },
+  trainerTopic: async (topicId: number, join: boolean) =>
+    (
+      await request(`/trainer/topics/${topicId}`, { method: "POST", body: JSON.stringify({ join }) })
+    ).json() as Promise<{ application: PortalTrainerApplication }>,
   trainings: () => getJson<PortalTrainings>("/trainings"),
   training: (id: number) => getJson<{ training: PortalTraining }>(`/trainings/${id}`),
   saveQuote: async (id: number, body: PortalQuoteInput) =>

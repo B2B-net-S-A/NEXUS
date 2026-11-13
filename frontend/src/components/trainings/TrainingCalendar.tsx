@@ -8,6 +8,8 @@ import type { LiveTraining } from "@/lib/api/trainings";
 import { safeExternalHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 
+import { rehearsalLabel } from "./training-model";
+
 const WEEKDAYS = ["nd", "pn", "wt", "śr", "czw", "pt", "sob"];
 const MONTHS = ["sty", "lut", "mar", "kwi", "maj", "cze", "lip", "sie", "wrz", "paź", "lis", "gru"];
 
@@ -114,6 +116,11 @@ export function TrainingCalendar({ live, onRegister, busy, today }: TrainingCale
               <Badge variant="success" size="md">
                 <Check className="mr-1 h-3 w-3" aria-hidden /> Jesteś zapisany
               </Badge>
+              {next.mandatory ? (
+                <Badge variant="warning" size="md">
+                  Obowiązkowe dla Twojej roli
+                </Badge>
+              ) : null}
               {inDays !== null ? (
                 <span className="text-xs text-muted-foreground">
                   {inDays === 0 ? "dziś" : inDays === 1 ? "jutro" : `za ${inDays} dni`}
@@ -135,9 +142,11 @@ export function TrainingCalendar({ live, onRegister, busy, today }: TrainingCale
                   <CalendarCheck className="h-3.5 w-3.5" aria-hidden /> Zaproszenie jest w Twoim kalendarzu
                 </span>
               ) : null}
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onRegister(next.id, false)}>
-                Wypisz się
-              </Button>
+              {next.mandatory ? null : (
+                <Button size="sm" variant="ghost" disabled={busy} onClick={() => void onRegister(next.id, false)}>
+                  Wypisz się
+                </Button>
+              )}
             </div>
             <p className="text-xs text-muted-foreground">
               Przypomnimy dzień wcześniej i 15 minut przed. Nie dasz rady? Nagranie zobaczysz w „Nagraniach”.
@@ -174,9 +183,23 @@ export function TrainingCalendar({ live, onRegister, busy, today }: TrainingCale
                         Dołącz
                       </a>
                     ) : null}
+                    {item.leading && item.rehearsal?.join_url ? (
+                      <a
+                        href={safeExternalHref(item.rehearsal.join_url) ?? undefined}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary hover:underline"
+                      >
+                        Próba: {rehearsalLabel(item.rehearsal.start)}
+                      </a>
+                    ) : null}
                     {item.leading ? (
                       <Badge variant="soft" size="md">
                         Prowadzisz
+                      </Badge>
+                    ) : item.mandatory ? (
+                      <Badge variant="warning" size="md">
+                        Obowiązkowe
                       </Badge>
                     ) : (
                       <Button

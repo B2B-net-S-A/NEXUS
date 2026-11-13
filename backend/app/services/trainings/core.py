@@ -38,11 +38,12 @@ from app.models.training import (
     TrainingRegistration,
     TrainingTranscript,
 )
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services.candidate_followups import add_business_days
 from app.services.trainings.errors import TrainingError
 from app.services.trainings_schema import (
     AGENDA_MAX,
+    REHEARSAL_MINUTES,
     DELIVERABLE_KEYS,
     DESCRIPTION_MAX,
     NOTE_MAX,
@@ -91,6 +92,16 @@ STATUS_LABELS: dict[str, str] = {
 #: Szkolenie pracownika nie ma umowy: po wysłaniu jest ``signed``, ale „Umowa podpisana”
 #: myliło TCM na liście (analiza 13.11.2026), więc etykieta zależy od prowadzącego.
 EMPLOYEE_READY_LABEL = "Gotowe do szkolenia"
+
+#: „Obowiązkowe dla roli” (0698): role, które TCM może wskazać. ``user`` to wycofana
+#: rola przeglądająca, więc jej nie ma.
+MANDATORY_ROLES: tuple[str, ...] = tuple(
+    role.value for role in UserRole if role is not UserRole.user
+)
+MANDATORY_LEAVE = (
+    "To szkolenie jest obowiązkowe dla Twojej roli. Jeśli nie możesz być, napisz do "
+    "Talent Community Managera."
+)
 
 NOT_FOUND = "Nie ma takiego szkolenia."
 WRONG_STATUS = "To szkolenie jest już na innym etapie. Odśwież stronę."
@@ -291,6 +302,22 @@ def _order(training: Training) -> dict[str, Any]:
         "knowledge_test": training.knowledge_test,
         "extra_terms": training.extra_terms,
         "seat_limit": training.seat_limit,
+        "rehearsal": training.rehearsal,
+    }
+
+
+def _rehearsal(training: Training) -> Optional[dict[str, Any]]:
+    """Próba techniczna z prowadzącym (0698): termin i link, gdy spotkanie istnieje."""
+
+    if not training.rehearsal:
+        return None
+    return {
+        "status": training.rehearsal_status or None,
+        "start": _iso(training.rehearsal_start),
+        "minutes": REHEARSAL_MINUTES,
+        "join_url": (training.rehearsal_join_url or None)
+        if training.rehearsal_status == "created"
+        else None,
     }
 
 
@@ -321,15 +348,38 @@ def _payment(training: Training) -> dict[str, Any]:
     }
 
 
-def chapters(training: Training) -> list[dict[str, Any]]:
-    """Rozdziały nagrania z agendy: początek modułu = suma minut poprzednich."""
+def chapters(
+    training: Training, ai: Optional[list[Any]] = None
+) -> list[dict[str, Any]]:
+    """Rozdziały nagrania: z transkryptu (model AI, 0698), a bez nich z agendy.
 
+    Rozdziały z AI mają prawdziwe sekundy z transkryptu, więc zastępują agendę
+    tylko wtedy, gdy są. Z agendy początek modułu = suma minut poprzednich."""
+
+    if ai:
+        return [
+            {
+                "title": item.get("title", ""),
+                "start_minute": int(item.get("start_second") or 0) // 60,
+                "start_second": int(item.get("start_second") or 0),
+                "source": "transcript",
+            }
+            for item in ai
+            if isinstance(item, dict)
+        ]
     start = 0
     rows = []
     for item in training.agenda:
         if not isinstance(item, dict):
             continue
-        rows.append({"title": item.get("title", ""), "start_minute": start})
+        rows.append(
+            {
+                "title": item.get("title", ""),
+                "start_minute": start,
+                "start_second": start * 60,
+                "source": "agenda",
+            }
+        )
         start += int(item.get("minutes") or 0)
     return rows
 
@@ -359,6 +409,7 @@ async def staff_view(
         .select_from(TrainingAttendance)
         .where(TrainingAttendance.training_id == training.id)
     )
+    transcript = await db.get(TrainingTranscript, training.id)
     return {
         "id": training.id,
         "status": training.status,
@@ -369,7 +420,7 @@ async def staff_view(
         "trainer_name": await trainer_name(db, training),
         "application_id": training.application_id,
         "join_url": training.join_url,
-        "order": _order(training),
+        "order": {**_order(training), "mandatory_roles": training.mandatory_roles},
         "quote": _quote(training),
         "fees": _fees(training) if show_fees else None,
         "agreement": _agreement(training),
@@ -377,6 +428,16 @@ async def staff_view(
         "handover": handover(training, files),
         "files": [_file_row(f) for f in files],
         "registrations": registrations or 0,
+        "mandatory_registrations": await db.scalar(
+            select(func.count())
+            .select_from(TrainingRegistration)
+            .where(
+                TrainingRegistration.training_id == training.id,
+                TrainingRegistration.mandatory.is_(True),
+            )
+        )
+        or 0,
+        "rehearsal": _rehearsal(training),
         "attendance": attendance or 0,
         "teams": {
             "status": training.teams_status or None,
@@ -386,10 +447,12 @@ async def staff_view(
         },
         "shared_registered_at": _iso(training.shared_registered_at),
         "feedback": await feedback_summary(db, training.id, with_comments=True),
-        "transcript": await db.get(TrainingTranscript, training.id) is not None,
+        "transcript": transcript is not None,
+        "summary": (transcript.summary or None) if transcript else None,
+        "summary_status": (transcript.summary_status or None) if transcript else None,
         "published_at": _iso(training.published_at),
         "can_publish": can_publish(training),
-        "chapters": chapters(training),
+        "chapters": chapters(training, transcript.ai_chapters if transcript else None),
         "cancelled_at": _iso(training.cancelled_at),
         "cancel_reason": training.cancel_reason or None,
         "created_at": _iso(training.created_at),
@@ -418,6 +481,7 @@ async def trainer_view(db: AsyncSession, training: Training) -> dict[str, Any]:
         "join_url": (training.join_url or None)
         if training.status == "signed"
         else None,
+        "rehearsal": _rehearsal(training) if training.status == "signed" else None,
         "registrations": await db.scalar(
             select(func.count())
             .select_from(TrainingRegistration)
@@ -478,6 +542,8 @@ class OrderInput:
     knowledge_test: bool = False
     extra_terms: str = ""
     seat_limit: Optional[int] = None
+    rehearsal: bool = False
+    mandatory_roles: tuple[str, ...] = ()
 
 
 def _time(value: str) -> str:
@@ -544,6 +610,11 @@ def _apply_order(training: Training, data: OrderInput) -> None:
         )
     if data.seat_limit is not None and not (1 <= data.seat_limit <= 10_000):
         raise TrainingError(422, "Limit miejsc musi być dodatni.", "bad_seats")
+    roles = list(dict.fromkeys(data.mandatory_roles))
+    if any(role not in MANDATORY_ROLES for role in roles):
+        raise TrainingError(
+            422, "Wybierz role z listy ról w NEXUSIE.", "bad_mandatory_roles"
+        )
     join_url = _clean(data.join_url, 1_000)
     if training.teams_event_id:
         # Spotkanie założył NEXUS (0697): link należy do niego, formularz go nie nadpisze.
@@ -577,6 +648,8 @@ def _apply_order(training: Training, data: OrderInput) -> None:
     training.knowledge_test = data.knowledge_test
     training.extra_terms = _clean(data.extra_terms, TEXT_MAX)
     training.seat_limit = data.seat_limit
+    training.rehearsal = data.rehearsal
+    training.mandatory_roles = roles
 
 
 async def create(
@@ -1032,14 +1105,18 @@ async def library(
     user_id: Optional[int] = None,
     contract_ids: tuple[int, ...] = (),
 ) -> dict[str, Any]:
-    mine_query = select(TrainingRegistration.training_id)
+    mine_query = select(
+        TrainingRegistration.training_id, TrainingRegistration.mandatory
+    )
     if user_id is not None:
         mine_query = mine_query.where(TrainingRegistration.user_id == user_id)
     else:
         mine_query = mine_query.where(
             TrainingRegistration.contract_id.in_(contract_ids or (0,))
         )
-    registered = set((await db.scalars(mine_query)).all())
+    mine = (await db.execute(mine_query)).all()
+    registered = {training_id for training_id, _ in mine}
+    mandatory = {training_id for training_id, flag in mine if flag}
     published = (
         await db.scalars(
             select(Training)
@@ -1074,7 +1151,8 @@ async def library(
                 .where(
                     TrainingRegistration.training_id.in_(
                         [t.id for t in upcoming] or [0]
-                    )
+                    ),
+                    TrainingRegistration.mandatory.is_(False),
                 )
                 .group_by(TrainingRegistration.training_id)
             )
@@ -1091,6 +1169,21 @@ async def library(
     by_training: dict[int, list[TrainingFile]] = {}
     for item in file_rows:
         by_training.setdefault(item.training_id, []).append(item)
+    # Bez kolumny ``vtt``: transkrypt bywa długi, a lista potrzebuje tylko wyniku AI.
+    ai_rows = {
+        training_id: (summary, ai_chapters)
+        for training_id, summary, ai_chapters in (
+            await db.execute(
+                select(
+                    TrainingTranscript.training_id,
+                    TrainingTranscript.summary,
+                    TrainingTranscript.ai_chapters,
+                ).where(
+                    TrainingTranscript.training_id.in_([t.id for t in published] or [0])
+                )
+            )
+        ).all()
+    }
     return {
         "recordings": [
             {
@@ -1104,7 +1197,8 @@ async def library(
                 # „registered” = nagranie tylko dla zapisanych (przed zapłatą trenera B2B).
                 "scope": "library" if t.published_at is not None else "registered",
                 "registered": t.id in registered,
-                "chapters": chapters(t),
+                "summary": (ai_rows.get(t.id) or ("", None))[0] or None,
+                "chapters": chapters(t, (ai_rows.get(t.id) or ("", None))[1]),
                 "files": [
                     {
                         "id": f.id,
@@ -1147,6 +1241,12 @@ async def library(
                 )
                 else None,
                 "invited": t.teams_status == "created",
+                "mandatory": t.id in mandatory,
+                # Próba techniczna tylko dla prowadzącego-pracownika (konsultant ma ją
+                # w karcie trenera).
+                "rehearsal": _rehearsal(t)
+                if user_id is not None and t.trainer_user_id == user_id
+                else None,
             }
             for t in upcoming
         ],
@@ -1201,10 +1301,14 @@ async def register(
         query = query.where(TrainingRegistration.contract_id == contract_id)
     existing = await db.scalar(query)
     if join and existing is None and training.seat_limit:
+        # Obowiązkowi (0698) nie zajmują miejsc: limit dotyczy chętnych.
         taken = await db.scalar(
             select(func.count())
             .select_from(TrainingRegistration)
-            .where(TrainingRegistration.training_id == training_id)
+            .where(
+                TrainingRegistration.training_id == training_id,
+                TrainingRegistration.mandatory.is_(False),
+            )
         )
         if (taken or 0) >= training.seat_limit:
             raise TrainingError(
@@ -1217,11 +1321,68 @@ async def register(
             )
         )
     removed_invite: Optional[str] = None
+    if not join and existing is not None and existing.mandatory:
+        raise TrainingError(409, MANDATORY_LEAVE, "mandatory")
     if not join and existing is not None:
         removed_invite = existing.invite_event_id
         await db.delete(existing)
     await db.flush()
     return removed_invite
+
+
+async def enroll_mandatory(db: AsyncSession, training: Training, *, today: date) -> int:
+    """Zapis każdej aktywnej osoby w rolach „obowiązkowe dla roli” (0698).
+
+    Woła się przy zapisie terminu (``_sync_teams``), więc nowa osoba w roli dochodzi
+    przy kolejnej zmianie szkolenia albo ponowieniu spotkania. Obowiązkowy zapis nie
+    liczy się do limitu miejsc (obowiązkowych się nie odsyła) i osoba nie wypisze się
+    sama. Rola zdjęta z listy zostawia zapis, ale już nieobowiązkowy. Zwraca liczbę
+    nowych zapisów; zaproszenia wysyła ``teams.invite_pending``."""
+
+    if (
+        training.status != "signed"
+        or training.session_date is None
+        or training.session_date < today
+    ):
+        return 0
+    roles = set(training.mandatory_roles or [])
+    existing = {
+        row.user_id: row
+        for row in (
+            await db.scalars(
+                select(TrainingRegistration).where(
+                    TrainingRegistration.training_id == training.id,
+                    TrainingRegistration.user_id.is_not(None),
+                )
+            )
+        ).all()
+    }
+    targets: set[int] = set()
+    if roles:
+        people = (await db.scalars(select(User).where(User.is_active.is_(True)))).all()
+        targets = {
+            person.id
+            for person in people
+            if person.id != training.trainer_user_id
+            and any(person.has_role(role) for role in roles)
+        }
+    added = 0
+    for person_id in sorted(targets):
+        row = existing.get(person_id)
+        if row is None:
+            db.add(
+                TrainingRegistration(
+                    training_id=training.id, user_id=person_id, mandatory=True
+                )
+            )
+            added += 1
+        elif not row.mandatory:
+            row.mandatory = True
+    for person_id, row in existing.items():
+        if row.mandatory and person_id not in targets:
+            row.mandatory = False
+    await db.flush()
+    return added
 
 
 async def trainer_trainings(

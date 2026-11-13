@@ -387,6 +387,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
     # 0643: podsumowanie rozmowy z portalu konsultanta.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'portal_meeting_summary'",
+    # 0698: rozdziały i podsumowanie nagrania szkolenia z transkryptu (GPT-6 Luna).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'training_transcript_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -8115,6 +8117,11 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_meeting_client_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_client_summary')",
+    # 0698: seed klucza AI rozdziałów i podsumowania nagrania szkolenia.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'training_transcript_summary', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'training_transcript_summary')",
     # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
     *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
