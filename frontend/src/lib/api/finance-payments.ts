@@ -1,4 +1,4 @@
-// Finanse → „Przelewy” (księgowość E3, 0697) i płatność na karcie faktury.
+// Finanse → „Przelewy” (księgowość E3, 0699) i płatność na karcie faktury.
 //
 // Lustro `backend/app/api/finance_payments.py`. Bramka jak w „Kosztach”:
 // „Moduł Finanse” i moduł „Księgowość”. Tryb przelewu, tytuł, białą listę,

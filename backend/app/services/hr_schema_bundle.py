@@ -102,7 +102,7 @@ MODULES = (
     finance_ledger,
     # 0696: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
     client_invoice_issue,
-    # 0697: przelewy i zapłaty faktur kosztowych (E3, 13.11.2026).
+    # 0699: przelewy i zapłaty faktur kosztowych (E3, 13.11.2026).
     finance_payments,
 )
 

@@ -2274,7 +2274,7 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
-# Księgowość E3 (0697): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
+# Księgowość E3 (0699): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
 app.include_router(
     finance_payments_api.router,
     prefix="/api/finance/payments",
@@ -4241,7 +4241,7 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
-        # 0697: przelewy i zapłaty faktur kosztowych (E3).
+        # 0699: przelewy i zapłaty faktur kosztowych (E3).
         ("finance_cost_payments", FinanceCostPayment),
         ("finance_counterparty_accounts", FinanceCounterpartyAccount),
         ("finance_payment_batches", FinancePaymentBatch),

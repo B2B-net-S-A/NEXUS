@@ -1,7 +1,7 @@
 """Przelewy i zapłaty faktur kosztowych (E3).
 
-Revision ID: 0697_finance_payments
-Revises: 0696_sales_invoice_issue
+Revision ID: 0699_finance_payments
+Revises: 0698_finance_posting
 
 Tabele ``finance_cost_payments``, ``finance_counterparty_accounts``,
 ``finance_payment_batches``, ``finance_payment_batch_items``,
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services import finance_payments_schema as schema
 
-revision = "0697_finance_payments"
-down_revision = "0696_sales_invoice_issue"
+revision = "0699_finance_payments"
+down_revision = "0698_finance_posting"
 branch_labels = None
 depends_on = None
 

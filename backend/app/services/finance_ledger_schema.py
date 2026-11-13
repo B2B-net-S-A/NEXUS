@@ -60,7 +60,7 @@ EVENT_ACTIONS: tuple[str, ...] = (
     "category",
     "note",
     "due_date",
-    # E3 (0697): zmiana rachunku odbiorcy (CHECK przestawia finance_payments_schema).
+    # E3 (0699): zmiana rachunku odbiorcy (CHECK przestawia finance_payments_schema).
     "account",
 )
 

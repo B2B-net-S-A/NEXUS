@@ -1,4 +1,4 @@
-"""Przelewy faktur kosztowych (0697, E3) — trasy i serwis z bazą.
+"""Przelewy faktur kosztowych (0699, E3) — trasy i serwis z bazą.
 
 Plan paczki (tryb, blokady, biała lista off / brak / zgodny, ``hold_payment``),
 paczka z plikiem Elixir i anulowaniem, brak podwójnej paczki przy dwóch

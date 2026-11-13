@@ -1,4 +1,4 @@
-"""Przelewy i zapłaty faktur kosztowych (0697, E3).
+"""Przelewy i zapłaty faktur kosztowych (0699, E3).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/finance_payments_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
