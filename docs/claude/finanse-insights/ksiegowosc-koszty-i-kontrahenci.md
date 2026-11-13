@@ -105,7 +105,7 @@ Symfonii to E2, przelewy E3, wystawianie faktur E4 — nie dopisuj ich tu
   (`/finance/costs` przekierowuje do zakładki).
 - Podgląd jako inna osoba jest tylko do odczytu (bez zaznaczania i przycisków).
 
-## Przelewy i zapłaty (E3, 0696)
+## Przelewy i zapłaty (E3, 0697)
 
 Zastępuje w eBI24 eksport przelewów faktur kosztowych do banku i „Importuj →
 Wyciągi bankowe → Oznacz faktury jako zapłacone”. Makieta M6 (ten sam artefakt).

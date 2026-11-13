@@ -1,6 +1,6 @@
-"""Przelewy i zapłaty faktur kosztowych (E3): SQL migracji ``0696_finance_payments``.
+"""Przelewy i zapłaty faktur kosztowych (E3): SQL migracji ``0697_finance_payments``.
 
-Jedno źródło instrukcji dla ``alembic/versions/0696_finance_payments.py``
+Jedno źródło instrukcji dla ``alembic/versions/0697_finance_payments.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

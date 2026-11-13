@@ -1,4 +1,4 @@
-"""Finanse → „Przelewy” (księgowość E3, 0696): paczki przelewów kosztów i zapłaty.
+"""Finanse → „Przelewy” (księgowość E3, 0697): paczki przelewów kosztów i zapłaty.
 
 Prefiks ``/api/finance/payments`` (``app/main.py``, za wyłącznikiem programu
 „Ludzi w NEXUSIE”). Bramki jak w „Kosztach”: sekcja Finanse (router),

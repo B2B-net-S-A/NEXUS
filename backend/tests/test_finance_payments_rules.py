@@ -1,4 +1,4 @@
-"""Przelewy faktur kosztowych (0696, E3) — reguły bez bazy.
+"""Przelewy faktur kosztowych (0697, E3) — reguły bez bazy.
 
 Tryb przelewu i progi MPP, tytuł przed i po 1.01.2027 (data wstrzykiwana),
 format MPP, biała lista (próg odhaczenia), rachunki (NRB, IBAN), dopasowanie
