@@ -2759,7 +2759,7 @@
   },
   {
     "id": "sprzedaz-bot-listy",
-    "pr": 0,
+    "pr": 3378,
     "title": "Kampanie: Bot Listy buduje listę do dzwonienia",
     "why": "Opisz, do kogo dzwonimy, a bot złoży listę z bazy i dosypie ją w poniedziałek. „Co działa” pokazuje, które role kończą się spotkaniem.",
     "tier": "dot",
