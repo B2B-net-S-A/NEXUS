@@ -1021,7 +1021,7 @@ CALL_OUTCOMES_V2_DOWNGRADE_DDL: tuple[str, ...] = (
 # kolejnym biegiem z tym samym wynikiem. Podmiana CHECK-ów tylko wtedy, gdy
 # definicja nie zna jeszcze nowych wartości, bo entrypoint biegnie przy każdym starcie.
 
-BOT_RUN_KINDS: tuple[str, ...] = (
+_BOT_RUN_KINDS_0684: tuple[str, ...] = (
     *SIGNAL_RUN_KINDS,
     "enrich",
     "question",
@@ -1029,6 +1029,8 @@ BOT_RUN_KINDS: tuple[str, ...] = (
     "discovery",
     "people",
 )
+#: 0690 dokłada ``lists`` (Bot Listy, firmy pod kampanię z rejestr.io i researchu).
+BOT_RUN_KINDS: tuple[str, ...] = (*_BOT_RUN_KINDS_0684, "lists")
 BOT_BRIEFING_MODES: tuple[str, ...] = (*BRIEFING_MODES, "call_hook", "meeting_prep")
 BOT_RESULT_STATUSES: tuple[str, ...] = ("new", "accepted", "rejected", "partial")
 CK_BOT_RUN_KIND = f"kind IN ({quoted(BOT_RUN_KINDS)})"
@@ -1088,4 +1090,28 @@ BOT_TASKS_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind",
     "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
     f"CHECK ({CK_SIGNAL_RUN_KIND})",
+)
+
+
+# 0690: Bot Listy (decyzja Artura 13.11.2026) — brief kampanii, z którego bot buduje
+# i dosypuje listę do dzwonienia (``services/sales/bot_lists.py``).
+BOT_LISTS_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_call_campaigns ADD COLUMN IF NOT EXISTS bot_brief JSONB NULL",
+    "ALTER TABLE sales_call_campaigns "
+    "ADD COLUMN IF NOT EXISTS bot_built_at TIMESTAMPTZ NULL",
+    # Rodzaj biegu ``lists``; podmiana tylko, gdy CHECK go jeszcze nie zna.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_signal_runs_kind' "
+    "AND pg_get_constraintdef(oid) LIKE '%''lists''%') THEN "
+    "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind; "
+    "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
+    f"CHECK ({CK_BOT_RUN_KIND}); END IF; END $$",
+)
+BOT_LISTS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DELETE FROM sales_signal_runs WHERE kind = 'lists'",
+    "ALTER TABLE sales_signal_runs DROP CONSTRAINT IF EXISTS ck_sales_signal_runs_kind",
+    "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
+    f"CHECK (kind IN ({quoted(_BOT_RUN_KINDS_0684)}))",
+    "ALTER TABLE sales_call_campaigns DROP COLUMN IF EXISTS bot_built_at",
+    "ALTER TABLE sales_call_campaigns DROP COLUMN IF EXISTS bot_brief",
 )

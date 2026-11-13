@@ -168,7 +168,15 @@ SECTIONS: tuple[Section, ...] = (
         "extra",
         "Nadgodziny i dyżury",
         (
-            Rule("extra.mail_accept", "Mail akceptujący nadgodziny", "block", "E2"),
+            Rule(
+                "extra.mail_accept",
+                "Mail akceptujący nadgodziny",
+                "block",
+                "E2",
+                {"domain": ""},
+                (ParamField("domain", "z domeny", "np. bnpparibas.pl"),),
+                "Domena nadawcy zgody — dokładnie, bez poddomen; kilka po przecinku.",
+            ),
             Rule("extra.mail_before", "Mail wysłany przed pracą", "warn", "E2"),
             Rule(
                 "extra.multiplier",

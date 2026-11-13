@@ -383,6 +383,9 @@ async def invoice_month(
         if rules["cl.after_signed_document"]["level"] != "off"
         else None
     )
+    integration = (
+        await service.integration_by_contract(db, ids, month) if amounts else {}
+    )
     suffix_rule = rules["cl.overtime_item"]
     overtime_suffix = (
         str(suffix_rule["params"].get("suffix") or "_nadgodziny")
@@ -415,6 +418,7 @@ async def invoice_month(
             "positions": [],
             "net": None,
             "cost": None,
+            "integration_cost": None,
             "margin": None,
             "margin_pct": None,
             "template": False,
@@ -498,9 +502,12 @@ async def invoice_month(
         if amounts:
             out["net"] = f"{net:.2f}"
             if cost is not None:
+                # Koszty integracji ze zgodą DL-a obniżają marżę miesiąca (E5.1).
+                extra = integration.get(contract_id, Decimal("0"))
                 net_pln = _money(net * price.to_pln)
-                margin = net_pln - cost
+                margin = net_pln - cost - extra
                 out["cost"] = f"{cost:.2f}"
+                out["integration_cost"] = f"{extra:.2f}" if extra else None
                 out["margin"] = f"{margin:.2f}"
                 out["margin_pct"] = (
                     None if net_pln == 0 else f"{margin / net_pln * 100:.1f}"

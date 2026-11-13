@@ -4,6 +4,11 @@ Moduł Finanse (``FinanceModuleUser``) i sekcja Finanse; wyłączony moduł
 ``client_settlements`` = 404 (admin widzi zawsze). Kwoty i marża idą tylko do
 kont z dostępem finansowym (``has_financial_access``), reszta dostaje ``null``.
 Faktury kontraktorów z KSeF (E4): zatwierdzenie albo odrzucenie podpowiedzi NIP-u.
+
+``delivery_router`` (E5.1, decyzja Artura z 09.11.2026): Delivery Lead widzi
+„Do faktury dla klienta” z marżą w zł i % u swoich klientów (kwoty według
+``can_read_client_finance``) i rozstrzyga koszty integracji, które wpisały Finanse.
+Stoi pod ``/api/my-clients`` za sekcją Delivery, bo DL nie ma modułu Finanse.
 """
 
 from decimal import Decimal
@@ -25,17 +30,27 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import FinanceModuleUser
-from app.api.financial_access import has_financial_access
-from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
+from app.api.financial_access import can_read_client_finance, has_financial_access
+from app.api.permission_access import DeliveryViewUser
+from app.api.section_access import (
+    DELIVERY_SECTION_DEPENDENCIES,
+    FINANCE_SECTION_DEPENDENCIES,
+)
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today, local_now
 from app.models.user import User
 from app.models.consultant_portal import CpDocument
 from app.services.client_settlements import client_documents as many_documents
+from app.services.access_scope import (
+    assert_delivery_lead_client_visible,
+    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
+)
 from app.services.client_settlements import (
     client_invoice,
     contractor_invoices,
+    integration_costs,
     service,
     service_confirmation,
     signoffs,
@@ -46,6 +61,7 @@ from app.services.client_settlements import settings as module_settings
 from app.services.client_settlements.service import SettlementError
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
+delivery_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
 #: ``estimate`` — plan miesiąca przed jego końcem (E5.3).
@@ -71,6 +87,11 @@ class RuleIn(BaseModel):
     key: str = Field(max_length=64)
     level: str = Field(max_length=8)
     params: dict[str, str] = Field(default_factory=dict)
+
+
+class IntegrationCostIn(BaseModel):
+    amount: Decimal = Field(gt=0, le=100000, decimal_places=2)
+    description: str = Field(min_length=3, max_length=300)
 
 
 class RulesIn(BaseModel):
@@ -621,3 +642,173 @@ async def client_document_signed(
         )
     await _commit(db)
     return {"document_id": document.id, "recognized": True}
+
+
+# ── Koszty integracji (E5.1) ─────────────────────────────────────────────────
+
+
+@router.get("/contract/{contract_id}/integration-costs")
+async def contract_integration_costs(
+    contract_id: int,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        return await integration_costs.card(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/contract/{contract_id}/integration-costs")
+async def add_integration_cost(
+    contract_id: int,
+    body: IntegrationCostIn,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Koszt integracji przy osobie i miesiącu; czeka na zgodę DL-a klienta."""
+
+    await _open(db, current_user)
+    try:
+        await integration_costs.add(
+            db,
+            contract_id,
+            month,
+            amount=body.amount,
+            description=body.description,
+            actor=current_user,
+        )
+        await _commit(db)
+        return await integration_costs.card(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
+    except SettlementError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+
+
+@router.delete("/contract/{contract_id}/integration-costs/{cost_id}")
+async def withdraw_integration_cost(
+    contract_id: int,
+    cost_id: int,
+    current_user: FinanceModuleUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _open(db, current_user)
+    try:
+        await integration_costs.withdraw(db, cost_id, contract_id)
+        await _commit(db)
+        return await integration_costs.card(
+            db, contract_id, month, amounts=has_financial_access(current_user)
+        )
+    except SettlementError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+
+
+# ── Delivery Lead: marża i koszty integracji swoich klientów (E5.1) ──────────
+
+
+async def _delivery_client(db: AsyncSession, user: User, client_id: int) -> bool:
+    """Moduł włączony, klient z portfela DL-a; zwraca, czy konto widzi kwoty."""
+
+    await _open(db, user)
+    assert_delivery_lead_client_visible(
+        client_id, await resolve_delivery_lead_client_ids(user, db)
+    )
+    return can_read_client_finance(
+        user,
+        client_id=client_id,
+        delivery_lead_finance_client_ids=(
+            await resolve_delivery_lead_finance_client_ids(user, db)
+        ),
+    )
+
+
+async def _delivery_view(
+    db: AsyncSession, user: User, client_id: int, month: str, amounts: bool
+) -> dict[str, Any]:
+    invoice = await client_invoice.invoice_month(db, client_id, month, amounts=amounts)
+    return {
+        **invoice,
+        "integration": await integration_costs.client_month(
+            db, client_id, month, amounts=amounts
+        ),
+        "can_decide": await integration_costs.is_client_delivery_lead(
+            db, user, client_id
+        ),
+    }
+
+
+@delivery_router.get("/{client_id}/settlements")
+async def delivery_settlements(
+    client_id: int,
+    current_user: DeliveryViewUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Miesiąc klienta dla DL-a: pozycje, netto, koszt, koszty integracji i marża."""
+
+    amounts = await _delivery_client(db, current_user, client_id)
+    try:
+        return await _delivery_view(db, current_user, client_id, month, amounts)
+    except SettlementError as exc:
+        raise _fail(exc) from exc
+
+
+async def _delivery_decision(
+    db: AsyncSession,
+    user: User,
+    client_id: int,
+    cost_id: int,
+    month: str,
+    *,
+    approve: bool,
+) -> dict[str, Any]:
+    amounts = await _delivery_client(db, user, client_id)
+    try:
+        await integration_costs.decide(
+            db,
+            cost_id,
+            approve=approve,
+            actor=user,
+            now=local_now(),
+            client_id=client_id,
+        )
+        await _commit(db)
+        return await _delivery_view(db, user, client_id, month, amounts)
+    except SettlementError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+
+
+@delivery_router.post("/{client_id}/settlements/integration-costs/{cost_id}/approve")
+async def approve_integration_cost(
+    client_id: int,
+    cost_id: int,
+    current_user: DeliveryViewUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return await _delivery_decision(
+        db, current_user, client_id, cost_id, month, approve=True
+    )
+
+
+@delivery_router.post("/{client_id}/settlements/integration-costs/{cost_id}/reject")
+async def reject_integration_cost(
+    client_id: int,
+    cost_id: int,
+    current_user: DeliveryViewUser,
+    month: str = Query(..., pattern=MONTH_PATTERN),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return await _delivery_decision(
+        db, current_user, client_id, cost_id, month, approve=False
+    )

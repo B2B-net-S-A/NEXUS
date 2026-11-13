@@ -84,5 +84,9 @@ describe("portal-model", () => {
     const row = { action: "send_invoice" } as PortalMonth;
     expect(monthActionLabel(row)).toBe("Wyślij fakturę");
     expect(monthActionLabel({ action: null } as PortalMonth)).toBeNull();
+    expect(monthActionLabel({ action: "send_report" } as PortalMonth)).toBe("Wyślij raport");
+    expect(monthActionLabel({ action: "send_report", plan: true } as PortalMonth)).toBe(
+      "Wyślij plan",
+    );
   });
 });

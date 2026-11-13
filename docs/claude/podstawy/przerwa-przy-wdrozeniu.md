@@ -65,8 +65,48 @@ czyli wolne pierwsze zapytania, i zerwane połączenia wszystkich zadań w tle.
   ma być widoczny jako błąd, a nie cicho iść dalej.
 - **Pula połączeń.** 2 × 60 potencjalnych połączeń przy `max_connections=100`.
 
+## Stan 13.11.2026 i kolejność dalej
+
+Pomiar 11 wdrożeń z 11–12.11 (raport przerwy z biegów Deploy): Coolify 290–350 s,
+przerwa API 83–102 s, front 5–9 s, Postgres restartuje się za każdym razem.
+Etap 1 działa, a etapu 3 nikt nie zaczął: `coolify-frontend-app.yml` do 13.11 nie
+miał ani jednego uruchomienia. Przed uvicornem ok. 50 s; siatka DDL to 24–28 s na
+produkcji, ale 5–10 s na stagingu z ciepłym cache, czyli większość jej czasu to
+zimna baza po restarcie.
+
+Decyzja Artura 13.11.2026:
+
+1. **Wieczorne grupowanie** (od razu): pon–pt 18:00–21:59 merge nie przebudowuje
+   produkcji, tylko czeka na slot budzika 20:05 / 22:05 (`BATCH_WINDOW` w
+   `deploy.yml`, `head_status=evening_batch`). 12.11 byłyby 3 przebudowy zamiast 7.
+   Ręczny bieg wdraża od razu.
+2. **Front osobno** (etap 3 dla frontu), równolegle.
+3. **Backend i worker osobno od razu po froncie**: compose zostaje z bazą, która
+   przestaje się restartować. Warunki niżej.
+4. **Obrazy budowane w GitHubie (GHCR)** dopiero po backendzie osobno.
+
+Przebudowy `entrypoint.sh` w jeden proces Pythona (ok. 12 faz importuje aplikację
+osobno, razem ok. 15–25 s) świadomie nie robimy: po etapie 3 dla backendu cały
+entrypoint biegnie, gdy stary kontener obsługuje ruch.
+
 ## Pomiar
 
 Każdy bieg Deploy raportuje przerwę frontu i API oraz restart Postgresa
 (`.github/scripts/deploy_downtime_report.py`). Odbiór każdego etapu to te liczby na
 kolejnych wdrożeniach, nie sam zielony workflow.
+
+## Sieć osobnych aplikacji: `nexus-front`, nie `coolify`
+
+Ustalone na kodzie Coolify 4.5.3 (13.11.2026). Aplikacja z Dockerfile dołącza
+wyłącznie do sieci swojego destination (`--network` w opcjach `docker run` jest
+ignorowane). Przełącznik `connect_to_docker_network` na aplikacji compose wpina do
+wspólnej sieci `coolify` **każdą** usługę (`parsers.php`, `applicationParser`), a w tej
+sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). Backend
+łączy się z `postgres:5432`, więc nazwa miałaby dwa adresy. Dlatego:
+
+- front (i później backend) stoi w osobnym destination `nexus-front`; Coolify przy jego
+  założeniu tworzy sieć i podłącza do niej `coolify-proxy`,
+- compose dołącza `nexus-front` jako sieć zewnętrzną; parser dopisuje każdą sieć
+  z najwyższego poziomu do każdej usługi, co tu jest nieszkodliwe, bo w `nexus-front`
+  są tylko kontenery NEXUSA i proxy,
+- `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.

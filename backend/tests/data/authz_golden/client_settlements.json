@@ -31,6 +31,7 @@
   "back_office"
  ],
  "routes": {
+  "DELETE /api/finance/settlements/contract/{contract_id}/integration-costs/{cost_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/client-documents": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/client-documents/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -39,18 +40,23 @@
   "GET /api/finance/settlements/clients": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}/documents/{document_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/settlements/contract/{contract_id}/integration-costs": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/contract/{contract_id}/kesu/package": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/estimates": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/module": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/my-clients/{client_id}/settlements": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "POST /api/finance/settlements/accept-batch": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/client-documents/signed": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/accept": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/finance/settlements/contract/{contract_id}/integration-costs": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/needs-fix": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contract/{contract_id}/pay-on-mail": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contractor-invoices/{invoice_id}/approve-nip": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/contractor-invoices/{invoice_id}/reject-nip": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/settlements/rules/{client_id}/copy-from/{source_client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/my-clients/{client_id}/settlements/integration-costs/{cost_id}/approve": "PPDPPDDDPPPDPPPDDDPDDDDDDDPDP",
+  "POST /api/my-clients/{client_id}/settlements/integration-costs/{cost_id}/reject": "PPDPPDDDPPPDPPPDDDPDDDDDDDPDP",
   "PUT /api/finance/settlements/contract/{contract_id}/md": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/finance/settlements/rules/{client_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }

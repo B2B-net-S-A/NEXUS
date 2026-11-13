@@ -13,6 +13,8 @@ import { useCallCampaigns, useSaveCampaign, type CallCampaign } from "@/lib/api/
 
 import { plural } from "../my-day";
 
+import { BotListPanel } from "./BotListPanel";
+
 type Editing = CallCampaign | "new" | null;
 
 function campaignLine(campaign: CallCampaign): string {
@@ -107,16 +109,27 @@ interface CampaignsDialogProps {
 export function CampaignsDialog({ open, onOpenChange, startNew = false }: CampaignsDialogProps) {
   const campaigns = useCallCampaigns(open);
   const [editing, setEditing] = useState<Editing>(startNew ? "new" : null);
+  const [bot, setBot] = useState<CallCampaign | null>(null);
 
   return (
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title={editing === null ? "Kampanie" : editing === "new" ? "Nowa kampania" : "Edytuj kampanię"}
-      description={editing === null ? "Kampania to usługa, lista firm do obdzwonienia i skrypt rozmowy." : undefined}
+      title={
+        bot ? `Bot Listy · ${bot.name}` : editing === null ? "Kampanie" : editing === "new" ? "Nowa kampania" : "Edytuj kampanię"
+      }
+      description={
+        bot
+          ? "Opisz, do kogo dzwonimy. Bot buduje listę z bazy i dosypuje ją co poniedziałek."
+          : editing === null
+            ? "Kampania to usługa, lista firm do obdzwonienia i skrypt rozmowy."
+            : undefined
+      }
       size="lg"
     >
-      {editing !== null ? (
+      {bot ? (
+        <BotListPanel campaign={bot} onBack={() => setBot(null)} />
+      ) : editing !== null ? (
         <CampaignForm
           key={editing === "new" ? "new" : editing.id}
           campaign={editing === "new" ? null : editing}
@@ -145,6 +158,15 @@ export function CampaignsDialog({ open, onOpenChange, startNew = false }: Campai
                     <p className="truncate text-sm font-medium text-foreground">{campaign.name}</p>
                     <p className="truncate text-xs text-muted-foreground">{campaignLine(campaign)}</p>
                   </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 shrink-0"
+                    data-tour="sales.calling.bot-lists"
+                    onClick={() => setBot(campaign)}
+                  >
+                    Bot Listy
+                  </Button>
                   <Button size="sm" variant="outline" className="h-7 shrink-0" onClick={() => setEditing(campaign)}>
                     Edytuj
                   </Button>

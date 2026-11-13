@@ -273,6 +273,7 @@ from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_bot_results as sales_bot_results_api
 from app.api import sales_bot_people as sales_bot_people_api
+from app.api import sales_bot_lists as sales_bot_lists_api
 from app.api import sales_bots as sales_bots_api
 from app.api import sales_company_bot as sales_company_bot_api
 from app.api import sales_calling as sales_calling_api
@@ -2217,6 +2218,13 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
+# E5.1: Delivery Lead — marża i koszty integracji swoich klientów (sekcja Delivery).
+app.include_router(
+    client_settlements_api.delivery_router,
+    prefix="/api/my-clients",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia Nordei N1: raport klienta (T4T), kartoteka numerów osób.
 app.include_router(
     client_time_reports_api.router,
@@ -2311,6 +2319,9 @@ app.include_router(
     sales_company_bot_api.router, prefix="/api/sales/companies", tags=["sales"]
 )
 app.include_router(sales_bots_api.router, prefix="/api/sales/bots", tags=["sales"])
+app.include_router(
+    sales_bot_lists_api.router, prefix="/api/sales/bot-lists", tags=["sales"]
+)
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(
     sales_calling_api.router, prefix="/api/sales/calling", tags=["sales"]
