@@ -128,6 +128,12 @@ async def test_limit_roku_drugi_koszt_ponad_limit_odmowa() -> None:
         assert "zostało 500 zł z 2 000 zł" in over.value.message
         # Do limitu równo — przechodzi; czekający koszt też zajmuje limit.
         second = await _add(contract_id, "2026-11", "500")
+        async with AsyncSessionLocal() as db:
+            pending = await integration_costs.card(db, contract_id, "2026-11")
+        assert (pending["usage"]["pending"], pending["usage"]["remaining"]) == (
+            "500.00",
+            "0.00",
+        )
         with pytest.raises(SettlementError):
             await _add(contract_id, "2026-12", "0.01")
         assert await _decide(second, dl) == "approved"

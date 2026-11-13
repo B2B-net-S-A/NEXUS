@@ -1646,8 +1646,10 @@ export default function ClientDetailPage() {
           )}
           {invoicingOpen && activeTab === "faktury" && (
             <div className="space-y-4">
-              <ClientInvoicingTab clientId={Number(id)} />
+              {/* Najpierw rozliczenie z marżą: tu DL daje zgodę na koszty integracji,
+                  a tabela faktur pod spodem ma kilkadziesiąt wierszy. */}
               <DeliverySettlementsSection clientId={Number(id)} />
+              <ClientInvoicingTab clientId={Number(id)} />
             </div>
           )}
           {activeTab === "importy-md" && (

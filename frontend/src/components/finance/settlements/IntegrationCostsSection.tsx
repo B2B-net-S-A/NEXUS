@@ -100,7 +100,7 @@ export function IntegrationCostsSection({ contractId, month, canWrite }: Integra
               className="h-8 w-28 text-sm tabular-nums"
             />
           </label>
-          <label className="grid min-w-0 flex-1 gap-0.5">
+          <label className="grid min-w-[14rem] flex-1 gap-0.5">
             <span className="text-muted-foreground">Czego dotyczy</span>
             <Input
               value={description}

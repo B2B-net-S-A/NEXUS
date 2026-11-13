@@ -52,7 +52,8 @@ class Usage:
     def remaining(self) -> Optional[Decimal]:
         if self.limit is None:
             return None
-        return max(self.limit - self.approved, Decimal("0"))
+        # Czekający koszt też zajmuje limit — tak liczy odmowa przy wpisie.
+        return max(self.limit - self.approved - self.pending, Decimal("0"))
 
     def as_dict(self) -> dict[str, Any]:
         return {
