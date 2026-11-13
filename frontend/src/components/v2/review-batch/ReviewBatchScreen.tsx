@@ -418,7 +418,10 @@ function BatchWorkspace({
   // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
-  const open = data.open_today_screenings ?? [];
+  // Karty z rekrutacji, z których osobę zdjęto, idą na koniec, bez terminu.
+  const allOpen = data.open_today_screenings ?? [];
+  const parkedCount = allOpen.filter((item) => item.parked).length;
+  const open = [...allOpen.filter((item) => !item.parked), ...allOpen.filter((item) => item.parked)];
   const selected = open[Math.min(picked, Math.max(open.length - 1, 0))] ?? null;
   const preview =
     tab === "decide" && next
@@ -428,7 +431,7 @@ function BatchWorkspace({
         : null;
   const tabs: { value: BatchTab; label: string; count: number }[] = [
     { value: "decide", label: "Do decyzji", count: data.pending },
-    { value: "close", label: "Do domknięcia", count: open.length },
+    { value: "close", label: "Do domknięcia", count: open.length - parkedCount },
     { value: "jobs", label: "Rekrutacje", count: data.team_jobs.length },
   ];
 
@@ -487,14 +490,29 @@ function BatchWorkspace({
             <ul className="divide-y divide-border rounded-lg border border-border bg-card" data-testid="review-batch-open-today">
               {open.map((item, index) => {
                 const active = selected === item;
+                const firstParked = item.parked && !open[index - 1]?.parked;
                 return (
-                  <li key={`${item.job_id}-${item.candidate_id}`} className={cn("px-3 py-2", active && "bg-primary/5")}>
+                  <li key={`${item.job_id}-${item.candidate_id}`} className={cn(active && "bg-primary/5")}>
+                    {firstParked ? (
+                      <div className="border-b border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground" data-testid="review-batch-parked-header">
+                        <span className="font-medium text-foreground">
+                          Zdjęto Cię z tych rekrutacji: {parkedCount}
+                        </span>
+                        <br />
+                        Bez terminu i bez blokady wyszukiwania. Domknij, jeśli chcesz.
+                      </div>
+                    ) : null}
+                    <div className={cn("px-3 py-2", item.parked && !active && "opacity-70")}>
                     <button type="button" onClick={() => setPicked(index)} className="block w-full text-left">
                       <span className="flex items-center gap-1.5 text-sm font-medium">
                         <span className="min-w-0 truncate">{item.name}</span>
                         {item.overdue ? (
                           <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-xs font-medium text-destructive">
                             po terminie
+                          </span>
+                        ) : item.parked ? (
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                            bez terminu
                           </span>
                         ) : null}
                       </span>
@@ -507,6 +525,7 @@ function BatchWorkspace({
                         </Button>
                       </div>
                     ) : null}
+                    </div>
                   </li>
                 );
               })}

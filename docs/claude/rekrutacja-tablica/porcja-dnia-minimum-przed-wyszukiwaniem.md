@@ -261,6 +261,19 @@ Artur wybrał „samo kliknięcie”, świadomie odwracając ustalenie P5 z audy
   nie jest (`job_in_work`).
 - **Narastanie minimum do 50** liczyło do 10.11.2026 tylko domknięte decyzje
   (`closed_at`). Od 10.11 liczy się sama decyzja (`moved_at`), sekcja „Porcja na osobę”.
+- **Zdjęty z rekrutacji nie ma zaległości z niej** (decyzja Artura z 13.11.2026,
+  makiety: https://claude.ai/artifact/2KXiFh2X7MpMKBavKcWLJa). Zejście z priorytetu
+  przenosi zespół do „Poprzednich rekruterów” (`park_team`, `recruiters_parked`),
+  a stare S tej osoby dalej blokowały wyszukiwanie: na kopii z 13.11 4 z 6
+  zablokowanych rekruterów miało wyłącznie takie karty (24 z 42 zaległych).
+  Termin liczy się tylko dla karty z rekrutacji, w której osoba pracuje teraz
+  (`Decision.on_team`, `recruiters_for_jobs` + `working`). Pozostałe zostają
+  w „Do domknięcia” pod nagłówkiem „Zdjęto Cię z tych rekrutacji: N”, z etykietą
+  „bez terminu” (`OpenScreening.parked`), poza licznikiem zakładki i paska.
+  Nie ukrywaj ich (wariant B odrzucony: 43 otwarte screeningi znikałyby z widoku).
+- **Po powrocie do zespołu termin liczy się od powrotu** (`Decision.team_since`
+  = najpóźniejsze `cleared_at` z `job_previous_recruiters`, `due_from`). Bez tego
+  przywrócenie przy powrocie na P1 od razu blokowało za karty sprzed kilku dni.
 - **Do pilnowania:** kolumna niedomkniętych w „Zobacz zespół dziś”. Skoro 10 kliknięć
   odblokowuje wyszukiwanie w kilka minut, hamulcem jest tylko termin.
 

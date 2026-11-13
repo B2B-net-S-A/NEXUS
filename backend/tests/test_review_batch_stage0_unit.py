@@ -415,6 +415,33 @@ def test_screening_in_a_closed_job_is_not_overdue():
     assert counts.overdue_cards == () and counts.open_cards == ()
 
 
+def test_screening_in_a_job_the_person_left_is_not_overdue_nor_counted():
+    """13.11.2026: rekrutacja zeszła z priorytetu, system zdjął rekruterkę
+    (``recruiters_parked``), a jej 9 starych S dalej blokowało wyszukiwanie."""
+    card = replace(_open_s(1, own_batch=True), on_team=False)
+    counts = rb.summarize_day([card], NOW + timedelta(days=5), NOW + timedelta(hours=1))
+    assert counts.overdue_cards == ()
+    assert counts.open_screenings == 0
+    # Zostaje w „Do domknięcia”, ale bez terminu (``OpenScreening.parked``).
+    assert counts.open_cards == (card,)
+
+
+def test_deadline_counts_from_return_to_the_team():
+    """Decyzja Artura z 13.11.2026: po powrocie do zespołu 2 dni robocze od powrotu."""
+    window = NOW + timedelta(hours=1)
+    back_today = replace(
+        _open_s(1, own_batch=True), team_since=NOW + timedelta(hours=2)
+    )
+    back_long_ago = replace(
+        _open_s(2, own_batch=True), team_since=NOW - timedelta(days=3)
+    )
+    counts = rb.summarize_day(
+        [back_today, back_long_ago], NOW + timedelta(days=5), window
+    )
+    assert counts.overdue_cards == (back_long_ago,)
+    assert counts.open_screenings == 2
+
+
 def test_closed_decision_is_counted_for_level_on_the_closing_day():
     card = replace(_open_s(1, own_batch=True), closed_at=NOW + timedelta(days=1))
     counts = rb.summarize_day([card], NOW + timedelta(hours=20))
