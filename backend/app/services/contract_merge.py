@@ -255,7 +255,7 @@ _KNOWN_CONTRACT_FKS = {
     # Dodatki do rozliczenia (0691, E5.1; koszty integracji ze zgodą DL-a):
     # bez unikatu — idą za kontraktem w całości, limit roku liczy się na kandydata.
     ("client_settlement_extras", "contract_id"),
-    # Szkolenia (0693): trener, autor pliku i obecność idą za kontraktem; zapis na
+    # Szkolenia (0694): trener, autor pliku i obecność idą za kontraktem; zapis na
     # szkolenie ma unikat (szkolenie, kontrakt) — dubel rozstrzyga
     # ``_resolve_child_duplicates`` (zostaje zapis zachowanego).
     ("trainings", "trainer_contract_id"),

@@ -1345,7 +1345,7 @@ app.add_middleware(
     BodySizeLimitMiddleware,
     max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
     path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
-    # Szkolenia (0693): nagranie z Teams i pliki trenera do 2 GB, tylko te dwie trasy.
+    # Szkolenia (0694): nagranie z Teams i pliki trenera do 2 GB, tylko te dwie trasy.
     pattern_limits=[
         (r"/api/trainings/\d+/files", 2_100 * 1024 * 1024),
         (
@@ -2402,7 +2402,7 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
-# Szkolenia i trenerzy (0693, 13.11.2026): zamówienie, wycena, umowa, pliki, biblioteka.
+# Szkolenia i trenerzy (0694, 13.11.2026): zamówienie, wycena, umowa, pliki, biblioteka.
 app.include_router(
     trainings_api.router,
     prefix="/api/trainings",

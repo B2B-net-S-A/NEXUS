@@ -93,7 +93,7 @@ MODULES = (
     client_time_reports,
     # 0692: e-faktury Peppol do klientów (plan Nordei N2, 13.11.2026).
     client_einvoices,
-    # 0693: szkolenia i trenerzy — zamówienie, wycena, umowa, pliki (13.11.2026).
+    # 0694: szkolenia i trenerzy — zamówienie, wycena, umowa, pliki (13.11.2026).
     trainings,
 )
 

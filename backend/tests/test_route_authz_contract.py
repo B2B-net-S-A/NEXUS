@@ -385,7 +385,7 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/public/cv/{token}"),
     ("GET", "/api/public/engagement-declaration/{token}"),
     ("POST", "/api/public/engagement-declaration/{token}"),
-    # Szkolenia (0693): odtwarzanie pliku z biletem HMAC jednego pliku, ważnym 6 h
+    # Szkolenia (0694): odtwarzanie pliku z biletem HMAC jednego pliku, ważnym 6 h
     # (``services/trainings/media.py``) — ``<video>`` nie dołoży nagłówka sesji.
     ("GET", "/api/public/training-media/{file_id}"),
     ("GET", "/api/public/equipment-protocols/{token}"),

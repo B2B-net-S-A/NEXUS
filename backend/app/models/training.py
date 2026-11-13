@@ -1,4 +1,4 @@
-"""Szkolenia i trenerzy — modele (0693).
+"""Szkolenia i trenerzy — modele (0694).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/trainings_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).

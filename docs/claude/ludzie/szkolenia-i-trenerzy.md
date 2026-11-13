@@ -1,4 +1,4 @@
-# Szkolenia i trenerzy — zamówienie, wycena A–E, umowa szkoleniowa, pliki, biblioteka (0693)
+# Szkolenia i trenerzy — zamówienie, wycena A–E, umowa szkoleniowa, pliki, biblioteka (0694)
 <!-- indeks: szkolenia, trener, umowa szkoleniowa, Załącznik nr 1, wycena A–E, podpis kwalifikowany, przekazanie plików, faktura trenera, biblioteka nagrań, zapisy na szkolenie, obecność z Teams, SharePoint szkoleń, Akademia Compassa -->
 
 Decyzje Artura z 13.11.2026 (makiety: https://claude.ai/artifact/JTaxcwJQSG7fkNLqbGkwh4).

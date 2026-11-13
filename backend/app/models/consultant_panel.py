@@ -191,7 +191,7 @@ class CpTrainerApplication(Base):
     materials: Mapped[str] = mapped_column(
         String(schema.MATERIAL_URL_MAX), nullable=False, server_default="", default=""
     )
-    # 0693 (13.11.2026): zgłoszenie zgodne z umową szkoleniową.
+    # 0694 (13.11.2026): zgłoszenie zgodne z umową szkoleniową.
     proposal_title: Mapped[str] = mapped_column(
         String(200), nullable=False, server_default="", default=""
     )
