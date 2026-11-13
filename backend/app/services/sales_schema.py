@@ -1089,3 +1089,16 @@ BOT_TASKS_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_signal_runs ADD CONSTRAINT ck_sales_signal_runs_kind "
     f"CHECK ({CK_SIGNAL_RUN_KIND})",
 )
+
+
+# 0690: Bot Listy (decyzja Artura 13.11.2026) — brief kampanii, z którego bot buduje
+# i dosypuje listę do dzwonienia (``services/sales/bot_lists.py``).
+BOT_LISTS_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_call_campaigns ADD COLUMN IF NOT EXISTS bot_brief JSONB NULL",
+    "ALTER TABLE sales_call_campaigns "
+    "ADD COLUMN IF NOT EXISTS bot_built_at TIMESTAMPTZ NULL",
+)
+BOT_LISTS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_call_campaigns DROP COLUMN IF EXISTS bot_built_at",
+    "ALTER TABLE sales_call_campaigns DROP COLUMN IF EXISTS bot_brief",
+)

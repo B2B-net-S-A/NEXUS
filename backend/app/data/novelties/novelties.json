@@ -2741,5 +2741,20 @@
     "where": "Sprzedaż → Leady → Boty",
     "href": "/sales/bots",
     "dot_anchor": "sales.bots.list"
+  },
+  {
+    "id": "sprzedaz-bot-listy",
+    "pr": 0,
+    "title": "Kampanie: Bot Listy buduje listę do dzwonienia",
+    "why": "Opisz, do kogo dzwonimy, a bot złoży listę z bazy i dosypie ją w poniedziałek. „Co działa” pokazuje, które role kończą się spotkaniem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Dzwonienie → Kampanie → Bot Listy",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.bot-lists",
+    "requires_setting": "SALES_BOT_LISTS_ENABLED"
   }
 ]

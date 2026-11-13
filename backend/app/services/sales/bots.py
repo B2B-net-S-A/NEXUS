@@ -32,15 +32,18 @@ RESEARCH = "research"
 COMPANY = "company"
 CONTACTS = "contacts"
 COGNISM = "cognism"
+#: Bot Listy (13.11.2026): listy do dzwonienia z briefu kampanii (``bot_lists.py``).
+LISTS = "lists"
 
 #: Kolejność na ekranie.
-BOTS: tuple[str, ...] = (LEADS, RESEARCH, COMPANY, CONTACTS, COGNISM)
+BOTS: tuple[str, ...] = (LISTS, LEADS, RESEARCH, COMPANY, CONTACTS, COGNISM)
 NAMES: dict[str, str] = {
     LEADS: "Bot Leady",
     RESEARCH: "Bot Research",
     COMPANY: "Bot Dane firm",
     CONTACTS: "Bot Kontakty",
     COGNISM: "Rutyna Cognism",
+    LISTS: "Bot Listy",
 }
 KIND_BOT: dict[str, str] = {
     "signals": LEADS,
@@ -58,6 +61,7 @@ _WEBHOOK_PREFIX: dict[str, str] = {
     COMPANY: "GROK_BOT_COMPANY_WEBHOOK",
     CONTACTS: "GROK_BOT_CONTACTS_WEBHOOK",
     COGNISM: "GROK_BOT_PEOPLE_WEBHOOK",
+    LISTS: "GROK_BOT_LISTS_WEBHOOK",
 }
 
 SALES_BOTS_KEY = "sales_bots"
