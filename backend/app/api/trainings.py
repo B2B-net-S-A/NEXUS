@@ -646,7 +646,7 @@ async def _sync_teams(db: AsyncSession, training: Training) -> None:
     await db.commit()
     await teams.sync_meeting(db, training, now=_now())
     if training.teams_status == "created":
-        await teams.invite_pending(db, training)
+        await teams.invite_pending(db, training, limit=teams.INVITES_PER_REQUEST)
     await db.commit()
 
 

@@ -1151,7 +1151,8 @@ async def library(
                 .where(
                     TrainingRegistration.training_id.in_(
                         [t.id for t in upcoming] or [0]
-                    )
+                    ),
+                    TrainingRegistration.mandatory.is_(False),
                 )
                 .group_by(TrainingRegistration.training_id)
             )
@@ -1300,10 +1301,14 @@ async def register(
         query = query.where(TrainingRegistration.contract_id == contract_id)
     existing = await db.scalar(query)
     if join and existing is None and training.seat_limit:
+        # Obowiązkowi (0698) nie zajmują miejsc: limit dotyczy chętnych.
         taken = await db.scalar(
             select(func.count())
             .select_from(TrainingRegistration)
-            .where(TrainingRegistration.training_id == training_id)
+            .where(
+                TrainingRegistration.training_id == training_id,
+                TrainingRegistration.mandatory.is_(False),
+            )
         )
         if (taken or 0) >= training.seat_limit:
             raise TrainingError(
