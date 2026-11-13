@@ -112,7 +112,7 @@ async def store(
     (już była, rekord bez kwoty, baza odrzuciła).
 
     ``match=False`` (moduł „Zgody” wyłączony, zapis dla kolejki kosztów
-    „Księgowości”, 0695): bez szukania zgody i stałego kosztu — dokument
+    „Księgowości”, 0696): bez szukania zgody i stałego kosztu — dokument
     zostaje ``unmatched``."""
 
     fields = fields_from_metadata(item)

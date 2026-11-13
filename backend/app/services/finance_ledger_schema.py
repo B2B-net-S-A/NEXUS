@@ -1,6 +1,6 @@
-"""Księgowość w Finansach (E0, E1): SQL migracji ``0695_finance_ledger`` i lustra entrypointu.
+"""Księgowość w Finansach (E0, E1): SQL migracji ``0696_finance_ledger`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0695_finance_ledger.py``
+Jedno źródło instrukcji dla ``alembic/versions/0696_finance_ledger.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

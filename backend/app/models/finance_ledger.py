@@ -1,4 +1,4 @@
-"""Księgowość w Finansach (0695, E0 i E1): kontrahenci i kolejka kosztów.
+"""Księgowość w Finansach (0696, E0 i E1): kontrahenci i kolejka kosztów.
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/finance_ledger_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).

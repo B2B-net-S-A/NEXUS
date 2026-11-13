@@ -1,4 +1,4 @@
-// Finanse → „Koszty” i „Kontrahenci” (księgowość E0 i E1, 0695).
+// Finanse → „Koszty” i „Kontrahenci” (księgowość E0 i E1, 0696).
 //
 // Lustro `backend/app/api/finance_ledger.py`. Bramka: uprawnienie „Moduł
 // Finanse” i moduł „Księgowość” (wyłączony = 404, admin widzi zawsze).
