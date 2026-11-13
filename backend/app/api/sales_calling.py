@@ -78,10 +78,14 @@ class QueueItemOut(BaseModel):
     since: datetime
     #: Kto dzwoni; wypełnione w Tabeli (przy „Wszyscy” widać cudze rekordy).
     assignee: Optional[Ref] = None
+    #: Ostatnia zmiana rekordu (kolumna „Ostatnia modyfikacja” w Tabeli).
+    modified_at: Optional[datetime] = None
 
 
 class QueueCounts(BaseModel):
     callbacks: int
+    #: „Nie odebrane”: osobna zakładka bez względu na datę (13.11.2026).
+    no_answer: int
     meetings: int
     new: int
     #: Rekordy z datą powrotu w przyszłości: wrócą same w swoim dniu.
@@ -99,6 +103,7 @@ class QueueOut(BaseModel):
     today: date
     counts: QueueCounts
     callbacks: list[QueueItemOut]
+    no_answer: list[QueueItemOut]
     meetings: list[QueueItemOut]
     new: list[QueueItemOut]
     campaigns: list[Ref]
@@ -207,6 +212,8 @@ class ImportRowOut(BaseModel):
     fate: str
     detail: str
     to_decide: bool
+    #: Komu trafi rekord (kolumna podziału albo osoba z okna).
+    assignee: Optional[Ref] = None
 
 
 class ImportPreviewOut(BaseModel):
@@ -251,6 +258,7 @@ def _item(item: calling.QueueItem) -> QueueItemOut:
             if item.assignee_id is not None and item.assignee_name is not None
             else None
         ),
+        modified_at=item.modified_at,
     )
 
 
@@ -305,24 +313,42 @@ def _campaign(row: calling.CampaignRow) -> CampaignOut:
 # ── Kolejka i karta ───────────────────────────────────────────────────────
 
 
+def _can_edit(user: User) -> bool:
+    """Wynik zapisuje każdy z „Sprzedaż: edycja” (decyzja Artura 13.11.2026)."""
+
+    return is_admin(user) or has_permission(user, ProductAction.sales_edit)
+
+
 @router.get("/queue", response_model=QueueOut)
 async def call_queue(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
     campaign_id: Optional[int] = Query(default=None, ge=1),
+    caller_id: Optional[int] = Query(default=None, ge=1),
 ) -> QueueOut:
-    """Kolejka zalogowanej osoby w stałej kolejności sekcji."""
+    """Kolejka osoby w stałej kolejności sekcji; domyślnie zalogowanej.
 
-    queue = await calling.load_queue(db, current_user.id, campaign_id=campaign_id)
+    ``caller_id`` (decyzja Artura 13.11.2026): podział Bianca / Marcel i zastępstwa;
+    wynik w cudzej kolejce zapisuje każdy z „Sprzedaż: edycja”.
+    """
+
+    queue = await calling.load_queue(
+        db,
+        caller_id or current_user.id,
+        campaign_id=campaign_id,
+        viewer_id=current_user.id,
+    )
     return QueueOut(
         today=queue.today,
         counts=QueueCounts(
             callbacks=queue.callbacks_total,
+            no_answer=queue.no_answer_total,
             meetings=len(queue.meetings),
             new=queue.new_total,
             later=queue.later,
         ),
         callbacks=[_item(item) for item in queue.callbacks],
+        no_answer=[_item(item) for item in queue.no_answer],
         meetings=[_item(item) for item in queue.meetings],
         new=[_item(item) for item in queue.new],
         campaigns=[Ref(id=id_, name=name) for id_, name in queue.campaigns],
@@ -341,6 +367,8 @@ async def my_records(
     state: Optional[str] = Query(default=None, max_length=20),
     campaign_id: Optional[int] = Query(default=None, ge=1),
     q: Optional[str] = Query(default=None, max_length=120),
+    callback_from: Optional[date] = Query(default=None),
+    callback_to: Optional[date] = Query(default=None),
     limit: int = Query(default=calling.TABLE_LIMIT, ge=1, le=calling.TABLE_LIMIT),
     offset: int = Query(default=0, ge=0),
 ) -> RecordTableOut:
@@ -358,6 +386,8 @@ async def my_records(
         state=state,
         campaign_id=campaign_id,
         search=(q or "").strip() or None,
+        callback_from=callback_from,
+        callback_to=callback_to,
         limit=limit,
         offset=offset,
     )
@@ -408,9 +438,7 @@ async def record_card(
     db: AsyncSession = Depends(get_db),
 ) -> CardOut:
     return _card(
-        await calling.record_card(
-            db, record_id, user_id=current_user.id, admin=is_admin(current_user)
-        )
+        await calling.record_card(db, record_id, can_edit=_can_edit(current_user))
     )
 
 
@@ -422,7 +450,7 @@ async def opportunity_card(
 ) -> CardOut:
     return _card(
         await calling.opportunity_card(
-            db, opportunity_id, user_id=current_user.id, admin=is_admin(current_user)
+            db, opportunity_id, can_edit=_can_edit(current_user)
         )
     )
 
@@ -442,11 +470,62 @@ async def save_record_outcome(
         record,
         payload,
         user_id=current_user.id,
-        admin=is_admin(current_user),
         now=datetime.now(timezone.utc),
     )
     await db.commit()
     return _outcome(result)
+
+
+@router.patch("/records/{record_id}", response_model=CardOut)
+async def edit_record(
+    record_id: int,
+    payload: calling.RecordEdit,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> CardOut:
+    """Dane kontaktowe z karty kolejki (lista dzwoniących 13.11.2026)."""
+
+    record = await calling.locked_record(db, record_id)
+    await calling.edit_record(db, record, payload)
+    await db.commit()
+    return _card(await calling.record_card(db, record_id, can_edit=True))
+
+
+@router.post("/records/{record_id}/state", response_model=OutcomeOut)
+async def change_record_state(
+    record_id: int,
+    payload: calling.StateChange,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OutcomeOut:
+    """Zmiana statusu z Tabeli: poprawka zapisu bez telefonu w dzienniku."""
+
+    record = await calling.locked_record(db, record_id)
+    result = await calling.change_state(
+        db,
+        record,
+        payload,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
+    await db.commit()
+    return _outcome(result)
+
+
+@router.get("/reminders", response_model=list[QueueItemOut])
+async def call_reminders(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    scope: Literal["mine", "all"] = Query(default="mine"),
+    caller_id: Optional[int] = Query(default=None, ge=1),
+    until: Optional[date] = Query(default=None),
+) -> list[QueueItemOut]:
+    """„Przypomnienia”: terminy powrotów (Oddzwonić, oferta z ponownym kontaktem)."""
+
+    items = await calling.reminders(
+        db, current_user.id if scope == "mine" else caller_id, until=until
+    )
+    return [_item(item) for item in items]
 
 
 @router.post("/opportunities/{opportunity_id}/outcome", response_model=OutcomeOut)
@@ -466,7 +545,6 @@ async def save_opportunity_outcome(
         record,
         payload,
         user_id=current_user.id,
-        admin=is_admin(current_user),
         now=datetime.now(timezone.utc),
     )
     await db.commit()
@@ -584,7 +662,10 @@ async def _assignee(
     return assignee.id
 
 
-def _plan_rows(plan: calling_import.ImportPlan) -> list[ImportRowOut]:
+def _plan_rows(
+    plan: calling_import.ImportPlan, names: Optional[dict[int, str]] = None
+) -> list[ImportRowOut]:
+    names = names or {}
     return [
         ImportRowOut(
             line=item.row.line,
@@ -595,6 +676,11 @@ def _plan_rows(plan: calling_import.ImportPlan) -> list[ImportRowOut]:
             fate=item.fate,
             detail=item.detail,
             to_decide=item.fate in calling_import.TO_DECIDE,
+            assignee=(
+                Ref(id=item.assignee_id, name=names[item.assignee_id])
+                if item.assignee_id in names
+                else None
+            ),
         )
         for item in plan.rows
     ]
@@ -617,10 +703,15 @@ async def preview_import(
     campaign = await _get_campaign(db, campaign_id)
     assignee_id = await _assignee(db, current_user, assignee_user_id)
     listing = await _read_list(file)
+    people = await calling_excel.sales_editors(db)
     plan = await calling_import.plan_import(
-        db, campaign, listing, assignee_id=assignee_id
+        db,
+        campaign,
+        listing,
+        assignee_id=assignee_id,
+        people=calling_import.caller_keys(people),
     )
-    rows = _plan_rows(plan)
+    rows = _plan_rows(plan, dict(people))
     return ImportPreviewOut(
         total=len(rows),
         addable=plan.addable,
@@ -648,6 +739,7 @@ async def import_list(
     source = _source(contact_source)
     assignee_id = await _assignee(db, current_user, assignee_user_id)
     listing = await _read_list(file)
+    people = await calling_excel.sales_editors(db)
     plan, added = await calling_import.apply_import(
         db,
         campaign_id,
@@ -655,6 +747,7 @@ async def import_list(
         contact_source=source,
         assignee_id=assignee_id,
         user_id=current_user.id,
+        people=calling_import.caller_keys(people),
     )
     await db.commit()
     return ImportResultOut(

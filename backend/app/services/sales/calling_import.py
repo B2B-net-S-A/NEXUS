@@ -47,6 +47,7 @@ from app.services.sales.calling import OPEN_STATES
 from app.services.sales.calling_file import (
     ListFile,
     ListRow,
+    header_key,
     person_key,
     phone_digits,
     row_domain,
@@ -84,6 +85,8 @@ NIP_LENGTH = 10
 OBJECTION_DETAIL = "Osoba albo firma ma zapisany sprzeciw wobec kontaktu."
 REPEATED_DETAIL = "Powtórzony wiersz w pliku."
 IN_CAMPAIGN_DETAIL = "Ten rekord jest już w tej kampanii."
+#: Lista dzwoniących 13.11.2026: kolejne wczytanie dodaje tylko firmy z nowym NIP-em.
+NIP_LOADED_DETAIL = "Ten NIP był już wczytany na listę dzwonienia."
 NO_PHONE_DETAIL = "Brak numeru telefonu w wierszu."
 
 
@@ -104,6 +107,8 @@ class RowPlan:
     company_id: Optional[int] = None
     contact_id: Optional[int] = None
     domain: Optional[str] = None
+    #: Kto dostanie rekord: osoba z kolumny podziału albo wybrana w oknie.
+    assignee_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -140,6 +145,26 @@ class _Known:
     users: dict[int, str] = field(default_factory=dict)
     objected_phones: set[str] = field(default_factory=set)
     objected_emails: set[str] = field(default_factory=set)
+
+
+def row_note(row: ListRow) -> Optional[str]:
+    """Notatka rekordu: „Typ usługi” z listy, potem uwagi o firmie."""
+
+    service = f"Typ usługi: {row.service}" if row.service else None
+    return "\n".join(part for part in (service, row.note) if part) or None
+
+
+def _nip_loaded(row: ListRow, known: _Known) -> bool:
+    """NIP z wiersza ma już rekord kampanii (w dowolnej kampanii i u dowolnej osoby)."""
+
+    nip = _row_nip(row)
+    if nip is None:
+        return False
+    return any(
+        record.campaign_id is not None
+        for company in known.by_nip.get(nip, [])
+        for record in known.records.get(company.id, [])
+    )
 
 
 def _row_nip(row: ListRow) -> Optional[str]:
@@ -399,6 +424,7 @@ def _plan_row(
             company_id=company_id,
             contact_id=contact.id if contact else None,
             domain=domain,
+            assignee_id=assignee_id,
         )
 
     records = known.records.get(company_id or 0, [])
@@ -433,6 +459,8 @@ def _plan_row(
         for record in records
     ):
         return plan(ALREADY, IN_CAMPAIGN_DETAIL)
+    if _nip_loaded(row, known):
+        return plan(ALREADY, NIP_LOADED_DETAIL)
     opportunities = known.opportunities.get(company_id or 0, [])
     own = next((stage for owner, stage in opportunities if owner == assignee_id), None)
     if own is not None:
@@ -479,14 +507,42 @@ def _plan_row(
     return plan(NEW_COMPANY, f"Założy kartę firmy{with_domain}, {person}.")
 
 
+def caller_keys(people: list[tuple[int, str]]) -> dict[str, int]:
+    """Imię i pełne imię z nazwiskiem → id osoby; imię dwóch osób nikogo nie wskazuje."""
+
+    keys: dict[str, Optional[int]] = {}
+    for user_id, name in people:
+        full = header_key(name)
+        for key in {full, *full.split()[:1]}:
+            if not key:
+                continue
+            keys[key] = user_id if keys.get(key, user_id) == user_id else None
+    return {key: user_id for key, user_id in keys.items() if user_id is not None}
+
+
+def row_assignee(
+    row: ListRow, default_id: int, people: Optional[Mapping[str, int]]
+) -> int:
+    """Osoba z kolumny podziału („Bianca”), a bez niej (albo nieznana) wybrana w oknie."""
+
+    if not people or not row.caller:
+        return default_id
+    return people.get(header_key(row.caller), default_id)
+
+
 async def plan_import(
     db: AsyncSession,
     campaign: SalesCallCampaign,
     listing: ListFile,
     *,
     assignee_id: int,
+    people: Optional[Mapping[str, int]] = None,
 ) -> ImportPlan:
-    """Los każdego wiersza; niczego nie zapisuje."""
+    """Los każdego wiersza; niczego nie zapisuje.
+
+    ``people``: imię (``header_key``) → id osoby; z nim wiersz z kolumną podziału
+    trafia do kolejki tej osoby (lista dzwoniących 13.11.2026).
+    """
 
     known = _Known()
     await _companies(db, listing.rows, known)
@@ -501,7 +557,7 @@ async def plan_import(
                 row,
                 known,
                 campaign_id=campaign.id,
-                assignee_id=assignee_id,
+                assignee_id=row_assignee(row, assignee_id, people),
                 seen=seen,
             )
             for row in listing.rows
@@ -574,6 +630,7 @@ async def apply_import(
     assignee_id: int,
     user_id: int,
     overrides: Optional[Mapping[int, RecordOverride]] = None,
+    people: Optional[Mapping[str, int]] = None,
 ) -> tuple[ImportPlan, int]:
     """Zapisuje wiersze ``ADDABLE``; bez commita. Zwraca plan i liczbę dodanych."""
 
@@ -587,7 +644,9 @@ async def apply_import(
             select(SalesCallCampaign).where(SalesCallCampaign.id == campaign_id)
         )
     ).scalar_one()
-    plan = await plan_import(db, campaign, listing, assignee_id=assignee_id)
+    plan = await plan_import(
+        db, campaign, listing, assignee_id=assignee_id, people=people
+    )
     created: dict[str, SalesCompany] = {}
     added = 0
     for row_plan in plan.rows:
@@ -627,11 +686,11 @@ async def apply_import(
                 phone=row.phone,
                 email=valid_email(row.email),
                 contact_source=contact_source,
-                note=row.note,
+                note=row_note(row),
                 state=override.state if override else schema.CALL_RECORD_NEW,
                 callback_on=override.callback_on if override else None,
                 attempts=override.attempts if override else 0,
-                assigned_user_id=assignee_id,
+                assigned_user_id=row_plan.assignee_id or assignee_id,
                 created_by_user_id=user_id,
             )
         )

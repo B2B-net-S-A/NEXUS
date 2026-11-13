@@ -279,6 +279,32 @@ async def test_manual_meetings_without_external_id_stay_separate(app_client) -> 
 
 
 @pytest.mark.asyncio
+async def test_meeting_at_my_opportunity_is_mine_whoever_wrote_it(app_client) -> None:
+    """Lista dzwoniących 13.11.2026: termin wpisany przez dzwoniącego (albo z cudzej
+    skrzynki) przy szansie handlowca jest w jego „Moim dniu”, nie tylko autora."""
+
+    rep = await _user("sales_view", "sales_edit")
+    caller = await _user("sales_view", "sales_edit")
+    company = await _company()
+    opp = await _opportunity(rep.id, company, stage="qualifying-meeting")
+    await _activity(
+        kind="meeting",
+        subject="Spotkanie z telefonu",
+        company_id=company,
+        opportunity_id=opp,
+        created_by_user_id=caller.id,
+        occurred_at=_today_noon(),
+    )
+    mine = await _day(app_client, rep)
+    assert mine["counts"]["meetings"] == 1
+    assert mine["meetings"][0]["company"]["id"] == company
+    # Autor dalej widzi swój wpis; obca osoba bez szansy go nie dostaje.
+    assert (await _day(app_client, caller))["counts"]["meetings"] == 1
+    stranger = await _user("sales_view", "sales_edit")
+    assert (await _day(app_client, stranger))["counts"]["meetings"] == 0
+
+
+@pytest.mark.asyncio
 async def test_cancelled_automatic_and_other_days_are_not_todays_meetings(
     app_client,
 ) -> None:

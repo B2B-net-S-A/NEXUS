@@ -294,7 +294,13 @@ async def test_queue_keeps_a_fixed_order_of_sections(app_client) -> None:
     assert f"o:{with_meeting}" not in {item["key"] for item in queue["meetings"]}
     assert [item["key"] for item in queue["new"]] == [f"r:{fresh}"]
     # Jutrzejsze oddzwonienie i dzisiejsza szansa wracają same w swoim dniu.
-    assert queue["counts"] == {"callbacks": 4, "meetings": 1, "new": 1, "later": 2}
+    assert queue["counts"] == {
+        "callbacks": 4,
+        "no_answer": 0,
+        "meetings": 1,
+        "new": 1,
+        "later": 2,
+    }
     assert queue["today"] == today.isoformat()
     assert [c["id"] for c in queue["campaigns"]] == [campaign_id]
 
@@ -307,18 +313,33 @@ async def test_queue_keeps_a_fixed_order_of_sections(app_client) -> None:
 
 
 @pytest.mark.asyncio
-async def test_queue_is_always_the_callers_own(app_client) -> None:
+async def test_queue_is_own_by_default_and_shows_another_caller_on_request(
+    app_client,
+) -> None:
+    """Decyzja Artura 13.11.2026: kolejka z wyborem osoby (podział Bianca / Marcel)."""
+
     caller = await _user("sales_edit")
     other = await _user("sales_edit")
     campaign_id = await _campaign()
-    await _record(other.id, campaign_id, await _company())
-    await _opportunity(
+    theirs = await _record(other.id, campaign_id, await _company())
+    lead = await _opportunity(
         other.id, await _company(), created=_noon(business_today() - timedelta(days=20))
     )
     queue = await _queue(app_client, caller)
-    assert queue["counts"] == {"callbacks": 0, "meetings": 0, "new": 0, "later": 0}
-    # Parametru osoby nie ma: obcy ``user_id`` niczego nie przełącza.
+    assert queue["counts"] == {
+        "callbacks": 0,
+        "no_answer": 0,
+        "meetings": 0,
+        "new": 0,
+        "later": 0,
+    }
+    # Stary parametr ``user_id`` niczego nie przełącza; wybór osoby to ``caller_id``.
     assert (await _queue(app_client, caller, user_id=other.id))["new"] == []
+    shown = await _queue(app_client, caller, caller_id=other.id)
+    assert [item["key"] for item in shown["new"]] == [f"r:{theirs}"]
+    assert [item["key"] for item in shown["callbacks"]] == [f"o:{lead}"]
+    # Licznik „Dziś” zostaje osoby, która patrzy.
+    assert shown["today_counts"]["calls"] == 0
 
 
 # ── Wynik rozmowy: rekord kampanii ────────────────────────────────────────
@@ -330,13 +351,9 @@ async def test_queue_is_always_the_callers_own(app_client) -> None:
         ("no_answer", None, lambda today: calling.workdays_after(today, 1)),
         ("call_back", 5, lambda today: today + timedelta(days=5)),
         ("call_back", None, lambda today: calling.workdays_after(today, 1)),
-        ("not_now", 45, lambda today: today + timedelta(days=45)),
-        (
-            "not_now",
-            None,
-            lambda today: calling.on_business_day(today + timedelta(days=30)),
-        ),
+        ("call_back", 45, lambda today: today + timedelta(days=45)),
         ("offer_sent", None, lambda today: calling.workdays_after(today, 3)),
+        ("offer_sent", 10, lambda today: today + timedelta(days=10)),
     ],
 )
 @pytest.mark.asyncio
@@ -373,8 +390,13 @@ async def test_returning_outcomes_set_the_callback_day(
     assert call.body == "Ustalone."
     assert (call.contact_id, call.opportunity_id) == (contact_id, None)
     assert call.direction == "out" and call.done_at is not None
-    # Rekord wraca sam w swoim dniu, a dziś znika z listy.
     queue = await _queue(app_client, caller)
+    if outcome == "no_answer":
+        # „Nie odebrał” stoi w swojej zakładce bez względu na datę (13.11.2026).
+        assert [item["record_id"] for item in queue["no_answer"]] == [record_id]
+        assert queue["counts"]["later"] == 0 and queue["callbacks"] == []
+        return
+    # Rekord wraca sam w swoim dniu, a dziś znika z listy.
     assert queue["counts"]["later"] == 1 and queue["callbacks"] == []
 
 
@@ -454,7 +476,13 @@ async def test_objection_recorded_elsewhere_removes_the_position_from_the_queue(
     kept = await _record(caller.id, campaign_id, await _company())
     queue = await _queue(app_client, caller)
     assert [item["key"] for item in queue["new"]] == [f"r:{kept}"]
-    assert queue["counts"] == {"callbacks": 0, "meetings": 0, "new": 1, "later": 0}
+    assert queue["counts"] == {
+        "callbacks": 0,
+        "no_answer": 0,
+        "meetings": 0,
+        "new": 1,
+        "later": 0,
+    }
 
 
 @pytest.mark.asyncio
@@ -517,24 +545,32 @@ async def test_meeting_booked_needs_the_opportunity_of_the_same_company(
 
 
 @pytest.mark.asyncio
-async def test_someone_elses_record_is_refused_but_admin_may_save(app_client) -> None:
+async def test_any_sales_editor_saves_in_someone_elses_queue(app_client) -> None:
+    """Decyzja Artura 13.11.2026: wynik w cudzej kolejce zapisuje każdy z edycją,
+    a telefon liczy się temu, kto kliknął."""
+
     owner = await _user("sales_edit")
-    intruder = await _user("sales_edit")
-    admin = await _user(role="admin")
-    record_id = await _record(owner.id, await _campaign(), await _company())
-    denied = await _save(app_client, intruder, record_id, outcome="no_answer")
-    assert (denied.status_code, denied.json()["detail"]) == (
-        403,
-        calling.NOT_YOURS_DETAIL,
-    )
-    assert (await _get_record(record_id)).attempts == 0
+    stand_in = await _user("sales_edit")
+    viewer = await _user("sales_view")
+    company_id = await _company()
+    record_id = await _record(owner.id, await _campaign(), company_id)
     card = (
-        await app_client.get(f"{URL}/records/{record_id}", headers=_headers(intruder))
+        await app_client.get(f"{URL}/records/{record_id}", headers=_headers(viewer))
     ).json()
     assert card["can_save"] is False
     assert (
-        await _save(app_client, admin, record_id, outcome="no_answer")
-    ).status_code == 200
+        await _save(app_client, viewer, record_id, outcome="no_answer")
+    ).status_code == 403
+    card = (
+        await app_client.get(f"{URL}/records/{record_id}", headers=_headers(stand_in))
+    ).json()
+    assert card["can_save"] is True
+    saved = await _save(app_client, stand_in, record_id, outcome="no_answer")
+    assert saved.status_code == 200, saved.text
+    record = await _get_record(record_id)
+    assert (record.attempts, record.assigned_user_id) == (1, owner.id)
+    [call] = await _calls(company_id)
+    assert call.created_by_user_id == stand_in.id
     missing = await _save(app_client, owner, 2_000_000_000, outcome="no_answer")
     assert missing.status_code == 404
 
@@ -566,7 +602,7 @@ async def test_client_company_is_handed_to_the_delivery_lead(app_client) -> None
     assert (await _get_record(record_id)).state == "new"
     # Zwykły wynik rozmowy przechodzi: bramka dotyczy tylko zakładania szansy.
     assert (
-        await _save(app_client, caller, record_id, outcome="not_now")
+        await _save(app_client, caller, record_id, outcome="call_back")
     ).status_code == 200
 
 
@@ -736,7 +772,7 @@ async def test_meeting_booked_moves_the_lead_opportunity_to_the_meeting_stage(
     "payload",
     [
         {"outcome": "bad_contact"},
-        {"outcome": "not_interested", "never": True},
+        {"outcome": "offer_sent", "never": True},
     ],
 )
 async def test_meeting_without_date_leaves_the_queue_after_a_final_outcome(
@@ -825,14 +861,8 @@ async def test_opportunity_outcome_refuses_strangers_and_other_stages(
     app_client,
 ) -> None:
     owner = await _user("sales_edit")
-    intruder = await _user("sales_edit")
     viewer = await _user("sales_view")
     opp_id = await _opportunity(owner.id, await _company())
-    denied = await _save_opportunity(app_client, intruder, opp_id, outcome="no_answer")
-    assert (denied.status_code, denied.json()["detail"]) == (
-        403,
-        calling.NOT_YOURS_DETAIL,
-    )
     assert (
         await _save_opportunity(app_client, viewer, opp_id, outcome="no_answer")
     ).status_code == 403
