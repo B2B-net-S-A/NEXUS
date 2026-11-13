@@ -599,6 +599,21 @@ jobs:
           echo "Deployment queued: $deployment_uuid"
           echo "deployment_uuid=$deployment_uuid" >> $GITHUB_OUTPUT
 
+      # Front od etapu B1 (11.2026) jest osobną aplikacją Coolify `nexus-frontend`
+      # z rolling update (docs/claude/podstawy/przerwa-przy-wdrozeniu.md). Buduje
+      # się z commitu, który ustalił compose (`git_commit_sha`), więc `version.json`
+      # ma SHA backendu nawet przy merge'u w trakcie budowy. Wyzwalany zaraz po
+      # compose: obie budowy idą równolegle, a przerwa frontu mieści się w sondzie.
+      - name: Trigger frontend app deployment
+        id: frontend_trigger
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          COMPOSE_DEPLOYMENT_UUID: ${{ steps.trigger.outputs.deployment_uuid }}
+        run: python3 .github/scripts/coolify_frontend_app.py trigger
+
       - name: Wait for deployment to finish (fail fast on server-side failure)
         if: ${{ steps.precheck.outputs.skip != 'true' }}
         # Sekrety przez `env:`, nie przez `${{ }}` w ciele skryptu. Interpolacja
@@ -666,6 +681,17 @@ jobs:
           done
           echo "::error::Deployment $DEPLOYMENT_UUID still '$status' after 15 min — treating as failed. Run the 'Coolify Ops' workflow to inspect/cancel it."
           exit 1
+
+      # Status wdrożenia frontu, SHA w logu builda (bez wypisywania logu) i stan
+      # `running:healthy`. Smoke `version.json` niżej sprawdza to samo z zewnątrz.
+      - name: Wait for frontend app deployment
+        if: ${{ steps.frontend_trigger.outcome == 'success' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          FRONTEND_DEPLOYMENT_UUID: ${{ steps.frontend_trigger.outputs.deployment_uuid }}
+        run: python3 .github/scripts/coolify_frontend_app.py wait
 
       # ── Smoke test scalony z jobem deploy (2026-08-07) ──────────────
       # Był osobnym jobem z `needs: deploy`. Same testy trwają ~5 s, a
@@ -1039,6 +1065,7 @@ jobs:
         if: ${{ always() && steps.downtime_meter.outcome == 'success' }}
         env:
           APP_URL: ${{ vars.APP_URL }}
+          FRONTEND_APP: ${{ steps.frontend_trigger.outcome == 'success' }}
         run: |
           set +e
           probe_dir="$RUNNER_TEMP/downtime-probe"
@@ -1056,6 +1083,7 @@ jobs:
             --samples "$samples" --target "${RELEASE_SHA:-$TARGET_SHA}" \
             --postgres-before "$(cat "$probe_dir/pg_before" 2>/dev/null)" \
             --postgres-after "$pg_after" \
+            --frontend-app "$FRONTEND_APP" \
             --summary-out "$probe_dir/summary.md" \
             --notice-out "$probe_dir/notices.txt" \
             || { echo "::warning::Skrypt raportu przerwy padł — brak pomiaru dla tego deployu."; exit 0; }
