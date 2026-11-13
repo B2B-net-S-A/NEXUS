@@ -252,6 +252,27 @@ describe("znaczniki struktury", () => {
     expect(view).toContain("cv-role-current");
   });
 
+  it("edukacja bez dat: kartka nie rysuje kolumny „Daty”, jak Word", () => {
+    const edu = (rows: string) =>
+      `<h1>Dev – Anna Przykładowa</h1><h2 data-cv-section="education">EDUKACJA</h2>${rows}${RODO}`;
+    const noDates = open(edu("<p><strong>Uniwersytet Przykładowy</strong> — Informatyka</p>"));
+    expect(noDates.view.dom.innerHTML).toContain('data-cv-in="education" data-cv-no-dates="true"');
+    expect(noDates.getHTML()).not.toContain("data-cv-no-dates");
+
+    const mixed = open(
+      edu(
+        "<p><strong>Uniwersytet Przykładowy</strong> — Informatyka</p>" +
+          "<p>2015 - 2019 <strong>Politechnika Przykładowa</strong> — Fizyka</p>",
+      ),
+    );
+    expect(mixed.view.dom.innerHTML).toContain('data-cv-in="education"');
+    expect(mixed.view.dom.innerHTML).not.toContain("data-cv-no-dates");
+
+    // Bez pogrubionej uczelni Word wkłada cały wiersz do kolumny uczelni.
+    const handEdited = open(edu("<p>2015 - 2019 Uniwersytet Przykładowy</p>"));
+    expect(handEdited.view.dom.innerHTML).toContain("data-cv-no-dates");
+  });
+
   it("w widoku pogrubia samą etykietę technologii, jak Word", () => {
     const editor = open(`${BODY}<p data-cv-section="technologies">Technologie: Java 17, Kafka</p>${RODO}`);
     expect(editor.view.dom.innerHTML).toContain('<span class="cv-tech-label">Technologie:</span> Java 17, Kafka');
