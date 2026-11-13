@@ -1,0 +1,20 @@
+{
+  "_opis": "Świadome wyjątki audytu zależności (pip-audit dla backend/requirements.txt, npm audit --omit=dev high+ dla frontend/). Wpis pasuje po id albo aliasie, ma uzasadnienie i termin expires (RRRR-MM-DD); po terminie znów czerwieni. Opis: docs/claude/podstawy/skanery-bezpieczenstwa.md",
+  "python": [
+    {
+      "id": "PYSEC-2026-4298",
+      "aliases": ["GHSA-3qf3-8w2g-rqmx", "CVE-2026-85394"],
+      "package": "python-jose 3.5.0",
+      "reason": "Brak wydania z poprawką. Atak wymaga dekodowania bez jawnej listy algorytmów i klucza publicznego użytego jako sekret HMAC; każde jwt.decode w backend/app ma jawne algorithms= (HS256 z sekretem, RS256 tylko w webhooku Autenti). Docelowo zamiana python-jose na PyJWT.",
+      "expires": "2027-02-15"
+    },
+    {
+      "id": "PYSEC-2026-1325",
+      "aliases": ["CVE-2024-23342", "GHSA-wj6h-64fc-37mp"],
+      "package": "ecdsa 0.19.2",
+      "reason": "Zależność python-jose; projekt ecdsa nie planuje poprawki (atak czasowy Minerva). Backend nie podpisuje ECDSA tą biblioteką — python-jose[cryptography] używa backendu cryptography. Zniknie razem z python-jose.",
+      "expires": "2027-02-15"
+    }
+  ],
+  "npm": []
+}
