@@ -37,6 +37,7 @@ from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.finance_ledger.costs import LedgerError
+from app.services.finance_ledger.posting import clean_account
 from app.services.ledger import chart, documents, engine, reports, years
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import DocumentSpec, Viewer
@@ -255,7 +256,9 @@ async def get_config(
     current = await ledger_settings.load(db)
     viewer = documents.viewer_for(current_user, current)
     open_ = ledger_settings.module_open(current_user, current, "ledger")
-    year_list = await years.list_years(db) if open_ else []
+    year_list = (
+        await years.list_years(db, include_payroll=viewer.payroll) if open_ else []
+    )
     payload = _config_payload(current_user, current, viewer, year_list)
     payload["open"] = open_
     return payload
@@ -342,7 +345,7 @@ async def create_year(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return {"items": await years.list_years(db)}
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
 
 
 @router.patch("/years/{year_id}")
@@ -352,7 +355,7 @@ async def update_year(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     _require_admin(current_user)
     try:
         await years.set_mode(db, year_id, body.mode, actor_id=current_user.id)
@@ -360,7 +363,7 @@ async def update_year(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return {"items": await years.list_years(db)}
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
 
 
 @router.post("/periods/{period_id}/close")
@@ -370,12 +373,18 @@ async def close_period(
     _, viewer = await _context(db, current_user)
     _require_approver(viewer)
     try:
-        await years.close_period(db, period_id, actor_id=current_user.id, now=_now())
+        await years.close_period(
+            db,
+            period_id,
+            actor_id=current_user.id,
+            now=_now(),
+            include_payroll=viewer.payroll,
+        )
     except LedgerError as exc:
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return {"items": await years.list_years(db)}
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
 
 
 @router.post("/periods/{period_id}/reopen")
@@ -385,7 +394,7 @@ async def reopen_period(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     _require_admin(current_user)
     try:
         await years.reopen_period(
@@ -395,7 +404,7 @@ async def reopen_period(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return {"items": await years.list_years(db)}
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
 
 
 # ── Dokumenty ────────────────────────────────────────────────────────────────
@@ -542,10 +551,10 @@ async def trial_balance(
     level: Literal["synthetic", "analytic"] = "synthetic",
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     try:
         return await reports.trial_balance(
-            db, year=year, month_from=month_from, month_to=month_to, level=level
+            db, viewer, year=year, month_from=month_from, month_to=month_to, level=level
         )
     except LedgerError as exc:
         raise _fail(exc) from exc
@@ -565,7 +574,7 @@ async def account_card(
         return await reports.account_card(
             db,
             viewer,
-            account=account.strip(),
+            account=clean_account(account, "Konto"),
             year=year,
             month_from=month_from,
             month_to=month_to,
@@ -581,8 +590,8 @@ async def account_card(
 async def list_chart(
     current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    await _context(db, current_user)
-    return {"items": await chart.list_chart(db)}
+    _, viewer = await _context(db, current_user)
+    return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}
 
 
 @router.post("/chart", status_code=201)
@@ -591,14 +600,14 @@ async def create_account(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     try:
         await chart.create_account(db, body.model_dump(), actor_id=current_user.id)
     except LedgerError as exc:
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return {"items": await chart.list_chart(db)}
+    return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}
 
 
 @router.patch("/chart/{account_id}")
@@ -608,7 +617,7 @@ async def update_account(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     try:
         await chart.update_account(
             db,
@@ -620,4 +629,4 @@ async def update_account(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
-    return {"items": await chart.list_chart(db)}
+    return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}

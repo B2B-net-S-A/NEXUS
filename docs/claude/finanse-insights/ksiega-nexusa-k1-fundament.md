@@ -23,9 +23,17 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
   albo admin. **Tryb roku, ponowne otwarcie okresu, przełączniki, lista** —
   tylko admin. Bez nowego uprawnienia w katalogu dziewięciu (decyzja 13.11).
 - **Dokumenty płacowe** (`sensitivity = 'payroll'`: listy płac, faktury osób
-  zespołu) widzą w szczegółach tylko Płace i admin (D2): poza listą
-  i licznikami, karta 404, zatwierdzenie 404, na karcie konta jeden wiersz
-  zbiorczy na miesiąc. Sumy kont w obrotach je obejmują.
+  zespołu) widzą w szczegółach tylko Płace i admin (D2): poza listą,
+  licznikami okresów i planu kont, karta 404, zatwierdzenie 404. Osoba bez
+  Płac dostaje kartę konta **bez nich także w saldach** (`payroll_hidden` mówi
+  tylko, że są) — saldo narastające z ukrytymi pozycjami pozwalało odjąć jedną
+  kwotę od drugiej. W obrotach i saldach ich pozycje wchodzą do sum kont
+  (księga się bilansuje), ale na poziomie analitycznym idą pod konto
+  syntetyczne, bo analityka słownika to często jedna osoba. Komunikat
+  zamknięcia okresu nie podaje jej liczby dokumentów płacowych w buforze.
+  (Przegląd bezpieczeństwa 14.11.2026.)
+- **Dokument ze źródła** (faktura, wyciąg, lista płac) nie poprawia się
+  w buforze (409) — dekret liczy źródło; można go zatwierdzić albo usunąć.
 
 ## Dokument i dziennik
 
@@ -41,7 +49,8 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
   numeracja ciągła w roku pod blokadą wiersza roku, w kolejności daty operacji
   w zaznaczeniu). Zatwierdzony dokument jest trwały: serwis odmawia zmiany
   i usunięcia (409), a **wyzwalacz w bazie** (`ledger_guard_approved`) nie
-  przepuści UPDATE ani DELETE dokumentu i jego pozycji. Jednorazowe sprzątanie
+  przepuści UPDATE ani DELETE dokumentu i jego pozycji (dane dokumentu,
+  wrażliwość, kontrahent i źródło; wolno tylko oznaczyć storno i dopisać `meta`). Jednorazowe sprzątanie
   (testy, `scripts/repairs`) ustawia `SET LOCAL nexus.ledger_purge = 'on'`.
 - **Storno** zatwierdzonego: nowy dokument `ST` z tymi samymi kontami
   i stronami, kwoty z minusem (storno czerwone), od razu zatwierdzony

@@ -257,12 +257,14 @@ BEGIN
             IF (NEW.doc_type, NEW.number, NEW.op_date, NEW.doc_date, NEW.description,
                 NEW.year_id, NEW.period_id, NEW.status, NEW.journal_no,
                 NEW.debit_total, NEW.credit_total, NEW.currency, NEW.fx_rate,
-                NEW.reverses_id)
+                NEW.reverses_id, NEW.sensitivity, NEW.counterparty_id,
+                NEW.source_type, NEW.source_id)
                IS DISTINCT FROM
                (OLD.doc_type, OLD.number, OLD.op_date, OLD.doc_date, OLD.description,
                 OLD.year_id, OLD.period_id, OLD.status, OLD.journal_no,
                 OLD.debit_total, OLD.credit_total, OLD.currency, OLD.fx_rate,
-                OLD.reverses_id) THEN
+                OLD.reverses_id, OLD.sensitivity, OLD.counterparty_id,
+                OLD.source_type, OLD.source_id) THEN
                 RAISE EXCEPTION 'Zatwierdzony dokument jest trwały — popraw go stornem (dokument %).', OLD.id
                     USING ERRCODE = 'check_violation';
             END IF;

@@ -216,7 +216,8 @@ export interface AccountCard {
   opening: number;
   closing: number;
   items: CardLine[];
-  payroll_rows: { month: number; wn: number; ma: number; lines: number; label: string }[];
+  /** Na koncie są zapisy płacowe, których ta osoba nie widzi — saldo jest bez nich (D2). */
+  payroll_hidden: boolean;
   truncated: boolean;
 }
 

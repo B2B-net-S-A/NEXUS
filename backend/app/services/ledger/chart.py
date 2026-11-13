@@ -18,7 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.finance_posting import FinanceAccount, FinancePostingRule
-from app.models.ledger import LedgerLine
+from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import ACCOUNT_KIND_LABELS, clean_account
 from app.services.ledger import engine
@@ -89,20 +89,29 @@ async def _rule_usage(db: AsyncSession) -> dict[str, int]:
     return usage
 
 
-async def _line_usage(db: AsyncSession) -> dict[str, int]:
-    rows = await db.execute(
-        select(LedgerLine.account, func.count()).group_by(LedgerLine.account)
+async def _line_usage(db: AsyncSession, *, include_payroll: bool) -> dict[str, int]:
+    """Liczba pozycji na koncie; dokumenty płacowe tylko dla Płac (D2)."""
+
+    query = (
+        select(LedgerLine.account, func.count())
+        .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
+        .group_by(LedgerLine.account)
     )
+    if not include_payroll:
+        query = query.where(LedgerDocument.sensitivity.is_(None))
+    rows = await db.execute(query)
     return {account: int(count) for account, count in rows.all()}
 
 
-async def list_chart(db: AsyncSession) -> list[dict[str, Any]]:
+async def list_chart(
+    db: AsyncSession, *, include_payroll: bool
+) -> list[dict[str, Any]]:
     rows = (
         await db.scalars(select(FinanceAccount).order_by(FinanceAccount.number))
     ).all()
     parents = _children({row.number for row in rows})
     rules = await _rule_usage(db)
-    lines = await _line_usage(db)
+    lines = await _line_usage(db, include_payroll=include_payroll)
     used: dict[str, int] = {}
     for account, count in lines.items():
         used[account] = used.get(account, 0) + count

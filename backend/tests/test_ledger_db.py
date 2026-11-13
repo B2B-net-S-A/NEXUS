@@ -556,19 +556,22 @@ async def test_period_close_needs_empty_buffer_and_blocks_posting(client, world)
 # ── Dokumenty płacowe (D2) ───────────────────────────────────────────────────
 
 
-async def test_payroll_document_hidden_without_payroll(client, world):
+async def _payroll_doc(world, *, month: int, number: str, approve: bool) -> int:
     acc = world["acc"]
     async with AsyncSessionLocal() as db:
         doc = await ledger_documents.create_draft(
             db,
             DocumentSpec(
                 doc_type="LP",
-                op_date=date(world["year"], 7, 31),
-                doc_date=date(world["year"], 7, 31),
-                number="LP 07",
+                op_date=date(world["year"], month, 28),
+                doc_date=date(world["year"], month, 28),
+                number=number,
                 lines=[
                     LineIn(side="debit", account=acc["wages"], amount=900_000),
-                    LineIn(side="credit", account=acc["payroll"], amount=900_000),
+                    # Analityka słownika = jedna osoba (np. jej faktura z zespołu).
+                    LineIn(
+                        side="credit", account=f"{acc['suppliers']}-77", amount=900_000
+                    ),
                 ],
                 sensitivity="payroll",
                 source_type="test_payroll",
@@ -578,17 +581,32 @@ async def test_payroll_document_hidden_without_payroll(client, world):
         )
         await db.commit()
         doc_id = doc.id
+    if approve:
+        async with AsyncSessionLocal() as db:
+            viewer = ledger_documents.Viewer(
+                user_id=world["accountant"].id, admin=False, payroll=True, approver=True
+            )
+            result = await ledger_documents.approve(
+                db, [doc_id], viewer=viewer, now=datetime.now(timezone.utc)
+            )
+            assert result["refused"] == []
+            await db.commit()
+    return doc_id
+
+
+async def test_payroll_document_hidden_without_payroll(client, world):
+    draft_id = await _payroll_doc(world, month=7, number="LP 07", approve=False)
     only = _headers(world["module_only"])
     listing = await client.get(
         f"{ACC}/documents", params={"year": world["year"]}, headers=only
     )
-    assert doc_id not in [item["id"] for item in listing.json()["items"]]
+    assert draft_id not in [item["id"] for item in listing.json()["items"]]
     assert listing.json()["counts"].get("LP") is None
     assert (
-        await client.get(f"{ACC}/documents/{doc_id}", headers=only)
+        await client.get(f"{ACC}/documents/{draft_id}", headers=only)
     ).status_code == 404
     accountant = _headers(world["accountant"])
-    seen = await client.get(f"{ACC}/documents/{doc_id}", headers=accountant)
+    seen = await client.get(f"{ACC}/documents/{draft_id}", headers=accountant)
     assert seen.status_code == 200
     await _set_ledger(
         {
@@ -597,36 +615,159 @@ async def test_payroll_document_hidden_without_payroll(client, world):
         }
     )
     refused = await client.post(
-        f"{ACC}/documents/approve", json={"ids": [doc_id]}, headers=only
+        f"{ACC}/documents/approve", json={"ids": [draft_id]}, headers=only
     )
     assert refused.status_code == 404
     approved = await client.post(
-        f"{ACC}/documents/approve", json={"ids": [doc_id]}, headers=accountant
+        f"{ACC}/documents/approve", json={"ids": [draft_id]}, headers=accountant
     )
     assert approved.status_code == 200
-    card = await client.get(
-        f"{ACC}/accounts/card",
-        params={"account": acc["wages"], "year": world["year"]},
-        headers=only,
-    )
-    assert card.status_code == 200
-    assert card.json()["items"] == []
-    assert card.json()["payroll_rows"] == [
+
+
+async def test_payroll_amounts_never_reach_viewer_without_payroll(client, world):
+    acc = world["acc"]
+    await _payroll_doc(world, month=7, number="LP 07", approve=True)
+    await _set_ledger(
         {
-            "month": 7,
-            "wn": 900_000,
-            "ma": 0,
-            "lines": 1,
-            "label": "Dokumenty płacowe — szczegóły widzą Płace i administrator",
+            "modules": {"ledger": True},
+            "accountants": [world["accountant"].id, world["module_only"].id],
         }
-    ]
-    assert card.json()["closing"] == 900_000
-    full = await client.get(
-        f"{ACC}/accounts/card",
-        params={"account": acc["wages"], "year": world["year"]},
-        headers=accountant,
     )
-    assert [item["number"] for item in full.json()["items"]] == ["LP 07"]
+    only = _headers(world["module_only"])
+    accountant = _headers(world["accountant"])
+    # Karta konta: bez pozycji, bez sald z płacami, tylko informacja, że są.
+    card = (
+        await client.get(
+            f"{ACC}/accounts/card",
+            params={"account": acc["wages"], "year": world["year"]},
+            headers=only,
+        )
+    ).json()
+    assert card["items"] == []
+    assert (card["opening"], card["closing"]) == (0, 0)
+    assert card["payroll_hidden"] is True
+    assert "payroll_rows" not in card
+    full = (
+        await client.get(
+            f"{ACC}/accounts/card",
+            params={"account": acc["wages"], "year": world["year"]},
+            headers=accountant,
+        )
+    ).json()
+    assert [item["number"] for item in full["items"]] == ["LP 07"]
+    assert full["closing"] == 900_000 and full["payroll_hidden"] is False
+    # Obroty analityczne: analityka osoby idzie pod konto syntetyczne.
+    analytic = (
+        await client.get(
+            f"{ACC}/trial-balance",
+            params={"year": world["year"], "level": "analytic"},
+            headers=only,
+        )
+    ).json()
+    rows = {row["account"]: row for row in analytic["items"]}
+    assert f"{acc['suppliers']}-77" not in rows
+    assert rows[acc["suppliers"]]["ma"] == 900_000
+    assert rows[acc["suppliers"]]["analytics"] == 0
+    assert analytic["balanced"] is True
+    payroll_view = (
+        await client.get(
+            f"{ACC}/trial-balance",
+            params={"year": world["year"], "level": "analytic"},
+            headers=accountant,
+        )
+    ).json()
+    assert {row["account"] for row in payroll_view["items"]} >= {
+        f"{acc['suppliers']}-77"
+    }
+    # Liczniki zapisów w planie kont i okresach.
+    chart_only = {
+        row["number"]: row
+        for row in (await client.get(f"{ACC}/chart", headers=only)).json()["items"]
+    }
+    chart_full = {
+        row["number"]: row
+        for row in (await client.get(f"{ACC}/chart", headers=accountant)).json()[
+            "items"
+        ]
+    }
+    assert chart_only[acc["wages"]]["used"] == 0
+    assert chart_full[acc["wages"]]["used"] == 1
+    config = (await client.get(f"{ACC}/config", headers=only)).json()
+    july = next(
+        period
+        for item in config["years"]
+        if item["year"] == world["year"]
+        for period in item["periods"]
+        if period["month"] == 7
+    )
+    assert july["approved"] == 0
+
+
+async def test_close_message_hides_payroll_draft_count(client, world):
+    draft_id = await _payroll_doc(world, month=8, number="LP 08", approve=False)
+    await _set_ledger(
+        {
+            "modules": {"ledger": True},
+            "accountants": [world["accountant"].id, world["module_only"].id],
+        }
+    )
+    config = (
+        await client.get(f"{ACC}/config", headers=_headers(world["accountant"]))
+    ).json()
+    august = next(
+        period["id"]
+        for item in config["years"]
+        if item["year"] == world["year"]
+        for period in item["periods"]
+        if period["month"] == 8
+    )
+    only = await client.post(
+        f"{ACC}/periods/{august}/close", headers=_headers(world["module_only"])
+    )
+    assert only.status_code == 409
+    assert only.json()["detail"].startswith("W buforze są dokumenty płacowe")
+    assert "(" not in only.json()["detail"]
+    payroll = await client.post(
+        f"{ACC}/periods/{august}/close", headers=_headers(world["accountant"])
+    )
+    assert payroll.status_code == 409
+    assert "(1)" in payroll.json()["detail"]
+    # Dokument ze źródła nie poprawia się w buforze.
+    patched = await client.patch(
+        f"{ACC}/documents/{draft_id}",
+        json=_doc(world, month=8),
+        headers=_headers(world["accountant"]),
+    )
+    assert patched.status_code == 409
+    assert "poprawia się w źródle" in patched.json()["detail"]
+
+
+async def test_trigger_guards_sensitivity_and_source_of_approved(client, world):
+    doc_id = await _payroll_doc(world, month=9, number="LP 09", approve=True)
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(DBAPIError):
+            await db.execute(
+                update(LedgerDocument)
+                .where(LedgerDocument.id == doc_id)
+                .values(sensitivity=None)
+            )
+        await db.rollback()
+        with pytest.raises(DBAPIError):
+            await db.execute(
+                update(LedgerDocument)
+                .where(LedgerDocument.id == doc_id)
+                .values(source_id="inny")
+            )
+        await db.rollback()
+
+
+async def test_account_card_validates_account_number(client, world):
+    response = await client.get(
+        f"{ACC}/accounts/card",
+        params={"account": "%", "year": world["year"]},
+        headers=_headers(world["finance"]),
+    )
+    assert response.status_code == 422
 
 
 # ── Obroty i salda ───────────────────────────────────────────────────────────

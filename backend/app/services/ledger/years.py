@@ -19,7 +19,7 @@ from calendar import monthrange
 from datetime import date, datetime
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ledger import LedgerDocument, LedgerEvent, LedgerPeriod, LedgerYear
@@ -123,7 +123,11 @@ def period_payload(
     }
 
 
-async def list_years(db: AsyncSession) -> list[dict[str, Any]]:
+async def list_years(
+    db: AsyncSession, *, include_payroll: bool
+) -> list[dict[str, Any]]:
+    """Lata z okresami; liczniki dokumentów bez płacowych dla osoby bez Płac (D2)."""
+
     years = (
         await db.scalars(select(LedgerYear).order_by(LedgerYear.year.desc()))
     ).all()
@@ -141,7 +145,10 @@ async def list_years(db: AsyncSession) -> list[dict[str, Any]]:
         for period_id, status, count in (
             await db.execute(
                 select(LedgerDocument.period_id, LedgerDocument.status, func.count())
-                .where(LedgerDocument.year_id.in_([y.id for y in years]))
+                .where(
+                    LedgerDocument.year_id.in_([y.id for y in years]),
+                    true() if include_payroll else LedgerDocument.sensitivity.is_(None),
+                )
                 .group_by(LedgerDocument.period_id, LedgerDocument.status)
             )
         ).all()
@@ -185,7 +192,12 @@ async def _event(
 
 
 async def close_period(
-    db: AsyncSession, period_id: int, *, actor_id: int, now: datetime
+    db: AsyncSession,
+    period_id: int,
+    *,
+    actor_id: int,
+    now: datetime,
+    include_payroll: bool = True,
 ) -> LedgerPeriod:
     """Zamknięcie okresu (bez commita): bufor z tego miesiąca musi być pusty."""
 
@@ -199,15 +211,28 @@ async def close_period(
     assert period is not None
     if period.status == "closed":
         raise LedgerError("Ten okres jest już zamknięty.", status=409)
-    drafts = await db.scalar(
-        select(func.count())
-        .select_from(LedgerDocument)
-        .where(LedgerDocument.period_id == period.id, LedgerDocument.status == "draft")
-    )
-    if drafts:
+    draft_rows = (
+        await db.execute(
+            select(LedgerDocument.sensitivity.is_not(None), func.count())
+            .where(
+                LedgerDocument.period_id == period.id, LedgerDocument.status == "draft"
+            )
+            .group_by(LedgerDocument.sensitivity.is_not(None))
+        )
+    ).all()
+    drafts = {bool(sensitive): int(count) for sensitive, count in draft_rows}
+    if drafts.get(False) or (include_payroll and drafts.get(True)):
+        shown = drafts.get(False, 0) + (drafts.get(True, 0) if include_payroll else 0)
         raise LedgerError(
-            f"W buforze są dokumenty z tego miesiąca ({drafts}) — zatwierdź albo usuń "
+            f"W buforze są dokumenty z tego miesiąca ({shown}) — zatwierdź albo usuń "
             "je przed zamknięciem okresu.",
+            status=409,
+        )
+    if drafts.get(True):
+        # Osoba bez Płac nie widzi liczby ani kwot dokumentów płacowych (D2).
+        raise LedgerError(
+            "W buforze są dokumenty płacowe z tego miesiąca — zatwierdzają je Płace "
+            "albo administrator.",
             status=409,
         )
     period.status = "closed"

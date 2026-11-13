@@ -221,6 +221,11 @@ function AccountCardPanel({
             Saldo na początek: <b className="tabular-nums text-foreground">{gr(card.data.opening)}</b> · na koniec:{" "}
             <b className="tabular-nums text-foreground">{gr(card.data.closing)}</b>
           </p>
+          {card.data.payroll_hidden ? (
+            <p className="mx-3.5 mb-2 rounded-md bg-muted/60 px-2.5 py-2 text-[12px] text-muted-foreground">
+              Na koncie są też dokumenty płacowe — karta i salda są bez nich. Pełne kwoty widzą Płace i administrator.
+            </p>
+          ) : null}
           <div className="max-h-[480px] overflow-y-auto">
             <table className="w-full table-fixed text-[12.5px]">
               <thead className="sticky top-0 bg-card">
@@ -249,17 +254,9 @@ function AccountCardPanel({
                     <td className={cn(CALM_AMOUNT, "px-3.5 py-1.5")}>{line.ma ? gr(line.ma) : <span className={CALM_EMPTY}>—</span>}</td>
                   </tr>
                 ))}
-                {card.data.payroll_rows.map((row) => (
-                  <tr key={`payroll-${row.month}`} className={cn(CALM_ROW, "align-top text-muted-foreground")}>
-                    <td className="px-3.5 py-1.5">{MONTHS_PL[row.month - 1]}</td>
-                    <td className="px-1 py-1.5 text-[12px]">{row.label} ({row.lines})</td>
-                    <td className={cn(CALM_AMOUNT, "px-1 py-1.5")}>{row.wn ? gr(row.wn) : "—"}</td>
-                    <td className={cn(CALM_AMOUNT, "px-3.5 py-1.5")}>{row.ma ? gr(row.ma) : "—"}</td>
-                  </tr>
-                ))}
               </tbody>
             </table>
-            {card.data.items.length === 0 && card.data.payroll_rows.length === 0 ? (
+            {card.data.items.length === 0 ? (
               <p className="px-3.5 py-4 text-sm text-muted-foreground">Brak zapisów w tym okresie.</p>
             ) : null}
             {card.data.truncated ? (

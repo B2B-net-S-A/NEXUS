@@ -5,9 +5,13 @@
   stycznia do ``do``. Saldo końcowe liczy się z BO i obrotów narastająco.
 * **Poziom syntetyczny** grupuje analitykę słownikową pod kontem ze słownikiem
   (``201-2-1000`` → ``201-2``); analityczny pokazuje każde konto osobno.
-* **Dokumenty płacowe** (D2) wchodzą do sum kont, bo księga musi się
-  bilansować. Na karcie konta osoba bez Płac widzi je jednym wierszem
-  zbiorczym na okres, bez dokumentów i opisów.
+* **Dokumenty płacowe** (D2: kwoty osób widzą tylko Płace i admin) wchodzą do
+  sum kont, bo księga musi się bilansować — ale osoba bez Płac widzi je tylko
+  zbiorczo: w obrotach i saldach na poziomie analitycznym ich pozycje idą pod
+  konto syntetyczne (analityka słownika to często jedna osoba), a karta konta
+  i liczniki zapisów ich nie zawierają (``payroll_hidden`` mówi tylko, że są).
+  Saldo narastające na karcie z ukrytymi pozycjami pozwalałoby odjąć jedną
+  kwotę od drugiej (przegląd bezpieczeństwa 14.11.2026).
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any, Optional
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import case, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ledger import LedgerDocument, LedgerLine, LedgerPeriod, LedgerYear
@@ -24,6 +28,7 @@ from app.services.ledger import engine
 from app.services.ledger.documents import Viewer, account_name, load_plan
 
 CARD_MAX = 2000
+TOTAL_KEYS = ("bo_wn", "bo_ma", "wn", "ma", "ytd_wn", "ytd_ma", "saldo_wn", "saldo_ma")
 
 
 def _range(month_from: Optional[int], month_to: Optional[int]) -> tuple[int, int]:
@@ -47,8 +52,13 @@ def _split(amount: int) -> tuple[int, int]:
     return (amount, 0) if amount >= 0 else (0, -amount)
 
 
+def _sum(condition: Any) -> Any:
+    return func.coalesce(func.sum(case((condition, LedgerLine.amount), else_=0)), 0)
+
+
 async def trial_balance(
     db: AsyncSession,
+    viewer: Viewer,
     *,
     year: int,
     month_from: Optional[int] = None,
@@ -62,58 +72,43 @@ async def trial_balance(
     to_end = LedgerPeriod.month <= end
     debit = LedgerLine.side == "debit"
     credit = LedgerLine.side == "credit"
+    payroll = LedgerDocument.sensitivity.is_not(None)
 
     rows = await db.execute(
         select(
             LedgerLine.account,
-            func.coalesce(
-                func.sum(case(((is_bo) & debit, LedgerLine.amount), else_=0)), 0
-            ),
-            func.coalesce(
-                func.sum(case(((is_bo) & credit, LedgerLine.amount), else_=0)), 0
-            ),
-            func.coalesce(
-                func.sum(
-                    case(((~is_bo) & in_range & debit, LedgerLine.amount), else_=0)
-                ),
-                0,
-            ),
-            func.coalesce(
-                func.sum(
-                    case(((~is_bo) & in_range & credit, LedgerLine.amount), else_=0)
-                ),
-                0,
-            ),
-            func.coalesce(
-                func.sum(case(((~is_bo) & to_end & debit, LedgerLine.amount), else_=0)),
-                0,
-            ),
-            func.coalesce(
-                func.sum(
-                    case(((~is_bo) & to_end & credit, LedgerLine.amount), else_=0)
-                ),
-                0,
-            ),
+            payroll.label("payroll"),
+            _sum(is_bo & debit),
+            _sum(is_bo & credit),
+            _sum(~is_bo & in_range & debit),
+            _sum(~is_bo & in_range & credit),
+            _sum(~is_bo & to_end & debit),
+            _sum(~is_bo & to_end & credit),
         )
         .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
         .join(LedgerPeriod, LedgerPeriod.id == LedgerDocument.period_id)
         .where(
             LedgerDocument.year_id == year_row.id, LedgerDocument.status == "approved"
         )
-        .group_by(LedgerLine.account)
+        .group_by(LedgerLine.account, payroll)
     )
     plan = await load_plan(db)
-    grouped: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0, 0])
-    for account, bo_wn, bo_ma, wn, ma, ytd_wn, ytd_ma in rows.all():
-        key = engine.synthetic_of(account, plan) if level == "synthetic" else account
+    grouped: dict[str, list[int]] = defaultdict(lambda: [0, 0, 0, 0, 0, 0])
+    analytics: dict[str, set[str]] = defaultdict(set)
+    for account, is_payroll, *amounts in rows.all():
+        hidden = bool(is_payroll) and not viewer.payroll
+        if level == "synthetic" or hidden:
+            key = engine.synthetic_of(account, plan)
+        else:
+            key = account
         bucket = grouped[key]
-        for index, value in enumerate((bo_wn, bo_ma, wn, ma, ytd_wn, ytd_ma)):
+        for index, value in enumerate(amounts):
             bucket[index] += int(value)
-        if key != account:
-            bucket[6] += 1
+        if key != account and not hidden:
+            analytics[key].add(account)
     items = []
     for account in sorted(grouped, key=lambda number: (number.split("-")[0], number)):
-        bo_wn, bo_ma, wn, ma, ytd_wn, ytd_ma, analytics = grouped[account]
+        bo_wn, bo_ma, wn, ma, ytd_wn, ytd_ma = grouped[account]
         saldo_wn, saldo_ma = _split(bo_wn - bo_ma + ytd_wn - ytd_ma)
         items.append(
             {
@@ -128,22 +123,10 @@ async def trial_balance(
                 "ytd_ma": ytd_ma,
                 "saldo_wn": saldo_wn,
                 "saldo_ma": saldo_ma,
-                "analytics": analytics,
+                "analytics": len(analytics.get(account, ())),
             }
         )
-    totals = {
-        key: sum(item[key] for item in items)
-        for key in (
-            "bo_wn",
-            "bo_ma",
-            "wn",
-            "ma",
-            "ytd_wn",
-            "ytd_ma",
-            "saldo_wn",
-            "saldo_ma",
-        )
-    }
+    totals = {key: sum(item[key] for item in items) for key in TOTAL_KEYS}
     return {
         "year": year,
         "month_from": start,
@@ -166,7 +149,11 @@ async def account_card(
     month_from: Optional[int] = None,
     month_to: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Zapisy konta (i jego analityki) w zakresie z saldem narastającym."""
+    """Zapisy konta (i jego analityki) w zakresie z saldem narastającym.
+
+    Osoba bez Płac dostaje kartę bez dokumentów płacowych — także w saldach
+    (``payroll_hidden`` = na koncie są zapisy, których nie widzi).
+    """
 
     start, end = _range(month_from, month_to)
     year_row = await _year(db, year)
@@ -174,16 +161,12 @@ async def account_card(
     matches = or_(
         LedgerLine.account == account, LedgerLine.account.like(f"{account}-%")
     )
-    base = (
-        select(LedgerLine, LedgerDocument, LedgerPeriod.month)
-        .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
-        .join(LedgerPeriod, LedgerPeriod.id == LedgerDocument.period_id)
-        .where(
-            LedgerDocument.year_id == year_row.id,
-            LedgerDocument.status == "approved",
-            matches,
-        )
-    )
+    scope = [
+        LedgerDocument.year_id == year_row.id,
+        LedgerDocument.status == "approved",
+        matches,
+    ]
+    visible = [] if viewer.payroll else [LedgerDocument.sensitivity.is_(None)]
     before = await db.execute(
         select(
             func.coalesce(
@@ -200,34 +183,45 @@ async def account_card(
         .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
         .join(LedgerPeriod, LedgerPeriod.id == LedgerDocument.period_id)
         .where(
-            LedgerDocument.year_id == year_row.id,
-            LedgerDocument.status == "approved",
-            matches,
+            *scope,
+            *visible,
             or_(LedgerDocument.doc_type == "BO", LedgerPeriod.month < start),
         )
     )
     opening = int(before.scalar_one() or 0)
     rows = (
         await db.execute(
-            base.where(
-                LedgerDocument.doc_type != "BO", LedgerPeriod.month.between(start, end)
+            select(LedgerLine, LedgerDocument)
+            .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
+            .join(LedgerPeriod, LedgerPeriod.id == LedgerDocument.period_id)
+            .where(
+                *scope,
+                *visible,
+                LedgerDocument.doc_type != "BO",
+                LedgerPeriod.month.between(start, end),
             )
             .order_by(LedgerDocument.journal_no, LedgerLine.line_no)
             .limit(CARD_MAX + 1)
         )
     ).all()
+    payroll_hidden = False
+    if not viewer.payroll:
+        payroll_hidden = bool(
+            await db.scalar(
+                select(
+                    exists().where(
+                        LedgerLine.document_id == LedgerDocument.id,
+                        *scope,
+                        LedgerDocument.sensitivity.is_not(None),
+                    )
+                )
+            )
+        )
     truncated = len(rows) > CARD_MAX
     balance = opening
     items: list[dict[str, Any]] = []
-    hidden: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])
-    for line, doc, month in rows[:CARD_MAX]:
-        signed = line.amount if line.side == "debit" else -line.amount
-        balance += signed
-        if doc.sensitivity is not None and not viewer.payroll:
-            bucket = hidden[month]
-            bucket[0 if line.side == "debit" else 1] += line.amount
-            bucket[2] += 1
-            continue
+    for line, doc in rows[:CARD_MAX]:
+        balance += line.amount if line.side == "debit" else -line.amount
         items.append(
             {
                 "journal_no": doc.journal_no,
@@ -242,16 +236,6 @@ async def account_card(
                 "balance": balance,
             }
         )
-    payroll_rows = [
-        {
-            "month": month,
-            "wn": values[0],
-            "ma": values[1],
-            "lines": values[2],
-            "label": "Dokumenty płacowe — szczegóły widzą Płace i administrator",
-        }
-        for month, values in sorted(hidden.items())
-    ]
     exact = plan.get(account)
     resolved, _ = engine.resolve(account, plan)
     if exact is not None:
@@ -270,6 +254,6 @@ async def account_card(
         "opening": opening,
         "closing": balance,
         "items": items,
-        "payroll_rows": payroll_rows,
+        "payroll_hidden": payroll_hidden,
         "truncated": truncated,
     }

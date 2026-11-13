@@ -279,8 +279,15 @@ async def update_draft(
     doc = await _visible_document(db, doc_id, viewer, lock=True)
     if doc.status != "draft":
         raise LedgerError("Zatwierdzony dokument popraw stornem.", status=409)
-    if doc.source_type is not None and doc.doc_type != spec.doc_type:
-        raise LedgerError("Typu dokumentu ze źródła się nie zmienia.", status=409)
+    if doc.source_type is not None:
+        # Dekret dokumentu ze źródła (faktura, wyciąg, lista płac) liczy źródło —
+        # ręczna poprawka w buforze rozjechałaby się z nim przy następnym
+        # przeliczeniu (przegląd bezpieczeństwa 14.11.2026).
+        raise LedgerError(
+            "Dokument ze źródła poprawia się w źródle — tu można go tylko zatwierdzić "
+            "albo usunąć.",
+            status=409,
+        )
     await years.period_for(db, doc.op_date)
     year, period = await years.period_for(db, spec.op_date)
     plan = await load_plan(db)
