@@ -14,7 +14,10 @@ Pułapki z kodu Coolify 4.5.3 (``ApplicationsController::update_by_uuid``,
   więc po wygenerowaniu dokładamy retry i wyłączamy przepisywanie;
 - gdy etykiety ``traefik.*`` starego i nowego kontenera się różnią
   (``proxyLabelsChanged``), Coolify zatrzymuje stary bez czekania — etykiety
-  mają być stałe między wdrożeniami (ta funkcja jest idempotentna).
+  mają być stałe między wdrożeniami (ta funkcja jest idempotentna);
+- `retry` Traefika nie ponawia metod nieidempotentnych (POST/PATCH) — front ich
+  nie obsługuje (brak server actions i handlerów zapisu, zapisy idą prosto do API),
+  więc dla niego wystarcza; zapisy backendu chroni łagodne zamknięcie (B2).
 """
 
 from __future__ import annotations
@@ -24,10 +27,24 @@ import binascii
 import re
 from typing import Any
 
-# Coolify: czas na przejęcie ruchu przez nowy kontener i na dokończenie żądań starego.
-SHUTDOWN_SETTINGS = {"rolling_update_drain_seconds": 10, "stop_grace_period": 30}
 _ROUTER_RULE_RE = re.compile(r"traefik\.http\.routers\.([^.=]+)\.rule=")
 _ROUTER_MIDDLEWARES_RE = re.compile(r"traefik\.http\.routers\.([^.=]+)\.middlewares=(.*)")
+
+
+def shutdown_settings(drain_seconds: int = 10, grace_seconds: int = 30) -> dict[str, int]:
+    """Ustawienia Coolify: czas na przejęcie ruchu przez nowy kontener (`drain`)
+    i na dokończenie żądań starego po SIGTERM (`grace`, potem SIGKILL).
+
+    Front (Next standalone) kończy w kilka sekund. Backend (B2) potrzebuje
+    więcej: drenaż po SIGTERM + łagodne zamknięcie uvicorna + lifespan.
+    """
+    if not 0 <= drain_seconds <= 300 or not 1 <= grace_seconds <= 3600:
+        raise ValueError("drain 0–300 s, grace 1–3600 s (limity Coolify 4.5.3)")
+    return {"rolling_update_drain_seconds": drain_seconds, "stop_grace_period": grace_seconds}
+
+
+# Front: wartości domyślne.
+SHUTDOWN_SETTINGS = shutdown_settings()
 
 
 def retry_definition(middleware: str) -> tuple[str, ...]:
