@@ -40,6 +40,7 @@ import {
   DATE_PRESETS,
   isDated,
   itemTitle,
+  changedFields,
   KEYED_OUTCOMES,
   KEYS_RANGE,
   outcomeForKey,
@@ -469,15 +470,17 @@ function ContactEditor({ item, card, onDone }: ContactEditorProps) {
   if (item.record_id === null) return null;
   const recordId = item.record_id;
   const save = () => {
+    // Tylko zmienione pola: niezmieniony numer nie może trafić do kontaktu w kartotece.
+    const changed = changedFields(
+      { person_name: item.person_name, person_title: item.person_title, phone: item.phone, email: card.email, note: card.note },
+      { person_name: personName, person_title: personTitle, phone, email, note },
+    );
+    if (Object.keys(changed).length === 0) {
+      onDone();
+      return;
+    }
     edit
-      .mutateAsync({
-        record_id: recordId,
-        person_name: personName.trim() || null,
-        person_title: personTitle.trim() || null,
-        phone: phone.trim() || null,
-        email: email.trim() || null,
-        note: note.trim() || null,
-      })
+      .mutateAsync({ record_id: recordId, ...changed })
       .then(() => {
         showSuccess("Zapisano dane kontaktowe.");
         onDone();

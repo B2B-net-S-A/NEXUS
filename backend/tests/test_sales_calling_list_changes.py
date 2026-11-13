@@ -454,3 +454,81 @@ async def test_no_call_is_logged_by_the_table_or_the_card_edit(app_client) -> No
         ).all()
     assert count == []
     assert (await _get_record(record_id)).note == "Dzwonić po 10"
+
+
+@pytest.mark.asyncio
+async def test_card_edit_never_overwrites_another_number_of_the_contact(
+    app_client,
+) -> None:
+    """Przegląd 13.11.2026: rekord z numerem biura z listy i kontakt z komórką."""
+
+    caller = await _user("sales_view", "sales_edit")
+    company_id = await _company()
+    contact_id = await _contact(
+        company_id, phone=None, mobile_phone="600 999 888", email="jan@example.com"
+    )
+    record_id = await _record(
+        caller.id,
+        await _campaign(),
+        company_id,
+        contact_id=contact_id,
+        phone="22 555 66 77",
+        email="biuro@example.com",
+    )
+    url = f"{URL}/records/{record_id}"
+    # Same uwagi i te same dane: kontakt bez zmian.
+    resp = await app_client.patch(
+        url,
+        json={"note": "Dzwonić po 10", "phone": "22 555 66 77"},
+        headers=_headers(caller),
+    )
+    assert resp.status_code == 200, resp.text
+    # Nowy numer i adres rekordu nie nadpisują komórki ani adresu osoby z kartoteki.
+    resp = await app_client.patch(
+        url,
+        json={"phone": "22 555 00 00", "email": "nowe-biuro@example.com"},
+        headers=_headers(caller),
+    )
+    assert resp.status_code == 200, resp.text
+    async with AsyncSessionLocal() as db:
+        contact = await db.get(SalesContact, contact_id)
+    assert (contact.mobile_phone, contact.phone, contact.email) == (
+        "600 999 888",
+        None,
+        "jan@example.com",
+    )
+    record = await _get_record(record_id)
+    assert (record.phone, record.email) == ("22 555 00 00", "nowe-biuro@example.com")
+
+
+@pytest.mark.asyncio
+async def test_reminders_skip_records_of_opportunities_out_of_the_queue(
+    app_client,
+) -> None:
+    caller = await _user("sales_view", "sales_edit")
+    company_id = await _company()
+    lost = await _opportunity(caller.id, company_id)
+    async with AsyncSessionLocal() as db:
+        from app.models.sales import SalesOpportunity
+
+        (await db.get(SalesOpportunity, lost)).status = "lost"
+        await db.commit()
+    await _record(
+        caller.id,
+        None,
+        company_id,
+        opportunity_id=lost,
+        state="call_back",
+        callback_on=business_today(),
+    )
+    open_id = await _opportunity(caller.id, await _company())
+    kept = await _record(
+        caller.id,
+        None,
+        await _company(),
+        opportunity_id=open_id,
+        state="call_back",
+        callback_on=business_today(),
+    )
+    mine = (await app_client.get(f"{URL}/reminders", headers=_headers(caller))).json()
+    assert [item["record_id"] for item in mine] == [kept]

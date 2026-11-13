@@ -373,3 +373,15 @@ export function modifiedLabel(
 
 /** `?view=reminders`: link z „Mojego dnia” otwiera Dzwonienie na zakładce „Przypomnienia”. */
 export const REMINDERS_VIEW = "reminders";
+
+type ContactFields = Record<"person_name" | "person_title" | "phone" | "email" | "note", string | null>;
+
+/** Pola edycji kontaktu, które naprawdę się zmieniły (puste = `null`). */
+export function changedFields(before: ContactFields, after: Record<keyof ContactFields, string>): Partial<ContactFields> {
+  const changed: Partial<ContactFields> = {};
+  for (const key of Object.keys(after) as (keyof ContactFields)[]) {
+    const value = after[key].trim() || null;
+    if (value !== ((before[key] ?? "").trim() || null)) changed[key] = value;
+  }
+  return changed;
+}

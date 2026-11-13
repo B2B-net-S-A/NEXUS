@@ -378,7 +378,7 @@ async def my_records(
     """Widok „Tabela”: rekordy zalogowanej osoby albo wszystkich, z filtrem po wyniku.
 
     „Wszyscy” (decyzja Artura 12.11.2026) widzi każdy z „Sprzedaż: podgląd”: handlowiec
-    ma wiedzieć, do jakich firm i kto dzwoni. Zapis wyniku dalej tylko przypisany albo admin.
+    ma wiedzieć, do jakich firm i kto dzwoni. Wynik zapisuje każdy z „Sprzedaż: edycja” (13.11.2026).
     """
 
     if state is not None and state not in calling.TABLE_STATES:

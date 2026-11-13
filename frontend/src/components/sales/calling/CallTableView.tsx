@@ -49,8 +49,8 @@ interface CallTableViewProps {
  * Dzwonienie → „Tabela” (decyzja Artura 11.11.2026): ta sama lista co kolejka, ale cała,
  * z filtrem po wyniku i kolorami jak w legendzie Excela. Klik w wiersz otwiera tę samą
  * kartę rozmowy z tymi samymi wynikami i klawiszami. „Wszyscy” (decyzja Artura 12.11.2026)
- * pokazuje listy każdego dzwoniącego z kolumną „Kto dzwoni”; cudzy rekord otwiera się do
- * czytania, wynik zapisuje osoba przypisana albo admin.
+ * pokazuje listy każdego dzwoniącego z kolumną „Kto dzwoni”. Od 13.11.2026 wynik w cudzym
+ * rekordzie zapisuje każdy z „Sprzedaż: edycja”.
  */
 export function CallTableView({ today, campaignId, canEdit, meetingStage }: CallTableViewProps) {
   const [state, setState] = useState<RecordState | null>(null);

@@ -488,11 +488,11 @@ describe("kolejka", () => {
     fireEvent.change(screen.getByLabelText("Telefon"), { target: { value: " 601 222 333 " } });
     fireEvent.change(screen.getByLabelText("Adres e-mail"), { target: { value: "nowy@firma-testowa.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz dane" }));
-    expect(editRecord.mock.calls[0][0]).toMatchObject({
+    // Tylko zmienione pola: niezmieniona osoba i uwagi nie idą do zapisu.
+    expect(editRecord.mock.calls[0][0]).toEqual({
       record_id: 1,
       phone: "601 222 333",
       email: "nowy@firma-testowa.example",
-      person_name: "Jan Testowy",
     });
     await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zapisano dane kontaktowe."));
   });

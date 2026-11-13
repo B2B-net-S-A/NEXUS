@@ -77,7 +77,7 @@ def facts_summary(
     facts: dict[str, Any], *, callback_on: Optional[date], call_note: Optional[str]
 ) -> str:
     person = ", ".join(
-        part for part in (facts.get("person"), facts.get("title")) if part
+        part for part in (facts.get("person_name"), facts.get("title")) if part
     )
     lines = [
         f"Osoba: {person}" if person else None,

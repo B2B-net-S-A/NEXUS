@@ -1469,8 +1469,9 @@ async def edit_record(
 ) -> None:
     """Poprawia dane osoby na rekordzie i w kontakcie kartoteki; bez commita.
 
-    Ustawione pola (``model_fields_set``) przechodzą także do kontaktu, żeby karta
-    firmy i kolejne listy widziały ten sam numer i adres.
+    Zmienione pola przechodzą też do kontaktu, ale tylko tam, gdzie kontakt miał tę
+    samą wartość co rekord (albo pustą): numer z listy nie nadpisuje innego numeru
+    osoby w kartotece (przegląd 13.11.2026: komórka znikała przy zmianie samych uwag).
     """
 
     _ensure_open(record)
@@ -1485,9 +1486,14 @@ async def edit_record(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Niepoprawny adres e-mail.",
             )
-        record.email = valid_email(email) if email else None
-        if contact is not None:
-            contact.email = record.email
+        new_email = valid_email(email) if email else None
+        if new_email != record.email:
+            if contact is not None and valid_email(contact.email) in (
+                None,
+                record.email,
+            ):
+                contact.email = new_email
+            record.email = new_email
     if "phone" in fields:
         phone = _clean(payload.phone)
         if phone is not None and phone_digits(phone) is None:
@@ -1495,25 +1501,50 @@ async def edit_record(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Niepoprawny numer telefonu.",
             )
-        record.phone = phone
-        if contact is not None:
-            if contact.mobile_phone:
-                contact.mobile_phone = phone
-            else:
-                contact.phone = phone
+        old = phone_digits(record.phone)
+        if phone_digits(phone) != old:
+            if contact is not None:
+                _replace_contact_phone(contact, old, phone)
+            record.phone = phone
     if "person_name" in fields:
-        record.person_name = _clean(payload.person_name)
-        if contact is not None and record.person_name:
-            contact.full_name = record.person_name
+        name = _clean(payload.person_name)
+        if name != record.person_name:
+            if (
+                contact is not None
+                and name
+                and contact.full_name
+                in (
+                    record.person_name,
+                    None,
+                    "",
+                )
+            ):
+                contact.full_name = name
+            record.person_name = name
     if "person_title" in fields:
-        record.person_title = _clean(payload.person_title)
-        if contact is not None:
-            contact.title = record.person_title
+        title = _clean(payload.person_title)
+        if title != record.person_title:
+            if contact is not None and contact.title in (record.person_title, None, ""):
+                contact.title = title
+            record.person_title = title
     if "note" in fields:
         record.note = (payload.note or "").strip() or None
     # Sama zmiana kontaktu też jest „ostatnią modyfikacją” rekordu w Tabeli.
     record.updated_at = func.now()
     await db.flush()
+
+
+def _replace_contact_phone(
+    contact: SalesContact, old_digits: Optional[str], phone: Optional[str]
+) -> None:
+    """Nowy numer tam, gdzie kontakt trzymał stary numer rekordu; pusty kontakt go dostaje."""
+
+    if old_digits is not None and phone_digits(contact.mobile_phone) == old_digits:
+        contact.mobile_phone = phone
+    elif old_digits is not None and phone_digits(contact.phone) == old_digits:
+        contact.phone = phone
+    elif not contact.phone and not contact.mobile_phone:
+        contact.phone = phone
 
 
 async def change_state(
@@ -1584,9 +1615,27 @@ async def reminders(
         select(SalesCallRecord, SalesCompany.name, SalesCallCampaign.name, User.name),
         user_id,
     ).outerjoin(User, User.id == SalesCallRecord.assigned_user_id)
+    # Rekord szansy przypomina tylko, dopóki szansa jest w kolejce (otwarta, etap
+    # „Lead” albo „Spotkanie kwalifikujące”); po przegranej czy dalszym etapie wynik
+    # z karty dawałby 409, a przypomnienie wisiałoby co dzień jako zaległe.
+    queued_opportunity = (
+        select(SalesOpportunity.id)
+        .join(SalesPipelineStage, SalesPipelineStage.id == SalesOpportunity.stage_id)
+        .join(SalesPipeline, SalesPipeline.id == SalesOpportunity.pipeline_id)
+        .where(
+            SalesOpportunity.status == "open",
+            SalesOpportunity.archived_at.is_(None),
+            SalesPipeline.key == QUEUE_PIPELINE_KEY,
+            SalesPipelineStage.key.in_((LEAD_STAGE_KEY, MEETING_STAGE_KEY)),
+        )
+    )
     query = query.where(
         SalesCallRecord.state.in_(REMINDER_STATES),
         SalesCallRecord.callback_on.is_not(None),
+        or_(
+            SalesCallRecord.campaign_id.is_not(None),
+            SalesCallRecord.opportunity_id.in_(queued_opportunity),
+        ),
     )
     if until is not None:
         query = query.where(SalesCallRecord.callback_on <= until)
