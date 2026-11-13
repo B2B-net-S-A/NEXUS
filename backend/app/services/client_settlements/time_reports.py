@@ -268,7 +268,7 @@ async def _contracts(db: AsyncSession, client_id: int) -> dict[int, _Contract]:
         contract.id: _Contract(
             contract,
             name or f"Kontrakt {contract.id}",
-            frozenset(name_tokens(name or "")),
+            _tokens(name),
         )
         for contract, name in rows.all()
     }
@@ -294,7 +294,14 @@ def _pick_contract(
     return best.contract.id
 
 
-def _same_person(report_tokens: set[str], contract_tokens: frozenset[str]) -> bool:
+def _tokens(text: Optional[str]) -> frozenset[str]:
+    """Imię i nazwisko bez znaków diakrytycznych; „ł” NFKD nie rozkłada."""
+
+    folded = (text or "").replace("ł", "l").replace("Ł", "L")
+    return frozenset(name_tokens(folded))
+
+
+def _same_person(report_tokens: frozenset[str], contract_tokens: frozenset[str]) -> bool:
     """Imię i nazwisko z raportu ↔ z kontraktu; drugie imię po jednej stronie nie przeszkadza."""
 
     if len(report_tokens) < 2 or len(contract_tokens) < 2:
@@ -331,7 +338,7 @@ async def suggest_from_report(
     for number, name in sorted(people.items()):
         if number in known_numbers:
             continue
-        tokens = name_tokens(name or "")
+        tokens = _tokens(name)
         matches = [
             c
             for c in contracts
