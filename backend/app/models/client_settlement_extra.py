@@ -1,4 +1,4 @@
-"""Dokumenty dodatków do rozliczenia kontraktora (0690). Sam dodatek
+"""Dokumenty dodatków do rozliczenia kontraktora (0691). Sam dodatek
 (``ClientSettlementExtra``) jest w ``app/models/client_settlement.py``.
 
 CHECK-i i indeksy jak w ``app/services/client_settlement_extras_schema.py``

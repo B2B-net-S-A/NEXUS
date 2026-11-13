@@ -36,6 +36,11 @@ def _invoice(net: str) -> SimpleNamespace:
         seller_name="Firma",
         seller_nip="9980000000",
         buyer_nip=None,
+        # Pola korekt i białej listy z E4 (``invoice_chain``): zwykła faktura.
+        invoice_type="Vat",
+        details=None,
+        vat_amount=Decimal(net) * Decimal("0.23"),
+        vat_whitelist=None,
     )
 
 

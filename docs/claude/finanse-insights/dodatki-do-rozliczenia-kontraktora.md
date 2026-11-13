@@ -1,5 +1,5 @@
 # Finanse → Rozliczenia: dodatki do rozliczenia kontraktora (polecenie, weryfikacja, szkolenie, delegacja)
-<!-- indeks: tabela client_settlement_extras (0689 + 0690), jeden model kosztów dodatkowych z integracją BNP, zgłoszenie z karty sprawy, Finanse zatwierdzają, panel: delegacja z dokumentem, ci.amount = wyliczenie + zatwierdzone dodatki, extra_pending, cl.extra_costs_on_invoice -->
+<!-- indeks: tabela client_settlement_extras (0690 + 0691), jeden model kosztów dodatkowych z integracją BNP, zgłoszenie z karty sprawy, Finanse zatwierdzają, panel: delegacja z dokumentem, ci.amount = wyliczenie + zatwierdzone dodatki, extra_pending, cl.extra_costs_on_invoice -->
 
 Potrzeba Finansów z 13.11.2026, decyzja Artura „robimy teraz”. Kontraktor dolicza do
 faktury kwoty spoza godzin: premię za polecenie, weryfikację techniczną (zleca ją

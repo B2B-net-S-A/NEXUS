@@ -1,4 +1,4 @@
-"""Dodatki do rozliczenia kontraktora: SQL migracji ``0690_settlement_extra_sources``
+"""Dodatki do rozliczenia kontraktora: SQL migracji ``0691_settlement_extra_sources``
 i lustra entrypointu (przez ``app/services/hr_schema_bundle.py``).
 
 Potrzeba Finansów z 13.11.2026: kontraktor dolicza do faktury kwoty spoza
@@ -7,7 +7,7 @@ Dodatek to wiersz na (kontrakt, miesiąc) z rodzajem, kwotą netto, źródłem
 i stanem. Ta sama tabela trzyma koszty integracji BNP (rodzaj ``integration``,
 reguła ``cl.integration_costs``, zgoda DL-a) — jeden model kosztów dodatkowych.
 
-* ``client_settlement_extras`` (0689 + kolumny 0690) — ``status``: ``pending`` (zgłoszony),
+* ``client_settlement_extras`` (0690 + kolumny 0691) — ``status``: ``pending`` (zgłoszony),
   ``approved`` (zatwierdzony: liczy się do kwoty faktury kontraktora),
   ``rejected`` (odrzucony z powodem). ``source``: ``back_office`` (karta sprawy),
   ``finance`` (Finanse na karcie osoby), ``portal`` (konsultant w panelu).
@@ -17,7 +17,7 @@ reguła ``cl.integration_costs``, zgoda DL-a) — jeden model kosztów dodatkowy
   bilety) w magazynie ``documents_store`` (``hr_documents/settlement_extras/``).
 
 Tabelę ``client_settlement_extras`` z rodzajem, kwotą, opisem i stanem zakłada
-0689 (``client_settlements_schema``, koszty integracji). Tu kolumny pozostałych
+0690 (``client_settlements_schema``, koszty integracji). Tu kolumny pozostałych
 rodzajów (``ADD COLUMN IF NOT EXISTS``) i tabela dokumentów.
 """
 
@@ -42,7 +42,7 @@ EXCEPTION WHEN duplicate_object THEN NULL;
 END $$"""
 
 
-#: Kolumny dokładane do ``client_settlement_extras`` z 0689 (downgrade je zdejmuje).
+#: Kolumny dokładane do ``client_settlement_extras`` z 0690 (downgrade je zdejmuje).
 ADDED_COLUMNS: tuple[str, ...] = (
     "source",
     "bo_card_id",

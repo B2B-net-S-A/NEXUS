@@ -87,7 +87,7 @@ MODULES = (
     bonus_guarantee,
     # 0679: rozliczenia klientów E1 (09.11.2026).
     client_settlements,
-    # 0690: dodatki do rozliczenia kontraktora (13.11.2026).
+    # 0691: dodatki do rozliczenia kontraktora (13.11.2026).
     settlement_extras,
 )
 

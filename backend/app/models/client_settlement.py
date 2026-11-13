@@ -277,7 +277,7 @@ class ClientSettlementExtra(Base):
     status: Mapped[str] = mapped_column(
         String(10), nullable=False, server_default="pending", default="pending"
     )
-    # 0690: źródło zgłoszenia, karta sprawy, fakturowanie klientowi, powód decyzji
+    # 0691: źródło zgłoszenia, karta sprawy, fakturowanie klientowi, powód decyzji
     # (``client_settlement_extras_schema``).
     source: Mapped[str] = mapped_column(
         String(12), nullable=False, server_default="finance", default="finance"
