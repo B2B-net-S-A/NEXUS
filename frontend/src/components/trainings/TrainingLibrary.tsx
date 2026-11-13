@@ -151,7 +151,7 @@ export function TrainingLibrary({ library, onRegister, getMediaUrl, onDownload, 
         </section>
       ) : null}
 
-      <section aria-label="Nagrania" className="space-y-3">
+      <section aria-label="Nagrania" className="space-y-3" data-tour="trainings.library">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-foreground">Nagrania</h2>
           <div className="relative w-full sm:w-72">

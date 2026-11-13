@@ -2784,5 +2784,17 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "jobs.chat.compose"
+  },
+  {
+    "id": "szkolenia-biblioteka-nagran",
+    "pr": 3386,
+    "title": "Szkolenia: nagrania, materiały i zapisy w NEXUSIE",
+    "why": "W menu jest nowa pozycja „Szkolenia”. Obejrzysz tam nagrania ze szkoleń z podziałem na rozdziały, pobierzesz materiały i zapiszesz się na najbliższe szkolenie na żywo.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
+    "where": "Menu → Firma → Szkolenia",
+    "href": "/trainings",
+    "dot_anchor": "trainings.library"
   }
 ]
