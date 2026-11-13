@@ -1,4 +1,4 @@
-// Księgowość → księga NEXUSA (K1, 0699): dokumenty, dziennik, obroty, plan kont.
+// Księgowość → księga NEXUSA (K1, 0700): dokumenty, dziennik, obroty, plan kont.
 //
 // Lustro `backend/app/api/ledger.py`. Bramki: „Moduł Finanse” i przełącznik
 // modułu `ledger` (wyłączony = 404, admin widzi zawsze). Kto zatwierdza, robi

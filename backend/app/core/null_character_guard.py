@@ -19,9 +19,21 @@ scan and is never parsed here.
 Not covered: multipart and urlencoded form bodies (buffering uploads here
 would be worse than the gap), headers, and WebSocket or lifespan scopes,
 which pass through untouched.
+
+Unpaired UTF-16 surrogates (pentest 13.11.2026). ``{"email": "\\ud800"}`` is
+valid JSON and ``json.loads`` turns it into a str that UTF-8 cannot encode, so
+it failed twice: FastAPI's 422 echoes the ``input`` and rendering that response
+raised ``UnicodeEncodeError`` (500 on every route with a body, anonymously on
+``/api/auth/login``), and a value that passed validation broke later in bcrypt
+or asyncpg. In a JSON body the only source of such a character is a ``\\uD800``
+to ``\\uDFFF`` escape (a pair becomes one ordinary character), so the same
+guard rejects it with a 422; the echoed ``input`` has it replaced by ``?``.
+Query strings and the path are decoded by the server with replacement and
+cannot carry one.
 """
 
 import json
+import re
 from itertools import islice
 from typing import Any, Iterator, Union
 from urllib.parse import parse_qsl
@@ -32,9 +44,13 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from app.core.body_size_limit import REQUEST_BODY_METHODS
 
 NULL_CHARACTER_ERROR_TYPE = "null_character"
+LONE_SURROGATE_ERROR_TYPE = "lone_surrogate"
 
 _NUL = "\x00"
 _MESSAGE = "Value must not contain the NUL character (U+0000)"
+_SURROGATE_MESSAGE = "Value must not contain an unpaired UTF-16 surrogate"
+# Ucieczka surogatu w surowym JSON-ie: tylko wtedy ciało warto parsować.
+_SURROGATE_ESCAPE = re.compile(rb"\\u[dD][89a-fA-F]")
 _MAX_ERRORS = 20
 _MAX_INPUT_CHARS = 100
 # Ta sama stała co limit ciała: każda metoda buforowana tutaj musi mieć limit
@@ -51,6 +67,28 @@ def _error(loc: Loc, value: str) -> dict[str, Any]:
         "msg": _MESSAGE,
         "input": value[:_MAX_INPUT_CHARS],
     }
+
+
+def _has_lone_surrogate(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
+def _string_error(loc: Loc, value: str) -> dict[str, Any] | None:
+    if _has_lone_surrogate(value):
+        shown = value[:_MAX_INPUT_CHARS].encode("utf-8", "replace").decode("utf-8")
+        return {
+            "type": LONE_SURROGATE_ERROR_TYPE,
+            "loc": loc,
+            "msg": _SURROGATE_MESSAGE,
+            "input": shown,
+        }
+    if _NUL in value:
+        return _error(loc, value)
+    return None
 
 
 def _query_errors(query_string: bytes) -> list[dict[str, Any]]:
@@ -72,10 +110,15 @@ def _json_errors(document: Any) -> Iterator[dict[str, Any]]:
     while stack:
         loc, value = stack.pop()
         if isinstance(value, str):
-            if _NUL in value:
-                yield _error(loc, value)
+            error = _string_error(loc, value)
+            if error is not None:
+                yield error
         elif isinstance(value, dict):
             for key, item in reversed(list(value.items())):
+                if _has_lone_surrogate(key):
+                    # Klucz trafia do ``loc`` odpowiedzi — musi dać się zakodować.
+                    yield _string_error(["body"], key)
+                    continue
                 stack.append(([*loc, key], item))
                 if _NUL in key:
                     stack.append(([*loc, key], key))
@@ -130,7 +173,11 @@ class NullCharacterGuardMiddleware:
         payload = bytes(body)
         del body
 
-        if not trailing and (b"\\u0000" in payload or b"\x00" in payload):
+        if not trailing and (
+            b"\\u0000" in payload
+            or b"\x00" in payload
+            or _SURROGATE_ESCAPE.search(payload)
+        ):
             try:
                 document = json.loads(payload)
             except (ValueError, RecursionError):

@@ -407,7 +407,6 @@ _PUBLIC_WITHOUT_RATE_LIMIT: set[tuple[str, str]] = {
     ("GET", "/api/health"),
     ("GET", "/api/health/alembic"),
     ("GET", "/api/health/background"),
-    ("GET", "/api/health/deep"),
     ("GET", "/api/health/live"),
     ("POST", "/api/autenti/webhook"),
     ("POST", "/api/microsoft365/webhooks"),

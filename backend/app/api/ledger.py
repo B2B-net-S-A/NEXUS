@@ -1,4 +1,4 @@
-"""Księgowość → księga NEXUSA (K1, 0699): dokumenty, dziennik, obroty, plan kont.
+"""Księgowość → księga NEXUSA (K1, 0700): dokumenty, dziennik, obroty, plan kont.
 
 Prefiks ``/api/accounting`` (``app/main.py``, za wyłącznikiem programu „Ludzi
 w NEXUSIE” jak reszta Finansów). Bramki: sekcja Finanse (router), uprawnienie

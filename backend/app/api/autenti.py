@@ -370,9 +370,11 @@ async def receive_autenti_webhook(
         claims = await verify_jwt(token)
     except AutentiWebhookError as exc:
         logger.warning("Autenti webhook JWT verification failed: %s", exc)
+        # Szczegół zostaje w logu; anonimowy nadawca nie dowie się, czy padł
+        # kid, podpis czy wiek tokenu (pentest 13.11.2026).
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Webhook signature invalid: {exc}",
+            detail="Webhook signature invalid",
         )
 
     outcome = await handle_event(db, claims)

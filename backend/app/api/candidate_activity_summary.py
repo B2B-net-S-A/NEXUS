@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import OperationalUser
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.services.ai_quota import AIQuotaExceeded
 from app.services.candidate_activity_summary_service import (
     CandidateActivitySummaryBusy,
@@ -111,7 +111,7 @@ async def get_activity_summary(
     "/{candidate_id}/activity-summary/refresh",
     response_model=CandidateActivitySummaryOut,
 )
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def refresh_activity_summary(
     request: Request,
     candidate_id: int,

@@ -6612,7 +6612,7 @@ async def remove_candidate_document(
 
 
 @router.post("/{candidate_id}/cv/reparse", status_code=202)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def reparse_primary_cv(
     request: Request,
     candidate_id: DbIdPath,

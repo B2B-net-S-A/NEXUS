@@ -54,6 +54,7 @@ PROGRAM_API_MODULES = {
     "app.api.trainings",
     "app.api.trainings_media",
     "app.api.finance_ledger",
+    "app.api.finance_payments",
     "app.api.finance_posting",
     "app.api.ledger",
 }
@@ -72,6 +73,7 @@ PROGRAM_PREFIXES = (
     "/api/finance/sales-invoices",
     "/api/finance/costs",
     "/api/finance/counterparties",
+    "/api/finance/payments",
     "/api/accounting",
 )
 

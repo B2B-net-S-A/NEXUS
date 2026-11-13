@@ -54,6 +54,8 @@ Flag = Literal["mpp", "no_mpp", "hold_payment", "tax_office_account", "duplicate
 FlagFilter = Literal[
     "mpp", "no_mpp", "hold_payment", "tax_office_account", "duplicate", "none"
 ]
+#: Filtr „Zapłata” (E3, ``finance_payments``).
+PaymentFilter = Literal["unpaid", "in_batch", "paid", "partially_paid"]
 
 
 class ModuleIn(BaseModel):
@@ -136,12 +138,15 @@ async def list_costs(
     q: Optional[str] = Query(None, max_length=120),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    payment: Optional[PaymentFilter] = Query(None),
 ) -> dict[str, Any]:
     await _open(db, current_user)
     return await costs.list_view(
         db,
         stage=stage,
-        filters=costs.Filters(month=_month(month), category=category, flag=flag, q=q),
+        filters=costs.Filters(
+            month=_month(month), category=category, flag=flag, q=q, payment=payment
+        ),
         limit=limit,
         offset=offset,
         viewer_id=current_user.id,

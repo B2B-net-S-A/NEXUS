@@ -1,4 +1,4 @@
-"""Księga NEXUSA (K1, 0699) — reguły bez bazy.
+"""Księga NEXUSA (K1, 0700) — reguły bez bazy.
 
 Konto pozycji (dokładne, wyłączone, z analityką pod sobą, analityka słownika,
 konto bez słownika), bilans dekretu, storno czerwone, czyszczenie pozycji

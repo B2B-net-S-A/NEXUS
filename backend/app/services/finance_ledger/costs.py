@@ -57,6 +57,7 @@ from app.models.hr_payroll import PayrollPeriod
 from app.models.hr_settlement import PayrollInvoice, PayrollSettlement
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
+from app.services.finance_ledger import payment_state
 from app.services.finance_ledger_schema import (
     CATEGORIES,
     FLAGS,
@@ -104,6 +105,7 @@ ACTION_LABELS = {
     "category": "Kategoria",
     "note": "Notatka",
     "due_date": "Termin płatności",
+    "account": "Rachunek odbiorcy",
     "decree": "Dekret",
     "export": "W paczce eksportu",
     "unexport": "Paczka anulowana",
@@ -293,6 +295,8 @@ class Filters:
     category: Optional[str] = None
     flag: Optional[str] = None
     q: Optional[str] = None
+    #: Stan zapłaty (E3): ``unpaid / in_batch / paid / partially_paid``.
+    payment: Optional[str] = None
 
 
 def _joined(src):
@@ -340,6 +344,8 @@ def _conditions(src, filters: Filters) -> list[Any]:
                 entry.seller_nip.ilike(pattern),
             )
         )
+    if filters.payment:
+        conditions.append(payment_state.condition(filters.payment))
     return conditions
 
 
@@ -568,6 +574,7 @@ async def list_view(
             for row in rows
         ],
     )
+    paid = await payment_state.for_entries(db, [row.FinanceCostEntry for row in rows])
     items = []
     for row in rows:
         entry = row.FinanceCostEntry
@@ -575,6 +582,7 @@ async def list_view(
         payload["own"] = (
             row.person_user_id is not None and row.person_user_id == viewer_id
         )
+        payload["payment"] = paid.get(entry.id)
         items.append(payload)
     return {
         "stage": stage,
@@ -722,7 +730,8 @@ def _apply_flag(
     actor_id: int,
     now: datetime,
 ) -> bool:
-    if entry.stage == "booked":
+    # Flagi płatności nie zmieniają dekretu — wolno je i po zaksięgowaniu (E3).
+    if entry.stage == "booked" and flag not in payment_state.PAYMENT_FLAGS:
         raise LedgerError(BOOKED_DETAIL)
     if not flag:
         raise LedgerError("Wybierz flagę.", status=422)
@@ -764,6 +773,9 @@ async def act(
     if action == "reject":
         reason = clean_reason(reason)
     unique = list(dict.fromkeys(ids))[:BULK_MAX]
+    payment_flag = action in FLAG_ACTIONS and flag in payment_state.PAYMENT_FLAGS
+    if payment_flag:
+        await payment_state.lock_batches(db)
     entries = list(
         await db.scalars(
             select(FinanceCostEntry)
@@ -779,6 +791,9 @@ async def act(
         if entry_id not in found
     ]
     own = await _own_entry_ids(db, entries, actor_id)
+    waiting = (
+        await payment_state.waiting_entry_ids(db, found) if payment_flag else set()
+    )
     from app.services.finance_ledger import posting  # noqa: PLC0415
 
     ctx = (
@@ -791,6 +806,11 @@ async def act(
         if entry.id in own:
             refused.append(
                 {"id": entry.id, "detail": OWN_INVOICE_DETAIL, "status": 403}
+            )
+            continue
+        if entry.id in waiting:
+            refused.append(
+                {"id": entry.id, "detail": payment_state.IN_BATCH_DETAIL, "status": 409}
             )
             continue
         try:
@@ -832,6 +852,8 @@ async def update(
 ) -> None:
     """Kategoria, flagi, termin płatności i notatka jednej faktury."""
 
+    if "flags" in changes:
+        await payment_state.lock_batches(db)
     entry = await db.scalar(
         select(FinanceCostEntry)
         .where(FinanceCostEntry.id == entry_id, *_payroll_scope(payroll))
@@ -841,9 +863,20 @@ async def update(
         raise LedgerError("Nie ma takiej faktury w kolejce.", status=404)
     if entry.id in await _own_entry_ids(db, [entry], actor_id):
         raise LedgerError(OWN_INVOICE_DETAIL, status=403)
-    locked = {"category", "flags", "due_date"} & set(changes)
-    if entry.stage == "booked" and locked:
+    # Flagi płatności i termin nie zmieniają dekretu — wolno je po zaksięgowaniu
+    # (E3); kategoria i „Duplikat” zostają zamknięte.
+    flag_change: set[str] = set()
+    if "flags" in changes:
+        flag_change = set(clean_flags(changes["flags"] or [])) ^ set(entry.flags or [])
+    if entry.stage == "booked" and (
+        "category" in changes
+        or any(flag not in payment_state.PAYMENT_FLAGS for flag in flag_change)
+    ):
         raise LedgerError(BOOKED_DETAIL)
+    if flag_change & set(payment_state.PAYMENT_FLAGS) and (
+        await payment_state.waiting_entry_ids(db, [entry.id])
+    ):
+        raise LedgerError(payment_state.IN_BATCH_DETAIL)
     if "category" in changes:
         category = changes["category"]
         if category not in CATEGORIES:

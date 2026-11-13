@@ -11,6 +11,7 @@ export type FinanceViewMode =
   | "settlements"
   | "costs"
   | "counterparties"
+  | "payments"
   | "booking"
   | "accounts";
 
@@ -26,6 +27,7 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "settlements",
   "costs",
   "counterparties",
+  "payments",
   "booking",
   "accounts",
 ];

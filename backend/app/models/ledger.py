@@ -1,4 +1,4 @@
-"""Księga NEXUSA (K1, 0699): lata, okresy, dokumenty z dekretem, dziennik, ślad.
+"""Księga NEXUSA (K1, 0700): lata, okresy, dokumenty z dekretem, dziennik, ślad.
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/ledger_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).

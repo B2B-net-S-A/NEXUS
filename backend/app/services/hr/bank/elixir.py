@@ -5,7 +5,9 @@ linie tekstu rozdzielone ``|`` (4 × 35 znaków), kodowanie windows-1250,
 koniec linii CRLF. Pola: typ (110 — przelew), data RRRRMMDD, kwota w groszach,
 numer rozliczeniowy banku nadawcy, 0, rachunek nadawcy, rachunek odbiorcy,
 nazwa nadawcy, nazwa odbiorcy, 0, numer rozliczeniowy banku odbiorcy, tytuł,
-dwa puste pola, klasyfikacja „51”. Ten układ przyjmuje import przelewów
+dwa puste pola, klasyfikacja („51” — zwykły przelew, „53” — komunikat
+podzielonej płatności MPP, pole ``TransferRow.classification``; tytuł MPP
+``/VAT/…/IDC/…/INV/…/TXT/…`` składa wywołujący). Ten układ przyjmuje import przelewów
 większości bankowości firmowych; przed pierwszym użyciem trzeba go sprawdzić
 w banku firmy (raport etapu 4).
 
@@ -30,6 +32,8 @@ from app.services.hr.bank.titles import LINE_LENGTH, MAX_LINES, clean
 
 TRANSFER_TYPE = "110"
 CLASSIFICATION = "51"
+#: Komunikat przelewu w mechanizmie podzielonej płatności (Elixir-O, pole 15).
+CLASSIFICATION_MPP = "53"
 ENCODING = "windows-1250"
 
 
@@ -40,6 +44,7 @@ class TransferRow:
     amount: Decimal
     title_lines: tuple[str, ...]
     execution_date: date
+    classification: str = CLASSIFICATION
 
 
 @dataclass(frozen=True)
@@ -96,7 +101,7 @@ def elixir_line(row: TransferRow, sender: Sender) -> str:
         _quoted(row.title_lines[:MAX_LINES]),
         '""',
         '""',
-        f'"{CLASSIFICATION}"',
+        f'"{row.classification}"',
     ]
     return ",".join(fields)
 
@@ -140,6 +145,8 @@ def render_csv(rows: Sequence[TransferRow]) -> bytes:
 
 
 __all__ = [
+    "CLASSIFICATION",
+    "CLASSIFICATION_MPP",
     "CSV_COLUMNS",
     "ENCODING",
     "Sender",

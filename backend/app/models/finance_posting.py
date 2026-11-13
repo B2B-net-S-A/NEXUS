@@ -37,7 +37,7 @@ class FinanceAccount(Base):
     __tablename__ = "finance_accounts"
     __table_args__ = (
         UniqueConstraint("number", name="uq_finance_accounts_number"),
-        # 0699 (K1): rodzaj ``other`` dla kont spoza dekretu faktur.
+        # 0700 (K1): rodzaj ``other`` dla kont spoza dekretu faktur.
         CheckConstraint(ledger_schema.CK_ACCOUNT_KIND, name="ck_finance_accounts_kind"),
         CheckConstraint(ledger_schema.CK_ACCOUNT_TYPE, name="ck_finance_accounts_type"),
         CheckConstraint(
@@ -52,7 +52,7 @@ class FinanceAccount(Base):
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
     )
-    # 0699 (K1, księga NEXUSA): syntetyka, typ konta, słownik analityki,
+    # 0700 (K1, księga NEXUSA): syntetyka, typ konta, słownik analityki,
     # pozycja sprawozdania (opis w ``app/services/ledger_schema.py``).
     parent_number: Mapped[Optional[str]] = mapped_column(
         String(schema.ACCOUNT_MAX), nullable=True

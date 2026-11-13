@@ -112,4 +112,11 @@ def user_or_ip_key(request: Request) -> str:
 # Naprawą było USUNIĘCIE tej trasy poza dev-em (``main.py``, ``openapi_url=None``
 # przy ``DEBUG=false``), a nie limit globalny — trasa wbudowana FastAPI i tak
 # nie ma dekoratora, więc dekoratorowa ścieżka slowapi nigdy by jej nie objęła.
-limiter = Limiter(key_func=client_ip_key, default_limits=[])
+# ``key_style="endpoint"``: kubełek per funkcja trasy, nie per adres URL.
+# Domyślne ``"url"`` (slowapi 0.1.10) liczyło osobno każdą wartość parametru
+# ścieżki, więc trasa z tokenem albo id była w praktyce bez limitu — pentest
+# stagingu 13.11.2026: 35 różnych tokenów na ``/api/public/b2b-sign/{token}``
+# dało zero 429. Trasa za logowaniem z ``{id}`` potrzebuje przez to klucza po
+# użytkowniku (``user_or_ip_key``), inaczej całe biuro za NAT-em dzieli jeden
+# kubełek; pilnuje tego ``tests/test_rate_limit_per_endpoint_guard.py``.
+limiter = Limiter(key_func=client_ip_key, default_limits=[], key_style="endpoint")

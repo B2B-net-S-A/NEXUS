@@ -1,4 +1,4 @@
-# Księga NEXUSA (K1, 0699, 13.11.2026): lata, okresy, dokumenty, dziennik, plan kont
+# Księga NEXUSA (K1, 0700, 13.11.2026): lata, okresy, dokumenty, dziennik, plan kont
 
 Decyzje Artura z 13.11.2026: Symfonia FK, Symfonia Środki Trwałe i Enova 365
 przechodzą do NEXUSA etapami K1–K9 (plan z makietami:

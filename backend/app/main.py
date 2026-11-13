@@ -251,6 +251,7 @@ from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
+from app.api import finance_payments as finance_payments_api
 from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
 from app.api import hr_lifecycle as hr_lifecycle_api
@@ -1448,6 +1449,9 @@ app.add_middleware(
         "X-Generated-Contract-Id",
         # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
         "X-Document-Id",
+        # Paczka przelewów kosztów (finance_payments.py).
+        "X-Batch-File-Sha256",
+        "X-Batch-File-Changed",
         # Paczka eksportu do Symfonii FK (finance_posting.py).
         "X-File-SHA256",
         # Paczka CV (candidates.py).
@@ -2276,6 +2280,13 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
+# Księgowość E3 (0699): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
+app.include_router(
+    finance_payments_api.router,
+    prefix="/api/finance/payments",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
 # Księgowość E2 (0698): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
 app.include_router(
     finance_posting_api.router,
@@ -2283,7 +2294,7 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
-# Księga NEXUSA (K1, 0699): dokumenty, dziennik, obroty, plan kont — `/accounting`.
+# Księga NEXUSA (K1, 0700): dokumenty, dziennik, obroty, plan kont — `/accounting`.
 app.include_router(
     ledger_api.router,
     prefix="/api/accounting",
@@ -3594,8 +3605,59 @@ async def api_health_alembic():
     return JSONResponse(content=out, status_code=http_status.HTTP_200_OK)
 
 
+# Pentest stagingu 13.11.2026: anonim dostawał listę ok. 210 tabel, raport
+# dryfu schematu, kolację i liczby z importu portfela klientów, a każde
+# wywołanie to ok. 210 zapytań do bazy — bez limitu. Deploy (``deploy.yml``)
+# czyta wyłącznie ``status``, ``version``, ``checks``/``errors`` (do logu) i
+# ``postgres_started_at``, więc tylko to zostaje anonimowi, a w ``checks`` —
+# tylko sondy padnięte. Pełny raport: zalogowany admin. Deploy woła sondę
+# najwyżej ok. 4 razy na minutę (co 15 s), stąd 10/min per IP.
+_DEEP_HEALTH_PUBLIC_FIELDS = ("status", "version", "postgres_started_at")
+
+
+async def _deep_health_viewer_is_admin(request: Request) -> bool:
+    """Pełny raport ``/api/health/deep`` tylko dla zalogowanego admina.
+
+    Sonda zostaje bez wymaganego logowania (deploy nie loguje się), więc token
+    sprawdzamy tylko, gdy przyszedł; każdy błąd = wersja anonimowa.
+    """
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.api.deps import get_authenticated_user
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import UserRole
+
+    try:
+        async with AsyncSessionLocal() as db:
+            user = await get_authenticated_user(
+                request,
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+                db,
+            )
+    except Exception:  # noqa: BLE001 — zły token albo baza: wersja anonimowa
+        return False
+    return user.has_role(UserRole.admin)
+
+
+def _public_deep_health_body(body: dict) -> dict:
+    failing = {
+        name: state for name, state in body["checks"].items() if state != "healthy"
+    }
+    public = {field: body[field] for field in _DEEP_HEALTH_PUBLIC_FIELDS}
+    public["checked"] = body["checked"]
+    public["checks"] = failing
+    if body.get("errors"):
+        public["errors"] = body["errors"]
+    return public
+
+
 @app.get("/api/health/deep")
-async def api_health_deep_check():
+@limiter.limit("10/minute")
+async def api_health_deep_check(request: Request):
     """Deep healthcheck — probes core business tables against the live ORM.
 
     Motivation: /api/health only does `SELECT 1`, so it stays green even when
@@ -3620,9 +3682,10 @@ async def api_health_deep_check():
     exactly how the 0154 incident slipped through.
 
     Auth-free by design (no CI-side login/token coupling that could itself block
-    deploys). Response leaks only table names + the failing exception's class
-    name; full errors go to server logs / Sentry. HTTP 503 if any core table
-    fails; 200 when all pass.
+    deploys). Anonymous callers get only the deploy signal (status, version,
+    the FAILING probes with the exception class name); the full report needs an
+    admin token — see ``_public_deep_health_body``. Full errors go to server
+    logs / Sentry. HTTP 503 if any core table fails; 200 when all pass.
 
     When a NEW core table (or a drift-prone child) is added, extend `core_checks`
     below in the same spirit as the entrypoint.sh safety-net checklist.
@@ -3867,6 +3930,14 @@ async def api_health_deep_check():
         FinanceCostEntry,
         FinanceCostEntryEvent,
         FinanceCounterparty,
+    )
+    from app.models.finance_payments import (
+        FinanceCostPayment,
+        FinanceCostPaymentRecord,
+        FinanceCounterpartyAccount,
+        FinanceCounterpartyAccountEvent,
+        FinancePaymentBatch,
+        FinancePaymentBatchItem,
     )
     from app.models.finance_posting import (
         FinanceAccount,
@@ -4247,6 +4318,13 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
+        # 0699: przelewy i zapłaty faktur kosztowych (E3).
+        ("finance_cost_payments", FinanceCostPayment),
+        ("finance_counterparty_accounts", FinanceCounterpartyAccount),
+        ("finance_payment_batches", FinancePaymentBatch),
+        ("finance_payment_batch_items", FinancePaymentBatchItem),
+        ("finance_cost_payment_records", FinanceCostPaymentRecord),
+        ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
         # 0698: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
@@ -4976,6 +5054,7 @@ async def api_health_deep_check():
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
+        "checked": len(checks),
         "checks": checks,
         "collation": collation_report,
         "client_portfolio_import": portfolio_import,
@@ -4984,6 +5063,8 @@ async def api_health_deep_check():
     }
     if errors:
         body["errors"] = errors
+    if not await _deep_health_viewer_is_admin(request):
+        body = _public_deep_health_body(body)
 
     return JSONResponse(
         content=body,

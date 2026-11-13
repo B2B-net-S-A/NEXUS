@@ -25,7 +25,7 @@ from app.api.deps import DeliveryLeadPlus
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.api.ws import notify_user
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.chat_reaction import JobChatMessageReaction
 from app.models.job import Job
 from app.models.job_chat import JobChatMention, JobChatMessage, JobChatReadState
@@ -276,7 +276,7 @@ async def list_messages(
     response_model=ChatMessageResponse,
     status_code=status.HTTP_201_CREATED,
 )
-@limiter.limit("30/minute")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def create_message(
     request: Request,
     job_id: int,

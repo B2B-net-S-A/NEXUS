@@ -1,7 +1,7 @@
 """Księga NEXUSA (K1): lata obrotowe, okresy, dokumenty z dekretem, dziennik.
 
-Revision ID: 0699_ledger_core
-Revises: 0698_finance_posting
+Revision ID: 0700_ledger_core
+Revises: 0699_finance_payments
 
 Tabele ``ledger_years``, ``ledger_periods``, ``ledger_documents``,
 ``ledger_lines`` i ``ledger_events``, nowe kolumny planu kont z E2
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import ledger_schema as schema
 
-revision = "0699_ledger_core"
-down_revision = "0698_finance_posting"
+revision = "0700_ledger_core"
+down_revision = "0699_finance_payments"
 branch_labels = None
 depends_on = None
 

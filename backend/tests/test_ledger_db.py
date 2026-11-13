@@ -1,4 +1,4 @@
-"""Księga NEXUSA (K1, 0699) — trasy z bazą.
+"""Księga NEXUSA (K1, 0700) — trasy z bazą.
 
 Przełącznik modułu (wyłączony = 404, admin widzi), bufor i zatwierdzenie
 z kolejnymi pozycjami dziennika (tylko „Księgowi” i admin), trwałość

@@ -1,6 +1,6 @@
-"""Księga NEXUSA (K1): SQL migracji ``0699_ledger_core`` i lustra entrypointu.
+"""Księga NEXUSA (K1): SQL migracji ``0700_ledger_core`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0699_ledger_core.py``
+Jedno źródło instrukcji dla ``alembic/versions/0700_ledger_core.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``); każda
 instrukcja idempotentna. Plan: https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar.
 

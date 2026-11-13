@@ -34,6 +34,7 @@ from app.services import equipment_extras_schema as equipment_extras
 from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
 from app.services import finance_ledger_schema as finance_ledger
+from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_schema as ledger
 from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
@@ -103,9 +104,11 @@ MODULES = (
     finance_ledger,
     # 0696: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
     client_invoice_issue,
+    # 0699: przelewy i zapłaty faktur kosztowych (E3, 13.11.2026).
+    finance_payments,
     # 0698: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
     finance_posting,
-    # 0699: księga NEXUSA K1 — lata, okresy, dokumenty, dziennik, trwałość zapisów (13.11.2026).
+    # 0700: księga NEXUSA K1 — lata, okresy, dokumenty, dziennik, trwałość zapisów (13.11.2026).
     ledger,
 )
 
