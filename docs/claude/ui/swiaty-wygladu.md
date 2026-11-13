@@ -1,5 +1,5 @@
 # Światy wyglądu: galeria w menu „Wygląd”, zapis na koncie, sezony, świętowanie i strój robota
-<!-- indeks: 18 światów + Gra (`THEME_WORLDS`, `data-world`), galeria `WorldGallery`, `users.appearance_prefs` (0693), kalendarz `lib/worlds/seasons.ts`, `WORLD_CELEBRATIONS`, `JarvisOutfit`, kontrakt kontrastu -->
+<!-- indeks: 18 światów + Gra (`THEME_WORLDS`, `data-world`), galeria `WorldGallery`, `users.appearance_prefs` (0694), kalendarz `lib/worlds/seasons.ts`, `WORLD_CELEBRATIONS`, `JarvisOutfit`, kontrakt kontrastu -->
 
 Decyzja Artura z 13.11.2026: „ludzie lubią tryb gracza”, więc oprócz trybu gry
 są światy, także spokojne i estetyczne (w zespole przeważają kobiety) i mocniejsze
@@ -26,7 +26,7 @@ https://claude.ai/artifact/P1G9Hr7ETZcmaXAv5xhcjd
   (pierwsza Zima miała i myliła się z „P0”). Każda para tekstu ma kontrast co
   najmniej 4,5:1. Pilnuje `lib/__tests__/theme-worlds-contract.test.ts`; nowy
   świat bez tokenów, kółka (`.world-swatch-<id>`) albo miniatury go zatrzyma.
-- **Zapis na koncie** (`users.appearance_prefs`, migracja 0693, lustro
+- **Zapis na koncie** (`users.appearance_prefs`, migracja 0694, lustro
   w `entrypoint.sh`): `GET/PATCH /api/users/me/preferences` → `appearance`
   `{world, world_before_season}`. Przy wczytaniu wygrywa konto; konto bez zapisu
   dostaje wybór z przeglądarki (`AppearanceSync`, tylko przy własnej sesji).

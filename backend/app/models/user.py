@@ -207,7 +207,7 @@ class User(Base, TimestampMixin):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
-    # Świat wyglądu (0693): ``{"world": id, "world_before_season": id}`` —
+    # Świat wyglądu (0694): ``{"world": id, "world_before_season": id}`` —
     # zapis z menu „Wygląd”, żeby świat szedł za osobą na każdy komputer.
     # Walidowane w `/api/users/me/preferences` (`AppearancePrefs`).
     appearance_prefs: Mapped[dict] = mapped_column(

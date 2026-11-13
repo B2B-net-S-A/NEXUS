@@ -1,4 +1,4 @@
-"""Świat wyglądu na koncie (0693): lustro DDL, lustro listy światów, zapis.
+"""Świat wyglądu na koncie (0694): lustro DDL, lustro listy światów, zapis.
 
 Prod alembic bywa osierocony — `entrypoint.sh` JEST wdrożeniem, a model
 `User` deklaruje `appearance_prefs`, więc brak lustra = każdy odczyt
@@ -25,7 +25,7 @@ from app.services.appearance_prefs import (
 )
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0693_user_appearance_prefs.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0694_user_appearance_prefs.py"
 FRONTEND_IDS = BACKEND.parent / "frontend" / "src" / "lib" / "worlds" / "world-ids.ts"
 
 
@@ -43,8 +43,8 @@ def _migration_module():
 
 def test_migration_chains_after_client_einvoices() -> None:
     module = _migration_module()
-    assert module.revision == "0693_user_appearance_prefs"
-    assert module.down_revision == "0692_client_einvoices"
+    assert module.revision == "0694_user_appearance_prefs"
+    assert module.down_revision == "0693_trainings"
 
 
 def test_every_ddl_statement_is_mirrored_in_entrypoint() -> None:

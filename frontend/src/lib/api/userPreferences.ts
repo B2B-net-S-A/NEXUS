@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-/** Świat wyglądu na koncie (0693). `world: null` = konto jeszcze nic nie zapisało. */
+/** Świat wyglądu na koncie (0694). `world: null` = konto jeszcze nic nie zapisało. */
 export interface AppearancePreferences {
   world: string | null;
   world_before_season: string | null;
@@ -22,7 +22,7 @@ export interface UserPreferences {
    * w rekrutacjach, które konto prowadzi (domyślnie tylko własnych).
    */
   stage_moves_all_led_jobs: boolean;
-  /** Brak pola = serwer sprzed 0693; świat zostaje wtedy tylko w przeglądarce. */
+  /** Brak pola = serwer sprzed 0694; świat zostaje wtedy tylko w przeglądarce. */
   appearance?: AppearancePreferences;
 }
 
