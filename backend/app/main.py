@@ -1419,6 +1419,8 @@ app.add_middleware(
         "X-Nexus-Screen",
         # Sesja portalu konsultanta: osobna od JWT pracownika (api/consultant_portal).
         "X-Portal-Session",
+        # Szkolenia: nazwa pliku przy uploadzie surowym ciałem (services/trainings/raw_upload).
+        "X-File-Name",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but

@@ -450,7 +450,8 @@ async function request(path: string, init: RequestInit = {}): Promise<Response> 
   const headers = new Headers(init.headers);
   const session = portalSession();
   if (session) headers.set("X-Portal-Session", session);
-  if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
+  if (init.body && !(init.body instanceof FormData) && !(init.body instanceof Blob))
+    headers.set("Content-Type", "application/json");
   const response = await fetch(`${PREFIX}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {
     let data: unknown;
@@ -480,6 +481,22 @@ function fileForm(file: File): FormData {
   const form = new FormData();
   form.set("file", file);
   return form;
+}
+
+/**
+ * Duży plik (do 2 GB) jako surowe ciało z nazwą w nagłówku: serwer sprawdza sesję,
+ * zanim przeczyta bajty (multipart był parsowany przed sesją).
+ */
+async function postRawFile(path: string, file: File): Promise<{ training: PortalTraining }> {
+  const response = await request(path, {
+    method: "POST",
+    body: file,
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-File-Name": encodeURIComponent(file.name),
+    },
+  });
+  return (await response.json()) as { training: PortalTraining };
 }
 
 async function postFile(path: string, file: File): Promise<{ training: PortalTraining }> {
@@ -548,7 +565,7 @@ export const portalApi = {
     (await request(`/trainings/${id}/agreement.pdf?version=${version}`)).blob(),
   uploadSignature: (id: number, file: File) => postFile(`/trainings/${id}/agreement/signature`, file),
   uploadDeliverable: (id: number, key: DeliverableKey, file: File) =>
-    postFile(`/trainings/${id}/deliverables/${key}`, file),
+    postRawFile(`/trainings/${id}/deliverables/${key}`, file),
   uploadInvoice: (id: number, file: File) => postFile(`/trainings/${id}/invoice`, file),
   trainingFile: async (fileId: number): Promise<Blob> =>
     (await request(`/trainings/files/${fileId}?download=true`)).blob(),

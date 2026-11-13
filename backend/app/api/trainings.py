@@ -27,7 +27,6 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    Form,
     HTTPException,
     Request,
     UploadFile,
@@ -54,6 +53,7 @@ from app.services.trainings import (
     attendance,
     core,
     media,
+    raw_upload,
     samples,
     signing,
     storage,
@@ -320,7 +320,7 @@ async def library_ticket(
         await core.library_file(db, file_id)
     except TrainingError as exc:
         raise _translate(exc) from exc
-    return {"url": media.url(file_id, now=_now())}
+    return {"url": media.url(file_id, scope="lib", now=_now())}
 
 
 @router.post("/library/{training_id}/registration")
@@ -694,27 +694,31 @@ async def pending_signatures(
 async def upload_file(
     training_id: int,
     current_user: Manager,
-    kind: Annotated[Literal["recording", "internal"], Form()],
-    file: Annotated[UploadFile, File()],
+    request: Request,
+    kind: Literal["recording", "internal"],
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Nagranie (do 2 GB) jako surowe ciało: bramka TCM przed odczytem bajtów
+    (``services/trainings/raw_upload.py``)."""
+
     try:
         training = await core.get(db, training_id)
+        upload = raw_upload.read(request)
         stored = await storage.save(
             db,
             training_id=training.id,
             training_title=training.title,
             session_year=(training.session_date or business_today()).year,
-            file_name=file.filename or "plik",
-            content_type=file.content_type or "application/octet-stream",
-            source=file,
+            file_name=upload.file_name,
+            content_type=upload.content_type,
+            source=upload.body,
         )
         await core.add_file(
             db,
             training,
             kind=kind,
             stored=stored,
-            file_name=file.filename or "plik",
+            file_name=upload.file_name,
             now=_now(),
             user_id=current_user.id,
         )
@@ -762,7 +766,7 @@ async def file_ticket(
     )
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego pliku.")
-    return {"url": media.url(file_id, now=_now())}
+    return {"url": media.url(file_id, scope="own", now=_now())}
 
 
 @router.post("/{training_id}/files/{file_id}/review")

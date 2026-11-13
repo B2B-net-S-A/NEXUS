@@ -52,12 +52,20 @@ w NEXUSIE, `/konsultant/szkolenia` i `/konsultant/trener` w panelu.
 
 - **Nagranie publikuje druga osoba** niż ta, która je wgrała (`core.publish`, kod
   `four_eyes`), jak w planie Akademii z 10.11.2026.
-- **Plik z biblioteki** tylko z opublikowanego szkolenia i tylko z `for_participants`
-  (`core.library_file`). PPTX do edycji domyślnie zostaje wewnętrzny.
+- **Plik z biblioteki** tylko z opublikowanego szkolenia, z `for_participants` i przyjęty
+  (`core._LIBRARY_FILE`): plik od trenera, którego TCM nie przyjął albo zwrócił do poprawy,
+  nie wychodzi do wszystkich, także po publikacji (przegląd bezpieczeństwa 13.11.2026).
+  PPTX do edycji domyślnie zostaje wewnętrzny.
+- **Duże pliki (do 2 GB) idą surowym ciałem z nazwą w `X-File-Name`,** nie multipartem
+  (`services/trainings/raw_upload.py`). FastAPI parsuje multipart przed zależnościami
+  trasy, więc wywołanie bez sesji zapisywało 2 GB na dysk, zanim dostało odmowę. Surowe
+  ciało czyta dopiero handler, po bramce. Wyższy limit ciała mają tylko te dwie trasy
+  (`BodySizeLimitMiddleware(pattern_limits=…)`), a `X-File-Name` jest w CORS.
 - **Odtwarzacz dostaje bilet, nie sesję.** `<video>` nie dołoży nagłówka
   `X-Portal-Session`, więc trasa z sesją wydaje bilet HMAC jednego pliku ważny 6 h
   (`media.py`), a `/api/public/training-media/{id}?t=…` go sprawdza. Sesji ani tokenu
-  pracownika w adresie nie ma.
+  pracownika w adresie nie ma. Bilet z biblioteki (zakres `lib`) trasa sprawdza przy
+  każdym żądaniu jeszcze raz, więc wycofanie z biblioteki zamyka też wydane bilety.
 - **Pliki: SharePoint, gdy skonfigurowany** (`app_settings['trainings_sharepoint']`,
   link do folderu wkleja admin w `PUT /api/trainings/settings`). Folder szkoleń leży na
   witrynie B2B_ALL, a rejestracja „NEXUS Contract Documents” ma `Sites.Selected` na innej

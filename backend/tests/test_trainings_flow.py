@@ -16,6 +16,7 @@ Umowę i podpisy kwalifikowane sprawdzają ``test_training_agreement.py`` i
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
 
 import pytest
 from sqlalchemy import update
@@ -38,6 +39,12 @@ from tests.consultant_portal_seed import (  # noqa: F401  (fixture'y)
 STAFF = "/api/trainings"
 PDF = b"%PDF-1.4 materialy szkolenia"
 MP4 = b"\x00\x00\x00\x18ftypmp42" + b"0" * 64
+
+
+def _raw(name: str, content_type: str) -> dict[str, str]:
+    """Duże pliki idą surowym ciałem: sesja i bramka przed odczytem bajtów."""
+
+    return {"Content-Type": content_type, "X-File-Name": quote(name)}
 
 
 @pytest.fixture
@@ -182,35 +189,35 @@ async def test_training_from_order_to_library(app_client, monkeypatch) -> None:
     # Pliki dopiero po podpisach obu stron.
     early = await app_client.post(
         f"{BASE}/trainings/{training_id}/deliverables/materials",
-        headers=trainer,
-        files={"file": ("material.pdf", PDF, "application/pdf")},
+        headers={**trainer, **_raw("material.pdf", "application/pdf")},
+        content=PDF,
     )
     assert early.status_code == 409
     await _signed(training_id)
 
     project = await app_client.post(
         f"{BASE}/trainings/{training_id}/deliverables/presentation",
-        headers=trainer,
-        files={"file": ("szkolenie.drp", b"projekt", "application/octet-stream")},
+        headers={**trainer, **_raw("szkolenie.drp", "application/octet-stream")},
+        content=b"projekt",
     )
     assert project.status_code == 422
     not_ordered = await app_client.post(
         f"{BASE}/trainings/{training_id}/deliverables/audio",
-        headers=trainer,
-        files={"file": ("podcast.mp3", b"ID3audio", "audio/mpeg")},
+        headers={**trainer, **_raw("podcast.mp3", "audio/mpeg")},
+        content=b"ID3audio",
     )
     assert not_ordered.status_code == 422
 
     materials = await app_client.post(
         f"{BASE}/trainings/{training_id}/deliverables/materials",
-        headers=trainer,
-        files={"file": ("material.pdf", PDF, "application/pdf")},
+        headers={**trainer, **_raw("material.pdf", "application/pdf")},
+        content=PDF,
     )
     assert materials.status_code == 201, materials.text
     slides = await app_client.post(
         f"{BASE}/trainings/{training_id}/deliverables/presentation",
-        headers=trainer,
-        files={"file": ("slajdy.pdf", PDF, "application/pdf")},
+        headers={**trainer, **_raw("slajdy.pdf", "application/pdf")},
+        content=PDF,
     )
     assert slides.status_code == 201, slides.text
     rows = {row["key"]: row for row in slides.json()["training"]["handover"]}
@@ -239,8 +246,8 @@ async def test_training_from_order_to_library(app_client, monkeypatch) -> None:
 
     fixed = await app_client.post(
         f"{BASE}/trainings/{training_id}/deliverables/materials",
-        headers=trainer,
-        files={"file": ("material-v2.pdf", PDF + b"v2", "application/pdf")},
+        headers={**trainer, **_raw("material-v2.pdf", "application/pdf")},
+        content=PDF + b"v2",
     )
     assert fixed.status_code == 201
     card = (await app_client.get(f"{STAFF}/{training_id}", headers=headers(tcm))).json()
@@ -266,10 +273,9 @@ async def test_training_from_order_to_library(app_client, monkeypatch) -> None:
 
     # Nagranie wgrywa TCM; przed zapłatą biblioteka odmawia.
     recording = await app_client.post(
-        f"{STAFF}/{training_id}/files",
-        headers=headers(tcm),
-        data={"kind": "recording"},
-        files={"file": ("nagranie.mp4", MP4, "video/mp4")},
+        f"{STAFF}/{training_id}/files?kind=recording",
+        headers={**headers(tcm), **_raw("nagranie.mp4", "video/mp4")},
+        content=MP4,
     )
     assert recording.status_code == 201, recording.text
     unpaid = await app_client.post(
@@ -347,6 +353,32 @@ async def test_training_from_order_to_library(app_client, monkeypatch) -> None:
         await app_client.get(f"{BASE}/trainings/files/{invoice_file}", headers=stranger)
     ).status_code == 404
 
+    # Plik, który TCM cofnął do poprawy po publikacji, znika z biblioteki
+    # (przegląd bezpieczeństwa 13.11.2026: widać było pliki nieprzyjęte).
+    material_id = next(i["id"] for i in entry["files"] if i["kind"] == "deliverable")
+    material_ticket = (
+        await app_client.get(
+            f"{STAFF}/library/files/{material_id}/ticket", headers=headers(recruiter)
+        )
+    ).json()["url"]
+    assert (await app_client.get(material_ticket)).status_code == 200
+    back = await app_client.post(
+        f"{STAFF}/{training_id}/files/{material_id}/review",
+        headers=headers(tcm),
+        json={"accept": False, "note": "Popraw literówkę w tytule"},
+    )
+    assert back.status_code == 200
+    library = (
+        await app_client.get(f"{STAFF}/library", headers=headers(recruiter))
+    ).json()
+    entry = next(row for row in library["recordings"] if row["id"] == training_id)
+    assert [item["kind"] for item in entry["files"]] == ["recording"]
+    assert (
+        await app_client.get(f"{BASE}/trainings/files/{material_id}", headers=stranger)
+    ).status_code == 404
+    # Bilet z biblioteki nie przeżywa wycofania pliku z biblioteki.
+    assert (await app_client.get(material_ticket)).status_code == 403
+
 
 @pytest.mark.usefixtures("portal_all", "_storage")
 async def test_employee_training_needs_no_agreement_and_takes_sign_ups(
@@ -404,3 +436,60 @@ async def test_only_admin_sets_the_sharepoint_folder(app_client) -> None:
         json={"share_url": "https://example.sharepoint.com/:f:/s/x/abc"},
     )
     assert refused.status_code == 403
+
+
+async def test_big_upload_routes_check_the_caller_before_reading_the_body(
+    app_client,
+) -> None:
+    """Przegląd bezpieczeństwa 13.11.2026: multipart parsował 2 GB przed sesją.
+
+    Surowe ciało czyta dopiero handler, po zależnościach, więc wywołanie bez sesji
+    i bez tokenu kończy się odmową, zanim serwer weźmie bajty."""
+
+    pulled: list[int] = []
+    multipart = {"Content-Type": "multipart/form-data; boundary=granica"}
+
+    async def body():
+        # Atak z przeglądu: multipart bez sesji; dawniej FastAPI zapisywał go
+        # na dysk przed sprawdzeniem sesji.
+        yield (
+            b'--granica\r\nContent-Disposition: form-data; name="file"; '
+            b'filename="a.pdf"\r\nContent-Type: application/pdf\r\n\r\n'
+        )
+        for _ in range(64):
+            pulled.append(1)
+            yield b"x" * 1024 * 1024
+        yield b"\r\n--granica--\r\n"
+
+    portal = await app_client.post(
+        f"{BASE}/trainings/1/deliverables/materials", headers=multipart, content=body()
+    )
+    assert portal.status_code in (401, 404, 415)
+    assert len(pulled) <= 2, "panel przeczytał ciało przed sesją"
+    pulled.clear()
+    staff = await app_client.post(
+        f"{STAFF}/1/files?kind=recording", headers=multipart, content=body()
+    )
+    assert staff.status_code in (401, 403, 415)
+    assert len(pulled) <= 2, "NEXUS przeczytał ciało przed tokenem"
+
+
+async def test_odd_media_ticket_is_refused_not_an_error(app_client) -> None:
+    for ticket in ("²9.é", "abc", "", "1.", "99999999999.x"):
+        response = await app_client.get(
+            f"/api/public/training-media/1?t={quote(ticket)}"
+        )
+        assert response.status_code == 403, ticket
+
+
+async def test_cors_lets_the_browser_send_the_file_name(app_client) -> None:
+    preflight = await app_client.options(
+        "/api/trainings/1/files?kind=recording",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "x-file-name,content-type,authorization",
+        },
+    )
+    allowed = preflight.headers.get("access-control-allow-headers", "").lower()
+    assert "x-file-name" in allowed

@@ -471,6 +471,27 @@ const postFile = async (
   ).data.training;
 };
 
+/**
+ * Nagranie (do 2 GB) jako surowe ciało z nazwą w nagłówku: serwer sprawdza uprawnienia,
+ * zanim przeczyta bajty (multipart był parsowany przed bramką).
+ */
+const postRawFile = async (
+  path: string,
+  file: File,
+  onProgress?: (fraction: number) => void,
+): Promise<TrainingView> =>
+  (
+    await api.post<TrainingResponse>(`${BASE}${path}`, file, {
+      headers: {
+        "Content-Type": file.type || "application/octet-stream",
+        "X-File-Name": encodeURIComponent(file.name),
+      },
+      onUploadProgress: (event) => {
+        if (onProgress && event.total) onProgress(event.loaded / event.total);
+      },
+    })
+  ).data.training;
+
 export function useCreateTraining() {
   return useTrainingCommand(async (input: CreateInput) => post("", input));
 }
@@ -527,7 +548,7 @@ export function useUploadTrainingFile(id: number) {
       kind: "recording" | "internal";
       file: File;
       onProgress?: (fraction: number) => void;
-    }) => postFile(`/${id}/files`, { kind: input.kind, file: input.file }, input.onProgress),
+    }) => postRawFile(`/${id}/files?kind=${input.kind}`, input.file, input.onProgress),
   );
 }
 

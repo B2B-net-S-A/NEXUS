@@ -68,6 +68,7 @@ from app.models.training import Training, TrainingFile
 from app.services.trainings import agreement_files
 from app.services.trainings import core as training_core
 from app.services.trainings import media as training_media
+from app.services.trainings import raw_upload as training_raw_upload
 from app.services.trainings import samples as trainer_samples
 from app.services.trainings import signing as training_signing
 from app.services.trainings import storage as training_storage
@@ -874,29 +875,32 @@ async def training_deliverable(
     training_id: int,
     key: Literal["materials", "presentation", "audio", "other"],
     context: Session,
-    request: Request,  # wymagane przez limiter slowapi
-    file: Annotated[UploadFile, File()],
+    request: Request,  # wymagane przez limiter slowapi; ciało = sam plik
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Plik z Zał. 1 pkt 4 jako surowe ciało (``raw_upload``): sesja i dostęp do
+    szkolenia są sprawdzone, zanim serwer weźmie choć jeden bajt (do 2 GB)."""
+
     try:
         training = await training_core.check_deliverable(
             db, training_id, context.consultant.contract_ids, key
         )
+        upload = training_raw_upload.read(request)
         stored = await training_storage.save(
             db,
             training_id=training.id,
             training_title=training.title,
             session_year=(training.session_date or business_today()).year,
-            file_name=file.filename or "plik",
-            content_type=file.content_type or "application/octet-stream",
-            source=file,
+            file_name=upload.file_name,
+            content_type=upload.content_type,
+            source=upload.body,
         )
         await training_core.add_deliverable(
             db,
             training,
             key=key,
             stored=stored,
-            file_name=file.filename or "plik",
+            file_name=upload.file_name,
             contract_id=training.trainer_contract_id or context.consultant.contract_id,
             now=_now(),
         )
@@ -954,8 +958,9 @@ async def training_invoice(
 
 async def _portal_training_file(
     db: AsyncSession, context: PortalContext, file_id: int
-) -> TrainingFile:
-    """Plik własnego szkolenia (trener) albo plik z biblioteki (każdy z panelem)."""
+) -> tuple[TrainingFile, str]:
+    """Plik własnego szkolenia (trener, zakres ``own``) albo plik z biblioteki
+    (każdy z panelem, zakres ``lib``)."""
 
     own = await db.scalar(
         select(TrainingFile)
@@ -967,7 +972,9 @@ async def _portal_training_file(
             TrainingFile.kind.in_(("deliverable", "invoice")),
         )
     )
-    return own or await training_core.library_file(db, file_id)
+    if own is not None:
+        return own, "own"
+    return await training_core.library_file(db, file_id), "lib"
 
 
 @router.get("/trainings/files/{file_id}")
@@ -981,7 +988,7 @@ async def training_file(
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     try:
-        item = await _portal_training_file(db, context, file_id)
+        item, _scope = await _portal_training_file(db, context, file_id)
         return await training_storage.stream(
             item, range_header=request.headers.get("range"), download=download
         )
@@ -999,10 +1006,10 @@ async def training_file_ticket(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
-        await _portal_training_file(db, context, file_id)
+        _item, scope = await _portal_training_file(db, context, file_id)
     except TrainingError as exc:
         raise _training_error(exc) from exc
-    return {"url": training_media.url(file_id, now=_now())}
+    return {"url": training_media.url(file_id, scope=scope, now=_now())}
 
 
 @router.post("/trainings/{training_id}/registration")

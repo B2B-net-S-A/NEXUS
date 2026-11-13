@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.training import TrainingFile
-from app.services.trainings import media, storage
+from app.services.trainings import core, media, storage
 from app.services.trainings.errors import TrainingError
 
 router = APIRouter()
@@ -29,11 +29,19 @@ async def play(
     t: str = "",
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    if not media.valid(file_id, t, now=media.utcnow()):
+    scope = media.scope_of(file_id, t, now=media.utcnow())
+    if scope is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, EXPIRED)
-    item = await db.get(TrainingFile, file_id)
-    if item is None or item.status == "replaced":
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego pliku.")
+    if scope == "lib":
+        # Wycofane z biblioteki = bilet przestaje działać od razu.
+        try:
+            item = await core.library_file(db, file_id)
+        except TrainingError:
+            raise HTTPException(status.HTTP_403_FORBIDDEN, EXPIRED) from None
+    else:
+        item = await db.get(TrainingFile, file_id)
+        if item is None or item.status == "replaced":
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego pliku.")
     try:
         return await storage.stream(
             item, range_header=request.headers.get("range"), download=False

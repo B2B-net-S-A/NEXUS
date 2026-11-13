@@ -957,6 +957,14 @@ async def publish(
 
 # ── Biblioteka i zapisy ──────────────────────────────────────────────────────
 
+#: Plik w bibliotece: zaznaczony „dla uczestników” i przyjęty. Plik od trenera, którego
+#: TCM nie przyjął albo zwrócił do poprawy, nie wychodzi do wszystkich (przegląd
+#: bezpieczeństwa 13.11.2026); nagranie i pliki TCM powstają jako przyjęte.
+_LIBRARY_FILE = (
+    TrainingFile.for_participants.is_(True),
+    TrainingFile.status == "accepted",
+)
+
 
 async def library(
     db: AsyncSession,
@@ -997,8 +1005,7 @@ async def library(
         await db.scalars(
             select(TrainingFile).where(
                 TrainingFile.training_id.in_([t.id for t in published] or [0]),
-                TrainingFile.for_participants.is_(True),
-                TrainingFile.status != "replaced",
+                *_LIBRARY_FILE,
             )
         )
     ).all()
@@ -1055,8 +1062,7 @@ async def library_file(db: AsyncSession, file_id: int) -> TrainingFile:
             .join(Training, Training.id == TrainingFile.training_id)
             .where(
                 TrainingFile.id == file_id,
-                TrainingFile.for_participants.is_(True),
-                TrainingFile.status != "replaced",
+                *_LIBRARY_FILE,
                 Training.published_at.is_not(None),
                 Training.status == "signed",
             )
