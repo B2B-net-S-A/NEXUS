@@ -1326,15 +1326,35 @@ async def ids_view(db: AsyncSession, client_id: int, month: str) -> dict[str, An
             "end_date": _iso(c.contract.end_date) if c else None,
         }
 
+    pending_ids = [e for e in ids if e.kind == PERSON_NO and e.state == SUGGESTED]
+    # Podpowiedź z raportu innego miesiąca: nazwisko z tamtego raportu.
+    report_names: dict[str, Optional[str]] = {}
+    missing = [e.value for e in pending_ids if e.value not in people]
+    if missing:
+        for number, name in (
+            await db.execute(
+                select(ClientTimeReportRow.person_no, ClientTimeReportRow.person_name)
+                .join(
+                    ClientTimeReport,
+                    ClientTimeReport.id == ClientTimeReportRow.report_id,
+                )
+                .where(
+                    ClientTimeReport.client_id == client_id,
+                    ClientTimeReportRow.person_no.in_(missing),
+                )
+                .distinct()
+            )
+        ).all():
+            report_names.setdefault(number, name)
     suggestions = [
         {
             "id": e.id,
             "value": e.value,
-            "report_name": (people.get(e.value) or {}).get("name"),
+            "report_name": (people.get(e.value) or {}).get("name")
+            or report_names.get(e.value),
             **contract_info(e.contract_id),
         }
-        for e in ids
-        if e.kind == PERSON_NO and e.state == SUGGESTED
+        for e in pending_ids
     ]
     pending = {s["value"] for s in suggestions}
     unmatched = [

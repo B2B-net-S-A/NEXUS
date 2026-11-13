@@ -1,10 +1,9 @@
 # Rozliczenia klientów — Nordea (plan N1–N4)
 
-Stan na 10.11.2026. Plan i makiety, bez kodu: kod powstaje dopiero po scaleniu
-PR-a z etapami E1–E5 (`docs/rozliczenia-klientow-roadmapa.md` na gałęzi
-`claude/nexus-rozliczenia-przejecie-804835`, PR #3288). Decyzja Artura z 10.11.2026.
-Ten plik jest osobny, żeby nie dawać konfliktu z roadmapą BNP; po scaleniu #3288
-etap E6.4 roadmapy odsyła tutaj.
+Stan na 13.11.2026. N1 w kodzie (opis „Jak zrobione” przy N1, liczby niżej
+policzone już przez NEXUS). Plik był osobnym planem, żeby nie dawać konfliktu
+z roadmapą BNP; etap E6.4 roadmapy (`docs/rozliczenia-klientow-roadmapa.md`)
+odsyła tutaj.
 
 Repo jest publiczne: w tym pliku nie ma nazwisk, stawek, rabatów z umowy ani
 adresów e-mail. Źródła (procedura rozliczeń, prezentacja „Fakturowanie Nordea”,
@@ -204,6 +203,63 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
 - **Meta:** wrzesień 2026 wgrany lokalnie z pięciu wersji daje liczby z tabeli
   wyżej (157/105/13/8 w 01.10, 267/4/11/2 w 18.10) i te same osoby w statusach
   co oznaczenia kolorami w pliku Finansów; testy silnika; zrzuty 1280 × 720 i 390 px.
+- **Jak zrobione (13.11, decyzje Artura A1–A5 z 13.11: najpierw tylko N1,
+  godziny z netto ÷ stawka bez XML-a, bez wysyłki wiadomości, kwoty widzą
+  Finanse i DL przez `can_read_client_finance`):**
+  - Migracja 0687 (`client_time_reports_schema.py`, lustro w entrypoincie):
+    `client_external_ids`, `client_time_reports`, `client_time_report_rows`.
+    Kolumn godzin w `client_settlements` nie dodaliśmy: status osoby liczy się
+    przy odczycie z wierszy wersji i faktur, więc nowa faktura z KSeF albo
+    nowa wersja zmienia go bez przeliczania tabel. Kolumny dojdą z przyjęciem
+    miesiąca (N3), gdy będzie co zapisać.
+  - Widok włącza reguła klienta `report.time_for_teams` (sekcja „Raport
+    klienta (T4T)” w katalogu, domyślnie wyłączona). Podzakładki „Raport
+    klienta (T4T)” i „Kartoteka” w Finanse → Rozliczenia.
+  - Kartoteka: „Uzupełnij z faktur w KSeF” bierze `ID:…` i `NIDS:…` z opisów
+    pozycji faktur do klienta przypiętych do linii zamówienia osoby, ale tylko
+    gdy opis wymienia osobę z kontraktu. Na kopii z 13.11 jedna linia
+    zamówienia miała przypięte faktury czterech osób; bez tej kontroli trzy
+    obce numery trafiłyby do jednego kontraktu. Wynik: 593 pozycje, 81 faktur
+    pominiętych, żaden numer na dwóch kontraktach. Osoba z raportu bez numeru:
+    podpowiedź po imieniu i nazwisku (drugie imię i „ł” nie przeszkadzają,
+    imiennicy bez podpowiedzi), do zatwierdzenia; reszta ręcznie z listy
+    kontraktów bez numeru.
+  - Wersje: arkusz po kolumnach, plik z kilkoma arkuszami raportu (zestaw
+    Finansów) pyta o arkusz; ten sam plik (SHA-256, przy kilku arkuszach z nazwą
+    arkusza) nie tworzy wersji. Kolejność wersji po dacie otrzymania.
+  - Silnik (`time_report_engine.py`) według reguł z tabeli września, plus
+    „Inna kwota” (R1): netto ÷ stawka nie daje pełnych godzin, czyli możliwy
+    dodatek doliczony do godzin, a nie twarda rozbieżność. „Ostatni przedział”
+    to przedział T4T z najpóźniejszym początkiem w wersjach miesiąca; jego
+    pojemność to dni robocze do końca miesiąca × 8 h, bez świąt.
+  - Godziny z faktury: suma netto faktur kontraktora za miesiąc (z korektami)
+    ÷ stawka kosztowa z kontraktu na 1. dzień miesiąca. Miejsce na
+    zatwierdzone dodatki (`invoice_hours(extras=…)`) czeka na mechanizm
+    dodatków z osobnego PR-a.
+  - Faktura kontraktora do osoby, gdy NIP nie rozstrzyga (odpowiedź z 13.11,
+    `contractor_invoices._place`): kwota osoby to wyliczenie z RCP, a bez niego
+    godziny w statusie 2 z najnowszej wersji × stawka. Tak rozstrzyga się
+    spółka wystawiająca za kilka osób (a) i dwie osoby jednej spółki o różnych
+    stawkach (b). Jedna faktura za pracę u dwóch klientów (c) pasuje do sumy
+    rozliczeń osoby i trafia do kontraktu z większą kwotą; ekran raportu
+    odejmuje część drugiego klienta, jeśli dopiero wtedy godziny są równe
+    zatwierdzonym. Bez wyniku faktura zostaje bez osoby. Odczyt stopki
+    („za kogo”) z XML-a to kolejny krok.
+  - „Lista do kolejnej tury (XLSX)” (R2): osoby bez zgodności i bez faktury
+    z wybranej wersji, z numerem osoby i NIDS.
+  - Dowód na kopii produkcji z 13.11 (baza `nexus_branch_nordea`, faktury
+    kontraktorów za wrzesień odtworzone lokalnie jako godziny zafakturowane
+    Nordei × stawka z kontraktu, bo KSeF lokalnie nie działa): po uzupełnieniu
+    kartoteki z KSeF i zatwierdzeniu 33 podpowiedzi pięć wersji września daje
+    dokładnie tabelę wyżej: 01.10 157/105/13/8, 05.10 174/90/11/8,
+    08.10 238/30/11/4 i 1 bez faktury, 13.10 264/7/11/2/1, 18.10 267/4/11/2/1.
+    Do tego 8 → 7 „Brak w raporcie” i 1 osoba „Bez kartoteki” (w NEXUS-ie nie
+    ma kontraktu o tym imieniu i nazwisku). Październik: sprawdzana osoba
+    (numer tylko w zleceniu, nie w repo) ma 112 h zatwierdzone od drugiej wersji (72 h + 40 h złożone
+    w pierwszej). Ten sam silnik liczony po numerze osoby wprost na plikach
+    daje 158 zgodnych w 01.10: dwie różne osoby o tym samym imieniu
+    i nazwisku (różne numery, osobne faktury) plan liczył po nazwisku jako
+    jedną.
 
 ### N2. Eksport do Visma w Peppol BIS 3 (równolegle z N1, prezentacja: etap 2)
 
@@ -268,6 +324,36 @@ Statusy osób według reguł z prezentacji (silnik porównania niżej):
   w ostatnim przedziale? We wrześniu wersja 05.10 przyszła po 4 dniach i reguła
   liczona wersjami kazałaby napisać do 89 osób, z których 63 wyrównały się do 08.10.
 
+### Odpowiedzi rozliczeń (13.11.2026)
+
+- R1: godziny z pozycji, gdy ilość to godziny; przy ilości 1 i kwocie stawka ×
+  godziny — netto ÷ stawka z kontraktu w NEXUS-ie. Polecenie, weryfikacja
+  techniczna i szkolenie doliczone do faktury zgłasza osobny mechanizm
+  „dodatków do rozliczenia” (kto, okres, kwota; decyzja w toku). Delegacje
+  bywają osobną pozycją albo doliczone do godzin; przy niezgodności kwoty
+  „Inna kwota, możliwy dodatek” zamiast twardej rozbieżności (N1).
+- R2: listy do Cost Control wysyła rozliczająca osoba w turach: 1. dzień
+  roboczy po miesiącu, następny dzień roboczy, dzień po przypomnieniach,
+  potem „niedobitki” zbiorczo. NEXUS przygotowuje listę do kolejnej tury
+  (N1: eksport XLSX).
+- R3: liczy się wyłącznie status 2, akceptacji mailowej nie uwzględniamy.
+- R4: wszyscy raportują w T4T; „Brak w raporcie” zostaje jako wyjątek.
+- R5: podmiot Nordei z zamówienia (CoA); prawie wszyscy Nordea Bank Abp, dwie
+  osoby inny podmiot; kolumny raportu dla Cost Control co do znaku (N3).
+- R6: Visma przyjmuje faktury tylko pojedynczo, bez masowego wgrania: N2 =
+  jeden plik na fakturę (czy N2 w ogóle — decyzja Artura w toku).
+- R7: wcześniejszy termin płatności jest w umowie albo ustalony ustnie (plik
+  „Wynagrodzenia”): flaga od daty w kartotece, ustawiana ręcznie (z regułami
+  w N3).
+- R8: domyślnie mail; po 3 dniach bez odpowiedzi SMS i telefon (N3).
+- R9: przy braku godzin w ostatnim przedziale decyduje data faktury:
+  wystawiona kilka dni przed końcem miesiąca — piszemy po otrzymaniu raportu;
+  wystawiona ostatniego dnia — ok. 3 dni później (parametr reguły w N3).
+- Faktura kontraktora za kilka osób (spółka, stopka „za kogo” tylko w XML-u),
+  dwie osoby jednej spółki o różnych stawkach, jedna faktura za dwóch klientów
+  (ten sam przypadek: Velo + Bank Pocztowy): rozstrzygnięcie po kwocie i
+  stawce w N1 (opis przy N1).
+
 ### Do Artura
 
 - A1. Kolejność: N1 i N2 równolegle (jak w prezentacji) czy najpierw N1?
@@ -296,7 +382,7 @@ zrzuty `shots/nordea-*.png`), dane wstrzykiwane przy zrzucie, w kodzie bez nazwi
 
 | Etap | Stan | Dowód |
 |---|---|---|
-| N1 | plan i makiety (10.11), kod po scaleniu #3288 | liczby września w tym pliku |
+| N1 | gotowe lokalnie (13.11), PR z migracją 0687 | wrzesień z 5 wersji na kopii z 13.11 = tabela planu; październik: sprawdzana osoba 112 h od v2; testy silnika, odczytu, kartoteki, (a)–(c) i ekranu; zrzuty 1280 × 720 i 390 px (lokalnie, z nazwiskami) |
 | N2 | plan (10.11) | — |
 | N3 | plan (10.11) | — |
 | N4 | plan (10.11) | — |

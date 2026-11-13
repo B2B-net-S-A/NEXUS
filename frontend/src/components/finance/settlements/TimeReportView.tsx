@@ -127,6 +127,8 @@ function VersionBar({
   const last = data.periods.at(-1);
   const { showError } = useToast();
   const [downloading, setDownloading] = useState(false);
+  // Formularz wgrania zwinięty, gdy wersja już jest: lista mieści się na laptopie 1280 × 720.
+  const [uploadOpen, setUploadOpen] = useState(false);
   const pending = data.counts.all - (data.counts.ok ?? 0);
 
   async function nextRound() {
@@ -175,13 +177,29 @@ function VersionBar({
             ))}
           </div>
         ) : null}
-        {current ? (
-          <Button size="sm" variant="outline" className="ml-auto" disabled={downloading || pending === 0} onClick={() => void nextRound()}>
-            <Download aria-hidden className="size-3.5" /> Lista do kolejnej tury ({pending})
-          </Button>
-        ) : null}
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          {current ? (
+            <Button size="sm" variant="outline" disabled={downloading || pending === 0} onClick={() => void nextRound()}>
+              <Download aria-hidden className="size-3.5" /> Lista do kolejnej tury ({pending})
+            </Button>
+          ) : null}
+          {canWrite && current && !uploadOpen ? (
+            <Button size="sm" variant="outline" onClick={() => setUploadOpen(true)}>
+              <Upload aria-hidden className="size-3.5" /> Wgraj nową wersję
+            </Button>
+          ) : null}
+        </div>
       </div>
-      {canWrite ? <UploadForm clientId={clientId} month={month} onUploaded={() => onVersion(null)} /> : null}
+      {canWrite && (uploadOpen || !current) ? (
+        <UploadForm
+          clientId={clientId}
+          month={month}
+          onUploaded={() => {
+            setUploadOpen(false);
+            onVersion(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -286,12 +304,12 @@ function Counters({ data }: { data: TimeReportMonth }) {
   const optional = new Set(["other_amount", "not_in_report", "unmatched"]);
   const shown = T4T_COUNTERS.filter((k) => !optional.has(k) || (data.counts[k] ?? 0) > 0);
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+    <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4 sm:gap-2 xl:grid-cols-7">
       {shown.map((k) => (
-        <div key={k} className="rounded-xl border bg-card px-3 py-2">
+        <div key={k} className="min-w-0 rounded-xl border bg-card px-2.5 py-1.5 sm:px-3 sm:py-2">
           <StatusDot tone={T4T_STATUS[k].tone}>{T4T_STATUS[k].label}</StatusDot>
-          <p className="mt-0.5 font-display text-xl font-semibold tabular-nums">{data.counts[k] ?? 0}</p>
-          <p className="text-[11px] text-muted-foreground">{Math.round(((data.counts[k] ?? 0) / total) * 100)}% osób</p>
+          <p className="mt-0.5 font-display text-lg font-semibold tabular-nums sm:text-xl">{data.counts[k] ?? 0}</p>
+          <p className="hidden text-[11px] text-muted-foreground sm:block">{Math.round(((data.counts[k] ?? 0) / total) * 100)}% osób</p>
         </div>
       ))}
     </div>

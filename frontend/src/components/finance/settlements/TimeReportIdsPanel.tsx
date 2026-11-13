@@ -13,6 +13,9 @@ import { useAddId, useDecideId, useFillIdsFromKsef, useTimeReportIds, type IdsCo
 
 import { hoursText } from "./time-report-format";
 
+const CONTRACT_STATUS: Record<string, string> = { active: "aktywny", ending: "kończy się", ended: "zakończony" };
+const contractStatus = (s: string | null) => (s ? (CONTRACT_STATUS[s] ?? s) : "–");
+
 interface TimeReportIdsPanelProps {
   clientId: number;
   month: string;
@@ -78,7 +81,7 @@ export function TimeReportIdsPanel({ clientId, month, canWrite }: TimeReportIdsP
             <span className="min-w-0 flex-1">
               <span className="font-medium">{s.name}</span>
               <span className="block text-[11px] text-muted-foreground">
-                numer <span className="tabular-nums">{s.value}</span> · w raporcie „{s.report_name ?? "–"}” · kontrakt {s.contract_status ?? "–"}
+                numer <span className="tabular-nums">{s.value}</span> · w raporcie „{s.report_name ?? "–"}” · kontrakt {contractStatus(s.contract_status)}
               </span>
             </span>
             {canWrite ? (
@@ -180,7 +183,7 @@ function UnmatchedRow({
             <option value="">Wybierz kontrakt…</option>
             {contracts.map((c) => (
               <option key={c.contract_id} value={c.contract_id}>
-                {c.name} · {c.contract_status ?? "–"}
+                {c.name} · {contractStatus(c.contract_status)}
               </option>
             ))}
           </select>

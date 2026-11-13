@@ -160,6 +160,8 @@ describe("Raport klienta T4T: panel miesiąca", () => {
         ],
       },
     });
+    expect(screen.queryByLabelText("Plik z Time for Teams (XLSX)")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Wgraj nową wersję/ }));
     const input = screen.getByLabelText("Plik z Time for Teams (XLSX)") as HTMLInputElement;
     fireEvent.change(input, { target: { files: [new File(["x"], "t4t.xlsx")] } });
     fireEvent.click(screen.getByRole("button", { name: /Wgraj nową wersję/ }));
