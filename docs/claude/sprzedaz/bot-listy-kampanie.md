@@ -26,7 +26,7 @@ Import pliku zostaje bez zmian.
   słowa branży, miasta siedziby (`cities`), wielkości (`1-49`…`1000+`), PKD i województwa
   (dla L3),
   wyzwalacze, źródła, `include_unknown` (domyślnie tak: karty bez danych też wchodzą),
-  paczka na osobę tygodniowo (5–200, domyślnie 40), osoby dzwoniące (aktywne konta),
+  paczka na osobę tygodniowo (1–200, domyślnie 40), osoby dzwoniące (aktywne konta),
   `auto_refill`.
 - **Kandydaci z bazy:** kontakt z telefonem i stanowiskiem, bez sprzeciwu, w firmie
   bez archiwum, nie klient NEXUSA, nie „Nie kontaktować”, bez otwartej szansy i bez

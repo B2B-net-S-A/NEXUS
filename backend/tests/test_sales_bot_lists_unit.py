@@ -57,7 +57,7 @@ def test_brief_defaults_and_limits() -> None:
     assert brief.include_unknown and brief.auto_refill
     for bad in (
         {"caller_ids": []},
-        {"caller_ids": [5], "per_caller": 1},
+        {"caller_ids": [5], "per_caller": 0},
         {"caller_ids": [5], "roles": ["ceo"]},
         {"caller_ids": [5], "unknown": 1},
         {"caller_ids": [5], "pkd": ["abc"]},

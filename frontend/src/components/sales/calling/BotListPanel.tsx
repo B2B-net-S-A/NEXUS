@@ -217,7 +217,7 @@ function BriefForm({ initial, onSave, saving }: { initial: BotListBrief; onSave:
           <Input
             id="bot-list-batch"
             type="number"
-            min={5}
+            min={1}
             max={200}
             className="w-24"
             value={brief.per_caller}

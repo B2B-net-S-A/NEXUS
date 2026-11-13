@@ -196,6 +196,13 @@ def test_models_match_the_ddl(table: str, model: Any) -> None:
         if f"CREATE TABLE IF NOT EXISTS {table} (" in statement
     )
     declared = set(re.findall(r"^\s+([a-z_0-9]+) [A-Z]", ddl, re.MULTILINE))
+    # Kolumny dołożone później (0690: brief Bota Listy) przez ALTER TABLE.
+    for statement in schema.BOT_LISTS_DDL:
+        declared |= set(
+            re.findall(
+                rf"ALTER TABLE {table}\s+ADD COLUMN IF NOT EXISTS (\w+)", statement
+            )
+        )
     assert set(model.__table__.columns.keys()) == declared
     named = {c.name for c in model.__table__.constraints if c.name}
     assert set(re.findall(r"CONSTRAINT (\w+)", ddl)) <= named
