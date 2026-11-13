@@ -248,6 +248,7 @@ from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import client_einvoices as client_einvoices_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2226,6 +2227,13 @@ app.include_router(
     client_sales_invoices_api.finance_router,
     prefix="/api/finance/sales-invoices",
     tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+# E-faktury Peppol (plan Nordei N2) — przed routerem rozliczeń (wspólny prefiks).
+app.include_router(
+    client_einvoices_api.router,
+    prefix="/api/finance/settlements/einvoices",
+    tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.

@@ -1719,6 +1719,20 @@ class Settings(BaseSettings):
     EBI24_ACCOUNT_UUID: str = ""
     EBI24_COMMUNICATION_KEY: str = ""
     EBI24_SECRET_PHRASE: str = ""
+    # E-faktury Peppol (`app/services/peppol/`, plan Nordei N2): kanał doręczenia.
+    # off = nic nie wychodzi (domyślnie), simulate = pliki w PEPPOL_SIMULATE_DIR
+    # (staging, testy), visma_direct = kanał bezpośredni do Vismy Nordei (czeka
+    # na specyfikację od technika Vismy), recommand = dostawca Peppol z API
+    # (plan zapasowy; klucz i sekret konta). Klucz i sekret tylko przez workflow
+    # „Coolify set env”, nigdy w repo ani w logach. PEPPOL_SENDER_ID = nasz adres
+    # w sieci Peppol od dostawcy („9945:PL…”); pusty = 9945 i NIP sprzedawcy.
+    PEPPOL_PROVIDER: str = "off"
+    PEPPOL_API_URL: str = "https://app.recommand.eu"
+    PEPPOL_API_KEY: str = ""
+    PEPPOL_API_SECRET: str = ""
+    PEPPOL_COMPANY_ID: str = ""
+    PEPPOL_SENDER_ID: str = ""
+    PEPPOL_SIMULATE_DIR: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
