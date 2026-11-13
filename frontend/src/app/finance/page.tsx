@@ -38,6 +38,7 @@ import {
 import { useHrConfig } from "@/lib/api/hr";
 import { COSTS_URL_KEYS, CostsTab } from "@/components/finance/ledger/CostsTab";
 import { CounterpartiesTab } from "@/components/finance/ledger/CounterpartiesTab";
+import { PaymentsTab } from "@/components/finance/ledger/PaymentsTab";
 import { useAccountingModule } from "@/lib/api/finance-ledger";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
@@ -60,6 +61,8 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   costs:
     "Faktury kosztowe z KSeF i PDF w jednej kolejce: przyjęcie, opis, weryfikacja, księgowanie",
   counterparties: "Kartoteka kontrahentów z kontami Symfonii, import z eBI24",
+  payments:
+    "Paczki przelewów faktur kosztowych (Elixir-O, CSV, MPP) i zapłaty z wyciągu",
 };
 
 /**
@@ -138,7 +141,8 @@ export default function FinancePage() {
     (view === "rate-divergences" && !hasModule) ||
     (view === "approved-expenses" && !approvalsOpen) ||
     (view === "settlements" && !settlementsOpen) ||
-    ((view === "costs" || view === "counterparties") && !accountingOpen)
+    ((view === "costs" || view === "counterparties" || view === "payments") &&
+      !accountingOpen)
       ? fallbackView
       : view;
 
@@ -256,6 +260,14 @@ export default function FinancePage() {
           ) : null}
           {accountingOpen ? (
             <ModeButton
+              active={visibleView === "payments"}
+              onClick={() => changeView("payments")}
+            >
+              Przelewy
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
               active={visibleView === "counterparties"}
               onClick={() => changeView("counterparties")}
             >
@@ -352,6 +364,8 @@ export default function FinancePage() {
           <CostsTab canWrite={canWrite} />
         ) : visibleView === "counterparties" ? (
           <CounterpartiesTab canWrite={canWrite} />
+        ) : visibleView === "payments" ? (
+          <PaymentsTab canWrite={canWrite} />
         ) : visibleView === "approved-expenses" ? (
           <div data-help="finance.approved-expenses">
             <ApprovedExpensesTab />

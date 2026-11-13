@@ -53,6 +53,7 @@ from app.models.hr_payroll import PayrollPeriod
 from app.models.hr_settlement import PayrollInvoice, PayrollSettlement
 from app.models.user import User
 from app.services.client_identity import client_display_name_expression
+from app.services.finance_ledger import payment_state
 from app.services.finance_ledger_schema import (
     CATEGORIES,
     FLAGS,
@@ -272,6 +273,8 @@ class Filters:
     category: Optional[str] = None
     flag: Optional[str] = None
     q: Optional[str] = None
+    #: Stan zapłaty (E3): ``unpaid / in_batch / paid / partially_paid``.
+    payment: Optional[str] = None
 
 
 def _joined(src):
@@ -319,6 +322,8 @@ def _conditions(src, filters: Filters) -> list[Any]:
                 entry.seller_nip.ilike(pattern),
             )
         )
+    if filters.payment:
+        conditions.append(payment_state.condition(filters.payment))
     return conditions
 
 
@@ -547,6 +552,7 @@ async def list_view(
             for row in rows
         ],
     )
+    paid = await payment_state.for_entries(db, [row.FinanceCostEntry for row in rows])
     items = []
     for row in rows:
         entry = row.FinanceCostEntry
@@ -554,6 +560,7 @@ async def list_view(
         payload["own"] = (
             row.person_user_id is not None and row.person_user_id == viewer_id
         )
+        payload["payment"] = paid.get(entry.id)
         items.append(payload)
     return {
         "stage": stage,

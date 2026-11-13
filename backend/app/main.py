@@ -250,6 +250,7 @@ from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
+from app.api import finance_payments as finance_payments_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2262,6 +2263,13 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
+# Księgowość E3 (0696): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
+app.include_router(
+    finance_payments_api.router,
+    prefix="/api/finance/payments",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
@@ -3840,6 +3848,13 @@ async def api_health_deep_check():
         FinanceCostEntryEvent,
         FinanceCounterparty,
     )
+    from app.models.finance_payments import (
+        FinanceCostPayment,
+        FinanceCostPaymentRecord,
+        FinanceCounterpartyAccount,
+        FinancePaymentBatch,
+        FinancePaymentBatchItem,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -4214,6 +4229,12 @@ async def api_health_deep_check():
         ("finance_counterparties", FinanceCounterparty),
         ("finance_cost_entries", FinanceCostEntry),
         ("finance_cost_entry_events", FinanceCostEntryEvent),
+        # 0696: przelewy i zapłaty faktur kosztowych (E3).
+        ("finance_cost_payments", FinanceCostPayment),
+        ("finance_counterparty_accounts", FinanceCounterpartyAccount),
+        ("finance_payment_batches", FinancePaymentBatch),
+        ("finance_payment_batch_items", FinancePaymentBatchItem),
+        ("finance_cost_payment_records", FinanceCostPaymentRecord),
     ]
 
     checks: dict[str, str] = {}

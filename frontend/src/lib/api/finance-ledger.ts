@@ -7,6 +7,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { PaymentState, PaymentSummary } from "@/lib/api/finance-payments";
 
 const COSTS = "/api/finance/costs";
 const PARTIES = "/api/finance/counterparties";
@@ -60,6 +61,8 @@ export interface CostRow {
   own: boolean;
   reject_reason: string | null;
   note: string | null;
+  /** Stan zapłaty (E3) — w liście kolejki; karta ma osobny panel płatności. */
+  payment?: PaymentSummary | null;
 }
 
 export interface CostHistoryItem {
@@ -97,6 +100,7 @@ export interface CostFilters {
   flag: CostFlag | "none" | null;
   q: string;
   offset: number;
+  payment?: PaymentState | null;
 }
 
 export interface ActionResult {
@@ -186,6 +190,7 @@ export function useCostQueue(filters: CostFilters) {
             month: filters.month ?? undefined,
             category: filters.category ?? undefined,
             flag: filters.flag ?? undefined,
+            payment: filters.payment ?? undefined,
             q: filters.q.trim() || undefined,
             limit: QUEUE_PAGE,
             offset: filters.offset,

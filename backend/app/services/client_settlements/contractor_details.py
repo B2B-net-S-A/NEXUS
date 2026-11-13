@@ -93,6 +93,8 @@ def details_from(parsed: fa.ParsedInvoice) -> dict[str, Any]:
         "items": parsed.items,
         "corrected": list(parsed.corrected),
         "reason": parsed.correction_reason,
+        # Rachunki z „Platnosc/RachunekBankowy” — podpowiedź do przelewu (E3).
+        "accounts": list(parsed.accounts),
     }
 
 

@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore } from "@/store/auth";
 
+import { CostPaymentPanel } from "./CostPaymentPanel";
 import { Concerning } from "./CostsTab";
 import {
   CATEGORY_LABELS,
@@ -331,6 +332,7 @@ export function CostCard({ id }: { id: number }) {
         </div>
         <div className="space-y-3.5">
           <Bookkeeping card={data} locked={locked} />
+          <CostPaymentPanel entryId={data.id} readOnly={impersonating} />
           {!data.own && !impersonating && stageButtons(data.stage, data.from_ksef).length > 0 ? (
             <div className="flex flex-wrap justify-end gap-2">
               {stageButtons(data.stage, data.from_ksef).map((button) => (

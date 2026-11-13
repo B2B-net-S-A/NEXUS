@@ -111,6 +111,16 @@ class ParsedInvoice:
     #: ``issue_date`` (ISO) — korekta może wskazywać kilka faktur.
     corrected: tuple[dict[str, Optional[str]], ...] = ()
     correction_reason: Optional[str] = None
+    #: Rachunki sprzedawcy z ``Platnosc/RachunekBankowy/NrRB`` (przelew kosztu, E3).
+    accounts: tuple[str, ...] = ()
+
+
+def _accounts(fa: Any) -> tuple[str, ...]:
+    found = (
+        _text(node, "NrRB", limit=64)
+        for node in fa.iterfind("{*}Platnosc/{*}RachunekBankowy")
+    )
+    return tuple(dict.fromkeys(number for number in found if number))
 
 
 def _parser() -> etree.XMLParser:
@@ -311,4 +321,5 @@ def parse_invoice(xml: bytes) -> ParsedInvoice:
         items=items,
         corrected=_corrected(fa),
         correction_reason=_text(fa, "PrzyczynaKorekty", limit=256),
+        accounts=_accounts(fa),
     )

@@ -33,6 +33,7 @@ from app.services import equipment_extras_schema as equipment_extras
 from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
 from app.services import finance_ledger_schema as finance_ledger
+from app.services import finance_payments_schema as finance_payments
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
 from app.services import hr_agreements_schema as agreements
@@ -98,6 +99,8 @@ MODULES = (
     trainings,
     # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów (E0, E1, 13.11.2026).
     finance_ledger,
+    # 0696: przelewy i zapłaty faktur kosztowych (E3, 13.11.2026).
+    finance_payments,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
