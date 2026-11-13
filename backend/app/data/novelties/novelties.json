@@ -182,8 +182,8 @@
     "steps": [
       {
         "anchor": "sales.calling.outcomes",
-        "text": "Wynik zapiszesz też klawiszem 1–7.",
-        "hint": "Numer stoi przy przycisku, po zapisie od razu następna osoba. „Nie zainteresowany” pyta, kiedy wrócić: domyślnie za pół roku, można „Nigdy”.",
+        "text": "Wynik zapiszesz też klawiszem 1–5.",
+        "hint": "Numer stoi przy przycisku, po zapisie od razu następna osoba. Oferta pyta, czy i kiedy wrócić; „Nie zainteresowany” i „Nie teraz” zdjęto 13.11.2026.",
         "ack": true
       },
       {
@@ -2512,7 +2512,7 @@
       {
         "anchor": "sales.calling.outcomes",
         "text": "Wynik rozmowy to jedno kliknięcie.",
-        "hint": "„Oddzwonić” i „Nie teraz” pytają o dzień i wracają same. Szansa powstaje dopiero z „Umówione spotkanie”: nie zakładaj jej po samym telefonie.",
+        "hint": "„Oddzwonić” i oferta pytają o termin i wracają same. Szansa powstaje dopiero z „Umówione spotkanie”: nie zakładaj jej po samym telefonie.",
         "ack": true
       },
       {

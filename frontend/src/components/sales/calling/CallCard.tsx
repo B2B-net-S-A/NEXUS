@@ -1,6 +1,13 @@
 "use client";
 
-import { CalendarClock, Copy, ExternalLink, Phone } from "lucide-react";
+import {
+  CalendarClock,
+  Copy,
+  ExternalLink,
+  Mail,
+  Pencil,
+  Phone,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
@@ -10,11 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import { ACTIVITY_KIND_LABELS, useCreateActivity, type Ref } from "@/lib/api/sales";
 import {
   useCallCard,
+  useEditRecord,
   useSaveOutcome,
   type CallCard as CallCardData,
   type CallHistoryEntry,
@@ -31,7 +40,9 @@ import {
   DATE_PRESETS,
   isDated,
   itemTitle,
+  changedFields,
   KEYED_OUTCOMES,
+  KEYS_RANGE,
   outcomeForKey,
   outcomeButtonLabel,
   outcomeKey,
@@ -43,7 +54,7 @@ import {
 
 const MEETING_SUBJECT = "Spotkanie kwalifikujące";
 
-/** Pole tekstowe albo otwarte okno: klawisz 1–7 jest wtedy zwykłym znakiem. */
+/** Pole tekstowe albo otwarte okno: klawisz wyniku jest wtedy zwykłym znakiem. */
 function typingTarget(target: EventTarget | null): boolean {
   if (typeof document !== "undefined" && document.querySelector("[role=dialog], [role=alertdialog]")) return true;
   if (!(target instanceof HTMLElement)) return false;
@@ -216,7 +227,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
   const company: Ref = card.company;
   const meetingBlocked = card.client_refusal !== null || (isCampaignRecord && meetingStage === null);
 
-  // Klawisze 1–7: ten sam wynik co przycisk. Ref, bo nasłuch zakładamy raz na kartę.
+  // Klawisze wyników: ten sam wynik co przycisk. Ref, bo nasłuch zakładamy raz na kartę.
   const press = useRef<(outcome: QueueOutcome) => void>(() => undefined);
   press.current = (outcome) => {
     if (blocked || pending) return;
@@ -270,7 +281,9 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
         onChange={(event) => setNote(event.target.value)}
       />
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-muted-foreground">Klawisze 1–7 zapisują wynik, potem od razu następna osoba.</span>
+        <span className="text-[11px] text-muted-foreground">
+          Klawisze {KEYS_RANGE} zapisują wynik, potem od razu następna osoba.
+        </span>
       </div>
       <div data-tour="sales.calling.outcomes" className="grid grid-cols-2 gap-1.5">
         {KEYED_OUTCOMES.map((outcome) => {
@@ -357,9 +370,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
       )}
       <p className="text-xs text-muted-foreground">
         {blocked
-          ? canEdit
-            ? "Ta pozycja jest w kolejce innej osoby: wynik zapisze ona albo administrator."
-            : "Wynik rozmowy zapisuje osoba z uprawnieniem „Sprzedaż: edycja”."
+          ? "Wynik rozmowy zapisuje osoba z uprawnieniem „Sprzedaż: edycja”."
           : nextCompany
             ? `Po zapisie od razu następna: ${nextCompany.replace(/\.$/, "")}.`
             : "To ostatnia pozycja na liście."}
@@ -371,6 +382,8 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
           company={company}
           contactId={card.contact_id ?? undefined}
           service={card.service ?? undefined}
+          // Lista dzwoniących 13.11.2026: treść zaproszenia i adres klienta do poprawienia.
+          invite={{ email: card.email }}
           onClose={() => setBooking(false)}
           onSaved={(handoff) => {
             setBooked(handoff.opportunity.id);
@@ -407,6 +420,149 @@ function PhoneNumber({ phone }: { phone: string }) {
   );
 }
 
+function CopyEmail({ email }: { email: string }) {
+  const { showError, showSuccess } = useToast();
+  const copy = () => {
+    void navigator.clipboard
+      ?.writeText(email)
+      .then(() => showSuccess(`Skopiowano adres ${email}.`))
+      .catch(() =>
+        showError(
+          "Nie udało się skopiować adresu. Zaznacz go i skopiuj ręcznie.",
+        ),
+      );
+  };
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground">
+      <Mail
+        className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+        aria-hidden
+      />
+      <span className="min-w-0 select-all truncate">{email}</span>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-6 shrink-0 px-1.5 text-xs"
+        onClick={copy}
+        aria-label={`Kopiuj adres ${email}`}
+      >
+        <Copy className="mr-1 h-3 w-3" aria-hidden /> Kopiuj
+      </Button>
+    </span>
+  );
+}
+
+interface ContactEditorProps {
+  item: QueueItem;
+  card: CallCardData;
+  onDone: () => void;
+}
+
+/** Edycja danych osoby z karty (lista dzwoniących 13.11.2026): rekord i kontakt w kartotece. */
+function ContactEditor({ item, card, onDone }: ContactEditorProps) {
+  const edit = useEditRecord();
+  const { showError, showSuccess } = useToast();
+  const [personName, setPersonName] = useState(item.person_name ?? "");
+  const [personTitle, setPersonTitle] = useState(item.person_title ?? "");
+  const [phone, setPhone] = useState(item.phone ?? "");
+  const [email, setEmail] = useState(card.email ?? "");
+  const [note, setNote] = useState(card.note ?? "");
+  if (item.record_id === null) return null;
+  const recordId = item.record_id;
+  const save = () => {
+    // Tylko zmienione pola: niezmieniony numer nie może trafić do kontaktu w kartotece.
+    const changed = changedFields(
+      { person_name: item.person_name, person_title: item.person_title, phone: item.phone, email: card.email, note: card.note },
+      { person_name: personName, person_title: personTitle, phone, email, note },
+    );
+    if (Object.keys(changed).length === 0) {
+      onDone();
+      return;
+    }
+    edit
+      .mutateAsync({ record_id: recordId, ...changed })
+      .then(() => {
+        showSuccess("Zapisano dane kontaktowe.");
+        onDone();
+      })
+      .catch((error: unknown) =>
+        showError(
+          apiErrorMessage(error, "Nie udało się zapisać danych kontaktowych."),
+        ),
+      );
+  };
+  return (
+    <section
+      className="space-y-1.5 rounded-md border border-border p-2"
+      aria-label="Edycja danych kontaktowych"
+    >
+      <div className="grid grid-cols-2 gap-1.5">
+        <Input
+          aria-label="Imię i nazwisko"
+          placeholder="Imię i nazwisko"
+          className="h-8 text-xs"
+          value={personName}
+          maxLength={255}
+          onChange={(event) => setPersonName(event.target.value)}
+        />
+        <Input
+          aria-label="Stanowisko"
+          placeholder="Stanowisko"
+          className="h-8 text-xs"
+          value={personTitle}
+          maxLength={255}
+          onChange={(event) => setPersonTitle(event.target.value)}
+        />
+        <Input
+          aria-label="Telefon"
+          placeholder="Telefon"
+          className="h-8 text-xs"
+          value={phone}
+          maxLength={60}
+          onChange={(event) => setPhone(event.target.value)}
+        />
+        <Input
+          type="email"
+          aria-label="Adres e-mail"
+          placeholder="Adres e-mail"
+          className="h-8 text-xs"
+          value={email}
+          maxLength={255}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </div>
+      <Textarea
+        aria-label="Uwagi o firmie"
+        placeholder="Uwagi o firmie"
+        rows={2}
+        className="text-xs"
+        value={note}
+        maxLength={5000}
+        onChange={(event) => setNote(event.target.value)}
+      />
+      <div className="flex justify-end gap-1.5">
+        <Button
+          size="sm"
+          variant="ghost"
+          className="h-7"
+          onClick={onDone}
+          disabled={edit.isPending}
+        >
+          Anuluj
+        </Button>
+        <Button
+          size="sm"
+          className="h-7"
+          onClick={save}
+          loading={edit.isPending}
+        >
+          Zapisz dane
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 /** Karta wybranej pozycji: kto, haczyk z bota, co już było, skrypt, punkty z researchu i wynik jednym kliknięciem. */
 export function CallCard(props: CallCardProps) {
   const { item, position } = props;
@@ -418,7 +574,15 @@ export function CallCard(props: CallCardProps) {
     isEmpty: false,
   });
   const card = query.data;
-  const callable = Boolean(item.phone) && card !== undefined && !card.do_not_contact;
+  const callable =
+    Boolean(item.phone) && card !== undefined && !card.do_not_contact;
+  const [editing, setEditing] = useState(false);
+  const canEditContact =
+    props.canEdit &&
+    item.record_id !== null &&
+    card !== undefined &&
+    card.can_save &&
+    !card.do_not_contact;
 
   return (
     <Card className="space-y-2.5 p-3.5" aria-label={`Rozmowa: ${item.company.name}`}>
@@ -432,11 +596,41 @@ export function CallCard(props: CallCardProps) {
           </h2>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{position}</span>
         </div>
-        <p className="truncate text-xs text-muted-foreground">
-          {[item.person_name, item.person_title].filter(Boolean).join(" · ") || "Bez wskazanej osoby"}
-          {card?.email && ` · ${card.email}`}
-        </p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="min-w-0 truncate text-xs text-muted-foreground">
+            {[item.person_name, item.person_title]
+              .filter(Boolean)
+              .join(" · ") || "Bez wskazanej osoby"}
+          </p>
+          {canEditContact && !editing && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 shrink-0 px-1.5 text-xs"
+              onClick={() => setEditing(true)}
+            >
+              <Pencil className="mr-1 h-3 w-3" aria-hidden /> Edytuj dane
+            </Button>
+          )}
+        </div>
+        {card?.email && !card.do_not_contact && (
+          <CopyEmail email={card.email} />
+        )}
+        {/* Lista dzwoniących 13.11.2026: „Uwagi o firmie” z Excela stoją pod danymi firmy. */}
+        {card?.note && !editing && (
+          <p className="mt-1 whitespace-pre-line rounded-md bg-muted/50 px-2 py-1 text-xs leading-snug text-foreground">
+            <span className="font-medium">Uwagi: </span>
+            {card.note}
+          </p>
+        )}
       </div>
+      {editing && card && (
+        <ContactEditor
+          item={item}
+          card={card}
+          onDone={() => setEditing(false)}
+        />
+      )}
       <CallHook companyId={item.company.id} />
       <div className="flex flex-wrap items-center gap-2">
         {card?.do_not_contact ? (
@@ -473,11 +667,9 @@ export function CallCard(props: CallCardProps) {
               {card.client_refusal}
             </p>
           )}
-          {(card.contact_source || card.note) && (
+          {card.contact_source && (
             <p className="text-xs leading-snug text-muted-foreground">
-              {card.contact_source && <span>Skąd kontakt: {card.contact_source}</span>}
-              {card.contact_source && card.note && " · "}
-              {card.note}
+              Skąd kontakt: {card.contact_source}
             </p>
           )}
           <History entries={card.history} attempts={item.attempts} />

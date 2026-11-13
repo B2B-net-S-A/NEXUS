@@ -106,6 +106,8 @@ class InviteDraft:
     meeting_at: Optional[datetime]
     duration_minutes: int
     sent_at: Optional[datetime]
+    #: Treść zaproszenia wpisana przy umawianiu (13.11.2026).
+    message: Optional[str] = None
 
 
 class Undelivered(RuntimeError):
@@ -169,13 +171,16 @@ async def draft(
         else None
     )
     address = normalize_address(contact.email or "") if contact is not None else None
-    if contact is not None and address and contact.do_not_contact_at is None:
-        blocked = await candidate_addresses(db, [address])
+    objected = contact is not None and contact.do_not_contact_at is not None
+    # Adres klienta wskazany przy umawianiu wygrywa z adresem z kartoteki.
+    chosen = normalize_address(data.get("invite_to") or "") or address
+    if chosen and not objected:
+        blocked = await candidate_addresses(db, [chosen])
         recipients.append(
             Recipient(
-                address=address,
-                name=contact.full_name,
-                blocked="candidate" if address in blocked else None,
+                address=chosen,
+                name=contact.full_name if contact is not None else None,
+                blocked="candidate" if chosen in blocked else None,
             )
         )
     return InviteDraft(
@@ -185,6 +190,7 @@ async def draft(
         meeting_at=moment(data.get("meeting_at")),
         duration_minutes=int(data.get("duration_minutes") or DEFAULT_DURATION),
         sent_at=invite_sent_at(data),
+        message=data.get("invite_message"),
     )
 
 

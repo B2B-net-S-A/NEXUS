@@ -760,11 +760,18 @@ export interface MyDay {
   signals?: MyDaySignal[];
 }
 
+/** Co ile „Mój dzień” sam się odświeża: spotkania umawia też ktoś inny (dzwoniący, Outlook). */
+export const MY_DAY_REFRESH_MS = 2 * 60_000;
+
 /** Kolejka „Mój dzień” zalogowanej osoby. */
 export function useMyDay() {
   return useQuery({
     queryKey: salesKeys.myDay,
     queryFn: async () => (await api.get<MyDay>("/api/sales/my-day")).data,
+    // Lista dzwoniących 13.11.2026: spotkanie umówione przez inną osobę nie pojawiało
+    // się, dopóki ktoś nie wyszedł z ekranu i nie wrócił.
+    refetchOnWindowFocus: true,
+    refetchInterval: MY_DAY_REFRESH_MS,
   });
 }
 

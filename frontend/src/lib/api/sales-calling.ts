@@ -17,7 +17,7 @@ export type QueueOutcome =
   | "not_interested"
   | "bad_contact";
 export type RecordState = "new" | QueueOutcome;
-export type QueueSection = "callbacks" | "meetings" | "new";
+export type QueueSection = "callbacks" | "no_answer" | "meetings" | "new";
 
 export interface QueueItem {
   key: string;
@@ -37,6 +37,8 @@ export interface QueueItem {
   since: string;
   /** Kto dzwoni: wypełnione w Tabeli (przy „Wszyscy” widać cudze rekordy). */
   assignee?: Ref | null;
+  /** Ostatnia zmiana rekordu: kolumna „Ostatnia modyfikacja” w Tabeli (13.11.2026). */
+  modified_at?: string | null;
 }
 
 /** Licznik dnia bez celu: zastępuje ręczne „Podsumowanie” z Excela (11.11.2026). */
@@ -49,14 +51,24 @@ export interface DayCounts {
 
 export interface CallQueue {
   today: string;
-  counts: { callbacks: number; meetings: number; new: number; later: number };
+  counts: {
+    callbacks: number;
+    no_answer: number;
+    meetings: number;
+    new: number;
+    later: number;
+  };
   callbacks: QueueItem[];
+  /** „Nie odebrane”: osobna zakładka bez względu na datę (13.11.2026). */
+  no_answer: QueueItem[];
   meetings: QueueItem[];
   new: QueueItem[];
   campaigns: Ref[];
   today_counts: DayCounts;
   yesterday: string;
   yesterday_counts: DayCounts;
+  /** Osoby z otwartymi rekordami: wybór osoby nad kolejką (decyzja Artura 13.11.2026). */
+  callers?: Ref[];
 }
 
 /** Widok „Tabela”: wszystkie rekordy osoby i liczniki filtrów po wyniku. */
@@ -78,7 +90,15 @@ export interface CallRecordFilters {
   scope?: CallRecordScope;
   /** Tylko przy „Wszyscy”: rekordy jednej osoby. */
   callerId?: number | null;
+  /** Daty powrotu od–do (ISO), filtr Tabeli z 13.11.2026. */
+  callbackFrom?: string;
+  callbackTo?: string;
+  /** Strona Tabeli od zera (po 200 wierszy). */
+  page?: number;
 }
+
+/** Tyle wierszy Tabeli na stronę (limit trasy `/records`). */
+export const TABLE_PAGE_SIZE = 200;
 
 /** Linia „Na liście dzwonienia” na karcie firmy: bez numeru telefonu. */
 export interface CompanyCallRecord {
@@ -122,7 +142,28 @@ export interface OutcomeInput {
   note?: string;
   /** Szansa założona z umówionego spotkania (rekord kampanii). */
   opportunity_id?: number;
-  /** „Nie zainteresowany” bez powrotu do kolejki. */
+  /** „Oferta ogólna wysłana” bez ponownego kontaktu. */
+  never?: boolean;
+}
+
+/** Dane kontaktowe rekordu z karty kolejki (13.11.2026). */
+export interface RecordEditInput {
+  record_id: number;
+  person_name?: string | null;
+  person_title?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  note?: string | null;
+}
+
+/** Statusy, które Tabela zmienia bez telefonu (poprawka zapisu). */
+export type CorrectableState =
+  "no_answer" | "call_back" | "offer_sent" | "bad_contact";
+
+export interface StateChangeInput {
+  record_id: number;
+  state: CorrectableState;
+  callback_on?: string;
   never?: boolean;
 }
 
@@ -166,6 +207,8 @@ export interface ImportRow {
   fate: ImportFate;
   detail: string;
   to_decide: boolean;
+  /** Komu trafi rekord: kolumna podziału („Bianca”) albo osoba z okna. */
+  assignee?: Ref | null;
 }
 
 export interface ImportPreview {
@@ -192,7 +235,13 @@ export interface ImportInput {
 }
 
 export const callingKeys = {
-  queue: (campaignId: number | null) => ["sales", "calling", "queue", campaignId] as const,
+  queue: (campaignId: number | null, callerId: number | null = null) =>
+    ["sales", "calling", "queue", campaignId, callerId] as const,
+  reminders: (
+    scope: CallRecordScope,
+    callerId: number | null,
+    until: string | null,
+  ) => ["sales", "calling", "reminders", scope, callerId, until] as const,
   card: (key: string) => ["sales", "calling", "card", key] as const,
   campaigns: ["sales", "calling", "campaigns"] as const,
   records: (filters: CallRecordFilters) => ["sales", "calling", "records", filters] as const,
@@ -210,13 +259,20 @@ function itemPath(item: Pick<QueueItem, "record_id" | "opportunity_id" | "campai
     : `/api/sales/calling/opportunities/${item.opportunity_id}`;
 }
 
-export function useCallQueue(campaignId: number | null) {
+/** Kolejka osoby: domyślnie zalogowanej, `callerId` to wybór osoby (decyzja Artura 13.11.2026). */
+export function useCallQueue(
+  campaignId: number | null,
+  callerId: number | null = null,
+) {
   return useQuery({
-    queryKey: callingKeys.queue(campaignId),
+    queryKey: callingKeys.queue(campaignId, callerId),
     queryFn: async () =>
       (
         await api.get<CallQueue>("/api/sales/calling/queue", {
-          params: campaignId === null ? {} : { campaign_id: campaignId },
+          params: {
+            ...(campaignId === null ? {} : { campaign_id: campaignId }),
+            ...(callerId === null ? {} : { caller_id: callerId }),
+          },
         })
       ).data,
     placeholderData: keepPreviousData,
@@ -234,7 +290,14 @@ export function useCallRecords(filters: CallRecordFilters) {
             ...(filters.campaignId === null ? {} : { campaign_id: filters.campaignId }),
             ...(filters.search.trim() ? { q: filters.search.trim() } : {}),
             ...(filters.scope === "all" ? { scope: "all" } : {}),
-            ...(filters.scope === "all" && filters.callerId ? { caller_id: filters.callerId } : {}),
+            ...(filters.scope === "all" && filters.callerId
+              ? { caller_id: filters.callerId }
+              : {}),
+            ...(filters.callbackFrom
+              ? { callback_from: filters.callbackFrom }
+              : {}),
+            ...(filters.callbackTo ? { callback_to: filters.callbackTo } : {}),
+            ...(filters.page ? { offset: filters.page * TABLE_PAGE_SIZE } : {}),
           },
         })
       ).data,
@@ -268,6 +331,57 @@ export function useSaveOutcome() {
     onSuccess: () => {
       void invalidate();
     },
+  });
+}
+
+/** Dane kontaktowe z karty: poprawia rekord i kontakt w kartotece. */
+export function useEditRecord() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ record_id, ...payload }: RecordEditInput) =>
+      (
+        await api.patch<CallCard>(
+          `/api/sales/calling/records/${record_id}`,
+          payload,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Zmiana statusu z Tabeli: poprawka bez telefonu w dzienniku i licznikach. */
+export function useChangeState() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ record_id, ...payload }: StateChangeInput) =>
+      (
+        await api.post<OutcomeResult>(
+          `/api/sales/calling/records/${record_id}/state`,
+          payload,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** „Przypomnienia”: terminy powrotów (Oddzwonić, oferta z ponownym kontaktem), od najwcześniejszego. */
+export function useCallReminders(
+  scope: CallRecordScope = "mine",
+  callerId: number | null = null,
+  until: string | null = null,
+) {
+  return useQuery({
+    queryKey: callingKeys.reminders(scope, callerId, until),
+    queryFn: async () =>
+      (
+        await api.get<QueueItem[]>("/api/sales/calling/reminders", {
+          params: {
+            ...(scope === "all" ? { scope: "all" } : {}),
+            ...(scope === "all" && callerId ? { caller_id: callerId } : {}),
+            ...(until ? { until } : {}),
+          },
+        })
+      ).data,
   });
 }
 

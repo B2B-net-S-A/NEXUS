@@ -95,29 +95,37 @@ def test_list_file_reads_the_linkedin_column() -> None:
 
 
 @pytest.mark.asyncio
-async def test_not_interested_and_bad_contact_leave_the_queue(app_client) -> None:
+async def test_offer_without_follow_up_and_bad_contact_leave_the_queue(
+    app_client,
+) -> None:
     caller = await _user("sales_view", "sales_edit")
     campaign_id = await _campaign()
     never_id = await _record(caller.id, campaign_id, await _company())
-    later_id = await _record(caller.id, campaign_id, await _company())
     bad_id = await _record(caller.id, campaign_id, await _company())
 
-    resp = await _save(
-        app_client, caller, never_id, outcome="not_interested", never=True
-    )
+    resp = await _save(app_client, caller, never_id, outcome="offer_sent", never=True)
     assert resp.status_code == 200, resp.text
     assert resp.json()["callback_on"] is None
-    resp = await _save(app_client, caller, later_id, outcome="not_interested")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["callback_on"] is not None
     resp = await _save(app_client, caller, bad_id, outcome="bad_contact")
     assert resp.status_code == 200, resp.text
 
     queue = await _queue(app_client, caller, campaign_id=campaign_id)
     assert queue["callbacks"] == [] and queue["new"] == []
-    # Pół roku czekania nie zasłania „wróci w swoim dniu”.
     assert queue["counts"]["later"] == 0
     assert (await _get_record(bad_id)).state == "bad_contact"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["not_interested", "not_now"])
+async def test_retired_outcomes_are_refused(app_client, outcome: str) -> None:
+    """Lista dzwoniących 13.11.2026: „Nie zainteresowany” i „Nie teraz” zdjęte."""
+
+    caller = await _user("sales_view", "sales_edit")
+    record_id = await _record(caller.id, await _campaign(), await _company())
+    resp = await _save(app_client, caller, record_id, outcome=outcome)
+    assert resp.status_code == 422
+    assert calling.RETIRED_DETAIL in resp.text
+    assert (await _get_record(record_id)).state == "new"
 
 
 @pytest.mark.asyncio
@@ -140,7 +148,7 @@ async def test_today_counts_count_own_calls_only(app_client) -> None:
     caller = await _user("sales_view", "sales_edit")
     other = await _user("sales_view", "sales_edit")
     campaign_id = await _campaign()
-    for outcome in ("no_answer", "offer_sent", "not_interested"):
+    for outcome in ("no_answer", "offer_sent", "call_back"):
         record_id = await _record(caller.id, campaign_id, await _company())
         resp = await _save(app_client, caller, record_id, outcome=outcome)
         assert resp.status_code == 200, resp.text
