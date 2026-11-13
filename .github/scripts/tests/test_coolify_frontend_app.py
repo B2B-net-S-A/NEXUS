@@ -266,7 +266,36 @@ COOLIFY_LABELS = [
 ]
 
 
-def switch_api(domains=DOMAINS, raw=COMPOSE_RAW, fqdn=""):
+# Compose złożony przez Coolify (Yaml::dump, wcięcie 2) — tak jak zwraca go API.
+RENDERED = (
+    "services:\n  postgres:\n    image: x\n    networks:\n      ocgkw: null\n"
+    "  backend:\n    build:\n      context: .\n    networks:\n      nexus-front: null\n      ocgkw: null\n"
+    "networks:\n  nexus-front:\n    name: nexus-front\n    external: true\n"
+)
+# 13.11.2026: plik miał sieć na najwyższym poziomie, a parser Coolify zgubił ją w usłudze.
+RENDERED_LOST = RENDERED.replace("      nexus-front: null\n", "")
+SERVER_IP = "203.0.113.7"
+
+
+def user_path(callback="https://app.example.pl/login?error=access_denied", sha=SHA, login=200):
+    """Fałszywe `get`: odpowiedzi frontu jak dla przeglądarki; zapisuje wywołania."""
+    seen = []
+
+    def get(url, host=None):
+        seen.append((url, host))
+        if url.endswith("/version.json"):
+            return 200, {}, ('{"sha": "%s"}' % sha).encode()
+        if "/auth/microsoft/callback" in url:
+            return 302, {"location": callback}, b""
+        return login, {}, b""
+
+    return get, seen
+
+
+BROKEN = "https://app.example.pl/login?error=backend_unreachable"
+
+
+def switch_api(domains=DOMAINS, raw=COMPOSE_RAW, fqdn="", rendered=RENDERED):
     calls = []
     deploy = deploy_api({"status": "finished", "commit": SHA, "logs": BUILD_LOG})
     labels = base64.b64encode("\n".join(COOLIFY_LABELS).encode()).decode()
@@ -274,26 +303,38 @@ def switch_api(domains=DOMAINS, raw=COMPOSE_RAW, fqdn=""):
     def request(method, path, payload=None):
         calls.append((method, path, payload))
         if path == "applications/src":
-            return {"docker_compose_domains": domains, "docker_compose_raw": raw}
+            return {
+                "docker_compose_domains": domains,
+                "docker_compose_raw": raw,
+                "docker_compose": rendered,
+                "destination": {"server": {"uuid": "srv", "ip": SERVER_IP}},
+            }
         if path == "applications/x" and method == "GET":
             return {"status": "running:healthy", "fqdn": fqdn, "redirect": "non-www", "custom_labels": labels}
+        if path == "applications/x/stop":
+            return {}
         return deploy(method, path, payload)
 
     return request, calls
 
 
 class SwitchTests(unittest.TestCase):
-    def run_switch(self, request):
+    def run_switch(self, request, get=None):
+        get = get or user_path()[0]
         with contextlib.redirect_stdout(io.StringIO()) as out:
-            frontend_app.switch(request, "src", SHA, poll_seconds=0, health_polls=2)
+            frontend_app.switch(
+                request, "src", SHA, get=get, watch_seconds=10, probe_every=5,
+                sleep=lambda _s: None, poll_seconds=0, health_polls=2,
+            )
         return out.getvalue()
 
     def test_new_app_serves_the_domains_before_compose_lets_go(self):
         request, calls = switch_api()
         out = self.run_switch(request)
         patches = [(c[1], c[2]) for c in calls if c[0] == "PATCH"]
+        real = next(i for i, p in enumerate(patches) if (p[1] or {}).get("domains", "").startswith("https://"))
         self.assertEqual(
-            patches[0],
+            patches[real],
             (
                 "applications/x",
                 {
@@ -304,7 +345,7 @@ class SwitchTests(unittest.TestCase):
                 },
             ),
         )
-        path, labels_patch = patches[1]
+        path, labels_patch = patches[real + 1]
         self.assertEqual(path, "applications/x")
         self.assertIs(labels_patch["is_container_label_readonly_enabled"], False)
         self.assertEqual(labels_patch["rolling_update_drain_seconds"], 10)
@@ -312,8 +353,10 @@ class SwitchTests(unittest.TestCase):
         written = base64.b64decode(labels_patch["custom_labels"]).decode().splitlines()
         self.assertEqual(written, frontend_app.with_retry(COOLIFY_LABELS, "nexus-front-retry"))
         labelled = calls.index(("PATCH", "applications/x", labels_patch))
-        self.assertLess(labelled, next(i for i, c in enumerate(calls) if c[1].startswith("deploy?")))
-        rolled = next(i for i, c in enumerate(calls) if c[1].startswith("deploy?"))
+        deploys = [i for i, c in enumerate(calls) if c[1].startswith("deploy?")]
+        self.assertEqual(len(deploys), 2, "najpierw adres próbny, potem domeny")
+        self.assertLess(labelled, deploys[1])
+        rolled = deploys[1]
         released = calls.index(
             (
                 "PATCH",
@@ -345,6 +388,82 @@ class SwitchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.run_switch(request)
         self.assertFalse([c for c in calls if c[0] != "GET"])
+
+    def test_gate_tries_the_new_front_on_the_test_address_before_any_user_domain(self):
+        request, calls = switch_api()
+        get, seen = user_path()
+        self.run_switch(request, get)
+        first = next(c for c in calls if c[0] == "PATCH")
+        self.assertEqual(first[2]["domains"], "http://" + frontend_app.paths.CHECK_HOST)
+        gate = [s for s in seen if s[1] == frontend_app.paths.CHECK_HOST]
+        self.assertEqual({u.split(SERVER_IP, 1)[1] for u, _ in gate}, {
+            "/version.json", frontend_app.paths.CALLBACK_PATH, "/login",
+        })
+        self.assertTrue(all(u.startswith("http://" + SERVER_IP) for u, _ in gate))
+
+    def test_front_that_cannot_see_the_backend_never_gets_user_domains(self):
+        # Dokładnie 13.11.2026: kontener zdrowy, a callback logowania = backend_unreachable.
+        request, calls = switch_api()
+        with self.assertRaises(ValueError) as caught:
+            self.run_switch(request, user_path(callback=BROKEN)[0])
+        self.assertIn("domeny zostają w compose", str(caught.exception))
+        domain_patches = [c[2]["domains"] for c in calls if c[0] == "PATCH" and "domains" in (c[2] or {})]
+        self.assertFalse([d for d in domain_patches if d.startswith("https://")])
+        self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] == "PATCH"])
+
+    def test_failure_after_switch_stops_new_front_and_keeps_compose_domains(self):
+        request, calls = switch_api()
+        state = {"public": 0}
+
+        def get(url, host=None):
+            if host is None and "/auth/microsoft/callback" in url:
+                state["public"] += 1
+                return 302, {"location": BROKEN}, b""
+            return user_path()[0](url, host)
+
+        with self.assertRaises(ValueError) as caught:
+            self.run_switch(request, get)
+        self.assertIn("ruch wrócił do frontu z compose", str(caught.exception))
+        self.assertIn(("POST", "applications/x/stop", None), calls)
+        self.assertEqual(
+            calls[-1],
+            ("PATCH", "applications/x", {"domains": "http://" + frontend_app.paths.CHECK_HOST, "force_domain_override": True}),
+        )
+        self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] == "PATCH"])
+        self.assertGreaterEqual(state["public"], 2, "przerwanie dopiero po dwóch rundach z usterką")
+
+    def test_single_blip_after_switch_does_not_roll_back(self):
+        request, calls = switch_api()
+        state = {"n": 0}
+
+        def get(url, host=None):
+            if host is None and "/auth/microsoft/callback" in url:
+                state["n"] += 1
+                if state["n"] == 1:
+                    return 502, {}, b""
+            return user_path()[0](url, host)
+
+        self.run_switch(request, get)
+        self.assertNotIn(("POST", "applications/x/stop", None), calls)
+
+    def test_switch_refuses_when_coolify_dropped_the_network(self):
+        request, calls = switch_api(rendered=RENDERED_LOST)
+        with self.assertRaises(ValueError) as caught:
+            self.run_switch(request)
+        self.assertIn("backend", str(caught.exception))
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+
+    def test_switch_refuses_without_rendered_compose(self):
+        request, calls = switch_api(rendered="")
+        with self.assertRaises(ValueError):
+            self.run_switch(request)
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+
+    def test_gate_output_never_shows_the_server_address(self):
+        request, _ = switch_api()
+        out = self.run_switch(request)
+        self.assertNotIn(SERVER_IP, out)
+        self.assertIn("adres próbny", out)
 
     def test_switch_twice_is_refused(self):
         request, calls = switch_api(domains='{"backend": {"domain": "https://api.example.pl"}}')
@@ -394,6 +513,46 @@ class PreflightTests(unittest.TestCase):
             with self.subTest(), self.assertRaises(ValueError):
                 self.check(request, True)
         self.check(preflight_api(fqdn="https://app.example.pl", domains=BACKEND_ONLY), True)
+
+
+class RenderedComposeTests(unittest.TestCase):
+    def test_reads_service_networks_as_coolify_dumps_them(self):
+        self.assertEqual(frontend_app.rendered_service_networks(RENDERED, "backend"), {"nexus-front", "ocgkw"})
+        self.assertEqual(frontend_app.rendered_service_networks(RENDERED, "postgres"), {"ocgkw"})
+        self.assertIsNone(frontend_app.rendered_service_networks(RENDERED, "frontend"))
+
+    def test_list_form_and_quoted_names(self):
+        rendered = "services:\n  'backend':\n    networks:\n      - 'nexus-front'\n      - ocgkw\n"
+        self.assertEqual(frontend_app.rendered_service_networks(rendered, "backend"), {"nexus-front", "ocgkw"})
+
+    def test_top_level_network_is_not_a_service_network(self):
+        self.assertEqual(frontend_app.rendered_network_gap({"docker_compose": RENDERED_LOST}), ["backend"])
+        self.assertEqual(frontend_app.rendered_network_gap({"docker_compose": RENDERED}), [])
+
+
+class TestAddressTests(unittest.TestCase):
+    def test_test_address_is_not_a_user_domain(self):
+        check = "http://" + frontend_app.paths.CHECK_HOST
+        self.assertEqual(frontend_app.real_domains(check), "")
+        self.assertIsNone(frontend_app.deploy_target(preflight_api(fqdn=check)))
+        with self.assertRaises(ValueError), contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.preflight(preflight_api(fqdn=check, domains=BACKEND_ONLY), "src", True)
+
+
+class VerifyPublicTests(unittest.TestCase):
+    def test_deploy_turns_red_when_front_loses_the_backend(self):
+        request = preflight_api(fqdn="https://app.example.pl,https://kariera.example.pl")
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError) as caught:
+            frontend_app.verify_public(request, "", get=user_path(callback=BROKEN)[0], sleep=lambda _s: None)
+        self.assertIn("mode=deploy", str(caught.exception))
+
+    def test_healthy_path_passes_and_front_without_domains_is_skipped(self):
+        get, seen = user_path()
+        with contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.verify_public(preflight_api(fqdn="https://app.example.pl"), "", get=get)
+            frontend_app.verify_public(preflight_api(fqdn=""), "", get=get)
+        self.assertTrue(all(u.startswith("https://app.example.pl/") for u, _ in seen))
+        self.assertEqual(len(seen), 3)
 
 
 class DeployTargetTests(unittest.TestCase):
