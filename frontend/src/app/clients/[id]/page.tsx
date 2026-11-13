@@ -125,6 +125,7 @@ import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
 import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
+import { DeliverySettlementsSection } from "@/components/finance/settlements/DeliverySettlementsSection";
 import { useInvoicingModule } from "@/lib/api/client-invoicing";
 
 import { formatPhone } from "@/lib/phone-format";
@@ -1644,7 +1645,12 @@ export default function ClientDetailPage() {
             />
           )}
           {invoicingOpen && activeTab === "faktury" && (
-            <ClientInvoicingTab clientId={Number(id)} />
+            <div className="space-y-4">
+              {/* Najpierw rozliczenie z marżą: tu DL daje zgodę na koszty integracji,
+                  a tabela faktur pod spodem ma kilkadziesiąt wierszy. */}
+              <DeliverySettlementsSection clientId={Number(id)} />
+              <ClientInvoicingTab clientId={Number(id)} />
+            </div>
           )}
           {activeTab === "importy-md" && (
             <ClientMdImportsTab

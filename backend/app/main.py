@@ -2218,6 +2218,13 @@ app.include_router(
     tags=["client-settlements"],
     dependencies=_HR_PROGRAM,
 )
+# E5.1: Delivery Lead — marża i koszty integracji swoich klientów (sekcja Delivery).
+app.include_router(
+    client_settlements_api.delivery_router,
+    prefix="/api/my-clients",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia Nordei N1: raport klienta (T4T), kartoteka numerów osób.
 app.include_router(
     client_time_reports_api.router,

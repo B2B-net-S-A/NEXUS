@@ -14,6 +14,13 @@ Tabele:
   (``services/client_settlements/rules_catalog.py``), tu tylko poziom
   i parametry per klucz od miesiąca ``effective_from``. Miesiąc rozlicza się
   według najnowszej wersji nie późniejszej niż on.
+* ``client_settlement_extras`` (E5.1) — dodatki do rozliczenia osoby w miesiącu,
+  jeden model na wszystkie rodzaje (``kind``). Pierwszy rodzaj to ``integration``:
+  koszty integracji konsultanta na koszt B2B (klient ich nie zwraca), reguła
+  ``cl.integration_costs``, limit na konsultanta (kandydat, a bez niego kontrakt)
+  na rok kalendarzowy miesiąca kosztu. ``status``: ``pending`` (czeka na decyzję),
+  ``approved`` (przy integracji: zgoda DL-a — obniża marżę miesiąca), ``rejected``.
+  Pozostałe rodzaje i ich kolumny dokłada sesja „dodatki do rozliczenia”.
 * ``client_contractor_invoices`` (E4) — faktury kontraktorów z KSeF (``Subject2``)
   z samych metadanych, przypięte do kontraktu i miesiąca rozliczenia.
   ``nip_state``: ``known`` (NIP z kontraktu), ``suggested`` (NIP nieznany,
@@ -57,6 +64,19 @@ FIX_REASON_MAX = 1_000
 NIP_STATES: tuple[str, ...] = ("known", "suggested", "confirmed", "rejected")
 CK_NIP_STATE = f"nip_state IN ({quoted(NIP_STATES)})"
 SELLER_NAME_MAX = 255
+EXTRA_STATUSES: tuple[str, ...] = ("pending", "approved", "rejected")
+EXTRA_KINDS: tuple[str, ...] = (
+    "referral",
+    "tech_check",
+    "training",
+    "travel",
+    "integration",
+    "other",
+)
+CK_EXTRA_STATUS = f"status IN ({quoted(EXTRA_STATUSES)})"
+CK_EXTRA_KIND = f"kind IN ({quoted(EXTRA_KINDS)})"
+CK_EXTRA_AMOUNT = "amount > 0"
+EXTRA_DESCRIPTION_MAX = 300
 INVOICE_NUMBER_MAX = 256
 
 TABLE_DDL: tuple[str, ...] = (
@@ -127,6 +147,25 @@ TABLE_DDL: tuple[str, ...] = (
     CONSTRAINT ck_client_contractor_invoices_period CHECK (period_month IS NULL OR {PERIOD_CHECK}),
     CONSTRAINT ck_client_contractor_invoices_nip_state CHECK ({CK_NIP_STATE})
 )""",
+    f"""CREATE TABLE IF NOT EXISTS client_settlement_extras (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+    contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+    period_month VARCHAR(7) NOT NULL,
+    kind VARCHAR(20) NOT NULL DEFAULT 'integration',
+    amount NUMERIC(12, 2) NOT NULL,
+    description VARCHAR({EXTRA_DESCRIPTION_MAX}) NOT NULL,
+    status VARCHAR(10) NOT NULL DEFAULT 'pending',
+    created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decided_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    decided_at TIMESTAMPTZ NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_client_settlement_extras_period CHECK ({PERIOD_CHECK}),
+    CONSTRAINT ck_client_settlement_extras_kind CHECK ({CK_EXTRA_KIND}),
+    CONSTRAINT ck_client_settlement_extras_status CHECK ({CK_EXTRA_STATUS}),
+    CONSTRAINT ck_client_settlement_extras_amount CHECK ({CK_EXTRA_AMOUNT})
+)""",
 )
 
 MD_SOURCES_SETTLEMENT: tuple[str, ...] = ("rcp", "manual")
@@ -160,7 +199,14 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_contractor_invoices (contract_id, period_month)",
     "CREATE INDEX IF NOT EXISTS ix_client_contractor_invoices_seller "
     "ON client_contractor_invoices (seller_nip)",
+    "CREATE INDEX IF NOT EXISTS ix_client_settlement_extras_contract "
+    "ON client_settlement_extras (contract_id, period_month)",
+    "CREATE INDEX IF NOT EXISTS ix_client_settlement_extras_client "
+    "ON client_settlement_extras (client_id, period_month)",
 )
+
+#: 0691 (E5.1): dodatki do rozliczenia (pierwszy rodzaj: koszty integracji).
+EXTRAS_DDL: tuple[str, ...] = (TABLE_DDL[-1], *INDEX_DDL[-2:])
 
 #: Trzecie źródło zużycia MD. Warunek w DO, żeby entrypoint nie przebudowywał
 #: CHECK-a przy każdym starcie (pełny skan tabeli pod blokadą).
@@ -186,6 +232,7 @@ TABLES: tuple[str, ...] = (
     "client_settlements",
     "client_settlement_rule_sets",
     "client_contractor_invoices",
+    "client_settlement_extras",
 )
 
 ALL_DDL: tuple[str, ...] = (*TABLE_DDL, *COLUMN_DDL, *INDEX_DDL, *CONSTRAINT_DDL)
