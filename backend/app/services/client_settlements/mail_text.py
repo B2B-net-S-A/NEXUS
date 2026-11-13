@@ -119,6 +119,7 @@ def _filetime(raw: bytes) -> Optional[datetime]:
         return None
     if value == 0:
         return None
+    # dzień UTC celowo: FILETIME z Outlooka liczy od 1601-01-01 w UTC.
     return datetime(1601, 1, 1, tzinfo=timezone.utc) + timedelta(
         microseconds=value // 10
     )
