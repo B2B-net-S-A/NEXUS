@@ -127,7 +127,7 @@ function MeetingOptions({ value, set, roles, disabled }: MeetingOptionsProps) {
   const toggle = (role: string, on: boolean) =>
     set("mandatory_roles", on ? [...chosen, role] : chosen.filter((item) => item !== role));
   return (
-    <div className="grid gap-3 md:grid-cols-2">
+    <div className="grid items-start gap-3 md:grid-cols-2">
       <label
         htmlFor="order-rehearsal"
         className="flex items-start gap-2 rounded-md border border-border p-3 text-sm"
