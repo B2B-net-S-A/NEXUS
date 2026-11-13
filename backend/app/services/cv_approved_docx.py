@@ -264,6 +264,25 @@ def _strip_leading_separator(segments: Segments) -> Segments:
     return items
 
 
+def _education_row(segments: Segments) -> tuple[Segments, Segments, Segments]:
+    """Split one education paragraph into (dates, school in bold, the rest).
+
+    Without a bold school (edited by hand) the whole row is "the rest".
+    """
+    position = 0
+    while position < len(segments) and not segments[position][1].get("bold"):
+        position += 1
+    lead_plain = segments[:position]
+    start = position
+    while position < len(segments) and segments[position][1].get("bold"):
+        position += 1
+    bold = segments[start:position]
+    if not bold:
+        return [], [], _trim(segments)
+    rest = _trim(_strip_leading_separator(segments[position:]))
+    return _trim(lead_plain), _trim(bold), rest
+
+
 def _formatted(segments: Segments) -> bool:
     return any(text.strip() and any(state.values()) for text, state in segments)
 
@@ -585,31 +604,27 @@ def render_approved_docx(
     def flush_education():
         if not education_rows:
             return
-        table = add_education_table(doc, len(education_rows), t)
-        for index, segments in enumerate(education_rows, start=1):
+        rows = [_education_row(segments) for segments in education_rows]
+        # No row with dates → no empty "Daty" column (13.11.2026).
+        with_dates = any(
+            "".join(text for text, _ in dates).strip() for dates, _, _ in rows
+        )
+        table = add_education_table(doc, len(rows), t, with_dates=with_dates)
+        for index, (dates, bold, rest) in enumerate(rows, start=1):
             cells = table.rows[index].cells
-            lead_plain: Segments = []
-            position = 0
-            while position < len(segments) and not segments[position][1].get("bold"):
-                lead_plain.append(segments[position])
-                position += 1
-            bold: Segments = []
-            while position < len(segments) and segments[position][1].get("bold"):
-                bold.append(segments[position])
-                position += 1
-            rest = _trim(_strip_leading_separator(segments[position:]))
-            cells[0].text = ""
-            cells[1].text = ""
+            for cell in cells:
+                cell.text = ""
+            target = cells[-1].paragraphs[0]
             if bold:
-                emit(cells[0].paragraphs[0], _trim(lead_plain))
-                target = cells[1].paragraphs[0]
-                emit(target, _trim(bold))
+                if with_dates:
+                    emit(cells[0].paragraphs[0], dates)
+                emit(target, bold)
                 if rest:
                     target.add_run().add_break()
                     emit(target, rest)
             else:
                 # No institution in bold (edited by hand): keep the row whole.
-                emit(cells[1].paragraphs[0], _trim(segments))
+                emit(target, rest)
             style_education_row(cells, index)
         doc.add_paragraph()
         education_rows.clear()
