@@ -14,7 +14,7 @@ są tylko kontenery NEXUSA, front i ``coolify-proxy``.
 
 Tryby: ``plan`` (tylko odczyt), ``create``, ``deploy`` (próbne, z ``COMMIT``),
 ``switch`` (domeny frontu z compose na aplikację), ``rollback`` i ``stop`` (wycofanie),
-``trigger`` i ``wait`` (kroki workflow Deploy). Logi Actions są publiczne,
+``preflight``, ``trigger`` i ``wait`` (kroki workflow Deploy). Logi Actions są publiczne,
 więc do wyjścia trafiają wyłącznie nazwy zmiennych, flagi i stany, nigdy wartości
 ani ciała odpowiedzi API.
 """
@@ -38,7 +38,8 @@ APP_NAME = "nexus-frontend"
 BRANCH = "main"
 NETWORK = "nexus-front"
 COMPOSE_SERVICE = "frontend"
-MODES = {"plan", "create", "deploy", "switch", "rollback", "stop", "trigger", "wait"}
+MODES = {"plan", "create", "deploy", "switch", "rollback", "stop", "preflight", "trigger", "wait"}
+COMPOSE_NETWORK_RE = re.compile(r"(?ms)^networks:\s*\n(?:[ \t].*\n|\s*\n)*?  nexus-front:")
 REDIRECTS = {"www", "non-www", "both"}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 UUID_RE = re.compile(r"[A-Za-z0-9_-]+")
@@ -320,6 +321,43 @@ def domain_rows(domains: dict[str, dict[str, Any]]) -> list[dict[str, str]]:
     return rows
 
 
+def compose_has_network(source: dict[str, Any]) -> bool:
+    """Czy wczytany compose dołącza sieć `nexus-front` (bez niej front nie widzi `backend`)."""
+    return bool(COMPOSE_NETWORK_RE.search(str(source.get("docker_compose_raw") or "") + "\n"))
+
+
+def preflight(request: Request, source_uuid: str, front_required: bool) -> None:
+    """Bramka Deploy PRZED wyzwoleniem compose.
+
+    Coolify najpierw zatrzymuje wszystkie kontenery compose, a dopiero przy `up`
+    odkrywa brak sieci zewnętrznej — wtedy leży cała produkcja. Po przepięciu
+    (`front_required`) compose nie ma już frontu, więc front musi mieć domeny.
+    """
+    source = request("GET", "applications/" + source_uuid)
+    server = ((source.get("destination") or {}).get("server") or {}).get("uuid")
+    if not server or not find_network(request, server):
+        raise ValueError("brak sieci " + NETWORK + " — najpierw mode=create, compose nie rusza")
+    print("sieć " + NETWORK + ": jest")
+    if not front_required:
+        return
+    app = find_frontend(request)
+    detail = request("GET", "applications/" + app["uuid"]) if app else {}
+    if not str((detail or {}).get("fqdn") or ""):
+        raise ValueError("aplikacja frontu nie ma domen — najpierw mode=switch, compose nie rusza")
+    if (compose_domains(source).get(COMPOSE_SERVICE) or {}).get("domain"):
+        raise ValueError("compose ma jeszcze domeny frontu — najpierw mode=switch, compose nie rusza")
+    print("front: osobna aplikacja z domenami, compose bez domen frontu")
+
+
+def deploy_target(request: Request) -> str | None:
+    """UUID aplikacji frontu, którą Deploy ma wdrożyć; None = front jeszcze w compose."""
+    app = find_frontend(request)
+    if app is None:
+        return None
+    detail = request("GET", "applications/" + app["uuid"]) or {}
+    return app["uuid"] if str(detail.get("fqdn") or "") else None
+
+
 def set_domains(request: Request, app_uuid: str, domains: str, redirect: Any) -> None:
     """Domeny + etykiety z retry; dalej etykiety trzyma aplikacja, nie Coolify.
 
@@ -364,7 +402,10 @@ def switch(request: Request, source_uuid: str, commit: str, **timing: Any) -> No
     app = find_frontend(request)
     if app is None:
         raise ValueError("brak aplikacji " + APP_NAME)
-    domains = compose_domains(request("GET", path))
+    source = request("GET", path)
+    if not compose_has_network(source):
+        raise ValueError("wdrożony compose nie ma sieci " + NETWORK + " — front nie zobaczy backendu")
+    domains = compose_domains(source)
     front = domains.get(COMPOSE_SERVICE) or {}
     if not front.get("domain"):
         raise ValueError("compose nie ma domen frontu — przepięcie już zrobione?")
@@ -460,12 +501,18 @@ def main() -> int:
             rollback(request, source_uuid)
         elif mode == "stop":
             stop(request)
+        elif mode == "preflight":
+            preflight(request, source_uuid, os.environ.get("FRONTEND_APP_REQUIRED") == "true")
         elif mode == "trigger":
-            # Deploy: front z tego samego commitu, który buduje compose.
+            # Deploy, po udanym compose: front z tego samego commitu co backend.
             compose = os.environ.get("COMPOSE_DEPLOYMENT_UUID", "")
             if not UUID_RE.fullmatch(compose):
                 raise ValueError("brak COMPOSE_DEPLOYMENT_UUID")
-            write_output("deployment_uuid", trigger(request, compose_commit(request, compose)))
+            if deploy_target(request) is None:
+                print("front jeszcze w compose (aplikacja bez domen) — pomijam")
+                write_output("deployment_uuid", "")
+            else:
+                write_output("deployment_uuid", trigger(request, compose_commit(request, compose)))
         else:
             deployment = os.environ.get("FRONTEND_DEPLOYMENT_UUID", "")
             if not UUID_RE.fullmatch(deployment):

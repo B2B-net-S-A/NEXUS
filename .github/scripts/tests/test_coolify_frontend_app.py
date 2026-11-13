@@ -241,7 +241,8 @@ class DeployTests(unittest.TestCase):
                 frontend_app.deploy(request, SHA, poll_seconds=0)
 
 
-COMPOSE_RAW = "services:\n  postgres:\n    image: x\n  backend:\n    build: .\n"
+COMPOSE_RAW_NO_NETWORK = "services:\n  postgres:\n    image: x\n  backend:\n    build: .\n"
+COMPOSE_RAW = COMPOSE_RAW_NO_NETWORK + "\nnetworks:\n  nexus-front:\n    external: true\n    name: nexus-front\n"
 DOMAINS = (
     '{"backend": {"domain": "https://api.example.pl"},'
     ' "frontend": {"domain": "https://app.example.pl,https://kariera.example.pl", "redirect": "non-www"}}'
@@ -337,11 +338,69 @@ class SwitchTests(unittest.TestCase):
             self.run_switch(failing)
         self.assertFalse([c for c in calls if c[1] == "applications/src" and c[0] == "PATCH"])
 
+    def test_switch_before_compose_joins_the_network_is_refused(self):
+        # Healthcheck frontu (`wget /`) nie sprawdza backendu, więc bez tej odmowy ruch
+        # trafiłby na front, który nie widzi `backend:8000` (logowanie Microsoft, SSR).
+        request, calls = switch_api(raw=COMPOSE_RAW_NO_NETWORK)
+        with self.assertRaises(ValueError):
+            self.run_switch(request)
+        self.assertFalse([c for c in calls if c[0] != "GET"])
+
     def test_switch_twice_is_refused(self):
         request, calls = switch_api(domains='{"backend": {"domain": "https://api.example.pl"}}')
         with self.assertRaises(ValueError):
             self.run_switch(request)
         self.assertFalse([c for c in calls if c[0] != "GET"])
+
+
+def preflight_api(networks=("nexus-front",), apps=None, fqdn="", domains=DOMAINS):
+    def request(method, path, payload=None):
+        assert method == "GET", "preflight tylko czyta"
+        if path == "applications/src":
+            return {"destination": {"server": {"uuid": "srv"}}, "docker_compose_domains": domains}
+        if path == "servers/srv/destinations":
+            return [{"uuid": "d-" + n, "network": n} for n in ("coolify", *networks)]
+        if path == "applications":
+            return apps if apps is not None else [{"name": frontend_app.APP_NAME, "uuid": "x"}]
+        if path == "applications/x":
+            return {"fqdn": fqdn}
+        raise AssertionError(path)
+
+    return request
+
+
+BACKEND_ONLY = '{"backend": {"domain": "https://api.example.pl"}}'
+
+
+class PreflightTests(unittest.TestCase):
+    def check(self, request, required):
+        with contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.preflight(request, "src", required)
+
+    def test_missing_network_stops_deploy_before_compose(self):
+        with self.assertRaises(ValueError):
+            self.check(preflight_api(networks=()), False)
+
+    def test_network_is_enough_before_the_switch(self):
+        self.check(preflight_api(), False)
+
+    def test_after_cutover_front_must_own_the_domains(self):
+        cases = [
+            preflight_api(fqdn="", domains=BACKEND_ONLY),  # aplikacja bez domen → 404
+            preflight_api(fqdn="https://app.example.pl", domains=DOMAINS),  # switch nie zrobiony
+            preflight_api(apps=[], domains=BACKEND_ONLY),  # brak aplikacji
+        ]
+        for request in cases:
+            with self.subTest(), self.assertRaises(ValueError):
+                self.check(request, True)
+        self.check(preflight_api(fqdn="https://app.example.pl", domains=BACKEND_ONLY), True)
+
+
+class DeployTargetTests(unittest.TestCase):
+    def test_front_without_domains_is_left_to_compose(self):
+        self.assertIsNone(frontend_app.deploy_target(preflight_api(fqdn="")))
+        self.assertIsNone(frontend_app.deploy_target(preflight_api(apps=[])))
+        self.assertEqual(frontend_app.deploy_target(preflight_api(fqdn="https://app.example.pl")), "x")
 
 
 class RollbackTests(unittest.TestCase):

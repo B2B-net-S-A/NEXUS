@@ -105,3 +105,50 @@ def test_every_notice_is_single_line(tmp_path: Path) -> None:
     results = [report.summarize("frontend", []), report.summarize("api", [(1, "503")])]
     for line in report.render_notices(results, "unknown"):
         assert "\n" not in line and line.startswith("::notice")
+
+
+def _main(tmp_path: Path, lines: list[str], *extra: str) -> tuple[list[str], str]:
+    summary, notices = tmp_path / "s.md", tmp_path / "n.txt"
+    code = report.main(
+        [
+            "--samples", str(_write(tmp_path, lines)),
+            "--target", "a" * 40,
+            "--summary-out", str(summary),
+            "--notice-out", str(notices),
+            *extra,
+        ]
+    )
+    assert code == 0
+    return notices.read_text(encoding="utf-8").splitlines(), summary.read_text(encoding="utf-8")
+
+
+_FRONT_4S = ["100,frontend,200", "102,frontend,502", "104,frontend,502", "106,frontend,200", "100,api,200"]
+
+
+def test_frontend_app_over_target_warns_and_names_the_mechanism(tmp_path: Path) -> None:
+    """Etap B1: front jako osobna aplikacja ma cel 0 próbek bez 200."""
+    notices, summary = _main(tmp_path, _FRONT_4S, "--frontend-app", "true")
+    assert any(
+        n.startswith("::warning title=Front ponad cel::nexus-frontend: 2 próbek bez 200, najdłużej 4 s")
+        for n in notices
+    )
+    assert notices[-1].startswith("::notice title=Postgres::")
+    assert "osobna aplikacja Coolify `nexus-frontend`" in summary
+
+
+def test_compose_frontend_is_reported_without_the_b1_target(tmp_path: Path) -> None:
+    notices, summary = _main(tmp_path, _FRONT_4S)
+    assert not any(n.startswith("::warning") for n in notices)
+    assert "usługa w compose" in summary
+
+
+def test_frontend_app_within_target_does_not_warn(tmp_path: Path) -> None:
+    notices, _ = _main(tmp_path, ["100,frontend,200", "102,frontend,200", "100,api,200"], "--frontend-app", "true")
+    assert not any(n.startswith("::warning") for n in notices)
+
+
+def test_a_single_bad_frontend_sample_already_misses_the_target(tmp_path: Path) -> None:
+    """Jedna próbka 502 przy podmianie kontenera to błąd widoczny dla człowieka."""
+    lines = ["100,frontend,200", "102,frontend,502", "104,frontend,200", "100,api,200"]
+    notices, _ = _main(tmp_path, lines, "--frontend-app", "true")
+    assert any(n.startswith("::warning title=Front ponad cel::nexus-frontend: 1 próbek") for n in notices)
