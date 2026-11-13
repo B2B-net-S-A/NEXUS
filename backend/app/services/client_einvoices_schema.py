@@ -53,7 +53,9 @@ PROVIDER_ID_MAX = 128
 DETAIL_MAX = 500
 
 CK_STATUS = f"status IN ({quoted(STATUSES)})"
-CK_DOCUMENT_TYPE = f"document_type IS NULL OR document_type IN ({quoted(DOCUMENT_TYPES)})"
+CK_DOCUMENT_TYPE = (
+    f"document_type IS NULL OR document_type IN ({quoted(DOCUMENT_TYPES)})"
+)
 CK_TARGET = f"target IS NULL OR target IN ({quoted(TARGETS)})"
 CK_SENT = "status NOT IN ('sent', 'delivered', 'rejected') OR sent_at IS NOT NULL"
 
@@ -100,4 +102,14 @@ CONSTRAINT_DDL: tuple[str, ...] = ()
 
 DATA_DDL: tuple[str, ...] = ()
 
-DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS client_sales_invoice_einvoices",)
+ALL_DDL: tuple[str, ...] = (
+    *TABLE_DDL,
+    *COLUMN_DDL,
+    *INDEX_DDL,
+    *CONSTRAINT_DDL,
+    *DATA_DDL,
+)
+
+DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS client_sales_invoice_einvoices",
+)

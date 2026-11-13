@@ -118,18 +118,30 @@ class SimulatedProvider:
         self.directory.mkdir(parents=True, exist_ok=True)
         (self.directory / f"{document_id}.xml").write_bytes(request.xml)
         if request.recipient == self.FAIL_RECIPIENT:
-            result = SendResult(document_id, FAILED, "recipient_not_found: odbiorca nie jest zarejestrowany w sieci Peppol")
+            result = SendResult(
+                document_id,
+                FAILED,
+                "recipient_not_found: odbiorca nie jest zarejestrowany w sieci Peppol",
+            )
         else:
             result = SendResult(document_id, DELIVERED, None, "delivered")
         (self.directory / f"{document_id}.json").write_text(
-            json.dumps({"recipient": request.recipient, "state": result.state, "detail": result.detail})
+            json.dumps(
+                {
+                    "recipient": request.recipient,
+                    "state": result.state,
+                    "detail": result.detail,
+                }
+            )
         )
         return result
 
     async def status(self, document_id: str) -> SendResult:
         meta = self.directory / f"{Path(document_id).name}.json"
         if not meta.is_file():
-            raise ProviderError("Dostawca nie zna tego dokumentu.", category="not_found")
+            raise ProviderError(
+                "Dostawca nie zna tego dokumentu.", category="not_found"
+            )
         data = json.loads(meta.read_text())
         return SendResult(document_id, data["state"], data.get("detail"), data["state"])
 
@@ -137,7 +149,9 @@ class SimulatedProvider:
 # ── Recommand ────────────────────────────────────────────────────────────────
 
 
-def _recommand_state(payload: dict[str, Any]) -> tuple[str, Optional[str], dict[str, Any]]:
+def _recommand_state(
+    payload: dict[str, Any],
+) -> tuple[str, Optional[str], dict[str, Any]]:
     """``deliveryStatus`` + szczegóły nieudanej dostawy Peppol."""
 
     raw = payload.get("deliveryStatus")
@@ -149,7 +163,11 @@ def _recommand_state(payload: dict[str, Any]) -> tuple[str, Optional[str], dict[
         references = dict(delivery.get("references") or {})
         failure = delivery.get("failure")
         if isinstance(failure, dict):
-            parts = [str(failure.get(key)) for key in ("category", "message", "code") if failure.get(key)]
+            parts = [
+                str(failure.get(key))
+                for key in ("category", "message", "code")
+                if failure.get(key)
+            ]
             detail = ": ".join(parts)[:500] or None
     if raw == "delivered":
         return DELIVERED, None, references
@@ -211,7 +229,9 @@ class RecommandProvider:
             return
         logger.warning("[peppol] %s: HTTP %s", action, response.status_code)
         if response.status_code in (401, 403):
-            raise ProviderError("Dostawca Peppol odrzucił klucz API.", category="auth", retry=True)
+            raise ProviderError(
+                "Dostawca Peppol odrzucił klucz API.", category="auth", retry=True
+            )
         if response.status_code == 429:
             raise ProviderError(
                 "Dostawca Peppol ogranicza liczbę zapytań — spróbuj za kilka minut.",
@@ -236,7 +256,9 @@ class RecommandProvider:
         }
         try:
             async with self._client() as client:
-                response = await client.post(f"/api/v1/{self.company_id}/send", json=body)
+                response = await client.post(
+                    f"/api/v1/{self.company_id}/send", json=body
+                )
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             logger.warning("[peppol] send: %s", type(exc).__name__)
             raise ProviderError(
@@ -246,7 +268,10 @@ class RecommandProvider:
             # Żądanie mogło dojść, a przerwała się odpowiedź.
             logger.warning("[peppol] send: %s", type(exc).__name__)
             raise ProviderError(
-                "Brak odpowiedzi dostawcy Peppol.", category="network", retry=True, uncertain=True
+                "Brak odpowiedzi dostawcy Peppol.",
+                category="network",
+                retry=True,
+                uncertain=True,
             ) from exc
         self._raise_for(response, "send")
         payload = self._json(response)
@@ -254,9 +279,14 @@ class RecommandProvider:
             raise ProviderError(_errors_text(payload), category="rejected")
         document_id = str(payload.get("id") or "")
         if not document_id:
-            raise ProviderError("Dostawca nie zwrócił identyfikatora dokumentu.", category="invalid_response")
+            raise ProviderError(
+                "Dostawca nie zwrócił identyfikatora dokumentu.",
+                category="invalid_response",
+            )
         state, detail, references = _recommand_state(payload)
-        return SendResult(document_id, state, detail, payload.get("deliveryStatus"), references)
+        return SendResult(
+            document_id, state, detail, payload.get("deliveryStatus"), references
+        )
 
     async def status(self, document_id: str) -> SendResult:
         try:
@@ -269,9 +299,15 @@ class RecommandProvider:
             ) from exc
         self._raise_for(response, "status")
         payload = self._json(response)
-        document = payload.get("document") if isinstance(payload.get("document"), dict) else payload
+        document = (
+            payload.get("document")
+            if isinstance(payload.get("document"), dict)
+            else payload
+        )
         state, detail, references = _recommand_state(document)
-        return SendResult(document_id, state, detail, document.get("deliveryStatus"), references)
+        return SendResult(
+            document_id, state, detail, document.get("deliveryStatus"), references
+        )
 
 
 # ── Wybór dostawcy ───────────────────────────────────────────────────────────
@@ -290,13 +326,19 @@ class ProviderConfig:
 def load_config() -> ProviderConfig:
     name = (settings.PEPPOL_PROVIDER or "off").strip().lower()
     if name not in PROVIDERS or name == "off":
-        return ProviderConfig("off", "Wysyłka e-faktur jest wyłączona (brak kanału doręczenia).")
+        return ProviderConfig(
+            "off", "Wysyłka e-faktur jest wyłączona (brak kanału doręczenia)."
+        )
     if name == "visma_direct":
         return ProviderConfig(name, VISMA_DIRECT_PENDING)
     if name == "recommand" and not (
-        settings.PEPPOL_API_KEY and settings.PEPPOL_API_SECRET and settings.PEPPOL_COMPANY_ID
+        settings.PEPPOL_API_KEY
+        and settings.PEPPOL_API_SECRET
+        and settings.PEPPOL_COMPANY_ID
     ):
-        return ProviderConfig(name, "Brak klucza, sekretu albo firmy u dostawcy Peppol.")
+        return ProviderConfig(
+            name, "Brak klucza, sekretu albo firmy u dostawcy Peppol."
+        )
     return ProviderConfig(name, None)
 
 

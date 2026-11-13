@@ -54,7 +54,11 @@ def _party(party: FaParty) -> str:
 
 
 def render(doc: FaDocument, *, ksef_number: Optional[str]) -> bytes:
-    title = "Faktura korygująca / Credit note" if doc.kind == "correction" else "Faktura / Invoice"
+    title = (
+        "Faktura korygująca / Credit note"
+        if doc.kind == "correction"
+        else "Faktura / Invoice"
+    )
     rows = []
     for index, line in enumerate(doc.lines, start=1):
         state = " (przed korektą / before)" if line.before else ""
@@ -73,7 +77,9 @@ def render(doc: FaDocument, *, ksef_number: Optional[str]) -> bytes:
         refs = ", ".join(escape(c.invoice_number or "") for c in doc.corrected)
         corrected = f"<p>Korygowana faktura / Corrected invoice: {refs}</p>"
     notes = "".join(f"<p>{escape(note)}</p>" for note in doc.notes)
-    reverse = "<p>Odwrotne obciążenie / Reverse charge</p>" if doc.reverse_charge else ""
+    reverse = (
+        "<p>Odwrotne obciążenie / Reverse charge</p>" if doc.reverse_charge else ""
+    )
     accounts = "".join(
         f"<p>Rachunek / Account: {escape(a.number)}{(' (SWIFT ' + escape(a.swift) + ')') if a.swift else ''}</p>"
         for a in doc.accounts

@@ -30,6 +30,7 @@ class UnsupportedInvoice(ValueError):
         self.code = code
         super().__init__(code)
 
+
 VAT_PLN_FIELDS = ("P_14_1W", "P_14_2W", "P_14_3W", "P_14_4W")
 #: Pola VAT per stawka w FA(3) (kwoty w walucie faktury).
 VAT_RATE_FIELDS = ("P_14_1", "P_14_2", "P_14_3", "P_14_4", "P_14_5")
@@ -218,7 +219,9 @@ def read(xml: bytes) -> FaDocument:
     for node in invoice.iterfind("{*}Platnosc/{*}RachunekBankowy"):
         number = _text(node, "NrRB", limit=64)
         if number:
-            accounts.append(FaAccount(number=number, swift=_text(node, "SWIFT", limit=16)))
+            accounts.append(
+                FaAccount(number=number, swift=_text(node, "SWIFT", limit=16))
+            )
     notes = []
     for node in invoice.iterfind("{*}DodatkowyOpis"):
         value = _text(node, "Wartosc", limit=512)

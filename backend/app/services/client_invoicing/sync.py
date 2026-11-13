@@ -412,7 +412,9 @@ async def _capture_einvoice(run: _Run, invoice: ClientSalesInvoice, xml: bytes) 
             if await einvoices.capture(run.db, invoice, xml):
                 run.counts["einvoices"] += 1
     except Exception:  # noqa: BLE001 — faktura zostaje zapisana, e-faktura dojdzie z doczytania
-        logger.exception("[client-invoicing] e-faktura dla faktury %s nieudana", invoice.id)
+        logger.exception(
+            "[client-invoicing] e-faktura dla faktury %s nieudana", invoice.id
+        )
 
 
 async def _einvoice_backfill(run: _Run) -> None:

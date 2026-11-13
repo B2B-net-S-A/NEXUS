@@ -32,12 +32,16 @@ from app.services import client_einvoices_schema as schema
 class ClientSalesInvoiceEinvoice(Base, TimestampMixin):
     __tablename__ = "client_sales_invoice_einvoices"
     __table_args__ = (
-        CheckConstraint(schema.CK_STATUS, name="ck_client_sales_invoice_einvoices_status"),
+        CheckConstraint(
+            schema.CK_STATUS, name="ck_client_sales_invoice_einvoices_status"
+        ),
         CheckConstraint(
             schema.CK_DOCUMENT_TYPE,
             name="ck_client_sales_invoice_einvoices_document_type",
         ),
-        CheckConstraint(schema.CK_TARGET, name="ck_client_sales_invoice_einvoices_target"),
+        CheckConstraint(
+            schema.CK_TARGET, name="ck_client_sales_invoice_einvoices_target"
+        ),
         CheckConstraint(schema.CK_SENT, name="ck_client_sales_invoice_einvoices_sent"),
         Index("uq_client_sales_invoice_einvoices_invoice", "invoice_id", unique=True),
         Index("ix_client_sales_invoice_einvoices_status", "status"),

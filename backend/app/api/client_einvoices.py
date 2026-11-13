@@ -44,13 +44,17 @@ class SettingsIn(BaseModel):
     mode: Optional[str] = Field(default=None, pattern=r"^(test|production)$")
     auto_send: Optional[bool] = None
     since: Optional[str] = Field(default=None, pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-    receivers: Optional[list[ReceiverIn]] = Field(default=None, max_length=peppol_settings.MAX_RECEIVERS)
+    receivers: Optional[list[ReceiverIn]] = Field(
+        default=None, max_length=peppol_settings.MAX_RECEIVERS
+    )
 
 
 async def _open(db: AsyncSession, user: User) -> None:
     enabled = await module_settings.is_enabled(db)
     if not module_settings.open_for(user, enabled):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, module_settings.MODULE_DISABLED_DETAIL)
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, module_settings.MODULE_DISABLED_DETAIL
+        )
 
 
 def _fail(exc: service.EinvoiceError) -> HTTPException:
@@ -58,7 +62,9 @@ def _fail(exc: service.EinvoiceError) -> HTTPException:
 
 
 @router.get("/clients")
-async def clients(current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def clients(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
     """Klienci z e-fakturami — przy nich ekran pokazuje zakładkę."""
 
     await _open(db, current_user)
@@ -77,7 +83,9 @@ async def list_einvoices(
 
 
 @router.post("/send")
-async def send(body: SendIn, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def send(
+    body: SendIn, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
     await _open(db, current_user)
     try:
         return await service.send(db, list(dict.fromkeys(body.ids)), actor=current_user)
@@ -86,7 +94,9 @@ async def send(body: SendIn, current_user: FinanceModuleUser, db: AsyncSession =
 
 
 @router.post("/refresh")
-async def refresh(current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)) -> dict[str, int]:
+async def refresh(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, int]:
     """Nowe faktury w zakresie, ponowne sprawdzenie i statusy doręczenia."""
 
     await _open(db, current_user)
@@ -99,7 +109,9 @@ async def refresh(current_user: FinanceModuleUser, db: AsyncSession = Depends(ge
 
 @router.get("/{einvoice_id}/ubl")
 async def download(
-    einvoice_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+    einvoice_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
 ) -> Response:
     await _open(db, current_user)
     try:
@@ -114,16 +126,25 @@ async def download(
 
 
 @router.get("/settings")
-async def get_settings(current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+async def get_settings(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
     await _open(db, current_user)
     value = await peppol_settings.load(db)
     provider = providers.load_config()
-    return {**value, "provider": provider.name, "provider_ready": provider.enabled, "provider_detail": provider.disabled_reason}
+    return {
+        **value,
+        "provider": provider.name,
+        "provider_ready": provider.enabled,
+        "provider_detail": provider.disabled_reason,
+    }
 
 
 @router.put("/settings")
 async def put_settings(
-    body: SettingsIn, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+    body: SettingsIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     await _open(db, current_user)
     patch = body.model_dump(exclude_none=True)

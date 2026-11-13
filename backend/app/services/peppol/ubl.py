@@ -54,12 +54,8 @@ CUSTOMIZATION_ID = (
 PROFILE_ID = "urn:fdc:peppol.eu:2017:poacc:billing:01:1.0"
 #: Identyfikatory typu dokumentu w sieci Peppol (dostawca wysyła z nimi plik).
 DOCTYPE_IDS = {
-    "invoice": (
-        f"{NS_INVOICE}::Invoice##{CUSTOMIZATION_ID}::2.1"
-    ),
-    "credit_note": (
-        f"{NS_CREDIT_NOTE}::CreditNote##{CUSTOMIZATION_ID}::2.1"
-    ),
+    "invoice": (f"{NS_INVOICE}::Invoice##{CUSTOMIZATION_ID}::2.1"),
+    "credit_note": (f"{NS_CREDIT_NOTE}::CreditNote##{CUSTOMIZATION_ID}::2.1"),
 }
 
 _CENT = Decimal("0.01")
@@ -92,7 +88,15 @@ _UNITS = {
 _STANDARD_RATES = {"23", "22", "8", "7", "5", "4", "3"}
 #: Stawka → pole VAT w FA(3) (``P_14_1`` 23/22%, ``P_14_2`` 8/7%, ``P_14_3`` 5%,
 #: ``P_14_4`` 4/3%).
-_VAT_FIELD = {"23": "P_14_1", "22": "P_14_1", "8": "P_14_2", "7": "P_14_2", "5": "P_14_3", "4": "P_14_4", "3": "P_14_4"}
+_VAT_FIELD = {
+    "23": "P_14_1",
+    "22": "P_14_1",
+    "8": "P_14_2",
+    "7": "P_14_2",
+    "5": "P_14_3",
+    "4": "P_14_4",
+    "3": "P_14_4",
+}
 _REVERSE_RATES = {"np ii", "np", "oo"}
 _OUTSIDE_RATES = {"np i"}
 
@@ -279,7 +283,9 @@ def _build_line(source: FaLine, quantity: Optional[Decimal], net: Decimal) -> _L
     )
 
 
-def _pairs(lines: tuple[FaLine, ...]) -> list[tuple[Optional[FaLine], Optional[FaLine]]]:
+def _pairs(
+    lines: tuple[FaLine, ...],
+) -> list[tuple[Optional[FaLine], Optional[FaLine]]]:
     """Pary (przed, po) w korekcie: po ``UU_ID``, potem po nazwie w kolejności."""
 
     before = [line for line in lines if line.before]
@@ -328,10 +334,16 @@ def _correction_lines(doc: FaDocument) -> list[_Line]:
 def _lines(doc: FaDocument) -> list[_Line]:
     if doc.kind == "correction":
         return _correction_lines(doc)
-    return [_build_line(line, line.quantity, line.net) for line in doc.lines if not line.before]
+    return [
+        _build_line(line, line.quantity, line.net)
+        for line in doc.lines
+        if not line.before
+    ]
 
 
-def _split_address(party: FaParty) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
+def _split_address(
+    party: FaParty,
+) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
     """(ulica, dodatkowa linia, kod pocztowy, miasto) z nieustrukturyzowanego adresu FA."""
 
     line1, line2 = party.line1, party.line2
@@ -344,7 +356,11 @@ def _split_address(party: FaParty) -> tuple[Optional[str], Optional[str], Option
     if postal is None and line1:
         match = _LINE_WITH_POSTAL_RE.match(line1)
         if match:
-            line1, postal, city = match.group(1).strip(" ,"), match.group(2), match.group(3).strip(" ,")
+            line1, postal, city = (
+                match.group(1).strip(" ,"),
+                match.group(2),
+                match.group(3).strip(" ,"),
+            )
     return line1, line2, postal, city
 
 
@@ -368,7 +384,9 @@ class _Writer:
         )
 
     @staticmethod
-    def cbc(parent: etree._Element, tag: str, text: str, **attrs: str) -> etree._Element:
+    def cbc(
+        parent: etree._Element, tag: str, text: str, **attrs: str
+    ) -> etree._Element:
         node = etree.SubElement(parent, f"{{{NS_CBC}}}{tag}", attrs)
         node.text = text
         return node
@@ -378,12 +396,20 @@ class _Writer:
         return etree.SubElement(parent, f"{{{NS_CAC}}}{tag}")
 
 
-def _amount(w: _Writer, parent: etree._Element, tag: str, value: Decimal, currency: str) -> None:
+def _amount(
+    w: _Writer, parent: etree._Element, tag: str, value: Decimal, currency: str
+) -> None:
     w.cbc(parent, tag, _money(value), currencyID=currency)
 
 
 def _tax_category(
-    w: _Writer, parent: etree._Element, tag: str, category: str, percent: Decimal, *, reason: bool
+    w: _Writer,
+    parent: etree._Element,
+    tag: str,
+    category: str,
+    percent: Decimal,
+    *,
+    reason: bool,
 ) -> None:
     node = w.cac(parent, tag)
     w.cbc(node, "ID", category)
@@ -465,7 +491,9 @@ def build(
     if doc.kind == "correction" and total_net == 0:
         raise NothingToSend("Korekta nie zmienia kwoty faktury.")
     if doc.net_total is not None and total_net != doc.net_total:
-        raise ConversionError("net_mismatch", lines=_money(total_net), net=_money(doc.net_total))
+        raise ConversionError(
+            "net_mismatch", lines=_money(total_net), net=_money(doc.net_total)
+        )
 
     credit = total_net < 0
     sign = Decimal("-1") if credit else Decimal("1")
@@ -480,20 +508,28 @@ def build(
     # w korekcie KSeF ma różnicę VAT-ów zaokrąglonych osobno (100,02 → 100,04
     # przy 23% to VAT 0,01, a 23% od 0,02 = 0,00). Reguła BR-CO-17 dopuszcza
     # taką różnicę o grosz. Gdy kilka stawek trafia w jedno pole — liczymy.
-    fields = [_VAT_FIELD.get(_number(key[1])) if key[0] == "S" else None for key in breakdown]
+    fields = [
+        _VAT_FIELD.get(_number(key[1])) if key[0] == "S" else None for key in breakdown
+    ]
     vat_by_key = {}
     for key, field in zip(breakdown, fields):
         if field and fields.count(field) == 1 and field in doc.vat_by_field:
             vat_by_key[key] = doc.vat_by_field[field] * sign
         else:
-            vat_by_key[key] = (breakdown[key] * key[1] / 100).quantize(_CENT, rounding=ROUND_HALF_UP)
+            vat_by_key[key] = (breakdown[key] * key[1] / 100).quantize(
+                _CENT, rounding=ROUND_HALF_UP
+            )
     vat_total = sum(vat_by_key.values(), _ZERO)
     net_total = total_net * sign
     gross = net_total + vat_total
     if gross != doc.gross_total * sign:
-        raise ConversionError("gross_mismatch", ubl=_money(gross), gross=_money(doc.gross_total * sign))
+        raise ConversionError(
+            "gross_mismatch", ubl=_money(gross), gross=_money(doc.gross_total * sign)
+        )
     if vat_total != doc.vat_total * sign:
-        raise ConversionError("vat_mismatch", lines=_money(vat_total), vat=_money(doc.vat_total * sign))
+        raise ConversionError(
+            "vat_mismatch", lines=_money(vat_total), vat=_money(doc.vat_total * sign)
+        )
     tax_currency = None
     if currency != "PLN" and vat_total != 0:
         if doc.vat_total_pln is None:
@@ -503,7 +539,9 @@ def build(
         raise ConversionError("missing_corrected")
 
     document_type = "credit_note" if credit else "invoice"
-    root_tag, root_ns = ("CreditNote", NS_CREDIT_NOTE) if credit else ("Invoice", NS_INVOICE)
+    root_tag, root_ns = (
+        ("CreditNote", NS_CREDIT_NOTE) if credit else ("Invoice", NS_INVOICE)
+    )
     w = _Writer(root_tag, root_ns)
     r = w.root
     w.cbc(r, "CustomizationID", CUSTOMIZATION_ID)
@@ -512,7 +550,11 @@ def build(
     w.cbc(r, "IssueDate", doc.issue_date.isoformat())
     if not credit and doc.due_date:
         w.cbc(r, "DueDate", doc.due_date.isoformat())
-    w.cbc(r, "CreditNoteTypeCode" if credit else "InvoiceTypeCode", "381" if credit else "380")
+    w.cbc(
+        r,
+        "CreditNoteTypeCode" if credit else "InvoiceTypeCode",
+        "381" if credit else "380",
+    )
     notes = list(doc.notes)
     if "AE" in categories:
         notes.append("Reverse charge / Odwrotne obciążenie")
@@ -557,7 +599,15 @@ def build(
             filename=attachment.filename,
         )
     outside = categories == {"O"}
-    _party(w, r, "AccountingSupplierParty", doc.seller, sender, with_vat=not outside, legal_id=doc.seller.nip)
+    _party(
+        w,
+        r,
+        "AccountingSupplierParty",
+        doc.seller,
+        sender,
+        with_vat=not outside,
+        legal_id=doc.seller.nip,
+    )
     _party(
         w,
         r,
@@ -595,7 +645,9 @@ def build(
         _tax_category(w, subtotal, "TaxCategory", category, percent, reason=True)
     if tax_currency:
         pln_total = w.cac(r, "TaxTotal")
-        _amount(w, pln_total, "TaxAmount", (doc.vat_total_pln or _ZERO) * sign, tax_currency)
+        _amount(
+            w, pln_total, "TaxAmount", (doc.vat_total_pln or _ZERO) * sign, tax_currency
+        )
 
     totals = w.cac(r, "LegalMonetaryTotal")
     _amount(w, totals, "LineExtensionAmount", net_total, currency)
@@ -603,7 +655,11 @@ def build(
     _amount(w, totals, "TaxInclusiveAmount", gross, currency)
     _amount(w, totals, "PayableAmount", gross, currency)
 
-    line_tag, qty_tag = ("CreditNoteLine", "CreditedQuantity") if credit else ("InvoiceLine", "InvoicedQuantity")
+    line_tag, qty_tag = (
+        ("CreditNoteLine", "CreditedQuantity")
+        if credit
+        else ("InvoiceLine", "InvoicedQuantity")
+    )
     for index, line in enumerate(lines, start=1):
         node = w.cac(r, line_tag)
         w.cbc(node, "ID", str(index))
@@ -618,14 +674,23 @@ def build(
             _amount(w, allowance, "Amount", line.line_allowance * sign, currency)
         item = w.cac(node, "Item")
         w.cbc(item, "Name", line.name)
-        _tax_category(w, item, "ClassifiedTaxCategory", line.category, line.percent, reason=False)
+        _tax_category(
+            w, item, "ClassifiedTaxCategory", line.category, line.percent, reason=False
+        )
         price = w.cac(node, "Price")
         w.cbc(price, "PriceAmount", _price(line.price), currencyID=currency)
         if line.price_base is not None:
             discount = w.cac(price, "AllowanceCharge")
             w.cbc(discount, "ChargeIndicator", "false")
-            w.cbc(discount, "Amount", _price(line.price_base - line.price), currencyID=currency)
+            w.cbc(
+                discount,
+                "Amount",
+                _price(line.price_base - line.price),
+                currencyID=currency,
+            )
             w.cbc(discount, "BaseAmount", _price(line.price_base), currencyID=currency)
 
     xml = etree.tostring(r, xml_declaration=True, encoding="UTF-8", pretty_print=True)
-    return UblResult(xml=xml, document_type=document_type, total=gross, currency=currency)
+    return UblResult(
+        xml=xml, document_type=document_type, total=gross, currency=currency
+    )

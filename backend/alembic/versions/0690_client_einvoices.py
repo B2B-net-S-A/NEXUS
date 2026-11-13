@@ -19,7 +19,7 @@ depends_on = None
 
 
 def upgrade() -> None:
-    for stmt in (*schema.TABLE_DDL, *schema.INDEX_DDL):
+    for stmt in schema.ALL_DDL:
         op.execute(stmt)
 
 

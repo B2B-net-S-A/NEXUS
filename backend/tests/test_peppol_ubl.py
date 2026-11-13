@@ -48,10 +48,19 @@ def test_discount_and_reverse_charge_invoice_maps_like_the_prototype():
     assert _texts(root, "cbc:DocumentCurrencyCode") == ["PLN"]
     # Osoba kontaktowa Nordei z opisu pozycji — Peppol wymaga BuyerReference.
     assert _texts(root, "cbc:BuyerReference") == ["Anna Testowa"]
-    assert _texts(root, ".//cac:AccountingCustomerParty//cbc:EndpointID") == ["7332545042126"]
-    assert root.find(".//cac:AccountingCustomerParty//cbc:EndpointID", NS).get("schemeID") == "0088"
-    assert _texts(root, ".//cac:AccountingCustomerParty//cac:PartyTaxScheme/cbc:CompanyID") == ["FI28583949"]
-    assert _texts(root, ".//cac:AccountingSupplierParty//cac:PartyTaxScheme/cbc:CompanyID") == ["PL9876543210"]
+    assert _texts(root, ".//cac:AccountingCustomerParty//cbc:EndpointID") == [
+        "7332545042126"
+    ]
+    assert (
+        root.find(".//cac:AccountingCustomerParty//cbc:EndpointID", NS).get("schemeID")
+        == "0088"
+    )
+    assert _texts(
+        root, ".//cac:AccountingCustomerParty//cac:PartyTaxScheme/cbc:CompanyID"
+    ) == ["FI28583949"]
+    assert _texts(
+        root, ".//cac:AccountingSupplierParty//cac:PartyTaxScheme/cbc:CompanyID"
+    ) == ["PL9876543210"]
     # NIDS w AccountingCost każdej pozycji.
     assert _texts(root, "cac:InvoiceLine/cbc:AccountingCost") == [
         "1000000001",
@@ -60,9 +69,19 @@ def test_discount_and_reverse_charge_invoice_maps_like_the_prototype():
     ]
     # Rabat 2,5% z umowy ramowej: cena przed rabatem 180,00, po rabacie 175,50.
     assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["175.50"] * 3
-    assert _texts(root, "cac:InvoiceLine/cac:Price/cac:AllowanceCharge/cbc:BaseAmount") == ["180.00"] * 3
-    assert _texts(root, "cac:InvoiceLine/cac:Price/cac:AllowanceCharge/cbc:Amount") == ["4.50"] * 3
-    assert _texts(root, "cac:InvoiceLine/cbc:InvoicedQuantity") == ["86", "103.5", "19.5"]
+    assert (
+        _texts(root, "cac:InvoiceLine/cac:Price/cac:AllowanceCharge/cbc:BaseAmount")
+        == ["180.00"] * 3
+    )
+    assert (
+        _texts(root, "cac:InvoiceLine/cac:Price/cac:AllowanceCharge/cbc:Amount")
+        == ["4.50"] * 3
+    )
+    assert _texts(root, "cac:InvoiceLine/cbc:InvoicedQuantity") == [
+        "86",
+        "103.5",
+        "19.5",
+    ]
     # Odwrotne obciążenie: AE, 0%, kod zwolnienia VATEX-EU-AE.
     assert _texts(root, "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:ID") == ["AE"]
     assert _texts(root, ".//cbc:TaxExemptionReasonCode") == ["VATEX-EU-AE"]
@@ -70,7 +89,9 @@ def test_discount_and_reverse_charge_invoice_maps_like_the_prototype():
     assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["36679.50"]
     assert "Frame Agreement" in _texts(root, "cbc:Note")[0]
     assert _texts(root, "cbc:DueDate") == ["2026-12-05"]
-    assert _texts(root, ".//cac:PayeeFinancialAccount/cbc:ID") == ["PL11111111110000000011111111"]
+    assert _texts(root, ".//cac:PayeeFinancialAccount/cbc:ID") == [
+        "PL11111111110000000011111111"
+    ]
 
 
 def test_invoice_in_eur_keeps_currency_without_tax_currency_for_reverse_charge():
@@ -78,7 +99,9 @@ def test_invoice_in_eur_keeps_currency_without_tax_currency_for_reverse_charge()
 
     assert _texts(root, "cbc:DocumentCurrencyCode") == ["EUR"]
     assert root.find("cbc:TaxCurrencyCode", NS) is None
-    currencies = {node.get("currencyID") for node in root.iter() if node.get("currencyID")}
+    currencies = {
+        node.get("currencyID") for node in root.iter() if node.get("currencyID")
+    }
     assert currencies == {"EUR"}
     assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["58.50"]
     assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["5674.50"]
@@ -92,8 +115,12 @@ def test_correction_down_becomes_credit_note_with_positive_difference():
     assert etree.QName(root).localname == "CreditNote"
     assert _texts(root, "cbc:CreditNoteTypeCode") == ["381"]
     assert root.find("cbc:DueDate", NS) is None
-    assert _texts(root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID") == ["5/10/2026/UE"]
-    assert _texts(root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:IssueDate") == ["2026-10-02"]
+    assert _texts(root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID") == [
+        "5/10/2026/UE"
+    ]
+    assert _texts(
+        root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:IssueDate"
+    ) == ["2026-10-02"]
     # 160 h → 152 h po 175,50: korekta o 8 h = 1 404,00.
     assert _texts(root, "cac:CreditNoteLine/cbc:CreditedQuantity") == ["8"]
     assert _texts(root, "cac:CreditNoteLine/cbc:LineExtensionAmount") == ["1404.00"]
@@ -107,7 +134,9 @@ def test_correction_up_becomes_invoice_referencing_the_original():
 
     assert result.document_type == "invoice"
     assert _texts(root, "cbc:InvoiceTypeCode") == ["380"]
-    assert _texts(root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID") == ["7/11/2026/UE"]
+    assert _texts(root, "cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID") == [
+        "7/11/2026/UE"
+    ]
     assert _texts(root, "cac:InvoiceLine/cbc:InvoicedQuantity") == ["4"]
     assert _texts(root, "cac:InvoiceLine/cbc:LineExtensionAmount") == ["480.00"]
     assert _texts(root, "cac:InvoiceLine/cac:Price/cbc:PriceAmount") == ["120.00"]
@@ -126,10 +155,14 @@ def test_polish_branch_with_standard_rate_has_vat_breakdown():
     root = _tree(_build("fa_nordea_oddzial_23.xml"))
 
     assert _texts(root, "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:ID") == ["S"]
-    assert _texts(root, "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent") == ["23"]
+    assert _texts(root, "cac:TaxTotal/cac:TaxSubtotal/cac:TaxCategory/cbc:Percent") == [
+        "23"
+    ]
     assert _texts(root, "cac:TaxTotal/cbc:TaxAmount") == ["5932.42"]
     assert _texts(root, "cac:LegalMonetaryTotal/cbc:PayableAmount") == ["31725.56"]
-    assert _texts(root, ".//cac:AccountingCustomerParty//cac:PartyTaxScheme/cbc:CompanyID") == ["PL1111111111"]
+    assert _texts(
+        root, ".//cac:AccountingCustomerParty//cac:PartyTaxScheme/cbc:CompanyID"
+    ) == ["PL1111111111"]
     # Adres w jednej linii: kod i miasto wyciągnięte z AdresL1.
     assert _texts(root, ".//cac:AccountingCustomerParty//cbc:PostalZone") == ["00-002"]
     assert _texts(root, ".//cac:AccountingCustomerParty//cbc:CityName") == ["Warszawa"]
@@ -138,9 +171,16 @@ def test_polish_branch_with_standard_rate_has_vat_breakdown():
 
 
 def test_pdf_goes_to_additional_document_reference():
-    root = _tree(_build("fa_nordea_rabat_ae.xml", attachment=ubl.Attachment("f.pdf", b"%PDF-1.4 x")))
+    root = _tree(
+        _build(
+            "fa_nordea_rabat_ae.xml", attachment=ubl.Attachment("f.pdf", b"%PDF-1.4 x")
+        )
+    )
 
-    node = root.find("cac:AdditionalDocumentReference/cac:Attachment/cbc:EmbeddedDocumentBinaryObject", NS)
+    node = root.find(
+        "cac:AdditionalDocumentReference/cac:Attachment/cbc:EmbeddedDocumentBinaryObject",
+        NS,
+    )
     assert node.get("mimeCode") == "application/pdf"
     assert node.get("filename") == "f.pdf"
     assert node.text == "JVBERi0xLjQgeA=="
@@ -164,17 +204,29 @@ def test_samples_pass_en16931_and_peppol_rules(name):
 
 def test_validator_reports_broken_document():
     result = _build("fa_nordea_rabat_ae.xml")
-    broken = result.xml.replace(b"<cbc:BuyerReference>Anna Testowa</cbc:BuyerReference>", b"")
-    broken = broken.replace(b"<cbc:TaxExemptionReasonCode>VATEX-EU-AE</cbc:TaxExemptionReasonCode>", b"")
-    broken = broken.replace(b"<cbc:TaxExemptionReason>Reverse charge</cbc:TaxExemptionReason>", b"")
+    broken = result.xml.replace(
+        b"<cbc:BuyerReference>Anna Testowa</cbc:BuyerReference>", b""
+    )
+    broken = broken.replace(
+        b"<cbc:TaxExemptionReasonCode>VATEX-EU-AE</cbc:TaxExemptionReasonCode>", b""
+    )
+    broken = broken.replace(
+        b"<cbc:TaxExemptionReason>Reverse charge</cbc:TaxExemptionReason>", b""
+    )
 
-    rules = {finding.rule for finding in validation.blocking(validation.validate(broken))}
+    rules = {
+        finding.rule for finding in validation.blocking(validation.validate(broken))
+    }
 
     assert {"PEPPOL-EN16931-R003", "BR-AE-10"} <= rules
 
 
 def test_unsupported_rate_is_refused_instead_of_guessed():
-    xml = (DATA / "fa_nordea_eur.xml").read_bytes().replace(b"<P_12>np II</P_12>", b"<P_12>zw</P_12>")
+    xml = (
+        (DATA / "fa_nordea_eur.xml")
+        .read_bytes()
+        .replace(b"<P_12>np II</P_12>", b"<P_12>zw</P_12>")
+    )
 
     with pytest.raises(ubl.ConversionError) as exc:
         ubl.build(fa_reader.read(xml), sender=SENDER, receiver=RECEIVER)
@@ -183,8 +235,10 @@ def test_unsupported_rate_is_refused_instead_of_guessed():
 
 
 def test_lines_must_add_up_to_invoice_net():
-    xml = (DATA / "fa_nordea_eur.xml").read_bytes().replace(
-        b"<P_13_9>5674.50</P_13_9>", b"<P_13_9>5674.60</P_13_9>"
+    xml = (
+        (DATA / "fa_nordea_eur.xml")
+        .read_bytes()
+        .replace(b"<P_13_9>5674.50</P_13_9>", b"<P_13_9>5674.60</P_13_9>")
     )
 
     with pytest.raises(ubl.ConversionError) as exc:

@@ -41,7 +41,9 @@ SEND_BATCH_MAX = 50
 AUTO_SEND_MAX = 50
 REFRESH_MAX = 200
 HISTORY_MAX = 20
-PREPARABLE = frozenset({"waiting_xml", "waiting_receiver", "invalid", "ready", "skipped"})
+PREPARABLE = frozenset(
+    {"waiting_xml", "waiting_receiver", "invalid", "ready", "skipped"}
+)
 SENT = frozenset({"sent", "delivered", "rejected"})
 #: Po tym czasie „sending” bez wyniku można wysłać ponownie (ręcznie, po sprawdzeniu u dostawcy).
 SENDING_STALE = timedelta(minutes=10)
@@ -145,14 +147,22 @@ async def prepare(
         row.problems = []
         return
     except ubl.NothingToSend as exc:
-        row.status, row.problems, row.document_type = "skipped", [_problem("nothing_to_send", str(exc))], None
+        row.status, row.problems, row.document_type = (
+            "skipped",
+            [_problem("nothing_to_send", str(exc))],
+            None,
+        )
         return
     except ubl.ConversionError as exc:
         row.status, row.problems = "invalid", [_problem(exc.code, str(exc))]
         return
     except fa_reader.UnsupportedInvoice as exc:
         row.status = "invalid"
-        row.problems = [_problem(exc.code, "Pozycje faktury bez kwot netto (faktura liczona od brutto).")]
+        row.problems = [
+            _problem(
+                exc.code, "Pozycje faktury bez kwot netto (faktura liczona od brutto)."
+            )
+        ]
         return
     except fa.InvoiceParseError as exc:
         row.status, row.problems = "invalid", [_problem(f"parse:{exc.code}", str(exc))]
@@ -190,7 +200,13 @@ async def capture(db: AsyncSession, invoice: ClientSalesInvoice, xml: bytes) -> 
         return False
     row = await db.scalar(select(Einvoice).where(Einvoice.invoice_id == invoice.id))
     if row is None:
-        row = Einvoice(invoice_id=invoice.id, receiver_key=key, status="waiting_xml", problems=[], history=[])
+        row = Einvoice(
+            invoice_id=invoice.id,
+            receiver_key=key,
+            status="waiting_xml",
+            problems=[],
+            history=[],
+        )
         db.add(row)
     if not row.fa_xml:
         row.fa_xml = xml.decode("utf-8")
@@ -217,7 +233,10 @@ async def scan(db: AsyncSession, value: Optional[dict[str, Any]] = None) -> int:
                 ClientSalesInvoice.issue_date >= since,
                 or_(
                     func.upper(ClientSalesInvoice.buyer_foreign_id).in_(keys),
-                    and_(ClientSalesInvoice.buyer_foreign_id.is_(None), ClientSalesInvoice.buyer_nip.in_(pl_keys or [""])),
+                    and_(
+                        ClientSalesInvoice.buyer_foreign_id.is_(None),
+                        ClientSalesInvoice.buyer_nip.in_(pl_keys or [""]),
+                    ),
                 ),
             )
         )
@@ -225,7 +244,15 @@ async def scan(db: AsyncSession, value: Optional[dict[str, Any]] = None) -> int:
     for invoice in invoices:
         key = _match_key(invoice)
         if key:
-            db.add(Einvoice(invoice_id=invoice.id, receiver_key=key, status="waiting_xml", problems=[], history=[]))
+            db.add(
+                Einvoice(
+                    invoice_id=invoice.id,
+                    receiver_key=key,
+                    status="waiting_xml",
+                    problems=[],
+                    history=[],
+                )
+            )
     await db.flush()
     return len(invoices)
 
@@ -246,7 +273,10 @@ async def backfill_xml(db: AsyncSession, source: Any, budget: int) -> tuple[int,
         await db.execute(
             select(Einvoice, ClientSalesInvoice)
             .join(ClientSalesInvoice, ClientSalesInvoice.id == Einvoice.invoice_id)
-            .where(Einvoice.status == "waiting_xml", Einvoice.xml_attempts < MAX_XML_ATTEMPTS)
+            .where(
+                Einvoice.status == "waiting_xml",
+                Einvoice.xml_attempts < MAX_XML_ATTEMPTS,
+            )
             .order_by(ClientSalesInvoice.issue_date.desc(), Einvoice.id)
             .limit(min(budget, BACKFILL_MAX))
         )
@@ -265,7 +295,12 @@ async def backfill_xml(db: AsyncSession, source: Any, budget: int) -> tuple[int,
             continue
         if hashlib.sha256(xml).hexdigest() != invoice.xml_sha256:
             row.status = "invalid"
-            row.problems = [_problem("xml_hash", "Plik z KSeF różni się od zapisanego przy pobraniu faktury.")]
+            row.problems = [
+                _problem(
+                    "xml_hash",
+                    "Plik z KSeF różni się od zapisanego przy pobraniu faktury.",
+                )
+            ]
             continue
         row.fa_xml = xml.decode("utf-8")
         await prepare(db, row, invoice, value)
@@ -302,13 +337,27 @@ async def _claim(
     number = invoice.invoice_number
     status = effective_status(row, mode)
     allowed = {"ready"} if not manual else {"ready", "rejected"}
-    stale = row.status == "sending" and row.updated_at is not None and _now() - row.updated_at > SENDING_STALE
+    stale = (
+        row.status == "sending"
+        and row.updated_at is not None
+        and _now() - row.updated_at > SENDING_STALE
+    )
     if not (status in allowed or (manual and stale)):
         current = row.status
         await db.rollback()
         if current == "sending":
-            return None, None, "Wysyłka w toku albo bez pewnej odpowiedzi dostawcy — sprawdź u dostawcy, ponowna wysyłka po 10 minutach.", number
-        return None, None, f"Stan „{STATUS_LABELS.get(status, status)}” — nie do wysłania.", number
+            return (
+                None,
+                None,
+                "Wysyłka w toku albo bez pewnej odpowiedzi dostawcy — sprawdź u dostawcy, ponowna wysyłka po 10 minutach.",
+                number,
+            )
+        return (
+            None,
+            None,
+            f"Stan „{STATUS_LABELS.get(status, status)}” — nie do wysłania.",
+            number,
+        )
     previous = row.status
     row.status = "sending"
     await db.commit()
@@ -322,9 +371,16 @@ def _record(row: Einvoice, entry: dict[str, Any]) -> None:
 def _apply(row: Einvoice, result: providers.SendResult, moment: datetime) -> None:
     row.checked_at = moment
     if result.state == providers.DELIVERED:
-        row.status, row.delivered_at, row.delivery_detail = "delivered", row.delivered_at or moment, None
+        row.status, row.delivered_at, row.delivery_detail = (
+            "delivered",
+            row.delivered_at or moment,
+            None,
+        )
     elif result.state == providers.FAILED:
-        row.status, row.delivery_detail = "rejected", (result.detail or "Odrzucona.")[:500]
+        row.status, row.delivery_detail = (
+            "rejected",
+            (result.detail or "Odrzucona.")[:500],
+        )
     else:
         row.status = "sent"
 
@@ -366,9 +422,15 @@ async def _send_one(
         return str(exc)
     blocking = validation.blocking(built.findings)
     if blocking:
-        row.status, row.problems = "invalid", [finding.as_dict() for finding in built.findings]
+        row.status, row.problems = (
+            "invalid",
+            [finding.as_dict() for finding in built.findings],
+        )
         return blocking[0].text
-    row.document_type, row.problems = built.result.document_type, [f.as_dict() for f in built.findings]
+    row.document_type, row.problems = (
+        built.result.document_type,
+        [f.as_dict() for f in built.findings],
+    )
     digest = hashlib.sha256(built.result.xml).hexdigest()
     moment = _now()
     try:
@@ -380,23 +442,39 @@ async def _send_one(
             )
         )
     except providers.ProviderError as exc:
-        entry = {"at": moment.isoformat(), "target": mode, "recipient": built.recipient, "detail": str(exc)[:300], "by": actor_id}
+        entry = {
+            "at": moment.isoformat(),
+            "target": mode,
+            "recipient": built.recipient,
+            "detail": str(exc)[:300],
+            "by": actor_id,
+        }
         if not exc.retry:
             row.status, row.sent_at, row.sent_by = "rejected", moment, actor_id
-            row.target, row.recipient, row.provider = mode, built.recipient, provider.name
+            row.target, row.recipient, row.provider = (
+                mode,
+                built.recipient,
+                provider.name,
+            )
             row.delivery_detail = str(exc)[:500]
             _record(row, {**entry, "state": "failed"})
         elif exc.uncertain:
             # Dostawca mógł przyjąć dokument: zostaje „sending” dla osoby,
             # automat go nie ponowi (u odbiorcy byłaby druga faktura).
-            row.target, row.recipient, row.provider = mode, built.recipient, provider.name
+            row.target, row.recipient, row.provider = (
+                mode,
+                built.recipient,
+                provider.name,
+            )
             row.delivery_detail = (
                 f"{exc} Sprawdź w panelu dostawcy, czy dokument wyszedł, przed ponowną wysyłką."
             )[:500]
             _record(row, {**entry, "state": "unknown"})
         else:
             _restore(row, previous)
-            row.delivery_detail = str(exc)[:500] if previous == "rejected" else row.delivery_detail
+            row.delivery_detail = (
+                str(exc)[:500] if previous == "rejected" else row.delivery_detail
+            )
         return str(exc)
     row.target, row.recipient, row.provider = mode, built.recipient, provider.name
     row.provider_document_id = result.document_id[:128]
@@ -426,7 +504,9 @@ async def send(
 
     provider = providers.open_provider()
     if provider is None:
-        raise EinvoiceError(providers.load_config().disabled_reason or "Wysyłka wyłączona.")
+        raise EinvoiceError(
+            providers.load_config().disabled_reason or "Wysyłka wyłączona."
+        )
     if not ids:
         raise EinvoiceError("Nie wybrano faktur.", 422)
     if len(ids) > SEND_BATCH_MAX:
@@ -435,12 +515,18 @@ async def send(
     await db.commit()
     sent, failed = 0, []
     for einvoice_id in ids:
-        row, invoice, previous, number = await _claim(db, einvoice_id, value["mode"], manual=not automatic)
+        row, invoice, previous, number = await _claim(
+            db, einvoice_id, value["mode"], manual=not automatic
+        )
         if row is None:
-            failed.append({"id": einvoice_id, "invoice_number": number, "reason": previous})
+            failed.append(
+                {"id": einvoice_id, "invoice_number": number, "reason": previous}
+            )
             continue
         try:
-            reason = await _send_one(db, provider, row, invoice, previous, value, actor.id if actor else None)
+            reason = await _send_one(
+                db, provider, row, invoice, previous, value, actor.id if actor else None
+            )
         except Exception:
             # Nieznany błąd po przejęciu: wiersz zostaje „sending” dla osoby.
             await db.rollback()
@@ -450,7 +536,9 @@ async def send(
         if reason is None:
             sent += 1
         else:
-            failed.append({"id": einvoice_id, "invoice_number": number, "reason": reason})
+            failed.append(
+                {"id": einvoice_id, "invoice_number": number, "reason": reason}
+            )
     return {"sent": sent, "failed": failed, "mode": value["mode"]}
 
 
@@ -495,7 +583,10 @@ async def hourly(db: AsyncSession) -> dict[str, int]:
     if value["auto_send"] and providers.load_config().enabled:
         ids = list(
             await db.scalars(
-                select(Einvoice.id).where(Einvoice.status == "ready").order_by(Einvoice.id).limit(AUTO_SEND_MAX)
+                select(Einvoice.id)
+                .where(Einvoice.status == "ready")
+                .order_by(Einvoice.id)
+                .limit(AUTO_SEND_MAX)
             )
         )
         if ids:
@@ -511,7 +602,10 @@ def _month_filter(month: Optional[str]) -> Any:
         return None
     year, number = (int(part) for part in month.split("-"))
     return or_(
-        and_(ClientSalesInvoice.period_year == year, ClientSalesInvoice.period_month == number),
+        and_(
+            ClientSalesInvoice.period_year == year,
+            ClientSalesInvoice.period_month == number,
+        ),
         and_(
             ClientSalesInvoice.period_year.is_(None),
             func.extract("year", ClientSalesInvoice.issue_date) == year,
@@ -530,7 +624,12 @@ async def client_ids(db: AsyncSession) -> list[int]:
     return sorted(int(value) for value in found)
 
 
-def _row_view(row: Einvoice, invoice: ClientSalesInvoice, mode: str, receivers: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def _row_view(
+    row: Einvoice,
+    invoice: ClientSalesInvoice,
+    mode: str,
+    receivers: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
     status = effective_status(row, mode)
     receiver = receivers.get(row.receiver_key)
     return {
@@ -540,7 +639,9 @@ def _row_view(row: Einvoice, invoice: ClientSalesInvoice, mode: str, receivers: 
         "ksef_number": invoice.ksef_number,
         "kind": invoice.invoice_kind,
         "issue_date": invoice.issue_date.isoformat(),
-        "period": f"{invoice.period_year}-{invoice.period_month:02d}" if invoice.period_year and invoice.period_month else None,
+        "period": f"{invoice.period_year}-{invoice.period_month:02d}"
+        if invoice.period_year and invoice.period_month
+        else None,
         "buyer_name": invoice.buyer_name,
         "receiver_name": receiver["name"] if receiver else row.receiver_key,
         "currency": invoice.currency,
@@ -559,19 +660,29 @@ def _row_view(row: Einvoice, invoice: ClientSalesInvoice, mode: str, receivers: 
     }
 
 
-async def list_view(db: AsyncSession, *, client_id: int, month: Optional[str]) -> dict[str, Any]:
+async def list_view(
+    db: AsyncSession, *, client_id: int, month: Optional[str]
+) -> dict[str, Any]:
     value = await settings.load(db)
     query = (
         select(Einvoice, ClientSalesInvoice)
         .join(ClientSalesInvoice, ClientSalesInvoice.id == Einvoice.invoice_id)
-        .where(or_(ClientSalesInvoice.client_id == client_id, ClientSalesInvoice.client_id.is_(None)))
+        .where(
+            or_(
+                ClientSalesInvoice.client_id == client_id,
+                ClientSalesInvoice.client_id.is_(None),
+            )
+        )
         .order_by(ClientSalesInvoice.issue_date.desc(), ClientSalesInvoice.id.desc())
     )
     month_clause = _month_filter(month)
     if month_clause is not None:
         query = query.where(month_clause)
     receivers = {entry["key"]: entry for entry in value["receivers"]}
-    rows = [_row_view(row, invoice, value["mode"], receivers) for row, invoice in await db.execute(query)]
+    rows = [
+        _row_view(row, invoice, value["mode"], receivers)
+        for row, invoice in await db.execute(query)
+    ]
     counts: dict[str, int] = {}
     for row in rows:
         counts[row["status"]] = counts.get(row["status"], 0) + 1
@@ -604,10 +715,19 @@ async def document(db: AsyncSession, einvoice_id: int) -> tuple[bytes, str]:
     try:
         built = await _build(row, invoice, value, with_pdf=True)
     except LookupError as missing:
-        raise EinvoiceError(STATUS_LABELS.get(str(missing.args[0]), "Brak danych.")) from missing
-    except (ubl.ConversionError, ubl.NothingToSend, fa.InvoiceParseError, fa_reader.UnsupportedInvoice) as exc:
+        raise EinvoiceError(
+            STATUS_LABELS.get(str(missing.args[0]), "Brak danych.")
+        ) from missing
+    except (
+        ubl.ConversionError,
+        ubl.NothingToSend,
+        fa.InvoiceParseError,
+        fa_reader.UnsupportedInvoice,
+    ) as exc:
         raise EinvoiceError(str(exc)) from exc
-    name = "".join(ch if ch.isalnum() or ch in "-." else "_" for ch in invoice.invoice_number)[:80]
+    name = "".join(
+        ch if ch.isalnum() or ch in "-." else "_" for ch in invoice.invoice_number
+    )[:80]
     return built.result.xml, f"{name or 'e-faktura'}.xml"
 
 
@@ -615,9 +735,11 @@ async def recheck(db: AsyncSession, ids: Optional[list[int]] = None) -> int:
     """Ponowne przygotowanie (np. po zmianie adresu odbiorcy albo trybu)."""
 
     value = await settings.load(db)
-    query = select(Einvoice, ClientSalesInvoice).join(
-        ClientSalesInvoice, ClientSalesInvoice.id == Einvoice.invoice_id
-    ).where(Einvoice.status.in_(PREPARABLE))
+    query = (
+        select(Einvoice, ClientSalesInvoice)
+        .join(ClientSalesInvoice, ClientSalesInvoice.id == Einvoice.invoice_id)
+        .where(Einvoice.status.in_(PREPARABLE))
+    )
     if ids:
         query = query.where(Einvoice.id.in_(ids))
     count = 0

@@ -160,7 +160,9 @@ def _unavailable(exc: BaseException) -> ValidationUnavailable:
     logger.warning("[peppol] walidator niedostępny: %s", type(exc).__name__)
     if isinstance(exc, BrokenProcessPool):
         _reset()
-        return ValidationUnavailable("Walidator e-faktur przerwał pracę — spróbuj ponownie.")
+        return ValidationUnavailable(
+            "Walidator e-faktur przerwał pracę — spróbuj ponownie."
+        )
     if isinstance(exc, (ImportError, ModuleNotFoundError)):
         return ValidationUnavailable("Brak procesora XSLT 2.0 (saxonche).")
     if isinstance(exc, FileNotFoundError):

@@ -39,8 +39,14 @@ def _ksef(n: int) -> str:
 
 async def _wipe() -> None:
     async with AsyncSessionLocal() as db:
-        await db.execute(delete(ClientSalesInvoice).where(ClientSalesInvoice.ksef_number.like(f"{PREFIX}%")))
-        await db.execute(delete(AppSetting).where(AppSetting.key == peppol_settings.SETTING_KEY))
+        await db.execute(
+            delete(ClientSalesInvoice).where(
+                ClientSalesInvoice.ksef_number.like(f"{PREFIX}%")
+            )
+        )
+        await db.execute(
+            delete(AppSetting).where(AppSetting.key == peppol_settings.SETTING_KEY)
+        )
         await db.commit()
 
 
@@ -50,7 +56,9 @@ async def env(monkeypatch, tmp_path):
     monkeypatch.setattr(app_settings, "PEPPOL_SIMULATE_DIR", str(tmp_path))
     monkeypatch.setattr(app_settings, "PEPPOL_SENDER_ID", "")
     # WeasyPrint potrzebuje Pango z systemu; sam PDF sprawdza test_peppol_pdf.
-    monkeypatch.setattr(service.pdf, "render", lambda doc, ksef_number: b"%PDF-1.4 test")
+    monkeypatch.setattr(
+        service.pdf, "render", lambda doc, ksef_number: b"%PDF-1.4 test"
+    )
     await _wipe()
     yield tmp_path
     await _wipe()
@@ -99,13 +107,19 @@ async def _capture(invoice_id: int, xml: bytes) -> bool:
 
 async def _row(invoice_id: int) -> Einvoice | None:
     async with AsyncSessionLocal() as db:
-        return await db.scalar(select(Einvoice).where(Einvoice.invoice_id == invoice_id))
+        return await db.scalar(
+            select(Einvoice).where(Einvoice.invoice_id == invoice_id)
+        )
 
 
 async def test_capture_prepares_nordea_invoice_and_ignores_other_buyers(env):
     nordea_id, xml = await _invoice(1, "fa_nordea_rabat_ae.xml")
-    other_id, other_xml = await _invoice(2, "fa_nordea_rabat_ae.xml", foreign="DE123456789")
-    old_id, old_xml = await _invoice(3, "fa_nordea_rabat_ae.xml", issue=date(2026, 10, 2))
+    other_id, other_xml = await _invoice(
+        2, "fa_nordea_rabat_ae.xml", foreign="DE123456789"
+    )
+    old_id, old_xml = await _invoice(
+        3, "fa_nordea_rabat_ae.xml", issue=date(2026, 10, 2)
+    )
 
     assert await _capture(nordea_id, xml) is True
     assert await _capture(other_id, other_xml) is False
@@ -129,11 +143,18 @@ async def test_send_in_test_mode_goes_to_test_address_and_reopens_in_production(
     assert result == {"sent": 1, "failed": [], "mode": "test"}
 
     row = await _row(invoice_id)
-    assert (row.status, row.target, row.recipient) == ("delivered", "test", TEST_ADDRESS)
+    assert (row.status, row.target, row.recipient) == (
+        "delivered",
+        "test",
+        TEST_ADDRESS,
+    )
     assert row.provider == "simulate" and row.provider_document_id
     assert len(row.history) == 1
     sent_file = Path(env) / f"{row.provider_document_id}.xml"
-    assert b"<cbc:EndpointID schemeID=\"0088\">7332545042126</cbc:EndpointID>" in sent_file.read_bytes()
+    assert (
+        b'<cbc:EndpointID schemeID="0088">7332545042126</cbc:EndpointID>'
+        in sent_file.read_bytes()
+    )
     # PDF faktury w załączniku.
     assert b'mimeCode="application/pdf"' in sent_file.read_bytes()
     assert hashlib.sha256(sent_file.read_bytes()).hexdigest() == row.ubl_sha256
@@ -145,7 +166,9 @@ async def test_send_in_test_mode_goes_to_test_address_and_reopens_in_production(
 
     # Tryb produkcyjny: wysyłka testowa nie zamyka faktury.
     async with AsyncSessionLocal() as db:
-        value = peppol_settings.validate_update(await peppol_settings.load(db), {"mode": "production"})
+        value = peppol_settings.validate_update(
+            await peppol_settings.load(db), {"mode": "production"}
+        )
         db.add(AppSetting(key=peppol_settings.SETTING_KEY, value=value))
         await db.commit()
         view = await service.list_view(db, client_id=999999, month="2026-10")
@@ -156,14 +179,22 @@ async def test_send_in_test_mode_goes_to_test_address_and_reopens_in_production(
         result = await service.send(db, [row.id], actor=None)
     assert result["sent"] == 1
     row = await _row(invoice_id)
-    assert (row.status, row.target, row.recipient) == ("delivered", "production", "0088:7332545014840")
+    assert (row.status, row.target, row.recipient) == (
+        "delivered",
+        "production",
+        "0088:7332545014840",
+    )
     assert len(row.history) == 2
 
 
 async def test_receiver_without_production_address_waits(env):
-    invoice_id, xml = await _invoice(5, "fa_nordea_oddzial_23.xml", foreign=None, nip="1050003082")
+    invoice_id, xml = await _invoice(
+        5, "fa_nordea_oddzial_23.xml", foreign=None, nip="1050003082"
+    )
     async with AsyncSessionLocal() as db:
-        value = peppol_settings.validate_update(peppol_settings.normalize(None), {"mode": "production"})
+        value = peppol_settings.validate_update(
+            peppol_settings.normalize(None), {"mode": "production"}
+        )
         db.add(AppSetting(key=peppol_settings.SETTING_KEY, value=value))
         await db.commit()
 
@@ -186,7 +217,11 @@ async def test_correction_without_amount_change_is_skipped_and_credit_note_is_se
 
 
 async def test_conversion_error_blocks_sending_with_reason(env):
-    xml = (DATA / "fa_nordea_eur.xml").read_bytes().replace(b"<P_12>np II</P_12>", b"<P_12>zw</P_12>")
+    xml = (
+        (DATA / "fa_nordea_eur.xml")
+        .read_bytes()
+        .replace(b"<P_12>np II</P_12>", b"<P_12>zw</P_12>")
+    )
     invoice_id, _ = await _invoice(8, "fa_nordea_eur.xml")
     await _capture(invoice_id, xml)
 
@@ -324,7 +359,9 @@ async def test_uncertain_provider_answer_waits_for_a_person(env, monkeypatch):
 
     async def timeout_after_accept(self, request):
         calls.append(request.recipient)
-        raise providers.ProviderError("Brak odpowiedzi dostawcy.", category="network", retry=True, uncertain=True)
+        raise providers.ProviderError(
+            "Brak odpowiedzi dostawcy.", category="network", retry=True, uncertain=True
+        )
 
     monkeypatch.setattr(providers.SimulatedProvider, "send", timeout_after_accept)
     async with AsyncSessionLocal() as db:
@@ -336,7 +373,9 @@ async def test_uncertain_provider_answer_waits_for_a_person(env, monkeypatch):
 
     # Automat nie wysyła drugi raz.
     async with AsyncSessionLocal() as db:
-        value = peppol_settings.validate_update(peppol_settings.normalize(None), {"auto_send": True})
+        value = peppol_settings.validate_update(
+            peppol_settings.normalize(None), {"auto_send": True}
+        )
         db.add(AppSetting(key=peppol_settings.SETTING_KEY, value=value))
         await db.commit()
         await service.hourly(db)
@@ -350,7 +389,9 @@ async def test_uncertain_provider_answer_waits_for_a_person(env, monkeypatch):
     # ...a po czasie osoba może wysłać ponownie.
     async with AsyncSessionLocal() as db:
         await db.execute(
-            update(Einvoice).where(Einvoice.id == row.id).values(updated_at=Einvoice.updated_at - timedelta(minutes=30))
+            update(Einvoice)
+            .where(Einvoice.id == row.id)
+            .values(updated_at=Einvoice.updated_at - timedelta(minutes=30))
         )
         await db.commit()
     monkeypatch.setattr(providers.SimulatedProvider, "send", _ORIGINAL_SEND)
@@ -368,7 +409,9 @@ async def test_connection_refused_returns_invoice_to_ready(env, monkeypatch):
     row = await _row(invoice_id)
 
     async def refused(self, request):
-        raise providers.ProviderError("Brak połączenia z dostawcą Peppol.", category="network", retry=True)
+        raise providers.ProviderError(
+            "Brak połączenia z dostawcą Peppol.", category="network", retry=True
+        )
 
     monkeypatch.setattr(providers.SimulatedProvider, "send", refused)
     async with AsyncSessionLocal() as db:

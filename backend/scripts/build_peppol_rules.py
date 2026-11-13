@@ -33,12 +33,8 @@ SOURCES = {
     "PEPPOL-EN16931-UBL.sch": "9616cfffb418f349b532c1e25d3c831b8af6a47f4f5607ca0df4b1336f48e5f3",
 }
 SCHXSLT_SHA256 = "4f4f21edab7b37f96ad59ae12a344d3510f1092ac46b6d81a4efa0120b73cb58"
-SCH_URL = (
-    "https://raw.githubusercontent.com/OpenPEPPOL/peppol-bis-invoice-3/{release}/rules/sch/{name}"
-)
-SCHXSLT_URL = (
-    "https://repo1.maven.org/maven2/name/dmaus/schxslt/schxslt/{version}/schxslt-{version}.jar"
-)
+SCH_URL = "https://raw.githubusercontent.com/OpenPEPPOL/peppol-bis-invoice-3/{release}/rules/sch/{name}"
+SCHXSLT_URL = "https://repo1.maven.org/maven2/name/dmaus/schxslt/schxslt/{version}/schxslt-{version}.jar"
 TARGET = Path(__file__).resolve().parents[1] / "app" / "services" / "peppol" / "rules"
 
 
@@ -65,12 +61,16 @@ def main() -> int:
             executable = compiler.compile_stylesheet(stylesheet_file=str(pipeline))
             for name, sha256 in SOURCES.items():
                 source = work / name
-                source.write_bytes(_fetch(SCH_URL.format(release=RELEASE, name=name), sha256))
+                source.write_bytes(
+                    _fetch(SCH_URL.format(release=RELEASE, name=name), sha256)
+                )
                 output = TARGET / name.replace(".sch", ".xsl")
                 executable.transform_to_file(
                     source_file=str(source), output_file=str(output)
                 )
-                print(f"{output.relative_to(TARGET.parents[3])}: {output.stat().st_size} B")
+                print(
+                    f"{output.relative_to(TARGET.parents[3])}: {output.stat().st_size} B"
+                )
     return 0
 
 

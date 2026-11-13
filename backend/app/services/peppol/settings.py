@@ -77,7 +77,9 @@ def _clean_id(raw: object) -> Optional[str]:
     if not value:
         return None
     if not _PEPPOL_ID_RE.match(value):
-        raise SettingsError(f"Adres Peppol „{value[:60]}” ma zły format (schemat:numer, np. 0088:7332545014840).")
+        raise SettingsError(
+            f"Adres Peppol „{value[:60]}” ma zły format (schemat:numer, np. 0088:7332545014840)."
+        )
     return value
 
 
@@ -86,10 +88,14 @@ def _receiver(raw: object) -> dict[str, Any]:
         raise SettingsError("Zły wpis odbiorcy.")
     key = str(raw.get("key") or "").replace(" ", "").upper()
     if not _KEY_RE.match(key):
-        raise SettingsError("Numer VAT odbiorcy musi zaczynać się od kodu kraju (np. FI28583949).")
+        raise SettingsError(
+            "Numer VAT odbiorcy musi zaczynać się od kodu kraju (np. FI28583949)."
+        )
     legal_scheme = str(raw.get("legal_id_scheme") or "").strip() or None
     if legal_scheme and not re.match(r"^[0-9]{4}$", legal_scheme):
-        raise SettingsError("Schemat identyfikatora rejestrowego to 4 cyfry (np. 0212).")
+        raise SettingsError(
+            "Schemat identyfikatora rejestrowego to 4 cyfry (np. 0212)."
+        )
     return {
         "key": key,
         "name": str(raw.get("name") or key).strip()[:NAME_MAX],
@@ -155,10 +161,14 @@ def validate_update(current: dict[str, Any], patch: dict[str, Any]) -> dict[str,
     return value
 
 
-async def save(db: AsyncSession, value: dict[str, Any], *, actor: User) -> dict[str, Any]:
+async def save(
+    db: AsyncSession, value: dict[str, Any], *, actor: User
+) -> dict[str, Any]:
     """Zapis (bez commita)."""
 
-    statement = insert(AppSetting).values(key=SETTING_KEY, value=value, updated_by=actor.id)
+    statement = insert(AppSetting).values(
+        key=SETTING_KEY, value=value, updated_by=actor.id
+    )
     await db.execute(
         statement.on_conflict_do_update(
             index_elements=[AppSetting.key],
@@ -168,7 +178,9 @@ async def save(db: AsyncSession, value: dict[str, Any], *, actor: User) -> dict[
     return value
 
 
-def receiver_key(buyer_foreign_id: Optional[str], buyer_nip: Optional[str]) -> Optional[str]:
+def receiver_key(
+    buyer_foreign_id: Optional[str], buyer_nip: Optional[str]
+) -> Optional[str]:
     """Klucz odbiorcy z faktury: VAT UE nabywcy albo „PL” + NIP."""
 
     if buyer_foreign_id:
@@ -178,11 +190,15 @@ def receiver_key(buyer_foreign_id: Optional[str], buyer_nip: Optional[str]) -> O
     return None
 
 
-def find_receiver(value: dict[str, Any], key: Optional[str]) -> Optional[dict[str, Any]]:
+def find_receiver(
+    value: dict[str, Any], key: Optional[str]
+) -> Optional[dict[str, Any]]:
     if not key:
         return None
     return next((entry for entry in value["receivers"] if entry["key"] == key), None)
 
 
 def address_for(receiver: dict[str, Any], mode: str) -> Optional[str]:
-    return receiver.get("test_peppol_id") if mode == "test" else receiver.get("peppol_id")
+    return (
+        receiver.get("test_peppol_id") if mode == "test" else receiver.get("peppol_id")
+    )
