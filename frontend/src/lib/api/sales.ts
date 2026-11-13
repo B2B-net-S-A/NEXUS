@@ -1599,7 +1599,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   press: "Prasa",
   manual: "Ręcznie",
   atlas: "Z Atlasa",
-  research: "Research bota",
+  research: "Bot Leady",
 };
 export const LEAD_STATUS_LABELS: Record<LeadStatus, string> = {
   new: "Nowe",
@@ -1626,6 +1626,25 @@ export interface Lead {
   /** Osoba przypisana i czy pracuje w Sprzedaży (aktywna, z uprawnieniem Sprzedaży). */
   assignee?: Ref | null;
   assignee_in_sales?: boolean;
+  /** Teczka firmy leada z danych NEXUSA; `null`, gdy lead nie ma karty albo karta jest pusta. */
+  dossier?: LeadDossier | null;
+}
+
+/** Co NEXUS wie o firmie leada: karta, kogo znamy, decydenci, punkty do rozmowy. */
+export interface LeadDossier {
+  company_id: number;
+  industry: string | null;
+  city: string | null;
+  nip: string | null;
+  /** Domena karty albo host strony www (bez `www.`). */
+  website: string | null;
+  known: number;
+  known_with_email: number;
+  owner: string | null;
+  /** Do 4 stanowisk decyzyjnych z kontaktów karty. */
+  decision_makers: string[];
+  points: number;
+  points_at: string | null;
 }
 
 export interface LeadList {

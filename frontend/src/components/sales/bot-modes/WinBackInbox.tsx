@@ -28,6 +28,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
 import { dueAtMorning, plusDays } from "../CallLogDialogs";
+import { LeadDossier } from "../LeadDossier";
 import { Block, BotConclusion, INBOX_LAYOUT, InboxRow, NotNow, Panel, RunLine, SourceLink } from "./kit";
 
 export type WinBackFilter = "check" | "planned" | "rejected";
@@ -248,6 +249,7 @@ function WinBackPanel({ lead, reasons }: { lead: Lead; reasons?: readonly string
           )}
         </div>
       </Block>
+      <LeadDossier dossier={lead.dossier} />
       {signal.why_now && (
         <Block label={<BotConclusion>Dlaczego teraz</BotConclusion>}>
           <p className="text-xs text-muted-foreground">{signal.why_now}</p>
