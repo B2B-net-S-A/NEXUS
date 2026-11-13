@@ -1,20 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, Check, Gamepad2, Moon, Palette } from "lucide-react";
+import { Bot, Check, ChevronRight, Gamepad2, Moon, Palette, X } from "lucide-react";
 
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useJarvisMascotVisibility } from "@/components/jarvis/useJarvisMascotVisibility";
-import { useThemeStore } from "@/store/theme";
+import { THEME_WORLDS, useThemeStore, worldScheme } from "@/store/theme";
 
 import { PaletteMenuItems } from "./PaletteSwitcher";
 import { useKidsModeToggle } from "./ThemeControls";
+import { WorldGallery } from "./WorldGallery";
 
 /**
  * „Wygląd” w górnym pasku: motyw koloru, tryb gry i tryb
@@ -28,7 +30,12 @@ export function AppearanceMenu() {
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { kidsMode, toggle: toggleKidsMode } = useKidsModeToggle();
   const mascot = useJarvisMascotVisibility();
+  const world = useThemeStore((s) => s.world);
+  const setWorld = useThemeStore((s) => s.setWorld);
   const [mounted, setMounted] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const activeWorld = THEME_WORLDS.find((w) => w.id === world);
+  const forcedScheme = worldScheme(world);
 
   // Motyw jest czytany z localStorage tylko w przeglądarce — bez rozjazdu hydracji.
   useEffect(() => setMounted(true), []);
@@ -38,31 +45,56 @@ export function AppearanceMenu() {
   }
 
   return (
-    <DropdownMenu>
+    <>
+    <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
           aria-label="Wygląd"
-          title="Wygląd: motyw koloru, tryb gry, tryb ciemny, robot Jarvisa"
+          title="Wygląd: świat, motyw koloru, tryb ciemny, robot Jarvisa"
           className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <Palette className="h-4 w-4" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <PaletteMenuItems />
-        <DropdownMenuSeparator />
-        {/* Układ jak pozycje palety (znacznik po prawej); rola mówi czytnikowi o stanie. */}
-        <DropdownMenuItem
-          role="menuitemcheckbox"
-          aria-checked={kidsMode}
-          onSelect={toggleKidsMode}
-          className="cursor-pointer gap-2.5"
-        >
-          <Gamepad2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="flex-1">Tryb gry</span>
-          {kidsMode && <Check className="h-4 w-4 shrink-0 text-foreground" />}
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuLabel>Świat</DropdownMenuLabel>
+        <DropdownMenuItem onSelect={() => setGalleryOpen(true)} className="cursor-pointer gap-2.5">
+          {kidsMode ? (
+            <Gamepad2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+          ) : activeWorld ? (
+            <span className={`world-swatch world-swatch-${activeWorld.id} h-4 w-4 shrink-0 rounded-full border border-black/10`} aria-hidden />
+          ) : (
+            <span className="h-4 w-4 shrink-0 rounded-full border border-dashed border-muted-foreground/50" aria-hidden />
+          )}
+          <span className="flex-1">{kidsMode ? "Gra" : activeWorld ? activeWorld.label : "Bez świata"}</span>
+          <span className="text-xs text-muted-foreground">Zmień</span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
         </DropdownMenuItem>
+        {(kidsMode || activeWorld) && (
+          <DropdownMenuItem
+            onSelect={() => {
+              if (kidsMode) toggleKidsMode();
+              setWorld("none");
+            }}
+            className="cursor-pointer gap-2.5"
+          >
+            <X className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="flex-1">Wyłącz świat</span>
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuSeparator />
+        {kidsMode || activeWorld ? (
+          <DropdownMenuItem disabled className="gap-2.5">
+            <span className="flex-1 text-xs text-muted-foreground">Motyw koloru i tryb ciemny wybiera świat.</span>
+          </DropdownMenuItem>
+        ) : (
+          <>
+            <PaletteMenuItems />
+            <DropdownMenuSeparator />
+          </>
+        )}
+        {!forcedScheme && (
         <DropdownMenuItem
           role="menuitemcheckbox"
           aria-checked={theme === "dark"}
@@ -73,6 +105,7 @@ export function AppearanceMenu() {
           <span className="flex-1">Tryb ciemny</span>
           {theme === "dark" && <Check className="h-4 w-4 shrink-0 text-foreground" />}
         </DropdownMenuItem>
+        )}
         {mascot.visible !== null && (
           <DropdownMenuItem
             role="menuitemcheckbox"
@@ -87,5 +120,7 @@ export function AppearanceMenu() {
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+    <WorldGallery open={galleryOpen} onOpenChange={setGalleryOpen} />
+    </>
   );
 }
