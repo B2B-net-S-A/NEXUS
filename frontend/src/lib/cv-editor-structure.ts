@@ -24,7 +24,7 @@ import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import StarterKit from "@tiptap/starter-kit";
 import TextAlign from "@tiptap/extension-text-align";
 
-import { CV_TEMPLATE_LABELS, cvContext, cvOutline, isRodoNode } from "./cv-editor-blocks";
+import { CV_TEMPLATE_LABELS, cvContext, cvOutline, isRodoNode, type CvBlock } from "./cv-editor-blocks";
 import { CvEditorAiPending } from "./cv-editor-ai";
 import { CvAssistantHighlight } from "./cv-editor-command";
 import { CvEditorIssueMarks } from "./cv-editor-issue-marks";
@@ -139,9 +139,29 @@ function repair(state: EditorState, clause: PMNode | null): Transaction | null {
 
 const TECH_LABELS = Object.values(CV_TEMPLATE_LABELS).map((labels) => labels.technologies);
 
+/**
+ * Czy jakiś wiersz edukacji ma daty — tekst przed pogrubioną uczelnią, tak jak
+ * czyta go Word (`cv_approved_docx._education_row`). Bez dat Word nie rysuje
+ * kolumny „Daty” (13.11.2026), więc kartka też nie.
+ */
+function educationHasDates(blocks: readonly CvBlock[]): boolean {
+  return blocks.some((block) => {
+    if (block.section !== "education" || block.node.type.name !== "paragraph") return false;
+    let lead = "";
+    let bold = false;
+    block.node.forEach((child) => {
+      if (bold) return;
+      if (child.marks.some((mark) => mark.type.name === "bold")) bold = true;
+      else lead += child.textContent;
+    });
+    return bold && lead.trim() !== "";
+  });
+}
+
 function decorations(state: EditorState): DecorationSet {
   const { outline, role } = cvContext(state);
   const marks: Decoration[] = [];
+  const noDates = !educationHasDates(outline.blocks);
   for (const block of outline.blocks) {
     if (block.marker === "technologies") {
       // Word pogrubia samą etykietę „Technologie:”, resztę linii zostawia zwykłą.
@@ -153,6 +173,7 @@ function decorations(state: EditorState): DecorationSet {
     }
     const attrs: Record<string, string> = {};
     if (block.section) attrs["data-cv-in"] = block.section;
+    if (block.section === "education" && noDates) attrs["data-cv-no-dates"] = "true";
     if (block === outline.rodo) {
       attrs.class = "cv-rodo-locked";
       attrs.contenteditable = "false";
