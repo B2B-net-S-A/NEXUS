@@ -23,11 +23,14 @@ def _upload(filename: str, content_type: str) -> UploadFile:
 def test_cv_extraction_failure_does_not_log_the_cv_filename(
     tmp_path, monkeypatch, caplog
 ):
-    """`.rtf` z MIME `application/msword` przechodzi walidację, a wyjątek
-    ekstraktora niesie nazwę pliku (zwykle imię i nazwisko)."""
+    """Wyjątek ekstraktora niesie nazwę pliku (zwykle imię i nazwisko).
+
+    Do 13.11.2026 `.rtf` z MIME `application/msword` przechodził walidację;
+    od pentestu odpada na treści (`test_public_cv_magic_bytes.py`), ale log
+    `_persist_cv` dalej nie może nieść nazwy pliku.
+    """
     monkeypatch.setattr(public_share.settings, "UPLOAD_DIR", str(tmp_path))
     upload = _upload("Anna_Nowak_CV.rtf", "application/msword")
-    public_share._validate_cv_file(upload, b"{\\rtf1 test}")
 
     with caplog.at_level(logging.WARNING, logger=public_share.logger.name):
         asyncio.run(public_share._persist_cv(7, upload, b"{\\rtf1 test}"))

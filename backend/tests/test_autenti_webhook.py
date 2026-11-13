@@ -273,3 +273,6 @@ async def test_webhook_rejects_tampered_signature(
 
     resp = await app_client.post("/api/autenti/webhook", content=tampered)
     assert resp.status_code == 401
+    # Pentest 13.11.2026: treść wyjątku weryfikatora (kid, wiek iat, błąd
+    # biblioteki JWT) zostaje w logu, odpowiedź jest ogólna.
+    assert resp.json() == {"detail": "Webhook signature invalid"}
