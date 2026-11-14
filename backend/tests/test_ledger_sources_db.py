@@ -711,3 +711,82 @@ async def _approved_costs_after_drafts(client, world, books) -> None:
         headers=_headers(world["accountant"]),
     )
     assert len(approved.json()["approved"]) == 2, approved.text
+
+
+# ── Bilans otwarcia z Symfonii ──────────────────────────────────────────────
+
+
+def _opening_csv(books, *, extra: str = "", amount: str = "1 230,00") -> bytes:
+    acc, partner = books["acc"], books["partner"]
+    return (
+        "Konto;Nazwa;BO Wn;BO Ma\n"
+        f"{acc['receivable']}-{partner['c']};Klient Testowy;{amount};\n"
+        f"{acc['payable']}-{partner['s']};Dostawca Testowy;;1 230,00\n"
+        f"{extra}"
+        "Razem;;1 230,00;1 230,00\n"
+    ).encode("utf-8")
+
+
+async def _import(client, world, books, content: bytes, *, save: bool, user="accountant"):
+    return await client.post(
+        f"{ACC}/opening/import",
+        params={"year": books["year"], "save": save},
+        files={"file": ("zois.csv", content, "text/csv")},
+        headers=_headers(world[user]),
+    )
+
+
+async def test_opening_preview_lists_missing_accounts_and_imbalance(client, world, books):
+    missing = await _import(
+        client, world, books, _opening_csv(books, extra="999-1;Nieznane;5,00;\n"), save=False
+    )
+    assert missing.status_code == 200, missing.text
+    body = missing.json()
+    assert body["missing_accounts"] == ["999-1"] and not body["saved"]
+    assert any("999-1" in problem for problem in body["problems"])
+    refused = await _import(
+        client, world, books, _opening_csv(books, extra="999-1;Nieznane;5,00;\n"), save=True
+    )
+    assert refused.status_code == 422
+    unbalanced = await _import(client, world, books, _opening_csv(books, amount="1 000,00"), save=False)
+    assert unbalanced.json()["balanced"] is False
+    assert any("nie bilansuje" in problem for problem in unbalanced.json()["problems"])
+
+
+async def test_opening_saves_one_draft_per_year_with_counterparties(client, world, books):
+    preview = await _import(client, world, books, _opening_csv(books), save=False)
+    assert preview.json()["problems"] == [] and preview.json()["counterparties_matched"] == 2
+    saved = await _import(client, world, books, _opening_csv(books), save=True)
+    assert saved.status_code == 200, saved.text
+    first_id = saved.json()["document_id"]
+    doc = await _document("opening_import", books["year"])
+    assert doc.id == first_id and doc.doc_type == "BO" and doc.status == "draft"
+    assert doc.op_date == date(books["year"], 1, 1)
+    async with AsyncSessionLocal() as db:
+        lines = (
+            await db.scalars(
+                select(LedgerLine).where(LedgerLine.document_id == doc.id).order_by(LedgerLine.line_no)
+            )
+        ).all()
+    assert {(line.side, line.counterparty_id) for line in lines} == {
+        ("debit", books["buyer"].id),
+        ("credit", books["supplier"].id),
+    }
+    again = await _import(client, world, books, _opening_csv(books), save=True)
+    assert again.status_code == 200 and again.json()["document_id"] != first_id
+    assert (await _document("opening_import", books["year"])).id == again.json()["document_id"]
+    approved = await client.post(
+        f"{ACC}/documents/approve",
+        json={"ids": [again.json()["document_id"]]},
+        headers=_headers(world["accountant"]),
+    )
+    assert approved.json()["approved"], approved.text
+    locked = await _import(client, world, books, _opening_csv(books), save=True)
+    assert locked.status_code == 409 and "stornem" in locked.json()["detail"]
+
+
+async def test_opening_import_needs_accountants_list(client, world, books):
+    refused = await _import(client, world, books, _opening_csv(books), save=False, user="module_only")
+    assert refused.status_code == 403
+    broken = await _import(client, world, books, b"A;B\n1;2\n", save=False)
+    assert broken.status_code == 422

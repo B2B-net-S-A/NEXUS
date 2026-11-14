@@ -461,3 +461,62 @@ describe("Księgowość — rozliczenie kosztów na „5”", () => {
     );
   });
 });
+
+describe("Księgowość — bilans otwarcia z Symfonii", () => {
+  const preview = {
+    year: 2026,
+    rows: 2,
+    skipped: 1,
+    errors: [],
+    debit_total: 123000,
+    credit_total: 123000,
+    balanced: true,
+    missing_accounts: [],
+    missing_total: 0,
+    counterparties_matched: 2,
+    problems: [] as string[],
+    preview: [
+      { account: "200-70047", name: "Klient", side: "debit", amount: 123000 },
+      { account: "201-2-80101", name: "Dostawca", side: "credit", amount: 123000 },
+    ],
+    saved: false,
+    document_id: null,
+  };
+
+  it("sprawdza plik, pokazuje problemy i zapisuje dopiero poprawny bilans", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    post
+      .mockResolvedValueOnce({ data: { ...preview, problems: ["Kont nie ma w planie kont NEXUSA (1): 999 — dodaj je"] } })
+      .mockResolvedValueOnce({ data: preview })
+      .mockResolvedValueOnce({ data: { ...preview, saved: true, document_id: 41 } });
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const input = await screen.findByLabelText("Plik zestawienia sald");
+    await user.upload(input, new File(["Konto;Wn;Ma"], "zois.csv", { type: "text/csv" }));
+    const card = input.closest("section")!;
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/Kont nie ma w planie kont NEXUSA/)).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Zapisz jako BO" })).toBeDisabled();
+    const [url, body, options] = post.mock.calls[0];
+    expect(url).toBe("/api/accounting/opening/import");
+    expect(body).toBeInstanceOf(FormData);
+    expect(options).toMatchObject({ params: { year: 2026, save: false } });
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText("Plik jest poprawny — możesz zapisać bilans otwarcia.")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Zapisz jako BO" }));
+    expect(await within(card).findByRole("link", { name: "pokaż dokument" })).toHaveAttribute(
+      "href",
+      "/accounting/documents?year=2026&month=1&type=BO",
+    );
+    expect(post.mock.calls[2][2]).toMatchObject({ params: { year: 2026, save: true } });
+  });
+
+  it("osoba spoza listy „Księgowi” nie widzi importu", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: false, payroll: false } }));
+    renderWith(<SettingsView />);
+    await screen.findByText("Nie jesteś na liście „Księgowi”");
+    expect(screen.queryByLabelText("Plik zestawienia sald")).not.toBeInTheDocument();
+  });
+});

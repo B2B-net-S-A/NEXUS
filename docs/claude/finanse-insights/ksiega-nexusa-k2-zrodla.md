@@ -70,4 +70,24 @@ z Symfonią miesiąc do miesiąca.
   wrażliwość `payroll`) — suma pionu bywa kwotą jednej osoby.
 - Konta (rozliczenie, klienci, Front office, Back office, koszty ogólne)
   ustawia administrator (`PUT /config/allocation`); bez nich PK czeka z problemem.
-- Dalej w K2: rozrachunki i bilans otwarcia — kolejne PR-y.
+
+## Bilans otwarcia z Symfonii (`services/ledger/opening.py`)
+
+- Ustawienia → „Bilans otwarcia z Symfonii”: plik zestawienia sald (XLSX/CSV,
+  czytnik E1 ze strażnikiem bomby ZIP) → podgląd → dokument BO w buforze
+  1 stycznia (źródło `opening_import` / rok, jeden na rok). Import robi lista
+  „Księgowi” albo admin (`POST /opening/import?year=&save=`).
+- Kolumny po aliasach: „Konto”, „Nazwa” i para „BO Wn/Ma”, „Saldo (końcowe)
+  Wn/Ma” albo „Wn/Ma”, albo jedno „Saldo” ze znakiem. **Plik z kolumnami i BO,
+  i salda końcowego jest odrzucany** — cichy wybór jednej pary wczytałby zły
+  bilans. Obroty się nie liczą; sumy („Razem”…) i zera pomijamy, to samo konto
+  dwa razy = jedna pozycja.
+- Kwoty: zapis polski i z Excela (szum zmiennoprzecinkowy do 1e-7 zaokrąglamy,
+  więcej niż grosze = błąd wiersza).
+- Każde konto musi być w planie kont NEXUSA (albo analityką słownika);
+  analityka kontrahentów dostaje kontrahenta po ID Symfonii. Brakujące konta,
+  Wn ≠ Ma albo błędne wiersze blokują zapis. Ponowny import przebudowuje szkic;
+  zatwierdzony BO poprawia się stornem (409).
+- BO może mieć do 20 000 pozycji (`engine.OPENING_LINES_MAX`) — inne dokumenty
+  nadal najwyżej `LINES_MAX`.
+- Dalej w K2: rozrachunki z rozliczaniem pozycji (osobny PR, z migracją).

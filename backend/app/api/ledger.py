@@ -12,6 +12,8 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   ``PUT /config/modules``, ``PUT /config/accountants``, ``PUT /config/sales``
   i ``PUT /config/allocation`` (admin; konta sprzedaży i rozliczenia kosztów, K2),
   ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
+* ``POST /opening/import?year=&save=`` (K2) — bilans otwarcia z pliku
+  zestawienia sald Symfonii: podgląd albo zapis BO (lista „Księgowi”, admin),
 * ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
   E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze, PK
   rozliczenia kosztów na „5” z MPK,
@@ -27,7 +29,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,8 +43,17 @@ from app.models.user import User
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.finance_ledger.costs import LedgerError
+from app.services.finance_ledger.counterparty_import import ImportFileError
 from app.services.finance_ledger.posting import clean_account
-from app.services.ledger import chart, documents, engine, reports, sources, years
+from app.services.ledger import (
+    chart,
+    documents,
+    engine,
+    opening,
+    reports,
+    sources,
+    years,
+)
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger_schema import (
@@ -420,6 +431,40 @@ async def sync_sources(
         raise _fail(exc) from exc
     await db.commit()
     return result
+
+
+# ── Bilans otwarcia (K2) ─────────────────────────────────────────────────────
+
+
+@router.post("/opening/import")
+async def import_opening(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    save: bool = Query(False),
+    file: UploadFile = File(
+        ..., description="Zestawienie sald z Symfonii FK (XLSX albo CSV)"
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    content = await file.read(opening.MAX_BYTES + 1)
+    try:
+        parsed = opening.parse(content)
+    except ImportFileError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    try:
+        spec, summary = await opening.build(db, parsed, year)
+        if not save:
+            return {**summary, "saved": False, "document_id": None}
+        if spec is None:
+            raise LedgerError(summary["problems"][0], status=422)
+        doc = await opening.save(db, spec, viewer=viewer)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {**summary, "saved": True, "document_id": doc.id}
 
 
 # ── Rok obrotowy i okresy ────────────────────────────────────────────────────

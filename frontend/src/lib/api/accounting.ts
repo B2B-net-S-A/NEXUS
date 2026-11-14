@@ -270,6 +270,23 @@ export interface AccountInput {
   active?: boolean;
 }
 
+export interface OpeningPreview {
+  year: number;
+  rows: number;
+  skipped: number;
+  errors: { line: number; message: string }[];
+  debit_total: number;
+  credit_total: number;
+  balanced: boolean;
+  missing_accounts: string[];
+  missing_total: number;
+  counterparties_matched: number;
+  problems: string[];
+  preview: { account: string; name: string; side: Side; amount: number }[];
+  saved: boolean;
+  document_id: number | null;
+}
+
 export type SourceKind = "costs" | "sales" | "allocation";
 
 export interface AllocationDetail {
@@ -578,6 +595,25 @@ export function useSyncSources() {
 
 export function useSetSalesAccounts() {
   return useConfigMutation((args: SalesAccounts) => api.put(`${BASE}/config/sales`, args));
+}
+
+export function useOpeningImport() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async ({ file, year, save }: { file: File; year: number; save: boolean }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<OpeningPreview>(`${BASE}/opening/import`, form, {
+          params: { year, save },
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+    onSuccess: (data) => {
+      if (data.saved) invalidate();
+    },
+  });
 }
 
 export function useSetAllocationAccounts() {

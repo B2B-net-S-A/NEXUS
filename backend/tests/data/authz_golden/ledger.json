@@ -47,6 +47,7 @@
   "POST /api/accounting/documents": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/documents/approve": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/documents/{doc_id}/reverse": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/opening/import": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/periods/{period_id}/close": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/periods/{period_id}/reopen": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/sources/sync": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

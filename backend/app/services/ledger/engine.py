@@ -203,14 +203,28 @@ def totals(lines: Iterable[LineIn]) -> tuple[int, int]:
     return debit, credit
 
 
-def check(lines: Sequence[LineIn], plan: Mapping[str, PlanAccount]) -> Totals:
+#: Bilans otwarcia z Symfonii ma pozycję na każdą analitykę z saldem (setki
+#: kontrahentów na rozrachunkach) — jeden dokument BO, bez sztucznego dzielenia.
+OPENING_LINES_MAX = 20_000
+
+
+def lines_max(doc_type: str) -> int:
+    return OPENING_LINES_MAX if doc_type == "BO" else LINES_MAX
+
+
+def check(
+    lines: Sequence[LineIn],
+    plan: Mapping[str, PlanAccount],
+    *,
+    max_lines: int = LINES_MAX,
+) -> Totals:
     """Problemy dekretu w kolejności pozycji; pusta lista = można zapisać."""
 
     result = Totals()
     if len(lines) < 2:
         result.issues.append("Dokument potrzebuje co najmniej dwóch pozycji.")
-    if len(lines) > LINES_MAX:
-        result.issues.append(f"Dokument ma najwyżej {LINES_MAX} pozycji.")
+    if len(lines) > max_lines:
+        result.issues.append(f"Dokument ma najwyżej {max_lines} pozycji.")
     for index, line in enumerate(lines, start=1):
         if line.side not in SIDES:
             result.issues.append(f"Pozycja {index}: wybierz stronę Wn albo Ma.")
@@ -229,8 +243,13 @@ def check(lines: Sequence[LineIn], plan: Mapping[str, PlanAccount]) -> Totals:
     return result
 
 
-def ensure_valid(lines: Sequence[LineIn], plan: Mapping[str, PlanAccount]) -> Totals:
-    result = check(lines, plan)
+def ensure_valid(
+    lines: Sequence[LineIn],
+    plan: Mapping[str, PlanAccount],
+    *,
+    max_lines: int = LINES_MAX,
+) -> Totals:
+    result = check(lines, plan, max_lines=max_lines)
     if result.issues:
         raise LedgerError(result.issues[0], status=422)
     return result
