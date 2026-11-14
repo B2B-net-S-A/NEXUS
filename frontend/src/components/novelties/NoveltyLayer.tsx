@@ -43,6 +43,7 @@ import {
   eventForClick,
   intersectRects,
   markSeenOnce,
+  onEveryClick,
   placeBeside,
   readTour,
   requiredForPath,
@@ -661,9 +662,9 @@ export function NoveltyLayer() {
 
   // Jedno nasłuchiwanie kliknięć: krok przeklikania, użycie w pracy, drobiazg.
   useEffect(() => {
-    const onClick = (event: MouseEvent) => {
+    const onClick = (target: EventTarget | null) => {
       if (touring && tour) {
-        const next = advanceTour(touring, tour, event.target);
+        const next = advanceTour(touring, tour, target);
         if (next === "finished")
           window.setTimeout(() => finishTour(touring), 250);
         else if (next) {
@@ -673,12 +674,11 @@ export function NoveltyLayer() {
       }
       for (const n of novelties) {
         if (touring?.id === n.id) continue;
-        const e = eventForClick(n, event.target);
+        const e = eventForClick(n, target);
         if (e) void sendEvent(n.id, e);
       }
     };
-    document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
+    return onEveryClick(document, onClick);
   }, [novelties, touring, tour, finishTour, sendEvent]);
 
   const startTour = (novelty: Novelty) => {

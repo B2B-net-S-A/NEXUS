@@ -123,6 +123,43 @@ export function withinAnchor(
 }
 
 /**
+ * Każde kliknięcie na stronie, z elementem, w który osoba naprawdę kliknęła.
+ * Wyzwalacze menu Radix (DropdownMenu, Select) otwierają się na `pointerdown`
+ * i ustawiają `body { pointer-events: none }`, więc `click` przychodzi wtedy
+ * na `<html>` (wspólny przodek). Gdy `click` trafił w przodka elementu
+ * z `pointerdown`, liczy się ten element. Bez tego „Zmień plik” w panelu
+ * osoby nie zaliczał kropki nikomu (14.11.2026: 23 widzących, 0 zaliczeń).
+ */
+export function onEveryClick(
+  doc: Document,
+  handler: (target: EventTarget | null) => void,
+): () => void {
+  let down: EventTarget | null = null;
+  const onDown = (event: Event) => {
+    down = event.target;
+  };
+  const onClick = (event: Event) => {
+    const target = event.target;
+    const pressed = down;
+    down = null;
+    handler(
+      pressed instanceof Node &&
+        target instanceof Node &&
+        target !== pressed &&
+        target.contains(pressed)
+        ? pressed
+        : target,
+    );
+  };
+  doc.addEventListener("pointerdown", onDown, true);
+  doc.addEventListener("click", onClick, true);
+  return () => {
+    doc.removeEventListener("pointerdown", onDown, true);
+    doc.removeEventListener("click", onClick, true);
+  };
+}
+
+/**
  * Co zapisać po kliknięciu poza przeklikaniem: drobiazg zalicza klik w jego
  * element, nowość „do przeklikania” i zmianę procesu — użycie w pracy.
  */

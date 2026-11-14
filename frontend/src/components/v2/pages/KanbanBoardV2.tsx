@@ -2100,6 +2100,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  ref={dragProvided.innerRef}
  {...dragProvided.draggableProps}
  {...dragProvided.dragHandleProps}
+ // Kropkę nowości zalicza klik w osobę z grupy, nie w sam napis nagłówka
+ // (14.11.2026: kotwica tylko na nagłówku = 24 widzących, 0 zaliczeń).
+ data-tour={section === "call_first" ? "board.new-queue" : section === "applied" ? "board.new-applied" : undefined}
  className={cn("transition-shadow",
  dragSnapshot.isDragging &&"relative z-20 shadow-md rotate-1 opacity-90"
  )}

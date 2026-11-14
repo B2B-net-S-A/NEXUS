@@ -238,6 +238,7 @@ import { useUiStore } from "@/store/ui";
 import { KANBAN_VIEW_MODE_STORAGE_KEY } from "@/lib/kanban-view-preferences";
 import { PIPELINE_VERSION_CONFLICT_CODE } from "@/lib/pipeline-version-conflict";
 import { ADDED_BY_ALL, type AddedByFilter } from "@/lib/board-added-by";
+import { withinAnchor } from "@/lib/novelties/logic";
 
 beforeAll(() => {
   // Radix Select uses pointer-capture APIs that jsdom does not implement.
@@ -569,6 +570,23 @@ describe("KanbanBoardV2 — zgłoszenia w „Nowych” (06.11.2026)", () => {
     expect(order()).toEqual(["2", "1", "3"]);
     expect(screen.getByTestId("new-column-section-applied_gap").textContent).toContain("brak „musi mieć”");
     expect(screen.getByTestId("new-column-applied-gap-toggle").textContent).toBe("Zwiń");
+  });
+
+  // Nowość `nowi-aplikowali-na-gorze` (kropka `board.new-applied`): 14.11.2026
+  // 24 osoby ją widziały, nikt nie zaliczył, bo kotwica stała na samym napisie
+  // nagłówka. Zalicza ją klik w kartę osoby, która aplikowała — praca, nie napis.
+  it("klik w kartę aplikującego leży w kotwicy kropki „Aplikowali”, karta zespołu — nie (14.11.2026)", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+
+    const { container } = renderBoard(applicants());
+
+    await screen.findByTestId("new-column-section-applied");
+    const card = (id: number) =>
+      container.querySelector(`[data-candidate-id="${id}"]`) as Element;
+    expect(withinAnchor(card(2), "board.new-applied")).toBe(true);
+    expect(withinAnchor(card(1), "board.new-applied")).toBe(false);
   });
 
   it("„Zaznacz wszystkich” zaznacza grupę i rozwija ją — dalej „Odrzuć” w pasku (07.11.2026)", async () => {

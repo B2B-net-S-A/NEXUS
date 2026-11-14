@@ -2437,6 +2437,11 @@
     "dot_anchor": "jobs.sources.duties",
     "steps": [
       {
+        "anchor": "jobs.list.title",
+        "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.",
+        "hint": "Otworzy się Tablica tej rekrutacji."
+      },
+      {
         "anchor": "jobs.sources.search",
         "text": "Kliknij „Szukaj” na Tablicy rekrutacji.",
         "hint": "W menu są źródła kandydatów do tej rekrutacji."
