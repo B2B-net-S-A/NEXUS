@@ -403,12 +403,56 @@ krokach E6.
     spółki, potem klienta), paczka protokół + TS + HTML na adres z `cl.send_to`
     dopiero, gdy wszystkie osoby są gotowe; faktura do klienta po podpisanym
     protokole.
+  - Jak zrobione (13.11, osobny PR, bez migracji; instrukcja PKO z 13.11):
+    - Typ pliku `.xlsm` w plikach rozliczeń (tylko tam): NEXUS czyta zapisane
+      wartości, makr nie uruchamia nigdzie, pobranie zawsze jako załącznik.
+    - Odczyt TS (`client_settlements/timesheet_pko.py`): dwa warianty szablonu
+      (kolumna „Liczba godzin realizacji usług <miesiąc> <rok>” albo „RAZEM”
+      z kolumnami dni), czas [GG]:MM, tabela do „Całkowity czas” (wiersze
+      „Przykład” pod nią pomijamy). Miesiąc z nagłówka, kolumna „Miesiąc
+      realizacji usług” (zwykle ukryta) tylko ostrzega.
+    - Akceptacja (`mail_text.py`, `proof.accept_has_hours`): `.msg` (olefile)
+      i `.eml`, cały wątek; liczba godzin albo MD, rozliczany miesiąc
+      (daty nagłówków maila się nie liczą), odpowiedź akceptująca i godziny
+      równe TS. Bez tego zadanie „Popraw akceptację” w panelu konsultanta.
+      Czytnik rozliczenia@ u klienta z tą regułą zapisuje też sam mail
+      (forward z akceptacją w treści) jako `.eml`.
+    - Stawka: linia ze stawką godzinową bez stawek MD liczy MD × 8 h × stawka
+      za godzinę (kwoty, faktura do klienta); numer zamówienia z tytułu linii
+      także na liście miesiąca.
+    - Protokół (`client_documents.py`, `cl.client_document` z `per` = „cały
+      miesiąc”, parametr `header` = nagłówek z umowy): kolumny wzoru z
+      załącznika, rola z rekrutacji przy kontrakcie (brak roli wypisany
+      w panelu), godziny z TS. Protokół i paczka (protokół, TS, akceptacja
+      w HTML — najnowsza, która przeszła kontrolę) tylko przy komplecie
+      i tylko dla kont z dostępem do kwot. Adres z `cl.send_to` w panelu.
+    - Podpisany protokół (z maila albo „Wgraj podpisany”) rozpoznany po
+      treści, potrzebne dwa ważne podpisy; `cl.after_signed_document`
+      wstrzymuje „Do faktury dla klienta” do tego czasu.
+    - Staging (kopia 10.11, baza `nexus_branch_pkovelo`): październik 29 osób
+      z syntetycznych TS i maili; braki maila i liczby godzin dały zadanie
+      i blokadę, po poprawie komplet → protokół (2 strony), paczka 59 plików,
+      podpisany protokół → faktura „Do wystawienia”.
 - E6.2 Velo, Bosch: dokumenty wychodzące generowane z NEXUS-a, godziny zamiast MD.
   - Velo: arkusz do podpisu klienta per osoba, każdy do pobrania osobno;
     zapłata konsultanta po jego podpisanym arkuszu (`pay.per_person`), faktura
     do klienta po podpisanych arkuszach zbiorczych; `fields.md_month_limit`
     „Ostrzega”. Arkusze od koordynatorów przypisuje NEXUS po osobie, nie po
     nadawcy maila (do czasu tego kroku: karta do ręcznego przypisania).
+  - Velo, jak zrobione (13.11, ten sam PR co E6.1): `cl.client_document`
+    z `per` = „podpisujący”; podpisujący to menedżer u klienta z kontraktu
+    (bez niego grupa „Bez podpisującego”). Panel nad listą: „Pobierz arkusz”
+    przy każdym podpisującym, „Pobierz wszystkie” (zip), po wszystkich
+    podpisach „Arkusz pod fakturę” ze stawką i wartością (kwoty tylko dla kont
+    z dostępem). Podpisany arkusz rozpoznajemy po treści (nasz wzór i wzór
+    banku, PDF z podpisem, także w załączniku `.msg`/`.eml`), bez względu na
+    nadawcę: osoby po imieniu i nazwisku, znacznik przy rozliczeniu, plik
+    odpięty jako przyjęty (bez karty „do przypisania”); osoba bez TS dostaje
+    MD z arkusza. `pay.per_person`: przyjęcie dopiero po podpisanym arkuszu
+    tej osoby. `fields.md_month_limit` liczy też MD tej osoby u innych
+    klientów w miesiącu. Staging: wrzesień 8 osób, prawdziwe podpisane arkusze
+    z paczki 13.11 (5 osób od koordynatora, 1 od banku) przypisane same,
+    34 MD osoby u dwóch klientów jako uwaga.
   - Bosch: SDC per projekt od listopada 2026 (Task ID z TS konsultanta), jedna
     osoba może mieć dwa projekty i jedną fakturę za całość,
     `fields.md_month_limit` wyłączona, wszystkie osoby z jednego zamówienia.
