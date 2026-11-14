@@ -127,6 +127,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   sources: "Źródła",
   // 14.11.2026: /accounting/automations — PK cykliczne i RMK (K3a).
   automations: "Automaty",
+  // 14.11.2026: /accounting/symfonia — paczki dokumentów do Symfonii FK (K3b).
+  symfonia: "Do Symfonii",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

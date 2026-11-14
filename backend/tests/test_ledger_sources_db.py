@@ -13,6 +13,7 @@ fikcyjne.
 from __future__ import annotations
 
 import hashlib
+import io
 import random
 import uuid
 from datetime import date, datetime, timezone
@@ -20,6 +21,7 @@ from decimal import Decimal
 
 import pytest_asyncio
 from fastapi import FastAPI
+from openpyxl import load_workbook
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select, update
 
@@ -1186,3 +1188,160 @@ async def test_changed_prepayment_withdraws_its_drafts(client, world, books):
     assert rebuilt.json()["created"] == 1, rebuilt.text
     doc = await _document("ledger_prepayment", f"{policy_id}:{year}-03")
     assert (await _lines(doc.id))[0][2] == 40_000
+
+
+# ── Paczki do Symfonii (K3b) ────────────────────────────────────────────────
+
+
+async def _exports(client, world, books, user: str = "accountant") -> dict:
+    response = await client.get(
+        f"{ACC}/exports",
+        params={"year": books["year"], "month": 3},
+        headers=_headers(world[user]),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _export(client, world, books, kinds, user: str = "accountant", **extra):
+    return await client.post(
+        f"{ACC}/exports",
+        json={"year": books["year"], "month": 3, "kinds": kinds, **extra},
+        headers=_headers(world[user]),
+    )
+
+
+async def _approved_automations(client, world, books) -> list[int]:
+    """Najem (1 000 zł) i rata polisy (333,33 zł) za marzec, zatwierdzone."""
+
+    year = books["year"]
+    await _set_ledger(_automation_settings(world, books))
+    rent = await _automation_post(client, world, "recurring", _rent(books, start=f"{year}-03-01"))
+    assert rent.status_code == 201, rent.text
+    policy = await _automation_post(client, world, "prepayments", _policy(books, start=f"{year}-03-01"))
+    assert policy.status_code == 201, policy.text
+    for kind in ("recurring", "prepayments"):
+        synced = await _sync(client, world, books, kind)
+        assert synced.json()["created"] == 1, synced.text
+    template_id = max(item["id"] for item in rent.json()["recurring"])
+    policy_id = max(item["id"] for item in policy.json()["prepayments"])
+    ids = [
+        (await _document("ledger_recurring", f"{template_id}:{year}-03")).id,
+        (await _document("ledger_prepayment", f"{policy_id}:{year}-03")).id,
+    ]
+    await _approve_ids(client, world, ids)
+    return ids
+
+
+async def test_export_packs_each_approved_document_once(client, world, books):
+    rent_id, policy_id = await _approved_automations(client, world, books)
+    year, acc = books["year"], books["acc"]
+    preview = await _exports(client, world, books)
+    assert preview["exportable"] is True and preview["drafts"] == 0
+    kinds = {item["key"]: item for item in preview["kinds"]}
+    assert kinds["recurring"]["count"] == 1 and kinds["prepayments"]["count"] == 1
+    assert kinds["recurring"]["default"] and not kinds["costs"]["default"]
+    numbers = {doc["id"]: doc["number"] for doc in preview["documents"]}
+    assert set(numbers) == {rent_id, policy_id}
+    created = await _export(client, world, books, ["recurring", "prepayments"])
+    assert created.status_code == 201, created.text
+    first = created.json()
+    assert first["number"] == f"K/{year}-03/1" and first["status"] == "exported"
+    assert first["document_count"] == 2 and first["debit_total"] == 100_000 + 33_333
+    # Dokument jest najwyżej w jednej aktywnej paczce.
+    again = await _export(client, world, books, ["recurring", "prepayments"])
+    assert again.status_code == 409
+    after = await _exports(client, world, books)
+    assert after["documents"] == []
+    assert [item["number"] for item in after["exports"]] == [first["number"]]
+    # Plik pobiera też osoba z „Modułem Finanse” spoza listy — ten sam, co zapisany.
+    file = await client.get(
+        f"{ACC}/exports/{first['id']}/file", headers=_headers(world["module_only"])
+    )
+    assert file.status_code == 200
+    assert hashlib.sha256(file.content).hexdigest() == first["file_sha256"]
+    rows = list(load_workbook(io.BytesIO(file.content)).active.iter_rows(values_only=True))
+    header = list(rows[0])
+    body = [dict(zip(header, row)) for row in rows[1:]]
+    assert len(body) == 4
+    assert round(sum(row["Wn"] or 0 for row in body), 2) == 1333.33
+    assert round(sum(row["Ma"] or 0 for row in body), 2) == 1333.33
+    supplier = books["supplier"]
+    rent_credit = next(row for row in body if row["Konto"] == supplier.cost_account)
+    assert rent_credit["ID Symfonii kontrahenta"] == supplier.symfonia_partner_id
+    assert {row["Konto"] for row in body} == {acc["cost"], supplier.cost_account, acc["prepaid"]}
+    # Anulowana paczka zwalnia dokumenty; numer rośnie dalej.
+    headers = _headers(world["accountant"])
+    cancelled = await client.post(f"{ACC}/exports/{first['id']}/cancel", headers=headers)
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+    second = await _export(client, world, books, ["recurring"])
+    assert second.status_code == 201, second.text
+    assert second.json()["number"] == f"K/{year}-03/2"
+    assert second.json()["document_count"] == 1
+    booked = await client.post(f"{ACC}/exports/{second.json()['id']}/book", headers=headers)
+    assert booked.status_code == 200 and booked.json()["status"] == "booked"
+    late = await client.post(f"{ACC}/exports/{second.json()['id']}/cancel", headers=headers)
+    assert late.status_code == 409
+    # Storno idzie z rodzajem dokumentu, który odwraca, i z jego numerem w pliku.
+    await _reverse(client, world, rent_id, date(year, 3, 31))
+    left = await _exports(client, world, books)
+    assert sorted(doc["kind"] for doc in left["documents"]) == ["prepayments", "recurring"]
+    storno = next(doc for doc in left["documents"] if doc["doc_type"] == "ST")
+    assert storno["kind"] == "recurring"
+    third = await _export(client, world, books, ["recurring"], file_format="neutral_csv")
+    assert third.status_code == 201, third.text
+    csv_file = await client.get(f"{ACC}/exports/{third.json()['id']}/file", headers=headers)
+    assert csv_file.headers["content-type"].startswith("text/csv")
+    assert numbers[rent_id] in csv_file.content.decode("utf-8-sig")
+
+
+async def test_payroll_documents_go_in_a_separate_package(client, world, books):
+    settings = _ledger_settings(world, books, allocation=False)
+    settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+    await _set_ledger(settings)
+    await _approved_costs(client, world, books)
+    outside = await _exports(client, world, books, user="module_only")
+    costs = next(item for item in outside["kinds"] if item["key"] == "costs")
+    assert costs["count"] == 1 and costs["payroll_count"] == 0
+    assert [doc["payroll"] for doc in outside["documents"]] == [False]
+    inside = await _exports(client, world, books)
+    costs = next(item for item in inside["kinds"] if item["key"] == "costs")
+    assert costs["count"] == 1 and costs["payroll_count"] == 1
+    refused = await _export(client, world, books, ["costs"], user="module_only", payroll=True)
+    assert refused.status_code == 403
+    plain = await _export(client, world, books, ["costs"], user="module_only")
+    assert plain.status_code == 201, plain.text
+    assert plain.json()["has_payroll"] is False and plain.json()["document_count"] == 1
+    team = await _export(client, world, books, ["costs"], payroll=True)
+    assert team.status_code == 201, team.text
+    assert team.json()["has_payroll"] is True and team.json()["document_count"] == 1
+    assert team.json()["file_name"].endswith("-place.xlsx")
+    seen = await _exports(client, world, books, user="module_only")
+    assert [item["id"] for item in seen["exports"]] == [plain.json()["id"]]
+    hidden = await client.get(
+        f"{ACC}/exports/{team.json()['id']}/file", headers=_headers(world["module_only"])
+    )
+    assert hidden.status_code == 404
+    both = await _exports(client, world, books)
+    assert {item["id"] for item in both["exports"]} == {plain.json()["id"], team.json()["id"]}
+
+
+async def test_export_needs_symfonia_year_and_accountants_list(client, world, books):
+    await _approved_automations(client, world, books)
+    refused = await _export(client, world, books, ["recurring"], user="module_only")
+    assert refused.status_code == 403
+    unknown = await _export(client, world, books, ["salary"])
+    assert unknown.status_code == 422
+    async with AsyncSessionLocal() as db:
+        year_id = await db.scalar(
+            select(LedgerYear.id).where(LedgerYear.year == books["year"])
+        )
+    mode = await client.patch(
+        f"{ACC}/years/{year_id}", json={"mode": "nexus"}, headers=_headers(world["admin"])
+    )
+    assert mode.status_code == 200, mode.text
+    preview = await _exports(client, world, books)
+    assert preview["exportable"] is False and "NEXUS" in preview["refusal"]
+    blocked = await _export(client, world, books, ["recurring"])
+    assert blocked.status_code == 409
+

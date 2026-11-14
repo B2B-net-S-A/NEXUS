@@ -21,6 +21,10 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast, showSuccess: vi.fn(), showError: vi.fn() }),
 }));
+const download = vi.fn();
+vi.mock("@/lib/authenticated-files", () => ({
+  downloadAuthenticatedFile: (...a: unknown[]) => download(...a),
+}));
 let pathname = "/accounting/documents";
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
@@ -33,7 +37,15 @@ import { DocumentsView } from "@/components/accounting/DocumentsView";
 import { SettingsView } from "@/components/accounting/SettingsView";
 import { AutomationsView, monthLabel, templateLines } from "@/components/accounting/AutomationsView";
 import { SourcesView, syncMessage } from "@/components/accounting/SourcesView";
-import type { DocumentCard, DocumentList, LedgerConfig, SourcesMonth } from "@/lib/api/accounting";
+import { ExportsView, defaultKinds, packedDocuments } from "@/components/accounting/ExportsView";
+import type {
+  DocumentCard,
+  DocumentList,
+  ExportsOverview,
+  LedgerConfig,
+  LedgerExportItem,
+  SourcesMonth,
+} from "@/lib/api/accounting";
 import { useAuthStore } from "@/store/auth";
 
 function config(overrides: Partial<LedgerConfig> = {}): LedgerConfig {
@@ -231,6 +243,7 @@ beforeEach(() => {
   post.mockReset();
   put.mockReset();
   showToast.mockReset();
+  download.mockReset();
   pathname = "/accounting/documents";
   window.history.replaceState(null, "", "/accounting/documents?year=2026&month=10");
   useAuthStore.setState({
@@ -652,3 +665,201 @@ describe("Księgowość — automaty (PK cykliczne i RMK)", () => {
     expect(screen.queryByRole("button", { name: "Nowe RMK" })).not.toBeInTheDocument();
   });
 });
+
+function exportItem(overrides: Partial<LedgerExportItem> = {}): LedgerExportItem {
+  return {
+    id: 31,
+    number: "K/2026-10/1",
+    status: "exported",
+    status_label: "Pobrana — czeka na zaksięgowanie w Symfonii",
+    kinds: ["recurring"],
+    kind_labels: ["PK cykliczne"],
+    file_format: "neutral_xlsx",
+    file_format_label: "Arkusz XLSX (format neutralny)",
+    file_name: "symfonia-ksiega-2026-10-1.xlsx",
+    file_sha256: "a".repeat(64),
+    document_count: 1,
+    debit_total: 100000,
+    has_payroll: false,
+    created_at: "2026-11-02T08:00:00Z",
+    created_by: "Osoba B",
+    booked_at: null,
+    booked_by: null,
+    cancelled_at: null,
+    cancelled_by: null,
+    ...overrides,
+  };
+}
+
+function exportsMonth(overrides: Partial<ExportsOverview> = {}): ExportsOverview {
+  const kind = (key: ExportsOverview["kinds"][number]["key"], label: string, isDefault: boolean, count = 0, payrollCount = 0) => ({
+    key,
+    label,
+    default: isDefault,
+    note: isDefault ? null : "Ma własną drogę do Symfonii.",
+    count,
+    debit_total: count * 100000,
+    payroll_count: payrollCount,
+    payroll_debit_total: payrollCount * 500000,
+  });
+  return {
+    year: 2026,
+    month: 10,
+    book_year: { mode: "symfonia", mode_label: "Symfonia FK — NEXUS przygotowuje paczki" },
+    period_status: "open",
+    exportable: true,
+    refusal: null,
+    kinds: [
+      kind("manual", "PK z ręki", true),
+      kind("recurring", "PK cykliczne", true, 1),
+      kind("prepayments", "RMK", true, 1),
+      kind("allocation", "Rozliczenie kosztów na „5”", true, 0, 1),
+      kind("costs", "Faktury kosztowe (FVZ)", false, 1),
+      kind("sales", "Faktury sprzedaży (FVS)", false),
+      kind("opening", "Bilans otwarcia", false),
+    ],
+    documents: [
+      { id: 1, journal_no: 4, number: "PK 4/10/2026", doc_type: "PK", op_date: "2026-10-31", description: "Najem biura 10.2026", debit_total: 100000, kind: "recurring", payroll: false },
+      { id: 2, journal_no: 5, number: "PK 5/10/2026", doc_type: "PK", op_date: "2026-10-31", description: "Polisa OC — rata 1/12", debit_total: 100000, kind: "prepayments", payroll: false },
+      { id: 3, journal_no: 2, number: "FV 9/10", doc_type: "FVZ", op_date: "2026-10-12", description: "Dostawca Testowy", debit_total: 100000, kind: "costs", payroll: false },
+      { id: 4, journal_no: 6, number: "PK 6/10/2026", doc_type: "PK", op_date: "2026-10-31", description: "Rozliczenie kosztów — zespół", debit_total: 500000, kind: "allocation", payroll: true },
+    ],
+    drafts: 2,
+    exports: [],
+    formats: [
+      { key: "neutral_xlsx", label: "Arkusz XLSX (format neutralny)" },
+      { key: "neutral_csv", label: "CSV ze średnikiem (format neutralny)" },
+    ],
+    default_format: "neutral_xlsx",
+    ...overrides,
+  };
+}
+
+function routeExports(cfg: LedgerConfig, month: ExportsOverview = exportsMonth()) {
+  get.mockImplementation(async (url: string) => {
+    if (url === "/api/accounting/config") return { data: cfg };
+    if (url === "/api/accounting/exports") return { data: month };
+    throw new Error(`nieoczekiwane ${url}`);
+  });
+}
+
+describe("Księgowość — paczki do Symfonii (K3b)", () => {
+  it("na start zaznacza rodzaje, których Symfonia nie dostaje inną drogą", () => {
+    const data = exportsMonth();
+    const kinds = defaultKinds(data);
+    expect([...kinds].sort()).toEqual(["allocation", "manual", "prepayments", "recurring"]);
+    expect(packedDocuments(data.documents, kinds, false).map((doc) => doc.id)).toEqual([1, 2]);
+    // Paczka płacowa ma wyłącznie dokumenty płacowe (D2).
+    expect(packedDocuments(data.documents, kinds, true).map((doc) => doc.id)).toEqual([4]);
+  });
+
+  it("robi paczkę z zaznaczonych rodzajów i od razu pobiera plik", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(config());
+    post.mockResolvedValue({ data: exportItem({ document_count: 2 }) });
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    expect(await screen.findByText("PK 4/10/2026")).toBeInTheDocument();
+    expect(screen.queryByText("FV 9/10")).not.toBeInTheDocument();
+    expect(screen.getByText(/W buforze tego miesiąca są dokumenty \(2\)/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pobierz paczkę (2)" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/exports", {
+        year: 2026,
+        month: 10,
+        kinds: ["manual", "recurring", "prepayments", "allocation"],
+        file_format: "neutral_xlsx",
+        payroll: false,
+      }),
+    );
+    await waitFor(() =>
+      expect(download).toHaveBeenCalledWith("/api/accounting/exports/31/file", "symfonia-ksiega-2026-10-1.xlsx"),
+    );
+  });
+
+  it("dołożenie faktur kosztowych zmienia listę, a paczka płacowa jest osobna", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(config());
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    await screen.findByText("PK 4/10/2026");
+    await user.click(screen.getByLabelText(/Faktury kosztowe \(FVZ\)/));
+    expect(screen.getByText("FV 9/10")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz paczkę (3)" })).toBeEnabled();
+    await user.click(screen.getByRole("switch", { name: "Paczka płacowa" }));
+    expect(screen.getByText("PK 6/10/2026")).toBeInTheDocument();
+    expect(screen.queryByText("PK 4/10/2026")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz paczkę (1)" })).toBeEnabled();
+  });
+
+  it("paczka płacowa, która zabrała ostatnie dokumenty płacowe, przywraca zwykłą paczkę", async () => {
+    pathname = "/accounting/symfonia";
+    let month = exportsMonth();
+    get.mockImplementation(async (url: string) => {
+      if (url === "/api/accounting/config") return { data: config() };
+      if (url === "/api/accounting/exports") return { data: month };
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+    post.mockImplementation(async () => {
+      const before = exportsMonth();
+      month = exportsMonth({
+        documents: before.documents.filter((doc) => !doc.payroll),
+        kinds: before.kinds.map((kind) => ({ ...kind, payroll_count: 0, payroll_debit_total: 0 })),
+        exports: [exportItem({ has_payroll: true })],
+      });
+      return { data: exportItem({ has_payroll: true }) };
+    });
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    await screen.findByText("PK 4/10/2026");
+    await user.click(screen.getByRole("switch", { name: "Paczka płacowa" }));
+    await user.click(screen.getByRole("button", { name: "Pobierz paczkę (1)" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/exports", expect.objectContaining({ payroll: true })),
+    );
+    // Przełącznik znika z ostatnim dokumentem płacowym — ekran wraca do zwykłej
+    // paczki, zamiast pokazywać fałszywą pustkę (przegląd K3b 14.11.2026).
+    await waitFor(() => expect(screen.queryByRole("switch", { name: "Paczka płacowa" })).not.toBeInTheDocument());
+    expect(await screen.findByText("PK 4/10/2026")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz paczkę (2)" })).toBeEnabled();
+  });
+
+  it("bez Płac nie ma przełącznika paczki płacowej; spoza listy „Księgowi” paczki się nie robi", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(config({ me: { admin: false, approver: false, payroll: false } }));
+    renderWith(<ExportsView />);
+    await screen.findByText("PK 4/10/2026");
+    expect(screen.queryByRole("switch", { name: "Paczka płacowa" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Pobierz paczkę/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Paczkę robi osoba z listy „Księgowi”/)).toBeInTheDocument();
+  });
+
+  it("rok w trybie NEXUS mówi dlaczego — bez karty nowej paczki", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(
+      config(),
+      exportsMonth({
+        exportable: false,
+        refusal: "Rok 2026 jest w trybie NEXUS — księgą urzędową jest NEXUS, paczek do Symfonii się nie robi.",
+      }),
+    );
+    renderWith(<ExportsView />);
+    expect(await screen.findByText(/jest w trybie NEXUS/)).toBeInTheDocument();
+    expect(screen.queryByText("Nowa paczka do Symfonii")).not.toBeInTheDocument();
+    expect(screen.getByText("Za ten miesiąc nie ma jeszcze paczek.")).toBeInTheDocument();
+  });
+
+  it("pobraną paczkę oznacza się jako zaksięgowaną po potwierdzeniu", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(config(), exportsMonth({ exports: [exportItem()] }));
+    post.mockResolvedValue({ data: exportItem({ status: "booked" }) });
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    const row = (await screen.findByText("K/2026-10/1")).closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Zaksięgowana" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Zaksięgowana" }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/accounting/exports/31/book"));
+  });
+});
+

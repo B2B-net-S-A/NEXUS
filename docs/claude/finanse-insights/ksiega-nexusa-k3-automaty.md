@@ -1,4 +1,4 @@
-# Księga NEXUSA K3a (14.11.2026): PK cykliczne i RMK — polecenia księgowania co miesiąc same
+# Księga NEXUSA K3 (14.11.2026): PK cykliczne, RMK i paczka do Symfonii
 
 Etap K3 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar),
 część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesiąca:
@@ -36,6 +36,34 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
 - Wzory i RMK zakłada lista „Księgowi” albo admin; podgląd „Moduł Finanse”
   przy otwartym module. Pozycje wzoru przechodzą tę samą kontrolę co PK
   (konta z planu, Wn = Ma).
-- Dalej w K3: lista płac z pliku Enovy (do czasu K7), kalendarz podatków i ZUS,
-  wycena walut (po rozrachunkach w K4), paczki do Symfonii (czeka na próbkę
-  pliku importu od Finansów).
+- Dalej w K3: lista płac z pliku Enovy (do czasu K7), kalendarz podatków i ZUS
+  z listą zamknięcia miesiąca; wycena walut idzie z rozrachunkami w K4.
+
+## Paczka do Symfonii (K3b, migracja `0702_ledger_exports`)
+
+- Zakładka „Do Symfonii” (`/accounting/symfonia`, moduł `ledger`): zatwierdzone
+  dokumenty miesiąca w pliku do importu w Symfonii FK, póki Symfonia jest księgą
+  urzędową (tryb roku „symfonia” albo „równolegle”; w trybie NEXUS 409).
+  Bez paczki PK z „Automatów” trafiałyby tylko do księgi-cienia, a księgowa
+  dalej przepisywałaby je ręcznie.
+- **Domyślnie w paczce**: PK z ręki, PK cykliczne, RMK, rozliczenie kosztów na
+  „5”. Faktury kosztowe (FVZ) mają własną paczkę E2, sprzedaż (FVS) trafia do
+  Symfonii z eBI24 do czasu wystawiania w NEXUSIE, bilans otwarcia przychodzi
+  z Symfonii — te rodzaje da się zaznaczyć, ale domyślnie są poza paczką, bo
+  Symfonia dostałaby je dwa razy. Storno ma rodzaj dokumentu, który odwraca.
+- **Dokument najwyżej w jednej aktywnej paczce** (`ledger_export_documents`,
+  indeks unikalny częściowy) — paczka zbiera tylko dokumenty spoza paczek.
+  Numer `K/RRRR-MM/n` (blokada doradcza), plik i SHA-256 w bazie: ponowne
+  pobranie daje ten sam plik. „Zaksięgowana w Symfonii” zamyka paczkę;
+  „Anuluj” (tylko pobraną) zwalnia jej dokumenty do następnej.
+- **D2**: dokumenty płacowe idą wyłącznie osobną paczką płacową (robi i widzi
+  ją osoba z Płacami albo admin). Mieszana paczka zabrałaby zwykłe dokumenty
+  z widoku osoby bez Płac, a samej paczki ta osoba by nie zobaczyła.
+- Paczkę, „zaksięgowaną” i anulowanie robi lista „Księgowi” albo admin;
+  podgląd i pobranie pliku — „Moduł Finanse”.
+- Plik: format neutralny jak w E2 (XLSX albo CSV, wiersz na pozycję dekretu:
+  nr w dzienniku, numer, typ, daty, konto, Wn/Ma, MPK, kontrahent z ID
+  Symfonii, waluta, storno dokumentu, numer KSeF). Identyfikator kontrahenta
+  tylko NIP albo VAT UE — PESEL z kartoteki E1 nie trafia do pliku. Format
+  importu Symfonii FK dopiszemy klasą w `ledger/export_file.py` po próbce od
+  Finansów.

@@ -165,6 +165,7 @@ export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting/sources", label: "Źródła", description: "Faktury kosztowe i sprzedaży jako dokumenty księgi", module: "ledger" },
   { href: "/accounting/automations", label: "Automaty", description: "PK cykliczne i RMK — polecenia księgowania co miesiąc same", module: "automations" },
   { href: "/accounting/documents", label: "Dokumenty", description: "Dziennik: dokumenty z dekretem, bufor i zatwierdzone", module: "ledger" },
+  { href: "/accounting/symfonia", label: "Do Symfonii", description: "Paczka zatwierdzonych dokumentów do importu w Symfonii FK", module: "ledger" },
   { href: "/accounting/trial-balance", label: "Obroty i salda", description: "Zestawienie obrotów i sald, karta konta", module: "ledger" },
   { href: "/accounting/chart", label: "Plan kont", description: "Konta księgi: syntetyka, analityka, typy i słowniki", module: "ledger" },
   { href: "/accounting/settings", label: "Ustawienia", description: "Moduły, lista „Księgowi”, rok obrotowy i okresy", module: null },
