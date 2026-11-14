@@ -1,0 +1,54 @@
+# Księga NEXUSA K2 (14.11.2026): faktury kosztowe i sprzedaży jako dokumenty księgi
+
+Etap K2 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar).
+Fundament (lata, okresy, bufor, dziennik, storno, blokady) opisuje
+`ksiega-nexusa-k1-fundament.md`. Do przełączenia księgą urzędową jest Symfonia:
+NEXUS księguje równolegle, więc dokument ze źródła musi dać się porównać
+z Symfonią miesiąc do miesiąca.
+
+## Źródła (`services/ledger/sources.py`, zakładka „Źródła”)
+
+- **Koszty → FVZ.** Dekret liczy E2 (`finance_cost_entries.decree`); K2 go nie
+  przelicza, tylko przepisuje pozycje. Do księgi idą faktury „Gotowe do
+  księgowania” i „Zaksięgowane”. Okres = miesiąc **wpływu** (`received_at`
+  w czasie firmy), jak paczka E2 do Symfonii. Problemy dekretu E2
+  (`posting.issues_for`) blokują dokument tak jak paczkę.
+- **Sprzedaż → FVS.** Każda faktura z KSeF, gdzie spółka jest sprzedawcą
+  (`client_sales_invoices`: z eBI24 i z NEXUSA). Wn rozrachunek z odbiorcą
+  (brutto), Ma przychód (netto), Ma VAT należny. Okres = miesiąc **sprzedaży**
+  (P_6, inaczej wystawienia); korekta — miesiąc wystawienia korekty.
+- **Waluta**: kurs NBP z ostatniego dnia roboczego przed dniem sprzedaży
+  (`posting.rate_day`, tylko kurs z dokładnie tego dnia, bez szukania wstecz).
+  Faktura wystawiona w NEXUSIE bierze kurs zapisany przy wystawieniu (E4),
+  korekta — kurs faktury pierwotnej. Brutto i VAT po kursie, netto jako
+  różnica (jak E2). Rozrachunek ma kwotę w walucie (`amount_cur`).
+- **Kwota ujemna** (korekta in minus) zamienia strony, kwoty zostają dodatnie —
+  jak w dekrecie E2. Faktura zaliczkowa (ZAL) czeka na regułę (K3).
+- **Konto rozrachunkowe odbiorcy**: „konto przychodowe” kontrahenta z kartoteki
+  E1 (import z eBI24 — odpowiednik „konta kosztowego”, którego E2 używa jako
+  konta rozrachunkowego dostawcy), inaczej konto z Ustawień + `-` + ID Symfonii
+  kontrahenta. Nabywcy szukamy po NIP-ie albo VAT UE (`identifiers.normalize`).
+  Nabywca spoza kartoteki = problem: kontrahentów nie zakładamy z faktur,
+  przychodzą importem z eBI24 (zasada E1).
+- **Konta faktur sprzedaży** (`app_settings['ledger'].sales`: rozrachunki,
+  przychód, VAT należny) ustawia administrator (`PUT /config/sales`); każde musi
+  być w planie kont. Bez konta przychodu sprzedaż czeka z problemem.
+
+## Księgowanie miesiąca
+
+- „Zaksięguj miesiąc” (`POST /sources/sync`, „Moduł Finanse”) robi szkice
+  w buforze; zatwierdza lista „Księgowi” (K1). Jest **idempotentne**: dokument
+  ma źródło (`source_type` `finance_cost_entry` / `client_sales_invoice` +
+  `source_id`) i odcisk danych (`meta.fingerprint`). Nowe źródło = nowy szkic,
+  zmienione = szkic przebudowany, wycofane albo z problemem = szkic usunięty.
+- **Zatwierdzonego zapisu NEXUS sam nie odwraca**: zmienione albo wycofane źródło
+  z zapisem w dzienniku wraca jako problem „zrób storno zapisu nr N”; po stornie
+  następne księgowanie zrobi nowy dokument (unikat źródła pomija odwrócone).
+- Podgląd (`GET /sources`) liczy to samo co zapis, łącznie z kontrolą planu kont
+  (`engine.check`) — nie obiecuje dokumentu, którego nie da się zapisać.
+- Zamknięty okres albo brak roku = 409 na całe księgowanie.
+- **Faktury osób zespołu** (`payroll_invoice`) to dokumenty płacowe (D2): osoba
+  bez Płac ich nie księguje, nie widzi w licznikach i jej księgowanie ich nie
+  usuwa; karta mówi tylko, że księguje je osoba z Płacami.
+- Kolejne etapy: MPK „5” (rozliczenie kosztów 4 → 5 / 490) jako PK z danych
+  NEXUSA, bez zmiany dekretu E2; rozrachunki i bilans otwarcia — kolejne PR-y K2.

@@ -27,6 +27,12 @@ import { datePl, findPeriod, gr } from "./ledger-model";
 const KIND_ORDER: DocType[] = ["FVS", "FVZ", "WB", "LP", "AM", "RMK", "VAT", "PK", "BO", "ST"];
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 
+function readType(): DocType | null {
+  if (typeof window === "undefined") return null;
+  const raw = new URLSearchParams(window.location.search).get("type");
+  return KIND_ORDER.find((kind) => kind === raw) ?? null;
+}
+
 function readStatus(): DocStatus | null {
   if (typeof window === "undefined") return null;
   const raw = new URLSearchParams(window.location.search).get("status");
@@ -47,7 +53,10 @@ export function DocumentsView() {
   const [form, setForm] = useState<{ open: boolean; editing: DocumentCard | null }>({ open: false, editing: null });
   const approve = useApproveDocuments();
 
-  useEffect(() => setStatus(readStatus()), []);
+  useEffect(() => {
+    setStatus(readStatus());
+    setDocType(readType());
+  }, []);
   useEffect(() => {
     setOffset(0);
     setChecked(new Set());

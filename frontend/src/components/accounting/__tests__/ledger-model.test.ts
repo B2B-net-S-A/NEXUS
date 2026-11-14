@@ -109,6 +109,7 @@ const CONFIG: LedgerConfig = {
   ],
   me: { admin: false, approver: true, payroll: false },
   accountants: null,
+  sales_accounts: { receivable_account: "200", revenue_account: "", vat_account: "222" },
   years: [
     {
       id: 1,
@@ -145,6 +146,7 @@ describe("zakładki i okres", () => {
   it("pokazuje zakładki modułów otwartych dla osoby i zawsze Ustawienia", () => {
     expect(visibleTabs(CONFIG).map((tab) => tab.label)).toEqual([
       "Miesiąc",
+      "Źródła",
       "Dokumenty",
       "Obroty i salda",
       "Plan kont",
@@ -157,6 +159,7 @@ describe("zakładki i okres", () => {
   it("rozpoznaje zakładkę po ścieżce", () => {
     expect(activeTab("/accounting").label).toBe("Miesiąc");
     expect(activeTab("/accounting/documents").label).toBe("Dokumenty");
+    expect(activeTab("/accounting/sources").label).toBe("Źródła");
     expect(activeTab("/accounting/chart/x").label).toBe("Plan kont");
     expect(activeTab(null).label).toBe("Miesiąc");
   });

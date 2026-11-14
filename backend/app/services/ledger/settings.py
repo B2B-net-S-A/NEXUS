@@ -11,11 +11,17 @@ Moduły bez ekranów (``BUILT``) mają przełącznik, ale włączyć ich się ni
 dopóki nie wejdzie ich etap — inaczej włączenie pokazałoby pustą zakładkę.
 Wyłączony program „Ludzi w NEXUSIE” zamyka Księgowość dla wszystkich, jak
 moduł „Księgowość” z E1 (trasy Finansów stoją za tym samym wyłącznikiem).
+
+Konta dekretu faktur sprzedaży (K2, ``sales``) ustawia administrator: konto
+rozrachunków z odbiorcami ze słownikiem kontrahentów, konto przychodów i VAT
+należnego. Kontrahent z własnym kontem rozrachunkowym sprzedaży z kartoteki
+(„konto przychodowe” z eBI24) ma pierwszeństwo — tak jak „konto kosztowe”
+w dekrecie kosztów E2.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy import select
@@ -26,7 +32,9 @@ from app.models.app_setting import AppSetting
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
+from app.models.finance_posting import FinanceAccount
 from app.services.finance_ledger.costs import LedgerError
+from app.services.finance_ledger.posting import clean_account
 from app.services.hr.program import program_enabled
 
 SETTING_KEY = "ledger"
@@ -64,10 +72,41 @@ MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
 
 
+#: Konta sprzedaży: klucz → (domyślne konto, etykieta w komunikatach).
+SALES_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
+    "receivable_account": ("200", "Rozrachunki z odbiorcami"),
+    "revenue_account": ("", "Przychody ze sprzedaży"),
+    "vat_account": ("222", "VAT należny"),
+}
+
+
+@dataclass(frozen=True)
+class SalesAccounts:
+    receivable_account: str = SALES_ACCOUNT_FIELDS["receivable_account"][0]
+    revenue_account: str = SALES_ACCOUNT_FIELDS["revenue_account"][0]
+    vat_account: str = SALES_ACCOUNT_FIELDS["vat_account"][0]
+
+
 @dataclass(frozen=True)
 class LedgerSettings:
     modules: dict[str, bool]
     accountants: tuple[int, ...]
+    sales: SalesAccounts = field(default_factory=SalesAccounts)
+
+
+def _sales(raw: object) -> SalesAccounts:
+    data = raw if isinstance(raw, dict) else {}
+    values: dict[str, str] = {}
+    for key, (default, label) in SALES_ACCOUNT_FIELDS.items():
+        value = data.get(key)
+        if not isinstance(value, str) or not value.strip():
+            values[key] = default
+            continue
+        try:
+            values[key] = clean_account(value, label)
+        except LedgerError:
+            values[key] = default
+    return SalesAccounts(**values)
 
 
 def normalize(raw: object) -> LedgerSettings:
@@ -86,13 +125,20 @@ def normalize(raw: object) -> LedgerSettings:
             }
         )
     )
-    return LedgerSettings(modules=modules, accountants=accountants)
+    return LedgerSettings(
+        modules=modules, accountants=accountants, sales=_sales(data.get("sales"))
+    )
 
 
 def to_json(settings: LedgerSettings) -> dict[str, Any]:
     return {
         "modules": dict(settings.modules),
         "accountants": list(settings.accountants),
+        "sales": {
+            "receivable_account": settings.sales.receivable_account,
+            "revenue_account": settings.sales.revenue_account,
+            "vat_account": settings.sales.vat_account,
+        },
     }
 
 
@@ -148,8 +194,7 @@ async def set_module(
             status=409,
         )
     current = await load(db)
-    modules = {**current.modules, module: bool(enabled)}
-    settings = LedgerSettings(modules=modules, accountants=current.accountants)
+    settings = replace(current, modules={**current.modules, module: bool(enabled)})
     await _save(db, settings, actor=actor)
     return settings
 
@@ -183,6 +228,29 @@ async def set_accountants(
                 status=422,
             )
     current = await load(db)
-    settings = LedgerSettings(modules=current.modules, accountants=tuple(unique))
+    settings = replace(current, accountants=tuple(unique))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_sales_accounts(
+    db: AsyncSession, values: dict[str, str], *, actor: User
+) -> LedgerSettings:
+    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont."""
+
+    cleaned: dict[str, str] = {}
+    for key, (_, label) in SALES_ACCOUNT_FIELDS.items():
+        number = clean_account(values.get(key), label)
+        account = await db.scalar(
+            select(FinanceAccount).where(FinanceAccount.number == number)
+        )
+        if account is None or not account.active:
+            raise LedgerError(
+                f"{label}: konta {number} nie ma w planie kont albo jest wyłączone.",
+                status=422,
+            )
+        cleaned[key] = number
+    current = await load(db)
+    settings = replace(current, sales=SalesAccounts(**cleaned))
     await _save(db, settings, actor=actor)
     return settings

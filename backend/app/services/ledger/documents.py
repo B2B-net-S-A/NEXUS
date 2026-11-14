@@ -226,13 +226,20 @@ async def _write_lines(
 
 
 async def create_draft(
-    db: AsyncSession, spec: DocumentSpec, *, actor_id: Optional[int]
+    db: AsyncSession,
+    spec: DocumentSpec,
+    *,
+    actor_id: Optional[int],
+    plan: Optional[dict[str, PlanAccount]] = None,
 ) -> LedgerDocument:
-    """Nowy dokument w buforze (bez commita). Źródło z dokumentem = 409."""
+    """Nowy dokument w buforze (bez commita). Źródło z dokumentem = 409.
+
+    ``plan`` — plan kont wczytany raz na całe księgowanie miesiąca (K2).
+    """
 
     _check_spec(spec)
     year, period = await years.lock_period(db, spec.op_date)
-    plan = await load_plan(db)
+    plan = plan if plan is not None else await load_plan(db)
     result = engine.ensure_valid(spec.lines, plan)
     await _counterparty_exists(db, spec.counterparty_id)
     for line in spec.lines:

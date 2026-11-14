@@ -56,11 +56,19 @@ export interface Option {
   label: string;
 }
 
+export interface SalesAccounts {
+  receivable_account: string;
+  revenue_account: string;
+  vat_account: string;
+}
+
 export interface LedgerConfig {
   open: boolean;
   modules: LedgerModule[];
   me: { admin: boolean; approver: boolean; payroll: boolean };
   accountants: number[] | null;
+  /** Konta dekretu faktur sprzedaży (K2), zmienia administrator. */
+  sales_accounts: SalesAccounts;
   years: LedgerYear[];
   today: string;
   doc_types: (Option & { manual: boolean })[];
@@ -252,6 +260,50 @@ export interface AccountInput {
   active?: boolean;
 }
 
+export type SourceKind = "costs" | "sales";
+
+export interface SourceProblem {
+  source_id: string;
+  label: string;
+  problems: string[];
+}
+
+/** Źródło miesiąca (K2): ile faktur, ile już w księdze, co czeka, co blokuje. */
+export interface SourceSummary {
+  kind: SourceKind;
+  label: string;
+  total: number;
+  draft: number;
+  approved: number;
+  to_post: number;
+  changed: number;
+  skipped: number;
+  problems: SourceProblem[];
+  problems_total: number;
+  /** Faktury osób zespołu księguje osoba z Płacami — bez liczby (D2). */
+  payroll_hidden: boolean;
+}
+
+export interface SourcesMonth {
+  year: number;
+  month: number;
+  year_exists: boolean;
+  period_open: boolean;
+  sales_accounts: SalesAccounts;
+  items: SourceSummary[];
+}
+
+export interface SyncResult {
+  kind: SourceKind;
+  created: number;
+  rebuilt: number;
+  deleted: number;
+  unchanged: number;
+  skipped: number;
+  problems: SourceProblem[];
+  problems_total: number;
+}
+
 export const accountingKeys = {
   all: ["accounting"] as const,
   config: ["accounting", "config"] as const,
@@ -264,6 +316,7 @@ export const accountingKeys = {
     ["accounting", "account-card", account, year, from, to] as const,
   chart: ["accounting", "chart"] as const,
   candidates: ["accounting", "candidates"] as const,
+  sources: (year: number, month: number) => ["accounting", "sources", year, month] as const,
 };
 
 export const DOCUMENT_PAGE = 50;
@@ -481,6 +534,28 @@ export function useReopenPeriod() {
   return useConfigMutation((args: { periodId: number; reason: string }) =>
     api.post(`${BASE}/periods/${args.periodId}/reopen`, { reason: args.reason }),
   );
+}
+
+export function useSources(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: accountingKeys.sources(year, month),
+    queryFn: async () =>
+      (await api.get<SourcesMonth>(`${BASE}/sources`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+export function useSyncSources() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async (args: { kind: SourceKind; year: number; month: number }) =>
+      (await api.post<SyncResult>(`${BASE}/sources/sync`, args)).data,
+    onSettled: () => invalidate(),
+  });
+}
+
+export function useSetSalesAccounts() {
+  return useConfigMutation((args: SalesAccounts) => api.put(`${BASE}/config/sales`, args));
 }
 
 /** Pozycja „Księgowość” w menu: „Moduł Finanse” i otwarty moduł księgi. */

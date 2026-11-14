@@ -9,8 +9,11 @@ przełączniki, lista „Księgowi”, tryb roku i ponowne otwarcie okresu — t
 admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
 
 * ``GET /config`` — moduły, rola osoby, lata z okresami,
-  ``PUT /config/modules`` i ``PUT /config/accountants`` (admin),
+  ``PUT /config/modules``, ``PUT /config/accountants`` i ``PUT /config/sales``
+  (admin; konta dekretu sprzedaży, K2),
   ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
+* ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
+  E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze,
 * ``POST /years``, ``PATCH /years/{id}`` (tryb), ``POST /periods/{id}/close``,
   ``POST /periods/{id}/reopen``,
 * ``GET/POST /documents``, ``GET/PATCH/DELETE /documents/{id}``,
@@ -38,7 +41,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import clean_account
-from app.services.ledger import chart, documents, engine, reports, years
+from app.services.ledger import chart, documents, engine, reports, sources, years
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger_schema import (
@@ -97,6 +100,18 @@ class ModuleBody(BaseModel):
 
 class AccountantsBody(BaseModel):
     user_ids: list[int] = Field(max_length=ledger_settings.ACCOUNTANTS_MAX)
+
+
+class SalesAccountsBody(BaseModel):
+    receivable_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    revenue_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    vat_account: str = Field(max_length=ACCOUNT_MAX + 8)
+
+
+class SourcesSyncBody(BaseModel):
+    kind: Literal["costs", "sales"]
+    year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
+    month: int = Field(ge=1, le=12)
 
 
 class YearBody(BaseModel):
@@ -224,6 +239,7 @@ def _config_payload(
             "payroll": viewer.payroll,
         },
         "accountants": list(current.accountants) if viewer.admin else None,
+        "sales_accounts": ledger_settings.to_json(current)["sales"],
         "years": year_list,
         "today": today.isoformat(),
         "doc_types": [
@@ -300,6 +316,24 @@ async def set_accountants(
     return ledger_settings.to_json(current)
 
 
+@router.put("/config/sales")
+async def set_sales_accounts(
+    body: SalesAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_sales_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
 @router.get("/config/candidates")
 async def accountant_candidates(
     current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
@@ -321,6 +355,43 @@ async def accountant_candidates(
             or has_permission(user, ProductAction.finance_module)
         ]
     }
+
+
+# ── Źródła (K2) ──────────────────────────────────────────────────────────────
+
+
+@router.get("/sources")
+async def get_sources(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await sources.month_summary(
+            db, year, month, viewer=viewer, settings=current
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/sources/sync")
+async def sync_sources(
+    body: SourcesSyncBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        result = await sources.sync_month(
+            db, body.kind, body.year, body.month, viewer=viewer, settings=current
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
 
 
 # ── Rok obrotowy i okresy ────────────────────────────────────────────────────
