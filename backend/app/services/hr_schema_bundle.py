@@ -117,7 +117,7 @@ MODULES = (
     ledger_automation,
     # 0702: paczki księgi do Symfonii FK K3b (14.11.2026).
     ledger_export,
-    # 0703: płace liczone w NEXUSIE K7a — dane osoby, parametry, listy (14.11.2026).
+    # 0704: płace liczone w NEXUSIE K7a — dane osoby, parametry, listy (14.11.2026).
     payroll_lists,
 )
 

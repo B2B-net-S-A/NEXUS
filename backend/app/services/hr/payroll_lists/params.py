@@ -125,7 +125,7 @@ SPECS: dict[str, ParamSpec] = {
     ),
 }
 
-#: Wartości na 2026 r. — do potwierdzenia przez Płace (zasiew migracji 0703).
+#: Wartości na 2026 r. — do potwierdzenia przez Płace (zasiew migracji 0704).
 SEED_2026: dict[str, str] = {
     "pension_employee_rate": "9.76",
     "pension_employer_rate": "9.76",

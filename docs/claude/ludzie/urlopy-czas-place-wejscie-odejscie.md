@@ -813,7 +813,7 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   „Księgowość w NEXUSIE”, etap K7; zmienia regułę z 17.10.2026 „identyfikator osoby
   w Symfonii zamiast PESEL-u”): PESEL i dane do ZUS/PIT (adres, urząd skarbowy, kod tytułu,
   PIT-2, koszty, ulgi, PPK) leżą zaszyfrowane (`TokenCipher`) w `payroll_person_data`
-  (0703). Widzą je tylko Kadry, Płace i administrator; na ekranie PESEL jest maską (kropki
+  (0704). Widzą je tylko Kadry, Płace i administrator; na ekranie PESEL jest maską (kropki
   i 4 cyfry), bez daty urodzenia, gdy wynika z PESEL-u. Nigdy w logach, śladzie ani
   komunikatach błędów — pełny numer trafia tylko do plików KEDU i PIT dla Płac.
   Szczegóły: `finanse-insights/ksiega-nexusa-k7a-place.md`.

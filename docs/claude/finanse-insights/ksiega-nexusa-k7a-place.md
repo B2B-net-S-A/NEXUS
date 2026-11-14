@@ -4,7 +4,7 @@ Etap K7 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvS
 część pierwsza: dane kadrowo-płacowe, parametry, silnik brutto → netto, lista płac
 z zatwierdzeniem drugą osobą, paski, KEDU, PIT-4R/8AR/11, przelewy. Ok. 17 osób:
 UoP i zlecenia w zespole oraz zleceniobiorcy u klientów (kontrakty `uzlecenie`).
-Migracja `0703_payroll_lists` (`hr_payroll_lists_schema.py`, lustro przez
+Migracja `0704_payroll_lists` (`hr_payroll_lists_schema.py`, lustro przez
 `hr_schema_bundle`), kod w `backend/app/services/hr/payroll_lists/`, trasy
 `/api/hr/payroll-lists`, ekran Księgowość → Płace (`/accounting/payroll`).
 Decyzje Artura z 13.11.2026: PESEL i dane do ZUS/PIT szyfrowane, tylko Kadry, Płace

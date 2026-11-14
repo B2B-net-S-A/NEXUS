@@ -1,7 +1,7 @@
 """Płace liczone w NEXUSIE (K7a): dane osoby, parametry, listy płac.
 
-Revision ID: 0703_payroll_lists
-Revises: 0702_ledger_exports
+Revision ID: 0704_payroll_lists
+Revises: 0703_ledger_assets
 
 Tabele ``payroll_person_data`` (dane kadrowo-płacowe, zaszyfrowane),
 ``payroll_parameter_versions`` (parametry od daty, zasiew 2026 do potwierdzenia
@@ -16,8 +16,8 @@ from alembic import op
 
 from app.services import hr_payroll_lists_schema as schema
 
-revision = "0703_payroll_lists"
-down_revision = "0702_ledger_exports"
+revision = "0704_payroll_lists"
+down_revision = "0703_ledger_assets"
 branch_labels = None
 depends_on = None
 

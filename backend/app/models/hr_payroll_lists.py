@@ -1,4 +1,4 @@
-"""Płace liczone w NEXUSIE (K7a, 0703) — modele.
+"""Płace liczone w NEXUSIE (K7a, 0704) — modele.
 
 CHECK-i i indeksy jak w ``app/services/hr_payroll_lists_schema.py`` (strażnik
 dryfu schematu porównuje model z bazą po migracji); opis tabel w docstringu

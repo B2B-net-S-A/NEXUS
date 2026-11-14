@@ -4347,7 +4347,7 @@ async def api_health_deep_check(request: Request):
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
         ("finance_posting_batches", FinancePostingBatch),
-        # 0703: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
+        # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
         ("payroll_person_data", PayrollPersonData),
         ("payroll_parameter_versions", PayrollParameterVersion),
         ("payroll_lists", PayrollList),

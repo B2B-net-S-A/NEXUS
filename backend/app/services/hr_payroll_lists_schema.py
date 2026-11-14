@@ -1,6 +1,6 @@
-"""Płace liczone w NEXUSIE (K7a) — SQL migracji ``0703_payroll_lists`` i lustra entrypointu.
+"""Płace liczone w NEXUSIE (K7a) — SQL migracji ``0704_payroll_lists`` i lustra entrypointu.
 
-Jedno źródło DDL dla ``alembic/versions/0703_payroll_lists.py`` i ``entrypoint.sh``
+Jedno źródło DDL dla ``alembic/versions/0704_payroll_lists.py`` i ``entrypoint.sh``
 (przez ``app/services/hr_schema_bundle.py``); każda instrukcja idempotentna.
 Plan: https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar (etap K7).
 
@@ -258,7 +258,7 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-#: Kolumny dodane w trakcie przeglądu 0703 (14.11.2026) — dla baz, na które trafiła
+#: Kolumny dodane w trakcie przeglądu 0704 (14.11.2026) — dla baz, na które trafiła
 #: pierwsza wersja tabel (``CREATE TABLE IF NOT EXISTS`` ich nie doda).
 COLUMN_DDL: tuple[str, ...] = (
     "ALTER TABLE payroll_person_data ADD COLUMN IF NOT EXISTS candidate_ref VARCHAR(64) NULL",
