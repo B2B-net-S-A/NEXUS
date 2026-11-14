@@ -9,6 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 
 import { useStartStatus } from "@/lib/novelties/api";
+import { isPoligonActive } from "@/lib/poligon/mode";
 import { readTour, START_PATH, startAllows } from "@/lib/novelties/logic";
 import { useAuthStore } from "@/store/auth";
 
@@ -26,8 +27,9 @@ export function useStartGate(): boolean {
     const tour = typeof window === "undefined" ? null : readTour();
     return Boolean(tour && status?.items.some((item) => item.id === tour.noveltyId));
   })();
+  // Na poligonie (rekrutacja ćwiczebna) ekrany są otwarte — to też jest nauka.
   const blocked =
-    Boolean(status?.enforced) && !startAllows(pathname, touringStart);
+    Boolean(status?.enforced) && !isPoligonActive() && !startAllows(pathname, touringStart);
 
   useEffect(() => {
     if (blocked) router.replace(START_PATH);

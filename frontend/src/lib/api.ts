@@ -10,6 +10,8 @@ import {
   probeTelemetryCapability,
 } from "./telemetry-capability";
 import { usageScreen } from "./usage-screen";
+import { poligonAdapter } from "./poligon/adapter";
+import { isPoligonActive } from "./poligon/mode";
 
 import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, CSRF_HEADER, getAccessToken } from "./session";
@@ -62,6 +64,13 @@ export const api = axios.create({
 });
 
 const STATE_CHANGING_METHODS = new Set(["post", "put", "patch", "delete"]);
+
+// Poligon NEXUSA (`lib/poligon/`): w trybie ćwiczeń rekrutację ćwiczebną
+// podaje zestaw z przeglądarki i żaden zapis nie idzie do serwera.
+api.interceptors.request.use((config) => {
+  if (isPoligonActive()) config.adapter = poligonAdapter;
+  return config;
+});
 
 // Domyślny sufit ustawia ten interceptor, a nie `axios.create`: axios scala
 // domyślne pola instancji z polami wywołania, zanim zobaczy je interceptor,

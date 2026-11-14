@@ -48,6 +48,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "my-time": "Moja współpraca",
   porcja: "Porcja dnia",
   start: "Start w NEXUSIE",
+  poligon: "Poligon NEXUSA",
   people: "Ludzie",
   equipment: "Sprzęt",
   hr: "Administracja współpracy",

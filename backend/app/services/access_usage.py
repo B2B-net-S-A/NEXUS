@@ -129,6 +129,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "profile",
         "settings",
         "start",
+        # Poligon NEXUSA: ćwiczenia na rekrutacji ćwiczebnej, nie praca w obszarze.
+        "poligon",
         # Umowy klientów: nadawane imiennie, poza sekcjami, które mierzy przegląd.
         "client-contracts",
         # Rekrutacja własna: proces dwóch osób, poza sekcjami, które mierzy przegląd.
