@@ -12,6 +12,9 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   ``PUT /config/modules``, ``PUT /config/accountants``, ``PUT /config/sales``
   i ``PUT /config/allocation`` (admin; konta sprzedaży i rozliczenia kosztów, K2),
   ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
+* ``GET /automations``, ``POST/PATCH/DELETE /automations/recurring[/{id}]`` i
+  ``/automations/prepayments[/{id}]`` (K3a, moduł „automations”) — wzory PK
+  cyklicznych i RMK; zapis lista „Księgowi” albo admin,
 * ``POST /opening/import?year=&save=`` (K2) — bilans otwarcia z pliku
   zestawienia sald Symfonii: podgląd albo zapis BO (lista „Księgowi”, admin),
 * ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
@@ -46,6 +49,7 @@ from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.counterparty_import import ImportFileError
 from app.services.finance_ledger.posting import clean_account
 from app.services.ledger import (
+    automations,
     chart,
     documents,
     engine,
@@ -53,6 +57,12 @@ from app.services.ledger import (
     reports,
     sources,
     years,
+)
+from app.services.ledger_automation_schema import (
+    MONTHS_MAX,
+    NAME_MAX,
+    RECURRING_LINES_MAX,
+    REFERENCE_MAX,
 )
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import DocumentSpec, Viewer
@@ -129,8 +139,30 @@ class AllocationAccountsBody(BaseModel):
     team_account: str = Field(max_length=ACCOUNT_MAX + 8)
 
 
+class RecurringBody(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=NAME_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    lines: Optional[list[LineBody]] = Field(
+        default=None, min_length=2, max_length=RECURRING_LINES_MAX
+    )
+    start_month: Optional[date] = None
+    end_month: Optional[date] = None
+
+
+class PrepaymentBody(BaseModel):
+    name: str = Field(max_length=NAME_MAX)
+    reference: str = Field(default="", max_length=REFERENCE_MAX)
+    counterparty_id: Optional[int] = None
+    cost_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    prepaid_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    mpk: Optional[str] = Field(default=None, max_length=MPK_MAX + 4)
+    total_amount: Decimal = Field(max_digits=15, decimal_places=2, gt=0)
+    start_month: date
+    months: int = Field(ge=1, le=MONTHS_MAX)
+
+
 class SourcesSyncBody(BaseModel):
-    kind: Literal["costs", "sales", "allocation"]
+    kind: Literal["costs", "sales", "allocation", "recurring", "prepayments"]
     year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
     month: int = Field(ge=1, le=12)
 
@@ -432,6 +464,147 @@ async def sync_sources(
         raise _fail(exc) from exc
     await db.commit()
     return result
+
+
+# ── PK cykliczne i RMK (K3a) ─────────────────────────────────────────────────
+
+
+async def _automations_context(db: AsyncSession, user: User) -> Viewer:
+    current, viewer = await _context(db, user)
+    if not ledger_settings.module_open(user, current, "automations"):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, ledger_settings.MODULE_DISABLED_DETAIL
+        )
+    return viewer
+
+
+def _recurring_values(body: RecurringBody) -> dict[str, Any]:
+    values = body.model_dump(exclude_unset=True)
+    if body.lines is not None:
+        values["lines"] = [
+            {
+                "side": line.side,
+                "account": line.account,
+                "amount": _grosze(line.amount, index),
+                "description": line.description,
+                "counterparty_id": line.counterparty_id,
+                "mpk": line.mpk,
+            }
+            for index, line in enumerate(body.lines, start=1)
+        ]
+    return values
+
+
+@router.get("/automations")
+async def get_automations(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    await _automations_context(db, current_user)
+    return await automations.overview(db)
+
+
+async def _write_automation(db: AsyncSession, action) -> dict[str, Any]:
+    try:
+        await action()
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await automations.overview(db)
+
+
+@router.post("/automations/recurring", status_code=201)
+async def create_recurring(
+    body: RecurringBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_recurring(db, _recurring_values(body), viewer=viewer),
+    )
+
+
+@router.patch("/automations/recurring/{template_id}")
+async def update_recurring(
+    template_id: int,
+    body: RecurringBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_recurring(
+            db, _recurring_values(body), viewer=viewer, template_id=template_id
+        ),
+    )
+
+
+@router.delete("/automations/recurring/{template_id}")
+async def remove_recurring(
+    template_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db, lambda: automations.remove(db, "recurring", template_id, viewer=viewer)
+    )
+
+
+def _prepayment_values(body: PrepaymentBody) -> dict[str, Any]:
+    values = body.model_dump()
+    values["total_amount"] = _grosze(body.total_amount, 1)
+    return values
+
+
+@router.post("/automations/prepayments", status_code=201)
+async def create_prepayment(
+    body: PrepaymentBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_prepayment(
+            db, _prepayment_values(body), viewer=viewer
+        ),
+    )
+
+
+@router.patch("/automations/prepayments/{item_id}")
+async def update_prepayment(
+    item_id: int,
+    body: PrepaymentBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_prepayment(
+            db, _prepayment_values(body), viewer=viewer, item_id=item_id
+        ),
+    )
+
+
+@router.delete("/automations/prepayments/{item_id}")
+async def remove_prepayment(
+    item_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db, lambda: automations.remove(db, "prepayments", item_id, viewer=viewer)
+    )
 
 
 # ── Bilans otwarcia (K2) ─────────────────────────────────────────────────────

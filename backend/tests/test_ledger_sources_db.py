@@ -33,7 +33,13 @@ from app.models.fx_rate import FxRate
 from app.models.candidate import Candidate
 from app.models.client_settlement import ClientContractorInvoice
 from app.models.hr_profile import EmployeeProfile
-from app.models.ledger import LedgerDocument, LedgerLine, LedgerYear
+from app.models.ledger import (
+    LedgerDocument,
+    LedgerLine,
+    LedgerPrepayment,
+    LedgerRecurring,
+    LedgerYear,
+)
 from app.services.finance_ledger import costs as cost_queue
 from app.services.finance_ledger.posting import rate_day
 from app.services.ledger import settings as ledger_settings
@@ -133,6 +139,7 @@ async def books(world):
             "alloc_bo": (f"{prefix}-503", "Koszty Back office", "other", None),
             "alloc_og": (f"{prefix}-550", "Koszty ogólne", "other", None),
             "alloc_team": (f"{prefix}-504", "Koszty zespołu", "other", None),
+            "prepaid": (f"{prefix}-640", "RMK czynne", "other", None),
             "settle": (f"{prefix}-490", "Rozliczenie kosztów", "other", None),
         }
         for number, name, kind, dictionary in acc.values():
@@ -301,6 +308,13 @@ async def books(world):
     }
     await _purge_years([year])
     async with AsyncSessionLocal() as db:
+        authors = [world[key].id for key in ("admin", "accountant", "module_only")]
+        await db.execute(
+            delete(LedgerRecurring).where(LedgerRecurring.created_by.in_(authors))
+        )
+        await db.execute(
+            delete(LedgerPrepayment).where(LedgerPrepayment.created_by.in_(authors))
+        )
         await db.execute(
             delete(ClientSalesInvoice).where(
                 ClientSalesInvoice.id.in_(list(sales_ids.values()))
@@ -996,3 +1010,179 @@ async def test_chart_change_keeps_posted_costs_in_allocation(client, world, book
     assert created.status_code == 201, created.text
     after = (await _summary(client, world, books))["allocation"]["details"]
     assert after == before
+
+
+# ── PK cykliczne i RMK (K3a) ────────────────────────────────────────────────
+
+
+def _automation_settings(world, books) -> dict:
+    value = _ledger_settings(world, books, allocation=False)
+    value["modules"] = {"ledger": True, "automations": True}
+    return value
+
+
+async def _automation_post(client, world, path: str, body: dict, user="accountant"):
+    return await client.post(f"{ACC}/automations/{path}", json=body, headers=_headers(world[user]))
+
+
+def _rent(books, *, start: str) -> dict:
+    acc = books["acc"]
+    return {
+        "name": "Najem biura",
+        "lines": [
+            {"side": "debit", "account": acc["cost"], "amount": "1000.00", "mpk": "OG"},
+            {
+                "side": "credit",
+                "account": books["supplier"].cost_account,
+                "amount": "1000.00",
+                "counterparty_id": books["supplier"].id,
+            },
+        ],
+        "start_month": start,
+    }
+
+
+def _policy(books, *, start: str) -> dict:
+    acc = books["acc"]
+    return {
+        "name": "Polisa OC",
+        "reference": "PL-1",
+        "cost_account": acc["cost"],
+        "prepaid_account": acc["prepaid"],
+        "total_amount": "1000.00",
+        "start_month": start,
+        "months": 3,
+    }
+
+
+async def test_recurring_and_prepayment_post_each_month(client, world, books):
+    year, acc = books["year"], books["acc"]
+    await _set_ledger(_automation_settings(world, books))
+    rent = await _automation_post(client, world, "recurring", _rent(books, start=f"{year}-03-01"))
+    assert rent.status_code == 201, rent.text
+    policy = await _automation_post(client, world, "prepayments", _policy(books, start=f"{year}-03-01"))
+    assert policy.status_code == 201, policy.text
+    template_id = max(item["id"] for item in rent.json()["recurring"])
+    policy_id = max(item["id"] for item in policy.json()["prepayments"])
+    created = next(i for i in policy.json()["prepayments"] if i["id"] == policy_id)
+    assert created["installment"] == 33_333
+    summary = await _summary(client, world, books)
+    assert summary["recurring"]["to_post"] == 1 and summary["prepayments"]["to_post"] == 1
+    for kind in ("recurring", "prepayments"):
+        synced = await _sync(client, world, books, kind)
+        assert synced.json()["created"] == 1, synced.text
+    march_rent = await _document("ledger_recurring", f"{template_id}:{year}-03")
+    march_policy = await _document("ledger_prepayment", f"{policy_id}:{year}-03")
+    assert march_rent.op_date == date(year, 3, 31)
+    assert await _lines(march_policy.id) == [
+        ("debit", acc["cost"], 33_333),
+        ("credit", acc["prepaid"], 33_333),
+    ]
+    may = await _sync(client, world, books, "prepayments", month=5)
+    assert may.json()["created"] == 1
+    last = await _document("ledger_prepayment", f"{policy_id}:{year}-05")
+    assert (await _lines(last.id))[0][2] == 33_334
+    await _approve_ids(client, world, [march_rent.id, march_policy.id])
+    headers = _headers(world["accountant"])
+    locked = await client.patch(
+        f"{ACC}/automations/recurring/{template_id}",
+        json={"lines": _rent(books, start=f"{year}-03-01")["lines"]},
+        headers=headers,
+    )
+    assert locked.status_code == 409 and "Zakończ" in locked.json()["detail"]
+    too_early = await client.patch(
+        f"{ACC}/automations/recurring/{template_id}",
+        json={"end_month": f"{year}-02-01"},
+        headers=headers,
+    )
+    assert too_early.status_code == 409
+    ended = await client.patch(
+        f"{ACC}/automations/recurring/{template_id}",
+        json={"end_month": f"{year}-04-01"},
+        headers=headers,
+    )
+    assert ended.status_code == 200, ended.text
+    june = await _summary(client, world, books, month=6)
+    assert june["recurring"]["total"] == 0
+    removed = await client.delete(f"{ACC}/automations/prepayments/{policy_id}", headers=headers)
+    assert removed.status_code == 409
+
+
+async def test_automations_need_module_and_accountants_list(client, world, books):
+    year = books["year"]
+    await _set_ledger(_ledger_settings(world, books, allocation=False))
+    hidden = await client.get(f"{ACC}/automations", headers=_headers(world["module_only"]))
+    assert hidden.status_code == 404
+    summary = await _summary(client, world, books, user="module_only")
+    assert "recurring" not in summary
+    await _set_ledger(_automation_settings(world, books))
+    seen = await client.get(f"{ACC}/automations", headers=_headers(world["module_only"]))
+    assert seen.status_code == 200
+    refused = await _automation_post(
+        client, world, "recurring", _rent(books, start=f"{year}-03-01"), user="module_only"
+    )
+    assert refused.status_code == 403
+    unbalanced = _rent(books, start=f"{year}-03-01")
+    unbalanced["lines"][1]["amount"] = "999.99"
+    bad = await _automation_post(client, world, "recurring", unbalanced)
+    assert bad.status_code == 422
+
+
+async def test_draft_of_removed_template_is_withdrawn(client, world, books):
+    year = books["year"]
+    await _set_ledger(_automation_settings(world, books))
+    rent = await _automation_post(client, world, "recurring", _rent(books, start=f"{year}-03-01"))
+    template_id = max(item["id"] for item in rent.json()["recurring"])
+    first = await _sync(client, world, books, "recurring")
+    assert first.json()["created"] == 1, first.text
+    removed = await client.delete(
+        f"{ACC}/automations/recurring/{template_id}", headers=_headers(world["accountant"])
+    )
+    assert removed.status_code == 200, removed.text
+    # Szkic znika od razu — inaczej do następnego księgowania dałoby się go
+    # zatwierdzić i dostać problem „zrób storno” (przegląd K3a 14.11.2026).
+    assert await _document("ledger_recurring", f"{template_id}:{year}-03") is None
+    again = await _sync(client, world, books, "recurring")
+    assert again.json()["deleted"] == 0
+
+
+async def test_ending_template_withdraws_later_drafts(client, world, books):
+    year = books["year"]
+    await _set_ledger(_automation_settings(world, books))
+    rent = await _automation_post(client, world, "recurring", _rent(books, start=f"{year}-03-01"))
+    template_id = max(item["id"] for item in rent.json()["recurring"])
+    for month in (3, 4):
+        synced = await _sync(client, world, books, "recurring", month=month)
+        assert synced.json()["created"] == 1, synced.text
+    march = await _document("ledger_recurring", f"{template_id}:{year}-03")
+    await _approve_ids(client, world, [march.id])
+    ended = await client.patch(
+        f"{ACC}/automations/recurring/{template_id}",
+        json={"end_month": f"{year}-03-01"},
+        headers=_headers(world["accountant"]),
+    )
+    assert ended.status_code == 200, ended.text
+    assert await _document("ledger_recurring", f"{template_id}:{year}-04") is None
+    kept = await _document("ledger_recurring", f"{template_id}:{year}-03")
+    assert kept is not None and kept.status == "approved"
+
+
+async def test_changed_prepayment_withdraws_its_drafts(client, world, books):
+    year = books["year"]
+    await _set_ledger(_automation_settings(world, books))
+    body = _policy(books, start=f"{year}-03-01")
+    policy = await _automation_post(client, world, "prepayments", body)
+    policy_id = max(item["id"] for item in policy.json()["prepayments"])
+    synced = await _sync(client, world, books, "prepayments")
+    assert synced.json()["created"] == 1, synced.text
+    changed = await client.patch(
+        f"{ACC}/automations/prepayments/{policy_id}",
+        json={**body, "total_amount": "1200.00"},
+        headers=_headers(world["accountant"]),
+    )
+    assert changed.status_code == 200, changed.text
+    assert await _document("ledger_prepayment", f"{policy_id}:{year}-03") is None
+    rebuilt = await _sync(client, world, books, "prepayments")
+    assert rebuilt.json()["created"] == 1, rebuilt.text
+    doc = await _document("ledger_prepayment", f"{policy_id}:{year}-03")
+    assert (await _lines(doc.id))[0][2] == 40_000

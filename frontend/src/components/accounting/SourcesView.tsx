@@ -21,14 +21,38 @@ import { cn } from "@/lib/utils";
 import { SectionCard, useAccounting } from "./AccountingShell";
 import { findPeriod, gr, monthTitle } from "./ledger-model";
 
-const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS" | "PK"> = { costs: "FVZ", sales: "FVS", allocation: "PK" };
+const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS" | "PK"> = {
+  costs: "FVZ",
+  sales: "FVS",
+  allocation: "PK",
+  recurring: "PK",
+  prepayments: "PK",
+};
 const ORIGIN: Record<SourceKind, string> = {
   costs:
     "Finanse → Koszty: faktury „Gotowe do księgowania” i „Zaksięgowane” z dekretem E2. Okres = miesiąc wpływu, jak w paczce do Symfonii.",
   sales:
     "KSeF: faktury wystawione w eBI24 i w NEXUSIE. Okres = miesiąc sprzedaży, korekta — miesiąc wystawienia; waluta po kursie NBP.",
+  recurring:
+    "Wzory z zakładki „Automaty”: jeden PK na wzór w ostatnim dniu miesiąca, w zakresie jego miesięcy. Zmiana wzoru przebudowuje szkice.",
+  prepayments:
+    "Rozliczenia RMK z zakładki „Automaty”: rata miesiąca Wn koszt / Ma RMK; ostatnia rata domyka kwotę co do grosza.",
   allocation:
     "Koszty z zatwierdzonych FVZ miesiąca na konta „5”: faktura kontraktora → klient kontraktu, osoba zespołu → pion z kartoteki, reszta → koszty ogólne (do czasu klucza podziału biura). Jedno PK na miesiąc, Ma rozliczenie kosztów; faktury osób zespołu w osobnym PK płacowym, na jednym koncie zespołu. Storno FVZ odejmuje koszt w miesiącu storna.",
+};
+const TOTAL_LABEL: Record<SourceKind, string> = {
+  costs: "Faktur w miesiącu",
+  sales: "Faktur w miesiącu",
+  allocation: "Dokumentów PK",
+  recurring: "Wzorów w miesiącu",
+  prepayments: "Rozliczeń w miesiącu",
+};
+const FOOTER: Record<SourceKind, string> = {
+  costs: "Dokumenty trafiają do bufora; zatwierdza je osoba z listy „Księgowi”. Zmieniona faktura z zapisem w dzienniku wraca tu jako problem do storna.",
+  sales: "Dokumenty trafiają do bufora; zatwierdza je osoba z listy „Księgowi”. Zmieniona faktura z zapisem w dzienniku wraca tu jako problem do storna.",
+  allocation: "PK trafia do bufora; zatwierdza je osoba z listy „Księgowi”. Zmiana kosztów zatwierdzonego miesiąca wraca tu jako problem do storna.",
+  recurring: "PK trafiają do bufora; zatwierdza je osoba z listy „Księgowi”. Wzoru z zatwierdzonym miesiącem już się nie zmienia — kończy się go w „Automatach”.",
+  prepayments: "Raty trafiają do bufora; zatwierdza je osoba z listy „Księgowi”. Rozliczenia z zatwierdzoną ratą już się nie zmienia.",
 };
 const PROBLEMS_SHOWN = 8;
 const DETAILS_SHOWN = 10;
@@ -141,7 +165,7 @@ function SourceCard({
                   label: "FVZ w buforze (wejdą po zatwierdzeniu)",
                   value: item.pending_costs ?? 0,
                 }
-              : { id: "total", label: "Faktur w miesiącu", value: item.total },
+              : { id: "total", label: TOTAL_LABEL[item.kind], value: item.total },
             {
               id: "ledger",
               label: "W księdze: bufor · zatwierdzone",
@@ -193,10 +217,7 @@ function SourceCard({
             <Link href={`/accounting/documents${query}`}>Dokumenty {DOC_TYPE[item.kind]}</Link>
           </Button>
         </div>
-        <p className="text-[12px] text-muted-foreground">
-          Dokumenty trafiają do bufora; zatwierdza je osoba z listy „Księgowi”. Zmieniona faktura z zapisem
-          w dzienniku wraca tu jako problem do storna.
-        </p>
+        <p className="text-[12px] text-muted-foreground">{FOOTER[item.kind]}</p>
       </div>
       {details.length ? (
         <>
