@@ -255,6 +255,15 @@ _KNOWN_CONTRACT_FKS = {
     # Dodatki do rozliczenia (0691, E5.1; koszty integracji ze zgodą DL-a):
     # bez unikatu — idą za kontraktem w całości, limit roku liczy się na kandydata.
     ("client_settlement_extras", "contract_id"),
+    # Lista płac K7a (0704): pozycje list to migawka wypłaty (paski, KEDU i PIT-11
+    # liczą się z nich po osobie, nie po kontrakcie) — idą za kontraktem
+    # zachowanym. Dwie pozycje duplikatów na jednej liście (UNIQUE lista +
+    # kontrakt) rozstrzyga ``_resolve_child_duplicates``: pozycja przegranego
+    # zostaje na liście bez kontraktu, więc z zatwierdzonej listy nic nie znika.
+    # Kwota Rozliczeń ma UNIQUE (miesiąc, kontrakt): kwota wygrywa z „pominięte”
+    # (0 zł), remis → zachowany, jak w rozliczeniach klientów.
+    ("payroll_list_lines", "contract_id"),
+    ("payroll_gross_inputs", "contract_id"),
     # Szkolenia (0694): trener, autor pliku i obecność idą za kontraktem; zapis na
     # szkolenie ma unikat (szkolenie, kontrakt) — dubel rozstrzyga
     # ``_resolve_child_duplicates`` (zostaje zapis zachowanego).
@@ -3220,7 +3229,13 @@ async def _resolve_child_duplicates(
     * ``cp_activations`` i ``cp_trainer_applications`` — jeden wiersz na kontrakt:
       zostaje wiersz zachowanego (aktywacja: aktywna przed wyłączoną), reszta jest kasowana,
     * ``training_registrations`` i ``training_feedback`` — jeden zapis i jedna ocena na
-      (szkolenie, kontrakt): zostaje wiersz zachowanego, a bez niego najstarszy.
+      (szkolenie, kontrakt): zostaje wiersz zachowanego, a bez niego najstarszy,
+    * ``payroll_gross_inputs`` — jedna kwota Rozliczeń na (miesiąc, kontrakt): kwota
+      wygrywa z „pominięte” (0 zł), remis → zachowany; przegrana jest kasowana
+      (zatwierdzona lista trzyma brutto w swoich pozycjach),
+    * ``payroll_list_lines`` — jedna pozycja na (lista, kontrakt): zostaje pozycja
+      zachowanego, a bez niej najstarsza; pozostałe tracą tylko odnośnik do
+      kontraktu (osoba i kwoty zostają na liście).
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3425,6 +3440,50 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["client_settlements_duplicates_removed"] = len(losers)
+
+    if ("payroll_gross_inputs", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, period_id, "
+            "CASE WHEN gross > 0 THEN 'amount' ELSE 'skipped' END AS status "
+            "FROM payroll_gross_inputs WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["period_id"],
+            rank={"amount": 0, "skipped": 1},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM payroll_gross_inputs WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["payroll_gross_inputs_duplicates_removed"] = len(losers)
+
+    if ("payroll_list_lines", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, list_id, 'line' AS status "
+            "FROM payroll_list_lines WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["list_id"],
+            rank={"line": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text(
+                    "UPDATE payroll_list_lines SET contract_id = NULL "
+                    "WHERE id = ANY(:ids)"
+                ),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["payroll_list_lines_detached"] = len(losers)
 
     if ("client_external_ids", "contract_id") in present:
         rows = await _child_rows(

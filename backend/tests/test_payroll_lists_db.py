@@ -101,6 +101,17 @@ class World:
 
 
 @pytest_asyncio.fixture
+async def client(app_client):
+    """Klient ASGI w procesie (``app_client``) — bez serwera na :8000.
+
+    Fixture ``client`` z conftestu to klient żywego serwera, pomijany w CI
+    (``RUN_LIVE_TESTS=0``); bez tego nadpisania cały plik był cicho pomijany.
+    """
+
+    yield app_client
+
+
+@pytest_asyncio.fixture
 async def world():
     year = random.randint(2090, 2099)
     previous = await _ledger_value()
@@ -137,7 +148,13 @@ async def world():
             rate_candidate=Decimal("42"),
         )
         db.add(contract)
-        period = PayrollPeriod(year=year, month=10, status="closed", close_count=1)
+        period = PayrollPeriod(
+            year=year,
+            month=10,
+            status="closed",
+            close_count=1,
+            closed_at=datetime.now(timezone.utc),
+        )
         db.add(period)
         await db.commit()
         w.version_id = version.id
@@ -577,6 +594,103 @@ async def test_input_for_contract_outside_month_becomes_a_line(client, world) ->
                 )
             )
             await db.execute(delete(Contract).where(Contract.id == ended_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_contract_merge_keeps_list_lines_and_the_amount(client, world) -> None:
+    """Scalenie duplikatu kontraktu (``contract_merge``): kwota Rozliczeń wygrywa
+    z „pominięte”, a druga pozycja tej samej listy zostaje — bez kontraktu."""
+
+    from app.services.contract_merge import _resolve_child_duplicates
+
+    w = world
+    async with AsyncSessionLocal() as db:
+        duplicate = Contract(
+            client_id=w.client_id,
+            candidate_id=w.candidate_id,
+            contract_type=ContractType.uzlecenie,
+            status=ContractStatus.active,
+            start_date=date(w.year, 1, 1),
+            rate_candidate=Decimal("42"),
+        )
+        db.add(duplicate)
+        await db.commit()
+        duplicate_id = duplicate.id
+
+    async def put_gross(contract_id: int, gross: str) -> None:
+        saved = await client.put(
+            f"{BASE}/months/{w.year}/10/inputs",
+            json={
+                "contract_id": contract_id,
+                "kind": "zlecenie",
+                "gross": gross,
+                "note": "kwota testowa",
+            },
+            headers=headers(w.payroll1),
+        )
+        assert saved.status_code == 200, saved.text
+
+    try:
+        await put_gross(w.contract_id, "1000.00")
+        await put_gross(duplicate_id, "5000.00")
+        payload = await _compute(client, w)
+        kept_line = _line(payload, contract_id=w.contract_id)["id"]
+        duplicate_line = _line(payload, contract_id=duplicate_id)["id"]
+        await put_gross(w.contract_id, "0")
+
+        catalog = [
+            {"table_name": "payroll_gross_inputs", "column_name": "contract_id"},
+            {"table_name": "payroll_list_lines", "column_name": "contract_id"},
+        ]
+        async with AsyncSessionLocal() as db:
+            out = await _resolve_child_duplicates(
+                db, catalog, [duplicate_id], w.contract_id
+            )
+            await db.commit()
+        assert out["payroll_gross_inputs_duplicates_removed"] == 1
+        assert out["payroll_list_lines_detached"] == 1
+        async with AsyncSessionLocal() as db:
+            inputs = (
+                await db.scalars(
+                    select(PayrollGrossInput).where(
+                        PayrollGrossInput.contract_id.in_([w.contract_id, duplicate_id])
+                    )
+                )
+            ).all()
+            lines = {
+                line.id: line
+                for line in await db.scalars(
+                    select(PayrollListLine).where(
+                        PayrollListLine.id.in_([kept_line, duplicate_line])
+                    )
+                )
+            }
+        assert [(row.contract_id, row.gross) for row in inputs] == [
+            (duplicate_id, Decimal("5000.00"))
+        ]
+        assert lines[kept_line].contract_id == w.contract_id
+        assert lines[duplicate_line].contract_id is None
+        assert lines[duplicate_line].gross == Decimal("5000.00")
+        assert lines[duplicate_line].candidate_ref == lines[kept_line].candidate_ref
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(PayrollGrossInput).where(
+                    PayrollGrossInput.contract_id == duplicate_id
+                )
+            )
+            list_ids = list(
+                await db.scalars(
+                    select(PayrollList.id).where(PayrollList.year == w.year)
+                )
+            )
+            await db.execute(
+                delete(PayrollListLine).where(
+                    PayrollListLine.list_id.in_(list_ids or [0])
+                )
+            )
+            await db.execute(delete(Contract).where(Contract.id == duplicate_id))
             await db.commit()
 
 

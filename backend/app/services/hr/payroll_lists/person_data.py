@@ -863,6 +863,9 @@ async def update(
         },
     )
     await db.flush()
+    # ``updated_at`` liczy baza (``onupdate``) — po UPDATE atrybut wygasa, a leniwy
+    # odczyt w sesji async kończy się MissingGreenlet (500 przy drugim zapisie).
+    await db.refresh(record, attribute_names=["updated_at"])
     return payload(subject, name, record, data, editable=True, today=today)
 
 

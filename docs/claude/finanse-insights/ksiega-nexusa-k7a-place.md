@@ -108,6 +108,12 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
   (`candidate_subject_reference`, jak umowy) — dokumentacja płacowa zostaje.
   Osoba ma wtedy klucz `r<pseudonim>`, a KEDU, PIT i przelewy szukają jej danych
   po kluczu (`person_data.records_by_keys`); poprawić ich już się nie da.
+- **Scalenie duplikatu kontraktu** (`contract_merge`, `_KNOWN_CONTRACT_FKS`):
+  pozycje list i kwoty Rozliczeń idą za kontraktem zachowanym. Dwie pozycje
+  duplikatów na jednej liście — pozycja przegranego zostaje na liście bez
+  kontraktu (z zatwierdzonej listy nic nie znika); dwie kwoty jednego miesiąca —
+  kwota wygrywa z „pominięte” (0 zł), remis → zachowany. Nowa tabela z kluczem
+  do `contracts` bez wpisu w rejestrze wywraca scalanie (14.11.2026: CI).
 - **PESEL na zewnątrz tylko jako maska** (kropki i 4 cyfry), bez daty urodzenia,
   gdy wynika z PESEL-u (data i 4 cyfry odsłoniłyby 10 z 11 cyfr). Ten sam PESEL
   u dwóch osób = 409 (skrót HMAC, bez odszyfrowania). Ślad zapisuje nazwy pól.
