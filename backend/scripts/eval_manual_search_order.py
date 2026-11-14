@@ -72,9 +72,9 @@ def _exact_order(client, vector, ids: list[int]) -> list[int]:
 
     from app.services import embedding_service as emb
 
-    hits = client.search(
+    hits = client.query_points(
         collection_name=emb._collection(),
-        query_vector=vector,
+        query=vector,
         query_filter=Filter(must=[HasIdCondition(has_id=ids)]),
         search_params=SearchParams(
             exact=True, quantization=QuantizationSearchParams(ignore=True)
@@ -82,7 +82,7 @@ def _exact_order(client, vector, ids: list[int]) -> list[int]:
         limit=len(ids),
         with_payload=False,
         with_vectors=False,
-    )
+    ).points
     ordered = [int(h.id) for h in hits]
     seen = set(ordered)
     return ordered + [i for i in ids if i not in seen]
@@ -91,13 +91,13 @@ def _exact_order(client, vector, ids: list[int]) -> list[int]:
 def _ann_order(client, vector, base_newest: list[int]) -> list[int]:
     from app.services import embedding_service as emb
 
-    hits = client.search(
+    hits = client.query_points(
         collection_name=emb._collection(),
-        query_vector=vector,
+        query=vector,
         limit=ANN_TOP,
         with_payload=False,
         with_vectors=False,
-    )
+    ).points
     allowed = set(base_newest)
     top = [int(h.id) for h in hits if int(h.id) in allowed]
     seen = set(top)

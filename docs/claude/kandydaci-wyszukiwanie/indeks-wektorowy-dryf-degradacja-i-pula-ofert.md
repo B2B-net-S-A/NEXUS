@@ -62,3 +62,10 @@
   twardym `must`**: punkty sprzed tej zmiany nie mają `status`, więc `must`
   odciąłby całą dzisiejszą kolekcję i zamienił ~9 rekomendacji w ZERO. Filtr
   staje się w pełni skuteczny w miarę przeindeksowywania ofert.
+- **Qdranta wołamy wyłącznie przez `query_points()` (14.11.2026).** Wynik jest
+  w `.points`, wektor idzie w `query=`. `search()` zniknął w `qdrant-client`
+  1.18, a wyjątek na ścieżce wyszukiwania jest połykany do pustej listy, więc
+  stare API dawało „brak wyników” przy zielonym health (28.07.2026). Strażnik:
+  `tests/test_qdrant_query_points_only.py`; sonda `checks.qdrant` woła tę samą
+  metodę. Wersja klienta = wersja serwera z `docker-compose.yml` (±1 minor),
+  podbicie obu w jednym PR-ze.

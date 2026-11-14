@@ -2906,17 +2906,17 @@ def _probe_qdrant() -> str:
     # healthcheck zrobi się czerwony w minutę, a nie po dwóch godzinach zgłoszeń
     # „wyszukiwarka nic nie znajduje".
     #
-    # Uwaga przy migracji na `query_points()`: to wywołanie MUSI zostać
-    # zmienione razem z ośmioma w `app/services/` (lista w requirements.txt,
-    # w tym pomiar pełnego przeglądu `full_search_measurement._exact_search`) —
-    # inaczej sonda przestanie sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
+    # Od 14.11.2026 aplikacja woła wyłącznie `query_points()` (wynik w
+    # `.points`) i sonda robi to samo. Gdy kod przejdzie na inną metodę, sonda
+    # musi przejść razem z nim — inaczej przestanie sprawdzać ścieżkę, którą
+    # faktycznie chodzi aplikacja.
     try:
-        client.search(
+        client.query_points(
             collection_name=collection,
-            query_vector=[0.0] * _qdrant_vector_size,
+            query=[0.0] * _qdrant_vector_size,
             limit=1,
             with_payload=False,
-        )
+        ).points
     except Exception as blad:
         if _czy_przekroczony_czas(blad):
             raise _QdrantSlow from blad
