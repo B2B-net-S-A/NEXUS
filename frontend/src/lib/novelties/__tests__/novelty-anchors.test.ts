@@ -13,6 +13,7 @@ import {
   cardCandidate,
   dotNovelties,
   eventForClick,
+  onEveryClick,
   intersectRects,
   pendingCount,
   placeBeside,
@@ -251,6 +252,37 @@ describe("logika nowości", () => {
       "dot_clicked",
     );
     expect(eventForClick(dot, element("inne"))).toBeNull();
+  });
+
+  // „Zmień plik” (14.11.2026: 23 osoby widziały kropkę, 0 zaliczeń). Menu Radix
+  // otwiera się na `pointerdown` i ustawia `body { pointer-events: none }`, więc
+  // `click` przychodzi na `<html>`, a nie na przycisk.
+  it("klik w wyzwalacz menu Radix (click na <html>) zalicza kropkę przycisku", () => {
+    document.body.innerHTML =
+      '<button data-tour="person.cv.change-original"><span>Zmień plik</span></button><p>obok</p>';
+    const targets: (EventTarget | null)[] = [];
+    const stop = onEveryClick(document, (t) => targets.push(t));
+    const label = document.querySelector("span")!;
+    label.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    document.documentElement.dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    // Zwykły klik gdzie indziej nie dziedziczy poprzedniego `pointerdown`.
+    const other = document.querySelector("p")!;
+    label.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    other.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    stop();
+    const dot = novelty({
+      tier: "dot",
+      dot_anchor: "person.cv.change-original",
+      used_anchor: null,
+      steps: [],
+    });
+    expect(targets.map((t) => eventForClick(dot, t))).toEqual([
+      "dot_clicked",
+      null,
+    ]);
+    document.body.innerHTML = "";
   });
 });
 
