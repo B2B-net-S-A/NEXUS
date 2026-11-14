@@ -47,6 +47,7 @@ import type {
   ExportsOverview,
   LedgerConfig,
   LedgerExportItem,
+  PayrollListPreview,
   SourcesMonth,
 } from "@/lib/api/accounting";
 import { useAuthStore } from "@/store/auth";
@@ -666,6 +667,57 @@ describe("Księgowość — automaty (PK cykliczne i RMK)", () => {
     await screen.findByText("Najem biura");
     expect(screen.queryByRole("button", { name: "Nowy wzór" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Nowe RMK" })).not.toBeInTheDocument();
+  });
+
+  const payrollPreview: PayrollListPreview = {
+    rows: 2,
+    skipped: 1,
+    columns: [{ key: "gross", label: "Brutto", header: "Razem brutto" }],
+    totals: { gross: 1800000, employee: 512370, employer: 383640, zus: 755210, pit: 105800, ppk: 35000, deductions: 0, net: 1287630 },
+    mpk: [],
+    lines: [
+      { side: "debit", account: "404", amount: 1800000, mpk: "FO", description: "Wynagrodzenia brutto" },
+      { side: "credit", account: "231", amount: 1800000, mpk: null, description: "Wynagrodzenia brutto" },
+    ],
+    errors: [],
+    errors_total: 0,
+    warnings: [],
+    warnings_total: 0,
+    problems: [],
+    saved: false,
+    document: null,
+  };
+
+  it("Płace sprawdzają listę płac z Enovy i zapisują LP do bufora", async () => {
+    pathname = "/accounting/automations";
+    routeAutomations(withAutomations(config()));
+    post
+      .mockResolvedValueOnce({ data: payrollPreview })
+      .mockResolvedValueOnce({ data: { ...payrollPreview, saved: true, document: { id: 9, number: "LP 1/10/2026" } } });
+    const user = userEvent.setup();
+    renderWith(<AutomationsView />);
+    await screen.findByText("Lista płac z Enovy");
+    const save = screen.getByRole("button", { name: "Zapisz LP do bufora" });
+    expect(save).toBeDisabled();
+    await user.type(screen.getByLabelText("Nazwa listy"), "LP 10/2026");
+    await user.upload(screen.getByLabelText("Plik listy płac"), new File(["a;b"], "lista.csv", { type: "text/csv" }));
+    await user.click(screen.getByRole("button", { name: "Sprawdź plik" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const [url, , options] = post.mock.calls[0] as [string, FormData, { params: Record<string, unknown> }];
+    expect(url).toBe("/api/accounting/payroll-lists/import");
+    expect(options.params).toEqual({ year: 2026, month: 10, list: "LP 10/2026", save: false });
+    expect(await screen.findByText(/Osób na liście: 2/)).toBeInTheDocument();
+    expect(screen.getByText("Netto do wypłaty")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz LP do bufora" }));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Zapisano LP 1/10/2026 w buforze."));
+  });
+
+  it("bez Płac karty listy płac nie ma (D2)", async () => {
+    pathname = "/accounting/automations";
+    routeAutomations(withAutomations(config({ me: { admin: false, approver: true, payroll: false } })));
+    renderWith(<AutomationsView />);
+    await screen.findByText("Najem biura");
+    expect(screen.queryByText("Lista płac z Enovy")).not.toBeInTheDocument();
   });
 });
 

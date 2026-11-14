@@ -2,8 +2,9 @@
 
 Do przełączenia (tryb roku „symfonia” albo „równolegle”) księgą urzędową
 jest Symfonia. Dokumenty, które NEXUS robi sam, idą do niej plikiem, zamiast
-być przepisywane: domyślnie PK cykliczne, RMK, rozliczenie kosztów na „5”
-i PK z ręki. Faktury kosztowe (FVZ) mają własną paczkę E2, sprzedaż (FVS)
+być przepisywane: domyślnie PK cykliczne, RMK, rozliczenie kosztów na „5”,
+listy płac z Enovy (K3c, tylko w paczce płacowej) i PK z ręki. Faktury
+kosztowe (FVZ) mają własną paczkę E2, sprzedaż (FVS)
 trafia do Symfonii z eBI24 do czasu wystawiania w NEXUSIE (E5), a bilans
 otwarcia przychodzi z Symfonii — te rodzaje da się zaznaczyć, ale domyślnie
 są poza paczką, bo Symfonia dostałaby je dwa razy. Storno ma rodzaj
@@ -45,7 +46,7 @@ from app.models.ledger import (
 )
 from app.models.user import User
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import engine, opening, sources
+from app.services.ledger import engine, opening, payroll_lists, sources
 from app.services.ledger.documents import Viewer
 from app.services.ledger.export_file import (
     DEFAULT_FORMAT,
@@ -59,6 +60,7 @@ _NUMBER_LOCK = 702_0001
 
 MANUAL = "manual"
 OPENING = "opening"
+PAYROLL = "payroll"
 OTHER = "other"
 #: Rodzaje dokumentów w kolejności na ekranie.
 KIND_LABELS: dict[str, str] = {
@@ -66,6 +68,7 @@ KIND_LABELS: dict[str, str] = {
     sources.RECURRING: "PK cykliczne",
     sources.PREPAYMENTS: "RMK",
     sources.ALLOCATION: "Rozliczenie kosztów na „5”",
+    PAYROLL: "Listy płac (Enova)",
     sources.COSTS: "Faktury kosztowe (FVZ)",
     sources.SALES: "Faktury sprzedaży (FVS)",
     OPENING: "Bilans otwarcia",
@@ -73,7 +76,7 @@ KIND_LABELS: dict[str, str] = {
 }
 #: Rodzaje w paczce domyślnie — reszta trafia do Symfonii inną drogą.
 DEFAULT_KINDS: frozenset[str] = frozenset(
-    {MANUAL, sources.RECURRING, sources.PREPAYMENTS, sources.ALLOCATION}
+    {MANUAL, sources.RECURRING, sources.PREPAYMENTS, sources.ALLOCATION, PAYROLL}
 )
 KIND_NOTES: dict[str, str] = {
     sources.COSTS: "Mają własną paczkę E2 (Finanse → Księgowanie).",
@@ -83,6 +86,7 @@ KIND_NOTES: dict[str, str] = {
 _SOURCE_KINDS: dict[str, str] = {
     **{source_type: kind for kind, source_type in sources.SOURCE_TYPES.items()},
     opening.SOURCE_TYPE: OPENING,
+    payroll_lists.SOURCE_TYPE: PAYROLL,
 }
 #: Typy identyfikatora kontrahenta, które idą do pliku (PESEL nie).
 _TAX_ID_TYPES = frozenset({"nip", "vat_eu"})

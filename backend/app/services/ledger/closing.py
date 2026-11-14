@@ -2,9 +2,10 @@
 
 Przed zamknięciem okresu widać, czy źródła miesiąca są w księdze (Źródła K2,
 automaty K3a), czy bufor jest pusty i czy zatwierdzone dokumenty poszły do
-Symfonii (K3b, tylko w trybie roku „symfonia” albo „równolegle”). Etapy,
-których jeszcze nie ma (bank, VAT, środki trwałe, płace), stoją na liście
-z numerem etapu — do tego czasu robi je Symfonia albo Enova.
+Symfonii (K3b, tylko w trybie roku „symfonia” albo „równolegle”) i — dla
+Płac — czy jest lista płac z Enovy (K3c; osoba bez Płac widzi tylko, kto ją
+wczytuje, bez liczby). Etapy, których jeszcze nie ma (bank, VAT, środki
+trwałe), stoją na liście z numerem etapu — do tego czasu robi je Symfonia.
 
 Terminy za miesiąc M przypadają w miesiącu M+1; sobota, niedziela i święto
 przesuwają termin na następny dzień roboczy (art. 12 § 5 Ordynacji podatkowej,
@@ -31,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
-from app.services.ledger import exports, sources
+from app.services.ledger import exports, payroll_lists, sources
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
 
@@ -80,11 +81,6 @@ LATER: tuple[tuple[str, str, str], ...] = (
         "etap K5 — do tego czasu rejestry w Symfonii",
     ),
     ("assets", "Amortyzacja", "etap K6 — do tego czasu Symfonia Środki Trwałe"),
-    (
-        "payroll",
-        "Lista płac",
-        "etap K7 — do tego czasu Enova i ręczne PK w Symfonii",
-    ),
 )
 
 
@@ -164,6 +160,39 @@ def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     }
 
 
+async def payroll_check(
+    db: AsyncSession, period_id: int, viewer: Viewer, href: str
+) -> dict[str, Any]:
+    """Lista płac z Enovy w okresie (K3c). Osoba bez Płac nie widzi liczby (D2)."""
+
+    if not viewer.payroll:
+        return {
+            "key": "payroll",
+            "label": "Lista płac",
+            "state": "later",
+            "detail": "wczytują ją Płace z pliku Enovy (Automaty)",
+            "href": None,
+        }
+    count = await db.scalar(
+        select(func.count())
+        .select_from(LedgerDocument)
+        .where(
+            LedgerDocument.period_id == period_id,
+            LedgerDocument.source_type == payroll_lists.SOURCE_TYPE,
+            LedgerDocument.reversed_by_id.is_(None),
+        )
+    )
+    return {
+        "key": "payroll",
+        "label": "Lista płac z Enovy",
+        "state": "ok" if count else "todo",
+        "detail": f"w księdze: {count}"
+        if count
+        else "wczytaj listę z Enovy w „Automatach”",
+        "href": None if count else href,
+    }
+
+
 async def _drafts(db: AsyncSession, period_id: int, viewer: Viewer) -> int:
     conditions = [
         LedgerDocument.period_id == period_id,
@@ -212,6 +241,11 @@ async def checklist(
                 "detail": f"w buforze: {drafts}" if drafts else "pusty",
                 "href": f"/accounting/documents{query}&status=draft",
             }
+        )
+        items.append(
+            await payroll_check(
+                db, period.id, viewer, f"/accounting/automations{query}"
+            )
         )
     status = await exports.month_status(db, year, month, viewer=viewer)
     if status is not None:

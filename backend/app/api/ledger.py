@@ -12,6 +12,9 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   ``PUT /config/modules``, ``PUT /config/accountants``, ``PUT /config/sales``
   i ``PUT /config/allocation`` (admin; konta sprzedaży i rozliczenia kosztów, K2),
   ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
+* ``POST /payroll-lists/import?year=&month=&list=&payment_date=&save=`` (K3c,
+  moduł „automations”) — lista płac z pliku Enovy: podgląd albo LP do bufora;
+  tylko Płace i admin (D2), ``PUT /config/payroll`` (admin, konta listy płac),
 * ``GET /automations``, ``POST/PATCH/DELETE /automations/recurring[/{id}]`` i
   ``/automations/prepayments[/{id}]`` (K3a, moduł „automations”) — wzory PK
   cyklicznych i RMK; zapis lista „Księgowi” albo admin,
@@ -72,6 +75,7 @@ from app.services.ledger import (
     engine,
     exports,
     opening,
+    payroll_lists,
     reports,
     sources,
     years,
@@ -148,6 +152,16 @@ class SalesAccountsBody(BaseModel):
     receivable_account: str = Field(max_length=ACCOUNT_MAX + 8)
     revenue_account: str = Field(max_length=ACCOUNT_MAX + 8)
     vat_account: str = Field(max_length=ACCOUNT_MAX + 8)
+
+
+class PayrollAccountsBody(BaseModel):
+    wages_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    insurance_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    settlement_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    zus_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    pit_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    ppk_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    deductions_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
 
 
 class ExportBody(BaseModel):
@@ -322,6 +336,7 @@ def _config_payload(
         "accountants": list(current.accountants) if viewer.admin else None,
         "sales_accounts": ledger_settings.to_json(current)["sales"],
         "allocation_accounts": ledger_settings.to_json(current)["allocation"],
+        "payroll_accounts": ledger_settings.to_json(current)["payroll"],
         "years": year_list,
         "today": today.isoformat(),
         "doc_types": [
@@ -633,6 +648,71 @@ async def remove_prepayment(
     return await _write_automation(
         db, lambda: automations.remove(db, "prepayments", item_id, viewer=viewer)
     )
+
+
+# ── Lista płac z Enovy (K3c) ─────────────────────────────────────────────────
+
+
+@router.put("/config/payroll")
+async def set_payroll_accounts(
+    body: PayrollAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_payroll_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.post("/payroll-lists/import")
+async def import_payroll_list(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    list_name: str = Query(
+        alias="list", min_length=1, max_length=payroll_lists.LIST_NAME_MAX
+    ),
+    payment_date: Optional[date] = Query(default=None),
+    save: bool = Query(default=False),
+    file: UploadFile = File(..., description="Lista płac z Enovy (XLSX albo CSV)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    if not viewer.payroll:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Listę płac wczytują Płace albo administrator.",
+        )
+    current = await ledger_settings.load(db)
+    content = await file.read(payroll_lists.MAX_BYTES + 1)
+    try:
+        result = await payroll_lists.import_list(
+            db,
+            content,
+            year=year,
+            month=month,
+            list_name=list_name,
+            payment_date=payment_date,
+            accounts=current.payroll,
+            viewer=viewer,
+            save=save,
+        )
+    except ImportFileError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    if save:
+        await db.commit()
+    return result
 
 
 # ── Lista zamknięcia miesiąca (K3d) ──────────────────────────────────────────
