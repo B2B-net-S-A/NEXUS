@@ -251,6 +251,15 @@ def test_foreign_cost_needs_rate_from_decree():
     assert (spec.lines[2].currency, spec.lines[2].amount_cur) == ("EUR", 123_000)
 
 
+def test_unreadable_rate_in_manual_decree_is_a_problem_not_an_error():
+    for rate, day in (("abc", "2026-11-27"), ("4.25", "27.11.2026"), ("-1", "2026-11-27")):
+        problem = _cost_spec(
+            _entry(decree=_decree(currency="EUR", fx_rate=rate, fx_date=day)),
+            currency="EUR",
+        )
+        assert isinstance(problem, str) and "nieczytelny" in problem
+
+
 def test_cost_without_decree_is_a_problem():
     assert isinstance(_cost_spec(_entry(decree={"positions": []})), str)
 

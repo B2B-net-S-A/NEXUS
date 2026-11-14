@@ -175,8 +175,14 @@ def cost_spec(
                 f"Dekret faktury w {doc_currency} nie ma kursu NBP — przelicz dekret "
                 "w Kosztach."
             )
-        fx_rate = Decimal(str(decree["fx_rate"]))
-        fx_date = date.fromisoformat(str(decree["fx_date"]))
+        try:
+            fx_rate = Decimal(str(decree["fx_rate"]))
+            fx_date = date.fromisoformat(str(decree["fx_date"]))
+        except (ArithmeticError, ValueError):
+            # Dekret ręczny z nieczytelnym kursem — problem faktury, nie błąd 500.
+            return "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
+        if not fx_rate.is_finite() or fx_rate <= 0:
+            return "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
     lines: list[LineIn] = []
     for item in positions:
         is_counterparty = item.get("kind") == "counterparty"
