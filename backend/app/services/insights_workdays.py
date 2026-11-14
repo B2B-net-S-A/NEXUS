@@ -345,18 +345,30 @@ async def race_workdays_to_date(
     ).all()
     by_user = {int(uid): (float(work), float(absent)) for uid, work, absent in rows}
     month_closed = today > month_end
+    # Dzień onboardingu nowej osoby nie jest dniem pracy przy żadnym źródle.
+    from app.services.onboarding_day import onboarding_days
+    from app.services.person_workdays import business_days
+
+    last = min(today, month_end)
+    onboarding = (
+        await onboarding_days(db, user_ids, month_start, last)
+        if last >= month_start
+        else {}
+    )
+    business = set(business_days(month_start, last)) if onboarding else set()
     out: dict[int, tuple[float, str]] = {}
     for uid in user_ids:
+        off = 1.0 if onboarding.get(int(uid)) in business else 0.0
         compass = by_user.get(int(uid))
         if compass is not None:
             working, absent = compass
             if month_closed:
-                out[uid] = (working, "compass")
+                out[uid] = (max(0.0, working - off), "compass")
                 continue
             if absent <= 0:
-                out[uid] = (float(calendar_elapsed), "compass")
+                out[uid] = (max(0.0, calendar_elapsed - off), "compass")
                 continue
-        out[uid] = (float(calendar_elapsed), "calendar")
+        out[uid] = (max(0.0, calendar_elapsed - off), "calendar")
     return out
 
 
