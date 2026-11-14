@@ -129,6 +129,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   automations: "Automaty",
   // 14.11.2026: /accounting/symfonia — paczki dokumentów do Symfonii FK (K3b).
   symfonia: "Do Symfonii",
+  // 14.11.2026: /accounting/assets — środki trwałe i WNiP (K6).
+  assets: "Środki trwałe",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

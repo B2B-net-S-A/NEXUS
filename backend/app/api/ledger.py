@@ -28,7 +28,8 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   „Księgowi” albo admin, paczkę płacową tylko Płace i admin (D2),
 * ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
   E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze, PK
-  rozliczenia kosztów na „5” z MPK,
+  rozliczenia kosztów na „5” z MPK; przy otwartym module ``assets`` także
+  dokumenty środków trwałych i AM miesiąca (K6, trasy w ``ledger_assets.py``),
 * ``POST /years``, ``PATCH /years/{id}`` (tryb), ``POST /periods/{id}/close``,
   ``POST /periods/{id}/reopen``,
 * ``GET/POST /documents``, ``GET/PATCH/DELETE /documents/{id}``,
@@ -204,7 +205,15 @@ class PrepaymentBody(BaseModel):
 
 
 class SourcesSyncBody(BaseModel):
-    kind: Literal["costs", "sales", "allocation", "recurring", "prepayments"]
+    kind: Literal[
+        "costs",
+        "sales",
+        "allocation",
+        "recurring",
+        "prepayments",
+        "asset_docs",
+        "assets",
+    ]
     year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
     month: int = Field(ge=1, le=12)
 

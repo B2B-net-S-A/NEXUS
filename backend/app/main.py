@@ -254,6 +254,7 @@ from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_payments as finance_payments_api
 from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
+from app.api import ledger_assets as ledger_assets_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2303,6 +2304,13 @@ app.include_router(
     tags=["accounting"],
     dependencies=_HR_PROGRAM,
 )
+# Środki trwałe i WNiP (K6, 0703): ewidencja, plan amortyzacji, OT/LT, AM.
+app.include_router(
+    ledger_assets_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
@@ -3946,6 +3954,7 @@ async def api_health_deep_check(request: Request):
         FinancePostingBatch,
         FinancePostingRule,
     )
+    from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -4331,6 +4340,8 @@ async def api_health_deep_check(request: Request):
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
         ("finance_posting_batches", FinancePostingBatch),
+        ("ledger_assets", LedgerAsset),
+        ("ledger_asset_operations", LedgerAssetOperation),
     ]
 
     checks: dict[str, str] = {}

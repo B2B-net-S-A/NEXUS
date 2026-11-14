@@ -30,6 +30,10 @@ więc dokumenty z faktur muszą dać się porównać z Symfonią miesiąc do mie
 * **Rozliczenie kosztów na „5”** (``allocation.py``) to trzecie źródło miesiąca:
   PK z MPK z zatwierdzonych FVZ, przez tę samą maszynę (odcisk, przebudowa,
   problem do storna).
+* **Środki trwałe** (K6, ``assets.py``, przy otwartym module ``assets``):
+  dokumenty środka (OT, ulepszenie, LT, sprzedaż) i AM miesiąca — ta sama
+  maszyna. Odcisk AM obejmuje też rozbicie odpisów na środki
+  (``meta.detail_hash``), bo z niego ewidencja wie, co zatwierdzono.
 """
 
 from __future__ import annotations
@@ -58,7 +62,7 @@ from app.models.ledger import (
 )
 from app.services.finance_ledger import costs, identifiers, posting
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import allocation, automations, documents, engine
+from app.services.ledger import allocation, assets, automations, documents, engine
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger.settings import SALES_ACCOUNT_FIELDS, LedgerSettings
@@ -69,14 +73,20 @@ SALES = "sales"
 ALLOCATION = "allocation"
 RECURRING = "recurring"
 PREPAYMENTS = "prepayments"
+ASSET_DOCS = "asset_docs"
+ASSETS = "assets"
 #: Źródła modułu „Podatki, polisy i PK cykliczne” (K3) — widoczne przy otwartym module.
 AUTOMATION_KINDS = (RECURRING, PREPAYMENTS)
+#: Źródła modułu „Środki trwałe” (K6): najpierw dokumenty środka, potem AM.
+ASSET_KINDS = (ASSET_DOCS, ASSETS)
 KIND_LABELS: dict[str, str] = {
     COSTS: "Faktury kosztowe (Koszty, dekret E2)",
     SALES: "Faktury sprzedaży (KSeF)",
     ALLOCATION: "Rozliczenie kosztów na „5” (MPK)",
     RECURRING: "PK cykliczne",
     PREPAYMENTS: "RMK — rozliczenia międzyokresowe kosztów",
+    ASSET_DOCS: "Środki trwałe — OT, ulepszenie, LT, sprzedaż",
+    ASSETS: "Amortyzacja środków trwałych (AM)",
 }
 SOURCE_TYPES: dict[str, str] = {
     COSTS: "finance_cost_entry",
@@ -84,6 +94,8 @@ SOURCE_TYPES: dict[str, str] = {
     ALLOCATION: allocation.SOURCE_TYPE,
     RECURRING: automations.RECURRING_SOURCE,
     PREPAYMENTS: automations.PREPAYMENT_SOURCE,
+    ASSET_DOCS: assets.SOURCE_OPERATION,
+    ASSETS: assets.SOURCE_MONTH,
 }
 #: Etapy kolejki kosztów, z których faktura idzie do księgi.
 COST_STAGES = ("ready", "booked")
@@ -155,6 +167,11 @@ def fingerprint(spec: DocumentSpec) -> str:
             for line in spec.lines
         ],
     }
+    # Rozbicie AM na środki (K6) — tylko gdy jest, więc odciski dokumentów
+    # innych źródeł zostają takie same jak przed K6.
+    detail = (spec.meta or {}).get("detail_hash")
+    if detail:
+        payload["detail"] = detail
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 
@@ -695,6 +712,33 @@ def automations_open(settings: LedgerSettings, viewer: Viewer) -> bool:
     return settings.modules.get("automations", False) or viewer.admin
 
 
+# ── Środki trwałe (K6) ──────────────────────────────────────────────────────
+
+
+async def _asset_candidates(
+    db: AsyncSession, kind: str, month: date, settings: LedgerSettings
+) -> list[Candidate]:
+    docs = (
+        await assets.depreciation_docs(db, month, settings)
+        if kind == ASSETS
+        else await assets.operation_docs(db, month, settings)
+    )
+    return [
+        Candidate(
+            source_id=doc.source_id,
+            label=doc.label,
+            spec=doc.spec,
+            problems=list(doc.problems),
+            skipped=doc.skipped,
+        )
+        for doc in docs
+    ]
+
+
+def assets_open(settings: LedgerSettings, viewer: Viewer) -> bool:
+    return settings.modules.get("assets", False) or viewer.admin
+
+
 # ── Miesiąc: podgląd i księgowanie ──────────────────────────────────────────
 
 
@@ -716,6 +760,8 @@ async def _candidates(
         )
     elif kind in AUTOMATION_KINDS and automations_open(settings, viewer):
         candidates = await _automation_candidates(db, kind, month)
+    elif kind in ASSET_KINDS and assets_open(settings, viewer):
+        candidates = await _asset_candidates(db, kind, month, settings)
     else:
         raise LedgerError("Nie ma takiego źródła.", status=404)
     # Ta sama kontrola co przy zapisie (konta z planu, analityka słownika,
@@ -795,8 +841,10 @@ async def month_summary(
     start = _month_start(year, month)
     year_row, period = await _period(db, start)
     items = []
-    kinds = (COSTS, SALES, ALLOCATION) + (
-        AUTOMATION_KINDS if automations_open(settings, viewer) else ()
+    kinds = (
+        (COSTS, SALES, ALLOCATION)
+        + (AUTOMATION_KINDS if automations_open(settings, viewer) else ())
+        + (ASSET_KINDS if assets_open(settings, viewer) else ())
     )
     for kind in kinds:
         candidates = await _candidates(
