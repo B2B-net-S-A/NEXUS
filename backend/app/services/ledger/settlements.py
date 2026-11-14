@@ -8,9 +8,10 @@ czerwone w PK) idzie na stronę przeciwną. Rozliczenie (``ledger_settlements``)
 pozycji − jej rozliczenia.
 
 * **Żywe dokumenty**: zatwierdzone, bez storna i niebędące stornem. Storno
-  zeruje dokument razem z nim, więc oba wypadają z rozrachunków, a ich
-  rozliczenia przestają się liczyć — wpłata wraca do rozliczenia z nową
-  fakturą.
+  zeruje dokument razem z nim, więc od daty storna oba wypadają
+  z rozrachunków, a ich rozliczenia przestają się liczyć — wpłata wraca do
+  rozliczenia z nową fakturą. Na dzień sprzed storna dokument i jego
+  rozliczenia zostają (jak w obrotach i saldach).
 * **Bilans otwarcia** daje pozycje tylko w pierwszym roku księgi NEXUSA (BO
   z Symfonii). BO kolejnego roku powstaje z sald poprzedniego, którego pozycje
   przechodzą same — inaczej faktura z grudnia byłaby otwarta dwa razy.
@@ -194,10 +195,25 @@ async def _bo_years(db: AsyncSession) -> list[int]:
     return [year_id for year_id, year in rows if year - 1 not in known]
 
 
-def _live(doc: Any, bo_years: list[int]) -> list[Any]:
+def _live(doc: Any, bo_years: list[int], as_of: Optional[date]) -> list[Any]:
+    """Dokument żywy na dzień: zatwierdzony, nie storno, a jego storno (jeśli jest)
+    ma datę po ``as_of``. Storno z 05.05 nie zmienia rozrachunków na 30.04 — tak
+    jak w obrotach i saldach, gdzie liczy się w swoim okresie (przegląd K4b
+    14.11.2026). Bez daty = stan dziś: odwrócony dokument wypada."""
+
+    if as_of is None:
+        not_reversed = doc.reversed_by_id.is_(None)
+    else:
+        storno = aliased(LedgerDocument)
+        not_reversed = or_(
+            doc.reversed_by_id.is_(None),
+            select(storno.id)
+            .where(storno.id == doc.reversed_by_id, storno.op_date > as_of)
+            .exists(),
+        )
     return [
         doc.status == "approved",
-        doc.reversed_by_id.is_(None),
+        not_reversed,
         doc.reverses_id.is_(None),
         or_(doc.doc_type != "BO", doc.year_id.in_(bo_years or [0])),
     ]
@@ -223,7 +239,10 @@ def _used(as_of: Optional[date], bo_years: list[int]) -> Any:
             select(own.label("line_id"), LedgerSettlement.amount.label("amount"))
             .join(other, other.id == theirs)
             .join(other_doc, other_doc.id == other.document_id)
-            .where(LedgerSettlement.removed_at.is_(None), *_live(other_doc, bo_years))
+            .where(
+                LedgerSettlement.removed_at.is_(None),
+                *_live(other_doc, bo_years, as_of),
+            )
         )
         if as_of is not None:
             query = query.where(LedgerSettlement.settled_on <= as_of)
@@ -297,7 +316,7 @@ async def load_items(
                 LedgerDocument.source_id == cast(FinanceCostEntry.id, String),
             ),
         )
-        .where(*_live(LedgerDocument, bo_years), _accounts_clause(parents))
+        .where(*_live(LedgerDocument, bo_years, as_of), _accounts_clause(parents))
         .order_by(
             LedgerLine.account,
             LedgerDocument.op_date,

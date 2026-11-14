@@ -20,7 +20,7 @@ z Płacami.
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, Field
@@ -41,11 +41,14 @@ router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 Side = Literal["all", "receivable", "payable"]
 ACCOUNT_PATTERN = r"^[0-9A-Za-z][0-9A-Za-z-]*$"
+#: Identyfikatory ponad BIGINT → 422 (inaczej błąd bazy i 500; przegląd K4b).
+ID_MAX = 2**63 - 1
+LineId = Annotated[int, Field(ge=1, le=ID_MAX)]
 
 
 class SettleBody(BaseModel):
-    debit_ids: list[int] = Field(min_length=1, max_length=settlements.SELECT_MAX)
-    credit_ids: list[int] = Field(min_length=1, max_length=settlements.SELECT_MAX)
+    debit_ids: list[LineId] = Field(min_length=1, max_length=settlements.SELECT_MAX)
+    credit_ids: list[LineId] = Field(min_length=1, max_length=settlements.SELECT_MAX)
     #: Kwota w złotych — tylko przy jednej pozycji Wn i jednej Ma.
     amount: Optional[Decimal] = Field(
         default=None, gt=0, max_digits=15, decimal_places=2
@@ -152,7 +155,7 @@ async def settle_automatically(
 @router.delete("/settlements/{settlement_id}", status_code=204)
 async def remove_settlement(
     current_user: FinanceModuleUser,
-    settlement_id: int = Path(ge=1),
+    settlement_id: int = Path(ge=1, le=ID_MAX),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     viewer = await _context(db, current_user)

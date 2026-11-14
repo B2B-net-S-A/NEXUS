@@ -40,9 +40,16 @@ była „otwarta”). Wyciągi: `ksiega-nexusa-k4-bank.md`, fundament:
 ## Zasady, których łatwo nie zauważyć
 
 - **Żywe dokumenty**: zatwierdzone, bez storna i niebędące stornem. Storno
-  zeruje dokument razem z nim, więc oba wypadają, a ich rozliczenia przestają
-  się liczyć (także po drugiej stronie) — wpłata wraca do rozliczenia z nową
-  fakturą. Nie kasuj rozliczeń przy stornie: odczyt je pomija, ślad zostaje.
+  zeruje dokument razem z nim, więc od daty storna oba wypadają, a ich
+  rozliczenia przestają się liczyć (także po drugiej stronie) — wpłata wraca
+  do rozliczenia z nową fakturą. Na dzień sprzed storna dokument i jego
+  rozliczenia zostają, jak w obrotach i saldach (storno z 05.05 nie zmienia
+  rozrachunków na 30.04 — przegląd 14.11.2026). Nie kasuj rozliczeń przy
+  stornie: odczyt je pomija, ślad zostaje.
+- **Sonda deep health**: `ledger_settlements` jest w `core_checks`
+  (`app/main.py`) i w `LEDGER_TABLES` strażnika
+  `tests/test_health_deep_hot_tables.py` — nowa tabela księgi bez sondy
+  zatrzymuje PR w kolejce.
 - **Bilans otwarcia** daje pozycje tylko w pierwszym roku księgi NEXUSA (BO
   z Symfonii). BO kolejnego roku powstaje z sald poprzedniego, którego pozycje
   przechodzą same — inaczej faktura z grudnia byłaby otwarta dwa razy.
@@ -68,5 +75,7 @@ była „otwarta”). Wyciągi: `ksiega-nexusa-k4-bank.md`, fundament:
 `tests/test_ledger_settlement_rules.py` (konta kontrahentów, wiekowanie, FIFO,
 pozycja listy zamknięcia, `meta.bank_lines` w WB), sekcja K4b
 w `tests/test_ledger_sources_db.py` (automat: wyciąg, korekta, saldo zerowe; na
-dzień; cofnięcie, kwota częściowa, odmowy; storno WB; D2 i nazwa konta; moduł
-wyłączony), front: `SettlementsView.test.tsx`, `settlements-model.test.ts`.
+dzień, także przed późniejszym stornem; cofnięcie, kwota częściowa, odmowy;
+identyfikator ponad BIGINT = 422; storno WB; D2 i nazwa konta; moduł
+wyłączony), `tests/test_health_deep_hot_tables.py` (sonda tabeli), front:
+`SettlementsView.test.tsx`, `settlements-model.test.ts`.

@@ -3981,6 +3981,7 @@ async def api_health_deep_check(request: Request):
         LedgerPeriod,
         LedgerPrepayment,
         LedgerRecurring,
+        LedgerSettlement,
         LedgerYear,
     )
     from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
@@ -4394,6 +4395,8 @@ async def api_health_deep_check(request: Request):
         # 0705: wyciągi bankowe w księdze (K4a).
         ("ledger_bank_statements", LedgerBankStatement),
         ("ledger_bank_lines", LedgerBankLine),
+        # 0706: rozrachunki z rozliczaniem pozycji (K4b).
+        ("ledger_settlements", LedgerSettlement),
         # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
         ("payroll_person_data", PayrollPersonData),
         ("payroll_parameter_versions", PayrollParameterVersion),

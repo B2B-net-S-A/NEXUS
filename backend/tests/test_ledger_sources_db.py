@@ -2382,6 +2382,43 @@ async def test_settlements_pair_bank_correction_and_zero_balance(client, world, 
     assert _open(card) == [("FVS", "debit", 110_700), ("FVS", "debit", 215_000)]
 
 
+async def test_settlements_as_of_before_a_later_storno_keep_the_old_state(
+    client, world, books
+):
+    """Storno z 05.05 nie zmienia rozrachunków na 30.04 (przegląd K4b 14.11.2026)."""
+
+    march = await _settled_march(client, world, books)
+    receivable, year = march["receivable"], books["year"]
+    headers = _headers(world["accountant"])
+    auto = await client.post(
+        f"{ACC}/settlements/auto", params={"account": receivable}, headers=headers
+    )
+    assert auto.json()["created"] == 3, auto.text
+    await _reverse(client, world, march["docs"]["plain"].id, date(year, 5, 5))
+    before = await _account_card(client, world, receivable, as_of=f"{year}-04-30")
+    assert before["open"] == [] and before["balance"] == 0
+    assert before["settled_total"] == 5
+    after = await _account_card(client, world, receivable, as_of=f"{year}-05-31")
+    assert _open(after) == [("FVS", "credit", 12_300), ("WB", "credit", 110_700)]
+    assert after["balance"] == -123_000
+
+
+async def test_settlements_refuse_ids_beyond_the_database_range(client, world, books):
+    """Identyfikator ponad bigint to 422, nie błąd bazy (przegląd K4b 14.11.2026)."""
+
+    await _set_ledger(_bank_settings(world, books))
+    headers = _headers(world["accountant"])
+    huge = 10**20
+    removed = await client.delete(f"{ACC}/settlements/{huge}", headers=headers)
+    assert removed.status_code == 422
+    posted = await client.post(
+        f"{ACC}/settlements",
+        json={"debit_ids": [huge], "credit_ids": [1]},
+        headers=headers,
+    )
+    assert posted.status_code == 422
+
+
 async def test_settlements_keep_payroll_documents_to_payroll(client, world, books):
     year, acc = books["year"], books["acc"]
     settings = _bank_settings(world, books)
