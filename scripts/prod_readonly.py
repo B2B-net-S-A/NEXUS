@@ -5,6 +5,7 @@
     prod_readonly.py sql [--csv] < zapytanie.sql   # to samo ze stdin
     prod_readonly.py env NAZWA [NAZWA…]            # zmienne procesu 1 backendu z białej listy
     prod_readonly.py backup-log [N]                # ostatnie N linii logu backupu (domyślnie 100)
+    prod_readonly.py logs --since CZAS [--until CZAS]  # linie runtime_metrics i http_outcome backendu web
     prod_readonly.py health                        # publiczne /api/health
 
 Reguła zgody Claude Code obejmuje tylko ten plik, więc to, co tu jest, wyznacza,
@@ -13,6 +14,12 @@ co rutyna może zrobić na produkcji. Reguła: docs/claude/podstawy/rutyny-nocne
 Host i klucz SSH nie leżą w repo (jest publiczne): czyta je plik
 ``~/.claude/nexus-rutyny/prod-readonly.conf`` (``host=…``, ``key=…``)
 albo ścieżka z ``NEXUS_PROD_READONLY_CONF``.
+
+``logs`` czyta ``docker logs`` kontenera web i przepuszcza wyłącznie linie JSON
+z ``event_kind`` równym ``runtime_metrics`` albo ``http_outcome`` (filtr ``grep``
+na serwerze, drugi po stronie laptopa). CZAS to ``10m``/``2h``/``90s`` (najwyżej 24 h)
+albo znacznik ``2026-11-16T08:00:00+01:00`` ze strefą (``Z`` albo ``±HH:MM``).
+Logi dnia giną przy wdrożeniu, które podmienia kontener (18:00).
 
 Python 3.9 (systemowy na laptopie), bez zależności spoza biblioteki standardowej.
 """
@@ -23,7 +30,9 @@ import os
 import re
 import subprocess
 import sys
+import json
 import urllib.request
+from datetime import datetime
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -48,7 +57,7 @@ _FIND_WEB_CONTAINER = (
     "c=$(docker ps -q | xargs -r docker inspect --format "
     "'{{.Name}}{{range .Config.Env}}"
     '{{if eq . "NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"}} web{{end}}{{end}}\' '
-    "| awk '$2 == \"web\" { sub(\"^/\", \"\", $1); print $1; exit }'); "
+    '| awk \'$2 == "web" { sub("^/", "", $1); print $1; exit }\'); '
     "[ -n \"$c\" ] || { echo 'Brak kontenera backendu (NEXUS_PROCESS_ROLE=web).' >&2; exit 3; }; "
 )
 
@@ -267,6 +276,98 @@ def backup_log_remote_command(lines: int) -> str:
     return f"tail -n {int(lines)} {BACKUP_LOG}"
 
 
+# --- logs --------------------------------------------------------------------
+
+LOG_EVENT_KINDS = ("runtime_metrics", "http_outcome")
+LOGS_MAX_RELATIVE_SECONDS = 24 * 3600
+LOGS_TIMEOUT_SECONDS = 900
+_RELATIVE_TIME = re.compile(r"^([1-9][0-9]{0,4})([smh])$")
+_ABSOLUTE_TIME = re.compile(
+    r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+)
+_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600}
+
+
+def validate_log_time(value: str) -> datetime | None:
+    """Czas dla ``docker logs --since/--until``; zwraca datę dla znacznika, None dla względnego.
+
+    Znacznik musi mieć strefę, bo serwer liczy w UTC, a rutyna myśli po warszawsku.
+    """
+    match = _RELATIVE_TIME.match(value)
+    if match:
+        seconds = int(match.group(1)) * _UNIT_SECONDS[match.group(2)]
+        if seconds > LOGS_MAX_RELATIVE_SECONDS:
+            raise Rejected("Czas względny najwyżej 24 h.")
+        return None
+    if _ABSOLUTE_TIME.match(value):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise Rejected(f"Niepoprawna data {value!r}.") from exc
+    raise Rejected(
+        f"Czas {value!r}: podaj 10m/2h/90s albo 2026-11-16T08:00:00+01:00 ze strefą."
+    )
+
+
+def parse_logs_args(args: Sequence[str]) -> tuple[str, str | None]:
+    """Tylko ``--since CZAS`` i opcjonalne ``--until CZAS``; nic więcej nie przechodzi."""
+    values: dict[str, str] = {}
+    rest = list(args)
+    while rest:
+        flag = rest.pop(0)
+        if flag not in ("--since", "--until") or flag in values or not rest:
+            raise Rejected(
+                "logs przyjmuje tylko --since CZAS i opcjonalnie --until CZAS."
+            )
+        values[flag] = rest.pop(0)
+    if "--since" not in values:
+        raise Rejected("logs wymaga --since CZAS.")
+    since = validate_log_time(values["--since"])
+    until_raw = values.get("--until")
+    until = validate_log_time(until_raw) if until_raw is not None else None
+    if since is not None and until is not None and until <= since:
+        raise Rejected("--until musi być później niż --since.")
+    return values["--since"], until_raw
+
+
+def logs_remote_command(since: str, until: str | None = None) -> str:
+    """Filtr działa na serwerze: z hosta wychodzą tylko linie z dozwolonym ``event_kind``.
+
+    Aplikacja pisze logi na stdout, stderr kontenera (i błędy CLI) idzie do /dev/null,
+    żeby nic spoza filtra nie wyszło kanałem błędów. Kod wyjścia ``docker logs``
+    wraca przez fd 3, bo w potoku liczy się kod ``grep`` (1 = brak linii, to nie błąd).
+    """
+    validate_log_time(since)
+    window = f"--since '{since}'"
+    if until is not None:
+        validate_log_time(until)
+        window += f" --until '{until}'"
+    kinds = "|".join(LOG_EVENT_KINDS)
+    return _FIND_WEB_CONTAINER + (
+        "{ s=$( { { docker logs "
+        + window
+        + ' "$c" 2>/dev/null; echo $? >&3; } | '
+        + f'grep -E \'"event_kind": ?"({kinds})"\' >&4; }} 3>&1 ); }} 4>&1; '
+        + '[ "$s" = 0 ] || { echo "docker logs zakończył się kodem $s." >&2; exit 5; }'
+    )
+
+
+def filter_log_output(output: str) -> tuple[str, int]:
+    """Druga bramka po stronie laptopa: zostają tylko obiekty JSON z dozwolonym ``event_kind``."""
+    kept: list[str] = []
+    dropped = 0
+    for line in output.splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            record = None
+        if isinstance(record, dict) and record.get("event_kind") in LOG_EVENT_KINDS:
+            kept.append(line)
+        else:
+            dropped += 1
+    return "\n".join(kept), dropped
+
+
 # --- połączenie --------------------------------------------------------------
 
 
@@ -285,7 +386,9 @@ def load_conf(path: Path | None = None) -> dict[str, str]:
     return conf
 
 
-def ssh(remote_command: str, stdin: str | None = None) -> subprocess.CompletedProcess:
+def ssh(
+    remote_command: str, stdin: str | None = None, timeout: int = 180
+) -> subprocess.CompletedProcess:
     conf = load_conf()
     argv = [
         "ssh",
@@ -301,7 +404,7 @@ def ssh(remote_command: str, stdin: str | None = None) -> subprocess.CompletedPr
         remote_command,
     ]
     return subprocess.run(
-        argv, check=False, input=stdin, capture_output=True, text=True, timeout=180
+        argv, check=False, input=stdin, capture_output=True, text=True, timeout=timeout
     )
 
 
@@ -341,13 +444,24 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _finish(
                 ssh(backup_log_remote_command(int(rest[0]) if rest else 100))
             )
+        if cmd == "logs":
+            since, until = parse_logs_args(rest)
+            proc = ssh(logs_remote_command(since, until), timeout=LOGS_TIMEOUT_SECONDS)
+            if proc.returncode != 0:
+                return _finish(proc, "")
+            kept, dropped = filter_log_output(proc.stdout)
+            if dropped:
+                print(f"Pominięte linie spoza filtra: {dropped}.", file=sys.stderr)
+            return _finish(proc, kept)
         if cmd == "health":
             if rest:
                 raise Rejected("health nie przyjmuje argumentów.")
             with urllib.request.urlopen(HEALTH_URL, timeout=20) as resp:
                 print(resp.read().decode())
             return 0
-        raise Rejected(f"Nieznana podkomenda {cmd!r}: sql, env, backup-log, health.")
+        raise Rejected(
+            f"Nieznana podkomenda {cmd!r}: sql, env, backup-log, logs, health."
+        )
     except Rejected as exc:
         print(f"Odrzucone: {exc}", file=sys.stderr)
         return 2

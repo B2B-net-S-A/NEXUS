@@ -228,6 +228,111 @@ def test_env_remote_failure_is_an_error_not_missing_names(
     assert "Brak dostępu." in out.err
 
 
+# --- logs: tylko runtime_metrics i http_outcome ------------------------------
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        [],
+        ["--since"],
+        ["10m"],
+        ["--since", "10m", "--grep", "x"],
+        ["--since", "10m", "--since", "1h"],
+        ["--since", "10m", "--until"],
+        ["--since", "10m", "--tail", "100"],
+        ["--since", "10m", "-f"],
+        ["--since", "25h"],
+        ["--since", "0m"],
+        ["--since", "1d"],
+        ["--since", "10m;id"],
+        ["--since", "10m' ; id; echo '"],
+        ["--since", "$(id)"],
+        ["--since", "2026-11-16T08:00:00"],  # bez strefy
+        ["--since", "2026-11-16 08:00:00+01:00"],
+        ["--since", "2026-13-40T08:00:00+01:00"],
+        [
+            "--since",
+            "2026-11-16T08:00:00+01:00",
+            "--until",
+            "2026-11-16T07:00:00+01:00",
+        ],
+        ["--since", "10m", "postgres-ocgkw"],
+    ],
+)
+def test_logs_rejects_unknown_or_unsafe_args(args, no_ssh):
+    assert pr.main(["logs", *args]) == 2
+
+
+def test_logs_filters_on_server_by_event_kind(fake_ssh):
+    calls, _ = fake_ssh
+    assert (
+        pr.main(
+            [
+                "logs",
+                "--since",
+                "2026-11-16T08:00:00+01:00",
+                "--until",
+                "2026-11-16T17:50:00+01:00",
+            ]
+        )
+        == 0
+    )
+    remote = calls[0]["argv"][-1]
+    assert (
+        "docker logs --since '2026-11-16T08:00:00+01:00' "
+        "--until '2026-11-16T17:50:00+01:00' \"$c\" 2>/dev/null" in remote
+    )
+    assert 'grep -E \'"event_kind": ?"(runtime_metrics|http_outcome)"\'' in remote
+    # Kontener po roli procesu, jak w env; bez prefiksu nazwy.
+    assert '"NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"' in remote
+    assert "backend-ocgkw" not in remote
+
+
+def test_logs_relative_since(fake_ssh):
+    calls, _ = fake_ssh
+    assert pr.main(["logs", "--since", "10m"]) == 0
+    remote = calls[0]["argv"][-1]
+    assert "docker logs --since '10m' \"$c\"" in remote
+    assert "--until" not in remote
+
+
+def test_logs_second_gate_drops_lines_outside_filter(fake_ssh, capsys):
+    _, stdout = fake_ssh
+    stdout.append(
+        '{"event_kind": "http_outcome", "route": "/api/health", "duration_ms": 3.1}\n'
+        '{"event_kind": "runtime_metrics", "cpu_pct": 41.0, "rss_mb": 812.5}\n'
+        '{"event_kind": "other", "message": "nie powinno wyjsc"}\n'
+        'tekst z "event_kind": "http_outcome" poza JSON-em\n'
+    )
+    assert pr.main(["logs", "--since", "1h"]) == 0
+    out = capsys.readouterr()
+    assert '"route": "/api/health"' in out.out
+    assert '"cpu_pct": 41.0' in out.out
+    assert "nie powinno wyjsc" not in out.out
+    assert "poza JSON-em" not in out.out
+    assert "Pominięte linie spoza filtra: 2." in out.err
+
+
+def test_logs_remote_failure_is_an_error_not_empty_day(monkeypatch, tmp_path, capsys):
+    conf = tmp_path / "conf"
+    conf.write_text("host=prod.example.test\nkey=/nonexistent/key\n")
+    monkeypatch.setenv("NEXUS_PROD_READONLY_CONF", str(conf))
+    seen = {}
+
+    def run(argv, timeout=None, **_k):
+        seen["timeout"] = timeout
+        return pr.subprocess.CompletedProcess(
+            argv, 5, stdout="", stderr="docker logs zakończył się kodem 1.\n"
+        )
+
+    monkeypatch.setattr(pr.subprocess, "run", run)
+    assert pr.main(["logs", "--since", "10m"]) == 5
+    assert "kodem 1" in capsys.readouterr().err
+    # Dzień logów to dużo więcej niż 180 s domyślnego limitu SSH.
+    assert seen["timeout"] == pr.LOGS_TIMEOUT_SECONDS
+
+
 # --- backup-log, reszta ------------------------------------------------------
 
 
