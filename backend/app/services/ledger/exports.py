@@ -268,8 +268,9 @@ async def export_lines(
                     symfonia_id=party.symfonia_partner_id if party else None,
                     currency=line.currency,
                     amount_cur=money(line.amount_cur),
-                    fx_rate=doc.fx_rate,
-                    fx_date=doc.fx_date,
+                    # Kurs pozycji (WB walutowy, K4c-1) wygrywa z kursem dokumentu.
+                    fx_rate=line.fx_rate if line.fx_rate is not None else doc.fx_rate,
+                    fx_date=line.fx_date or doc.fx_date,
                     reverses=originals.get(doc.reverses_id or 0),
                     ksef_number=(doc.meta or {}).get("ksef_number"),
                 )

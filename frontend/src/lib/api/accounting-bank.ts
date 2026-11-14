@@ -22,7 +22,11 @@ export interface CompanyBankAccount {
   /** Konto rachunku w planie kont (130-x). */
   account: string;
   name: string;
+  /** Waluta rachunku (K4c-1); wyciąg musi być w tej walucie. */
+  currency: BankCurrency;
 }
+
+export type BankCurrency = "PLN" | "EUR" | "USD";
 
 export interface BankSettings {
   accounts: CompanyBankAccount[];
@@ -31,6 +35,9 @@ export interface BankSettings {
   vat_account: string;
   pit_account: string;
   cit_account: string;
+  /** Konta różnic kursowych z rozliczeń w walucie (K4c-1); puste = para czeka. */
+  fx_gain_account: string;
+  fx_loss_account: string;
 }
 
 export type BankLineKind =
@@ -49,8 +56,13 @@ export interface BankLine {
   position: number;
   booked_on: string;
   direction: Side;
-  /** Grosze, zawsze dodatnie — kierunek mówi `direction`. */
+  /** Grosze albo centy waluty wyciągu, zawsze dodatnie — kierunek mówi `direction`. */
   amount: number;
+  currency: BankCurrency;
+  /** Równowartość w PLN (operacja walutowa: kurs NBP z dnia roboczego przed operacją). */
+  amount_pln: number;
+  fx_rate: string | null;
+  fx_date: string | null;
   title: string;
   counterparty_name: string;
   counterparty_last4: string | null;
@@ -75,6 +87,8 @@ export interface BankStatement {
   bank_account_last4: string;
   account_name: string;
   ledger_account: string;
+  /** Waluta wyciągu — sumy i kwoty operacji są w niej. */
+  currency: BankCurrency;
   first_day: string;
   last_day: string;
   debit_total: number;
@@ -94,6 +108,7 @@ export interface BankStatementRow {
   bank_account_last4: string;
   account_name: string;
   ledger_account: string;
+  currency: BankCurrency;
   first_day: string;
   last_day: string;
   operations: number;

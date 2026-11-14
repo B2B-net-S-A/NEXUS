@@ -26,10 +26,12 @@ import { cn } from "@/lib/utils";
 import { SectionCard, useAccounting } from "./AccountingShell";
 import {
   canAssign,
+  curAmount,
   lineTone,
   operationsLabel,
   postBlocker,
   postMessage,
+  rateLabel,
   readStatement,
   statementPeriod,
   visibleLines,
@@ -38,6 +40,11 @@ import { datePl, gr, monthTitle } from "./ledger-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const LINES_SHOWN = 100;
+
+/** Suma wyciągu z jednostką: „1 234,56 zł” albo „1 234,56 EUR”. */
+function money(value: number, currency: string | undefined): string {
+  return currency && currency !== "PLN" ? curAmount(value, currency) : `${gr(value)} zł`;
+}
 const ACCOUNTS_LIST = "bank-ledger-accounts";
 
 function writeStatement(id: number | null) {
@@ -104,7 +111,7 @@ function StatementsCard({
   title: string;
 }) {
   return (
-    <SectionCard title="Wyciągi" aside={`operacje w miesiącu: ${title} · kwoty w zł`}>
+    <SectionCard title="Wyciągi" aside={`operacje w miesiącu: ${title} · kwoty w walucie rachunku`}>
       {rows.length ? (
         <table className="w-full table-fixed text-sm">
           <thead>
@@ -147,8 +154,8 @@ function StatementsCard({
                     <span className={cn(CALM_SUBLINE, "text-warning-muted-foreground")}>bez konta: {row.unresolved}</span>
                   ) : null}
                 </td>
-                <td className={cn(CALM_AMOUNT, "px-2 py-2")}>{gr(row.debit_total)}</td>
-                <td className={cn(CALM_AMOUNT, "px-2 py-2")}>{gr(row.credit_total)}</td>
+                <td className={cn(CALM_AMOUNT, "px-2 py-2")}>{curAmount(row.debit_total, row.currency ?? "PLN")}</td>
+                <td className={cn(CALM_AMOUNT, "px-2 py-2")}>{curAmount(row.credit_total, row.currency ?? "PLN")}</td>
                 <td className="whitespace-nowrap px-3.5 py-2">
                   {row.to_post ? (
                     <StatusDot tone="warning">
@@ -325,8 +332,10 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
       <div className="grid gap-3 border-b border-border/70 px-3.5 py-2.5 text-[13px] sm:grid-cols-[minmax(0,1fr)_auto]">
         <div className="min-w-0 space-y-0.5">
           <p className="tabular-nums">
-            Obciążenia <b className="font-semibold">{gr(statement.debit_total)} zł</b> · Uznania{" "}
-            <b className="font-semibold">{gr(statement.credit_total)} zł</b> · konto {statement.ledger_account}
+            Obciążenia <b className="font-semibold">{money(statement.debit_total, statement.currency)}</b> · Uznania{" "}
+            <b className="font-semibold">{money(statement.credit_total, statement.currency)}</b> · konto{" "}
+            {statement.ledger_account}
+            {statement.currency && statement.currency !== "PLN" ? ` · rachunek w ${statement.currency}` : ""}
           </p>
           <p className="text-[12px] text-muted-foreground">{kinds.join(" · ") || "Brak operacji w Twoim zakresie."}</p>
           {statement.payroll_hidden ? (
@@ -442,7 +451,17 @@ function LineRow({
   onEdit: (open: boolean) => void;
 }) {
   const duplicate = line.kind === "duplicate";
-  const amount = gr(line.amount);
+  const foreign = Boolean(line.currency) && line.currency !== "PLN";
+  const amount = (
+    <>
+      {curAmount(line.amount, line.currency ?? "PLN")}
+      {foreign ? (
+        <span className={CALM_SUBLINE} title={`kurs NBP z ${datePl(line.fx_date)}`}>
+          {gr(line.amount_pln)} zł · {rateLabel(line.fx_rate)}
+        </span>
+      ) : null}
+    </>
+  );
   return (
     <tr className={cn(CALM_ROW, "align-top last:border-0", duplicate && "text-muted-foreground")}>
       <td className="px-3.5 py-1.5 tabular-nums text-muted-foreground">{line.position}</td>

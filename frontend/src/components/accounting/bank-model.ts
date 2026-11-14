@@ -3,9 +3,15 @@
  * co blokuje „Zaksięguj wyciąg” i komunikat po księgowaniu.
  */
 import type { StatusDotTone } from "@/components/ds";
-import type { BankLine, BankPostResult, BankStatement, BankStatementDocument } from "@/lib/api/accounting-bank";
+import type {
+  BankCurrency,
+  BankLine,
+  BankPostResult,
+  BankStatement,
+  BankStatementDocument,
+} from "@/lib/api/accounting-bank";
 
-import { datePl } from "./ledger-model";
+import { datePl, gr } from "./ledger-model";
 
 /** „02.11–20.11.2026”, a na przełomie roku „28.12.2026–03.01.2027”. */
 export function statementPeriod(first: string, last: string): string {
@@ -97,6 +103,20 @@ export interface CompanyAccountDraft {
   number: string;
   account: string;
   name: string;
+  currency: BankCurrency;
+}
+
+export const BANK_CURRENCIES: readonly BankCurrency[] = ["PLN", "EUR", "USD"];
+
+/** „1 234,56 EUR” — kwota w walucie (PLN bez kodu w tabelach w zł). */
+export function curAmount(value: number, currency: string): string {
+  return currency === "PLN" ? gr(value) : `${gr(value)} ${currency}`;
+}
+
+/** Kurs „4,2500” (NBP podaje 4 miejsca; baza trzyma 6). */
+export function rateLabel(rate: string | null): string {
+  if (!rate) return "—";
+  return Number(rate).toFixed(4).replace(".", ",");
 }
 
 /** Problemy listy rachunków przed zapisem (serwer sprawdza też sumę kontrolną i plan kont). */

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canAssign,
   companyAccountProblems,
+  curAmount,
   groupNrb,
   lineLocked,
   lineTone,
@@ -10,6 +11,7 @@ import {
   operationsLabel,
   postBlocker,
   postMessage,
+  rateLabel,
   readStatement,
   statementPeriod,
   visibleLines,
@@ -23,6 +25,10 @@ function line(overrides: Partial<BankLine> = {}): BankLine {
     booked_on: "2026-11-15",
     direction: "debit",
     amount: 1_000,
+    currency: "PLN",
+    amount_pln: 1_000,
+    fx_rate: null,
+    fx_date: null,
     title: "x",
     counterparty_name: "",
     counterparty_last4: null,
@@ -43,6 +49,7 @@ function statement(overrides: Partial<BankStatement> = {}): BankStatement {
     bank_account_last4: "2875",
     account_name: "",
     ledger_account: "130-1",
+    currency: "PLN",
     first_day: "2026-11-02",
     last_day: "2026-11-20",
     debit_total: 1_000,
@@ -130,10 +137,25 @@ describe("bank — rachunki firmy", () => {
   });
 
   it("lista rachunków: numer, konto i powtórka", () => {
-    const row = { key: "a", number: "61 1090 1014 0000 0712 1981 2875", account: "130-1", name: "" };
+    const row = {
+      key: "a",
+      number: "61 1090 1014 0000 0712 1981 2875",
+      account: "130-1",
+      name: "",
+      currency: "PLN" as const,
+    };
     expect(companyAccountProblems([row])).toEqual([]);
     expect(companyAccountProblems([{ ...row, number: "123" }])[0]).toMatch(/26 cyfr/);
     expect(companyAccountProblems([{ ...row, account: " " }])[0]).toMatch(/konto w planie/);
     expect(companyAccountProblems([row, { ...row, key: "b" }])).toEqual(["Rachunek 2 jest na liście dwa razy."]);
+  });
+});
+
+describe("bank — waluty (K4c-1)", () => {
+  it("kwota w walucie i kurs NBP", () => {
+    expect(curAmount(50_000, "EUR")).toBe("500,00 EUR");
+    expect(curAmount(50_000, "PLN")).toBe("500,00");
+    expect(rateLabel("4.250000")).toBe("4,2500");
+    expect(rateLabel(null)).toBe("—");
   });
 });

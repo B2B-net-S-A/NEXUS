@@ -26,8 +26,14 @@ przypisanie konta. Ta sama operacja z innego wyciągu (dzienny i miesięczny)
 operacji), osobno WB płacowy z wypłatami dla zespołu (D2: robi i widzi go
 osoba z Płacami). Źródło ``bank_statement`` / ``<id>`` (``<id>-payroll``),
 odcisk jak w K2: zmieniony szkic się przebudowuje, zatwierdzony = storno.
-K4a: tylko rachunki w PLN; rozrachunki z rozliczaniem pozycji (K4b)
-i wycena walut (K4c) dalej.
+K4c-1: rachunek firmy ma walutę (PLN, EUR, USD); plik musi być w walucie
+rachunku. Operacja walutowa dostaje kwotę w PLN po średnim kursie NBP
+z ostatniego dnia roboczego przed operacją (art. 30 ust. 2 pkt 2 ustawy
+o rachunkowości) — kurs dokładnie z tego dnia, jak w K2 i E2; brak kursu
+= odmowa importu, nie cichy starszy kurs. WB z rachunku walutowego jest
+dokumentem w PLN z pozycjami walutowymi (kwota w walucie i kurs pozycji).
+Rozrachunki z rozliczaniem pozycji — K4b (``settlements``), wycena walut na
+koniec okresu — K4c-2.
 """
 
 from __future__ import annotations
@@ -50,11 +56,13 @@ from app.models.client_sales_invoice import (
 )
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_payments import FinanceCostPaymentRecord
+from app.models.fx_rate import FxRate
 from app.models.hr_settlement import PayrollPayment, PayrollSettlement
 from app.models.ledger import LedgerBankLine, LedgerBankStatement, LedgerDocument
 from app.services.client_invoicing import payments as client_payments
 from app.services.finance_ledger import identifiers
 from app.services.finance_ledger import payments as cost_payments
+from app.services.finance_ledger import posting
 from app.services.finance_ledger.costs import LedgerError
 from app.services.hr.bank import statements as hr_statements
 from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
@@ -62,7 +70,12 @@ from app.services.hr.bank.titles import ksef_numbers_in
 from app.services.ledger import documents, engine, sources
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
-from app.services.ledger.settings import BankSettings, LedgerSettings, nrb
+from app.services.ledger.settings import (
+    BANK_CURRENCIES,
+    BankSettings,
+    LedgerSettings,
+    nrb,
+)
 from app.services.ledger_bank_schema import NAME_MAX, NOTE_MAX, TITLE_MAX
 
 SOURCE_TYPE = "bank_statement"
@@ -405,8 +418,56 @@ async def _classify(
     return out
 
 
+def file_currency(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> str:
+    """Waluta pliku: jedna dla nagłówka i każdej operacji, z listy rachunków firmy."""
+
+    found = {line.currency for line in lines} | {parsed.currency or "PLN"}
+    if len(found) > 1:
+        raise LedgerError(
+            f"Plik ma operacje w kilku walutach ({', '.join(sorted(found))}) — "
+            "wgraj każdy rachunek osobnym plikiem.",
+            status=422,
+        )
+    currency = found.pop()
+    if currency not in BANK_CURRENCIES:
+        raise LedgerError(
+            f"Wyciąg w {currency} — rachunki firmy są w {', '.join(BANK_CURRENCIES)}.",
+            status=422,
+        )
+    return currency
+
+
+async def nbp_rates(
+    db: AsyncSession, currency: str, days: set[date]
+) -> dict[date, Decimal]:
+    """Kurs średni NBP (tabela A) dokładnie z ``rate_day`` każdego dnia operacji.
+
+    Brak kursu = odmowa (jak w K2 i E2), nie starszy kurs po cichu: luka
+    w pobieraniu kursów zmieniłaby kwoty w PLN bez śladu.
+    """
+
+    wanted = {day: posting.rate_day(day) for day in days}
+    rows = await db.execute(
+        select(FxRate.effective_date, FxRate.rate_to_pln).where(
+            FxRate.currency == currency,
+            FxRate.source == "NBP",
+            FxRate.effective_date.in_(set(wanted.values()) or {date.min}),
+        )
+    )
+    found = dict(rows.all())
+    missing = sorted({rate for rate in wanted.values() if rate not in found})
+    if missing:
+        raise LedgerError(
+            f"Brak kursu NBP {currency} z dnia {missing[0]:%d.%m.%Y} — pobierz kursy "
+            "(Finanse → Kursy walut) i wczytaj wyciąg ponownie.",
+            status=422,
+        )
+    return {day: Decimal(found[rate]) for day, rate in wanted.items()}
+
+
 def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> None:
-    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, PLN, jeden miesiąc."""
+    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, jedna waluta,
+    jeden miesiąc."""
 
     if not lines:
         raise LedgerError("Wyciąg nie ma żadnej operacji.", status=422)
@@ -416,14 +477,7 @@ def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> No
             "(WB księguje jeden rachunek).",
             status=422,
         )
-    if (parsed.currency or "PLN") != "PLN" or any(
-        line.currency != "PLN" for line in lines
-    ):
-        raise LedgerError(
-            "Rachunki w walucie obcej przyjdą z wyceną walut (K4c) — na razie "
-            "tylko wyciągi w PLN.",
-            status=422,
-        )
+    file_currency(parsed, lines)
     months = sorted({(line.booked_on.year, line.booked_on.month) for line in lines})
     if len(months) > 1:
         first, last = months[0], months[-1]
@@ -464,6 +518,17 @@ async def import_file(
             "dodaje go administrator w Ustawieniach Księgowości.",
             status=422,
         )
+    currency = file_currency(parsed, lines)
+    if currency != company.currency:
+        raise LedgerError(
+            f"Rachunek …{company.number[-4:]} jest w {company.currency}, a wyciąg "
+            f"w {currency} — popraw walutę rachunku w Ustawieniach albo wgraj "
+            "właściwy plik.",
+            status=422,
+        )
+    rates: dict[date, Decimal] = {}
+    if currency != "PLN":
+        rates = await nbp_rates(db, currency, {line.booked_on for line in lines})
     sha = hashlib.sha256(raw).hexdigest()
     existing = await db.scalar(
         select(LedgerBankStatement).where(LedgerBankStatement.sha256 == sha)
@@ -504,7 +569,7 @@ async def import_file(
         format=parsed.format,
         bank_account=company.number,
         ledger_account=company.account,
-        currency="PLN",
+        currency=currency,
         first_day=min(line.booked_on for line in lines),
         last_day=max(line.booked_on for line in lines),
         line_count=len(lines),
@@ -531,6 +596,7 @@ async def import_file(
                 booked_on=line.booked_on,
                 direction=line.direction,
                 amount=grosze(line.amount),
+                **_pln_fields(line, currency, rates),
                 title=" ".join((line.title or "").split())[:TITLE_MAX],
                 counterparty_name=" ".join((line.counterparty_name or "").split())[
                     :NAME_MAX
@@ -549,6 +615,28 @@ async def import_file(
 
 
 # ── Odczyt ───────────────────────────────────────────────────────────────────
+
+
+def _pln_fields(
+    line: StatementLine, currency: str, rates: dict[date, Decimal]
+) -> dict[str, Any]:
+    """Waluta operacji i jej równowartość w PLN (operacja w PLN: ta sama kwota)."""
+
+    if currency == "PLN":
+        return {"currency": "PLN", "amount_pln": grosze(line.amount)}
+    rate = rates[line.booked_on]
+    return {
+        "currency": currency,
+        "amount_pln": posting.grosze(Decimal(line.amount) * rate),
+        "fx_rate": rate,
+        "fx_date": posting.rate_day(line.booked_on),
+    }
+
+
+def pln(line: LedgerBankLine) -> int:
+    """Kwota operacji w PLN (wiersze sprzed K4c-1 mają ją w ``amount``)."""
+
+    return line.amount_pln if line.amount_pln is not None else line.amount
 
 
 def bank_open(settings: LedgerSettings, viewer: Viewer) -> bool:
@@ -572,6 +660,10 @@ def _line_payload(line: LedgerBankLine, position: int) -> dict[str, Any]:
         "booked_on": line.booked_on.isoformat(),
         "direction": line.direction,
         "amount": line.amount,
+        "currency": line.currency,
+        "amount_pln": pln(line),
+        "fx_rate": str(line.fx_rate) if line.fx_rate is not None else None,
+        "fx_date": line.fx_date.isoformat() if line.fx_date else None,
         "title": line.title,
         "counterparty_name": line.counterparty_name,
         "counterparty_last4": line.counterparty_last4,
@@ -639,6 +731,7 @@ async def statement_payload(
         "bank_account_last4": statement.bank_account[-4:],
         "account_name": _account_name(statement, bank_settings),
         "ledger_account": statement.ledger_account,
+        "currency": statement.currency,
         "first_day": statement.first_day.isoformat(),
         "last_day": statement.last_day.isoformat(),
         "debit_total": sum(
@@ -778,6 +871,7 @@ async def overview(
                 "bank_account_last4": statement.bank_account[-4:],
                 "account_name": _account_name(statement, bank_settings),
                 "ledger_account": statement.ledger_account,
+                "currency": statement.currency,
                 "first_day": statement.first_day.isoformat(),
                 "last_day": statement.last_day.isoformat(),
                 "operations": total,
@@ -892,32 +986,45 @@ def wb_spec(
     links: dict[str, int] = {}
     for line in lines:
         text_ = f"{line.booked_on:%d.%m} {line.counterparty_name or line.title}"[:200]
+        amount = pln(line)
+        # Operacja walutowa (K4c-1): kwota w PLN, w walucie i kurs pozycji;
+        # operacja w PLN bez tych pól — odcisk WB w PLN się nie zmienia.
+        extra: dict[str, Any] = {}
+        if line.currency != "PLN":
+            extra = {
+                "currency": line.currency,
+                "amount_cur": line.amount,
+                "fx_rate": line.fx_rate,
+                "fx_date": line.fx_date,
+            }
         if line.direction == "debit":
             links[str(len(entries) + 1)] = line.id
             entries.append(
                 LineIn(
                     "debit",
                     str(line.counter_account),
-                    line.amount,
+                    amount,
                     text_,
                     counterparty_id=line.counterparty_id,
+                    **extra,
                 )
             )
             entries.append(
-                LineIn("credit", statement.ledger_account, line.amount, text_)
+                LineIn("credit", statement.ledger_account, amount, text_, **extra)
             )
         else:
             entries.append(
-                LineIn("debit", statement.ledger_account, line.amount, text_)
+                LineIn("debit", statement.ledger_account, amount, text_, **extra)
             )
             links[str(len(entries) + 1)] = line.id
             entries.append(
                 LineIn(
                     "credit",
                     str(line.counter_account),
-                    line.amount,
+                    amount,
                     text_,
                     counterparty_id=line.counterparty_id,
+                    **extra,
                 )
             )
     suffix = " — wypłaty dla zespołu" if payroll else ""

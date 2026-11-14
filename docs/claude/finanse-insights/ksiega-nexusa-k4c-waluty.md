@@ -1,0 +1,71 @@
+# Księga NEXUSA K4c-1 (15.11.2026): rachunki walutowe i różnice kursowe zrealizowane
+
+Etap K4 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar),
+część trzecia. Wyciągi: `ksiega-nexusa-k4-bank.md`, rozrachunki:
+`ksiega-nexusa-k4b-rozrachunki.md`. Migracja `0707_ledger_fx`
+(`ledger_fx_schema.py`, lustro przez `hr_schema_bundle`), kod w
+`app/services/ledger/bank.py` (import, WB) i `settlements.py` (rozliczenie
+w walucie, PK różnicy kursowej). Wycena na koniec okresu to K4c-2 (osobno).
+
+## Co jest
+
+- **Rachunek firmy ma walutę** (PLN, EUR, USD — jak E8 i R9). Plik wyciągu musi
+  mieć jedną walutę i tę samą co rachunek; inaczej 422.
+- **Kurs operacji**: średni kurs NBP (tabela A) z ostatniego dnia roboczego
+  przed dniem operacji (art. 30 ust. 2 pkt 2 ustawy o rachunkowości),
+  dokładnie z tego dnia — jak w K2 i E2 (`posting.rate_day`). Brak kursu = 422
+  „pobierz kursy”, nie cichy starszy kurs (luka w pobieraniu zmieniłaby PLN bez
+  śladu). Kwota w PLN zaokrąglana połowa w górę (`posting.grosze`).
+- `ledger_bank_lines.amount` jest w walucie wyciągu; `amount_pln`, `fx_rate`,
+  `fx_date` dla operacji walutowych (wiersze sprzed K4c: `amount_pln = amount`).
+- **WB z rachunku walutowego** to dokument w PLN z pozycjami walutowymi:
+  kwota PLN, kwota w walucie i **kurs pozycji** (`ledger_lines.fx_rate` /
+  `fx_date` — każda operacja ma swój dzień kursu). Eksport do Symfonii (K3b)
+  bierze kurs pozycji, gdy jest, inaczej kurs dokumentu.
+- **Rozliczenie pary w tej samej walucie obcej** (`ledger_settlements`:
+  `currency`, `amount_cur`, `credit_amount`): kwota w walucie, a każda strona
+  zdejmuje swój udział PLN = PLN pozostałe × rozliczana część waluty pozostałej
+  (ostatnia część bierze całą resztę). Pozycje zamykają się w walucie i w PLN
+  naraz.
+- **Różnica kursowa zrealizowana** = udział Wn − udział Ma. PK w buforze
+  (źródło `fx_difference` / id rozliczenia): nadwyżka po Wn (wpłata dała mniej
+  PLN niż faktura, albo zapłata dostawcy więcej) = ujemna — Wn konto kosztów
+  finansowych, Ma konto kontrahenta; nadwyżka po Ma = dodatnia — Wn konto
+  kontrahenta, Ma konto przychodów finansowych. Po zatwierdzeniu PK saldo konta
+  kontrahenta zgadza się z pozycjami. Pozycje PK różnicy **nie są**
+  rozrachunkami.
+- Konta różnic kursowych ustawia administrator w Ustawieniach (Bank). Puste
+  konto albo zamknięty okres = para czeka: rozliczenie ręczne dostaje 422
+  z powodem, automat pomija parę i liczy ją w `fx_waiting` (podgląd, toast,
+  lista zamknięcia miesiąca: stan „problem”).
+- **Faktura w walucie zapłacona w PLN** rozlicza się w PLN jak w K4b, a z
+  pozycji walutowej schodzi proporcjonalna część waluty (bez różnicy
+  kursowej — tę, jeśli jest, księguje się ręcznie). Dwóch różnych walut obcych
+  (EUR z USD) się nie łączy (422).
+
+## Zasady, których łatwo nie zauważyć
+
+- **Odcisk dokumentu**: kursy pozycji wchodzą do odcisku tylko, gdy są — odciski
+  dokumentów w PLN zostały te same co przed K4c (test
+  `test_pln_document_fingerprint_is_the_same_as_before_line_rates`). Inaczej
+  K2 pokazałby zatwierdzone FVS/FVZ jako zmienione źródła do storna.
+- **Cofnięcie rozliczenia w walucie** usuwa szkic jego PK różnicy; zaksięgowana
+  PK blokuje cofnięcie (409 — najpierw storno PK).
+- **Storno faktury albo wpłaty** po zaksięgowaniu różnicy zostawia PK bez
+  obowiązującego rozliczenia — karta konta pokazuje ją jako „rozliczenie już nie
+  obowiązuje”, trzeba zrobić jej storno (saldo konta inaczej nie zgadza się
+  z pozycjami).
+- Saldo zerowe liczy się w PLN; grupa z dwiema walutami obcymi jest pomijana.
+- Przelew między własnymi rachunkami (wymiana waluty, „kurs faktycznie
+  zastosowany”) idzie przez konto ręczne (np. środki w drodze) — automat go nie
+  rozpoznaje.
+
+## Testy
+
+`tests/test_ledger_settlement_rules.py` (udział PLN, warunki par EUR/EUR, EUR/PLN,
+EUR/USD, blokady PK, waluta pliku, WB walutowy, odcisk PLN bez zmian), sekcja
+K4c-1 w `tests/test_ledger_sources_db.py` (WB z rachunku EUR po kursie NBP,
+automat z różnicą kursową, brak konta = czeka, cofnięcie szkicu, 409 po
+zatwierdzeniu, saldo konta = 0; zła waluta rachunku, brak kursu, waluta spoza
+listy), front: `SettlementsView.test.tsx`, `settlements-model.test.ts`,
+`bank-model.test.ts`.

@@ -220,6 +220,8 @@ async def _write_lines(
                 counterparty_id=line.counterparty_id,
                 mpk=line.mpk,
                 description=line.description,
+                fx_rate=line.fx_rate,
+                fx_date=line.fx_date,
             )
         )
     await db.flush()
@@ -440,6 +442,8 @@ async def _lines_of(db: AsyncSession, doc_id: int) -> list[LineIn]:
             mpk=row.mpk,
             currency=row.currency,
             amount_cur=row.amount_cur,
+            fx_rate=row.fx_rate,
+            fx_date=row.fx_date,
         )
         for row in rows
     ]
@@ -890,6 +894,8 @@ async def document_card(
             "amount": line.amount,
             "currency": line.currency,
             "amount_cur": line.amount_cur,
+            "fx_rate": str(line.fx_rate) if line.fx_rate is not None else None,
+            "fx_date": line.fx_date.isoformat() if line.fx_date else None,
             "counterparty": (
                 {
                     "id": line.counterparty_id,

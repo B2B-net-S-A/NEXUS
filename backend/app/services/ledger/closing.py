@@ -182,6 +182,19 @@ def settlements_check(counts: dict[str, int], href: str) -> dict[str, Any]:
         ("zero", "salda zerowe"),
     )
     total = sum(counts.get(key, 0) for key, _ in labels)
+    waiting = counts.get("fx_waiting", 0)
+    if waiting:
+        return {
+            "key": "settlements",
+            "label": "Rozrachunki",
+            "state": "problem",
+            "detail": (
+                f"pary w walucie czekają na konta różnic kursowych albo otwarty "
+                f"okres: {waiting}"
+                + (f"; automat rozliczy pozycje: {total}" if total else "")
+            ),
+            "href": href,
+        }
     if not total:
         return {
             "key": "settlements",
@@ -290,7 +303,7 @@ async def checklist(
         items.append(bank_check(listed["statements"], f"/accounting/bank{query}"))
         items.append(
             settlements_check(
-                await settlements.auto_counts(db, viewer),
+                await settlements.auto_counts(db, viewer, settings.bank),
                 f"/accounting/settlements{query}",
             )
         )

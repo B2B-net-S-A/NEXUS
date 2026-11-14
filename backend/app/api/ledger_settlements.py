@@ -49,7 +49,8 @@ LineId = Annotated[int, Field(ge=1, le=ID_MAX)]
 class SettleBody(BaseModel):
     debit_ids: list[LineId] = Field(min_length=1, max_length=settlements.SELECT_MAX)
     credit_ids: list[LineId] = Field(min_length=1, max_length=settlements.SELECT_MAX)
-    #: Kwota w złotych — tylko przy jednej pozycji Wn i jednej Ma.
+    #: Kwota w walucie pary (PLN albo waluta obca) — tylko przy jednej pozycji Wn
+    #: i jednej Ma.
     amount: Optional[Decimal] = Field(
         default=None, gt=0, max_digits=15, decimal_places=2
     )
@@ -59,7 +60,9 @@ def _fail(exc: LedgerError) -> HTTPException:
     return HTTPException(exc.status, exc.message)
 
 
-async def _context(db: AsyncSession, user: User) -> Viewer:
+async def _context(
+    db: AsyncSession, user: User
+) -> tuple[ledger_settings.LedgerSettings, Viewer]:
     current = await ledger_settings.load(db)
     if not (
         ledger_settings.module_open(user, current, "ledger")
@@ -68,7 +71,7 @@ async def _context(db: AsyncSession, user: User) -> Viewer:
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, ledger_settings.MODULE_DISABLED_DETAIL
         )
-    return documents.viewer_for(user, current)
+    return current, documents.viewer_for(user, current)
 
 
 @router.get("/settlements")
@@ -80,10 +83,11 @@ async def settlements_overview(
     q: Optional[str] = Query(default=None, max_length=settlements_view.SEARCH_MAX),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    viewer = await _context(db, current_user)
+    current, viewer = await _context(db, current_user)
     return await settlements_view.overview(
         db,
         viewer,
+        current.bank,
         as_of=as_of or business_today(),
         side=side,
         overdue_only=overdue,
@@ -98,7 +102,7 @@ async def settlements_account(
     as_of: Optional[date] = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    viewer = await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     try:
         return await settlements_view.account_detail(
             db, viewer, account, as_of=as_of or business_today()
@@ -113,7 +117,7 @@ async def settle_items(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    viewer = await _context(db, current_user)
+    current, viewer = await _context(db, current_user)
     amount = (
         int((body.amount * 100).to_integral_value())
         if body.amount is not None
@@ -123,6 +127,7 @@ async def settle_items(
         result = await settlements.settle(
             db,
             viewer,
+            current.bank,
             debit_ids=body.debit_ids,
             credit_ids=body.credit_ids,
             amount=amount,
@@ -142,9 +147,11 @@ async def settle_automatically(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    viewer = await _context(db, current_user)
+    current, viewer = await _context(db, current_user)
     try:
-        result = await settlements.settle_auto(db, viewer, account=account)
+        result = await settlements.settle_auto(
+            db, viewer, current.bank, account=account
+        )
     except LedgerError as exc:
         await db.rollback()
         raise _fail(exc) from exc
@@ -158,7 +165,7 @@ async def remove_settlement(
     settlement_id: int = Path(ge=1, le=ID_MAX),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    viewer = await _context(db, current_user)
+    _, viewer = await _context(db, current_user)
     try:
         await settlements.unsettle(
             db, viewer, settlement_id, now=datetime.now(timezone.utc)

@@ -34,8 +34,9 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
 - **Konta reguł** (ZUS, PIT, VAT, CIT, opłaty) — każde może być puste; pusta
   reguła = operacja czeka na ręczne konto, zamiast iść na złe.
 - **Plik = jeden WB**: jeden rachunek firmy (plik z kilkoma `:25:`/`Stmt`
-  → 422, `ParsedStatement.accounts`), tylko PLN (każda operacja, nie tylko
-  nagłówek), operacje z jednego miesiąca (WB ma jeden okres — wyciąg przez
+  → 422, `ParsedStatement.accounts`), jedna waluta = waluta rachunku z
+  Ustawień (każda operacja, nie tylko nagłówek; od K4c-1 także EUR i USD),
+  operacje z jednego miesiąca (WB ma jeden okres — wyciąg przez
   przełom miesiąca → 422, wgrać miesięczny albo dzienny). Pozycje 0,00
   pomijamy. Bez tego obce waluty i drugi rachunek szły na jedno konto 130-x
   w PLN, a marzec lądował w kwietniu (przegląd 14.11.2026).
@@ -85,7 +86,8 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   UPDATE`). Duplikatu nie da się przypisać — nie wchodzi do WB.
 - Pełnego rachunku kontrahenta nie trzymamy (tylko cztery ostatnie cyfry, jak
   E3 i R9), a tytuły mają zamaskowane numery rachunków z parsera.
-- K4a: tylko wyciągi w PLN (422 dla walut — K4c z wyceną). Parowanie zapłaty
+- Rachunki walutowe (EUR, USD) i kurs NBP operacji — K4c-1
+  (`ksiega-nexusa-k4c-waluty.md`). Parowanie zapłaty
   WB z fakturą robią rozrachunki K4b (`ksiega-nexusa-k4b-rozrachunki.md`) —
   WB pamięta w `meta.bank_lines`, która jego pozycja jest którą operacją
   wyciągu (poza odciskiem dokumentu).

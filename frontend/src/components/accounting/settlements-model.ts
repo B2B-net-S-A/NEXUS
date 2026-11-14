@@ -4,10 +4,12 @@
 import type {
   AgingBucket,
   AutoCounts,
+  FxDocument,
   SettlementItem,
   SettlementsOverview,
 } from "@/lib/api/accounting-settlements";
 
+import { curAmount } from "./bank-model";
 import { gr, parseAmount } from "./ledger-model";
 
 export interface AgingRow {
@@ -63,13 +65,21 @@ export function positionsLabel(count: number): string {
   return `${count} pozycji`;
 }
 
+export function isForeign(item: SettlementItem): boolean {
+  return item.currency !== "PLN" && item.remaining_cur != null;
+}
+
 export interface Selection {
   debits: SettlementItem[];
   credits: SettlementItem[];
   debitSum: number;
   creditSum: number;
-  /** Ile rozliczy przycisk bez wpisanej kwoty (od najstarszych). */
+  /** Ile rozliczy przycisk bez wpisanej kwoty (od najstarszych) — w `unit`. */
   amount: number;
+  /** Waluta kwot: obie strony w tej samej walucie obcej = ta waluta, inaczej PLN. */
+  unit: string;
+  /** Zaznaczone są dwie różne waluty obce (EUR i USD) — tego się nie rozlicza. */
+  mixed: boolean;
   /** Kwotę wpisuje się tylko przy jednej pozycji Wn i jednej Ma. */
   partial: boolean;
 }
@@ -78,14 +88,20 @@ export function selection(open: SettlementItem[], selected: ReadonlySet<number>)
   const chosen = open.filter((item) => selected.has(item.line_id));
   const debits = chosen.filter((item) => item.direction === "debit");
   const credits = chosen.filter((item) => item.direction === "credit");
-  const debitSum = debits.reduce((sum, item) => sum + item.remaining, 0);
-  const creditSum = credits.reduce((sum, item) => sum + item.remaining, 0);
+  const foreign = new Set(chosen.filter(isForeign).map((item) => item.currency));
+  const inCurrency = foreign.size === 1 && chosen.every(isForeign);
+  const unit = inCurrency ? [...foreign][0] : "PLN";
+  const left = (item: SettlementItem) => (inCurrency ? item.remaining_cur ?? 0 : item.remaining);
+  const debitSum = debits.reduce((sum, item) => sum + left(item), 0);
+  const creditSum = credits.reduce((sum, item) => sum + left(item), 0);
   return {
     debits,
     credits,
     debitSum,
     creditSum,
     amount: debits.length && credits.length ? Math.min(debitSum, creditSum) : 0,
+    unit,
+    mixed: foreign.size > 1,
     partial: debits.length === 1 && credits.length === 1,
   };
 }
@@ -98,17 +114,21 @@ export function amountCents(raw: string): number | null {
   return Number(whole) * 100 + Number(fraction.padEnd(2, "0"));
 }
 
-export function amountProblem(raw: string, limit: number): string | null {
+export function amountProblem(raw: string, limit: number, unit = "PLN"): string | null {
   if (!raw.trim()) return null;
   const cents = amountCents(raw);
   if (cents == null) return "Wpisz kwotę większą od zera, np. 1 234,56.";
-  if (cents > limit) return `Najwyżej ${gr(limit)} zł — tyle zostało do rozliczenia.`;
+  if (cents > limit) {
+    const most = unit === "PLN" ? `${gr(limit)} zł` : curAmount(limit, unit);
+    return `Najwyżej ${most} — tyle zostało do rozliczenia.`;
+  }
   return null;
 }
 
 /** Powód, dla którego „Rozlicz zaznaczone” jest nieaktywne (albo `null`). */
 export function settleBlocker(chosen: Selection, canSettle: boolean): string | null {
   if (!canSettle) return "Pozycje rozlicza osoba z listy „Księgowi” albo administrator.";
+  if (chosen.mixed) return "Zaznaczone są dwie różne waluty obce — rozlicza się walutę z tą samą walutą albo z PLN.";
   if (!chosen.debits.length && !chosen.credits.length) return "Zaznacz pozycje po stronie Wn i Ma.";
   if (!chosen.debits.length) return "Zaznacz też pozycję po stronie Wn.";
   if (!chosen.credits.length) return "Zaznacz też pozycję po stronie Ma.";
@@ -123,13 +143,26 @@ export function pairsLabel(count: number): string {
   return `${count} par`;
 }
 
-export function settleMessage(amount: number, created: number): string {
-  return `Rozliczono ${gr(amount)} zł (${pairsLabel(created)} pozycji).`;
+/** „ Różnica kursowa 25,00 zł → PK 3/03/2026 w buforze.” — albo pusto. */
+export function fxMessage(documents: readonly FxDocument[] | undefined): string {
+  if (!documents?.length) return "";
+  const total = documents.reduce((sum, doc) => sum + doc.amount, 0);
+  const numbers = documents.map((doc) => doc.number).join(", ");
+  return ` Różnica kursowa ${gr(total)} zł → ${numbers} w buforze.`;
 }
 
-export function autoMessage(result: AutoCounts & { created: number; amount: number }): string {
-  if (!result.created) return "Automat nie znalazł nic do rozliczenia.";
-  return `Automat rozliczył ${gr(result.amount)} zł: ${autoLabel(result)}.`;
+export function settleMessage(amount: number, created: number, documents?: readonly FxDocument[]): string {
+  return `Rozliczono ${gr(amount)} zł (${pairsLabel(created)} pozycji).${fxMessage(documents)}`;
+}
+
+export function autoMessage(
+  result: AutoCounts & { created: number; amount: number; fx_documents?: FxDocument[] },
+): string {
+  const waiting = result.fx_waiting
+    ? ` W walucie czeka ${pairsLabel(result.fx_waiting)} — konto różnic kursowych w Ustawieniach (Bank) albo otwarty okres.`
+    : "";
+  if (!result.created) return `Automat nie znalazł nic do rozliczenia.${waiting}`;
+  return `Automat rozliczył ${gr(result.amount)} zł: ${autoLabel(result)}.${fxMessage(result.fx_documents)}${waiting}`;
 }
 
 /** Konto z adresu (`?account=200-15`) — tylko cyfry, litery i kreski. */

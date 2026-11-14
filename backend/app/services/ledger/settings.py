@@ -194,18 +194,24 @@ BANK_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "vat_account": ("", "VAT do zapłaty (urząd skarbowy)"),
     "pit_account": ("225", "PIT-4 (urząd skarbowy)"),
     "cit_account": ("", "CIT (urząd skarbowy)"),
+    # K4c-1: różnice kursowe zrealizowane przy rozliczeniu pozycji w walucie.
+    "fx_gain_account": ("", "Dodatnie różnice kursowe (przychody finansowe)"),
+    "fx_loss_account": ("", "Ujemne różnice kursowe (koszty finansowe)"),
 }
+#: Waluty rachunków firmy (K4c-1) — jak wyciągi w księdze, E8 i R9.
+BANK_CURRENCIES: tuple[str, ...] = ("PLN", "EUR", "USD")
 BANK_ACCOUNTS_MAX = 20
 BANK_NAME_MAX = 80
 
 
 @dataclass(frozen=True)
 class CompanyAccount:
-    """Rachunek firmy: 26 cyfr NRB, konto w planie (130-x) i nazwa."""
+    """Rachunek firmy: 26 cyfr NRB, konto w planie (130-x), nazwa i waluta."""
 
     number: str
     account: str
     name: str = ""
+    currency: str = "PLN"
 
 
 def nrb(raw: Optional[str]) -> str:
@@ -225,6 +231,8 @@ class BankSettings:
     vat_account: str = ""
     pit_account: str = BANK_ACCOUNT_FIELDS["pit_account"][0]
     cit_account: str = ""
+    fx_gain_account: str = ""
+    fx_loss_account: str = ""
 
     def by_number(self, number: Optional[str]) -> Optional[CompanyAccount]:
         clean = nrb(number)
@@ -290,9 +298,15 @@ def _bank(raw: object) -> BankSettings:
         except LedgerError:
             continue
         name = item.get("name") if isinstance(item.get("name"), str) else ""
+        currency = item.get("currency")
         seen.add(number)
         items.append(
-            CompanyAccount(number, account, " ".join(name.split())[:BANK_NAME_MAX])
+            CompanyAccount(
+                number,
+                account,
+                " ".join(name.split())[:BANK_NAME_MAX],
+                currency if currency in BANK_CURRENCIES else "PLN",
+            )
         )
     return BankSettings(
         accounts=tuple(items[:BANK_ACCOUNTS_MAX]),
@@ -345,7 +359,12 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
         "bank": {
             "accounts": [
-                {"number": item.number, "account": item.account, "name": item.name}
+                {
+                    "number": item.number,
+                    "account": item.account,
+                    "name": item.name,
+                    "currency": item.currency,
+                }
                 for item in settings.bank.accounts
             ],
             **{key: getattr(settings.bank, key) for key in BANK_ACCOUNT_FIELDS},
@@ -544,7 +563,14 @@ async def set_bank_settings(
             {"account": ("", f"Rachunek {index}")},
         )
         name = " ".join(str(item.get("name") or "").split())[:BANK_NAME_MAX]
-        accounts.append(CompanyAccount(number, cleaned["account"], name))
+        currency = str(item.get("currency") or "PLN").upper()
+        if currency not in BANK_CURRENCIES:
+            raise LedgerError(
+                f"Rachunek {index}: waluta {currency} — rachunki są w "
+                f"{', '.join(BANK_CURRENCIES)}.",
+                status=422,
+            )
+        accounts.append(CompanyAccount(number, cleaned["account"], name, currency))
     fields = await _plan_accounts(
         db, values, BANK_ACCOUNT_FIELDS, optional=frozenset(BANK_ACCOUNT_FIELDS)
     )

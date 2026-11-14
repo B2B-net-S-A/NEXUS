@@ -39,6 +39,7 @@ from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
 from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
+from app.services import ledger_fx_schema as ledger_fx
 from app.services import ledger_schema as ledger
 from app.services import ledger_settlement_schema as ledger_settlement
 from app.services import finance_posting_schema as finance_posting
@@ -128,6 +129,8 @@ MODULES = (
     ledger_bank,
     # 0706: rozrachunki z rozliczaniem pozycji K4b (14.11.2026).
     ledger_settlement,
+    # 0707: waluty w księdze K4c-1 — rachunki walutowe, kurs pozycji (15.11.2026).
+    ledger_fx,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

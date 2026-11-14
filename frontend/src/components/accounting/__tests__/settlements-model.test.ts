@@ -35,6 +35,7 @@ function item(lineId: number, direction: "debit" | "credit", remaining: number):
     remaining,
     currency: "PLN",
     amount_cur: null,
+    remaining_cur: null,
     settlements: [],
   };
 }
@@ -122,5 +123,32 @@ describe("rozrachunki — etykiety", () => {
     expect(readAccount("?account=200%201")).toBeNull();
     expect(readAsOf("?as_of=2026-03-31")).toBe("2026-03-31");
     expect(readAsOf("?as_of=31.03.2026")).toBeNull();
+  });
+});
+
+describe("rozrachunki — waluty (K4c-1)", () => {
+  function eur(lineId: number, direction: "debit" | "credit", pln: number, cur: number): SettlementItem {
+    return { ...item(lineId, direction, pln), currency: "EUR", amount_cur: cur, remaining_cur: cur };
+  }
+
+  it("para w tej samej walucie liczy kwoty w walucie, mieszana w PLN", () => {
+    const open = [eur(1, "debit", 215_000, 50_000), eur(2, "credit", 212_500, 50_000), item(3, "credit", 100_000)];
+    const same = selection(open, new Set([1, 2]));
+    expect([same.unit, same.amount, same.mixed]).toEqual(["EUR", 50_000, false]);
+    const mixed = selection(open, new Set([1, 3]));
+    expect([mixed.unit, mixed.amount]).toEqual(["PLN", 100_000]);
+    const usd = { ...eur(4, "credit", 100_000, 25_000), currency: "USD" };
+    expect(settleBlocker(selection([...open, usd], new Set([1, 4])), true)).toMatch(/dwie różne waluty obce/);
+    expect(amountProblem("600", 50_000, "EUR")).toBe("Najwyżej 500,00 EUR — tyle zostało do rozliczenia.");
+  });
+
+  it("komunikat mówi o różnicy kursowej i parach, które czekają", () => {
+    const docs = [{ id: 9, number: "PK 3/03/2026", amount: 2_500 }];
+    expect(settleMessage(215_000, 1, docs)).toBe(
+      "Rozliczono 2 150,00 zł (1 para pozycji). Różnica kursowa 25,00 zł → PK 3/03/2026 w buforze.",
+    );
+    expect(autoMessage({ bank: 0, correction: 0, zero: 0, fx_waiting: 2, created: 0, amount: 0 })).toBe(
+      "Automat nie znalazł nic do rozliczenia. W walucie czeka 2 pary — konto różnic kursowych w Ustawieniach (Bank) albo otwarty okres.",
+    );
   });
 });
