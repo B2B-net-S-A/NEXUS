@@ -104,7 +104,7 @@ export function BankSettingsCard() {
                   <div className="flex items-center gap-1.5">
                     <input
                       aria-label={`Numer rachunku ${index + 1}`}
-                      className={cn(CONTROL, "min-w-0 flex-1 tabular-nums")}
+                      className={cn(CONTROL, "w-0 min-w-0 flex-1 tabular-nums")}
                       value={row.number}
                       disabled={!admin}
                       placeholder="26 cyfr, z PL albo bez"
