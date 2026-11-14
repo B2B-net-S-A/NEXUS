@@ -52,6 +52,8 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   nie zmienia sam tego, co działa z kluczem. Po zmianie tych dwóch skryptów:
   `git show origin/main:scripts/staging/<plik> > ~/.claude/nexus-rutyny/bin/kopia/scripts/staging/<plik>`.
   Tak samo `refresh_code.sh` dla Odświeżenia (`pl.dynaminds.nexus-odswiezenie`, `bin/odswiezenie.sh`).
+  Kopię inną niż main nocna kopia zgłasza w „Czeka na Artura” (`PINNED_SCRIPTS`), bo kopia
+  sprzed #3254 liczyła od 09.11 do 14.11.2026 inny `ranker_version` niż produkcja.
   Zadanie: `~/Library/LaunchAgents/pl.dynaminds.nexus-nocna-kopia.plist`,
   skrypt startowy `bin/nocna-kopia.sh`. Build i `sanitize.sql` idą z kodu stagingu
   (`origin/main`), bo nie mają dostępu do klucza.

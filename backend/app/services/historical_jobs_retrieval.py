@@ -354,13 +354,13 @@ def _qdrant_search(
                 ]
             )
 
-        hits = client.search(
+        hits = client.query_points(
             collection_name=_jobs_collection(),
-            query_vector=embedding,
+            query=embedding,
             query_filter=query_filter,
             limit=limit,
             with_payload=True,
-        )
+        ).points
         return [
             {
                 "job_id": int(hit.id),

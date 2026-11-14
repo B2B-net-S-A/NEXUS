@@ -50,6 +50,7 @@ def test_allowlist_reads_scoring_inputs_without_importing_backend():
         set(_SCORING_CACHE_INPUTS)
         | set(sync.RANKING_POOL_FLAGS)
         | set(sync.CLIENT_LIST_FLAGS)
+        | set(sync.SALES_FLAGS)
     )
 
 
@@ -106,6 +107,74 @@ def test_query_adapter_follows_production():
         sync.flag_lines({"QUERY_ADAPTER_ENABLED": True}, ALLOWED)
         == "QUERY_ADAPTER_ENABLED=true\n"
     )
+
+
+def test_sales_flags_follow_production():
+    # 13.11.2026 produkcja włączyła obie, a staging został na wartościach z `config.py`.
+    assert sync.flag_lines(
+        {"SALES_BOT_TASKS_ENABLED": True, "SALES_REGISTRY_ENABLED": True}, ALLOWED
+    ).splitlines() == ["SALES_BOT_TASKS_ENABLED=true", "SALES_REGISTRY_ENABLED=true"]
+
+
+def test_sales_flags_do_not_start_the_sales_loop_on_staging():
+    from app.core.staging import STAGING_BLOCKED_TASKS
+
+    assert "sales_signals" in STAGING_BLOCKED_TASKS
+
+
+def _pinned_copy(
+    tmp_path, monkeypatch, main: dict[str, str | None], local: dict[str, str]
+):
+    here = tmp_path / "kopia"
+    here.mkdir()
+    for name, text in local.items():
+        (here / name).write_text(text)
+
+    def fake_git(command, **kwargs):
+        name = command[-1].rsplit("/", 1)[-1]
+        text = main.get(name)
+        return subprocess.CompletedProcess(
+            command, 0 if text is not None else 128, text or "", ""
+        )
+
+    monkeypatch.setattr(sync, "run_cmd", fake_git)
+    cfg = sync.Config.__new__(sync.Config)
+    cfg.repo = tmp_path
+    return sync.pinned_scripts_behind(cfg, here)
+
+
+def test_pinned_copy_equal_to_main_is_not_reported(tmp_path, monkeypatch):
+    same = {"nightly_sync.py": "a\n", "refresh_code.sh": "b\n"}
+    assert _pinned_copy(tmp_path, monkeypatch, same, same) == []
+
+
+def test_pinned_copy_older_than_main_is_reported(tmp_path, monkeypatch):
+    # Kopia sprzed #3254: main dopisał adapter zapytania, launchd dalej biegł bez niego.
+    behind = _pinned_copy(
+        tmp_path,
+        monkeypatch,
+        {
+            "nightly_sync.py": "nowy\n",
+            "refresh_code.sh": "b\n",
+            "clone_from_hetzner.py": None,
+        },
+        {
+            "nightly_sync.py": "stary\n",
+            "refresh_code.sh": "b\n",
+            "clone_from_hetzner.py": "c\n",
+        },
+    )
+    assert behind == ["nightly_sync.py", "clone_from_hetzner.py"]
+
+
+def test_pinned_copy_behind_main_reaches_report_and_copy_still_runs(
+    harness, monkeypatch
+):
+    monkeypatch.setattr(sync, "pinned_scripts_behind", lambda cfg: ["nightly_sync.py"])
+    harness.parity.pop(0)
+    assert harness.run() == sync.EXIT_OK
+    assert harness.database == NEW_DB
+    assert any("nightly_sync.py" in line for line in harness.report.waiting)
 
 
 @pytest.mark.parametrize(
@@ -478,6 +547,7 @@ class Harness:
             "local_postgres": lambda: "pg",
             "existing_databases": lambda postgres: {OLD_DB},
             "origin_main": lambda cfg: "a" * 40,
+            "pinned_scripts_behind": lambda cfg: [],
             "read_prod_settings": lambda cfg, allowed: {"MATCH_POOL_SIZE": 2000},
             "read_staging_settings": lambda allowed: {},
             "dump_production": fake_dump,

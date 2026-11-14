@@ -233,12 +233,12 @@ def search_passage_hits(client, embedding: list[float], *, limit: int) -> list[A
     kandydatów lista się skraca. Mnożnik dobiera wołający.
     """
 
-    return client.search(
+    return client.query_points(
         collection_name=passages_collection_name(),
-        query_vector=embedding,
+        query=embedding,
         limit=limit,
         with_payload=True,
-    )
+    ).points
 
 
 def best_passage_scores_for_ids(
@@ -254,9 +254,9 @@ def best_passage_scores_for_ids(
 
     if not candidate_ids:
         return {}
-    hits = client.search(
+    hits = client.query_points(
         collection_name=passages_collection_name(),
-        query_vector=embedding,
+        query=embedding,
         query_filter=qmodels.Filter(
             must=[
                 qmodels.FieldCondition(
@@ -269,7 +269,7 @@ def best_passage_scores_for_ids(
         # per kandydat — bierzemy więc zapas i agregujemy po stronie klienta.
         limit=max(len(candidate_ids) * 4, 64),
         with_payload=True,
-    )
+    ).points
     # Kandydat bez pasaży w kolekcji (backfill w toku albo CV bez tekstu) po
     # prostu NIE występuje w wyniku i zostaje przy wyniku z wektora kandydata —
     # to zamierzona łagodna degradacja, nie luka. Nie asertuj kompletności
