@@ -106,6 +106,12 @@ PROBLEMS: dict[str, tuple[str, bool]] = {
         "Kontrakt zleceniowy bez kandydata — nie wiadomo, komu wypłacić.",
         True,
     ),
+    "fund_basis_check": (
+        "Podstawa poniżej płacy minimalnej przy nieobecnościach w miesiącu — sprawdź, "
+        "czy w przeliczeniu na pełny miesiąc nie należy się FP (kwota Rozliczeń "
+        "z podstawą FP).",
+        False,
+    ),
     "ppk_untaxed": (
         "Wpłata pracodawcy PPK z poprzedniego miesiąca bez pozycji na liście — "
         "dolicz ją do przychodu osoby ręcznie (kwota w PIT-11).",
@@ -424,6 +430,20 @@ def calculate(prepared: Prepared) -> list[Computed]:
             ppk_taxable = ZERO
             result = engine.calculate(title, tax, state, params)
             state = result.ytd_after
+            leave_days = sum(
+                (
+                    Decimal(str(item.basis.get(name) or "0"))
+                    for name in ("paid_leave_days", "other_leave_days")
+                ),
+                ZERO,
+            )
+            if (
+                item.kind == "uop"
+                and item.fund_basis is None
+                and "labour_fund_below_minimum" in result.notes
+                and leave_days > 0
+            ):
+                problems.append("fund_basis_check")
             reduction_used += result.tax_reduction
             if item.kind == "uop":
                 kup_used += result.kup

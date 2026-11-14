@@ -731,3 +731,46 @@ def test_labour_fund_paid_for_half_month_with_full_month_equivalent() -> None:
     (line,) = lists.calculate(_prepared([item], {"u1": FULL}))
     assert line.result is not None
     assert line.result.labour_fund == D("73.50")
+
+
+async def test_ppk_due_survives_a_month_without_payout(monkeypatch) -> None:
+    """Lista 10 wypłacona 31.10, lista 11 dopiero 10.12 — PPK z października
+    wchodzi w grudniu, a zaległa wpłata z Enovy z otwarcia roku też się liczy."""
+
+    october = SimpleNamespace(
+        user_id=1,
+        candidate_id=None,
+        candidate_ref=None,
+        person_name="Osoba Testowa",
+        result={"ppk_employer": "117.00", "ppk_employer_taxable": "0"},
+    )
+
+    async def fake_lines(db, first, last, exclude_list_id):
+        return [october] if first <= date(2026, 10, 31) <= last else []
+
+    opening = SimpleNamespace(
+        user_id=2,
+        candidate_id=None,
+        candidate_ref=None,
+        amounts={"ppk_employer_pending": "90.50"},
+    )
+
+    class FakeDb:
+        async def scalars(self, _query):
+            return [opening]
+
+    monkeypatch.setattr(sources, "_approved_lines_between", fake_lines)
+    due = await sources.ppk_employer_due(
+        FakeDb(),  # type: ignore[arg-type]
+        pay=date(2026, 12, 10),
+        exclude_list_id=None,
+    )
+    assert due["u1"] == (D("117.00"), "Osoba Testowa")
+    assert due["u2"][0] == D("90.50")
+    october.result["ppk_employer_taxable"] = "117.00"
+    due_after = await sources.ppk_employer_due(
+        FakeDb(),  # type: ignore[arg-type]
+        pay=date(2026, 12, 10),
+        exclude_list_id=None,
+    )
+    assert "u1" not in due_after

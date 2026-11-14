@@ -669,6 +669,24 @@ async def records_for(
     return out
 
 
+async def records_by_keys(
+    db: AsyncSession, keys: set[str]
+) -> dict[str, PayrollPersonData]:
+    """Rekordy po kluczach osoby z list płac: ``u<konto>``, ``c<kandydat>``
+    albo ``r<pseudonim>`` (kandydat usunięty — ``SET NULL`` zostawia pseudonim)."""
+
+    user_ids = {int(k[1:]) for k in keys if k.startswith("u") and k[1:].isdigit()}
+    candidate_ids = {int(k[1:]) for k in keys if k.startswith("c") and k[1:].isdigit()}
+    refs = {k[1:] for k in keys if k.startswith("r") and len(k) > 1}
+    out = await records_for(db, user_ids, candidate_ids)
+    if refs:
+        for record in await db.scalars(
+            select(PayrollPersonData).where(PayrollPersonData.candidate_ref.in_(refs))
+        ):
+            out[f"r{record.candidate_ref}"] = record
+    return out
+
+
 def payload(
     subject: Subject,
     name: str,
@@ -869,6 +887,7 @@ __all__ = [
     "work_time_of",
     "payload",
     "person_tax",
+    "records_by_keys",
     "records_for",
     "sex_of",
     "split_name",

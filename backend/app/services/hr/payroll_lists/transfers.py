@@ -42,6 +42,7 @@ from app.services.hr.bank.settings import load_settings
 from app.services.hr.payroll_errors import PayrollConflict, PayrollForbidden
 from app.services.hr.payroll_lists import parameters, person_data
 from app.services.hr.payroll_lists.engine import ZERO
+from app.services.hr.payroll_lists.sources import person_key
 
 #: Przelew podatkowy w Elixir-O (do sprawdzenia w banku firmy).
 CLASSIFICATION_TAX = "71"
@@ -101,10 +102,9 @@ async def _accounts(
                 )
             )
         }
-    candidate_ids = {
-        line.candidate_id for line in lines if line.candidate_id is not None
-    }
-    records = await person_data.records_for(db, set(), candidate_ids)
+    records = await person_data.records_by_keys(
+        db, {person_key(line) for line in lines if line.user_id is None}
+    )
     out: dict[int, tuple[Optional[str], Optional[str]]] = {}
     for line in lines:
         try:
@@ -112,7 +112,7 @@ async def _accounts(
                 account = billing_details.decrypt_account(billing.get(line.user_id))
                 out[line.id] = (account, None if account else "no_account")
             else:
-                record = records.get(f"c{line.candidate_id}")
+                record = records.get(person_key(line))
                 data = person_data.decrypt(record) if record else {}
                 account = data.get("bank_account")
                 out[line.id] = (account, None if account else "no_account")

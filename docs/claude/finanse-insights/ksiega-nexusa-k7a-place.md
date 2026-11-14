@@ -74,11 +74,13 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
 - **Ulgi** mają wspólny roczny limit; w miesiącu przekroczenia składki społeczne
   odliczają się proporcjonalnie do części opodatkowanej, koszty UoP w pełnej
   kwocie. Dzieło bez ulg.
-- **PPK pracodawcy** jest przychodem osoby w miesiącu po miesiącu wypłaty
-  (przekazanie do instytucji do 15.): lista z wypłatą w miesiącu M dolicza wpłaty
-  z list wypłaconych w M−1, minus to, co doliczyły już inne listy z M. Osoba
-  z taką wpłatą bez pozycji na liście = ostrzeżenie `ppk_untaxed` z nazwiskiem
-  (do ręcznej korekty, kwota w PIT-11).
+- **PPK pracodawcy** jest przychodem osoby najwcześniej w miesiącu po miesiącu
+  wypłaty (przekazanie do instytucji do 15.). Liczone narastająco, żeby miesiąc bez
+  listy niczego nie zgubił: lista z wypłatą w miesiącu M dolicza wszystkie wpłaty
+  z list wypłaconych przed M i zaległą wpłatę z Enovy (`ppk_employer_pending`
+  w otwarciu roku), minus to, co doliczyły już zatwierdzone listy. Osoba z taką
+  wpłatą bez pozycji na liście = ostrzeżenie `ppk_untaxed` z nazwiskiem (do ręcznej
+  korekty, kwota w PIT-11).
 - **Zatwierdza druga osoba z Płac:** nie ta, która liczyła (CHECK w bazie
   `ck_payroll_lists_second_person`), i bez własnej pozycji na liście. Zatwierdzenie
   zbiera dane jeszcze raz i porównuje `source_hash` — każda zmiana kwot, danych
@@ -101,6 +103,8 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
   (strażnik `test_every_candidate_fk_has_on_delete_rule`), a dane płacowe,
   pozycje list i otwarcia roku trzymają pseudonim `candidate_ref`
   (`candidate_subject_reference`, jak umowy) — dokumentacja płacowa zostaje.
+  Osoba ma wtedy klucz `r<pseudonim>`, a KEDU, PIT i przelewy szukają jej danych
+  po kluczu (`person_data.records_by_keys`); poprawić ich już się nie da.
 - **PESEL na zewnątrz tylko jako maska** (kropki i 4 cyfry), bez daty urodzenia,
   gdy wynika z PESEL-u (data i 4 cyfry odsłoniłyby 10 z 11 cyfr). Ten sam PESEL
   u dwóch osób = 409 (skrót HMAC, bez odszyfrowania). Ślad zapisuje nazwy pól.

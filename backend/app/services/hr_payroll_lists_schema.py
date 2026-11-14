@@ -258,7 +258,14 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-COLUMN_DDL: tuple[str, ...] = ()
+#: Kolumny dodane w trakcie przeglądu 0703 (14.11.2026) — dla baz, na które trafiła
+#: pierwsza wersja tabel (``CREATE TABLE IF NOT EXISTS`` ich nie doda).
+COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE payroll_person_data ADD COLUMN IF NOT EXISTS candidate_ref VARCHAR(64) NULL",
+    "ALTER TABLE payroll_list_lines ADD COLUMN IF NOT EXISTS candidate_ref VARCHAR(64) NULL",
+    "ALTER TABLE payroll_year_openings ADD COLUMN IF NOT EXISTS candidate_ref VARCHAR(64) NULL",
+    "ALTER TABLE payroll_gross_inputs ADD COLUMN IF NOT EXISTS fund_basis NUMERIC(14,2) NULL",
+)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_person_data_user "
@@ -293,6 +300,9 @@ INDEX_DDL: tuple[str, ...] = (
     "ON payroll_year_openings (user_id, year) WHERE user_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_year_openings_candidate "
     "ON payroll_year_openings (candidate_ref, year) WHERE candidate_ref IS NOT NULL",
+    # Scalanie kandydatów rozstrzyga konflikty na indeksach z kolumną kandydata.
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_year_openings_candidate_id "
+    "ON payroll_year_openings (candidate_id, year) WHERE candidate_id IS NOT NULL",
 )
 
 CONSTRAINT_DDL: tuple[str, ...] = ()

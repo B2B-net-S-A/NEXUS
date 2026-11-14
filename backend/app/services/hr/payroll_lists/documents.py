@@ -88,9 +88,11 @@ def _missing_for_files(data: Optional[dict[str, Any]], contractor: bool) -> list
 
 
 async def _persons(
-    db: AsyncSession, user_ids: set[int], candidate_ids: set[int]
+    db: AsyncSession, keys: set[str]
 ) -> dict[str, Optional[dict[str, Any]]]:
-    records = await person_data.records_for(db, user_ids, candidate_ids)
+    """Dane osób po kluczach list (także ``r<pseudonim>`` po usunięciu kandydata)."""
+
+    records = await person_data.records_by_keys(db, keys)
     out: dict[str, Optional[dict[str, Any]]] = {}
     for key, record in records.items():
         try:
@@ -109,20 +111,12 @@ async def kedu_month_file(
     if not declaration.list_numbers:
         raise PayrollNotFound("Brak zatwierdzonych list płac z wypłatą w tym miesiącu.")
     payer = await _payer(db)
-    persons = await _persons(
-        db,
-        {item.user_id for item in declaration.insured if item.user_id is not None},
-        {
-            item.candidate_id
-            for item in declaration.insured
-            if item.candidate_id is not None
-        },
-    )
+    persons = await _persons(db, {item.person_key for item in declaration.insured})
     blocked: list[dict[str, Any]] = []
     insured: list[kedu.KeduInsured] = []
     for item in declaration.insured:
         data = persons.get(item.person_key)
-        missing = _missing_for_files(data, item.candidate_id is not None)
+        missing = _missing_for_files(data, not item.person_key.startswith("u"))
         if missing or data is None:
             blocked.append(
                 {
@@ -352,16 +346,8 @@ async def tax_year_data(db: AsyncSession, year: int) -> TaxYearData:
 
     rows = await sources.approved_lines(db, year=year)
     openings = await sources.openings(db, year)
-    keys_users = {line.user_id for _l, line in rows if line.user_id is not None}
-    keys_cands = {
-        line.candidate_id for _l, line in rows if line.candidate_id is not None
-    }
-    for item in openings.values():
-        if item.user_id is not None:
-            keys_users.add(item.user_id)
-        if item.candidate_id is not None:
-            keys_cands.add(item.candidate_id)
-    persons = await _persons(db, keys_users, keys_cands)
+    keys = {sources.person_key(line) for _l, line in rows} | set(openings)
+    persons = await _persons(db, keys)
     versions: dict[int, dict[str, Any]] = {}
     people: dict[str, PersonYear] = {}
     pit4r: dict[int, list[Any]] = defaultdict(lambda: [ZERO, ZERO, set()])
@@ -494,18 +480,14 @@ class Pit11File:
 async def pit11_documents(db: AsyncSession, year: int) -> list[Pit11File]:
     data_year = await tax_year_data(db, year)
     payer = await _tax_payer(db)
-    persons = await _persons(
-        db,
-        {p.user_id for p in data_year.people if p.user_id is not None},
-        {p.candidate_id for p in data_year.people if p.candidate_id is not None},
-    )
+    persons = await _persons(db, {p.person_key for p in data_year.people})
     out: list[Pit11File] = []
     for person in data_year.people:
         entries = [e for e in person.entries if not e.flat_tax]
         if not entries:
             continue
         data = persons.get(person.person_key)
-        missing = pit11_missing(data, person.candidate_id is not None)
+        missing = pit11_missing(data, not person.person_key.startswith("u"))
         if missing or data is None:
             out.append(Pit11File(person.person_key, person.name, None, missing))
             continue

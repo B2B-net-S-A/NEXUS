@@ -426,6 +426,13 @@ class PayrollYearOpening(Base):
             unique=True,
             postgresql_where=text("candidate_ref IS NOT NULL"),
         ),
+        Index(
+            "uq_payroll_year_openings_candidate_id",
+            "candidate_id",
+            "year",
+            unique=True,
+            postgresql_where=text("candidate_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -67,6 +67,8 @@ OPENING_KEYS: tuple[str, ...] = (
     "mandate_advance",
     "mandate_exempt",
     "flat_tax",
+    #: Wpłata pracodawcy PPK naliczona w Enovie, jeszcze niedoliczona do przychodu.
+    "ppk_employer_pending",
 )
 
 
@@ -553,30 +555,40 @@ async def month_state(
 async def ppk_employer_due(
     db: AsyncSession, *, pay: date, exclude_list_id: Optional[int]
 ) -> dict[str, tuple[Decimal, str]]:
-    """Wpłaty pracodawcy PPK do doliczenia w miesiącu wypłaty ``pay``.
+    """Wpłaty pracodawcy PPK do doliczenia do przychodu w miesiącu wypłaty ``pay``.
 
-    Wpłatę przekazuje się do 15. dnia miesiąca po miesiącu jej naliczenia, więc
-    jest przychodem osoby w miesiącu następnym: suma z list wypłaconych
-    w poprzednim miesiącu minus to, co inne listy tego miesiąca już doliczyły.
+    Wpłatę przekazuje się do 15. dnia miesiąca po jej naliczeniu, więc staje się
+    przychodem osoby najwcześniej w następnym miesiącu. Liczymy narastająco, żeby
+    miesiąc bez listy niczego nie zgubił: wszystkie wpłaty z list wypłaconych
+    przed miesiącem ``pay`` plus wpłata z Enovy, której Enova nie doliczyła
+    (otwarcie roku, ``ppk_employer_pending``), minus wszystko, co doliczyły już
+    zatwierdzone listy. Wynik: osoba → (kwota, nazwa).
     """
 
     first, _last = _month_bounds(pay)
-    previous_last = first - timedelta(days=1)
-    previous_first = date(previous_last.year, previous_last.month, 1)
-    due: dict[str, Decimal] = defaultdict(lambda: ZERO)
+    accrued: dict[str, Decimal] = defaultdict(lambda: ZERO)
     names: dict[str, str] = {}
     for line in await _approved_lines_between(
-        db, previous_first, previous_last, exclude_list_id
+        db, date(2000, 1, 1), first - timedelta(days=1), exclude_list_id
     ):
         key = person_key(line)
-        due[key] += _amount(line.result or {}, "ppk_employer")
+        accrued[key] += _amount(line.result or {}, "ppk_employer")
         names.setdefault(key, line.person_name)
-    taken = await month_state(db, pay=pay, exclude_list_id=exclude_list_id)
+    for opening in await db.scalars(select(PayrollYearOpening)):
+        pending = _amount(opening.amounts or {}, "ppk_employer_pending")
+        if pending > 0:
+            accrued[person_key(opening)] += pending
+    taxed: dict[str, Decimal] = defaultdict(lambda: ZERO)
+    for line in await _approved_lines_between(
+        db, date(2000, 1, 1), date(2100, 12, 31), exclude_list_id
+    ):
+        taxed[person_key(line)] += _amount(line.result or {}, "ppk_employer_taxable")
+        names.setdefault(person_key(line), line.person_name)
     out: dict[str, tuple[Decimal, str]] = {}
-    for key, value in due.items():
-        rest = value - (taken[key].ppk_taxed if key in taken else ZERO)
+    for key, value in accrued.items():
+        rest = value - taxed.get(key, ZERO)
         if rest > 0:
-            out[key] = (rest, names[key])
+            out[key] = (rest, names.get(key, "osoba z otwarcia roku"))
     return out
 
 
