@@ -68,6 +68,8 @@ export interface AllocationAccounts {
   front_office_account: string;
   back_office_account: string;
   overhead_account: string;
+  /** Jedno konto kosztów zespołu na PK płacowe — pion tylko w MPK pozycji (D2). */
+  team_account: string;
 }
 
 export interface LedgerConfig {

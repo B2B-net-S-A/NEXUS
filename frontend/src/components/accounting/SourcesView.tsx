@@ -28,7 +28,7 @@ const ORIGIN: Record<SourceKind, string> = {
   sales:
     "KSeF: faktury wystawione w eBI24 i w NEXUSIE. Okres = miesiąc sprzedaży, korekta — miesiąc wystawienia; waluta po kursie NBP.",
   allocation:
-    "Koszty z zatwierdzonych FVZ miesiąca na konta „5”: faktura kontraktora → klient kontraktu, osoba zespołu → pion z kartoteki, reszta → koszty ogólne (do czasu klucza podziału biura). Jedno PK na miesiąc, Ma rozliczenie kosztów; faktury osób zespołu w osobnym PK płacowym.",
+    "Koszty z zatwierdzonych FVZ miesiąca na konta „5”: faktura kontraktora → klient kontraktu, osoba zespołu → pion z kartoteki, reszta → koszty ogólne (do czasu klucza podziału biura). Jedno PK na miesiąc, Ma rozliczenie kosztów; faktury osób zespołu w osobnym PK płacowym, na jednym koncie zespołu. Storno FVZ odejmuje koszt w miesiącu storna.",
 };
 const PROBLEMS_SHOWN = 8;
 const DETAILS_SHOWN = 10;

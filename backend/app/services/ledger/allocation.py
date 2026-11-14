@@ -6,16 +6,21 @@ podział sam. Dekretu E2 (koszty rodzajowe, zespół 4) nie zmieniamy — co
 miesiąc powstaje jedno polecenie księgowania: Wn konta „5” z MPK, Ma konto
 rozliczenia kosztów (490).
 
-* **Z czego**: zatwierdzone FVZ okresu ze źródłem w kolejce kosztów
-  (``finance_cost_entry``), bez odwróconych stornem. Kwota = Wn − Ma pozycji na
-  kontach rodzaju „koszt” w planie kont (VAT i rozrachunki się nie liczą).
+* **Z czego**: zapisy miesiąca, jak w dzienniku — zatwierdzone FVZ okresu ze
+  źródłem w kolejce kosztów (``finance_cost_entry``), także później odwrócone,
+  i zatwierdzone storna takich FVZ zaksięgowane w tym okresie (z MPK faktury
+  pierwotnej). Storno w kwietniu odejmuje koszt w kwietniu, a zamknięty marzec
+  zostaje zgodny (przegląd poprawności 14.11.2026). Kwota = Wn − Ma pozycji na
+  kontach rodzaju „koszt” (rodzaj z planu kont po prefiksie numeru, także konta
+  już nieksięgowalnego — zmiana planu nie gubi zaksięgowanych kosztów).
 * **MPK**: faktura kontraktora → klient kontraktu (``K<id klienta>``); faktura
   osoby zespołu → pion z kartoteki (``FO`` / ``BO``); dokument akceptacji →
   klient wniosku, inaczej pion wnioskującego; reszta → koszty ogólne (``OG``,
   do czasu klucza podziału biura od Finansów).
 * **D2**: koszty z faktur osób zespołu idą osobnym PK z wrażliwością
-  ``payroll`` (kwoty pionu bywają kwotą jednej osoby) — osoba bez Płac go nie
-  widzi i nie liczy.
+  ``payroll`` na jednym koncie kosztów zespołu, z pionem tylko w MPK pozycji —
+  suma pionu bywa kwotą jednej osoby, a obroty kont pokazują sumy każdemu
+  z „Modułem Finanse”.
 """
 
 from __future__ import annotations
@@ -26,8 +31,9 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from sqlalchemy import and_, case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.client import Client
 from app.models.client_settlement import ClientContractorInvoice
@@ -38,7 +44,6 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.hr_settlement import PayrollInvoice
 from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.hr.structure import DIVISION_LABELS
-from app.services.ledger import engine
 from app.services.ledger.documents import DocumentSpec
 from app.services.ledger.engine import LineIn, PlanAccount
 from app.services.ledger.settings import AllocationAccounts
@@ -106,10 +111,15 @@ def allocation_spec(
         if amount == 0:
             continue
         total += amount
+        account = (
+            accounts.team_account
+            if payroll
+            else getattr(accounts, KIND_ACCOUNT[mpk.kind])
+        )
         lines.append(
             LineIn(
                 side="debit" if amount > 0 else "credit",
-                account=getattr(accounts, KIND_ACCOUNT[mpk.kind]),
+                account=account,
                 amount=abs(amount),
                 mpk=mpk.code,
                 description=mpk.label[:LINE_TEXT_MAX],
@@ -143,34 +153,65 @@ def allocation_spec(
     )
 
 
+def account_kind(number: str, plan: dict[str, PlanAccount]) -> Optional[str]:
+    """Rodzaj konta z planu: to konto albo najbliższe nadrzędne po prefiksie.
+
+    Celowo bez reguł księgowalności (``engine.resolve``): konto, pod którym
+    założono analitykę albo które wyłączono, dalej nosi zaksięgowane koszty.
+    """
+
+    parts = number.split("-")
+    for cut in range(len(parts), 0, -1):
+        account = plan.get("-".join(parts[:cut]))
+        if account is not None:
+            return account.kind
+    return None
+
+
 async def _cost_by_entry(
     db: AsyncSession, period_id: int, plan: dict[str, PlanAccount], *, payroll: bool
 ) -> dict[int, int]:
-    """Koszt (Wn − Ma na kontach „koszt”) zatwierdzonych FVZ okresu per wpis kolejki."""
+    """Koszt okresu (Wn − Ma na kontach „koszt”) per wpis kolejki kosztów.
 
+    FVZ zaksięgowane w okresie (także odwrócone później) i storna FVZ
+    zaksięgowane w okresie — storno czerwone ma kwoty ujemne, więc odejmuje się
+    samo, w miesiącu, w którym je zaksięgowano.
+    """
+
+    original = aliased(LedgerDocument)
     signed = case(
         (LedgerLine.side == "debit", LedgerLine.amount), else_=-LedgerLine.amount
     )
+    entry = case(
+        (LedgerDocument.reverses_id.is_(None), LedgerDocument.source_id),
+        else_=original.source_id,
+    )
     rows = await db.execute(
-        select(LedgerDocument.source_id, LedgerLine.account, func.sum(signed))
+        select(entry, LedgerLine.account, func.sum(signed))
+        .select_from(LedgerDocument)
         .join(LedgerLine, LedgerLine.document_id == LedgerDocument.id)
+        .outerjoin(original, original.id == LedgerDocument.reverses_id)
         .where(
             LedgerDocument.period_id == period_id,
             LedgerDocument.status == "approved",
-            LedgerDocument.source_type == COST_SOURCE,
-            LedgerDocument.reversed_by_id.is_(None),
+            or_(
+                LedgerDocument.source_type == COST_SOURCE,
+                and_(
+                    LedgerDocument.doc_type == "ST",
+                    original.source_type == COST_SOURCE,
+                ),
+            ),
             (
                 LedgerDocument.sensitivity.is_not(None)
                 if payroll
                 else LedgerDocument.sensitivity.is_(None)
             ),
         )
-        .group_by(LedgerDocument.source_id, LedgerLine.account)
+        .group_by(entry, LedgerLine.account)
     )
     out: dict[int, int] = defaultdict(int)
     for raw_id, account, amount in rows.all():
-        resolved, _ = engine.resolve(account, plan)
-        if resolved is None or resolved.plan.kind != "cost":
+        if account_kind(account, plan) != "cost":
             continue
         if raw_id and raw_id.isdigit():
             out[int(raw_id)] += int(amount or 0)

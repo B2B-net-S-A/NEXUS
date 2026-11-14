@@ -765,6 +765,20 @@ async def month_summary(
                 counts["changed"] += 1
             if candidate.skipped:
                 counts["skipped"] += 1
+                if doc is not None and doc.status != "draft":
+                    # Źródło bez kwot, a zapis w dzienniku zostaje — np. miesiąc,
+                    # w którym koszty zeszły do zera po stornie FVZ.
+                    problems.append(
+                        _problem(
+                            candidate.label,
+                            candidate.source_id,
+                            [
+                                _storno_hint(
+                                    doc, "Źródło nie ma już kwot do zaksięgowania"
+                                )
+                            ],
+                        )
+                    )
                 continue
             if candidate.spec is None:
                 problems.append(
@@ -883,6 +897,18 @@ async def sync_month(
                 result["deleted"] += 1
             if candidate.skipped:
                 result["skipped"] += 1
+                if doc is not None and doc.status != "draft":
+                    problems.append(
+                        _problem(
+                            candidate.label,
+                            candidate.source_id,
+                            [
+                                _storno_hint(
+                                    doc, "Źródło nie ma już kwot do zaksięgowania"
+                                )
+                            ],
+                        )
+                    )
             else:
                 problems.append(
                     _problem(candidate.label, candidate.source_id, candidate.problems)
