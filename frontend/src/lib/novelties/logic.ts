@@ -298,6 +298,8 @@ const START_FREE_PREFIXES = [
   "/login",
   "/onboarding",
   "/settings/nowosci",
+  // Poligon NEXUSA: mapa ćwiczeń (same ćwiczenia przepuszcza `useStartGate`).
+  "/poligon",
   // Sam odczyt liczb na telefonie; przeklikania Startu i tak robi się na laptopie.
   "/podglad",
 ];

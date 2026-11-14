@@ -1,0 +1,105 @@
+{
+ "job_id": 990001,
+ "job_title": "Senior Project Manager (bankowość)",
+ "job_reference": "ĆW-01",
+ "client_id": 990501,
+ "client_name": "Bank Północny",
+ "template_candidate_id": 990105,
+ "template_entry_id": 990305,
+ "trainers": {
+  "dl": {
+   "id": 990901,
+   "name": "Anna Poligonowa"
+  },
+  "rec": {
+   "id": 990902,
+   "name": "Jakub Szkoleniowy"
+  }
+ },
+ "people": [
+  {
+   "candidate_id": 990101,
+   "entry_id": 990301,
+   "name": "Zofia",
+   "lastname": "Jodłowska"
+  },
+  {
+   "candidate_id": 990102,
+   "entry_id": 990302,
+   "name": "Tomasz",
+   "lastname": "Leszczyński"
+  },
+  {
+   "candidate_id": 990103,
+   "entry_id": 990303,
+   "name": "Natalia",
+   "lastname": "Topolska"
+  },
+  {
+   "candidate_id": 990104,
+   "entry_id": 990304,
+   "name": "Igor",
+   "lastname": "Sosnowski"
+  },
+  {
+   "candidate_id": 990105,
+   "entry_id": 990305,
+   "name": "Helena",
+   "lastname": "Wrzosek"
+  },
+  {
+   "candidate_id": 990106,
+   "entry_id": 990306,
+   "name": "Bartosz",
+   "lastname": "Brzozowski"
+  },
+  {
+   "candidate_id": 990107,
+   "entry_id": 990307,
+   "name": "Aleksandra",
+   "lastname": "Kalinowska"
+  },
+  {
+   "candidate_id": 990108,
+   "entry_id": 990308,
+   "name": "Jakub",
+   "lastname": "Jaworek"
+  },
+  {
+   "candidate_id": 990109,
+   "entry_id": 990309,
+   "name": "Weronika",
+   "lastname": "Cisowska"
+  },
+  {
+   "candidate_id": 990110,
+   "entry_id": 990310,
+   "name": "Szymon",
+   "lastname": "Grabowiec"
+  },
+  {
+   "candidate_id": 990111,
+   "entry_id": 990311,
+   "name": "Laura",
+   "lastname": "Olszyńska"
+  },
+  {
+   "candidate_id": 990112,
+   "entry_id": 990312,
+   "name": "Filip",
+   "lastname": "Bukowiec"
+  },
+  {
+   "candidate_id": 990113,
+   "entry_id": 990313,
+   "name": "Maja",
+   "lastname": "Wierzbicka"
+  },
+  {
+   "candidate_id": 990114,
+   "entry_id": 990314,
+   "name": "Oskar",
+   "lastname": "Modrzewski"
+  }
+ ]
+}
