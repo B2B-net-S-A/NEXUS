@@ -91,18 +91,27 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
   źródło `payroll_list` / `RRRR-MM:<lista>`, wrażliwość `payroll`. **Tylko Płace
   i admin** (D2) — karta, trasa (403) i liczby na liście zamknięcia. Ponowny import
   tej samej listy przebudowuje szkic; zatwierdzony LP poprawia się stornem (409).
-- Formatu eksportu Enovy nie znamy z próbki — kolumny po aliasach nagłówków.
-  Składki pracodawcy sprawdzamy przed składkami pracownika („Emerytalne prac.”
-  jest przedrostkiem „Emerytalne pracodawca”); **dwie kolumny tej samej pozycji =
-  odmowa pliku**, bo jedna kwota by przepadła. Kolumna łączna („ZUS
-  pracownika/pracodawcy”) liczy się tylko bez składek osobno, „Netto” tylko bez
-  „Do wypłaty”. Podgląd pokazuje, jak rozpoznano kolumny.
+- Formatu eksportu Enovy nie znamy z próbki — kolumny rozpoznajemy po słowach
+  w nagłówku (nie po przedrostkach). **Nagłówek ze znacznikiem pracodawcy**
+  („pracodawca”, „firma”, „płatnik”, „zakład”) nigdy nie trafia do kwot
+  pracownika; nieprzypisany = odmowa pliku. **Dwie kolumny tej samej pozycji =
+  odmowa** (poza potrąceniami, które się sumują). Kolumna łączna („ZUS
+  pracownika/pracodawcy”) obok niepełnego rozbicia = odmowa, obok pełnego musi
+  się zgadzać co do grosza. „Netto” liczy się tylko bez „Do wypłaty”. Podstawy,
+  koszty uzyskania i składniki brutto pomijamy. Podgląd pokazuje, jak
+  rozpoznano kolumny.
+- **Wszystko, przez co LP wyszedłby zbilansowany, ale z innymi kwotami niż
+  lista, blokuje zapis** (przegląd K3c): brutto − potrącenia ≠ „Do wypłaty”,
+  wiersz „Razem” ≠ suma osób, brak kolumny „Do wypłaty”, składki ZUS pracownika
+  bez żadnej składki pracodawcy. Wiersz sumy poznajemy po pierwszym słowie
+  („Razem”, „Suma”…) w dowolnej komórce tekstowej — „Sumała” to nazwisko.
+- Zatwierdzony LP jest domyślnie w paczce płacowej do Symfonii (rodzaj „Listy
+  płac (Enova)”), a lista zamknięcia liczy go do „zatwierdzone poza paczką”.
 - Dekret: Wn wynagrodzenia i Wn koszt pracodawcy (składki, FP, FS, FGŚP, PPK)
   z MPK z kolumny „Wydział”, Wn rozrachunki z tytułu wynagrodzeń (potrącenia);
   Ma rozrachunki (brutto), ZUS, US (PIT-4), PPK, inne potrącenia. Netto zostaje
   na rozrachunkach do wypłaty (rozliczy je wyciąg w K4).
-- Wiersz z brutto − potrącenia ≠ „Do wypłaty” daje ostrzeżenie z różnicą, nie
-  blokuje zapisu. Nieczytelna kwota, brak kont albo ujemne sumy — blokują.
+- Nieczytelna kwota, brak kont albo ujemne sumy też blokują.
 - Konta (`PUT /config/payroll`, admin): wynagrodzenia, koszt pracodawcy,
   rozrachunki z tytułu wynagrodzeń, ZUS i US wymagane; PPK i inne potrącenia
   opcjonalne — lista z takimi kwotami bez konta czeka z problemem.

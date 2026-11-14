@@ -54,6 +54,26 @@ def _csv(*rows: str) -> bytes:
         ("Pracownik", "person"),
         ("Podstawa ub. zdrowotnego", None),
         ("Wynagrodzenie zasadnicze", None),
+        # Warianty nagłówków pracodawcy z przeglądu K3c — nigdy do pracownika.
+        ("Składki ZUS pracodawca", "er_social"),
+        ("Składki ZUS płatnika", "er_social"),
+        ("Razem ZUS pracodawcy", "er_social"),
+        ("Emerytalna pracodawcy", "er_pension"),
+        ("Emerytalne firmy", "er_pension"),
+        ("Ub. emerytalne pracodawcy", "er_pension"),
+        ("Rentowa pracodawcy", "er_disability"),
+        ("FP (firma)", "fp"),
+        ("FP pracodawcy", "fp"),
+        ("FGŚP (firma)", "fgsp"),
+        ("FEP", "fep"),
+        ("PPK - wpłata pracodawcy", "ppk_er"),
+        ("Netto do wypłaty", "net"),
+        ("Wypłata", "net"),
+        ("Kwota netto", "net_alt"),
+        ("ZUS (prac.)", "emp_social"),
+        ("Wynagrodzenie chorobowe", None),
+        ("Koszt pracodawcy", None),
+        ("Nazwisko i imię", "person"),
     ],
 )
 def test_headers_map_to_columns(header, key):
@@ -97,11 +117,13 @@ def test_totals_and_balanced_decree_per_cost_centre():
     ]
 
 
-def test_net_mismatch_is_a_warning_not_an_error():
+def test_net_mismatch_blocks_the_row():
+    # Złe netto znaczy, że któraś kwota nie trafiła do potrąceń — zapis z nim
+    # zostawiłby na rozrachunkach inną kwotę niż wypłacona (przegląd K3c).
     wrong = ROW_A.replace(";7064,39;", ";7000,00;")
     parsed = payroll_lists.parse(_csv(HEADER, wrong))
-    assert parsed.errors == [] and len(parsed.rows) == 1
-    assert len(parsed.warnings) == 1 and "różnica -64.39 zł" in parsed.warnings[0]["message"]
+    assert parsed.rows == [] and len(parsed.errors) == 1
+    assert "różnica -64.39 zł" in parsed.errors[0]["message"]
 
 
 def test_netto_counts_only_without_do_wyplaty_column():
@@ -140,3 +162,61 @@ def test_list_name_is_required():
     with pytest.raises(Exception, match="nazwę listy"):
         payroll_lists.list_key("  ")
     assert payroll_lists.list_key("LP 03/2026") == "lp032026"
+
+
+def test_unknown_employer_column_refuses_the_file():
+    with pytest.raises(ImportFileError, match="Dopłata pracodawcy"):
+        payroll_lists.parse(_csv("Pracownik;Brutto;Do wypłaty;Dopłata pracodawcy", "A;1000;1000;10"))
+
+
+def test_combined_column_with_partial_breakdown_refuses_the_file():
+    header = "Pracownik;Brutto;Do wypłaty;ZUS pracodawcy;Wypadkowe;Emerytalne;Rentowe;Chorobowe;Zdrowotne"
+    row = "A;10000;7701,39;1626;167;976;150;245;776,61"
+    with pytest.raises(ImportFileError, match="ZUS pracodawcy"):
+        payroll_lists.parse(_csv(header, row))
+
+
+def test_combined_column_with_full_breakdown_must_add_up():
+    header = "Pracownik;Brutto;Do wypłaty;ZUS pracownika;Emerytalne;Rentowe;Chorobowe;Zdrowotne;Emerytalne pracodawca"
+    good = "A;10000;7852,39;1371;976;150;245;776,61;976"
+    parsed = payroll_lists.parse(_csv(header, good))
+    assert parsed.errors == [] and len(parsed.rows) == 1
+    bad = "A;10000;7852,39;1300;976;150;245;776,61;976"
+    parsed = payroll_lists.parse(_csv(header, bad))
+    assert parsed.rows == [] and "ZUS pracownika" in parsed.errors[0]["message"]
+
+
+def test_employee_zus_without_employer_columns_is_a_problem():
+    header = "Pracownik;Brutto;Emerytalne;Rentowe;Chorobowe;Zdrowotne;Zaliczka podatku;Do wypłaty"
+    parsed = payroll_lists.parse(_csv(header, "A;10000;976;150;245;776,61;588;7264,39"))
+    assert any("pracodawcy" in problem for problem in parsed.problems)
+
+
+def test_missing_net_column_is_a_problem():
+    parsed = payroll_lists.parse(_csv("Pracownik;Brutto;Zaliczka podatku", "A;1000;100"))
+    assert any("Do wypłaty" in problem for problem in parsed.problems)
+
+
+def test_surname_starting_like_total_is_a_person_and_total_in_any_column_is_skipped():
+    header = "Lp.;Nazwisko i imię;Brutto;Zaliczka podatku;Do wypłaty"
+    rows = ["1;Sumała Ewa;5000;500;4500", "2;Razemska Anna;6000;600;5400", ";Razem;11000;1100;9900"]
+    parsed = payroll_lists.parse(_csv(header, *rows))
+    assert len(parsed.rows) == 2 and parsed.skipped == 1 and parsed.errors == []
+    header2 = "Lp.;Osoba;Brutto;Zaliczka podatku;Do wypłaty"
+    rows2 = ["1;Osoba A;5000;500;4500", "2;Osoba B;6000;600;5400", ";Razem;11000;1100;9900"]
+    parsed2 = payroll_lists.parse(_csv(header2, *rows2))
+    assert len(parsed2.rows) == 2 and parsed2.skipped == 1
+
+
+def test_total_row_must_match_the_sum_of_people():
+    header = "Pracownik;Brutto;Zaliczka podatku;Do wypłaty"
+    rows = ["Osoba A;5000;500;4500", "Osoba B;6000;600;5400", "Razem;12000;1100;9900"]
+    parsed = payroll_lists.parse(_csv(header, *rows))
+    assert any("Brutto" in error["message"] for error in parsed.errors)
+
+
+def test_several_deduction_columns_add_up():
+    header = "Pracownik;Brutto;Zaliczka podatku;Potrącenia komornicze;Potrącenia inne;Do wypłaty"
+    parsed = payroll_lists.parse(_csv(header, "A;1000;100;50;25;825"))
+    assert parsed.errors == [] and parsed.rows[0].amounts["deductions"] == 7_500
+

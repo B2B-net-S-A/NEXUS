@@ -1522,3 +1522,26 @@ async def test_payroll_list_needs_accounts_and_automations_module(client, world,
     refused = await _payroll_import(client, world, books, save=True)
     assert refused.status_code == 422
 
+
+async def test_approved_payroll_list_goes_to_the_default_payroll_package(client, world, books):
+    # Zatwierdzony LP to dokument dla Symfonii: domyślnie w paczce płacowej,
+    # a do czasu paczki lista zamknięcia nie mówi „wszystko w paczkach”.
+    year = books["year"]
+    await _set_ledger(_payroll_settings(world, books))
+    saved = await _payroll_import(client, world, books, save=True)
+    assert saved.status_code == 200, saved.text
+    doc = await _document("payroll_list", f"{year}-03:lp03")
+    await _approve_ids(client, world, [doc.id])
+    items = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert items["symfonia"]["state"] == "todo"
+    assert items["symfonia"]["detail"] == "zatwierdzone poza paczką: 1"
+    preview = await _exports(client, world, books)
+    kinds = {item["key"]: item for item in preview["kinds"]}
+    assert kinds["payroll"]["default"] and kinds["payroll"]["payroll_count"] == 1
+    default = [item["key"] for item in preview["kinds"] if item["default"]]
+    package = await _export(client, world, books, default, payroll=True)
+    assert package.status_code == 201, package.text
+    assert package.json()["document_count"] == 1
+    after = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert after["symfonia"]["detail"].startswith("czeka na „Zaksięgowana w Symfonii”")
+

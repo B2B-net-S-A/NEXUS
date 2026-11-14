@@ -32,6 +32,7 @@ from app.services.ledger.export_file import (
         ("PK", "cost_allocation", "allocation"),
         ("PK", "ledger_recurring", "recurring"),
         ("PK", "ledger_prepayment", "prepayments"),
+        ("LP", "payroll_list", "payroll"),
         ("PK", "something_new", "other"),
     ],
 )
@@ -41,7 +42,13 @@ def test_kind_of_document(doc_type, source_type, kind):
 
 def test_invoices_and_opening_stay_out_by_default():
     # Faktury mają własne drogi do Symfonii (E2, eBI24), BO przychodzi z Symfonii.
-    assert exports.DEFAULT_KINDS == {"manual", "recurring", "prepayments", "allocation"}
+    assert exports.DEFAULT_KINDS == {
+        "manual",
+        "recurring",
+        "prepayments",
+        "allocation",
+        "payroll",
+    }
     for kind in ("costs", "sales", "opening"):
         assert exports.KIND_NOTES[kind]
 

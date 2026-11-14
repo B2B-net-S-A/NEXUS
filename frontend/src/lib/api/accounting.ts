@@ -432,6 +432,7 @@ export type ExportKind =
   | "recurring"
   | "prepayments"
   | "allocation"
+  | "payroll"
   | "costs"
   | "sales"
   | "opening"
