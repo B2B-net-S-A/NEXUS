@@ -798,7 +798,8 @@ describe("Księgowość — paczki do Symfonii (K3b)", () => {
     renderWith(<ExportsView />);
     await screen.findByText("PK 4/10/2026");
     expect(screen.queryByRole("switch", { name: "Paczka płacowa" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pobierz paczkę (2)" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Pobierz paczkę/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Paczkę robi osoba z listy „Księgowi”/)).toBeInTheDocument();
   });
 
   it("rok w trybie NEXUS mówi dlaczego — bez karty nowej paczki", async () => {

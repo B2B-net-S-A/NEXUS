@@ -79,7 +79,7 @@ export function ExportsView() {
     <div className="space-y-3.5">
       <p className="rounded-md border border-border bg-muted/40 px-3.5 py-2 text-[13px] text-muted-foreground">
         {data.exportable
-          ? `Rok ${period.year}: ${data.book_year?.mode_label ?? ""}. Paczka zbiera zatwierdzone dokumenty miesiąca w pliku do importu w Symfonii FK — każdy dokument trafia do niej raz.`
+          ? "Paczka zbiera zatwierdzone dokumenty miesiąca w pliku do importu w Symfonii FK — każdy dokument trafia do niej raz."
           : data.refusal}
       </p>
       {data.exportable ? <NewExportCard key={`${period.year}-${period.month}`} data={data} /> : null}
@@ -137,6 +137,35 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
     <SectionCard title="Nowa paczka do Symfonii" aside={title}>
       <div className="grid gap-0 xl:grid-cols-[minmax(0,5fr)_minmax(0,7fr)]">
         <div className="space-y-3 px-3.5 py-3 xl:border-r xl:border-border/70">
+          {approver ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                disabled={docs.length === 0}
+                title={docs.length === 0 ? "Nie ma zatwierdzonych dokumentów w zaznaczonych rodzajach" : undefined}
+                loading={create.isPending}
+                onClick={run}
+              >
+                Pobierz paczkę ({docs.length})
+              </Button>
+              <select
+                aria-label="Format pliku"
+                className={CONTROL}
+                value={format}
+                onChange={(event) => setFormat(event.target.value)}
+              >
+                {data.formats.map((item) => (
+                  <option key={item.key} value={item.key}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <p className="text-[12px] leading-5 text-muted-foreground">
+              Paczkę robi osoba z listy „Księgowi” albo administrator — tu widać, co do niej wejdzie.
+            </p>
+          )}
           {data.drafts ? (
             <p className="text-[12px] leading-5 text-warning-muted-foreground">
               W buforze tego miesiąca {data.drafts === 1 ? "jest 1 dokument" : `są dokumenty (${data.drafts})`} — do
@@ -185,35 +214,6 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
               );
             })}
           </ul>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Format pliku"
-              className={CONTROL}
-              value={format}
-              onChange={(event) => setFormat(event.target.value)}
-            >
-              {data.formats.map((item) => (
-                <option key={item.key} value={item.key}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            <Button
-              size="sm"
-              disabled={!approver || docs.length === 0}
-              title={
-                !approver
-                  ? "Paczkę robi osoba z listy „Księgowi” albo administrator"
-                  : docs.length === 0
-                    ? "Nie ma zatwierdzonych dokumentów w zaznaczonych rodzajach"
-                    : undefined
-              }
-              loading={create.isPending}
-              onClick={run}
-            >
-              Pobierz paczkę ({docs.length})
-            </Button>
-          </div>
           <p className="text-[12px] leading-5 text-muted-foreground">
             Format neutralny (wiersz na pozycję dekretu, jak paczka E2) — format importu Symfonii dopiszemy po
             próbce pliku od Finansów.
@@ -225,7 +225,7 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
               <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="border-b border-border/70">
-                    <th className={cn(CALM_HEAD, "w-[13%] px-3.5 py-2 text-left")}>Dziennik</th>
+                    <th className={cn(CALM_HEAD, "w-[15%] px-3.5 py-2 text-left")}>Dziennik</th>
                     <th className={cn(CALM_HEAD, "px-2 py-2 text-left")}>Dokument</th>
                     <th className={cn(CALM_HEAD, "w-[16%] px-2 py-2 text-left")}>Data</th>
                     <th className={cn(CALM_HEAD, "w-[21%] px-3.5 py-2 text-right")}>Kwota, zł</th>
@@ -234,7 +234,7 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
                 <tbody>
                   {shown.map((doc) => (
                     <tr key={doc.id} className={cn(CALM_ROW, "last:border-0")}>
-                      <td className="px-3.5 py-1.5 tabular-nums text-muted-foreground">poz. {doc.journal_no}</td>
+                      <td className="whitespace-nowrap px-3.5 py-1.5 tabular-nums text-muted-foreground">{doc.journal_no}</td>
                       <td className="min-w-0 px-2 py-1.5">
                         <span className="block truncate font-medium" title={doc.number}>
                           {doc.number}
