@@ -495,6 +495,39 @@ async def test_sales_month_books_invoices_with_rate_and_corrections(
     assert again.json()["created"] == 0 and again.json()["unchanged"] == 3
 
 
+async def test_correction_of_advance_waits_with_the_advance(client, world, books):
+    ids = books["sales"]
+    async with AsyncSessionLocal() as db:
+        correction = _sales_invoice(
+            world["nips"]["client"],
+            number="FZK 1/03",
+            buyer_nip=world["nips"]["client"],
+            invoice_type="KOR_ZAL",
+            invoice_kind="correction",
+            corrects_invoice_id=ids["advance"],
+            corrected_invoice_number="FZ 1/03",
+            issue_date=date(books["year"], 3, 20),
+            sale_date=date(books["year"], 3, 11),
+            net_amount=Decimal("-100.00"),
+            vat_amount=Decimal("-23.00"),
+            gross_amount=Decimal("-123.00"),
+        )
+        db.add(correction)
+        await db.commit()
+        correction_id = correction.id
+    try:
+        result = await _sync(client, world, books, "sales")
+        reasons = {item["source_id"]: item["problems"][0] for item in result.json()["problems"]}
+        assert reasons[str(correction_id)] == sources.ADVANCE
+        assert await _document("client_sales_invoice", correction_id) is None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientSalesInvoice).where(ClientSalesInvoice.id == correction_id)
+            )
+            await db.commit()
+
+
 async def test_sales_wait_for_revenue_account(client, world, books):
     await _set_ledger(
         {

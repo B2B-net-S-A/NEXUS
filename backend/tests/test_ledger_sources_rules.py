@@ -120,6 +120,12 @@ def test_buyer_key_is_nip_or_eu_vat_number():
     )
 
 
+def test_advance_invoice_and_its_correction_wait_for_the_advance_rule():
+    for invoice_type in ("ZAL", "KOR_ZAL"):
+        invoice = SimpleNamespace(invoice_type=invoice_type)
+        assert sources.sales_spec(invoice, _ctx(), None) == sources.ADVANCE
+
+
 def _invoice(**overrides):
     values = {
         "id": 1,

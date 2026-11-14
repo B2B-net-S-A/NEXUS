@@ -18,7 +18,8 @@ więc dokumenty z faktur muszą dać się porównać z Symfonią miesiąc do mie
   („konto przychodowe” z eBI24, odpowiednik „kosztowego” w E2), inaczej konto
   z Ustawień + ID Symfonii kontrahenta. Zaliczka (ZAL) czeka na regułę (K3).
 * **Kwoty ujemne** (korekty in minus) zamieniają strony, kwoty zostają
-  dodatnie — tak samo jak w dekrecie E2.
+  dodatnie — tak samo jak w dekrecie E2. Zaliczka (ZAL) i jej korekta
+  (KOR_ZAL) czekają na regułę zaliczek (K3).
 * **Księgowanie miesiąca jest idempotentne**: dokument ma źródło
   (``source_type`` + ``source_id``) i odcisk danych (``meta.fingerprint``).
   Nowe źródło = nowy szkic, zmienione = szkic przebudowany, wycofane = szkic
@@ -79,6 +80,9 @@ NO_RECEIVABLE = (
 NO_REVENUE_ACCOUNT = (
     "Ustaw konto przychodów ze sprzedaży w Ustawieniach Księgowości (administrator)."
 )
+#: Zaliczka i jej korekta (KSeF: ``KOR_ZAL``) czekają razem na regułę zaliczek —
+#: korekta zaliczki jako FVS zmniejszyłaby przychód, którego nie było.
+ADVANCE_TYPES = frozenset({"ZAL", "KOR_ZAL"})
 ADVANCE = (
     "Faktura zaliczkowa — dekret zaliczki wejdzie z regułą rozliczeń (K3); do tego "
     "czasu zaksięguj ją poleceniem księgowania."
@@ -180,9 +184,13 @@ def cost_spec(
             fx_date = date.fromisoformat(str(decree["fx_date"]))
         except (ArithmeticError, ValueError):
             # Dekret ręczny z nieczytelnym kursem — problem faktury, nie błąd 500.
-            return "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
+            return (
+                "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
+            )
         if not fx_rate.is_finite() or fx_rate <= 0:
-            return "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
+            return (
+                "Kurs w dekrecie faktury jest nieczytelny — przelicz dekret w Kosztach."
+            )
     lines: list[LineIn] = []
     for item in positions:
         is_counterparty = item.get("kind") == "counterparty"
@@ -399,7 +407,7 @@ def sales_spec(
 ) -> DocumentSpec | str | None:
     """FVS z faktury KSeF; ``str`` = problem, ``None`` = brak kwot do zapisu."""
 
-    if invoice.invoice_type == "ZAL":
+    if invoice.invoice_type in ADVANCE_TYPES:
         return ADVANCE
     key = buyer_key(invoice)
     counterparty = ctx.counterparties.get(key) if key else None

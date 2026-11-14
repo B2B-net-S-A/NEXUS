@@ -23,7 +23,9 @@ z Symfonią miesiąc do miesiąca.
   korekta — kurs faktury pierwotnej. Brutto i VAT po kursie, netto jako
   różnica (jak E2). Rozrachunek ma kwotę w walucie (`amount_cur`).
 - **Kwota ujemna** (korekta in minus) zamienia strony, kwoty zostają dodatnie —
-  jak w dekrecie E2. Faktura zaliczkowa (ZAL) czeka na regułę (K3).
+  jak w dekrecie E2. Faktura zaliczkowa (ZAL) i jej korekta (KOR_ZAL) czekają
+  na regułę zaliczek (K3) — korekta zaliczki jako FVS zmniejszyłaby przychód,
+  którego w księdze nie było.
 - **Konto rozrachunkowe odbiorcy**: „konto przychodowe” kontrahenta z kartoteki
   E1 (import z eBI24 — odpowiednik „konta kosztowego”, którego E2 używa jako
   konta rozrachunkowego dostawcy), inaczej konto z Ustawień + `-` + ID Symfonii
