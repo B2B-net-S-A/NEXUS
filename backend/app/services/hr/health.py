@@ -19,9 +19,12 @@ utknęło — bez zaglądania w logi.
 * ``admin_cases_mail`` — czytnik skrzynki: ostatni przebieg z błędem albo
   starszy niż 30 min (pętla co 5 min),
 * ``hr_jobs`` — rezerwacje ``hr_job_runs``: ``failed`` z ostatniej doby albo
-  ``claimed`` bez końca dłużej niż 2 h, też z ostatniej doby (przebieg zabity
-  w połowie; rezerwacji z godzinowym kluczem nikt już nie przejmie i bez tej
-  granicy trzymałaby sondę w ``degraded`` na stałe).
+  ``claimed`` bez końca dłużej niż 2 h, też z ostatniej doby, po której nie
+  było już przebiegu tego samego rodzaju (zadanie stoi). Wdrożenie zatrzymuje
+  kontener w trakcie przebiegu, a rezerwacji z godzinowym kluczem nikt już nie
+  przejmie: bez warunku „ostatnia tego rodzaju” sonda stała w ``degraded``
+  prawie dobę po każdym takim wdrożeniu, choć następna godzina kończyła się
+  ``done`` (``sales_ksef_fetch`` 14.11.2026), a bez granicy doby — na stałe.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from typing import Optional
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.models.admin_case import AdminMailIngestState
@@ -135,6 +139,12 @@ async def hr_jobs_state(db: AsyncSession, *, now: Optional[datetime] = None) -> 
     if not (settings.HR_PROGRAM_ENABLED and settings.HR_LOOPS_ENABLED):
         return "disabled"
     moment = _now(now)
+    newer = aliased(HrJobRun)
+    superseded = (
+        select(newer.id)
+        .where(newer.kind == HrJobRun.kind, newer.claimed_at > HrJobRun.claimed_at)
+        .exists()
+    )
     problems = await db.scalar(
         select(func.count())
         .select_from(HrJobRun)
@@ -149,6 +159,7 @@ async def hr_jobs_state(db: AsyncSession, *, now: Optional[datetime] = None) -> 
                     HrJobRun.finished_at.is_(None),
                     HrJobRun.claimed_at < moment - JOBS_STUCK_AFTER,
                     HrJobRun.claimed_at >= moment - JOBS_FAILED_WINDOW,
+                    ~superseded,
                 ),
             )
         )
