@@ -14,6 +14,7 @@ import {
   readPeriod,
   shiftPeriod,
   short,
+  sourceLabel,
   toGrosze,
   visibleTabs,
   type DraftLine,
@@ -141,6 +142,20 @@ const CONFIG: LedgerConfig = {
   account_types: [],
   dictionaries: [],
 };
+
+describe("źródło dokumentu", () => {
+  it("nazywa źródło po polsku i linkuje kartę faktury kosztowej", () => {
+    expect(sourceLabel({ type: "finance_cost_entry", id: "41" })).toEqual({
+      label: "Faktura kosztowa (Koszty)",
+      href: "/finance/costs/41",
+    });
+    expect(sourceLabel({ type: "client_sales_invoice", id: "7" })).toEqual({
+      label: "Faktura sprzedaży z KSeF",
+      href: null,
+    });
+    expect(sourceLabel({ type: "inne", id: "1" }).label).toBe("inne");
+  });
+});
 
 describe("zakładki i okres", () => {
   it("pokazuje zakładki modułów otwartych dla osoby i zawsze Ustawienia", () => {

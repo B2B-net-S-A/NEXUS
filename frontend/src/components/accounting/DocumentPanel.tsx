@@ -1,6 +1,7 @@
 "use client";
 
 import { Lock, X } from "lucide-react";
+import Link from "next/link";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
@@ -17,7 +18,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
-import { datePl, gr } from "./ledger-model";
+import { datePl, gr, sourceLabel } from "./ledger-model";
 
 /** Karta dokumentu: dekret, fakty, ślad i akcje (bufor albo storno). */
 export function DocumentPanel({
@@ -127,7 +128,18 @@ export function DocumentPanel({
         {doc.source ? (
           <>
             <dt className="text-muted-foreground">Źródło</dt>
-            <dd className="truncate">{doc.source.type}</dd>
+            <dd className="truncate">
+              {(() => {
+                const source = sourceLabel(doc.source);
+                return source.href ? (
+                  <Link href={source.href} className="text-primary hover:underline">
+                    {source.label}
+                  </Link>
+                ) : (
+                  source.label
+                );
+              })()}
+            </dd>
           </>
         ) : null}
         {doc.fx_rate ? (

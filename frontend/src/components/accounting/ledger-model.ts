@@ -184,6 +184,15 @@ export function visibleTabs(config: LedgerConfig | undefined): AreaTab[] {
   return ACCOUNTING_TABS.filter((tab) => tab.module === null || open.has(tab.module));
 }
 
+/** Źródło dokumentu po polsku i — gdy źródło ma kartę w NEXUSIE — odnośnik do niej. */
+export function sourceLabel(source: { type: string; id: string }): { label: string; href: string | null } {
+  if (source.type === "finance_cost_entry") {
+    return { label: "Faktura kosztowa (Koszty)", href: `/finance/costs/${encodeURIComponent(source.id)}` };
+  }
+  if (source.type === "client_sales_invoice") return { label: "Faktura sprzedaży z KSeF", href: null };
+  return { label: source.type, href: null };
+}
+
 /** „1 konto analityczne”, „3 konta analityczne”, „5 kont analitycznych”. */
 export function analyticsLabel(count: number): string {
   const lastTwo = count % 100;
