@@ -34,6 +34,7 @@ from app.models.finance_posting import FinanceAccount, FinancePostingRule
 from app.models.ledger import (
     LedgerDocument,
     LedgerEvent,
+    LedgerExport,
     LedgerLine,
     LedgerPeriod,
     LedgerYear,
@@ -103,6 +104,10 @@ async def _purge_years(year_numbers: list[int]) -> None:
                 await db.scalars(
                     select(LedgerPeriod.id).where(LedgerPeriod.year_id.in_(year_ids))
                 )
+            )
+            # Paczki do Symfonii (K3b) trzymają dokumenty (RESTRICT) — najpierw one.
+            await db.execute(
+                delete(LedgerExport).where(LedgerExport.year_id.in_(year_ids))
             )
             await db.execute(
                 delete(LedgerEvent).where(

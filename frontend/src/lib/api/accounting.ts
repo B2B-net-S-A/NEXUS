@@ -412,6 +412,89 @@ export interface SyncResult {
   problems_total: number;
 }
 
+// ── Paczki do Symfonii (K3b) ────────────────────────────────────────────────
+
+export type ExportKind =
+  | "manual"
+  | "recurring"
+  | "prepayments"
+  | "allocation"
+  | "costs"
+  | "sales"
+  | "opening"
+  | "other";
+export type ExportStatus = "exported" | "booked" | "cancelled";
+
+export interface ExportKindRow {
+  key: ExportKind;
+  label: string;
+  /** W paczce domyślnie — reszta trafia do Symfonii inną drogą. */
+  default: boolean;
+  note: string | null;
+  count: number;
+  debit_total: number;
+  /** Dokumenty płacowe (D2) — tylko dla osoby z Płacami, osobną paczką. */
+  payroll_count: number;
+  payroll_debit_total: number;
+}
+
+export interface ExportDocument {
+  id: number;
+  journal_no: number;
+  number: string;
+  doc_type: DocType;
+  op_date: string;
+  description: string;
+  debit_total: number;
+  kind: ExportKind;
+  payroll: boolean;
+}
+
+export interface LedgerExportItem {
+  id: number;
+  number: string;
+  status: ExportStatus;
+  status_label: string;
+  kinds: ExportKind[];
+  kind_labels: string[];
+  file_format: string;
+  file_format_label: string;
+  file_name: string;
+  file_sha256: string;
+  document_count: number;
+  debit_total: number;
+  has_payroll: boolean;
+  created_at: string | null;
+  created_by: string | null;
+  booked_at: string | null;
+  booked_by: string | null;
+  cancelled_at: string | null;
+  cancelled_by: string | null;
+}
+
+export interface ExportsOverview {
+  year: number;
+  month: number;
+  book_year: { mode: YearMode; mode_label: string } | null;
+  period_status: "open" | "closed" | null;
+  exportable: boolean;
+  refusal: string | null;
+  kinds: ExportKindRow[];
+  documents: ExportDocument[];
+  drafts: number;
+  exports: LedgerExportItem[];
+  formats: { key: string; label: string }[];
+  default_format: string;
+}
+
+export interface CreateExportInput {
+  year: number;
+  month: number;
+  kinds: ExportKind[];
+  file_format: string;
+  payroll: boolean;
+}
+
 export const accountingKeys = {
   all: ["accounting"] as const,
   config: ["accounting", "config"] as const,
@@ -426,6 +509,7 @@ export const accountingKeys = {
   candidates: ["accounting", "candidates"] as const,
   sources: (year: number, month: number) => ["accounting", "sources", year, month] as const,
   automations: ["accounting", "automations"] as const,
+  exports: (year: number, month: number) => ["accounting", "exports", year, month] as const,
 };
 
 export const DOCUMENT_PAGE = 50;
@@ -730,6 +814,38 @@ export function useOpeningImport() {
 
 export function useSetAllocationAccounts() {
   return useConfigMutation((args: AllocationAccounts) => api.put(`${BASE}/config/allocation`, args));
+}
+
+export function useExports(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: accountingKeys.exports(year, month),
+    queryFn: async () =>
+      (await api.get<ExportsOverview>(`${BASE}/exports`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+/** Ścieżka pliku paczki (pobranie z sesją przez `downloadAuthenticatedFile`). */
+export function exportFilePath(id: number): string {
+  return `${BASE}/exports/${id}/file`;
+}
+
+export function useCreateExport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: CreateExportInput) =>
+      (await api.post<LedgerExportItem>(`${BASE}/exports`, args)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: ["accounting", "exports"] }),
+  });
+}
+
+export function useChangeExport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { id: number; action: "book" | "cancel" }) =>
+      (await api.post<LedgerExportItem>(`${BASE}/exports/${args.id}/${args.action}`)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: ["accounting", "exports"] }),
+  });
 }
 
 /** Pozycja „Księgowość” w menu: „Moduł Finanse” i otwarty moduł księgi. */

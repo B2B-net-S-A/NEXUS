@@ -36,6 +36,7 @@ from app.services import equipment_schema as equipment
 from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_schema as ledger
 from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
@@ -113,6 +114,8 @@ MODULES = (
     ledger,
     # 0701: automaty księgi K3a — PK cykliczne i RMK (14.11.2026).
     ledger_automation,
+    # 0702: paczki księgi do Symfonii FK K3b (14.11.2026).
+    ledger_export,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

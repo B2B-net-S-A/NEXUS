@@ -20,6 +20,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     String,
@@ -32,6 +33,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.services import ledger_automation_schema as automation
+from app.services import ledger_export_schema as export
 from app.services import ledger_schema as schema
 
 
@@ -367,4 +369,83 @@ class LedgerPrepayment(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class LedgerExport(Base):
+    """Paczka księgi do Symfonii FK (K3b, 0702)."""
+
+    __tablename__ = "ledger_exports"
+    __table_args__ = (
+        UniqueConstraint("number", name="uq_ledger_exports_number"),
+        CheckConstraint(export.CK_EXPORT_STATUS, name="ck_ledger_exports_status"),
+        CheckConstraint(export.CK_EXPORT_KINDS, name="ck_ledger_exports_kinds"),
+        CheckConstraint(export.CK_EXPORT_COUNT, name="ck_ledger_exports_count"),
+        Index("ix_ledger_exports_period", "period_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_years.id", ondelete="RESTRICT"), nullable=False
+    )
+    period_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_periods.id", ondelete="RESTRICT"), nullable=False
+    )
+    number: Mapped[str] = mapped_column(String(export.NUMBER_MAX), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default=text("'exported'")
+    )
+    kinds: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    file_format: Mapped[str] = mapped_column(String(export.FORMAT_MAX), nullable=False)
+    file_name: Mapped[str] = mapped_column(String(export.FILE_NAME_MAX), nullable=False)
+    file_content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    document_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    debit_total: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    has_payroll: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    booked_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    booked_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelled_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class LedgerExportDocument(Base):
+    """Dokument w paczce — najwyżej jedna aktywna paczka na dokument (K3b)."""
+
+    __tablename__ = "ledger_export_documents"
+    __table_args__ = (
+        Index(
+            "uq_ledger_export_documents_active",
+            "document_id",
+            unique=True,
+            postgresql_where=text(export.EXPORT_ITEM_ACTIVE_WHERE),
+        ),
+    )
+
+    export_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_exports.id", ondelete="CASCADE"), primary_key=True
+    )
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_documents.id", ondelete="RESTRICT"), primary_key=True
+    )
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
     )
