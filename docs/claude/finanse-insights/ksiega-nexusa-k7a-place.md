@@ -13,7 +13,10 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
 ## Co jest
 
 - **Przełącznik:** moduł `payroll` Księgowości (`ledger/settings.py`, w `BUILT` od
-  K7a). Wyłączony = 404 dla każdego poza adminem, także dane osób.
+  K7a). Wyłączony = 404 dla każdego poza adminem, także dane osób. Ekran
+  `/accounting/payroll` stoi w powłoce Księgowości, którą otwiera moduł `ledger`
+  (K1): przy samym `payroll` Rozliczenia widzą „Księgowość jest wyłączona”, a API
+  i karta w kartotece działają (sprawdzone na stagingu 14.11.2026).
 - **Dane osoby** (`payroll_person_data`): jeden zaszyfrowany JSON (`TokenCipher`):
   PESEL albo dokument z datą urodzenia i płcią, imię i nazwisko do ZUS/PIT, adres,
   kod urzędu skarbowego, kod tytułu ubezpieczenia (6 cyfr), PIT-2 (1/12, 1/24, 1/36),
