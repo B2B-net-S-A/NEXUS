@@ -98,7 +98,11 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
   const [all, setAll] = useState(false);
   const approver = config.me.approver;
   const payrollTotal = data.kinds.reduce((sum, kind) => sum + kind.payroll_count, 0);
-  const docs = packedDocuments(data.documents, kinds, payroll);
+  // Tryb płacowy tylko, gdy są dokumenty płacowe: paczka płacowa, która zabrała
+  // ostatnie, chowa przełącznik — ekran wraca do zwykłej paczki zamiast pokazywać
+  // fałszywą pustkę (przegląd K3b 14.11.2026).
+  const payrollMode = payroll && payrollTotal > 0;
+  const docs = packedDocuments(data.documents, kinds, payrollMode);
   const shown = all ? docs : docs.slice(0, DOCS_SHOWN);
   const total = docs.reduce((sum, doc) => sum + doc.debit_total, 0);
   const title = monthTitle(period.year, period.month);
@@ -118,7 +122,7 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
         month: period.month,
         kinds: data.kinds.map((kind) => kind.key).filter((key) => kinds.has(key)),
         file_format: format,
-        payroll,
+        payroll: payrollMode,
       },
       {
         onSuccess: async (item) => {
@@ -186,13 +190,13 @@ function NewExportCard({ data }: { data: ExportsOverview }) {
                   Dokumenty płacowe ({payrollTotal}) idą osobną paczką — widzą ją tylko Płace i administrator.
                 </span>
               </span>
-              <Switch checked={payroll} onCheckedChange={setPayroll} aria-label="Paczka płacowa" />
+              <Switch checked={payrollMode} onCheckedChange={setPayroll} aria-label="Paczka płacowa" />
             </label>
           ) : null}
           <ul className="space-y-1.5">
             {data.kinds.map((kind) => {
-              const count = payroll ? kind.payroll_count : kind.count;
-              const amount = payroll ? kind.payroll_debit_total : kind.debit_total;
+              const count = payrollMode ? kind.payroll_count : kind.count;
+              const amount = payrollMode ? kind.payroll_debit_total : kind.debit_total;
               return (
                 <li key={kind.key} className="flex items-start gap-2.5">
                   <Checkbox

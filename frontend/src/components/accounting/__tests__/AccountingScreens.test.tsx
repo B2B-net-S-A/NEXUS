@@ -792,6 +792,38 @@ describe("Księgowość — paczki do Symfonii (K3b)", () => {
     expect(screen.getByRole("button", { name: "Pobierz paczkę (1)" })).toBeEnabled();
   });
 
+  it("paczka płacowa, która zabrała ostatnie dokumenty płacowe, przywraca zwykłą paczkę", async () => {
+    pathname = "/accounting/symfonia";
+    let month = exportsMonth();
+    get.mockImplementation(async (url: string) => {
+      if (url === "/api/accounting/config") return { data: config() };
+      if (url === "/api/accounting/exports") return { data: month };
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+    post.mockImplementation(async () => {
+      const before = exportsMonth();
+      month = exportsMonth({
+        documents: before.documents.filter((doc) => !doc.payroll),
+        kinds: before.kinds.map((kind) => ({ ...kind, payroll_count: 0, payroll_debit_total: 0 })),
+        exports: [exportItem({ has_payroll: true })],
+      });
+      return { data: exportItem({ has_payroll: true }) };
+    });
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    await screen.findByText("PK 4/10/2026");
+    await user.click(screen.getByRole("switch", { name: "Paczka płacowa" }));
+    await user.click(screen.getByRole("button", { name: "Pobierz paczkę (1)" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/exports", expect.objectContaining({ payroll: true })),
+    );
+    // Przełącznik znika z ostatnim dokumentem płacowym — ekran wraca do zwykłej
+    // paczki, zamiast pokazywać fałszywą pustkę (przegląd K3b 14.11.2026).
+    await waitFor(() => expect(screen.queryByRole("switch", { name: "Paczka płacowa" })).not.toBeInTheDocument());
+    expect(await screen.findByText("PK 4/10/2026")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz paczkę (2)" })).toBeEnabled();
+  });
+
   it("bez Płac nie ma przełącznika paczki płacowej; spoza listy „Księgowi” paczki się nie robi", async () => {
     pathname = "/accounting/symfonia";
     routeExports(config({ me: { admin: false, approver: false, payroll: false } }));
