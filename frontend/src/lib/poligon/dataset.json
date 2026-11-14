@@ -1295,7 +1295,7 @@
      "status": "ready",
      "message": null,
      "event_count": 81,
-     "inputs_hash": null,
+     "inputs_hash": "poligon",
      "generated_at": "@rel:-19.328",
      "debrief_questions": [
       null,
@@ -2766,8 +2766,8 @@
     "issues": [],
     "blocked_operations": []
    },
-   "fingerprint": null,
-   "profile_hash": null,
+   "fingerprint": "poligon",
+   "profile_hash": "poligon",
    "job_values": {
     "rate_value": 115.0,
     "onsite_days_per_week": 3,
@@ -3169,7 +3169,7 @@
      ],
      "event_count": 81,
      "generated_at": "@rel:-19.328",
-     "inputs_hash": null,
+     "inputs_hash": "poligon",
      "model": "gpt-6-luna",
      "message": null
     }
@@ -3917,7 +3917,7 @@
   "GET /api/jobs/990001/pipeline-scores": {
    "job_id": 990001,
    "profile_id": 0,
-   "request_fingerprint": null,
+   "request_fingerprint": "poligon",
    "versions": {
     "ranker_version": null,
     "index_version": "index-legacy-v1",
@@ -6075,7 +6075,7 @@
       "healthcare",
       "telecommunications"
      ],
-     "source_hash": null,
+     "source_hash": "poligon",
      "current_role": "Senior Project Manager w Firmie Przykładowej",
      "generated_at": "@rel:-12.181",
      "technologies": [
@@ -6714,7 +6714,7 @@
    "job_id": 990001,
    "version": 0,
    "versions_count": 0,
-   "state_token": "c129e96706251e38357ae998ab07e8de",
+   "state_token": "poligon",
    "editable": true,
    "read_only_reason": null,
    "read_only_message": null,
@@ -7069,7 +7069,7 @@
      ],
      "event_count": 81,
      "generated_at": "@rel:-19.328",
-     "inputs_hash": null,
+     "inputs_hash": "poligon",
      "model": "gpt-6-luna",
      "message": null
     }
@@ -7803,7 +7803,7 @@
      "Sektory: bankowość, płatności"
     ],
     "source_document_id": 991439,
-    "source_hash": null,
+    "source_hash": "poligon",
     "extractor_version": "claude:cv_enrichment:v7",
     "generated_at": "@rel:-12.181"
    },
@@ -7971,7 +7971,7 @@
     "uploaded_at": "@rel:-2.79",
     "external_source": "manual",
     "created_at": "@rel:-12.182",
-    "content_sha256": null,
+    "content_sha256": "poligon",
     "uploaded_by_name": null,
     "outdated_at": null,
     "outdated_by_name": null,
@@ -8019,7 +8019,7 @@
    "original_cv_language": "en",
    "original_snapshot_at": "@rel:-1.262",
    "original_snapshot_source": "auto_create",
-   "original_cv_sha256": null,
+   "original_cv_sha256": "poligon",
    "download_url": null,
    "identity_doubt": false
   },

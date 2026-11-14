@@ -114,6 +114,13 @@ CV_FICTION = {
 ENUM = re.compile(r"^[a-z0-9_\-:.]{1,60}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:\d{2})?)?$")
 DIGITS = re.compile(r"^\d{4,}$")
+# Odciski, tokeny i podpisy z nagrania (np. `state_token` formularza screeningu):
+# stała wartość, bo prawdziwy odcisk jest śladem stanu prawdziwej osoby,
+# a Gitleaks słusznie bierze go za sekret.
+SECRET_LIKE_KEYS = re.compile(
+    r"(token|hash|fingerprint|sha\d*|signature|secret|password)", re.I
+)
+POLIGON_TOKEN = "poligon"
 
 # Słowa z nazw firm i stanowisk, które nie wskazują nikogo.
 COMMON_WORDS = {
@@ -271,6 +278,8 @@ class Builder:
     def text(self, key: str, value: str) -> str | None:
         if not value:
             return value
+        if SECRET_LIKE_KEYS.search(key):
+            return POLIGON_TOKEN
         if DATE.match(value):
             return self.rel(value)
         if DIGITS.match(value) and int(value) in self.ids:

@@ -37,6 +37,13 @@ describe("zestaw Poligonu", () => {
     expect(bad).toEqual([]);
   });
 
+  it("nie ma tokenów, odcisków ani innych ciągów o wysokiej entropii", () => {
+    const secretKey = /(token|hash|fingerprint|sha\d*|signature|secret|password)/i;
+    expect(all.filter(([k, v]) => secretKey.test(k) && v !== "poligon")).toEqual([]);
+    // Długi ciąg liter i cyfr bez spacji (np. hash) — kody interfejsu mają podkreślenia albo słowa.
+    expect(all.filter(([, v]) => /^[A-Za-z0-9+/=]{24,}$/.test(v) && /\d/.test(v) && /[A-Za-z]/.test(v))).toEqual([]);
+  });
+
   it("każdy tekst jest kodem, datą, osobą ćwiczebną albo stoi pod dozwolonym kluczem", () => {
     const people = new Set(meta.people.flatMap((p) => [p.name, p.lastname, `${p.name} ${p.lastname}`]));
     Object.values(meta.trainers).forEach((t) => people.add(t.name));
