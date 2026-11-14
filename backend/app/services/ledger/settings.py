@@ -17,6 +17,11 @@ rozrachunków z odbiorcami ze słownikiem kontrahentów, konto przychodów i VAT
 należnego. Kontrahent z własnym kontem rozrachunkowym sprzedaży z kartoteki
 („konto przychodowe” z eBI24) ma pierwszeństwo — tak jak „konto kosztowe”
 w dekrecie kosztów E2.
+
+Konta rozliczenia kosztów na „5” (``allocation``, K2) też ustawia administrator:
+konto przeciwstawne (490), konto kosztów klientów (MPK = klient z kontraktu),
+konta pionów (front office, back office — z kartoteki osoby) i konto kosztów
+ogólnych (faktura bez klienta i pionu, biuro do czasu klucza podziału).
 """
 
 from __future__ import annotations
@@ -87,17 +92,40 @@ class SalesAccounts:
     vat_account: str = SALES_ACCOUNT_FIELDS["vat_account"][0]
 
 
+#: Konta rozliczenia kosztów na „5”: klucz → (domyślne konto, etykieta).
+ALLOCATION_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
+    "settlement_account": ("490", "Rozliczenie kosztów"),
+    "client_account": ("", "Koszty klientów (MPK = klient)"),
+    "front_office_account": ("", "Koszty pionu Front office"),
+    "back_office_account": ("", "Koszty pionu Back office"),
+    "overhead_account": ("", "Koszty ogólne"),
+}
+
+
+@dataclass(frozen=True)
+class AllocationAccounts:
+    settlement_account: str = ALLOCATION_ACCOUNT_FIELDS["settlement_account"][0]
+    client_account: str = ""
+    front_office_account: str = ""
+    back_office_account: str = ""
+    overhead_account: str = ""
+
+    def complete(self) -> bool:
+        return all(getattr(self, key) for key in ALLOCATION_ACCOUNT_FIELDS)
+
+
 @dataclass(frozen=True)
 class LedgerSettings:
     modules: dict[str, bool]
     accountants: tuple[int, ...]
     sales: SalesAccounts = field(default_factory=SalesAccounts)
+    allocation: AllocationAccounts = field(default_factory=AllocationAccounts)
 
 
-def _sales(raw: object) -> SalesAccounts:
+def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
     data = raw if isinstance(raw, dict) else {}
     values: dict[str, str] = {}
-    for key, (default, label) in SALES_ACCOUNT_FIELDS.items():
+    for key, (default, label) in fields.items():
         value = data.get(key)
         if not isinstance(value, str) or not value.strip():
             values[key] = default
@@ -106,7 +134,15 @@ def _sales(raw: object) -> SalesAccounts:
             values[key] = clean_account(value, label)
         except LedgerError:
             values[key] = default
-    return SalesAccounts(**values)
+    return values
+
+
+def _sales(raw: object) -> SalesAccounts:
+    return SalesAccounts(**_accounts(raw, SALES_ACCOUNT_FIELDS))
+
+
+def _allocation(raw: object) -> AllocationAccounts:
+    return AllocationAccounts(**_accounts(raw, ALLOCATION_ACCOUNT_FIELDS))
 
 
 def normalize(raw: object) -> LedgerSettings:
@@ -126,7 +162,10 @@ def normalize(raw: object) -> LedgerSettings:
         )
     )
     return LedgerSettings(
-        modules=modules, accountants=accountants, sales=_sales(data.get("sales"))
+        modules=modules,
+        accountants=accountants,
+        sales=_sales(data.get("sales")),
+        allocation=_allocation(data.get("allocation")),
     )
 
 
@@ -138,6 +177,9 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
             "receivable_account": settings.sales.receivable_account,
             "revenue_account": settings.sales.revenue_account,
             "vat_account": settings.sales.vat_account,
+        },
+        "allocation": {
+            key: getattr(settings.allocation, key) for key in ALLOCATION_ACCOUNT_FIELDS
         },
     }
 
@@ -233,13 +275,13 @@ async def set_accountants(
     return settings
 
 
-async def set_sales_accounts(
-    db: AsyncSession, values: dict[str, str], *, actor: User
-) -> LedgerSettings:
-    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont."""
+async def _plan_accounts(
+    db: AsyncSession, values: dict[str, str], fields: dict[str, tuple[str, str]]
+) -> dict[str, str]:
+    """Każde konto z formularza musi być aktywne w planie kont."""
 
     cleaned: dict[str, str] = {}
-    for key, (_, label) in SALES_ACCOUNT_FIELDS.items():
+    for key, (_, label) in fields.items():
         number = clean_account(values.get(key), label)
         account = await db.scalar(
             select(FinanceAccount).where(FinanceAccount.number == number)
@@ -250,7 +292,28 @@ async def set_sales_accounts(
                 status=422,
             )
         cleaned[key] = number
+    return cleaned
+
+
+async def set_sales_accounts(
+    db: AsyncSession, values: dict[str, str], *, actor: User
+) -> LedgerSettings:
+    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont."""
+
+    cleaned = await _plan_accounts(db, values, SALES_ACCOUNT_FIELDS)
     current = await load(db)
     settings = replace(current, sales=SalesAccounts(**cleaned))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_allocation_accounts(
+    db: AsyncSession, values: dict[str, str], *, actor: User
+) -> LedgerSettings:
+    """Konta rozliczenia kosztów na „5” (bez commita, admin): każde z planu kont."""
+
+    cleaned = await _plan_accounts(db, values, ALLOCATION_ACCOUNT_FIELDS)
+    current = await load(db)
+    settings = replace(current, allocation=AllocationAccounts(**cleaned))
     await _save(db, settings, actor=actor)
     return settings

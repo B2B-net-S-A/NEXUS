@@ -52,5 +52,22 @@ z Symfonią miesiąc do miesiąca.
 - **Faktury osób zespołu** (`payroll_invoice`) to dokumenty płacowe (D2): osoba
   bez Płac ich nie księguje, nie widzi w licznikach i jej księgowanie ich nie
   usuwa; karta mówi tylko, że księguje je osoba z Płacami.
-- Kolejne etapy: MPK „5” (rozliczenie kosztów 4 → 5 / 490) jako PK z danych
-  NEXUSA, bez zmiany dekretu E2; rozrachunki i bilans otwarcia — kolejne PR-y K2.
+
+## Rozliczenie kosztów na „5” (`services/ledger/allocation.py`)
+
+- Dekretu E2 (zespół 4, koszty rodzajowe) nie zmieniamy. Co miesiąc jedno PK
+  ze źródłem `cost_allocation` / `RRRR-MM`: Wn konta „5” z MPK w pozycji,
+  Ma konto rozliczenia kosztów (490). Ta sama maszyna co faktury: odcisk,
+  przebudowa szkicu, zatwierdzone PK zmienionego miesiąca = problem do storna.
+- **Z czego**: zatwierdzone FVZ okresu ze źródłem w kolejce kosztów, bez
+  odwróconych; kwota = Wn − Ma pozycji na kontach rodzaju „koszt”. FVZ
+  w buforze nie wchodzą (karta pokazuje ich liczbę).
+- **MPK**: faktura kontraktora → klient kontraktu (`K<id>`); faktura osoby
+  zespołu → pion z kartoteki (`FO` / `BO`); dokument akceptacji → klient
+  wniosku, inaczej pion wnioskującego; reszta → koszty ogólne (`OG`) — biuro
+  do czasu klucza podziału od Finansów (lista działów na „5” to bloker z planu).
+- **D2**: koszty z faktur osób zespołu idą osobnym PK (`RRRR-MM-payroll`,
+  wrażliwość `payroll`) — suma pionu bywa kwotą jednej osoby.
+- Konta (rozliczenie, klienci, Front office, Back office, koszty ogólne)
+  ustawia administrator (`PUT /config/allocation`); bez nich PK czeka z problemem.
+- Dalej w K2: rozrachunki i bilans otwarcia — kolejne PR-y.

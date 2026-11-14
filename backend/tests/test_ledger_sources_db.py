@@ -30,6 +30,7 @@ from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_posting import FinanceAccount
 from app.models.fx_rate import FxRate
+from app.models.hr_profile import EmployeeProfile
 from app.models.ledger import LedgerDocument, LedgerLine, LedgerYear
 from app.services.finance_ledger.posting import rate_day
 from app.services.ledger import settings as ledger_settings
@@ -122,6 +123,11 @@ async def books(world):
             "receivable": (f"{prefix}-200", "Odbiorcy", "settlement", "counterparty"),
             "revenue": (f"{prefix}-701", "Przychody", "revenue", None),
             "vat_out": (f"{prefix}-222", "VAT należny", "vat", None),
+            "alloc_client": (f"{prefix}-501", "Koszty klientów", "other", None),
+            "alloc_fo": (f"{prefix}-502", "Koszty Front office", "other", None),
+            "alloc_bo": (f"{prefix}-503", "Koszty Back office", "other", None),
+            "alloc_og": (f"{prefix}-550", "Koszty ogólne", "other", None),
+            "settle": (f"{prefix}-490", "Rozliczenie kosztów", "other", None),
         }
         for number, name, kind, dictionary in acc.values():
             db.add(
@@ -594,3 +600,114 @@ async def test_sales_accounts_are_set_by_admin_from_the_plan(client, world, book
     config = await client.get(f"{ACC}/config", headers=_headers(world["accountant"]))
     assert config.json()["sales_accounts"] == body
     assert config.json()["accountants"] is None
+
+
+# ── Rozliczenie kosztów na „5” ──────────────────────────────────────────────
+
+
+def _ledger_settings(world, books, *, allocation: bool) -> dict:
+    acc = books["acc"]
+    value = {
+        "modules": {"ledger": True},
+        "accountants": [world["accountant"].id],
+        "sales": {
+            "receivable_account": acc["receivable"],
+            "revenue_account": acc["revenue"],
+            "vat_account": acc["vat_out"],
+        },
+    }
+    if allocation:
+        value["allocation"] = {
+            "settlement_account": acc["settle"],
+            "client_account": acc["alloc_client"],
+            "front_office_account": acc["alloc_fo"],
+            "back_office_account": acc["alloc_bo"],
+            "overhead_account": acc["alloc_og"],
+        }
+    return value
+
+
+async def _approved_costs(client, world, books) -> None:
+    synced = await _sync(client, world, books, "costs")
+    assert synced.json()["created"] == 2, synced.text
+    ids = [
+        (await _document("finance_cost_entry", books[key])).id
+        for key in ("expense", "payroll")
+    ]
+    approved = await client.post(
+        f"{ACC}/documents/approve",
+        json={"ids": ids},
+        headers=_headers(world["accountant"]),
+    )
+    assert len(approved.json()["approved"]) == 2, approved.text
+
+
+async def test_allocation_books_approved_costs_by_cost_centre(client, world, books):
+    await _set_ledger(_ledger_settings(world, books, allocation=True))
+    async with AsyncSessionLocal() as db:
+        db.add(EmployeeProfile(user_id=world["person"].id, division="back_office"))
+        await db.commit()
+    try:
+        await _approved_costs(client, world, books)
+        summary = await _summary(client, world, books)
+        alloc = summary["allocation"]
+        assert alloc["to_post"] == 2 and alloc["pending_costs"] == 0
+        assert {(d["code"], d["amount"], d["payroll"]) for d in alloc["details"]} == {
+            ("OG", 100_000, False),
+            ("BO", 1_000_000, True),
+        }
+        result = await _sync(client, world, books, "allocation")
+        assert result.json()["created"] == 2, result.text
+        acc = books["acc"]
+        year = books["year"]
+        general = await _document("cost_allocation", f"{year}-03")
+        assert general.doc_type == "PK" and general.sensitivity is None
+        assert general.op_date == date(year, 3, 31)
+        assert await _lines(general.id) == [
+            ("debit", acc["alloc_og"], 100_000),
+            ("credit", acc["settle"], 100_000),
+        ]
+        team = await _document("cost_allocation", f"{year}-03-payroll")
+        assert team.sensitivity == "payroll"
+        assert await _lines(team.id) == [
+            ("debit", acc["alloc_bo"], 1_000_000),
+            ("credit", acc["settle"], 1_000_000),
+        ]
+        hidden = await _summary(client, world, books, user="module_only")
+        assert hidden["allocation"]["payroll_hidden"] is True
+        assert hidden["allocation"]["total"] == 1
+        assert [d["code"] for d in hidden["allocation"]["details"]] == ["OG"]
+        again = await _sync(client, world, books, "allocation", user="module_only")
+        assert again.json()["unchanged"] == 1 and again.json()["deleted"] == 0
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(EmployeeProfile).where(
+                    EmployeeProfile.user_id == world["person"].id
+                )
+            )
+            await db.commit()
+
+
+async def test_allocation_waits_for_accounts_and_for_approval(client, world, books):
+    await _sync(client, world, books, "costs")
+    drafts_only = await _summary(client, world, books)
+    assert drafts_only["allocation"]["pending_costs"] == 2
+    assert drafts_only["allocation"]["to_post"] == 0
+    await _approved_costs_after_drafts(client, world, books)
+    waiting = await _summary(client, world, books)
+    reasons = {item["problems"][0] for item in waiting["allocation"]["problems"]}
+    assert reasons == {sources.NO_ALLOCATION_ACCOUNTS}
+
+
+async def _approved_costs_after_drafts(client, world, books) -> None:
+    ids = [
+        (await _document("finance_cost_entry", books[key])).id
+        for key in ("expense", "payroll")
+    ]
+    approved = await client.post(
+        f"{ACC}/documents/approve",
+        json={"ids": ids},
+        headers=_headers(world["accountant"]),
+    )
+    assert len(approved.json()["approved"]) == 2, approved.text

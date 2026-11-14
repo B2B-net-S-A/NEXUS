@@ -27,6 +27,9 @@ więc dokumenty z faktur muszą dać się porównać z Symfonią miesiąc do mie
   wycofane źródło z zapisem w dzienniku wraca jako problem do storna.
 * **Faktury osób zespołu** (``payroll_invoice``) to dokumenty płacowe (D2):
   osoba bez Płac ich nie księguje, nie widzi w licznikach i nie usuwa.
+* **Rozliczenie kosztów na „5”** (``allocation.py``) to trzecie źródło miesiąca:
+  PK z MPK z zatwierdzonych FVZ, przez tę samą maszynę (odcisk, przebudowa,
+  problem do storna).
 """
 
 from __future__ import annotations
@@ -49,7 +52,7 @@ from app.models.fx_rate import FxRate
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
 from app.services.finance_ledger import costs, identifiers, posting
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import documents, engine
+from app.services.ledger import allocation, documents, engine
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger.settings import SALES_ACCOUNT_FIELDS, LedgerSettings
@@ -57,13 +60,16 @@ from app.services.ledger_schema import DESCRIPTION_MAX, NUMBER_MAX
 
 COSTS = "costs"
 SALES = "sales"
+ALLOCATION = "allocation"
 KIND_LABELS: dict[str, str] = {
     COSTS: "Faktury kosztowe (Koszty, dekret E2)",
     SALES: "Faktury sprzedaży (KSeF)",
+    ALLOCATION: "Rozliczenie kosztów na „5” (MPK)",
 }
 SOURCE_TYPES: dict[str, str] = {
     COSTS: "finance_cost_entry",
     SALES: "client_sales_invoice",
+    ALLOCATION: allocation.SOURCE_TYPE,
 }
 #: Etapy kolejki kosztów, z których faktura idzie do księgi.
 COST_STAGES = ("ready", "booked")
@@ -83,6 +89,10 @@ NO_REVENUE_ACCOUNT = (
 #: Zaliczka i jej korekta (KSeF: ``KOR_ZAL``) czekają razem na regułę zaliczek —
 #: korekta zaliczki jako FVS zmniejszyłaby przychód, którego nie było.
 ADVANCE_TYPES = frozenset({"ZAL", "KOR_ZAL"})
+NO_ALLOCATION_ACCOUNTS = (
+    "Ustaw konta rozliczenia kosztów na „5” w Ustawieniach Księgowości (administrator)."
+)
+DETAILS_MAX = 200
 ADVANCE = (
     "Faktura zaliczkowa — dekret zaliczki wejdzie z regułą rozliczeń (K3); do tego "
     "czasu zaksięguj ją poleceniem księgowania."
@@ -100,6 +110,8 @@ class Candidate:
     problems: list[str] = field(default_factory=list)
     #: Źródło bez kwot do zaksięgowania (np. korekta samego opisu) — nie problem.
     skipped: bool = False
+    #: Rozliczenie kosztów: kwoty MPK do podglądu (kod, nazwa, grosze).
+    details: list[dict[str, Any]] = field(default_factory=list)
 
 
 def fingerprint(spec: DocumentSpec) -> str:
@@ -585,6 +597,57 @@ async def _sales_candidates(
     return candidates
 
 
+# ── Rozliczenie kosztów na „5” ──────────────────────────────────────────────
+
+
+async def _allocation_candidates(
+    db: AsyncSession, month: date, *, viewer: Viewer, settings: LedgerSettings
+) -> list[Candidate]:
+    _, period = await _period(db, month)
+    if period is None:
+        return []
+    plan = await documents.load_plan(db)
+    candidates: list[Candidate] = []
+    for payroll in (False, True) if viewer.payroll else (False,):
+        totals = await allocation.month_totals(db, period.id, plan, payroll=payroll)
+        candidate = Candidate(
+            source_id=allocation.source_id(month.year, month.month, payroll=payroll),
+            label="Rozliczenie kosztów na MPK"
+            + (" — faktury osób zespołu" if payroll else ""),
+            payroll=payroll,
+            details=[
+                {
+                    "code": mpk.code,
+                    "label": mpk.label,
+                    "amount": amount,
+                    "payroll": payroll,
+                }
+                for mpk, amount in sorted(
+                    totals.items(), key=lambda pair: -abs(pair[1])
+                )
+                if amount
+            ],
+        )
+        spec = None
+        if any(totals.values()):
+            if not settings.allocation.complete():
+                candidate.problems.append(NO_ALLOCATION_ACCOUNTS)
+            else:
+                spec = allocation.allocation_spec(
+                    month.year,
+                    month.month,
+                    totals,
+                    settings.allocation,
+                    payroll=payroll,
+                )
+        if spec is not None:
+            candidate.spec = spec
+        elif not candidate.problems:
+            candidate.skipped = True
+        candidates.append(candidate)
+    return candidates
+
+
 # ── Miesiąc: podgląd i księgowanie ──────────────────────────────────────────
 
 
@@ -600,6 +663,10 @@ async def _candidates(
         candidates = await _cost_candidates(db, month, viewer=viewer)
     elif kind == SALES:
         candidates = await _sales_candidates(db, month, settings)
+    elif kind == ALLOCATION:
+        candidates = await _allocation_candidates(
+            db, month, viewer=viewer, settings=settings
+        )
     else:
         raise LedgerError("Nie ma takiego źródła.", status=404)
     # Ta sama kontrola co przy zapisie (konta z planu, analityka słownika,
@@ -675,7 +742,7 @@ async def month_summary(
     start = _month_start(year, month)
     year_row, period = await _period(db, start)
     items = []
-    for kind in (COSTS, SALES):
+    for kind in (COSTS, SALES, ALLOCATION):
         candidates = await _candidates(
             db, kind, start, viewer=viewer, settings=settings
         )
@@ -730,17 +797,30 @@ async def month_summary(
                         [_storno_hint(doc, "Źródła nie ma już do księgowania")],
                     )
                 )
-        items.append(
-            {
-                "kind": kind,
-                "label": KIND_LABELS[kind],
-                "total": len(candidates),
-                **counts,
-                "problems": problems[:PROBLEMS_MAX],
-                "problems_total": len(problems),
-                "payroll_hidden": kind == COSTS and not viewer.payroll,
-            }
-        )
+        item: dict[str, Any] = {
+            "kind": kind,
+            "label": KIND_LABELS[kind],
+            "total": len(candidates),
+            **counts,
+            "problems": problems[:PROBLEMS_MAX],
+            "problems_total": len(problems),
+            "payroll_hidden": kind in (COSTS, ALLOCATION) and not viewer.payroll,
+        }
+        if kind == ALLOCATION:
+            item["details"] = [
+                detail for candidate in candidates for detail in candidate.details
+            ][:DETAILS_MAX]
+            pending = 0
+            if period is not None:
+                pending = await allocation.pending_cost_documents(
+                    db, period.id, payroll=False
+                )
+                if viewer.payroll:
+                    pending += await allocation.pending_cost_documents(
+                        db, period.id, payroll=True
+                    )
+            item["pending_costs"] = pending
+        items.append(item)
     return {
         "year": year,
         "month": month,
