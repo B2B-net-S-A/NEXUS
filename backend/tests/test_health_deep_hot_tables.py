@@ -13,6 +13,7 @@ deployem).
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -95,3 +96,64 @@ def test_october_probe_models_are_imported() -> None:
         "from app.services.care.board_state import CARE_BOARD_STATES",
     ):
         assert symbol in src, symbol
+
+
+# Księga NEXUSA (plan K1–K9, 13–14.11.2026): tabele z 0700–0702 (K1–K3)
+# i 0705 (K4a) weszły bez sondy, choć wymaga jej reguła z 22.10 (F79);
+# K6 (0703) dopisał swoje od razu. Lista przypina sondy, żeby nie zniknęły
+# bez echa, a skaner modeli niżej łapie tabele kolejnych etapów.
+LEDGER_TABLES = (
+    "ledger_years",
+    "ledger_periods",
+    "ledger_documents",
+    "ledger_lines",
+    "ledger_events",
+    "ledger_recurring",
+    "ledger_prepayments",
+    "ledger_exports",
+    "ledger_export_documents",
+    "ledger_assets",
+    "ledger_asset_operations",
+    "ledger_bank_statements",
+    "ledger_bank_lines",
+)
+
+
+@pytest.mark.parametrize("table", LEDGER_TABLES)
+def test_ledger_tables_are_probed(table: str) -> None:
+    block = _core_checks_block()
+    assert re.search(rf'\("{table}",\s*\w+\)', block), (
+        f"`{table}` musi być w `core_checks` (reguła z 22.10, F79)"
+    )
+
+
+def test_every_ledger_model_table_is_probed() -> None:
+    """Każda tabela `ledger_*` z modeli ma sondę od pierwszego PR-a etapu."""
+    tables = {
+        match.group(1)
+        for path in (BACKEND / "app/models").rglob("*.py")
+        for match in re.finditer(
+            r'__tablename__ = "(ledger_\w+)"', path.read_text(encoding="utf-8")
+        )
+    }
+    assert set(LEDGER_TABLES) <= tables, "skaner nie widzi modeli księgi"
+    block = _core_checks_block()
+    missing = sorted(t for t in tables if not re.search(rf'\("{t}",\s*\w+\)', block))
+    assert not missing, (
+        f"tabele księgi bez sondy w `core_checks` /api/health/deep: {missing} — "
+        "dopisz je w app/main.py i do LEDGER_TABLES"
+    )
+
+
+def test_ledger_probe_models_are_imported() -> None:
+    """Brakujący import wywaliłby endpoint 500 — czyli bramkę schematu."""
+    imported = {
+        alias.asname or alias.name
+        for node in ast.walk(ast.parse(MAIN.read_text(encoding="utf-8")))
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("app.models.ledger")
+        for alias in node.names
+    }
+    probed = re.findall(r'\("ledger_\w+",\s*(\w+)\)', _core_checks_block())
+    missing = sorted(model for model in probed if model not in imported)
+    assert not missing, missing
