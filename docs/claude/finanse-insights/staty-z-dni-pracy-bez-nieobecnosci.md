@@ -44,6 +44,16 @@ bierz `workdays_by_user`, `prorated_targets` albo `target_for_window`.
   cel dnia = 0, więc trasa `/api/kpis/me/today` go nie zwraca i górny pasek nie
   pokazuje „0 / 4 dziś”. Tempo dalej pomija pełne dni nieobecności.
 - **Cele zespołu (HoR/TCM)**: suma celów osób po przeliczeniu na ich dni pracy.
+- **Pulpit → kafelek „Mój tydzień”** (14.11.2026): cel weryfikacji tygodnia
+  przychodzi gotowy z `/api/kpis/me/panel` (`target_verifications_week_to_date`
+  = cel dzienny × dni pracy od poniedziałku do dziś, `kpi_engine.week_to_date_target`).
+  Kafelek go nie przelicza; wcześniej brał „cel dnia × Pon–Pt, które minęły”,
+  bez świąt, urlopu i dnia onboardingu.
+- **„Aktywność rekrutacyjna”** (pulpit, 14.11.2026): cel dnia w proporcji do dni
+  pracy (`prorated_targets`; dzień urlopu albo onboardingu = bez paska celu),
+  a średnie „na miesiąc” osoby i zespołu dzielą się przez miesiące pracy
+  (3 × dni pracy / dni robocze okna, `workdays_by_user`), nie przez stałe 3.
+  Bez nieobecności wynik jest ten sam co wcześniej.
 
 Bez zmian: miesiące rozliczone w DynaReporterze (tam `days_worked` z raportu)
 i program praktykanta (ukryty od 17.10.2026).
