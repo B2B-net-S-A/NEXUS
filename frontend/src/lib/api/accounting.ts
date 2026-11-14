@@ -302,7 +302,7 @@ export interface OpeningPreview {
   document_id: number | null;
 }
 
-export type SourceKind = "costs" | "sales" | "allocation" | "recurring" | "prepayments";
+export type SourceKind = "costs" | "sales" | "allocation" | "recurring" | "prepayments" | "asset_docs" | "assets";
 
 export interface RecurringLine {
   side: Side;

@@ -167,6 +167,7 @@ export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting/documents", label: "Dokumenty", description: "Dziennik: dokumenty z dekretem, bufor i zatwierdzone", module: "ledger" },
   { href: "/accounting/symfonia", label: "Do Symfonii", description: "Paczka zatwierdzonych dokumentów do importu w Symfonii FK", module: "ledger" },
   { href: "/accounting/trial-balance", label: "Obroty i salda", description: "Zestawienie obrotów i sald, karta konta", module: "ledger" },
+  { href: "/accounting/assets", label: "Środki trwałe", description: "Ewidencja środków trwałych i WNiP, plan amortyzacji", module: "assets" },
   { href: "/accounting/payroll", label: "Lista płac", description: "Lista płac UoP i zleceń: składki, zaliczki PIT, ZUS", module: "payroll" },
   { href: "/accounting/chart", label: "Plan kont", description: "Konta księgi: syntetyka, analityka, typy i słowniki", module: "ledger" },
   { href: "/accounting/settings", label: "Ustawienia", description: "Moduły, lista „Księgowi”, rok obrotowy i okresy", module: null },
@@ -199,6 +200,8 @@ export function sourceLabel(source: { type: string; id: string }): { label: stri
     return { label: "Faktura kosztowa (Koszty)", href: `/finance/costs/${encodeURIComponent(source.id)}` };
   }
   if (source.type === "client_sales_invoice") return { label: "Faktura sprzedaży z KSeF", href: null };
+  if (source.type === "assets_month") return { label: "Amortyzacja środków trwałych", href: "/accounting/assets" };
+  if (source.type === "asset_operation") return { label: "Dokument środka trwałego", href: "/accounting/assets" };
   return { label: source.type, href: null };
 }
 

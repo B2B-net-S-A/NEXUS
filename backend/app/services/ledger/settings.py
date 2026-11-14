@@ -27,6 +27,12 @@ jedno konto kosztów zespołu na PK płacowe.
 Konta listy płac z Enovy (K3c, ``payroll``) też ustawia administrator: koszty
 wynagrodzeń i składek pracodawcy, rozrachunki z tytułu wynagrodzeń, z ZUS
 i z urzędem skarbowym (PIT-4) oraz — gdy lista je ma — PPK i inne potrącenia.
+
+Konta środków trwałych (``assets``, K6) ustawia administrator: konto kosztu
+amortyzacji (401) w dokumencie AM, konto przeciwstawne przyjęcia i ulepszenia
+(080 — zakup z faktury idzie na 080, OT przenosi go na 010) i konto pozostałych
+kosztów operacyjnych na wartość netto likwidowanego albo sprzedanego środka.
+Podział AM na „5” bierze konta z ``allocation``.
 """
 
 from __future__ import annotations
@@ -78,7 +84,7 @@ MODULE_REPLACES: dict[str, str] = {
 }
 #: Moduły z gotowymi ekranami (kolejne etapy dopisują tu swój klucz).
 #: ``payroll`` — K7a (lista płac, parametry, dane osób; 14.11.2026).
-BUILT: frozenset[str] = frozenset({"ledger", "automations", "payroll"})
+BUILT: frozenset[str] = frozenset({"ledger", "automations", "assets", "payroll"})
 MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
 
@@ -158,6 +164,21 @@ class PayrollAccounts:
         ]
 
 
+#: Konta środków trwałych (K6): klucz → (domyślne konto, etykieta).
+ASSETS_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
+    "cost_account": ("401", "Amortyzacja"),
+    "intake_account": ("080", "Przyjęcie i ulepszenie — konto przeciwstawne"),
+    "disposal_account": ("761", "Likwidacja i sprzedaż — wartość netto"),
+}
+
+
+@dataclass(frozen=True)
+class AssetsAccounts:
+    cost_account: str = ASSETS_ACCOUNT_FIELDS["cost_account"][0]
+    intake_account: str = ASSETS_ACCOUNT_FIELDS["intake_account"][0]
+    disposal_account: str = ASSETS_ACCOUNT_FIELDS["disposal_account"][0]
+
+
 @dataclass(frozen=True)
 class LedgerSettings:
     modules: dict[str, bool]
@@ -165,6 +186,7 @@ class LedgerSettings:
     sales: SalesAccounts = field(default_factory=SalesAccounts)
     allocation: AllocationAccounts = field(default_factory=AllocationAccounts)
     payroll: PayrollAccounts = field(default_factory=PayrollAccounts)
+    assets: AssetsAccounts = field(default_factory=AssetsAccounts)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -194,6 +216,10 @@ def _payroll(raw: object) -> PayrollAccounts:
     return PayrollAccounts(**_accounts(raw, PAYROLL_ACCOUNT_FIELDS))
 
 
+def _assets(raw: object) -> AssetsAccounts:
+    return AssetsAccounts(**_accounts(raw, ASSETS_ACCOUNT_FIELDS))
+
+
 def normalize(raw: object) -> LedgerSettings:
     data = raw if isinstance(raw, dict) else {}
     modules_raw = data.get("modules") if isinstance(data.get("modules"), dict) else {}
@@ -216,6 +242,7 @@ def normalize(raw: object) -> LedgerSettings:
         sales=_sales(data.get("sales")),
         allocation=_allocation(data.get("allocation")),
         payroll=_payroll(data.get("payroll")),
+        assets=_assets(data.get("assets")),
     )
 
 
@@ -234,6 +261,7 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         "payroll": {
             key: getattr(settings.payroll, key) for key in PAYROLL_ACCOUNT_FIELDS
         },
+        "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
     }
 
 
@@ -388,5 +416,17 @@ async def set_payroll_accounts(
     )
     current = await load(db)
     settings = replace(current, payroll=PayrollAccounts(**cleaned))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_assets_accounts(
+    db: AsyncSession, values: dict[str, str], *, actor: User
+) -> LedgerSettings:
+    """Konta środków trwałych (bez commita, admin): każde z planu kont."""
+
+    cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS)
+    current = await load(db)
+    settings = replace(current, assets=AssetsAccounts(**cleaned))
     await _save(db, settings, actor=actor)
     return settings

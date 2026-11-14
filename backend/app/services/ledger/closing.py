@@ -259,6 +259,8 @@ async def checklist(
             "href": None,
         }
         for key, label, detail in LATER
+        # Środki trwałe (K6) są już w „Źródłach”, gdy moduł jest otwarty.
+        if not (key == "assets" and sources.assets_open(settings, viewer))
     )
     return {
         "year": year,
