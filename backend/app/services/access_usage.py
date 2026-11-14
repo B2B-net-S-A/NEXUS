@@ -104,7 +104,8 @@ AREA_BY_SCREEN: dict[str, str] = {
         "my-relationships",
         "order-mail",
     ),
-    **_screens(FINANSE, "finance"),
+    # „accounting” — Księgowość (księga NEXUSA, K1, 14.11.2026), bramka sekcji Finanse.
+    **_screens(FINANSE, "accounting", "finance"),
     # Podgląd na telefonie stoi za tą samą bramką sekcji co Insights.
     **_screens(INSIGHTS, "insights", "podglad"),
     # „trainings” — szkolenia i biblioteka nagrań (13.11.2026), moduł grupy „Ludzie”.

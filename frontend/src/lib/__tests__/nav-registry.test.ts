@@ -107,7 +107,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
       // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
       // „Umowy klientów” (04.11.2026): tylko z uprawnienia, domyślnie admin.
-      ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"]],
+      // „Księgowość” (13.11.2026): przy otwartym module księgi, za Finansami.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"]],
       // „Szkolenia” (13.11.2026): każdy zalogowany przy włączonym programie „Ludzi”.
       ["Firma", ["insights", "people", "equipment", "trainings"]],
     ]);
@@ -300,6 +301,7 @@ describe("rejestr nawigacji ↔ rejestr capability", () => {
       ["my-relationships", "delivery_view"],
       ["contracts", "delivery_view"],
       ["finance", "orders_work"],
+      ["accounting", "finance_module"],
     ]);
   });
 });

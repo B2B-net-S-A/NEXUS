@@ -118,6 +118,11 @@ export const SEGMENT_LABELS: Record<string, string> = {
   finance: "Finanse",
   // 13.11.2026: /finance/costs/[id] — karta faktury kosztowej (księgowość E1).
   costs: "Koszty",
+  // 13.11.2026: /accounting — Księgowość (księga NEXUSA, K1).
+  accounting: "Księgowość",
+  documents: "Dokumenty",
+  "trial-balance": "Obroty i salda",
+  chart: "Plan kont",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

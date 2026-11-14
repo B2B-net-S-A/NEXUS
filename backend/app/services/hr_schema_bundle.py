@@ -35,6 +35,7 @@ from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
 from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
+from app.services import ledger_schema as ledger
 from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
@@ -107,6 +108,8 @@ MODULES = (
     finance_payments,
     # 0698: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
     finance_posting,
+    # 0700: księga NEXUSA K1 — lata, okresy, dokumenty, dziennik, trwałość zapisów (13.11.2026).
+    ledger,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

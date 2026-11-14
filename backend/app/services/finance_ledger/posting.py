@@ -79,6 +79,8 @@ ACCOUNT_KIND_LABELS = {
     "vat": "VAT",
     "settlement": "rozrachunek",
     "revenue": "przychód",
+    # 0700 (K1): konta księgi spoza dekretu faktur (0xx, 1xx, 8xx…).
+    "other": "inne",
 }
 SIDE_LABELS = {"debit": "Wn", "credit": "Ma"}
 POSITION_KINDS: tuple[str, ...] = ("cost", "vat", "counterparty")

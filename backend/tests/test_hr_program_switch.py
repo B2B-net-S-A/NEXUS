@@ -56,6 +56,7 @@ PROGRAM_API_MODULES = {
     "app.api.finance_ledger",
     "app.api.finance_payments",
     "app.api.finance_posting",
+    "app.api.ledger",
 }
 PROGRAM_PREFIXES = (
     "/api/hr/",
@@ -73,6 +74,7 @@ PROGRAM_PREFIXES = (
     "/api/finance/costs",
     "/api/finance/counterparties",
     "/api/finance/payments",
+    "/api/accounting",
 )
 
 
