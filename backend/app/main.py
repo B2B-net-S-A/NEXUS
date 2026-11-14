@@ -256,6 +256,7 @@ from app.api import finance_payments as finance_payments_api
 from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
 from app.api import ledger_assets as ledger_assets_api
+from app.api import ledger_settlements as ledger_settlements_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2315,6 +2316,13 @@ app.include_router(
 # Środki trwałe i WNiP (K6, 0703): ewidencja, plan amortyzacji, OT/LT, AM.
 app.include_router(
     ledger_assets_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
+# Rozrachunki z rozliczaniem pozycji (K4b, 0706): część modułu „Bank”.
+app.include_router(
+    ledger_settlements_api.router,
     prefix="/api/accounting",
     tags=["accounting"],
     dependencies=_HR_PROGRAM,

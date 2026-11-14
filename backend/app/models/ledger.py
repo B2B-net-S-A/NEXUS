@@ -36,6 +36,7 @@ from app.services import ledger_automation_schema as automation
 from app.services import ledger_bank_schema as bank
 from app.services import ledger_export_schema as export
 from app.services import ledger_schema as schema
+from app.services import ledger_settlement_schema as settlement
 
 
 class LedgerYear(Base):
@@ -537,5 +538,60 @@ class LedgerBankLine(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     assigned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class LedgerSettlement(Base):
+    """Rozliczenie zapisu Wn z zapisem Ma konta kontrahenta (K4b, 0706)."""
+
+    __tablename__ = "ledger_settlements"
+    __table_args__ = (
+        CheckConstraint(settlement.CK_AMOUNT, name="ck_ledger_settlements_amount"),
+        CheckConstraint(settlement.CK_METHOD, name="ck_ledger_settlements_method"),
+        CheckConstraint(settlement.CK_LINES, name="ck_ledger_settlements_lines"),
+        CheckConstraint(
+            settlement.CK_SENSITIVITY, name="ck_ledger_settlements_sensitivity"
+        ),
+        Index(
+            "ix_ledger_settlements_debit",
+            "debit_line_id",
+            postgresql_where=text(settlement.ACTIVE_WHERE),
+        ),
+        Index(
+            "ix_ledger_settlements_credit",
+            "credit_line_id",
+            postgresql_where=text(settlement.ACTIVE_WHERE),
+        ),
+        Index(
+            "ix_ledger_settlements_account",
+            "account",
+            "settled_on",
+            postgresql_where=text(settlement.ACTIVE_WHERE),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    account: Mapped[str] = mapped_column(String(schema.ACCOUNT_MAX), nullable=False)
+    debit_line_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_lines.id", ondelete="CASCADE"), nullable=False
+    )
+    credit_line_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_lines.id", ondelete="CASCADE"), nullable=False
+    )
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    settled_on: Mapped[date] = mapped_column(Date, nullable=False)
+    method: Mapped[str] = mapped_column(String(12), nullable=False)
+    sensitivity: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    removed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    removed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

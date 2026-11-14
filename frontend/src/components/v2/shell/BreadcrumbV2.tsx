@@ -136,6 +136,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   assets: "Środki trwałe",
   // 14.11.2026: /accounting/bank — wyciągi bankowe i dokument WB (K4a).
   bank: "Bank",
+  // 14.11.2026: /accounting/settlements — rozrachunki z rozliczaniem pozycji (K4b).
+  settlements: "Rozrachunki",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

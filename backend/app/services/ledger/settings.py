@@ -73,7 +73,7 @@ MODULES: dict[str, str] = {
 MODULE_LABELS: dict[str, str] = {
     "ledger": "Księga — dokumenty, obroty i salda, plan kont",
     "automations": "Podatki, polisy i PK cykliczne",
-    "bank": "Bank — wyciągi i dopasowanie",
+    "bank": "Bank — wyciągi, dopasowanie i rozrachunki",
     "vat": "VAT i JPK",
     "assets": "Środki trwałe",
     "payroll": "Płace — lista, ZUS, PIT",
@@ -82,7 +82,7 @@ MODULE_LABELS: dict[str, str] = {
 MODULE_REPLACES: dict[str, str] = {
     "ledger": "Symfonia FK",
     "automations": "ręczne PK w Symfonii",
-    "bank": "import XML w Symfonii",
+    "bank": "import XML i rozrachunki w Symfonii",
     "vat": "rejestry i JPK w Symfonii",
     "assets": "Symfonia Środki Trwałe",
     "payroll": "Enova 365 Kadry i Płace",

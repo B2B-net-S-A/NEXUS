@@ -26,6 +26,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select, update
 
 from app.api import ledger as ledger_api
+from app.api import ledger_settlements as ledger_settlements_api
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
 from app.models.client_sales_invoice import (
@@ -47,6 +48,7 @@ from app.models.candidate import Candidate
 from app.models.client_settlement import ClientContractorInvoice
 from app.models.hr_profile import EmployeeProfile
 from app.models.ledger import (
+    LedgerBankLine,
     LedgerBankStatement,
     LedgerDocument,
     LedgerLine,
@@ -78,6 +80,7 @@ ACC = "/api/accounting"
 async def client():
     app = FastAPI()
     app.include_router(ledger_api.router, prefix=ACC)
+    app.include_router(ledger_settlements_api.router, prefix=ACC)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as c:
@@ -2162,4 +2165,304 @@ async def test_bank_import_fails_closed_when_team_accounts_unreadable(
             .where(LedgerBankStatement.sha256 == hashlib.sha256(content).hexdigest())
         )
     assert stored == 0
+
+
+# ── Rozrachunki z rozliczaniem pozycji (K4b) ────────────────────────────────
+
+
+async def _as_matched(
+    line_id: int, *, kind: str, ref_id: int, account: str, counterparty_id: int
+) -> None:
+    """Operacja wyciągu jak po dopasowaniu w E3/E8 (ich reguły testują K4a, E3, E8)."""
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(LedgerBankLine)
+            .where(LedgerBankLine.id == line_id)
+            .values(
+                kind=kind,
+                ref_id=ref_id,
+                counter_account=account,
+                counterparty_id=counterparty_id,
+                note="",
+            )
+        )
+        await db.commit()
+
+
+async def _settled_march(client, world, books) -> dict:
+    """Marzec w księdze: FVS (faktura, korekta, EUR), FVZ i zatwierdzony WB zapłat."""
+
+    year, acc = books["year"], books["acc"]
+    await _set_ledger(_bank_settings(world, books))
+    for kind in ("sales", "costs"):
+        synced = await _sync(client, world, books, kind)
+        assert synced.status_code == 200, synced.text
+    sales = books["sales"]
+    docs = {
+        key: await _document("client_sales_invoice", sales[key])
+        for key in ("plain", "correction", "euro")
+    }
+    docs["cost"] = await _document("finance_cost_entry", books["expense"])
+    await _approve_ids(client, world, [doc.id for doc in docs.values()])
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _statement(
+        year,
+        ("C", "1107,00", "Zapłata FS 1/03 po korekcie", OTHER_ACCOUNT, f"A{marker}"),
+        ("D", "1230,00", "Zapłata FV 7/03", OTHER_ACCOUNT, f"B{marker}"),
+        ("C", "2150,00", "Zapłata FS 2/03", OTHER_ACCOUNT, f"E{marker}"),
+    )
+    imported = await _bank_import(client, world, content)
+    assert imported.status_code == 201, imported.text
+    statement = imported.json()
+    lines = statement["lines"]
+    receivable = f"{acc['receivable']}-{books['partner']['c']}"
+    payable = books["supplier"].cost_account
+    await _as_matched(
+        lines[0]["id"],
+        kind="sales_invoice",
+        ref_id=sales["plain"],
+        account=receivable,
+        counterparty_id=books["buyer"].id,
+    )
+    await _as_matched(
+        lines[1]["id"],
+        kind="cost_invoice",
+        ref_id=books["expense"],
+        account=payable,
+        counterparty_id=books["supplier"].id,
+    )
+    headers = _headers(world["accountant"])
+    assigned = await client.patch(
+        f"{ACC}/bank/lines/{lines[2]['id']}", json={"account": receivable}, headers=headers
+    )
+    assert assigned.status_code == 200, assigned.text
+    posted = await client.post(
+        f"{ACC}/bank/statements/{statement['id']}/post", headers=headers
+    )
+    assert posted.status_code == 200, posted.text
+    wb = await _document("bank_statement", statement["id"])
+    await _approve_ids(client, world, [wb.id])
+    return {"receivable": receivable, "payable": payable, "docs": docs, "wb": wb}
+
+
+async def _account_card(client, world, account: str, user: str = "accountant", **params):
+    response = await client.get(
+        f"{ACC}/settlements/accounts/{account}",
+        params=params,
+        headers=_headers(world[user]),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _open(card: dict) -> list[tuple[str, str, int]]:
+    return sorted(
+        (item["doc_type"], item["direction"], item["remaining"]) for item in card["open"]
+    )
+
+
+async def test_settlements_pair_bank_correction_and_zero_balance(client, world, books):
+    march = await _settled_march(client, world, books)
+    receivable, payable, year = march["receivable"], march["payable"], books["year"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == books["sales"]["plain"])
+            .values(due_date=date(year, 4, 14))
+        )
+        await db.commit()
+    as_of = date(year, 4, 30).isoformat()
+    card = await _account_card(client, world, receivable, as_of=as_of)
+    assert card["name"] == "Klient Testowy"
+    assert _open(card) == [
+        ("FVS", "credit", 12_300),
+        ("FVS", "debit", 123_000),
+        ("FVS", "debit", 215_000),
+        ("WB", "credit", 110_700),
+        ("WB", "credit", 215_000),
+    ]
+    plain = next(item for item in card["open"] if item["remaining"] == 123_000)
+    assert (plain["due_on"], plain["overdue_days"]) == (f"{year}-04-14", 16)
+    assert (card["debit_open"], card["credit_open"], card["balance"]) == (338_000, 338_000, 0)
+    headers = _headers(world["accountant"])
+    prefix = books["acc"]["receivable"].rsplit("-", 1)[0]
+    listed = await client.get(
+        f"{ACC}/settlements", params={"as_of": as_of, "q": prefix}, headers=headers
+    )
+    assert listed.status_code == 200, listed.text
+    rows = {row["account"]: row for row in listed.json()["accounts"]}
+    assert set(rows) == {receivable, payable}
+    assert (rows[receivable]["debit_overdue"], rows[receivable]["max_overdue_days"]) == (
+        123_000,
+        16,
+    )
+    assert (rows[payable]["debit_open"], rows[payable]["credit_open"]) == (123_000, 123_000)
+    assert rows[payable]["name"] == "Dostawca Testowy"
+    overdue = await client.get(
+        f"{ACC}/settlements",
+        params={"as_of": as_of, "q": prefix, "overdue": "true"},
+        headers=headers,
+    )
+    assert [row["account"] for row in overdue.json()["accounts"]] == [receivable]
+    items = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert items["settlements"]["href"] == f"/accounting/settlements?year={year}&month=3"
+
+    auto = await client.post(
+        f"{ACC}/settlements/auto", params={"account": receivable}, headers=headers
+    )
+    assert auto.status_code == 200, auto.text
+    assert {key: auto.json()[key] for key in ("bank", "correction", "zero", "created")} == {
+        "bank": 1,
+        "correction": 1,
+        "zero": 1,
+        "created": 3,
+    }
+    card = await _account_card(client, world, receivable, as_of=as_of)
+    assert card["open"] == [] and card["settled_total"] == 5
+    methods = {s["method"] for item in card["settled"] for s in item["settlements"]}
+    assert methods == {"bank", "correction", "zero"}
+    again = await client.post(
+        f"{ACC}/settlements/auto", params={"account": receivable}, headers=headers
+    )
+    assert again.json()["created"] == 0
+    supplier = await client.post(
+        f"{ACC}/settlements/auto", params={"account": payable}, headers=headers
+    )
+    assert (supplier.json()["bank"], supplier.json()["created"]) == (1, 1)
+    # Na dzień przed zapłatą faktury: rozliczenie z datą 31.03 jeszcze się nie liczy.
+    early = await _account_card(client, world, receivable, as_of=date(year, 3, 30).isoformat())
+    assert _open(early) == [("FVS", "credit", 12_300), ("WB", "credit", 110_700)]
+
+    bank_row = next(
+        s for item in card["settled"] for s in item["settlements"] if s["method"] == "bank"
+    )
+    removed = await client.delete(f"{ACC}/settlements/{bank_row['id']}", headers=headers)
+    assert removed.status_code == 204
+    gone = await client.delete(f"{ACC}/settlements/{bank_row['id']}", headers=headers)
+    assert gone.status_code == 404
+    card = await _account_card(client, world, receivable, as_of=as_of)
+    assert _open(card) == [("FVS", "debit", 110_700), ("WB", "credit", 110_700)]
+    debit = next(item for item in card["open"] if item["direction"] == "debit")
+    credit = next(item for item in card["open"] if item["direction"] == "credit")
+    pair = {"debit_ids": [debit["line_id"]], "credit_ids": [credit["line_id"]]}
+    part = await client.post(
+        f"{ACC}/settlements", json={**pair, "amount": "100.00"}, headers=headers
+    )
+    assert part.status_code == 201 and part.json()["amount"] == 10_000, part.text
+    too_much = await client.post(
+        f"{ACC}/settlements", json={**pair, "amount": "2000.00"}, headers=headers
+    )
+    assert too_much.status_code == 422
+    rest = await client.post(f"{ACC}/settlements", json=pair, headers=headers)
+    assert rest.status_code == 201 and rest.json()["amount"] == 100_700
+    done = await client.post(f"{ACC}/settlements", json=pair, headers=headers)
+    assert done.status_code == 409 and "rozliczona" in done.json()["detail"]
+    swapped = await client.post(
+        f"{ACC}/settlements",
+        json={"debit_ids": [credit["line_id"]], "credit_ids": [debit["line_id"]]},
+        headers=headers,
+    )
+    assert swapped.status_code == 422 and "stronie Ma" in swapped.json()["detail"]
+    supplier_card = await _account_card(client, world, payable, as_of=as_of)
+    other_line = supplier_card["settled"][0]["line_id"]
+    mixed = await client.post(
+        f"{ACC}/settlements",
+        json={"debit_ids": [debit["line_id"]], "credit_ids": [other_line]},
+        headers=headers,
+    )
+    assert mixed.status_code == 422 and "jednego konta" in mixed.json()["detail"]
+    outsider = await client.post(
+        f"{ACC}/settlements/auto", headers=_headers(world["module_only"])
+    )
+    assert outsider.status_code == 403
+    # Storno WB: wpłaty wypadają, a faktury znów czekają (korekta zostaje rozliczona).
+    await _reverse(client, world, march["wb"].id, date(year, 3, 31))
+    card = await _account_card(client, world, receivable, as_of=as_of)
+    assert _open(card) == [("FVS", "debit", 110_700), ("FVS", "debit", 215_000)]
+
+
+async def test_settlements_keep_payroll_documents_to_payroll(client, world, books):
+    year, acc = books["year"], books["acc"]
+    settings = _bank_settings(world, books)
+    settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+    await _set_ledger(settings)
+    synced = await _sync(client, world, books, "costs")
+    assert synced.status_code == 200, synced.text
+    team_doc = await _document("finance_cost_entry", books["payroll"])
+    assert team_doc.sensitivity == "payroll"
+    await _approve_ids(client, world, [team_doc.id])
+    account = f"{acc['payable']}-{books['partner']['p']}"
+    headers = _headers(world["accountant"])
+    manual = []
+    for amount in ("1000.00", "-300.00"):
+        created = await client.post(
+            f"{ACC}/documents",
+            json={
+                "op_date": f"{year}-03-28",
+                "description": "Rozrachunek ręczny",
+                "lines": [
+                    {"side": "debit", "account": account, "amount": amount},
+                    {"side": "credit", "account": acc["bank"], "amount": amount},
+                ],
+            },
+            headers=headers,
+        )
+        assert created.status_code == 201, created.text
+        manual.append(created.json()["id"])
+    await _approve_ids(client, world, manual)
+    as_of = f"{year}-12-31"
+    seen = await _account_card(client, world, account, as_of=as_of)
+    assert _open(seen) == [
+        ("FVZ", "credit", 1_230_000),
+        ("PK", "credit", 30_000),
+        ("PK", "debit", 100_000),
+    ]
+    team_line = next(item for item in seen["open"] if item["doc_type"] == "FVZ")
+    pk_debit = next(item for item in seen["open"] if item["direction"] == "debit")
+    red = next(
+        item
+        for item in seen["open"]
+        if item["doc_type"] == "PK" and item["direction"] == "credit"
+    )
+    # Osoba bez Płac nie widzi wypłaty ani nazwiska — także w zestawieniu.
+    hidden = await _account_card(client, world, account, user="module_only", as_of=as_of)
+    assert _open(hidden) == [("PK", "credit", 30_000), ("PK", "debit", 100_000)]
+    assert hidden["name"] == ""
+    listed = await client.get(
+        f"{ACC}/settlements",
+        params={"q": account, "as_of": as_of},
+        headers=_headers(world["module_only"]),
+    )
+    assert [row["debit_open"] for row in listed.json()["accounts"]] == [100_000]
+    blind = await client.post(
+        f"{ACC}/settlements",
+        json={"debit_ids": [pk_debit["line_id"]], "credit_ids": [team_line["line_id"]]},
+        headers=_headers(world["module_only"]),
+    )
+    assert blind.status_code == 404
+    mixed = await client.post(
+        f"{ACC}/settlements",
+        json={"debit_ids": [pk_debit["line_id"]], "credit_ids": [team_line["line_id"]]},
+        headers=headers,
+    )
+    assert mixed.status_code == 422 and "płacowego" in mixed.json()["detail"]
+    # Storno czerwone (kwota ujemna po Wn) rozlicza się po stronie Ma.
+    red_pair = await client.post(
+        f"{ACC}/settlements",
+        json={"debit_ids": [pk_debit["line_id"]], "credit_ids": [red["line_id"]]},
+        headers=_headers(world["module_only"]),
+    )
+    assert red_pair.status_code == 201 and red_pair.json()["amount"] == 30_000
+    # Moduł „Bank” wyłączony: rozrachunki znikają (admin widzi zawsze).
+    settings["modules"] = {"ledger": True}
+    await _set_ledger(settings)
+    closed = await client.get(f"{ACC}/settlements", headers=headers)
+    assert closed.status_code == 404
+    admin = await client.get(f"{ACC}/settlements", headers=_headers(world["admin"]))
+    assert admin.status_code == 200
+    plain = await client.get(
+        f"{ACC}/settlements/accounts/{acc['bank']}", headers=_headers(world["admin"])
+    )
+    assert plain.status_code == 404 and "słownikiem" in plain.json()["detail"]
 

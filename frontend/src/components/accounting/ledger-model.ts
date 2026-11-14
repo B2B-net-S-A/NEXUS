@@ -164,6 +164,7 @@ export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting", label: "Miesiąc", description: "Stan miesiąca: dokumenty, bufor i zamknięcie okresu", module: "ledger" },
   { href: "/accounting/sources", label: "Źródła", description: "Faktury kosztowe i sprzedaży jako dokumenty księgi", module: "ledger" },
   { href: "/accounting/bank", label: "Bank", description: "Wyciągi z banku: dopasowanie zapłat i dokument WB", module: "bank" },
+  { href: "/accounting/settlements", label: "Rozrachunki", description: "Należności i zobowiązania kontrahentów, rozliczanie pozycji", module: "bank" },
   { href: "/accounting/automations", label: "Automaty", description: "PK cykliczne i RMK — polecenia księgowania co miesiąc same", module: "automations" },
   { href: "/accounting/documents", label: "Dokumenty", description: "Dziennik: dokumenty z dekretem, bufor i zatwierdzone", module: "ledger" },
   { href: "/accounting/symfonia", label: "Do Symfonii", description: "Paczka zatwierdzonych dokumentów do importu w Symfonii FK", module: "ledger" },
