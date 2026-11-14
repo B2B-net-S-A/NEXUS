@@ -37,6 +37,7 @@
   "GET /api/accounting/accounts/card": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/automations": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/chart": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/closing": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/config": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/config/candidates": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/documents": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

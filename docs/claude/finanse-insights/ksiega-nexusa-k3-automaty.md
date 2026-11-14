@@ -36,8 +36,8 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
 - Wzory i RMK zakłada lista „Księgowi” albo admin; podgląd „Moduł Finanse”
   przy otwartym module. Pozycje wzoru przechodzą tę samą kontrolę co PK
   (konta z planu, Wn = Ma).
-- Dalej w K3: lista płac z pliku Enovy (do czasu K7), kalendarz podatków i ZUS
-  z listą zamknięcia miesiąca; wycena walut idzie z rozrachunkami w K4.
+- Dalej w K3: lista płac z pliku Enovy (do czasu K7); wycena walut idzie
+  z rozrachunkami w K4.
 
 ## Paczka do Symfonii (K3b, migracja `0702_ledger_exports`)
 
@@ -67,3 +67,20 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
   tylko NIP albo VAT UE — PESEL z kartoteki E1 nie trafia do pliku. Format
   importu Symfonii FK dopiszemy klasą w `ledger/export_file.py` po próbce od
   Finansów.
+
+## Lista zamknięcia miesiąca i terminy (K3d, bez migracji)
+
+- Zakładka „Miesiąc” (`GET /closing`) zamiast statycznej listy źródeł: stan
+  każdego źródła z „Źródeł” (do zaksięgowania, do wyjaśnienia), bufor,
+  paczka do Symfonii (dokumenty domyślnych rodzajów poza paczką i paczki
+  czekające na „Zaksięgowana w Symfonii”; tylko tryb „symfonia” albo
+  „równolegle”) i etapy w drodze (K4–K7) z tym, kto je robi do tego czasu.
+  Odnośnik „Przejdź” tylko przy brakach. Liczby są te same co na tamtych
+  ekranach, także D2 (osoba bez Płac nie widzi dokumentów płacowych).
+- **Terminy za miesiąc M przypadają w M+1**: ZUS i PPK — 15., PIT-4 (zaliczki
+  od wynagrodzeń pobrane w M) — 20., VAT i JPK_V7M — 25. Sobota, niedziela
+  i święto przesuwają termin na następny dzień roboczy (art. 12 § 5 Ordynacji
+  podatkowej) — kalendarz świąt jak `scheduling.is_business_day`. Kwoty dojdą
+  z listą płac (K3c, K7) i rozliczeniem VAT (K5).
+- Zapis i usunięcie automatu odświeżają całą księgę na froncie, bo zdejmują
+  szkice z bufora (liczniki okresów, dokumenty, lista zamknięcia).

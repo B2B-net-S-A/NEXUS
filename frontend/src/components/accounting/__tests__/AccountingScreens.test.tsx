@@ -38,7 +38,10 @@ import { SettingsView } from "@/components/accounting/SettingsView";
 import { AutomationsView, monthLabel, templateLines } from "@/components/accounting/AutomationsView";
 import { SourcesView, syncMessage } from "@/components/accounting/SourcesView";
 import { ExportsView, defaultKinds, packedDocuments } from "@/components/accounting/ExportsView";
+import { MonthView, deadlineNote } from "@/components/accounting/MonthView";
 import type {
+  ClosingDeadline,
+  ClosingMonth,
   DocumentCard,
   DocumentList,
   ExportsOverview,
@@ -860,6 +863,81 @@ describe("Księgowość — paczki do Symfonii (K3b)", () => {
     const dialog = await screen.findByRole("dialog");
     await user.click(within(dialog).getByRole("button", { name: "Zaksięgowana" }));
     await waitFor(() => expect(post).toHaveBeenCalledWith("/api/accounting/exports/31/book"));
+  });
+});
+
+function closingMonth(): ClosingMonth {
+  const deadline = (key: ClosingDeadline["key"], label: string, nominal: string, due: string): ClosingDeadline => ({
+    key,
+    label,
+    nominal,
+    due,
+    basis: "ustawa",
+    amount_from: "lista płac",
+  });
+  return {
+    year: 2026,
+    month: 10,
+    period_status: "open",
+    items: [
+      { key: "source:costs", label: "Faktury kosztowe (Koszty, dekret E2)", state: "todo", detail: "do zaksięgowania: 2", href: "/accounting/sources?year=2026&month=10" },
+      { key: "source:sales", label: "Faktury sprzedaży (KSeF)", state: "problem", detail: "do wyjaśnienia: 1", href: "/accounting/sources?year=2026&month=10" },
+      { key: "drafts", label: "Bufor — dokumenty do zatwierdzenia", state: "ok", detail: "pusty", href: "/accounting/documents?year=2026&month=10&status=draft" },
+      { key: "symfonia", label: "Paczka do Symfonii", state: "todo", detail: "zatwierdzone poza paczką: 2", href: "/accounting/symfonia?year=2026&month=10" },
+      { key: "later:bank", label: "Wyciągi bankowe", state: "later", detail: "etap K4 — do tego czasu import XML w Symfonii", href: null },
+    ],
+    deadlines: [
+      deadline("zus", "ZUS — DRA i składki", "2026-11-15", "2026-11-16"),
+      deadline("ppk", "PPK — wpłaty", "2026-11-15", "2026-11-16"),
+      deadline("pit", "PIT-4 — zaliczki od wynagrodzeń pobrane w miesiącu", "2026-11-20", "2026-11-20"),
+      deadline("vat", "VAT — JPK_V7M i przelew", "2026-11-25", "2026-11-25"),
+    ],
+  };
+}
+
+describe("Księgowość — lista zamknięcia miesiąca (K3d)", () => {
+  it("termin mówi, ile zostało, i czy przesunął się z dnia wolnego", () => {
+    const zus = closingMonth().deadlines[0];
+    expect(deadlineNote(zus, "2026-10-20")).toBe("za 27 dni, przesunięty z 15.11 (dzień wolny)");
+    const plain = { ...zus, nominal: "2026-11-16" };
+    expect(deadlineNote(plain, "2026-11-15")).toBe("jutro");
+    expect(deadlineNote(plain, "2026-11-16")).toBe("dziś");
+    expect(deadlineNote(plain, "2026-11-17")).toBe("minął");
+  });
+
+  it("pokazuje, co zostało przed zamknięciem — odnośnik tylko przy brakach", async () => {
+    pathname = "/accounting";
+    get.mockImplementation(async (url: string) => {
+      if (url === "/api/accounting/config") return { data: config() };
+      if (url === "/api/accounting/closing") return { data: closingMonth() };
+      if (url === "/api/accounting/trial-balance") {
+        return {
+          data: {
+            year: 2026,
+            month_from: 10,
+            month_to: 10,
+            level: "synthetic",
+            items: [],
+            totals: { bo_wn: 0, bo_ma: 0, wn: 0, ma: 0, ytd_wn: 0, ytd_ma: 0, saldo_wn: 0, saldo_ma: 0 },
+            balanced: true,
+          },
+        };
+      }
+      throw new Error(`nieoczekiwane ${url}`);
+    });
+    renderWith(<MonthView />);
+    const costs = (await screen.findByText("Faktury kosztowe (Koszty, dekret E2)")).closest("li")!;
+    expect(within(costs).getByText("do zaksięgowania: 2")).toBeInTheDocument();
+    expect(within(costs).getByRole("link", { name: "Przejdź" })).toHaveAttribute(
+      "href",
+      "/accounting/sources?year=2026&month=10",
+    );
+    const buffer = screen.getByText("Bufor — dokumenty do zatwierdzenia").closest("li")!;
+    expect(within(buffer).queryByRole("link")).not.toBeInTheDocument();
+    const bank = screen.getByText("Wyciągi bankowe").closest("li")!;
+    expect(within(bank).queryByRole("link")).not.toBeInTheDocument();
+    expect(screen.getAllByText("16.11.2026")).toHaveLength(2);
+    expect(screen.getAllByText(/przesunięty z 15\.11 \(dzień wolny\)/)).toHaveLength(2);
   });
 });
 

@@ -1345,3 +1345,55 @@ async def test_export_needs_symfonia_year_and_accountants_list(client, world, bo
     blocked = await _export(client, world, books, ["recurring"])
     assert blocked.status_code == 409
 
+
+# ── Lista zamknięcia miesiąca (K3d) ─────────────────────────────────────────
+
+
+async def _closing(client, world, books, user: str = "accountant") -> dict:
+    response = await client.get(
+        f"{ACC}/closing",
+        params={"year": books["year"], "month": 3},
+        headers=_headers(world[user]),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_closing_checklist_follows_sources_buffer_and_symfonia(client, world, books):
+    await _approved_automations(client, world, books)
+    year = books["year"]
+    data = await _closing(client, world, books)
+    items = {item["key"]: item for item in data["items"]}
+    assert data["period_status"] == "open"
+    assert items["source:recurring"]["state"] == "ok"
+    assert items["source:costs"]["state"] == "todo"
+    assert items["source:costs"]["detail"] == "do zaksięgowania: 2"
+    assert items["drafts"]["state"] == "ok"
+    symfonia = items["symfonia"]
+    assert symfonia["state"] == "todo" and symfonia["detail"] == "zatwierdzone poza paczką: 2"
+    assert symfonia["href"] == f"/accounting/symfonia?year={year}&month=3"
+    assert items["later:bank"]["state"] == "later"
+    assert [item["key"] for item in data["deadlines"]] == ["zus", "ppk", "pit", "vat"]
+    assert data["deadlines"][0]["nominal"] == f"{year}-04-15"
+    created = await _export(client, world, books, ["recurring", "prepayments"])
+    assert created.status_code == 201, created.text
+    waiting = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert waiting["symfonia"]["detail"] == (
+        f"czeka na „Zaksięgowana w Symfonii”: K/{year}-03/1"
+    )
+    booked = await client.post(
+        f"{ACC}/exports/{created.json()['id']}/book", headers=_headers(world["accountant"])
+    )
+    assert booked.status_code == 200, booked.text
+    done = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert done["symfonia"]["state"] == "ok"
+    # Rok w trybie NEXUS nie ma paczek — pozycji „Paczka do Symfonii” nie ma na liście.
+    async with AsyncSessionLocal() as db:
+        year_id = await db.scalar(select(LedgerYear.id).where(LedgerYear.year == year))
+    mode = await client.patch(
+        f"{ACC}/years/{year_id}", json={"mode": "nexus"}, headers=_headers(world["admin"])
+    )
+    assert mode.status_code == 200, mode.text
+    nexus = {item["key"] for item in (await _closing(client, world, books))["items"]}
+    assert "symfonia" not in nexus and "drafts" in nexus
+

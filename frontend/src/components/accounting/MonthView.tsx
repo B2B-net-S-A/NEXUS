@@ -8,53 +8,49 @@ import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
   useClosePeriod,
+  useClosing,
   useCreateYear,
-  useDocuments,
   useReopenPeriod,
   useTrialBalance,
-  type DocType,
+  type ClosingDeadline,
+  type ClosingState,
 } from "@/lib/api/accounting";
 import { apiErrorMessage } from "@/lib/api-error";
-import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
-import { findPeriod, gr, monthTitle } from "./ledger-model";
-
-interface SourceRow {
-  types: DocType[];
-  name: string;
-  origin: string;
-  stage: string | null;
-}
-
-/**
- * Źródła dokumentów miesiąca. Etap = kiedy NEXUS zacznie robić te dokumenty
- * sam (plan K1–K9); do tego czasu księguje je Symfonia, a w NEXUSIE są tylko
- * PK i BO zakładane ręcznie.
- */
-const SOURCES: readonly SourceRow[] = [
-  { types: ["PK", "BO"], name: "Polecenia księgowania i bilans otwarcia", origin: "ręcznie, na ekranie Dokumenty", stage: null },
-  { types: ["FVZ"], name: "Faktury kosztowe", origin: "kolejka kosztów i dekret E2 → Źródła", stage: null },
-  { types: ["FVS"], name: "Faktury sprzedaży", origin: "KSeF (eBI24 i NEXUS) → Źródła", stage: null },
-  { types: ["RMK", "PK"], name: "Polisy, podatki, PK cykliczne", origin: "automaty co miesiąc", stage: "K3" },
-  { types: ["WB"], name: "Wyciągi bankowe", origin: "import CAMT.053 / MT940", stage: "K4" },
-  { types: ["VAT"], name: "Rozliczenie VAT", origin: "rejestry VAT i JPK_V7M", stage: "K5" },
-  { types: ["AM"], name: "Amortyzacja", origin: "ewidencja środków trwałych", stage: "K6" },
-  { types: ["LP"], name: "Lista płac", origin: "Płace: UoP i zlecenia", stage: "K7" },
-];
+import { datePl, findPeriod, gr, monthTitle } from "./ledger-model";
 
 const STATUS_TONE: Record<string, StatusDotTone> = { open: "success", closed: "neutral" };
+const CHECK_TONE: Record<ClosingState, StatusDotTone> = {
+  ok: "success",
+  todo: "warning",
+  problem: "danger",
+  later: "neutral",
+};
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function dayNumber(iso: string): number {
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return Date.UTC(y, m - 1, d) / DAY_MS;
+}
+
+/** „za 5 dni”, „jutro”, „dziś”, „minął” + przesunięcie z dnia wolnego. */
+export function deadlineNote(deadline: ClosingDeadline, today: string): string {
+  const left = dayNumber(deadline.due) - dayNumber(today);
+  const when = left > 1 ? `za ${left} dni` : left === 1 ? "jutro" : left === 0 ? "dziś" : "minął";
+  const moved =
+    deadline.due !== deadline.nominal ? `, przesunięty z ${datePl(deadline.nominal).slice(0, 5)} (dzień wolny)` : "";
+  return `${when}${moved}`;
+}
 
 export function MonthView() {
   const { config, period, setPeriod } = useAccounting();
   const { showToast } = useToast();
   const { askConfirm, askReason, confirmDialog } = useConfirmV2();
   const { year, period: current } = findPeriod(config, period);
-  const docs = useDocuments(
-    { year: period.year, month: period.month, docType: null, status: null, q: "", offset: 0 },
-    year != null,
-  );
+  const checklist = useClosing(period.year, period.month, year != null);
   const trial = useTrialBalance(year ? period.year : null, period.month, period.month, "synthetic");
   const createYear = useCreateYear();
   const close = useClosePeriod();
@@ -108,7 +104,6 @@ export function MonthView() {
     );
   }
 
-  const counts = docs.data?.counts ?? {};
   const drafts = current?.drafts ?? 0;
   const approved = current?.approved ?? 0;
   const closed = current?.status === "closed";
@@ -169,105 +164,110 @@ export function MonthView() {
       />
 
       <div className="grid gap-3.5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <SectionCard title={`Źródła dokumentów — ${title.toLowerCase()}`} aside="co robi NEXUS, a co jeszcze Symfonia">
-          {docs.isError ? (
-            <QueryStateNotice state="error" onRetry={() => docs.refetch()} className="m-3" />
+        <SectionCard title={`Lista zamknięcia — ${title.toLowerCase()}`} aside="co zostało przed zamknięciem okresu">
+          {checklist.isError ? (
+            <QueryStateNotice state="error" onRetry={() => checklist.refetch()} className="m-3" />
+          ) : !checklist.isSuccess ? (
+            <p className="px-3.5 py-3 text-[13px] text-muted-foreground">Wczytywanie listy…</p>
           ) : (
-            <table className="w-full table-fixed text-sm">
-              <thead>
-                <tr className="border-b border-border/70">
-                  <th className={cn(CALM_HEAD, "px-3.5 py-2 text-left")}>Źródło</th>
-                  <th className={cn(CALM_HEAD, "w-[14%] px-2 py-2 text-right")}>Dok.</th>
-                  <th className={cn(CALM_HEAD, "w-[30%] px-3.5 py-2 text-left")}>Stan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SOURCES.map((source) => {
-                  const count = source.stage
-                    ? source.types.filter((type) => type !== "PK").reduce((sum, type) => sum + (counts[type] ?? 0), 0)
-                    : source.types.reduce((sum, type) => sum + (counts[type] ?? 0), 0);
-                  return (
-                    <tr key={source.name} className={cn(CALM_ROW, "align-top last:border-0")}>
-                      <td className="min-w-0 px-3.5 py-2">
-                        <span className="block font-medium">{source.name}</span>
-                        <span className={CALM_SUBLINE}>{source.origin}</span>
-                      </td>
-                      <td className={cn(CALM_AMOUNT, "px-2 py-2")}>{docs.isSuccess ? count : "—"}</td>
-                      <td className="px-3.5 py-2">
-                        {source.stage ? (
-                          <StatusDot tone="neutral" note="do tego czasu księguje Symfonia">
-                            Etap {source.stage}
-                          </StatusDot>
-                        ) : (
-                          <StatusDot tone="success">Działa</StatusDot>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <ul className="divide-y divide-border/70">
+              {checklist.data.items.map((item) => (
+                <li key={item.key} className="flex items-start justify-between gap-3 px-3.5 py-2">
+                  <div className="min-w-0">
+                    <StatusDot tone={CHECK_TONE[item.state]}>
+                      <span className="text-[13px] font-medium">{item.label}</span>
+                    </StatusDot>
+                    <span className={cn(CALM_SUBLINE, "pl-3.5")}>{item.detail}</span>
+                  </div>
+                  {item.href && item.state !== "ok" ? (
+                    <Link href={item.href} className="shrink-0 text-[13px] text-primary hover:underline">
+                      Przejdź
+                    </Link>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           )}
         </SectionCard>
 
-        <SectionCard title="Zamknięcie okresu" aside={title}>
-          <div className="space-y-2.5 px-3.5 py-3 text-[13px]">
-            <StatusDot
-              tone={STATUS_TONE[current?.status ?? "open"]}
-              note={
-                closed
-                  ? current?.closed_at
-                    ? `zamknięty ${current.closed_at.slice(0, 10).split("-").reverse().join(".")}`
-                    : undefined
-                  : current?.reopen_reason
-                    ? `otwarty ponownie: ${current.reopen_reason}`
-                    : undefined
-              }
-            >
-              {closed ? "Okres zamknięty" : "Okres otwarty"}
-            </StatusDot>
-            <ul className="space-y-1.5">
-              <li>
-                <StatusDot tone={drafts ? "warning" : "success"} note={drafts ? "zatwierdź albo usuń" : undefined}>
-                  {drafts ? `W buforze: ${drafts}` : "Bufor pusty"}
-                </StatusDot>
-              </li>
-              <li>
-                <StatusDot tone={trial.data?.balanced === false ? "danger" : "success"}>
-                  {trial.data?.balanced === false ? "Obroty Wn ≠ Ma" : "Obroty Wn = Ma"}
-                </StatusDot>
-              </li>
-            </ul>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {drafts ? (
-                <Button size="sm" variant="outline" asChild>
-                  <Link href={`/accounting/documents${query}&status=draft`}>Pokaż bufor</Link>
-                </Button>
-              ) : null}
-              {!closed && config.me.approver ? (
-                <Button
-                  size="sm"
-                  disabled={drafts > 0}
-                  title={drafts > 0 ? "Najpierw zatwierdź albo usuń dokumenty z bufora" : undefined}
-                  loading={close.isPending}
-                  onClick={() => void closeMonth()}
-                >
-                  Zamknij okres
-                </Button>
-              ) : null}
-              {closed && config.me.admin ? (
-                <Button size="sm" variant="outline" loading={reopen.isPending} onClick={() => void reopenMonth()}>
-                  Otwórz ponownie
-                </Button>
+        <div className="space-y-3.5">
+          <SectionCard title="Zamknięcie okresu" aside={title}>
+            <div className="space-y-2.5 px-3.5 py-3 text-[13px]">
+              <StatusDot
+                tone={STATUS_TONE[current?.status ?? "open"]}
+                note={
+                  closed
+                    ? current?.closed_at
+                      ? `zamknięty ${current.closed_at.slice(0, 10).split("-").reverse().join(".")}`
+                      : undefined
+                    : current?.reopen_reason
+                      ? `otwarty ponownie: ${current.reopen_reason}`
+                      : undefined
+                }
+              >
+                {closed ? "Okres zamknięty" : "Okres otwarty"}
+              </StatusDot>
+              <ul className="space-y-1.5">
+                <li>
+                  <StatusDot tone={drafts ? "warning" : "success"} note={drafts ? "zatwierdź albo usuń" : undefined}>
+                    {drafts ? `W buforze: ${drafts}` : "Bufor pusty"}
+                  </StatusDot>
+                </li>
+                <li>
+                  <StatusDot tone={trial.data?.balanced === false ? "danger" : "success"}>
+                    {trial.data?.balanced === false ? "Obroty Wn ≠ Ma" : "Obroty Wn = Ma"}
+                  </StatusDot>
+                </li>
+              </ul>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {drafts ? (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href={`/accounting/documents${query}&status=draft`}>Pokaż bufor</Link>
+                  </Button>
+                ) : null}
+                {!closed && config.me.approver ? (
+                  <Button
+                    size="sm"
+                    disabled={drafts > 0}
+                    title={drafts > 0 ? "Najpierw zatwierdź albo usuń dokumenty z bufora" : undefined}
+                    loading={close.isPending}
+                    onClick={() => void closeMonth()}
+                  >
+                    Zamknij okres
+                  </Button>
+                ) : null}
+                {closed && config.me.admin ? (
+                  <Button size="sm" variant="outline" loading={reopen.isPending} onClick={() => void reopenMonth()}>
+                    Otwórz ponownie
+                  </Button>
+                ) : null}
+              </div>
+              {!config.me.approver ? (
+                <p className="text-[12px] text-muted-foreground">
+                  Zatwierdza i zamyka osoba z listy „Księgowi” albo administrator.
+                </p>
               ) : null}
             </div>
-            {!config.me.approver ? (
-              <p className="text-[12px] text-muted-foreground">
-                Zatwierdza i zamyka osoba z listy „Księgowi” albo administrator.
+          </SectionCard>
+          {checklist.isSuccess ? (
+            <SectionCard title="Terminy za miesiąc" aside="ZUS, PPK, PIT-4, VAT">
+              <ul className="divide-y divide-border/70">
+                {checklist.data.deadlines.map((deadline) => (
+                  <li key={deadline.key} className="px-3.5 py-2 text-[13px]" title={deadline.basis}>
+                    <span className="flex items-baseline justify-between gap-2">
+                      <span className="min-w-0 font-medium">{deadline.label}</span>
+                      <span className="shrink-0 tabular-nums">{datePl(deadline.due)}</span>
+                    </span>
+                    <span className={CALM_SUBLINE}>{deadlineNote(deadline, config.today)}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="border-t border-border/70 px-3.5 py-2 text-[12px] text-muted-foreground">
+                Kwoty dojdą z listą płac (K3c z pliku Enovy, potem K7) i rozliczeniem VAT (K5).
               </p>
-            ) : null}
-          </div>
-        </SectionCard>
+            </SectionCard>
+          ) : null}
+        </div>
       </div>
       {confirmDialog}
     </div>
