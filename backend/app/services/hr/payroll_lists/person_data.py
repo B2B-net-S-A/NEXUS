@@ -338,7 +338,10 @@ def apply_changes(
             raise PersonDataError("Rodzaj dokumentu: dowód osobisty albo paszport.")
         put("document_type", doc_type)
     if "document_number" in changes:
-        number = _text(changes["document_number"], "Numer dokumentu", limit=20)
+        raw_number = changes["document_number"]
+        number = _text(
+            None if raw_number is None else str(raw_number), "Numer dokumentu", limit=20
+        )
         number = number.replace(" ", "").upper() if number else None
         if number is not None and not _DOC_NUMBER.match(number):
             raise PersonDataError("Numer dokumentu: 5–20 liter i cyfr.")

@@ -142,9 +142,11 @@ class PersonBody(BaseModel):
     model_config = {"extra": "forbid"}
 
     expected_version: Optional[int] = Field(default=None, ge=0)
-    pesel: Optional[str] = Field(default=None, max_length=20)
+    # Pola z numerami bez walidacji Pydantica: 422 FastAPI odsyła wartość wejścia,
+    # a walidacja serwisu numeru nie powtarza.
+    pesel: Optional[Any] = None
     document_type: Optional[str] = Field(default=None, max_length=12)
-    document_number: Optional[str] = Field(default=None, max_length=30)
+    document_number: Optional[Any] = None
     birth_date: Optional[date] = None
     sex: Optional[Literal["F", "M"]] = None
     first_name: Optional[str] = Field(default=None, max_length=100)
@@ -155,7 +157,7 @@ class PersonBody(BaseModel):
     tax_office_name: Optional[str] = Field(default=None, max_length=150)
     zus_title_code: Optional[str] = Field(default=None, max_length=10)
     nfz_code: Optional[str] = Field(default=None, max_length=4)
-    nip: Optional[str] = Field(default=None, max_length=16)
+    nip: Optional[Any] = None
     work_time: Optional[str] = Field(default=None, max_length=6)
     pit2: Optional[int] = None
     kup: Optional[Literal["standard", "increased"]] = None
@@ -168,7 +170,7 @@ class PersonBody(BaseModel):
     ppk: Optional[dict[str, Any]] = None
     labour_fund_exempt_until: Optional[date] = None
     fgsp_exempt_until: Optional[date] = None
-    bank_account: Optional[str] = Field(default=None, max_length=64)
+    bank_account: Optional[Any] = None
 
 
 class ComputeBody(BaseModel):

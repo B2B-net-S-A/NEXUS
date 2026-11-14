@@ -59,10 +59,10 @@ def sex(value: str) -> str:
     return "F" if int(value[9]) % 2 == 0 else "M"
 
 
-def clean(raw: Optional[str]) -> Optional[str]:
+def clean(raw: object) -> Optional[str]:
     """Tekst z formularza → 11 cyfr albo ``None``; zły numer = 422 bez cyfr w treści."""
 
-    text = "".join(ch for ch in (raw or "") if not ch.isspace())
+    text = "".join(ch for ch in str(raw if raw is not None else "") if not ch.isspace())
     if not text:
         return None
     if len(text) != 11 or not text.isdigit():

@@ -641,3 +641,13 @@ def test_pit11_person_and_opening_entries() -> None:
         amounts,
     )
     assert b"PIT-11" in xml
+
+
+def test_number_fields_accept_any_type_without_echo() -> None:
+    with pytest.raises(pesel.PeselError) as exc:
+        pesel.clean(12345678901)
+    assert "12345678901" not in exc.value.message
+    data, _ = person_data.apply_changes(
+        {}, {"document_type": "passport", "document_number": 123456789}
+    )
+    assert data["document_number"] == "123456789"
