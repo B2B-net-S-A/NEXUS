@@ -43,3 +43,9 @@ każda luka XSS kończyła się wyniesieniem JWT (do 11.2026 leżał w
   Przeniesienie `script-src` do egzekwowanej polityki dopiero po przejrzeniu
   raportów w Sentry; beacon Cloudflare Insights (wstrzykuje proxy bez nonce)
   będzie raportowany — decyzja o nim przed egzekwowaniem.
+- **Element JSX z `nonce={…}` dostaje `suppressHydrationWarning`.** Przeglądarka
+  zeruje atrybut `nonce` w DOM-ie, więc React w `next dev` widzi `nonce=""`
+  i zgłasza niezgodność („1 Issue” na każdej stronie, 14.11.2026). Prop wycisza
+  tylko to porównanie na elemencie; nonce zostaje w HTML-u, CSP bez zmian.
+  Dziś jedyny taki element to bootstrap motywu w `app/layout.tsx`
+  (test: `lib/__tests__/csp-nonce-hydration.test.tsx`).

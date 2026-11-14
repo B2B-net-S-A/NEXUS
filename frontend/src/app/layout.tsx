@@ -127,7 +127,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       className={`${inter.variable} ${interCyrillic.variable} ${poppins.variable} ${baloo2.variable}`}
     >
       <head>
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+        {/* Przeglądarka z CSP zeruje atrybut `nonce` w DOM-ie po sparsowaniu, więc
+            React w dev porównuje `nonce=""` z wartością z serwera i zgłasza
+            niezgodność („1 Issue” na każdej stronie). Wartość zostaje w HTML-u
+            (CSP ją sprawdza); wyciszamy tylko to porównanie, na tym elemencie.
+            Test: `lib/__tests__/csp-nonce-hydration.test.tsx`. */}
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{ __html: themeBootstrap }}
+        />
       </head>
       <body className="bg-background text-foreground font-sans antialiased">
         <ChunkReloadGuard />
