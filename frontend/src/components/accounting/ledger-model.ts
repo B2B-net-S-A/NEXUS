@@ -168,6 +168,7 @@ export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting/symfonia", label: "Do Symfonii", description: "Paczka zatwierdzonych dokumentów do importu w Symfonii FK", module: "ledger" },
   { href: "/accounting/trial-balance", label: "Obroty i salda", description: "Zestawienie obrotów i sald, karta konta", module: "ledger" },
   { href: "/accounting/assets", label: "Środki trwałe", description: "Ewidencja środków trwałych i WNiP, plan amortyzacji", module: "assets" },
+  { href: "/accounting/payroll", label: "Lista płac", description: "Lista płac UoP i zleceń: składki, zaliczki PIT, ZUS", module: "payroll" },
   { href: "/accounting/chart", label: "Plan kont", description: "Konta księgi: syntetyka, analityka, typy i słowniki", module: "ledger" },
   { href: "/accounting/settings", label: "Ustawienia", description: "Moduły, lista „Księgowi”, rok obrotowy i okresy", module: null },
 ];
@@ -181,10 +182,16 @@ export function activeTab(pathname: string | null): AreaTab {
   );
 }
 
+/**
+ * Zakładki otwartych modułów; „Lista płac” (K7a) dodatkowo tylko z uprawnieniem
+ * „Rozliczenia” (`payroll`) — kwoty list widzą Rozliczenia i administrator (D2).
+ */
 export function visibleTabs(config: LedgerConfig | undefined): AreaTab[] {
   if (!config) return [];
   const open = new Set(config.modules.filter((item) => item.open).map((item) => item.key));
-  return ACCOUNTING_TABS.filter((tab) => tab.module === null || open.has(tab.module));
+  return ACCOUNTING_TABS.filter(
+    (tab) => (tab.module === null || open.has(tab.module)) && (tab.module !== "payroll" || config.me.payroll),
+  );
 }
 
 /** Źródło dokumentu po polsku i — gdy źródło ma kartę w NEXUSIE — odnośnik do niej. */

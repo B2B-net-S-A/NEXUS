@@ -48,6 +48,7 @@ import { PersonDocumentsSection } from "@/components/hr/people/documents/PersonD
 import { formatIsoDatePl } from "@/lib/date-pl";
 
 import { BillingDetailsSection } from "./BillingDetailsSection";
+import { PayrollDataCard } from "./PayrollDataCard";
 import { EditProfileDialog } from "./EditProfileDialog";
 import { EmploymentTypeDialog } from "./EmploymentTypeDialog";
 import { EntitlementDialog } from "./EntitlementDialog";
@@ -859,6 +860,13 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
             <PayrollProfileSection userId={userId} name={data.name} />
           ) : null}
           {full ? <BillingDetailsSection userId={userId} enabled={billingVisible} /> : null}
+          {full ? (
+            <PayrollDataCard
+              userId={userId}
+              kind={full.employment_type ?? null}
+              enabled={agreementsVisible}
+            />
+          ) : null}
         </div>
       ) : null}
 

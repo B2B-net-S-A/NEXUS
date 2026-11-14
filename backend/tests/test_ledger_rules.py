@@ -229,12 +229,12 @@ def test_settings_default_all_modules_off():
 
 def test_settings_cannot_open_module_without_screens():
     raw = {
-        "modules": {"ledger": True, "payroll": True, "bank": "yes"},
+        "modules": {"ledger": True, "reports": True, "bank": "yes"},
         "accountants": [3, 3, 1],
     }
     current = ledger_settings.normalize(raw)
     assert current.modules["ledger"] is True
-    assert current.modules["payroll"] is False
+    assert current.modules["reports"] is False
     assert current.modules["bank"] is False
     assert current.accountants == (1, 3)
 

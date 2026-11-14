@@ -14,6 +14,7 @@ import type { HolderEquipment, AssignmentRow } from "@/lib/api/equipment";
 import type { EmploymentStatus, EmploymentType, PersonCard, PersonFull } from "@/lib/api/hr";
 import type { LeaveType } from "@/lib/api/hr-leave";
 import type { RateRow } from "@/lib/api/hr-payroll";
+import type { PersonData } from "@/lib/api/payroll-lists";
 import type {
   AbsenceState,
   PersonAbsence,
@@ -219,6 +220,53 @@ export function olaWithoutForm(): PersonFull {
     ...rest
   } = olaFull("b2b");
   return { ...rest, employment_type: null };
+}
+
+/**
+ * „Dane do listy płac” (K7a) w zakładce Rozliczenia: PESEL tylko jako maska,
+ * brak adresu (karta pokazuje „Brakuje: …”). Numery zmyślone.
+ */
+export function olaPayrollData(): PersonData {
+  return {
+    subject: `u${ola.id}`,
+    user_id: ola.id,
+    candidate_id: null,
+    name: ola.name,
+    exists: true,
+    can_edit: true,
+    pesel_masked: "•••••••0000",
+    document_type: null,
+    document_masked: null,
+    birth_date: null,
+    sex: null,
+    nip: null,
+    first_name: ola.name.split(" ")[0] ?? ola.name,
+    last_name: ola.name.split(" ").slice(1).join(" "),
+    names_confirmed: true,
+    citizenship: "PL",
+    address: null,
+    tax_office_code: "0000",
+    tax_office_name: "Urząd testowy",
+    zus_title_code: "011000",
+    nfz_code: null,
+    work_time: "1/1",
+    pit2: 12,
+    kup: "standard",
+    reliefs: [],
+    youth_relief_waived: false,
+    youth_relief_now: false,
+    student_exempt_until: null,
+    mandate: { pension_insurance: true, sickness_voluntary: false, accident_insurance: true },
+    ppk: null,
+    labour_fund_exempt_until: null,
+    fgsp_exempt_until: null,
+    bank_account_last4: null,
+    missing: ["address"],
+    missing_labels: ["adres zamieszkania"],
+    blocks_calculation: [],
+    updated_at: null,
+    version: 1,
+  };
 }
 
 /** Kartoteka założona automatem z konta: forma i przełożony do uzupełnienia. */

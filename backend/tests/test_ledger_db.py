@@ -298,7 +298,7 @@ async def test_modules_without_screens_cannot_be_enabled(client, world):
     admin = _headers(world["admin"])
     refused = await client.put(
         f"{ACC}/config/modules",
-        json={"module": "payroll", "enabled": True},
+        json={"module": "reports", "enabled": True},
         headers=admin,
     )
     assert refused.status_code == 409

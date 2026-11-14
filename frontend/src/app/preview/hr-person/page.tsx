@@ -46,6 +46,7 @@ import { agreementKeys } from "@/lib/api/hr-agreements";
 import { documentKeys } from "@/lib/api/hr-documents";
 import { personHistoryKey } from "@/lib/api/hr-person-history";
 import { leaveKeys } from "@/lib/api/hr-leave";
+import { payrollListKeys } from "@/lib/api/payroll-lists";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
@@ -65,6 +66,7 @@ import {
   olaFromAccount,
   olaFull,
   olaHistory,
+  olaPayrollData,
   olaWithoutForm,
   personCard,
   seedHttpError,
@@ -220,6 +222,11 @@ function prepare(params: URLSearchParams) {
         can_enter: as !== "manager" || form === "uop",
       },
     ]);
+  }
+  // „Dane do listy płac” (K7a): karta w zakładce Rozliczenia dla Administracji
+  // współpracy i Rozliczeń (serwer odmawia reszcie, więc karta się chowa).
+  if (as === "hr" || as === "hr-only" || as === "account" || as === "finance") {
+    client.setQueryData(payrollListKeys.person(`u${ola.id}`), olaPayrollData());
   }
   // Panel sprzętu montuje się tylko dla Kadr, recepcji i admina.
   if (as === "hr" || as === "hr-only" || as === "account") {

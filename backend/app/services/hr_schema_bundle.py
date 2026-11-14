@@ -54,6 +54,7 @@ from app.services import hr_leave_cpro_schema as leave_cpro
 from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
+from app.services import hr_payroll_lists_schema as payroll_lists
 from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
@@ -119,6 +120,8 @@ MODULES = (
     ledger_export,
     # 0703: środki trwałe i WNiP K6 — ewidencja i dokumenty środka (14.11.2026).
     ledger_assets,
+    # 0704: płace liczone w NEXUSIE K7a — dane osoby, parametry, listy (14.11.2026).
+    payroll_lists,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

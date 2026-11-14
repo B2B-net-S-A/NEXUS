@@ -243,6 +243,7 @@ from app.api import hr_contract_admin_details as hr_contract_admin_details_api
 from app.api import hr_settlements as hr_settlements_api
 from app.api import hr_ksef as hr_ksef_api
 from app.api import hr_payments as hr_payments_api
+from app.api import hr_payroll_lists as hr_payroll_lists_api
 from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
@@ -2231,6 +2232,13 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
+# K7a: płace liczone w NEXUSIE — parametry, dane osób, listy płac, pliki, przelewy.
+app.include_router(
+    hr_payroll_lists_api.router,
+    prefix="/api/hr/payroll-lists",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
 # Etap 5: e-teczka, umowy z ludźmi, faktury do klientów z KSeF.
 app.include_router(
     hr_documents_api.router,
@@ -3955,6 +3963,14 @@ async def api_health_deep_check(request: Request):
         FinancePostingRule,
     )
     from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
+    from app.models.hr_payroll_lists import (
+        PayrollGrossInput,
+        PayrollList,
+        PayrollListLine,
+        PayrollParameterVersion,
+        PayrollPersonData,
+        PayrollYearOpening,
+    )
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -4342,6 +4358,13 @@ async def api_health_deep_check(request: Request):
         ("finance_posting_batches", FinancePostingBatch),
         ("ledger_assets", LedgerAsset),
         ("ledger_asset_operations", LedgerAssetOperation),
+        # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
+        ("payroll_person_data", PayrollPersonData),
+        ("payroll_parameter_versions", PayrollParameterVersion),
+        ("payroll_lists", PayrollList),
+        ("payroll_list_lines", PayrollListLine),
+        ("payroll_gross_inputs", PayrollGrossInput),
+        ("payroll_year_openings", PayrollYearOpening),
     ]
 
     checks: dict[str, str] = {}
