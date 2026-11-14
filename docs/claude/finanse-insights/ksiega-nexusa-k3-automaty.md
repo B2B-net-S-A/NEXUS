@@ -1,4 +1,4 @@
-# Księga NEXUSA K3 (14.11.2026): PK cykliczne, RMK i paczka do Symfonii
+# Księga NEXUSA K3 (14.11.2026): PK cykliczne, RMK, paczka do Symfonii, lista płac z Enovy
 
 Etap K3 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar),
 część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesiąca:
@@ -36,8 +36,7 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
 - Wzory i RMK zakłada lista „Księgowi” albo admin; podgląd „Moduł Finanse”
   przy otwartym module. Pozycje wzoru przechodzą tę samą kontrolę co PK
   (konta z planu, Wn = Ma).
-- Dalej w K3: lista płac z pliku Enovy (do czasu K7); wycena walut idzie
-  z rozrachunkami w K4.
+- Wycena walut idzie z rozrachunkami w K4.
 
 ## Paczka do Symfonii (K3b, migracja `0702_ledger_exports`)
 
@@ -84,3 +83,26 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
   z listą płac (K3c, K7) i rozliczeniem VAT (K5).
 - Zapis i usunięcie automatu odświeżają całą księgę na froncie, bo zdejmują
   szkice z bufora (liczniki okresów, dokumenty, lista zamknięcia).
+
+## Lista płac z Enovy (K3c, bez migracji, do czasu Płac w NEXUSIE — K7)
+
+- „Automaty” → „Lista płac z Enovy” (`POST /payroll-lists/import`): plik listy
+  (XLSX/CSV, wiersz na osobę) → podgląd sum i dekretu → dokument **LP** w buforze,
+  źródło `payroll_list` / `RRRR-MM:<lista>`, wrażliwość `payroll`. **Tylko Płace
+  i admin** (D2) — karta, trasa (403) i liczby na liście zamknięcia. Ponowny import
+  tej samej listy przebudowuje szkic; zatwierdzony LP poprawia się stornem (409).
+- Formatu eksportu Enovy nie znamy z próbki — kolumny po aliasach nagłówków.
+  Składki pracodawcy sprawdzamy przed składkami pracownika („Emerytalne prac.”
+  jest przedrostkiem „Emerytalne pracodawca”); **dwie kolumny tej samej pozycji =
+  odmowa pliku**, bo jedna kwota by przepadła. Kolumna łączna („ZUS
+  pracownika/pracodawcy”) liczy się tylko bez składek osobno, „Netto” tylko bez
+  „Do wypłaty”. Podgląd pokazuje, jak rozpoznano kolumny.
+- Dekret: Wn wynagrodzenia i Wn koszt pracodawcy (składki, FP, FS, FGŚP, PPK)
+  z MPK z kolumny „Wydział”, Wn rozrachunki z tytułu wynagrodzeń (potrącenia);
+  Ma rozrachunki (brutto), ZUS, US (PIT-4), PPK, inne potrącenia. Netto zostaje
+  na rozrachunkach do wypłaty (rozliczy je wyciąg w K4).
+- Wiersz z brutto − potrącenia ≠ „Do wypłaty” daje ostrzeżenie z różnicą, nie
+  blokuje zapisu. Nieczytelna kwota, brak kont albo ujemne sumy — blokują.
+- Konta (`PUT /config/payroll`, admin): wynagrodzenia, koszt pracodawcy,
+  rozrachunki z tytułu wynagrodzeń, ZUS i US wymagane; PPK i inne potrącenia
+  opcjonalne — lista z takimi kwotami bez konta czeka z problemem.

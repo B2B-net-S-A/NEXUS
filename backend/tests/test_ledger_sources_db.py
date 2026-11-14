@@ -1476,8 +1476,16 @@ async def test_payroll_list_from_enova_goes_to_buffer_for_payroll_only(client, w
     assert data["rows"] == 2 and data["skipped"] == 1 and data["problems"] == []
     assert data["totals"]["gross"] == 1_800_000 and data["totals"]["net"] == 1_287_630
     assert data["saved"] is False and data["warnings"] == []
+    before = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert before["payroll"]["state"] == "todo"
     saved = await _payroll_import(client, world, books, save=True)
     assert saved.status_code == 200, saved.text
+    after = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert after["payroll"]["state"] == "ok" and after["payroll"]["detail"] == "w księdze: 1"
+    # Osoba bez Płac widzi tylko, kto wczytuje listę — bez liczby (D2).
+    hidden = await _closing(client, world, books, user="module_only")
+    payroll_item = next(item for item in hidden["items"] if item["key"] == "payroll")
+    assert payroll_item["state"] == "later" and "w księdze" not in payroll_item["detail"]
     first = await _document("payroll_list", f"{year}-03:lp03")
     assert first.doc_type == "LP" and first.sensitivity == "payroll"
     assert first.op_date == date(year, 3, 31)

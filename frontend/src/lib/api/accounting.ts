@@ -72,6 +72,17 @@ export interface AllocationAccounts {
   team_account: string;
 }
 
+/** Konta listy płac z Enovy (K3c); PPK i inne potrącenia mogą zostać puste. */
+export interface PayrollAccounts {
+  wages_account: string;
+  insurance_account: string;
+  settlement_account: string;
+  zus_account: string;
+  pit_account: string;
+  ppk_account: string;
+  deductions_account: string;
+}
+
 export interface LedgerConfig {
   open: boolean;
   modules: LedgerModule[];
@@ -81,6 +92,8 @@ export interface LedgerConfig {
   sales_accounts: SalesAccounts;
   /** Konta rozliczenia kosztów na „5” (K2), zmienia administrator. */
   allocation_accounts: AllocationAccounts;
+  /** Konta listy płac z Enovy (K3c), zmienia administrator. */
+  payroll_accounts?: PayrollAccounts;
   years: LedgerYear[];
   today: string;
   doc_types: (Option & { manual: boolean })[];
@@ -495,6 +508,41 @@ export interface CreateExportInput {
   payroll: boolean;
 }
 
+// ── Lista płac z Enovy (K3c) ───────────────────────────────────────────────
+
+export interface PayrollListLine {
+  side: Side;
+  account: string;
+  amount: number;
+  mpk: string | null;
+  description: string;
+}
+
+export interface PayrollListPreview {
+  rows: number;
+  skipped: number;
+  columns: { key: string; label: string; header: string }[];
+  totals: Record<"gross" | "employee" | "employer" | "zus" | "pit" | "ppk" | "deductions" | "net", number>;
+  mpk: { mpk: string | null; gross: number; employer: number }[];
+  lines: PayrollListLine[];
+  errors: { line: number; message: string }[];
+  errors_total: number;
+  warnings: { line: number; message: string }[];
+  warnings_total: number;
+  problems: string[];
+  saved: boolean;
+  document: { id: number; number: string } | null;
+}
+
+export interface PayrollListInput {
+  file: File;
+  year: number;
+  month: number;
+  list: string;
+  paymentDate: string | null;
+  save: boolean;
+}
+
 // ── Lista zamknięcia miesiąca (K3d) ────────────────────────────────────────
 
 export type ClosingState = "ok" | "todo" | "problem" | "later";
@@ -837,6 +885,31 @@ export function useOpeningImport() {
       return (
         await api.post<OpeningPreview>(`${BASE}/opening/import`, form, {
           params: { year, save },
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+    onSuccess: (data) => {
+      if (data.saved) invalidate();
+    },
+  });
+}
+
+export function useSetPayrollAccounts() {
+  return useConfigMutation((args: PayrollAccounts) => api.put(`${BASE}/config/payroll`, args));
+}
+
+export function usePayrollListImport() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async ({ file, year, month, list, paymentDate, save }: PayrollListInput) => {
+      const form = new FormData();
+      form.append("file", file);
+      const params: Record<string, string | number | boolean> = { year, month, list, save };
+      if (paymentDate) params.payment_date = paymentDate;
+      return (
+        await api.post<PayrollListPreview>(`${BASE}/payroll-lists/import`, form, {
+          params,
           headers: { "Content-Type": "multipart/form-data" },
         })
       ).data;
