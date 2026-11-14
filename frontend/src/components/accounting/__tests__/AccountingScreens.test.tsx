@@ -31,6 +31,7 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { DocumentsView } from "@/components/accounting/DocumentsView";
 import { SettingsView } from "@/components/accounting/SettingsView";
+import { AutomationsView, monthLabel, templateLines } from "@/components/accounting/AutomationsView";
 import { SourcesView, syncMessage } from "@/components/accounting/SourcesView";
 import type { DocumentCard, DocumentList, LedgerConfig, SourcesMonth } from "@/lib/api/accounting";
 import { useAuthStore } from "@/store/auth";
@@ -519,5 +520,135 @@ describe("Księgowość — bilans otwarcia z Symfonii", () => {
     renderWith(<SettingsView />);
     await screen.findByText("Nie jesteś na liście „Księgowi”");
     expect(screen.queryByLabelText("Plik zestawienia sald")).not.toBeInTheDocument();
+  });
+});
+
+describe("Księgowość — automaty (PK cykliczne i RMK)", () => {
+  const automationsModule = {
+    key: "automations" as const,
+    label: "Podatki, polisy i PK cykliczne",
+    replaces: "ręczne PK w Symfonii",
+    stage: "K3",
+    built: true,
+    enabled: true,
+    open: true,
+  };
+  const overview = {
+    recurring: [
+      {
+        id: 1,
+        name: "Najem biura",
+        description: "",
+        lines: [
+          { side: "debit", account: "402-215", amount: 500000, mpk: "OG", counterparty_id: null, description: "" },
+          { side: "credit", account: "201-2-17", amount: 500000, mpk: null, counterparty_id: 4, description: "" },
+        ],
+        total: 500000,
+        start_month: "2026-01",
+        end_month: null,
+        active: true,
+        draft: 1,
+        approved: 9,
+        last_approved: "2026-09",
+      },
+    ],
+    prepayments: [
+      {
+        id: 2,
+        name: "Polisa OC",
+        reference: "PL-1",
+        counterparty: null,
+        cost_account: "402-901",
+        prepaid_account: "640",
+        mpk: null,
+        total_amount: 120000,
+        start_month: "2026-10",
+        months: 12,
+        installment: 10000,
+        active: true,
+        draft: 0,
+        approved: 0,
+        last_approved: null,
+      },
+    ],
+  };
+
+  function withAutomations(cfg: LedgerConfig): LedgerConfig {
+    return { ...cfg, modules: [...cfg.modules, automationsModule] };
+  }
+
+  function routeAutomations(cfg: LedgerConfig) {
+    route(cfg);
+    const base = get.getMockImplementation()!;
+    get.mockImplementation(async (url: string, ...rest: unknown[]) => {
+      if (url === "/api/accounting/automations") return { data: overview };
+      return base(url, ...rest);
+    });
+  }
+
+  it("pozycje wzoru liczą się jak na serwerze", () => {
+    expect(monthLabel("2026-03")).toBe("03.2026");
+    const ok = templateLines([
+      { key: 1, side: "debit", account: "402", amount: "1 000,00", mpk: "OG" },
+      { key: 2, side: "credit", account: "201-2-17", amount: "1000", mpk: "" },
+    ]);
+    expect(ok.problems).toEqual([]);
+    expect(ok.lines).toEqual([
+      { side: "debit", account: "402", amount: "1000.00", mpk: "OG" },
+      { side: "credit", account: "201-2-17", amount: "1000.00", mpk: null },
+    ]);
+    const bad = templateLines([
+      { key: 1, side: "debit", account: "402", amount: "10", mpk: "" },
+      { key: 2, side: "credit", account: "201", amount: "9,99", mpk: "" },
+    ]);
+    expect(bad.problems[0]).toMatch(/różni się/);
+  });
+
+  it("wyłączony moduł mówi, kto go włącza", async () => {
+    pathname = "/accounting/automations";
+    route(config());
+    renderWith(<AutomationsView />);
+    expect(await screen.findByText(/jest wyłączony — włącza go administrator/)).toBeInTheDocument();
+  });
+
+  it("lista wzorów: zatwierdzony wzór tylko się kończy, nowy wzór idzie z kwotami w złotych", async () => {
+    pathname = "/accounting/automations";
+    routeAutomations(withAutomations(config()));
+    post.mockResolvedValue({ data: overview });
+    const user = userEvent.setup();
+    renderWith(<AutomationsView />);
+    const row = (await screen.findByText("Najem biura")).closest("tr")!;
+    expect(within(row).getByRole("button", { name: "Zakończ" })).toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Usuń" })).not.toBeInTheDocument();
+    const policy = screen.getByText("Polisa OC").closest("tr")!;
+    expect(within(policy).getByText("12 × 100,00")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Nowy wzór" }));
+    await user.type(screen.getByLabelText("Nazwa wzoru"), "Abonament");
+    await user.type(screen.getByLabelText("Konto pozycji 1"), "402-215");
+    await user.type(screen.getByLabelText("Kwota pozycji 1"), "250,00");
+    await user.type(screen.getByLabelText("Konto pozycji 2"), "201-2-17");
+    await user.type(screen.getByLabelText("Kwota pozycji 2"), "250");
+    await user.click(screen.getByRole("button", { name: "Zapisz wzór" }));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    const [url, body] = post.mock.calls[0];
+    expect(url).toBe("/api/accounting/automations/recurring");
+    expect(body).toMatchObject({
+      name: "Abonament",
+      start_month: "2026-10-01",
+      end_month: null,
+      lines: [
+        { side: "debit", account: "402-215", amount: "250.00" },
+        { side: "credit", account: "201-2-17", amount: "250.00" },
+      ],
+    });
+  });
+
+  it("osoba spoza listy „Księgowi” tylko ogląda", async () => {
+    pathname = "/accounting/automations";
+    routeAutomations(withAutomations(config({ me: { admin: false, approver: false, payroll: false } })));
+    renderWith(<AutomationsView />);
+    await screen.findByText("Najem biura");
+    expect(screen.queryByRole("button", { name: "Nowy wzór" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Nowe RMK" })).not.toBeInTheDocument();
   });
 });

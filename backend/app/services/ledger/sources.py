@@ -49,10 +49,16 @@ from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.fx_rate import FxRate
-from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
+from app.models.ledger import (
+    LedgerDocument,
+    LedgerPeriod,
+    LedgerPrepayment,
+    LedgerRecurring,
+    LedgerYear,
+)
 from app.services.finance_ledger import costs, identifiers, posting
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import allocation, documents, engine
+from app.services.ledger import allocation, automations, documents, engine
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger.settings import SALES_ACCOUNT_FIELDS, LedgerSettings
@@ -61,15 +67,23 @@ from app.services.ledger_schema import DESCRIPTION_MAX, NUMBER_MAX
 COSTS = "costs"
 SALES = "sales"
 ALLOCATION = "allocation"
+RECURRING = "recurring"
+PREPAYMENTS = "prepayments"
+#: Źródła modułu „Podatki, polisy i PK cykliczne” (K3) — widoczne przy otwartym module.
+AUTOMATION_KINDS = (RECURRING, PREPAYMENTS)
 KIND_LABELS: dict[str, str] = {
     COSTS: "Faktury kosztowe (Koszty, dekret E2)",
     SALES: "Faktury sprzedaży (KSeF)",
     ALLOCATION: "Rozliczenie kosztów na „5” (MPK)",
+    RECURRING: "PK cykliczne",
+    PREPAYMENTS: "RMK — rozliczenia międzyokresowe kosztów",
 }
 SOURCE_TYPES: dict[str, str] = {
     COSTS: "finance_cost_entry",
     SALES: "client_sales_invoice",
     ALLOCATION: allocation.SOURCE_TYPE,
+    RECURRING: automations.RECURRING_SOURCE,
+    PREPAYMENTS: automations.PREPAYMENT_SOURCE,
 }
 #: Etapy kolejki kosztów, z których faktura idzie do księgi.
 COST_STAGES = ("ready", "booked")
@@ -648,6 +662,39 @@ async def _allocation_candidates(
     return candidates
 
 
+# ── PK cykliczne i RMK (K3a) ────────────────────────────────────────────────
+
+
+async def _automation_candidates(
+    db: AsyncSession, kind: str, month: date
+) -> list[Candidate]:
+    model = LedgerRecurring if kind == RECURRING else LedgerPrepayment
+    rows = (
+        await db.scalars(select(model).where(model.active.is_(True)).order_by(model.id))
+    ).all()
+    candidates: list[Candidate] = []
+    for row in rows:
+        spec = (
+            automations.recurring_spec(row, month)
+            if kind == RECURRING
+            else automations.prepayment_spec(row, month)
+        )
+        if spec is None:
+            continue
+        candidates.append(
+            Candidate(
+                source_id=automations.month_key(row.id, month),
+                label=row.name,
+                spec=spec,
+            )
+        )
+    return candidates
+
+
+def automations_open(settings: LedgerSettings, viewer: Viewer) -> bool:
+    return settings.modules.get("automations", False) or viewer.admin
+
+
 # ── Miesiąc: podgląd i księgowanie ──────────────────────────────────────────
 
 
@@ -667,6 +714,8 @@ async def _candidates(
         candidates = await _allocation_candidates(
             db, month, viewer=viewer, settings=settings
         )
+    elif kind in AUTOMATION_KINDS and automations_open(settings, viewer):
+        candidates = await _automation_candidates(db, kind, month)
     else:
         raise LedgerError("Nie ma takiego źródła.", status=404)
     # Ta sama kontrola co przy zapisie (konta z planu, analityka słownika,
@@ -746,7 +795,10 @@ async def month_summary(
     start = _month_start(year, month)
     year_row, period = await _period(db, start)
     items = []
-    for kind in (COSTS, SALES, ALLOCATION):
+    kinds = (COSTS, SALES, ALLOCATION) + (
+        AUTOMATION_KINDS if automations_open(settings, viewer) else ()
+    )
+    for kind in kinds:
         candidates = await _candidates(
             db, kind, start, viewer=viewer, settings=settings
         )

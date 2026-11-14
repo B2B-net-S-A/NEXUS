@@ -289,7 +289,74 @@ export interface OpeningPreview {
   document_id: number | null;
 }
 
-export type SourceKind = "costs" | "sales" | "allocation";
+export type SourceKind = "costs" | "sales" | "allocation" | "recurring" | "prepayments";
+
+export interface RecurringLine {
+  side: Side;
+  account: string;
+  amount: number;
+  mpk: string | null;
+  counterparty_id: number | null;
+  description: string;
+}
+
+/** Wzór PK cyklicznego (K3a); daty miesięcy „RRRR-MM”. */
+export interface RecurringTemplate {
+  id: number;
+  name: string;
+  description: string;
+  lines: RecurringLine[];
+  total: number;
+  start_month: string;
+  end_month: string | null;
+  active: boolean;
+  draft: number;
+  approved: number;
+  last_approved: string | null;
+}
+
+/** RMK czynne — koszt rozliczany ratami (K3a). */
+export interface Prepayment {
+  id: number;
+  name: string;
+  reference: string;
+  counterparty: { id: number; name: string | null } | null;
+  cost_account: string;
+  prepaid_account: string;
+  mpk: string | null;
+  total_amount: number;
+  start_month: string;
+  months: number;
+  installment: number;
+  active: boolean;
+  draft: number;
+  approved: number;
+  last_approved: string | null;
+}
+
+export interface AutomationsOverview {
+  recurring: RecurringTemplate[];
+  prepayments: Prepayment[];
+}
+
+export interface RecurringInput {
+  name?: string;
+  description?: string;
+  lines?: LineInput[];
+  start_month?: string;
+  end_month?: string | null;
+}
+
+export interface PrepaymentInput {
+  name: string;
+  reference: string;
+  cost_account: string;
+  prepaid_account: string;
+  mpk: string | null;
+  total_amount: string;
+  start_month: string;
+  months: number;
+}
 
 export interface AllocationDetail {
   code: string;
@@ -358,6 +425,7 @@ export const accountingKeys = {
   chart: ["accounting", "chart"] as const,
   candidates: ["accounting", "candidates"] as const,
   sources: (year: number, month: number) => ["accounting", "sources", year, month] as const,
+  automations: ["accounting", "automations"] as const,
 };
 
 export const DOCUMENT_PAGE = 50;
@@ -597,6 +665,48 @@ export function useSyncSources() {
 
 export function useSetSalesAccounts() {
   return useConfigMutation((args: SalesAccounts) => api.put(`${BASE}/config/sales`, args));
+}
+
+export function useAutomations(enabled = true) {
+  return useQuery({
+    queryKey: accountingKeys.automations,
+    queryFn: async () => (await api.get<AutomationsOverview>(`${BASE}/automations`)).data,
+    enabled,
+  });
+}
+
+/** Zapis wzoru PK cyklicznego albo RMK; odpowiedź = świeży przegląd automatów. */
+export function useSaveAutomation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      args:
+        | { kind: "recurring"; id?: number; body: RecurringInput }
+        | { kind: "prepayments"; id?: number; body: PrepaymentInput },
+    ) => {
+      const path = `${BASE}/automations/${args.kind}${args.id ? `/${args.id}` : ""}`;
+      const response = args.id
+        ? await api.patch<AutomationsOverview>(path, args.body)
+        : await api.post<AutomationsOverview>(path, args.body);
+      return response.data;
+    },
+    onSuccess: (data) => {
+      client.setQueryData(accountingKeys.automations, data);
+      client.invalidateQueries({ queryKey: ["accounting", "sources"] });
+    },
+  });
+}
+
+export function useRemoveAutomation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (args: { kind: "recurring" | "prepayments"; id: number }) =>
+      (await api.delete<AutomationsOverview>(`${BASE}/automations/${args.kind}/${args.id}`)).data,
+    onSuccess: (data) => {
+      client.setQueryData(accountingKeys.automations, data);
+      client.invalidateQueries({ queryKey: ["accounting", "sources"] });
+    },
+  });
 }
 
 export function useOpeningImport() {

@@ -21,12 +21,22 @@ import { cn } from "@/lib/utils";
 import { SectionCard, useAccounting } from "./AccountingShell";
 import { findPeriod, gr, monthTitle } from "./ledger-model";
 
-const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS" | "PK"> = { costs: "FVZ", sales: "FVS", allocation: "PK" };
+const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS" | "PK"> = {
+  costs: "FVZ",
+  sales: "FVS",
+  allocation: "PK",
+  recurring: "PK",
+  prepayments: "PK",
+};
 const ORIGIN: Record<SourceKind, string> = {
   costs:
     "Finanse → Koszty: faktury „Gotowe do księgowania” i „Zaksięgowane” z dekretem E2. Okres = miesiąc wpływu, jak w paczce do Symfonii.",
   sales:
     "KSeF: faktury wystawione w eBI24 i w NEXUSIE. Okres = miesiąc sprzedaży, korekta — miesiąc wystawienia; waluta po kursie NBP.",
+  recurring:
+    "Wzory z zakładki „Automaty”: jeden PK na wzór w ostatnim dniu miesiąca, w zakresie jego miesięcy. Zmiana wzoru przebudowuje szkice.",
+  prepayments:
+    "Rozliczenia RMK z zakładki „Automaty”: rata miesiąca Wn koszt / Ma RMK; ostatnia rata domyka kwotę co do grosza.",
   allocation:
     "Koszty z zatwierdzonych FVZ miesiąca na konta „5”: faktura kontraktora → klient kontraktu, osoba zespołu → pion z kartoteki, reszta → koszty ogólne (do czasu klucza podziału biura). Jedno PK na miesiąc, Ma rozliczenie kosztów; faktury osób zespołu w osobnym PK płacowym, na jednym koncie zespołu. Storno FVZ odejmuje koszt w miesiącu storna.",
 };

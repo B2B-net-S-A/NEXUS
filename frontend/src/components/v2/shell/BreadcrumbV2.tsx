@@ -125,6 +125,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   chart: "Plan kont",
   // 14.11.2026: /accounting/sources — faktury jako dokumenty księgi (K2).
   sources: "Źródła",
+  // 14.11.2026: /accounting/automations — PK cykliczne i RMK (K3a).
+  automations: "Automaty",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -30,6 +31,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.services import ledger_automation_schema as automation
 from app.services import ledger_schema as schema
 
 
@@ -269,4 +271,100 @@ class LedgerEvent(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class LedgerRecurring(Base):
+    """Wzór PK cyklicznego (K3a, 0701)."""
+
+    __tablename__ = "ledger_recurring"
+    __table_args__ = (
+        CheckConstraint(
+            automation.CK_RECURRING_MONTHS, name="ck_ledger_recurring_months"
+        ),
+        CheckConstraint(
+            automation.CK_RECURRING_FIRST, name="ck_ledger_recurring_first"
+        ),
+        CheckConstraint(
+            automation.CK_RECURRING_LINES, name="ck_ledger_recurring_lines"
+        ),
+        Index("ix_ledger_recurring_active", "active", "start_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(automation.NAME_MAX), nullable=False)
+    description: Mapped[str] = mapped_column(
+        String(schema.DESCRIPTION_MAX), nullable=False, default="", server_default=""
+    )
+    lines: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    start_month: Mapped[date] = mapped_column(Date, nullable=False)
+    end_month: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+class LedgerPrepayment(Base):
+    """RMK czynne — koszt rozliczany ratami miesięcznymi (K3a, 0701)."""
+
+    __tablename__ = "ledger_prepayments"
+    __table_args__ = (
+        CheckConstraint(
+            automation.CK_PREPAYMENT_AMOUNT, name="ck_ledger_prepayments_amount"
+        ),
+        CheckConstraint(
+            automation.CK_PREPAYMENT_MONTHS, name="ck_ledger_prepayments_months"
+        ),
+        CheckConstraint(
+            automation.CK_PREPAYMENT_FIRST, name="ck_ledger_prepayments_first"
+        ),
+        Index("ix_ledger_prepayments_active", "active", "start_month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(automation.NAME_MAX), nullable=False)
+    reference: Mapped[str] = mapped_column(
+        String(automation.REFERENCE_MAX), nullable=False, default="", server_default=""
+    )
+    counterparty_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("finance_counterparties.id", ondelete="SET NULL"), nullable=True
+    )
+    cost_account: Mapped[str] = mapped_column(
+        String(schema.ACCOUNT_MAX), nullable=False
+    )
+    prepaid_account: Mapped[str] = mapped_column(
+        String(schema.ACCOUNT_MAX), nullable=False
+    )
+    mpk: Mapped[Optional[str]] = mapped_column(String(schema.MPK_MAX), nullable=True)
+    total_amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    start_month: Mapped[date] = mapped_column(Date, nullable=False)
+    months: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
     )
