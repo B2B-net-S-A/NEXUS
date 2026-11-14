@@ -45,7 +45,7 @@ function config(overrides: Partial<LedgerConfig> = {}): LedgerConfig {
     me: { admin: false, approver: true, payroll: true },
     accountants: null,
     sales_accounts: { receivable_account: "200", revenue_account: "701-10-1", vat_account: "222" },
-    allocation_accounts: { settlement_account: "490", client_account: "501-1", front_office_account: "502", back_office_account: "503", overhead_account: "550" },
+    allocation_accounts: { settlement_account: "490", client_account: "501-1", front_office_account: "502", back_office_account: "503", overhead_account: "550", team_account: "504" },
     years: [
       {
         id: 1,
@@ -456,6 +456,7 @@ describe("Księgowość — rozliczenie kosztów na „5”", () => {
         front_office_account: "502",
         back_office_account: "503",
         overhead_account: "551",
+        team_account: "504",
         settlement_account: "490",
       }),
     );

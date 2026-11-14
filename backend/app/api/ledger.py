@@ -126,6 +126,7 @@ class AllocationAccountsBody(BaseModel):
     front_office_account: str = Field(max_length=ACCOUNT_MAX + 8)
     back_office_account: str = Field(max_length=ACCOUNT_MAX + 8)
     overhead_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    team_account: str = Field(max_length=ACCOUNT_MAX + 8)
 
 
 class SourcesSyncBody(BaseModel):

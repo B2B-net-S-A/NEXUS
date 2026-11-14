@@ -59,17 +59,30 @@ z Symfonią miesiąc do miesiąca.
   ze źródłem `cost_allocation` / `RRRR-MM`: Wn konta „5” z MPK w pozycji,
   Ma konto rozliczenia kosztów (490). Ta sama maszyna co faktury: odcisk,
   przebudowa szkicu, zatwierdzone PK zmienionego miesiąca = problem do storna.
-- **Z czego**: zatwierdzone FVZ okresu ze źródłem w kolejce kosztów, bez
-  odwróconych; kwota = Wn − Ma pozycji na kontach rodzaju „koszt”. FVZ
-  w buforze nie wchodzą (karta pokazuje ich liczbę).
+- **Z czego — zapisy miesiąca, jak w dzienniku**: zatwierdzone FVZ okresu ze
+  źródłem w kolejce kosztów (także te odwrócone później) i zatwierdzone storna
+  takich FVZ zaksięgowane w tym okresie, z MPK faktury pierwotnej. Storno
+  w kwietniu odejmuje koszt w kwietniu, a zamknięty marzec zostaje zgodny —
+  wcześniejsza zasada „bez odwróconych” psuła zamknięty miesiąc przy każdej
+  korekcie (przegląd poprawności 14.11.2026). Kwota = Wn − Ma pozycji na kontach
+  rodzaju „koszt”; rodzaj bierzemy z planu po prefiksie numeru, bez reguł
+  księgowalności — analityka założona pod kontem albo wyłączenie konta nie
+  gubią zaksięgowanych kosztów. FVZ w buforze nie wchodzą (karta pokazuje ich
+  liczbę).
+- Miesiąc, w którym koszty zeszły do zera, a PK jest zatwierdzone, daje problem
+  „zrób storno zapisu nr N” (tak samo każde źródło bez kwot z zapisem).
 - **MPK**: faktura kontraktora → klient kontraktu (`K<id>`); faktura osoby
   zespołu → pion z kartoteki (`FO` / `BO`); dokument akceptacji → klient
   wniosku, inaczej pion wnioskującego; reszta → koszty ogólne (`OG`) — biuro
   do czasu klucza podziału od Finansów (lista działów na „5” to bloker z planu).
 - **D2**: koszty z faktur osób zespołu idą osobnym PK (`RRRR-MM-payroll`,
-  wrażliwość `payroll`) — suma pionu bywa kwotą jednej osoby.
-- Konta (rozliczenie, klienci, Front office, Back office, koszty ogólne)
-  ustawia administrator (`PUT /config/allocation`); bez nich PK czeka z problemem.
+  wrażliwość `payroll`) na **jednym koncie kosztów zespołu** dla wszystkich
+  pionów, z pionem tylko w MPK pozycji. Obroty i salda pokazują sumy kont
+  każdemu z „Modułem Finanse”, a suma pionu bywa kwotą jednej osoby — osobne
+  konta FO/BO w PK płacowym by ją ujawniły.
+- Konta (rozliczenie, klienci, Front office, Back office, koszty ogólne,
+  koszty zespołu) ustawia administrator (`PUT /config/allocation`); bez nich PK
+  czeka z problemem.
 
 ## Bilans otwarcia z Symfonii (`services/ledger/opening.py`)
 

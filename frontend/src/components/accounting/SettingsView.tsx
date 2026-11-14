@@ -200,6 +200,12 @@ const ALLOCATION_FIELDS: AccountField<AllocationAccounts>[] = [
   { key: "front_office_account", label: "Front office", hint: "faktury osób zespołu i wnioski pionu", placeholder: "np. 502" },
   { key: "back_office_account", label: "Back office", hint: "faktury osób zespołu i wnioski pionu", placeholder: "np. 503" },
   { key: "overhead_account", label: "Koszty ogólne", hint: "bez klienta i pionu — biuro do czasu klucza podziału", placeholder: "np. 550" },
+  {
+    key: "team_account",
+    label: "Koszty zespołu",
+    hint: "faktury osób zespołu, wszystkie piony na jednym koncie — pion tylko w MPK (kwoty osób)",
+    placeholder: "np. 504",
+  },
   { key: "settlement_account", label: "Rozliczenie kosztów", hint: "konto przeciwstawne (Ma)", placeholder: "np. 490" },
 ];
 const NO_ALLOCATION_ACCOUNTS: AllocationAccounts = {
@@ -208,6 +214,7 @@ const NO_ALLOCATION_ACCOUNTS: AllocationAccounts = {
   front_office_account: "",
   back_office_account: "",
   overhead_account: "",
+  team_account: "",
 };
 
 interface AccountsSave<T> {

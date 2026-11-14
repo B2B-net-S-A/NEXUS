@@ -21,7 +21,8 @@ w dekrecie kosztów E2.
 Konta rozliczenia kosztów na „5” (``allocation``, K2) też ustawia administrator:
 konto przeciwstawne (490), konto kosztów klientów (MPK = klient z kontraktu),
 konta pionów (front office, back office — z kartoteki osoby) i konto kosztów
-ogólnych (faktura bez klienta i pionu, biuro do czasu klucza podziału).
+ogólnych (faktura bez klienta i pionu, biuro do czasu klucza podziału) oraz
+jedno konto kosztów zespołu na PK płacowe.
 """
 
 from __future__ import annotations
@@ -99,6 +100,7 @@ ALLOCATION_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "front_office_account": ("", "Koszty pionu Front office"),
     "back_office_account": ("", "Koszty pionu Back office"),
     "overhead_account": ("", "Koszty ogólne"),
+    "team_account": ("", "Koszty zespołu (faktury osób zespołu)"),
 }
 
 
@@ -109,6 +111,9 @@ class AllocationAccounts:
     front_office_account: str = ""
     back_office_account: str = ""
     overhead_account: str = ""
+    #: Jedno konto kosztów z faktur osób zespołu dla wszystkich pionów — pion
+    #: tylko w MPK pozycji, żeby obroty nie pokazywały sumy pionu (D2).
+    team_account: str = ""
 
     def complete(self) -> bool:
         return all(getattr(self, key) for key in ALLOCATION_ACCOUNT_FIELDS)

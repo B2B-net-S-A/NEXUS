@@ -19,6 +19,7 @@ ACCOUNTS = AllocationAccounts(
     front_office_account="502",
     back_office_account="503",
     overhead_account="550",
+    team_account="504",
 )
 
 
@@ -110,12 +111,33 @@ def test_nothing_to_allocate_gives_no_document():
     assert allocation.allocation_spec(2026, 2, zero, ACCOUNTS, payroll=False) is None
 
 
-def test_team_costs_are_a_separate_payroll_document():
-    totals = {Mpk("FO", "front_office", "Front office"): 1_000_000}
+def test_team_costs_are_a_separate_payroll_document_on_one_account():
+    totals = {
+        Mpk("FO", "front_office", "Front office"): 1_000_000,
+        Mpk("BO", "back_office", "Back office"): 400_000,
+        Mpk("OG", "overhead", "Koszty ogólne"): 50_000,
+    }
     spec = allocation.allocation_spec(2026, 10, totals, ACCOUNTS, payroll=True)
     assert spec.sensitivity == "payroll"
     assert spec.source_id == "2026-10-payroll"
     assert "osób zespołu" in spec.description
+    # D2: pion tylko w MPK — konto jedno, więc obroty nie dzielą kwot na piony.
+    assert {line.account for line in spec.lines if line.side == "debit"} == {"504"}
+    assert [line.mpk for line in spec.lines[:3]] == ["BO", "FO", "OG"]
+
+
+def test_cost_kind_comes_from_the_chart_even_after_it_changes():
+    from app.services.ledger.engine import PlanAccount
+
+    plan = {
+        "402": PlanAccount("402", "Usługi obce", "cost", True, None, True),
+        "402-203": PlanAccount("402-203", "IT", "cost", False, None, True),
+        "221": PlanAccount("221", "VAT", "vat", True),
+    }
+    assert allocation.account_kind("402-203", plan) == "cost"
+    assert allocation.account_kind("402-203-7", plan) == "cost"
+    assert allocation.account_kind("221", plan) == "vat"
+    assert allocation.account_kind("999", plan) is None
 
 
 def test_accounts_are_complete_only_with_every_field():
