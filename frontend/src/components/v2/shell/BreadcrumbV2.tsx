@@ -170,6 +170,15 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "seeking-contractors": "Dostępni kontraktorzy",
 };
 
+/**
+ * Nazwa zależna od całej ścieżki, gdy ten sam segment znaczy co innego w dwóch
+ * miejscach: `payroll` pod Ludźmi to „Rozliczenia”, a pod Księgowością
+ * zakładka „Lista płac” (UoP i zlecenia, K7a, 14.11.2026).
+ */
+const PATH_LABELS: Record<string, string> = {
+  "/accounting/payroll": "Lista płac",
+};
+
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */
 const LINKLESS_SEGMENTS = new Set(["sourcing", "prep"]);
 
@@ -284,7 +293,7 @@ export function BreadcrumbV2({ className }: { className?: string }) {
       });
     } else if (!isNumeric(seg)) {
       const label =
-        SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
+        PATH_LABELS[path] ?? SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
       // „/dashboard" pod „Dashboard" nie powtarza tej samej nazwy dwa razy.
       if (i === 0 && seg === "dashboard") continue;
       crumbs.push({ label, href: path, linkless: LINKLESS_SEGMENTS.has(seg) });

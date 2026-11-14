@@ -62,6 +62,15 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     expect(screen.getByText(label)).toBeInTheDocument();
   });
 
+  it("ten sam segment w dwóch obszarach: Księgowość → Lista płac, Ludzie → Rozliczenia (K7a)", () => {
+    const { unmount } = renderAt("/accounting/payroll");
+    expect(screen.getByText("Lista płac")).toBeInTheDocument();
+    expect(screen.queryByText("Rozliczenia")).not.toBeInTheDocument();
+    unmount();
+    renderAt("/people/payroll");
+    expect(screen.getByText("Rozliczenia")).toBeInTheDocument();
+  });
+
   it("prep-kit kończy się nazwą strony, a nie pustym okruszkiem", () => {
     mocks.get.mockResolvedValue({ data: { title: "Rekrutacja testowa" } });
     renderAt("/jobs/123/prep/456");

@@ -21,6 +21,10 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
   urodzenia, z rezygnacją na wniosek), zlecenie: emerytalne i rentowe / dobrowolne
   chorobowe / wypadkowe, PPK, zwolnienia z FP i FGŚP do daty, rachunek kontraktora.
   Osoba = konto z kartoteką albo kandydat z kontraktem zleceniowym (bez konta).
+  Ekrany: Księgowość → Lista płac → „Dane osób” (wszyscy z listy) oraz karta
+  „Dane do listy płac” w zakładce Rozliczenia kartoteki (`PayrollDataCard`) —
+  wejście dla Administracji współpracy, która bez „Modułu Finanse” nie otwiera
+  Księgowości; przy wyłączonym module serwer daje 404 i karty nie ma.
   Student zespołu — z kartoteki (`student_contribution_exempt`,
   `contribution_exempt_until`), kontraktora — z danych płacowych.
 - **Parametry** (`payroll_parameter_versions`): pełny zestaw od 1. dnia miesiąca,

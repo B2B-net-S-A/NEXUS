@@ -173,6 +173,23 @@ describe("zakładki i okres", () => {
     expect(visibleTabs(undefined)).toEqual([]);
   });
 
+  it("„Lista płac” tylko przy otwartym module i z uprawnieniem „Rozliczenia” (K7a)", () => {
+    const payroll = {
+      ...CONFIG,
+      modules: [
+        ...CONFIG.modules,
+        { key: "payroll" as const, label: "Lista płac", replaces: "Enova 365", stage: "K7", built: true, enabled: true, open: true },
+      ],
+    };
+    expect(visibleTabs(payroll).map((tab) => tab.label)).not.toContain("Lista płac");
+    const labels = visibleTabs({ ...payroll, me: { ...payroll.me, payroll: true } }).map((tab) => tab.label);
+    expect(labels).toContain("Lista płac");
+    expect(labels.indexOf("Lista płac")).toBe(labels.indexOf("Obroty i salda") + 1);
+    const closed = { ...payroll, me: { ...payroll.me, payroll: true }, modules: CONFIG.modules };
+    expect(visibleTabs(closed).map((tab) => tab.label)).not.toContain("Lista płac");
+    expect(activeTab("/accounting/payroll").label).toBe("Lista płac");
+  });
+
   it("rozpoznaje zakładkę po ścieżce", () => {
     expect(activeTab("/accounting").label).toBe("Miesiąc");
     expect(activeTab("/accounting/documents").label).toBe("Dokumenty");
