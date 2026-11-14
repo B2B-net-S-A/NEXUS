@@ -82,6 +82,10 @@ KIND_LABELS: dict[str, str] = {
     "duplicate": "Duplikat z innego wyciągu",
 }
 NO_STATEMENT = "Nie ma takiego wyciągu."
+UNREADABLE_TEAM = (
+    "Nie da się teraz odczytać rachunków osób z zespołu — import wstrzymany, żeby "
+    "wypłaty nie trafiły do osób bez Płacami. Zgłoś to administratorowi."
+)
 OVERVIEW_MAX = 100
 APPROVED_WB = (
     "WB tego wyciągu jest już zatwierdzony (pozycja {journal_no}) — zmiana wymaga "
@@ -278,17 +282,18 @@ class Classified:
 
 async def _classify(
     db: AsyncSession,
-    parsed: ParsedStatement,
+    lines: tuple[StatementLine, ...],
     sha: str,
     *,
     bank_account: str,
     settings: LedgerSettings,
+    owners: dict[str, set[int]],
+    candidates: list[Any],
 ) -> dict[str, Classified]:
     costs = await _records(db, FinanceCostPaymentRecord, sha)
     team = await _records(db, PayrollPayment, sha)
     sales = await _records(db, ClientSalesInvoicePayment, sha)
-    owners, _ = await hr_statements.account_owners(db)
-    duplicates = await _duplicates(db, bank_account, parsed.lines)
+    duplicates = await _duplicates(db, bank_account, lines)
     cost_parties = await _cost_accounts(
         db,
         {
@@ -315,22 +320,50 @@ async def _classify(
         },
         settings.sales.receivable_account,
     )
+
+    def team_related(line: StatementLine, account: str) -> bool:
+        # Tak jak E3: każdy wiersz R9 (też „unmatched” i „ignored”) albo decyzja
+        # R9 „dotyczy zespołu” (numer KSeF lub faktury, rachunek osoby). Uznanie
+        # z rachunku osoby z zespołu (zwrot wypłaty) też jest płacowe (D2).
+        if line.direction == "credit":
+            return bool(account) and account in owners
+        return (
+            line.line_ref in team
+            or hr_statements.decide(line, candidates, owners).related
+        )
+
     out: dict[str, Classified] = {}
-    for line in parsed.lines:
+    for line in lines:
         ref = line.line_ref
         account = nrb(line.counterparty_account)
+        related = team_related(line, account)
         if ref in duplicates:
-            paid = team.get(ref)
-            payroll = (
-                duplicates[ref]
-                or (paid is not None and paid.match_status == MATCHED)
-                or (line.direction == "debit" and bool(account) and account in owners)
+            out[ref] = Classified(
+                "duplicate", None, None, None, duplicates[ref] or related, ""
             )
-            out[ref] = Classified("duplicate", None, None, None, payroll, "")
+            continue
+        if related:
+            paid = team.get(ref)
+            settlement = (
+                paid.settlement_id
+                if paid is not None and paid.match_status == MATCHED
+                else None
+            )
+            counter = team_accounts.get(settlement) if settlement else None
+            out[ref] = Classified(
+                "team",
+                counter,
+                None,
+                settlement,
+                True,
+                ""
+                if counter
+                else "Konto przypisuje osoba z Płacami (wypłata B2B, zwrot albo bez "
+                "rozliczenia).",
+            )
             continue
         if line.direction == "debit":
             cost = costs.get(ref)
-            paid = team.get(ref)
             if cost is not None and cost.match_status == MATCHED and cost.entry_id:
                 party = cost_parties.get(cost.entry_id)
                 counter = party.cost_account if party else None
@@ -343,22 +376,6 @@ async def _classify(
                     ""
                     if counter
                     else "Dostawca bez konta rozrachunkowego w kartotece.",
-                )
-                continue
-            if (paid is not None and paid.match_status == MATCHED) or (
-                account and account in owners
-            ):
-                settlement = paid.settlement_id if paid is not None else None
-                counter = team_accounts.get(settlement) if settlement else None
-                out[ref] = Classified(
-                    "team",
-                    counter,
-                    None,
-                    settlement,
-                    True,
-                    ""
-                    if counter
-                    else "Konto przypisuje osoba z Płacami (wypłata B2B albo bez rozliczenia).",
                 )
                 continue
         else:
@@ -381,6 +398,36 @@ async def _classify(
     return out
 
 
+def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> None:
+    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, PLN, jeden miesiąc."""
+
+    if not lines:
+        raise LedgerError("Wyciąg nie ma żadnej operacji.", status=422)
+    if len({item for item in parsed.accounts if item}) > 1:
+        raise LedgerError(
+            "Plik ma wyciągi kilku rachunków — wgraj każdy rachunek osobnym plikiem "
+            "(WB księguje jeden rachunek).",
+            status=422,
+        )
+    if (parsed.currency or "PLN") != "PLN" or any(
+        line.currency != "PLN" for line in lines
+    ):
+        raise LedgerError(
+            "Rachunki w walucie obcej przyjdą z wyceną walut (K4c) — na razie "
+            "tylko wyciągi w PLN.",
+            status=422,
+        )
+    months = sorted({(line.booked_on.year, line.booked_on.month) for line in lines})
+    if len(months) > 1:
+        first, last = months[0], months[-1]
+        raise LedgerError(
+            f"Wyciąg ma operacje z różnych miesięcy ({first[1]:02d}.{first[0]}–"
+            f"{last[1]:02d}.{last[0]}) — WB księguje się w jednym okresie. Wgraj "
+            "wyciąg miesięczny albo dzienny.",
+            status=422,
+        )
+
+
 async def import_file(
     db: AsyncSession,
     raw: bytes,
@@ -399,12 +446,9 @@ async def import_file(
         parsed = hr_statements.parse_file(raw)
     except StatementError as exc:
         raise LedgerError(str(exc), status=422) from exc
-    if (parsed.currency or "PLN") != "PLN":
-        raise LedgerError(
-            "Rachunki w walucie obcej przyjdą z wyceną walut (K4c) — na razie "
-            "tylko wyciągi w PLN.",
-            status=422,
-        )
+    # Pozycja 0,00 (np. kapitalizacja bez odsetek) nie zmienia salda ani WB.
+    lines = tuple(line for line in parsed.lines if grosze(line.amount) > 0)
+    _check_file(parsed, lines)
     company = settings.bank.by_number(parsed.account)
     if company is None:
         tail = nrb(parsed.account)[-4:] or "?"
@@ -413,14 +457,18 @@ async def import_file(
             "dodaje go administrator w Ustawieniach Księgowości.",
             status=422,
         )
-    if not parsed.lines:
-        raise LedgerError("Wyciąg nie ma żadnej operacji.", status=422)
     sha = hashlib.sha256(raw).hexdigest()
     existing = await db.scalar(
         select(LedgerBankStatement).where(LedgerBankStatement.sha256 == sha)
     )
     if existing is not None:
         return existing, False
+    # D2 zamyka się po bezpiecznej stronie: bez rachunków zespołu wypłaty
+    # wyglądałyby jak zwykłe przelewy i trafiłyby do osób bez Płac.
+    owners, unreadable = await hr_statements.account_owners(db)
+    if unreadable:
+        raise LedgerError(UNREADABLE_TEAM, status=503)
+    candidates = await hr_statements.load_candidates(db)
     # Te same blokady co E3/R9/E8: ten sam plik nie wchodzi naraz dwiema drogami.
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
@@ -436,7 +484,13 @@ async def import_file(
             db, parsed, sha=sha, actor_id=viewer.user_id
         )
     classified = await _classify(
-        db, parsed, sha, bank_account=company.number, settings=settings
+        db,
+        lines,
+        sha,
+        bank_account=company.number,
+        settings=settings,
+        owners=owners,
+        candidates=candidates,
     )
     statement = LedgerBankStatement(
         sha256=sha,
@@ -444,21 +498,21 @@ async def import_file(
         bank_account=company.number,
         ledger_account=company.account,
         currency="PLN",
-        first_day=min(line.booked_on for line in parsed.lines),
-        last_day=max(line.booked_on for line in parsed.lines),
-        line_count=len(parsed.lines),
+        first_day=min(line.booked_on for line in lines),
+        last_day=max(line.booked_on for line in lines),
+        line_count=len(lines),
         debit_total=sum(
-            grosze(line.amount) for line in parsed.lines if line.direction == "debit"
+            grosze(line.amount) for line in lines if line.direction == "debit"
         ),
         credit_total=sum(
-            grosze(line.amount) for line in parsed.lines if line.direction == "credit"
+            grosze(line.amount) for line in lines if line.direction == "credit"
         ),
         created_by=viewer.user_id,
         created_at=now,
     )
     db.add(statement)
     await db.flush()
-    for position, line in enumerate(parsed.lines, start=1):
+    for position, line in enumerate(lines, start=1):
         item = classified[line.line_ref]
         account = nrb(line.counterparty_account)
         db.add(
@@ -757,7 +811,6 @@ async def assign(
     account: str,
     *,
     viewer: Viewer,
-    settings: LedgerSettings,
     now: datetime,
 ) -> LedgerBankLine:
     """Konto przeciwstawne operacji wpisane ręcznie (bez commita).
@@ -804,7 +857,6 @@ async def assign(
             chosen,
             payroll=line.payroll,
             viewer=viewer,
-            settings=settings,
             existing=doc,
             plan=plan,
         )
@@ -822,7 +874,6 @@ def wb_spec(
     lines: list[LedgerBankLine],
     *,
     payroll: bool,
-    name: str,
 ) -> DocumentSpec:
     """WB: każda operacja Wn/Ma rachunek firmy i konto przeciwstawne."""
 
@@ -861,9 +912,11 @@ def wb_spec(
         op_date=statement.last_day,
         doc_date=statement.last_day,
         lines=entries,
+        # Opis bez nazwy rachunku z Ustawień: wchodzi do odcisku, a zmiana nazwy
+        # po zatwierdzeniu WB blokowałaby „Zaksięguj” (przegląd K4a 14.11.2026).
         description=(
-            f"Wyciąg {name} {statement.first_day:%d.%m}–{statement.last_day:%d.%m.%Y}"
-            f"{suffix}"
+            f"Wyciąg …{statement.bank_account[-4:]} "
+            f"{statement.first_day:%d.%m}–{statement.last_day:%d.%m.%Y}{suffix}"
         ),
         source_type=SOURCE_TYPE,
         source_id=_source_id(statement.id, payroll),
@@ -879,17 +932,12 @@ async def _write_wb(
     *,
     payroll: bool,
     viewer: Viewer,
-    settings: LedgerSettings,
     existing: Optional[LedgerDocument],
     plan: dict[str, Any],
 ) -> tuple[str, LedgerDocument]:
     """Szkic WB grupy: ``unchanged`` / ``rebuilt`` / ``created`` (zatwierdzony = 409)."""
 
-    company = settings.bank.by_number(statement.bank_account)
-    name = (
-        company.name if company and company.name else f"…{statement.bank_account[-4:]}"
-    )
-    spec = wb_spec(statement, chosen, payroll=payroll, name=name)
+    spec = wb_spec(statement, chosen, payroll=payroll)
     check = engine.check(spec.lines, plan, max_lines=engine.lines_max("WB"))
     if check.issues:
         raise LedgerError(
@@ -916,7 +964,6 @@ async def post(
     statement_id: int,
     *,
     viewer: Viewer,
-    settings: LedgerSettings,
 ) -> dict[str, Any]:
     """„Zaksięguj wyciąg”: WB (i WB płacowy dla Płac) do bufora, bez commita."""
 
@@ -956,7 +1003,6 @@ async def post(
             chosen,
             payroll=payroll,
             viewer=viewer,
-            settings=settings,
             existing=existing.get(_source_id(statement.id, payroll)),
             plan=plan,
         )

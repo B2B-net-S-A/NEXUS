@@ -109,11 +109,12 @@ def test_wb_spec_posts_each_operation_against_the_bank_account():
             _line(2, "credit", 25_000, "200-17", counterparty_id=5),
         ],
         payroll=False,
-        name="Konto główne",
     )
     assert spec.doc_type == "WB" and spec.op_date == date(2026, 11, 20)
     assert spec.source_type == "bank_statement" and spec.source_id == "7"
     assert spec.sensitivity is None
+    # Opis bez nazwy z Ustawień — zmiana nazwy nie zmienia odcisku WB.
+    assert spec.description == "Wyciąg …2875 02.11–20.11.2026"
     assert [
         (line.side, line.account, line.amount, line.counterparty_id)
         for line in spec.lines
@@ -123,7 +124,22 @@ def test_wb_spec_posts_each_operation_against_the_bank_account():
         ("debit", "130-1", 25_000, None),
         ("credit", "200-17", 25_000, 5),
     ]
-    payroll = bank.wb_spec(
-        statement, [_line(1, "debit", 10_000, "231")], payroll=True, name="x"
-    )
+    payroll = bank.wb_spec(statement, [_line(1, "debit", 10_000, "231")], payroll=True)
     assert payroll.source_id == "7-payroll" and payroll.sensitivity == "payroll"
+
+
+def test_parser_lists_every_statement_account():
+    from app.services.hr.bank import mt940
+    from app.services.hr.bank.accounts import iban_check_digits
+
+    first = "1090101400000712198128"
+    first = f"{iban_check_digits(first + '75')}{first}75"
+    second = "1140200400000000000000"
+    second = f"{iban_check_digits(second + '99')}{second}99"
+    body = ""
+    for account in (first, second):
+        body += f":20:X\r\n:25:/PL{account}\r\n:60F:C261101PLN0,00\r\n"
+        body += ":61:2611021102D1,00NTRFNONREF//R1\r\n:86:~00TR~20x\r\n:62F:C261102PLN0,00\r\n-\r\n"
+    parsed = mt940.parse(body.encode())
+    assert parsed.accounts == (first, second)
+    assert parsed.account == second and len(parsed.lines) == 2

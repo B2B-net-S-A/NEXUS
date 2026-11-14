@@ -856,9 +856,7 @@ async def bank_assign(
 ) -> dict[str, Any]:
     current, viewer = await _bank_context(db, current_user)
     try:
-        line = await bank.assign(
-            db, line_id, body.account, viewer=viewer, settings=current, now=_now()
-        )
+        line = await bank.assign(db, line_id, body.account, viewer=viewer, now=_now())
         payload = await bank.get_statement(db, line.statement_id, viewer, current.bank)
     except LedgerError as exc:
         await db.rollback()
@@ -873,9 +871,9 @@ async def bank_post(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    current, viewer = await _bank_context(db, current_user)
+    _, viewer = await _bank_context(db, current_user)
     try:
-        result = await bank.post(db, statement_id, viewer=viewer, settings=current)
+        result = await bank.post(db, statement_id, viewer=viewer)
     except LedgerError as exc:
         await db.rollback()
         raise _fail(exc) from exc

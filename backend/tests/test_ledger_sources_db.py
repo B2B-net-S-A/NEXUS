@@ -34,7 +34,13 @@ from app.models.client_sales_invoice import (
 )
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_payments import FinanceCostPaymentRecord
-from app.models.hr_settlement import PayrollPayment
+from app.models.hr_payroll import PayrollPeriod
+from app.models.hr_settlement import (
+    EmployeeBillingDetails,
+    PayrollInvoice,
+    PayrollPayment,
+    PayrollSettlement,
+)
 from app.models.finance_posting import FinanceAccount
 from app.models.fx_rate import FxRate
 from app.models.candidate import Candidate
@@ -1725,7 +1731,6 @@ async def test_bank_statement_is_classified_posted_once_and_deduplicated(client,
 
 async def test_bank_hides_team_payments_without_payroll(client, world, books):
     from app.core.encryption import get_token_cipher
-    from app.models.hr_settlement import EmployeeBillingDetails
 
     year = books["year"]
     settings = _bank_settings(world, books)
@@ -1874,4 +1879,284 @@ async def test_bank_needs_module_and_a_known_company_account(client, world, book
         f"{ACC}/config/bank", json={"accounts": []}, headers=_headers(world["accountant"])
     )
     assert refused.status_code == 403
+
+
+# ── K4a: przegląd 14.11.2026 (D2 jak w E3, jeden rachunek/miesiąc/PLN, nazwa) ──
+
+STRANGER_ACCOUNT = _valid_nrb("109010140000071219800022")
+OTHER_ACCOUNT_EUR = _valid_nrb("109010140000071219800011")
+TEAM_ACCOUNT_2 = _valid_nrb("109010140000071219800033")
+
+
+def _mt940_blocks(year: int, *blocks) -> bytes:
+    """Plik MT940 z kilkoma wyciągami: (rachunek, waluta, [(MMDD, D/C, kwota, tytuł, rachunek, ref)])."""
+
+    yy = f"{year % 100:02d}"
+    out = ""
+    for account, currency, ops in blocks:
+        out += f":20:R{uuid.uuid4().hex[:6]}\r\n:25:/PL{account}\r\n:60F:C{yy}0301{currency}100000,00\r\n"
+        for mmdd, sign, amount, title, party, ref in ops:
+            out += f":61:{yy}{mmdd}{mmdd}{sign}{amount}NTRFNONREF//{ref}\r\n"
+            out += f":86:~00TR~20{title}~32Kontrahent Testowy" + (f"~38PL{party}" if party else "") + "\r\n"
+        out += f":62F:C{yy}0430{currency}0,00\r\n-\r\n"
+    return out.encode()
+
+
+async def _swap_team_account(person_id: int, account: str):
+    from app.core.encryption import get_token_cipher
+
+    async with AsyncSessionLocal() as db:
+        details = await db.scalar(
+            select(EmployeeBillingDetails).where(EmployeeBillingDetails.user_id == person_id)
+        )
+        encrypted = get_token_cipher().encrypt(account)
+        if details is None:
+            db.add(
+                EmployeeBillingDetails(
+                    user_id=person_id,
+                    account_encrypted=encrypted,
+                    account_last4=account[-4:],
+                    account_source="manual",
+                    payment_terms_days=14,
+                )
+            )
+            previous = None
+        else:
+            previous = (details.account_encrypted, details.account_last4)
+            details.account_encrypted, details.account_last4 = encrypted, account[-4:]
+        await db.commit()
+    return previous
+
+
+async def _restore_team_account(person_id: int, previous) -> None:
+    async with AsyncSessionLocal() as db:
+        if previous is None:
+            await db.execute(
+                delete(EmployeeBillingDetails).where(EmployeeBillingDetails.user_id == person_id)
+            )
+        else:
+            await db.execute(
+                update(EmployeeBillingDetails)
+                .where(EmployeeBillingDetails.user_id == person_id)
+                .values(account_encrypted=previous[0], account_last4=previous[1])
+            )
+        await db.commit()
+
+
+async def test_bank_refuses_files_that_do_not_fit_one_wb(client, world, books):
+    year = books["year"]
+    await _set_ledger(_bank_settings(world, books))
+    marker = uuid.uuid4().hex[:6].upper()
+    # Dwa rachunki w jednym pliku: wszystko poszłoby na jedno konto 130-x.
+    two_accounts = _mt940_blocks(
+        year,
+        (OTHER_ACCOUNT_EUR, "EUR", [("0320", "D", "1000,00", "Faktura w EUR", STRANGER_ACCOUNT, f"E{marker}")]),
+        (COMPANY, "PLN", [("0320", "D", "12,50", "Opłata za przelew", "", f"F{marker}")]),
+    )
+    refused = await _bank_import(client, world, two_accounts)
+    assert refused.status_code == 422 and "kilku rachunków" in refused.json()["detail"]
+    # Ten sam rachunek, ale operacje w EUR — WB jest w PLN (waluty: K4c).
+    euro = _mt940_blocks(
+        year,
+        (COMPANY, "PLN", [("0320", "D", "12,50", "Opłata za przelew", "", f"G{marker}")]),
+        (COMPANY, "EUR", [("0321", "D", "100,00", "Faktura w EUR", STRANGER_ACCOUNT, f"H{marker}")]),
+    )
+    refused = await _bank_import(client, world, euro)
+    assert refused.status_code == 422 and "PLN" in refused.json()["detail"]
+    # Operacje z dwóch miesięcy — WB ma jeden okres.
+    two_months = _mt940_blocks(
+        year,
+        (
+            COMPANY,
+            "PLN",
+            [
+                ("0331", "D", "12,50", "Opłata za prowadzenie rachunku", "", f"M{marker}"),
+                ("0402", "D", "7,00", "Opłata za przelew", "", f"A{marker}"),
+            ],
+        ),
+    )
+    refused = await _bank_import(client, world, two_months)
+    assert refused.status_code == 422 and "miesięcy" in refused.json()["detail"]
+    # Pozycja 0,00 (np. kapitalizacja bez odsetek) nie wywraca importu.
+    zero = _statement(
+        year,
+        ("D", "12,50", "Opłata za przelew", "", f"F{marker}"),
+        ("C", "0,00", "Kapitalizacja odsetek", "", f"O{marker}"),
+    )
+    accepted = await _bank_import(client, world, zero)
+    assert accepted.status_code == 201, accepted.text
+    assert [line["kind"] for line in accepted.json()["lines"]] == ["fee"]
+
+
+async def test_bank_team_payouts_are_recognized_like_e3(client, world, books):
+    """D2: wypłata po numerze KSeF (bez rachunku), wiersz R9 „unmatched” i zwrot wypłaty."""
+
+    year = books["year"]
+    await _set_ledger(_bank_settings(world, books))
+    person = world["person"]
+    nip = world["nips"]["person"]
+    ksef = f"{nip}-{year}0228-{uuid.uuid4().hex[:12].upper()}-AB"
+    async with AsyncSessionLocal() as db:
+        period = PayrollPeriod(
+            year=year, month=2, status="closed", closed_at=datetime.now(timezone.utc), close_count=1
+        )
+        db.add(period)
+        await db.flush()
+        settlement = PayrollSettlement(
+            period_id=period.id,
+            user_id=person.id,
+            employment_type="b2b",
+            currency="PLN",
+            expected_amount=Decimal("8000.00"),
+            amount_basis="net",
+            status="approved",
+        )
+        db.add(settlement)
+        await db.flush()
+        invoice = PayrollInvoice(
+            source="ksef",
+            ksef_number=ksef,
+            ksef_acquired_at=datetime(year, 3, 1, 9, 0, tzinfo=timezone.utc),
+            seller_nip=nip,
+            user_id=person.id,
+            invoice_number="FV/77/02",
+            invoice_kind="original",
+            issue_date=date(year, 2, 28),
+            currency="PLN",
+            net_amount=Decimal("6504.07"),
+            vat_amount=Decimal("1495.93"),
+            gross_amount=Decimal("8000.00"),
+            items=[],
+            xml_sha256=hashlib.sha256(ksef.encode()).hexdigest(),
+            settlement_id=settlement.id,
+            match_status="matched",
+        )
+        db.add(invoice)
+        await db.commit()
+        period_id, settlement_id, invoice_id = period.id, settlement.id, invoice.id
+    previous = await _swap_team_account(person.id, TEAM_ACCOUNT_2)
+    outside = _headers(world["module_only"])
+    try:
+        marker = uuid.uuid4().hex[:6].upper()
+        # Osoba bez Płac: wypłata z numerem KSeF na rachunek spoza danych do
+        # rozliczeń i zwrot wypłaty z rachunku osoby z zespołu.
+        first = _mt940_blocks(
+            year,
+            (
+                COMPANY,
+                "PLN",
+                [
+                    ("0310", "D", "8000,00", f"FV/77/02 {ksef}", STRANGER_ACCOUNT, f"K{marker}"),
+                    ("0311", "C", "5432,10", "Zwrot przelewu Wynagrodzenie 02", TEAM_ACCOUNT_2, f"R{marker}"),
+                    ("0312", "D", "12,50", "Opłata za przelew", "", f"F{marker}"),
+                ],
+            ),
+        )
+        imported = await _bank_import(client, world, first, user="module_only")
+        assert imported.status_code == 201, imported.text
+        data = imported.json()
+        assert [line["kind"] for line in data["lines"]] == ["fee"]
+        assert data["payroll_hidden"] is True and data["credit_total"] == 0
+        full = await client.get(
+            f"{ACC}/bank/statements/{data['id']}", headers=_headers(world["accountant"])
+        )
+        assert [(line["kind"], line["payroll"]) for line in full.json()["lines"]] == [
+            ("team", True),
+            ("team", True),
+            ("fee", False),
+        ]
+        # Płace wgrywają ten sam numer faktury z inną kwotą: R9 zapisuje „unmatched”,
+        # a osoba bez Płac dalej tego nie widzi.
+        second = _mt940_blocks(
+            year,
+            (COMPANY, "PLN", [("0315", "D", "7999,00", f"FV/77/02 {ksef}", STRANGER_ACCOUNT, f"L{marker}")]),
+        )
+        inside = await _bank_import(client, world, second, user="accountant")
+        assert inside.status_code == 201, inside.text
+        seen = await client.get(f"{ACC}/bank/statements/{inside.json()['id']}", headers=outside)
+        assert seen.json()["lines"] == [] and seen.json()["payroll_hidden"] is True
+    finally:
+        await _restore_team_account(person.id, previous)
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(PayrollPayment).where(PayrollPayment.settlement_id == settlement_id))
+            await db.execute(delete(PayrollInvoice).where(PayrollInvoice.id == invoice_id))
+            await db.execute(delete(PayrollSettlement).where(PayrollSettlement.id == settlement_id))
+            await db.execute(delete(PayrollPeriod).where(PayrollPeriod.id == period_id))
+            await db.commit()
+
+
+async def test_bank_rename_keeps_approved_wb_and_payroll_post(client, world, books):
+    year, acc = books["year"], books["acc"]
+    settings = _bank_settings(world, books)
+    await _set_ledger(settings)
+    person = world["person"]
+    previous = await _swap_team_account(person.id, TEAM_ACCOUNT_2)
+    try:
+        marker = uuid.uuid4().hex[:6].upper()
+        content = _statement(
+            year,
+            ("D", "8000,00", "Wynagrodzenie 02", TEAM_ACCOUNT_2, f"P{marker}"),
+            ("D", "12,50", "Opłata za przelew", "", f"F{marker}"),
+        )
+        data = (await _bank_import(client, world, content, user="module_only")).json()
+        posted = await client.post(
+            f"{ACC}/bank/statements/{data['id']}/post", headers=_headers(world["module_only"])
+        )
+        approved = await client.post(
+            f"{ACC}/documents/approve",
+            json={"ids": [posted.json()["documents"][0]["id"]]},
+            headers=_headers(world["accountant"]),
+        )
+        assert approved.json()["approved"], approved.text
+        renamed = await client.put(
+            f"{ACC}/config/bank",
+            json={
+                **settings["bank"],
+                "accounts": [{"number": COMPANY, "account": acc["bank"], "name": "Rachunek bieżący"}],
+            },
+            headers=_headers(world["admin"]),
+        )
+        assert renamed.status_code == 200, renamed.text
+        full = await client.get(
+            f"{ACC}/bank/statements/{data['id']}", headers=_headers(world["accountant"])
+        )
+        team = next(line for line in full.json()["lines"] if line["kind"] == "team")
+        assigned = await client.patch(
+            f"{ACC}/bank/lines/{team['id']}",
+            json={"account": acc["payroll_settle"]},
+            headers=_headers(world["accountant"]),
+        )
+        assert assigned.status_code == 200, assigned.text
+        payroll = await client.post(
+            f"{ACC}/bank/statements/{data['id']}/post", headers=_headers(world["accountant"])
+        )
+        assert payroll.status_code == 200, payroll.text
+        assert (payroll.json()["unchanged"], payroll.json()["created"]) == (1, 1)
+    finally:
+        await _restore_team_account(person.id, previous)
+
+
+async def test_bank_import_fails_closed_when_team_accounts_unreadable(
+    client, world, books, monkeypatch
+):
+    from app.services.ledger import bank as ledger_bank
+
+    year = books["year"]
+    await _set_ledger(_bank_settings(world, books))
+
+    async def unreadable(db):
+        return {}, True
+
+    monkeypatch.setattr(ledger_bank.hr_statements, "account_owners", unreadable)
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _statement(year, ("D", "12,50", "Opłata za przelew", "", f"F{marker}"))
+    refused = await _bank_import(client, world, content, user="module_only")
+    assert refused.status_code == 503 and "Płacami" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        stored = await db.scalar(
+            select(func.count())
+            .select_from(LedgerBankStatement)
+            .where(LedgerBankStatement.sha256 == hashlib.sha256(content).hexdigest())
+        )
+    assert stored == 0
 
