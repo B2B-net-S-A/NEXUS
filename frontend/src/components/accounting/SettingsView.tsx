@@ -33,6 +33,7 @@ import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
+import { BankSettingsCard } from "./BankSettingsCard";
 import { MONTHS_PL, gr } from "./ledger-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
@@ -45,39 +46,42 @@ export function SettingsView() {
 
   return (
     <div className="grid gap-3.5 xl:grid-cols-2">
-      <SectionCard title="Moduły" aside={config.me.admin ? "wyłączony = widzi tylko administrator" : "zmienia administrator"}>
-        <table className="w-full table-fixed text-sm">
-          <tbody>
-            {config.modules.map((module) => (
-              <tr key={module.key} className={cn(CALM_ROW, "align-top last:border-0")}>
-                <td className="px-3.5 py-2">
-                  <span className="font-medium">{module.label}</span>
-                  <span className={CALM_SUBLINE}>zastępuje: {module.replaces}</span>
-                </td>
-                <td className="w-[104px] px-2 py-2 text-[12px] text-muted-foreground">
-                  {module.built ? `etap ${module.stage}` : `w budowie, ${module.stage}`}
-                </td>
-                <td className="w-[64px] px-3.5 py-2 text-right">
-                  <Switch
-                    checked={module.enabled}
-                    disabled={!config.me.admin || !module.built || setModule.isPending}
-                    aria-label={`${module.enabled ? "Wyłącz" : "Włącz"}: ${module.label}`}
-                    onCheckedChange={(enabled) =>
-                      setModule.mutate(
-                        { module: module.key, enabled },
-                        {
-                          onSuccess: () => showToast(enabled ? `Włączono: ${module.label}.` : `Wyłączono: ${module.label}.`),
-                          onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zmienić modułu."), "error"),
-                        },
-                      )
-                    }
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </SectionCard>
+      <div className="space-y-3.5">
+        <SectionCard title="Moduły" aside={config.me.admin ? "wyłączony = widzi tylko administrator" : "zmienia administrator"}>
+          <table className="w-full table-fixed text-sm">
+            <tbody>
+              {config.modules.map((module) => (
+                <tr key={module.key} className={cn(CALM_ROW, "align-top last:border-0")}>
+                  <td className="px-3.5 py-2">
+                    <span className="font-medium">{module.label}</span>
+                    <span className={CALM_SUBLINE}>zastępuje: {module.replaces}</span>
+                  </td>
+                  <td className="w-[104px] px-2 py-2 text-[12px] text-muted-foreground">
+                    {module.built ? `etap ${module.stage}` : `w budowie, ${module.stage}`}
+                  </td>
+                  <td className="w-[64px] px-3.5 py-2 text-right">
+                    <Switch
+                      checked={module.enabled}
+                      disabled={!config.me.admin || !module.built || setModule.isPending}
+                      aria-label={`${module.enabled ? "Wyłącz" : "Włącz"}: ${module.label}`}
+                      onCheckedChange={(enabled) =>
+                        setModule.mutate(
+                          { module: module.key, enabled },
+                          {
+                            onSuccess: () => showToast(enabled ? `Włączono: ${module.label}.` : `Wyłączono: ${module.label}.`),
+                            onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zmienić modułu."), "error"),
+                          },
+                        )
+                      }
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </SectionCard>
+        <BankSettingsCard />
+      </div>
 
       <div className="space-y-3.5">
         <Accountants />

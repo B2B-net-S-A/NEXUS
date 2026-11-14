@@ -209,7 +209,9 @@ OPENING_LINES_MAX = 20_000
 
 
 def lines_max(doc_type: str) -> int:
-    return OPENING_LINES_MAX if doc_type == "BO" else LINES_MAX
+    """BO i WB (wyciąg z setkami operacji, K4a) mają wyższy limit pozycji."""
+
+    return OPENING_LINES_MAX if doc_type in ("BO", "WB") else LINES_MAX
 
 
 def check(

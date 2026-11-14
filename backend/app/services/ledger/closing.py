@@ -2,10 +2,12 @@
 
 Przed zamknięciem okresu widać, czy źródła miesiąca są w księdze (Źródła K2,
 automaty K3a), czy bufor jest pusty i czy zatwierdzone dokumenty poszły do
-Symfonii (K3b, tylko w trybie roku „symfonia” albo „równolegle”) i — dla
+Symfonii (K3b, tylko w trybie roku „symfonia” albo „równolegle”), czy
+wyciągi miesiąca mają konta i WB (K4a, gdy moduł „Bank” jest otwarty) i — dla
 Płac — czy jest lista płac z Enovy (K3c; osoba bez Płac widzi tylko, kto ją
-wczytuje, bez liczby). Etapy, których jeszcze nie ma (bank, VAT, środki
-trwałe), stoją na liście z numerem etapu — do tego czasu robi je Symfonia.
+wczytuje, bez liczby). Etapy, których jeszcze nie ma albo są wyłączone (bank,
+VAT, środki trwałe), stoją na liście z numerem etapu — do tego czasu robi je
+Symfonia.
 
 Terminy za miesiąc M przypadają w miesiącu M+1; sobota, niedziela i święto
 przesuwają termin na następny dzień roboczy (art. 12 § 5 Ordynacji podatkowej,
@@ -32,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
-from app.services.ledger import exports, payroll_lists, sources
+from app.services.ledger import bank, exports, payroll_lists, sources
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
 
@@ -141,6 +143,35 @@ def source_check(item: dict[str, Any], href: str) -> dict[str, Any]:
     }
 
 
+def bank_check(rows: list[dict[str, Any]], href: str) -> dict[str, Any]:
+    """Pozycja listy z wyciągów miesiąca (K4a, wiersze ``bank.overview``)."""
+
+    unresolved = sum(int(row["unresolved"]) for row in rows)
+    to_post = sum(1 for row in rows if row["to_post"])
+    parts = []
+    if unresolved:
+        parts.append(f"operacje bez konta: {unresolved}")
+    if to_post:
+        parts.append(f"wyciągi bez WB: {to_post}")
+    if unresolved:
+        state = "problem"
+    elif to_post or not rows:
+        state = "todo"
+    else:
+        state = "ok"
+    if not rows:
+        detail = "brak wyciągu z tego miesiąca"
+    else:
+        detail = ", ".join(parts) or f"wyciągi: {len(rows)}, WB w księdze"
+    return {
+        "key": "bank",
+        "label": "Wyciągi bankowe",
+        "state": state,
+        "detail": detail,
+        "href": href,
+    }
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -223,6 +254,10 @@ async def checklist(
     items = [
         source_check(item, f"/accounting/sources{query}") for item in summary["items"]
     ]
+    bank_open = bank.bank_open(settings, viewer)
+    if bank_open:
+        listed = await bank.overview(db, viewer, settings.bank, year=year, month=month)
+        items.append(bank_check(listed["statements"], f"/accounting/bank{query}"))
     year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
     period = None
     if year_row is not None:
@@ -259,8 +294,10 @@ async def checklist(
             "href": None,
         }
         for key, label, detail in LATER
-        # Środki trwałe (K6) są już w „Źródłach”, gdy moduł jest otwarty.
+        # Środki trwałe (K6) są już w „Źródłach”, a wyciągi (K4a) mają swoją
+        # pozycję, gdy moduł jest otwarty.
         if not (key == "assets" and sources.assets_open(settings, viewer))
+        and not (key == "bank" and bank_open)
     )
     return {
         "year": year,

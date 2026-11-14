@@ -33,6 +33,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.services import ledger_automation_schema as automation
+from app.services import ledger_bank_schema as bank
 from app.services import ledger_export_schema as export
 from app.services import ledger_schema as schema
 
@@ -448,4 +449,93 @@ class LedgerExportDocument(Base):
     )
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")
+    )
+
+
+class LedgerBankStatement(Base):
+    """Wyciąg bankowy wgrany w Księdze (K4a, 0705)."""
+
+    __tablename__ = "ledger_bank_statements"
+    __table_args__ = (
+        UniqueConstraint("sha256", name="uq_ledger_bank_statements_sha"),
+        CheckConstraint(
+            bank.CK_STATEMENT_CURRENCY, name="ck_ledger_bank_statements_currency"
+        ),
+        Index("ix_ledger_bank_statements_account", "bank_account", "last_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    format: Mapped[str] = mapped_column(String(8), nullable=False)
+    bank_account: Mapped[str] = mapped_column(String(26), nullable=False)
+    ledger_account: Mapped[str] = mapped_column(
+        String(schema.ACCOUNT_MAX), nullable=False
+    )
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=text("'PLN'")
+    )
+    first_day: Mapped[date] = mapped_column(Date, nullable=False)
+    last_day: Mapped[date] = mapped_column(Date, nullable=False)
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    debit_total: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    credit_total: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class LedgerBankLine(Base):
+    """Operacja wyciągu z rozpoznaniem i kontem przeciwstawnym (K4a, 0705)."""
+
+    __tablename__ = "ledger_bank_lines"
+    __table_args__ = (
+        UniqueConstraint("statement_id", "line_ref", name="uq_ledger_bank_lines_ref"),
+        CheckConstraint(bank.CK_LINE_DIRECTION, name="ck_ledger_bank_lines_direction"),
+        CheckConstraint(bank.CK_LINE_KIND, name="ck_ledger_bank_lines_kind"),
+        CheckConstraint(bank.CK_LINE_AMOUNT, name="ck_ledger_bank_lines_amount"),
+        Index("ix_ledger_bank_lines_statement", "statement_id", "position"),
+        Index("ix_ledger_bank_lines_bank_ref", "bank_ref", "booked_on", "amount"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    statement_id: Mapped[int] = mapped_column(
+        ForeignKey("ledger_bank_statements.id", ondelete="CASCADE"), nullable=False
+    )
+    line_ref: Mapped[str] = mapped_column(String(bank.LINE_REF_MAX), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    bank_ref: Mapped[str] = mapped_column(
+        String(bank.BANK_REF_MAX), nullable=False, server_default=text("''")
+    )
+    booked_on: Mapped[date] = mapped_column(Date, nullable=False)
+    direction: Mapped[str] = mapped_column(String(6), nullable=False)
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    title: Mapped[str] = mapped_column(
+        String(bank.TITLE_MAX), nullable=False, server_default=text("''")
+    )
+    counterparty_name: Mapped[str] = mapped_column(
+        String(bank.NAME_MAX), nullable=False, server_default=text("''")
+    )
+    counterparty_last4: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    ref_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    counter_account: Mapped[Optional[str]] = mapped_column(
+        String(schema.ACCOUNT_MAX), nullable=True
+    )
+    counterparty_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("finance_counterparties.id", ondelete="SET NULL"), nullable=True
+    )
+    payroll: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    note: Mapped[str] = mapped_column(
+        String(bank.NOTE_MAX), nullable=False, server_default=text("''")
+    )
+    assigned_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    assigned_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )

@@ -131,6 +131,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   symfonia: "Do Symfonii",
   // 14.11.2026: /accounting/assets — środki trwałe i WNiP (K6).
   assets: "Środki trwałe",
+  // 14.11.2026: /accounting/bank — wyciągi bankowe i dokument WB (K4a).
+  bank: "Bank",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

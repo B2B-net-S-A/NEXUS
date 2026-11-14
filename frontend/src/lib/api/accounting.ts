@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { BankSettings } from "@/lib/api/accounting-bank";
 import { hasPermission } from "@/lib/permissions";
 
 const BASE = "/api/accounting";
@@ -94,6 +95,8 @@ export interface LedgerConfig {
   allocation_accounts: AllocationAccounts;
   /** Konta listy płac z Enovy (K3c), zmienia administrator. */
   payroll_accounts?: PayrollAccounts;
+  /** Rachunki firmy i konta reguł wyciągu (K4a); pełne numery widzi administrator. */
+  bank_settings?: BankSettings;
   years: LedgerYear[];
   today: string;
   doc_types: (Option & { manual: boolean })[];

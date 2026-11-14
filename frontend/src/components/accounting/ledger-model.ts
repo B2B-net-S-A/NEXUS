@@ -163,6 +163,7 @@ export interface AreaTab {
 export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting", label: "Miesiąc", description: "Stan miesiąca: dokumenty, bufor i zamknięcie okresu", module: "ledger" },
   { href: "/accounting/sources", label: "Źródła", description: "Faktury kosztowe i sprzedaży jako dokumenty księgi", module: "ledger" },
+  { href: "/accounting/bank", label: "Bank", description: "Wyciągi z banku: dopasowanie zapłat i dokument WB", module: "bank" },
   { href: "/accounting/automations", label: "Automaty", description: "PK cykliczne i RMK — polecenia księgowania co miesiąc same", module: "automations" },
   { href: "/accounting/documents", label: "Dokumenty", description: "Dziennik: dokumenty z dekretem, bufor i zatwierdzone", module: "ledger" },
   { href: "/accounting/symfonia", label: "Do Symfonii", description: "Paczka zatwierdzonych dokumentów do importu w Symfonii FK", module: "ledger" },
@@ -202,6 +203,13 @@ export function sourceLabel(source: { type: string; id: string }): { label: stri
   if (source.type === "client_sales_invoice") return { label: "Faktura sprzedaży z KSeF", href: null };
   if (source.type === "assets_month") return { label: "Amortyzacja środków trwałych", href: "/accounting/assets" };
   if (source.type === "asset_operation") return { label: "Dokument środka trwałego", href: "/accounting/assets" };
+  if (source.type === "bank_statement") {
+    const statement = Number.parseInt(source.id, 10);
+    return {
+      label: "Wyciąg bankowy",
+      href: Number.isInteger(statement) ? `/accounting/bank?statement=${statement}` : "/accounting/bank",
+    };
+  }
   return { label: source.type, href: null };
 }
 

@@ -162,6 +162,7 @@ def parse(raw: bytes) -> ParsedStatement:
     account: Optional[str] = None
     currency: Optional[str] = None
     lines: list[StatementLine] = []
+    accounts: list[str] = []
     pending: Optional[dict] = None
 
     def flush() -> None:
@@ -191,6 +192,7 @@ def parse(raw: bytes) -> ParsedStatement:
                 account = normalize_nrb(raw_account)
             except AccountError:
                 account = None
+            accounts.append(account or raw_account)
         elif tag in ("60F", "60M"):
             match = re.match(r"^[CD]\d{6}([A-Z]{3})", body.strip())
             if match:
@@ -231,7 +233,11 @@ def parse(raw: bytes) -> ParsedStatement:
             raise StatementError("Wyciąg ma za dużo operacji — podziel go na miesiące.")
     flush()
     return ParsedStatement(
-        format="mt940", account=account, currency=currency, lines=tuple(lines)
+        format="mt940",
+        account=account,
+        currency=currency,
+        lines=tuple(lines),
+        accounts=tuple(accounts),
     )
 
 

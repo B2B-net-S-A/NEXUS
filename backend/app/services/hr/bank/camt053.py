@@ -157,8 +157,17 @@ def parse(raw: bytes) -> ParsedStatement:
     account: Optional[str] = None
     currency: Optional[str] = None
     lines: list[StatementLine] = []
+    accounts: list[str] = []
     for statement in statements:
         iban = _text(statement, "{*}Acct/{*}Id/{*}IBAN")
+        try:
+            accounts.append(
+                normalize_nrb(iban)
+                if iban
+                else _text(statement, "{*}Acct/{*}Id/{*}Othr/{*}Id")
+            )
+        except AccountError:
+            accounts.append(iban)
         if iban and account is None:
             try:
                 account = normalize_nrb(iban)
@@ -219,7 +228,11 @@ def parse(raw: bytes) -> ParsedStatement:
                         "Wyciąg ma za dużo operacji — podziel go na miesiące."
                     )
     return ParsedStatement(
-        format="camt053", account=account, currency=currency, lines=tuple(lines)
+        format="camt053",
+        account=account,
+        currency=currency,
+        lines=tuple(lines),
+        accounts=tuple(accounts),
     )
 
 
