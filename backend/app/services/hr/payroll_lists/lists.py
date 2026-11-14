@@ -70,7 +70,7 @@ from app.services.ledger.closing import next_business_day
 
 #: Problem → (zdanie na ekranie, blokuje zatwierdzenie).
 PROBLEMS: dict[str, tuple[str, bool]] = {
-    "params_to_confirm": ("Parametry płac czekają na potwierdzenie Płac.", True),
+    "params_to_confirm": ("Parametry płac czekają na potwierdzenie Rozliczeń.", True),
     "params_previous_year": (
         "Parametry płac są z poprzedniego roku — dodaj wersję od 1 stycznia.",
         True,
@@ -107,7 +107,7 @@ PROBLEMS: dict[str, tuple[str, bool]] = {
         True,
     ),
     "skipped_zero": (
-        "Kwota 0 wpisana przez Płace — osoba pominięta w tym miesiącu.",
+        "Kwota 0 wpisana przez Rozliczenia — osoba pominięta w tym miesiącu.",
         False,
     ),
     "files_data": (
@@ -119,7 +119,7 @@ KINDS_LABEL = {"uop": "Umowa o pracę", "zlecenie": "Zlecenie", "dzielo": "Dzie�
 SOURCE_LABEL = {
     "payroll_line": "„Mój miesiąc” i premie",
     "client_settlement": "rozliczenie klienta",
-    "manual": "kwota wpisana przez Płace",
+    "manual": "kwota wpisana przez Rozliczenia",
     "missing": "brak kwoty",
 }
 TOTAL_FIELDS: tuple[str, ...] = (
@@ -469,7 +469,7 @@ async def compute(
     period = await lock_period_shared(db, year, month)
     if period.status != "closed":
         raise PayrollConflict(
-            "Najpierw zamknij miesiąc w Płacach — lista liczy się z zamrożonych linii.",
+            "Najpierw zamknij miesiąc w Rozliczeniach — lista liczy się z zamrożonych linii.",
             code="period_open",
         )
     current = await live_list(db, period.id, lock=True)
@@ -579,7 +579,7 @@ async def approval_refusal(
     if lst.status != "draft":
         return "Zatwierdza się tylko listę policzoną i niezatwierdzoną."
     if lst.computed_by == actor.id:
-        return "Tę listę policzyłeś Ty — zatwierdza druga osoba z Płac."
+        return "Tę listę policzyłeś Ty — zatwierdza druga osoba z Rozliczeń."
     own = await db.scalar(
         select(
             exists().where(
@@ -588,7 +588,7 @@ async def approval_refusal(
         )
     )
     if own:
-        return "Na liście jest Twoja pozycja — zatwierdza inna osoba z Płac."
+        return "Na liście jest Twoja pozycja — zatwierdza inna osoba z Rozliczeń."
     return None
 
 
@@ -603,7 +603,7 @@ async def approve(db: AsyncSession, *, actor: User, list_id: int) -> PayrollList
         raise PayrollError(refusal, status, code="approval_refused")
     if period.status != "closed":
         raise PayrollConflict(
-            "Miesiąc Płac został ponownie otwarty — zamknij go i przelicz listę.",
+            "Miesiąc w Rozliczeniach został ponownie otwarty — zamknij go i przelicz listę.",
             code="period_open",
         )
     version = await db.scalar(
@@ -771,7 +771,7 @@ async def set_gross_input(
     if user_id is not None:
         if user_id == actor.id and not actor.has_role(UserRole.admin):
             raise PayrollForbidden(
-                "Swojej kwoty nie wpisujesz sam — zrobi to druga osoba z Płac."
+                "Swojej kwoty nie wpisujesz sam — zrobi to druga osoba z Rozliczeń."
             )
         if (
             await db.scalar(
@@ -888,7 +888,7 @@ async def set_opening(
     if subject.user_id is not None and subject.user_id == actor.id:
         if not actor.has_role(UserRole.admin):
             raise PayrollForbidden(
-                "Swojego otwarcia roku nie wpisujesz sam — zrobi to druga osoba z Płac."
+                "Swojego otwarcia roku nie wpisujesz sam — zrobi to druga osoba z Rozliczeń."
             )
     await person_data.subject_name(db, subject)
     clean = clean_amounts(amounts)

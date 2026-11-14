@@ -124,7 +124,7 @@ async def _accounts(
 REASONS = {
     "no_account": "Brak rachunku do wypłaty.",
     "account_unreadable": "Nie udało się odczytać rachunku — sprawdź klucz szyfrowania.",
-    "no_company_account": "Brak rachunku płatnika w danych płatnika (Płace → parametry).",
+    "no_company_account": "Brak rachunku płatnika w danych płatnika (Księgowość → Lista płac → parametry).",
     "zero": "Kwota 0.",
 }
 
@@ -213,7 +213,7 @@ async def build_file(
     sender_account = settings.transfer_batch.sender_account
     if not sender_account:
         raise PayrollConflict(
-            "Brak rachunku nadawcy w Ustawieniach → Płace.", code="no_sender"
+            "Brak rachunku nadawcy w Ustawieniach → Rozliczenia.", code="no_sender"
         )
     rows, accounts = await plan(db, lst)
     lines = {
@@ -336,7 +336,7 @@ async def mark_paid(db: AsyncSession, *, actor: User, lst: PayrollList) -> Payro
     if own is not None:
         raise PayrollForbidden(
             "Na liście jest Twoja pozycja — wykonanie przelewów potwierdza inna osoba "
-            "z Płac."
+            "z Rozliczeń."
         )
     if lst.paid_at is None:
         lst.paid_at = local_now()

@@ -60,8 +60,8 @@ CIPHER_MISSING = (
     "Szyfrowanie danych płacowych nie jest skonfigurowane — nic nie zapisano."
 )
 OWN_DATA = (
-    "Swoich danych płacowych nie zmieniasz sam — zrobi to druga osoba z Kadr "
-    "albo Płac, albo administrator."
+    "Swoich danych płacowych nie zmieniasz sam — zrobi to druga osoba "
+    "z Administracji współpracy albo Rozliczeń, albo administrator."
 )
 TEXT_MAX = 60
 NAME_MAX = 80

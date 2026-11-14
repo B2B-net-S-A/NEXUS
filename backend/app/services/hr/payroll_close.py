@@ -441,7 +441,7 @@ async def reopen_month(
     if approved_list is not None:
         raise PayrollConflict(
             f"Lista płac {approved_list} jest zatwierdzona — najpierw ją anuluj "
-            "(Księgowość → Płace), potem otwórz miesiąc.",
+            "(Księgowość → Lista płac), potem otwórz miesiąc.",
             code="payroll_list_approved",
         )
 

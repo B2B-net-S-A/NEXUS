@@ -81,12 +81,12 @@ def _basis_rows(slip: Payslip) -> str:
         )
     if (
         _d(basis.get("bonus_total")) > 0
-        and slip.source_label != "kwota wpisana przez Płace"
+        and slip.source_label != "kwota wpisana przez Rozliczenia"
     ):
         rows.append(_row("Premie", basis.get("bonus_total")))
     if basis.get("note"):
         rows.append(
-            f"<tr><td colspan='2' class='hint'>Kwota wpisana przez Płace: "
+            f"<tr><td colspan='2' class='hint'>Kwota wpisana przez Rozliczenia: "
             f"{escape(str(basis['note']))}</td></tr>"
         )
     return "".join(rows)
