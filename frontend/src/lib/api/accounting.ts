@@ -62,6 +62,16 @@ export interface SalesAccounts {
   vat_account: string;
 }
 
+export interface AllocationAccounts {
+  settlement_account: string;
+  client_account: string;
+  front_office_account: string;
+  back_office_account: string;
+  overhead_account: string;
+  /** Jedno konto kosztów zespołu na PK płacowe — pion tylko w MPK pozycji (D2). */
+  team_account: string;
+}
+
 export interface LedgerConfig {
   open: boolean;
   modules: LedgerModule[];
@@ -69,6 +79,8 @@ export interface LedgerConfig {
   accountants: number[] | null;
   /** Konta dekretu faktur sprzedaży (K2), zmienia administrator. */
   sales_accounts: SalesAccounts;
+  /** Konta rozliczenia kosztów na „5” (K2), zmienia administrator. */
+  allocation_accounts: AllocationAccounts;
   years: LedgerYear[];
   today: string;
   doc_types: (Option & { manual: boolean })[];
@@ -260,7 +272,15 @@ export interface AccountInput {
   active?: boolean;
 }
 
-export type SourceKind = "costs" | "sales";
+export type SourceKind = "costs" | "sales" | "allocation";
+
+export interface AllocationDetail {
+  code: string;
+  label: string;
+  /** Grosze; ujemne = korekty przeważają w tym MPK. */
+  amount: number;
+  payroll: boolean;
+}
 
 export interface SourceProblem {
   source_id: string;
@@ -282,6 +302,10 @@ export interface SourceSummary {
   problems_total: number;
   /** Faktury osób zespołu księguje osoba z Płacami — bez liczby (D2). */
   payroll_hidden: boolean;
+  /** Rozliczenie kosztów: kwoty MPK z zatwierdzonych FVZ. */
+  details?: AllocationDetail[];
+  /** Rozliczenie kosztów: FVZ okresu w buforze (wejdą po zatwierdzeniu). */
+  pending_costs?: number;
 }
 
 export interface SourcesMonth {
@@ -556,6 +580,10 @@ export function useSyncSources() {
 
 export function useSetSalesAccounts() {
   return useConfigMutation((args: SalesAccounts) => api.put(`${BASE}/config/sales`, args));
+}
+
+export function useSetAllocationAccounts() {
+  return useConfigMutation((args: AllocationAccounts) => api.put(`${BASE}/config/allocation`, args));
 }
 
 /** Pozycja „Księgowość” w menu: „Moduł Finanse” i otwarty moduł księgi. */

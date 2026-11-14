@@ -9,11 +9,12 @@ przełączniki, lista „Księgowi”, tryb roku i ponowne otwarcie okresu — t
 admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
 
 * ``GET /config`` — moduły, rola osoby, lata z okresami,
-  ``PUT /config/modules``, ``PUT /config/accountants`` i ``PUT /config/sales``
-  (admin; konta dekretu sprzedaży, K2),
+  ``PUT /config/modules``, ``PUT /config/accountants``, ``PUT /config/sales``
+  i ``PUT /config/allocation`` (admin; konta sprzedaży i rozliczenia kosztów, K2),
   ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
 * ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
-  E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze,
+  E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze, PK
+  rozliczenia kosztów na „5” z MPK,
 * ``POST /years``, ``PATCH /years/{id}`` (tryb), ``POST /periods/{id}/close``,
   ``POST /periods/{id}/reopen``,
 * ``GET/POST /documents``, ``GET/PATCH/DELETE /documents/{id}``,
@@ -108,8 +109,17 @@ class SalesAccountsBody(BaseModel):
     vat_account: str = Field(max_length=ACCOUNT_MAX + 8)
 
 
+class AllocationAccountsBody(BaseModel):
+    settlement_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    client_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    front_office_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    back_office_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    overhead_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    team_account: str = Field(max_length=ACCOUNT_MAX + 8)
+
+
 class SourcesSyncBody(BaseModel):
-    kind: Literal["costs", "sales"]
+    kind: Literal["costs", "sales", "allocation"]
     year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
     month: int = Field(ge=1, le=12)
 
@@ -240,6 +250,7 @@ def _config_payload(
         },
         "accountants": list(current.accountants) if viewer.admin else None,
         "sales_accounts": ledger_settings.to_json(current)["sales"],
+        "allocation_accounts": ledger_settings.to_json(current)["allocation"],
         "years": year_list,
         "today": today.isoformat(),
         "doc_types": [
@@ -325,6 +336,24 @@ async def set_sales_accounts(
     _require_admin(current_user)
     try:
         current = await ledger_settings.set_sales_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.put("/config/allocation")
+async def set_allocation_accounts(
+    body: AllocationAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_allocation_accounts(
             db, body.model_dump(), actor=current_user
         )
     except LedgerError as exc:

@@ -52,6 +52,7 @@
   "POST /api/accounting/sources/sync": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/years": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/accountants": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/accounting/config/allocation": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/modules": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/sales": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }

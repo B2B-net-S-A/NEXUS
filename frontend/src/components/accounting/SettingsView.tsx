@@ -14,8 +14,10 @@ import {
   useReopenPeriod,
   useSetAccountants,
   useSetModule,
+  useSetAllocationAccounts,
   useSetSalesAccounts,
   useSetYearMode,
+  type AllocationAccounts,
   type LedgerPeriod,
   type LedgerYear,
   type SalesAccounts,
@@ -75,6 +77,7 @@ export function SettingsView() {
       <div className="space-y-3.5">
         <Accountants />
         <SalesAccountsCard />
+        <AllocationAccountsCard />
       </div>
 
       <div className="xl:col-span-2">
@@ -164,31 +167,79 @@ function Accountants() {
   );
 }
 
-const SALES_FIELDS: { key: keyof SalesAccounts; label: string; hint: string }[] = [
+interface AccountField<T> {
+  key: keyof T & string;
+  label: string;
+  hint: string;
+  placeholder: string;
+}
+
+const SALES_FIELDS: AccountField<SalesAccounts>[] = [
   {
     key: "receivable_account",
     label: "Rozrachunki z odbiorcami",
     hint: "konto ze słownikiem kontrahentów; analityka = ID Symfonii, gdy kontrahent nie ma konta w kartotece",
+    placeholder: "np. 200",
   },
-  { key: "revenue_account", label: "Przychody ze sprzedaży", hint: "konto przychodów z faktur do klientów" },
-  { key: "vat_account", label: "VAT należny", hint: "VAT z faktur sprzedaży" },
+  { key: "revenue_account", label: "Przychody ze sprzedaży", hint: "konto przychodów z faktur do klientów", placeholder: "np. 701" },
+  { key: "vat_account", label: "VAT należny", hint: "VAT z faktur sprzedaży", placeholder: "np. 222" },
 ];
 const NO_SALES_ACCOUNTS: SalesAccounts = { receivable_account: "", revenue_account: "", vat_account: "" };
 
-function SalesAccountsCard() {
+const ALLOCATION_FIELDS: AccountField<AllocationAccounts>[] = [
+  { key: "client_account", label: "Koszty klientów", hint: "MPK = klient z kontraktu albo wniosku", placeholder: "np. 501" },
+  { key: "front_office_account", label: "Front office", hint: "faktury osób zespołu i wnioski pionu", placeholder: "np. 502" },
+  { key: "back_office_account", label: "Back office", hint: "faktury osób zespołu i wnioski pionu", placeholder: "np. 503" },
+  { key: "overhead_account", label: "Koszty ogólne", hint: "bez klienta i pionu — biuro do czasu klucza podziału", placeholder: "np. 550" },
+  {
+    key: "team_account",
+    label: "Koszty zespołu",
+    hint: "faktury osób zespołu, wszystkie piony na jednym koncie — pion tylko w MPK (kwoty osób)",
+    placeholder: "np. 504",
+  },
+  { key: "settlement_account", label: "Rozliczenie kosztów", hint: "konto przeciwstawne (Ma)", placeholder: "np. 490" },
+];
+const NO_ALLOCATION_ACCOUNTS: AllocationAccounts = {
+  settlement_account: "",
+  client_account: "",
+  front_office_account: "",
+  back_office_account: "",
+  overhead_account: "",
+  team_account: "",
+};
+
+interface AccountsSave<T> {
+  isPending: boolean;
+  mutate: (values: T, options: { onSuccess: () => void; onError: (error: unknown) => void }) => void;
+}
+
+function AccountsCard<T extends object>({
+  title,
+  aside,
+  fields,
+  saved,
+  save,
+  savedMessage,
+}: {
+  title: string;
+  aside: string;
+  fields: AccountField<T>[];
+  saved: T;
+  save: AccountsSave<T>;
+  savedMessage: string;
+}) {
   const { config } = useAccounting();
   const { showToast } = useToast();
-  const save = useSetSalesAccounts();
-  const saved = config.sales_accounts ?? NO_SALES_ACCOUNTS;
-  const [values, setValues] = useState<SalesAccounts>(saved);
-  useEffect(() => setValues(config.sales_accounts ?? NO_SALES_ACCOUNTS), [config.sales_accounts]);
-  const dirty = SALES_FIELDS.some((field) => values[field.key].trim() !== saved[field.key]);
-  const complete = SALES_FIELDS.every((field) => values[field.key].trim());
+  const read = (values: T, key: keyof T & string) => String(values[key] ?? "");
+  const [values, setValues] = useState<T>(saved);
+  useEffect(() => setValues(saved), [saved]);
+  const dirty = fields.some((field) => read(values, field.key).trim() !== read(saved, field.key));
+  const complete = fields.every((field) => read(values, field.key).trim());
 
   return (
-    <SectionCard title="Konta faktur sprzedaży" aside={config.me.admin ? "dekret FVS ze źródeł" : "zmienia administrator"}>
+    <SectionCard title={title} aside={config.me.admin ? aside : "zmienia administrator"}>
       <div className="space-y-2.5 px-3.5 py-3">
-        {SALES_FIELDS.map((field) => (
+        {fields.map((field) => (
           <label key={field.key} className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-x-3 gap-y-0.5 text-[13px]">
             <span className="min-w-0">
               <span className="block font-medium">{field.label}</span>
@@ -197,9 +248,9 @@ function SalesAccountsCard() {
             <input
               aria-label={field.label}
               className={cn(CONTROL, "w-full tabular-nums")}
-              value={values[field.key]}
+              value={read(values, field.key)}
               disabled={!config.me.admin}
-              placeholder="np. 701"
+              placeholder={field.placeholder}
               onChange={(e) => setValues((current) => ({ ...current, [field.key]: e.target.value }))}
             />
           </label>
@@ -213,13 +264,9 @@ function SalesAccountsCard() {
               loading={save.isPending}
               onClick={() =>
                 save.mutate(
+                  Object.fromEntries(fields.map((field) => [field.key, read(values, field.key).trim()])) as T,
                   {
-                    receivable_account: values.receivable_account.trim(),
-                    revenue_account: values.revenue_account.trim(),
-                    vat_account: values.vat_account.trim(),
-                  },
-                  {
-                    onSuccess: () => showToast("Zapisano konta faktur sprzedaży."),
+                    onSuccess: () => showToast(savedMessage),
                     onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać kont."), "error"),
                   },
                 )
@@ -233,6 +280,37 @@ function SalesAccountsCard() {
     </SectionCard>
   );
 }
+
+function SalesAccountsCard() {
+  const { config } = useAccounting();
+  const save = useSetSalesAccounts();
+  return (
+    <AccountsCard
+      title="Konta faktur sprzedaży"
+      aside="dekret FVS ze źródeł"
+      fields={SALES_FIELDS}
+      saved={config.sales_accounts ?? NO_SALES_ACCOUNTS}
+      save={save}
+      savedMessage="Zapisano konta faktur sprzedaży."
+    />
+  );
+}
+
+function AllocationAccountsCard() {
+  const { config } = useAccounting();
+  const save = useSetAllocationAccounts();
+  return (
+    <AccountsCard
+      title="Konta rozliczenia kosztów na „5”"
+      aside="PK z MPK co miesiąc"
+      fields={ALLOCATION_FIELDS}
+      saved={config.allocation_accounts ?? NO_ALLOCATION_ACCOUNTS}
+      save={save}
+      savedMessage="Zapisano konta rozliczenia kosztów."
+    />
+  );
+}
+
 
 function Years() {
   const { config, period } = useAccounting();

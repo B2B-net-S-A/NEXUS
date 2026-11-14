@@ -15,20 +15,23 @@ import {
   type SyncResult,
 } from "@/lib/api/accounting";
 import { apiErrorMessage } from "@/lib/api-error";
-import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
-import { findPeriod, monthTitle } from "./ledger-model";
+import { findPeriod, gr, monthTitle } from "./ledger-model";
 
-const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS"> = { costs: "FVZ", sales: "FVS" };
+const DOC_TYPE: Record<SourceKind, "FVZ" | "FVS" | "PK"> = { costs: "FVZ", sales: "FVS", allocation: "PK" };
 const ORIGIN: Record<SourceKind, string> = {
   costs:
     "Finanse → Koszty: faktury „Gotowe do księgowania” i „Zaksięgowane” z dekretem E2. Okres = miesiąc wpływu, jak w paczce do Symfonii.",
   sales:
     "KSeF: faktury wystawione w eBI24 i w NEXUSIE. Okres = miesiąc sprzedaży, korekta — miesiąc wystawienia; waluta po kursie NBP.",
+  allocation:
+    "Koszty z zatwierdzonych FVZ miesiąca na konta „5”: faktura kontraktora → klient kontraktu, osoba zespołu → pion z kartoteki, reszta → koszty ogólne (do czasu klucza podziału biura). Jedno PK na miesiąc, Ma rozliczenie kosztów; faktury osób zespołu w osobnym PK płacowym, na jednym koncie zespołu. Storno FVZ odejmuje koszt w miesiącu storna.",
 };
 const PROBLEMS_SHOWN = 8;
+const DETAILS_SHOWN = 10;
 
 /** Komunikat po „Zaksięguj miesiąc” — co się stało w buforze. */
 export function syncMessage(result: SyncResult): string {
@@ -84,6 +87,7 @@ export function SourcesView() {
             open={data.period_open}
             title={title}
             salesAccounts={item.kind === "sales" ? data.sales_accounts : null}
+            className={item.kind === "allocation" ? "xl:col-span-2" : undefined}
           />
         ))}
       </div>
@@ -96,16 +100,22 @@ function SourceCard({
   open,
   title,
   salesAccounts,
+  className,
 }: {
   item: SourceSummary;
   open: boolean;
   title: string;
   salesAccounts: SalesAccounts | null;
+  className?: string;
 }) {
   const { config, period } = useAccounting();
   const { showToast } = useToast();
   const sync = useSyncSources();
   const [all, setAll] = useState(false);
+  const [allDetails, setAllDetails] = useState(false);
+  const allocation = item.kind === "allocation";
+  const details = item.details ?? [];
+  const shownDetails = allDetails ? details : details.slice(0, DETAILS_SHOWN);
   const pending = item.to_post + item.changed;
   const shown = all ? item.problems : item.problems.slice(0, PROBLEMS_SHOWN);
   const query = `?year=${period.year}&month=${period.month}&type=${DOC_TYPE[item.kind]}`;
@@ -120,12 +130,18 @@ function SourceCard({
     );
 
   return (
-    <SectionCard title={item.label} aside={title}>
+    <SectionCard title={item.label} aside={title} className={className}>
       <div className="space-y-3 px-3.5 py-3">
         <p className="text-[12px] leading-5 text-muted-foreground">{ORIGIN[item.kind]}</p>
         <InlineStats
           stats={[
-            { id: "total", label: "Faktur w miesiącu", value: item.total },
+            allocation
+              ? {
+                  id: "pending",
+                  label: "FVZ w buforze (wejdą po zatwierdzeniu)",
+                  value: item.pending_costs ?? 0,
+                }
+              : { id: "total", label: "Faktur w miesiącu", value: item.total },
             {
               id: "ledger",
               label: "W księdze: bufor · zatwierdzone",
@@ -171,7 +187,7 @@ function SourceCard({
             loading={sync.isPending}
             onClick={run}
           >
-            Zaksięguj miesiąc
+            {allocation ? "Rozlicz miesiąc" : "Zaksięguj miesiąc"}
           </Button>
           <Button size="sm" variant="outline" asChild>
             <Link href={`/accounting/documents${query}`}>Dokumenty {DOC_TYPE[item.kind]}</Link>
@@ -182,6 +198,38 @@ function SourceCard({
           w dzienniku wraca tu jako problem do storna.
         </p>
       </div>
+      {details.length ? (
+        <>
+          <table className="w-full table-fixed border-t border-border/70 text-sm">
+            <thead>
+              <tr className="border-b border-border/70">
+                <th className={cn(CALM_HEAD, "w-[16%] px-3.5 py-2 text-left")}>MPK</th>
+                <th className={cn(CALM_HEAD, "px-3.5 py-2 text-left")}>Nazwa</th>
+                <th className={cn(CALM_HEAD, "w-[22%] px-3.5 py-2 text-right")}>Koszty, zł</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shownDetails.map((detail) => (
+                <tr key={`${detail.code}-${detail.payroll}`} className={cn(CALM_ROW, "last:border-0")}>
+                  <td className="px-3.5 py-2 font-mono text-[12px]">{detail.code}</td>
+                  <td className="min-w-0 truncate px-3.5 py-2" title={detail.label}>
+                    {detail.label}
+                    {detail.payroll ? <span className={CALM_SUBLINE}>faktury osób zespołu</span> : null}
+                  </td>
+                  <td className={cn(CALM_AMOUNT, "px-3.5 py-2")}>{gr(detail.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {details.length > DETAILS_SHOWN ? (
+            <div className="flex justify-end border-t border-border/70 px-3.5 py-2 text-[12px]">
+              <button type="button" className="text-primary hover:underline" onClick={() => setAllDetails((value) => !value)}>
+                {allDetails ? "Pokaż mniej" : `Pokaż wszystkie MPK (${details.length})`}
+              </button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
       {item.problems.length ? (
         <>
           <table className="w-full table-fixed border-t border-border/70 text-sm">
@@ -226,9 +274,11 @@ function SourceCard({
             </div>
           ) : null}
         </>
-      ) : item.total === 0 ? (
+      ) : item.total === 0 || (allocation && !details.length) ? (
         <p className="border-t border-border/70 px-3.5 py-3 text-[13px] text-muted-foreground">
-          W tym miesiącu nie ma faktur z tego źródła.
+          {allocation
+            ? "Nie ma jeszcze zatwierdzonych kosztów do rozliczenia w tym miesiącu."
+            : "W tym miesiącu nie ma faktur z tego źródła."}
         </p>
       ) : null}
     </SectionCard>

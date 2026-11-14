@@ -111,6 +111,7 @@ const CONFIG: LedgerConfig = {
   me: { admin: false, approver: true, payroll: false },
   accountants: null,
   sales_accounts: { receivable_account: "200", revenue_account: "", vat_account: "222" },
+  allocation_accounts: { settlement_account: "490", client_account: "501-1", front_office_account: "502", back_office_account: "503", overhead_account: "550", team_account: "504" },
   years: [
     {
       id: 1,

@@ -45,6 +45,7 @@ function config(overrides: Partial<LedgerConfig> = {}): LedgerConfig {
     me: { admin: false, approver: true, payroll: true },
     accountants: null,
     sales_accounts: { receivable_account: "200", revenue_account: "701-10-1", vat_account: "222" },
+    allocation_accounts: { settlement_account: "490", client_account: "501-1", front_office_account: "502", back_office_account: "503", overhead_account: "550", team_account: "504" },
     years: [
       {
         id: 1,
@@ -178,6 +179,24 @@ function sourcesMonth(overrides: Partial<SourcesMonth> = {}): SourcesMonth {
         problems: [],
         problems_total: 0,
         payroll_hidden: false,
+      },
+      {
+        kind: "allocation",
+        label: "Rozliczenie kosztów na „5” (MPK)",
+        total: 1,
+        draft: 0,
+        approved: 0,
+        to_post: 1,
+        changed: 0,
+        skipped: 0,
+        problems: [],
+        problems_total: 0,
+        payroll_hidden: false,
+        pending_costs: 2,
+        details: [
+          { code: "K7", label: "Klient Testowy", amount: 1_200_000, payroll: false },
+          { code: "OG", label: "Koszty ogólne", amount: 50_000, payroll: false },
+        ],
       },
     ],
     ...overrides,
@@ -377,7 +396,7 @@ describe("Księgowość — źródła (K2)", () => {
     const user = userEvent.setup();
     const { unmount } = renderWith(<SettingsView />);
     const revenue = await screen.findByLabelText("Przychody ze sprzedaży");
-    const save = screen.getByRole("button", { name: "Zapisz konta" });
+    const save = within(revenue.closest("section")!).getByRole("button", { name: "Zapisz konta" });
     expect(save).toBeDisabled();
     await user.clear(revenue);
     await user.type(revenue, "701-4-1");
@@ -394,5 +413,52 @@ describe("Księgowość — źródła (K2)", () => {
     renderWith(<SettingsView />);
     expect(await screen.findByLabelText("VAT należny")).toBeDisabled();
     expect(screen.queryByRole("button", { name: "Zapisz konta" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Księgowość — rozliczenie kosztów na „5”", () => {
+  it("pokazuje podział po MPK i rozlicza miesiąc", async () => {
+    pathname = "/accounting/sources";
+    route(config());
+    post.mockResolvedValue({
+      data: { kind: "allocation", created: 1, rebuilt: 0, deleted: 0, unchanged: 0, skipped: 0, problems: [], problems_total: 0 },
+    });
+    const user = userEvent.setup();
+    renderWith(<SourcesView />);
+    const card = (await screen.findByText("Rozliczenie kosztów na „5” (MPK)")).closest("section")!;
+    expect(within(card).getByText("Klient Testowy")).toBeInTheDocument();
+    expect(within(card).getByText("12 000,00")).toBeInTheDocument();
+    expect(within(card).getByText("FVZ w buforze (wejdą po zatwierdzeniu)")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Rozlicz miesiąc" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/sources/sync", { kind: "allocation", year: 2026, month: 10 }),
+    );
+    expect(within(card).getByRole("link", { name: "Dokumenty PK" })).toHaveAttribute(
+      "href",
+      "/accounting/documents?year=2026&month=10&type=PK",
+    );
+  });
+
+  it("konta rozliczenia zapisuje administrator", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: true, approver: true, payroll: true }, accountants: [] }));
+    put.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const overhead = await screen.findByLabelText("Koszty ogólne");
+    await user.clear(overhead);
+    await user.type(overhead, "551");
+    const card = overhead.closest("section")!;
+    await user.click(within(card).getByRole("button", { name: "Zapisz konta" }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/accounting/config/allocation", {
+        client_account: "501-1",
+        front_office_account: "502",
+        back_office_account: "503",
+        overhead_account: "551",
+        team_account: "504",
+        settlement_account: "490",
+      }),
+    );
   });
 });
