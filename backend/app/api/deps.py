@@ -11,6 +11,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import client_ip_key
+from app.core.session_cookie import enforce_cookie_csrf, session_cookie_token
 from app.core.security import (
     decode_token,
     token_authorization_version_matches,
@@ -311,11 +312,21 @@ async def get_authenticated_user(
     # Brak / pusty nagłówek Authorization to ten sam stan co token nie do
     # zweryfikowania: sesji nie ma. Zwracamy 401 (nie 403), żeby frontend
     # jednoznacznie wylogował — patrz komentarz przy ``security`` wyżej.
-    if credentials is None or not credentials.credentials:
-        raise credentials_exception
+    # Bearer ma pierwszeństwo (dodatek Outlooka, e2e, skrypty, Jarvis); bez
+    # nagłówka — ciasteczko HttpOnly sesji przeglądarki, a przy nim CSRF
+    # (``core/session_cookie``). Odrzucenie CSRF idzie PRZED dekodowaniem,
+    # żeby obca strona nie dostała nawet sygnału „sesja żyje / nie żyje”.
+    if credentials is not None and credentials.credentials:
+        raw_token = credentials.credentials
+    else:
+        raw_token = session_cookie_token(request)
+        if not raw_token:
+            raise credentials_exception
+        enforce_cookie_csrf(request)
+        request.state.session_via_cookie = True
 
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(raw_token)
     except JWTError:
         raise credentials_exception
 

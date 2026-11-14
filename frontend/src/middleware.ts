@@ -8,6 +8,7 @@ import {
   requestHost,
   resolveCareerRoute,
 } from "@/lib/career/host";
+import { buildReportOnlyCsp, createNonce, NONCE_HEADER } from "@/lib/csp";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
 import { normalizeRoles } from "@/lib/role-normalize";
 import {
@@ -650,18 +651,18 @@ function isPublicPath(pathname: string): boolean {
  * aplikacji) dostaje terminalowe 404 kariery — granica jest domyślnie zamknięta,
  * więc nowa trasa NEXUSA nie wycieknie na domenę publiczną.
  */
-function careerHostResponse(request: NextRequest): NextResponse {
+function careerHostResponse(request: NextRequest, forward: Forward): NextResponse {
   const route = resolveCareerRoute(request.nextUrl.pathname);
-  if (route.kind === "pass") return NextResponse.next();
+  if (route.kind === "pass") return NextResponse.next(forward);
   const url = request.nextUrl.clone();
   if (route.kind === "rewrite") {
     url.pathname = route.path;
-    return NextResponse.rewrite(url);
+    return NextResponse.rewrite(url, forward);
   }
   url.pathname = CAREER_NOT_FOUND_PATH;
   url.search = "";
   // Trasa-łapacz pod /kariera wywołuje notFound() → status 404 + terminalowe 404.
-  return NextResponse.rewrite(url);
+  return NextResponse.rewrite(url, forward);
 }
 
 function resolveAccessRule(pathname: string): RouteAccessRule | undefined {
@@ -703,7 +704,31 @@ function hasSignedSectionAccess(
 const LEGACY_APP_HOST = "nexus.dynaminds.pl";
 const APP_ORIGIN = "https://nexus.b2bnetwork.pl";
 
+/** Nagłówki żądania przekazywane do renderu (nonce CSP). */
+type Forward = { request: { headers: Headers } };
+
+/**
+ * CSP Report-Only z nonce per żądanie (`src/lib/csp.ts`). Next 15 czyta
+ * nonce z nagłówka żądania `content-security-policy-report-only` i dokleja
+ * go do swoich skryptów; layout bierze go z `x-nonce` dla bootstrapu motywu.
+ * Przekierowania nie renderują dokumentu, ale nagłówek i tak nie szkodzi.
+ */
 export function middleware(request: NextRequest) {
+  const nonce = createNonce();
+  const policy = buildReportOnlyCsp(nonce, {
+    NODE_ENV: process.env.NODE_ENV,
+    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  });
+  const headers = new Headers(request.headers);
+  headers.set(NONCE_HEADER, nonce);
+  headers.set("content-security-policy-report-only", policy);
+  const response = routeRequest(request, { request: { headers } });
+  response.headers.set("Content-Security-Policy-Report-Only", policy);
+  return response;
+}
+
+function routeRequest(request: NextRequest, forward: Forward): NextResponse {
   const { pathname } = request.nextUrl;
   const host = requestHost(request.headers);
 
@@ -716,7 +741,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (isCareerHost(host)) {
-    return careerHostResponse(request);
+    return careerHostResponse(request, forward);
   }
 
   // Stare linki `nexus…/kariera/r/<slug>` → domena kariery, gdy jest włączona.
@@ -731,7 +756,7 @@ export function middleware(request: NextRequest) {
   }
 
   if (isPublicPath(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next(forward);
   }
 
   const token = request.cookies.get(COOKIE_NAME)?.value;
@@ -825,7 +850,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(profileUrl);
   }
 
-  return NextResponse.next();
+  return NextResponse.next(forward);
 }
 
 export const config = {
