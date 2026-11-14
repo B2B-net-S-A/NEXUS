@@ -17,10 +17,12 @@ import {
   useSetModule,
   useOpeningImport,
   useSetAllocationAccounts,
+  useSetPayrollAccounts,
   useSetSalesAccounts,
   useSetYearMode,
   type AllocationAccounts,
   type OpeningPreview,
+  type PayrollAccounts,
   type LedgerPeriod,
   type LedgerYear,
   type SalesAccounts,
@@ -81,6 +83,7 @@ export function SettingsView() {
         <Accountants />
         <SalesAccountsCard />
         <AllocationAccountsCard />
+        <PayrollAccountsCard />
       </div>
 
       <div className="xl:col-span-2">
@@ -181,6 +184,8 @@ interface AccountField<T> {
   label: string;
   hint: string;
   placeholder: string;
+  /** Może zostać puste (np. PPK, gdy firma go nie ma). */
+  optional?: boolean;
 }
 
 const SALES_FIELDS: AccountField<SalesAccounts>[] = [
@@ -243,7 +248,7 @@ function AccountsCard<T extends object>({
   const [values, setValues] = useState<T>(saved);
   useEffect(() => setValues(saved), [saved]);
   const dirty = fields.some((field) => read(values, field.key).trim() !== read(saved, field.key));
-  const complete = fields.every((field) => read(values, field.key).trim());
+  const complete = fields.every((field) => field.optional || read(values, field.key).trim());
 
   return (
     <SectionCard title={title} aside={config.me.admin ? aside : "zmienia administrator"}>
@@ -287,6 +292,41 @@ function AccountsCard<T extends object>({
         ) : null}
       </div>
     </SectionCard>
+  );
+}
+
+const PAYROLL_FIELDS: AccountField<PayrollAccounts>[] = [
+  { key: "wages_account", label: "Wynagrodzenia", hint: "koszt: brutto z listy płac, MPK z wydziału", placeholder: "np. 404" },
+  { key: "insurance_account", label: "Składki pracodawcy", hint: "koszt: ZUS, FP, FS, FGŚP i PPK pracodawcy", placeholder: "np. 405" },
+  { key: "settlement_account", label: "Rozrachunki z tytułu wynagrodzeń", hint: "brutto, potrącenia; zostaje netto do wypłaty", placeholder: "np. 231" },
+  { key: "zus_account", label: "Rozrachunki z ZUS", hint: "składki pracownika, zdrowotna i pracodawcy", placeholder: "np. 229" },
+  { key: "pit_account", label: "Rozrachunki z US (PIT-4)", hint: "zaliczki na podatek od wynagrodzeń", placeholder: "np. 225" },
+  { key: "ppk_account", label: "Rozrachunki PPK", hint: "puste, gdy listy nie mają PPK", placeholder: "np. 234-1", optional: true },
+  { key: "deductions_account", label: "Inne potrącenia", hint: "puste, gdy listy ich nie mają", placeholder: "np. 234-2", optional: true },
+];
+
+const NO_PAYROLL_ACCOUNTS: PayrollAccounts = {
+  wages_account: "",
+  insurance_account: "",
+  settlement_account: "",
+  zus_account: "",
+  pit_account: "",
+  ppk_account: "",
+  deductions_account: "",
+};
+
+function PayrollAccountsCard() {
+  const { config } = useAccounting();
+  const save = useSetPayrollAccounts();
+  return (
+    <AccountsCard
+      title="Konta listy płac z Enovy"
+      aside="dokument LP z pliku listy"
+      fields={PAYROLL_FIELDS}
+      saved={config.payroll_accounts ?? NO_PAYROLL_ACCOUNTS}
+      save={save}
+      savedMessage="Zapisano konta listy płac."
+    />
   );
 }
 

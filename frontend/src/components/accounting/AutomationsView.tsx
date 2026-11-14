@@ -7,6 +7,8 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
+  usePayrollListImport,
+  type PayrollListPreview,
   useAutomations,
   useRemoveAutomation,
   useSaveAutomation,
@@ -84,6 +86,7 @@ export function AutomationsView() {
       </p>
       <RecurringCard items={data.data.recurring} />
       <PrepaymentsCard items={data.data.prepayments} />
+      {config.me.payroll ? <PayrollListCard /> : null}
     </div>
   );
 }
@@ -468,3 +471,169 @@ function PrepaymentForm({ onDone }: { onDone: () => void }) {
     </div>
   );
 }
+
+const TOTAL_LABELS: [keyof PayrollListPreview["totals"], string][] = [
+  ["gross", "Brutto"],
+  ["employee", "Potrącenia (składki, zdrowotna, PIT, PPK, inne)"],
+  ["net", "Netto do wypłaty"],
+  ["employer", "Koszt pracodawcy (składki, FP, FS, FGŚP, PPK)"],
+  ["zus", "Do ZUS"],
+  ["pit", "Zaliczki PIT"],
+  ["ppk", "PPK"],
+];
+
+/** Lista płac z Enovy → LP w buforze (K3c). Widzą ją tylko Płace i admin (D2). */
+function PayrollListCard() {
+  const { period } = useAccounting();
+  const { showToast } = useToast();
+  const run = usePayrollListImport();
+  const [file, setFile] = useState<File | null>(null);
+  const [list, setList] = useState("");
+  const [paymentDate, setPaymentDate] = useState("");
+  const [result, setResult] = useState<PayrollListPreview | null>(null);
+  const [saving, setSaving] = useState(false);
+  const month = `${String(period.month).padStart(2, "0")}.${period.year}`;
+
+  const reset = () => setResult(null);
+  const send = (save: boolean) => {
+    if (!file || !list.trim()) return;
+    setSaving(save);
+    run.mutate(
+      { file, year: period.year, month: period.month, list: list.trim(), paymentDate: paymentDate || null, save },
+      {
+        onSuccess: (data) => {
+          setResult(data);
+          if (data.saved && data.document) showToast(`Zapisano ${data.document.number} w buforze.`);
+        },
+        onError: (error) => showToast(apiErrorMessage(error, "Nie udało się wczytać listy płac."), "error"),
+      },
+    );
+  };
+  const blocked = !result || result.saved || result.problems.length > 0 || result.errors_total > 0;
+
+  return (
+    <SectionCard title="Lista płac z Enovy" aside={`dokument LP za ${month} — tylko Płace`}>
+      <div className="space-y-3 px-3.5 py-3 text-[13px]">
+        <p className="text-muted-foreground">
+          Plik listy z Enovy (XLSX albo CSV, wiersz na osobę): „Brutto”, składki pracownika, „Zdrowotne”, „Zaliczka
+          podatku”, PPK, „Do wypłaty” i składki pracodawcy. Kolumna „Wydział” daje MPK kosztów. Najpierw sprawdzenie,
+          potem zapis — ponowny import tej samej listy przebudowuje szkic.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            aria-label="Nazwa listy"
+            className={cn(CONTROL, "w-[160px]")}
+            placeholder="np. LP 10/2026"
+            value={list}
+            maxLength={40}
+            onChange={(e) => {
+              setList(e.target.value);
+              reset();
+            }}
+          />
+          <input
+            type="date"
+            aria-label="Dzień wypłaty"
+            title="Dzień wypłaty (data dokumentu); puste = ostatni dzień miesiąca"
+            className={CONTROL}
+            value={paymentDate}
+            onChange={(e) => {
+              setPaymentDate(e.target.value);
+              reset();
+            }}
+          />
+          <input
+            type="file"
+            accept=".xlsx,.csv"
+            aria-label="Plik listy płac"
+            className="max-w-[240px] text-[12px]"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              reset();
+            }}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!file || !list.trim()}
+            loading={run.isPending && !saving}
+            onClick={() => send(false)}
+          >
+            Sprawdź plik
+          </Button>
+          <Button size="sm" disabled={blocked} loading={run.isPending && saving} onClick={() => send(true)}>
+            Zapisz LP do bufora
+          </Button>
+        </div>
+        {result ? <PayrollListSummary result={result} /> : null}
+      </div>
+    </SectionCard>
+  );
+}
+
+function PayrollListSummary({ result }: { result: PayrollListPreview }) {
+  const messages = [
+    ...result.problems.map((text) => ({ key: `p-${text}`, text, tone: "bg-destructive" })),
+    ...result.errors.map((item) => ({ key: `e-${item.line}`, text: `Wiersz ${item.line}: ${item.message}`, tone: "bg-destructive" })),
+    ...result.warnings.map((item) => ({ key: `w-${item.line}`, text: `Wiersz ${item.line}: ${item.message}`, tone: "bg-warning" })),
+  ];
+  return (
+    <div className="space-y-2.5">
+      <p className="tabular-nums">
+        Osób na liście: {result.rows}
+        {result.skipped ? ` · pominięte wiersze (sumy, puste): ${result.skipped}` : ""}
+        {result.saved && result.document ? ` · zapisano ${result.document.number}` : ""}
+      </p>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-0.5 tabular-nums">
+        {TOTAL_LABELS.map(([key, label]) => (
+          <div key={key} className="contents">
+            <dt className="text-muted-foreground">{label}</dt>
+            <dd className="text-right">{gr(result.totals[key])}</dd>
+          </div>
+        ))}
+      </dl>
+      {messages.length ? (
+        <ul className="space-y-1">
+          {messages.map((message) => (
+            <li key={message.key} className="flex items-start gap-1.5">
+              <span aria-hidden className={cn("mt-[7px] size-1.5 shrink-0 rounded-full", message.tone)} />
+              <span className="min-w-0 break-words">{message.text}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {result.lines.length ? (
+        <table className="w-full table-fixed text-sm">
+          <thead>
+            <tr className="border-b border-border/70">
+              <th className={cn(CALM_HEAD, "w-[10%] py-1.5 text-left")}>Strona</th>
+              <th className={cn(CALM_HEAD, "w-[18%] py-1.5 text-left")}>Konto</th>
+              <th className={cn(CALM_HEAD, "py-1.5 text-left")}>Opis</th>
+              <th className={cn(CALM_HEAD, "w-[12%] py-1.5 text-left")}>MPK</th>
+              <th className={cn(CALM_HEAD, "w-[18%] py-1.5 text-right")}>Kwota, zł</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.lines.map((line, index) => (
+              <tr key={`${line.side}-${line.account}-${line.mpk ?? ""}-${index}`} className={cn(CALM_ROW, "last:border-0")}>
+                <td className="py-1.5">{line.side === "debit" ? "Wn" : "Ma"}</td>
+                <td className="py-1.5 font-mono text-[12px]">{line.account}</td>
+                <td className="min-w-0 truncate py-1.5" title={line.description}>
+                  {line.description}
+                </td>
+                <td className="py-1.5 font-mono text-[12px]">{line.mpk ?? "—"}</td>
+                <td className={cn(CALM_AMOUNT, "py-1.5")}>{gr(line.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {result.columns.length ? (
+        <p className={CALM_SUBLINE}>
+          Rozpoznane kolumny: {result.columns.map((column) => `${column.header} → ${column.label}`).join(" · ")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+

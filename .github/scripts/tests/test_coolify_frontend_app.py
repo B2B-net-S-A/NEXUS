@@ -580,7 +580,23 @@ class VerifyPublicTests(unittest.TestCase):
             frontend_app.verify_public(preflight_api(fqdn="https://app.example.pl"), "", get=get)
             frontend_app.verify_public(preflight_api(fqdn=""), "", get=get)
         self.assertTrue(all(u.startswith("https://app.example.pl/") for u, _ in seen))
-        self.assertEqual(len(seen), 3)
+        self.assertEqual(len([u for u, _ in seen if u.endswith("/version.json")]), 1)
+
+    def test_legacy_domain_redirecting_to_the_app_is_not_probed(self):
+        # 14.11.2026: fqdn zaczyna się od starej domeny, której middleware daje 307
+        # na nową — Deploy był czerwony („/login: HTTP 307”), choć front działał.
+        app, legacy = "https://app.example.pl", "https://old.example.pl"
+        healthy, seen = user_path()
+
+        def get(url, host=None):
+            if url.startswith(legacy):
+                seen.append((url, host))
+                return 307, {"location": app + url[len(legacy):]}, b""
+            return healthy(url, host)
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            frontend_app.verify_public(preflight_api(fqdn=legacy + "," + app), SHA, get=get, sleep=lambda _s: None)
+        self.assertTrue(any(u == app + "/version.json" for u, _ in seen))
 
 
 class DeployTargetTests(unittest.TestCase):

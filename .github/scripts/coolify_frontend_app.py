@@ -475,6 +475,24 @@ def first_https_domain(domains: str) -> str:
     raise ValueError("front nie ma domeny https — nie ma czego obserwować")
 
 
+def public_domain(get: paths.Fetch, domains: str) -> str:
+    """Domena https, którą widzi użytkownik: pomija aliasy przekierowujące na inną domenę frontu.
+
+    Stara domena (`LEGACY_APP_HOST` w middleware) odpowiada 307 na nową, więc
+    `/login` na niej nigdy nie da 200 — sprawdzanie jej robiło Deploy czerwonym
+    przy działającym froncie (14.11.2026).
+    """
+    https = [d.strip().rstrip("/") for d in str(domains).split(",") if d.strip().startswith("https://")]
+    for domain in https:
+        status, headers, _ = get(domain + "/login", None)
+        location = headers.get("location") or ""
+        others = [d for d in https if d != domain]
+        if status in (301, 302, 303, 307, 308) and any(location.startswith(d + "/") for d in others):
+            continue
+        return domain
+    return first_https_domain(domains)
+
+
 def retreat(request: Request, app_uuid: str) -> None:
     """Powrót po nieudanym przepięciu: stop nowego frontu i sam adres próbny.
 
@@ -576,11 +594,12 @@ def verify_public(
     if not domains:
         print("front bez domen — ścieżki użytkownika nie sprawdzam")
         return
-    failures = paths.check_paths(get, first_https_domain(domains), None, commit)
+    public = public_domain(get, domains)
+    failures = paths.check_paths(get, public, None, commit)
     if failures:
         # Druga próba: pojedyncza usterka tuż po rolling update bywa przejściowa.
         sleep(PROBE_EVERY)
-        failures = paths.check_paths(get, first_https_domain(domains), None, commit)
+        failures = paths.check_paths(get, public, None, commit)
     paths.report("domena publiczna, po wdrożeniu", failures)
     if failures:
         raise ValueError(
