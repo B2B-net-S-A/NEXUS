@@ -2048,6 +2048,8 @@ async def test_bank_team_payouts_are_recognized_like_e3(client, world, books):
                 [
                     ("0310", "D", "8000,00", f"FV/77/02 {ksef}", STRANGER_ACCOUNT, f"K{marker}"),
                     ("0311", "C", "5432,10", "Zwrot przelewu Wynagrodzenie 02", TEAM_ACCOUNT_2, f"R{marker}"),
+                    # Bank odsyła wypłatę z zamkniętego rachunku: ten sam KSeF w tytule.
+                    ("0311", "C", "8000,00", f"ZWROT FV/77/02 {ksef}", STRANGER_ACCOUNT, f"Z{marker}"),
                     ("0312", "D", "12,50", "Opłata za przelew", "", f"F{marker}"),
                 ],
             ),
@@ -2061,6 +2063,7 @@ async def test_bank_team_payouts_are_recognized_like_e3(client, world, books):
             f"{ACC}/bank/statements/{data['id']}", headers=_headers(world["accountant"])
         )
         assert [(line["kind"], line["payroll"]) for line in full.json()["lines"]] == [
+            ("team", True),
             ("team", True),
             ("team", True),
             ("fee", False),

@@ -161,7 +161,11 @@ def parse(raw: bytes) -> ParsedStatement:
     for statement in statements:
         iban = _text(statement, "{*}Acct/{*}Id/{*}IBAN")
         try:
-            accounts.append(normalize_nrb(iban) if iban else "")
+            accounts.append(
+                normalize_nrb(iban)
+                if iban
+                else _text(statement, "{*}Acct/{*}Id/{*}Othr/{*}Id")
+            )
         except AccountError:
             accounts.append(iban)
         if iban and account is None:

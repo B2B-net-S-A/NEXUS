@@ -58,6 +58,7 @@ from app.services.finance_ledger import payments as cost_payments
 from app.services.finance_ledger.costs import LedgerError
 from app.services.hr.bank import statements as hr_statements
 from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
+from app.services.hr.bank.titles import ksef_numbers_in
 from app.services.ledger import documents, engine, sources
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
@@ -321,12 +322,18 @@ async def _classify(
         settings.sales.receivable_account,
     )
 
+    team_ksef = {number for item in candidates for number in item.ksef_numbers}
+
     def team_related(line: StatementLine, account: str) -> bool:
         # Tak jak E3: każdy wiersz R9 (też „unmatched” i „ignored”) albo decyzja
         # R9 „dotyczy zespołu” (numer KSeF lub faktury, rachunek osoby). Uznanie
-        # z rachunku osoby z zespołu (zwrot wypłaty) też jest płacowe (D2).
+        # z rachunku osoby z zespołu albo z numerem KSeF jej faktury (zwrot
+        # wypłaty, np. z zamkniętego rachunku) też jest płacowe (D2). Samego
+        # numeru faktury przy uznaniach nie bierzemy — łapałby wpłaty klientów.
         if line.direction == "credit":
-            return bool(account) and account in owners
+            return (bool(account) and account in owners) or bool(
+                team_ksef & set(ksef_numbers_in(line.title or ""))
+            )
         return (
             line.line_ref in team
             or hr_statements.decide(line, candidates, owners).related

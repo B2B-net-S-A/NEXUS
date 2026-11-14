@@ -43,7 +43,9 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   data i kwota w innym wyciągu — dzienny i miesięczny) → wypłata dla zespołu
   **tak jak w E3**: każdy wiersz R9 tego pliku (też „unmatched”/„ignored”)
   albo `hr_statements.decide(...).related` (numer KSeF lub faktury, rachunek
-  osoby); uznanie z rachunku osoby z zespołu (zwrot) też; UoP i zlecenie
+  osoby); uznanie z rachunku osoby z zespołu albo z numerem KSeF jej faktury
+  w tytule (zwrot, też z zamkniętego rachunku) też — samego numeru faktury
+  przy uznaniach nie bierzemy, bo łapałby wpłaty klientów; UoP i zlecenie
   dopasowane w R9 = rozrachunki z tytułu wynagrodzeń, reszta bez konta →
   faktura kosztowa dopasowana w E3 (konto dostawcy `cost_account` z kartoteki)
   → faktura sprzedaży dopasowana w E8 (konto odbiorcy jak FVS w K2) → reguły:

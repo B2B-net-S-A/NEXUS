@@ -143,3 +143,25 @@ def test_parser_lists_every_statement_account():
     parsed = mt940.parse(body.encode())
     assert parsed.accounts == (first, second)
     assert parsed.account == second and len(parsed.lines) == 2
+
+
+def test_camt_without_iban_counts_as_another_account():
+    from app.services.hr.bank import camt053
+
+    def stmt(account: str, ref: str) -> str:
+        return (
+            f"<Stmt><Acct><Id>{account}</Id><Ccy>PLN</Ccy></Acct>"
+            '<Ntry><Amt Ccy="PLN">1.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>'
+            f"<BookgDt><Dt>2026-11-20</Dt></BookgDt><AcctSvcrRef>{ref}</AcctSvcrRef></Ntry>"
+            "</Stmt>"
+        )
+
+    raw = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"><BkToCstmrStmt>'
+        + stmt("<IBAN>PL61109010140000071219812874</IBAN>", "A1")
+        + stmt("<Othr><Id>RACHUNEK-2</Id></Othr>", "A2")
+        + "</BkToCstmrStmt></Document>"
+    ).encode()
+    parsed = camt053.parse(raw)
+    assert parsed.accounts == ("61109010140000071219812874", "RACHUNEK-2")
