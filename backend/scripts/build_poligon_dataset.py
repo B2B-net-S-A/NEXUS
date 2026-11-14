@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import copy
 import json
 import re
 from datetime import datetime, timezone
@@ -111,6 +112,39 @@ CV_FICTION = {
     "added_via": "Import z ogłoszenia",
 }
 
+# „Moi ludzie” poligonu: osoby ćwiczebne spoza Tablicy (ostatnie z `PEOPLE`),
+# żeby ćwiczenie nie pokazywało prawdziwych ludzi z konta, które nagrywało.
+MY_PEOPLE_PATHS = {
+    "/api/my-people",
+    "/api/my-people/summary",
+    "/api/talent-pools",
+    "/api/me/career-link/people",
+}
+MY_PEOPLE_COUNT = 4
+
+# Hasło listy bez nazwy (np. słowniczek technologii) wypada z listy.
+NAMED_ITEM_KEYS = ("display_name", "term")
+
+# Teksty, których ekran wymaga (nie znosi `null`), a filtr prawdziwych nazw
+# je wyciął — np. pytanie screeningowe z nazwą klienta.
+REQUIRED_TEXT = {
+    "question": "Jak wyglądał największy program, który prowadziłeś/aś w bankowości — zakres, zespół i budżet?",
+    "ideal_answer": "Konkretny program z liczbami: wielkość zespołu, budżet, czas trwania i własna rola.",
+    # Dosłowny cytat z notatki (fakt z rozmowy) — ekran pokazuje go pod wartością.
+    "raw": "z rozmowy telefonicznej",
+}
+
+# Kody etapów („new”, „screening”) to słownik systemu, nie tekst o osobie —
+# filtr prawdziwych nazw (np. firma „New…” z bazy) nie może ich zdejmować.
+STAGE_CODE_KEYS = {
+    "stage",
+    "column",
+    "board_column",
+    "from_column",
+    "to_column",
+    "from_stage",
+    "to_stage",
+}
 ENUM = re.compile(r"^[a-z0-9_\-:.]{1,60}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}(T[\d:.]+(Z|[+-]\d{2}:\d{2})?)?$")
 DIGITS = re.compile(r"^\d{4,}$")
@@ -292,7 +326,9 @@ class Builder:
             return CLIENT_NAME
         if key in {"reference_number", "client_reference"}:
             return JOB_REFERENCE
-        if ENUM.match(value) and not self.mentions_real(value):
+        if ENUM.match(value) and (
+            key in STAGE_CODE_KEYS or not self.mentions_real(value)
+        ):
             return value
         if key in CV_FICTION:
             return CV_FICTION[key]
@@ -313,6 +349,8 @@ class Builder:
         if key in self.safe_keys or ENUM.match(value):
             if self.mentions_real(value):
                 self.dropped["(prawdziwa nazwa) " + key][value[:80]] += 1
+                if key in REQUIRED_TEXT:
+                    return REQUIRED_TEXT[key]
                 return None if key not in {"name", "title", "label"} else ""
             return value
         if PERSON_NAME_KEYS.search(key) and re.match(
@@ -321,6 +359,8 @@ class Builder:
         ):
             return self.fake_person(value.strip())
         self.dropped[key][value[:80]] += 1
+        if key in REQUIRED_TEXT:
+            return REQUIRED_TEXT[key]
         return None if key not in {"name", "title", "label"} else ""
 
     def mentions_real(self, value: str) -> bool:
@@ -482,6 +522,83 @@ CALM_JOB = {
     "p0_set_by_name": None,
     "priority": "normal",
 }
+
+
+def shape_my_people(dataset: dict) -> None:
+    """„Moi ludzie”: wiersze z nagrania (już oczyszczone) jako wzór kształtu,
+    osoby — ćwiczebne. Pule i linki kariery puste, jak u nowej osoby."""
+    mine = list(enumerate(PEOPLE))[-MY_PEOPLE_COUNT:]
+
+    def rows(recorded: list) -> list:
+        if not recorded:
+            return []
+        out = []
+        for i, (first, last) in mine:
+            row = copy.deepcopy(recorded[0])
+            row.update(
+                candidate_id=FIRST_CANDIDATE + i,
+                full_name=f"{first} {last}",
+                in_job=False,
+            )
+            out.append(row)
+        return out
+
+    for key, body in list(dataset.items()):
+        path = key.split(" ", 1)[1].split("?", 1)[0]
+        if path.startswith("/api/my-people/for-job/") or path == "/api/my-people":
+            if isinstance(body, dict) and isinstance(body.get("rows"), list):
+                dataset[key] = {**body, "rows": rows(body["rows"])}
+                for count_key in ("total", "count"):
+                    if isinstance(body.get(count_key), int):
+                        dataset[key][count_key] = MY_PEOPLE_COUNT
+        elif path == "/api/my-people/summary" and isinstance(body, dict):
+            dataset[key] = {
+                **zero_counts(body),
+                "total": MY_PEOPLE_COUNT,
+                "latest_matches": [],
+                "idle_top": [],
+            }
+        elif path == "/api/talent-pools":
+            dataset[key] = []
+        elif path == "/api/me/career-link/people" and isinstance(body, dict):
+            dataset[key] = {**body, "total": 0, "people": []}
+
+
+def prune_dropped(value):
+    """Pozycje list, z których filtr wyciął tekst: `null` między napisami
+    i słowniki bez nazwy wypadają — ekran nie umie pokazać hasła bez nazwy."""
+    if isinstance(value, dict):
+        return {k: prune_dropped(v) for k, v in value.items()}
+    if isinstance(value, list):
+        items = [prune_dropped(v) for v in value]
+        if any(isinstance(v, str) for v in items):
+            items = [v for v in items if v is not None]
+        return [
+            v
+            for v in items
+            if not (
+                isinstance(v, dict)
+                and any(k in v and v[k] is None for k in NAMED_ITEM_KEYS)
+            )
+        ]
+    return value
+
+
+def mentionable_users() -> list[dict]:
+    """Lista do „@” na poligonie: trenerzy ćwiczebni, nie prawdziwy zespół."""
+    roles = {"dl": "delivery_lead", "rec": "recruiter"}
+    return [
+        {
+            "id": uid,
+            # Bez domeny: „@anna.poligonowa” w notatce, żaden prawdziwy adres.
+            "email": ".".join(name.lower().split()),
+            "name": name,
+            "role": roles[key],
+            "roles": [roles[key]],
+            "is_active": True,
+        }
+        for key, (uid, name) in TRAINERS.items()
+    ]
 
 
 def calm(value):
@@ -664,6 +781,8 @@ def main() -> None:
                 "/api/jobs",
                 "/api/jobs/quick-counts",
                 "/api/pipeline-templates/1",
+                "/api/saved-searches",
+                *MY_PEOPLE_PATHS,
             }
         )
         if not owned:
@@ -672,12 +791,87 @@ def main() -> None:
         if re.match(rf"/api/candidates/{args.candidate}(/quick-view)?$", e["path"]):
             first, last = PEOPLE[b.ids[args.candidate] - FIRST_CANDIDATE]
             body = fictionalize_candidate(body, first, last)
-        dataset[key] = calm(keep_ours(b.clean(e.get("_shaped", body))))
+        dataset[key] = prune_dropped(calm(keep_ours(b.clean(e.get("_shaped", body)))))
 
     # Adresy, których nagranie nie złapało, a ekran woła je przy ćwiczeniach.
     tpl = b.ids[args.candidate]
+    # Baza kandydatów poligonu = osoby ćwiczebne. Z nagranej listy bierzemy
+    # tylko nazwy pól wiersza; wartości pochodzą z profilu ćwiczebnego.
+    recorded_list = next(
+        (
+            body
+            for e, body in entries
+            if e["path"] == "/api/candidates"
+            and isinstance(body, dict)
+            and len(body.get("items") or []) > 1
+        ),
+        None,
+    )
+    shape_my_people(dataset)
+    for key in [k for k in dataset if k.startswith("GET /api/users/mentionable")]:
+        dataset[key] = mentionable_users()
+    dataset["GET /api/users/mentionable"] = mentionable_users()
+    profile = dataset.get(f"GET /api/candidates/{tpl}")
+    if recorded_list and isinstance(profile, dict):
+        keys = list(recorded_list["items"][0].keys())
+        envelope = b.clean(
+            {k: v for k, v in recorded_list.items() if k not in ("items", "total")}
+        )
+        items = []
+        for i, (first, last) in enumerate(PEOPLE):
+            row = {k: copy.deepcopy(profile.get(k)) for k in keys}
+            # Wiersz listy, nie profil: krótkie listy, żeby zestaw był lekki.
+            for long_key, keep in (("experience", 1), ("education", 1), ("skills", 6)):
+                if isinstance(row.get(long_key), list):
+                    row[long_key] = row[long_key][:keep]
+            row.update(
+                id=FIRST_CANDIDATE + i,
+                name=first,
+                lastname=last,
+                cv_extracted_data=None,
+                identity_sync=None,
+            )
+            items.append(row)
+        dataset["GET /api/candidates"] = {
+            **envelope,
+            "items": items,
+            "total": len(items),
+            "page": 1,
+            "page_size": 50,
+        }
     dataset.setdefault(
         f"GET /api/interview-cycle/pairs/{POLIGON_JOB}/{tpl}/meetings", []
+    )
+    # Źródła kandydatów, których nagranie nie ma: puste listy, nie błąd ekranu.
+    job = POLIGON_JOB
+    dataset.setdefault(
+        f"GET /api/jobs/{job}/proposal-inbox?limit=50&offset=0&status=proposed",
+        {
+            "job_id": job,
+            "status": "proposed",
+            "items": [],
+            "dismissed_candidate_ids": [],
+            "total": 0,
+            "hidden_on_page": 0,
+        },
+    )
+    dataset.setdefault(
+        f"GET /api/jobs/{job}/screened-out", {"job_id": job, "total": 0, "items": []}
+    )
+    dataset.setdefault(
+        f"GET /api/jobs/{job}/candidates-from-similar",
+        {
+            "job_id": job,
+            "tier_used": "primary",
+            "similar_jobs": [],
+            "candidates": [],
+            "meta": {
+                "tier_a_count": 0,
+                "tier_b_count": 0,
+                "total_sources": 0,
+                "reason_if_empty": None,
+            },
+        },
     )
     fix_counts(dataset)
     meta = {

@@ -21,6 +21,8 @@ const FICTION_KEYS = new Set([
   "notice_period", "available_from", "rate_flexibility", "added_via", "technologies", "skill", "job_reference",
 ]);
 const PERSON_KEY = /(^|_)(name|person|who)$/;
+/** Stałe teksty zastępcze skryptu (`REQUIRED_TEXT`) pod kluczami spoza słownika — tylko ta wartość, nie cały klucz. */
+const FIXED_TEXT = new Map([["raw", "z rozmowy telefonicznej"]]);
 
 function strings(value: unknown, key = "", out: Array<[string, string]> = []): Array<[string, string]> {
   if (typeof value === "string") out.push([key, value]);
@@ -50,7 +52,7 @@ describe("zestaw Poligonu", () => {
     const bad = all.filter(([k, v]) => {
       if (!v || ENUM.test(v) || /^@reld?:-?[\d.]+$/.test(v) || /^\d+$/.test(v)) return false;
       if (people.has(v)) return false;
-      if (SAFE.has(k) || FICTION_KEYS.has(k)) return false;
+      if (SAFE.has(k) || FICTION_KEYS.has(k) || FIXED_TEXT.get(k) === v) return false;
       if (PERSON_KEY.test(k) && people.has(v)) return false;
       return true;
     });

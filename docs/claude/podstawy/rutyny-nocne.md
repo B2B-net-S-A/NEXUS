@@ -70,8 +70,14 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
   dałaby rutynie dowolną komendę na produkcji. Skrypt ma stałe podkomendy:
   `sql` (tylko SELECT/WITH, bez poleceń psql; w bazie sesja i transakcja
   READ ONLY zakończona ROLLBACK), `env NAZWA…` (zmienne procesu 1 backendu
-  z białej listy, filtr na serwerze, nazwy sekretów odrzucone), `backup-log [N]`
-  i `health`. Reguła zgody Claude Code obejmuje tylko kopię skryptu
+  z białej listy, filtr na serwerze, nazwy sekretów odrzucone), `backup-log [N]`,
+  `logs --since CZAS [--until CZAS]` i `health`. `logs` wypuszcza z kontenera web
+  tylko linie JSON z `event_kind` `runtime_metrics` albo `http_outcome` (`grep`
+  na serwerze, stderr kontenera do `/dev/null`, druga bramka na laptopie); CZAS
+  to `10m`/`2h` (najwyżej 24 h) albo znacznik ze strefą. Pole `timestamp` w liniach
+  jest w UTC. Logi sięgają tylko do startu kontenera, więc pomiar dnia roboczego
+  idzie o 17:50, przed wdrożeniem o 18:00 (decyzja Artura z 14.11.2026: bez Loki,
+  token Alloya ma tylko `logs:write`). Reguła zgody Claude Code obejmuje tylko kopię skryptu
   w `~/.claude/nexus-rutyny/bin/`, a host i klucz są w
   `~/.claude/nexus-rutyny/prod-readonly.conf`, bo repo jest publiczne.
   Kopia nie podąża za mainem sama: zmiana skryptu wchodzi do rutyn dopiero po

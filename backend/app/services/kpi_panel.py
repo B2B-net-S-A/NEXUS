@@ -663,7 +663,13 @@ async def compute_my_panel(
 
     # Cele w proporcji do dni pracy — te same co w „/me/today” i w Zespole
     # (decyzja Artura 28.10.2026, `person_workdays`).
-    absence = (await absence_for_periods(db, [user.id], now)).get(user.id, {})
+    from app.services.onboarding_day import poligon_required
+
+    absence = (
+        await absence_for_periods(
+            db, [user.id], now, include_onboarding=poligon_required(user)
+        )
+    ).get(user.id, {})
     verifications_target = target_on_workdays(
         targets["daily_first_verifications"], KpiPeriod.day, now, absence
     )

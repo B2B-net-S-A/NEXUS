@@ -4,16 +4,17 @@
 // strony i panel ćwiczenia w rogu. Ćwiczenie zalicza klik w kotwicę albo
 // zdarzenie z rekrutacji ćwiczebnej (`lib/poligon/store.ts`).
 
-import { CheckCircle2, CircleAlert, Lightbulb, Target } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Lightbulb, Target } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { anchorSelector } from "@/lib/novelties/logic";
 import { onPoligonAction } from "@/lib/poligon/adapter";
-import { LEVEL_1, type Exercise, type ExerciseContext } from "@/lib/poligon/exercises";
+import { useStartStatus } from "@/lib/novelties/api";
+import { EXERCISES, type Exercise, type ExerciseContext } from "@/lib/poligon/exercises";
 import { leavePoligon } from "@/lib/poligon/mode";
-import { markDone, nextExerciseId, readDone } from "@/lib/poligon/progress";
+import { flushProgress, markDone, nextExerciseId, readDone } from "@/lib/poligon/progress";
 import { cn } from "@/lib/utils";
 
 import meta from "@/lib/poligon/meta.json";
@@ -79,15 +80,20 @@ export function PoligonLayer() {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "task" });
   const [showMe, setShowMe] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  // Zwinięte okno zostawia sam pasek postępu — na laptopie 1280×720 zasłania mniej Tablicy.
+  const [collapsed, setCollapsed] = useState(false);
+  const status = useStartStatus(true);
+  const serverIds = status?.poligon?.done_ids;
 
   useEffect(() => {
-    const initial = readDone();
+    const initial = readDone(serverIds ?? []);
     setDone(initial);
-    setCurrentId(nextExerciseId(initial));
-  }, []);
+    setCurrentId((current) => (current && !initial.has(current) ? current : nextExerciseId(initial)));
+  }, [serverIds]);
 
-  const exercise: Exercise | null = useMemo(() => LEVEL_1.find((e) => e.id === currentId) ?? null, [currentId]);
-  const index = exercise ? LEVEL_1.indexOf(exercise) : LEVEL_1.length;
+  const exercise: Exercise | null = useMemo(() => EXERCISES.find((e) => e.id === currentId) ?? null, [currentId]);
+  const index = exercise ? EXERCISES.indexOf(exercise) : EXERCISES.length;
   const onScreen = exercise ? pathname === pathOf(exercise.href) || pathname.startsWith(`${pathOf(exercise.href)}/`) : false;
 
   const complete = useCallback(
@@ -127,8 +133,14 @@ export function PoligonLayer() {
     const nextId = nextExerciseId(done);
     setCurrentId(nextId);
     setPhase({ kind: "task" });
-    const next = LEVEL_1.find((e) => e.id === nextId);
+    const next = EXERCISES.find((e) => e.id === nextId);
     if (next && !(pathname === pathOf(next.href) || pathname.startsWith(`${pathOf(next.href)}/`))) router.push(next.href);
+  };
+
+  const finish = async () => {
+    setLeaving(true);
+    await flushProgress();
+    leavePoligon("/jobs");
   };
 
   return (
@@ -142,36 +154,46 @@ export function PoligonLayer() {
       )}
       <section
         aria-label="Ćwiczenie na poligonie"
-        className="fixed bottom-28 right-5 z-[60] w-[340px] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-xl border border-border bg-card text-sm text-foreground shadow-lg"
+        className="pointer-events-auto fixed bottom-5 left-5 z-[60] w-[340px] max-w-[calc(100vw-2.5rem)] overflow-hidden rounded-xl border border-border bg-card text-sm text-foreground shadow-lg"
       >
         <header className="flex items-center gap-2 border-b border-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           <Target className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">
-            Poligon · {exercise ? `${exercise.module} · ćwiczenie ${index + 1} z ${LEVEL_1.length}` : "poziom 1"}
+            Poligon · {exercise ? `${exercise.module} · ${index + 1} z ${EXERCISES.length}` : "onboarding"}
           </span>
-          <span className="flex gap-0.5" aria-hidden="true">
-            {LEVEL_1.map((e) => (
+          <span className="flex shrink-0 gap-0.5" aria-hidden="true">
+            {EXERCISES.map((e) => (
               <i
                 key={e.id}
                 className={cn(
-                  "h-1 w-3 rounded-full",
+                  "h-1 w-1.5 rounded-full",
                   done.has(e.id) ? "bg-success" : e.id === currentId ? "bg-primary" : "bg-border",
                 )}
               />
             ))}
           </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Rozwiń ćwiczenie" : "Zwiń ćwiczenie"}
+            className="-mr-2 rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            {collapsed ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
         </header>
 
-        {!exercise ? (
+        {collapsed ? null : !exercise ? (
           <div className="space-y-3 px-4 py-3">
             <p className="flex items-start gap-2 rounded-lg bg-success-muted px-3 py-2 text-success-muted-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                <b>Poziom 1 zaliczony.</b> Umiesz już poruszać się po rekrutacjach, prowadzić osoby na Tablicy i pisać notatki.
+                <b>Onboarding zaliczony.</b> Znasz listę rekrutacji, Tablicę, panel osoby, screening z bramką weryfikacji,
+                drogę CV do klienta i bazę kandydatów. NEXUS jest otwarty — dziś nie liczy się do Twoich statystyk.
               </span>
             </p>
-            <Button className="w-full" onClick={() => leavePoligon()}>
-              Wróć na mapę poligonu
+            <Button className="w-full" disabled={leaving} onClick={() => void finish()}>
+              Zacznij pracę w NEXUSIE
             </Button>
           </div>
         ) : phase.kind === "done" ? (
@@ -190,7 +212,7 @@ export function PoligonLayer() {
             </p>
             <div className="flex justify-end pt-1">
               <Button size="sm" onClick={goNext}>
-                {nextExerciseId(done) ? "Dalej →" : "Zakończ poziom 1"}
+                {nextExerciseId(done) ? "Dalej →" : "Zakończ onboarding"}
               </Button>
             </div>
           </div>

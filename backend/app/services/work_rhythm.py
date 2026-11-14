@@ -58,6 +58,7 @@ from app.models.oauth_client import OAuthClient
 from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS, PipelineStage
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
+from app.services.onboarding_day import onboarding_days
 from app.services.person_workdays import absence_by_user, business_days
 
 RULES_KEY = "work_rhythm_rules"
@@ -956,7 +957,9 @@ async def build_rhythm(
         classify_events(await _raw_events(db, ids, load_start, end), rules), rules
     )
     meetings = await _meetings(db, ids, load_start, end)
-    absence = await absence_by_user(db, ids, load_start, end)
+    # Dzień onboardingu to nie urlop: rytm liczy osobę od następnego dnia.
+    absence = await absence_by_user(db, ids, load_start, end, include_onboarding=False)
+    onboarding = await onboarding_days(db, ids, load_start, end)
     cv_end = end - timedelta(days=1) if today is not None and end >= today else end
     cv_sent = (
         await _cv_sent(db, ids, start, cv_end)
@@ -968,6 +971,9 @@ async def build_rhythm(
     for user in people:
         absent = absence.get(user.id, {})
         started = account_start(user)
+        if user.id in onboarding:
+            day_after = onboarding[user.id] + timedelta(days=1)
+            started = day_after if started is None else max(started, day_after)
         rows: list[dict[str, Any]] = []
         for day in sorted(set(source_days) | set(days)):
             cell = cells.get((user.id, day), DayCell())

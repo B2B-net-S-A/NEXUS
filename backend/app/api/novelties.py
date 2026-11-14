@@ -36,12 +36,18 @@ from app.data.novelties import (
     Novelty,
     in_audience,
     load_novelties,
+    load_poligon,
     load_start_tours,
 )
 from app.models.app_setting import AppSetting
 from app.models.novelty import NoveltyProgress
 from app.models.user import User
 from app.services.action_permissions import named_permissions_of
+from app.services.onboarding_day import (
+    POLIGON_ID_PREFIX,
+    poligon_open,
+    poligon_required,
+)
 from app.services.section_permissions import SectionAccess, section_access_for_user
 
 router = APIRouter()
@@ -277,6 +283,26 @@ def apply_event(
     row.updated_at = now
 
 
+def apply_poligon_event(row: NoveltyProgress, event: str, now: datetime) -> None:
+    """Ćwiczenie poligonu: pokazane albo zaliczone. Odkładać go nie można."""
+    if event == "seen":
+        row.first_seen_at = row.first_seen_at or now
+        row.seen_count = (row.seen_count or 0) + 1
+    elif event in _COMPLETING:
+        if row.completed_at is None:
+            row.completed_at = now
+            row.completed_via = "used"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "postpone_not_allowed",
+                "message": "Ćwiczenia poligonu się nie odkłada.",
+            },
+        )
+    row.updated_at = now
+
+
 @router.post("/novelties/{novelty_id}/events", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("60/minute", key_func=user_or_ip_key)
 async def record_novelty_event(
@@ -288,7 +314,19 @@ async def record_novelty_event(
 ) -> None:
     """Kropka pokazana, karta odłożona, nowość przeklikana albo użyta.
 
-    Podgląd jako inna osoba tu nie dochodzi — ``deps.py`` odmawia w nim zapisów."""
+    Podgląd jako inna osoba tu nie dochodzi — ``deps.py`` odmawia w nim zapisów.
+    Ćwiczenie Poligonu (``poligon-…``) zapisuje się tym samym zdarzeniem."""
+    if novelty_id.startswith(POLIGON_ID_PREFIX):
+        plan = load_poligon()
+        if novelty_id not in plan.by_id() or not poligon_open(current_user, plan):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nie ma takiego ćwiczenia.",
+            )
+        row = await _locked_row(db, current_user.id, novelty_id)
+        apply_poligon_event(row, payload.event, datetime.now(timezone.utc))
+        await db.commit()
+        return
     novelty = _find(novelty_id)
     if novelty is None or not _audience_of(current_user, novelty):
         raise HTTPException(
@@ -438,14 +476,38 @@ async def start_gate_on(db: AsyncSession) -> bool:
     return bool(row.value.get("enforced", True))
 
 
+def poligon_status(
+    progress: dict[str, NoveltyProgress], *, open_: bool, required: bool
+) -> dict[str, Any]:
+    """Poligon osoby: zaliczone ćwiczenia i czy blokuje resztę ekranów."""
+    exercises = load_poligon().exercises
+    done_ids = [
+        e.id
+        for e in exercises
+        if e.id in progress and progress[e.id].completed_at is not None
+    ]
+    return {
+        "open": open_,
+        "required": required,
+        "done_ids": done_ids,
+        "done": len(done_ids),
+        "total": len(exercises),
+    }
+
+
 def start_status(
     tours: list[Novelty],
     progress: dict[str, NoveltyProgress],
     *,
     gate_on: bool,
     impersonating: bool,
+    poligon: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Start osoby: lista przeklikań i czy front ma ją zatrzymać."""
+    """Start osoby: lista przeklikań i czy front ma ją zatrzymać.
+
+    Osobie, której poligon jest wymagany, zastępuje on przeklikania
+    rekrutacji (``poligon.json`` → ``replaces``) i blokuje ekrany, dopóki
+    nie zaliczy wszystkich ćwiczeń — wtedy front prowadzi na ``/poligon``."""
     items = [
         {
             "id": t.id,
@@ -458,12 +520,19 @@ def start_status(
         for t in tours
     ]
     done = sum(1 for item in items if item["done"])
+    poligon_due = bool(
+        poligon and poligon["required"] and poligon["done"] < poligon["total"]
+    )
     return {
-        "enforced": gate_on and not impersonating and done < len(items),
+        "enforced": gate_on
+        and not impersonating
+        and (done < len(items) or poligon_due),
         "gate_on": gate_on,
         "done": done,
         "total": len(items),
         "items": items,
+        "redirect": "/poligon" if poligon_due else "/start",
+        "poligon": poligon,
     }
 
 
@@ -473,12 +542,23 @@ async def my_start(
 ) -> dict[str, Any]:
     """Podgląd jako inna osoba niczego nie blokuje — zapisy są wtedy zablokowane."""
     tours = [t for t in load_start_tours().values() if _audience_of(current_user, t)]
-    progress = await _progress_rows(db, current_user.id, [t.id for t in tours])
+    plan = load_poligon()
+    open_ = poligon_open(current_user, plan)
+    required = poligon_required(current_user, plan)
+    if required:
+        tours = [t for t in tours if t.id not in plan.replaces]
+    poligon_ids = [e.id for e in plan.exercises] if open_ else []
+    progress = await _progress_rows(
+        db, current_user.id, [t.id for t in tours] + poligon_ids
+    )
     return start_status(
         tours,
         progress,
         gate_on=await start_gate_on(db),
         impersonating=_impersonating(request),
+        poligon=(
+            poligon_status(progress, open_=open_, required=required) if open_ else None
+        ),
     )
 
 

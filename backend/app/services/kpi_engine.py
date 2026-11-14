@@ -134,9 +134,17 @@ def period_dates(period: KpiPeriod, now: datetime) -> tuple[date, date]:
 
 
 async def absence_for_periods(
-    db: AsyncSession, user_ids: list[int], now: datetime
+    db: AsyncSession,
+    user_ids: list[int],
+    now: datetime,
+    *,
+    include_onboarding: bool = True,
 ) -> dict[int, dict[date, float]]:
-    """Zatwierdzona nieobecność osób w bieżącym tygodniu i miesiącu."""
+    """Zatwierdzona nieobecność osób w bieżącym tygodniu i miesiącu.
+
+    ``include_onboarding=False`` — wołający wie, że nikt z ``user_ids`` nie ma
+    dnia onboardingu (``onboarding_day.poligon_required``), więc bez zapytania.
+    """
     from app.services.person_workdays import absence_by_user
 
     windows = [period_dates(p, now) for p in (KpiPeriod.week, KpiPeriod.month)]
@@ -145,6 +153,7 @@ async def absence_for_periods(
         user_ids,
         min(start for start, _ in windows),
         max(end for _, end in windows),
+        include_onboarding=include_onboarding,
     )
 
 
@@ -513,17 +522,18 @@ def _hours_until_period_end(period: KpiPeriod, now: datetime) -> float:
 
 
 async def personal_days_off(
-    db: AsyncSession, user_id: int, now: datetime
+    db: AsyncSession, user_id: int, now: datetime, *, onboarding: bool = True
 ) -> frozenset[date]:
     """Pełne dni urlopu osoby w bieżącym tygodniu i miesiącu.
 
-    Tylko gdy dostępność liczy się z urlopów NEXUSA; inaczej pusty zbiór —
-    tempo liczy się jak dotąd z samego kalendarza firmy.
+    Urlop tylko gdy dostępność liczy się z urlopów NEXUSA (inaczej tempo liczy
+    się jak dotąd z samego kalendarza firmy). Dzień onboardingu nowej osoby
+    (``onboarding_day``) dochodzi przy każdym źródle; ``onboarding=False``,
+    gdy wołający wie, że osoba go nie ma (bez zapytania).
     """
     from app.services.hr.availability_local import days_off_for, local_source_active
+    from app.services.onboarding_day import onboarding_days
 
-    if not local_source_active():
-        return frozenset()
     now_w = _as_warsaw(now)
     month_start = now_w.date().replace(day=1)
     month_end = month_start.replace(
@@ -532,7 +542,14 @@ async def personal_days_off(
     week_start = now_w.date() - timedelta(days=now_w.weekday())
     start = min(month_start, week_start)
     end = max(month_end, week_start + timedelta(days=6))
-    return await days_off_for(db, user_id, start, end)
+    onboarding_off = (
+        frozenset((await onboarding_days(db, [user_id], start, end)).values())
+        if onboarding
+        else frozenset()
+    )
+    if not local_source_active():
+        return onboarding_off
+    return await days_off_for(db, user_id, start, end) | onboarding_off
 
 
 async def evaluate_user_kpis(
@@ -553,8 +570,15 @@ async def evaluate_user_kpis(
     # Precyzja (`in_coach=False`) to wskaźnik jakości z okna kroczącego, nie
     # licznik narastający w okresie — widget i nudge'e jej nie pokazują.
     coach_kpis = [k for k in KPI_CATALOG if k.in_coach and kpi_available(k)]
-    days_off = await personal_days_off(db, user.id, now)
-    absence = (await absence_for_periods(db, [user.id], now)).get(user.id, {})
+    # Dzień onboardingu ma tylko osoba, której poligon jest wymagany — reszta
+    # bez dodatkowego zapytania (ta ścieżka biegnie co minutę dla każdego).
+    from app.services.onboarding_day import poligon_required
+
+    may_onboard = poligon_required(user)
+    days_off = await personal_days_off(db, user.id, now, onboarding=may_onboard)
+    absence = (
+        await absence_for_periods(db, [user.id], now, include_onboarding=may_onboard)
+    ).get(user.id, {})
     targets = (
         await resolve_kpi_targets_bulk(db, [user], [k.kpi_id for k in coach_kpis])
     )[user.id]

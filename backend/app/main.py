@@ -3970,6 +3970,19 @@ async def api_health_deep_check(request: Request):
         FinancePostingBatch,
         FinancePostingRule,
     )
+    from app.models.ledger import (
+        LedgerBankLine,
+        LedgerBankStatement,
+        LedgerDocument,
+        LedgerEvent,
+        LedgerExport,
+        LedgerExportDocument,
+        LedgerLine,
+        LedgerPeriod,
+        LedgerPrepayment,
+        LedgerRecurring,
+        LedgerYear,
+    )
     from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
     from app.models.hr_payroll_lists import (
         PayrollGrossInput,
@@ -4364,8 +4377,23 @@ async def api_health_deep_check(request: Request):
         ("finance_accounts", FinanceAccount),
         ("finance_posting_rules", FinancePostingRule),
         ("finance_posting_batches", FinancePostingBatch),
+        # 0700–0702: księga NEXUSA K1–K3 — lata, okresy, dokumenty, dziennik,
+        # zdarzenia, PK cykliczne i RMK, paczki do Symfonii FK.
+        ("ledger_years", LedgerYear),
+        ("ledger_periods", LedgerPeriod),
+        ("ledger_documents", LedgerDocument),
+        ("ledger_lines", LedgerLine),
+        ("ledger_events", LedgerEvent),
+        ("ledger_recurring", LedgerRecurring),
+        ("ledger_prepayments", LedgerPrepayment),
+        ("ledger_exports", LedgerExport),
+        ("ledger_export_documents", LedgerExportDocument),
+        # 0703: środki trwałe i WNiP (K6).
         ("ledger_assets", LedgerAsset),
         ("ledger_asset_operations", LedgerAssetOperation),
+        # 0705: wyciągi bankowe w księdze (K4a).
+        ("ledger_bank_statements", LedgerBankStatement),
+        ("ledger_bank_lines", LedgerBankLine),
         # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
         ("payroll_person_data", PayrollPersonData),
         ("payroll_parameter_versions", PayrollParameterVersion),
