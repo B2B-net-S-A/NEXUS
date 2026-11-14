@@ -23,6 +23,10 @@ konto przeciwstawne (490), konto kosztów klientów (MPK = klient z kontraktu),
 konta pionów (front office, back office — z kartoteki osoby) i konto kosztów
 ogólnych (faktura bez klienta i pionu, biuro do czasu klucza podziału) oraz
 jedno konto kosztów zespołu na PK płacowe.
+
+Konta listy płac z Enovy (K3c, ``payroll``) też ustawia administrator: koszty
+wynagrodzeń i składek pracodawcy, rozrachunki z tytułu wynagrodzeń, z ZUS
+i z urzędem skarbowym (PIT-4) oraz — gdy lista je ma — PPK i inne potrącenia.
 """
 
 from __future__ import annotations
@@ -119,12 +123,47 @@ class AllocationAccounts:
         return all(getattr(self, key) for key in ALLOCATION_ACCOUNT_FIELDS)
 
 
+#: Konta listy płac (K3c): klucz → (domyślne konto, etykieta). PPK i potrącenia
+#: mogą zostać puste — wtedy lista z takimi kwotami czeka z problemem.
+PAYROLL_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
+    "wages_account": ("", "Wynagrodzenia (koszt)"),
+    "insurance_account": ("", "Składki i PPK pracodawcy (koszt)"),
+    "settlement_account": ("231", "Rozrachunki z tytułu wynagrodzeń"),
+    "zus_account": ("229", "Rozrachunki z ZUS"),
+    "pit_account": ("225", "Rozrachunki z urzędem skarbowym (PIT-4)"),
+    "ppk_account": ("", "Rozrachunki PPK"),
+    "deductions_account": ("", "Inne potrącenia z wynagrodzeń"),
+}
+PAYROLL_OPTIONAL: frozenset[str] = frozenset({"ppk_account", "deductions_account"})
+
+
+@dataclass(frozen=True)
+class PayrollAccounts:
+    wages_account: str = ""
+    insurance_account: str = ""
+    settlement_account: str = PAYROLL_ACCOUNT_FIELDS["settlement_account"][0]
+    zus_account: str = PAYROLL_ACCOUNT_FIELDS["zus_account"][0]
+    pit_account: str = PAYROLL_ACCOUNT_FIELDS["pit_account"][0]
+    ppk_account: str = ""
+    deductions_account: str = ""
+
+    def missing(self) -> list[str]:
+        """Etykiety wymaganych kont, których brakuje."""
+
+        return [
+            label
+            for key, (_, label) in PAYROLL_ACCOUNT_FIELDS.items()
+            if key not in PAYROLL_OPTIONAL and not getattr(self, key)
+        ]
+
+
 @dataclass(frozen=True)
 class LedgerSettings:
     modules: dict[str, bool]
     accountants: tuple[int, ...]
     sales: SalesAccounts = field(default_factory=SalesAccounts)
     allocation: AllocationAccounts = field(default_factory=AllocationAccounts)
+    payroll: PayrollAccounts = field(default_factory=PayrollAccounts)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -150,6 +189,10 @@ def _allocation(raw: object) -> AllocationAccounts:
     return AllocationAccounts(**_accounts(raw, ALLOCATION_ACCOUNT_FIELDS))
 
 
+def _payroll(raw: object) -> PayrollAccounts:
+    return PayrollAccounts(**_accounts(raw, PAYROLL_ACCOUNT_FIELDS))
+
+
 def normalize(raw: object) -> LedgerSettings:
     data = raw if isinstance(raw, dict) else {}
     modules_raw = data.get("modules") if isinstance(data.get("modules"), dict) else {}
@@ -171,6 +214,7 @@ def normalize(raw: object) -> LedgerSettings:
         accountants=accountants,
         sales=_sales(data.get("sales")),
         allocation=_allocation(data.get("allocation")),
+        payroll=_payroll(data.get("payroll")),
     )
 
 
@@ -185,6 +229,9 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         },
         "allocation": {
             key: getattr(settings.allocation, key) for key in ALLOCATION_ACCOUNT_FIELDS
+        },
+        "payroll": {
+            key: getattr(settings.payroll, key) for key in PAYROLL_ACCOUNT_FIELDS
         },
     }
 
@@ -281,12 +328,18 @@ async def set_accountants(
 
 
 async def _plan_accounts(
-    db: AsyncSession, values: dict[str, str], fields: dict[str, tuple[str, str]]
+    db: AsyncSession,
+    values: dict[str, str],
+    fields: dict[str, tuple[str, str]],
+    optional: frozenset[str] = frozenset(),
 ) -> dict[str, str]:
-    """Każde konto z formularza musi być aktywne w planie kont."""
+    """Każde konto z formularza musi być aktywne w planie kont (puste — tylko opcjonalne)."""
 
     cleaned: dict[str, str] = {}
     for key, (_, label) in fields.items():
+        if key in optional and not (values.get(key) or "").strip():
+            cleaned[key] = ""
+            continue
         number = clean_account(values.get(key), label)
         account = await db.scalar(
             select(FinanceAccount).where(FinanceAccount.number == number)
@@ -320,5 +373,19 @@ async def set_allocation_accounts(
     cleaned = await _plan_accounts(db, values, ALLOCATION_ACCOUNT_FIELDS)
     current = await load(db)
     settings = replace(current, allocation=AllocationAccounts(**cleaned))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_payroll_accounts(
+    db: AsyncSession, values: dict[str, str], *, actor: User
+) -> LedgerSettings:
+    """Konta listy płac (bez commita, admin): wymagane z planu kont, PPK i potrącenia opcjonalnie."""
+
+    cleaned = await _plan_accounts(
+        db, values, PAYROLL_ACCOUNT_FIELDS, optional=PAYROLL_OPTIONAL
+    )
+    current = await load(db)
+    settings = replace(current, payroll=PayrollAccounts(**cleaned))
     await _save(db, settings, actor=actor)
     return settings

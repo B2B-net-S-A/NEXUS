@@ -23,7 +23,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from openpyxl import load_workbook
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 
 from app.api import ledger as ledger_api
 from app.core.database import AsyncSessionLocal
@@ -122,7 +122,28 @@ async def books(world):
     year = random.randint(2050, 2099)
     prefix = f"S{random.randint(10_000, 99_999)}"
     async with AsyncSessionLocal() as db:
-        while await db.scalar(select(LedgerYear.id).where(LedgerYear.year == year)):
+        # Rok bez księgi, kursów EUR i faktur kosztowych z wpływem w tym roku —
+        # resztki przerwanego biegu (sprzątanie nie doszło do końca) blokowały
+        # wstawienie kursu albo dokładały faktury do liczników miesiąca.
+        while await db.scalar(
+            select(LedgerYear.id).where(LedgerYear.year == year)
+        ) or await db.scalar(
+            select(func.count())
+            .select_from(FxRate)
+            .where(
+                FxRate.currency == "EUR",
+                FxRate.effective_date.between(date(year, 1, 1), date(year, 12, 31)),
+            )
+        ) or await db.scalar(
+            select(func.count())
+            .select_from(FinanceCostEntry)
+            .where(
+                FinanceCostEntry.received_at
+                >= datetime(year, 1, 1, tzinfo=timezone.utc),
+                FinanceCostEntry.received_at
+                < datetime(year + 1, 1, 1, tzinfo=timezone.utc),
+            )
+        ):
             year = random.randint(2050, 2099)
         previous = await db.scalar(
             select(AppSetting.value).where(
@@ -143,6 +164,12 @@ async def books(world):
             "alloc_team": (f"{prefix}-504", "Koszty zespołu", "other", None),
             "prepaid": (f"{prefix}-640", "RMK czynne", "other", None),
             "settle": (f"{prefix}-490", "Rozliczenie kosztów", "other", None),
+            "wages": (f"{prefix}-404", "Wynagrodzenia", "cost", None),
+            "insurance": (f"{prefix}-405", "Ubezpieczenia i świadczenia", "cost", None),
+            "payroll_settle": (f"{prefix}-231", "Rozrachunki z tytułu wynagrodzeń", "other", None),
+            "zus": (f"{prefix}-229", "Rozrachunki z ZUS", "other", None),
+            "pit": (f"{prefix}-225", "Rozrachunki z US", "other", None),
+            "ppk": (f"{prefix}-234", "Rozrachunki PPK", "other", None),
         }
         for number, name, kind, dictionary in acc.values():
             db.add(
@@ -1396,4 +1423,94 @@ async def test_closing_checklist_follows_sources_buffer_and_symfonia(client, wor
     assert mode.status_code == 200, mode.text
     nexus = {item["key"] for item in (await _closing(client, world, books))["items"]}
     assert "symfonia" not in nexus and "drafts" in nexus
+
+
+# ── Lista płac z Enovy (K3c) ────────────────────────────────────────────────
+
+PAYROLL_CSV = "\r\n".join(
+    [
+        "Pracownik;Wydział;Razem brutto;Emerytalne prac.;Rentowe prac.;Chorobowe;Zdrowotne;"
+        "Zaliczka podatku;PPK pracownika;Do wypłaty;Emerytalne pracodawca;Rentowe pracodawca;"
+        "Wypadkowe;FP;FGŚP;PPK pracodawcy",
+        "Osoba A;FO;10000,00;976,00;150,00;245,00;776,61;588,00;200,00;7064,39;976,00;650,00;"
+        "167,00;245,00;10,00;150,00",
+        "Osoba B;BO;8000,00;780,80;120,00;196,00;621,29;470,00;0;5811,91;780,80;520,00;"
+        "133,60;196,00;8,00;0",
+        "Razem;;18000,00;;;;;;;;;;;;;",
+    ]
+).encode("utf-8")
+
+
+def _payroll_settings(world, books) -> dict:
+    acc = books["acc"]
+    value = _automation_settings(world, books)
+    value["payroll"] = {
+        "wages_account": acc["wages"],
+        "insurance_account": acc["insurance"],
+        "settlement_account": acc["payroll_settle"],
+        "zus_account": acc["zus"],
+        "pit_account": acc["pit"],
+        "ppk_account": acc["ppk"],
+        "deductions_account": "",
+    }
+    return value
+
+
+async def _payroll_import(client, world, books, *, save: bool, user="accountant"):
+    return await client.post(
+        f"{ACC}/payroll-lists/import",
+        params={"year": books["year"], "month": 3, "list": "LP 03", "save": save},
+        files={"file": ("lista.csv", PAYROLL_CSV, "text/csv")},
+        headers=_headers(world[user]),
+    )
+
+
+async def test_payroll_list_from_enova_goes_to_buffer_for_payroll_only(client, world, books):
+    year, acc = books["year"], books["acc"]
+    await _set_ledger(_payroll_settings(world, books))
+    outsider = await _payroll_import(client, world, books, save=False, user="module_only")
+    assert outsider.status_code == 403
+    preview = await _payroll_import(client, world, books, save=False)
+    assert preview.status_code == 200, preview.text
+    data = preview.json()
+    assert data["rows"] == 2 and data["skipped"] == 1 and data["problems"] == []
+    assert data["totals"]["gross"] == 1_800_000 and data["totals"]["net"] == 1_287_630
+    assert data["saved"] is False and data["warnings"] == []
+    saved = await _payroll_import(client, world, books, save=True)
+    assert saved.status_code == 200, saved.text
+    first = await _document("payroll_list", f"{year}-03:lp03")
+    assert first.doc_type == "LP" and first.sensitivity == "payroll"
+    assert first.op_date == date(year, 3, 31)
+    lines = await _lines(first.id)
+    assert (("debit", acc["wages"], 1_000_000)) in lines
+    assert sum(amount for side, _, amount in lines if side == "debit") == sum(
+        amount for side, _, amount in lines if side == "credit"
+    )
+    # Ponowny import tej samej listy przebudowuje szkic.
+    again = await _payroll_import(client, world, books, save=True)
+    assert again.status_code == 200, again.text
+    rebuilt = await _document("payroll_list", f"{year}-03:lp03")
+    assert rebuilt.id != first.id
+    await _approve_ids(client, world, [rebuilt.id])
+    locked = await _payroll_import(client, world, books, save=True)
+    assert locked.status_code == 409 and "storn" in locked.json()["detail"]
+    # Osoba bez Płac nie widzi listy w dokumentach (D2).
+    listed = await client.get(
+        f"{ACC}/documents",
+        params={"year": year, "month": 3, "doc_type": "LP"},
+        headers=_headers(world["module_only"]),
+    )
+    assert listed.status_code == 200 and listed.json()["items"] == []
+
+
+async def test_payroll_list_needs_accounts_and_automations_module(client, world, books):
+    await _set_ledger(_ledger_settings(world, books, allocation=False))
+    closed = await _payroll_import(client, world, books, save=False)
+    assert closed.status_code == 404
+    await _set_ledger(_automation_settings(world, books))
+    preview = await _payroll_import(client, world, books, save=False)
+    assert preview.status_code == 200, preview.text
+    assert "Wynagrodzenia (koszt)" in preview.json()["problems"][0]
+    refused = await _payroll_import(client, world, books, save=True)
+    assert refused.status_code == 422
 

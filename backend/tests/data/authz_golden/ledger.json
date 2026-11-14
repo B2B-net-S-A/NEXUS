@@ -61,6 +61,7 @@
   "POST /api/accounting/exports/{export_id}/book": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/exports/{export_id}/cancel": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/opening/import": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/payroll-lists/import": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/periods/{period_id}/close": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/periods/{period_id}/reopen": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/sources/sync": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -68,6 +69,7 @@
   "PUT /api/accounting/config/accountants": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/allocation": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/modules": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/accounting/config/payroll": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/sales": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }
