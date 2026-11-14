@@ -820,6 +820,7 @@ export function ContractsListV2({
  params.set("format", format);
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
  const res = await fetch(`${apiBase}/api/contracts/export?${params}`, {
+ credentials: "include",
  headers: getAuthenticatedRequestHeaders(),
  });
  if (!res.ok) {
@@ -852,6 +853,7 @@ export function ContractsListV2({
  try {
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
  const res = await fetch(`${apiBase}/api/contracts/missing-orders-report`, {
+ credentials: "include",
  headers: getAuthenticatedRequestHeaders(),
  });
  if (!res.ok) {
@@ -887,6 +889,7 @@ export function ContractsListV2({
  });
  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
  const res = await fetch(`${apiBase}/api/contracts/export/placements?${params}`, {
+ credentials: "include",
  headers: getAuthenticatedRequestHeaders(),
  });
  if (!res.ok) {

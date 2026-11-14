@@ -1408,6 +1408,8 @@ app.add_middleware(
         "X-Requested-With",
         # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
         "X-Impersonate-User-Id",
+        # Ochrona CSRF sesji w ciasteczku (app/core/session_cookie.py).
+        "X-Nexus-CSRF",
         # Klucz wtyczki LinkedIn (app/api/extension_deps.py). Panel wtyczki
         # z host_permissions CORS-u nie przechodzi; to dla stron z listy
         # originów (podgląd panelu na stagingu).

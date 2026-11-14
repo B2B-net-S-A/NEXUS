@@ -101,6 +101,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     # ── Sesja i własne konto ────────────────────────────────────────────────
     "GET /api/auth/me": "profil zalogowanego — shell aplikacji potrzebuje go przed sekcjami",
     "POST /api/auth/change-password": "zmiana własnego hasła, niezależna od modułów",
+    "POST /api/auth/session": "przeniesienie własnej sesji do ciasteczka HttpOnly",
     "POST /api/users/me/onboarding": "obowiązkowy onboarding konta, poprzedza wejście do sekcji",
     "GET /api/users/me/onboarding/jobs": "lista rekrutacji w kroku onboardingu, poprzedza sekcje",
     "GET /api/users/me/preferences": "własne preferencje interfejsu, bez danych domenowych",

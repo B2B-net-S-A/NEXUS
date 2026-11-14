@@ -476,7 +476,7 @@ export function ClientContractRegister({
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
       const res = await fetch(
         `${apiBase}/api/contracts/register/export?${params}`,
-        { headers: getAuthenticatedRequestHeaders() },
+        { credentials: "include", headers: getAuthenticatedRequestHeaders() },
       );
       if (!res.ok) {
         flashToast("Eksport nie powiódł się.");

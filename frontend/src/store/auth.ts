@@ -1,6 +1,14 @@
 import { create } from "zustand"
 
-import { clearSessionArtifacts, writeAuthCookie } from "@/lib/session"
+import {
+  clearSessionArtifacts,
+  COOKIE_SESSION,
+  dropLegacyAccessToken,
+  endServerSession,
+  isCookieSession,
+  storeLegacyAccessToken,
+  writeAuthCookie,
+} from "@/lib/session"
 import {
   hasPermission,
   isDeliveryLeadGoverned,
@@ -627,6 +635,8 @@ export function canViewClientFinance(
 
 interface AuthState {
   user: User | null
+  /** Uchwyt sesji: `COOKIE_SESSION` (ciasteczko HttpOnly, JS nie zna tokenu)
+   *  albo JWT starej ścieżki (bezpiecznik na API sprzed ciasteczka). */
   token: string | null
   /** Admin „podgląd jako użytkownik": gdy aktywny, ``user`` to user podglądany,
    *  a ``realUser`` to zalogowany admin (do przywrócenia i do baneru).
@@ -674,7 +684,13 @@ function safeGet(key: string): string | null {
 }
 
 function readInitialToken(): string | null {
-  return safeGet("access_token")
+  // Sesja w ciasteczku HttpOnly nie zostawia tokenu w localStorage — o tym,
+  // że jest, mówi zapamiętany profil. Bramka routingu i 401 z API pilnują,
+  // czy ciasteczko jeszcze żyje.
+  return (
+    safeGet("access_token") ??
+    (safeGet(USER_STORAGE_KEY) ? COOKIE_SESSION : null)
+  )
 }
 
 // User jest persystowany w localStorage razem z tokenem — inaczej po
@@ -826,10 +842,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     })
   },
   setAuth: (user, token) => {
-    try {
-      localStorage.setItem("access_token", token)
-    } catch {
-      /* non-browser env */
+    if (isCookieSession(token)) {
+      // Token żyje wyłącznie w ciasteczku HttpOnly z API — w JS nic nie
+      // zapisujemy, a resztki starej ścieżki sprzątamy.
+      dropLegacyAccessToken()
+    } else {
+      // Bezpiecznik: API sprzed ciasteczka (front wdrożony przed backendem).
+      storeLegacyAccessToken(token)
+      writeAuthCookie(token)
     }
     // Świeży login zawsze kończy ewentualny stan podglądu (defensywnie).
     clearImpersonation()
@@ -837,7 +857,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // migration 0110 (cached at the edge or old build still up).
     const safe = withStoredRoles(user)
     persistUser(safe)
-    writeAuthCookie(token)
     set({ user: safe, token, realUser: null, hydrated: true })
   },
   syncUser: (user) => {
@@ -884,6 +903,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Ten sam teardown co przy wygaśnięciu sesji (lib/api.ts) — jedno źródło
     // prawdy o kluczach sesji: access_token, nexus_user, nexus_real_user,
     // nexus_impersonate_id oraz cookie nexus_access.
+    // Ciasteczko HttpOnly usuwa tylko serwer.
+    endServerSession()
     clearSessionArtifacts()
     set({ user: null, token: null, realUser: null, hydrated: true })
     if (typeof window !== "undefined") {
