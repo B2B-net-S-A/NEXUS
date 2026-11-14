@@ -71,6 +71,7 @@ export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   return trackTransfer(async () => {
     const res = await fetch(url, {
+      credentials: "include",
       headers: getAuthenticatedRequestHeaders(),
     });
     if (!res.ok) throw await responseError(res);
@@ -95,6 +96,7 @@ export async function postAuthenticatedDownload(
   return trackTransfer(async () => {
     const res = await fetch(url, {
       method: "POST",
+      credentials: "include",
       headers: getAuthenticatedRequestHeaders({
         "Content-Type": "application/json",
       }),
@@ -123,10 +125,11 @@ export async function fetchAuthenticatedDownload(
       post
         ? {
             method: post.method,
+            credentials: "include",
             headers: getAuthenticatedRequestHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify(post.body),
           }
-        : { headers: getAuthenticatedRequestHeaders() },
+        : { credentials: "include", headers: getAuthenticatedRequestHeaders() },
     );
     if (!res.ok) throw await responseError(res);
     const disposition = res.headers.get("Content-Disposition") ?? "";

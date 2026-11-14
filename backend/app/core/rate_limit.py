@@ -77,8 +77,11 @@ def user_or_ip_key(request: Request) -> str:
     zweryfikował już token — tu tylko odczytujemy ``sub``. Bez ważnego tokena
     dostępu wracamy do klucza po IP; klucz nigdy nie rzuca.
     """
-    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
-    if scheme.lower() == "bearer" and token:
+    from app.core.session_cookie import request_bearer_token  # leniwie: bez cyklu
+
+    # Sesja przeglądarki jedzie w ciasteczku HttpOnly, nie w nagłówku.
+    token = request_bearer_token(request)
+    if token:
         from app.core.security import decode_token  # leniwie: bez cyklu importów
 
         try:

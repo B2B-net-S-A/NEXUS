@@ -29,7 +29,7 @@ export async function fetchContractDocumentBlob(
 ): Promise<Blob> {
   const res = await fetch(
     `${API_BASE}/api/contracts/${contractId}/documents/${documentId}/download`,
-    { headers: getAuthenticatedRequestHeaders() },
+    { credentials: "include", headers: getAuthenticatedRequestHeaders() },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.blob();
