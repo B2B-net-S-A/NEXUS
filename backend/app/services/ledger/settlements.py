@@ -93,13 +93,13 @@ NO_ITEMS = (
 )
 NO_SETTLEMENT = "Tego rozliczenia nie ma albo zostało już cofnięte."
 APPROVERS_ONLY = "Pozycje rozlicza osoba z listy „Księgowi” albo administrator."
-FX_SOURCE = "fx_difference"
+FX_SOURCE = documents.FX_DIFFERENCE_SOURCE
 MIXED_CURRENCIES = (
     "Pozycje są w dwóch różnych walutach obcych — rozlicza się walutę z tą samą "
     "walutą albo z PLN."
 )
 FX_ACCOUNT_MISSING = (
-    "Rozliczenie w walucie daje różnicę kursową {amount} zł — ustaw konto "
+    "Rozliczenie w walucie daje różnicę kursową {amount} — ustaw konto "
     "{kind} różnic kursowych w Ustawieniach (Bank)."
 )
 FX_APPROVED = (
@@ -142,7 +142,14 @@ class Item:
 
     @property
     def remaining_cur(self) -> Optional[int]:
-        return self.amount_cur - self.used_cur if self.is_currency else None
+        """Ile zostało w walucie; PLN zamknięte = zamknięta (rozliczenia z K4b nie
+        mają kwoty w walucie, a o otwarciu pozycji decyduje kwota w PLN)."""
+
+        if not self.is_currency:
+            return None
+        if self.remaining <= 0:
+            return 0
+        return max(0, (self.amount_cur or 0) - self.used_cur)
 
 
 @dataclass(frozen=True)
@@ -251,8 +258,8 @@ class Left:
         )
 
     def open(self, item: Item) -> bool:
-        if item.is_currency:
-            return self.cur[item.line_id] > 0
+        """Otwarta = zostało PLN (kwota w księdze); waluta idzie za nią."""
+
         return self.pln[item.line_id] > 0
 
 
@@ -305,9 +312,14 @@ def terms(
     foreign = debit if debit.is_currency else credit if credit.is_currency else None
     if foreign is None:
         return Proposal(debit, credit, value, method)
-    part = share(left.cur[foreign.line_id], left.pln[foreign.line_id], value)
+    f_id = foreign.line_id
+    part = share(left.cur[f_id], left.pln[f_id], value)
+    if value < left.pln[f_id]:
+        # Dopóki zostają złote, zostaje też waluta — inaczej zaokrąglenie
+        # zamknęłoby walutę przy 0,01 zł reszty (przegląd K4c 15.11.2026).
+        part = min(part, left.cur[f_id] - 1)
     if part <= 0:
-        return None
+        return Proposal(debit, credit, value, method)
     return Proposal(debit, credit, value, method, amount_cur=part)
 
 
@@ -363,7 +375,7 @@ class FxContext:
         day = proposal.settled_on
         if (day.year, day.month) not in self.open_months:
             return (
-                f"Różnica kursowa ({money_pl(abs(fx))} zł) wpada w zamknięty okres "
+                f"Różnica kursowa ({money_pl(abs(fx))}) wpada w zamknięty okres "
                 f"{day.month:02d}.{day.year} — otwórz go albo zaksięguj ją ręcznie."
             )
         return None
@@ -748,7 +760,16 @@ async def propose(
         debit_sum = sum(left.pln[item.line_id] for item in debits)
         if debit_sum != sum(left.pln[item.line_id] for item in credits):
             continue
-        out.items.extend(fifo(debits, credits, left, method="zero"))
+        trial = Left(dict(left.pln), dict(left.cur))
+        found = fifo(debits, credits, trial, method="zero")
+        # Grupa równa w PLN, a para walutowa daje różnicę kursową = różnica jest
+        # już zaksięgowana (np. PK ręcznie) albo jej brak — automat jej nie
+        # dzieli i nie księguje drugi raz (przegląd K4c 15.11.2026).
+        if any(proposal.fx for proposal in found):
+            continue
+        left.pln.update(trial.pln)
+        left.cur.update(trial.cur)
+        out.items.extend(found)
     return out
 
 
@@ -1037,7 +1058,7 @@ async def unsettle(
     if fx_doc is not None:
         if fx_doc.status != "draft":
             raise LedgerError(FX_APPROVED.format(number=fx_doc.number), status=409)
-        await documents.delete_draft(db, fx_doc.id, viewer=viewer)
+        await documents.delete_draft(db, fx_doc.id, viewer=viewer, settlement=True)
     row.removed_at = now
     row.removed_by = viewer.user_id
     await db.flush()

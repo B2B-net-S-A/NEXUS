@@ -325,9 +325,7 @@ async def account_detail(
                 }
             )
     names = await _names(db, items, fallback=viewer.payroll) if items else {}
-    open_items = [
-        item for item in items if item.remaining > 0 or (item.remaining_cur or 0) > 0
-    ]
+    open_items = [item for item in items if item.remaining > 0]
     settled = [item for item in items if item not in open_items]
     fx_docs = await _fx_documents(
         db, viewer, account, as_of=as_of, live={row.id for row in settlements}

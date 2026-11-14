@@ -402,13 +402,31 @@ async def update_draft(
     return doc
 
 
-async def delete_draft(db: AsyncSession, doc_id: int, *, viewer: Viewer) -> None:
-    """Usunięcie szkicu (bez commita); ślad zostaje z numerem i typem."""
+#: Źródło PK różnicy kursowej z rozrachunków (K4c-1, ``settlements.FX_SOURCE``).
+FX_DIFFERENCE_SOURCE = "fx_difference"
+
+
+async def delete_draft(
+    db: AsyncSession, doc_id: int, *, viewer: Viewer, settlement: bool = False
+) -> None:
+    """Usunięcie szkicu (bez commita); ślad zostaje z numerem i typem.
+
+    Szkic różnicy kursowej usuwa tylko cofnięcie jego rozliczenia
+    (``settlement=True``) — usunięty z bufora zostawiłby rozliczenie z różnicą
+    bez dokumentu, a saldo konta po cichu rozjechałoby się z pozycjami
+    (przegląd K4c 15.11.2026).
+    """
 
     doc = await _visible_document(db, doc_id, viewer)
     if doc.status != "draft":
         raise LedgerError(
             "Zatwierdzonego dokumentu nie usuwa się — zrób storno.", status=409
+        )
+    if doc.source_type == FX_DIFFERENCE_SOURCE and not settlement:
+        raise LedgerError(
+            "Różnicę kursową usuwa cofnięcie jej rozliczenia — Księgowość → "
+            "Rozrachunki, karta konta, „Cofnij”.",
+            status=409,
         )
     doc, _ = await _locked_draft(db, doc_id, viewer)
     await _event(

@@ -356,3 +356,65 @@ def test_pln_document_fingerprint_is_the_same_as_before_line_rates():
         sources.fingerprint(spec)
         == hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
     )
+
+
+# ── K4c-1: przegląd 15.11.2026 ──────────────────────────────────────────────
+
+
+async def test_zero_rule_skips_currency_groups_whose_pairs_carry_an_fx_difference():
+    """Grupa „zero” w PLN z parami walutowymi o różnicy kursowej nie idzie
+    automatem — różnica jest już zaksięgowana albo czeka na konta (przegląd)."""
+
+    items = [
+        _cur(1, "debit", 430_000, 100_000),
+        _cur(2, "debit", 420_000, 100_000, day=11),
+        _cur(3, "credit", 850_000, 200_000, day=20),
+    ]
+    found = await settlements.propose(None, items, settlements.FxContext())
+    assert found.items == []
+    manual_pk = _item(4, "credit", 2_500, 25)
+    group = [
+        _cur(1, "debit", 215_000, 50_000),
+        _cur(2, "credit", 212_500, 50_000),
+        manual_pk,
+    ]
+    ready = settlements.FxContext("750", "751", frozenset({(2026, 3)}))
+    assert (await settlements.propose(None, group, ready)).items == []
+
+
+def test_currency_invoice_paid_in_pln_keeps_currency_while_pln_is_open():
+    invoice = _cur(1, "debit", 430_000, 100_000)
+    almost = _item(2, "credit", 429_999, 20)
+    left = settlements.Left.of([invoice, almost])
+    proposal = settlements.terms(invoice, almost, left, method="manual")
+    assert proposal.amount_cur == 99_999
+    settlements.take(left, proposal)
+    assert (left.pln[1], left.cur[1]) == (1, 1) and left.open(invoice)
+    grosz = _item(3, "credit", 1, 21)
+    last = settlements.terms(
+        invoice, grosz, settlements.Left({1: 1, 3: 1}, {1: 1}), method="manual"
+    )
+    assert (last.amount, last.amount_cur) == (1, 1)
+
+
+def test_pln_settled_currency_item_is_closed_even_without_currency_rows():
+    """Rozliczenia z K4b (bez kwoty w walucie): PLN zamknięte = pozycja zamknięta."""
+
+    closed = _cur(1, "debit", 215_000, 50_000, used=215_000)
+    assert closed.remaining == 0 and closed.remaining_cur == 0
+    assert not settlements.Left.of([closed]).open(closed)
+    half = _cur(2, "debit", 215_000, 50_000, used=107_500, used_cur=25_000)
+    assert half.remaining_cur == 25_000
+
+
+def test_fx_messages_say_zl_once():
+    loss = settlements.Proposal(
+        _cur(1, "debit", 215_000, 50_000),
+        _cur(2, "credit", 212_500, 50_000),
+        215_000,
+        "bank",
+        amount_cur=50_000,
+        credit_amount=212_500,
+    )
+    message = settlements.FxContext("750", "", frozenset({(2026, 3)})).blocker(loss)
+    assert "25,00 zł" in message and "zł zł" not in message

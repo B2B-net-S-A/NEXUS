@@ -2664,6 +2664,10 @@ async def test_currency_account_books_wb_at_nbp_rate_and_settles_the_fx_differen
         assert [(doc["status"], doc["kind"], doc["amount"], doc["orphan"]) for doc in card["fx_documents"]] == [
             ("draft", "loss", 2_500, False)
         ]
+        # Szkicu różnicy nie usuwa się z bufora — saldo konta rozjechałoby się
+        # z pozycjami po cichu (przegląd K4c 15.11.2026); zabiera go cofnięcie.
+        dropped = await client.delete(f"{ACC}/documents/{fx_doc.id}", headers=headers)
+        assert dropped.status_code == 409 and "Rozrachunki" in dropped.json()["detail"]
         # Cofnięcie rozliczenia zabiera szkic różnicy kursowej.
         removed = await client.delete(f"{ACC}/settlements/{row.id}", headers=headers)
         assert removed.status_code == 204
