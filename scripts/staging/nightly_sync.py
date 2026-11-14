@@ -65,6 +65,17 @@ CLIENT_LIST_FLAGS = (
     "COST_ORDER_CLIENT_IDS",
     "EXTENDED_ORDER_ALERT_CLIENT_IDS",
 )
+# Sprzedaż jak na produkcji: bez nich karta firmy i jej przyciski bota wyglądają na
+# stagingu inaczej niż u handlowców. Pętla `sales_signals` stoi w `STAGING_BLOCKED_TASKS`,
+# a rejestry MF i KRS zatrzymuje zapora wyjścia, więc flagi zmieniają tylko trasy (13.11.2026).
+SALES_FLAGS = (
+    "SALES_BOT_TASKS_ENABLED",
+    "SALES_REGISTRY_ENABLED",
+)
+# launchd uruchamia te skrypty z kopii w `~/.claude/nexus-rutyny/bin/kopia`, nie z maina
+# (rutyny-nocne.md). Kopia sprzed #3254 nie znała adaptera zapytania i od 09.11.2026
+# staging liczył inny `ranker_version`, choć main był poprawny.
+PINNED_SCRIPTS = ("nightly_sync.py", "clone_from_hetzner.py", "refresh_code.sh")
 SECRET_NAME = r"(SECRET|PASSWORD|_TOKEN(_|$)|DSN|CREDENTIAL|_KEY(_|$)|_URL(_|$))"
 SAFE_VALUE = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 # Sekret nie opuszcza serwera: filtr nazw działa już w procesie po stronie produkcji.
@@ -170,7 +181,7 @@ def scoring_inputs(source: str) -> tuple[str, ...]:
 
 
 def allowed_flags(source: str) -> tuple[str, ...]:
-    return scoring_inputs(source) + RANKING_POOL_FLAGS + CLIENT_LIST_FLAGS
+    return scoring_inputs(source) + RANKING_POOL_FLAGS + CLIENT_LIST_FLAGS + SALES_FLAGS
 
 
 def client_list_text(name: str, value: object) -> str:
@@ -746,6 +757,26 @@ def origin_main(cfg: Config) -> str:
     ).stdout.strip()
 
 
+def pinned_scripts_behind(
+    cfg: Config, here: Path = Path(__file__).resolve().parent
+) -> list[str]:
+    """Skrypty obok tego, które różnią się od `origin/main`. Brak pliku w mainie = różnica."""
+    behind = []
+    for name in PINNED_SCRIPTS:
+        local = here / name
+        if not local.is_file():
+            continue
+        main = run_cmd(
+            ["git", "-C", str(cfg.repo), "show", f"origin/main:scripts/staging/{name}"],
+            check=False,
+            timeout=60,
+            what="git show",
+        )
+        if main.returncode != 0 or main.stdout != local.read_text():
+            behind.append(name)
+    return behind
+
+
 def health() -> dict:
     try:
         with urllib.request.urlopen(f"{API}/api/health", timeout=10) as response:
@@ -808,7 +839,16 @@ def build_code(cfg: Config, sha: str) -> None:
 
 def start_staging(cfg: Config, sha: str) -> None:
     run_cmd(
-        [*compose(cfg), "up", "-d", "--no-deps", "--no-build", "backend", "worker", "frontend"],
+        [
+            *compose(cfg),
+            "up",
+            "-d",
+            "--no-deps",
+            "--no-build",
+            "backend",
+            "worker",
+            "frontend",
+        ],
         timeout=600,
         env=compose_env(sha),
         what="Start stagingu",
@@ -1050,6 +1090,14 @@ def sync(cfg: Config, report: Report, now_utc: datetime, date: str) -> tuple[int
         cfg.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         date_dir.mkdir(mode=0o700, exist_ok=True)
         sha = origin_main(cfg)
+        if behind := pinned_scripts_behind(cfg):
+            report.waiting.append(
+                f"Nocna kopia biegnie ze skryptów innych niż main: {', '.join(behind)}. "
+                "Aktualizacja: git show origin/main:scripts/staging/<plik> > "
+                "~/.claude/nexus-rutyny/bin/kopia/scripts/staging/<plik> (rutyny-nocne.md). "
+                "Warianty: 1) przegrać kopię z maina (rekomendowane), "
+                "2) zostawić, gdy zmiana w mainie czeka na przegląd."
+            )
 
         prod_settings = read_prod_settings(cfg, allowed)
         flags = flag_lines(prod_settings, allowed)
