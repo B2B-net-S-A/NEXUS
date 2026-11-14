@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
-import { InlineStats, QueryStateNotice, StatusDot } from "@/components/ds";
+import { InlineStats, QueryStateNotice } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import {
@@ -198,7 +198,11 @@ function SourceCard({
                     {problem.label}
                   </td>
                   <td className="px-3.5 py-2 text-[13px]">
-                    <StatusDot tone="warning">{problem.problems[0]}</StatusDot>
+                    {/* Zdanie problemu bywa długie — zawija się, nie wychodzi poza kartę. */}
+                    <span className="flex items-start gap-1.5">
+                      <span aria-hidden className="mt-[7px] size-1.5 shrink-0 rounded-full bg-warning" />
+                      <span className="min-w-0 break-words">{problem.problems[0]}</span>
+                    </span>
                     {problem.problems.length > 1 ? (
                       <span className={CALM_SUBLINE}>i jeszcze {problem.problems.length - 1}</span>
                     ) : null}
