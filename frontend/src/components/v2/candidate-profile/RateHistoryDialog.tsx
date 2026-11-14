@@ -236,7 +236,7 @@ function reasonVariant(reason: string) {
   return "outline" as const;
 }
 
-function ObservationRow({
+export function ObservationRow({
   observation,
   canEdit,
   pending,
@@ -272,7 +272,7 @@ function ObservationRow({
         {o.explicit_minimum ? " · jawne minimum" : ""}
       </td>
       <td className="py-2 pr-3 align-top">
-        <Badge variant={reasonVariant(o.reason)} className="whitespace-normal">
+        <Badge variant={reasonVariant(o.reason)} className="h-auto whitespace-normal">
           {rateReasonLabel(o.reason, o.excluded_by_name)}
         </Badge>
       </td>
