@@ -73,7 +73,8 @@ MODULE_REPLACES: dict[str, str] = {
     "reports": "Symfonia FK",
 }
 #: Moduły z gotowymi ekranami (kolejne etapy dopisują tu swój klucz).
-BUILT: frozenset[str] = frozenset({"ledger", "automations"})
+#: ``payroll`` — K7a (lista płac, parametry, dane osób; 14.11.2026).
+BUILT: frozenset[str] = frozenset({"ledger", "automations", "payroll"})
 MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
 

@@ -47,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import local_now
 from app.models.hr_ops import HrJobRun
 from app.models.hr_payroll import HrBonus, PayrollLine
+from app.models.hr_payroll_lists import PayrollList
 from app.models.hr_settlement import PayrollSettlement
 from app.models.user import User
 from app.services.hr import (
@@ -431,6 +432,18 @@ async def reopen_month(
     period = await lock_period(db, year, month)
     if period.status != "closed":
         raise PayrollConflict("Ten miesiąc nie jest zamknięty.")
+    # K7a: zatwierdzona lista płac liczy się z zamrożonych linii tego miesiąca.
+    approved_list = await db.scalar(
+        select(PayrollList.number).where(
+            PayrollList.period_id == period.id, PayrollList.status == "approved"
+        )
+    )
+    if approved_list is not None:
+        raise PayrollConflict(
+            f"Lista płac {approved_list} jest zatwierdzona — najpierw ją anuluj "
+            "(Księgowość → Płace), potem otwórz miesiąc.",
+            code="payroll_list_approved",
+        )
 
     lines = list(
         await db.scalars(select(PayrollLine).where(PayrollLine.period_id == period.id))
