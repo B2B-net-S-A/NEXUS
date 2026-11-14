@@ -1139,6 +1139,50 @@ async def test_draft_of_removed_template_is_withdrawn(client, world, books):
         f"{ACC}/automations/recurring/{template_id}", headers=_headers(world["accountant"])
     )
     assert removed.status_code == 200, removed.text
-    withdrawn = await _sync(client, world, books, "recurring")
-    assert withdrawn.json()["deleted"] == 1
+    # Szkic znika od razu — inaczej do następnego księgowania dałoby się go
+    # zatwierdzić i dostać problem „zrób storno” (przegląd K3a 14.11.2026).
     assert await _document("ledger_recurring", f"{template_id}:{year}-03") is None
+    again = await _sync(client, world, books, "recurring")
+    assert again.json()["deleted"] == 0
+
+
+async def test_ending_template_withdraws_later_drafts(client, world, books):
+    year = books["year"]
+    await _set_ledger(_automation_settings(world, books))
+    rent = await _automation_post(client, world, "recurring", _rent(books, start=f"{year}-03-01"))
+    template_id = max(item["id"] for item in rent.json()["recurring"])
+    for month in (3, 4):
+        synced = await _sync(client, world, books, "recurring", month=month)
+        assert synced.json()["created"] == 1, synced.text
+    march = await _document("ledger_recurring", f"{template_id}:{year}-03")
+    await _approve_ids(client, world, [march.id])
+    ended = await client.patch(
+        f"{ACC}/automations/recurring/{template_id}",
+        json={"end_month": f"{year}-03-01"},
+        headers=_headers(world["accountant"]),
+    )
+    assert ended.status_code == 200, ended.text
+    assert await _document("ledger_recurring", f"{template_id}:{year}-04") is None
+    kept = await _document("ledger_recurring", f"{template_id}:{year}-03")
+    assert kept is not None and kept.status == "approved"
+
+
+async def test_changed_prepayment_withdraws_its_drafts(client, world, books):
+    year = books["year"]
+    await _set_ledger(_automation_settings(world, books))
+    body = _policy(books, start=f"{year}-03-01")
+    policy = await _automation_post(client, world, "prepayments", body)
+    policy_id = max(item["id"] for item in policy.json()["prepayments"])
+    synced = await _sync(client, world, books, "prepayments")
+    assert synced.json()["created"] == 1, synced.text
+    changed = await client.patch(
+        f"{ACC}/automations/prepayments/{policy_id}",
+        json={**body, "total_amount": "1200.00"},
+        headers=_headers(world["accountant"]),
+    )
+    assert changed.status_code == 200, changed.text
+    assert await _document("ledger_prepayment", f"{policy_id}:{year}-03") is None
+    rebuilt = await _sync(client, world, books, "prepayments")
+    assert rebuilt.json()["created"] == 1, rebuilt.text
+    doc = await _document("ledger_prepayment", f"{policy_id}:{year}-03")
+    assert (await _lines(doc.id))[0][2] == 40_000

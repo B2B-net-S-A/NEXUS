@@ -519,12 +519,11 @@ async def create_recurring(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_approver(await _automations_context(db, current_user))
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
     return await _write_automation(
         db,
-        lambda: automations.save_recurring(
-            db, _recurring_values(body), actor_id=current_user.id
-        ),
+        lambda: automations.save_recurring(db, _recurring_values(body), viewer=viewer),
     )
 
 
@@ -535,14 +534,12 @@ async def update_recurring(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_approver(await _automations_context(db, current_user))
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
     return await _write_automation(
         db,
         lambda: automations.save_recurring(
-            db,
-            _recurring_values(body),
-            actor_id=current_user.id,
-            template_id=template_id,
+            db, _recurring_values(body), viewer=viewer, template_id=template_id
         ),
     )
 
@@ -553,9 +550,10 @@ async def remove_recurring(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_approver(await _automations_context(db, current_user))
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
     return await _write_automation(
-        db, lambda: automations.remove(db, "recurring", template_id)
+        db, lambda: automations.remove(db, "recurring", template_id, viewer=viewer)
     )
 
 
@@ -571,11 +569,12 @@ async def create_prepayment(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_approver(await _automations_context(db, current_user))
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
     return await _write_automation(
         db,
         lambda: automations.save_prepayment(
-            db, _prepayment_values(body), actor_id=current_user.id
+            db, _prepayment_values(body), viewer=viewer
         ),
     )
 
@@ -587,11 +586,12 @@ async def update_prepayment(
     current_user: FinanceModuleUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    _require_approver(await _automations_context(db, current_user))
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
     return await _write_automation(
         db,
         lambda: automations.save_prepayment(
-            db, _prepayment_values(body), actor_id=current_user.id, item_id=item_id
+            db, _prepayment_values(body), viewer=viewer, item_id=item_id
         ),
     )
 
@@ -600,9 +600,10 @@ async def update_prepayment(
 async def remove_prepayment(
     item_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
-    _require_approver(await _automations_context(db, current_user))
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
     return await _write_automation(
-        db, lambda: automations.remove(db, "prepayments", item_id)
+        db, lambda: automations.remove(db, "prepayments", item_id, viewer=viewer)
     )
 
 

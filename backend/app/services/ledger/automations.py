@@ -37,7 +37,7 @@ from app.models.ledger import (
 )
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import documents, engine
-from app.services.ledger.documents import DocumentSpec
+from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger_automation_schema import (
     MONTHS_MAX,
@@ -299,6 +299,44 @@ async def _clean_lines(
     ]
 
 
+def key_month(source_id: str) -> date:
+    """Miesiąc ze źródła dokumentu (``<id>:RRRR-MM``, odwrotność ``month_key``)."""
+
+    year, month = source_id.split(":", 1)[1].split("-")
+    return date(int(year), int(month), 1)
+
+
+async def _withdraw_drafts(
+    db: AsyncSession,
+    source_type: str,
+    owner_id: int,
+    viewer: Viewer,
+    *,
+    after: Optional[date] = None,
+) -> None:
+    """Zdejmuje z bufora szkice wzoru: wszystkie albo z miesięcy po ``after``.
+
+    Następne „Zaksięguj miesiąc” i tak by je usunęło albo przebudowało, ale do
+    tego czasu szkic ze starymi danymi dałoby się zatwierdzić — i zostałby
+    problem „zrób storno” (przegląd K3a 14.11.2026). Okres z szkicem jest
+    zawsze otwarty: zamknięcie wymaga pustego bufora.
+    """
+
+    drafts = list(
+        await db.scalars(
+            select(LedgerDocument).where(
+                LedgerDocument.source_type == source_type,
+                LedgerDocument.status == "draft",
+                LedgerDocument.source_id.like(f"{owner_id}:%"),
+            )
+        )
+    )
+    for doc in drafts:
+        if after is not None and key_month(str(doc.source_id)) <= after:
+            continue
+        await documents.delete_draft(db, doc.id, viewer=viewer)
+
+
 async def _locked(db: AsyncSession, source_type: str, owner_id: int) -> Optional[date]:
     """Ostatni zatwierdzony miesiąc wzoru (``None`` = nic zatwierdzonego)."""
 
@@ -309,11 +347,11 @@ async def save_recurring(
     db: AsyncSession,
     values: dict[str, Any],
     *,
-    actor_id: int,
+    viewer: Viewer,
     template_id: Optional[int] = None,
 ) -> LedgerRecurring:
     if template_id is None:
-        template = LedgerRecurring(created_by=actor_id)
+        template = LedgerRecurring(created_by=viewer.user_id)
         db.add(template)
         last_approved = None
     else:
@@ -350,6 +388,15 @@ async def save_recurring(
     if template.end_month is not None and template.end_month < template.start_month:
         raise LedgerError("Ostatni miesiąc jest przed pierwszym.", status=422)
     await db.flush()
+    if template_id is not None:
+        # Zmiana treści (możliwa tylko bez zatwierdzonych miesięcy) zdejmuje
+        # wszystkie szkice; „Zakończ” — tylko te po ostatnim miesiącu.
+        if changes - {"end_month"}:
+            await _withdraw_drafts(db, RECURRING_SOURCE, template.id, viewer)
+        elif template.end_month is not None:
+            await _withdraw_drafts(
+                db, RECURRING_SOURCE, template.id, viewer, after=template.end_month
+            )
     return template
 
 
@@ -357,11 +404,11 @@ async def save_prepayment(
     db: AsyncSession,
     values: dict[str, Any],
     *,
-    actor_id: int,
+    viewer: Viewer,
     item_id: Optional[int] = None,
 ) -> LedgerPrepayment:
     if item_id is None:
-        item = LedgerPrepayment(created_by=actor_id)
+        item = LedgerPrepayment(created_by=viewer.user_id)
         db.add(item)
     else:
         item = await db.get(LedgerPrepayment, item_id, with_for_update=True)
@@ -397,10 +444,12 @@ async def save_prepayment(
         raise LedgerError("Podaj pierwszy miesiąc rozliczenia.", status=422)
     item.total_amount, item.months, item.start_month = total, months, start
     await db.flush()
+    if item_id is not None:
+        await _withdraw_drafts(db, PREPAYMENT_SOURCE, item.id, viewer)
     return item
 
 
-async def remove(db: AsyncSession, kind: str, owner_id: int) -> None:
+async def remove(db: AsyncSession, kind: str, owner_id: int, *, viewer: Viewer) -> None:
     """Usunięcie wzoru albo RMK (bez commita) — tylko bez zatwierdzonych miesięcy."""
 
     model, source, what = (
@@ -415,3 +464,4 @@ async def remove(db: AsyncSession, kind: str, owner_id: int) -> None:
         raise LedgerError(LOCKED.format(what=what), status=409)
     row.active = False
     await db.flush()
+    await _withdraw_drafts(db, source, owner_id, viewer)

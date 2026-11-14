@@ -27,8 +27,12 @@ część pierwsza. Fundament: `ksiega-nexusa-k1-fundament.md`, źródła miesią
   miesiącem nie zmienia się i nie usuwa (409). Zmiana kwoty przerobiłaby
   wszystkie zamknięte miesiące na problemy do storna. Wzór kończy się datą
   (`end_month` nie wcześniej niż ostatni zatwierdzony miesiąc); nowa kwota =
-  nowy wzór od następnego miesiąca. Usunięcie (bez zatwierdzonych) wycofuje
-  szkice przy następnym księgowaniu.
+  nowy wzór od następnego miesiąca.
+- **Szkice znikają od razu**: usunięcie wzoru albo RMK i każda zmiana treści
+  zdejmują jego szkice z bufora, a „Zakończ” — szkice po ostatnim miesiącu.
+  Następne „Zaksięguj miesiąc” zrobi je od nowa z nowych danych. Czekanie na
+  księgowanie zostawiało w buforze szkic ze starymi kwotami, który dało się
+  zatwierdzić (przegląd K3a 14.11.2026).
 - Wzory i RMK zakłada lista „Księgowi” albo admin; podgląd „Moduł Finanse”
   przy otwartym module. Pozycje wzoru przechodzą tę samą kontrolę co PK
   (konta z planu, Wn = Ma).
