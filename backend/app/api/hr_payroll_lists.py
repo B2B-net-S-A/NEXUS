@@ -182,6 +182,8 @@ class InputBody(BaseModel):
     contract_id: Optional[int] = Field(default=None, ge=1)
     kind: Literal["uop", "zlecenie", "dzielo"]
     gross: Optional[str] = Field(default=None, max_length=20)
+    #: Podstawa do warunku FP w przeliczeniu na pełny miesiąc (L4, urlop bezpłatny).
+    fund_basis: Optional[str] = Field(default=None, max_length=20)
     note: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -441,6 +443,7 @@ async def put_input(
             kind=body.kind,
             gross=body.gross,
             note=body.note,
+            fund_basis=body.fund_basis,
         )
         return await lists.month_payload(
             db, viewer=current_user, year=year, month=month

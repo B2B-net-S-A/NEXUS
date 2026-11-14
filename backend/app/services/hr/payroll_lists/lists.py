@@ -30,7 +30,7 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from sqlalchemy import delete, exists, select
+from sqlalchemy import delete, exists, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
@@ -106,6 +106,11 @@ PROBLEMS: dict[str, tuple[str, bool]] = {
         "Kontrakt zleceniowy bez kandydata — nie wiadomo, komu wypłacić.",
         True,
     ),
+    "ppk_untaxed": (
+        "Wpłata pracodawcy PPK z poprzedniego miesiąca bez pozycji na liście — "
+        "dolicz ją do przychodu osoby ręcznie (kwota w PIT-11).",
+        False,
+    ),
     "skipped_zero": (
         "Kwota 0 wpisana przez Rozliczenia — osoba pominięta w tym miesiącu.",
         False,
@@ -139,6 +144,16 @@ TOTAL_FIELDS: tuple[str, ...] = (
     "ppk_employer",
     "employer_cost",
 )
+
+
+#: Jedna zmiana list płac naraz (przelicz, zatwierdź, anuluj, kwoty Płac, otwarcie
+#: roku): stan roku, miesiąca i PPK jednej listy zależy od innych list, a zwykłe
+#: odczyty w READ COMMITTED nie widzą niezacommitowanego zatwierdzenia obok.
+_SERIALIZE = text("SELECT pg_advisory_xact_lock(hashtext('hr_payroll_lists'))")
+
+
+async def serialize(db: AsyncSession) -> None:
+    await db.execute(_SERIALIZE)
 
 
 def blocking(code: str) -> bool:
@@ -197,7 +212,7 @@ class Prepared:
     profiles: dict[int, EmployeeProfile] = field(default_factory=dict)
     ytd: dict[str, YearToDate] = field(default_factory=dict)
     ppk: dict[str, Decimal] = field(default_factory=dict)
-    ppk_list_id: Optional[int] = None
+    month: dict[str, sources.MonthState] = field(default_factory=dict)
     list_problems: list[dict[str, Any]] = field(default_factory=list)
     source_hash: str = ""
 
@@ -255,9 +270,18 @@ async def collect(
     prepared.ytd = await sources.year_to_date(
         db, year=pay.year, up_to=pay, exclude_list_id=exclude_list_id
     )
-    prepared.ppk_list_id, prepared.ppk = await sources.previous_ppk_employer(
-        db, before=pay, exclude_list_id=exclude_list_id
+    prepared.month = await sources.month_state(
+        db, pay=pay, exclude_list_id=exclude_list_id
     )
+    due = await sources.ppk_employer_due(db, pay=pay, exclude_list_id=exclude_list_id)
+    prepared.ppk = {key: amount for key, (amount, _name) in due.items()}
+    on_list = {item.person_key for item in gathered.sources if item.gross is not None}
+    for key, (_amount, name) in sorted(due.items()):
+        if key not in on_list:
+            # Wpłata pracodawcy PPK bez pozycji na liście — nie zniknie po cichu.
+            list_problems.append(
+                {"code": "ppk_untaxed", "person": name, "blocking": False}
+            )
     prepared.list_problems = list_problems
     prepared.source_hash = hashlib.sha256(
         _canonical(
@@ -269,18 +293,22 @@ async def collect(
                 "problems": gathered.problems,
                 "persons": prepared.person_versions,
                 "unreadable": sorted(prepared.unreadable),
-                "students": {
+                "profiles": {
                     str(uid): [
                         bool(p.student_contribution_exempt),
-                        p.contribution_exempt_until.isoformat()
-                        if p.contribution_exempt_until
-                        else None,
+                        p.contribution_exempt_until,
+                        p.work_start_date,
+                        p.hired_on,
+                        p.last_working_day,
                     ]
                     for uid, p in sorted(prepared.profiles.items())
                 },
                 "ytd": {key: s.to_json() for key, s in sorted(prepared.ytd.items())},
                 "ppk": {key: str(v) for key, v in sorted(prepared.ppk.items())},
-                "ppk_list": prepared.ppk_list_id,
+                "month": {
+                    key: state.fingerprint()
+                    for key, state in sorted(prepared.month.items())
+                },
             }
         ).encode()
     ).hexdigest()
@@ -295,8 +323,40 @@ class Computed:
     missing_files: list[str]
 
 
+def fund_equivalent(
+    item: sources.Source,
+    profile: Optional[EmployeeProfile],
+    first: date,
+    last: date,
+) -> Decimal:
+    """Podstawa pozycji do warunku FP w przeliczeniu na pełny miesiąc.
+
+    Kwota Płac może nieść ją wprost (L4, urlop bezpłatny); umowa o pracę
+    zaczęta albo skończona w miesiącu przelicza się dniami kalendarzowymi.
+    """
+
+    gross = item.gross or ZERO
+    if item.fund_basis is not None:
+        return item.fund_basis
+    if item.kind != "uop" or profile is None or gross <= 0:
+        return gross
+    start = max(first, profile.work_start_date or profile.hired_on or first)
+    end = min(last, profile.last_working_day or last)
+    if end < start:
+        return gross
+    days = (end - start).days + 1
+    month_days = (last - first).days + 1
+    if days >= month_days:
+        return gross
+    return engine.money(gross * month_days / days)
+
+
 def calculate(prepared: Prepared) -> list[Computed]:
-    """Silnik po osobach: UoP przed zleceniem, stan roku przechodzi z pozycji na pozycję."""
+    """Silnik po osobach: UoP przed zleceniem, stan roku i miesiąca z pozycji na pozycję.
+
+    Kwota zmniejszająca z PIT-2 i koszty UoP odejmują się raz w miesiącu wypłaty:
+    start ze stanu innych zatwierdzonych list tego miesiąca, potem po pozycjach.
+    """
 
     params = prepared.params
     first = month_start(prepared.period.year, prepared.period.month)
@@ -328,13 +388,16 @@ def calculate(prepared: Prepared) -> list[Computed]:
         has_uop = any(item.kind == "uop" for item in items)
         fund_basis = sum(
             (
-                item.gross
+                fund_equivalent(item, profile, first, last)
                 for item in items
                 if item.kind in ("uop", "zlecenie") and item.gross
             ),
             ZERO,
         )
         state = prepared.ytd.get(key, YearToDate())
+        month = prepared.month.get(key, sources.MonthState())
+        reduction_used = month.reduction_used
+        kup_used = month.kup_used
         ppk_taxable = prepared.ppk.get(key, ZERO)
         for item in items:
             problems = list(dict.fromkeys([*item.problems, *person_problems]))
@@ -355,10 +418,15 @@ def calculate(prepared: Prepared) -> list[Computed]:
                 flat_tax_allowed=not has_uop,
                 ppk_employer_taxable=ppk_taxable,
                 labour_fund_basis=fund_basis,
+                reduction_used=reduction_used,
+                kup_used=kup_used,
             )
             ppk_taxable = ZERO
             result = engine.calculate(title, tax, state, params)
             state = result.ytd_after
+            reduction_used += result.tax_reduction
+            if item.kind == "uop":
+                kup_used += result.kup
             out.append(Computed(item, result, problems, missing_files))
     return out
 
@@ -466,6 +534,7 @@ async def compute(
     """Liczy szkic listy okresu (bez commita)."""
 
     validate_period(year, month)
+    await serialize(db)
     period = await lock_period_shared(db, year, month)
     if period.status != "closed":
         raise PayrollConflict(
@@ -484,9 +553,7 @@ async def compute(
     else:
         pay = check_pay_date(year, month, pay_date)
     exclude = current.id if current else None
-    later = await sources.later_approved(
-        db, year=pay.year, after=pay, exclude_list_id=exclude
-    )
+    later = await sources.later_approved(db, after=pay, exclude_list_id=exclude)
     if later is not None:
         raise PayrollConflict(
             f"Jest zatwierdzona lista {later.number} z późniejszą wypłatą — limity "
@@ -533,6 +600,9 @@ async def compute(
                 list_id=current.id,
                 user_id=item.source.user_id,
                 candidate_id=item.source.candidate_id,
+                candidate_ref=person_data.candidate_ref(item.source.candidate_id)
+                if item.source.candidate_id is not None
+                else None,
                 contract_id=item.source.contract_id,
                 person_name=item.source.name[:255],
                 kind=item.source.kind,
@@ -594,6 +664,7 @@ async def approval_refusal(
 
 async def approve(db: AsyncSession, *, actor: User, list_id: int) -> PayrollList:
     # Kolejność blokad jak w „Przelicz”: najpierw okres (FOR SHARE), potem lista.
+    await serialize(db)
     found = await get_list(db, list_id)
     period = await lock_period_shared(db, found.year, found.month)
     lst = await get_list(db, list_id, lock=True)
@@ -616,9 +687,7 @@ async def approve(db: AsyncSession, *, actor: User, list_id: int) -> PayrollList
             "Parametry płac zmieniły się po przeliczeniu — przelicz listę.",
             code="stale_list",
         )
-    later = await sources.later_approved(
-        db, year=lst.pay_date.year, after=lst.pay_date, exclude_list_id=lst.id
-    )
+    later = await sources.later_approved(db, after=lst.pay_date, exclude_list_id=lst.id)
     if later is not None:
         raise PayrollConflict(
             f"Jest zatwierdzona lista {later.number} z późniejszą wypłatą — przelicz "
@@ -683,7 +752,8 @@ def _reason(raw: Optional[str]) -> str:
 async def cancel(
     db: AsyncSession, *, actor: User, list_id: int, reason: Optional[str]
 ) -> PayrollList:
-    text = _reason(reason)
+    note = _reason(reason)
+    await serialize(db)
     lst = await get_list(db, list_id, lock=True)
     if lst.status == "cancelled":
         raise PayrollConflict("Lista jest już anulowana.", code="list_cancelled")
@@ -695,7 +765,7 @@ async def cancel(
         )
     if lst.status == "approved":
         later = await sources.later_approved(
-            db, year=lst.pay_date.year, after=lst.pay_date, exclude_list_id=lst.id
+            db, after=lst.pay_date, exclude_list_id=lst.id
         )
         if later is not None:
             raise PayrollConflict(
@@ -707,7 +777,7 @@ async def cancel(
     lst.status = "cancelled"
     lst.cancelled_by = actor.id
     lst.cancelled_at = local_now()
-    lst.cancel_reason = text
+    lst.cancel_reason = note
     await db.flush()
     audit.record(
         db,
@@ -760,10 +830,16 @@ async def set_gross_input(
     kind: str,
     gross: Optional[Any],
     note: Optional[str],
+    fund_basis: Optional[Any] = None,
 ) -> Optional[PayrollGrossInput]:
-    """Kwota Płac na miesiąc; ``gross=None`` usuwa wpis (bez commita)."""
+    """Kwota Płac na miesiąc; ``gross=None`` usuwa wpis (bez commita).
+
+    ``fund_basis`` — podstawa do warunku Funduszu Pracy w przeliczeniu na pełny
+    miesiąc (np. pensja przy L4 albo urlopie bezpłatnym); brak = kwota brutto.
+    """
 
     validate_period(year, month)
+    await serialize(db)
     if (user_id is None) == (contract_id is None):
         raise PayrollError("Kwota dotyczy osoby z zespołu albo kontraktu.")
     if kind not in ("uop", "zlecenie", "dzielo"):
@@ -784,6 +860,10 @@ async def set_gross_input(
         contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
         if contract is None or contract.contract_type != ContractType.uzlecenie:
             raise PayrollNotFound("Nie ma takiego kontraktu zleceniowego.")
+        if contract.candidate_id is None:
+            raise PayrollError(
+                "Kontrakt nie ma przypiętego kandydata — nie wiadomo, komu wypłacić."
+            )
         if kind != "zlecenie":
             raise PayrollError("Kontrakt u klienta to umowa zlecenia.")
     period = await lock_period_shared(db, year, month)
@@ -811,6 +891,7 @@ async def set_gross_input(
         item: Optional[PayrollGrossInput] = None
     else:
         amount = _gross(gross)
+        fund = None if fund_basis in (None, "") else _gross(fund_basis)
         text = " ".join((note or "").split())
         if not 3 <= len(text) <= NOTE_MAX:
             raise PayrollError("Opisz, skąd kwota (od 3 do 500 znaków).")
@@ -821,11 +902,13 @@ async def set_gross_input(
                 contract_id=contract_id,
                 kind=kind,
                 gross=amount,
+                fund_basis=fund,
                 note=text,
             )
             db.add(current)
         else:
             current.gross = amount
+            current.fund_basis = fund
             current.note = text
         current.entered_by = actor.id
         current.entered_at = local_now()
@@ -885,6 +968,7 @@ async def set_opening(
 ) -> PayrollYearOpening:
     if not 2020 <= year <= 2100 or not 1 <= through_month <= 12:
         raise PayrollError("Rok i miesiąc otwarcia poza zakresem.")
+    await serialize(db)
     if subject.user_id is not None and subject.user_id == actor.id:
         if not actor.has_role(UserRole.admin):
             raise PayrollForbidden(
@@ -910,6 +994,9 @@ async def set_opening(
         current = PayrollYearOpening(
             user_id=subject.user_id,
             candidate_id=subject.candidate_id,
+            candidate_ref=person_data.candidate_ref(subject.candidate_id)
+            if subject.candidate_id is not None
+            else None,
             year=year,
             through_month=through_month,
             amounts=clean,
@@ -1092,6 +1179,9 @@ async def month_payload(
                     "contract_id": item.contract_id,
                     "kind": item.kind,
                     "gross": str(item.gross),
+                    "fund_basis": None
+                    if item.fund_basis is None
+                    else str(item.fund_basis),
                     "note": item.note,
                     "entered_at": item.entered_at.isoformat()
                     if item.entered_at

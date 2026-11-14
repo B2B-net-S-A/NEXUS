@@ -478,7 +478,10 @@ async def test_change_after_compute_needs_recompute(client, world) -> None:
 
 @pytest.mark.asyncio
 async def test_payslips_pdf_for_draft(client, world) -> None:
-    pytest.importorskip("weasyprint")
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError):
+        pytest.skip("WeasyPrint bez bibliotek systemowych (pango)")
     w = world
     payload = await _compute(client, w)
     response = await client.get(
@@ -522,3 +525,89 @@ async def test_parameters_history_and_confirmation(client, world) -> None:
         f"{BASE}/parameters/{version['id']}/confirm", headers=headers(w.hr)
     )
     assert refused.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_input_for_contract_outside_month_becomes_a_line(client, world) -> None:
+    w = world
+    async with AsyncSessionLocal() as db:
+        ended = Contract(
+            client_id=w.client_id,
+            candidate_id=w.candidate_id,
+            contract_type=ContractType.uzlecenie,
+            status=ContractStatus.ended,
+            start_date=date(w.year, 1, 1),
+            end_date=date(w.year, 9, 30),
+            rate_candidate=Decimal("40"),
+        )
+        db.add(ended)
+        await db.commit()
+        ended_id = ended.id
+    try:
+        saved = await client.put(
+            f"{BASE}/months/{w.year}/10/inputs",
+            json={
+                "contract_id": ended_id,
+                "kind": "zlecenie",
+                "gross": "1200.00",
+                "note": "rozliczenie po końcu umowy",
+            },
+            headers=headers(w.payroll1),
+        )
+        assert saved.status_code == 200, saved.text
+        payload = await _compute(client, w)
+        line = _line(payload, contract_id=ended_id)
+        assert line["source"] == "manual" and line["gross"] == "1200.00"
+        assert line["basis"]["outside_month"] is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(PayrollGrossInput).where(
+                    PayrollGrossInput.contract_id == ended_id
+                )
+            )
+            list_ids = list(
+                await db.scalars(
+                    select(PayrollList.id).where(PayrollList.year == w.year)
+                )
+            )
+            await db.execute(
+                delete(PayrollListLine).where(
+                    PayrollListLine.list_id.in_(list_ids or [0])
+                )
+            )
+            await db.execute(delete(Contract).where(Contract.id == ended_id))
+            await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_deleted_candidate_keeps_pseudonymised_payroll_data(
+    client, world
+) -> None:
+    w = world
+    saved = await client.put(
+        f"{BASE}/people/candidates/{w.candidate_id}",
+        json=_full_data(date(1985, 1, 9), 7771),
+        headers=headers(w.hr),
+    )
+    assert saved.status_code == 200, saved.text
+    async with AsyncSessionLocal() as db:
+        record = await db.scalar(
+            select(PayrollPersonData).where(
+                PayrollPersonData.candidate_id == w.candidate_id
+            )
+        )
+        assert record is not None and record.candidate_ref
+        ref = record.candidate_ref
+        await db.execute(
+            delete(Contract).where(Contract.candidate_id == w.candidate_id)
+        )
+        await db.execute(delete(Candidate).where(Candidate.id == w.candidate_id))
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        kept = await db.scalar(
+            select(PayrollPersonData).where(PayrollPersonData.candidate_ref == ref)
+        )
+        assert kept is not None and kept.candidate_id is None
+        await db.delete(kept)
+        await db.commit()

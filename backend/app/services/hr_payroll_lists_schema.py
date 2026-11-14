@@ -10,7 +10,11 @@ Plan: https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar (etap K7).
   Jawne są tylko skróty HMAC (PESEL bez powtórzeń, rachunek do paczki), cztery
   ostatnie cyfry do maski i lista brakujących pól (nazwy, bez wartości).
   Osoba to konto (``user_id``, zespół) albo kandydat (``candidate_id``,
-  zleceniobiorca u klienta bez konta) — dokładnie jedno z nich.
+  zleceniobiorca u klienta bez konta) — dokładnie jedno z nich. Przy kandydacie
+  zawsze stoi też ``candidate_ref`` (pseudonim ``candidate_subject_reference``,
+  jak przy umowach): klucz obcy do ``candidates`` ma ``SET NULL`` (strażnik
+  ``test_every_candidate_fk_has_on_delete_rule``), więc po usunięciu kandydata
+  dokumentacja płacowa zostaje i nadal łączy się pseudonimem.
 * ``payroll_parameter_versions`` — parametry płac od daty (pełny zestaw).
   Zmiana daty, która już ma wersję, zostawia starą jako zastąpioną (historia),
   wersja użyta przez zatwierdzoną listę jest nietykalna (serwis).
@@ -52,7 +56,13 @@ NUMBER_MAX = 32
 NOTE_MAX = 500
 GROSS_MAX = "10000000"
 
-CK_PERSON_SUBJECT = "(user_id IS NULL) <> (candidate_id IS NULL)"
+#: Konto albo pseudonim kandydata; ``candidate_id`` tylko z pseudonimem (po
+#: usunięciu kandydata ``SET NULL`` zostawia sam pseudonim).
+CK_PERSON_SUBJECT = (
+    "(user_id IS NOT NULL) <> (candidate_ref IS NOT NULL) "
+    "AND (candidate_id IS NULL OR candidate_ref IS NOT NULL)"
+)
+CK_CANDIDATE_REF = "candidate_ref IS NULL OR candidate_ref ~ '^[0-9a-f]{64}$'"
 CK_LAST4_PESEL = "pesel_last4 IS NULL OR pesel_last4 ~ '^[0-9]{4}$'"
 CK_LAST4_ACCOUNT = "account_last4 IS NULL OR account_last4 ~ '^[0-9]{4}$'"
 CK_MISSING = "jsonb_typeof(missing) = 'array'"
@@ -91,6 +101,7 @@ CK_LINE_PAYEE = "payee_last4 IS NULL OR payee_last4 ~ '^[0-9]{4}$'"
 CK_INPUT_SUBJECT = "(user_id IS NULL) <> (contract_id IS NULL)"
 CK_INPUT_KIND = f"kind IN ({quoted(LINE_KINDS)})"
 CK_INPUT_GROSS = f"gross >= 0 AND gross <= {GROSS_MAX}"
+CK_INPUT_FUND = f"fund_basis IS NULL OR (fund_basis >= 0 AND fund_basis <= {GROSS_MAX})"
 CK_INPUT_NOTE = f"char_length(note) BETWEEN 3 AND {NOTE_MAX}"
 
 CK_OPENING_SUBJECT = CK_PERSON_SUBJECT
@@ -103,7 +114,8 @@ TABLE_DDL: tuple[str, ...] = (
     f"""CREATE TABLE IF NOT EXISTS payroll_person_data (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NULL REFERENCES users(id) ON DELETE RESTRICT,
-    candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE RESTRICT,
+    candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE SET NULL,
+    candidate_ref VARCHAR(64) NULL,
     data_encrypted TEXT NOT NULL,
     pesel_hmac VARCHAR(64) NULL,
     pesel_last4 VARCHAR(4) NULL,
@@ -115,6 +127,7 @@ TABLE_DDL: tuple[str, ...] = (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_payroll_person_data_subject CHECK ({CK_PERSON_SUBJECT}),
+    CONSTRAINT ck_payroll_person_data_candidate_ref CHECK ({CK_CANDIDATE_REF}),
     CONSTRAINT ck_payroll_person_data_pesel_last4 CHECK ({CK_LAST4_PESEL}),
     CONSTRAINT ck_payroll_person_data_account_last4 CHECK ({CK_LAST4_ACCOUNT}),
     CONSTRAINT ck_payroll_person_data_missing CHECK ({CK_MISSING})
@@ -179,7 +192,8 @@ TABLE_DDL: tuple[str, ...] = (
     id BIGSERIAL PRIMARY KEY,
     list_id INTEGER NOT NULL REFERENCES payroll_lists(id) ON DELETE CASCADE,
     user_id INTEGER NULL REFERENCES users(id) ON DELETE RESTRICT,
-    candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE RESTRICT,
+    candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE SET NULL,
+    candidate_ref VARCHAR(64) NULL,
     contract_id INTEGER NULL REFERENCES contracts(id) ON DELETE SET NULL,
     person_name VARCHAR({NAME_MAX}) NOT NULL,
     kind VARCHAR(10) NOT NULL,
@@ -198,6 +212,7 @@ TABLE_DDL: tuple[str, ...] = (
     payee_hmac VARCHAR(64) NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_payroll_list_lines_subject CHECK ({CK_LINE_SUBJECT}),
+    CONSTRAINT ck_payroll_list_lines_candidate_ref CHECK ({CK_CANDIDATE_REF}),
     CONSTRAINT ck_payroll_list_lines_kind CHECK ({CK_LINE_KIND}),
     CONSTRAINT ck_payroll_list_lines_source CHECK ({CK_LINE_SOURCE}),
     CONSTRAINT ck_payroll_list_lines_gross CHECK ({CK_LINE_GROSS}),
@@ -213,18 +228,21 @@ TABLE_DDL: tuple[str, ...] = (
     contract_id INTEGER NULL REFERENCES contracts(id) ON DELETE CASCADE,
     kind VARCHAR(10) NOT NULL,
     gross NUMERIC(14,2) NOT NULL,
+    fund_basis NUMERIC(14,2) NULL,
     note VARCHAR({NOTE_MAX}) NOT NULL,
     entered_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     entered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_payroll_gross_inputs_subject CHECK ({CK_INPUT_SUBJECT}),
     CONSTRAINT ck_payroll_gross_inputs_kind CHECK ({CK_INPUT_KIND}),
     CONSTRAINT ck_payroll_gross_inputs_gross CHECK ({CK_INPUT_GROSS}),
+    CONSTRAINT ck_payroll_gross_inputs_fund CHECK ({CK_INPUT_FUND}),
     CONSTRAINT ck_payroll_gross_inputs_note CHECK ({CK_INPUT_NOTE})
 )""",
     f"""CREATE TABLE IF NOT EXISTS payroll_year_openings (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NULL REFERENCES users(id) ON DELETE RESTRICT,
-    candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE RESTRICT,
+    candidate_id INTEGER NULL REFERENCES candidates(id) ON DELETE SET NULL,
+    candidate_ref VARCHAR(64) NULL,
     year SMALLINT NOT NULL,
     through_month SMALLINT NOT NULL,
     amounts JSONB NOT NULL,
@@ -232,6 +250,7 @@ TABLE_DDL: tuple[str, ...] = (
     entered_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
     entered_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT ck_payroll_year_openings_subject CHECK ({CK_OPENING_SUBJECT}),
+    CONSTRAINT ck_payroll_year_openings_candidate_ref CHECK ({CK_CANDIDATE_REF}),
     CONSTRAINT ck_payroll_year_openings_year CHECK ({CK_OPENING_YEAR}),
     CONSTRAINT ck_payroll_year_openings_month CHECK ({CK_OPENING_MONTH}),
     CONSTRAINT ck_payroll_year_openings_amounts CHECK ({CK_OPENING_AMOUNTS}),
@@ -246,6 +265,8 @@ INDEX_DDL: tuple[str, ...] = (
     "ON payroll_person_data (user_id) WHERE user_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_person_data_candidate "
     "ON payroll_person_data (candidate_id) WHERE candidate_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_person_data_candidate_ref "
+    "ON payroll_person_data (candidate_ref) WHERE candidate_ref IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_person_data_pesel "
     "ON payroll_person_data (pesel_hmac) WHERE pesel_hmac IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_parameter_versions_live "
@@ -263,7 +284,7 @@ INDEX_DDL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_payroll_list_lines_user "
     "ON payroll_list_lines (user_id) WHERE user_id IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS ix_payroll_list_lines_candidate "
-    "ON payroll_list_lines (candidate_id) WHERE candidate_id IS NOT NULL",
+    "ON payroll_list_lines (candidate_ref) WHERE candidate_ref IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_gross_inputs_user "
     "ON payroll_gross_inputs (period_id, user_id, kind) WHERE user_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_gross_inputs_contract "
@@ -271,7 +292,7 @@ INDEX_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_year_openings_user "
     "ON payroll_year_openings (user_id, year) WHERE user_id IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_year_openings_candidate "
-    "ON payroll_year_openings (candidate_id, year) WHERE candidate_id IS NOT NULL",
+    "ON payroll_year_openings (candidate_ref, year) WHERE candidate_ref IS NOT NULL",
 )
 
 CONSTRAINT_DDL: tuple[str, ...] = ()

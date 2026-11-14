@@ -41,6 +41,7 @@ from app.models.hr_payroll_lists import PayrollPersonData
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
+from app.services.candidate_audit import candidate_subject_reference
 from app.services.hr import audit
 from app.services.hr.bank.accounts import AccountError, normalize_nrb
 from app.services.hr.billing_details import account_fingerprint
@@ -159,6 +160,18 @@ def can_edit(user: User) -> bool:
         or has_permission(user, ProductAction.people_admin)
         or has_permission(user, ProductAction.payroll)
     )
+
+
+def candidate_ref(candidate_id: int) -> str:
+    """Pseudonim kandydata (jak przy umowach) — łączy dokumentację płacową po
+    usunięciu kandydata (klucz obcy ``SET NULL``)."""
+
+    try:
+        return candidate_subject_reference(candidate_id)
+    except RuntimeError:
+        raise PersonDataError(
+            "Brak klucza pseudonimizacji kandydatów — nic nie zapisano.", 503
+        ) from None
 
 
 def ensure_not_own(actor: User, subject: Subject) -> None:
@@ -798,6 +811,9 @@ async def update(
         record = PayrollPersonData(
             user_id=subject.user_id,
             candidate_id=subject.candidate_id,
+            candidate_ref=candidate_ref(subject.candidate_id)
+            if subject.candidate_id is not None
+            else None,
             data_encrypted=encrypted,
             version=1,
         )

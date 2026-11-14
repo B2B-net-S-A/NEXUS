@@ -44,6 +44,9 @@ class PayrollPersonData(Base, TimestampMixin):
             schema.CK_PERSON_SUBJECT, name="ck_payroll_person_data_subject"
         ),
         CheckConstraint(
+            schema.CK_CANDIDATE_REF, name="ck_payroll_person_data_candidate_ref"
+        ),
+        CheckConstraint(
             schema.CK_LAST4_PESEL, name="ck_payroll_person_data_pesel_last4"
         ),
         CheckConstraint(
@@ -63,6 +66,12 @@ class PayrollPersonData(Base, TimestampMixin):
             postgresql_where=text("candidate_id IS NOT NULL"),
         ),
         Index(
+            "uq_payroll_person_data_candidate_ref",
+            "candidate_ref",
+            unique=True,
+            postgresql_where=text("candidate_ref IS NOT NULL"),
+        ),
+        Index(
             "uq_payroll_person_data_pesel",
             "pesel_hmac",
             unique=True,
@@ -75,8 +84,9 @@ class PayrollPersonData(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     candidate_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("candidates.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
     )
+    candidate_ref: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     data_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     pesel_hmac: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     pesel_last4: Mapped[Optional[str]] = mapped_column(String(4), nullable=True)
@@ -250,6 +260,9 @@ class PayrollListLine(Base):
     __tablename__ = "payroll_list_lines"
     __table_args__ = (
         CheckConstraint(schema.CK_LINE_SUBJECT, name="ck_payroll_list_lines_subject"),
+        CheckConstraint(
+            schema.CK_CANDIDATE_REF, name="ck_payroll_list_lines_candidate_ref"
+        ),
         CheckConstraint(schema.CK_LINE_KIND, name="ck_payroll_list_lines_kind"),
         CheckConstraint(schema.CK_LINE_SOURCE, name="ck_payroll_list_lines_source"),
         CheckConstraint(schema.CK_LINE_GROSS, name="ck_payroll_list_lines_gross"),
@@ -280,8 +293,8 @@ class PayrollListLine(Base):
         ),
         Index(
             "ix_payroll_list_lines_candidate",
-            "candidate_id",
-            postgresql_where=text("candidate_id IS NOT NULL"),
+            "candidate_ref",
+            postgresql_where=text("candidate_ref IS NOT NULL"),
         ),
     )
 
@@ -293,8 +306,9 @@ class PayrollListLine(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     candidate_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("candidates.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
     )
+    candidate_ref: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     contract_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("contracts.id", ondelete="SET NULL"), nullable=True
     )
@@ -340,6 +354,7 @@ class PayrollGrossInput(Base):
         ),
         CheckConstraint(schema.CK_INPUT_KIND, name="ck_payroll_gross_inputs_kind"),
         CheckConstraint(schema.CK_INPUT_GROSS, name="ck_payroll_gross_inputs_gross"),
+        CheckConstraint(schema.CK_INPUT_FUND, name="ck_payroll_gross_inputs_fund"),
         CheckConstraint(schema.CK_INPUT_NOTE, name="ck_payroll_gross_inputs_note"),
         Index(
             "uq_payroll_gross_inputs_user",
@@ -370,6 +385,7 @@ class PayrollGrossInput(Base):
     )
     kind: Mapped[str] = mapped_column(String(10), nullable=False)
     gross: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+    fund_basis: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2), nullable=True)
     note: Mapped[str] = mapped_column(String(schema.NOTE_MAX), nullable=False)
     entered_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
@@ -387,6 +403,9 @@ class PayrollYearOpening(Base):
         CheckConstraint(
             schema.CK_OPENING_SUBJECT, name="ck_payroll_year_openings_subject"
         ),
+        CheckConstraint(
+            schema.CK_CANDIDATE_REF, name="ck_payroll_year_openings_candidate_ref"
+        ),
         CheckConstraint(schema.CK_OPENING_YEAR, name="ck_payroll_year_openings_year"),
         CheckConstraint(schema.CK_OPENING_MONTH, name="ck_payroll_year_openings_month"),
         CheckConstraint(
@@ -402,10 +421,10 @@ class PayrollYearOpening(Base):
         ),
         Index(
             "uq_payroll_year_openings_candidate",
-            "candidate_id",
+            "candidate_ref",
             "year",
             unique=True,
-            postgresql_where=text("candidate_id IS NOT NULL"),
+            postgresql_where=text("candidate_ref IS NOT NULL"),
         ),
     )
 
@@ -414,8 +433,9 @@ class PayrollYearOpening(Base):
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
     candidate_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("candidates.id", ondelete="RESTRICT"), nullable=True
+        ForeignKey("candidates.id", ondelete="SET NULL"), nullable=True
     )
+    candidate_ref: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     through_month: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     amounts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

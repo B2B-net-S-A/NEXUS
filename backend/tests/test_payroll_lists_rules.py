@@ -651,3 +651,83 @@ def test_number_fields_accept_any_type_without_echo() -> None:
         {}, {"document_type": "passport", "document_number": 123456789}
     )
     assert data["document_number"] == "123456789"
+
+
+def test_payslip_pdf_renders_when_weasyprint_available() -> None:
+    try:
+        import weasyprint  # noqa: F401
+    except (ImportError, OSError):
+        pytest.skip("WeasyPrint bez bibliotek systemowych (pango)")
+    slip = payslip_pdf.Payslip(
+        list_number="LP/2026/10",
+        year=2026,
+        month=10,
+        pay_date=date(2026, 11, 10),
+        approved=True,
+        person_name="Osoba Testowa",
+        kind="zlecenie",
+        source_label="rozliczenie klienta",
+        basis={},
+        result={
+            "gross": "7056.00",
+            "net": "5096.96",
+            "pit": "601",
+            "tax_kind": "scale",
+        },
+    )
+    assert payslip_pdf.render_pdf([slip], employer=True).startswith(b"%PDF")
+
+
+def test_two_mandates_of_one_person_share_one_monthly_reduction() -> None:
+    contractor = {**FULL, "pesel": _pesel(date(1980, 1, 1), 33)}
+    prepared = _prepared(
+        [
+            _src("k1", "c5", "zlecenie", "3000", candidate_id=5, contract_id=1),
+            _src("k2", "c5", "zlecenie", "3000", candidate_id=5, contract_id=2),
+        ],
+        {"c5": contractor},
+    )
+    first, second = lists.calculate(prepared)
+    assert first.result is not None and second.result is not None
+    total = first.result.tax_reduction + second.result.tax_reduction
+    assert total == D("300.00")
+    assert first.result.pit == D("0") and second.result.pit == D("211")
+
+
+def test_month_state_from_other_lists_blocks_second_reduction() -> None:
+    prepared = _prepared(
+        [_src("u1:uop", "u1", "uop", "7800", user_id=1)],
+        {"u1": FULL},
+    )
+    prepared.month = {
+        "u1": sources.MonthState(reduction_used=D("300"), kup_used=D("250"))
+    }
+    (line,) = lists.calculate(prepared)
+    assert line.result is not None
+    assert line.result.tax_reduction == D("0") and line.result.kup == D("0")
+
+
+def test_fund_equivalent_from_input_or_partial_employment() -> None:
+    first, last = date(2026, 10, 1), date(2026, 10, 31)
+    manual = _src("u1:uop", "u1", "uop", "3000", user_id=1, source="manual")
+    manual.fund_basis = D("6000")
+    assert lists.fund_equivalent(manual, None, first, last) == D("6000")
+    started = SimpleNamespace(
+        work_start_date=date(2026, 10, 16), hired_on=None, last_working_day=None
+    )
+    half = _src("u2:uop", "u2", "uop", "2400", user_id=2)
+    assert lists.fund_equivalent(half, started, first, last) == D("4650.00")
+    full = SimpleNamespace(
+        work_start_date=date(2025, 1, 1), hired_on=None, last_working_day=None
+    )
+    assert lists.fund_equivalent(half, full, first, last) == D("2400")
+    mandate = _src("u3:zlecenie", "u3", "zlecenie", "2400", user_id=3)
+    assert lists.fund_equivalent(mandate, started, first, last) == D("2400")
+
+
+def test_labour_fund_paid_for_half_month_with_full_month_equivalent() -> None:
+    item = _src("u1:uop", "u1", "uop", "3000", user_id=1, source="manual")
+    item.fund_basis = D("6000")
+    (line,) = lists.calculate(_prepared([item], {"u1": FULL}))
+    assert line.result is not None
+    assert line.result.labour_fund == D("73.50")

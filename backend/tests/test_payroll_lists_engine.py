@@ -434,3 +434,24 @@ def test_parameters_change_flows_into_result() -> None:
     higher_accident = replace(P, accident_employer_rate=D("2.00"))
     r = engine.calculate(title("uop", "7800"), person(), YearToDate(), higher_accident)
     assert r.accident_employer == D("156.00")
+
+
+# ── Raz na miesiąc: kwota zmniejszająca i koszty UoP ────────────────────────
+
+
+def test_reduction_and_kup_already_used_this_month() -> None:
+    p = person(pit2_fraction=12)
+    used = calc(title("uop", "7800", reduction_used=D("300"), kup_used=D("250")), p)
+    assert used.tax_reduction == D("0")
+    assert used.kup == D("0")
+    # 7800 − 1069,38 = 6730,62 → 6731 × 12% = 807,72 → 808
+    assert used.pit == D("808")
+    partial = calc(title("uop", "7800", reduction_used=D("100")), p)
+    assert partial.tax_reduction == D("200.00")
+    assert partial.pit == D("578")
+
+
+def test_reduction_never_exceeds_tax_of_the_line() -> None:
+    small = calc(title("zlecenie", "1000"), person(pit2_fraction=12))
+    assert small.pit == D("0")
+    assert small.tax_reduction < D("300")

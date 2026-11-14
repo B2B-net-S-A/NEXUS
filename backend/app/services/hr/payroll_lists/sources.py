@@ -14,15 +14,17 @@ Pozycje listy:
 
 Stan roku podatkowego osoby (rok daty wypłaty) = otwarcie z Enovy
 (``payroll_year_openings``) + zatwierdzone listy tego roku z wypłatą nie
-późniejszą niż ta lista. Wpłata pracodawcy PPK z poprzedniej zatwierdzonej
-listy jest przychodem osoby na tej liście (miesiąc przekazania do instytucji).
+późniejszą niż ta lista. Wpłata pracodawcy PPK z list wypłaconych w poprzednim
+miesiącu jest przychodem osoby w miesiącu tej wypłaty (przekazanie do
+instytucji do 15. dnia), a stan miesiąca (``month_state``) mówi, ile kwoty
+zmniejszającej, kosztów UoP i PPK odjęły już inne listy tego miesiąca.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
@@ -83,6 +85,8 @@ class Source:
     contract_id: Optional[int] = None
     basis: dict[str, Any] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
+    #: Podstawa do warunku FP w przeliczeniu na pełny miesiąc (kwota Płac).
+    fund_basis: Optional[Decimal] = None
 
     def fingerprint(self) -> dict[str, Any]:
         return {
@@ -90,6 +94,7 @@ class Source:
             "kind": self.kind,
             "source": self.source,
             "gross": None if self.gross is None else str(self.gross),
+            "fund_basis": None if self.fund_basis is None else str(self.fund_basis),
             "basis": self.basis,
             "problems": sorted(self.problems),
         }
@@ -131,6 +136,9 @@ def _manual(source: Source, item: PayrollGrossInput) -> None:
     }
     source.source = "manual"
     source.gross = Decimal(item.gross)
+    source.fund_basis = (
+        Decimal(item.fund_basis) if item.fund_basis is not None else None
+    )
     source.problems = [
         code
         for code in source.problems
@@ -235,6 +243,9 @@ async def _team(
             gross=Decimal(item.gross),
             user_id=user_id,
             basis={"note": item.note, "entered_by": item.entered_by},
+            fund_basis=Decimal(item.fund_basis)
+            if item.fund_basis is not None
+            else None,
         )
         out.append(source)
     return out
@@ -279,6 +290,7 @@ async def _mandates(
     for contract, first, last in rows:
         name = " ".join(part for part in (first, last) if part)
         if contract.candidate_id is None:
+            inputs.pop(contract.id, None)
             problems.append(
                 {
                     "code": "contract_without_person",
@@ -335,6 +347,53 @@ async def _mandates(
                 )
                 continue
         out.append(source)
+    # Kwoty Płac dla kontraktów spoza miesiąca (np. rozliczenie po końcu umowy)
+    # też są pozycjami — nie znikają po cichu.
+    if inputs:
+        rows = (
+            await db.execute(
+                select(Contract, Candidate.name, Candidate.lastname)
+                .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
+                .where(Contract.id.in_(sorted(inputs)))
+                .order_by(Contract.id)
+            )
+        ).all()
+        for contract, first_name, last_name in rows:
+            item = inputs[contract.id]
+            if Decimal(item.gross) <= 0:
+                continue
+            if contract.candidate_id is None:
+                problems.append(
+                    {
+                        "code": "contract_without_person",
+                        "contract_id": contract.id,
+                        "blocking": True,
+                    }
+                )
+                continue
+            name = " ".join(part for part in (first_name, last_name) if part)
+            out.append(
+                Source(
+                    key=f"k{contract.id}",
+                    person_key=f"c{contract.candidate_id}",
+                    name=name or f"Kontrakt {contract.id}",
+                    kind="zlecenie",
+                    source="manual",
+                    gross=Decimal(item.gross),
+                    candidate_id=contract.candidate_id,
+                    contract_id=contract.id,
+                    basis={
+                        "contract_id": contract.id,
+                        "client_id": contract.client_id,
+                        "outside_month": True,
+                        "note": item.note,
+                        "entered_by": item.entered_by,
+                    },
+                    fund_basis=Decimal(item.fund_basis)
+                    if item.fund_basis is not None
+                    else None,
+                )
+            )
     return out
 
 
@@ -361,7 +420,13 @@ async def gather(db: AsyncSession, period: PayrollPeriod) -> Gathered:
 
 
 def person_key(line: PayrollListLine | PayrollYearOpening) -> str:
-    return f"u{line.user_id}" if line.user_id is not None else f"c{line.candidate_id}"
+    """``u<konto>``, ``c<kandydat>`` albo — po usunięciu kandydata — ``r<pseudonim>``."""
+
+    if line.user_id is not None:
+        return f"u{line.user_id}"
+    if line.candidate_id is not None:
+        return f"c{line.candidate_id}"
+    return f"r{line.candidate_ref}"
 
 
 def _amount(data: dict[str, Any], key: str) -> Decimal:
@@ -434,42 +499,99 @@ async def year_to_date(
     return states
 
 
-async def previous_ppk_employer(
-    db: AsyncSession, *, before: date, exclude_list_id: Optional[int]
-) -> tuple[Optional[int], dict[str, Decimal]]:
-    """Wpłaty pracodawcy PPK z ostatniej zatwierdzonej listy przed ``before``."""
+@dataclass(frozen=True)
+class MonthState:
+    """Co osoba ma już odjęte w miesiącu wypłaty na innych zatwierdzonych listach."""
 
+    reduction_used: Decimal = ZERO
+    kup_used: Decimal = ZERO
+    ppk_taxed: Decimal = ZERO
+
+    def fingerprint(self) -> list[str]:
+        return [str(self.reduction_used), str(self.kup_used), str(self.ppk_taxed)]
+
+
+def _month_bounds(day: date) -> tuple[date, date]:
+    first = date(day.year, day.month, 1)
+    return first, month_end(day.year, day.month)
+
+
+async def _approved_lines_between(
+    db: AsyncSession, first: date, last: date, exclude_list_id: Optional[int]
+) -> list[PayrollListLine]:
     query = (
-        select(PayrollList)
-        .where(PayrollList.status == "approved", PayrollList.pay_date < before)
-        .order_by(PayrollList.pay_date.desc(), PayrollList.id.desc())
-        .limit(1)
+        select(PayrollListLine)
+        .join(PayrollList, PayrollList.id == PayrollListLine.list_id)
+        .where(
+            PayrollList.status == "approved",
+            PayrollList.pay_date >= first,
+            PayrollList.pay_date <= last,
+        )
     )
     if exclude_list_id is not None:
         query = query.where(PayrollList.id != exclude_list_id)
-    previous = await db.scalar(query)
-    if previous is None:
-        return None, {}
-    sums: dict[str, Decimal] = defaultdict(lambda: ZERO)
-    for line in await db.scalars(
-        select(PayrollListLine).where(PayrollListLine.list_id == previous.id)
+    return list(await db.scalars(query))
+
+
+async def month_state(
+    db: AsyncSession, *, pay: date, exclude_list_id: Optional[int]
+) -> dict[str, MonthState]:
+    """Stan miesiąca wypłaty z innych zatwierdzonych list tego miesiąca."""
+
+    first, last = _month_bounds(pay)
+    sums: dict[str, list[Decimal]] = defaultdict(lambda: [ZERO, ZERO, ZERO])
+    for line in await _approved_lines_between(db, first, last, exclude_list_id):
+        result = line.result or {}
+        bucket = sums[person_key(line)]
+        bucket[0] += _amount(result, "tax_reduction")
+        if line.kind == "uop":
+            bucket[1] += _amount(result, "kup")
+        bucket[2] += _amount(result, "ppk_employer_taxable")
+    return {key: MonthState(*values) for key, values in sums.items()}
+
+
+async def ppk_employer_due(
+    db: AsyncSession, *, pay: date, exclude_list_id: Optional[int]
+) -> dict[str, tuple[Decimal, str]]:
+    """Wpłaty pracodawcy PPK do doliczenia w miesiącu wypłaty ``pay``.
+
+    Wpłatę przekazuje się do 15. dnia miesiąca po miesiącu jej naliczenia, więc
+    jest przychodem osoby w miesiącu następnym: suma z list wypłaconych
+    w poprzednim miesiącu minus to, co inne listy tego miesiąca już doliczyły.
+    """
+
+    first, _last = _month_bounds(pay)
+    previous_last = first - timedelta(days=1)
+    previous_first = date(previous_last.year, previous_last.month, 1)
+    due: dict[str, Decimal] = defaultdict(lambda: ZERO)
+    names: dict[str, str] = {}
+    for line in await _approved_lines_between(
+        db, previous_first, previous_last, exclude_list_id
     ):
-        sums[person_key(line)] += _amount(line.result or {}, "ppk_employer")
-    return previous.id, {key: value for key, value in sums.items() if value > 0}
+        key = person_key(line)
+        due[key] += _amount(line.result or {}, "ppk_employer")
+        names.setdefault(key, line.person_name)
+    taken = await month_state(db, pay=pay, exclude_list_id=exclude_list_id)
+    out: dict[str, tuple[Decimal, str]] = {}
+    for key, value in due.items():
+        rest = value - (taken[key].ppk_taxed if key in taken else ZERO)
+        if rest > 0:
+            out[key] = (rest, names[key])
+    return out
 
 
 async def later_approved(
-    db: AsyncSession, *, year: int, after: date, exclude_list_id: Optional[int]
+    db: AsyncSession, *, after: date, exclude_list_id: Optional[int]
 ) -> Optional[PayrollList]:
-    """Zatwierdzona lista z późniejszą wypłatą w tym samym roku (blokuje przeliczenie)."""
+    """Zatwierdzona lista z późniejszą wypłatą (w dowolnym roku) — blokuje przeliczenie.
+
+    Także przez granicę roku: PPK pracodawcy i stan miesiąca liczą się od list
+    wcześniejszych, więc listy zatwierdza się w kolejności dat wypłaty.
+    """
 
     query = (
         select(PayrollList)
-        .where(
-            PayrollList.status == "approved",
-            PayrollList.pay_date > after,
-            PayrollList.pay_date <= date(year, 12, 31),
-        )
+        .where(PayrollList.status == "approved", PayrollList.pay_date > after)
         .order_by(PayrollList.pay_date)
         .limit(1)
     )
@@ -486,8 +608,10 @@ __all__ = [
     "approved_lines",
     "gather",
     "later_approved",
+    "MonthState",
+    "month_state",
     "openings",
     "person_key",
-    "previous_ppk_employer",
+    "ppk_employer_due",
     "year_to_date",
 ]

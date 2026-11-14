@@ -47,20 +47,34 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
   to problem blokujący, nie „miesiąc bez pracy”.
 - **Stan narastający roku** (limit 30-krotności, próg skali, limit ulg) = otwarcie
   roku z Enovy (`payroll_year_openings`) + zatwierdzone listy roku z wypłatą nie
-  późniejszą. Lista z wypłatą wcześniejszą niż zatwierdzona lista tego roku nie
-  przelicza się (409) — najpierw anulowanie późniejszej.
+  późniejszą. Listy zatwierdza się w kolejności dat wypłaty, także przez granicę
+  roku: lista z wypłatą wcześniejszą niż jakakolwiek zatwierdzona nie przelicza
+  się i nie zatwierdza (409) — najpierw anulowanie późniejszej. Przelicz,
+  zatwierdź, anuluj, kwota Płac i otwarcie roku biegną pod jedną blokadą
+  doradczą (`hashtext('hr_payroll_lists')`), bo stan jednej listy zależy od
+  innych, a zwykłe odczyty nie widzą niezacommitowanego zatwierdzenia obok
+  (przegląd 14.11.2026).
+- **Raz w miesiącu wypłaty u płatnika:** kwota zmniejszająca z PIT-2 i koszty
+  zryczałtowane UoP. Druga pozycja osoby (np. dwa zlecenia u klientów) albo druga
+  lista z wypłatą w tym samym miesiącu bierze tylko resztę (`Title.reduction_used`,
+  `kup_used`, stan z innych zatwierdzonych list miesiąca). Kwota zmniejszająca nie
+  przekracza podatku pozycji — niewykorzystana część przechodzi na kolejną.
 - **Zaokrąglenia:** każda składka osobno do grosza (HALF_UP), podstawa
   opodatkowania i zaliczka do pełnych złotych. FP i FGŚP, wypadkowa i chorobowa
   bez limitu 30-krotności; FP tylko przy podstawie w przeliczeniu na miesiąc co
-  najmniej równej płacy minimalnej. Zlecenie: zaliczka 12% bez progu (rozlicza
+  najmniej równej płacy minimalnej: kwota Płac może nieść podstawę pełnego
+  miesiąca (`fund_basis`, L4, urlop bezpłatny), a UoP zaczęta albo skończona
+  w miesiącu przelicza się dniami kalendarzowymi z kartoteki. Zlecenie: zaliczka 12% bez progu (rozlicza
   zeznanie roczne), PIT-2 działa; do 200 zł u nie-pracodawcy — ryczałt 12% od
   przychodu po składkach.
 - **Ulgi** mają wspólny roczny limit; w miesiącu przekroczenia składki społeczne
   odliczają się proporcjonalnie do części opodatkowanej, koszty UoP w pełnej
   kwocie. Dzieło bez ulg.
-- **PPK pracodawcy** jest przychodem osoby na NASTĘPNEJ zatwierdzonej liście
-  (miesiąc przekazania do instytucji). Osoba bez kolejnej listy — do ręcznej
-  korekty.
+- **PPK pracodawcy** jest przychodem osoby w miesiącu po miesiącu wypłaty
+  (przekazanie do instytucji do 15.): lista z wypłatą w miesiącu M dolicza wpłaty
+  z list wypłaconych w M−1, minus to, co doliczyły już inne listy z M. Osoba
+  z taką wpłatą bez pozycji na liście = ostrzeżenie `ppk_untaxed` z nazwiskiem
+  (do ręcznej korekty, kwota w PIT-11).
 - **Zatwierdza druga osoba z Płac:** nie ta, która liczyła (CHECK w bazie
   `ck_payroll_lists_second_person`), i bez własnej pozycji na liście. Zatwierdzenie
   zbiera dane jeszcze raz i porównuje `source_hash` — każda zmiana kwot, danych
@@ -76,6 +90,13 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
   „Bank wykonał”; następna lista okresu ma numer `LP/RRRR/MM/2`.
 - **Swoich danych płacowych, kwoty i otwarcia roku nie zmienia się samemu** (403,
   admin może) — jak własna stawka w Płacach.
+- **Kwota Płac dla kontraktu spoza miesiąca** (np. rozliczenie po końcu umowy) też
+  jest pozycją listy (`basis.outside_month`) — nie znika po cichu; kontrakt bez
+  kandydata = 422 przy wpisie.
+- **Kandydat usunięty** (RODO, admin): klucze do `candidates` mają `SET NULL`
+  (strażnik `test_every_candidate_fk_has_on_delete_rule`), a dane płacowe,
+  pozycje list i otwarcia roku trzymają pseudonim `candidate_ref`
+  (`candidate_subject_reference`, jak umowy) — dokumentacja płacowa zostaje.
 - **PESEL na zewnątrz tylko jako maska** (kropki i 4 cyfry), bez daty urodzenia,
   gdy wynika z PESEL-u (data i 4 cyfry odsłoniłyby 10 z 11 cyfr). Ten sam PESEL
   u dwóch osób = 409 (skrót HMAC, bez odszyfrowania). Ślad zapisuje nazwy pól.

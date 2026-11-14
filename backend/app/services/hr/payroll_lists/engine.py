@@ -29,7 +29,9 @@ Reguły (do potwierdzenia przez Płace na porównaniu z Enovą):
   niego − koszty uzyskania, zaokrąglona do pełnych złotych; zaliczka też do
   pełnych złotych (art. 63 Ordynacji podatkowej). UoP: skala 12%/32%
   z progiem liczonym narastająco od podstaw tego roku, koszty zryczałtowane
-  (zwykłe albo podwyższone), kwota zmniejszająca wg PIT-2 (1/12, 1/24, 1/36).
+  (zwykłe albo podwyższone), kwota zmniejszająca wg PIT-2 (1/12, 1/24, 1/36);
+  koszty UoP i kwota zmniejszająca raz w miesiącu wypłaty u płatnika
+  (``Title.kup_used``, ``reduction_used`` — resztę bierze kolejna pozycja).
   Zlecenie i dzieło: 12% (bez progu — rozlicza zeznanie roczne), koszty 20%
   przychodu po składkach, PIT-2 jak przy UoP. Należność do 200 zł z umowy
   zlecenia albo o dzieło u płatnika, który nie jest pracodawcą osoby —
@@ -163,6 +165,11 @@ class Title:
     #: Podstawa osoby u płatnika w miesiącu w przeliczeniu na pełny miesiąc
     #: (warunek Funduszu Pracy); ``None`` = podstawa tej pozycji.
     labour_fund_basis: Optional[Decimal] = None
+    #: Kwota zmniejszająca z PIT-2 już odjęta osobie w miesiącu wypłaty u płatnika
+    #: (inne pozycje i listy tego miesiąca) — odejmuje się raz na miesiąc.
+    reduction_used: Decimal = ZERO
+    #: Koszty uzyskania UoP już odjęte w miesiącu wypłaty (zryczałtowane raz na miesiąc).
+    kup_used: Decimal = ZERO
 
 
 @dataclass(frozen=True)
@@ -472,27 +479,29 @@ def calculate(
             )
             if person.kup_increased:
                 notes.append("kup_increased")
-            kup = min(kup_amount, income)
+            kup = min(max(ZERO, kup_amount - title.kup_used), income)
         else:
             kup = pct(income, params.kup_mandate_rate)
         base = whole(max(ZERO, income - kup))
-        reduction = tax_reduction(person, params)
-        if reduction > 0:
-            notes.append("tax_reduction")
         if kind == "uop":
             low_room = max(ZERO, params.pit_threshold - ytd.tax_base)
             low = min(base, low_room)
             high = base - low
             if high > 0:
                 notes.append("pit_threshold")
-            raw = (
+            tax = (
                 low * params.pit_rate_low / HUNDRED
                 + high * params.pit_rate_high / HUNDRED
-                - reduction
             )
         else:
-            raw = base * params.pit_rate_low / HUNDRED - reduction
-        pit = whole(max(ZERO, raw))
+            tax = base * params.pit_rate_low / HUNDRED
+        # Kwota zmniejszająca raz na miesiąc u płatnika: bierzemy tylko to, co
+        # zostało po innych pozycjach, i nie więcej niż podatek tej pozycji.
+        room = max(ZERO, tax_reduction(person, params) - title.reduction_used)
+        reduction = min(room, tax) if tax > 0 else ZERO
+        if reduction > 0:
+            notes.append("tax_reduction")
+        pit = whole(max(ZERO, tax - reduction))
 
     net = gross - social_employee - health - pit - ppk_employee
     employer_social = (
