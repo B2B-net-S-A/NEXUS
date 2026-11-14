@@ -24,6 +24,11 @@ konta pionów (front office, back office — z kartoteki osoby) i konto kosztów
 ogólnych (faktura bez klienta i pionu, biuro do czasu klucza podziału) oraz
 jedno konto kosztów zespołu na PK płacowe.
 
+Rachunki firmy i konta wyciągów (K4a, ``bank``) ustawia administrator: każdy
+rachunek (26 cyfr NRB) ma konto w planie (130-x), a konta opłat banku, ZUS
+i urzędu skarbowego (VAT, PIT, CIT) mówią, gdzie trafiają operacje rozpoznane
+regułą. Puste konto = brak reguły (operacja czeka na przypisanie).
+
 Konta listy płac z Enovy (K3c, ``payroll``) też ustawia administrator: koszty
 wynagrodzeń i składek pracodawcy, rozrachunki z tytułu wynagrodzeń, z ZUS
 i z urzędem skarbowym (PIT-4) oraz — gdy lista je ma — PPK i inne potrącenia.
@@ -38,7 +43,7 @@ Podział AM na „5” bierze konta z ``allocation``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -51,6 +56,7 @@ from app.services.effective_access import resolve_effective_access
 from app.models.finance_posting import FinanceAccount
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import clean_account
+from app.services.hr.bank import accounts as bank_accounts
 from app.services.hr.program import program_enabled
 
 SETTING_KEY = "ledger"
@@ -84,7 +90,9 @@ MODULE_REPLACES: dict[str, str] = {
 }
 #: Moduły z gotowymi ekranami (kolejne etapy dopisują tu swój klucz).
 #: ``payroll`` — K7a (lista płac, parametry, dane osób; 14.11.2026).
-BUILT: frozenset[str] = frozenset({"ledger", "automations", "assets", "payroll"})
+BUILT: frozenset[str] = frozenset(
+    {"ledger", "automations", "bank", "assets", "payroll"}
+)
 MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
 
@@ -179,6 +187,50 @@ class AssetsAccounts:
     disposal_account: str = ASSETS_ACCOUNT_FIELDS["disposal_account"][0]
 
 
+#: Konta wyciągów (K4a): klucz → (domyślne konto, etykieta). Puste = bez reguły.
+BANK_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
+    "fees_account": ("", "Opłaty i prowizje bankowe"),
+    "zus_account": ("229", "Rozrachunki z ZUS"),
+    "vat_account": ("", "VAT do zapłaty (urząd skarbowy)"),
+    "pit_account": ("225", "PIT-4 (urząd skarbowy)"),
+    "cit_account": ("", "CIT (urząd skarbowy)"),
+}
+BANK_ACCOUNTS_MAX = 20
+BANK_NAME_MAX = 80
+
+
+@dataclass(frozen=True)
+class CompanyAccount:
+    """Rachunek firmy: 26 cyfr NRB, konto w planie (130-x) i nazwa."""
+
+    number: str
+    account: str
+    name: str = ""
+
+
+def nrb(raw: Optional[str]) -> str:
+    """Numer rachunku → 26 cyfr NRB (bez „PL”, spacji i kresek); inaczej ``""``."""
+
+    text = "".join(ch for ch in (raw or "").upper() if ch.isalnum())
+    if text.startswith("PL"):
+        text = text[2:]
+    return text if len(text) == 26 and text.isdigit() else ""
+
+
+@dataclass(frozen=True)
+class BankSettings:
+    accounts: tuple[CompanyAccount, ...] = ()
+    fees_account: str = ""
+    zus_account: str = BANK_ACCOUNT_FIELDS["zus_account"][0]
+    vat_account: str = ""
+    pit_account: str = BANK_ACCOUNT_FIELDS["pit_account"][0]
+    cit_account: str = ""
+
+    def by_number(self, number: Optional[str]) -> Optional[CompanyAccount]:
+        clean = nrb(number)
+        return next((item for item in self.accounts if item.number == clean), None)
+
+
 @dataclass(frozen=True)
 class LedgerSettings:
     modules: dict[str, bool]
@@ -187,6 +239,7 @@ class LedgerSettings:
     allocation: AllocationAccounts = field(default_factory=AllocationAccounts)
     payroll: PayrollAccounts = field(default_factory=PayrollAccounts)
     assets: AssetsAccounts = field(default_factory=AssetsAccounts)
+    bank: BankSettings = field(default_factory=BankSettings)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -220,6 +273,33 @@ def _assets(raw: object) -> AssetsAccounts:
     return AssetsAccounts(**_accounts(raw, ASSETS_ACCOUNT_FIELDS))
 
 
+def _bank(raw: object) -> BankSettings:
+    data = raw if isinstance(raw, dict) else {}
+    items: list[CompanyAccount] = []
+    seen: set[str] = set()
+    raw_accounts = data.get("accounts")
+    for item in raw_accounts if isinstance(raw_accounts, list) else []:
+        if not isinstance(item, dict):
+            continue
+        number = nrb(item.get("number"))
+        account = item.get("account")
+        if not number or number in seen or not isinstance(account, str):
+            continue
+        try:
+            account = clean_account(account, "Konto rachunku")
+        except LedgerError:
+            continue
+        name = item.get("name") if isinstance(item.get("name"), str) else ""
+        seen.add(number)
+        items.append(
+            CompanyAccount(number, account, " ".join(name.split())[:BANK_NAME_MAX])
+        )
+    return BankSettings(
+        accounts=tuple(items[:BANK_ACCOUNTS_MAX]),
+        **_accounts(data, BANK_ACCOUNT_FIELDS),
+    )
+
+
 def normalize(raw: object) -> LedgerSettings:
     data = raw if isinstance(raw, dict) else {}
     modules_raw = data.get("modules") if isinstance(data.get("modules"), dict) else {}
@@ -243,6 +323,7 @@ def normalize(raw: object) -> LedgerSettings:
         allocation=_allocation(data.get("allocation")),
         payroll=_payroll(data.get("payroll")),
         assets=_assets(data.get("assets")),
+        bank=_bank(data.get("bank")),
     )
 
 
@@ -262,6 +343,13 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
             key: getattr(settings.payroll, key) for key in PAYROLL_ACCOUNT_FIELDS
         },
         "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
+        "bank": {
+            "accounts": [
+                {"number": item.number, "account": item.account, "name": item.name}
+                for item in settings.bank.accounts
+            ],
+            **{key: getattr(settings.bank, key) for key in BANK_ACCOUNT_FIELDS},
+        },
     }
 
 
@@ -428,5 +516,39 @@ async def set_assets_accounts(
     cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS)
     current = await load(db)
     settings = replace(current, assets=AssetsAccounts(**cleaned))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_bank_settings(
+    db: AsyncSession, values: dict[str, Any], *, actor: User
+) -> LedgerSettings:
+    """Rachunki firmy i konta wyciągów (bez commita, admin): konta z planu kont."""
+
+    raw_accounts = values.get("accounts") or []
+    if len(raw_accounts) > BANK_ACCOUNTS_MAX:
+        raise LedgerError(f"Najwyżej {BANK_ACCOUNTS_MAX} rachunków firmy.", status=422)
+    accounts: list[CompanyAccount] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw_accounts, start=1):
+        try:
+            number = bank_accounts.normalize_nrb(item.get("number"))
+        except bank_accounts.AccountError as exc:
+            raise LedgerError(f"Rachunek {index}: {exc}", status=422) from exc
+        if number in seen:
+            raise LedgerError(f"Rachunek {index} jest na liście dwa razy.", status=422)
+        seen.add(number)
+        cleaned = await _plan_accounts(
+            db,
+            {"account": item.get("account")},
+            {"account": ("", f"Rachunek {index}")},
+        )
+        name = " ".join(str(item.get("name") or "").split())[:BANK_NAME_MAX]
+        accounts.append(CompanyAccount(number, cleaned["account"], name))
+    fields = await _plan_accounts(
+        db, values, BANK_ACCOUNT_FIELDS, optional=frozenset(BANK_ACCOUNT_FIELDS)
+    )
+    current = await load(db)
+    settings = replace(current, bank=BankSettings(accounts=tuple(accounts), **fields))
     await _save(db, settings, actor=actor)
     return settings

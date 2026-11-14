@@ -37,6 +37,7 @@ from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_schema as ledger
 from app.services import finance_posting_schema as finance_posting
@@ -122,6 +123,8 @@ MODULES = (
     ledger_assets,
     # 0704: płace liczone w NEXUSIE K7a — dane osoby, parametry, listy (14.11.2026).
     payroll_lists,
+    # 0705: wyciągi bankowe w księdze K4a — jeden import wyciągu (14.11.2026).
+    ledger_bank,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

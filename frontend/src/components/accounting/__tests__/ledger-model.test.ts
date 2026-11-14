@@ -154,6 +154,10 @@ describe("źródło dokumentu", () => {
       label: "Faktura sprzedaży z KSeF",
       href: null,
     });
+    expect(sourceLabel({ type: "bank_statement", id: "7-payroll" })).toEqual({
+      label: "Wyciąg bankowy",
+      href: "/accounting/bank?statement=7",
+    });
     expect(sourceLabel({ type: "inne", id: "1" }).label).toBe("inne");
   });
 });
@@ -163,6 +167,7 @@ describe("zakładki i okres", () => {
     expect(visibleTabs(CONFIG).map((tab) => tab.label)).toEqual([
       "Miesiąc",
       "Źródła",
+      "Bank",
       "Dokumenty",
       "Do Symfonii",
       "Obroty i salda",
@@ -188,6 +193,21 @@ describe("zakładki i okres", () => {
     const closed = { ...payroll, me: { ...payroll.me, payroll: true }, modules: CONFIG.modules };
     expect(visibleTabs(closed).map((tab) => tab.label)).not.toContain("Lista płac");
     expect(activeTab("/accounting/payroll").label).toBe("Lista płac");
+  });
+
+  it("„Bank” po „Źródłach”, gdy moduł banku jest otwarty (K4a)", () => {
+    const bank = {
+      ...CONFIG,
+      modules: CONFIG.modules.map((module) => (module.key === "bank" ? { ...module, built: true, enabled: true } : module)),
+    };
+    const labels = visibleTabs(bank).map((tab) => tab.label);
+    expect(labels.indexOf("Bank")).toBe(labels.indexOf("Źródła") + 1);
+    const closed = {
+      ...CONFIG,
+      modules: CONFIG.modules.map((module) => (module.key === "bank" ? { ...module, open: false } : module)),
+    };
+    expect(visibleTabs(closed).map((tab) => tab.label)).not.toContain("Bank");
+    expect(activeTab("/accounting/bank").label).toBe("Bank");
   });
 
   it("rozpoznaje zakładkę po ścieżce", () => {

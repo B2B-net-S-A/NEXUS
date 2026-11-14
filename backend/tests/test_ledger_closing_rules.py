@@ -75,3 +75,18 @@ def test_symfonia_check_lists_what_is_missing():
     )
     done = closing.symfonia_check({"outside": 0, "waiting": []}, href)
     assert done["state"] == "ok" and done["detail"] == "wszystko w paczkach"
+
+
+def test_bank_check_states():
+    href = "/accounting/bank?year=2026&month=10"
+    row = {"unresolved": 0, "to_post": False}
+    assert closing.bank_check([], href)["state"] == "todo"
+    assert closing.bank_check([], href)["detail"] == "brak wyciągu z tego miesiąca"
+    problem = closing.bank_check([{**row, "unresolved": 2, "to_post": True}], href)
+    assert problem["state"] == "problem"
+    assert problem["detail"] == "operacje bez konta: 2, wyciągi bez WB: 1"
+    todo = closing.bank_check([row, {**row, "to_post": True}], href)
+    assert (todo["state"], todo["detail"]) == ("todo", "wyciągi bez WB: 1")
+    done = closing.bank_check([row, row], href)
+    assert (done["state"], done["detail"]) == ("ok", "wyciągi: 2, WB w księdze")
+    assert done["key"] == "bank" and done["href"] == href

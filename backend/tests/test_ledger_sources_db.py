@@ -28,14 +28,20 @@ from sqlalchemy import delete, func, select, update
 from app.api import ledger as ledger_api
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
-from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.client_sales_invoice import (
+    ClientSalesInvoice,
+    ClientSalesInvoicePayment,
+)
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
+from app.models.finance_payments import FinanceCostPaymentRecord
+from app.models.hr_settlement import PayrollPayment
 from app.models.finance_posting import FinanceAccount
 from app.models.fx_rate import FxRate
 from app.models.candidate import Candidate
 from app.models.client_settlement import ClientContractorInvoice
 from app.models.hr_profile import EmployeeProfile
 from app.models.ledger import (
+    LedgerBankStatement,
     LedgerDocument,
     LedgerLine,
     LedgerPrepayment,
@@ -143,6 +149,10 @@ async def books(world):
                 FinanceCostEntry.received_at
                 < datetime(year + 1, 1, 1, tzinfo=timezone.utc),
             )
+        ) or await db.scalar(
+            select(func.count())
+            .select_from(LedgerBankStatement)
+            .where(LedgerBankStatement.first_day.between(date(year, 1, 1), date(year, 12, 31)))
         ):
             year = random.randint(2050, 2099)
         previous = await db.scalar(
@@ -164,6 +174,8 @@ async def books(world):
             "alloc_team": (f"{prefix}-504", "Koszty zespołu", "other", None),
             "prepaid": (f"{prefix}-640", "RMK czynne", "other", None),
             "settle": (f"{prefix}-490", "Rozliczenie kosztów", "other", None),
+            "bank": (f"{prefix}-130", "Rachunek bieżący", "other", None),
+            "fees": (f"{prefix}-409", "Opłaty bankowe", "other", None),
             "wages": (f"{prefix}-404", "Wynagrodzenia", "cost", None),
             "insurance": (f"{prefix}-405", "Ubezpieczenia i świadczenia", "cost", None),
             "payroll_settle": (f"{prefix}-231", "Rozrachunki z tytułu wynagrodzeń", "other", None),
@@ -336,6 +348,7 @@ async def books(world):
         "rate_date": rate_date,
     }
     await _purge_years([year])
+    await _purge_bank(year)
     async with AsyncSessionLocal() as db:
         authors = [world[key].id for key in ("admin", "accountant", "module_only")]
         await db.execute(
@@ -364,6 +377,24 @@ async def books(world):
         )
         await db.commit()
     await _set_ledger(previous)
+
+
+async def _purge_bank(year: int) -> None:
+    """Wyciągi roku testu i zapłaty, które ich import zapisał w E3, R9 i E8."""
+
+    async with AsyncSessionLocal() as db:
+        shas = list(
+            await db.scalars(
+                select(LedgerBankStatement.sha256).where(
+                    LedgerBankStatement.first_day.between(date(year, 1, 1), date(year, 12, 31))
+                )
+            )
+        )
+        if shas:
+            for model in (FinanceCostPaymentRecord, PayrollPayment, ClientSalesInvoicePayment):
+                await db.execute(delete(model).where(model.statement_sha256.in_(shas)))
+            await db.execute(delete(LedgerBankStatement).where(LedgerBankStatement.sha256.in_(shas)))
+        await db.commit()
 
 
 async def _sync(client, world, books, kind: str, user: str = "admin", month: int = 3):
@@ -1544,4 +1575,279 @@ async def test_approved_payroll_list_goes_to_the_default_payroll_package(client,
     assert package.json()["document_count"] == 1
     after = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
     assert after["symfonia"]["detail"].startswith("czeka na „Zaksięgowana w Symfonii”")
+
+
+# ── Bank: jeden import wyciągu (K4a) ────────────────────────────────────────
+
+def _valid_nrb(bban: str) -> str:
+    """NRB z poprawną sumą kontrolną (parser wyciągu odrzuca błędne)."""
+
+    check = 98 - int(bban + "252100") % 97
+    return f"{check:02d}{bban}"
+
+
+COMPANY = _valid_nrb("109010140000071219812875")
+ZUS_ACCOUNT = _valid_nrb("600000020260000000000000")
+TAX_ACCOUNT = _valid_nrb("101000712221234567890123")
+OTHER_ACCOUNT = _valid_nrb("109010140000071219812874")
+TEAM_ACCOUNT = _valid_nrb("109010140000071219812876")
+
+
+def _statement(year: int, *operations: tuple[str, str, str, str, str], day: str = "20") -> bytes:
+    """MT940: (D/C, kwota, tytuł, rachunek kontrahenta albo „”, referencja banku)."""
+
+    yy = f"{year % 100:02d}"
+    body = f":20:K4\r\n:25:/PL{COMPANY}\r\n:60F:C{yy}0301PLN100000,00\r\n"
+    for direction, amount, title, account, ref in operations:
+        body += f":61:{yy}03{day}03{day}{direction}{amount}NTRFNONREF//{ref}\r\n"
+        body += f":86:020~00TR~20{title}~32Kontrahent Testowy"
+        body += (f"~38PL{account}" if account else "") + "\r\n"
+    return (body + f":62F:C{yy}03{day}PLN0,00\r\n-").encode()
+
+
+def _bank_settings(world, books) -> dict:
+    acc = books["acc"]
+    value = _ledger_settings(world, books, allocation=False)
+    value["modules"] = {"ledger": True, "bank": True}
+    value["bank"] = {
+        "accounts": [{"number": COMPANY, "account": acc["bank"], "name": "Konto główne"}],
+        "fees_account": acc["fees"],
+        "zus_account": acc["zus"],
+        "vat_account": acc["vat_out"],
+        "pit_account": acc["pit"],
+        "cit_account": "",
+    }
+    return value
+
+
+async def _bank_import(client, world, content: bytes, user: str = "accountant"):
+    return await client.post(
+        f"{ACC}/bank/import",
+        files={"file": ("wyciag.sta", content, "text/plain")},
+        headers=_headers(world[user]),
+    )
+
+
+async def test_bank_statement_is_classified_posted_once_and_deduplicated(client, world, books):
+    year, acc = books["year"], books["acc"]
+    await _set_ledger(_bank_settings(world, books))
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _statement(
+        year,
+        ("D", "1000,00", "Składki ZUS 03", ZUS_ACCOUNT, f"Z{marker}"),
+        ("D", "500,00", "/TI/N5260000000/OKR/26M02/SFP/VAT-7M/TXT/VAT", TAX_ACCOUNT, f"T{marker}"),
+        ("D", "12,50", "Opłata za prowadzenie rachunku", "", f"F{marker}"),
+        ("D", "300,00", "Faktura spoza NEXUSA", OTHER_ACCOUNT, f"U{marker}"),
+        ("C", "250,00", "Wpłata bez faktury", OTHER_ACCOUNT, f"C{marker}"),
+    )
+    imported = await _bank_import(client, world, content)
+    assert imported.status_code == 201, imported.text
+    data = imported.json()
+    assert data["already_imported"] is False
+    kinds = [(line["kind"], line["counter_account"]) for line in data["lines"]]
+    assert kinds == [
+        ("zus", acc["zus"]),
+        ("tax", acc["vat_out"]),
+        ("fee", acc["fees"]),
+        ("unmatched", None),
+        ("unmatched", None),
+    ]
+    assert data["unresolved"] == 2 and data["debit_total"] == 181_250
+    items = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert "later:bank" not in items
+    assert items["bank"]["state"] == "problem"
+    assert items["bank"]["detail"] == "operacje bez konta: 2, wyciągi bez WB: 1"
+    assert items["bank"]["href"] == f"/accounting/bank?year={year}&month=3"
+    headers = _headers(world["accountant"])
+    refused = await client.post(f"{ACC}/bank/statements/{data['id']}/post", headers=headers)
+    assert refused.status_code == 422 and "bez konta" in refused.json()["detail"]
+    for line, account in ((data["lines"][3], acc["cost"]), (data["lines"][4], acc["revenue"])):
+        assigned = await client.patch(
+            f"{ACC}/bank/lines/{line['id']}", json={"account": account}, headers=headers
+        )
+        assert assigned.status_code == 200, assigned.text
+    posted = await client.post(f"{ACC}/bank/statements/{data['id']}/post", headers=headers)
+    assert posted.status_code == 200, posted.text
+    assert posted.json()["created"] == 1
+    wb = await _document("bank_statement", data["id"])
+    assert wb.doc_type == "WB" and wb.op_date == date(year, 3, 20)
+    lines = await _lines(wb.id)
+    assert ("credit", acc["bank"], 100_000) in lines and ("debit", acc["bank"], 25_000) in lines
+    assert sum(a for s, _, a in lines if s == "debit") == sum(a for s, _, a in lines if s == "credit")
+    again = await client.post(f"{ACC}/bank/statements/{data['id']}/post", headers=headers)
+    assert again.json()["unchanged"] == 1
+    items = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert (items["bank"]["state"], items["bank"]["detail"]) == ("ok", "wyciągi: 1, WB w księdze")
+    # Zmiana konta po księgowaniu przebudowuje szkic WB od razu.
+    changed = await client.patch(
+        f"{ACC}/bank/lines/{data['lines'][3]['id']}", json={"account": acc["fees"]}, headers=headers
+    )
+    assert changed.status_code == 200, changed.text
+    rebuilt = await _document("bank_statement", data["id"])
+    assert rebuilt.id != wb.id and rebuilt.status == "draft"
+    assert ("debit", acc["fees"], 30_000) in await _lines(rebuilt.id)
+    approved = await client.post(
+        f"{ACC}/documents/approve", json={"ids": [rebuilt.id]}, headers=headers
+    )
+    assert approved.json()["approved"], approved.text
+    locked = await client.patch(
+        f"{ACC}/bank/lines/{data['lines'][3]['id']}", json={"account": acc["cost"]}, headers=headers
+    )
+    assert locked.status_code == 409 and "storna" in locked.json()["detail"]
+    month = await client.get(f"{ACC}/bank", params={"year": year, "month": 3}, headers=headers)
+    assert month.status_code == 200, month.text
+    row = next(item for item in month.json()["statements"] if item["id"] == data["id"])
+    assert (row["operations"], row["unresolved"], row["wb"]) == (5, 0, "approved")
+    assert row["to_post"] is False
+    assert (row["debit_total"], row["credit_total"]) == (181_250, 25_000)
+    other_month = await client.get(
+        f"{ACC}/bank", params={"year": year, "month": 4}, headers=headers
+    )
+    assert data["id"] not in [item["id"] for item in other_month.json()["statements"]]
+    half = await client.get(f"{ACC}/bank", params={"year": year}, headers=headers)
+    assert half.status_code == 422
+    # Ten sam plik drugi raz = ten sam wyciąg.
+    same = await _bank_import(client, world, content)
+    assert same.status_code == 201 and same.json()["id"] == data["id"]
+    assert same.json()["already_imported"] is True
+    # Ta sama operacja w innym wyciągu (dzienny i miesięczny) = duplikat, bez WB.
+    other = _statement(
+        year,
+        ("D", "1000,00", "Składki ZUS 03", ZUS_ACCOUNT, f"Z{marker}"),
+        ("D", "40,00", "Opłata za przelew", "", f"G{marker}"),
+    )
+    second = await _bank_import(client, world, other)
+    assert second.status_code == 201, second.text
+    assert [line["kind"] for line in second.json()["lines"]] == ["duplicate", "fee"]
+    items = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
+    assert (items["bank"]["state"], items["bank"]["detail"]) == ("todo", "wyciągi bez WB: 1")
+
+
+async def test_bank_hides_team_payments_without_payroll(client, world, books):
+    from app.core.encryption import get_token_cipher
+    from app.models.hr_settlement import EmployeeBillingDetails
+
+    year = books["year"]
+    settings = _bank_settings(world, books)
+    settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+    await _set_ledger(settings)
+    person = world["person"]
+    encrypted = get_token_cipher().encrypt(TEAM_ACCOUNT)
+    async with AsyncSessionLocal() as db:
+        existing = await db.scalar(
+            select(EmployeeBillingDetails).where(EmployeeBillingDetails.user_id == person.id)
+        )
+        created = existing is None
+        previous = None if created else (existing.account_encrypted, existing.account_last4)
+        if created:
+            db.add(
+                EmployeeBillingDetails(
+                    user_id=person.id,
+                    account_encrypted=encrypted,
+                    account_last4=TEAM_ACCOUNT[-4:],
+                    account_source="manual",
+                    payment_terms_days=14,
+                )
+            )
+        else:
+            existing.account_encrypted = encrypted
+            existing.account_last4 = TEAM_ACCOUNT[-4:]
+        await db.commit()
+    try:
+        marker = uuid.uuid4().hex[:6].upper()
+        content = _statement(
+            year,
+            ("D", "8000,00", "Wynagrodzenie 02", TEAM_ACCOUNT, f"P{marker}"),
+            ("D", "12,50", "Opłata za przelew", "", f"F{marker}"),
+        )
+        outside = await _bank_import(client, world, content, user="module_only")
+        assert outside.status_code == 201, outside.text
+        data = outside.json()
+        # Bez Płac: wypłaty dla zespołu nie widać — ani kwoty, ani pozycji.
+        assert [line["kind"] for line in data["lines"]] == ["fee"]
+        assert data["hidden_payroll"] == 1 and data["debit_total"] == 1_250
+        inside = await client.get(
+            f"{ACC}/bank/statements/{data['id']}", headers=_headers(world["accountant"])
+        )
+        lines = inside.json()["lines"]
+        assert [(line["kind"], line["payroll"]) for line in lines] == [
+            ("team", True),
+            ("fee", False),
+        ]
+        for user, operations, debit in (("module_only", 1, 1_250), ("accountant", 2, 801_250)):
+            listed = await client.get(
+                f"{ACC}/bank", params={"year": year, "month": 3}, headers=_headers(world[user])
+            )
+            row = next(item for item in listed.json()["statements"] if item["id"] == data["id"])
+            assert (row["operations"], row["debit_total"]) == (operations, debit)
+        # WB zwykły robi osoba bez Płac; płacowy czeka na Płace (konto do przypisania).
+        posted = await client.post(
+            f"{ACC}/bank/statements/{data['id']}/post", headers=_headers(world["module_only"])
+        )
+        assert posted.status_code == 200 and posted.json()["created"] == 1
+        blocked = await client.post(
+            f"{ACC}/bank/statements/{data['id']}/post", headers=_headers(world["accountant"])
+        )
+        assert blocked.status_code == 422
+    finally:
+        async with AsyncSessionLocal() as db:
+            if created:
+                await db.execute(
+                    delete(EmployeeBillingDetails).where(
+                        EmployeeBillingDetails.user_id == person.id
+                    )
+                )
+            else:
+                await db.execute(
+                    update(EmployeeBillingDetails)
+                    .where(EmployeeBillingDetails.user_id == person.id)
+                    .values(account_encrypted=previous[0], account_last4=previous[1])
+                )
+            await db.commit()
+
+
+async def test_bank_needs_module_and_a_known_company_account(client, world, books):
+    year = books["year"]
+    await _set_ledger(_ledger_settings(world, books, allocation=False))
+    closed = await client.get(f"{ACC}/bank", headers=_headers(world["module_only"]))
+    assert closed.status_code == 404
+    settings = _bank_settings(world, books)
+    settings["bank"]["accounts"] = []
+    await _set_ledger(settings)
+    unknown = await _bank_import(
+        client, world, _statement(year, ("D", "1,00", "x", "", "X1"))
+    )
+    assert unknown.status_code == 422 and "nie ma na liście" in unknown.json()["detail"]
+    admin = _headers(world["admin"])
+    bad_number = await client.put(
+        f"{ACC}/config/bank",
+        json={"accounts": [{"number": "123", "account": books["acc"]["bank"]}]},
+        headers=admin,
+    )
+    assert bad_number.status_code == 422
+    typo = f"{COMPANY[:-1]}{(int(COMPANY[-1]) + 1) % 10}"
+    bad_checksum = await client.put(
+        f"{ACC}/config/bank",
+        json={"accounts": [{"number": typo, "account": books["acc"]["bank"]}]},
+        headers=admin,
+    )
+    assert bad_checksum.status_code == 422
+    assert "sumę kontrolną" in bad_checksum.json()["detail"]
+    not_in_plan = await client.put(
+        f"{ACC}/config/bank",
+        json={"accounts": [{"number": COMPANY, "account": "999-99"}]},
+        headers=admin,
+    )
+    assert not_in_plan.status_code == 422
+    ok = await client.put(
+        f"{ACC}/config/bank",
+        json={"accounts": [{"number": f"PL{COMPANY}", "account": books["acc"]["bank"], "name": "Główny"}]},
+        headers=admin,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["accounts"][0]["number"] == COMPANY
+    refused = await client.put(
+        f"{ACC}/config/bank", json={"accounts": []}, headers=_headers(world["accountant"])
+    )
+    assert refused.status_code == 403
 
