@@ -240,7 +240,9 @@ async def create_draft(
     _check_spec(spec)
     year, period = await years.lock_period(db, spec.op_date)
     plan = plan if plan is not None else await load_plan(db)
-    result = engine.ensure_valid(spec.lines, plan)
+    result = engine.ensure_valid(
+        spec.lines, plan, max_lines=engine.lines_max(spec.doc_type)
+    )
     await _counterparty_exists(db, spec.counterparty_id)
     for line in spec.lines:
         await _counterparty_exists(db, line.counterparty_id)
@@ -346,7 +348,9 @@ async def update_draft(
     _check_editable(doc)
     year, period = await years.lock_period(db, spec.op_date)
     plan = await load_plan(db)
-    result = engine.ensure_valid(spec.lines, plan)
+    result = engine.ensure_valid(
+        spec.lines, plan, max_lines=engine.lines_max(spec.doc_type)
+    )
     await _counterparty_exists(db, spec.counterparty_id)
     for line in spec.lines:
         await _counterparty_exists(db, line.counterparty_id)
@@ -465,7 +469,9 @@ async def _approval_refusal(
         await years.require_open_period(db, doc.period_id, year)
     except LedgerError as exc:
         return exc.status, exc.message
-    result = engine.check(await _lines_of(db, doc.id), plan)
+    result = engine.check(
+        await _lines_of(db, doc.id), plan, max_lines=engine.lines_max(doc.doc_type)
+    )
     if result.issues:
         return 422, f"Dokument {doc.number}: {result.issues[0]}"
     return None

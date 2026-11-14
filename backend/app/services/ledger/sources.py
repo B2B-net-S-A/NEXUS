@@ -675,7 +675,11 @@ async def _candidates(
     for candidate in candidates:
         if candidate.spec is None:
             continue
-        issues = engine.check(candidate.spec.lines, plan).issues
+        issues = engine.check(
+            candidate.spec.lines,
+            plan,
+            max_lines=engine.lines_max(candidate.spec.doc_type),
+        ).issues
         if issues:
             candidate.problems.extend(issues)
             candidate.spec = None

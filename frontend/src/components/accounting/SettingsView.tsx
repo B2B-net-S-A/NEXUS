@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
@@ -14,21 +15,23 @@ import {
   useReopenPeriod,
   useSetAccountants,
   useSetModule,
+  useOpeningImport,
   useSetAllocationAccounts,
   useSetSalesAccounts,
   useSetYearMode,
   type AllocationAccounts,
+  type OpeningPreview,
   type LedgerPeriod,
   type LedgerYear,
   type SalesAccounts,
   type YearMode,
 } from "@/lib/api/accounting";
 import { apiErrorMessage } from "@/lib/api-error";
-import { CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
+import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
-import { MONTHS_PL } from "./ledger-model";
+import { MONTHS_PL, gr } from "./ledger-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
@@ -83,6 +86,12 @@ export function SettingsView() {
       <div className="xl:col-span-2">
         <Years />
       </div>
+
+      {config.me.approver ? (
+        <div className="xl:col-span-2">
+          <OpeningImportCard />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -465,5 +474,149 @@ function Years() {
       </div>
       {confirmDialog}
     </SectionCard>
+  );
+}
+
+const OPENING_PREVIEW_SHOWN = 12;
+
+function OpeningImportCard() {
+  const { config, period } = useAccounting();
+  const { showToast } = useToast();
+  const run = useOpeningImport();
+  const years = config.years.map((item) => item.year);
+  const [year, setYear] = useState(years.includes(period.year) ? period.year : (years[0] ?? period.year));
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<OpeningPreview | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const send = (save: boolean) => {
+    if (!file) return;
+    setSaving(save);
+    run.mutate(
+      { file, year, save },
+      {
+        onSuccess: (data) => {
+          setResult(data);
+          if (data.saved) showToast(`Zapisano bilans otwarcia ${year} w buforze.`);
+        },
+        onError: (error) => showToast(apiErrorMessage(error, "Nie udało się wczytać pliku."), "error"),
+      },
+    );
+  };
+
+  return (
+    <SectionCard title="Bilans otwarcia z Symfonii" aside="zestawienie sald → dokument BO w buforze">
+      <div className="space-y-3 px-3.5 py-3 text-[13px]">
+        <p className="text-muted-foreground">
+          Plik XLSX albo CSV z kolumną „Konto” i saldem: „BO Wn/Ma”, „Saldo Wn/Ma” albo „Wn/Ma”. Konta muszą być
+          w Planie kont; analityka kontrahentów dostaje kontrahenta po ID Symfonii. Najpierw sprawdzenie, potem zapis —
+          jeden BO na rok, ponowny import przebudowuje szkic.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Rok bilansu otwarcia"
+            className={CONTROL}
+            value={year}
+            disabled={!years.length}
+            onChange={(e) => {
+              setYear(Number(e.target.value));
+              setResult(null);
+            }}
+          >
+            {years.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+          <input
+            type="file"
+            accept=".xlsx,.csv"
+            aria-label="Plik zestawienia sald"
+            className="max-w-[260px] text-[12px]"
+            onChange={(e) => {
+              setFile(e.target.files?.[0] ?? null);
+              setResult(null);
+            }}
+          />
+          <Button size="sm" variant="outline" disabled={!file || !years.length} loading={run.isPending && !saving} onClick={() => send(false)}>
+            Sprawdź plik
+          </Button>
+          <Button
+            size="sm"
+            disabled={!result || result.problems.length > 0 || result.saved}
+            loading={run.isPending && saving}
+            onClick={() => send(true)}
+          >
+            Zapisz jako BO
+          </Button>
+        </div>
+        {result ? <OpeningSummary result={result} /> : null}
+      </div>
+    </SectionCard>
+  );
+}
+
+function OpeningSummary({ result }: { result: OpeningPreview }) {
+  return (
+    <div className="space-y-2.5">
+      <p className="tabular-nums">
+        Kont z saldem: {result.rows} · Wn {gr(result.debit_total)} · Ma {gr(result.credit_total)}{" "}
+        <span className={cn(result.balanced ? "text-success" : "text-destructive")}>
+          {result.balanced ? "Wn = Ma" : "Wn ≠ Ma"}
+        </span>
+        {result.counterparties_matched ? ` · kontrahenci rozpoznani: ${result.counterparties_matched}` : ""}
+      </p>
+      {result.problems.length ? (
+        <ul className="space-y-1">
+          {result.problems.map((problem) => (
+            <li key={problem} className="flex items-start gap-1.5">
+              <span aria-hidden className="mt-[7px] size-1.5 shrink-0 rounded-full bg-warning" />
+              <span className="min-w-0 break-words">{problem}</span>
+            </li>
+          ))}
+        </ul>
+      ) : result.saved ? (
+        <p className="text-success">
+          Bilans otwarcia {result.year} jest w buforze —{" "}
+          <Link className="text-primary hover:underline" href={`/accounting/documents?year=${result.year}&month=1&type=BO`}>
+            pokaż dokument
+          </Link>
+          ; zatwierdza osoba z listy „Księgowi”.
+        </p>
+      ) : (
+        <p className="text-muted-foreground">Plik jest poprawny — możesz zapisać bilans otwarcia.</p>
+      )}
+      {result.errors.length ? (
+        <p className="text-[12px] text-muted-foreground">
+          Wiersze z błędem: {result.errors.slice(0, 5).map((error) => `${error.line} (${error.message})`).join(", ")}
+          {result.errors.length > 5 ? "…" : ""}
+        </p>
+      ) : null}
+      {result.preview.length ? (
+        <table className="w-full table-fixed text-sm">
+          <thead>
+            <tr className="border-b border-border/70">
+              <th className={cn(CALM_HEAD, "w-[22%] py-1.5 text-left")}>Konto</th>
+              <th className={cn(CALM_HEAD, "py-1.5 text-left")}>Nazwa</th>
+              <th className={cn(CALM_HEAD, "w-[18%] py-1.5 text-right")}>Wn</th>
+              <th className={cn(CALM_HEAD, "w-[18%] py-1.5 text-right")}>Ma</th>
+            </tr>
+          </thead>
+          <tbody>
+            {result.preview.slice(0, OPENING_PREVIEW_SHOWN).map((line) => (
+              <tr key={line.account} className={cn(CALM_ROW, "last:border-0")}>
+                <td className="py-1.5 font-mono text-[12px]">{line.account}</td>
+                <td className="min-w-0 truncate py-1.5" title={line.name}>
+                  {line.name || "—"}
+                </td>
+                <td className={cn(CALM_AMOUNT, "py-1.5")}>{line.side === "debit" ? gr(line.amount) : ""}</td>
+                <td className={cn(CALM_AMOUNT, "py-1.5")}>{line.side === "credit" ? gr(line.amount) : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+    </div>
   );
 }
