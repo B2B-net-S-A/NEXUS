@@ -319,6 +319,20 @@ export interface StartStatus {
   done: number;
   total: number;
   items: StartItem[];
+  /** Dokąd prowadzi blokada: `/poligon`, dopóki nowa osoba nie skończy poligonu. */
+  redirect?: string;
+  /** Poligon NEXUSA osoby (`null`, gdy jej rola go nie ma). */
+  poligon?: PoligonStatus | null;
+}
+
+/** Postęp osoby na Poligonie NEXUSA (zaliczone ćwiczenia z id `poligon-…`). */
+export interface PoligonStatus {
+  open: boolean;
+  /** Poligon blokuje pracę, dopóki go nie przejdzie (nowa osoba). */
+  required: boolean;
+  done_ids: string[];
+  done: number;
+  total: number;
 }
 
 /** Ekran Startu. */

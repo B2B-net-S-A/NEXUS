@@ -1264,13 +1264,24 @@ async def required_verifications_by_user(
         return {}
     from app.services.person_workdays import nexus_absences_known, workdays_by_user
 
-    if not await nexus_absences_known(db):
-        common = per_day * business_days_elapsed_in_month(year, month)
-        return {uid: common for uid in user_ids}
-
     next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     last = min(today, next_first - timedelta(days=1))
     first = date(year, month, 1)
+    if not await nexus_absences_known(db):
+        # Bez urlopów NEXUSA próg z kalendarza; dzień onboardingu nowej osoby
+        # (``onboarding_day``) i tak z niego schodzi.
+        from app.services.onboarding_day import onboarding_days
+        from app.services.person_workdays import business_days
+
+        common = business_days_elapsed_in_month(year, month)
+        onboarding = (
+            await onboarding_days(db, user_ids, first, last) if last >= first else {}
+        )
+        business = set(business_days(first, last)) if onboarding else set()
+        return {
+            uid: per_day * (common - (1 if onboarding.get(int(uid)) in business else 0))
+            for uid in user_ids
+        }
     if last < first:
         return {uid: 0 for uid in user_ids}
     days = await workdays_by_user(db, user_ids, first, last)

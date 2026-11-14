@@ -1,6 +1,11 @@
-// Ćwiczenia Poligonu. Ćwiczenie zalicza zdarzenie (klik w kotwicę albo ruch na
-// rekrutacji ćwiczebnej), nigdy przycisk „Rozumiem”. Informacja zwrotna to
-// stałe reguły, bez modelu AI — każdy dostaje tę samą.
+// Ćwiczenia Poligonu — cały onboarding pierwszego dnia (decyzja Artura z 14.11.2026:
+// jedna ścieżka, bez poziomów; nowa osoba przechodzi ją w całości, zanim
+// zacznie pracę). Ćwiczenie zalicza zdarzenie (klik w kotwicę, ruch albo zapis
+// na rekrutacji ćwiczebnej, otwarcie ekranu), nigdy przycisk „Rozumiem”.
+// Informacja zwrotna to stałe reguły, bez modelu AI — każdy dostaje tę samą.
+//
+// Id ćwiczeń (z przedrostkiem `poligon-`) są też w rejestrze serwera
+// `backend/app/data/novelties/poligon.json`; test pilnuje, że to te same listy.
 
 import type { PoligonAction } from "./store";
 
@@ -30,11 +35,27 @@ export interface Exercise {
 }
 
 export const POLIGON_JOB_HREF = "/jobs/990001";
-/** Kod etapu odrzuconych w szablonie rekrutacji. */
+/** Profil osoby ćwiczebnej w bazie kandydatów. */
+const POLIGON_CANDIDATES_HREF = "/candidates";
+/** Kody etapów w szablonie rekrutacji ćwiczebnej. */
 const REJECTED = "rejected";
+const VERIFIED = "verified";
+/** „QC CV” ma w szablonie kod `interview` (etap 823). */
+const QC_CV = "interview";
 const MIN_NOTE_LENGTH = 25;
+/** Pola karty, bez których Delivery Lead nie wyśle CV (ta sama lista co bramka serwera). */
+const SCREENING_FIELDS: ReadonlyArray<[string, string]> = [
+  ["location", "lokalizację"],
+  ["work_mode", "tryb pracy"],
+  ["recommendation", "„Dlaczego ten kandydat”"],
+];
 
-export const LEVEL_1: readonly Exercise[] = [
+const isPoligonProfile = (path: string): boolean => /^\/api\/candidates\/99\d{4}\/notes-facts$/.test(path);
+/** Parametry listy, które nie są szukaniem (strona, sortowanie, dociągane kolumny). */
+const LIST_PARAM = /^(page|page_size|sort|semantics_version|view|include_.*)$/;
+
+export const EXERCISES: readonly Exercise[] = [
+  // ── Lista rekrutacji ────────────────────────────────────────────────
   {
     id: "lista-zakres",
     module: "Lista rekrutacji",
@@ -68,6 +89,8 @@ export const LEVEL_1: readonly Exercise[] = [
     doneOnClick: true,
     tip: "Na Tablicy widzisz wszystkie osoby tej rekrutacji, podzielone na etapy.",
   },
+
+  // ── Tablica ─────────────────────────────────────────────────────────
   {
     id: "tablica-biore",
     module: "Tablica",
@@ -91,20 +114,46 @@ export const LEVEL_1: readonly Exercise[] = [
     judge: (a, ctx) => {
       if (a.type !== "move") return null;
       if (ctx.firstNew && a.candidateId !== ctx.firstNew.candidateId) {
-        return { done: false, feedback: `Przesunęłaś inną osobę. W tym ćwiczeniu chodzi o ${ctx.firstNew.fullName} z kolumny „Nowi”.` };
+        return { done: false, feedback: `To inna karta. W tym ćwiczeniu chodzi o ${ctx.firstNew.fullName} z kolumny „Nowi”.` };
       }
       if (a.toStage !== "screening") {
         return { done: false, feedback: "Karta pojechała na inny etap. Po pierwszej rozmowie osoba idzie na „Screening”." };
       }
       return { done: true };
     },
-    tip: "Zanim przesuniesz osobę dalej, dopisz w panelu notatkę z rozmowy — Delivery Lead zobaczy, dlaczego ją prowadzisz. To jest następne ćwiczenie.",
+    tip: "Zanim przesuniesz osobę dalej, dopisz w panelu notatkę z rozmowy — Delivery Lead zobaczy, dlaczego ją prowadzisz.",
   },
+  {
+    id: "tablica-zrodla",
+    module: "Tablica",
+    title: () => "Zajrzyj, skąd brać kandydatów",
+    task: () =>
+      "Nad kolumnami jest pasek źródeł: osoby z ogłoszeń, Twoi ludzie, aplikacje, szukanie w bazie i dodawanie. Kliknij w ten pasek.",
+    hint: "Pasek źródeł jest pod nagłówkiem rekrutacji, nad kolumnami.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.sources",
+    doneOnClick: true,
+    tip: "Zanim zaczniesz szukać na LinkedInie, sprawdź bazę NEXUSA — często ktoś pasujący już u nas był.",
+  },
+  {
+    id: "tablica-moi-ludzie",
+    module: "Tablica",
+    title: () => "Otwórz „Moi ludzie”",
+    task: () =>
+      "„Moi ludzie” to osoby, z którymi już była rozmowa i które czekają na projekt. Kliknij kafelek „Moi ludzie” w pasku źródeł.",
+    hint: "Kafelek „Moi ludzie” jest w pasku źródeł nad kolumnami.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.sources.my-people",
+    doneOnClick: true,
+    tip: "Każda osoba, którą dobrze poznasz w rozmowie, trafia do Twoich ludzi — przy następnym requeście masz ją pod ręką.",
+  },
+
+  // ── Panel osoby ─────────────────────────────────────────────────────
   {
     id: "panel-notatka",
     module: "Panel osoby",
     title: () => "Dodaj notatkę po rozmowie",
-    task: () => "Kliknij kartę osoby, żeby otworzyć panel, i dodaj notatkę: co ustaliłaś (stawka, dostępność, motywacja).",
+    task: () => "Kliknij kartę osoby, żeby otworzyć panel, i dodaj notatkę z ustaleniami rozmowy: stawka, dostępność, motywacja.",
     hint: "Pole notatki jest na dole panelu osoby.",
     href: POLIGON_JOB_HREF,
     anchor: "jobs.person.note",
@@ -116,6 +165,24 @@ export const LEVEL_1: readonly Exercise[] = [
       return { done: true };
     },
     tip: "Notatkę widzi cały zespół rekrutacji i każdy, kto otworzy profil osoby — także za pół roku.",
+  },
+  {
+    id: "panel-wzmianka",
+    module: "Panel osoby",
+    title: () => "Oznacz kogoś z zespołu w notatce",
+    task: () =>
+      "Napisz notatkę z pytaniem do Delivery Leada i oznacz go: wpisz „@”, wybierz „Anna Poligonowa” z listy i dokończ pytanie.",
+    hint: "Po wpisaniu „@” w polu notatki pojawia się lista osób z zespołu.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.person.note",
+    judge: (a) => {
+      if (a.type !== "note") return null;
+      if (!a.content.includes("@")) {
+        return { done: false, feedback: "Notatka zapisana, ale nikt nie dostanie powiadomienia. Wpisz „@” i wybierz osobę z listy." };
+      }
+      return { done: true };
+    },
+    tip: "Oznaczona osoba dostaje powiadomienie. „@wszyscy” trafia do całego zespołu rekrutacji — używaj go oszczędnie.",
   },
   {
     id: "panel-odrzuc",
@@ -132,12 +199,149 @@ export const LEVEL_1: readonly Exercise[] = [
       if (reason.startsWith("inne")) {
         return { done: false, feedback: "„Inne” to ostatnia deska ratunku: raporty i propozycje nie widzą, co było nie tak, nawet z opisem. Tu problemem była stawka — wybierz powód o oczekiwaniach finansowych i wpisz kwotę z rozmowy." };
       }
-      return { done: false, feedback: `Wybrałaś „${a.rejectionReasonName ?? "inny powód"}”. Tu problemem była stawka — wybierz powód o oczekiwaniach finansowych.` };
+      return { done: false, feedback: `Wybrany powód to „${a.rejectionReasonName ?? "inny powód"}”. Tu problemem była stawka — wybierz powód o oczekiwaniach finansowych.` };
     },
     tip: "Przy powodzie finansowym osoba wróci w propozycjach, gdy przyjdzie request z wyższą stawką.",
+  },
+
+  // ── Screening i weryfikacja ─────────────────────────────────────────
+  {
+    id: "screening-otworz",
+    module: "Screening i weryfikacja",
+    title: () => "Otwórz formularz screeningu",
+    task: () =>
+      "Otwórz panel osoby z kolumny „Screening” i przejdź na zakładkę „Screening”. Kliknij w formularz — to pytania od klienta i karta, którą zobaczy Delivery Lead.",
+    hint: "Zakładka „Screening” jest w panelu osoby, obok „CV” i „Notatek”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.person.screening-form",
+    doneOnClick: true,
+    tip: "Pytania screeningowe przychodzą z Profilu Championa rekrutacji — zadajesz je w rozmowie i od razu wpisujesz odpowiedzi.",
+  },
+  {
+    id: "screening-bramka",
+    module: "Screening i weryfikacja",
+    title: () => "Spróbuj zweryfikować osobę bez screeningu",
+    task: () =>
+      "Przesuń osobę ze „Screeningu” na „Zweryfikowany”, zanim wypełnisz formularz. Zobacz, co NEXUS powie.",
+    hint: "Przeciągnij kartę z kolumny „Screening” do „Zweryfikowany” albo użyj strzałki na karcie.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.card",
+    judge: (a) => {
+      if (a.type === "gate") return { done: true };
+      if (a.type === "move" && a.toStage === VERIFIED) return { done: true };
+      return null;
+    },
+    tip: "Bramka „Zweryfikowany” pilnuje minimum dla Delivery Leada: arkusz screeningu, stawka, lokalizacja, tryb pracy i „Dlaczego ten kandydat”.",
+  },
+  {
+    id: "screening-zapisz",
+    module: "Screening i weryfikacja",
+    title: () => "Wypełnij i zapisz screening",
+    task: () =>
+      "W zakładce „Screening” wpisz odpowiedzi na pytania, uzupełnij lokalizację, tryb pracy i „Dlaczego ten kandydat”, a potem zapisz formularz.",
+    hint: "Przycisk zapisu jest na dole formularza screeningu.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.person.screening-form",
+    judge: (a) => {
+      if (a.type !== "screening") return null;
+      const missing = SCREENING_FIELDS.filter(([key]) => !(a.fields[key] ?? "").trim()).map(([, label]) => label);
+      if (!a.sheetSaved) missing.unshift("odpowiedzi na pytania");
+      if (missing.length) {
+        return { done: false, feedback: `Zapisane, ale Delivery Lead nie dostanie kompletu. Brakuje: ${missing.join(", ")}.` };
+      }
+      return { done: true };
+    },
+    tip: "„Dlaczego ten kandydat” pisz dla klienta: dwa, trzy konkretne powody z rozmowy, nie ogólniki.",
+  },
+  {
+    id: "screening-zweryfikuj",
+    module: "Screening i weryfikacja",
+    title: () => "Zweryfikuj osobę",
+    task: () => "Screening jest zapisany — przesuń tę osobę na „Zweryfikowany”. To jedna z Twoich dziennych weryfikacji.",
+    hint: "Karta jest w kolumnie „Screening”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.card",
+    judge: (a) => {
+      if (a.type === "gate") {
+        return { done: false, feedback: `NEXUS dalej czegoś nie ma: ${a.missing.join(", ")}. Uzupełnij to w zakładce „Screening” tej osoby i zapisz.` };
+      }
+      if (a.type === "move" && a.toStage === VERIFIED) return { done: true };
+      return null;
+    },
+    tip: "Weryfikacje to Twój główny wynik dnia — licznik „Weryfikacje” na górnym pasku pokazuje, ile już masz.",
+  },
+
+  // ── Rekomendacja do klienta ─────────────────────────────────────────
+  {
+    id: "rekomendacja-cv",
+    module: "Rekomendacja do klienta",
+    title: () => "Zajrzyj do CV dla klienta",
+    task: () =>
+      "Otwórz panel osoby i zakładkę „CV”. Tu jest oryginalne CV i karta „CV do klienta”, z której generator robi CV w szablonie klienta.",
+    hint: "Zakładka „CV” jest w panelu osoby.",
+    href: POLIGON_JOB_HREF,
+    anchor: "person.cv.to-client-card",
+    judge: (a) => (a.type === "view" && /\/cv\/branded\/sources$/.test(a.path) ? { done: true } : null),
+    tip: "Klient dostaje CV w swoim szablonie i bez danych kontaktowych — nigdy nie wysyłaj oryginału.",
+  },
+  {
+    id: "rekomendacja-qc",
+    module: "Rekomendacja do klienta",
+    title: () => "Przekaż zweryfikowaną osobę do QC CV",
+    task: () =>
+      "Osoba ze „Zweryfikowanego” ma gotowe CV. Przesuń ją na „QC CV” — tam CV sprawdza kontrola jakości, a potem Delivery Lead wysyła je klientowi.",
+    hint: "Kolumna „QC CV” jest zaraz za „Zweryfikowanym”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.card",
+    judge: (a) => {
+      if (a.type !== "move" || a.fromStage !== VERIFIED) return null;
+      if (a.toStage === QC_CV) return { done: true };
+      if (a.toStage === REJECTED || a.toStage === "withdrawn") return null;
+      return { done: false, feedback: "CV do klienta idzie zawsze przez „QC CV” — nie przeskakuj tego etapu." };
+    },
+    tip: "Rekomendacja liczy się, kiedy CV trafi do klienta. Ty dostarczasz zweryfikowaną osobę i dobre CV, DL je wysyła.",
+  },
+
+  // ── Baza kandydatów ─────────────────────────────────────────────────
+  {
+    id: "baza-szukaj",
+    module: "Baza kandydatów",
+    title: () => "Wyszukaj w bazie kandydatów",
+    task: () =>
+      "Delivery Lead poleca Laurę Olszyńską z Twoich ludzi. Znajdź ją w bazie: wpisz „Olszyńska” w szukajkę na górze ekranu.",
+    hint: "Szukajka po nazwisku jest na górze ekranu „Kandydaci”, słowa kluczowe — pod nią.",
+    href: POLIGON_CANDIDATES_HREF,
+    anchor: "candidates.list.search",
+    judge: (a) =>
+      a.type === "view" && a.path === "/api/candidates" && Object.entries(a.query).some(([k, v]) => !LIST_PARAM.test(k) && v.trim())
+        ? { done: true }
+        : null,
+    tip: "Słowa kluczowe „Musi mieć” i filtry (stawka, lokalizacja, tryb pracy) zawężają wynik — zacznij szeroko, zawężaj stopniowo.",
+  },
+  {
+    id: "baza-profil",
+    module: "Baza kandydatów",
+    title: () => "Otwórz profil osoby",
+    task: () => "Kliknij Laurę Olszyńską na liście. Otworzy się jej profil: CV, rekrutacje, notatki i historia.",
+    hint: "Imię i nazwisko na liście to link do profilu.",
+    href: POLIGON_CANDIDATES_HREF,
+    anchor: "candidates.list.name",
+    judge: (a) => (a.type === "view" && isPoligonProfile(a.path) ? { done: true } : null),
+    tip: "Zanim zadzwonisz, przeczytaj notatki i historię — ktoś mógł już z tą osobą rozmawiać.",
+  },
+  {
+    id: "baza-przypisz",
+    module: "Baza kandydatów",
+    title: () => "Przypisz osobę do rekrutacji",
+    task: () => "Na profilu kliknij „Przypisz do rekrutacji” i przy rekrutacji ĆW-01 kliknij „Przypisz”. Laura pojawi się w kolumnie „Nowi”.",
+    hint: "Przycisk przypisania jest w nagłówku profilu.",
+    href: POLIGON_CANDIDATES_HREF,
+    anchor: "candidate.profile.assign",
+    judge: (a) => (a.type === "assign" ? { done: true } : null),
+    tip: "Przypisuj od razu po decyzji, że dzwonisz — wtedy zespół widzi, że osoba jest już w procesie.",
   },
 ];
 
 export function exerciseCount(): number {
-  return LEVEL_1.length;
+  return EXERCISES.length;
 }

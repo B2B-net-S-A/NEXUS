@@ -22,7 +22,9 @@ from pydantic import ValidationError
 
 from app.api.novelties import (
     apply_event,
+    apply_poligon_event,
     next_morning,
+    poligon_status,
     person_state,
     quiet_for_preview,
     shape_for_user,
@@ -30,8 +32,10 @@ from app.api.novelties import (
 )
 from app.data.novelties import (
     Novelty,
+    PoligonPlan,
     in_audience,
     load_novelties,
+    load_poligon,
     load_start_tours,
 )
 from app.models.novelty import NoveltyProgress
@@ -519,6 +523,8 @@ async def frozen_start(monkeypatch):
     tour = _novelty(id="start-test", audience={"roles": ["recruiter"]})
     monkeypatch.setattr(api, "load_novelties", lambda: {})
     monkeypatch.setattr(api, "load_start_tours", lambda: {tour.id: tour})
+    # Konta testowe są świeże — bez tego poligon blokowałby je zamiast Startu.
+    monkeypatch.setattr(api, "load_poligon", lambda: _poligon_plan(required_roles=[]))
     # Brak wiersza = blokada włączona; inny test (np. seed E2E) mógł go zostawić.
     async with AsyncSessionLocal() as db:
         row = await db.get(AppSetting, api.START_GATE_KEY)
@@ -656,3 +662,139 @@ def test_every_start_tour_on_a_section_screen_names_its_section() -> None:
             assert novelty.section is not None and novelty.section.value == expected, (
                 novelty.id
             )
+
+
+# ── Poligon NEXUSA (decyzje Artura 14.11.2026) ─────────────────────────────
+
+
+def _poligon_plan(**overrides) -> PoligonPlan:
+    base = {
+        "roles": ["recruiter", "delivery_lead"],
+        "required_roles": ["recruiter"],
+        "required_since": "2026-11-15",
+        "replaces": [],
+        "exercises": [
+            {"id": "poligon-jeden", "module": "Tablica", "title": "Jeden"},
+            {"id": "poligon-dwa", "module": "Tablica", "title": "Dwa"},
+        ],
+    }
+    base.update(overrides)
+    return PoligonPlan.model_validate(base)
+
+
+class _Newcomer:
+    def __init__(self, role: str, created_at: datetime) -> None:
+        self.role = type("R", (), {"value": role})()
+        self.created_at = created_at
+
+    def get_all_roles(self):
+        return [self.role]
+
+
+def test_poligon_registry_replaces_recruiting_start_and_ids_are_unique() -> None:
+    plan = load_poligon()
+    assert {"recruiter"} <= set(plan.required_roles) <= set(plan.roles)
+    assert set(plan.replaces) <= set(load_start_tours())
+    assert all(e.id.startswith("poligon-") for e in plan.exercises)
+    assert len(plan.exercises) >= 15
+
+
+def test_poligon_required_only_for_new_people_in_required_roles() -> None:
+    from app.services.onboarding_day import poligon_open, poligon_required
+
+    plan = _poligon_plan()
+    new = datetime(2026, 11, 16, 8, tzinfo=timezone.utc)
+    old = datetime(2026, 11, 14, 22, 59, tzinfo=timezone.utc)  # 14.11 23:59 w Warszawie
+    assert poligon_required(_Newcomer("recruiter", new), plan) is True
+    assert poligon_required(_Newcomer("recruiter", old), plan) is False
+    assert poligon_required(_Newcomer("delivery_lead", new), plan) is False
+    assert poligon_open(_Newcomer("delivery_lead", new), plan) is True
+    assert poligon_open(_Newcomer("finance", new), plan) is False
+    # Północ w Warszawie: 14.11 23:00 UTC to już 15.11.
+    assert poligon_required(
+        _Newcomer("recruiter", datetime(2026, 11, 14, 23, 0, tzinfo=timezone.utc)), plan
+    )
+
+
+def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -> None:
+    from app.api import novelties as api
+
+    monkeypatch.setattr(api, "load_poligon", lambda: _poligon_plan())
+    one = NoveltyProgress(
+        user_id=1, novelty_id="poligon-jeden", seen_count=0, completed_at=NOW
+    )
+    half = poligon_status({"poligon-jeden": one}, open_=True, required=True)
+    assert (half["done"], half["total"], half["done_ids"]) == (1, 2, ["poligon-jeden"])
+    status = start_status([], {}, gate_on=True, impersonating=False, poligon=half)
+    assert status["enforced"] is True and status["redirect"] == "/poligon"
+
+    two = NoveltyProgress(
+        user_id=1, novelty_id="poligon-dwa", seen_count=0, completed_at=NOW
+    )
+    full = poligon_status(
+        {"poligon-jeden": one, "poligon-dwa": two}, open_=True, required=True
+    )
+    done = start_status([], {}, gate_on=True, impersonating=False, poligon=full)
+    assert done["enforced"] is False and done["redirect"] == "/start"
+    # Wyłącznik blokady i podgląd jako inna osoba zdejmują też blokadę poligonu.
+    assert not start_status([], {}, gate_on=False, impersonating=False, poligon=half)[
+        "enforced"
+    ]
+    assert not start_status([], {}, gate_on=True, impersonating=True, poligon=half)[
+        "enforced"
+    ]
+    # Obecna osoba (poligon nie wymagany) nie jest blokowana niezaliczonym poligonem.
+    optional = poligon_status({}, open_=True, required=False)
+    assert not start_status(
+        [], {}, gate_on=True, impersonating=False, poligon=optional
+    )["enforced"]
+
+
+def test_poligon_exercise_completes_once_and_cannot_be_postponed() -> None:
+    row = NoveltyProgress(user_id=1, novelty_id="poligon-jeden", seen_count=0)
+    apply_poligon_event(row, "used", NOW)
+    assert row.completed_at == NOW and row.completed_via == "used"
+    apply_poligon_event(row, "used", NOW + timedelta(hours=1))
+    assert row.completed_at == NOW
+    with pytest.raises(HTTPException) as refused:
+        apply_poligon_event(row, "postponed", NOW)
+    assert refused.value.status_code == 409
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_new_recruiter_records_poligon_progress_and_is_sent_to_poligon(
+    app_client: AsyncClient, monkeypatch
+) -> None:
+    from app.api import novelties as api
+
+    plan = _poligon_plan(required_since="2000-01-01")
+    monkeypatch.setattr(api, "load_poligon", lambda: plan)
+    monkeypatch.setattr(api, "load_start_tours", lambda: {})
+    _, recruiter = await _user("recruiter")
+    _, finance = await _user("finance")
+
+    start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
+    assert start["poligon"]["required"] is True
+    assert start["redirect"] == "/poligon"
+
+    for exercise in ("poligon-jeden", "poligon-dwa"):
+        resp = await app_client.post(
+            f"/api/novelties/{exercise}/events",
+            json={"event": "used"},
+            headers=recruiter,
+        )
+        assert resp.status_code == 204
+    start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
+    assert start["poligon"]["done"] == 2 and start["redirect"] == "/start"
+
+    unknown = await app_client.post(
+        "/api/novelties/poligon-nie-ma/events",
+        json={"event": "used"},
+        headers=recruiter,
+    )
+    assert unknown.status_code == 404
+    outsider = await app_client.post(
+        "/api/novelties/poligon-jeden/events", json={"event": "used"}, headers=finance
+    )
+    assert outsider.status_code == 404

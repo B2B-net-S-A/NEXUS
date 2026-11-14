@@ -517,13 +517,13 @@ async def personal_days_off(
 ) -> frozenset[date]:
     """Pełne dni urlopu osoby w bieżącym tygodniu i miesiącu.
 
-    Tylko gdy dostępność liczy się z urlopów NEXUSA; inaczej pusty zbiór —
-    tempo liczy się jak dotąd z samego kalendarza firmy.
+    Urlop tylko gdy dostępność liczy się z urlopów NEXUSA (inaczej tempo liczy
+    się jak dotąd z samego kalendarza firmy). Dzień onboardingu nowej osoby
+    (``onboarding_day``) dochodzi przy każdym źródle.
     """
     from app.services.hr.availability_local import days_off_for, local_source_active
+    from app.services.onboarding_day import onboarding_days
 
-    if not local_source_active():
-        return frozenset()
     now_w = _as_warsaw(now)
     month_start = now_w.date().replace(day=1)
     month_end = month_start.replace(
@@ -532,7 +532,10 @@ async def personal_days_off(
     week_start = now_w.date() - timedelta(days=now_w.weekday())
     start = min(month_start, week_start)
     end = max(month_end, week_start + timedelta(days=6))
-    return await days_off_for(db, user_id, start, end)
+    onboarding = frozenset((await onboarding_days(db, [user_id], start, end)).values())
+    if not local_source_active():
+        return onboarding
+    return await days_off_for(db, user_id, start, end) | onboarding
 
 
 async def evaluate_user_kpis(
