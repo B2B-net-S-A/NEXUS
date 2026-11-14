@@ -284,6 +284,20 @@ def empty_credited_snapshot(monkeypatch):
     monkeypatch.setattr(credited_snapshot, "credited_rows", _rows)
 
 
+@pytest.fixture
+def no_person_absences(monkeypatch):
+    """Bez urlopów i dnia onboardingu dla testów z atrapą `db` z kolejką
+    odpowiedzi — odczyt dni pracy (`person_workdays.absence_by_user`, średnia
+    i cel dnia „Aktywności rekrutacyjnej” od 14.11.2026) nie może zjadać z niej
+    wyników przygotowanych dla zapytania konsumenta."""
+    from app.services import person_workdays
+
+    async def _none(_db, _user_ids, _start, _end, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(person_workdays, "absence_by_user", _none)
+
+
 @pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.

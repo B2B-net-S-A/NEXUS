@@ -22,7 +22,7 @@ from app.services.insights_team_signals import (
 from app.services.kpi_team import TeamMemberRow, TeamPanelResult, TeamTotals
 from app.services.team_filters import in_role_group, team_role_user_ids
 
-pytestmark = pytest.mark.usefixtures("empty_credited_snapshot")
+pytestmark = pytest.mark.usefixtures("empty_credited_snapshot", "no_person_absences")
 
 
 @pytest.fixture(autouse=True)

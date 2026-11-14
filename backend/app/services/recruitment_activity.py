@@ -39,6 +39,11 @@ from app.services.insights_person_scope import outside_scope_user_ids
 from app.services.kpi_engine import WARSAW
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_targets import resolve_kpi_target
+from app.services.person_workdays import (
+    business_days,
+    prorated_targets,
+    workdays_by_user,
+)
 from app.services.team_filters import (
     TeamRoleFilter,
     client_job_filter,
@@ -496,6 +501,17 @@ def _benchmark_dates(selected_month: date, today: date) -> tuple[date, date]:
     return _shift_month(end_exclusive, -_BENCHMARK_MONTHS), end_exclusive
 
 
+def _months_worked(worked: float | None, business: int) -> float:
+    """Miesiące okna porównania, które osoba mogła przepracować (pełne = 3).
+
+    Urlop i dzień onboardingu (`person_workdays`) skracają okno osoby, więc
+    średnia „na miesiąc” liczy się z miesięcy pracy, a nie ze stałych trzech.
+    """
+    if worked is None or business <= 0:
+        return float(_BENCHMARK_MONTHS)
+    return _BENCHMARK_MONTHS * worked / business
+
+
 async def _activity_audience(
     db: AsyncSession,
     current_user: User,
@@ -737,6 +753,15 @@ async def build_recruitment_activity_summary(
             kpi_id="daily_first_verifications",
         )
         if target > 0:
+            # Cel dnia w proporcji do dni pracy — dzień urlopu albo onboardingu
+            # = cel 0, jak w „/api/kpis/me/today” (decyzja Artura 28.10.2026).
+            selected_id_for_target = audience.selected.id
+            target = (
+                await prorated_targets(
+                    db, {selected_id_for_target: target}, selected_day, selected_day
+                )
+            )[selected_id_for_target]
+        if target > 0:
             current = counts["verification"]["day"]
             progress = RecruitmentActivityProgress(
                 current=current,
@@ -761,20 +786,42 @@ async def build_recruitment_activity_summary(
         if uid not in outside_ids
     }
     people_count = len(team_pool)
+    # Średnie „na miesiąc” z miesięcy pracy osób, nie ze stałych 3 miesięcy
+    # (14.11.2026): bez nieobecności wynik jest ten sam co wcześniej.
+    benchmark_last = benchmark_end - timedelta(days=1)
+    benchmark_business = len(business_days(benchmark_start, benchmark_last))
+    months_ids = set(team_pool)
+    if audience.selected is not None:
+        months_ids.add(audience.selected.id)
+    worked_by_user = (
+        await workdays_by_user(db, months_ids, benchmark_start, benchmark_last)
+        if months_ids
+        else {}
+    )
+    months_by_user = {
+        uid: _months_worked(worked_by_user.get(uid), benchmark_business)
+        for uid in months_ids
+    }
+    team_months = sum(months_by_user[uid] for uid in team_pool)
     comparisons: list[RecruitmentActivityComparison] = []
     for metric, stage in (("verification", "verified"), ("placement", "hired")):
         team_total = sum(values[stage] for values in team_pool.values())
         team_average = (
-            round(team_total / (people_count * _BENCHMARK_MONTHS), 1)
-            if people_count
+            round(team_total / team_months, 1)
+            if people_count and team_months > 0
             else None
         )
         personal_average = None
         if audience.selected is not None:
-            personal_average = round(
-                benchmark_by_user.get(audience.selected.id, {}).get(stage, 0)
-                / _BENCHMARK_MONTHS,
-                1,
+            personal_months = months_by_user[audience.selected.id]
+            personal_average = (
+                round(
+                    benchmark_by_user.get(audience.selected.id, {}).get(stage, 0)
+                    / personal_months,
+                    1,
+                )
+                if personal_months > 0
+                else None
             )
         comparisons.append(
             RecruitmentActivityComparison(
@@ -783,7 +830,7 @@ async def build_recruitment_activity_summary(
                 team_average=team_average,
                 months=_BENCHMARK_MONTHS,
                 period_start=benchmark_start,
-                period_end=benchmark_end - timedelta(days=1),
+                period_end=benchmark_last,
                 people=people_count,
             )
         )

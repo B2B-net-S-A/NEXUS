@@ -36,6 +36,7 @@ from app.services.kpi_engine import (
     absence_for_periods,
     period_bounds,
     target_on_workdays,
+    week_to_date_target,
 )
 from app.services.kpi_targets import KPI_BEARING_ROLES, resolve_kpi_targets_bulk
 
@@ -518,6 +519,8 @@ class PanelResult:
     cv_to_base: Optional[FunnelCounts]
     precision: PrecisionResult
     target_verifications_daily: int
+    # Cel dzienny × dni pracy od poniedziałku do dziś (`week_to_date_target`).
+    target_verifications_week_to_date: int
     target_placements_monthly: int
     target_precision_pct: int
 
@@ -676,6 +679,11 @@ async def compute_my_panel(
     placements_target = target_on_workdays(
         targets["monthly_placements"], KpiPeriod.month, now, absence
     )
+    # Kafelek „Mój tydzień” (14.11.2026) dostaje gotowy cel tygodnia do dziś
+    # zamiast liczyć „cel dnia × Pon–Pt” po swojemu.
+    verifications_week_target = week_to_date_target(
+        targets["daily_first_verifications"], now, absence
+    )
 
     total_activity = (
         weryfikacje.month + rekomendacje.month + interview_month + placementy_month
@@ -699,6 +707,7 @@ async def compute_my_panel(
             window_days=_PRECISION_WINDOW_DAYS,
         ),
         target_verifications_daily=verifications_target,
+        target_verifications_week_to_date=verifications_week_target,
         target_placements_monthly=placements_target,
         target_precision_pct=precision_target,
     )
