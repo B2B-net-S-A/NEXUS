@@ -799,6 +799,8 @@ export interface MyKpiPanel {
     window_days: number;
   };
   target_verifications_daily: number;
+  /** Cel dzienny × dni pracy osoby od poniedziałku do dziś (bez świąt, urlopu, dnia onboardingu). */
+  target_verifications_week_to_date: number;
   target_placements_monthly: number;
   target_precision_pct: number;
 }

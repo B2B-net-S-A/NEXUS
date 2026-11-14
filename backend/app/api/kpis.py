@@ -189,6 +189,7 @@ class MyPanelSchema(BaseModel):
     cv_to_base: FunnelCountsSchema | None  # sama liczba, tylko rola z celami KPI
     precision: PrecisionSchema
     target_verifications_daily: int
+    target_verifications_week_to_date: int
     target_placements_monthly: int
     target_precision_pct: int
 
@@ -214,6 +215,7 @@ def _panel_to_schema(p: PanelResult) -> MyPanelSchema:
             window_days=p.precision.window_days,
         ),
         target_verifications_daily=p.target_verifications_daily,
+        target_verifications_week_to_date=p.target_verifications_week_to_date,
         target_placements_monthly=p.target_placements_monthly,
         target_precision_pct=p.target_precision_pct,
     )
