@@ -35,6 +35,7 @@ from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
 from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
+from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_schema as ledger
@@ -116,6 +117,8 @@ MODULES = (
     ledger_automation,
     # 0702: paczki księgi do Symfonii FK K3b (14.11.2026).
     ledger_export,
+    # 0703: środki trwałe i WNiP K6 — ewidencja i dokumenty środka (14.11.2026).
+    ledger_assets,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

@@ -69,6 +69,8 @@ KIND_LABELS: dict[str, str] = {
     sources.PREPAYMENTS: "RMK",
     sources.ALLOCATION: "Rozliczenie kosztów na „5”",
     PAYROLL: "Listy płac (Enova)",
+    sources.ASSETS: "Amortyzacja (AM)",
+    sources.ASSET_DOCS: "Środki trwałe — OT, ulepszenie, LT, sprzedaż",
     sources.COSTS: "Faktury kosztowe (FVZ)",
     sources.SALES: "Faktury sprzedaży (FVS)",
     OPENING: "Bilans otwarcia",
@@ -82,6 +84,14 @@ KIND_NOTES: dict[str, str] = {
     sources.COSTS: "Mają własną paczkę E2 (Finanse → Księgowanie).",
     sources.SALES: "Do czasu wystawiania faktur w NEXUSIE trafiają do Symfonii z eBI24.",
     OPENING: "Bilans otwarcia przychodzi z Symfonii.",
+    sources.ASSETS: (
+        "Do przełączenia amortyzację liczy też Symfonia Środki Trwałe — zaznacz, "
+        "gdy Finanse przestaną ją tam księgować."
+    ),
+    sources.ASSET_DOCS: (
+        "Dokumenty OT i LT robi też Symfonia Środki Trwałe — zaznacz, gdy Finanse "
+        "przestaną je tam wystawiać."
+    ),
 }
 _SOURCE_KINDS: dict[str, str] = {
     **{source_type: kind for kind, source_type in sources.SOURCE_TYPES.items()},

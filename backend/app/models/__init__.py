@@ -926,6 +926,7 @@ from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E4
 from app.models import finance_payments as _finance_payments_models  # noqa: F401,E402  (0699 przelewy kosztów)
 from app.models import finance_posting as _finance_posting_models  # noqa: F401,E402  (0698 dekret i eksport)
 from app.models import ledger as _ledger_models  # noqa: F401,E402  (0700 księga NEXUSA)
+from app.models import ledger_assets as _ledger_assets_models  # noqa: F401,E402  (0703 środki trwałe)
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
