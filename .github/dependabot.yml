@@ -15,9 +15,10 @@ updates:
       prefix: "chore(deps)"
       include: "scope"
     ignore:
-      # Serwer Qdrant na prodzie przypięty do v1.17.1 (#1136), a klient 1.18+
-      # usunął QdrantClient.search() (7 wołających). Bump = migracja na
-      # query_points + odpięcie serwera — osobny PR, nie propozycja dependabota.
+      # Wersja klienta = wersja serwera Qdranta (v1.17.1 w docker-compose.yml,
+      # #1136); różnica najwyżej o jeden minor. Kod woła już tylko
+      # query_points (14.11.2026), ale bump klienta idzie razem z obrazem
+      # serwera w jednym PR-ze, nie jako propozycja dependabota.
       - dependency-name: "qdrant-client"
     groups:
       backend-minor-patch:

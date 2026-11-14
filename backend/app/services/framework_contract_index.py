@@ -206,13 +206,13 @@ def search_points(
                 if ids
             ]
         )
-    hits = client.search(
+    hits = client.query_points(
         collection_name=COLLECTION,
-        query_vector=list(vector),
+        query=list(vector),
         query_filter=query_filter,
         limit=limit,
         with_payload=False,
-    )
+    ).points
     return [int(hit.id) for hit in hits]
 
 

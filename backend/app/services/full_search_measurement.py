@@ -209,9 +209,9 @@ def _exact_search(query_vector, ids):
     if client is None:
         raise RuntimeError("Vector store unavailable")
     try:
-        return client.search(
+        return client.query_points(
             collection_name=embeddings._collection(),
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=Filter(must=[HasIdCondition(has_id=ids)]),
             search_params=SearchParams(
                 exact=True, quantization=QuantizationSearchParams(ignore=True)
@@ -219,7 +219,7 @@ def _exact_search(query_vector, ids):
             limit=len(ids),
             with_payload=list(_PROVENANCE_KEYS),
             with_vectors=False,
-        )
+        ).points
     except UnexpectedResponse as exc:
         if exc.status_code is not None and 400 <= exc.status_code < 500:
             raise _ExactSearchRejected(exc.status_code) from exc

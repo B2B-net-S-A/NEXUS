@@ -136,12 +136,12 @@ async def _embedding_scores(
         def _search() -> dict[int, float]:
             client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             try:
-                hits = client.search(
+                hits = client.query_points(
                     collection_name=CC_CENTROIDS_COLLECTION,
-                    query_vector=entity_embedding,
+                    query=entity_embedding,
                     limit=10,
                     with_payload=False,
-                )
+                ).points
             except Exception as e:
                 logger.debug(
                     "[CC classifier] Qdrant search miss (collection may be empty): %s",
