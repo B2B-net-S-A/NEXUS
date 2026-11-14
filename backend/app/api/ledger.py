@@ -17,6 +17,8 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   cyklicznych i RMK; zapis lista „Księgowi” albo admin,
 * ``POST /opening/import?year=&save=`` (K2) — bilans otwarcia z pliku
   zestawienia sald Symfonii: podgląd albo zapis BO (lista „Księgowi”, admin),
+* ``GET /closing?year=&month=`` (K3d) — lista zamknięcia miesiąca (źródła,
+  bufor, paczka do Symfonii, etapy w drodze) i terminy ZUS, PPK, PIT-4, VAT,
 * ``GET /exports?year=&month=``, ``POST /exports``, ``GET /exports/{id}/file``,
   ``POST /exports/{id}/book`` i ``/cancel`` (K3b) — paczka zatwierdzonych
   dokumentów do Symfonii FK; paczkę, „zaksięgowaną” i anulowanie robi lista
@@ -65,6 +67,7 @@ from app.services.finance_ledger.posting import clean_account
 from app.services.ledger import (
     automations,
     chart,
+    closing,
     documents,
     engine,
     exports,
@@ -630,6 +633,20 @@ async def remove_prepayment(
     return await _write_automation(
         db, lambda: automations.remove(db, "prepayments", item_id, viewer=viewer)
     )
+
+
+# ── Lista zamknięcia miesiąca (K3d) ──────────────────────────────────────────
+
+
+@router.get("/closing")
+async def get_closing(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    return await closing.checklist(db, year, month, viewer=viewer, settings=current)
 
 
 # ── Paczki do Symfonii (K3b) ─────────────────────────────────────────────────

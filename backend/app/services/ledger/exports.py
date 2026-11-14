@@ -413,6 +413,38 @@ async def preview(
     }
 
 
+async def month_status(
+    db: AsyncSession, year: int, month: int, *, viewer: Viewer
+) -> Optional[dict[str, Any]]:
+    """Paczki miesiąca dla listy zamknięcia (K3d): ile dokumentów domyślnych
+    rodzajów jest poza paczką i które paczki czekają na „Zaksięgowana w Symfonii”.
+
+    ``None`` = miesiąc bez paczek (brak roku albo rok w trybie NEXUS). Rodzaje
+    spoza domyślnych (faktury, BO) idą do Symfonii inną drogą, więc ich nie
+    liczymy; dokumenty i paczki płacowe — tylko dla osoby z Płacami (D2).
+    """
+
+    year_row, period = await _period(db, year, month)
+    if year_row is None or period is None or year_row.mode == "nexus":
+        return None
+    candidates = await _candidates(db, period.id, payroll=False)
+    if viewer.payroll:
+        candidates += await _candidates(db, period.id, payroll=True)
+    waiting = await db.scalars(
+        select(LedgerExport.number)
+        .where(
+            LedgerExport.period_id == period.id,
+            LedgerExport.status == "exported",
+            *_export_scope(viewer),
+        )
+        .order_by(LedgerExport.id)
+    )
+    return {
+        "outside": sum(1 for item in candidates if item.kind in DEFAULT_KINDS),
+        "waiting": list(waiting),
+    }
+
+
 # ── Zapis ────────────────────────────────────────────────────────────────────
 
 

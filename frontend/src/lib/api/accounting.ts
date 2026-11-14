@@ -495,6 +495,36 @@ export interface CreateExportInput {
   payroll: boolean;
 }
 
+// ── Lista zamknięcia miesiąca (K3d) ────────────────────────────────────────
+
+export type ClosingState = "ok" | "todo" | "problem" | "later";
+
+export interface ClosingCheck {
+  key: string;
+  label: string;
+  state: ClosingState;
+  detail: string;
+  href: string | null;
+}
+
+export interface ClosingDeadline {
+  key: "zus" | "ppk" | "pit" | "vat";
+  label: string;
+  /** Dzień z ustawy (15., 20., 25.) i termin po przesunięciu na dzień roboczy. */
+  nominal: string;
+  due: string;
+  basis: string;
+  amount_from: string;
+}
+
+export interface ClosingMonth {
+  year: number;
+  month: number;
+  period_status: "open" | "closed" | null;
+  items: ClosingCheck[];
+  deadlines: ClosingDeadline[];
+}
+
 export const accountingKeys = {
   all: ["accounting"] as const,
   config: ["accounting", "config"] as const,
@@ -510,6 +540,7 @@ export const accountingKeys = {
   sources: (year: number, month: number) => ["accounting", "sources", year, month] as const,
   automations: ["accounting", "automations"] as const,
   exports: (year: number, month: number) => ["accounting", "exports", year, month] as const,
+  closing: (year: number, month: number) => ["accounting", "closing", year, month] as const,
 };
 
 export const DOCUMENT_PAGE = 50;
@@ -776,7 +807,9 @@ export function useSaveAutomation() {
     },
     onSuccess: (data) => {
       client.setQueryData(accountingKeys.automations, data);
-      client.invalidateQueries({ queryKey: ["accounting", "sources"] });
+      // Zapis i usunięcie zdejmują szkice wzoru z bufora — odświeża się cała
+      // księga (źródła, dokumenty, liczniki okresów, lista zamknięcia).
+      client.invalidateQueries({ queryKey: accountingKeys.all });
     },
   });
 }
@@ -788,7 +821,9 @@ export function useRemoveAutomation() {
       (await api.delete<AutomationsOverview>(`${BASE}/automations/${args.kind}/${args.id}`)).data,
     onSuccess: (data) => {
       client.setQueryData(accountingKeys.automations, data);
-      client.invalidateQueries({ queryKey: ["accounting", "sources"] });
+      // Zapis i usunięcie zdejmują szkice wzoru z bufora — odświeża się cała
+      // księga (źródła, dokumenty, liczniki okresów, lista zamknięcia).
+      client.invalidateQueries({ queryKey: accountingKeys.all });
     },
   });
 }
@@ -830,21 +865,39 @@ export function exportFilePath(id: number): string {
   return `${BASE}/exports/${id}/file`;
 }
 
-export function useCreateExport() {
+/** Paczka zmienia też listę zamknięcia miesiąca (pozycja „Paczka do Symfonii”). */
+function useInvalidateExports() {
   const client = useQueryClient();
+  return () => {
+    client.invalidateQueries({ queryKey: ["accounting", "exports"] });
+    client.invalidateQueries({ queryKey: ["accounting", "closing"] });
+  };
+}
+
+export function useCreateExport() {
+  const invalidate = useInvalidateExports();
   return useMutation({
     mutationFn: async (args: CreateExportInput) =>
       (await api.post<LedgerExportItem>(`${BASE}/exports`, args)).data,
-    onSettled: () => client.invalidateQueries({ queryKey: ["accounting", "exports"] }),
+    onSettled: () => invalidate(),
   });
 }
 
 export function useChangeExport() {
-  const client = useQueryClient();
+  const invalidate = useInvalidateExports();
   return useMutation({
     mutationFn: async (args: { id: number; action: "book" | "cancel" }) =>
       (await api.post<LedgerExportItem>(`${BASE}/exports/${args.id}/${args.action}`)).data,
-    onSettled: () => client.invalidateQueries({ queryKey: ["accounting", "exports"] }),
+    onSettled: () => invalidate(),
+  });
+}
+
+export function useClosing(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: accountingKeys.closing(year, month),
+    queryFn: async () =>
+      (await api.get<ClosingMonth>(`${BASE}/closing`, { params: { year, month } })).data,
+    enabled,
   });
 }
 
