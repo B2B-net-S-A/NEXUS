@@ -116,6 +116,7 @@ LEDGER_TABLES = (
     "ledger_asset_operations",
     "ledger_bank_statements",
     "ledger_bank_lines",
+    "ledger_settlements",
 )
 
 

@@ -40,6 +40,7 @@ from app.services import ledger_automation_schema as ledger_automation
 from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_schema as ledger
+from app.services import ledger_settlement_schema as ledger_settlement
 from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
@@ -125,6 +126,8 @@ MODULES = (
     payroll_lists,
     # 0705: wyciągi bankowe w księdze K4a — jeden import wyciągu (14.11.2026).
     ledger_bank,
+    # 0706: rozrachunki z rozliczaniem pozycji K4b (14.11.2026).
+    ledger_settlement,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

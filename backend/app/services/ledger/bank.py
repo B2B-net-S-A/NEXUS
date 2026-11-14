@@ -885,9 +885,15 @@ def wb_spec(
     """WB: każda operacja Wn/Ma rachunek firmy i konto przeciwstawne."""
 
     entries: list[LineIn] = []
+    # Pozycja WB z kontem przeciwstawnym → operacja wyciągu (rozrachunki K4b
+    # rozliczają ją z fakturą dopasowaną w E3/E8). Numer pozycji = kolejność
+    # w ``entries`` (``documents.create_draft`` numeruje od 1). Poza odciskiem —
+    # odciski WB sprzed K4b zostają te same.
+    links: dict[str, int] = {}
     for line in lines:
         text_ = f"{line.booked_on:%d.%m} {line.counterparty_name or line.title}"[:200]
         if line.direction == "debit":
+            links[str(len(entries) + 1)] = line.id
             entries.append(
                 LineIn(
                     "debit",
@@ -904,6 +910,7 @@ def wb_spec(
             entries.append(
                 LineIn("debit", statement.ledger_account, line.amount, text_)
             )
+            links[str(len(entries) + 1)] = line.id
             entries.append(
                 LineIn(
                     "credit",
@@ -928,7 +935,7 @@ def wb_spec(
         source_type=SOURCE_TYPE,
         source_id=_source_id(statement.id, payroll),
         sensitivity="payroll" if payroll else None,
-        meta={"statement": statement.id},
+        meta={"statement": statement.id, "bank_lines": links},
     )
 
 

@@ -3,7 +3,8 @@
 Przed zamknięciem okresu widać, czy źródła miesiąca są w księdze (Źródła K2,
 automaty K3a), czy bufor jest pusty i czy zatwierdzone dokumenty poszły do
 Symfonii (K3b, tylko w trybie roku „symfonia” albo „równolegle”), czy
-wyciągi miesiąca mają konta i WB (K4a, gdy moduł „Bank” jest otwarty) i — dla
+wyciągi miesiąca mają konta i WB (K4a, gdy moduł „Bank” jest otwarty), czy
+automat rozrachunków nie ma czego rozliczyć (K4b) i — dla
 Płac — czy jest lista płac z Enovy (K3c; osoba bez Płac widzi tylko, kto ją
 wczytuje, bez liczby). Etapy, których jeszcze nie ma albo są wyłączone (bank,
 VAT, środki trwałe), stoją na liście z numerem etapu — do tego czasu robi je
@@ -34,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
-from app.services.ledger import bank, exports, payroll_lists, sources
+from app.services.ledger import bank, exports, payroll_lists, settlements, sources
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
 
@@ -172,6 +173,35 @@ def bank_check(rows: list[dict[str, Any]], href: str) -> dict[str, Any]:
     }
 
 
+def settlements_check(counts: dict[str, int], href: str) -> dict[str, Any]:
+    """Pozycja listy z podglądu automatu rozrachunków (K4b, ``settlements.auto_counts``)."""
+
+    labels = (
+        ("bank", "z wyciągów"),
+        ("correction", "korekty"),
+        ("zero", "salda zerowe"),
+    )
+    total = sum(counts.get(key, 0) for key, _ in labels)
+    if not total:
+        return {
+            "key": "settlements",
+            "label": "Rozrachunki",
+            "state": "ok",
+            "detail": "automat nie ma nic do rozliczenia",
+            "href": href,
+        }
+    parts = ", ".join(
+        f"{label} {counts[key]}" for key, label in labels if counts.get(key)
+    )
+    return {
+        "key": "settlements",
+        "label": "Rozrachunki",
+        "state": "todo",
+        "detail": f"automat rozliczy pozycje: {total} ({parts})",
+        "href": href,
+    }
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -258,6 +288,12 @@ async def checklist(
     if bank_open:
         listed = await bank.overview(db, viewer, settings.bank, year=year, month=month)
         items.append(bank_check(listed["statements"], f"/accounting/bank{query}"))
+        items.append(
+            settlements_check(
+                await settlements.auto_counts(db, viewer),
+                f"/accounting/settlements{query}",
+            )
+        )
     year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
     period = None
     if year_row is not None:

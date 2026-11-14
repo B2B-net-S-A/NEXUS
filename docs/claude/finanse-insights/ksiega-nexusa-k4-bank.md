@@ -85,9 +85,10 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   UPDATE`). Duplikatu nie da się przypisać — nie wchodzi do WB.
 - Pełnego rachunku kontrahenta nie trzymamy (tylko cztery ostatnie cyfry, jak
   E3 i R9), a tytuły mają zamaskowane numery rachunków z parsera.
-- K4a: tylko wyciągi w PLN (422 dla walut — K4c z wyceną). Rozrachunki
-  z rozliczaniem pozycji (K4b) dalej; do tego czasu WB zdejmuje należność
-  i zobowiązanie na koncie kontrahenta bez parowania z fakturą.
+- K4a: tylko wyciągi w PLN (422 dla walut — K4c z wyceną). Parowanie zapłaty
+  WB z fakturą robią rozrachunki K4b (`ksiega-nexusa-k4b-rozrachunki.md`) —
+  WB pamięta w `meta.bank_lines`, która jego pozycja jest którą operacją
+  wyciągu (poza odciskiem dokumentu).
 
 ## Testy
 

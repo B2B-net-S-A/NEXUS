@@ -168,6 +168,7 @@ describe("zakładki i okres", () => {
       "Miesiąc",
       "Źródła",
       "Bank",
+      "Rozrachunki",
       "Dokumenty",
       "Do Symfonii",
       "Obroty i salda",
