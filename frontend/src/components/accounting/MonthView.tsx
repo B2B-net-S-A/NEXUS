@@ -35,8 +35,8 @@ interface SourceRow {
  */
 const SOURCES: readonly SourceRow[] = [
   { types: ["PK", "BO"], name: "Polecenia księgowania i bilans otwarcia", origin: "ręcznie, na ekranie Dokumenty", stage: null },
-  { types: ["FVZ"], name: "Faktury kosztowe", origin: "kolejka kosztów i dekret (E1–E2)", stage: "K2" },
-  { types: ["FVS"], name: "Faktury sprzedaży", origin: "KSeF i wystawione w NEXUSIE (E4)", stage: "K2" },
+  { types: ["FVZ"], name: "Faktury kosztowe", origin: "kolejka kosztów i dekret E2 → Źródła", stage: null },
+  { types: ["FVS"], name: "Faktury sprzedaży", origin: "KSeF (eBI24 i NEXUS) → Źródła", stage: null },
   { types: ["RMK", "PK"], name: "Polisy, podatki, PK cykliczne", origin: "automaty co miesiąc", stage: "K3" },
   { types: ["WB"], name: "Wyciągi bankowe", origin: "import CAMT.053 / MT940", stage: "K4" },
   { types: ["VAT"], name: "Rozliczenie VAT", origin: "rejestry VAT i JPK_V7M", stage: "K5" },

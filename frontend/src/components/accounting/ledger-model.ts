@@ -162,6 +162,7 @@ export interface AreaTab {
 /** Zakładki obszaru w kolejności pracy w miesiącu (kolejne etapy dopisują swoje). */
 export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting", label: "Miesiąc", description: "Stan miesiąca: dokumenty, bufor i zamknięcie okresu", module: "ledger" },
+  { href: "/accounting/sources", label: "Źródła", description: "Faktury kosztowe i sprzedaży jako dokumenty księgi", module: "ledger" },
   { href: "/accounting/documents", label: "Dokumenty", description: "Dziennik: dokumenty z dekretem, bufor i zatwierdzone", module: "ledger" },
   { href: "/accounting/trial-balance", label: "Obroty i salda", description: "Zestawienie obrotów i sald, karta konta", module: "ledger" },
   { href: "/accounting/chart", label: "Plan kont", description: "Konta księgi: syntetyka, analityka, typy i słowniki", module: "ledger" },
@@ -181,6 +182,15 @@ export function visibleTabs(config: LedgerConfig | undefined): AreaTab[] {
   if (!config) return [];
   const open = new Set(config.modules.filter((item) => item.open).map((item) => item.key));
   return ACCOUNTING_TABS.filter((tab) => tab.module === null || open.has(tab.module));
+}
+
+/** Źródło dokumentu po polsku i — gdy źródło ma kartę w NEXUSIE — odnośnik do niej. */
+export function sourceLabel(source: { type: string; id: string }): { label: string; href: string | null } {
+  if (source.type === "finance_cost_entry") {
+    return { label: "Faktura kosztowa (Koszty)", href: `/finance/costs/${encodeURIComponent(source.id)}` };
+  }
+  if (source.type === "client_sales_invoice") return { label: "Faktura sprzedaży z KSeF", href: null };
+  return { label: source.type, href: null };
 }
 
 /** „1 konto analityczne”, „3 konta analityczne”, „5 kont analitycznych”. */

@@ -14,6 +14,7 @@ import {
   readPeriod,
   shiftPeriod,
   short,
+  sourceLabel,
   toGrosze,
   visibleTabs,
   type DraftLine,
@@ -109,6 +110,7 @@ const CONFIG: LedgerConfig = {
   ],
   me: { admin: false, approver: true, payroll: false },
   accountants: null,
+  sales_accounts: { receivable_account: "200", revenue_account: "", vat_account: "222" },
   years: [
     {
       id: 1,
@@ -141,10 +143,25 @@ const CONFIG: LedgerConfig = {
   dictionaries: [],
 };
 
+describe("źródło dokumentu", () => {
+  it("nazywa źródło po polsku i linkuje kartę faktury kosztowej", () => {
+    expect(sourceLabel({ type: "finance_cost_entry", id: "41" })).toEqual({
+      label: "Faktura kosztowa (Koszty)",
+      href: "/finance/costs/41",
+    });
+    expect(sourceLabel({ type: "client_sales_invoice", id: "7" })).toEqual({
+      label: "Faktura sprzedaży z KSeF",
+      href: null,
+    });
+    expect(sourceLabel({ type: "inne", id: "1" }).label).toBe("inne");
+  });
+});
+
 describe("zakładki i okres", () => {
   it("pokazuje zakładki modułów otwartych dla osoby i zawsze Ustawienia", () => {
     expect(visibleTabs(CONFIG).map((tab) => tab.label)).toEqual([
       "Miesiąc",
+      "Źródła",
       "Dokumenty",
       "Obroty i salda",
       "Plan kont",
@@ -157,6 +174,7 @@ describe("zakładki i okres", () => {
   it("rozpoznaje zakładkę po ścieżce", () => {
     expect(activeTab("/accounting").label).toBe("Miesiąc");
     expect(activeTab("/accounting/documents").label).toBe("Dokumenty");
+    expect(activeTab("/accounting/sources").label).toBe("Źródła");
     expect(activeTab("/accounting/chart/x").label).toBe("Plan kont");
     expect(activeTab(null).label).toBe("Miesiąc");
   });

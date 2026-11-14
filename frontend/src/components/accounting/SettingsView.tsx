@@ -14,9 +14,11 @@ import {
   useReopenPeriod,
   useSetAccountants,
   useSetModule,
+  useSetSalesAccounts,
   useSetYearMode,
   type LedgerPeriod,
   type LedgerYear,
+  type SalesAccounts,
   type YearMode,
 } from "@/lib/api/accounting";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -70,7 +72,10 @@ export function SettingsView() {
         </table>
       </SectionCard>
 
-      <Accountants />
+      <div className="space-y-3.5">
+        <Accountants />
+        <SalesAccountsCard />
+      </div>
 
       <div className="xl:col-span-2">
         <Years />
@@ -155,6 +160,76 @@ function Accountants() {
           </div>
         </>
       )}
+    </SectionCard>
+  );
+}
+
+const SALES_FIELDS: { key: keyof SalesAccounts; label: string; hint: string }[] = [
+  {
+    key: "receivable_account",
+    label: "Rozrachunki z odbiorcami",
+    hint: "konto ze słownikiem kontrahentów; analityka = ID Symfonii, gdy kontrahent nie ma konta w kartotece",
+  },
+  { key: "revenue_account", label: "Przychody ze sprzedaży", hint: "konto przychodów z faktur do klientów" },
+  { key: "vat_account", label: "VAT należny", hint: "VAT z faktur sprzedaży" },
+];
+const NO_SALES_ACCOUNTS: SalesAccounts = { receivable_account: "", revenue_account: "", vat_account: "" };
+
+function SalesAccountsCard() {
+  const { config } = useAccounting();
+  const { showToast } = useToast();
+  const save = useSetSalesAccounts();
+  const saved = config.sales_accounts ?? NO_SALES_ACCOUNTS;
+  const [values, setValues] = useState<SalesAccounts>(saved);
+  useEffect(() => setValues(config.sales_accounts ?? NO_SALES_ACCOUNTS), [config.sales_accounts]);
+  const dirty = SALES_FIELDS.some((field) => values[field.key].trim() !== saved[field.key]);
+  const complete = SALES_FIELDS.every((field) => values[field.key].trim());
+
+  return (
+    <SectionCard title="Konta faktur sprzedaży" aside={config.me.admin ? "dekret FVS ze źródeł" : "zmienia administrator"}>
+      <div className="space-y-2.5 px-3.5 py-3">
+        {SALES_FIELDS.map((field) => (
+          <label key={field.key} className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-x-3 gap-y-0.5 text-[13px]">
+            <span className="min-w-0">
+              <span className="block font-medium">{field.label}</span>
+              <span className={CALM_SUBLINE}>{field.hint}</span>
+            </span>
+            <input
+              aria-label={field.label}
+              className={cn(CONTROL, "w-full tabular-nums")}
+              value={values[field.key]}
+              disabled={!config.me.admin}
+              placeholder="np. 701"
+              onChange={(e) => setValues((current) => ({ ...current, [field.key]: e.target.value }))}
+            />
+          </label>
+        ))}
+        {config.me.admin ? (
+          <div className="flex items-center justify-between gap-3 pt-1">
+            <span className="text-[12px] text-muted-foreground">Każde konto musi być w Planie kont.</span>
+            <Button
+              size="sm"
+              disabled={!dirty || !complete}
+              loading={save.isPending}
+              onClick={() =>
+                save.mutate(
+                  {
+                    receivable_account: values.receivable_account.trim(),
+                    revenue_account: values.revenue_account.trim(),
+                    vat_account: values.vat_account.trim(),
+                  },
+                  {
+                    onSuccess: () => showToast("Zapisano konta faktur sprzedaży."),
+                    onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać kont."), "error"),
+                  },
+                )
+              }
+            >
+              Zapisz konta
+            </Button>
+          </div>
+        ) : null}
+      </div>
     </SectionCard>
   );
 }

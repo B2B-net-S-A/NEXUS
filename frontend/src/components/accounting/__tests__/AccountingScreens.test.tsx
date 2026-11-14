@@ -31,7 +31,8 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { DocumentsView } from "@/components/accounting/DocumentsView";
 import { SettingsView } from "@/components/accounting/SettingsView";
-import type { DocumentCard, DocumentList, LedgerConfig } from "@/lib/api/accounting";
+import { SourcesView, syncMessage } from "@/components/accounting/SourcesView";
+import type { DocumentCard, DocumentList, LedgerConfig, SourcesMonth } from "@/lib/api/accounting";
 import { useAuthStore } from "@/store/auth";
 
 function config(overrides: Partial<LedgerConfig> = {}): LedgerConfig {
@@ -43,6 +44,7 @@ function config(overrides: Partial<LedgerConfig> = {}): LedgerConfig {
     ],
     me: { admin: false, approver: true, payroll: true },
     accountants: null,
+    sales_accounts: { receivable_account: "200", revenue_account: "701-10-1", vat_account: "222" },
     years: [
       {
         id: 1,
@@ -137,9 +139,55 @@ function list(items = [APPROVED, DRAFT]): DocumentList {
   };
 }
 
-function route(cfg: LedgerConfig, docs: DocumentList = list()) {
+function sourcesMonth(overrides: Partial<SourcesMonth> = {}): SourcesMonth {
+  return {
+    year: 2026,
+    month: 10,
+    year_exists: true,
+    period_open: true,
+    sales_accounts: { receivable_account: "200", revenue_account: "701-10-1", vat_account: "222" },
+    items: [
+      {
+        kind: "costs",
+        label: "Faktury kosztowe (Koszty, dekret E2)",
+        total: 3,
+        draft: 1,
+        approved: 0,
+        to_post: 2,
+        changed: 0,
+        skipped: 0,
+        problems: [
+          {
+            source_id: "41",
+            label: "FV 9/10 · Dostawca Testowy",
+            problems: ["Kontrahent „Dostawca Testowy” nie ma konta rozrachunkowego w kartotece."],
+          },
+        ],
+        problems_total: 1,
+        payroll_hidden: false,
+      },
+      {
+        kind: "sales",
+        label: "Faktury sprzedaży (KSeF)",
+        total: 2,
+        draft: 0,
+        approved: 2,
+        to_post: 0,
+        changed: 0,
+        skipped: 0,
+        problems: [],
+        problems_total: 0,
+        payroll_hidden: false,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function route(cfg: LedgerConfig, docs: DocumentList = list(), sources: SourcesMonth = sourcesMonth()) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
+    if (url === "/api/accounting/sources") return { data: sources };
     if (url === "/api/accounting/documents") return { data: docs };
     if (url === "/api/accounting/documents/7") return { data: APPROVED };
     if (url === "/api/accounting/documents/8") return { data: DRAFT };
@@ -269,5 +317,82 @@ describe("Księgowość — obszar i ustawienia", () => {
     expect(await screen.findByText("Nie jesteś na liście „Księgowi”")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /Księga/ })).toBeDisabled();
     expect(get).not.toHaveBeenCalledWith("/api/accounting/config/candidates");
+  });
+});
+
+describe("Księgowość — źródła (K2)", () => {
+  it("pokazuje stan miesiąca i księguje koszty do bufora", async () => {
+    pathname = "/accounting/sources";
+    route(config());
+    post.mockResolvedValue({
+      data: { kind: "costs", created: 2, rebuilt: 0, deleted: 0, unchanged: 1, skipped: 0, problems: [], problems_total: 1 },
+    });
+    const user = userEvent.setup();
+    renderWith(<SourcesView />);
+    const costs = (await screen.findByText("Faktury kosztowe (Koszty, dekret E2)")).closest("section")!;
+    expect(within(costs).getByText("FV 9/10 · Dostawca Testowy")).toBeInTheDocument();
+    const sales = screen.getByText("Faktury sprzedaży (KSeF)").closest("section")!;
+    expect(within(sales).getByRole("button", { name: "Zaksięguj miesiąc" })).toBeDisabled();
+    expect(within(sales).getByText(/przychód 701-10-1/)).toBeInTheDocument();
+    await user.click(within(costs).getByRole("button", { name: "Zaksięguj miesiąc" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/sources/sync", { kind: "costs", year: 2026, month: 10 }),
+    );
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith(expect.stringContaining("nowe: 2")));
+    expect(within(costs).getByRole("link", { name: "Dokumenty FVZ" })).toHaveAttribute(
+      "href",
+      "/accounting/documents?year=2026&month=10&type=FVZ",
+    );
+  });
+
+  it("bez Płac mówi, że faktur osób zespołu tu nie ma, i nie podaje ich liczby", async () => {
+    pathname = "/accounting/sources";
+    const month = sourcesMonth();
+    month.items[0] = { ...month.items[0], payroll_hidden: true };
+    route(config({ me: { admin: false, approver: false, payroll: false } }), list(), month);
+    renderWith(<SourcesView />);
+    expect(await screen.findByText(/Faktury osób zespołu księguje osoba z Płacami/)).toBeInTheDocument();
+  });
+
+  it("zamknięty okres blokuje księgowanie", async () => {
+    pathname = "/accounting/sources";
+    route(config(), list(), sourcesMonth({ period_open: false }));
+    renderWith(<SourcesView />);
+    expect(await screen.findByText(/jest zamknięty — faktur do niego się nie księguje/)).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button", { name: "Zaksięguj miesiąc" })) {
+      expect(button).toBeDisabled();
+    }
+  });
+
+  it("komunikat po księgowaniu wylicza zmiany w buforze", () => {
+    expect(
+      syncMessage({ kind: "sales", created: 3, rebuilt: 1, deleted: 0, unchanged: 5, skipped: 0, problems: [], problems_total: 2 }),
+    ).toBe("Zaksięgowano do bufora — nowe: 3, przebudowane: 1, usunięte: 0, bez zmian: 5. Do wyjaśnienia: 2.");
+  });
+
+  it("konta sprzedaży zapisuje administrator; reszta widzi je tylko do odczytu", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: true, approver: true, payroll: true }, accountants: [] }));
+    put.mockResolvedValue({ data: {} });
+    const user = userEvent.setup();
+    const { unmount } = renderWith(<SettingsView />);
+    const revenue = await screen.findByLabelText("Przychody ze sprzedaży");
+    const save = screen.getByRole("button", { name: "Zapisz konta" });
+    expect(save).toBeDisabled();
+    await user.clear(revenue);
+    await user.type(revenue, "701-4-1");
+    await user.click(save);
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/accounting/config/sales", {
+        receivable_account: "200",
+        revenue_account: "701-4-1",
+        vat_account: "222",
+      }),
+    );
+    unmount();
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    renderWith(<SettingsView />);
+    expect(await screen.findByLabelText("VAT należny")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Zapisz konta" })).not.toBeInTheDocument();
   });
 });

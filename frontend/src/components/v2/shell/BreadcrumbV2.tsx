@@ -123,6 +123,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   documents: "Dokumenty",
   "trial-balance": "Obroty i salda",
   chart: "Plan kont",
+  // 14.11.2026: /accounting/sources — faktury jako dokumenty księgi (K2).
+  sources: "Źródła",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",
