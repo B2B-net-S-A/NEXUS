@@ -41,6 +41,8 @@ const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   cv_downloaded: "Pobrano CV",
   bulk_cv_downloaded: "Pobrano CV (pobieranie zbiorcze)",
   export_requested: "Wyeksportowano dane kandydata",
+  // 14.11.2026: karta kontaktu w podglądzie na telefonie (`/podglad/kandydat`).
+  candidate_contact_viewed_phone: "Otwarto kontakt na telefonie",
   // 0418: zmiana stawki w trakcie procesu (szczegóły w historii stawek).
   candidate_rate_change_requested: "Zmieniono stawkę kandydata w rekrutacji",
   b2b_cv_generated: "Wygenerowano CV",

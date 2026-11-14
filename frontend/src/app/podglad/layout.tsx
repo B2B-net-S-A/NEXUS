@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Briefcase, CalendarDays, Users } from "lucide-react";
+import { BarChart3, Briefcase, CalendarDays, Search, Users } from "lucide-react";
 
-import { PREVIEW_PATH, resultsKind, seesRecruitment, seesToday } from "@/components/phone-preview/access";
+import { PREVIEW_PATH, resultsKind, seesRecruitment, seesSearch, seesToday } from "@/components/phone-preview/access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 /**
- * Podgląd na telefonie (decyzja Artura 05.11.2026): wyłącznie odczyt liczb, praca
- * zostaje na laptopie. Bez powłoki aplikacji, bo jej pasek górny i dymki zajmują
+ * Podgląd na telefonie (decyzja Artura 05.11.2026): odczyt liczb, praca zostaje
+ * na laptopie. Od 14.11.2026 także „Szukaj” i karta kontaktu kandydata. Bez powłoki aplikacji, bo jej pasek górny i dymki zajmują
  * telefonowi pół ekranu. Zakaz zapisów pilnuje test `phone-preview-read-only`.
  */
 export default function PhonePreviewLayout({ children }: { children: React.ReactNode }) {
@@ -19,6 +19,7 @@ export default function PhonePreviewLayout({ children }: { children: React.React
   const tabs = [
     { href: PREVIEW_PATH, label: "Wyniki", icon: BarChart3, active: pathname === PREVIEW_PATH, show: resultsKind(user) !== null },
     { href: `${PREVIEW_PATH}/rekrutacje`, label: "Rekrutacje", icon: Briefcase, active: pathname.startsWith(`${PREVIEW_PATH}/rekrutacje`), show: seesRecruitment(user) },
+    { href: `${PREVIEW_PATH}/szukaj`, label: "Szukaj", icon: Search, active: pathname.startsWith(`${PREVIEW_PATH}/szukaj`) || pathname.startsWith(`${PREVIEW_PATH}/kandydat`), show: seesSearch(user) },
     { href: `${PREVIEW_PATH}/zespol`, label: "Zespół", icon: Users, active: pathname.startsWith(`${PREVIEW_PATH}/zespol`), show: true },
     { href: `${PREVIEW_PATH}/dzis`, label: "Dziś", icon: CalendarDays, active: pathname.startsWith(`${PREVIEW_PATH}/dzis`), show: seesToday(user) },
   ].filter((t) => t.show);

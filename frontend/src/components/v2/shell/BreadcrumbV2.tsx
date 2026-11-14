@@ -14,6 +14,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   dzis: "Dziś",
   rekrutacje: "Rekrutacje",
   zespol: "Zespół",
+  szukaj: "Szukaj",
+  kandydat: "Kandydat",
   "talent-radar": "Talent Radar",
   "": "Dashboard",
   candidates: "Kandydaci",
