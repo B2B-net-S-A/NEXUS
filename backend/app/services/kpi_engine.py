@@ -171,6 +171,22 @@ def target_on_workdays(
     return target_for_window(target, start, end, absence)
 
 
+def week_to_date_target(
+    daily_target: int, now: datetime, absence: dict[date, float]
+) -> int:
+    """Cel dzienny × dni pracy od poniedziałku do dziś włącznie.
+
+    Kafelek „Mój tydzień” (14.11.2026): święto, urlop i dzień onboardingu nie
+    podnoszą celu tygodnia; tydzień bez nieobecności = cel × dni robocze.
+    """
+    from app.services.person_workdays import business_days, target_for_window
+
+    today = _as_warsaw(now).date()
+    monday = today - timedelta(days=today.weekday())
+    business = len(business_days(monday, today))
+    return target_for_window(daily_target * business, monday, today, absence)
+
+
 def period_bucket_label(period: KpiPeriod, now: datetime) -> str:
     """Deduplikacyjny klucz okresu.
 

@@ -501,6 +501,7 @@ const MY_WEEK: MyKpiPanel = {
   cv_to_base: null,
   precision: { value_pct: 72, verified: 25, sent: 18, target_pct: 75, window_days: 30 },
   target_verifications_daily: 4,
+  target_verifications_week_to_date: 12,
   target_placements_monthly: 1,
   target_precision_pct: 75,
 };

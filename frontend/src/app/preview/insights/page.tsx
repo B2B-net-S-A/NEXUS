@@ -287,7 +287,7 @@ function seeded(): QueryClient {
     weryfikacje: { day: 3, week: 14, month: 58 }, rekomendacje: { day: 0, week: 3, month: 11 },
     interview_month: 6, akceptacje_month: 3, placementy_month: 2, cv_to_base: null,
     precision: { value_pct: 64, verified: 58, sent: 37, target_pct: 75, window_days: 30 },
-    target_verifications_daily: 4, target_placements_monthly: 1,
+    target_verifications_daily: 4, target_verifications_week_to_date: 12, target_placements_monthly: 1,
     target_precision_pct: 75,
   });
   qc.setQueryData(["insights", "me", "position", "quarterly_champions_recruiter"], {
