@@ -53,11 +53,14 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
 ## Zasady, których łatwo nie zauważyć
 
 - **D2**: wypłaty dla osób z zespołu (`payroll = true`) widzi, przypisuje
-  i księguje tylko osoba z Płacami albo admin. Osoba bez Płac dostaje licznik
-  `hidden_payroll`, sumy i liczby operacji bez nich (inaczej różnica sum
-  zdradzałaby wynagrodzenia) i robi tylko WB zwykły. Dlatego R9 nie biegnie
-  przy imporcie osoby bez Płac — wypłatę rozpoznaje wtedy sam rachunek osoby,
-  a konto przypisują Płace.
+  i księguje tylko osoba z Płacami albo admin. Osoba bez Płac dostaje tylko
+  flagę `payroll_hidden` (bez liczby), sumy i liczby operacji bez nich,
+  numery pozycji liczone w swoim zasięgu (luka zdradzałaby liczbę wypłat) i robi
+  tylko WB zwykły. Duplikat dziedziczy D2 po oryginale (i po rachunku osoby
+  z zespołu) — ta sama wypłata z wyciągu dziennego i miesięcznego nie wychodzi
+  z nazwiskiem i kwotą (przegląd bezpieczeństwa 14.11.2026). R9 nie biegnie przy
+  imporcie osoby bez Płac — wypłatę rozpoznaje wtedy sam rachunek osoby, a konto
+  przypisują Płace.
 - **Zmiana konta po księgowaniu przebudowuje szkic WB od razu** (ta sama
   funkcja `_write_wb` co „Zaksięguj”). Bez tego w buforze zostawał WB ze
   starym kontem, który dało się zatwierdzić. Zatwierdzony WB blokuje zmianę

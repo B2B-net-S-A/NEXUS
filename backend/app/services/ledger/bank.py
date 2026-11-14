@@ -228,14 +228,24 @@ async def _team_accounts(
 
 async def _duplicates(
     db: AsyncSession, bank_account: str, lines: tuple[StatementLine, ...]
-) -> set[str]:
-    """Operacje, które ten rachunek ma już w innym wyciągu (ta sama referencja banku)."""
+) -> dict[str, bool]:
+    """Operacje, które ten rachunek ma już w innym wyciągu (ta sama referencja banku).
+
+    Wartość = czy oryginał był wypłatą dla zespołu: duplikat dziedziczy D2,
+    inaczej ta sama wypłata z wyciągu miesięcznego pokazałaby się osobie bez
+    Płac z nazwiskiem i kwotą (przegląd bezpieczeństwa K4a 14.11.2026).
+    """
 
     refs = {line.bank_ref[:48] for line in lines if line.bank_ref}
     if not refs:
-        return set()
+        return {}
     rows = await db.execute(
-        select(LedgerBankLine.bank_ref, LedgerBankLine.booked_on, LedgerBankLine.amount)
+        select(
+            LedgerBankLine.bank_ref,
+            LedgerBankLine.booked_on,
+            LedgerBankLine.amount,
+            LedgerBankLine.payroll,
+        )
         .join(
             LedgerBankStatement, LedgerBankStatement.id == LedgerBankLine.statement_id
         )
@@ -244,13 +254,16 @@ async def _duplicates(
             LedgerBankLine.bank_ref.in_(refs),
         )
     )
-    seen = {(ref, day, amount) for ref, day, amount in rows.all()}
-    return {
-        line.line_ref
-        for line in lines
-        if line.bank_ref
-        and (line.bank_ref[:48], line.booked_on, grosze(line.amount)) in seen
-    }
+    seen: dict[tuple[str, Any, int], bool] = {}
+    for ref, day, amount, payroll in rows.all():
+        key = (ref, day, amount)
+        seen[key] = seen.get(key, False) or bool(payroll)
+    out: dict[str, bool] = {}
+    for line in lines:
+        key = (line.bank_ref[:48], line.booked_on, grosze(line.amount))
+        if line.bank_ref and key in seen:
+            out[line.line_ref] = seen[key]
+    return out
 
 
 @dataclass(frozen=True)
@@ -307,7 +320,13 @@ async def _classify(
         ref = line.line_ref
         account = nrb(line.counterparty_account)
         if ref in duplicates:
-            out[ref] = Classified("duplicate", None, None, None, False, "")
+            paid = team.get(ref)
+            payroll = (
+                duplicates[ref]
+                or (paid is not None and paid.match_status == MATCHED)
+                or (line.direction == "debit" and bool(account) and account in owners)
+            )
+            out[ref] = Classified("duplicate", None, None, None, payroll, "")
             continue
         if line.direction == "debit":
             cost = costs.get(ref)
@@ -485,10 +504,10 @@ def _resolved(line: LedgerBankLine) -> bool:
     return line.kind == "duplicate" or bool(line.counter_account)
 
 
-def _line_payload(line: LedgerBankLine) -> dict[str, Any]:
+def _line_payload(line: LedgerBankLine, position: int) -> dict[str, Any]:
     return {
         "id": line.id,
-        "position": line.position,
+        "position": position,
         "booked_on": line.booked_on.isoformat(),
         "direction": line.direction,
         "amount": line.amount,
@@ -547,7 +566,6 @@ async def statement_payload(
 
     lines = await _lines(db, statement.id)
     visible = [line for line in lines if _visible(line, viewer)]
-    hidden = len(lines) - len(visible)
     counts = Counter(line.kind for line in visible)
     docs = [
         doc
@@ -568,8 +586,13 @@ async def statement_payload(
         "credit_total": sum(
             line.amount for line in visible if line.direction == "credit"
         ),
-        "lines": [_line_payload(line) for line in visible],
-        "hidden_payroll": hidden,
+        # Numer pozycji w zasięgu osoby: luka w numeracji zdradzałaby liczbę
+        # ukrytych wypłat, a D2 trzyma liczniki płacowe przy Płacach.
+        "lines": [
+            _line_payload(line, position)
+            for position, line in enumerate(visible, start=1)
+        ],
+        "payroll_hidden": len(visible) < len(lines),
         "counts": dict(counts),
         "unresolved": sum(1 for line in visible if not _resolved(line)),
         "documents": [
@@ -902,12 +925,16 @@ async def post(
         raise LedgerError(NO_STATEMENT, status=404)
     lines = await _lines(db, statement.id)
     visible = [line for line in lines if _visible(line, viewer)]
-    open_lines = [line for line in visible if not _resolved(line)]
+    open_lines = [
+        (position, line)
+        for position, line in enumerate(visible, start=1)
+        if not _resolved(line)
+    ]
     if open_lines:
-        first = open_lines[0]
+        position, first = open_lines[0]
         raise LedgerError(
             f"Wyciąg ma operacje bez konta ({len(open_lines)}) — pierwsza: poz. "
-            f"{first.position}, {KIND_LABELS[first.kind]}. Przypisz konta i księguj "
+            f"{position}, {KIND_LABELS[first.kind]}. Przypisz konta i księguj "
             "ponownie.",
             status=422,
         )

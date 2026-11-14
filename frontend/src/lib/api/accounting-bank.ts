@@ -5,7 +5,8 @@
 // `backend/app/api/ledger.py`. Bramki: „Moduł Finanse” i przełączniki modułów
 // `ledger` + `bank` (wyłączony = 404, admin widzi). Wypłaty dla osób z zespołu
 // (pozycje płacowe) serwer pokazuje tylko osobie z Płacami i administratorowi
-// (D2) — reszta dostaje licznik `hidden_payroll`. Rachunki firmy zmienia
+// (D2) — reszta dostaje tylko flagę `payroll_hidden`, bez liczby (numery
+// pozycji też są w zasięgu osoby, bez luk). Rachunki firmy zmienia
 // administrator; inni widzą tylko końcówkę numeru.
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -79,8 +80,8 @@ export interface BankStatement {
   debit_total: number;
   credit_total: number;
   lines: BankLine[];
-  /** Wypłaty dla zespołu, których osoba bez Płac nie widzi (D2). */
-  hidden_payroll: number;
+  /** Wyciąg ma wypłaty dla zespołu, których ta osoba nie widzi (D2 — bez liczby). */
+  payroll_hidden: boolean;
   counts: Partial<Record<BankLineKind, number>>;
   unresolved: number;
   documents: BankStatementDocument[];

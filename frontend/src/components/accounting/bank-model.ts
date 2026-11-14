@@ -40,7 +40,7 @@ export function canAssign(line: BankLine, documents: readonly BankStatementDocum
 export function postBlocker(statement: BankStatement): string | null {
   const booked = statement.lines.filter((line) => line.kind !== "duplicate");
   if (!booked.length) {
-    return statement.hidden_payroll
+    return statement.payroll_hidden
       ? "Zostały tylko wypłaty dla zespołu — księguje je osoba z Płacami."
       : "Wszystkie operacje to duplikaty z innego wyciągu — nie ma czego księgować.";
   }

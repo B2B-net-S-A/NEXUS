@@ -133,7 +133,7 @@ function statement(overrides: Partial<BankStatement> = {}): BankStatement {
         resolved: false,
       }),
     ],
-    hidden_payroll: 2,
+    payroll_hidden: true,
     counts: { zus: 1, fee: 1, unmatched: 1 },
     unresolved: 1,
     documents: [],
@@ -192,7 +192,7 @@ describe("Księgowość — Bank", () => {
     await user.click(open);
     expect(await screen.findByText("Wpłata bez faktury")).toBeInTheDocument();
     expect(window.location.search).toContain("statement=7");
-    expect(screen.getByText(/Wypłaty dla osób z zespołu \(2\) widzi i księguje osoba z Płacami/)).toBeInTheDocument();
+    expect(screen.getByText("Wypłaty dla osób z zespołu widzi i księguje osoba z Płacami.")).toBeInTheDocument();
     const book = screen.getByRole("button", { name: "Zaksięguj wyciąg" });
     expect(book).toBeDisabled();
     expect(screen.getByText("Jedna operacja czeka na konto — przypisz je i księguj.")).toBeInTheDocument();

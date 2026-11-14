@@ -1765,7 +1765,9 @@ async def test_bank_hides_team_payments_without_payroll(client, world, books):
         data = outside.json()
         # Bez Płac: wypłaty dla zespołu nie widać — ani kwoty, ani pozycji.
         assert [line["kind"] for line in data["lines"]] == ["fee"]
-        assert data["hidden_payroll"] == 1 and data["debit_total"] == 1_250
+        assert data["payroll_hidden"] is True and data["debit_total"] == 1_250
+        # Numeracja w zasięgu osoby — bez luki, która zdradzałaby ukrytą wypłatę.
+        assert [line["position"] for line in data["lines"]] == [1]
         inside = await client.get(
             f"{ACC}/bank/statements/{data['id']}", headers=_headers(world["accountant"])
         )
@@ -1774,6 +1776,8 @@ async def test_bank_hides_team_payments_without_payroll(client, world, books):
             ("team", True),
             ("fee", False),
         ]
+        assert inside.json()["payroll_hidden"] is False
+        assert [line["position"] for line in lines] == [1, 2]
         for user, operations, debit in (("module_only", 1, 1_250), ("accountant", 2, 801_250)):
             listed = await client.get(
                 f"{ACC}/bank", params={"year": year, "month": 3}, headers=_headers(world[user])
@@ -1789,6 +1793,26 @@ async def test_bank_hides_team_payments_without_payroll(client, world, books):
             f"{ACC}/bank/statements/{data['id']}/post", headers=_headers(world["accountant"])
         )
         assert blocked.status_code == 422
+        # Ta sama wypłata w drugim wyciągu (dzienny i miesięczny) = duplikat, który
+        # dziedziczy D2: osoba bez Płac nie widzi nazwiska ani kwoty.
+        monthly = _statement(
+            year,
+            ("D", "8000,00", "Wynagrodzenie 02", TEAM_ACCOUNT, f"P{marker}"),
+            ("D", "5,00", "Opłata za przelew", "", f"G{marker}"),
+        )
+        second = await _bank_import(client, world, monthly, user="module_only")
+        assert second.status_code == 201, second.text
+        assert [line["kind"] for line in second.json()["lines"]] == ["fee"]
+        assert second.json()["payroll_hidden"] is True
+        assert second.json()["debit_total"] == 500
+        full = await client.get(
+            f"{ACC}/bank/statements/{second.json()['id']}",
+            headers=_headers(world["accountant"]),
+        )
+        assert [(line["kind"], line["payroll"]) for line in full.json()["lines"]] == [
+            ("duplicate", True),
+            ("fee", False),
+        ]
     finally:
         async with AsyncSessionLocal() as db:
             if created:

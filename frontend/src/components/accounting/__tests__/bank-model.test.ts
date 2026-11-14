@@ -48,7 +48,7 @@ function statement(overrides: Partial<BankStatement> = {}): BankStatement {
     debit_total: 1_000,
     credit_total: 0,
     lines: [line()],
-    hidden_payroll: 0,
+    payroll_hidden: false,
     counts: { zus: 1 },
     unresolved: 0,
     documents: [],
@@ -92,7 +92,7 @@ describe("bank — księgowanie", () => {
     expect(postBlocker(statement())).toBeNull();
     expect(postBlocker(statement({ unresolved: 1 }))).toBe("Jedna operacja czeka na konto — przypisz je i księguj.");
     expect(postBlocker(statement({ unresolved: 3 }))).toBe("Operacje bez konta (3) — przypisz konta i księguj.");
-    expect(postBlocker(statement({ lines: [], hidden_payroll: 2 }))).toBe(
+    expect(postBlocker(statement({ lines: [], payroll_hidden: true }))).toBe(
       "Zostały tylko wypłaty dla zespołu — księguje je osoba z Płacami.",
     );
     expect(postBlocker(statement({ lines: [line({ kind: "duplicate" })] }))).toMatch(/duplikaty/);

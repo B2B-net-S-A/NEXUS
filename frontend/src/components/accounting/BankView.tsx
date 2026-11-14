@@ -329,9 +329,9 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
             <b className="font-semibold">{gr(statement.credit_total)} zł</b> · konto {statement.ledger_account}
           </p>
           <p className="text-[12px] text-muted-foreground">{kinds.join(" · ") || "Brak operacji w Twoim zakresie."}</p>
-          {statement.hidden_payroll ? (
+          {statement.payroll_hidden ? (
             <p className="text-[12px] text-muted-foreground">
-              Wypłaty dla osób z zespołu ({statement.hidden_payroll}) widzi i księguje osoba z Płacami.
+              Wypłaty dla osób z zespołu widzi i księguje osoba z Płacami.
             </p>
           ) : null}
           {statement.documents.some((doc) => doc.status === "approved") ? (
@@ -416,7 +416,7 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
         </table>
       ) : (
         <p className="px-3.5 py-6 text-center text-[13px] text-muted-foreground">
-          {statement.hidden_payroll ? "Wszystkie operacje tego wyciągu to wypłaty dla zespołu." : "Brak operacji."}
+          {statement.payroll_hidden ? "Wszystkie operacje tego wyciągu to wypłaty dla zespołu." : "Brak operacji."}
         </p>
       )}
       {lines.length > LINES_SHOWN ? (
