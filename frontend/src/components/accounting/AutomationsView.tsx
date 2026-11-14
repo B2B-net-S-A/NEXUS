@@ -120,7 +120,7 @@ function RecurringCard({ items }: { items: RecurringTemplate[] }) {
   const drop = async (item: RecurringTemplate) => {
     const ok = await askConfirm({
       title: `Usunąć wzór „${item.name}”?`,
-      description: "Szkice z tego wzoru znikną przy następnym księgowaniu miesiąca.",
+      description: "Szkice z tego wzoru znikną z bufora od razu.",
       confirmLabel: "Usuń wzór",
       variant: "destructive",
     });
@@ -301,7 +301,7 @@ function PrepaymentsCard({ items }: { items: Prepayment[] }) {
   const drop = async (item: Prepayment) => {
     const ok = await askConfirm({
       title: `Usunąć rozliczenie „${item.name}”?`,
-      description: "Szkice rat znikną przy następnym księgowaniu miesiąca.",
+      description: "Szkice rat znikną z bufora od razu.",
       confirmLabel: "Usuń",
       variant: "destructive",
     });
