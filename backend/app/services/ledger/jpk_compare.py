@@ -66,6 +66,16 @@ def _grosze(text: Optional[str]) -> int:
         ) from None
 
 
+def party_number(raw: Optional[str], country: Optional[str]) -> str:
+    """Numer kontrahenta bez kodu kraju po obu stronach (Symfonia pisze VAT UE
+    z prefiksem, NEXUS bez); „BRAK” zostaje „BRAK” (przegląd K5b-3b)."""
+
+    compact = "".join(ch for ch in (raw or "") if ch.isalnum()).upper()
+    if not compact or compact == jpk.BRAK:
+        return jpk.BRAK
+    return jpk.counterparty(compact, country)[1]
+
+
 def doc_key(number: Optional[str], party: Optional[str]) -> Key:
     """Klucz wiersza: numer dowodu i kontrahenta bez spacji i wielkości liter."""
 
@@ -105,7 +115,12 @@ def parse(content: bytes) -> dict[str, Any]:
         for node in root.iter():
             if _local(node) != row_tag:
                 continue
-            key = doc_key(_child(node, number_tag), _child(node, party_tag))
+            key = doc_key(
+                _child(node, number_tag),
+                party_number(
+                    _child(node, party_tag), _child(node, "KodKrajuNadaniaTIN")
+                ),
+            )
             entry = rows.setdefault(
                 key,
                 {
@@ -141,8 +156,9 @@ def _nexus_rows(rows: list[dict[str, Any]], kind: str) -> dict[Key, dict[str, An
     sales = kind == "sales"
     out: dict[Key, dict[str, Any]] = {}
     for row in rows:
-        _, number = jpk.counterparty(row.get("tax_id"), row.get("country"))
-        key = doc_key(row["number"], number)
+        key = doc_key(
+            row["number"], party_number(row.get("tax_id"), row.get("country"))
+        )
         entry = out.setdefault(
             key,
             {

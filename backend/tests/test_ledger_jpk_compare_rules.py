@@ -71,3 +71,18 @@ def test_wrong_files_are_refused():
         with pytest.raises(LedgerError) as caught:
             jpk_compare.parse(content)
         assert caught.value.status == 422 and message in caught.value.message
+
+
+def test_symfonia_numbers_with_country_prefix_and_brak_match_nexus_rows():
+    """Przegląd K5b-3b: Symfonia pisze numer VAT UE z prefiksem (DE…, PL…) —
+    klucz po obu stronach bez kodu kraju; „BRAK” zostaje „BRAK”."""
+
+    data = _data()
+    data["sales"].append(dict(data["sales"][0], document_id=901, number="FS 9/03", tax_id=None, country=None, ksef_number=None))
+    content = _file(data)
+    content = content.replace(b"<NrKontrahenta>28583949</NrKontrahenta>", b"<NrKontrahenta>FI28583949</NrKontrahenta>")
+    content = content.replace(b"<NrKontrahenta>1111111111</NrKontrahenta>", b"<NrKontrahenta>PL1111111111</NrKontrahenta>")
+    result = jpk_compare.compare(data, jpk_compare.parse(content))
+    sales = result["rows"][0]
+    assert (sales["only_nexus_count"], sales["only_symfonia_count"], sales["matched"]) == (0, 0, 4)
+    assert result["differences"] == 0
