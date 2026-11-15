@@ -118,7 +118,7 @@ async def _has_catalog_report(db: AsyncSession, client_id: int) -> bool:
     """Klient ma ten raport, gdy ma go w katalogu raportów (od 15.11.2026).
 
     Do katalogu raport był przyciskiem dla jednego klienta zaszytego w kodzie;
-    zasiew 0708 założył mu definicję, kolejny klient dostaje ją z katalogu.
+    zasiew 0709 założył mu definicję, kolejny klient dostaje ją z katalogu.
     """
     found = await db.scalar(
         select(ClientReportDefinition.id)

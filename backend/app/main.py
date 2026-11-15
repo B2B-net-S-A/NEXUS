@@ -1579,7 +1579,9 @@ app.include_router(
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(bnp_report_api.router, prefix="/api/clients", tags=["clients"])
 # Katalog raportów klienta (15.11.2026): definicje, kalendarz, pobranie, historia.
-app.include_router(client_reports_api.router, prefix="/api/client-reports", tags=["client-reports"])
+app.include_router(
+    client_reports_api.router, prefix="/api/client-reports", tags=["client-reports"]
+)
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",

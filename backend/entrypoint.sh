@@ -383,7 +383,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_client_summary'",
     # 0709: katalog raportów klienta — obowiązki raportowe z umów ramowych.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_report_requirements'",
-    # 0708: przypomnienie o terminie raportu dla klienta (dzwonek).
+    # 0709: przypomnienie o terminie raportu dla klienta (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
