@@ -18,6 +18,8 @@ export interface TeamPanelPosition {
   short: string;
   headcount: number;
   view: PanelView;
+  /** Szacunek stawki (zł/h) dla stanowiska jeszcze bez stawek w CV; tylko przy pokazywanych stawkach. */
+  estimate?: { min: number; max: number } | null;
 }
 
 export interface TeamPanelView {

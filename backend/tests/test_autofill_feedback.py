@@ -833,7 +833,6 @@ async def test_move_stores_detail_and_cleanup_stays_out_of_the_report(
             select(RejectionReason.id).where(
                 RejectionReason.category == "rejected",
                 RejectionReason.template_id.is_(None),
-                RejectionReason.label == "Inne",
             )
         )
     base = {
