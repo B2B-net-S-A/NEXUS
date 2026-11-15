@@ -185,7 +185,16 @@ async def _seed_ebi24_month(seed) -> dict[str, str]:
             items=[SUPPORT],
             client_id=seed.client_id,
         )
-        db.add_all([benefit, service, ordered])
+        # Faktura z zamówienia, której automat nie dopasował (inna kwota) — nie szablon.
+        unmatched_order = _sales(
+            4,
+            nip=fx.CLIENT_NIP,
+            name="Klient Testowy",
+            items=[SUPPORT],
+            client_id=seed.client_id,
+        )
+        unmatched_order.match_reason = "amount_differs"
+        db.add_all([benefit, service, ordered, unmatched_order])
         await db.flush()
         db.add(
             ClientSalesInvoiceLink(
@@ -196,7 +205,11 @@ async def _seed_ebi24_month(seed) -> dict[str, str]:
             )
         )
         await db.commit()
-        return {"benefit": benefit.ksef_number, "service": service.ksef_number}
+        return {
+            "benefit": benefit.ksef_number,
+            "service": service.ksef_number,
+            "unmatched_order": unmatched_order.ksef_number,
+        }
 
 
 # ── Dostęp ──────────────────────────────────────────────────────────────────
@@ -286,8 +299,15 @@ async def test_templates_from_ksef_month_and_drafts_for_next_month(client, seed)
         )
     ).json()
     rows = {row["ksef_number"]: row for row in proposals["rows"]}
-    # Faktura powiązana z zamówieniem idzie przez „Wystaw za miesiąc”, nie tutaj.
-    assert set(rows) == {numbers["benefit"], numbers["service"]}
+    # Faktura powiązana z zamówieniem idzie przez „Wystaw za miesiąc”, nie tutaj;
+    # niedopasowana z zamówienia jest widoczna, ale oznaczona i nie robi szablonu.
+    assert set(rows) == {
+        numbers["benefit"],
+        numbers["service"],
+        numbers["unmatched_order"],
+    }
+    assert rows[numbers["unmatched_order"]]["from_order"] is True
+    assert rows[numbers["service"]]["from_order"] is False
     assert rows[numbers["benefit"]]["kind"] == "benefit"
     assert rows[numbers["benefit"]]["benefit"] == "sport"
     assert rows[numbers["benefit"]]["address_missing"] is False
@@ -304,7 +324,7 @@ async def test_templates_from_ksef_month_and_drafts_for_next_month(client, seed)
         headers=_h(seed),
     )
     assert imported.status_code == 201, imported.text
-    assert len(imported.json()["created"]) == 2
+    assert len(imported.json()["created"]) == 2  # bez faktury z zamówienia
     again = await client.post(
         f"{BASE}/templates/import",
         json={**OCTOBER, "ksef_numbers": list(numbers.values())},
@@ -316,7 +336,7 @@ async def test_templates_from_ksef_month_and_drafts_for_next_month(client, seed)
             f"{BASE}/templates/suggestions", params=OCTOBER, headers=_h(seed)
         )
     ).json()
-    assert all(row["has_template"] for row in marked["rows"])
+    assert all(row["has_template"] or row["from_order"] for row in marked["rows"])
 
     benefits = (
         await client.get(

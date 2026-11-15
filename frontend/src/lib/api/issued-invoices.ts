@@ -491,6 +491,8 @@ export interface TemplateSuggestion {
   net: string | null;
   currency: string;
   address_missing: boolean;
+  /** Faktura z zamówienia, której automat nie dopasował — wystawiasz ją w „Wystaw za miesiąc”, nie szablonem. */
+  from_order: boolean;
   has_template: boolean;
 }
 
@@ -526,7 +528,7 @@ export function useTemplateSuggestions(period: string, enabled = true) {
       (
         await api.get<{
           rows: TemplateSuggestion[];
-          counts: { all: number; benefit: number; has_template: number };
+          counts: { all: number; benefit: number; has_template: number; from_order: number };
         }>(`${BASE}/templates/suggestions`, { params: periodParams(period) })
       ).data,
     enabled,

@@ -28,6 +28,8 @@ const BENEFIT_SHORT: Record<string, string> = {
  * „Szablony z faktur z KSeF” (E6): faktury bez zamówienia z wybranego miesiąca
  * (to, co wystawił eBI24) → szablony. Domyślnie zaznaczone są faktury bez
  * szablonu; jednorazowe (np. sprzedaż sprzętu) odznacz i wystaw „Nową fakturą”.
+ * Faktura do klienta, której automat nie dopasował do zamówienia, jest z zamówienia
+ * („Wystaw za miesiąc”) — widać ją, ale szablonu z niej nie ma.
  */
 export function ImportTemplatesDialog({ period, onClose }: { period: string; onClose: () => void }) {
   const { showToast } = useToast();
@@ -39,7 +41,9 @@ export function ImportTemplatesDialog({ period, onClose }: { period: string; onC
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setSelected(new Set(rows.filter((row) => !row.has_template).map((row) => row.ksef_number)));
+    setSelected(
+      new Set(rows.filter((row) => !row.has_template && !row.from_order).map((row) => row.ksef_number)),
+    );
   }, [rows]);
 
   const toggle = (key: string, on: boolean) =>
@@ -102,6 +106,9 @@ export function ImportTemplatesDialog({ period, onClose }: { period: string; onC
             <p className="text-sm text-muted-foreground">
               {countPl(query.data.counts.all, "faktura", "faktury", "faktur")} bez zamówienia, w tym{" "}
               {countPl(query.data.counts.benefit, "refaktura benefitu", "refaktury benefitów", "refaktur benefitów")}
+              {query.data.counts.from_order
+                ? `; ${query.data.counts.from_order} z zamówień idzie przez „Wystaw za miesiąc”`
+                : ""}
             </p>
           ) : null}
         </div>
@@ -121,7 +128,7 @@ export function ImportTemplatesDialog({ period, onClose }: { period: string; onC
                   <Checkbox
                     aria-label={`Szablon z faktury ${row.invoice_number ?? row.ksef_number}`}
                     checked={selected.has(row.ksef_number)}
-                    disabled={row.has_template}
+                    disabled={row.has_template || row.from_order}
                     onCheckedChange={(value) => toggle(row.ksef_number, value === true)}
                     className="mt-0.5"
                   />
@@ -140,6 +147,8 @@ export function ImportTemplatesDialog({ period, onClose }: { period: string; onC
                     </span>
                     {row.has_template ? (
                       <StatusDot tone="success">ma szablon</StatusDot>
+                    ) : row.from_order ? (
+                      <StatusDot tone="neutral">z zamówienia</StatusDot>
                     ) : row.benefit ? (
                       <StatusDot tone="info">{BENEFIT_SHORT[row.benefit]}</StatusDot>
                     ) : row.address_missing ? (

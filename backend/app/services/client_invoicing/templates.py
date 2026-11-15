@@ -470,6 +470,23 @@ async def _unlinked(
     )
 
 
+#: Powody braku dopasowania, przy których faktura do klienta NIE jest z zamówienia.
+_NOT_ORDER_REASONS = frozenset({None, "no_orders", "unknown_buyer"})
+
+
+def _from_order(invoice: ClientSalesInvoice) -> bool:
+    """Faktura do klienta, której automat nie dopasował do zamówienia (np. inna kwota).
+
+    To faktura z zamówienia — w NEXUSIE powstaje w „Wystaw za miesiąc”, więc
+    szablon z niej zafakturowałby usługę drugi raz (przeklikanie 15.11.2026:
+    faktury banku „Usługi informatyczne — konsultant” wśród propozycji).
+    """
+
+    return (
+        invoice.client_id is not None and invoice.match_reason not in _NOT_ORDER_REASONS
+    )
+
+
 def _buyer_from_sales(invoice: ClientSalesInvoice) -> dict[str, Any]:
     number = invoice.buyer_nip or invoice.buyer_foreign_id or ""
     ident = fa3_build.buyer_id(number)
@@ -505,6 +522,7 @@ async def suggestions(db: AsyncSession, *, year: int, month: int) -> dict[str, A
                 "net": issue._amount(invoice.net_amount),  # noqa: SLF001
                 "currency": invoice.currency,
                 "address_missing": not buyer["address_l1"],
+                "from_order": _from_order(invoice),
                 "has_template": invoice.ksef_number in refs
                 or _signature(buyer["number"], names) in signatures,
             }
@@ -517,6 +535,7 @@ async def suggestions(db: AsyncSession, *, year: int, month: int) -> dict[str, A
             "all": len(rows),
             "benefit": sum(1 for row in rows if row["kind"] == "benefit"),
             "has_template": sum(1 for row in rows if row["has_template"]),
+            "from_order": sum(1 for row in rows if row["from_order"]),
         },
     }
 
@@ -545,7 +564,11 @@ async def import_from_ksef(
         names = [line["name"] for line in lines]
         buyer = book.fill(_buyer_from_sales(invoice))
         signature = _signature(buyer["number"], names)
-        if invoice.ksef_number in refs or signature in signatures:
+        if (
+            _from_order(invoice)
+            or invoice.ksef_number in refs
+            or signature in signatures
+        ):
             continue
         client = book.client_for(buyer["number"])
         benefit = benefit_of(names)

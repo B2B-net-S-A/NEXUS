@@ -164,6 +164,7 @@ describe("ImportTemplatesDialog", () => {
         net: "65.74",
         currency: "PLN",
         address_missing: false,
+        from_order: false,
         has_template: false,
       },
       {
@@ -178,10 +179,26 @@ describe("ImportTemplatesDialog", () => {
         net: "12000.00",
         currency: "PLN",
         address_missing: false,
+        from_order: false,
         has_template: true,
       },
+      {
+        ksef_number: "K-3",
+        invoice_number: "3/10/2026",
+        buyer_name: "Bank Testowy S.A.",
+        buyer_number: "1111111111",
+        client_id: 7,
+        kind: "service",
+        benefit: null,
+        lines: [{ ...LINE, name: "Usługi informatyczne - konsultant" }],
+        net: "25200.00",
+        currency: "PLN",
+        address_missing: false,
+        from_order: true,
+        has_template: false,
+      },
     ];
-    get.mockResolvedValue({ data: { rows, counts: { all: 2, benefit: 1, has_template: 1 } } });
+    get.mockResolvedValue({ data: { rows, counts: { all: 3, benefit: 1, has_template: 1, from_order: 1 } } });
     post.mockResolvedValue({ data: { created: [9] } });
     const onClose = vi.fn();
     wrap(<ImportTemplatesDialog period="2026-11" onClose={onClose} />);
@@ -191,6 +208,8 @@ describe("ImportTemplatesDialog", () => {
       params: { year: 2026, month: 10 },
     });
     expect(screen.getByRole("checkbox", { name: "Szablon z faktury 2/10/2026" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Szablon z faktury 3/10/2026" })).toBeDisabled();
+    expect(screen.getByText("z zamówienia")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Utwórz szablony (1)" }));
     await waitFor(() =>
       expect(post).toHaveBeenCalledWith("/api/finance/issued-invoices/templates/import", {
