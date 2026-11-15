@@ -224,30 +224,51 @@ def settlements_check(counts: dict[str, int], href: str) -> dict[str, Any]:
 
 def valuation_check(data: dict[str, Any], href: str) -> Optional[dict[str, Any]]:
     """Wycena walut (K4c-2): w grudniu obowiązkowa (dzień bilansowy), w ciągu roku
-    opcjonalna; bez pozycji w walucie pozycji listy nie ma."""
+    opcjonalna; bez pozycji w walucie pozycji listy nie ma. Zatwierdzona wycena,
+    która różni się od dzisiejszego przeliczenia, to problem (storno i ponowna
+    wycena); w grudniu blokada (np. brak kursu) i pominięty rachunek = do zrobienia."""
 
-    if not data["positions"]:
+    groups = data["groups"]
+    if not (data["positions"] or data["skipped"] or groups or data["payroll_hidden"]):
         return None
-    doc = data["documents"]["valuation"]
-    item = {"key": "valuation", "label": "Wycena walut", "href": href}
-    if doc is not None:
-        approved = doc["status"] == "approved"
+    december = data["month"] == 12
+    notes = []
+    if data["skipped"]:
+        accounts = ", ".join(entry["account"] for entry in data["skipped"])
+        notes.append(f"pominięte: {accounts} — wyceń ręcznie")
+    if data["payroll_hidden"]:
+        notes.append("część płacowa — osoba z Płacami")
+
+    def check(state: str, detail: str) -> dict[str, Any]:
         return {
-            **item,
-            "state": "ok" if approved else "todo",
-            "detail": f"{doc['number']} {'zatwierdzona' if approved else 'w buforze'}",
+            "key": "valuation",
+            "label": "Wycena walut",
+            "state": state,
+            "detail": "; ".join([detail, *notes]),
+            "href": href,
         }
-    if data["month"] == 12:
-        return {
-            **item,
-            "state": "todo",
-            "detail": "wycena na dzień bilansowy (art. 30 ust. 1 UoR)",
-        }
-    return {
-        **item,
-        "state": "ok",
-        "detail": "w ciągu roku opcjonalna — obowiązkowa na 31.12",
-    }
+
+    changed = [group["valuation"]["number"] for group in groups if group["changed"]]
+    if changed:
+        return check(
+            "problem",
+            f"{', '.join(changed)} zatwierdzona, a dziś wychodzi inna — storno "
+            "i ponowna wycena",
+        )
+    if december and data["blocker"]:
+        return check("todo", data["blocker"])
+    booked = [group["valuation"] for group in groups if group["valuation"]]
+    drafts = [doc["number"] for doc in booked if doc["status"] != "approved"]
+    if drafts:
+        return check("todo", f"{', '.join(drafts)} w buforze")
+    pending = any(group["valuation"] is None and group["to_book"] for group in groups)
+    if booked and not pending:
+        numbers = ", ".join(doc["number"] for doc in booked)
+        approved = "zatwierdzona" if len(booked) == 1 else "zatwierdzone"
+        return check("todo" if december and notes else "ok", f"{numbers} {approved}")
+    if december:
+        return check("todo", "wycena na dzień bilansowy (art. 30 ust. 1 UoR)")
+    return check("ok", "w ciągu roku opcjonalna — obowiązkowa na 31.12")
 
 
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:

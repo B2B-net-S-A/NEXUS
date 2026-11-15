@@ -189,18 +189,25 @@ const OUTCOMES: Record<string, string> = {
   created: "w buforze",
   rebuilt: "przebudowana w buforze",
   unchanged: "bez zmian",
-  removed: "usunięta (nic do wyceny)",
-  none: "",
+  approved: "zatwierdzona",
 };
 
-/** Toast po „Zaksięguj wycenę”: numery PK, stan i — gdy czeka — powód odwrócenia. */
+/** Toast po „Zaksięguj wycenę”: numery PK (zwykłej i płacowej), stan, flaga
+ *  „zmieniona” i — gdy czeka — powód odwrócenia. */
 export function valuationMessage(result: ValuationResult): string {
+  if (!result.groups.length) return "Nic do wyceny na ten dzień.";
   const parts: string[] = [];
-  const valuation = result.valuation;
-  if (valuation.number) parts.push(`Wycena ${valuation.number} ${OUTCOMES[valuation.outcome] ?? ""}`.trim());
-  else if (valuation.outcome === "none") parts.push("Nic do wyceny na ten dzień");
-  const reversal = result.reversal;
-  if (reversal.number) parts.push(`odwrócenie ${reversal.number} ${OUTCOMES[reversal.outcome] ?? ""}`.trim());
-  if (result.reversal_waiting) parts.push(result.reversal_waiting);
+  for (const group of result.groups) {
+    const label = group.payroll ? "Wycena płacowa" : "Wycena";
+    const valuation = group.valuation;
+    if (valuation.number) parts.push(`${label} ${valuation.number} ${OUTCOMES[valuation.outcome] ?? ""}`.trim());
+    else if (valuation.outcome === "removed") parts.push(`${label} usunięta (nic do wyceny)`);
+    else parts.push(`${label}: nic do wyceny`);
+    if (group.changed) parts.push("różni się od dzisiejszego przeliczenia — storno i ponowna wycena");
+    const reversal = group.reversal;
+    if (reversal.number) parts.push(`odwrócenie ${reversal.number} ${OUTCOMES[reversal.outcome] ?? ""}`.trim());
+    else if (reversal.outcome === "removed") parts.push("odwrócenie usunięte");
+    if (group.reversal_waiting) parts.push(group.reversal_waiting);
+  }
   return `${parts.join("; ")}.`;
 }

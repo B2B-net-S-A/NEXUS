@@ -534,9 +534,10 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
 
 /**
  * Wycena walut na koniec miesiąca z nagłówka (K4c-2): otwarte pozycje walutowe
- * i salda rachunków walutowych po kursie NBP z tego dnia, PK wyceny i jej
- * odwrócenie 1. dnia następnego miesiąca. Rozrachunki zostają w kursach
- * historycznych.
+ * i salda rachunków walutowych po kursie NBP z ostatniego dnia roboczego
+ * miesiąca, PK wyceny i jej odwrócenie 1. dnia następnego miesiąca. Rozrachunki
+ * zostają w kursach historycznych. Rachunek z wypłatami dla zespołu i pozycje
+ * płacowe idą osobną PK płacową — widzi ją tylko osoba z Płacami (D2).
  */
 function ValuationCard({ year, month }: { year: number; month: number }) {
   const { showToast } = useToast();
@@ -554,7 +555,7 @@ function ValuationCard({ year, month }: { year: number; month: number }) {
   if (!preview.isSuccess) return null;
   const data = preview.data;
   const rates = data.rates.map((rate) => `${rate.currency} ${rateLabel(rate.rate)} (${datePl(rate.date).slice(0, 5)})`);
-  const docs = [data.documents.valuation, data.documents.reversal].filter((doc) => doc != null);
+  const changed = data.groups.filter((group) => group.changed && group.valuation);
   const run = () =>
     post.mutate(
       { year, month },
@@ -566,7 +567,7 @@ function ValuationCard({ year, month }: { year: number; month: number }) {
   return (
     <SectionCard
       title={`Wycena walut na ${datePl(data.day)}`}
-      aside={rates.length ? `kurs NBP: ${rates.join(" · ")}` : "art. 30 ust. 1 UoR"}
+      aside={rates.length ? `kurs NBP: ${rates.join(" · ")}` : `kurs NBP z ${datePl(data.rate_day)}`}
     >
       {data.positions.length ? (
         <table className="w-full table-fixed text-sm">
@@ -581,62 +582,102 @@ function ValuationCard({ year, month }: { year: number; month: number }) {
           </thead>
           <tbody>
             {data.positions.map((item) => (
-              <tr key={`${item.kind}:${item.account}:${item.currency}`} className={cn(CALM_ROW, "last:border-0")}>
+              <tr key={`${item.kind}:${item.account}:${item.currency}:${item.payroll}`} className={cn(CALM_ROW, "last:border-0")}>
                 <td className="min-w-0 px-3.5 py-1.5">
                   <span className="block truncate font-medium">{item.name || item.account}</span>
                   <span className={CALM_SUBLINE}>
                     {item.account} · {item.kind === "bank" ? "rachunek walutowy" : "rozrachunki"}
+                    {item.payroll ? " · PK płacowa" : ""}
                   </span>
                 </td>
                 <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{curAmount(item.amount_cur, item.currency)}</td>
                 <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{gr(item.book)}</td>
-                <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{gr(item.valued)}</td>
-                <td
-                  className={cn(
-                    CALM_AMOUNT,
-                    "py-1.5 pl-2 pr-3.5 text-right",
-                    item.diff < 0 ? "text-destructive-text" : item.diff > 0 ? "text-success-muted-foreground" : "",
-                  )}
-                >
-                  {item.diff > 0 ? "+" : ""}
-                  {gr(item.diff)}
-                </td>
+                {item.valued == null || item.diff == null ? (
+                  <td colSpan={2} className="py-1.5 pl-2 pr-3.5 text-right text-[12px] text-warning-muted-foreground">
+                    brak kursu NBP
+                  </td>
+                ) : (
+                  <>
+                    <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{gr(item.valued)}</td>
+                    <td
+                      className={cn(
+                        CALM_AMOUNT,
+                        "py-1.5 pl-2 pr-3.5 text-right",
+                        item.diff < 0 ? "text-destructive-text" : item.diff > 0 ? "text-success-muted-foreground" : "",
+                      )}
+                    >
+                      {item.diff > 0 ? "+" : ""}
+                      {gr(item.diff)}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
         <p className="px-3.5 py-4 text-[13px] text-muted-foreground">
-          Na ten dzień nie ma otwartych pozycji ani sald w walucie.
+          {data.skipped.length || data.payroll_hidden
+            ? "Bez pozycji do wyceny automatycznej."
+            : "Na ten dzień nie ma otwartych pozycji ani sald w walucie."}
         </p>
       )}
+      {data.skipped.length ? (
+        <div className="border-t border-border/70 px-3.5 py-2 text-[13px]">
+          <p className="text-[12px] font-semibold text-muted-foreground">Poza wyceną — wyceń ręcznie (PK)</p>
+          <ul className="mt-1 space-y-0.5">
+            {data.skipped.map((item) => (
+              <li key={item.account} className="min-w-0">
+                <span className="font-medium">{item.name || item.account}</span>{" "}
+                <span className="text-muted-foreground">
+                  ({item.account}, {item.currency}): {item.reason}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-start justify-between gap-3 border-t border-border/70 px-3.5 py-2.5 text-[13px]">
         <div className="min-w-0 space-y-0.5">
           <p className="tabular-nums">
             Dodatnie różnice <b className="font-semibold">{gr(data.gain)} zł</b> · ujemne{" "}
             <b className="font-semibold">{gr(data.loss)} zł</b>
           </p>
-          {docs.length ? (
-            <p className="text-[12px] text-muted-foreground">
-              {docs.map((doc, index) => (
-                <span key={doc.id}>
-                  {index ? " · " : ""}
-                  {index ? "odwrócenie " : "wycena "}
-                  <Link className="text-primary hover:underline" href={`/accounting/documents?status=${doc.status}&type=PK`}>
-                    {doc.number}
-                  </Link>{" "}
-                  {doc.status === "approved" ? "zatwierdzona" : "w buforze"}
-                </span>
-              ))}
-            </p>
+          {data.groups.some((group) => group.valuation || group.reversal) ? (
+            data.groups.map((group) => (
+              <p key={group.key} className="text-[12px] text-muted-foreground">
+                {[group.valuation, group.reversal].map((doc, index) =>
+                  doc ? (
+                    <span key={doc.id}>
+                      {index && group.valuation ? " · " : ""}
+                      {index ? "odwrócenie " : group.payroll ? "wycena płacowa " : "wycena "}
+                      <Link className="text-primary hover:underline" href={`/accounting/documents?status=${doc.status}&type=PK`}>
+                        {doc.number}
+                      </Link>{" "}
+                      {doc.status === "approved" ? "zatwierdzona" : "w buforze"}
+                    </span>
+                  ) : null,
+                )}
+              </p>
+            ))
           ) : (
             <p className="text-[12px] text-muted-foreground">
               PK wyceny na ten dzień i odwrócenie 1. dnia następnego miesiąca — rozrachunki zostają w kursach historycznych.
             </p>
           )}
+          {changed.map((group) => (
+            <p key={group.key} className="text-[12px] text-destructive-text">
+              {group.valuation?.number} jest zatwierdzona, a dziś wychodzi inna — zrób jej storno i zaksięguj wycenę ponownie.
+            </p>
+          ))}
+          {data.payroll_hidden ? (
+            <p className="text-[12px] text-muted-foreground">
+              Część płacowa (rachunek z wypłatami dla zespołu albo pozycje płacowe) — wycenia osoba z Płacami.
+            </p>
+          ) : null}
           {data.blocker ? <p className="text-[12px] text-warning-muted-foreground">{data.blocker}</p> : null}
         </div>
-        {data.can_post && data.positions.length ? (
+        {data.can_post && (data.positions.length || data.groups.length) ? (
           <Button size="sm" disabled={data.blocker != null} title={data.blocker ?? undefined} loading={post.isPending} onClick={run}>
             Zaksięguj wycenę
           </Button>

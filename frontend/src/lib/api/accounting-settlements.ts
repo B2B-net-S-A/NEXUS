@@ -163,9 +163,21 @@ export interface ValuationPosition {
   /** Kwota w walucie ze znakiem: + = saldo Wn (należność, środki), − = Ma. */
   amount_cur: number;
   book: number;
-  valued: number;
+  /** ``null`` = brak kursu NBP z dnia wyceny (pozycja jest, wyceny nie ma). */
+  valued: number | null;
   /** Korekta konta: + = Wn konto (dodatnia różnica), − = Ma konto. */
-  diff: number;
+  diff: number | null;
+  /** D2 — pozycja płacowa albo rachunek z wypłatami dla zespołu (PK płacowa). */
+  payroll: boolean;
+}
+
+/** Rachunek walutowy poza wyceną (zapisy bez kwoty w walucie, brak BO). */
+export interface ValuationSkipped {
+  account: string;
+  name: string;
+  currency: string;
+  reason: string;
+  payroll: boolean;
 }
 
 export interface ValuationDoc {
@@ -174,24 +186,48 @@ export interface ValuationDoc {
   status: "draft" | "approved";
 }
 
+/** PK wyceny: zwykła (RRRR-MM) albo płacowa (RRRR-MM-payroll, tylko z Płacami). */
+export interface ValuationGroup {
+  key: string;
+  payroll: boolean;
+  gain: number;
+  loss: number;
+  to_book: boolean;
+  valuation: ValuationDoc | null;
+  reversal: ValuationDoc | null;
+  /** Zatwierdzona wycena różni się od dzisiejszego przeliczenia — storno i ponowna wycena. */
+  changed: boolean;
+}
+
 export interface ValuationPreview {
   year: number;
   month: number;
   day: string;
+  rate_day: string;
   rates: { currency: string; rate: string; date: string }[];
   missing_rates: string[];
   positions: ValuationPosition[];
+  skipped: ValuationSkipped[];
   gain: number;
   loss: number;
-  documents: { valuation: ValuationDoc | null; reversal: ValuationDoc | null };
+  groups: ValuationGroup[];
+  /** Część płacowa jest, ale ta osoba jej nie widzi (D2). */
+  payroll_hidden: boolean;
   blocker: string | null;
   can_post: boolean;
 }
 
-export interface ValuationResult {
+export interface ValuationGroupResult {
+  key: string;
+  payroll: boolean;
   valuation: { outcome: string } & Partial<ValuationDoc>;
   reversal: { outcome: string } & Partial<ValuationDoc>;
   reversal_waiting: string | null;
+  changed: boolean;
+}
+
+export interface ValuationResult {
+  groups: ValuationGroupResult[];
   gain: number;
   loss: number;
 }

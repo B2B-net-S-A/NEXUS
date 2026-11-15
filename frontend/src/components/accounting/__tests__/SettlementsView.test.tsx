@@ -143,12 +143,15 @@ function valuation(overrides: Partial<ValuationPreview> = {}): ValuationPreview 
     year: 2026,
     month: 11,
     day: "2026-11-20",
+    rate_day: "2026-11-19",
     rates: [{ currency: "EUR", rate: "4.400000", date: "2026-11-19" }],
     missing_rates: [],
     positions: [],
+    skipped: [],
     gain: 0,
     loss: 0,
-    documents: { valuation: null, reversal: null },
+    groups: [],
+    payroll_hidden: false,
     blocker: null,
     can_post: true,
     ...overrides,
@@ -336,18 +339,28 @@ describe("Księgowość — Rozrachunki", () => {
       account(),
       valuation({
         positions: [
-          { account: "200-75002", name: "Nordea Bank Abp", kind: "settlement", currency: "EUR", amount_cur: 50_000, book: 215_000, valued: 220_000, diff: 5_000 },
-          { account: "131-1", name: "Rachunek EUR", kind: "bank", currency: "EUR", amount_cur: 10_000, book: 44_500, valued: 44_000, diff: -500 },
+          { account: "200-75002", name: "Nordea Bank Abp", kind: "settlement", currency: "EUR", amount_cur: 50_000, book: 215_000, valued: 220_000, diff: 5_000, payroll: false },
+          { account: "131-1", name: "Rachunek EUR", kind: "bank", currency: "EUR", amount_cur: 10_000, book: 44_500, valued: 44_000, diff: -500, payroll: false },
         ],
         gain: 5_000,
         loss: 500,
+        groups: [
+          { key: "2026-11", payroll: false, gain: 5_000, loss: 500, to_book: true, valuation: null, reversal: null, changed: false },
+        ],
       }),
     );
     post.mockResolvedValue({
       data: {
-        valuation: { outcome: "created", id: 1, number: "PK 9/11/2026", status: "draft" },
-        reversal: { outcome: "created", id: 2, number: "PK 1/12/2026", status: "draft" },
-        reversal_waiting: null,
+        groups: [
+          {
+            key: "2026-11",
+            payroll: false,
+            valuation: { outcome: "created", id: 1, number: "PK 9/11/2026", status: "draft" },
+            reversal: { outcome: "created", id: 2, number: "PK 1/12/2026", status: "draft" },
+            reversal_waiting: null,
+            changed: false,
+          },
+        ],
         gain: 5_000,
         loss: 500,
       },
@@ -368,6 +381,48 @@ describe("Księgowość — Rozrachunki", () => {
     await waitFor(() =>
       expect(showToast).toHaveBeenCalledWith("Wycena PK 9/11/2026 w buforze; odwrócenie PK 1/12/2026 w buforze."),
     );
+  });
+
+  it("wycena walut: brak kursu, rachunek poza wyceną, część płacowa i zmieniona PK (przegląd K4c-2)", async () => {
+    route(
+      config(),
+      overview(),
+      account(),
+      valuation({
+        rates: [],
+        missing_rates: ["EUR"],
+        positions: [
+          { account: "200-75002", name: "Nordea Bank Abp", kind: "settlement", currency: "EUR", amount_cur: 50_000, book: 215_000, valued: null, diff: null, payroll: false },
+        ],
+        skipped: [
+          { account: "131-1", name: "Rachunek EUR", currency: "EUR", reason: "zapisy bez kwoty w EUR (BO 1/2026) — wyceń ten rachunek ręcznie (PK)", payroll: false },
+        ],
+        groups: [
+          {
+            key: "2026-11",
+            payroll: false,
+            gain: 0,
+            loss: 0,
+            to_book: true,
+            valuation: { id: 5, number: "PK 9/11/2026", status: "approved" },
+            reversal: null,
+            changed: true,
+          },
+        ],
+        payroll_hidden: true,
+        blocker: "Brak kursu NBP EUR z dnia 19.11.2026 — pobierz kursy (Finanse → Kursy walut).",
+      }),
+    );
+    renderView();
+    expect(await screen.findByText("Wycena walut na 20.11.2026")).toBeInTheDocument();
+    expect(screen.getByText("kurs NBP z 19.11.2026")).toBeInTheDocument();
+    const nordea = screen.getByText("Nordea Bank Abp").closest("tr") as HTMLElement;
+    expect(within(nordea).getByText("brak kursu NBP")).toBeInTheDocument();
+    expect(screen.getByText("Poza wyceną — wyceń ręcznie (PK)")).toBeInTheDocument();
+    expect(screen.getByText(/zapisy bez kwoty w EUR \(BO 1\/2026\)/)).toBeInTheDocument();
+    expect(screen.getByText(/PK 9\/11\/2026 jest zatwierdzona, a dziś wychodzi inna/)).toBeInTheDocument();
+    expect(screen.getByText(/wycenia osoba z Płacami/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zaksięguj wycenę" })).toBeDisabled();
   });
 
   it("bez listy „Księgowi” nie ma przycisków rozliczania", async () => {
