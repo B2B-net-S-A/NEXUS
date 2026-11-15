@@ -43,6 +43,7 @@ from app.models.user import User
 from app.services import champion_document
 from app.services import job_intake_champion_file as champion_file
 from app.services import job_request_intake as intake
+from app.services import team_request_split as team_split
 from app.services.ai_quota import AIQuotaExceeded, ai_feature
 from app.services.auto_assign_owners import (
     pick_delivery_lead,
@@ -119,6 +120,39 @@ async def read_request(
         "intake": await _read(db, current_user.id, body.client_id, body.text),
         "reader": READER_REQUEST,
     }
+
+
+class TeamPositionsBody(BaseModel):
+    text: str = Field(
+        ...,
+        min_length=team_split.MIN_TEXT_CHARS,
+        max_length=team_split.MAX_TEXT_CHARS,
+    )
+
+
+@router.post("/team-positions")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
+async def team_positions(
+    request: Request,
+    body: TeamPositionsBody,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mail z kilkoma rolami → propozycja stanowisk zespołu (Z4).
+
+    Wynik AI to dodatek: awaria modelu albo zła odpowiedź daje 200 z pustą
+    listą i wpis w logu, a Delivery Lead dopisuje stanowiska ręcznie.
+    """
+    model = team_split.model_name()
+    try:
+        async with ai_feature(db, team_split.FEATURE, user_id=current_user.id):
+            await db.commit()
+            positions = await team_split.read_positions(body.text)
+    except Exception as exc:  # noqa: BLE001 — wynik AI nie jest warunkiem ekranu
+        await db.rollback()
+        logger.warning("team_request_split: read failed: %s", type(exc).__name__)
+        positions = []
+    return {"positions": positions, "model": model}
 
 
 async def _read_champion_form(data: bytes, name: str) -> Optional[dict]:

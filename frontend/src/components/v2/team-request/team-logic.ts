@@ -64,6 +64,34 @@ export function teamHourlyRange<C>(
   return { min, max, unpriced };
 }
 
+/**
+ * Cena zespołu od–do z szacunkiem (Z4): stanowisko bez żadnej stawki w CV,
+ * ale z szacunkiem z historii klienta, wchodzi do sumy szacunkiem i jest
+ * nazwane w `estimated`, żeby ekran powiedział, co jest szacunkiem.
+ */
+export function teamHourlyRangeWithEstimates<C>(
+  groups: readonly SeatGroup<C>[],
+  rateOf: (c: C) => number | null,
+  estimates: Readonly<Record<string, { min: number; max: number } | null | undefined>>,
+): { min: number; max: number; unpriced: string[]; estimated: string[] } {
+  const base = teamHourlyRange(groups, rateOf);
+  let { min, max } = base;
+  const unpriced: string[] = [];
+  const estimated: string[] = [];
+  for (const key of base.unpriced) {
+    const estimate = estimates[key];
+    const group = groups.find((g) => g.key === key);
+    if (estimate && group) {
+      min += estimate.min * group.headcount;
+      max += estimate.max * group.headcount;
+      estimated.push(key);
+    } else {
+      unpriced.push(key);
+    }
+  }
+  return { min, max, unpriced, estimated };
+}
+
 export function pickedOf<C>(group: SeatGroup<C>, picks: Picks, idOf: (c: C) => string): C[] {
   const ids = picks[group.key] ?? [];
   return ids

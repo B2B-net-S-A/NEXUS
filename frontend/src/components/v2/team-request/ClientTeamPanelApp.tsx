@@ -80,6 +80,7 @@ import {
   selectionHourly,
   startingPicks,
   teamHourlyRange,
+  teamHourlyRangeWithEstimates,
   teamStart,
   togglePick,
   type Picks,
@@ -193,9 +194,11 @@ function PriceBand({
 }) {
   const hours = view.hours_per_month || DEFAULT_HOURS_PER_MONTH;
   const groups = groupsOf(view);
-  const range = teamHourlyRange(groups, candidateHourly);
+  const estimates = Object.fromEntries(view.positions.map((p) => [p.key, p.estimate ?? null]));
+  const range = teamHourlyRangeWithEstimates(groups, candidateHourly, estimates);
   const chosen = selectionHourly(groups, picks, publicId, candidateHourly);
   const start = teamStart(groups, picks, today);
+  const estimatedNames = view.positions.filter((p) => range.estimated.includes(p.key)).map((p) => p.short);
   const span = range.max - range.min;
   const marker =
     span > 0
@@ -305,6 +308,12 @@ function PriceBand({
           <p className="text-xs text-muted-foreground">
             {peopleLabel(chosen.unpriced)} bez stawki w panelu: cenę poda
             opiekun.
+          </p>
+        ) : null}
+        {priced && estimatedNames.length > 0 ? (
+          <p className="text-xs text-muted-foreground">
+            W cenie od–do szacunek dla: {estimatedNames.join(", ")} (jeszcze bez CV, na podstawie stawek dla
+            podobnych ról).
           </p>
         ) : null}
         {priced && unpricedNames.length > 0 ? (
@@ -451,6 +460,9 @@ function PositionRow({
         <p className="text-sm text-muted-foreground">
           Na to stanowisko nie wysłaliśmy jeszcze CV. Opiekun da znać, gdy się
           pojawią.
+          {showRate && position.estimate
+            ? ` Szacunek stawki: ${formatHourly(position.estimate.min)} – ${formatHourly(position.estimate.max)}.`
+            : ""}
         </p>
       ) : (
         <div className="grid grid-cols-2 gap-2 md:grid-cols-4">

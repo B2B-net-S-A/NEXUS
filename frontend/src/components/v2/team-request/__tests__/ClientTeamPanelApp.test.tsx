@@ -197,3 +197,23 @@ describe("panel zespołu: gotowe składy i rozmowy (Z3)", () => {
     expect(body.slots).toHaveLength(1);
   });
 });
+
+describe("panel zespołu: szacunek dla stanowiska bez CV (Z4)", () => {
+  it("stanowisko bez CV z szacunkiem wchodzi do ceny od–do i jest nazwane", async () => {
+    const team = fictionalTeam();
+    team.positions.push({
+      key: "cccccccccccccccc",
+      short: "Architekt",
+      headcount: 1,
+      view: { ...team.positions[0].view, candidates: [] },
+      estimate: { min: 200, max: 220 },
+    });
+    renderTeam(transport({ fetchTeam: () => Promise.resolve(team) }));
+    await screen.findByText("Zespół testowy, 4 osoby");
+    const band = screen.getByTestId("team-price-band");
+    // (320 + 200) × 168 = 87 360, (340 + 220) × 168 = 94 080.
+    expect(within(band).getByText(/od 87 tys\. zł do 94 tys\. zł/)).toBeInTheDocument();
+    expect(within(band).getByText(/szacunek dla: Architekt/)).toBeInTheDocument();
+    expect(screen.getByText(/Szacunek stawki: 200 zł\/h – 220 zł\/h/)).toBeInTheDocument();
+  });
+});

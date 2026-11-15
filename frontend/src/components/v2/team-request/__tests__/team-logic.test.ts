@@ -102,3 +102,16 @@ describe("drobiazgi", () => {
     ]);
   });
 });
+
+describe("szacunek ceny dla stanowiska bez CV (Z4)", () => {
+  it("stanowisko bez stawek wchodzi szacunkiem, bez szacunku zostaje nazwane", async () => {
+    const { teamHourlyRangeWithEstimates } = await import("../team-logic");
+    const list = [
+      ...groups(),
+      { key: "x", headcount: 2, candidates: [] as PanelCandidate[] },
+      { key: "y", headcount: 1, candidates: [] as PanelCandidate[] },
+    ];
+    const range = teamHourlyRangeWithEstimates(list, candidateHourly, { x: { min: 150, max: 170 }, y: null });
+    expect(range).toEqual({ min: 320 + 300, max: 340 + 340, unpriced: ["y"], estimated: ["x"] });
+  });
+});
