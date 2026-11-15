@@ -3451,6 +3451,8 @@ async def test_vat_module_settings_and_gates(client, world, books):
     assert saved.status_code == 200 and saved.json() == {
         "input_account": books["acc"]["vat_in"],
         "foreign_account": "",
+        "rounding_gain_account": "",
+        "rounding_loss_account": "",
     }
     # K5b-2: konto dostawców zagranicznych tylko ze słownikiem kontrahentów;
     # formularz bez tego pola go nie kasuje.
@@ -4474,20 +4476,21 @@ async def test_vat_settlement_moves_month_vat_to_the_tax_account(client, world, 
         registers = (await _vat_registers(client, world, books)).json()
         assert not any(issue["kind"] == "outside" for issue in registers["issues"])
 
-        # Korekta JPK po rozliczeniu: storno FVS zmienia kwoty — najpierw księga
+        # Korekta JPK po rozliczeniu: storno FVZ zmienia kwoty — najpierw księga
         # różni się od wysłanego JPK (problem), po korekcie JPK zatwierdzony
-        # dokument jest do storna.
+        # dokument jest do storna. (Storno FVS zostawiłoby fakturę z KSeF bez
+        # dokumentu, a to blokuje JPK; faktura kosztowa bez FVZ — ostrzeżenie.)
         assert (await _jpk_sent(client, world, v1["id"])).status_code == 200
-        await _reverse(client, world, docs["plain"].id, date(year, 3, 31))
+        await _reverse(client, world, docs["expense"].id, date(year, 3, 31))
         mismatch = await _settlement(client, world, books)
-        assert "VAT należny" in mismatch["problem"] and "korekta JPK" in mismatch["problem"]
+        assert "VAT naliczony" in mismatch["problem"] and "korekta JPK" in mismatch["problem"]
         item = await _settlement_item(client, world, books)
         assert item["state"] == "problem"
         hidden = await _settlement(client, world, books, user="module_only")
         assert "Płacami" in hidden["problem"] and "zł" not in hidden["problem"]
         refused = await _prepare_settlement(client, world, books)
-        assert refused.status_code == 422 and "VAT należny" in refused.json()["detail"]
-        corrected = await _jpk(client, world, books, reason="Storno faktury sprzedaży.")
+        assert refused.status_code == 422 and "VAT naliczony" in refused.json()["detail"]
+        corrected = await _jpk(client, world, books, reason="Storno faktury zakupu.")
         assert corrected.status_code == 201, corrected.text
         assert (await _jpk_sent(client, world, corrected.json()["file"]["id"], "UPO 2")).status_code == 200
         changed = await _settlement(client, world, books)
@@ -4500,9 +4503,11 @@ async def test_vat_settlement_moves_month_vat_to_the_tax_account(client, world, 
         rebuilt = await _prepare_settlement(client, world, books)
         assert rebuilt.status_code == 200 and rebuilt.json()["outcome"] == "created", rebuilt.text
         lines = (await _settlement(client, world, books))["lines"]
-        # Bez FS 1/03 zostaje korekta: VAT należny −23 zł — Ma 222.
-        assert ("credit", acc["vat_out"], 2_300) in [
-            (line["side"], line["account"], line["amount"]) for line in lines
+        # Bez FVZ kosztu: naliczony 2 300 zł, nadwyżka miesiąca 2 093 zł na Wn.
+        assert [(line["side"], line["account"], line["amount"]) for line in lines] == [
+            ("debit", acc["vat_out"], 20_700),
+            ("credit", acc["vat_in"], 230_000),
+            ("debit", acc["vat_due"], 209_300),
         ]
         await _approve_ids(client, world, [rebuilt.json()["document"]["id"]])
         assert (await _vat_balances(books))[:2] == (0, 0)
