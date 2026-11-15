@@ -5,8 +5,9 @@ K5a: rejestry VAT z dokumentów księgi — kod w `app/services/ledger/vat.py`,
 trasy `app/api/ledger_vat.py`, zakładka „VAT” (`/accounting/vat`), moduł `vat`
 w Ustawieniach (włącza administrator). Bez migracji: rejestr liczy się
 z dokumentów przy każdym otwarciu. K5b-1: plik JPK_V7M(3) — `ledger/jpk.py`,
-migracja `0708_ledger_vat_files` (sekcja niżej). VAT-UE, zakupy zagraniczne
-i dokument rozliczenia VAT — dalsze części K5b.
+migracja `0708_ledger_vat_files` (sekcja niżej). K5b-2: zakupy zagraniczne
+(import usług) — `ledger/foreign.py` — i znaczniki GTU/TP per kontrahent, bez
+migracji (sekcja niżej). VAT-UE i dokument rozliczenia VAT — K5b-3.
 
 ## Co jest
 
@@ -34,12 +35,14 @@ i dokument rozliczenia VAT — dalsze części K5b.
   VAT naliczonego (bez odliczenia) do rejestru nie wchodzi. Środek trwały =
   ruch netto na koncie przyjęcia (K6), nie strona — korekta zakupu środka też
   jest K_40/K_41.
-- **FVZ z VAT należnym** (ręczny dekret E2: import usług, odwrotne obciążenie):
-  netto = brutto od dostawcy (sprzedawca nie doliczył VAT), VAT naliczony
-  w rejestrze zakupu, a VAT należny jako wiersz rejestru sprzedaży bez pola JPK
-  („do sprawdzenia” — pole K_27–K_32 przypisze K5b). Bez tego nadwyżka
-  naliczonego była zawyżona o ten VAT. FVS z VAT naliczonym — wiersz do
-  sprawdzenia.
+- **FVZ z VAT należnym**: netto = kwota od dostawcy (sprzedawca nie doliczył
+  VAT; VAT doliczony przez sprzedawcę = naliczony − należny tylko, gdy naliczony
+  jest w dekrecie — bez odliczenia netto nie rośnie o VAT, poprawka K5b-2), VAT
+  naliczony w rejestrze zakupu, VAT należny jako wiersz rejestru sprzedaży. Z
+  formularza zakupu zagranicznego wiersz ma pole JPK (K_27–K_30); z ręcznego
+  dekretu E2 w kolejce kosztów — „do sprawdzenia” (zaksięguj fakturę
+  formularzem). Bez tego nadwyżka naliczonego była zawyżona o ten VAT. FVS
+  z VAT naliczonym — wiersz do sprawdzenia.
 - **Do sprawdzenia** (karta i lista zamknięcia „Rejestry VAT”):
   - stawki bez podziału na pola JPK — problem;
   - faktura sprzedaży z KSeF z tego miesiąca bez dokumentu w księdze — problem
@@ -118,15 +121,60 @@ i dokument rozliczenia VAT — dalsze części K5b.
 - **Kontrahent w pliku**: kraj nadania z rodzaju identyfikatora, nie z adresu
   (NIP = bez kodu, VAT UE = prefiks numeru, PESEL = „BRAK”), Grecja = EL; znaki
   sterujące z nazw i numerów usuwane (lxml odrzucał je błędem 500).
-- **Czego plik jeszcze nie ma** (uwagi na karcie JPK): znaczniki GTU i TP oraz
-  procedury; import usług bez KSeF (formularz K5b-2). Porównanie z JPK
-  z Symfonii w miesiącach równoległych to wyłapie.
+- **Uwagi na karcie JPK**: znaczniki GTU i TP pochodzą z listy kontrahentów
+  (K5b-2); pozostałych procedur (MR_T, I_42, WSTO_EE…) NEXUS nie ma. Porównanie
+  z JPK z Symfonii w miesiącach równoległych to wyłapie.
 - **D2**: plik ma faktury osób zespołu — przygotowuje lista „Księgowi” z Płacami
   albo administrator, pobiera osoba z Płacami albo administrator; reszta widzi
   wersje i stan bez kwot (`totals`), bez P_39.
 - **Lista zamknięcia** „JPK_V7M”: do zrobienia do przygotowania i wysłania;
   „problem”, gdy odcisk rejestrów (dokumenty i kwoty) różni się od odcisku
   wysłanej wersji — trzeba korekty.
+
+## Zakup zagraniczny i znaczniki GTU/TP (K5b-2)
+
+- **Formularz** (karta „Zakupy zagraniczne” w zakładce VAT, każdy z modułem
+  Finanse — jak PK; zatwierdza lista „Księgowi”): dostawca z kartoteki (bez
+  NIP-u i PESEL-u, z kontem rozrachunkowym — kolumna „konto kosztowe”, jak w E2)
+  albo nowy: nazwa, kraj (nie PL), numer VAT UE albo zagraniczny (z kraju UE
+  prefiks kraju dopisuje się sam, GR → EL), opcjonalnie ID Symfonii (numer albo
+  ID wymagane — klucz kartoteki), konto `<konto dostawców zagranicznych>-NNN`
+  (pierwszy wolny numer z kartoteki i zapisów księgi, można wpisać inny pod tym
+  kontem). Bliźniak nazwy (bez polskich znaków i interpunkcji) = 409.
+- **Konto dostawców zagranicznych** (`vat.foreign_account`, admin w „Kontach
+  VAT”): konto planu ze słownikiem „kontrahenci” (np. `202-1`); puste =
+  formularz nie zakłada dostawców. `PUT /vat/settings` bez pola = bez zmiany.
+- **Dokument**: FVZ w buforze, data operacji = wykonanie usługi (obowiązek
+  podatkowy, art. 19a — okres VAT i JPK), data dokumentu = wystawienie. Wn koszt
+  netto (bez odliczenia: netto + VAT), Wn VAT naliczony, Ma VAT należny, Ma
+  dostawca netto w walucie (rozrachunek K4b). Korekta = kwota ujemna, strony
+  odwrócone. Kurs: średni NBP z ostatniego dnia roboczego przed wykonaniem
+  usługi (art. 31a), dokładnie z `fx_rates` — brak = 422. VAT = netto PLN ×
+  stawka (23/8/5), do grosza. Data z przyszłości = 422. Ta sama faktura dostawcy
+  (numer bez spacji i wielkości liter) = 409 — źródło `foreign_purchase`
+  z id dostawcy i skrótem numeru.
+- **Pole JPK**: dostawca z numerem VAT UE (bez XI — Irlandia Północna to VAT UE
+  tylko dla towarów) = usługa od podatnika z UE, art. 28b → K_29/K_30; reszta
+  (spoza UE, bez numeru VAT UE) → K_27/K_28. Grupa w `meta.jpk_group`. Wiersz
+  zakupu (K_42/K_43, środek trwały K_40/K_41) tylko z odliczeniem; data wiersza
+  zakupu = data faktury (bez DataWplywu), wiersz sprzedaży — data usługi
+  (DataSprzedazy). Oba z BFK (faktura poza KSeF).
+- **Odliczenie** w miesiącu usługi. Faktura otrzymana ponad 3 miesiące po
+  obowiązku podatkowym (art. 86 ust. 10i — odliczenie w bieżącym okresie)
+  formularz nie rozdziela — ujęcie do uzgodnienia z księgową (K5b-3).
+- **Import kartoteki z eBI24** nie dubluje dostawcy z formularza: wiersz pliku
+  z tą samą nazwą, którego nie da się dopasować po numerze ani ID Symfonii, to
+  błąd wiersza (dostawca z formularza = `imported_at` pusty).
+- **Znaczniki GTU_01–GTU_13 i TP** (karta „Znaczniki kontrahentów”, zmienia lista
+  „Księgowi” albo admin): `app_settings['ledger'].vat_markers` {id kontrahenta:
+  znaczniki}, do 500 kontrahentów. Trafiają na każdy wiersz FVS kontrahenta
+  (w JPK `1` po NrKSeF/BFK, GTU przed TP — kolejność XSD); importu usług się
+  nie oznacza (broszura MF: GTU nie dla nabyć z podatkiem należnym; TP —
+  decyzja: tylko faktury sprzedaży). Odcisk rejestru liczy znaczniki tylko, gdy
+  są — wersje wysłane przed K5b-2 zostają aktualne; zmiana znaczników po
+  wysłaniu = korekta (lista zamknięcia: problem).
+- Id kontrahenta w trasach do 2³¹ − 1 (kolumna INTEGER) — większe = 422, nie
+  500 z bazy.
 
 ## Testy
 
@@ -140,4 +188,10 @@ front: `VatView.test.tsx`, `vat-model.test.ts`. JPK: `tests/test_ledger_jpk_rule
 `test_jpk_is_prepared_sent_and_corrected` (braki, D2, wersje, „wysłany”, korekta
 z P_ORDZU, lista zamknięcia po zmianie rejestru, P_39 z poprzedniego miesiąca)
 i po przeglądzie: łańcuch korekt, złożona starsza wersja, „wysłany” czeka na
-„Przygotuj JPK”, poprawialna nadwyżka pierwszego miesiąca.
+„Przygotuj JPK”, poprawialna nadwyżka pierwszego miesiąca. K5b-2:
+`tests/test_ledger_foreign_rules.py` (grupa JPK, kwoty po kursie, dekret,
+korekta, pola formularza i odmowy, numer dostawcy), w `test_ledger_jpk_rules.py`
+znaczniki i import usług przez XSD MF oraz odcisk bez znaczników, sekcja K5b-2
+w `test_ledger_sources_db.py` (formularz od nowego dostawcy do JPK, odmowy,
+strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS), front:
+`VatView.test.tsx` (lista, formularz, znaczniki), `vat-model.test.ts`.
