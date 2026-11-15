@@ -32,12 +32,17 @@ from app.models.client_issued_invoice import (
 )
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.finance_ledger import FinanceCounterparty
-from app.services.client_invoicing import issue_settings, ksef_send, templates
+from app.services.client_invoicing import (
+    issue_settings,
+    ksef_send,
+    matching,
+    templates,
+)
 from app.services.hr.ksef.client import forget_sessions
 from tests._ksef_fake import Clock
 from tests.client_invoicing import helpers as fx
 from tests.client_invoicing.ksef_issue_fake import TOKEN, FakeKsefIssue, factory
-from tests.test_client_invoice_issue_api import OCTOBER, SETTINGS, TODAY
+from tests.test_client_invoice_issue_api import BUYER, OCTOBER, SETTINGS, TODAY
 
 pytestmark = pytest.mark.asyncio
 
@@ -575,3 +580,85 @@ async def test_invoice_from_order_cannot_become_a_template(client, seed):
     refused = await client.post(f"{BASE}/{invoice_id}/template", headers=_h(seed))
     assert refused.status_code == 409, refused.text
     assert "Wystaw za miesiąc" in refused.json()["detail"]
+
+
+# ── Faktura bez zamówienia a dopasowanie ────────────────────────────────────
+
+
+async def test_manual_invoice_matching_order_amount_does_not_bind_to_order(
+    client, seed
+):
+    """Faktura z ręki na kwotę zamówienia klienta nie przypina się do niego „po kwocie”.
+
+    Przegląd E6 (15.11.2026): wpis z KSeF dostawał automatyczne dopasowanie, bo
+    bez zamówienia nie miał metody ``issued`` — i „Wystaw za miesiąc” uznawał
+    zamówienie ZAM/2026/124 za zafakturowane (409 przy szkicu).
+    """
+
+    await _settings(client, seed)
+    created = await client.post(
+        f"{BASE}/manual", json={"client_id": seed.client_id}, headers=_h(seed)
+    )
+    assert created.status_code == 201, created.text
+    invoice_id = created.json()["id"]
+    # 1150 × 19,5 = 22 425,00 — tylko zamówienie 124 ma tę kwotę w październiku.
+    filled = await client.put(
+        f"{BASE}/{invoice_id}",
+        json={
+            "buyer": BUYER,
+            "sale_date": "2026-10-31",
+            "period_from": "2026-10-01",
+            "period_to": "2026-10-31",
+            "lines": [
+                {
+                    "name": "Usługa doradcza 10.2026",
+                    "quantity": "1",
+                    "unit": "usł.",
+                    "unit_price": "22425",
+                    "vat_rate": "23",
+                }
+            ],
+        },
+        headers=_h(seed),
+    )
+    assert filled.status_code == 200, filled.text
+    sent = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["status"] == "accepted", sent.json()
+
+    async with AsyncSessionLocal() as db:
+        sales = await db.scalar(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.ksef_number == sent.json()["ksef_number"]
+            )
+        )
+        assert sales is not None
+        assert (sales.period_year, sales.period_month) == (2026, 10)
+        links = list(
+            await db.scalars(
+                select(ClientSalesInvoiceLink).where(
+                    ClientSalesInvoiceLink.invoice_id == sales.id
+                )
+            )
+        )
+        assert links == []
+        assert sales.client_id == seed.client_id
+        assert sales.match_status == "ignored"
+        assert sales.ignore_reason == matching.ISSUED_WITHOUT_ORDER_REASON
+
+    listing = (
+        await client.get(f"{BASE}/to-issue", params=OCTOBER, headers=_h(seed))
+    ).json()
+    rows = {
+        row["key"]: row
+        for entry in listing["clients"]
+        if entry["client_id"] == seed.client_id
+        for row in entry["rows"]
+    }
+    assert rows[f"g{seed.groups['124']}"]["invoiced_in_ksef"] == []
+    drafted = await client.post(
+        f"{BASE}/drafts",
+        json={**OCTOBER, "keys": [f"g{seed.groups['124']}"]},
+        headers=_h(seed),
+    )
+    assert drafted.status_code in (200, 201), drafted.text
