@@ -334,6 +334,8 @@ from app.api import public_client_panel as public_client_panel_api
 from app.api import own_hiring as own_hiring_api
 from app.api import public_own_hiring as public_own_hiring_api
 from app.api import client_panel as client_panel_api
+from app.api import job_team_panel as job_team_panel_api
+from app.api import public_job_team_panel as public_job_team_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
@@ -2097,6 +2099,17 @@ app.include_router(
     client_panel_api.router,
     prefix="/api/client-panel",
     tags=["client-panel"],
+)
+# 0708: zespół dla klienta — kilka rekrutacji jednego klienta, jeden link.
+app.include_router(
+    public_job_team_panel_api.router,
+    prefix="/api/public/team-panel",
+    tags=["public-job-team-panel"],
+)
+app.include_router(
+    job_team_panel_api.router,
+    prefix="/api/job-teams",
+    tags=["job-teams"],
 )
 app.include_router(
     public_own_hiring_api.router,
@@ -3910,6 +3923,7 @@ async def api_health_deep_check(request: Request):
         ClientPanelRequest,
         ClientPanelView,
     )
+    from app.models.job_team_panel import JobTeam, JobTeamSelection
     from app.models.job_ad import JobAd
     from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
@@ -4389,6 +4403,10 @@ async def api_health_deep_check(request: Request):
         ("client_panel_candidates", ClientPanelCandidate),
         ("client_panel_requests", ClientPanelRequest),
         ("client_panel_views", ClientPanelView),
+        # 0708: zespół dla klienta — brak tabeli = 500 na `/zespoly` i pod `/k/z/`.
+        # `jobs.team_id` sprawdza sonda `jobs` (ORM czyta kolumnę zawsze).
+        ("job_teams", JobTeam),
+        ("job_team_selections", JobTeamSelection),
         # Rekrutacja własna: brak tabeli = 500 na Tablicy i pod linkiem z zaproszenia.
         ("own_hiring_processes", OwnHiringProcess),
         ("own_hiring_applications", OwnHiringApplication),

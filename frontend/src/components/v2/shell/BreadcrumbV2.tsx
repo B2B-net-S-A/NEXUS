@@ -20,6 +20,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "": "Dashboard",
   candidates: "Kandydaci",
   jobs: "Rekrutacje",
+  // Zespół dla klienta: kilka rekrutacji pod jednym zapytaniem (15.11.2026).
+  zespoly: "Zespoły",
   clients: "Klienci",
   contacts: "Kontakty",
   contracts: "Kontrakty",
@@ -191,7 +193,7 @@ const PATH_LABELS: Record<string, string> = {
 };
 
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */
-const LINKLESS_SEGMENTS = new Set(["sourcing", "prep"]);
+const LINKLESS_SEGMENTS = new Set(["sourcing", "prep", "zespoly"]);
 
 const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   candidates: async (id) => {
@@ -203,6 +205,10 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   jobs: async (id) => jobLabel((await api.get(`/api/jobs/${id}`)).data, id),
   clients: async (id) => {
     const r = await api.get(`/api/clients/${id}`);
+    return r.data.name ?? id;
+  },
+  zespoly: async (id) => {
+    const r = await api.get(`/api/job-teams/${id}`);
     return r.data.name ?? id;
   },
   // Sprzedaż: /sales/companies/[id] i /sales/opportunities/[id].

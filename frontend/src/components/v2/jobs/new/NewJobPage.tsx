@@ -161,6 +161,13 @@ import {
   type RecruiterOption,
 } from "./NewJobTeamStep";
 import {
+  NO_TEAM,
+  NewJobTeamRequestCard,
+  teamChoiceProblem,
+  type TeamChoice,
+} from "./NewJobTeamRequestCard";
+import { createTeam, jobTeamKeys, updateTeam } from "@/lib/api/jobTeams";
+import {
   fetchPortalConfig,
   fetchPublicDraft,
   jobPortalKeys,
@@ -349,6 +356,13 @@ const EMPTY_PORTAL_PLAN: NewJobPortalPlan = {
 export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Zespół dla klienta: `?team=<id>` z ekranu zespołu („Nowa rekrutacja w zespole”).
+  const [teamChoice, setTeamChoice] = useState<TeamChoice>(() => {
+    const teamId = Number(searchParams?.get("team"));
+    return Number.isInteger(teamId) && teamId > 0
+      ? { mode: "team", teamId, newName: "" }
+      : NO_TEAM;
+  });
   const queryClient = useQueryClient();
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   // Pracuj.pl wstawia opiekun konta — po utworzeniu DL wysyła mu ogłoszenie
@@ -1263,6 +1277,11 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         ?.scrollIntoView?.({ behavior: "smooth", block: "start" });
       return;
     }
+    const teamProblem = teamChoiceProblem(teamChoice);
+    if (teamProblem) {
+      setSaveError(teamProblem);
+      return;
+    }
     if (criticalReach != null && criticalReach < CRITICAL_PEOPLE_MIN) {
       const ok = await askConfirm({
         title: "Krytyczne zostawiają mało osób",
@@ -1320,6 +1339,19 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         await jobTwinsApi.link(jobId, otherId, []);
       } catch (error) {
         showError(apiErrorMessage(error, "Rekrutacja powstała, ale nie udało się połączyć bliźniaka."));
+      }
+    }
+    // Zespół dla klienta: jak bliźniaki — odmowa nie cofa utworzenia, tylko mówi.
+    if (teamChoice.mode === "team") {
+      try {
+        const team =
+          teamChoice.teamId != null
+            ? await updateTeam(teamChoice.teamId, { add_job_ids: [jobId] })
+            : await createTeam({ name: teamChoice.newName.trim(), job_ids: [jobId] });
+        queryClient.setQueryData(jobTeamKeys.detail(team.id), team);
+        void queryClient.invalidateQueries({ queryKey: jobTeamKeys.byJob(jobId) });
+      } catch (error) {
+        showError(apiErrorMessage(error, "Rekrutacja powstała, ale nie udało się dodać jej do zespołu."));
       }
     }
     // „Z historii klienta” (sekcja 8) — Luna podsumowuje w tle, co klient
@@ -1480,6 +1512,12 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             />
           ) : null
         }
+      />
+
+      <NewJobTeamRequestCard
+        clientId={client?.id ?? null}
+        value={teamChoice}
+        onChange={setTeamChoice}
       />
 
       {templateError ? (

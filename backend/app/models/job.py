@@ -426,6 +426,11 @@ class Job(Base, TimestampMixin):
     pipeline_template_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("pipeline_templates.id"), nullable=True, index=True
     )
+    # 0708: zespół dla klienta — pojemnik na kilka rekrutacji jednego klienta
+    # z jednym linkiem (`docs/claude/klienci/zespol-dla-klienta.md`).
+    team_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("job_teams.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # External source tracking — Traffit / future imports.
     # Migracja 0074 dodaje partial unique index na (external_source, external_id).

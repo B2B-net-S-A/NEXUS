@@ -1334,6 +1334,17 @@ except Exception as _client_panel_schema_err:  # noqa: BLE001
     print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
     _CLIENT_PANEL_DDL = []
 
+# Zespół dla klienta (0708) — JEDNO źródło z migracją
+# (`app/services/job_team_schema.py`, pilnuje test_job_team_panel_unit). ORM czyta
+# `jobs.team_id` przy każdym zapytaniu o rekrutację, więc ten blok jest wdrożeniem.
+try:
+    from app.services import job_team_schema as _job_team_schema
+
+    _JOB_TEAMS_DDL = list(_job_team_schema.TABLE_DDL)
+except Exception as _job_team_schema_err:  # noqa: BLE001
+    print(f"job team schema unavailable: {_job_team_schema_err!r}")
+    _JOB_TEAMS_DDL = []
+
 # Rekrutacja własna — JEDNO źródło z migracją (`app/services/own_hiring/schema.py`).
 try:
     from app.services.own_hiring import schema as _own_hiring_schema
@@ -7217,6 +7228,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
+    # 0708: zespół dla klienta (po `clients`, `users` i `jobs`).
+    *_JOB_TEAMS_DDL,
     *_OWN_HIRING_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
