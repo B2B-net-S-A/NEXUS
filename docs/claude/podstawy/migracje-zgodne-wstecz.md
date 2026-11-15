@@ -24,6 +24,15 @@ Każda migracja musi działać ze **starym kodem** na **nowym schemacie**.
 Stary kod na usuniętej kolumnie to `UndefinedColumnError` na każdym żądaniu, które ją
 czyta, przez cały czas nakładania — także z workera, który wdraża się po backendzie.
 
+## Usunięcie tabeli: czytelnik bywa bez nazwy
+
+Grep po nazwie tabeli nie wystarcza. Scalanie kandydatów (`candidate_merge.discover_references`)
+przepina każdą kolumnę `candidate_id` znalezioną w katalogu bazy i w `Base.metadata`, więc pisze
+do tabel, których nazwy nie ma w kodzie (15.11.2026: `cortex_unmatched_observations`, 3 zmiany
+w `pg_stat_user_tables`). Przed `DROP` sprawdź na produkcji `n_tup_ins/upd/del` tabeli i klucze
+obce z innych tabel (`pg_constraint`). `entrypoint.sh` uruchamia `create_all`, więc tabela
+z `DROP` w siatce nie może mieć modelu (inaczej każdy start zakłada ją z powrotem). Wzorce: 0667, 0714.
+
 ## Strażnik
 
 `backend/tests/test_migrations_backward_compatible.py` czyta funkcję `upgrade()` migracji
