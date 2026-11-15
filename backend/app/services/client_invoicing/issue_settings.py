@@ -25,22 +25,31 @@ from app.services.client_sales_invoices_schema import CURRENCIES
 from app.services.order_client_identity import nip_checksum_valid
 
 SETTING_KEY = "client_invoice_issue"
+#: Wzory jak w eBI24 (archiwum 2026): miesiąc bez zera, „/UE”, „/Benefit”, „/KORUE”.
 DEFAULT_SERIES: dict[str, str] = {
-    "PL": "{n}/{mm}/{yyyy}",
-    "UE": "{n}/{mm}/{yyyy}/UE",
-    "ZAL": "ZAL/{n}/{mm}/{yyyy}",
-    "KOR": "KOR/{n}/{mm}/{yyyy}",
+    "PL": "{n}/{m}/{yyyy}",
+    "UE": "{n}/{m}/{yyyy}/UE",
+    "ZAL": "ZAL/{n}/{m}/{yyyy}",
+    "KOR": "KOR/{n}/{m}/{yyyy}",
+    "BEN": "{n}/{m}/{yyyy}/Benefit",
+    "KORUE": "{n}/{m}/{yyyy}/KORUE",
 }
 SERIES_LABELS: dict[str, str] = {
     "PL": "Krajowa",
     "UE": "Nabywca z UE",
     "ZAL": "Zaliczkowa",
     "KOR": "Korekta",
+    "BEN": "Refaktura benefitu",
+    "KORUE": "Korekta faktury UE",
 }
+#: Seria bez rachunku na fakturze — refaktura rozliczana kompensatą (potrąceniem).
+COMPENSATION_SERIES = frozenset({"BEN"})
+COMPENSATION_LABEL = "Kompensata"
 DEFAULT_PAYMENT_DAYS = 14
 DEFAULT_VAT = "23"
 DEFAULT_SERVICE_NAME = "Usługi informatyczne"
-PATTERN_TOKENS = ("{n}", "{mm}", "{yyyy}")
+PATTERN_TOKENS = ("{n}", "{yyyy}")
+MONTH_TOKENS = ("{m}", "{mm}")
 PATTERN_MAX = 40
 TEXT_MAX = 255
 ACCOUNT_MIN, ACCOUNT_MAX = 10, 34
@@ -90,6 +99,17 @@ def normalize(raw: object) -> dict[str, Any]:
             entry["payment_days"] = _days(
                 value.get("payment_days"), DEFAULT_PAYMENT_DAYS
             )
+        # Rachunek przy kliencie (decyzja Artura 16.11.2026: Nordea płaci w EUR
+        # na inny rachunek niż reszta klientów) — tylko waluty z numerem.
+        raw_accounts = value.get("accounts")
+        if isinstance(raw_accounts, dict):
+            own = {
+                currency: _account(raw_accounts.get(currency))
+                for currency in CURRENCIES
+            }
+            own = {k: v for k, v in own.items() if v["number"]}
+            if own:
+                entry["accounts"] = own
         if entry:
             clients[str(int(key))] = entry
     return {
@@ -121,18 +141,27 @@ def validate(data: dict[str, Any]) -> None:
     seller = data["seller"]
     if seller["nip"] and not nip_checksum_valid(seller["nip"]):
         raise IssueSettingsError("NIP sprzedawcy ma złą sumę kontrolną.")
-    for currency, account in data["accounts"].items():
+    accounts = [
+        ("", currency, account) for currency, account in data["accounts"].items()
+    ]
+    for client_id, entry in data["clients"].items():
+        for currency, account in (entry.get("accounts") or {}).items():
+            accounts.append((f" klienta {client_id}", currency, account))
+    for where, currency, account in accounts:
         number = account["number"]
         if number and not (
             ACCOUNT_MIN <= len(number) <= ACCOUNT_MAX and number.isalnum()
         ):
             raise IssueSettingsError(
-                f"Numer rachunku {currency} ma mieć od 10 do 34 liter i cyfr."
+                f"Numer rachunku {currency}{where} ma mieć od 10 do 34 liter i cyfr."
             )
     for code, pattern in data["series"].items():
-        if any(token not in pattern for token in PATTERN_TOKENS):
+        if any(token not in pattern for token in PATTERN_TOKENS) or not any(
+            token in pattern for token in MONTH_TOKENS
+        ):
             raise IssueSettingsError(
-                f"Wzór serii „{SERIES_LABELS[code]}” musi zawierać {{n}}, {{mm}} i {{yyyy}}."
+                f"Wzór serii „{SERIES_LABELS[code]}” musi zawierać {{n}}, miesiąc "
+                "({m} albo {mm}) i {yyyy}."
             )
     patterns = list(data["series"].values())
     if len(set(patterns)) != len(patterns):
@@ -186,6 +215,23 @@ def client_vat(data: dict[str, Any], client_id: int, *, eu_buyer: bool) -> str:
     return "np II" if eu_buyer else data["default_vat"]
 
 
+def account_for(
+    data: dict[str, Any], client_id: Optional[int], currency: str, series_code: str
+) -> Optional[dict[str, str]]:
+    """Rachunek na fakturze: brak przy kompensacie, rachunek klienta, domyślny waluty."""
+
+    if series_code in COMPENSATION_SERIES:
+        return None
+    own = (
+        (data.get("clients") or {})
+        .get(str(client_id), {})
+        .get("accounts", {})
+        .get(currency)
+    )
+    account = own or (data.get("accounts") or {}).get(currency) or {}
+    return account if account.get("number") else None
+
+
 def client_payment_days(data: dict[str, Any], client_id: int) -> int:
     value: Optional[int] = data["clients"].get(str(client_id), {}).get("payment_days")
     return value if value is not None else data["payment_days"]
@@ -196,6 +242,7 @@ __all__ = [
     "SERIES_LABELS",
     "SETTING_KEY",
     "IssueSettingsError",
+    "account_for",
     "client_payment_days",
     "client_vat",
     "load",

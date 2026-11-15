@@ -161,3 +161,20 @@ trasy w `api/client_issued_invoices.py`, migracja `0709_sales_invoice_templates`
   trasą co karta (`POST /{id}/send`), bez nowej ścieżki w backendzie — numer, plik, wynik i UPO jak przy jednej
   fakturze. „Zatrzymaj” albo zamknięcie karty zostawia resztę jako szkice bez numeru; wynik nieznany = „w drodze”
   („Sprawdź status” na karcie). Podsumowanie: przyjęte, w drodze, do poprawy z powodem.
+
+## Serie i rachunki jak w eBI24 (16.11.2026)
+
+Decyzje Artura z 16.11.2026 po odczycie archiwum eBI24 (2026: 1 044 faktur `N/M/RRRR`, 1 666 `N/M/RRRR/UE`,
+712 `N/M/RRRR/Benefit`, 107 `N/M/RRRR/KORUE`, 36 `KOR/N/M/RRRR`). Migracja `0716_invoice_series_ebi24`
+(`services/client_invoice_series_ext_schema.py` przebudowuje CHECK serii).
+
+- **Miesiąc w numerze bez zera** (`{m}`), jak w eBI24: wzory domyślne `{n}/{m}/{yyyy}`, `/UE`, `/Benefit`,
+  `/KORUE`, `KOR/{n}/{m}/{yyyy}`. `{mm}` (z zerem) nadal działa; wzór musi mieć `{n}`, miesiąc i `{yyyy}`.
+- **Seria `BEN` — refaktury benefitów**: szkic z szablonu rodzaju „benefit” idzie tą serią. Forma płatności
+  „Kompensata” (FA(3): `PlatnoscInna` + `OpisPlatnosci`, bez `FormaPlatnosci` i bez rachunku), bo eBI24 rozlicza je
+  potrąceniem (`COMPENSATION`, 561 z 566 w archiwum). Brak rachunku w ustawieniach nie blokuje wysyłki serii `BEN`.
+- **Seria `KORUE`** — korekta faktury z serii UE (zwykła korekta zostaje w `KOR`).
+- **Rachunek przy kliencie** (`clients[id].accounts[waluta]` w ustawieniach): Nordea płaci w EUR na inny rachunek
+  (Santander) niż reszta klientów (BNP). Faktura i PDF biorą rachunek klienta, a bez niego domyślny waluty.
+- Przejście z eBI24 w połowie miesiąca: „następny numer” każdej serii (`PUT /series/{kod}`) ustawić na kolejny
+  po ostatnim numerze z eBI24, osobno dla PL, UE, BEN, KOR, KORUE.

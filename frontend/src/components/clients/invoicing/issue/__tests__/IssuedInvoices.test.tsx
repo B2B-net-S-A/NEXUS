@@ -307,3 +307,23 @@ describe("IssuedInvoiceCardView", () => {
     expect(patch.series_code).toBe("PL");
   });
 });
+
+describe("IssuedInvoiceCardView — seria Benefit", () => {
+  beforeEach(() => {
+    get.mockReset();
+    put.mockReset();
+  });
+
+  it("keeps the benefit series when a draft is saved", async () => {
+    const user = userEvent.setup();
+    const card = { ...CARD, series_code: "BEN" as const };
+    mockCard(card);
+    put.mockResolvedValue({ data: card });
+    wrap(<IssuedInvoiceCardView invoiceId={5} />);
+    const notes = await screen.findByLabelText(/Uwagi/);
+    await user.type(notes, "x");
+    await user.click(screen.getByRole("button", { name: /Zapisz/ }));
+    await waitFor(() => expect(put).toHaveBeenCalled());
+    expect(put.mock.calls[0][1]).toMatchObject({ series_code: "BEN" });
+  });
+});

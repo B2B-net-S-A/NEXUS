@@ -25,6 +25,7 @@ from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_einvoices_schema as client_einvoices
 from app.services import client_invoice_issue_schema as client_invoice_issue
 from app.services import client_invoice_templates_schema as client_invoice_templates
+from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -143,6 +144,8 @@ MODULES = (
     client_reports,
     # 0713: radar przepisów — biegi botów, pozycje, zmiany w prawie (15.11.2026).
     law_radar,
+    # 0716: serie faktur jak w eBI24 — BEN (refaktury benefitów) i KORUE (16.11.2026).
+    client_invoice_series_ext,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

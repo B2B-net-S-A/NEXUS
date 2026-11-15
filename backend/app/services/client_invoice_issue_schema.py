@@ -52,7 +52,8 @@ from app.services.client_sales_invoices_schema import (
     quoted,
 )
 
-SERIES: tuple[str, ...] = ("PL", "UE", "ZAL", "KOR")
+#: BEN — refaktury benefitów, KORUE — korekty faktur UE (jak w eBI24, 16.11.2026).
+SERIES: tuple[str, ...] = ("PL", "UE", "ZAL", "KOR", "BEN", "KORUE")
 INVOICE_TYPES: tuple[str, ...] = ("VAT", "KOR", "ZAL")
 STATUSES: tuple[str, ...] = (
     "draft",
