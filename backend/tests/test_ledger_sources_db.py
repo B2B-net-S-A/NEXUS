@@ -4274,3 +4274,114 @@ async def test_vat_ue_lines_come_from_the_sales_register(client, world, books):
         f"{ACC}/vat/ue", params={"year": books["year"], "month": 13}, headers=headers
     )
     assert closed.status_code == 422
+
+
+# ── VAT-UEK(5) (K5b-3c) ─────────────────────────────────────────────────────
+
+
+async def test_vat_uek_corrects_the_original_period_from_month_k(client, world, books):
+    """Korekta z maja faktury np II z marca: VAT-UE maja jej nie liczy (lista
+    „do VAT-UEK” z okresem), VAT-UEK za marzec z korekt maja — „było” z rejestru
+    marca, „jest” po korekcie; faktura pierwotna spoza księgi = problem."""
+
+    await _vat_books(client, world, books)
+    year, nips = books["year"], world["nips"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == books["sales"]["euro"])
+            .values(buyer_nip=None, buyer_foreign_id="FI28583949")
+        )
+        # Faktura z lutego bez dokumentu w księdze (VAT-UE z Symfonii).
+        outside = _sales_invoice(
+            nips["client"],
+            number="FS 9/02",
+            buyer_foreign_id="FI28583949",
+            buyer_name="Klient Testowy",
+            issue_date=date(year, 2, 20),
+            sale_date=date(year, 2, 20),
+            net_amount=Decimal("300.00"),
+            vat_amount=Decimal("0"),
+            gross_amount=Decimal("300.00"),
+        )
+        db.add(outside)
+        await db.flush()
+        corrections = [
+            _sales_invoice(
+                nips["client"],
+                number=number,
+                buyer_foreign_id="FI28583949",
+                buyer_name="Klient Testowy",
+                invoice_type="KOR",
+                invoice_kind="correction",
+                corrects_invoice_id=original,
+                corrected_invoice_number=original_number,
+                issue_date=date(year, 5, 10),
+                sale_date=sale,
+                net_amount=Decimal(net),
+                vat_amount=Decimal("0"),
+                gross_amount=Decimal(net),
+                items=[
+                    {"name": "Usługa", "net": before, "vat_rate": "np II", "before_correction": True},
+                    {"name": "Usługa", "net": after, "vat_rate": "np II"},
+                ],
+            )
+            for number, original, original_number, sale, net, before, after in (
+                ("FK 1/05", books["sales"]["euro"], "FS 2/03", date(year, 3, 20), "-430.00", "500.00", "400.00"),
+                ("FK 2/05", outside.id, "FS 9/02", date(year, 2, 20), "-100.00", "300.00", "200.00"),
+            )
+        ]
+        db.add_all(corrections)
+        await db.commit()
+        books["sales"].update(
+            uek_outside=outside.id, uek_march=corrections[0].id, uek_feb=corrections[1].id
+        )
+    synced = await _sync(client, world, books, "sales", month=5)
+    assert synced.status_code == 200, synced.text
+    docs = [
+        await _document("client_sales_invoice", books["sales"][key])
+        for key in ("uek_march", "uek_feb")
+    ]
+    assert all(doc is not None and doc.op_date == date(year, 5, 10) for doc in docs)
+    await _approve_ids(client, world, [doc.id for doc in docs])
+    headers = _headers(world["module_only"])
+
+    may = (await client.get(f"{ACC}/vat/ue", params={"year": year, "month": 5}, headers=headers)).json()
+    assert sorted((item["number"], item["kind"], item.get("period")) for item in may["problems"]) == [
+        ("FK 1/05", "earlier", f"{year}-03"),
+        ("FK 2/05", "earlier", f"{year}-02"),
+    ]
+
+    params = {"year": year, "month": 3, "issued_year": year, "issued_month": 5}
+    response = await client.get(f"{ACC}/vat/uek", params=params, headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    # 500 EUR po 4,30 = 2 150 zł było, po korekcie −430 zł = 1 720 zł.
+    assert [
+        (line["section"], line["country"], line["number"], line["before"], line["after"], line["documents"])
+        for line in data["lines"]
+    ] == [("services", "FI", "28583949", 2150, 1720, ["FK 1/05"])]
+    assert (data["corrections"], data["earlier_months"], data["problems"]) == (1, [], [])
+    # Rok testu (2050–2090) jest poza etd:TRok (do 2030) — plik nie powstaje;
+    # schemat sprawdzają testy reguł.
+    refused = await client.get(f"{ACC}/vat/uek/file", params=params, headers=headers)
+    assert refused.status_code == 422 and "VAT-UEK" in refused.json()["detail"]
+
+    february = (
+        await client.get(f"{ACC}/vat/uek", params={**params, "month": 2}, headers=headers)
+    ).json()
+    assert [item["kind"] for item in february["problems"]] == ["outside"]
+    assert february["can_download"] is False
+
+    nothing = (
+        await client.get(f"{ACC}/vat/uek", params={**params, "issued_month": 4}, headers=headers)
+    ).json()
+    assert (nothing["lines"], nothing["corrections"]) == ([], 0)
+    empty = await client.get(
+        f"{ACC}/vat/uek/file", params={**params, "issued_month": 4}, headers=headers
+    )
+    assert empty.status_code == 422 and "nie ma korekt" in empty.json()["detail"]
+    backwards = await client.get(
+        f"{ACC}/vat/uek", params={**params, "issued_month": 3}, headers=headers
+    )
+    assert backwards.status_code == 422

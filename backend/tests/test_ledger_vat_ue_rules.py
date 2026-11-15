@@ -120,4 +120,5 @@ def test_correction_of_an_earlier_month_goes_to_vat_uek_not_this_month():
     assert [(line.section, line.country, line.amount) for line in lines] == [("goods", "DE", 10_000), ("services", "FI", 2_000)]
     assert [(item["number"], item["kind"]) for item in problems] == [("KOR 1/03", "earlier"), ("KOR 3/03", "unknown")]
     assert "VAT-UEK za 02.2026" in problems[0]["detail"]
+    assert problems[0]["period"] == "2026-02"
     assert vat_ue.blocking(problems) == [problems[1]]
