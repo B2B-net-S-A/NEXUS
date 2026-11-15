@@ -227,7 +227,9 @@ def test_settings_default_all_modules_off():
     assert current.accountants == ()
 
 
-def test_settings_cannot_open_module_without_screens():
+def test_settings_cannot_open_module_without_screens(monkeypatch):
+    # Od K8a (16.11.2026) każdy moduł ma ekrany — udajemy etap jeszcze bez nich.
+    monkeypatch.setattr(ledger_settings, "BUILT", ledger_settings.BUILT - {"reports"})
     raw = {
         "modules": {"ledger": True, "reports": True, "bank": "yes"},
         "accountants": [3, 3, 1],

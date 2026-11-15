@@ -26,6 +26,7 @@ from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.api import ledger as ledger_api
+from app.api import ledger_reports as ledger_reports_api
 from app.core.database import AsyncSessionLocal
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
@@ -159,6 +160,7 @@ async def _purge_years(year_numbers: list[int]) -> None:
 async def client():
     app = FastAPI()
     app.include_router(ledger_api.router, prefix=ACC)
+    app.include_router(ledger_reports_api.router, prefix=ACC)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as c:
@@ -310,7 +312,9 @@ async def test_recruiter_without_finance_module_is_refused(client, world):
     assert response.status_code == 403
 
 
-async def test_modules_without_screens_cannot_be_enabled(client, world):
+async def test_modules_without_screens_cannot_be_enabled(client, world, monkeypatch):
+    # Od K8a (16.11.2026) każdy moduł ma ekrany — udajemy etap jeszcze bez nich.
+    monkeypatch.setattr(ledger_settings, "BUILT", ledger_settings.BUILT - {"reports"})
     admin = _headers(world["admin"])
     refused = await client.put(
         f"{ACC}/config/modules",
@@ -1098,7 +1102,10 @@ async def _journal_continuous(year: int) -> list[int]:
                 )
             )
         )
-    assert numbers == list(range(1, row.next_journal_no)), (numbers, row.next_journal_no)
+    assert numbers == list(range(1, row.next_journal_no)), (
+        numbers,
+        row.next_journal_no,
+    )
     return numbers
 
 
@@ -1302,3 +1309,70 @@ async def test_trigger_allows_only_storno_mark_and_user_removal(world):
                 .values(reversed_by_id=None)
             )
         await db.rollback()
+
+
+# ── Sprawozdania (K8a) ───────────────────────────────────────────────────────
+
+
+async def test_statements_need_reports_module_and_balance(client, world):
+    acc = world["acc"]
+    finance = _headers(world["finance"])
+    accountant = _headers(world["accountant"])
+    params = {"year": world["year"], "month_from": 3, "month_to": 3}
+    closed = await client.get(
+        f"{ACC}/reports/statements", params=params, headers=finance
+    )
+    assert closed.status_code == 404
+    admin = await client.get(
+        f"{ACC}/reports/statements", params=params, headers=_headers(world["admin"])
+    )
+    assert admin.status_code == 200
+    await _set_ledger(
+        {
+            "modules": {"ledger": True, "reports": True},
+            "accountants": [world["accountant"].id],
+        }
+    )
+    chart = {
+        row["number"]: row
+        for row in (await client.get(f"{ACC}/chart", headers=finance)).json()["items"]
+    }
+    refused = await client.patch(
+        f"{ACC}/chart/{chart[acc['cost']]['id']}",
+        json={"report_line": "Usługi obce"},
+        headers=finance,
+    )
+    assert refused.status_code == 422
+    for key, line in (
+        ("cost", "RPBIII"),
+        ("vat", "BABII3b"),
+        ("suppliers", "BABII3a_D12/BPBIII3d_D12"),
+    ):
+        saved = await client.patch(
+            f"{ACC}/chart/{chart[acc[key]]['id']}",
+            json={"report_line": line},
+            headers=finance,
+        )
+        assert saved.status_code == 200, saved.text
+    document = await _create(client, world, month=3)
+    await client.post(
+        f"{ACC}/documents/approve", json={"ids": [document["id"]]}, headers=accountant
+    )
+    response = await client.get(
+        f"{ACC}/reports/statements", params=params, headers=finance
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["complete"] is True
+    assert data["balance"]["balanced"] is True
+    # Koszt 1000 zł, VAT 230 zł, dostawca 1230 zł → strata 1000 zł.
+    assert data["balance"]["assets_total"] == 23_000
+    lines = {line["number"]: line for line in data["income"]["lines"]}
+    assert lines["B"]["amount"] == 100_000
+    assert lines["L"]["amount"] == -100_000
+    positions = await client.get(f"{ACC}/reports/accounts", headers=finance)
+    rows = {row["number"]: row for row in positions.json()["items"]}
+    assert rows[acc["cost"]]["source"] == "own"
+    assert rows[acc["cost"]]["position"]["debit"]["code"] == "RPBIII"
+    catalogue = await client.get(f"{ACC}/reports/markers", headers=finance)
+    assert len(catalogue.json()["items"]) == 244

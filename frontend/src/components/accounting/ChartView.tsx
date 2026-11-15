@@ -270,7 +270,7 @@ function AccountDialog({
               className={CONTROL}
               value={form.report_line ?? ""}
               maxLength={32}
-              placeholder="np. RZiS B.III"
+              placeholder="znacznik MF, np. RPBIII albo BABII3a_D12/BPBIII3d_D12"
               onChange={(e) => set({ report_line: e.target.value })}
             />
           </label>
