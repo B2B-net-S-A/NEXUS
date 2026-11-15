@@ -36,6 +36,7 @@ from app.models.client import Client
 from app.models.client_issued_invoice import ClientIssuedInvoice
 from app.models.client_sales_invoice import (
     ClientSalesInvoice,
+    ClientSalesInvoiceLink,
     ClientSalesInvoicePayment,
 )
 from app.services import fx_service
@@ -292,6 +293,57 @@ async def _existing_by_key(
     return out
 
 
+async def _ksef_by_key(
+    db: AsyncSession, year: int, month: int, rows: Sequence[billing.BillingRow]
+) -> dict[str, list[str]]:
+    """Numery faktur z KSeF wystawionych poza NEXUSEM (np. w eBI24) i powiązanych
+    z zamówieniem za ten miesiąc.
+
+    Bez tego „Wystaw za miesiąc” pokazywało zamówienie zafakturowane w eBI24 jako
+    „do wystawienia” — w miesiącu przejściowym prosta droga do drugiej faktury
+    (przeklikanie na stagingu 14.11.2026). Faktury wystawione w NEXUSIE liczy
+    ``_existing_by_key``.
+    """
+
+    by_order: dict[int, str] = {}
+    for row in rows:
+        if row.order_id is not None:
+            by_order[row.order_id] = row.key
+        for line in row.lines:
+            if line.order_id is not None:
+                by_order.setdefault(line.order_id, row.key)
+    links = await db.execute(
+        select(
+            ClientSalesInvoiceLink.order_group_id,
+            ClientSalesInvoiceLink.order_id,
+            ClientSalesInvoice.invoice_number,
+        )
+        .join(
+            ClientSalesInvoice,
+            ClientSalesInvoice.id == ClientSalesInvoiceLink.invoice_id,
+        )
+        .where(
+            ClientSalesInvoiceLink.period_year == year,
+            ClientSalesInvoiceLink.period_month == month,
+            or_(
+                ClientSalesInvoice.match_method.is_(None),
+                ClientSalesInvoice.match_method != "issued",
+            ),
+        )
+    )
+    out: dict[str, list[str]] = {}
+    for group_id, order_id, number in links.all():
+        if group_id is not None:
+            key = f"g{group_id}"
+        elif order_id is not None and order_id in by_order:
+            key = by_order[order_id]
+        else:
+            continue
+        if number not in out.setdefault(key, []):
+            out[key].append(number)
+    return out
+
+
 def _row_block(row: billing.BillingRow) -> Optional[str]:
     if row.missing:
         people = ", ".join(
@@ -306,6 +358,7 @@ def _row_block(row: billing.BillingRow) -> Optional[str]:
 async def to_issue(db: AsyncSession, *, year: int, month: int) -> dict[str, Any]:
     rows = await billing.billing_rows(db, year=year, month=month)
     existing = await _existing_by_key(db, year, month)
+    in_ksef = await _ksef_by_key(db, year, month, rows)
     names = await clients.names(db, {row.client_id for row in rows})
     by_client: dict[int, dict[str, Any]] = {}
     for row in sorted(
@@ -330,6 +383,7 @@ async def to_issue(db: AsyncSession, *, year: int, month: int) -> dict[str, Any]
                 "people": len(row.lines),
                 "blocked": _row_block(row),
                 "needs_amount": row.kind == "cost",
+                "invoiced_in_ksef": in_ksef.get(row.key, []),
                 "issued": [
                     {
                         "id": invoice.id,
@@ -423,6 +477,7 @@ async def create_drafts(
         row.key: row for row in await billing.billing_rows(db, year=year, month=month)
     }
     existing = await _existing_by_key(db, year, month)
+    in_ksef = await _ksef_by_key(db, year, month, list(rows.values()))
     problems = []
     for key in wanted:
         row = rows.get(key)
@@ -438,6 +493,12 @@ async def create_drafts(
             problems.append(
                 f"{row.order_number}: ma już fakturę za ten miesiąc "
                 f"({STATUS_LABELS[existing[key][0].status].lower()})."
+            )
+        elif in_ksef.get(key):
+            problems.append(
+                f"{row.order_number}: ma już fakturę w KSeF za ten miesiąc "
+                f"({', '.join(in_ksef[key])}) — popraw ją korektą albo odepnij "
+                "w „Do faktury”."
             )
     if problems:
         raise IssueError(" ".join(problems))
