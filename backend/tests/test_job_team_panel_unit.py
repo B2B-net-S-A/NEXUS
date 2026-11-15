@@ -189,7 +189,7 @@ def test_migration_and_entrypoint_share_one_ddl_source() -> None:
     )
     assert "schema.TABLE_DDL" in migration
     assert "schema.DOWNGRADE_DDL" in migration
-    assert 'down_revision = "0710_client_reports"' in migration
+    assert 'down_revision = "0710_framework_rate_categories"' in migration
 
 
 def test_team_table_is_created_before_the_job_column_points_at_it() -> None:
