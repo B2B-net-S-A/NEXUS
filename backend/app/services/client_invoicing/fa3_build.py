@@ -245,6 +245,8 @@ class InvoiceDocument:
     fx_rate: Optional[Decimal] = None
     due_date: Optional[date] = None
     account: Optional[BankAccount] = None
+    #: Inna forma płatności (``PlatnoscInna`` + ``OpisPlatnosci``), np. „Kompensata”.
+    payment_other: Optional[str] = None
     client_order_number: Optional[str] = None
     notes: Optional[str] = None
     exemption_basis: Optional[str] = None
@@ -406,12 +408,16 @@ def _correction(fa: etree._Element, doc: InvoiceDocument) -> None:
 
 
 def _payment(fa: etree._Element, doc: InvoiceDocument) -> None:
-    if doc.due_date is None and doc.account is None:
+    if doc.due_date is None and doc.account is None and not doc.payment_other:
         return
     node = _sub(fa, "Platnosc")
     if doc.due_date is not None:
         term = _sub(node, "TerminPlatnosci")
         _sub(term, "Termin", doc.due_date.isoformat())
+    if doc.payment_other:
+        _sub(node, "PlatnoscInna", "1")
+        _sub(node, "OpisPlatnosci", _clean(doc.payment_other, 256))
+        return
     _sub(node, "FormaPlatnosci", PAYMENT_TRANSFER)
     if doc.account is not None and doc.account.number:
         account = _sub(node, "RachunekBankowy")

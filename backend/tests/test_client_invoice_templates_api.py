@@ -20,6 +20,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from lxml import etree
 from sqlalchemy import delete, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.api import client_issued_invoices as api
 from app.core.config import settings
@@ -32,6 +33,7 @@ from app.models.client_issued_invoice import (
 )
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.finance_ledger import FinanceCounterparty
+from app.models.fx_rate import FxRate
 from app.services.client_invoicing import (
     issue_settings,
     ksef_send,
@@ -662,3 +664,188 @@ async def test_manual_invoice_matching_order_amount_does_not_bind_to_order(
         headers=_h(seed),
     )
     assert drafted.status_code in (200, 201), drafted.text
+
+
+# ── Serie i rachunki jak w eBI24 (16.11.2026) ───────────────────────────────
+
+
+def _xml(seed) -> etree._Element:
+    return etree.fromstring(seed.fake.received[-1])
+
+
+async def test_benefit_goes_to_benefit_series_paid_by_compensation(client, seed):
+    """eBI24: „303/9/2026/Benefit”, forma płatności kompensata, bez rachunku."""
+
+    await _settings(client, seed)
+    created = await client.post(
+        f"{BASE}/templates",
+        json={
+            "kind": "benefit",
+            "benefit": "sport",
+            "buyer": {
+                "name": "Jan Testowy Usługi IT",
+                "number": fx.UNKNOWN_NIP,
+                "address_l1": "ul. Kontraktowa 3",
+                "address_l2": "00-950 Warszawa",
+            },
+            "lines": [SPORT],
+        },
+        headers=_h(seed),
+    )
+    assert created.status_code == 201, created.text
+    run = await client.post(
+        f"{BASE}/templates/run",
+        json={**NOVEMBER, "template_ids": [created.json()["id"]]},
+        headers=_h(seed),
+    )
+    (invoice_id,) = run.json()["created"]
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert card["series_code"] == "BEN"
+    assert card["problems"] == [], card["problems"]
+
+    sent = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["invoice_number"] == "1/11/2026/Benefit"
+    payment = _xml(seed).find("{*}Fa/{*}Platnosc")
+    assert payment.findtext("{*}PlatnoscInna") == "1"
+    assert payment.findtext("{*}OpisPlatnosci") == "Kompensata"
+    assert payment.find("{*}RachunekBankowy") is None
+    assert payment.find("{*}FormaPlatnosci") is None
+    pdf_html = await client.get(f"{BASE}/{invoice_id}/pdf", headers=_h(seed))
+    assert pdf_html.status_code == 200
+
+
+async def test_client_account_override_goes_to_the_invoice(client, seed):
+    """Nordea płaci w EUR na inny rachunek niż reszta klientów (decyzja 16.11.2026)."""
+
+    own = "PL10105000997603123456789123"
+    await client.put(
+        f"{BASE}/settings",
+        json={
+            **SETTINGS,
+            "clients": {
+                str(seed.client_id): {
+                    "accounts": {"PLN": {"number": own, "bank": "Bank Klienta"}}
+                }
+            },
+        },
+        headers=_h(seed),
+    )
+    created = await client.post(
+        f"{BASE}/manual", json={"client_id": seed.client_id}, headers=_h(seed)
+    )
+    invoice_id = created.json()["id"]
+    await client.put(
+        f"{BASE}/{invoice_id}",
+        json={
+            "buyer": {"address_l1": "ul. Przykładowa 5, 00-002 Warszawa"},
+            "lines": [
+                {
+                    "name": "Abonament",
+                    "quantity": "1",
+                    "unit_price": "100",
+                    "vat_rate": "23",
+                }
+            ],
+        },
+        headers=_h(seed),
+    )
+    sent = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert sent.json()["status"] == "accepted", sent.json()
+    number = _xml(seed).findtext("{*}Fa/{*}Platnosc/{*}RachunekBankowy/{*}NrRB")
+    assert number == own
+
+    bad = await client.put(
+        f"{BASE}/settings",
+        json={
+            **SETTINGS,
+            "clients": {str(seed.client_id): {"accounts": {"EUR": {"number": "123"}}}},
+        },
+        headers=_h(seed),
+    )
+    assert bad.status_code == 422, bad.text
+
+
+async def test_correction_of_eu_invoice_takes_korue_series(client, seed):
+    await _settings(client, seed)
+    created = await client.post(
+        f"{BASE}/manual",
+        json={
+            "buyer": {
+                "name": "Kunde GmbH",
+                "number": "DE123456789",
+                "address_l1": "Teststraße 1, 10115 Berlin",
+                "country": "DE",
+            },
+            "currency": "EUR",
+        },
+        headers=_h(seed),
+    )
+    invoice_id = created.json()["id"]
+    assert created.json()["series_code"] == "UE"
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            pg_insert(FxRate)
+            .values(
+                currency="EUR",
+                effective_date=date(2026, 11, 19),
+                rate_to_pln=Decimal("4.2500"),
+                source="NBP",
+            )
+            .on_conflict_do_nothing()
+        )
+        await db.commit()
+    await client.put(
+        f"{BASE}/{invoice_id}",
+        json={
+            "lines": [
+                {
+                    "name": "IT services",
+                    "quantity": "1",
+                    "unit_price": "1000",
+                    "vat_rate": "np II",
+                }
+            ]
+        },
+        headers=_h(seed),
+    )
+    sent = await client.post(f"{BASE}/{invoice_id}/send", headers=_h(seed))
+    assert sent.json()["status"] == "accepted", sent.json()
+    assert sent.json()["invoice_number"] == "1/11/2026/UE"
+    correction = await client.post(
+        f"{BASE}/{invoice_id}/correction",
+        json={"reason": "Zmiana ceny"},
+        headers=_h(seed),
+    )
+    assert correction.status_code == 201, correction.text
+    assert correction.json()["series_code"] == "KORUE"
+    corr_id = correction.json()["id"]
+    await client.put(
+        f"{BASE}/{corr_id}",
+        json={
+            "lines": [
+                {
+                    "name": "IT services",
+                    "quantity": "1",
+                    "unit_price": "900",
+                    "vat_rate": "np II",
+                }
+            ]
+        },
+        headers=_h(seed),
+    )
+    corr_sent = await client.post(f"{BASE}/{corr_id}/send", headers=_h(seed))
+    assert corr_sent.json()["invoice_number"] == "1/11/2026/KORUE", corr_sent.json()
+
+
+def test_month_without_leading_zero_like_ebi24():
+    from app.services.client_invoicing import issue_settings, numbering
+
+    assert (
+        numbering.format_number("{n}/{m}/{yyyy}/Benefit", 303, 2026, 9)
+        == "303/9/2026/Benefit"
+    )
+    assert numbering.format_number("{n}/{mm}/{yyyy}", 5, 2026, 9) == "5/09/2026"
+    data = issue_settings.normalize({"series": {"PL": "{n}/{yyyy}"}})
+    with pytest.raises(issue_settings.IssueSettingsError):
+        issue_settings.validate(data)

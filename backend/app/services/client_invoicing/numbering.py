@@ -36,6 +36,8 @@ def format_number(pattern: str, number: int, year: int, month: int) -> str:
     return (
         pattern.replace("{n}", str(number))
         .replace("{mm}", f"{month:02d}")
+        # {m} — miesiąc bez zera, jak w numerach eBI24 („286/9/2026/Benefit”).
+        .replace("{m}", str(month))
         .replace("{yyyy}", f"{year:04d}")
     )
 

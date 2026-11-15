@@ -632,8 +632,10 @@ async def update(
         invoice.currency = currency
     if "series_code" in payload and invoice.invoice_type == "VAT":
         code = str(payload["series_code"] or "")
-        if code not in ("PL", "UE"):
-            raise IssueError("Faktura VAT idzie serią krajową albo UE.", 422)
+        if code not in ("PL", "UE", "BEN"):
+            raise IssueError(
+                "Faktura VAT idzie serią krajową, UE albo refaktur benefitów.", 422
+            )
         if invoice.number_seq is not None and code != invoice.series_code:
             raise IssueError("Faktura ma już numer z tej serii.", 422)
         invoice.series_code = code
@@ -725,7 +727,8 @@ async def create_correction(
     invoice = ClientIssuedInvoice(
         client_id=original.client_id,
         invoice_type="KOR",
-        series_code="KOR",
+        # Korekta faktury UE ma własną serię (jak w eBI24: „1/10/2026/KORUE”).
+        series_code="KORUE" if original.series_code == "UE" else "KOR",
         status="draft",
         order_group_id=original.order_group_id,
         order_id=original.order_id,
@@ -851,12 +854,13 @@ async def problems(
     if "zw" in codes and not settings["exemption_basis"]:
         out.append("Pozycja „zw.” wymaga podstawy zwolnienia w ustawieniach.")
     if (
-        invoice.currency != "PLN"
-        and not settings["accounts"][invoice.currency]["number"]
+        invoice.series_code not in issue_settings.COMPENSATION_SERIES
+        and issue_settings.account_for(
+            settings, invoice.client_id, invoice.currency, invoice.series_code
+        )
+        is None
     ):
         out.append(f"Brak rachunku {invoice.currency} w ustawieniach wystawiania.")
-    if invoice.currency == "PLN" and not settings["accounts"]["PLN"]["number"]:
-        out.append("Brak rachunku PLN w ustawieniach wystawiania.")
     return out
 
 
@@ -864,7 +868,13 @@ async def document(
     db: AsyncSession, invoice: ClientIssuedInvoice, settings: dict[str, Any]
 ) -> fa3_build.InvoiceDocument:
     seller = settings["seller"]
-    account = settings["accounts"].get(invoice.currency) or {}
+    account = (
+        issue_settings.account_for(
+            settings, invoice.client_id, invoice.currency, invoice.series_code
+        )
+        or {}
+    )
+    compensation = invoice.series_code in issue_settings.COMPENSATION_SERIES
     corrected = None
     if invoice.invoice_type == "KOR" and invoice.corrects_id:
         original = await db.get(ClientIssuedInvoice, invoice.corrects_id)
@@ -910,6 +920,7 @@ async def document(
         )
         if account.get("number")
         else None,
+        payment_other=issue_settings.COMPENSATION_LABEL if compensation else None,
         client_order_number=invoice.client_order_number,
         notes=invoice.notes,
         exemption_basis=settings["exemption_basis"] or None,

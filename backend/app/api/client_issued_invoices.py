@@ -262,7 +262,7 @@ class InvoiceIn(BaseModel):
     notes: Optional[str] = Field(None, max_length=1000)
     correction_reason: Optional[str] = Field(None, max_length=256)
     currency: Optional[Literal["PLN", "EUR", "USD"]] = None
-    series_code: Optional[Literal["PL", "UE"]] = None
+    series_code: Optional[Literal["PL", "UE", "BEN"]] = None
     buyer: Optional[dict[str, Any]] = None
     lines: Optional[list[dict[str, Any]]] = Field(None, max_length=200)
 
