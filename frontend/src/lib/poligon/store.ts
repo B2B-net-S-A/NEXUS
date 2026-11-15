@@ -48,6 +48,10 @@ export type PoligonAction =
       rejectionReasonId: number | null;
       rejectionReasonName: string | null;
       rejectionNote: string;
+      /** „Wróć do poprawy” z przeglądu Delivery Leada: pola do poprawy. */
+      fixFields: string[];
+      /** Wysyłka z przeglądu Delivery Leada: stawka do klienta. */
+      clientRate: { value: number; unit: string; currency: string } | null;
     }
   | { type: "claim"; candidateId: number }
   | { type: "note"; candidateId: number | null; content: string }
@@ -64,6 +68,9 @@ export const POLIGON_ID_MIN = 990_000;
 export const POLIGON_PROGRESS = /^\/api\/novelties\/poligon-[a-z0-9-]+\/events$/;
 export const POLIGON_ID_MAX = 999_999;
 const DAY_MS = 86_400_000;
+/** Bramka „Zweryfikowany” działa tylko przy wejściu z tych kolumn (serwer:
+ *  `assert_verified_requirements`) — zwrot z „QC CV” do poprawy jej nie przechodzi. */
+const GATED_FROM = new Set(["new", "screening"]);
 
 export const BLOCKED_WRITE_MESSAGE =
   "Na poligonie ta akcja się nie zapisuje. W prawdziwej rekrutacji zadziała normalnie.";
@@ -230,7 +237,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     const to = kanban?.columns.find((c) => c.stage_def_id === toDef) ?? null;
     const recorded = recordedRequirements();
     const base = { ...recorded, from_column: from?.stage ?? null, to_column: to?.stage ?? null, skipped_columns: [], owner_note: null };
-    if (to?.stage !== "verified" || from?.stage === "verified") {
+    if (to?.stage !== "verified" || !GATED_FROM.has(String(from?.stage ?? ""))) {
       return { status: 200, data: { ...base, items: [], primary: { kind: "move", label: `Przesuń: ${String(to?.label ?? to?.name ?? "dalej")}`, target_stage_def_id: toDef } } };
     }
     const missingList = verifiedMissing(candidateId);
@@ -333,7 +340,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
         (body.stage !== undefined && c.stage === body.stage),
     );
     if (!target) return { status: 422, data: { detail: "Nie ma takiego etapu w tej rekrutacji." } };
-    if (target.stage === "verified" && found.column.stage !== "verified") {
+    if (target.stage === "verified" && GATED_FROM.has(String(found.column.stage ?? ""))) {
       const missing = verifiedMissing(candidateId);
       if (missing.length) {
         const labels = missing.map((m) => m.label);
@@ -371,6 +378,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     };
     target.items = [moved, ...target.items];
     target.count = target.items.length;
+    const rateValue = body.client_rate_value === undefined || body.client_rate_value === null ? NaN : Number(body.client_rate_value);
     emit({
       type: "move",
       candidateId,
@@ -379,6 +387,10 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       rejectionReasonId: reasonId,
       rejectionReasonName: reasonName,
       rejectionNote: typeof body.rejection_reason === "string" ? body.rejection_reason.trim() : "",
+      fixFields: Array.isArray(body.fix_fields) ? body.fix_fields.filter((f): f is string => typeof f === "string") : [],
+      clientRate: Number.isFinite(rateValue)
+        ? { value: rateValue, unit: String(body.client_rate_unit ?? "hourly"), currency: String(body.client_rate_currency ?? "PLN") }
+        : null,
     });
     return { status: 200, data: { id: moved.id, verification_status: "active", process_state_version: moved.process_state_version } };
   }
@@ -513,7 +525,12 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     "/api/users/mentionable",
   ]);
   /** Zapisy, które w rzeczywistości są odczytami (wyniki dopasowania, podpowiedzi). */
-  const READ_POSTS = new Set(["/api/search/candidates/scores", "/api/my-people/matches/seen"]);
+  const READ_POSTS = new Set([
+    "/api/search/candidates/scores",
+    "/api/my-people/matches/seen",
+    // Podgląd maila odrzucenia w przeglądzie Delivery Leada — nic nie wysyła.
+    "/api/rejection-emails/preview",
+  ]);
 
   function handle(req: PoligonRequest): PoligonResponse | "network" {
     const method = (req.method || "get").toUpperCase();

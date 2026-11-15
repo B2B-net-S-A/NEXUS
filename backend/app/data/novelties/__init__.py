@@ -213,6 +213,9 @@ class PoligonExercise(BaseModel):
     id: str = Field(pattern=r"^poligon-[a-z0-9-]{2,51}$")
     module: str = Field(min_length=1, max_length=60)
     title: str = Field(min_length=1, max_length=90)
+    #: Czyja to ścieżka (15.11.2026: rekruter, Delivery Lead, TCM mają własne).
+    #: Osoba przechodzi ćwiczenia każdej swojej roli; lustro `roles` w `exercises.ts`.
+    roles: list[str] = Field(min_length=1)
 
 
 class PoligonPlan(BaseModel):
@@ -224,8 +227,9 @@ class PoligonPlan(BaseModel):
     required_roles: list[str]
     #: …i konto założone tego dnia albo później (obecni mają Start za sobą).
     required_since: date
-    #: Przeklikania Startu, które poligon zastępuje osobie, której jest wymagany.
-    replaces: list[str]
+    #: Przeklikania Startu, które poligon zastępuje osobie, której jest
+    #: wymagany — per rola z ``required_roles``.
+    replaces: dict[str, list[str]]
     exercises: list[PoligonExercise] = Field(min_length=1)
 
     @field_validator("roles", "required_roles")
@@ -244,10 +248,29 @@ class PoligonPlan(BaseModel):
             raise ValueError("Powtórzone id ćwiczenia poligonu")
         if not set(self.required_roles) <= set(self.roles):
             raise ValueError("required_roles poligonu musi być w roles")
+        if not set(self.replaces) <= set(self.required_roles):
+            raise ValueError("replaces poligonu tylko dla ról z required_roles")
+        for exercise in self.exercises:
+            if not set(exercise.roles) <= set(self.roles):
+                raise ValueError(f"Rola spoza poligonu w ćwiczeniu {exercise.id}")
+        empty = [
+            role
+            for role in self.required_roles
+            if not any(role in e.roles for e in self.exercises)
+        ]
+        if empty:
+            raise ValueError(f"Rola wymagana bez ćwiczeń poligonu: {empty}")
         return self
 
     def by_id(self) -> dict[str, PoligonExercise]:
         return {e.id: e for e in self.exercises}
+
+    def exercises_for(self, roles: Collection[str]) -> list[PoligonExercise]:
+        """Ścieżka osoby: ćwiczenia każdej jej roli, w kolejności rejestru."""
+        return [e for e in self.exercises if set(e.roles) & set(roles)]
+
+    def replaced_for(self, roles: Collection[str]) -> set[str]:
+        return {tour for role in roles for tour in self.replaces.get(role, [])}
 
 
 @lru_cache(maxsize=1)
@@ -256,7 +279,12 @@ def load_poligon() -> PoligonPlan:
         json.loads(POLIGON_PATH.read_text(encoding="utf-8"))
     )
     starts = load_start_tours()
-    unknown = [tour_id for tour_id in plan.replaces if tour_id not in starts]
+    unknown = [
+        tour_id
+        for tours in plan.replaces.values()
+        for tour_id in tours
+        if tour_id not in starts
+    ]
     if unknown:
         raise ValueError(f"Poligon zastępuje nieznane przeklikania Startu: {unknown}")
     clash = set(plan.by_id()) & (set(starts) | set(load_novelties()))

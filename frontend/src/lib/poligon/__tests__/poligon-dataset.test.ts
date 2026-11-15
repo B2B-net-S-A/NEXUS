@@ -19,6 +19,8 @@ const FICTION_KEYS = new Set([
   "evidence", "issuer", "certifications", "degree", "school", "field", "profile", "professional_profile",
   "ai_summary", "career_summary", "matching_facts", "bullets", "notes", "content", "content_rendered",
   "notice_period", "available_from", "rate_flexibility", "added_via", "technologies", "skill", "job_reference",
+  // Przegląd Delivery Leada: wymagania i kategoria są wymyślone (`dl_context` w skrypcie).
+  "candidate_value", "category_name",
 ]);
 const PERSON_KEY = /(^|_)(name|person|who)$/;
 /** Stałe teksty zastępcze skryptu (`REQUIRED_TEXT`) pod kluczami spoza słownika — tylko ta wartość, nie cały klucz. */
