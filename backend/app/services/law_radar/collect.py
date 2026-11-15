@@ -104,6 +104,8 @@ class CollectReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[CollectItem] = Field(default_factory=list, max_length=MAX_ITEMS)
+    #: LEX poprosił o kod 2FA albo weryfikację urządzenia i bot go pominął.
+    lex_skipped: bool = False
 
 
 def build_request(since: date) -> dict[str, Any]:
@@ -136,6 +138,8 @@ def task_text(request: dict[str, Any]) -> str:
         "„opublikowano”). quote: krótki cytat ze źródła, najwyżej 500 znaków.\n"
         "- Z LEX-u odsyłasz tylko tytuł, link i cytat do 500 znaków (source = lex), "
         "bez kopiowania komentarzy i opracowań.\n"
+        "- Gdy LEX poprosi o kod logowania albo weryfikację urządzenia, nie czekaj na "
+        "człowieka: pomiń LEX, przejrzyj pozostałe źródła i ustaw lex_skipped = true.\n"
         "- Nie zapisuj nazwisk osób prywatnych ani danych kontaktowych.\n"
         f"- Najwyżej {request.get('max_items', MAX_ITEMS)} pozycji. Ta sama zmiana "
         "z kilku źródeł może być kilkoma pozycjami.\n"
@@ -156,7 +160,8 @@ def report_format() -> dict[str, Any]:
                 "stage": "opublikowano",
                 "quote": "Krótki cytat ze źródła, najwyżej 500 znaków.",
             }
-        ]
+        ],
+        "lex_skipped": False,
     }
 
 
@@ -216,6 +221,7 @@ async def ingest(
         "known": len(rows) - new,
         "duplicates": duplicates,
         "by_class": by_class,
+        "lex_skipped": report.lex_skipped,
     }
     mark_received(run, summary, now)
     logger.info(

@@ -408,3 +408,12 @@ def test_probes_recompute_once_a_day_after_half_past_six() -> None:
     assert loop.probes_due(local, before)
     assert not loop.probes_due(local, after)
     assert not loop.probes_due(local, None)
+
+
+def test_collect_report_flags_skipped_lex_and_task_says_when() -> None:
+    report = collect.CollectReport.model_validate({"items": [], "lex_skipped": True})
+    assert report.lex_skipped is True
+    assert collect.CollectReport.model_validate({"items": []}).lex_skipped is False
+    text = collect.task_text(collect.build_request(date(2026, 11, 12)))
+    assert "lex_skipped = true" in text
+    assert collect.report_format()["lex_skipped"] is False

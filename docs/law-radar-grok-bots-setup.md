@@ -49,6 +49,15 @@ z LEX-u do NEXUSA trafia tylko tytuł, link i cytat do 500 znaków (źródło `l
 
 Bez wpisu w Vault Zbieracz pomija LEX i czyta pozostałe źródła.
 
+**Drugi składnik logowania LEX** (zasady serwisu WK nr 1/2026): kod przychodzi
+mailem na adres księgowej albo z aplikacji TOTP, a nowe urządzenie przechodzi
+weryfikację (limit 6 przeglądarek stacjonarnych). Grok Bot przy kodzie, którego
+nie może odczytać, oddaje komputer człowiekowi („Take over”); w biegu z webhooka
+o 5:30 nikt tego nie kliknie, więc Zbieracz pominie wtedy LEX. Pierwsze
+logowanie zrób ręcznie w aplikacji bota (Take over, kod wpisuje księgowa),
+żeby urządzenie bota zostało zapamiętane. Gdy LEX znów poprosi o kod, bieg
+pominie LEX, a raport biegu pokaże `lex_skipped`.
+
 ## 2. Zmienne w NEXUSIE
 
 Wyłącznie workflow **„Coolify set env”** (Actions → Coolify set env → Run workflow).
