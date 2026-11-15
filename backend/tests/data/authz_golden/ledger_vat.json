@@ -32,6 +32,11 @@
  ],
  "routes": {
   "GET /api/accounting/vat": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/vat/jpk": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/vat/jpk/{file_id}/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/vat/jpk": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/vat/jpk/{file_id}/sent": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/accounting/vat/jpk/settings": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/vat/settings": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

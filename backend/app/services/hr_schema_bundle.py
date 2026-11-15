@@ -42,6 +42,7 @@ from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_fx_schema as ledger_fx
 from app.services import ledger_schema as ledger
 from app.services import ledger_settlement_schema as ledger_settlement
+from app.services import ledger_vat_schema as ledger_vat
 from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
@@ -131,6 +132,8 @@ MODULES = (
     ledger_settlement,
     # 0707: waluty w księdze K4c-1 — rachunki walutowe, kurs pozycji (15.11.2026).
     ledger_fx,
+    # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
+    ledger_vat,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

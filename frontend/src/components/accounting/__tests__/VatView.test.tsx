@@ -5,12 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const put = vi.fn();
+const post = vi.fn();
 const showToast = vi.fn();
+const download = vi.fn();
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   api: {
     get: (...a: unknown[]) => get(...a),
-    post: vi.fn(),
+    post: (...a: unknown[]) => post(...a),
     put: (...a: unknown[]) => put(...a),
     patch: vi.fn(),
     delete: vi.fn(),
@@ -18,6 +20,9 @@ vi.mock("@/lib/api", () => ({
 }));
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast, showSuccess: vi.fn(), showError: vi.fn() }),
+}));
+vi.mock("@/lib/authenticated-files", () => ({
+  downloadAuthenticatedFile: (...a: unknown[]) => download(...a),
 }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/accounting/vat",
@@ -28,7 +33,7 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { VatView } from "@/components/accounting/VatView";
 import type { LedgerConfig } from "@/lib/api/accounting";
-import type { VatRegisters } from "@/lib/api/accounting-vat";
+import type { JpkOverview, VatRegisters } from "@/lib/api/accounting-vat";
 import { useAuthStore } from "@/store/auth";
 
 function config(vatOpen = true): LedgerConfig {
@@ -132,10 +137,29 @@ function registers(overrides: Partial<VatRegisters> = {}): VatRegisters {
   };
 }
 
-function route(cfg: LedgerConfig, data: VatRegisters = registers()) {
+function jpkOverview(overrides: Partial<JpkOverview> = {}): JpkOverview {
+  return {
+    year: 2026,
+    month: 11,
+    files: [],
+    purpose: "submission",
+    needs_opening_surplus: false,
+    previous_surplus: 0,
+    missing: [],
+    contact: { email: "vat@example.com", phone: "" },
+    can_prepare: true,
+    can_download: true,
+    can_mark_sent: true,
+    can_edit_contact: false,
+    ...overrides,
+  };
+}
+
+function route(cfg: LedgerConfig, data: VatRegisters = registers(), jpk: JpkOverview = jpkOverview()) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
     if (url === "/api/accounting/vat") return { data };
+    if (url === "/api/accounting/vat/jpk") return { data: jpk };
     throw new Error(`nieoczekiwane ${url}`);
   });
 }
@@ -154,6 +178,8 @@ function renderView() {
 beforeEach(() => {
   get.mockReset();
   put.mockReset();
+  post.mockReset();
+  download.mockReset();
   showToast.mockReset();
   window.history.replaceState(null, "", "/accounting/vat");
   useAuthStore.setState({
@@ -216,6 +242,67 @@ describe("Księgowość — VAT (K5a)", () => {
     expect(screen.queryByText("FS 51/11/2026")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Pokaż wszystkie (60)" }));
     expect(screen.getByText("FS 60/11/2026")).toBeInTheDocument();
+  });
+
+  it("JPK: pierwszy miesiąc z nadwyżką z deklaracji z Symfonii", async () => {
+    route(config(), registers({ issues: [] }), jpkOverview({ needs_opening_surplus: true, previous_surplus: null }));
+    post.mockResolvedValue({ data: { file: { id: 7, version: 1, purpose: "submission", status: "prepared", created_at: "2026-12-05T10:00:00Z", sent_at: null, sent_note: null }, warnings: ["Faktury kosztowe z wpływem w tym miesiącu bez FVZ: 1"] } });
+    const user = userEvent.setup();
+    renderView();
+    expect(await screen.findByText("JPK_V7M za listopad 2026")).toBeInTheDocument();
+    const button = screen.getByRole("button", { name: "Przygotuj JPK" });
+    expect(button).toBeDisabled();
+    await user.type(screen.getByRole("textbox", { name: "Nadwyżka z poprzedniej deklaracji" }), "1173");
+    await user.click(button);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/vat/jpk", { year: 2026, month: 11, opening_surplus: 1173 }),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        "JPK v1 przygotowany i zgodny ze schematem MF. Do sprawdzenia: Faktury kosztowe z wpływem w tym miesiącu bez FVZ: 1.",
+      ),
+    );
+  });
+
+  it("JPK: wersje, pobranie XML, „wysłany” z UPO i korekta z uzasadnieniem", async () => {
+    const files = [
+      { id: 7, version: 1, purpose: "submission" as const, status: "sent" as const, created_at: "2026-12-05T10:00:00Z", sent_at: "2026-12-06T09:00:00Z", sent_note: "UPO 123", totals: { P_38: 207, P_39: 0, P_48: 2650, P_51: 0, P_62: 2443, sales_rows: 3, purchase_rows: 2 } },
+      { id: 8, version: 2, purpose: "correction" as const, status: "prepared" as const, created_at: "2026-12-10T10:00:00Z", sent_at: null, sent_note: null, totals: { P_38: 230, P_39: 0, P_48: 200, P_51: 30, P_62: 0, sales_rows: 3, purchase_rows: 2 } },
+    ];
+    route(config(), registers({ issues: [] }), jpkOverview({ files, purpose: "correction" }));
+    post.mockResolvedValue({ data: { ...files[1], status: "sent" } });
+    const user = userEvent.setup();
+    renderView();
+    const first = (await screen.findByText("v1")).closest("tr") as HTMLElement;
+    expect(within(first).getByText("do przeniesienia 2 443,00 zł")).toBeInTheDocument();
+    expect(within(first).getByText("UPO 123")).toBeInTheDocument();
+    await user.click(within(first).getByRole("button", { name: "Pobierz XML" }));
+    expect(download).toHaveBeenCalledWith("/api/accounting/vat/jpk/7/file", "JPK_V7M_2026-11_v1.xml");
+    const second = screen.getByText("v2").closest("tr") as HTMLElement;
+    expect(within(second).getByText("do wpłaty 30,00 zł")).toBeInTheDocument();
+    await user.click(within(second).getByRole("button", { name: "Oznacz jako wysłany" }));
+    await user.type(screen.getByRole("textbox", { name: "Numer UPO" }), "UPO 456");
+    await user.click(screen.getByRole("button", { name: "Wysłany" }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/accounting/vat/jpk/8/sent", { note: "UPO 456" }));
+    // Po wysłanej wersji kolejna to korekta — przycisk czeka na uzasadnienie.
+    expect(screen.getByRole("button", { name: "Przygotuj korektę JPK" })).toBeDisabled();
+  });
+
+  it("JPK czeka na listę „do sprawdzenia” (faktura z KSeF bez dokumentu)", async () => {
+    route(config(), registers(), jpkOverview());
+    renderView();
+    expect(await screen.findByText(/JPK powstanie po zamknięciu listy/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Przygotuj JPK" })).toBeDisabled();
+  });
+
+  it("JPK bez Płac: stan wersji bez kwot i bez pobrania", async () => {
+    const files = [{ id: 7, version: 1, purpose: "submission" as const, status: "prepared" as const, created_at: "2026-12-05T10:00:00Z", sent_at: null, sent_note: null }];
+    route(config(), registers({ issues: [] }), jpkOverview({ files, can_prepare: false, can_download: false }));
+    renderView();
+    expect(await screen.findByText("v1")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Pobierz XML" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Deklaracja")).not.toBeInTheDocument();
+    expect(screen.getByText(/przygotowuje i pobiera go osoba z Płacami/)).toBeInTheDocument();
   });
 
   it("moduł wyłączony — bez zapytania o rejestry", async () => {

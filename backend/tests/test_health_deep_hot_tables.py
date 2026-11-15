@@ -117,6 +117,7 @@ LEDGER_TABLES = (
     "ledger_bank_statements",
     "ledger_bank_lines",
     "ledger_settlements",
+    "ledger_vat_files",
 )
 
 

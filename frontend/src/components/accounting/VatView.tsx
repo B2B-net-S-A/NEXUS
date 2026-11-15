@@ -18,8 +18,9 @@ import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
+import { JpkCard } from "./JpkCard";
 import { datePl, gr } from "./ledger-model";
-import { dueLabel, fieldsLabel, issueLink, rowGroups, taxIdLabel } from "./vat-model";
+import { dueLabel, fieldsLabel, issueLink, jpkBlockers, rowGroups, taxIdLabel } from "./vat-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const EMPTY = "px-3.5 py-4 text-[13px] text-muted-foreground";
@@ -30,7 +31,7 @@ export const ROWS_SHOWN = 50;
  * Księgowość → VAT (K5a): rejestry sprzedaży i zakupu miesiąca z nagłówka —
  * z zatwierdzonych FVS i FVZ, z sumami grup (pola JPK_V7M) i listą „do
  * sprawdzenia” (faktura z KSeF bez dokumentu, bufor, kolejka kosztów, zapisy na
- * kontach VAT spoza rejestru). JPK_V7M i rozliczenie VAT — etap K5b.
+ * kontach VAT spoza rejestru) i JPK_V7M miesiąca (K5b).
  */
 export function VatView() {
   const { config, period } = useAccounting();
@@ -69,6 +70,7 @@ export function VatView() {
           <AccountsCard data={data} />
         </div>
       </div>
+      <JpkCard year={data.year} month={data.month} blockers={jpkBlockers(data.issues)} />
       <RegisterCard
         title="Rejestr sprzedaży"
         aside="FVS zatwierdzone · data sprzedaży (korekta — wystawienia)"

@@ -138,7 +138,8 @@ def _sales_invoice(nip: str, **values) -> ClientSalesInvoice:
 
 @pytest_asyncio.fixture
 async def books(world):
-    year = random.randint(2050, 2099)
+    # Do 2090: JPK_V7M(3) przyjmuje rok najwyżej 2090 (etd:TRok).
+    year = random.randint(2050, 2090)
     prefix = f"S{random.randint(10_000, 99_999)}"
     async with AsyncSessionLocal() as db:
         # Rok bez księgi, kursów EUR i faktur kosztowych z wpływem w tym roku —
@@ -167,7 +168,7 @@ async def books(world):
             .select_from(LedgerBankStatement)
             .where(LedgerBankStatement.first_day.between(date(year, 1, 1), date(year, 12, 31)))
         ):
-            year = random.randint(2050, 2099)
+            year = random.randint(2050, 2090)
         previous = await db.scalar(
             select(AppSetting.value).where(
                 AppSetting.key == ledger_settings.SETTING_KEY
@@ -3408,7 +3409,9 @@ async def test_vat_registers_follow_approved_documents(client, world, books):
     closing_items = (await _closing(client, world, books))["items"]
     registers = next(item for item in closing_items if item["key"] == "vat_registers")
     assert registers["state"] == "problem" and "bez dokumentu w księdze: 2" in registers["detail"]
-    assert any(item["key"] == "later:jpk" for item in closing_items)
+    # JPK (K5b): do zrobienia, dopóki plik nie jest wysłany.
+    jpk_item = next(item for item in closing_items if item["key"] == "jpk")
+    assert jpk_item["state"] == "todo"
     assert not any(item["key"] == "later:vat" for item in closing_items)
 
 
@@ -3523,3 +3526,146 @@ async def test_vat_registers_keep_reverse_charge_and_ignore_storno_pairs(client,
     await _reverse(client, world, manual.id, date(year, 3, 29))
     data = (await _vat_registers(client, world, books)).json()
     assert [issue["kind"] for issue in data["issues"] if issue["kind"] == "outside"] == []
+
+
+# ── JPK_V7M (K5b) ───────────────────────────────────────────────────────────
+
+
+async def _payer(tax_office_code: str | None):
+    """Dane płatnika K7a (kod urzędu skarbowego) — zwraca poprzednią wartość."""
+
+    from app.services.hr.payroll_lists.parameters import COMPANY_KEY
+
+    async with AsyncSessionLocal() as db:
+        previous = await db.scalar(select(AppSetting.value).where(AppSetting.key == COMPANY_KEY))
+        await db.execute(delete(AppSetting).where(AppSetting.key == COMPANY_KEY))
+        if tax_office_code is not None:
+            db.add(AppSetting(key=COMPANY_KEY, value={"tax_office_code": tax_office_code}))
+        await db.commit()
+    return previous
+
+
+async def _restore_payer(previous) -> None:
+    from app.services.hr.payroll_lists.parameters import COMPANY_KEY
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AppSetting).where(AppSetting.key == COMPANY_KEY))
+        if previous is not None:
+            db.add(AppSetting(key=COMPANY_KEY, value=previous))
+        await db.commit()
+
+
+async def _purge_jpk(year: int) -> None:
+    from app.models.ledger import LedgerVatFile
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(LedgerVatFile).where(LedgerVatFile.year == year))
+        await db.commit()
+
+
+async def _jpk(client, world, books, user: str = "accountant", month: int = 3, **body):
+    return await client.post(
+        f"{ACC}/vat/jpk",
+        json={"year": books["year"], "month": month, **body},
+        headers=_headers(world[user]),
+    )
+
+
+async def test_jpk_is_prepared_sent_and_corrected(client, world, books):
+    from lxml import etree
+
+    from app.services.ledger import jpk
+
+    year = books["year"]
+    previous = await _payer("0202")
+    try:
+        docs = await _vat_books(client, world, books)
+        # Zaliczka i faktura nabywcy spoza kartoteki — poza marcem, żeby rejestr był pełny.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(ClientSalesInvoice)
+                .where(ClientSalesInvoice.id.in_([books["sales"]["unknown"], books["sales"]["advance"]]))
+                .values(issue_date=date(year, 5, 10), sale_date=date(year, 5, 10))
+            )
+            await db.commit()
+        missing_email = await _jpk(client, world, books, opening_surplus=0)
+        assert missing_email.status_code == 422 and "e-mail do JPK" in missing_email.json()["detail"]
+        refused = await client.put(
+            f"{ACC}/vat/jpk/settings", json={"email": "vat@example.com"}, headers=_headers(world["accountant"])
+        )
+        assert refused.status_code == 403
+        bad = await client.put(
+            f"{ACC}/vat/jpk/settings", json={"email": "bez-malpy"}, headers=_headers(world["admin"])
+        )
+        assert bad.status_code == 422
+        saved = await client.put(
+            f"{ACC}/vat/jpk/settings",
+            json={"email": "vat@example.com", "phone": "+48 22 000 00 00"},
+            headers=_headers(world["admin"]),
+        )
+        assert saved.status_code == 200 and saved.json()["email"] == "vat@example.com"
+        # Pierwszy miesiąc w NEXUSIE: nadwyżka z deklaracji z Symfonii wpisana ręcznie.
+        no_surplus = await _jpk(client, world, books)
+        assert no_surplus.status_code == 422 and "P_62" in no_surplus.json()["detail"]
+        # D2: plik ma faktury osób zespołu — bez Płac ani przygotowanie, ani pobranie.
+        settings = _ledger_settings(world, books, allocation=False)
+        settings["modules"]["vat"] = True
+        settings["vat"] = {"input_account": books["acc"]["vat_in"]}
+        settings["jpk"] = {"email": "vat@example.com", "phone": "+48 22 000 00 00"}
+        settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+        await _set_ledger(settings)
+        outsider = await _jpk(client, world, books, user="module_only", opening_surplus=0)
+        assert outsider.status_code == 403
+        first = await _jpk(client, world, books, opening_surplus=120)
+        assert first.status_code == 201, first.text
+        v1 = first.json()["file"]
+        assert (v1["version"], v1["purpose"], v1["status"]) == (1, "submission", "prepared")
+        # Należny: 23% z FS 1/03 (230 zł) − korekta (23 zł); naliczony 230 + 2 300 zł.
+        assert (v1["totals"]["P_38"], v1["totals"]["P_39"], v1["totals"]["P_48"]) == (207, 120, 2_650)
+        assert v1["totals"]["P_62"] == 2_650 - 207
+        download = await client.get(f"{ACC}/vat/jpk/{v1['id']}/file", headers=_headers(world["accountant"]))
+        assert download.status_code == 200 and "JPK_V7M_" in download.headers["content-disposition"]
+        assert jpk.validate(download.content) == []
+        root = etree.fromstring(download.content)
+        assert len(root.findall(f".//{{{jpk.NS}}}ZakupWiersz")) == 2
+        hidden = await client.get(f"{ACC}/vat/jpk/{v1['id']}/file", headers=_headers(world["module_only"]))
+        assert hidden.status_code == 403
+        blind = (
+            await client.get(
+                f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["module_only"])
+            )
+        ).json()
+        assert "totals" not in blind["files"][0] and blind["previous_surplus"] is None
+        second = await _jpk(client, world, books)
+        assert second.status_code == 201 and second.json()["file"]["purpose"] == "submission"
+        v2 = second.json()["file"]
+        stale = await client.post(f"{ACC}/vat/jpk/{v1['id']}/sent", json={}, headers=_headers(world["accountant"]))
+        assert stale.status_code == 409
+        sent = await client.post(
+            f"{ACC}/vat/jpk/{v2['id']}/sent", json={"note": "UPO 0000000000000000"}, headers=_headers(world["accountant"])
+        )
+        assert sent.status_code == 200 and sent.json()["status"] == "sent"
+        item = next(i for i in (await _closing(client, world, books))["items"] if i["key"] == "jpk")
+        assert item["state"] == "ok" and "UPO" in item["detail"]
+        # Po wysłanej wersji kolejna to korekta z uzasadnieniem.
+        no_reason = await _jpk(client, world, books)
+        assert no_reason.status_code == 422 and "P_ORDZU" in no_reason.json()["detail"]
+        third = await _jpk(client, world, books, reason="Korekta po zmianie dekretu faktury.")
+        assert third.status_code == 201, third.text
+        v3 = third.json()["file"]
+        assert (v3["version"], v3["purpose"], v3["reason"]) == (3, "correction", "Korekta po zmianie dekretu faktury.")
+        content = (await client.get(f"{ACC}/vat/jpk/{v3['id']}/file", headers=_headers(world["accountant"]))).content
+        root = etree.fromstring(content)
+        assert root.findtext(f"{{{jpk.NS}}}Naglowek/{{{jpk.NS}}}CelZlozenia") == "2"
+        await client.post(f"{ACC}/vat/jpk/{v3['id']}/sent", json={}, headers=_headers(world["accountant"]))
+        # Zmiana rejestru po wysłaniu (storno FVS) = lista zamknięcia: problem.
+        await _reverse(client, world, docs["plain"].id, date(year, 3, 31))
+        item = next(i for i in (await _closing(client, world, books))["items"] if i["key"] == "jpk")
+        assert item["state"] == "problem" and "korektę" in item["detail"]
+        # Kwiecień bierze P_39 z P_62 marca (ostatnia wysłana wersja).
+        april = await _jpk(client, world, books, month=4)
+        assert april.status_code == 201, april.text
+        assert april.json()["file"]["totals"]["P_39"] == v3["totals"]["P_62"]
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
