@@ -1,7 +1,7 @@
 """Katalog raportów klienta (decyzje Artura 15.11.2026): SQL migracji
-``0711_client_reports`` i lustra entrypointu.
+``0712_client_reports`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0711_client_reports.py``
+Jedno źródło instrukcji dla ``alembic/versions/0712_client_reports.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabele:

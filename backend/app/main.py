@@ -4767,7 +4767,7 @@ async def api_health_deep_check(request: Request):
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),
         ("client_time_report_rows", ClientTimeReportRow),
-        # 0711: katalog raportów klienta — definicje i historia wysyłek.
+        # 0712: katalog raportów klienta — definicje i historia wysyłek.
         ("client_report_definitions", ClientReportDefinition),
         ("client_report_runs", ClientReportRun),
         # 0692: e-faktury Peppol do klientów.

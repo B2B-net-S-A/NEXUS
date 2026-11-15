@@ -31,7 +31,7 @@ nie zmieniaj ich „dla porządku”. Kod: `services/bnp_report/`, `api/bnp_repo
   Delivery Lead (reszta kart stawek zostaje przy Finansach; rola zapisana w innej
   jednostce niż zł/h kończy się 409). Plik idzie do banku, więc
   stawki kandydata nigdy nie ma w arkuszu, mimo że liczy z niej kolumnę zgodności.
-- **Od 0711 (15.11.2026) raport jest w katalogu raportów klienta**
+- **Od 0712 (15.11.2026) raport jest w katalogu raportów klienta**
   (`katalog-raportow-klienta.md`): przycisk w Projektach pokazuje się klientowi
   z aktywną definicją `bnp_recruitment_monthly`, a ten sam plik daje okno
   pobrania w zakładce „Raporty”. Reguły kolumn wyżej bez zmian.

@@ -641,7 +641,7 @@ def delete_sales_file(relative_path: str) -> None:
     _delete_relative(relative_path, "sales file")
 
 
-# ── Katalog raportów klienta (0711) ──────────────────────────────────────────
+# ── Katalog raportów klienta (0712) ──────────────────────────────────────────
 
 
 def save_client_report_file(client_id: int, name: str, data: bytes) -> tuple[str, int]:
