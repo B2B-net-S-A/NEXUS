@@ -2965,10 +2965,68 @@ _COLUMN_STATEMENTS = [
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )""",
+    # 0091 i 0133: podpis umowy ramowej i aneksu oraz kolumny niezależne od
+    # dostawcy (`autenti_process_id` → `provider_ref`, `autenti_signature_type`
+    # → `signature_type`). Do 15.11.2026 lustro kończyło się na 0080, więc
+    # baza z osieroconym alembikiem dostawała tabelę bez 9 kolumn modelu
+    # (sonda `document_signatures` w /api/health/deep). Instrukcje 1:1 z migracji.
+    "ALTER TABLE document_signatures ALTER COLUMN contract_id DROP NOT NULL",
+    "ALTER TABLE document_signatures ALTER COLUMN contract_document_id DROP NOT NULL",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS client_framework_contract_id INTEGER NULL "
+    "REFERENCES client_framework_contracts(id) ON DELETE CASCADE",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS client_contract_amendment_id INTEGER NULL "
+    "REFERENCES client_contract_amendments(id) ON DELETE CASCADE",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_framework "
+    "ON document_signatures(client_framework_contract_id) "
+    "WHERE client_framework_contract_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_amendment "
+    "ON document_signatures(client_contract_amendment_id) "
+    "WHERE client_contract_amendment_id IS NOT NULL",
+    """DO $$ BEGIN
+        ALTER TABLE document_signatures
+        ADD CONSTRAINT chk_signature_target_xor CHECK (
+            (CASE WHEN contract_id IS NOT NULL THEN 1 ELSE 0 END) +
+            (CASE WHEN client_framework_contract_id IS NOT NULL THEN 1 ELSE 0 END) +
+            (CASE WHEN client_contract_amendment_id IS NOT NULL THEN 1 ELSE 0 END)
+            = 1
+        ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'document_signatures'
+              AND column_name = 'autenti_process_id'
+        ) THEN
+            ALTER TABLE document_signatures
+                RENAME COLUMN autenti_process_id TO provider_ref;
+        END IF;
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'document_signatures'
+              AND column_name = 'autenti_signature_type'
+        ) THEN
+            ALTER TABLE document_signatures
+                RENAME COLUMN autenti_signature_type TO signature_type;
+        END IF;
+    END $$""",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'autenti'",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS signing_session_id VARCHAR(255)",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS identity_provider VARCHAR(64)",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS signature_level VARCHAR(16)",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS validation_report JSONB",
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_contract ON document_signatures(contract_id)",
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_status ON document_signatures(status)",
+    # Po RENAME z 0133 indeks (nazwa z 0080) stoi na `provider_ref`.
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_autenti_process "
-    "ON document_signatures(autenti_process_id) WHERE autenti_process_id IS NOT NULL",
+    "ON document_signatures(provider_ref) WHERE provider_ref IS NOT NULL",
     """CREATE TABLE IF NOT EXISTS document_signature_events (
         id SERIAL PRIMARY KEY,
         signature_id INTEGER NOT NULL
