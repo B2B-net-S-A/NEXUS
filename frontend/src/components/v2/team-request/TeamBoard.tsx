@@ -31,6 +31,7 @@ import {
 import { formatPanelDate } from "@/components/v2/client-panel/panel-logic";
 import { cn } from "@/lib/utils";
 
+import { TeamVariantsCard } from "./TeamVariantsCard";
 import {
   DEFAULT_HOURS_PER_MONTH,
   formatHourly,
@@ -455,6 +456,7 @@ export function TeamBoard({ teamId }: { teamId: number }) {
         <PositionsTable team={team} />
         <div className="grid items-start gap-3 md:grid-cols-2 2xl:grid-cols-1">
           <PanelCard team={team} />
+          <TeamVariantsCard team={team} />
           <SelectionsCard team={team} />
         </div>
       </div>

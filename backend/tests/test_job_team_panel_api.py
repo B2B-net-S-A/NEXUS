@@ -1,4 +1,5 @@
-"""Zespół dla klienta przez API: bramki, link, wyciek pól, wybór składu. Dane fikcyjne."""
+"""Zespół dla klienta przez API: bramki, link, wyciek pól, wybór składu, gotowe
+składy i rozmowy z całym składem. Dane fikcyjne."""
 
 from __future__ import annotations
 
@@ -15,12 +16,19 @@ import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.client import Client
-from app.models.client_panel import ClientPanel, ClientPanelCandidate
+from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+from app.models.client_panel import (
+    ClientPanel,
+    ClientPanelCandidate,
+    ClientPanelRequest,
+)
 from app.models.job import Job, JobStatus, RemotePolicy
+from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.job_team_panel import JobTeam, JobTeamSelection
 from app.models.notification import Notification, NotificationType
 from app.models.user import UserRole
 from app.services import client_panel as panel_service
+from app.services import client_panel_requests as requests_service
 from app.services import job_team_panel as service
 from tests.test_client_panel_api import (
     _assert_no_private_data,
@@ -132,7 +140,11 @@ async def test_create_returns_team_detail_with_positions_and_rates(
         "positions",
         "panel",
         "selections",
+        "variants",
+        "variants_approved_at",
     }
+    assert detail["variants"] == []
+    assert detail["variants_approved_at"] is None
     assert detail["name"] == "Zespół mobilny"
     assert detail["client_id"] == world.client_id
     assert detail["hours_per_month"] == 168
@@ -415,7 +427,8 @@ async def test_public_team_shape_has_no_private_fields(
     body = response.json()
     # Klucze wymagań to dane rekrutacji, nie pola.
     _assert_no_private_data(body, allowed=frozenset({"python"}))
-    assert set(body) == {"team", "hours_per_month", "positions"}
+    assert set(body) == {"team", "hours_per_month", "positions", "variants"}
+    assert body["variants"] == []
     assert set(body["team"]) == {"name", "client_name", "expires_at", "owner"}
     assert set(body["team"]["owner"]) == {"name"}
     assert body["team"]["name"] == "Zespół mobilny"
@@ -550,6 +563,476 @@ async def test_daily_selection_limit_gives_429(app_client: AsyncClient) -> None:
         json=_author(picks={"a" * 16: ["x"]}),
     )
     assert limited.status_code == 429
+
+
+# ── Gotowe składy (Z3) ───────────────────────────────────────────────────────
+
+
+def _variant(world: World, **extra: Any) -> dict[str, Any]:
+    return {
+        "key": "fast",
+        "name": "  Najszybszy   start ",
+        "why": "Cały skład od grudnia.",
+        "picks": [
+            {"job_id": world.job_a, "candidate_ids": [world.anna]},
+            {"job_id": world.job_b, "candidate_ids": [world.bartek]},
+        ],
+        **extra,
+    }
+
+
+async def test_proposal_gives_three_variants_from_sent_people(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    detail = await _create(app_client, world)
+    response = await app_client.get(
+        f"{BASE}/{detail['id']}/variants/proposal", headers=world.dl_headers
+    )
+    assert response.status_code == 200, response.text
+    proposed = response.json()["variants"]
+    assert [v["key"] for v in proposed] == ["fast", "cheap", "evidence"]
+    for variant in proposed:
+        assert {p["job_id"]: p["candidate_ids"] for p in variant["picks"]} == {
+            world.job_a: [world.anna],
+            world.job_b: [world.bartek],
+        }
+        # Dwie osoby po 150,50 zł/h, start nieznany (brak dat w danych testowych).
+        assert variant["hourly_total"] == 301.0
+        assert variant["unknown_start"] == 2
+    # Propozycja niczego nie zapisuje.
+    async with AsyncSessionLocal() as db:
+        team = await db.get(JobTeam, detail["id"])
+        assert team.variants == [] and team.variants_approved_at is None
+
+
+async def test_proposal_skips_people_hidden_or_marked_not_fit(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    detail = await _create(app_client, world)
+    token = await _enable(app_client, world, detail["id"])
+    body = (await _public(app_client, token)).json()
+    async with AsyncSessionLocal() as db:
+        extra = await _candidate_on(db, world.job_a, world, "Cezary")
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(ClientPanelCandidate).where(
+                ClientPanelCandidate.public_id
+                == body["positions"][0]["view"]["candidates"][0]["public_id"]
+            )
+        )
+        row.hidden = True
+        panel_b = await db.scalar(
+            select(ClientPanel).where(ClientPanel.job_id == world.job_b)
+        )
+        db.add(
+            ClientPanelRequest(
+                panel_id=panel_b.id,
+                job_id=world.job_b,
+                candidate_id=world.bartek,
+                kind="not_fit",
+                author_name="Jan",
+                author_email="jan@example.com",
+            )
+        )
+        await db.commit()
+    proposed = (
+        await app_client.get(
+            f"{BASE}/{detail['id']}/variants/proposal", headers=world.dl_headers
+        )
+    ).json()["variants"]
+    for variant in proposed:
+        assert variant["picks"] == [{"job_id": world.job_a, "candidate_ids": [extra]}]
+
+
+async def _candidate_on(db, job_id: int, world: World, name: str) -> int:
+    return await _candidate(db, job_id=job_id, actor=world.recruiter_id, name=name)
+
+
+async def test_dl_approves_variants_and_can_withdraw_them(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    detail = await _create(app_client, world)
+    url = f"{BASE}/{detail['id']}/variants"
+    saved = await app_client.put(
+        url, headers=world.dl_headers, json={"variants": [_variant(world)]}
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["variants_approved_at"]
+    assert body["variants"] == [
+        {
+            "key": "fast",
+            "name": "Najszybszy start",
+            "why": "Cały skład od grudnia.",
+            "picks": [
+                {
+                    "job_id": world.job_a,
+                    "candidates": [
+                        {
+                            "candidate_id": world.anna,
+                            "name": body["positions"][0]["candidates"][0]["name"],
+                        }
+                    ],
+                },
+                {
+                    "job_id": world.job_b,
+                    "candidates": [
+                        {
+                            "candidate_id": world.bartek,
+                            "name": body["positions"][1]["candidates"][0]["name"],
+                        }
+                    ],
+                },
+            ],
+        }
+    ]
+    async with AsyncSessionLocal() as db:
+        team = await db.get(JobTeam, detail["id"])
+        assert team.variants_approved_by == world.dl_id
+        actions = (
+            await db.scalars(
+                select(Activity.action).where(
+                    Activity.entity_type == "job", Activity.entity_id == world.job_b
+                )
+            )
+        ).all()
+        assert "job_team_variants_approved" in actions
+
+    withdrawn = await app_client.put(url, headers=world.dl_headers, json={"variants": []})
+    assert withdrawn.status_code == 200, withdrawn.text
+    assert withdrawn.json()["variants"] == []
+    assert withdrawn.json()["variants_approved_at"] is None
+
+
+async def test_variants_refuse_foreign_job_unsent_person_and_too_many_people(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    detail = await _create(app_client, world)
+    async with AsyncSessionLocal() as db:
+        outside = await _job(db, world, world.client_id, "Poza zespołem")
+        unsent = await _candidate(
+            db, job_id=world.job_b, actor=world.recruiter_id, name="Dorota", sent=False
+        )
+        second = await _candidate_on(db, world.job_b, world, "Ewa")
+        await db.commit()
+    url = f"{BASE}/{detail['id']}/variants"
+    for picks in (
+        [{"job_id": outside, "candidate_ids": [world.anna]}],
+        [{"job_id": world.job_b, "candidate_ids": [unsent]}],
+        # Osoba z innego stanowiska zespołu.
+        [{"job_id": world.job_b, "candidate_ids": [world.anna]}],
+        # Backend ma jedno miejsce.
+        [{"job_id": world.job_b, "candidate_ids": [world.bartek, second]}],
+    ):
+        refused = await app_client.put(
+            url,
+            headers=world.dl_headers,
+            json={"variants": [_variant(world, picks=picks)]},
+        )
+        assert refused.status_code == 422, (picks, refused.text)
+    for bad in (
+        {"variants": [_variant(world, name="   ")]},
+        {"variants": [_variant(world, name="x" * 61)]},
+        {"variants": [_variant(world, why="x" * 241)]},
+        {"variants": [_variant(world, key=f"k{i}") for i in range(4)]},
+    ):
+        refused = await app_client.put(url, headers=world.dl_headers, json=bad)
+        assert refused.status_code == 422, refused.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(JobTeam, detail["id"])).variants == []
+
+
+async def test_variants_are_closed_to_non_managers(app_client: AsyncClient) -> None:
+    world = await _world()
+    detail = await _create(app_client, world)
+    _, stranger = await _user(UserRole.delivery_lead)
+    _, recruiter = await _user(UserRole.recruiter)
+    url = f"{BASE}/{detail['id']}/variants"
+    for headers in (stranger, recruiter):
+        assert (
+            await app_client.get(f"{url}/proposal", headers=headers)
+        ).status_code == 403
+        assert (
+            await app_client.put(
+                url, headers=headers, json={"variants": [_variant(world)]}
+            )
+        ).status_code == 403
+    assert (await app_client.get(f"{url}/proposal")).status_code == 401
+
+
+async def test_client_sees_only_approved_variants_without_hidden_people(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    detail = await _create(app_client, world)
+    token = await _enable(app_client, world, detail["id"])
+    assert (await _public(app_client, token)).json()["variants"] == []
+    await app_client.put(
+        f"{BASE}/{detail['id']}/variants",
+        headers=world.dl_headers,
+        json={
+            "variants": [
+                _variant(world),
+                _variant(
+                    world,
+                    key="tylko-android",
+                    name="Sam Android",
+                    picks=[{"job_id": world.job_a, "candidate_ids": [world.anna]}],
+                ),
+            ]
+        },
+    )
+    body = (await _public(app_client, token)).json()
+    _assert_no_private_data(body, allowed=frozenset({"python"}))
+    key_a, key_b = (p["key"] for p in body["positions"])
+    anna_public = body["positions"][0]["view"]["candidates"][0]["public_id"]
+    bartek_public = body["positions"][1]["view"]["candidates"][0]["public_id"]
+    assert body["variants"] == [
+        {
+            "key": "fast",
+            "name": "Najszybszy start",
+            "why": "Cały skład od grudnia.",
+            "picks": {key_a: [anna_public], key_b: [bartek_public]},
+        },
+        {
+            "key": "tylko-android",
+            "name": "Sam Android",
+            "why": "Cały skład od grudnia.",
+            "picks": {key_a: [anna_public]},
+        },
+    ]
+    for variant in body["variants"]:
+        assert set(variant) == {"key", "name", "why", "picks"}
+
+    # DL ukrywa Annę: wypada ze składów, skład bez nikogo znika.
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(ClientPanelCandidate).where(
+                ClientPanelCandidate.public_id == anna_public
+            )
+        )
+        row.hidden = True
+        await db.commit()
+    body = (await _public(app_client, token)).json()
+    assert body["variants"] == [
+        {
+            "key": "fast",
+            "name": "Najszybszy start",
+            "why": "Cały skład od grudnia.",
+            "picks": {key_b: [bartek_public]},
+        }
+    ]
+
+    await app_client.put(
+        f"{BASE}/{detail['id']}/variants", headers=world.dl_headers, json={"variants": []}
+    )
+    assert (await _public(app_client, token)).json()["variants"] == []
+
+
+# ── Rozmowy z całym składem (Z3) ─────────────────────────────────────────────
+
+
+def _start(days: int) -> str:
+    base = datetime.now(timezone.utc) + timedelta(days=days)
+    return base.replace(hour=9, minute=0, second=0, microsecond=0).isoformat()
+
+
+async def _team_with_link(app_client: AsyncClient) -> tuple[World, dict, str, dict]:
+    world = await _world()
+    detail = await _create(app_client, world)
+    token = await _enable(app_client, world, detail["id"])
+    body = (await _public(app_client, token)).json()
+    picks = {
+        p["key"]: [c["public_id"] for c in p["view"]["candidates"]]
+        for p in body["positions"]
+    }
+    return world, detail, token, picks
+
+
+async def test_team_interviews_create_one_request_per_person(
+    app_client: AsyncClient,
+) -> None:
+    world, _, token, picks = await _team_with_link(app_client)
+    url = f"/api/public/team-panel/{token}/interviews"
+    created = await app_client.post(
+        url,
+        json=_author(
+            duration_minutes=45,
+            slots=[{"start": _start(3)}, {"start": _start(4)}],
+            interviewers="Dwie osoby z zespołu",
+            prep_note="Proszę o kamerkę",
+            picks=picks,
+        ),
+    )
+    assert created.status_code == 200, created.text
+    assert created.json() == {"created": 2, "skipped": []}
+    assert created.headers["cache-control"] == "no-store"
+    _assert_no_private_data(created.json())
+    async with AsyncSessionLocal() as db:
+        requests = (
+            await db.scalars(
+                select(ClientInterviewSlotRequest).where(
+                    ClientInterviewSlotRequest.job_id.in_([world.job_a, world.job_b])
+                )
+            )
+        ).all()
+        assert {r.candidate_id for r in requests} == {world.anna, world.bartek}
+        assert all(r.created_by == world.dl_id for r in requests)
+        assert all(len(r.slots) == 2 for r in requests)
+        assert all("Proszę o kamerkę" in r.note for r in requests)
+        # Ta sama droga co prośba o jedną osobę: karta na „Rozmowie u klienta”,
+        # wiersz sprawy w panelu stanowiska z wnioskiem.
+        latest = await db.scalar(
+            select(CandidateStage.stage)
+            .where(
+                CandidateStage.candidate_id == world.bartek,
+                CandidateStage.job_id == world.job_b,
+            )
+            .order_by(CandidateStage.moved_at.desc(), CandidateStage.id.desc())
+            .limit(1)
+        )
+        assert latest == PipelineStage.client_interview
+        rows = (
+            await db.scalars(
+                select(ClientPanelRequest).where(
+                    ClientPanelRequest.job_id.in_([world.job_a, world.job_b]),
+                    ClientPanelRequest.kind == "interview",
+                )
+            )
+        ).all()
+        assert len(rows) == 2 and all(r.slot_request_id for r in rows)
+
+    # Drugi raz: czekające terminy = pominięte, nie błąd.
+    again = await app_client.post(
+        url, json=_author(slots=[{"start": _start(5)}], picks=picks)
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["created"] == 0
+    assert sorted(s["reason"] for s in again.json()["skipped"]) == [
+        "open_request",
+        "open_request",
+    ]
+    assert {s["public_id"] for s in again.json()["skipped"]} == {
+        pid for ids in picks.values() for pid in ids
+    }
+
+
+async def test_team_interviews_skip_one_open_request_and_create_the_rest(
+    app_client: AsyncClient,
+) -> None:
+    world, _, token, picks = await _team_with_link(app_client)
+    key_a, key_b = picks
+    first = await app_client.post(
+        f"/api/public/panel/{key_a}/candidates/{picks[key_a][0]}/interview",
+        json=_author(slots=[{"start": _start(3)}]),
+    )
+    assert first.status_code == 201, first.text
+    team = await app_client.post(
+        f"/api/public/team-panel/{token}/interviews",
+        json=_author(slots=[{"start": _start(4)}], picks=picks),
+    )
+    assert team.status_code == 200, team.text
+    assert team.json() == {
+        "created": 1,
+        "skipped": [
+            {"key": key_a, "public_id": picks[key_a][0], "reason": "open_request"}
+        ],
+    }
+
+
+async def test_team_interviews_respect_limits_and_validation(
+    app_client: AsyncClient,
+) -> None:
+    world, _, token, picks = await _team_with_link(app_client)
+    url = f"/api/public/team-panel/{token}/interviews"
+    key_a, key_b = picks
+    for payload in (
+        _author(slots=[{"start": _start(d)} for d in range(1, 8)], picks=picks),
+        _author(slots=[{"start": "2020-01-01T09:00:00Z"}], picks=picks),
+        _author(slots=[], picks=picks),
+        _author(slots=[{"start": _start(3)}], picks={"a" * 16: picks[key_a]}),
+        _author(slots=[{"start": _start(3)}], picks={key_b: picks[key_a]}),
+        _author(slots=[{"start": _start(3)}], picks={}),
+        _author(slots=[{"start": _start(3)}], duration_minutes=5, picks=picks),
+    ):
+        refused = await app_client.post(url, json=payload)
+        assert refused.status_code == 422, (payload, refused.text)
+    trap = await app_client.post(
+        url, json=_author(slots=[{"start": _start(3)}], picks=picks, honeypot="bot")
+    )
+    assert trap.json() == {"created": 0, "skipped": []}
+
+    # Prośby wyłączone na jednym stanowisku: jego osoby pominięte.
+    async with AsyncSessionLocal() as db:
+        panel = await db.scalar(
+            select(ClientPanel).where(ClientPanel.job_id == world.job_b)
+        )
+        panel.allow_actions = False
+        await db.commit()
+    partial = await app_client.post(
+        url, json=_author(slots=[{"start": _start(3)}], picks=picks)
+    )
+    assert partial.status_code == 200, partial.text
+    assert partial.json() == {
+        "created": 1,
+        "skipped": [
+            {"key": key_b, "public_id": picks[key_b][0], "reason": "actions_disabled"}
+        ],
+    }
+
+    # Dzienny limit panelu stanowiska = 429 jak przy prośbie o jedną osobę.
+    async with AsyncSessionLocal() as db:
+        panel = await db.scalar(
+            select(ClientPanel).where(ClientPanel.job_id == world.job_a)
+        )
+        db.add_all(
+            ClientPanelRequest(
+                panel_id=panel.id,
+                job_id=world.job_a,
+                kind="question",
+                author_name="Jan",
+                author_email="jan@example.com",
+                body="?",
+            )
+            for _ in range(requests_service.DAILY_WRITE_LIMIT)
+        )
+        await db.commit()
+    limited = await app_client.post(
+        url, json=_author(slots=[{"start": _start(6)}], picks={key_a: picks[key_a]})
+    )
+    assert limited.status_code == 429
+
+
+async def test_team_interviews_unknown_and_expired_links(
+    app_client: AsyncClient,
+) -> None:
+    world, detail, token, picks = await _team_with_link(app_client)
+    payload = _author(slots=[{"start": _start(3)}], picks=picks)
+    unknown = await app_client.post(
+        f"/api/public/team-panel/{'a' * 16}/interviews", json=payload
+    )
+    assert unknown.status_code == 404
+    async with AsyncSessionLocal() as db:
+        team = await db.get(JobTeam, detail["id"])
+        team.panel_expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+        await db.commit()
+    expired = await app_client.post(
+        f"/api/public/team-panel/{token}/interviews", json=payload
+    )
+    assert expired.status_code == 410
+    async with AsyncSessionLocal() as db:
+        assert (
+            await db.scalar(
+                select(ClientInterviewSlotRequest).where(
+                    ClientInterviewSlotRequest.job_id == world.job_a
+                )
+            )
+        ) is None
 
 
 # ── Bramki ───────────────────────────────────────────────────────────────────

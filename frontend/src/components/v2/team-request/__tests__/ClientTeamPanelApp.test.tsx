@@ -26,6 +26,7 @@ function transport(overrides: Partial<TeamPanelTransport> = {}): TeamPanelTransp
   return {
     fetchTeam: () => Promise.resolve(fictionalTeam()),
     sendSelection: vi.fn(() => Promise.resolve()),
+    sendInterviews: vi.fn(() => Promise.resolve({ created: 3, skipped: [] })),
     ...overrides,
   };
 }
@@ -141,5 +142,58 @@ describe("panel zespołu: kolejność kart", () => {
     expect(names()).toEqual(["alt-t1", "alt-t2", "alt-t3", "alt-t4"]);
     expect(screen.getByTestId("alt-t2")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("alt-t4")).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+describe("panel zespołu: gotowe składy i rozmowy (Z3)", () => {
+  function withVariants() {
+    const team = fictionalTeam();
+    team.variants = [
+      { key: "cheap", name: "Najniższa cena", why: "Najtańsze osoby.", picks: { aaaaaaaaaaaaaaaa: ["a2"], bbbbbbbbbbbbbbbb: ["t1", "t2"] } },
+      { key: "fast", name: "Najszybszy start", why: "", picks: { aaaaaaaaaaaaaaaa: ["a1"], bbbbbbbbbbbbbbbb: ["t1", "t3"] } },
+    ];
+    return team;
+  }
+
+  it("bez zatwierdzonych składów nie ma zakładki", async () => {
+    renderTeam(transport());
+    await screen.findByText("Zespół testowy, 3 osoby");
+    expect(screen.queryByRole("tab", { name: /Gotowe składy/ })).not.toBeInTheDocument();
+  });
+
+  it("pierwszy zatwierdzony skład jest startowym, wybór innego go podmienia", async () => {
+    const user = userEvent.setup();
+    renderTeam(transport({ fetchTeam: () => Promise.resolve(withVariants()) }));
+    await screen.findByText("Zespół testowy, 3 osoby");
+    expect(screen.getByText("Skład: Najniższa cena")).toBeInTheDocument();
+    expect(screen.getByTestId("alt-a2")).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("tab", { name: "Gotowe składy (2)" }));
+    await user.click(within(screen.getByTestId("variant-fast")).getByRole("button", { name: "Wybierz ten skład" }));
+    expect(screen.getByText("Skład: Najszybszy start")).toBeInTheDocument();
+    expect(screen.getByTestId("alt-a1")).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByTestId("alt-a2"));
+    expect(screen.getByText("Skład ułożony przez Ciebie")).toBeInTheDocument();
+  });
+
+  it("rozmowy z całym składem: jedna siatka, prośba dla zaznaczonych osób", async () => {
+    const user = userEvent.setup();
+    const sendInterviews = vi.fn(() => Promise.resolve({ created: 2, skipped: [] }));
+    renderTeam(transport({ sendInterviews }));
+    await screen.findByText("Zespół testowy, 3 osoby");
+    await user.click(screen.getByRole("button", { name: "Poproś o rozmowy z tym składem (3)" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("checkbox", { name: /Osoba t3/ }));
+    const slot = within(dialog).getAllByRole("button", { pressed: false }).find((b) => b.getAttribute("aria-label"));
+    await user.click(slot!);
+    await user.clear(within(dialog).getByLabelText("Twoje imię"));
+    await user.type(within(dialog).getByLabelText("Twoje imię"), "Anna");
+    await user.clear(within(dialog).getByLabelText("Twój e-mail"));
+    await user.type(within(dialog).getByLabelText("Twój e-mail"), "anna@firma.example");
+    await user.click(within(dialog).getByRole("button", { name: "Wyślij prośbę o 2 rozmów" }));
+    expect(within(dialog).queryByRole("alert")?.textContent ?? null).toBeNull();
+    await waitFor(() => expect(sendInterviews).toHaveBeenCalledTimes(1));
+    const body = (sendInterviews.mock.calls[0] as unknown as [{ picks: Record<string, string[]>; slots: unknown[] }])[0];
+    expect(body.picks).toEqual({ aaaaaaaaaaaaaaaa: ["a1"], bbbbbbbbbbbbbbbb: ["t1"] });
+    expect(body.slots).toHaveLength(1);
   });
 });

@@ -29,6 +29,28 @@ export interface TeamPanelView {
   };
   hours_per_month: number;
   positions: TeamPanelPosition[];
+  /** Gotowe składy zatwierdzone przez opiekuna: `{<klucz stanowiska>: [public_id]}`. */
+  variants?: TeamPanelVariant[];
+}
+
+export interface TeamPanelVariant {
+  key: string;
+  name: string;
+  why: string;
+  picks: Record<string, string[]>;
+}
+
+export interface TeamInterviewsBody extends PanelAuthor {
+  duration_minutes: number;
+  slots: { start: string }[];
+  interviewers?: string;
+  prep_note?: string;
+  picks: Record<string, string[]>;
+}
+
+export interface TeamInterviewsResult {
+  created: number;
+  skipped: { key: string; public_id: string; reason: string }[];
 }
 
 export interface TeamSelectionBody extends PanelAuthor {
@@ -40,6 +62,7 @@ export interface TeamSelectionBody extends PanelAuthor {
 export interface TeamPanelTransport {
   fetchTeam: () => Promise<TeamPanelView>;
   sendSelection: (body: TeamSelectionBody) => Promise<void>;
+  sendInterviews: (body: TeamInterviewsBody) => Promise<TeamInterviewsResult>;
 }
 
 export function httpTeamPanelTransport(token: string): TeamPanelTransport {
@@ -47,6 +70,8 @@ export function httpTeamPanelTransport(token: string): TeamPanelTransport {
   return {
     fetchTeam: () => axios.get<TeamPanelView>(base).then((r) => r.data),
     sendSelection: (body) => axios.post(`${base}/selection`, body).then(() => undefined),
+    sendInterviews: (body) =>
+      axios.post<TeamInterviewsResult>(`${base}/interviews`, body).then((r) => r.data),
   };
 }
 

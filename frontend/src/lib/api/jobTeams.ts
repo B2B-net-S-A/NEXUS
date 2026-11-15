@@ -58,6 +58,39 @@ export interface TeamDetail {
     short_url: string | null;
   };
   selections: TeamSelection[];
+  /** Gotowe składy zatwierdzone przez DL-a (Z3); klient widzi tylko te. */
+  variants: TeamVariantSaved[];
+  variants_approved_at: string | null;
+}
+
+export interface TeamVariantPick {
+  job_id: number;
+  candidate_ids: number[];
+}
+
+/** Propozycja automatu: nic nie jest zapisane, dopóki DL nie zatwierdzi. */
+export interface TeamVariantProposal {
+  key: string;
+  name: string;
+  why: string;
+  picks: TeamVariantPick[];
+  hourly_total: number | null;
+  start: string | null;
+  unknown_start: number;
+}
+
+export interface TeamVariantSaved {
+  key: string;
+  name: string;
+  why: string;
+  picks: { job_id: number; candidates: { candidate_id: number; name: string }[] }[];
+}
+
+export interface TeamVariantInput {
+  key: string;
+  name: string;
+  why: string;
+  picks: TeamVariantPick[];
 }
 
 export interface TeamSummary {
@@ -99,3 +132,9 @@ export const updateTeamPanel = (
 
 export const rotateTeamLink = (id: number): Promise<TeamDetail> =>
   api.post<TeamDetail>(`/api/job-teams/${id}/panel/rotate-link`).then((r) => r.data);
+
+export const proposeVariants = (id: number): Promise<{ variants: TeamVariantProposal[] }> =>
+  api.get(`/api/job-teams/${id}/variants/proposal`).then((r) => r.data);
+
+export const saveVariants = (id: number, variants: TeamVariantInput[]): Promise<TeamDetail> =>
+  api.put<TeamDetail>(`/api/job-teams/${id}/variants`, { variants }).then((r) => r.data);

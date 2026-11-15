@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/public/team-panel/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/team-panel/{token}/interviews": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
   "POST /api/public/team-panel/{token}/selection": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

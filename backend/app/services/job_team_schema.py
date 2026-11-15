@@ -8,6 +8,9 @@ Nie jest typem rekrutacji. Link domyślnie wyłączony.
 - ``jobs.team_id``: rekrutacja należy najwyżej do jednego zespołu.
 - ``job_team_selections``: skład wybrany przez klienta pod linkiem. Autor jest
   niezweryfikowany, IP tylko jako skrót z solą dnia.
+- 0713 ``job_teams.variants``: gotowe składy zatwierdzone przez DL-a
+  (``[{key, name, why, picks: [{job_id, candidate_ids}]}]``). Klient widzi tylko
+  te; propozycje automatu nie są zapisywane.
 """
 
 TABLE_DDL = (
@@ -51,4 +54,20 @@ DOWNGRADE_DDL = (
     "DROP INDEX IF EXISTS ix_jobs_team_id",
     "ALTER TABLE jobs DROP COLUMN IF EXISTS team_id",
     "DROP TABLE IF EXISTS job_teams",
+)
+
+# 0713: gotowe składy. Osobno od 0711, bo 0711 jest już wdrożona swoją listą.
+VARIANTS_DDL = (
+    "ALTER TABLE job_teams ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL "
+    "DEFAULT '[]'::jsonb",
+    "ALTER TABLE job_teams ADD COLUMN IF NOT EXISTS variants_approved_at "
+    "TIMESTAMPTZ NULL",
+    "ALTER TABLE job_teams ADD COLUMN IF NOT EXISTS variants_approved_by INTEGER "
+    "NULL REFERENCES users(id) ON DELETE SET NULL",
+)
+
+VARIANTS_DOWNGRADE_DDL = (
+    "ALTER TABLE job_teams DROP COLUMN IF EXISTS variants_approved_by",
+    "ALTER TABLE job_teams DROP COLUMN IF EXISTS variants_approved_at",
+    "ALTER TABLE job_teams DROP COLUMN IF EXISTS variants",
 )
