@@ -3474,6 +3474,7 @@ async def test_vat_module_settings_and_gates(client, world, books):
     }
     data = (await _vat_registers(client, world, books)).json()
     assert data["accounts"]["input_account"] == books["acc"]["vat_in"]
+    assert data["accounts"]["foreign_account"] == books["acc"]["payable"]
     assert data["can_edit_accounts"] is False
     bad_month = await client.get(
         f"{ACC}/vat", params={"year": books["year"], "month": 13}, headers=_headers(world["accountant"])

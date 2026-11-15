@@ -108,14 +108,14 @@ SALES_CATEGORIES: tuple[Category, ...] = (
     # Import usług (K5b-2) — VAT należny z dokumentu zakupu zagranicznego.
     Category(
         "imp_other",
-        "Import usług (bez art. 28b od podatników VAT z UE)",
+        "Import usług (pozostały)",
         "K_27",
         "K_28",
         Decimal("0"),
     ),
     Category(
         "imp_28b",
-        "Import usług od podatników VAT z UE (art. 28b)",
+        "Import usług z UE (art. 28b)",
         "K_29",
         "K_30",
         Decimal("0"),
@@ -865,6 +865,7 @@ async def registers(
             "output_account": settings.sales.vat_account,
             "input_account": settings.vat.input_account,
             "intake_account": settings.assets.intake_account,
+            "foreign_account": settings.vat.foreign_account,
         },
         "sales": [_row_payload(row) for row in sales_rows],
         "purchases": [_row_payload(row) for row in purchase_rows],

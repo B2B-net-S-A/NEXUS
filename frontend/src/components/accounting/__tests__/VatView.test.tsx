@@ -33,7 +33,7 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { VatView } from "@/components/accounting/VatView";
 import type { LedgerConfig } from "@/lib/api/accounting";
-import type { JpkOverview, VatRegisters } from "@/lib/api/accounting-vat";
+import type { ForeignOverview, JpkOverview, VatMarkers, VatRegisters } from "@/lib/api/accounting-vat";
 import { useAuthStore } from "@/store/auth";
 
 function config(vatOpen = true): LedgerConfig {
@@ -61,7 +61,7 @@ function registers(overrides: Partial<VatRegisters> = {}): VatRegisters {
   return {
     year: 2026,
     month: 11,
-    accounts: { output_account: "222", input_account: "221", intake_account: "080" },
+    accounts: { output_account: "222", input_account: "221", intake_account: "080", foreign_account: "" },
     sales: [
       {
         document_id: 11,
@@ -78,6 +78,8 @@ function registers(overrides: Partial<VatRegisters> = {}): VatRegisters {
         correction: false,
         payroll: false,
         problem: null,
+        counterparty_id: 31,
+        markers: ["GTU_12", "TP"],
       },
       {
         document_id: 12,
@@ -94,6 +96,8 @@ function registers(overrides: Partial<VatRegisters> = {}): VatRegisters {
         correction: false,
         payroll: false,
         problem: "stawka spoza słownika JPK: oo",
+        counterparty_id: 32,
+        markers: [],
       },
     ],
     purchases: [
@@ -112,6 +116,8 @@ function registers(overrides: Partial<VatRegisters> = {}): VatRegisters {
         correction: false,
         payroll: false,
         problem: null,
+        counterparty_id: 33,
+        markers: [],
       },
     ],
     summary: {
@@ -159,11 +165,79 @@ function jpkOverview(overrides: Partial<JpkOverview> = {}): JpkOverview {
   };
 }
 
-function route(cfg: LedgerConfig, data: VatRegisters = registers(), jpk: JpkOverview = jpkOverview()) {
+function foreignOverview(overrides: Partial<ForeignOverview> = {}): ForeignOverview {
+  return {
+    year: 2026,
+    month: 11,
+    items: [
+      {
+        id: 41,
+        number: "INV-0042",
+        status: "draft",
+        status_label: "w buforze",
+        supplier_id: 51,
+        supplier: "Dostawca SaaS Ltd",
+        issue_date: "2026-11-03",
+        service_date: "2026-10-31",
+        currency: "EUR",
+        rate: "4.300000",
+        rate_day: "2026-10-30",
+        net_cur: 10_000,
+        net: 43_000,
+        vat: 9_890,
+        vat_rate: "23",
+        deduction: "full",
+        group: "imp_28b",
+      },
+    ],
+    suppliers: [
+      { id: 51, name: "Dostawca SaaS Ltd", country: "IE", tax_id: "IE1234567T", symfonia_partner_id: null, account: "202-1-1", group: "imp_28b", from_form: true },
+      { id: 52, name: "Vendor Inc.", country: "US", tax_id: "123456789", symfonia_partner_id: "70100", account: "202-1-2", group: "imp_other", from_form: false },
+    ],
+    foreign_account: "202-1",
+    next_account: "202-1-3",
+    currencies: ["PLN", "EUR", "USD"],
+    vat_rates: ["23", "8", "5"],
+    missing: [],
+    ...overrides,
+  };
+}
+
+function markers(overrides: Partial<VatMarkers> = {}): VatMarkers {
+  return {
+    items: [{ counterparty_id: 31, name: "Klient Testowy", tax_id: "5250000000", country: "PL", markers: ["GTU_12", "TP"] }],
+    labels: [
+      { key: "GTU_12", label: "Usługi niematerialne (doradcze, prawne, zarządcze, marketingowe…)" },
+      { key: "GTU_13", label: "Usługi transportowe i magazynowe" },
+      { key: "TP", label: "Powiązania nabywcy z dostawcą (art. 32 ust. 2 pkt 1)" },
+    ],
+    can_edit: true,
+    ...overrides,
+  };
+}
+
+function route(
+  cfg: LedgerConfig,
+  data: VatRegisters = registers(),
+  jpk: JpkOverview = jpkOverview(),
+  foreign: ForeignOverview = foreignOverview(),
+  marked: VatMarkers = markers(),
+) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
     if (url === "/api/accounting/vat") return { data };
     if (url === "/api/accounting/vat/jpk") return { data: jpk };
+    if (url === "/api/accounting/vat/foreign") return { data: foreign };
+    if (url === "/api/accounting/vat/markers") return { data: marked };
+    if (url === "/api/finance/counterparties")
+      return {
+        data: {
+          items: [{ id: 34, name: "Bank Powiązany S.A.", id_value: "5270000000", id_type: "nip" }],
+          total: 1,
+          role_counts: { client: 1, team: 0, contractor: 0, supplier: 0 },
+          without_account: 0,
+        },
+      };
     throw new Error(`nieoczekiwane ${url}`);
   });
 }
@@ -222,17 +296,20 @@ describe("Księgowość — VAT (K5a)", () => {
     expect(screen.getByText(/Rejestry są pełne/)).toBeInTheDocument();
   });
 
-  it("administrator zmienia konto VAT naliczonego", async () => {
+  it("administrator zmienia konto VAT naliczonego i konto dostawców zagranicznych", async () => {
     route(config(), registers({ can_edit_accounts: true }));
-    put.mockResolvedValue({ data: { input_account: "221-1" } });
+    put.mockResolvedValue({ data: { input_account: "221-1", foreign_account: "202-1" } });
     const user = userEvent.setup();
     renderView();
     const field = await screen.findByRole("textbox", { name: "Konto VAT naliczonego" });
     await user.clear(field);
     await user.type(field, "221-1");
+    await user.type(screen.getByRole("textbox", { name: "Konto dostawców zagranicznych" }), "202-1");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
-    await waitFor(() => expect(put).toHaveBeenCalledWith("/api/accounting/vat/settings", { input_account: "221-1" }));
-    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Zapisano konto VAT naliczonego."));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/accounting/vat/settings", { input_account: "221-1", foreign_account: "202-1" }),
+    );
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Zapisano konta VAT."));
   });
 
   it("długi rejestr: najpierw 50 wierszy, potem wszystkie", async () => {
@@ -340,5 +417,138 @@ describe("Księgowość — VAT (K5a)", () => {
     renderView();
     expect(await screen.findByText(/włącza go administrator w Ustawieniach/)).toBeInTheDocument();
     expect(get).not.toHaveBeenCalledWith("/api/accounting/vat", expect.anything());
+  });
+
+  it("wiersz sprzedaży pokazuje znaczniki GTU/TP kontrahenta", async () => {
+    route(config());
+    renderView();
+    const row = (await screen.findByText("FS 1/11/2026")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("GTU_12, TP")).toBeInTheDocument();
+  });
+});
+
+describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
+  it("lista miesiąca: kwota w walucie, kurs NBP i pola JPK importu usług", async () => {
+    route(config(), registers({ issues: [] }));
+    renderView();
+    const row = (await screen.findByText("INV-0042")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("100,00 EUR")).toBeInTheDocument();
+    expect(within(row).getByText("kurs 4,3000 z 30.10.2026")).toBeInTheDocument();
+    expect(within(row).getByText("import usług UE")).toBeInTheDocument();
+    expect(within(row).getByText("430,00")).toBeInTheDocument();
+    expect(within(row).getByRole("link", { name: "INV-0042" })).toHaveAttribute(
+      "href",
+      "/accounting/documents?year=2026&month=11&type=FVZ&status=draft",
+    );
+  });
+
+  it("formularz: nowy dostawca do kartoteki i faktura do bufora", async () => {
+    route(config(), registers({ issues: [] }));
+    post.mockResolvedValue({
+      data: {
+        document: { ...foreignOverview().items[0], id: 42, number: "INV-0099", net: 86_000, vat: 19_780 },
+        supplier: { id: 53, name: "Nowy SaaS Ltd", country: "IE", tax_id: "IE7654321T", symfonia_partner_id: null, account: "202-1-3", group: "imp_28b", from_form: true },
+      },
+    });
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "Dodaj fakturę zagraniczną" }));
+    const submit = screen.getByRole("button", { name: "Dodaj do bufora" });
+    expect(submit).toBeDisabled();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Dostawca" }), "new");
+    await user.type(screen.getByRole("textbox", { name: "Nazwa dostawcy" }), "Nowy SaaS Ltd");
+    await user.type(screen.getByRole("textbox", { name: "Kraj dostawcy" }), "ie");
+    await user.type(screen.getByRole("textbox", { name: "Numer VAT dostawcy" }), "7654321T");
+    expect(screen.getByText(/K_29 \/ K_30 — usługa od podatnika VAT z UE/)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Konto rozrachunkowe dostawcy" })).toHaveAttribute("placeholder", "202-1-3");
+    await user.type(screen.getByRole("textbox", { name: "Numer faktury" }), "INV-0099");
+    // Data wykonania usługi idzie za datą wystawienia, dopóki jej nie zmienić.
+    const issued = screen.getByLabelText("Data wystawienia");
+    await user.type(issued, "2026-11-03");
+    expect(screen.getByLabelText("Data wykonania usługi")).toHaveValue("2026-11-03");
+    await user.clear(screen.getByLabelText("Data wykonania usługi"));
+    await user.type(screen.getByLabelText("Data wykonania usługi"), "2026-10-31");
+    await user.type(screen.getByRole("textbox", { name: "Netto w walucie" }), "200,00");
+    await user.type(screen.getByRole("textbox", { name: "Konto kosztu" }), "402-1");
+    await user.click(submit);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/vat/foreign", {
+        new_supplier: { name: "Nowy SaaS Ltd", country: "IE", tax_id: "7654321T", symfonia_partner_id: undefined, account: undefined },
+        number: "INV-0099",
+        issue_date: "2026-11-03",
+        service_date: "2026-10-31",
+        currency: "EUR",
+        net: "200.00",
+        vat_rate: "23",
+        deduction: "full",
+        cost_account: "402-1",
+        description: undefined,
+      }),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(
+        "FVZ INV-0099 w buforze: 860,00 zł netto, VAT 197,80 zł. Zatwierdza lista „Księgowi” w Dokumentach.",
+      ),
+    );
+    // Po zapisie formularz czeka na kolejną fakturę tego dostawcy.
+    expect(screen.getByRole("textbox", { name: "Numer faktury" })).toHaveValue("");
+  });
+
+  it("formularz: dostawca z kartoteki spoza UE, bez odliczenia", async () => {
+    route(config(), registers({ issues: [] }));
+    post.mockResolvedValue({ data: { document: foreignOverview().items[0], supplier: foreignOverview().suppliers[1] } });
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "Dodaj fakturę zagraniczną" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Dostawca" }), "52");
+    expect(screen.getByText(/K_27 \/ K_28/)).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Numer faktury" }), "US-77");
+    await user.type(screen.getByLabelText("Data wystawienia"), "2026-11-02");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Waluta" }), "USD");
+    await user.type(screen.getByRole("textbox", { name: "Netto w walucie" }), "-15.5");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Odliczenie VAT" }), "none");
+    await user.type(screen.getByRole("textbox", { name: "Konto kosztu" }), "402-2");
+    await user.click(screen.getByRole("button", { name: "Dodaj do bufora" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/accounting/vat/foreign",
+        expect.objectContaining({ supplier_id: 52, currency: "USD", net: "-15.5", deduction: "none", service_date: "2026-11-02" }),
+      ),
+    );
+  });
+
+  it("bez konta dostawców zagranicznych nowego dostawcy nie da się założyć", async () => {
+    route(config(), registers({ issues: [] }), jpkOverview(), foreignOverview({ foreign_account: "", next_account: null, missing: ["konto rozrachunków z dostawcami zagranicznymi"] }));
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "Dodaj fakturę zagraniczną" }));
+    expect(screen.getByRole("option", { name: /Nowy dostawca/ })).toBeDisabled();
+    expect(screen.getByText(/Brakuje: konto rozrachunków z dostawcami zagranicznymi/)).toBeInTheDocument();
+  });
+
+  it("znaczniki: zmiana listy i dodanie kontrahenta z kartoteki", async () => {
+    route(config(), registers({ issues: [] }));
+    put.mockResolvedValue({ data: { counterparty_id: 34, name: "Bank Powiązany S.A.", tax_id: "5270000000", country: "PL", markers: ["TP"] } });
+    const user = userEvent.setup();
+    renderView();
+    const item = (await screen.findByText("Klient Testowy", { selector: "span.font-medium" })).closest("li") as HTMLElement;
+    expect(within(item).getByText("GTU_12, TP")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Dodaj kontrahenta" }));
+    await user.type(screen.getByRole("textbox", { name: "Szukaj kontrahenta" }), "Bank");
+    await user.click(await screen.findByRole("button", { name: /Bank Powiązany S\.A\./ }));
+    const save = screen.getByRole("button", { name: "Zapisz" });
+    expect(save).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: /^TP/ }));
+    await user.click(save);
+    await waitFor(() => expect(put).toHaveBeenCalledWith("/api/accounting/vat/markers/34", { markers: ["TP"] }));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Zapisano znaczniki — Bank Powiązany S.A."));
+  });
+
+  it("znaczniki bez listy „Księgowi”: tylko podgląd", async () => {
+    route(config(), registers({ issues: [] }), jpkOverview(), foreignOverview(), markers({ can_edit: false }));
+    renderView();
+    expect(await screen.findByText("GTU i TP w JPK")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj kontrahenta" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
   });
 });
