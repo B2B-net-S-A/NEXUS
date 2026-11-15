@@ -12,7 +12,13 @@ admin widzi ekrany zawsze (jak „Faktury do klientów”).
 * ``POST /{id}/send`` — wysyłka do KSeF (``KSEF_SALES_ISSUE_MODE``),
   ``POST /{id}/check`` — „Sprawdź status”,
 * ``POST /{id}/correction``, ``POST /advance`` — korekta i zaliczkowa,
-* ``GET /{id}/pdf``, ``/upo``, ``/xml`` — pliki.
+* ``GET /{id}/pdf``, ``/upo``, ``/xml`` — pliki,
+* E6 (15.11.2026): ``POST /manual`` — faktura z ręki (klient albo dowolny
+  nabywca); ``GET/POST /templates``, ``PUT/DELETE /templates/{id}`` — szablony
+  „co miesiąc” (usługi i refaktury benefitów); ``GET /templates/suggestions``
+  i ``POST /templates/import`` — szablony z faktur z KSeF bez zamówienia;
+  ``POST /templates/run`` — szkice z zaznaczonych szablonów za miesiąc;
+  ``POST /{id}/template`` — „Zapisz jako szablon”.
 """
 
 from __future__ import annotations
@@ -29,13 +35,14 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy import update as sql_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
-from app.models.client_issued_invoice import ClientIssuedInvoice
+from app.models.client_issued_invoice import ClientInvoiceTemplate, ClientIssuedInvoice
 from app.models.user import User
 from app.services.client_invoicing import (
     clients,
@@ -44,6 +51,7 @@ from app.services.client_invoicing import (
     issue_settings,
     ksef_send,
     numbering,
+    templates,
 )
 from app.services.client_invoicing import settings as module_settings
 from app.services.client_invoice_issue_schema import SERIES
@@ -102,7 +110,9 @@ async def _invoice(
 
 
 async def _card(db: AsyncSession, invoice: ClientIssuedInvoice) -> dict[str, Any]:
-    names = await clients.names(db, [invoice.client_id])
+    names = await clients.names(
+        db, [invoice.client_id] if invoice.client_id is not None else []
+    )
     return await issue.payload(
         db,
         invoice,
@@ -335,6 +345,215 @@ async def listing(
         ),
         "ksef": ksef_send.status_payload(config),
     }
+
+
+# ── Faktura z ręki i szablony (E6) ─────────────────────────────────────────
+
+
+class ManualIn(BaseModel):
+    client_id: Optional[int] = Field(None, gt=0)
+    buyer: Optional[dict[str, Any]] = None
+    currency: Literal["PLN", "EUR", "USD"] = "PLN"
+
+
+class TemplateIn(BaseModel):
+    """Pola szablonu; brak pola = bez zmian."""
+
+    kind: Optional[Literal["service", "benefit"]] = None
+    benefit: Optional[Literal["sport", "medical", "other"]] = None
+    name: Optional[str] = Field(None, max_length=255)
+    active: Optional[bool] = None
+    client_id: Optional[int] = Field(None, gt=0)
+    buyer: Optional[dict[str, Any]] = None
+    currency: Optional[Literal["PLN", "EUR", "USD"]] = None
+    series_code: Optional[Literal["PL", "UE"]] = None
+    lines: Optional[list[dict[str, Any]]] = Field(None, max_length=200)
+    payment_days: Optional[int] = Field(None, ge=0, le=180)
+    notes: Optional[str] = Field(None, max_length=1000)
+    valid_from: Optional[date] = None
+    valid_to: Optional[date] = None
+
+
+class TemplateImportIn(BaseModel):
+    year: int = Field(..., ge=2020, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    ksef_numbers: list[str] = Field(..., min_length=1, max_length=500)
+
+
+class TemplateRunIn(BaseModel):
+    year: int = Field(..., ge=2020, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    template_ids: list[int] = Field(..., min_length=1, max_length=500)
+
+
+async def _template(db: AsyncSession, template_id: int) -> ClientInvoiceTemplate:
+    template = await db.get(ClientInvoiceTemplate, template_id)
+    if template is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiego szablonu.")
+    return template
+
+
+@router.post("/manual", status_code=status.HTTP_201_CREATED)
+async def create_manual(
+    body: ManualIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    with _http_errors():
+        invoice = await templates.create_manual(
+            db,
+            client_id=body.client_id,
+            buyer=body.buyer,
+            currency=body.currency,
+            actor_id=current_user.id,
+            today=business_today(),
+        )
+    await db.commit()
+    return await _card(db, invoice)
+
+
+@router.get("/templates")
+async def template_list(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    kind: Optional[Literal["service", "benefit"]] = Query(None),
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    period = _period(year, month)
+    return {
+        "year": period[0],
+        "month": period[1],
+        "templates": await templates.listing(
+            db, kind=kind, year=period[0], month=period[1]
+        ),
+    }
+
+
+@router.post("/templates", status_code=status.HTTP_201_CREATED)
+async def template_create(
+    body: TemplateIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    with _http_errors():
+        template = await templates.save(
+            db,
+            None,
+            body.model_dump(exclude_unset=True, mode="python"),
+            actor_id=current_user.id,
+        )
+    await db.commit()
+    return templates.payload(template)
+
+
+@router.get("/templates/suggestions")
+async def template_suggestions(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+    year: Optional[int] = Query(None, ge=2020, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    period = _period(year, month)
+    return await templates.suggestions(db, year=period[0], month=period[1])
+
+
+@router.post("/templates/import", status_code=status.HTTP_201_CREATED)
+async def template_import(
+    body: TemplateImportIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    with _http_errors():
+        created = await templates.import_from_ksef(
+            db,
+            year=body.year,
+            month=body.month,
+            ksef_numbers=body.ksef_numbers,
+            actor_id=current_user.id,
+        )
+    await db.commit()
+    return {"created": [template.id for template in created]}
+
+
+@router.post("/templates/run", status_code=status.HTTP_201_CREATED)
+async def template_run(
+    body: TemplateRunIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    with _http_errors():
+        created = await templates.run(
+            db,
+            year=body.year,
+            month=body.month,
+            template_ids=body.template_ids,
+            actor_id=current_user.id,
+            today=business_today(),
+        )
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        # Drugie kliknięcie w tym samym czasie — unikalny indeks szablonu i miesiąca.
+        await db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Część szablonów ma już fakturę za ten miesiąc — odśwież listę.",
+        ) from exc
+    return {"created": [invoice.id for invoice in created]}
+
+
+@router.put("/templates/{template_id}")
+async def template_update(
+    template_id: int,
+    body: TemplateIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    template = await _template(db, template_id)
+    with _http_errors():
+        await templates.save(
+            db,
+            template,
+            body.model_dump(exclude_unset=True, mode="python"),
+            actor_id=current_user.id,
+        )
+    await db.commit()
+    return templates.payload(template)
+
+
+@router.delete("/templates/{template_id}")
+async def template_delete(
+    template_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    template = await _template(db, template_id)
+    await db.delete(template)
+    await db.commit()
+    return {"result": "deleted"}
+
+
+@router.post("/{invoice_id}/template", status_code=status.HTTP_201_CREATED)
+async def save_as_template(
+    invoice_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    await _module_open(db, current_user)
+    invoice = await _invoice(db, invoice_id)
+    with _http_errors():
+        template = await templates.from_invoice(db, invoice, actor_id=current_user.id)
+    await db.commit()
+    return templates.payload(template)
 
 
 @router.get("/{invoice_id}")

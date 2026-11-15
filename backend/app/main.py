@@ -3985,6 +3985,10 @@ async def api_health_deep_check(request: Request):
         LedgerYear,
     )
     from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
+    from app.models.client_issued_invoice import (
+        ClientInvoiceTemplate,
+        ClientIssuedInvoice,
+    )
     from app.models.hr_payroll_lists import (
         PayrollGrossInput,
         PayrollList,
@@ -4404,6 +4408,10 @@ async def api_health_deep_check(request: Request):
         ("payroll_list_lines", PayrollListLine),
         ("payroll_gross_inputs", PayrollGrossInput),
         ("payroll_year_openings", PayrollYearOpening),
+        # 0708: szablony faktur i faktura z ręki (E6) — `template_id` i `client_id`
+        # bez NOT NULL w fakturach wystawianych.
+        ("client_issued_invoices", ClientIssuedInvoice),
+        ("client_invoice_templates", ClientInvoiceTemplate),
     ]
 
     checks: dict[str, str] = {}

@@ -1181,7 +1181,9 @@ async def payload(
         "series_code": invoice.series_code,
         "invoice_number": invoice.invoice_number,
         "client_id": invoice.client_id,
-        "client_name": client_name,
+        # Faktura z ręki albo z szablonu do nabywcy spoza kartoteki (E6): nazwa nabywcy.
+        "client_name": client_name or (invoice.buyer or {}).get("name") or None,
+        "template_id": invoice.template_id,
         "buyer": invoice.buyer or {},
         "buyer_kind": _buyer_kind(invoice.buyer or {}),
         "order_group_id": invoice.order_group_id,
@@ -1295,7 +1297,9 @@ async def listing(
             )
         )
     invoices = list(await db.scalars(query))
-    names = await clients.names(db, {invoice.client_id for invoice in invoices})
+    names = await clients.names(
+        db, {invoice.client_id for invoice in invoices if invoice.client_id is not None}
+    )
     return [
         await payload(
             db,
