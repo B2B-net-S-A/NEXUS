@@ -7,14 +7,15 @@
 // nie liczy się do jej statystyk. Ćwiczenia idą na prawdziwych ekranach
 // w trybie poligonu (`lib/poligon/`), na rekrutacji ćwiczebnej.
 
-import { CheckCircle2, Circle, Lock, PlayCircle, Target } from "lucide-react";
+import { Briefcase, CheckCircle2, Circle, Lock, PlayCircle, Sparkles, Target } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useStartStatus } from "@/lib/novelties/api";
+import { formatLukiDue } from "@/lib/novelties/logic";
 import { enterPoligon } from "@/lib/poligon/mode";
-import { nextExerciseId, readDone, resetProgress } from "@/lib/poligon/progress";
+import { SERVER_PREFIX, nextExerciseId, readDone, resetProgress } from "@/lib/poligon/progress";
 import { usePoligonPath } from "@/lib/poligon/usePoligonPath";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,13 @@ export default function PoligonPage() {
   const total = Math.max(path.length, 1);
   const required = Boolean(poligon?.required);
   const locked = required && Boolean(status?.enforced) && status?.redirect === "/poligon";
+  // Poligon dla obecnych (16.11.2026): część ćwiczeń zalicza praca z 60 dni.
+  const luki = poligon?.luki ?? null;
+  const credited = useMemo(
+    () => new Set((luki?.credited_ids ?? []).map((id) => id.slice(SERVER_PREFIX.length))),
+    [luki],
+  );
+  const gaps = path.filter((e) => !done.has(e.id));
 
   return (
     <div className="mx-auto max-w-5xl space-y-5 pb-24">
@@ -58,7 +66,51 @@ export default function PoligonPage() {
         </p>
       </header>
 
-      {required && (
+      {luki && (
+        <section
+          role="status"
+          className={cn(
+            "space-y-2 rounded-lg border px-4 py-3 text-sm",
+            locked ? "border-warning/30 bg-warning-muted text-warning-muted-foreground" : "border-primary/30 bg-primary/5",
+          )}
+        >
+          <p className="flex items-start gap-2">
+            {locked ? (
+              <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+            ) : (
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+            )}
+            <span>
+              {gaps.length === 0 ? (
+                <b>Poligon zaliczony — znasz wszystkie funkcje ze swojej ścieżki.</b>
+              ) : (
+                <>
+                  <b>
+                    {locked ? "Termin minął: " : "Poligon dla Ciebie: "}
+                    {gaps.length} ćwiczeń, ok. {Math.max(10, gaps.length * 5)} min.
+                  </b>{" "}
+                  To, czego używasz na co dzień, zaliczyliśmy z Twojej pracy z ostatnich 60 dni (oznaczone „z pracy”).
+                  Zostały funkcje, których jeszcze nie używasz.{" "}
+                  {locked
+                    ? "Reszta NEXUSA otworzy się, kiedy je przejdziesz."
+                    : `Masz czas do ${formatLukiDue(luki.due)} — potem NEXUS poprosi o nie przy wejściu.`}
+                </>
+              )}
+            </span>
+          </p>
+          {gaps.length > 0 && (
+            <p className="flex flex-wrap gap-1.5 pl-6">
+              {gaps.map((e) => (
+                <span key={e.id} className="rounded-full border border-border bg-card px-2 py-0.5 text-xs text-foreground">
+                  {e.title({ ...context, firstNew: null })}
+                </span>
+              ))}
+            </p>
+          )}
+        </section>
+      )}
+
+      {required && !luki && (
         <p
           role="status"
           className={cn(
@@ -101,7 +153,7 @@ export default function PoligonPage() {
         {next ? (
           <Button onClick={() => enterPoligon(next.href)} disabled={!mounted}>
             <PlayCircle className="h-4 w-4" aria-hidden="true" />
-            {doneCount === 0 ? "Zacznij onboarding" : `Wróć do ćwiczenia: ${next.module}`}
+            {luki ? `Zacznij od: ${next.module}` : doneCount === 0 ? "Zacznij onboarding" : `Wróć do ćwiczenia: ${next.module}`}
           </Button>
         ) : (
           <>
@@ -158,7 +210,12 @@ export default function PoligonPage() {
                     ) : (
                       <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                     )}
-                    <span className="min-w-0 truncate">{e.title({ ...context, firstNew: null })}</span>
+                    <span className="min-w-0 flex-1 truncate">{e.title({ ...context, firstNew: null })}</span>
+                    {credited.has(e.id) && (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-success">
+                        <Briefcase className="h-3 w-3" aria-hidden="true" />z pracy
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
