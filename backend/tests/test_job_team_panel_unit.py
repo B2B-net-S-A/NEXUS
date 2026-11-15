@@ -483,11 +483,11 @@ def test_migration_and_entrypoint_share_one_ddl_source() -> None:
     assert "schema.DOWNGRADE_DDL" in migration
     assert 'down_revision = "0710_framework_rate_categories"' in migration
     variants_migration = (
-        BACKEND / "alembic/versions/0712_job_team_variants.py"
+        BACKEND / "alembic/versions/0713_job_team_variants.py"
     ).read_text(encoding="utf-8")
     assert "schema.VARIANTS_DDL" in variants_migration
     assert "schema.VARIANTS_DOWNGRADE_DDL" in variants_migration
-    assert 'down_revision = "0711_job_teams"' in variants_migration
+    assert 'down_revision = "0712_client_reports"' in variants_migration
     assert "*_job_team_schema.VARIANTS_DDL" in entrypoint
 
 

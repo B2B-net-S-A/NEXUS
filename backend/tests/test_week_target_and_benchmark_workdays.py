@@ -277,6 +277,9 @@ async def test_my_panel_week_target_skips_onboarding_day(monkeypatch) -> None:
             people.append(user)
         await db.flush()
         new, regular = people
+        # Poligon liczy się od nadania roli — konto przed pierwszym ćwiczeniem.
+        new.created_at = datetime(2026, 10, 1, 9, 0, tzinfo=WARSAW)
+        await db.flush()
         await db.execute(
             text(
                 """

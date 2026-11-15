@@ -12,18 +12,11 @@ import { Button } from "@/components/ui/button";
 import { anchorSelector } from "@/lib/novelties/logic";
 import { onPoligonAction } from "@/lib/poligon/adapter";
 import { useStartStatus } from "@/lib/novelties/api";
-import { EXERCISES, type Exercise, type ExerciseContext } from "@/lib/poligon/exercises";
+import type { Exercise } from "@/lib/poligon/exercises";
 import { leavePoligon } from "@/lib/poligon/mode";
 import { flushProgress, markDone, nextExerciseId, readDone } from "@/lib/poligon/progress";
+import { usePoligonPath } from "@/lib/poligon/usePoligonPath";
 import { cn } from "@/lib/utils";
-
-import meta from "@/lib/poligon/meta.json";
-
-const CONTEXT: ExerciseContext = {
-  firstNew: meta.people[0]
-    ? { candidateId: meta.people[0].candidate_id, fullName: `${meta.people[0].name} ${meta.people[0].lastname}` }
-    : null,
-};
 
 /** Pasek nad treścią strony: przypomina, że dane są wymyślone. */
 export function PoligonBanner() {
@@ -44,6 +37,10 @@ export function PoligonBanner() {
       </Button>
     </div>
   );
+}
+
+function modulesText(path: readonly Exercise[]): string {
+  return [...new Set(path.map((e) => e.module))].join(", ").toLowerCase();
 }
 
 function pathOf(href: string): string {
@@ -85,15 +82,18 @@ export function PoligonLayer() {
   const [collapsed, setCollapsed] = useState(false);
   const status = useStartStatus(true);
   const serverIds = status?.poligon?.done_ids;
+  const { path, context: CONTEXT } = usePoligonPath(status?.poligon);
 
   useEffect(() => {
     const initial = readDone(serverIds ?? []);
     setDone(initial);
-    setCurrentId((current) => (current && !initial.has(current) ? current : nextExerciseId(initial)));
-  }, [serverIds]);
+    setCurrentId((current) =>
+      current && !initial.has(current) && path.some((e) => e.id === current) ? current : nextExerciseId(initial, path),
+    );
+  }, [serverIds, path]);
 
-  const exercise: Exercise | null = useMemo(() => EXERCISES.find((e) => e.id === currentId) ?? null, [currentId]);
-  const index = exercise ? EXERCISES.indexOf(exercise) : EXERCISES.length;
+  const exercise: Exercise | null = useMemo(() => path.find((e) => e.id === currentId) ?? null, [path, currentId]);
+  const index = exercise ? path.indexOf(exercise) : path.length;
   const onScreen = exercise ? pathname === pathOf(exercise.href) || pathname.startsWith(`${pathOf(exercise.href)}/`) : false;
 
   const complete = useCallback(
@@ -125,15 +125,15 @@ export function PoligonLayer() {
       if (verdict.done) complete(exercise);
       else setPhase({ kind: "task", feedback: verdict.feedback });
     });
-  }, [exercise, phase.kind, complete]);
+  }, [exercise, phase.kind, complete, CONTEXT]);
 
   const rect = useAnchorRect(exercise?.anchor ?? null, showMe && phase.kind === "task");
 
   const goNext = () => {
-    const nextId = nextExerciseId(done);
+    const nextId = nextExerciseId(done, path);
     setCurrentId(nextId);
     setPhase({ kind: "task" });
-    const next = EXERCISES.find((e) => e.id === nextId);
+    const next = path.find((e) => e.id === nextId);
     if (next && !(pathname === pathOf(next.href) || pathname.startsWith(`${pathOf(next.href)}/`))) router.push(next.href);
   };
 
@@ -159,10 +159,10 @@ export function PoligonLayer() {
         <header className="flex items-center gap-2 border-b border-border px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
           <Target className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">
-            Poligon · {exercise ? `${exercise.module} · ${index + 1} z ${EXERCISES.length}` : "onboarding"}
+            Poligon · {exercise ? `${exercise.module} · ${index + 1} z ${path.length}` : "onboarding"}
           </span>
           <span className="flex shrink-0 gap-0.5" aria-hidden="true">
-            {EXERCISES.map((e) => (
+            {path.map((e) => (
               <i
                 key={e.id}
                 className={cn(
@@ -188,8 +188,8 @@ export function PoligonLayer() {
             <p className="flex items-start gap-2 rounded-lg bg-success-muted px-3 py-2 text-success-muted-foreground">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>
-                <b>Onboarding zaliczony.</b> Znasz listę rekrutacji, Tablicę, panel osoby, screening z bramką weryfikacji,
-                drogę CV do klienta i bazę kandydatów. NEXUS jest otwarty — dziś nie liczy się do Twoich statystyk.
+                <b>Onboarding zaliczony.</b> Za Tobą: {modulesText(path)}. NEXUS jest otwarty — dziś nie
+                liczy się do Twoich statystyk.
               </span>
             </p>
             <Button className="w-full" disabled={leaving} onClick={() => void finish()}>
@@ -212,7 +212,7 @@ export function PoligonLayer() {
             </p>
             <div className="flex justify-end pt-1">
               <Button size="sm" onClick={goNext}>
-                {nextExerciseId(done) ? "Dalej →" : "Zakończ onboarding"}
+                {nextExerciseId(done, path) ? "Dalej →" : "Zakończ onboarding"}
               </Button>
             </div>
           </div>

@@ -9,6 +9,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { hydrateRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const push = vi.fn();
@@ -948,6 +950,36 @@ describe("CandidatesListV2", () => {
         expect(calls.at(-1)?.q_any_group).toBeUndefined();
       });
       expect(screen.queryByText("Wróciłeś do swojego wyszukiwania.")).toBeNull();
+    });
+
+    it("goły adres załadowany od zera: pamięć karty nie rozjeżdża hydratacji (React #418)", async () => {
+      // Serwer nie ma `sessionStorage`, więc renderuje listę bez pamięci; ta
+      // sama strona w przeglądarce ma ostatnie wyszukiwanie (e2e Poligonu:
+      // wyjście z poligonu → `/candidates`, 15.11.2026).
+      const tree = () => (
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <CandidatesListV2 />
+        </QueryClientProvider>
+      );
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      container.innerHTML = renderToString(tree());
+      writeListSearch({ query: "q=Olszy%C5%84ska" });
+
+      const recoverable: unknown[] = [];
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      let root: ReturnType<typeof hydrateRoot> | null = null;
+      try {
+        await act(async () => {
+          root = hydrateRoot(container, tree(), { onRecoverableError: (error) => recoverable.push(error) });
+        });
+        expect(recoverable).toEqual([]);
+        expect(await within(container).findByText("Wróciłeś do swojego wyszukiwania.")).toBeTruthy();
+      } finally {
+        spy.mockRestore();
+        act(() => (root as ReturnType<typeof hydrateRoot> | null)?.unmount());
+        container.remove();
+      }
     });
 
     it("baner powrotu znika, gdy zastosowano inne kryteria — sama zmiana w szkicu go nie zdejmuje", async () => {

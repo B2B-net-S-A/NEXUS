@@ -296,7 +296,10 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # (``model_rows``), a nie sama ze sobą (audyt S2).
         # 26.09.2026: model dostaje surowy fragment tabeli, kontrola
         # kompletności wierszy i trzeci człon nazwy (runda 6 audytu).
-        rule_version="2026-09-26",
+        # 15.11.2026: wiersz niesie też kategorię i poziom z COA
+        # (``client_category``) dla limitu z umowy ramowej; osoby i kwoty
+        # bez zmian.
+        rule_version="2026-11-15",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",

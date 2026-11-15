@@ -1007,7 +1007,8 @@ jobs:
           rm -rf src/app/preview
           npm run build
       # Poligon NEXUSA (15.11.2026): nowa osoba ma zablokowany NEXUS, dopóki nie
-      # zaliczy 19 ćwiczeń na rekrutacji ćwiczebnej, a odczyty tej rekrutacji
+      # zaliczy ćwiczeń swojej roli (rekruter 19, Delivery Lead 15, TCM 11) na
+      # rekrutacji ćwiczebnej, a odczyty tej rekrutacji
       # podaje nagrany zestaw (`src/lib/poligon/dataset.json`). Zmiana ekranu,
       # która dokłada odczyt spoza zestawu, nie psuje ani builda, ani Vitesta —
       # psuje dopiero onboarding nowej osoby. Ten krok przechodzi całą ścieżkę

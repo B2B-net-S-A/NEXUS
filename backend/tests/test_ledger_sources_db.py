@@ -138,7 +138,8 @@ def _sales_invoice(nip: str, **values) -> ClientSalesInvoice:
 
 @pytest_asyncio.fixture
 async def books(world):
-    year = random.randint(2050, 2099)
+    # Do 2090: JPK_V7M(3) przyjmuje rok najwyżej 2090 (etd:TRok).
+    year = random.randint(2050, 2090)
     prefix = f"S{random.randint(10_000, 99_999)}"
     async with AsyncSessionLocal() as db:
         # Rok bez księgi, kursów EUR i faktur kosztowych z wpływem w tym roku —
@@ -167,7 +168,7 @@ async def books(world):
             .select_from(LedgerBankStatement)
             .where(LedgerBankStatement.first_day.between(date(year, 1, 1), date(year, 12, 31)))
         ):
-            year = random.randint(2050, 2099)
+            year = random.randint(2050, 2090)
         previous = await db.scalar(
             select(AppSetting.value).where(
                 AppSetting.key == ledger_settings.SETTING_KEY
@@ -349,6 +350,8 @@ async def books(world):
             "advance": advance.id,
             "correction": correction.id,
         }
+    # Kontrahenci założeni w teście (K5b-2: dostawcy z formularza zakupu).
+    extra_parties: list[int] = []
     yield {
         "year": year,
         "acc": numbers,
@@ -359,6 +362,7 @@ async def books(world):
         "payroll": payroll,
         "sales": sales_ids,
         "rate_date": rate_date,
+        "extra_parties": extra_parties,
     }
     await _purge_years([year])
     await _purge_bank(year)
@@ -382,7 +386,9 @@ async def books(world):
         )
         await db.execute(
             delete(FinanceCounterparty).where(
-                FinanceCounterparty.id.in_([supplier.id, buyer.id, person.id])
+                FinanceCounterparty.id.in_(
+                    [supplier.id, buyer.id, person.id, *extra_parties]
+                )
             )
         )
         await db.execute(
@@ -3408,7 +3414,9 @@ async def test_vat_registers_follow_approved_documents(client, world, books):
     closing_items = (await _closing(client, world, books))["items"]
     registers = next(item for item in closing_items if item["key"] == "vat_registers")
     assert registers["state"] == "problem" and "bez dokumentu w księdze: 2" in registers["detail"]
-    assert any(item["key"] == "later:jpk" for item in closing_items)
+    # JPK (K5b): do zrobienia, dopóki plik nie jest wysłany.
+    jpk_item = next(item for item in closing_items if item["key"] == "jpk")
+    assert jpk_item["state"] == "todo"
     assert not any(item["key"] == "later:vat" for item in closing_items)
 
 
@@ -3437,9 +3445,36 @@ async def test_vat_module_settings_and_gates(client, world, books):
         json={"input_account": books["acc"]["vat_in"]},
         headers=_headers(world["admin"]),
     )
-    assert saved.status_code == 200 and saved.json() == {"input_account": books["acc"]["vat_in"]}
+    assert saved.status_code == 200 and saved.json() == {
+        "input_account": books["acc"]["vat_in"],
+        "foreign_account": "",
+    }
+    # K5b-2: konto dostawców zagranicznych tylko ze słownikiem kontrahentów;
+    # formularz bez tego pola go nie kasuje.
+    plain = await client.put(
+        f"{ACC}/vat/settings",
+        json={"foreign_account": books["acc"]["cost"]},
+        headers=_headers(world["admin"]),
+    )
+    assert plain.status_code == 422 and "słownik" in plain.json()["detail"]
+    foreign_saved = await client.put(
+        f"{ACC}/vat/settings",
+        json={"foreign_account": books["acc"]["payable"]},
+        headers=_headers(world["admin"]),
+    )
+    assert foreign_saved.json()["foreign_account"] == books["acc"]["payable"]
+    kept = await client.put(
+        f"{ACC}/vat/settings",
+        json={"input_account": books["acc"]["vat_in"]},
+        headers=_headers(world["admin"]),
+    )
+    assert kept.json() == {
+        "input_account": books["acc"]["vat_in"],
+        "foreign_account": books["acc"]["payable"],
+    }
     data = (await _vat_registers(client, world, books)).json()
     assert data["accounts"]["input_account"] == books["acc"]["vat_in"]
+    assert data["accounts"]["foreign_account"] == books["acc"]["payable"]
     assert data["can_edit_accounts"] is False
     bad_month = await client.get(
         f"{ACC}/vat", params={"year": books["year"], "month": 13}, headers=_headers(world["accountant"])
@@ -3523,3 +3558,719 @@ async def test_vat_registers_keep_reverse_charge_and_ignore_storno_pairs(client,
     await _reverse(client, world, manual.id, date(year, 3, 29))
     data = (await _vat_registers(client, world, books)).json()
     assert [issue["kind"] for issue in data["issues"] if issue["kind"] == "outside"] == []
+
+
+# ── JPK_V7M (K5b) ───────────────────────────────────────────────────────────
+
+
+async def _payer(tax_office_code: str | None):
+    """Dane płatnika K7a (kod urzędu skarbowego) — zwraca poprzednią wartość."""
+
+    from app.services.hr.payroll_lists.parameters import COMPANY_KEY
+
+    async with AsyncSessionLocal() as db:
+        previous = await db.scalar(select(AppSetting.value).where(AppSetting.key == COMPANY_KEY))
+        await db.execute(delete(AppSetting).where(AppSetting.key == COMPANY_KEY))
+        if tax_office_code is not None:
+            db.add(AppSetting(key=COMPANY_KEY, value={"tax_office_code": tax_office_code}))
+        await db.commit()
+    return previous
+
+
+async def _restore_payer(previous) -> None:
+    from app.services.hr.payroll_lists.parameters import COMPANY_KEY
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(AppSetting).where(AppSetting.key == COMPANY_KEY))
+        if previous is not None:
+            db.add(AppSetting(key=COMPANY_KEY, value=previous))
+        await db.commit()
+
+
+async def _purge_jpk(year: int) -> None:
+    from app.models.ledger import LedgerVatFile
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(LedgerVatFile).where(LedgerVatFile.year == year))
+        await db.commit()
+
+
+async def _jpk(client, world, books, user: str = "accountant", month: int = 3, **body):
+    return await client.post(
+        f"{ACC}/vat/jpk",
+        json={"year": books["year"], "month": month, **body},
+        headers=_headers(world[user]),
+    )
+
+
+async def test_jpk_is_prepared_sent_and_corrected(client, world, books):
+    from lxml import etree
+
+    from app.services.ledger import jpk
+
+    year = books["year"]
+    previous = await _payer("0202")
+    try:
+        docs = await _vat_books(client, world, books)
+        # Zaliczka i faktura nabywcy spoza kartoteki — poza marcem, żeby rejestr był pełny.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(ClientSalesInvoice)
+                .where(ClientSalesInvoice.id.in_([books["sales"]["unknown"], books["sales"]["advance"]]))
+                .values(issue_date=date(year, 5, 10), sale_date=date(year, 5, 10))
+            )
+            await db.commit()
+        missing_email = await _jpk(client, world, books, opening_surplus=0)
+        assert missing_email.status_code == 422 and "e-mail do JPK" in missing_email.json()["detail"]
+        refused = await client.put(
+            f"{ACC}/vat/jpk/settings", json={"email": "vat@example.com"}, headers=_headers(world["accountant"])
+        )
+        assert refused.status_code == 403
+        bad = await client.put(
+            f"{ACC}/vat/jpk/settings", json={"email": "bez-malpy"}, headers=_headers(world["admin"])
+        )
+        assert bad.status_code == 422
+        saved = await client.put(
+            f"{ACC}/vat/jpk/settings",
+            json={"email": "vat@example.com", "phone": "+48 22 000 00 00"},
+            headers=_headers(world["admin"]),
+        )
+        assert saved.status_code == 200 and saved.json()["email"] == "vat@example.com"
+        # Pierwszy miesiąc w NEXUSIE: nadwyżka z deklaracji z Symfonii wpisana ręcznie.
+        no_surplus = await _jpk(client, world, books)
+        assert no_surplus.status_code == 422 and "P_62" in no_surplus.json()["detail"]
+        # D2: plik ma faktury osób zespołu — bez Płac ani przygotowanie, ani pobranie.
+        settings = _ledger_settings(world, books, allocation=False)
+        settings["modules"]["vat"] = True
+        settings["vat"] = {"input_account": books["acc"]["vat_in"]}
+        settings["jpk"] = {"email": "vat@example.com", "phone": "+48 22 000 00 00"}
+        settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+        await _set_ledger(settings)
+        outsider = await _jpk(client, world, books, user="module_only", opening_surplus=0)
+        assert outsider.status_code == 403
+        first = await _jpk(client, world, books, opening_surplus=120)
+        assert first.status_code == 201, first.text
+        v1 = first.json()["file"]
+        assert (v1["version"], v1["purpose"], v1["status"]) == (1, "submission", "prepared")
+        # Należny: 23% z FS 1/03 (230 zł) − korekta (23 zł); naliczony 230 + 2 300 zł.
+        assert (v1["totals"]["P_38"], v1["totals"]["P_39"], v1["totals"]["P_48"]) == (207, 120, 2_650)
+        assert v1["totals"]["P_62"] == 2_650 - 207
+        download = await client.get(f"{ACC}/vat/jpk/{v1['id']}/file", headers=_headers(world["accountant"]))
+        assert download.status_code == 200 and "JPK_V7M_" in download.headers["content-disposition"]
+        assert jpk.validate(download.content) == []
+        root = etree.fromstring(download.content)
+        assert len(root.findall(f".//{{{jpk.NS}}}ZakupWiersz")) == 2
+        hidden = await client.get(f"{ACC}/vat/jpk/{v1['id']}/file", headers=_headers(world["module_only"]))
+        assert hidden.status_code == 403
+        blind = (
+            await client.get(
+                f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["module_only"])
+            )
+        ).json()
+        assert "totals" not in blind["files"][0] and blind["previous_surplus"] is None
+        second = await _jpk(client, world, books)
+        assert second.status_code == 201 and second.json()["file"]["purpose"] == "submission"
+        v2 = second.json()["file"]
+        sent = await client.post(
+            f"{ACC}/vat/jpk/{v2['id']}/sent", json={"note": "UPO 0000000000000000"}, headers=_headers(world["accountant"])
+        )
+        assert sent.status_code == 200 and sent.json()["status"] == "sent"
+        # Wysłano v2 — v1 jest unieważniona i jej się już nie oznacza.
+        stale = await client.post(f"{ACC}/vat/jpk/{v1['id']}/sent", json={}, headers=_headers(world["accountant"]))
+        assert stale.status_code == 409
+        item = next(i for i in (await _closing(client, world, books))["items"] if i["key"] == "jpk")
+        assert item["state"] == "ok" and "UPO" in item["detail"]
+        # Po wysłanej wersji kolejna to korekta z uzasadnieniem.
+        no_reason = await _jpk(client, world, books)
+        assert no_reason.status_code == 422 and "P_ORDZU" in no_reason.json()["detail"]
+        third = await _jpk(client, world, books, reason="Korekta po zmianie dekretu faktury.")
+        assert third.status_code == 201, third.text
+        v3 = third.json()["file"]
+        assert (v3["version"], v3["purpose"], v3["reason"]) == (3, "correction", "Korekta po zmianie dekretu faktury.")
+        content = (await client.get(f"{ACC}/vat/jpk/{v3['id']}/file", headers=_headers(world["accountant"]))).content
+        root = etree.fromstring(content)
+        assert root.findtext(f"{{{jpk.NS}}}Naglowek/{{{jpk.NS}}}CelZlozenia") == "2"
+        await client.post(f"{ACC}/vat/jpk/{v3['id']}/sent", json={}, headers=_headers(world["accountant"]))
+        # Zmiana rejestru po wysłaniu (storno FVS) = lista zamknięcia: problem.
+        await _reverse(client, world, docs["plain"].id, date(year, 3, 31))
+        item = next(i for i in (await _closing(client, world, books))["items"] if i["key"] == "jpk")
+        assert item["state"] == "problem" and "korektę" in item["detail"]
+        # Kwiecień bierze P_39 z P_62 marca (ostatnia wysłana wersja).
+        april = await _jpk(client, world, books, month=4)
+        assert april.status_code == 201, april.text
+        assert april.json()["file"]["totals"]["P_39"] == v3["totals"]["P_62"]
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
+async def _jpk_ready(client, world, books) -> dict:
+    """Marzec z pełnym rejestrem (bez zaliczki i nabywcy spoza kartoteki),
+    moduł VAT z kontaktem do JPK."""
+
+    year = books["year"]
+    docs = await _vat_books(client, world, books)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id.in_([books["sales"]["unknown"], books["sales"]["advance"]]))
+            .values(issue_date=date(year, 5, 10), sale_date=date(year, 5, 10))
+        )
+        await db.commit()
+    settings = _ledger_settings(world, books, allocation=False)
+    settings["modules"]["vat"] = True
+    settings["vat"] = {"input_account": books["acc"]["vat_in"]}
+    settings["jpk"] = {"email": "vat@example.com", "phone": ""}
+    await _set_ledger(settings)
+    return docs
+
+
+async def _jpk_sent(client, world, file_id: int, note: str = "UPO 1"):
+    return await client.post(f"{ACC}/vat/jpk/{file_id}/sent", json={"note": note}, headers=_headers(world["accountant"]))
+
+
+async def _jpk_item(client, world, books, month: int) -> dict:
+    response = await client.get(
+        f"{ACC}/closing", params={"year": books["year"], "month": month}, headers=_headers(world["accountant"])
+    )
+    return next(item for item in response.json()["items"] if item["key"] == "jpk")
+
+
+async def test_jpk_chain_correction_flags_the_next_month(client, world, books):
+    """Korekta marca zmienia P_62, więc wysłany kwiecień (P_39) wymaga korekty
+    (przegląd K5b)."""
+
+    year = books["year"]
+    previous = await _payer("0202")
+    try:
+        docs = await _jpk_ready(client, world, books)
+        march = (await _jpk(client, world, books, opening_surplus=0)).json()["file"]
+        assert (await _jpk_sent(client, world, march["id"])).status_code == 200
+        april = (await _jpk(client, world, books, month=4)).json()["file"]
+        assert april["totals"]["P_39"] == march["totals"]["P_62"]
+        assert (await _jpk_sent(client, world, april["id"])).status_code == 200
+        assert (await _jpk_item(client, world, books, 4))["state"] == "ok"
+        await _reverse(client, world, docs["expense"].id, date(year, 3, 30))
+        fixed = await _jpk(client, world, books, reason="Korekta po stornie FVZ.")
+        assert fixed.status_code == 201, fixed.text
+        assert fixed.json()["file"]["totals"]["P_62"] != march["totals"]["P_62"]
+        assert (await _jpk_sent(client, world, fixed.json()["file"]["id"])).status_code == 200
+        item = await _jpk_item(client, world, books, 4)
+        assert item["state"] == "problem" and "P_39" in item["detail"]
+        overview = (
+            await client.get(f"{ACC}/vat/jpk", params={"year": year, "month": 4}, headers=_headers(world["accountant"]))
+        ).json()
+        assert overview["stale"] == "surplus"
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
+async def test_jpk_filed_older_version_can_be_recorded(client, world, books):
+    """Wysłana bramką MF wersja 1, a ktoś przygotował wersję 2: NEXUS zapisuje
+    wysłanie v1, a v2 jest unieważniona (przegląd K5b)."""
+
+    year = books["year"]
+    previous = await _payer("0202")
+    try:
+        docs = await _jpk_ready(client, world, books)
+        v1 = (await _jpk(client, world, books, opening_surplus=0)).json()["file"]
+        await _reverse(client, world, docs["expense"].id, date(year, 3, 30))
+        v2 = (await _jpk(client, world, books)).json()["file"]
+        filed = await _jpk_sent(client, world, v1["id"], "UPO v1")
+        assert filed.status_code == 200, filed.text
+        files = (
+            await client.get(f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["accountant"]))
+        ).json()["files"]
+        assert [(f["version"], f["status"]) for f in files] == [(1, "sent"), (2, "void")]
+        assert (await _jpk_sent(client, world, v2["id"])).status_code == 409
+        # Rejestr zmienił się po wysłaniu v1 (storno FVZ) — trzeba korekty.
+        assert (await _jpk_item(client, world, books, 3))["state"] == "problem"
+        april = (await _jpk(client, world, books, month=4)).json()["file"]
+        assert april["totals"]["P_39"] == v1["totals"]["P_62"]
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
+async def test_jpk_mark_sent_waits_for_prepare(client, world, books, monkeypatch):
+    """„Wysłany” bierze tę samą blokadę co „Przygotuj JPK” — nowa wersja nie
+    powstaje jako drugie złożenie (przegląd K5b)."""
+
+    import asyncio
+
+    from app.services.ledger import jpk
+    from app.services.ledger.documents import Viewer
+
+    year = books["year"]
+    previous = await _payer("0202")
+    try:
+        await _jpk_ready(client, world, books)
+        v1 = (await _jpk(client, world, books, opening_surplus=0)).json()["file"]
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = jpk.previous_surplus
+
+        async def slow(db, y, m):
+            entered.set()
+            await release.wait()
+            return await original(db, y, m)
+
+        monkeypatch.setattr(jpk, "previous_surplus", slow)
+        viewer = Viewer(user_id=world["accountant"].id, admin=False, payroll=True, approver=True)
+
+        async def preparer():
+            async with AsyncSessionLocal() as db:
+                current = await ledger_settings.load(db)
+                out = await jpk.prepare(
+                    db, viewer, current, year=year, month=3, reason=None, opening_surplus=None,
+                    now=datetime.now(timezone.utc),
+                )
+                await db.commit()
+                return out
+
+        async def marker():
+            await entered.wait()
+            task = asyncio.create_task(_jpk_sent(client, world, v1["id"]))
+            await asyncio.sleep(0.5)
+            release.set()
+            return await task
+
+        prepared, marked = await asyncio.gather(preparer(), marker())
+        monkeypatch.setattr(jpk, "previous_surplus", original)
+        assert marked.status_code == 200, marked.text
+        files = (
+            await client.get(f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["accountant"]))
+        ).json()["files"]
+        assert [(f["version"], f["status"]) for f in files] == [(1, "sent"), (2, "void")]
+        assert (await _jpk_sent(client, world, prepared["file"]["id"])).status_code == 409
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
+async def test_jpk_first_month_surplus_can_be_fixed(client, world, books):
+    """Literówka w nadwyżce z Symfonii nie zostaje w korektach; przy JPK za
+    poprzedni miesiąc w NEXUSIE P_39 nie wpisuje się ręcznie (przegląd K5b)."""
+
+    year = books["year"]
+    previous = await _payer("0202")
+    try:
+        await _jpk_ready(client, world, books)
+        v1 = (await _jpk(client, world, books, opening_surplus=120)).json()["file"]
+        assert v1["totals"]["P_39"] == 120
+        v2 = (await _jpk(client, world, books, opening_surplus=100)).json()["file"]
+        assert v2["totals"]["P_39"] == 100
+        overview = (
+            await client.get(f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["accountant"]))
+        ).json()
+        assert (overview["surplus_editable"], overview["surplus_value"]) == (True, 100)
+        april = await _jpk(client, world, books, month=4, opening_surplus=5)
+        assert april.status_code == 422 and "P_62" in april.json()["detail"]
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
+# ── Zakup zagraniczny i znaczniki GTU/TP (K5b-2) ────────────────────────────
+
+
+async def _foreign_setup(world, books, *, parent: bool = True, allocation: bool = False) -> str:
+    """Moduł VAT; ``parent`` — konto dostawców zagranicznych ze słownikiem."""
+
+    number = f"{books['acc']['cost'].rsplit('-', 1)[0]}-202"
+    async with AsyncSessionLocal() as db:
+        if not await db.scalar(select(FinanceAccount.id).where(FinanceAccount.number == number)):
+            db.add(
+                FinanceAccount(
+                    number=number,
+                    name="Dostawcy zagraniczni",
+                    kind="settlement",
+                    dictionary="counterparty",
+                )
+            )
+            await db.commit()
+    settings = _ledger_settings(world, books, allocation=allocation)
+    settings["modules"]["vat"] = True
+    settings["vat"] = {"input_account": books["acc"]["vat_in"]}
+    if parent:
+        settings["vat"]["foreign_account"] = number
+    await _set_ledger(settings)
+    return number
+
+
+def _foreign_body(books, **extra) -> dict:
+    year = books["year"]
+    body = {
+        "number": "INV-0042",
+        "issue_date": f"{year}-03-21",
+        "service_date": f"{year}-03-20",
+        "currency": "EUR",
+        "net": "100.00",
+        "vat_rate": "23",
+        "deduction": "full",
+        "cost_account": books["acc"]["cost"],
+    }
+    body.update(extra)
+    return body
+
+
+async def _foreign(client, world, body: dict, user: str = "accountant"):
+    return await client.post(f"{ACC}/vat/foreign", json=body, headers=_headers(world[user]))
+
+
+async def _foreign_overview(client, world, books, user: str = "accountant") -> dict:
+    response = await client.get(
+        f"{ACC}/vat/foreign",
+        params={"year": books["year"], "month": 3},
+        headers=_headers(world[user]),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _test_company():
+    from app.services.hr.payroll_lists.parameters import Company
+
+    return Company(
+        nip="1234567890",
+        name="Spółka Testowa sp. z o.o.",
+        short_name="Testowa",
+        regon=None,
+        tax_office_code="0202",
+        zus_account=None,
+        tax_account=None,
+    )
+
+
+def _jpk_file(registers: dict) -> bytes:
+    from app.services.ledger import jpk
+
+    content, _ = jpk.build(
+        registers,
+        company=_test_company(),
+        email="ksiegowosc@example.com",
+        phone="",
+        purpose="submission",
+        reason=None,
+        surplus=0,
+        # DataWytworzeniaJPK w XSD: najwyżej 2050 — chwila prawdziwa, rok testu dowolny.
+        now=datetime.now(timezone.utc),
+    )
+    return content
+
+
+async def test_foreign_purchase_books_import_of_services_into_both_registers(
+    client, world, books, monkeypatch
+):
+    """Faktura dostawcy z UE (EUR, odliczenie) i spoza UE (PLN, bez odliczenia):
+    dostawca do kartoteki z kontem pod kontem z ustawień, FVZ w buforze po
+    kursie NBP, rejestr sprzedaży K_29/K_30 i K_27/K_28, rejestr zakupu."""
+
+    from app.services.finance_ledger import counterparties as kartoteka
+    from app.services.finance_ledger import counterparty_import as importer
+    from app.services.ledger import jpk
+
+    year, acc = books["year"], books["acc"]
+    # Lata testów są w przyszłości — „dziś” formularza = koniec roku testu.
+    monkeypatch.setattr(ledger_vat_api, "business_today", lambda: date(year, 12, 31))
+    parent = await _foreign_setup(world, books)
+    tag = parent.split("-")[0]
+    vat_no = f"IE{random.randint(1_000_000, 9_999_999)}T"
+    overview = await _foreign_overview(client, world, books)
+    assert overview["items"] == [] and overview["next_account"] == f"{parent}-1"
+    assert "EUR" in overview["currencies"] and overview["missing"] == []
+    assert books["supplier"].id not in {item["id"] for item in overview["suppliers"]}
+
+    supplier_form = {"name": f"Dostawca SaaS {tag}", "country": "ie", "tax_id": vat_no[2:]}
+    created = await _foreign(client, world, _foreign_body(books, new_supplier=supplier_form))
+    assert created.status_code == 201, created.text
+    data = created.json()
+    supplier = data["supplier"]
+    books["extra_parties"].append(supplier["id"])
+    assert (
+        supplier["tax_id"],
+        supplier["country"],
+        supplier["account"],
+        supplier["group"],
+        supplier["from_form"],
+    ) == (vat_no, "IE", f"{parent}-1", "imp_28b", True)
+    doc = data["document"]
+    # 100 EUR po 4,30 (kurs z dnia roboczego przed 20.03) = 430 zł, VAT 23% = 98,90 zł.
+    assert (doc["status"], doc["net"], doc["vat"], doc["group"], doc["rate_day"]) == (
+        "draft",
+        43_000,
+        9_890,
+        "imp_28b",
+        books["rate_date"].isoformat(),
+    )
+    assert await _lines(doc["id"]) == [
+        ("debit", acc["cost"], 43_000),
+        ("debit", acc["vat_in"], 9_890),
+        ("credit", acc["vat_out"], 9_890),
+        ("credit", f"{parent}-1", 43_000),
+    ]
+    async with AsyncSessionLocal() as db:
+        line = await db.scalar(
+            select(LedgerLine).where(
+                LedgerLine.document_id == doc["id"], LedgerLine.account == f"{parent}-1"
+            )
+        )
+        assert (line.counterparty_id, line.currency, line.amount_cur) == (supplier["id"], "EUR", 10_000)
+
+    # Ta sama faktura drugi raz (inna wielkość liter i spacje) i bliźniak dostawcy.
+    again = await _foreign(
+        client, world, _foreign_body(books, supplier_id=supplier["id"], number=" inv-0042 ")
+    )
+    assert again.status_code == 409 and "jest już w księdze" in again.json()["detail"]
+    twin = await _foreign(
+        client,
+        world,
+        _foreign_body(
+            books,
+            number="INV-0043",
+            new_supplier={**supplier_form, "name": f"DOSTAWCA saas {tag}", "tax_id": "IE1111111T"},
+        ),
+    )
+    assert twin.status_code == 409 and "jest już kontrahent" in twin.json()["detail"]
+    polish = await _foreign(client, world, _foreign_body(books, supplier_id=books["supplier"].id))
+    assert polish.status_code == 422 and "z Polski" in polish.json()["detail"]
+    both = await _foreign(
+        client,
+        world,
+        _foreign_body(books, supplier_id=supplier["id"], new_supplier=supplier_form),
+    )
+    assert both.status_code == 422
+    outside = await _foreign(
+        client,
+        world,
+        _foreign_body(
+            books,
+            number="INV-0044",
+            new_supplier={"name": f"Inny {tag}", "country": "DE", "tax_id": "DE123456789", "account": acc["cost"]},
+        ),
+    )
+    assert outside.status_code == 422 and "analityka konta" in outside.json()["detail"]
+    future = await _foreign(
+        client, world, _foreign_body(books, supplier_id=supplier["id"], number="INV-9", service_date=f"{year + 1}-01-02")
+    )
+    assert future.status_code == 422 and "przyszłości" in future.json()["detail"]
+
+    # Spoza UE: bez kursu USD odmowa (nic nie zostaje), w PLN bez odliczenia.
+    american = {
+        "name": f"Vendor Inc {tag}",
+        "country": "US",
+        "tax_id": f"{random.randint(10, 99)}-{random.randint(1_000_000, 9_999_999)}",
+    }
+    no_rate = await _foreign(
+        client, world, _foreign_body(books, number="US-77", currency="USD", net="500", new_supplier=american)
+    )
+    assert no_rate.status_code == 422 and "Brak kursu NBP USD" in no_rate.json()["detail"]
+    pln = await _foreign(
+        client,
+        world,
+        _foreign_body(books, number="US-77", currency="PLN", net="500.00", deduction="none", new_supplier=american),
+    )
+    assert pln.status_code == 201, pln.text
+    us = pln.json()
+    books["extra_parties"].append(us["supplier"]["id"])
+    assert (us["supplier"]["account"], us["supplier"]["group"]) == (f"{parent}-2", "imp_other")
+    assert await _lines(us["document"]["id"]) == [
+        ("debit", acc["cost"], 61_500),
+        ("credit", acc["vat_out"], 11_500),
+        ("credit", f"{parent}-2", 50_000),
+    ]
+
+    # Bufor blokuje JPK; po zatwierdzeniu — oba rejestry i plik zgodny z XSD MF.
+    drafts = (await _vat_registers(client, world, books)).json()
+    assert {item["number"] for item in next(i for i in drafts["issues"] if i["kind"] == "drafts")["items"]} >= {"INV-0042", "US-77"}
+    await _approve_ids(client, world, [doc["id"], us["document"]["id"]])
+    registers = (await _vat_registers(client, world, books)).json()
+    sales = {row["number"]: row for row in registers["sales"]}
+    imported = sales["INV-0042"]
+    assert [(g["key"], g["net"], g["vat"]) for g in imported["groups"]] == [("imp_28b", 43_000, 9_890)]
+    assert (imported["tax_id"], imported["country"], imported["date"], imported["problem"], imported["markers"]) == (
+        vat_no,
+        "IE",
+        f"{year}-03-20",
+        None,
+        [],
+    )
+    assert [(g["key"], g["net"], g["vat"]) for g in sales["US-77"]["groups"]] == [("imp_other", 50_000, 11_500)]
+    purchases = {row["number"]: row for row in registers["purchases"]}
+    # Bez odliczenia nie ma wiersza zakupu; data wiersza zakupu = data faktury.
+    assert set(purchases) == {"INV-0042"} and purchases["INV-0042"]["date"] == f"{year}-03-21"
+    assert [(g["key"], g["vat"]) for g in purchases["INV-0042"]["groups"]] == [("other", 9_890)]
+    assert not any(issue["kind"] in ("rates", "drafts", "outside") for issue in registers["issues"])
+    groups = {g["key"]: (g["net"], g["vat"]) for g in registers["summary"]["groups"]}
+    assert (groups["imp_28b"], groups["imp_other"], groups["other"]) == (
+        (43_000, 9_890),
+        (50_000, 11_500),
+        (43_000, 9_890),
+    )
+    assert jpk.validate(_jpk_file(registers)) == []
+    listed = await _foreign_overview(client, world, books)
+    assert [(item["number"], item["status"]) for item in listed["items"]] == [
+        ("INV-0042", "approved"),
+        ("US-77", "approved"),
+    ]
+    assert listed["next_account"] == f"{parent}-3"
+
+    # Import kartoteki z eBI24 nie dubluje dostawcy z formularza (inny numer).
+    parsed = importer.ParsedFile(
+        rows=[
+            importer.ParsedRow(
+                line=2,
+                id_type="other",
+                id_value=f"X{random.randint(10**6, 10**7)}",
+                values={"name": f"DOSTAWCA SAAS {tag}"},
+            ),
+            # Ta sama nazwa z polskim NIP-em to inna firma (np. oddział) — wchodzi.
+            importer.ParsedRow(
+                line=3,
+                id_type="nip",
+                id_value=str(random.randint(10**9, 10**10 - 1)),
+                values={"name": f"Dostawca SaaS {tag}"},
+            ),
+        ]
+    )
+    async with AsyncSessionLocal() as db:
+        result = await kartoteka.apply_import(
+            db, parsed, save=False, actor_id=world["admin"].id, now=datetime.now(timezone.utc)
+        )
+    assert result.created == 1 and [error["line"] for error in result.errors] == [2]
+    assert "formularza zakupu zagranicznego" in result.errors[0]["message"]
+
+
+async def test_foreign_purchase_needs_the_suppliers_account_setting(
+    client, world, books, monkeypatch
+):
+    year = books["year"]
+    monkeypatch.setattr(ledger_vat_api, "business_today", lambda: date(year, 12, 31))
+    await _foreign_setup(world, books, parent=False)
+    overview = await _foreign_overview(client, world, books)
+    assert overview["next_account"] is None and overview["missing"]
+    refused = await _foreign(
+        client,
+        world,
+        _foreign_body(books, new_supplier={"name": "Dostawca Bez Konta", "country": "IE", "tax_id": "IE7654321T"}),
+    )
+    assert refused.status_code == 422 and "Ustaw konto rozrachunków" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(
+            select(FinanceCounterparty.id).where(FinanceCounterparty.name == "Dostawca Bez Konta")
+        ) is None
+
+
+async def test_vat_markers_go_on_the_buyers_sales_invoices(client, world, books):
+    """GTU/TP per kontrahent (decyzja 15.11): na każdej FVS kontrahenta, w pliku
+    JPK zgodnym z XSD; zmiana znaczników = inny odcisk rejestru (korekta)."""
+
+    from app.services.ledger import jpk
+
+    await _vat_books(client, world, books)
+    buyer = books["buyer"].id
+    url = f"{ACC}/vat/markers/{buyer}"
+    refused = await client.put(url, json={"markers": ["GTU_12"]}, headers=_headers(world["module_only"]))
+    assert refused.status_code == 403
+    unknown = await client.put(url, json={"markers": ["GTU_99"]}, headers=_headers(world["accountant"]))
+    assert unknown.status_code == 422
+    missing = await client.put(
+        f"{ACC}/vat/markers/{2**31 - 1}", json={"markers": ["TP"]}, headers=_headers(world["accountant"])
+    )
+    assert missing.status_code == 404
+    # Poza zakresem INTEGER kartoteki = 422, nie 500 z bazy.
+    beyond = await client.put(
+        f"{ACC}/vat/markers/{2**40}", json={"markers": ["TP"]}, headers=_headers(world["accountant"])
+    )
+    assert beyond.status_code == 422
+    saved = await client.put(url, json={"markers": ["TP", "GTU_12"]}, headers=_headers(world["accountant"]))
+    assert saved.status_code == 200, saved.text
+    assert (saved.json()["counterparty_id"], saved.json()["markers"]) == (buyer, ["GTU_12", "TP"])
+    listed = (await client.get(f"{ACC}/vat/markers", headers=_headers(world["module_only"]))).json()
+    assert [item["counterparty_id"] for item in listed["items"]] == [buyer]
+    assert listed["can_edit"] is False and len(listed["labels"]) == 14
+
+    registers = (await _vat_registers(client, world, books)).json()
+    assert {row["number"]: row["markers"] for row in registers["sales"]} == {
+        "FS 1/03": ["GTU_12", "TP"],
+        "FS 2/03": ["GTU_12", "TP"],
+        "FK 1/03": ["GTU_12", "TP"],
+    }
+    assert all(row["markers"] == [] for row in registers["purchases"])
+    assert jpk.validate(_jpk_file(registers)) == []
+    marked = jpk.fingerprint(registers)
+
+    cleared = await client.put(url, json={"markers": []}, headers=_headers(world["accountant"]))
+    assert cleared.status_code == 200 and cleared.json()["markers"] == []
+    assert (await client.get(f"{ACC}/vat/markers", headers=_headers(world["accountant"]))).json()["items"] == []
+    plain = (await _vat_registers(client, world, books)).json()
+    assert jpk.fingerprint(plain) != marked
+
+
+async def test_foreign_purchase_cost_goes_to_overhead_in_the_allocation(
+    client, world, books, monkeypatch
+):
+    """Przegląd K5b-2: koszt FVZ z formularza wchodzi do rozliczenia na „5”
+    (koszty ogólne — faktura bez klienta i pionu), a szkic czeka jak FVZ
+    z kolejki kosztów — inaczej konta „4” rozjeżdżały się z 490."""
+
+    year = books["year"]
+    monkeypatch.setattr(ledger_vat_api, "business_today", lambda: date(year, 12, 31))
+    parent = await _foreign_setup(world, books, allocation=True)
+    tag = parent.split("-")[0]
+    created = await _foreign(
+        client,
+        world,
+        _foreign_body(
+            books,
+            new_supplier={
+                "name": f"Dostawca Koszt {tag}",
+                "country": "IE",
+                "tax_id": f"IE{random.randint(1_000_000, 9_999_999)}K",
+            },
+        ),
+    )
+    assert created.status_code == 201, created.text
+    books["extra_parties"].append(created.json()["supplier"]["id"])
+    waiting = (await _summary(client, world, books))["allocation"]
+    assert waiting["pending_costs"] == 1
+    await _approve_ids(client, world, [created.json()["document"]["id"]])
+    alloc = (await _summary(client, world, books))["allocation"]
+    assert alloc["pending_costs"] == 0
+    assert {(d["code"], d["amount"]) for d in alloc["details"]} == {("OG", 43_000)}
+
+
+# ── VAT-UE(5) (K5b-3a) ──────────────────────────────────────────────────────
+
+
+async def test_vat_ue_lines_come_from_the_sales_register(client, world, books):
+    """Usługa np II dla nabywcy z polskim NIP-em = problem; z numerem VAT UE na
+    fakturze = pozycja VAT-UE w pełnych złotych; niepełny rejestr blokuje plik."""
+
+    await _vat_books(client, world, books)
+    params = {"year": books["year"], "month": 3}
+    headers = _headers(world["accountant"])
+    first = (await client.get(f"{ACC}/vat/ue", params=params, headers=headers)).json()
+    assert first["lines"] == [] and first["can_download"] is False
+    assert [item["number"] for item in first["problems"]] == ["FS 2/03"]
+    assert "bez numeru VAT UE" in first["problems"][0]["detail"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == books["sales"]["euro"])
+            .values(buyer_nip=None, buyer_foreign_id="FI28583949")
+        )
+        await db.commit()
+    data = (await client.get(f"{ACC}/vat/ue", params=params, headers=headers)).json()
+    assert [(line["section"], line["country"], line["number"], line["amount"], line["documents"]) for line in data["lines"]] == [
+        ("services", "FI", "28583949", 2150, ["FS 2/03"])
+    ]
+    assert data["problems"] == [] and data["totals"]["services"] == 2150
+    # Faktury z KSeF bez dokumentu w księdze (fixture) blokują plik jak JPK.
+    assert any("bez dokumentu w księdze" in item for item in data["blockers"])
+    refused = await client.get(f"{ACC}/vat/ue/file", params=params, headers=headers)
+    assert refused.status_code == 422 and "VAT-UE nie powstanie" in refused.json()["detail"]
+    closed = await client.get(
+        f"{ACC}/vat/ue", params={"year": books["year"], "month": 13}, headers=headers
+    )
+    assert closed.status_code == 422

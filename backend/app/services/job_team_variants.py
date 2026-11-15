@@ -1,4 +1,4 @@
-"""Gotowe składy zespołu (Z3, 0712): automat proponuje, DL zatwierdza, klient widzi.
+"""Gotowe składy zespołu (Z3, 0713): automat proponuje, DL zatwierdza, klient widzi.
 
 Reguły: ``docs/claude/klienci/zespol-dla-klienta.md``. Propozycje liczy się na
 żądanie i nie zapisuje; w ``job_teams.variants`` są tylko składy zatwierdzone

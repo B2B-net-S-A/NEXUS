@@ -19,6 +19,8 @@ from app.services.order_client_identity import nip_checksum_valid
 _EU_PREFIXES = frozenset(
     "AT BE BG CY CZ DE DK EE EL ES FI FR HR HU IE IT LT LU LV MT NL PT RO SE SI SK XI".split()
 )
+#: Prefiksy numerów VAT UE (bez PL) — formularz zakupu zagranicznego (K5b-2).
+EU_PREFIXES = _EU_PREFIXES
 _PESEL_WEIGHTS = (1, 3, 7, 9, 1, 3, 7, 9, 1, 3)
 _SEPARATORS = re.compile(r"[\s.\-/]")
 _VAT_EU = re.compile(r"([A-Z]{2})([A-Z0-9+*]{2,})")

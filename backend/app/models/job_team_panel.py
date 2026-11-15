@@ -52,7 +52,7 @@ class JobTeam(Base):
     created_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )
-    # 0712: gotowe składy zatwierdzone przez DL-a, jedyne, które widzi klient.
+    # 0713: gotowe składy zatwierdzone przez DL-a, jedyne, które widzi klient.
     # ``[{"key", "name", "why", "picks": [{"job_id", "candidate_ids"}]}]``
     variants: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")

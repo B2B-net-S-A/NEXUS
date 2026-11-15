@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, jedna ścieżka 19 ćwiczeń, blokada nowej osoby zamiast Startu, dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 19, DL 15, TCM 11), wymagany od nadania roli, blokada nowej osoby zamiast Startu, dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -8,27 +8,58 @@ rekrutera kończyło się przyciskiem „Rozumiem” zamiast wykonaniem. Na poli
 osoba naprawdę przesuwa karty, wypełnia screening, odrzuca i przypisuje z bazy —
 na wymyślonych danych.
 
-## Jedna ścieżka, cała pierwszego dnia
+## Ścieżka roli, cała pierwszego dnia
 
 - **Bez poziomów i egzaminów** (Artur, 14.11.2026, drugie podejście): wszystko
   od razu w onboardingu. 19 ćwiczeń w 6 modułach (`lib/poligon/exercises.ts`):
   lista rekrutacji, Tablica (Biorę, ruch, źródła, Moi ludzie), panel osoby
   (notatka, „@”, odrzucenie z powodem), screening i weryfikacja (formularz,
   bramka „Zweryfikowany”, zapis, weryfikacja), rekomendacja (CV dla klienta,
-  QC CV) i baza kandydatów (szukanie, profil, przypisanie).
+  QC CV) i baza kandydatów (szukanie, profil, przypisanie). Od 15.11.2026
+  ścieżki są per rola (rekruter, Delivery Lead, TCM) — sekcja niżej.
 - **Blokuje pracę nowej osoby.** `GET /api/novelties/start` zwraca `poligon`
-  i `redirect`. Rekruter z kontem od `required_since` (`poligon.json`) jest
-  zatrzymany (`useStartGate`) i prowadzony na `/poligon`, dopóki nie zaliczy
-  wszystkich ćwiczeń. Poligon zastępuje mu przeklikania Startu z `replaces`.
-  Obecne osoby mogą wejść na mapę, ale poligon ich nie blokuje.
+  i `redirect`. Osoba z poligonem wymaganym jest zatrzymana (`useStartGate`)
+  i prowadzona na `/poligon`, dopóki nie zaliczy wymaganych ćwiczeń
+  (`poligon.exercise_ids`). Poligon zastępuje jej przeklikania Startu
+  z `replaces` (mapa rola → przeklikania). Obecne osoby mogą wejść na mapę,
+  ale poligon ich nie blokuje.
+- **Wymagany od nadania roli, nie od założenia konta** (Artur, 15.11.2026:
+  „Od nadania roli, brakujące ćwiczenia”). Pierwsze logowanie SSO zakłada
+  konto „Pracownik” (`employee`) — poligonu nie ma, nic nie blokuje, dzień nie
+  wypada ze statystyk. Rolę z poligonem (`required_roles`: rekruter, Delivery
+  Lead, TCM) nadaje potem ktoś w „Osoby i role” albo grupa Entra:
+  - wymagane = ćwiczenia ścieżki obecnych ról, których nie obejmowała ścieżka
+    ról osoby z dnia `required_since` (`onboarding_day.PoligonRequirement`).
+    Role z tego dnia odtwarza się wstecz z historii zmian ról w `activities`
+    (`role_changed`, `roles_changed`, `sso_aad_role_assigned`,
+    `sso_aad_roles_updated`, `admin_aad_role_resynced`,
+    `admin_aad_roles_resynced`; wiersze jednej transakcji mają ten sam
+    `created_at`). Konto założone później nie miało żadnej roli;
+  - zmiana roli = tylko ćwiczenia nowej roli, których osoba jeszcze nie
+    zaliczyła (wspólne moduły liczą się raz, z istniejących wierszy
+    `novelty_progress`). Rekruter sprzed 15.11, który zostaje DL-em, robi tylko
+    przegląd DL-a. Powrót do roli, którą już przeszła, i rola bez ścieżki nie
+    wymagają niczego;
+  - ścieżka KPI (co minutę dla każdego) pyta bazę tylko u osób z szybkiego
+    filtra `poligon_may_be_required` (rola z poligonem i konto albo
+    onboarding roli od `required_since` — zmiana roli rekrutera i DL-a zeruje
+    `profile_completed_at`); test na jedno `db.execute` w
+    `test_kpi_milestone_snapshot_round7.py`.
   Podgląd jako inna osoba zdejmuje tę blokadę. Wyłącznik Startu
   (`app_settings.start_gate`) jej nie zdejmuje, bo dotyczy tylko przeklikań
   Startu (Artur, 15.11.2026: Start był wyłączony od 30.10, więc poligon nikogo
-  nie zatrzymywał). Na stacku E2E blokadę wyłącza `app_settings.poligon_gate`
-  (`{"enforced": false}`, zapisuje go tylko `scripts/seed_e2e.py`, bez przycisku w UI).
+  nie zatrzymywał). Blokadę Poligonu zdejmuje jej własny wyłącznik
+  `app_settings.poligon_gate` (brak wiersza = włączona): przycisk „Wyłącz
+  blokadę” w Ustawienia → „Nowości — kto już umie” (admin, HoR; ten sam
+  `PUT /api/novelties/start/gate` z polem `poligon`). To zabezpieczenie na
+  wypadek, gdyby ćwiczenie przestało się zaliczać (Artur, 15.11.2026). Stack
+  E2E wyłącza go w `scripts/seed_e2e.py`.
 - **Dzień onboardingu nie liczy się do statystyk.** To dzień (Europe/Warsaw)
-  pierwszego zaliczonego ćwiczenia, tylko u osoby, której poligon jest
-  wymagany (`app/services/onboarding_day.py`). Taki dzień nie jest dniem pracy
+  pierwszego wymaganego ćwiczenia zaliczonego po nadaniu roli (przy
+  założeniu konta z rolą i przy każdej zmianie, która wnosi rolę z
+  `required_roles`), tylko u osoby, której poligon jest wymagany
+  (`app/services/onboarding_day.py`). Zmiana roli może więc dać drugi taki
+  dzień — `onboarding_days` zwraca zbiór dni. Taki dzień nie jest dniem pracy
   w żadnym mianowniku ani w żadnej normie:
   - `person_workdays.absence_by_user` (przy każdym źródle urlopów), co obejmuje
     Weryf./dz., cele KPI i Rytm;
@@ -36,13 +67,78 @@ na wymyślonych danych.
   - próg i plakietka Wyścigu Rekomendacji;
   - Porcja dnia: tego dnia osoba nie dostaje porcji (`review_batch.absent_today`).
 
-  Rytm liczy osobę od dnia następnego. Weryfikacje i rekomendacje zrobione
+  Rytm liczy osobę od dnia po pierwszym onboardingu. Weryfikacje i rekomendacje zrobione
   mimo to tego dnia liczą się normalnie, bo to prawdziwa praca.
 - **Postęp na serwerze.** `novelty_progress` z id `poligon-…`, zdarzenie
   `used` na `POST /api/novelties/{id}/events` (bez nowej trasy i bez migracji).
   Rejestr id: `backend/app/data/novelties/poligon.json`. Test frontu pilnuje,
-  że ma te same id co `exercises.ts`. `localStorage` służy tylko jako pamięć
+  że ma te same id i role co `exercises.ts`. Ćwiczenie spoza ścieżki ról osoby
+  dostaje 404. `localStorage` służy tylko jako pamięć
   podręczna mapy.
+
+## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
+
+Artur 15.11.2026 wybrał „Osobna sesja” dla ćwiczeń DL i TCM. Od tego dnia
+poligon jest wymagany także od nowego Delivery Leada i TCM. Do tej pory obie
+role dostawały stary Start z przyciskami „Rozumiem”.
+
+- **Ćwiczenie ma role** (`roles` w `exercises.ts` i w `poligon.json`, test
+  frontu pilnuje, że to te same listy). Osoba przechodzi ćwiczenia każdej swojej
+  roli, w kolejności rejestru:
+  - `exercisesFor` / `usePoligonPath` we froncie;
+  - `PoligonPlan.exercises_for` / `poligon_exercises` na serwerze.
+
+  Admin i Head of Recruitment widzą na mapie wszystkie ćwiczenia, ale poligon
+  ich nie blokuje.
+- **Ścieżki:**
+  - wspólne (wszystkie trzy role):
+    - lista rekrutacji;
+    - Tablica (przesunięcie, źródła);
+    - panel osoby (notatka, „@”, odrzucenie z powodem);
+    - baza kandydatów (szukanie, profil, przypisanie).
+
+    To ćwiczeniowy odpowiednik czterech przeklikań Startu, które wszystkie trzy
+    role miały w `start.json`;
+  - rekruter (19 ćwiczeń, bez zmian):
+    - „Biorę” i „Moi ludzie”;
+    - screening i weryfikacja;
+    - CV dla klienta i przekazanie do QC CV;
+  - Delivery Lead (15 ćwiczeń):
+    - CV dla klienta;
+    - moduł „Przegląd Delivery Leada”:
+      - otwarcie przeglądu osoby z „QC CV” (odczyt `/api/dl-review/context`);
+      - wysyłka do klienta ze stawką (ocena kwot, niżej);
+      - „Wróć do poprawy” z zaznaczonymi polami (`fix_fields`; bez pól nie
+        zalicza).
+
+    Bez „Biorę” (DL bez roli rekrutera go nie ma) i bez screeningu: DL omija
+    bramki pól (`dl-przesuwa-bez-blokad.md`);
+  - TCM (11 ćwiczeń): same wspólne moduły.
+
+  DL z dodatkową rolą rekrutera przechodzi sumę ścieżek.
+- **Treść mówi z perspektywy roli** (`primaryRole`). Rekruter oznacza w notatce
+  Delivery Leada („Anna Poligonowa”), a DL i TCM rekrutera („Jakub
+  Szkoleniowy”). Laurę z bazy rekruterowi poleca DL, a pozostałym rekruter.
+- **Kwoty w ćwiczeniu wysyłki** liczy stała reguła. Kandydat chce 105 zł/h,
+  a budżet rekrutacji wynosi do 115 zł/h. Stawka do klienta (zł/h, dzień ÷ 8,
+  miesiąc ÷ 168):
+  - ponad budżet nie zalicza;
+  - równa stawce kandydata albo niższa (brak marży) nie zalicza;
+  - w innej walucie niż PLN albo bez stawki nie zalicza.
+
+  Każda informacja zwrotna każe cofnąć kartę na „QC CV” i wysłać jeszcze raz.
+- **Serwer liczy tylko ćwiczenia roli osoby:**
+  - `poligon_status` liczy wymagane ćwiczenia, a `GET /api/novelties/start`
+    zwraca je jako `poligon.exercise_ids`. Mapa i okno ćwiczenia idą po tej
+    liście (`usePoligonPath`). Zaliczony screening rekrutera nie przybliża
+    DL-a do końca;
+  - `POST /api/novelties/poligon-…/events` z ćwiczeniem spoza ścieżki osoby
+    (np. TCM i przegląd DL) zwraca 404;
+  - `replaces` jest mapą rola → przeklikania Startu. Osobie zastępuje sumę dla
+    jej ról z `required_roles`.
+- **Kopia bramki „Zweryfikowany” w `store.ts`** działa tylko przy wejściu
+  z „Nowych” i „Screeningu”, jak `assert_verified_requirements` na serwerze.
+  Zwrot z „QC CV” do poprawy jej nie przechodzi.
 
 ## Jak działa tryb
 
@@ -81,7 +177,7 @@ na wymyślonych danych.
 ## Zestaw danych
 
 - Buduje go `backend/scripts/build_poligon_dataset.py` z nagrania na stagingu
-  z laptopa, zrobionego jednym kontem rekrutera. Nagranie obejmuje:
+  z laptopa, zrobionego kontem rekrutera. Nagranie obejmuje:
   - listę rekrutacji;
   - Tablicę;
   - panel osoby ze wszystkimi zakładkami, w tym „Screening”;
@@ -90,6 +186,15 @@ na wymyślonych danych.
   - bazę kandydatów;
   - profil i okno przypisania.
 
+  Od 15.11.2026 nagranie ma też fazy `dl-review*` z konta Delivery Leada:
+  przegląd jednej osoby z „QC CV” innej rekrutacji (ten sam szablon etapów).
+  Skrypt kładzie je pod osobę-szablon (`--dl-job`, `--dl-client`,
+  `--dl-candidate`, `--dl-stage`). Odpowiedź, którą ma już nagranie rekrutera,
+  zostaje z nagrania rekrutera. Kolumna „QC CV” dostaje dwie karty z „CV
+  wysłane” nagranej rekrutacji (QC zdane). Kontekst przeglądu (wymagania,
+  ocena, punkty odniesienia, pola do poprawy) jest wymyślony (`dl_context`),
+  a „Pasuje też do” jest puste.
+
   Nagranie ma prawdziwe dane i zostaje w scratchpadzie sesji, nigdy w repo.
 - Repo jest publiczne. Skrypt zamienia:
   - osoby na wymyślone (`PEOPLE`, trenerzy „Anna Poligonowa”,
@@ -97,7 +202,10 @@ na wymyślonych danych.
   - firmę na „Bank Północny”;
   - CV osoby na CV ćwiczebne;
   - identyfikatory na zakres 990000+;
-  - daty na względne (`@rel:-3.2`).
+  - daty na względne (`@rel:-3.2`);
+  - kwoty (stawki, budżety, marże) na wymyślone: kandydat 105 zł/h, budżet
+    do 115 zł/h (`money_value`). Stawki osób i marże klientów to tajemnica
+    firmy.
 
   Tekst spoza `safe-keys.json` znika, a tekst spod tych kluczy przechodzi przez
   filtr prawdziwych imion, nazwisk i firm z nagrania. Gdy ekran nie znosi
@@ -119,7 +227,8 @@ na wymyślonych danych.
   przejrzyj `--report` i przejdź całą ścieżkę w przeglądarce.
 - **Test całej ścieżki w CI** (`frontend/e2e/poligon-walk.spec.ts`, projekt
   `poligon-chromium`, od 15.11.2026). W kolejce merge'ów po buildzie frontendu
-  przechodzi 19 ćwiczeń na podstawionym backendzie (bez bazy). Pada na każdy brak
+  przechodzi ścieżkę rekrutera (19 ćwiczeń), Delivery Leada (15) i TCM (11)
+  na podstawionym backendzie (bez bazy). Pada na każdy brak
   w zestawie, zapis poza postępem `poligon-*` i błąd strony, bo taki brak blokuje
   nową osobę na cały dzień. Odczyt, na który serwer odpowiada 404 (np.
   rekrutacja bez migawki rekomendacji), zapisuje się w zestawie jako

@@ -5,7 +5,7 @@
 
 import { api } from "@/lib/api";
 
-import { EXERCISES } from "./exercises";
+import type { Exercise } from "./exercises";
 
 const KEY = "nexus.poligon.done";
 /** „Przejdź jeszcze raz”: mapa liczy od zera, choć serwer pamięta zaliczenie. */
@@ -79,7 +79,7 @@ export function resetProgress(): void {
   }
 }
 
-/** Pierwsze niezaliczone ćwiczenie (albo `null`, gdy komplet). */
-export function nextExerciseId(done: ReadonlySet<string>): string | null {
-  return EXERCISES.find((e) => !done.has(e.id))?.id ?? null;
+/** Pierwsze niezaliczone ćwiczenie ścieżki osoby (albo `null`, gdy komplet). */
+export function nextExerciseId(done: ReadonlySet<string>, path: readonly Exercise[]): string | null {
+  return path.find((e) => !done.has(e.id))?.id ?? null;
 }

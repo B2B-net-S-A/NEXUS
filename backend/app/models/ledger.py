@@ -38,6 +38,7 @@ from app.services import ledger_export_schema as export
 from app.services import ledger_fx_schema as fx
 from app.services import ledger_schema as schema
 from app.services import ledger_settlement_schema as settlement
+from app.services import ledger_vat_schema as vat_files
 
 
 class LedgerYear(Base):
@@ -617,3 +618,51 @@ class LedgerSettlement(Base):
     currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
     amount_cur: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     credit_amount: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+
+
+class LedgerVatFile(Base):
+    """Plik JPK_V7M za miesiąc — ewidencja VAT z deklaracją (K5b, 0708)."""
+
+    __tablename__ = "ledger_vat_files"
+    __table_args__ = (
+        UniqueConstraint(
+            "year", "month", "version", name="uq_ledger_vat_files_version"
+        ),
+        CheckConstraint(vat_files.CK_PERIOD, name="ck_ledger_vat_files_period"),
+        CheckConstraint(vat_files.CK_PURPOSE, name="ck_ledger_vat_files_purpose"),
+        CheckConstraint(vat_files.CK_STATUS, name="ck_ledger_vat_files_status"),
+        CheckConstraint(vat_files.CK_REASON, name="ck_ledger_vat_files_reason"),
+        CheckConstraint(vat_files.CK_SENT, name="ck_ledger_vat_files_sent"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    month: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    version: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(12), nullable=False)
+    reason: Mapped[Optional[str]] = mapped_column(
+        String(vat_files.REASON_MAX), nullable=True
+    )
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    totals: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    status: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default=text("'prepared'")
+    )
+    sent_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    sent_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    sent_note: Mapped[Optional[str]] = mapped_column(
+        String(vat_files.NOTE_MAX), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

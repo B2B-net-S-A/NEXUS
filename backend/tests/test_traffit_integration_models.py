@@ -1,8 +1,9 @@
 """Metadata-level tests for bidirectional Traffit persistence primitives.
 
-No DB required — asserts the SQLAlchemy metadata (tables, unique guards,
-fail-closed defaults) that plan PR2 promises. The DB-level behaviour is
-covered by `alembic upgrade heads` + import smoke in hosted CI.
+No DB required — asserts the SQLAlchemy metadata (tables, unique guards) that
+plan PR2 promises. The DB-level behaviour is covered by `alembic upgrade heads`
++ import smoke in hosted CI. Zostały powiązania encji i skrzynka webhooków;
+modele siedmiu tabel synchronizacji dwukierunkowej zdjęto 15.11.2026.
 """
 
 from app.core.database import Base
@@ -10,17 +11,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument
 from app.models.note import Note
 from app.models.pipeline_template import RejectionReason
-from app.models.traffit_integration import (
-    IntegrationLease,
-    TraffitEntityLink,
-    TraffitFieldContract,
-    TraffitIntegrationControl,
-    TraffitOutboxEvent,
-    TraffitSyncConflict,
-    TraffitSyncRun,
-    TraffitSyncRunPhase,
-    TraffitWebhookEvent,
-)
+from app.models.traffit_integration import TraffitEntityLink, TraffitWebhookEvent
 from app.models.traffit_sync_state import TraffitSyncState
 
 
@@ -31,14 +22,7 @@ def _index(table, name: str):
 def test_all_traffit_persistence_tables_are_registered() -> None:
     expected = {
         TraffitEntityLink.__tablename__,
-        TraffitFieldContract.__tablename__,
-        TraffitOutboxEvent.__tablename__,
         TraffitWebhookEvent.__tablename__,
-        TraffitSyncConflict.__tablename__,
-        TraffitSyncRun.__tablename__,
-        TraffitSyncRunPhase.__tablename__,
-        IntegrationLease.__tablename__,
-        TraffitIntegrationControl.__tablename__,
     }
     assert expected <= set(Base.metadata.tables)
 
@@ -50,7 +34,6 @@ def test_durable_queues_and_links_have_database_dedupe_guards() -> None:
     assert local_link.dialect_options["postgresql"]["where"] is not None
     assert remote_link.dialect_options["postgresql"]["where"] is not None
 
-    assert TraffitOutboxEvent.__table__.c.idempotency_key.unique
     webhook_unique = {
         tuple(column.name for column in constraint.columns)
         for constraint in TraffitWebhookEvent.__table__.constraints
@@ -59,27 +42,10 @@ def test_durable_queues_and_links_have_database_dedupe_guards() -> None:
     assert webhook_unique == {("subscription_id", "dedupe_key")}
 
 
-def test_conflicts_have_idempotency_guard_for_manual_issues() -> None:
-    # P1 z review WIP-u: jeden DELETE = jedna sprawa. Retry requestu trafia
-    # w partial unique index na idempotency_key i dostaje istniejący rekord.
-    idx = _index(TraffitSyncConflict.__table__, "ux_traffit_conflicts_idempotency")
-    assert idx.unique
-    assert idx.dialect_options["postgresql"]["where"] is not None
-
-
 def test_entity_link_keeps_schema_hash_for_base_snapshot() -> None:
     # Zmiana kontraktu pól tenanta unieważnia bazę 3-way merge — bez hasha
     # schematu merge porównywałby nieporównywalne projekcje.
     assert "base_schema_hash" in TraffitEntityLink.__table__.c.keys()
-
-
-def test_runtime_control_defaults_fail_closed_except_dry_run() -> None:
-    columns = TraffitIntegrationControl.__table__.c
-    assert str(columns.webhook_accept_enabled.server_default.arg) == "false"
-    assert str(columns.inbound_apply_enabled.server_default.arg) == "false"
-    assert str(columns.poll_enabled.server_default.arg) == "false"
-    assert str(columns.outbound_enabled.server_default.arg) == "false"
-    assert str(columns.dry_run.server_default.arg) == "true"
 
 
 def test_core_models_expose_bidirectional_sync_state() -> None:
@@ -125,17 +91,7 @@ def test_migration_and_entrypoint_mirror_stay_in_sync() -> None:
     ).read_text()
     entrypoint = (backend_dir / "entrypoint.sh").read_text()
 
-    for table in (
-        "traffit_entity_links",
-        "traffit_field_contracts",
-        "traffit_outbox_events",
-        "traffit_webhook_events",
-        "traffit_sync_conflicts",
-        "traffit_sync_runs",
-        "traffit_sync_run_phases",
-        "integration_leases",
-        "traffit_integration_control",
-    ):
+    for table in ("traffit_entity_links", "traffit_webhook_events"):
         assert f"CREATE TABLE IF NOT EXISTS {table}" in migration, table
         assert f"CREATE TABLE IF NOT EXISTS {table}" in entrypoint, table
 
