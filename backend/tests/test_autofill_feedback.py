@@ -757,7 +757,7 @@ def test_gaps_are_cleaned_and_only_go_with_missing_skill():
         )
 
 
-# ── Runda 5 (16.11.2026, 0716): szczegół powodu i „Porządki” ────────────────
+# ── Runda 5 (16.11.2026, 0717): szczegół powodu i „Porządki” ────────────────
 # Raport https://claude.ai/artifact/2TiEpPVCj6k42o2xkegDKv: 13.11 „Inna rola”
 # 49× bez słowa, 22 z 45 „Inne” to porządki tablicy albo sama kropka.
 

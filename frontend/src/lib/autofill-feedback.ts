@@ -50,7 +50,7 @@ export const GAP_KIND_LABEL: Record<AutofillGapKind, string> = {
 };
 
 /**
- * Szczegół powodu z porcji (16.11.2026, 0716; lustro `clean_detail` serwera).
+ * Szczegół powodu z porcji (16.11.2026, 0717; lustro `clean_detail` serwera).
  * 13.11 „Inna rola” była 49× bez słowa, a 22 z 45 „Inne” to porządki tablicy.
  */
 export type AutofillRoleKind = "profession" | "level" | "specialty";

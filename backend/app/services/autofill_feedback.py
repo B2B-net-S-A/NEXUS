@@ -109,7 +109,7 @@ MAX_GAPS = 10
 GAP_LABEL_MAX = 120
 
 
-# Runda 5 (16.11.2026, 0716): szczegół powodu z porcji. Na 13.11 „Inna rola”
+# Runda 5 (16.11.2026, 0717): szczegół powodu z porcji. Na 13.11 „Inna rola”
 # była 49×, z opisem 0×; 22 z 45 „Inne” to porządki tablicy albo sama kropka.
 CLEANUP_REASON = "cleanup"
 ROLE_REASON = "other_level_or_role"

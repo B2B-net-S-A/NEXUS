@@ -40,7 +40,7 @@ REASONS: tuple[str, ...] = (
     "no_polish",
     "weak_english",
     "contract_form",
-    # Runda 5 (0716, 16.11.2026): 22 z 45 „Inne” z 13.11 to porządki tablicy
+    # Runda 5 (0717, 16.11.2026): 22 z 45 „Inne” z 13.11 to porządki tablicy
     # (duplikat, „czyszczenie pipeline”, sama kropka) — nie ocena osoby.
     "cleanup",
     "other",
@@ -78,7 +78,7 @@ GAPS_DDL: list[str] = [
     *REASON_CHECK_DDL,
 ]
 
-# 0716 (16.11.2026): szczegół powodu — rodzaj „Innej roli”, dostępność przy
+# 0717 (16.11.2026): szczegół powodu — rodzaj „Innej roli”, dostępność przy
 # „Nie szuka”, rodzaj porządków (``autofill_feedback.clean_detail``).
 DETAIL_DDL: list[str] = [
     "ALTER TABLE autofill_feedback ADD COLUMN IF NOT EXISTS detail JSONB NULL",

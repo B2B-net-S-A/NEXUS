@@ -1,5 +1,5 @@
 # Porcja dnia: szczegół powodu, kwota przy „Za drogi” i porządki osobno
-<!-- indeks: `autofill_feedback.detail`, `clean_detail`, `role_kind` (profession / level / specialty), `role_wanted`, `availability` (not_looking / notice / from_date), powód `cleanup` (duplicate / stale_process / cv_broken), `OTHER_NOTE_MIN_LETTERS`, `otherNoteHasWords`, `autofill_detail`, „Ile chce?” w porcji, migracja 0716 -->
+<!-- indeks: `autofill_feedback.detail`, `clean_detail`, `role_kind` (profession / level / specialty), `role_wanted`, `availability` (not_looking / notice / from_date), powód `cleanup` (duplicate / stale_process / cv_broken), `OTHER_NOTE_MIN_LETTERS`, `otherNoteHasWords`, `autofill_detail`, „Ile chce?” w porcji, migracja 0717 -->
 
 Decyzja Artura z 16.11.2026 („wszystko” z propozycji A–D). Raport z feedbacku
 porcji po R1–R6 i makiety na stagingu:

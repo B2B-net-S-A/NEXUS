@@ -121,7 +121,7 @@ class StageMove(BaseModel):
     # 12.11.2026 (0686): braki przy pozycjach przy „Brak umiejętności”:
     # [{label, kind: missing|mention|too_few_years}], najwyżej 10.
     autofill_gaps: Optional[list[dict]] = Field(None, max_length=30)
-    # 16.11.2026 (0716): szczegół powodu z porcji — rodzaj „Innej roli”,
+    # 16.11.2026 (0717): szczegół powodu z porcji — rodzaj „Innej roli”,
     # dostępność przy „Nie szuka”, rodzaj „Porządków”
     # (`autofill_feedback.clean_detail`).
     autofill_detail: Optional[dict] = None
