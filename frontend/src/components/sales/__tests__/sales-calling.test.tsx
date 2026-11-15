@@ -292,6 +292,13 @@ describe("podpisy kolejki", () => {
         "2026-11-10",
       ),
     ).toBe("Oferta ogólna wysłana pt 06.11 · 2. rozmowa · termin minął pon 09.11");
+    // Rekord przeniesiony z Excela nie ma daty ostatniej rozmowy: bez „—” w środku.
+    expect(
+      itemReason(
+        item({ state: "call_back", attempts: 1, last_outcome_at: null, due_on: "2026-11-09" }),
+        "2026-11-10",
+      ),
+    ).toBe("Oddzwonić · 2. rozmowa · termin minął pon 09.11");
     expect(queueLine(callQueue({ callbacks: [callback], counts: { callbacks: 1, no_answer: 0, meetings: 4, new: 148, later: 2 } }))).toBe(
       "1 do oddzwonienia · 4 spotkania bez terminu · 148 nowych w kolejce · 2 wróci w swoim dniu",
     );
