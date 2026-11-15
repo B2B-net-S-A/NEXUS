@@ -45,7 +45,7 @@ export function JobTeamChip({ jobId }: { jobId: number }) {
   const team = query.data.team;
   if (team) {
     return (
-      <Link href={`/zespoly/${team.id}`} className={CHIP} data-testid="job-team-chip">
+      <Link href={`/zespoly/${team.id}`} className={CHIP} data-testid="job-team-chip" data-tour="jobs.board.team">
         <Users className="h-3.5 w-3.5 text-muted-foreground" />
         Zespół: {team.name}
       </Link>
@@ -65,7 +65,13 @@ export function JobTeamChip({ jobId }: { jobId: number }) {
   return (
     <>
       {confirmDialog}
-      <button type="button" className={CHIP} disabled={create.isPending} onClick={() => void start()}>
+      <button
+        type="button"
+        className={CHIP}
+        data-tour="jobs.board.team"
+        disabled={create.isPending}
+        onClick={() => void start()}
+      >
         <Plus className="h-3.5 w-3.5 text-muted-foreground" />
         Utwórz zespół
       </button>

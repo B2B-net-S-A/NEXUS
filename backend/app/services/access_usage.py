@@ -92,7 +92,8 @@ AREA_BY_SCREEN: dict[str, str] = {
         "talents",
     ),
     # „porcja” — porcja dnia od Nexusa (07.11.2026), karty z Tablicy.
-    **_screens(TABLICA, "calendar", "departed-care", "jobs", "manager", "porcja"),
+    # „zespoly” — zespół dla klienta: kilka rekrutacji pod jednym linkiem (15.11.2026).
+    **_screens(TABLICA, "calendar", "departed-care", "jobs", "manager", "porcja", "zespoly"),
     **_screens(
         KONTRAKTY,
         "back-office",

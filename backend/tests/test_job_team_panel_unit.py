@@ -138,7 +138,7 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
         client_id=5,
         status=JobStatus.published,
     )
-    position = service.PublicPosition("kluczstanowiska1", job, SimpleNamespace(id=4))
+    position = service.PublicPosition("aaaaaaaaaaaaaaaa", job, SimpleNamespace(id=4))
     team = SimpleNamespace(
         id=1,
         name="Zespół mobilny",
@@ -163,7 +163,7 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
     assert body["hours_per_month"] == 168
     assert body["positions"] == [
         {
-            "key": "kluczstanowiska1",
+            "key": "aaaaaaaaaaaaaaaa",
             "short": "Programista",
             "headcount": 2,
             "view": {"job": {"title": "Programista"}, "candidates": []},

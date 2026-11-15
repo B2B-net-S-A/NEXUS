@@ -28,6 +28,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "client-contracts": "Umowy klientów",
   wypis: "Wypis",
   k: "Panel klienta",
+  // `/k/z/{token}` — panel klienta dla zespołu (15.11.2026).
+  z: "Zespół",
   t: "Wybór terminu",
   talents: "Talenty",
   analytics: "Analityka",
