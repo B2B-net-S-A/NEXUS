@@ -186,3 +186,43 @@ def test_schema_catches_a_broken_file():
     broken = content.replace(b"<KodUrzedu>0202</KodUrzedu>", b"<KodUrzedu>9999</KodUrzedu>")
     assert broken != content
     assert any("KodUrzedu" in error for error in jpk.validate(broken))
+
+
+def test_counterparty_country_comes_from_the_identifier():
+    """Przegląd K5b: kraj nadania z prefiksu numeru VAT UE, Grecja = EL."""
+
+    assert jpk.counterparty("DE123456789", None) == ("DE", "123456789")
+    assert jpk.counterparty("EL123456789", "GR") == ("EL", "123456789")
+    assert jpk.counterparty("123456789", "GR") == ("EL", "123456789")
+
+
+def test_control_characters_do_not_break_the_file():
+    data = _data()
+    data["sales"][0]["counterparty"] = "Klient\x01 Testowy\x0b"
+    content, _ = jpk.build(
+        data,
+        company=COMPANY,
+        email="ksiegowosc@example.com",
+        phone="",
+        purpose="submission",
+        reason=None,
+        surplus=0,
+        now=NOW,
+    )
+    assert jpk.validate(content) == []
+    root = etree.fromstring(content)
+    assert root.find(".//j:SprzedazWiersz", NS).findtext("j:NazwaKontrahenta", namespaces=NS) == "Klient Testowy"
+
+
+def test_rows_whose_amounts_do_not_fit_jpk_fields_are_listed():
+    """VAT na grupie bez pola VAT (np. np UE) po cichu by zniknął z P_38."""
+
+    data = _data()
+    data["sales"][1]["vat"] = 23_000
+    assert jpk.row_problems(data) == ["1/03/UE"]
+    assert jpk.row_problems(_data()) == []
+
+
+def test_periods_before_february_2026_are_refused():
+    assert jpk.period_problem(2026, 1) and jpk.period_problem(2025, 12)
+    assert jpk.period_problem(2026, 2) is None

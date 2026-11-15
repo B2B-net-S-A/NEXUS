@@ -329,11 +329,12 @@ def jpk_check(status: dict[str, Any], href: str) -> dict[str, Any]:
             "detail": f"wersja {latest['version']} przygotowana — wyślij i oznacz jako wysłaną",
         }
     if status["changed"]:
-        return {
-            **item,
-            "state": "problem",
-            "detail": "rejestr VAT zmienił się po wysłaniu JPK — przygotuj korektę",
-        }
+        detail = (
+            "korekta JPK za poprzedni miesiąc zmieniła nadwyżkę (P_39) — przygotuj korektę"
+            if status.get("reason") == "surplus"
+            else "rejestr VAT zmienił się po wysłaniu JPK — przygotuj korektę"
+        )
+        return {**item, "state": "problem", "detail": detail}
     note = f", {latest['sent_note']}" if latest.get("sent_note") else ""
     return {
         **item,

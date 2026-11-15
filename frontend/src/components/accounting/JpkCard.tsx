@@ -63,6 +63,13 @@ export function JpkCard({ year, month, blockers = [] }: { year: number; month: n
           Do JPK brakuje: {data.missing.join("; ")}.
         </p>
       ) : null}
+      {data.stale ? (
+        <p className="border-b border-border/70 px-3.5 py-2 text-[13px] text-destructive-text">
+          {data.stale === "surplus"
+            ? "Wysłany JPK jest nieaktualny: korekta JPK za poprzedni miesiąc zmieniła nadwyżkę (P_39) — przygotuj korektę."
+            : "Wysłany JPK jest nieaktualny: rejestr VAT zmienił się po wysłaniu — przygotuj korektę."}
+        </p>
+      ) : null}
       <FilesTable data={data} />
       {data.can_prepare ? (
         <PrepareForm data={data} blockers={blockers} />
@@ -70,6 +77,13 @@ export function JpkCard({ year, month, blockers = [] }: { year: number; month: n
         <p className={NOTE}>Plik zawiera faktury osób zespołu — przygotowuje i pobiera go osoba z Płacami.</p>
       ) : null}
       {data.can_edit_contact ? <ContactForm data={data} /> : null}
+      {data.notes.length ? (
+        <ul className="space-y-0.5 border-t border-border/70 px-3.5 py-2 text-[12px] text-muted-foreground">
+          {data.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
+      ) : null}
     </SectionCard>
   );
 }
@@ -82,7 +96,14 @@ function FilesTable({ data }: { data: JpkOverview }) {
   if (!data.files.length) {
     return <p className={NOTE}>Za ten miesiąc nie ma jeszcze pliku JPK.</p>;
   }
-  const latest = data.files[data.files.length - 1];
+  const anySent = data.files.some((file) => file.status === "sent");
+  // Wysłaną bramką MF można oznaczyć także starszą wersję (pozostałe niewysłane
+  // staną się unieważnione) — byle nie było nowszej wysłanej, a złożenie nie po
+  // wysłanym JPK.
+  const markable = (file: JpkFile) =>
+    file.status === "prepared" &&
+    !data.files.some((other) => other.version > file.version && other.status === "sent") &&
+    !(file.purpose === "submission" && anySent);
   const download = async (file: JpkFile) => {
     try {
       await downloadAuthenticatedFile(jpkFilePath(file.id), `JPK_V7M_${data.year}-${String(data.month).padStart(2, "0")}_v${file.version}.xml`);
@@ -122,6 +143,8 @@ function FilesTable({ data }: { data: JpkOverview }) {
             <td className="min-w-0 px-2 py-1.5 text-[13px]">
               {file.status === "sent" ? (
                 <span className="text-success-muted-foreground">wysłany {datePl(file.sent_at?.slice(0, 10))}</span>
+              ) : file.status === "void" ? (
+                <span className="text-muted-foreground">unieważniony (wysłano inną wersję)</span>
               ) : (
                 <span>przygotowany {datePl(file.created_at?.slice(0, 10))}</span>
               )}
@@ -137,7 +160,7 @@ function FilesTable({ data }: { data: JpkOverview }) {
                     Pobierz XML
                   </Button>
                 ) : null}
-                {data.can_mark_sent && file.id === latest.id && file.status === "prepared" ? (
+                {data.can_mark_sent && markable(file) ? (
                   sending === file.id ? (
                     <form
                       className="flex items-center gap-1.5"
@@ -176,7 +199,7 @@ function PrepareForm({ data, blockers }: { data: JpkOverview; blockers: readonly
   const { showToast } = useToast();
   const prepare = usePrepareJpk();
   const [reason, setReason] = useState("");
-  const [surplus, setSurplus] = useState("");
+  const [surplus, setSurplus] = useState(data.surplus_value != null ? String(data.surplus_value) : "");
   const correction = data.purpose === "correction";
   const surplusValue = surplus.trim() === "" ? null : Number(surplus);
   const ready =
@@ -190,7 +213,7 @@ function PrepareForm({ data, blockers }: { data: JpkOverview; blockers: readonly
         year: data.year,
         month: data.month,
         ...(correction ? { reason: reason.trim() } : {}),
-        ...(data.needs_opening_surplus && surplusValue != null ? { opening_surplus: surplusValue } : {}),
+        ...(data.surplus_editable && surplusValue != null ? { opening_surplus: surplusValue } : {}),
       },
       {
         onSuccess: (result) => {
@@ -209,7 +232,7 @@ function PrepareForm({ data, blockers }: { data: JpkOverview; blockers: readonly
         if (ready) run();
       }}
     >
-      {data.needs_opening_surplus ? (
+      {data.surplus_editable ? (
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">Nadwyżka z poprzedniej deklaracji (P_62, zł)</span>
           <input

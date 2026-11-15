@@ -119,6 +119,14 @@ P_48_FROM = ("P_39", "P_41", "P_43", "P_44", "P_45", "P_46", "P_47")
 #: „Do sprawdzenia” rejestrów, przy których JPK nie powstaje (niepełny albo bez
 #: pola JPK); reszta to ostrzeżenia w odpowiedzi.
 BLOCKING = ("rates", "missing_sales", "drafts")
+#: Czego plik z NEXUSA jeszcze nie ma — widoczne przy JPK, dopóki nie powstanie
+#: (porównanie z JPK z Symfonii w miesiącach równoległych to wyłapie).
+NOTES: tuple[str, ...] = (
+    "Znaczniki GTU i TP (np. GTU_12, transakcje z podmiotami powiązanymi) "
+    "i procedury — jeszcze nie w NEXUSIE; przed wysyłką porównaj z JPK z Symfonii.",
+    "Zakupy zagraniczne bez KSeF (import usług) wejdą do JPK z formularzem "
+    "zakupu zagranicznego (K5b-2).",
+)
 PREPARE_ONLY = (
     "JPK zawiera faktury osób zespołu — przygotowuje go osoba z listy „Księgowi” "
     "z Płacami albo administrator."
@@ -148,11 +156,17 @@ def counterparty(
     code = (country or "").upper()
     if not number:
         return None, BRAK
+    if not code and number[:2].isalpha():
+        # Numer VAT UE bez zapisanego kraju: kraj z prefiksu numeru.
+        code = number[:2]
+    if code == "GR" and number.startswith("EL"):
+        code = "EL"
     if code in ("", "PL"):
         return None, number[2:] if number.startswith("PL") else number
     if number.startswith(code):
         number = number[len(code) :]
-    return code, number or BRAK
+    # Grecja w JPK to EL (TKodKrajuJPK wyklucza GR).
+    return ("EL" if code == "GR" else code), number or BRAK
 
 
 def row_fields(groups: list[dict[str, Any]]) -> dict[str, int]:
@@ -197,9 +211,44 @@ def _iso(value: Optional[str]) -> Optional[date]:
     return date.fromisoformat(value) if value else None
 
 
+#: Znaki spoza XML 1.0 (sterujące) — lxml odrzuca je wyjątkiem (500).
+_NOT_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
+
+
 def _clip(value: Optional[str], limit: int) -> str:
-    text = " ".join((value or "").split())
+    text = " ".join(_NOT_XML.sub(" ", value or "").split())
     return text[:limit] if text else BRAK
+
+
+#: JPK_V7M(3) obowiązuje od rozliczenia za luty 2026 (wcześniej wzór (2)).
+FIRST_PERIOD = (2026, 2)
+
+
+def period_problem(year: int, month: int) -> Optional[str]:
+    if (year, month) < FIRST_PERIOD:
+        return (
+            "JPK_V7M(3) obowiązuje od rozliczenia za luty 2026 — wcześniejsze "
+            "okresy w Symfonii (wzór 2)."
+        )
+    return None
+
+
+def row_problems(data: dict[str, Any]) -> list[str]:
+    """Wiersze, których kwoty z dekretu nie mieszczą się w polach JPK (netto
+    i VAT grup ≠ sumy wiersza) — plik by je zaniżył (przegląd K5b)."""
+
+    out = []
+    for kind in ("sales", "purchases"):
+        for row in data[kind]:
+            net = sum(group["net"] for group in row["groups"])
+            tax = sum(
+                group["vat"]
+                for group in row["groups"]
+                if vat.CATEGORIES[group["key"]].vat_field
+            )
+            if (net, tax) != (row["net"], row["vat"]):
+                out.append(row["number"])
+    return out
 
 
 def _sub(parent: Any, tag: str, text: Any = None, **attrs: str) -> Any:
@@ -474,6 +523,7 @@ async def overview(
     files = await _files(db, year, month)
     _, missing = await _missing(db, settings)
     surplus = await previous_surplus(db, year, month)
+    payroll = can_download(viewer)
     return {
         "year": year,
         "month": month,
@@ -482,11 +532,19 @@ async def overview(
         if any(item.status == "sent" for item in files)
         else "submission",
         "needs_opening_surplus": surplus is None and not files,
-        "previous_surplus": surplus if can_download(viewer) else None,
+        # Pierwszy miesiąc w NEXUSIE: P_39 wpisuje się (i poprawia) przy każdej
+        # wersji; potem przychodzi z P_62 poprzedniego JPK.
+        "surplus_editable": surplus is None,
+        "surplus_value": (month_surplus(files) if surplus is None else surplus)
+        if payroll
+        else None,
+        "previous_surplus": surplus if payroll else None,
+        "stale": await _stale(db, viewer, settings, files, year=year, month=month),
         "missing": missing,
+        "notes": NOTES,
         "contact": {"email": settings.jpk.email, "phone": settings.jpk.phone},
         "can_prepare": can_prepare(viewer),
-        "can_download": can_download(viewer),
+        "can_download": payroll,
         "can_mark_sent": viewer.approver,
         "can_edit_contact": viewer.admin,
     }
@@ -507,6 +565,9 @@ async def prepare(
 
     if not can_prepare(viewer):
         raise LedgerError(PREPARE_ONLY, status=403)
+    problem = period_problem(year, month)
+    if problem:
+        raise LedgerError(problem, status=422)
     await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(LOCK_KEY))))
     company, missing = await _missing(db, settings)
     if missing:
@@ -520,6 +581,13 @@ async def prepare(
         raise LedgerError(
             f"JPK nie powstanie, dopóki rejestr jest niepełny — {listed}.", status=422
         )
+    unfit = row_problems(data)
+    if unfit:
+        raise LedgerError(
+            "Kwoty tych dokumentów nie mieszczą się w polach JPK — sprawdź je: "
+            f"{', '.join(unfit[:10])}.",
+            status=422,
+        )
     files = await _files(db, year, month)
     purpose = (
         "correction" if any(item.status == "sent" for item in files) else "submission"
@@ -529,12 +597,22 @@ async def prepare(
         raise LedgerError(
             "Korekta JPK: podaj uzasadnienie przyczyn korekty (P_ORDZU).", status=422
         )
-    surplus = opening_surplus
-    if surplus is None:
-        surplus = await previous_surplus(db, year, month)
-    if surplus is None and files:
-        # Kolejna wersja tego miesiąca bez JPK za poprzedni: ta sama nadwyżka.
-        surplus = int((files[-1].totals or {}).get("P_39", 0))
+    previous = await previous_surplus(db, year, month)
+    surplus: Optional[int]
+    if previous is not None:
+        if opening_surplus is not None and opening_surplus != previous:
+            raise LedgerError(
+                "P_39 to P_62 z JPK za poprzedni miesiąc w NEXUSIE "
+                f"({previous} zł) — nie wpisuje się jej ręcznie.",
+                status=422,
+            )
+        surplus = previous
+    elif opening_surplus is not None:
+        # Pierwszy miesiąc w NEXUSIE: kwota z deklaracji z Symfonii, poprawialna
+        # w każdej wersji (literówka nie zostaje w korektach — przegląd K5b).
+        surplus = opening_surplus
+    else:
+        surplus = month_surplus(files)
     if surplus is None:
         raise LedgerError(
             "W NEXUSIE nie ma JPK za poprzedni miesiąc — podaj nadwyżkę z poprzedniej "
@@ -605,46 +683,91 @@ async def mark_sent(
     note: Optional[str],
     now: datetime,
 ) -> dict[str, Any]:
-    """„Wysłany” (bez commita): ostatnia wersja miesiąca, z numerem UPO w notatce."""
+    """„Wysłany” (bez commita): wersja, którą wysłano bramką MF, z numerem UPO.
+
+    Może to być starsza wersja (wysłana, zanim ktoś przygotował nową) — pozostałe
+    nie wysłane wersje miesiąca stają się unieważnione. Ta sama blokada co
+    „Przygotuj JPK”, żeby cel złożenia nowej wersji nie powstał z nieaktualnego
+    stanu (przegląd K5b)."""
 
     if not viewer.approver:
         raise LedgerError(
             "Wysłanie JPK oznacza osoba z listy „Księgowi” albo administrator.",
             status=403,
         )
+    await db.execute(select(func.pg_advisory_xact_lock(func.hashtext(LOCK_KEY))))
     item = await _get(db, file_id)
-    if item.status == "sent":
-        raise LedgerError("Ten plik JPK jest już oznaczony jako wysłany.", status=409)
-    latest = (await _files(db, item.year, item.month))[-1]
-    if latest.id != item.id:
+    if item.status != "prepared":
         raise LedgerError(
-            f"Wysłać można tylko ostatnią wersję (v{latest.version}).", status=409
+            "Ta wersja JPK jest już wysłana albo unieważniona.", status=409
+        )
+    files = await _files(db, item.year, item.month)
+    if any(other.status == "sent" and other.version > item.version for other in files):
+        raise LedgerError("Za ten miesiąc wysłano już nowszą wersję JPK.", status=409)
+    if item.purpose == "submission" and any(other.status == "sent" for other in files):
+        raise LedgerError(
+            "Ta wersja to złożenie, a za ten miesiąc JPK jest już wysłany — "
+            "przygotuj korektę.",
+            status=409,
         )
     item.status = "sent"
     item.sent_at = now
     item.sent_by = viewer.user_id
     item.sent_note = " ".join((note or "").split())[:NOTE_MAX] or None
+    for other in files:
+        if other.id != item.id and other.status == "prepared":
+            other.status = "void"
     await db.flush()
     return _payload(item, viewer)
+
+
+def month_surplus(files: list[LedgerVatFile]) -> Optional[int]:
+    """P_39 wersji tego miesiąca (wysłanej, inaczej ostatniej); ``None`` = brak."""
+
+    if not files:
+        return None
+    sent = [item for item in files if item.status == "sent"]
+    return int(((sent or files)[-1].totals or {}).get("P_39", 0))
+
+
+async def _stale(
+    db: AsyncSession,
+    viewer: Viewer,
+    settings: LedgerSettings,
+    files: list[LedgerVatFile],
+    *,
+    year: int,
+    month: int,
+) -> Optional[str]:
+    """Czy wysłany JPK jest nieaktualny: ``surplus`` — korekta poprzedniego
+    miesiąca zmieniła P_62 (P_39 tego), ``registers`` — rejestr zmienił się po
+    wysłaniu; ``None`` = aktualny albo nic nie wysłano."""
+
+    sent = [item for item in files if item.status == "sent"]
+    if not sent:
+        return None
+    last = sent[-1].totals or {}
+    previous = await previous_surplus(db, year, month)
+    if previous is not None and int(last.get("P_39", 0)) != previous:
+        return "surplus"
+    data = await vat.registers(
+        db, replace(viewer, payroll=True), settings, year=year, month=month
+    )
+    return "registers" if fingerprint(data) != last.get("fingerprint") else None
 
 
 async def month_status(
     db: AsyncSession, viewer: Viewer, settings: LedgerSettings, *, year: int, month: int
 ) -> dict[str, Any]:
-    """Stan JPK do listy zamknięcia: ostatnia wersja i czy rejestr zmienił się
-    po wysłaniu (odcisk z rejestrów pełnych — bez kwot w odpowiedzi)."""
+    """Stan JPK do listy zamknięcia: ostatnia ważna wersja i czy wysłany plik jest
+    nieaktualny (odcisk z rejestrów pełnych i P_39 — bez kwot w odpowiedzi)."""
 
     files = await _files(db, year, month)
-    if not files:
-        return {"latest": None, "changed": False}
-    latest = files[-1]
-    sent = [item for item in files if item.status == "sent"]
-    changed = False
-    if sent:
-        data = await vat.registers(
-            db, replace(viewer, payroll=True), settings, year=year, month=month
-        )
-        changed = fingerprint(data) != (sent[-1].totals or {}).get("fingerprint")
+    live = [item for item in files if item.status != "void"]
+    if not live:
+        return {"latest": None, "changed": False, "reason": None}
+    latest = live[-1]
+    reason = await _stale(db, viewer, settings, files, year=year, month=month)
     return {
         "latest": {
             "version": latest.version,
@@ -652,5 +775,6 @@ async def month_status(
             "sent_at": latest.sent_at.isoformat() if latest.sent_at else None,
             "sent_note": latest.sent_note,
         },
-        "changed": changed,
+        "changed": reason is not None,
+        "reason": reason,
     }

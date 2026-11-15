@@ -117,7 +117,8 @@ export interface JpkFile {
   id: number;
   version: number;
   purpose: "submission" | "correction";
-  status: "prepared" | "sent";
+  /** `void` = unieważniona (wysłano inną wersję miesiąca). */
+  status: "prepared" | "sent" | "void";
   created_at: string | null;
   sent_at: string | null;
   sent_note: string | null;
@@ -131,8 +132,15 @@ export interface JpkOverview {
   files: JpkFile[];
   purpose: "submission" | "correction";
   needs_opening_surplus: boolean;
+  /** Pierwszy miesiąc w NEXUSIE: P_39 wpisuje się (i poprawia) przy każdej wersji. */
+  surplus_editable: boolean;
+  /** Podpowiedź P_39 (tylko z Płacami). */
+  surplus_value: number | null;
   previous_surplus: number | null;
+  /** Wysłany JPK nieaktualny: rejestr zmienił się albo korekta poprzedniego miesiąca zmieniła P_39. */
+  stale: "registers" | "surplus" | null;
   missing: string[];
+  notes: string[];
   contact: { email: string; phone: string };
   can_prepare: boolean;
   can_download: boolean;

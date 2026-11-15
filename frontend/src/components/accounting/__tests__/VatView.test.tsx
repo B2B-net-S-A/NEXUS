@@ -144,8 +144,12 @@ function jpkOverview(overrides: Partial<JpkOverview> = {}): JpkOverview {
     files: [],
     purpose: "submission",
     needs_opening_surplus: false,
+    surplus_editable: false,
+    surplus_value: 0,
     previous_surplus: 0,
+    stale: null,
     missing: [],
+    notes: [],
     contact: { email: "vat@example.com", phone: "" },
     can_prepare: true,
     can_download: true,
@@ -245,7 +249,7 @@ describe("Księgowość — VAT (K5a)", () => {
   });
 
   it("JPK: pierwszy miesiąc z nadwyżką z deklaracji z Symfonii", async () => {
-    route(config(), registers({ issues: [] }), jpkOverview({ needs_opening_surplus: true, previous_surplus: null }));
+    route(config(), registers({ issues: [] }), jpkOverview({ needs_opening_surplus: true, surplus_editable: true, surplus_value: null, previous_surplus: null }));
     post.mockResolvedValue({ data: { file: { id: 7, version: 1, purpose: "submission", status: "prepared", created_at: "2026-12-05T10:00:00Z", sent_at: null, sent_note: null }, warnings: ["Faktury kosztowe z wpływem w tym miesiącu bez FVZ: 1"] } });
     const user = userEvent.setup();
     renderView();
@@ -293,6 +297,32 @@ describe("Księgowość — VAT (K5a)", () => {
     renderView();
     expect(await screen.findByText(/JPK powstanie po zamknięciu listy/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Przygotuj JPK" })).toBeDisabled();
+  });
+
+  it("JPK: złożoną starszą wersję da się oznaczyć, nieaktualny wysłany i uwagi (przegląd K5b)", async () => {
+    const files = [
+      { id: 7, version: 1, purpose: "submission" as const, status: "prepared" as const, created_at: "2026-12-05T10:00:00Z", sent_at: null, sent_note: null },
+      { id: 8, version: 2, purpose: "submission" as const, status: "prepared" as const, created_at: "2026-12-06T10:00:00Z", sent_at: null, sent_note: null },
+    ];
+    route(config(), registers({ issues: [] }), jpkOverview({ files, stale: "surplus", notes: ["Znaczniki GTU i TP — jeszcze nie w NEXUSIE."] }));
+    renderView();
+    const first = (await screen.findByText("v1")).closest("tr") as HTMLElement;
+    expect(within(first).getByRole("button", { name: "Oznacz jako wysłany" })).toBeInTheDocument();
+    expect(screen.getByText(/korekta JPK za poprzedni miesiąc zmieniła nadwyżkę/)).toBeInTheDocument();
+    expect(screen.getByText("Znaczniki GTU i TP — jeszcze nie w NEXUSIE.")).toBeInTheDocument();
+  });
+
+  it("JPK: unieważniona wersja bez akcji, pierwszy miesiąc z podpowiedzią nadwyżki", async () => {
+    const files = [
+      { id: 7, version: 1, purpose: "submission" as const, status: "sent" as const, created_at: "2026-12-05T10:00:00Z", sent_at: "2026-12-06T09:00:00Z", sent_note: null },
+      { id: 8, version: 2, purpose: "submission" as const, status: "void" as const, created_at: "2026-12-06T10:00:00Z", sent_at: null, sent_note: null },
+    ];
+    route(config(), registers({ issues: [] }), jpkOverview({ files, purpose: "correction", surplus_editable: true, surplus_value: 120 }));
+    renderView();
+    const second = (await screen.findByText("v2")).closest("tr") as HTMLElement;
+    expect(within(second).getByText("unieważniony (wysłano inną wersję)")).toBeInTheDocument();
+    expect(within(second).queryByRole("button", { name: "Oznacz jako wysłany" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Nadwyżka z poprzedniej deklaracji" })).toHaveValue("120");
   });
 
   it("JPK bez Płac: stan wersji bez kwot i bez pobrania", async () => {

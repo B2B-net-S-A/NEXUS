@@ -185,3 +185,11 @@ def test_reverse_charge_in_a_purchase_keeps_net_and_output_vat():
     only_output = [("debit", "402", 123_000, None), ("credit", "222", 23_000, None), ("credit", "201-5", 100_000, 9)]
     found = vat.purchase_amounts(only_output, input_account="221", output_account="222", intake_account="080")
     assert (found.vat, found.output) == (0, 23_000)
+
+
+def test_vat_on_a_zero_rate_invoice_goes_to_the_list():
+    """VAT na stawce bez podatku nie ma pola w JPK — wiersz do sprawdzenia
+    zamiast cichego zniknięcia z deklaracji (przegląd K5b)."""
+
+    amounts, problem = vat.split_sales([{"net": "500", "vat_rate": "np II"}], 215_000, 23_000)
+    assert amounts == {} and problem == "VAT na stawce bez podatku (np, zw, 0%) — sprawdź fakturę"

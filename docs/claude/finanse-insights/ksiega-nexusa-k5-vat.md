@@ -92,15 +92,30 @@ i dokument rozliczenia VAT — dalsze części K5b.
   lata do 2090).
 - **Wersje** (`ledger_vat_files`): 1. = złożenie; po wersji oznaczonej jako
   wysłana kolejna to korekta (CelZlozenia 2) z uzasadnieniem P_ORDZU. „Wysłany”
-  oznacza księgowa po wysłaniu bramką MF (z numerem UPO) — tylko ostatnią wersję.
+  oznacza księgowa po wysłaniu bramką MF (z numerem UPO) — także starszą wersję
+  (wysłaną, zanim ktoś przygotował nową), byle nie było nowszej wysłanej;
+  pozostałe niewysłane wersje miesiąca stają się `void` (unieważnione). Złożenia
+  nie oznacza się po wysłanym JPK. „Wysłany” bierze tę samą blokadę co
+  „Przygotuj JPK” — cel nowej wersji nie powstaje z nieaktualnego stanu.
   Plik i sumy deklaracji zapisane (bajty + SHA-256), nie liczone na nowo.
-- **P_39** = P_62 z JPK poprzedniego miesiąca (ostatni wysłany, inaczej ostatni);
-  pierwszy miesiąc w NEXUSIE — kwota wpisana przy przygotowaniu (z deklaracji
-  z Symfonii); kolejna wersja tego samego miesiąca bierze P_39 poprzedniej.
-- **Blokady przygotowania** (422): brak kodu urzędu skarbowego (dane płatnika
-  K7a) albo e-maila do JPK (zakładka VAT, admin); wiersz bez pola JPK, faktura
-  sprzedaży z KSeF bez dokumentu, FVS/FVZ w buforze. Kolejka kosztów i zapisy na
-  kontach VAT spoza rejestru = ostrzeżenia w odpowiedzi.
+- **P_39** = P_62 z JPK poprzedniego miesiąca (ostatni wysłany, inaczej ostatni)
+  i wtedy nie wpisuje się jej ręcznie (422); pierwszy miesiąc w NEXUSIE — kwota
+  z deklaracji z Symfonii, wpisywana i poprawialna przy każdej wersji (podpowiedź
+  = P_39 ostatniej). **Łańcuch korekt**: korekta miesiąca, która zmienia P_62,
+  oznacza wysłany JPK następnego miesiąca jako nieaktualny (`stale = surplus`,
+  lista zamknięcia: problem).
+- **Blokady przygotowania** (422): okres przed lutym 2026 (wzór 2 — Symfonia);
+  brak kodu urzędu skarbowego (dane płatnika K7a) albo e-maila do JPK (zakładka
+  VAT, admin); wiersz bez pola JPK, faktura sprzedaży z KSeF bez dokumentu,
+  FVS/FVZ w buforze; wiersz, którego netto lub VAT nie mieści się w polach JPK
+  (np. VAT na stawce np/zw — w rejestrze to „do sprawdzenia”). Kolejka kosztów
+  i zapisy na kontach VAT spoza rejestru = ostrzeżenia w odpowiedzi.
+- **Kontrahent w pliku**: kraj nadania z rodzaju identyfikatora, nie z adresu
+  (NIP = bez kodu, VAT UE = prefiks numeru, PESEL = „BRAK”), Grecja = EL; znaki
+  sterujące z nazw i numerów usuwane (lxml odrzucał je błędem 500).
+- **Czego plik jeszcze nie ma** (uwagi na karcie JPK): znaczniki GTU i TP oraz
+  procedury; import usług bez KSeF (formularz K5b-2). Porównanie z JPK
+  z Symfonii w miesiącach równoległych to wyłapie.
 - **D2**: plik ma faktury osób zespołu — przygotowuje lista „Księgowi” z Płacami
   albo administrator, pobiera osoba z Płacami albo administrator; reszta widzi
   wersje i stan bez kwot (`totals`), bez P_39.
@@ -118,4 +133,6 @@ lista zamknięcia; ustawienia i bramki), wzorzec `tests/data/authz_golden/ledger
 front: `VatView.test.tsx`, `vat-model.test.ts`. JPK: `tests/test_ledger_jpk_rules.py`
 (zaokrąglenie, kontrahent, pola P_, oznaczenia, daty, walidacja XSD, korekta),
 `test_jpk_is_prepared_sent_and_corrected` (braki, D2, wersje, „wysłany”, korekta
-z P_ORDZU, lista zamknięcia po zmianie rejestru, P_39 z poprzedniego miesiąca).
+z P_ORDZU, lista zamknięcia po zmianie rejestru, P_39 z poprzedniego miesiąca)
+i po przeglądzie: łańcuch korekt, złożona starsza wersja, „wysłany” czeka na
+„Przygotuj JPK”, poprawialna nadwyżka pierwszego miesiąca.

@@ -10,7 +10,7 @@ idempotentna. Plan: https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar.
   wersji), treść XML i jej SHA-256, sumy deklaracji (``totals``: P_38, P_48,
   P_51, P_53, P_62, liczby wierszy, odcisk rejestrów), stan ``prepared`` /
   ``sent`` (wysłany — oznacza księgowa po wysłaniu bramką MF, z numerem UPO
-  w ``sent_note``). Plik zawiera faktury osób zespołu (D2) — pobiera go tylko
+  w ``sent_note``) / ``void`` (unieważniony — wysłano inną wersję miesiąca). Plik zawiera faktury osób zespołu (D2) — pobiera go tylko
   osoba z Płacami albo administrator.
 """
 
@@ -19,7 +19,8 @@ from __future__ import annotations
 from app.services.consultant_portal_schema import quoted
 
 PURPOSES: tuple[str, ...] = ("submission", "correction")
-STATUSES: tuple[str, ...] = ("prepared", "sent")
+#: ``void`` = wersja, której już się nie wyśle (wysłano inną wersję miesiąca).
+STATUSES: tuple[str, ...] = ("prepared", "sent", "void")
 #: P_ORDZU (etd:TTekstowy) — do 3500 znaków.
 REASON_MAX = 3500
 NOTE_MAX = 200
