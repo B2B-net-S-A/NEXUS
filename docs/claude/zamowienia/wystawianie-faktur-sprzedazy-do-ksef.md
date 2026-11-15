@@ -146,7 +146,12 @@ trasy w `api/client_issued_invoices.py`, migracja `0708_sales_invoice_templates`
 - **Adres nabywcy**: `client_sales_invoices` nie przechowuje adresu, więc pusty adres w szablonie i szkicu uzupełnia się
   z kartoteki kontrahentów (`finance_counterparties`, import „Partnerzy” z eBI24) po NIP-ie, potem z klienta. Bez importu
   kartoteki szkic refaktury pokaże „Uzupełnij nazwę i adres nabywcy”.
-- „Zapisz jako szablon” na karcie faktury VAT (bez korekty i zaliczkowej) — pozycje bez zamówienia i konsultanta.
+- **Miesiąc przejściowy (przegląd 15.11.2026):** szablon do nabywcy, który ma już za ten miesiąc fakturę z KSeF spoza
+  NEXUSA bez zamówienia (eBI24 wystawia z własnych szablonów), ma stan „zafakturowane w KSeF” z numerem i nie daje
+  szkicu (409). Porównanie po nabywcy (NIP, bez NIP-u — nazwa), nie po pozycjach, żeby inna nazwa pozycji nie
+  przepuściła duplikatu; brakującą fakturę tego nabywcy wystawia się „Nową fakturą”.
+- „Zapisz jako szablon” tylko z faktury VAT bez zamówienia (bez korekty i zaliczkowej) — faktura z zamówienia powstaje
+  co miesiąc w „Wystaw za miesiąc”, szablon zafakturowałby usługę drugi raz (409).
 - **Wysyłka seryjna** („Szkice” → zaznacz → „Wyślij zaznaczone do KSeF”): przeglądarka wysyła szkice po kolei tą samą
   trasą co karta (`POST /{id}/send`), bez nowej ścieżki w backendzie — numer, plik, wynik i UPO jak przy jednej
   fakturze. „Zatrzymaj” albo zamknięcie karty zostawia resztę jako szkice bez numeru; wynik nieznany = „w drodze”
