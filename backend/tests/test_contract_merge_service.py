@@ -1796,7 +1796,7 @@ async def test_plan_blocks_a_returned_after_break_pair():
 
 
 async def test_merge_keeps_one_open_premium_claim_per_technology():
-    """0711: otwarty wniosek przegranego o technologię, którą zachowany też ma otwartą, jest zamykany."""
+    """0713: otwarty wniosek przegranego o technologię, którą zachowany też ma otwartą, jest zamykany."""
     import uuid
     from datetime import timedelta
 

@@ -1,7 +1,7 @@
 """Wnioski o dopłatę za technologię premium i alert DL „ponad limitem z umowy” (F3).
 
-Revision ID: 0711_premium_skill_claims
-Revises: 0710_framework_rate_categories
+Revision ID: 0713_premium_skill_claims
+Revises: 0712_client_reports
 
 Tabela ``contract_premium_skill_claims`` (jedno źródło DDL:
 ``app/services/premium_skill_schema.py``) i nowy typ alertu DL
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import premium_skill_schema as schema
 
-revision = "0711_premium_skill_claims"
-down_revision = "0710_framework_rate_categories"
+revision = "0713_premium_skill_claims"
+down_revision = "0712_client_reports"
 branch_labels = None
 depends_on = None
 

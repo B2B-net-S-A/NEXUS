@@ -227,7 +227,7 @@ _KNOWN_CONTRACT_FKS = {
     ("redeploy_queue_items", "contract_id"),
     # Karty technologiczne — historia rozmów u klienta, przenoszona w całości.
     ("tech_cards", "contract_id"),
-    # Wnioski o dopłatę za technologię premium (0711) — historia osoby,
+    # Wnioski o dopłatę za technologię premium (0713) — historia osoby,
     # przenoszona w całości. Otwarty wniosek przegranego o technologię, o którą
     # zachowany też ma otwarty, jest wcześniej zamykany (indeks częściowy).
     ("contract_premium_skill_claims", "contract_id"),

@@ -66,7 +66,7 @@ ALERT_MD_BASE_USAGE_HIGH = "md_base_usage_high"
 ALERT_CANDIDATE_CONFLICT_EXPIRED = "candidate_conflict_expired"
 # Faktura z KSeF na osobę, która nie ma pozycji zamówienia w miesiącu usługi.
 ALERT_INVOICE_WITHOUT_ORDER_LINE = "invoice_without_order_line"
-# 0711 (F3): osoba ponad limitem z umowy ramowej, prolongata blisko, umowa
+# 0713 (F3): osoba ponad limitem z umowy ramowej, prolongata blisko, umowa
 # daje dźwignię (dopłata albo awans poziomu).
 ALERT_FRAMEWORK_OVER_LIMIT = "framework_over_limit"
 

@@ -1508,7 +1508,7 @@ except Exception as _framework_rate_schema_err:  # noqa: BLE001
     print(f"framework rate schema unavailable: {_framework_rate_schema_err!r}")
     _FRAMEWORK_RATE_DDL = []
 
-# 0711: wnioski o dopłatę za technologię premium (`app/services/premium_skill_schema.py`).
+# 0713: wnioski o dopłatę za technologię premium (`app/services/premium_skill_schema.py`).
 try:
     from app.services import premium_skill_schema as _premium_skill_schema
 
@@ -7157,7 +7157,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_SKILL_RELATIONS_TABLE_DDL,
     # 0710: po `rate_cards`, `contracts` i `users`, na które wskazuje.
     *_FRAMEWORK_RATE_DDL,
-    # 0711: po `contracts` i `users`.
+    # 0713: po `contracts` i `users`.
     *_PREMIUM_SKILL_DDL,
     # 0667: 70 porzuconych tabel bez modelu. Przywrócenie którejś ze zrzutu
     # wymaga usunięcia jej stąd, bo następny start skasowałby ją ponownie.

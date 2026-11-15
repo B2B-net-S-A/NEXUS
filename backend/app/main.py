@@ -4275,7 +4275,7 @@ async def api_health_deep_check(request: Request):
         ("contract_client_rates", ContractClientRate),
         # 0710: dopłaty z umowy ramowej (limit kontraktu czyta je przy zapisie).
         ("rate_card_adders", RateCardAdder),
-        # 0711: wnioski o dopłatę za technologię premium.
+        # 0713: wnioski o dopłatę za technologię premium.
         ("contract_premium_skill_claims", ContractPremiumSkillClaim),
         # 0227: moduł Finanse. Bez tych dwóch wpisów zielony deploy nie mówi
         # nic o tym, czy tabele w ogóle powstały — a prodowy alembic bywa
