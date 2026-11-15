@@ -144,7 +144,7 @@ MODULES = (
     client_reports,
     # 0713: radar przepisów — biegi botów, pozycje, zmiany w prawie (15.11.2026).
     law_radar,
-    # 0716: serie faktur jak w eBI24 — BEN (refaktury benefitów) i KORUE (16.11.2026).
+    # 0718: serie faktur jak w eBI24 — BEN (refaktury benefitów) i KORUE (16.11.2026).
     client_invoice_series_ext,
 )
 

@@ -1,4 +1,4 @@
-"""Serie faktur jak w eBI24 (16.11.2026): SQL migracji ``0716_invoice_series_ebi24`` i lustra entrypointu.
+"""Serie faktur jak w eBI24 (16.11.2026): SQL migracji ``0718_invoice_series_ebi24`` i lustra entrypointu.
 
 Do serii E4 (``PL``, ``UE``, ``ZAL``, ``KOR``) dochodzą ``BEN`` — refaktury
 benefitów rozliczane kompensatą, bez rachunku na fakturze (eBI24:

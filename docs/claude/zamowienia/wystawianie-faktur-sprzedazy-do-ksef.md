@@ -165,7 +165,7 @@ trasy w `api/client_issued_invoices.py`, migracja `0709_sales_invoice_templates`
 ## Serie i rachunki jak w eBI24 (16.11.2026)
 
 Decyzje Artura z 16.11.2026 po odczycie archiwum eBI24 (2026: 1 044 faktur `N/M/RRRR`, 1 666 `N/M/RRRR/UE`,
-712 `N/M/RRRR/Benefit`, 107 `N/M/RRRR/KORUE`, 36 `KOR/N/M/RRRR`). Migracja `0716_invoice_series_ebi24`
+712 `N/M/RRRR/Benefit`, 107 `N/M/RRRR/KORUE`, 36 `KOR/N/M/RRRR`). Migracja `0718_invoice_series_ebi24`
 (`services/client_invoice_series_ext_schema.py` przebudowuje CHECK serii).
 
 - **Miesiąc w numerze bez zera** (`{m}`), jak w eBI24: wzory domyślne `{n}/{m}/{yyyy}`, `/UE`, `/Benefit`,

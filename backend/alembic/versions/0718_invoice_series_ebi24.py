@@ -1,7 +1,7 @@
 """Serie faktur jak w eBI24: refaktury benefitów (BEN) i korekty UE (KORUE).
 
-Revision ID: 0716_invoice_series_ebi24
-Revises: 0715_law_radar
+Revision ID: 0718_invoice_series_ebi24
+Revises: 0717_autofill_detail_cleanup
 
 Przebudowa CHECK-ów serii w ``client_invoice_series`` i ``client_issued_invoices``.
 DDL ma jedno źródło (``app/services/client_invoice_series_ext_schema.py``);
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services import client_invoice_series_ext_schema as schema
 
-revision = "0716_invoice_series_ebi24"
-down_revision = "0715_law_radar"
+revision = "0718_invoice_series_ebi24"
+down_revision = "0717_autofill_detail_cleanup"
 branch_labels = None
 depends_on = None
 
