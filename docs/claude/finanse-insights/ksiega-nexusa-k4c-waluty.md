@@ -65,24 +65,50 @@ sekcja niżej.
 
 - Art. 30 ust. 1 UoR: na dzień bilansowy (31.12) obowiązkowo, w ciągu roku na
   koniec dowolnego miesiąca (zarządczo) — karta „Wycena walut” w Rozrachunkach
-  dla miesiąca z nagłówka, przycisk dla listy „Księgowi”. Lista zamknięcia:
-  w grudniu bez wyceny = „do zrobienia”, w innych miesiącach „opcjonalna”;
-  bez pozycji w walucie pozycji listy nie ma.
-- Kurs: średni NBP obowiązujący na ostatni dzień miesiąca (ostatni ogłoszony do
-  tego dnia, nie starszy niż 7 dni — starszy = luka w pobieraniu, odmowa).
-- Co się wycenia: otwarte pozycje walutowe kontrahentów na ten dzień, netto per
-  konto i waluta (Wn +, Ma −), **bez płacowych** (D2 — ich wycenę robi osoba
-  z Płacami ręcznie), i salda rachunków walutowych z Ustawień (Σ `amount_cur`
-  i PLN zatwierdzonych zapisów do tego dnia, storno ze znakiem).
+  dla miesiąca z nagłówka, przycisk dla listy „Księgowi”.
+- **Kurs**: średni NBP z ostatniego dnia roboczego miesiąca
+  (`posting.rate_day(koniec miesiąca + 1 dzień)`), **dokładnie z tego dnia**.
+  Brak kursu = blokada z datą („pobierz kursy”, a przed ogłoszeniem — „jeszcze nie
+  jest pobrany”); pozycje zostają na karcie bez wyceny. Starszy kurs nigdy nie
+  wchodzi po cichu.
+- **Rozrachunki**: otwarte pozycje walutowe kontrahentów na ten dzień, netto per
+  konto i waluta (Wn +, Ma −).
+- **Rachunki walutowe** z Ustawień: saldo w walucie i PLN z zatwierdzonych
+  zapisów **bieżącego roku obrotowego** (BO + obroty do końca miesiąca — jak
+  w obrotach i saldach), bez wyceny tego miesiąca (wszystkich wersji) i jej storna.
+  Wyceny i odwrócenia innych miesięcy zostają w saldzie — znoszą się, bo pilnuje
+  tego blokada kolejności niżej.
+- **Rachunek pominięty z powodem** (lista „Poza wyceną — wyceń ręcznie”), gdy:
+  - ma zapisy bez kwoty w walucie rachunku, które nie znoszą się do zera (BO
+    z Symfonii jest tylko w PLN, ręczna PK nie ma pola waluty) — wycena
+    odpisałaby saldo PLN bez waluty jako stratę;
+  - poprzedni rok w księdze ma na nim saldo, a bieżący rok nie ma BO tego konta.
+  BO następnego roku tworzone w NEXUSIE (K8) musi nieść kwotę w walucie dla
+  rachunków walutowych, inaczej wycena go pominie.
+- **D2**: pozycje płacowe i rachunek walutowy z choćby jednym zapisem płacowym
+  w roku idą osobną PK płacową (`RRRR-MM-payroll`, `sensitivity='payroll'`),
+  widoczną tylko z Płacami. Osoba bez Płac widzi `payroll_hidden` bez kwot, kursów
+  i numerów dokumentów, a jej „Zaksięguj” robi tylko zwykłą PK.
 - Korekta konta = wartość po kursie − kwota w księdze; dodatnia → Wn konto,
   Ma przychody finansowe; ujemna → Wn koszty finansowe, Ma konto (konta różnic
   kursowych z K4c-1, zbiorczo po jednej linii).
 - PK wyceny na ostatni dzień miesiąca (`fx_valuation` / RRRR-MM) i odwrócenie
-  1. dnia następnego miesiąca (`fx_valuation_reversal` / RRRR-MM). Brak
-  następnego roku albo zamknięty okres = odwrócenie czeka (komunikat), wycena
-  idzie. Odcisk jak w K2: bez zmian / przebudowa szkicu / zatwierdzona inna = 409.
-- **Wycena miesiąca czeka**, gdy wycena poprzedniego miesiąca jest zatwierdzona,
-  a jej odwrócenie nie — inaczej różnica weszłaby do salda konta drugi raz.
+  1. dnia następnego miesiąca (`fx_valuation_reversal`). Brak następnego roku
+  albo zamknięty okres = odwrócenie czeka (komunikat), wycena idzie.
+- **Zatwierdzonej wyceny się nie podmienia.** Odwrócenie powstaje z zaksięgowanej
+  PK, nie z dzisiejszego przeliczenia — dzięki temu czekające odwrócenie powstaje
+  po otwarciu roku, nawet gdy w grudniu doszedł późny dokument. Różnica
+  zatwierdzonej PK od przeliczenia to flaga `changed`: karta i lista zamknięcia
+  („problem”) każą zrobić storno i wycenić ponownie. Szkic jak w K2: bez zmian /
+  przebudowa; zatwierdzone odwrócenie, które nie pasuje do nowej wyceny = 409.
+- **Kolejność**: wycena czeka, dopóki którakolwiek wcześniejsza zatwierdzona
+  wycena (nie tylko poprzedni miesiąc) nie ma zatwierdzonego odwrócenia, które
+  ją dokładnie odwraca (te same konta i kwoty), albo gdy zatwierdzone odwrócenie
+  zostało bez wyceny — inaczej korekta weszłaby do salda drugi raz.
+- Lista zamknięcia: „problem” przy zmienionej zatwierdzonej wycenie; w grudniu
+  blokada (np. brak kursu), brak wyceny albo pominięty rachunek = „do zrobienia”;
+  w innych miesiącach wycena jest opcjonalna. Pozycji listy nie ma, gdy nie ma
+  pozycji w walucie, pominiętych rachunków ani części płacowej.
 - Pozycje PK wyceny i odwrócenia nie są rozrachunkami (`settlements.NOT_ITEMS`):
   rozrachunki są w kursach historycznych, a saldo konta po wycenie różni się od
   nich o korektę wyceny do jej odwrócenia.
@@ -96,8 +122,11 @@ automat z różnicą kursową, brak konta = czeka, cofnięcie szkicu, 409 po
 zatwierdzeniu, saldo konta = 0; zła waluta rachunku, brak kursu, waluta spoza
 listy), front: `SettlementsView.test.tsx`, `settlements-model.test.ts`,
 `bank-model.test.ts`.
-Wycena: `tests/test_ledger_valuation_rules.py` (pozycje netto bez płacowych i PLN,
-linie korekt, odwrócenie, pozycja listy zamknięcia), test
-`test_month_end_valuation_books_and_reverses_currency_positions` (wycena
-należności i rachunku EUR, odwrócenie 1.04, rozrachunki w kursie historycznym,
-bez zmian / przebudowa / 409, kwiecień czeka na odwrócenie marca, 403).
+Wycena: `tests/test_ledger_valuation_rules.py` (pozycje netto, płacowe osobno,
+pozycja bez kursu, odwrócenie odwraca wycenę, stany listy zamknięcia) i sekcja
+K4c-2 w `tests/test_ledger_sources_db.py`: wycena należności i rachunku EUR
+z odwróceniem, bez zmian / przebudowa / zatwierdzona zostaje z flagą, kwiecień
+czeka na odwrócenie marca, 403; PK płacowa rachunku z wypłatą (D2); BO z Symfonii
+bez EUR = rachunek pominięty; storno własnej wyceny poza saldem; nowy rok od BO
+(bez BO = pominięty); maj czeka na marzec; czekające odwrócenie z zaksięgowanej
+PK po otwarciu roku; dokładny kurs i grudzień bez kursu na liście zamknięcia.
