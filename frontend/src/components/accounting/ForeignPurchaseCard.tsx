@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 
 import { SectionCard } from "./AccountingShell";
 import { datePl, gr } from "./ledger-model";
-import { GROUP_SHORT, IMPORT_GROUP_LABEL, netValid, supplierGroup } from "./vat-model";
+import { GROUP_SHORT, IMPORT_GROUP_LABEL, netValid, receivedBeforeIssue, sentJpkMonth, supplierGroup } from "./vat-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const NOTE = "px-3.5 py-2.5 text-[13px] text-muted-foreground";
@@ -36,8 +36,10 @@ function rateLabel(item: Pick<ForeignPurchase, "currency" | "rate" | "rate_day">
  * Zakupy zagraniczne miesiąca (K5b-2): faktury dostawców spoza KSeF (import
  * usług — LinkedIn, Google, Microsoft…) wpisane formularzem. Każda to FVZ
  * w buforze: VAT należny w rejestrze sprzedaży (K_27/K_28 albo K_29/K_30)
- * i — przy odliczeniu — naliczony w rejestrze zakupu. Zatwierdza lista
- * „Księgowi” w Dokumentach.
+ * i — przy odliczeniu — naliczony w rejestrze zakupu, oba w miesiącu usługi
+ * (także faktura otrzymana po miesiącach — wtedy korekta JPK tamtego miesiąca;
+ * data otrzymania idzie do JPK jako DataWplywu). Zatwierdza lista „Księgowi”
+ * w Dokumentach.
  */
 export function ForeignPurchaseCard({ year, month }: { year: number; month: number }) {
   const overview = useForeignPurchases(year, month);
@@ -135,6 +137,7 @@ interface FormState {
   number: string;
   issueDate: string;
   serviceDate: string;
+  receivedDate: string;
   currency: string;
   net: string;
   vatRate: "23" | "8" | "5";
@@ -154,6 +157,7 @@ function emptyForm(data: ForeignOverview, keep?: Pick<FormState, "supplier" | "c
     number: "",
     issueDate: "",
     serviceDate: "",
+    receivedDate: "",
     currency: keep?.currency ?? (data.currencies.includes("EUR") ? "EUR" : "PLN"),
     net: "",
     vatRate: "23",
@@ -181,6 +185,7 @@ function foreignBody(form: FormState): ForeignPurchaseInput {
     number: form.number.trim(),
     issue_date: form.issueDate,
     service_date: form.serviceDate,
+    received_date: form.receivedDate && form.receivedDate !== form.issueDate ? form.receivedDate : undefined,
     currency: form.currency,
     net: form.net.replace(/\s/g, "").replace(",", "."),
     vat_rate: form.vatRate,
@@ -204,9 +209,12 @@ function ForeignForm({ data, onClose }: { data: ForeignOverview; onClose: () => 
       form.country.trim().toUpperCase() !== "PL" &&
       Boolean(form.taxId.trim() || form.symfonia.trim())
     : Boolean(chosen);
+  const receivedWrong = receivedBeforeIssue(form.issueDate, form.receivedDate);
+  const correction = sentJpkMonth(form.serviceDate, data.jpk_sent);
   const ready =
     supplierReady &&
     Boolean(form.number.trim() && form.issueDate && form.serviceDate && form.costAccount.trim()) &&
+    !receivedWrong &&
     netValid(form.net);
   const submit = () =>
     create.mutate(foreignBody(form), {
@@ -304,8 +312,14 @@ function ForeignForm({ data, onClose }: { data: ForeignOverview; onClose: () => 
             value={form.issueDate}
             onChange={(event) => {
               const value = event.target.value;
-              // Usługa zwykle z dnia faktury — data wykonania idzie za wystawieniem, dopóki ktoś jej nie zmieni.
-              setForm((prev) => ({ ...prev, issueDate: value, serviceDate: !prev.serviceDate || prev.serviceDate === prev.issueDate ? value : prev.serviceDate }));
+              // Usługa zwykle z dnia faktury, otrzymanie też — obie daty idą za wystawieniem, dopóki ktoś ich nie zmieni.
+              const follow = (current: string, previous: string) => (!current || current === previous ? value : current);
+              setForm((prev) => ({
+                ...prev,
+                issueDate: value,
+                serviceDate: follow(prev.serviceDate, prev.issueDate),
+                receivedDate: follow(prev.receivedDate, prev.issueDate),
+              }));
             }}
           />
         </label>
@@ -317,6 +331,17 @@ function ForeignForm({ data, onClose }: { data: ForeignOverview; onClose: () => 
             aria-label="Data wykonania usługi"
             value={form.serviceDate}
             onChange={(event) => set("serviceDate", event.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-muted-foreground">Otrzymanie faktury</span>
+          <input
+            type="date"
+            className={cn(CONTROL, "w-36", receivedWrong ? "border-destructive" : "")}
+            aria-label="Data otrzymania faktury"
+            aria-invalid={receivedWrong || undefined}
+            value={form.receivedDate}
+            onChange={(event) => set("receivedDate", event.target.value)}
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -341,6 +366,15 @@ function ForeignForm({ data, onClose }: { data: ForeignOverview; onClose: () => 
           />
         </label>
       </div>
+      {receivedWrong ? (
+        <p className="text-[12px] text-destructive">Data otrzymania faktury nie może być wcześniejsza niż data wystawienia.</p>
+      ) : null}
+      {correction ? (
+        <p className="text-[12px] text-warning-muted-foreground">
+          JPK_V7M za {correction} jest już wysłany. VAT należny i naliczony zostają w miesiącu usługi (art. 86 ust. 10b pkt 3) —
+          po zatwierdzeniu faktury lista zamknięcia pokaże korektę JPK za {correction}.
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-end gap-2.5">
         <label className="flex flex-col gap-1">
           <span className="text-muted-foreground">Stawka VAT</span>

@@ -14,7 +14,13 @@ w Księgowości, a nowego dostawcę formularz zakłada w kartotece kontrahentów
   przed obowiązkiem podatkowym (art. 31a ust. 1) — z ``fx_rates``, bez sieci;
   brak kursu z tego dnia = odmowa. VAT = netto w PLN × stawka, do grosza.
 * **Okres** = miesiąc wykonania usługi (obowiązek podatkowy, art. 19a) — data
-  operacji dokumentu; data wystawienia faktury idzie do JPK jako data dowodu.
+  operacji dokumentu; data wystawienia faktury idzie do JPK jako data dowodu,
+  data otrzymania (domyślnie wystawienia) — jako ``DataWplywu`` wiersza zakupu.
+* **Faktura otrzymana późno** (art. 86 ust. 10b pkt 3): VAT należny i naliczony
+  dalej w miesiącu usługi — warunek trzech miesięcy i ust. 10i uchyliła ustawa
+  z 11.08.2021 (Dz.U. poz. 1626) od 7.09.2021. Dokument za miesiąc z wysłanym
+  JPK zmienia rejestr tamtego miesiąca, więc JPK staje się „do korekty”
+  (``jpk._stale``); karta ostrzega o tym przed zapisem (``jpk_sent``).
 * **Dokument FVZ w buforze** (zatwierdza lista „Księgowi”), korekta (netto
   < 0) odwraca strony:
 
@@ -52,7 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.finance_ledger import FinanceCounterparty
 from app.models.fx_rate import FxRate
-from app.models.ledger import LedgerDocument, LedgerLine
+from app.models.ledger import LedgerDocument, LedgerLine, LedgerVatFile
 from app.services.finance_ledger import identifiers, posting
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger_schema import NAME_MAX, SYMFONIA_ID_MAX
@@ -75,6 +81,9 @@ NET_MAX = 10**12
 GOODS_ONLY_PREFIXES: tuple[str, ...] = ("XI",)
 SUPPLIERS_MAX = 500
 LISTED_MAX = 200
+#: Miesiące z wysłanym JPK na karcie (ostrzeżenie o korekcie) — ostatnie 5 lat
+#: (art. 86 ust. 13: korekta odliczenia najdalej w 5 lat).
+SENT_MONTHS_MAX = 60
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
 #: Kody spoza słownika MF wpisywane z przyzwyczajenia (Wielka Brytania, Grecja).
@@ -250,6 +259,8 @@ class Invoice:
     number: str
     issue_date: date
     service_date: date
+    #: Data otrzymania faktury — ``DataWplywu`` w JPK (bez wpływu na okres).
+    received_date: date
     currency: str
     net: Decimal
     vat_rate: str
@@ -277,10 +288,22 @@ def clean_invoice(raw: dict[str, Any], *, today: date) -> Invoice:
         raise LedgerError(
             "Odliczenie: pełne albo bez odliczenia VAT naliczonego.", status=422
         )
+    issue_date = _date(raw.get("issue_date"), "Data wystawienia", today)
+    received_date = (
+        _date(raw.get("received_date"), "Data otrzymania faktury", today)
+        if raw.get("received_date")
+        else issue_date
+    )
+    if received_date < issue_date:
+        raise LedgerError(
+            "Data otrzymania faktury nie może być wcześniejsza niż data wystawienia.",
+            status=422,
+        )
     return Invoice(
         number=number,
-        issue_date=_date(raw.get("issue_date"), "Data wystawienia", today),
+        issue_date=issue_date,
         service_date=_date(raw.get("service_date"), "Data wykonania usługi", today),
+        received_date=received_date,
         currency=currency,
         net=_net(raw.get("net")),
         vat_rate=vat_rate,
@@ -530,6 +553,7 @@ def _item(doc: LedgerDocument, supplier: Optional[str]) -> dict[str, Any]:
         "supplier_id": doc.counterparty_id,
         "supplier": supplier,
         "issue_date": meta.get("issue_date"),
+        "received_date": meta.get("received_date") or meta.get("issue_date"),
         "service_date": doc.op_date.isoformat(),
         "currency": doc.currency,
         "rate": str(doc.fx_rate) if doc.fx_rate is not None else None,
@@ -625,6 +649,7 @@ async def create(
                 "source": "foreign",
                 "issue_date": invoice.issue_date.isoformat(),
                 "service_date": invoice.service_date.isoformat(),
+                "received_date": invoice.received_date.isoformat(),
                 "jpk_group": group,
                 "vat_rate": invoice.vat_rate,
                 "deduction": invoice.deduction,
@@ -648,6 +673,22 @@ async def _currencies(db: AsyncSession) -> list[str]:
         await db.scalars(select(FxRate.currency).distinct().order_by(FxRate.currency))
     ).all()
     return ["PLN", *[item for item in found if item != "PLN"]]
+
+
+async def sent_months(db: AsyncSession) -> list[str]:
+    """Miesiące (``RRRR-MM``) z wysłanym JPK_V7M, od najnowszego — dokument
+    zakupu za taki miesiąc oznacza korektę tamtego JPK."""
+
+    rows = (
+        await db.execute(
+            select(LedgerVatFile.year, LedgerVatFile.month)
+            .where(LedgerVatFile.status == "sent")
+            .distinct()
+            .order_by(LedgerVatFile.year.desc(), LedgerVatFile.month.desc())
+            .limit(SENT_MONTHS_MAX)
+        )
+    ).all()
+    return [f"{year:04d}-{month:02d}" for year, month in rows]
 
 
 async def overview(
@@ -692,5 +733,6 @@ async def overview(
         "next_account": await next_account(db, parent) if parent else None,
         "currencies": await _currencies(db),
         "vat_rates": list(VAT_RATES),
+        "jpk_sent": await sent_months(db),
         "missing": [] if parent else [NO_FOREIGN_ACCOUNT],
     }

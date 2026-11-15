@@ -88,6 +88,24 @@ export function netValid(text: string): boolean {
   return /^-?\d+(\.\d{1,2})?$/.test(value) && Number(value) !== 0;
 }
 
+/**
+ * Miesiąc usługi z wysłanym JPK_V7M jako „MM.RRRR” — faktura za ten miesiąc
+ * (także otrzymana po miesiącach) zmienia jego rejestry, więc JPK trzeba
+ * skorygować; `null` = bez korekty. VAT należny i naliczony importu usług
+ * zostają w miesiącu usługi (art. 86 ust. 10b pkt 3, bez terminu 3 miesięcy
+ * od 7.09.2021).
+ */
+export function sentJpkMonth(serviceDate: string, sent: readonly string[]): string | null {
+  const month = /^(\d{4})-(\d{2})-\d{2}$/.exec(serviceDate);
+  if (!month) return null;
+  return sent.includes(`${month[1]}-${month[2]}`) ? `${month[2]}.${month[1]}` : null;
+}
+
+/** Data otrzymania przed wystawieniem — niemożliwa (serwer odmawia, 422). */
+export function receivedBeforeIssue(issueDate: string, receivedDate: string): boolean {
+  return Boolean(issueDate && receivedDate && receivedDate < issueDate);
+}
+
 /** Znaczniki JPK kontrahenta po przecinku (kolejność z serwera). */
 export function markersLabel(markers: readonly string[]): string {
   return markers.length ? markers.join(", ") : "bez znaczników";

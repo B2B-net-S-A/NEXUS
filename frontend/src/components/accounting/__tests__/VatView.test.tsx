@@ -178,6 +178,7 @@ function foreignOverview(overrides: Partial<ForeignOverview> = {}): ForeignOverv
         supplier_id: 51,
         supplier: "Dostawca SaaS Ltd",
         issue_date: "2026-11-03",
+        received_date: "2026-11-03",
         service_date: "2026-10-31",
         currency: "EUR",
         rate: "4.300000",
@@ -198,6 +199,7 @@ function foreignOverview(overrides: Partial<ForeignOverview> = {}): ForeignOverv
     next_account: "202-1-3",
     currencies: ["PLN", "EUR", "USD"],
     vat_rates: ["23", "8", "5"],
+    jpk_sent: [],
     missing: [],
     ...overrides,
   };
@@ -495,6 +497,8 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
     const issued = screen.getByLabelText("Data wystawienia");
     await user.type(issued, "2026-11-03");
     expect(screen.getByLabelText("Data wykonania usługi")).toHaveValue("2026-11-03");
+    // Otrzymanie też idzie za wystawieniem; równe wystawieniu nie trafia do żądania.
+    expect(screen.getByLabelText("Data otrzymania faktury")).toHaveValue("2026-11-03");
     await user.clear(screen.getByLabelText("Data wykonania usługi"));
     await user.type(screen.getByLabelText("Data wykonania usługi"), "2026-10-31");
     await user.type(screen.getByRole("textbox", { name: "Netto w walucie" }), "200,00");
@@ -506,6 +510,7 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
         number: "INV-0099",
         issue_date: "2026-11-03",
         service_date: "2026-10-31",
+        received_date: undefined,
         currency: "EUR",
         net: "200.00",
         vat_rate: "23",
@@ -542,6 +547,36 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
       expect(post).toHaveBeenCalledWith(
         "/api/accounting/vat/foreign",
         expect.objectContaining({ supplier_id: 52, currency: "USD", net: "-15.5", deduction: "none", service_date: "2026-11-02" }),
+      ),
+    );
+  });
+
+  it("formularz: faktura otrzymana po miesiącach — data otrzymania i ostrzeżenie o korekcie JPK", async () => {
+    route(config(), registers({ issues: [] }), jpkOverview(), foreignOverview({ jpk_sent: ["2026-07", "2026-10"] }));
+    post.mockResolvedValue({ data: { document: foreignOverview().items[0], supplier: foreignOverview().suppliers[0] } });
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "Dodaj fakturę zagraniczną" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Dostawca" }), "51");
+    await user.type(screen.getByRole("textbox", { name: "Numer faktury" }), "INV-0071");
+    await user.type(screen.getByLabelText("Data wystawienia"), "2026-07-31");
+    expect(screen.getByText(/JPK_V7M za 07\.2026 jest już wysłany/)).toBeInTheDocument();
+    expect(screen.getByText(/zostają w miesiącu usługi \(art\. 86 ust\. 10b pkt 3\)/)).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Netto w walucie" }), "50");
+    await user.type(screen.getByRole("textbox", { name: "Konto kosztu" }), "402-1");
+    // Otrzymanie przed wystawieniem blokuje zapis.
+    const received = screen.getByLabelText("Data otrzymania faktury");
+    await user.clear(received);
+    await user.type(received, "2026-07-30");
+    expect(screen.getByText("Data otrzymania faktury nie może być wcześniejsza niż data wystawienia.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj do bufora" })).toBeDisabled();
+    await user.clear(received);
+    await user.type(received, "2026-11-12");
+    await user.click(screen.getByRole("button", { name: "Dodaj do bufora" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/accounting/vat/foreign",
+        expect.objectContaining({ supplier_id: 51, issue_date: "2026-07-31", service_date: "2026-07-31", received_date: "2026-11-12" }),
       ),
     );
   });
