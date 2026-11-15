@@ -22,6 +22,7 @@ from app.models.client import Client
 from app.models.client_report import ClientReportDefinition, ClientReportRun
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.core.scheduling import business_date
 from app.services.access_scope import is_delivery_lead_governed
 from app.services.client_reports import schedule
 from app.services.client_reports.registry import get_generator
@@ -60,7 +61,8 @@ def tracking_start(definition: ClientReportDefinition) -> Optional[date]:
     if definition.valid_from is not None:
         return definition.valid_from
     created = getattr(definition, "created_at", None)
-    return created.date() if created is not None else None
+    # Dzień dodania w kalendarzu firmy, nie z UTC (CLAUDE.md: „dziś”).
+    return business_date(created) if created is not None else None
 
 
 def is_admin(user: User) -> bool:
@@ -199,6 +201,8 @@ def next_due(
     for period in reversed(periods):
         due = schedule.due_date(definition.due_rule, period)
         if start and ((due is not None and due < start) or period.end < start):
+            continue
+        if definition.valid_to and period.start > definition.valid_to:
             continue
         candidates.append((period, due))
     if not candidates:

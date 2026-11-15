@@ -31,7 +31,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import NOT_READ_ONLY, user_can_view_client_rate
 from app.api.client_framework_contracts import LegalDocsReader
-from app.api.permission_access import ClientsEditUser, DeliveryViewUser
+from app.api.permission_access import (
+    AmountsViewUser,
+    ClientsEditUser,
+    DeliveryViewUser,
+)
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
@@ -48,6 +52,7 @@ from app.services.access_scope import (
 )
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_reports import catalog, schedule, suggest
+from app.services.dl_alerts import client_not_deleted_clause
 from app.services.client_reports.registry import (
     XLSX_MEDIA_TYPE,
     ReportContext,
@@ -773,19 +778,19 @@ async def mark_sent(
 
 @router.get("/runs/{run_id}/file", dependencies=NOT_READ_ONLY)
 async def run_file(
-    run_id: int, current_user: DeliveryViewUser, db: AsyncSession = Depends(get_db)
+    run_id: int, current_user: AmountsViewUser, db: AsyncSession = Depends(get_db)
 ) -> Response:
+    """Plik z historii — tylko z podglądem kwot.
+
+    W historii leżą pliki wgrane ręcznie (protokoły, sprawozdania) i pliki
+    wygenerowane pod generatorem, który potem mógł się zmienić, więc bramka
+    nie może zależeć od obecnego generatora definicji.
+    """
     run = await db.get(ClientReportRun, run_id)
     if run is None or not run.file_path:
         raise HTTPException(404, "Ten wpis historii nie ma pliku.")
     definition, _ = await _definition(db, current_user, run.definition_id)
     generator = get_generator(definition.generator_key)
-    if (
-        generator
-        and generator.needs_amounts
-        and not has_permission(current_user, ProductAction.amounts_view)
-    ):
-        raise permission_denied(ProductAction.amounts_view)
     if (
         generator
         and generator.needs_client_rate
@@ -794,11 +799,6 @@ async def run_file(
         raise HTTPException(
             403, "Plik zawiera stawki do klienta, których Twoja rola nie widzi."
         )
-    if generator is None and not has_permission(
-        current_user, ProductAction.amounts_view
-    ):
-        # Plik spoza NEXUSA (sprawozdanie, protokół) bywa z kwotami — jak umowy.
-        raise permission_denied(ProductAction.amounts_view)
     try:
         content = storage_service.read_client_report_file(run.file_path)
     except FileNotFoundError as exc:
@@ -827,7 +827,9 @@ async def calendar(
     today = business_today()
     allowed = await _scope(db, current_user)
     query = select(ClientReportDefinition).where(
-        ClientReportDefinition.status == "active"
+        ClientReportDefinition.status == "active",
+        # Klient w archiwum nie świeci w kalendarzu (jak w dzwonkach).
+        client_not_deleted_clause(ClientReportDefinition.client_id),
     )
     if allowed is not None:
         query = query.where(ClientReportDefinition.client_id.in_(list(allowed)))

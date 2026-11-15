@@ -9,10 +9,14 @@ umowa wymaga liczby.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.client_reports.generators.common import contracts_in_period
+from app.services.client_reports.generators.common import (
+    ContractInPeriod,
+    contracts_in_period,
+)
 from app.services.client_reports.registry import (
     Generator,
     ParamField,
@@ -27,11 +31,33 @@ from app.services.client_reports.registry import (
 NO_ORDER = "(bez numeru zamówienia)"
 
 
+def people_in_period(
+    rows: list[ContractInPeriod], start: date, end: date
+) -> tuple[int, int, int]:
+    """Osoby, nie kontrakty: zmiana stawki w połowie miesiąca to drugi kontrakt
+    tej samej osoby. Weszła = jej najwcześniejszy kontrakt zaczyna się
+    w okresie; zakończyła = najpóźniejszy kończy się w okresie."""
+    by_person: dict[object, list[ContractInPeriod]] = {}
+    for row in rows:
+        by_person.setdefault(row.candidate_id or ("k", row.contract_id), []).append(row)
+    started = ended = 0
+    for contracts in by_person.values():
+        first = min(c.start_date for c in contracts if c.start_date)
+        if first >= start:
+            started += 1
+        if all(c.end_date is not None for c in contracts):
+            last = max(c.end_date for c in contracts if c.end_date)
+            if last <= end:
+                ended += 1
+    return len(by_person), started, ended
+
+
 async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     period = ctx.period
     rows = await contracts_in_period(db, ctx.client_id, period.start, period.end)
-    started = [r for r in rows if r.start_date and r.start_date >= period.start]
-    ended = [r for r in rows if r.end_date and r.end_date <= period.end]
+    people, started_count, ended_count = people_in_period(
+        rows, period.start, period.end
+    )
     by_order = Counter(r.order_number or NO_ORDER for r in rows)
     without_order = by_order.get(NO_ORDER, 0)
 
@@ -39,9 +65,12 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         SummaryLine(
             "Członkowie zespołu świadczący usługi w okresie", str(len(rows)), True
         ),
-        SummaryLine("z numerem zamówienia", str(len(rows) - without_order)),
-        SummaryLine("weszli w okresie", str(len(started))),
-        SummaryLine("zakończyli w okresie", str(len(ended))),
+        SummaryLine(
+            "kontrakty z numerem zamówienia",
+            f"{len(rows) - without_order} z {len(rows)}",
+        ),
+        SummaryLine("weszli w okresie", str(started_count)),
+        SummaryLine("zakończyli w okresie", str(ended_count)),
     )
     checks: list[str] = []
     if without_order:
@@ -56,7 +85,7 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
             "Weszli w okresie",
             "Zakończyli w okresie",
         ),
-        ((period.label, len(rows), len(started), len(ended)),),
+        ((period.label, people, started_count, ended_count),),
         widths=(24, 26, 20, 22),
     )
     orders = Sheet(

@@ -104,6 +104,9 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
     [generators.data, form.rhythm],
   );
   const generator = fitting.find((g) => g.key === form.generator_key) ?? null;
+  // Bez listy generatorów nie wiadomo, czy wybrany generator pasuje — zapis
+  // wyzerowałby go (a raport BNP zniknąłby z Projektów). Czekamy na listę.
+  const generatorsReady = generators.isSuccess;
 
   const set = <K extends keyof DefinitionInput>(key: K, value: DefinitionInput[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -139,7 +142,7 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
 
   const due = form.due_rule;
   const needsNumber = due.type === "business_days_after" || due.type === "days_after";
-  const canSave = form.name.trim().length > 0 && !save.isPending;
+  const canSave = form.name.trim().length > 0 && generatorsReady && !save.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
@@ -224,6 +227,12 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
               ))}
             </select>
             {generator ? <span className="block text-xs text-muted-foreground">{generator.description}</span> : null}
+            {generators.isPending ? <span className="block text-xs text-muted-foreground">Wczytuję listę plików z NEXUSA…</span> : null}
+            {generators.isError ? (
+              <span className="block text-xs text-destructive">
+                {apiErrorMessage(generators.error, "Nie udało się wczytać listy plików z NEXUSA — zapis jest wstrzymany.")}
+              </span>
+            ) : null}
           </label>
           {generator?.params
             .filter((param) => param.kind === "bool")

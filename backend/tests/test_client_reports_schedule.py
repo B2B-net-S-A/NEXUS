@@ -334,3 +334,24 @@ def test_amount_params_hidden_without_amounts_view():
     assert hidden["params"] == {"currency": "EUR", "marginal": True}
     shown = catalog.definition_payload(definition, can_view_amounts=True, **common)
     assert shown["params"]["tiers"] == [{"up_to": 1000.0, "rate": 2.5}]
+
+
+def test_next_due_ignores_periods_after_valid_to():
+    definition = _definition(valid_from=date(2026, 1, 1), valid_to=date(2026, 8, 31))
+    sent = {f"2026-{m:02d}": object() for m in range(1, 9)}
+    info = catalog.next_due(definition, sent, date(2026, 11, 15))
+    assert info["state"] != "overdue"
+
+
+def test_tracking_start_uses_company_calendar_not_utc():
+    from datetime import datetime, timezone
+
+    # 23:30 UTC 30.11 to już 1.12 w Warszawie — listopad nie jest do pilnowania.
+    definition = _definition(
+        rhythm="monthly",
+        due_rule={"type": "end_of_period"},
+        created_at=datetime(2026, 11, 30, 23, 30, tzinfo=timezone.utc),
+    )
+    assert catalog.tracking_start(definition) == date(2026, 12, 1)
+    info = catalog.next_due(definition, {}, date(2026, 12, 1))
+    assert info["state"] != "overdue"

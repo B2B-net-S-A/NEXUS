@@ -492,3 +492,38 @@ def test_annual_spend_flags_period_older_than_ksef_invoices():
     assert incomplete_from(date(2026, 8, 4), date(2026, 1, 1))
     assert not incomplete_from(date(2026, 1, 20), date(2026, 1, 1))
     assert not incomplete_from(date(2025, 3, 1), date(2026, 1, 1))
+
+
+def test_headcount_counts_people_not_contracts():
+    from datetime import date
+
+    from app.services.client_reports.generators.common import ContractInPeriod
+    from app.services.client_reports.generators.headcount import people_in_period
+
+    def row(contract_id, candidate_id, start, end):
+        return ContractInPeriod(
+            contract_id,
+            "Osoba",
+            start,
+            end,
+            None,
+            None,
+            "Z1",
+            None,
+            None,
+            None,
+            candidate_id,
+        )
+
+    rows = [
+        row(
+            1, 7, date(2026, 1, 1), date(2026, 10, 15)
+        ),  # zmiana stawki w połowie miesiąca
+        row(2, 7, date(2026, 10, 16), None),
+        row(3, 8, date(2026, 10, 20), None),  # weszła w październiku
+        row(4, 9, date(2025, 1, 1), date(2026, 10, 31)),  # skończyła 31.10
+    ]
+    people, started, ended = people_in_period(
+        rows, date(2026, 10, 1), date(2026, 10, 31)
+    )
+    assert (people, started, ended) == (3, 1, 1)

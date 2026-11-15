@@ -38,7 +38,7 @@
   "GET /api/client-reports/definitions/{definition_id}/preview": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/client-reports/definitions/{definition_id}/runs": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/client-reports/generators": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
-  "GET /api/client-reports/runs/{run_id}/file": "PPDPPDDDPPPDPPPPDPPDDDDDDDPDP",
+  "GET /api/client-reports/runs/{run_id}/file": "PPDPDDDDPPPDDDDDDPPDDDDDDDPDP",
   "PATCH /api/client-reports/definitions/{definition_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "POST /api/client-reports/clients/{client_id}/definitions": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
   "POST /api/client-reports/clients/{client_id}/suggest": "BBDBDDDDBBBDDDDDDDBDDDDDDDBDB",

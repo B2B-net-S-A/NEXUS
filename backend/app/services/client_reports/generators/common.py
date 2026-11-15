@@ -27,6 +27,7 @@ class ContractInPeriod:
     rate_client: Optional[Decimal]
     rate_client_currency: Optional[str]
     rate_unit: Optional[str]
+    candidate_id: Optional[int] = None
 
 
 _CONTRACTS_SQL = text(
@@ -42,7 +43,7 @@ _CONTRACTS_SQL = text(
              ORDER BY o.start_date DESC NULLS LAST, o.id DESC
              LIMIT 1) AS order_number,
            k.rate_client, coalesce(k.rate_client_currency, k.currency) AS rate_client_currency,
-           k.rate_unit::text AS rate_unit
+           k.rate_unit::text AS rate_unit, k.candidate_id
       FROM contracts k
       JOIN candidates c ON c.id = k.candidate_id
       LEFT JOIN jobs j ON j.id = k.job_id
