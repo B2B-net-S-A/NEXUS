@@ -101,6 +101,10 @@ RETRY_REASONS: frozenset[str] = frozenset(
 #: Przypisania, których automat nie przepina: ręczne Finansów i faktura
 #: wystawiona w NEXUSIE (E4) — ta wie, z którego zamówienia powstała.
 KEPT_METHODS: frozenset[str] = frozenset({"manual", "issued"})
+#: Powód „Pominięta” faktury wystawionej w NEXUSIE bez zamówienia (E6).
+ISSUED_WITHOUT_ORDER_REASON = (
+    "Wystawiona w NEXUSIE bez zamówienia (faktura z ręki, z szablonu albo zaliczkowa)."
+)
 #: Ostatnia faktura po kolei w ``rematch_pending`` (``{"after_id": …}``).
 REMATCH_CURSOR_KEY = "client_sales_rematch_cursor"
 
@@ -510,6 +514,32 @@ async def link_issued(
     invoice.matched_by = actor_id
     invoice.matched_at = _now()
     invoice.ignore_reason = None
+    _clear_difference(invoice)
+    await db.flush()
+    await propagate_to_corrections(db, invoice)
+
+
+async def keep_issued_without_order(
+    db: AsyncSession, invoice: ClientSalesInvoice, *, actor_id: Optional[int]
+) -> None:
+    """Faktura wystawiona w NEXUSIE bez zamówienia (E6) — „Pominięta” z powodem.
+
+    Bez tego automat przypiąłby ją „po kwocie” do zamówienia klienta z tą samą
+    kwotą, a „Wystaw za miesiąc” uznałby to zamówienie za zafakturowane.
+    Pominiętej automat nie rusza; Finanse mogą ją cofnąć i przypisać ręcznie.
+    """
+
+    await db.execute(
+        delete(ClientSalesInvoiceLink).where(
+            ClientSalesInvoiceLink.invoice_id == invoice.id
+        )
+    )
+    invoice.match_status = "ignored"
+    invoice.match_method = None
+    invoice.match_reason = None
+    invoice.ignore_reason = ISSUED_WITHOUT_ORDER_REASON
+    invoice.matched_by = actor_id
+    invoice.matched_at = _now()
     _clear_difference(invoice)
     await db.flush()
     await propagate_to_corrections(db, invoice)

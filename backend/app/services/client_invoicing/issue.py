@@ -1119,6 +1119,14 @@ async def link_sales_invoice(
             period=(int(invoice.period_year), int(invoice.period_month)),
             actor_id=actor_id,
         )
+    elif (
+        not targets
+        and sales.match_method != "manual"
+        and sales.match_status != "ignored"
+    ):
+        # Faktura z ręki, z szablonu, zaliczkowa (i korekta takiej) nie ma
+        # zamówienia — automat nie może jej przypiąć „po kwocie”.
+        await matching.keep_issued_without_order(db, sales, actor_id=actor_id)
     await db.flush()
     return sales
 

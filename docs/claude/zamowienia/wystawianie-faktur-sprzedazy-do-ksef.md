@@ -134,6 +134,11 @@ trasy w `api/client_issued_invoices.py`, migracja `0709_sales_invoice_templates`
 - **Faktura z ręki** („Szkice” → „Nowa faktura”): klient z kartoteki albo dowolny nabywca. `client_issued_invoices.client_id`
   może być pusty — nabywcą jest migawka `buyer`, przyjęta faktura trafia do `client_sales_invoices` bez klienta.
   Jednorazowe sprzedaże (sprzęt, samochód) idą tą drogą, nie szablonem.
+- **Faktura bez zamówienia nie dopasowuje się automatem** (przegląd 15.11.2026): przyjęta w KSeF faktura z ręki,
+  z szablonu, zaliczkowa i korekta takiej trafia do „Faktur z KSeF” jako „pominięta” z powodem „Wystawiona w NEXUSIE
+  bez zamówienia” (`matching.keep_issued_without_order`), bez powiązań. Bez tego automat przypinał ją „po kwocie” do
+  zamówienia klienta z tą samą kwotą, a „Wystaw za miesiąc” blokował to zamówienie jako „zafakturowane w KSeF”.
+  Ręczne przypisanie i pominięcie Finansów zostają; Finanse mogą cofnąć stan i przypisać fakturę ręcznie.
 - **Szablon** (`client_invoice_templates`): rodzaj `service` albo `benefit` (z `benefit` = `sport`/`medical`/`other`),
   nabywca, pozycje, waluta, seria PL/UE, ważność od–do, termin, aktywny. Nazwa pozycji ze znacznikami `{okres}`
   („październik 2026”), `{okresu}` („października 2026”), `{mm}`, `{rrrr}`. Zakładka „Szablony”: zaznaczenie →
