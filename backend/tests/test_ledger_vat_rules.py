@@ -184,7 +184,12 @@ def test_reverse_charge_in_a_purchase_keeps_net_and_output_vat():
     # Sam VAT należny w zakupie (bez odliczenia) też nie znika.
     only_output = [("debit", "402", 123_000, None), ("credit", "222", 23_000, None), ("credit", "201-5", 100_000, 9)]
     found = vat.purchase_amounts(only_output, input_account="221", output_account="222", intake_account="080")
-    assert (found.vat, found.output) == (0, 23_000)
+    # Podstawa VAT należnego to kwota od dostawcy, nie koszt z VAT (K5b-2:
+    # import usług bez odliczenia dawał netto + VAT w K_27/K_29).
+    assert (found.net, found.vat, found.output) == (100_000, 0, 23_000)
+    reversed_lines = [(("credit" if side == "debit" else "debit"), account, amount, party) for side, account, amount, party in only_output]
+    found = vat.purchase_amounts(reversed_lines, input_account="221", output_account="222", intake_account="080")
+    assert (found.net, found.vat, found.output) == (-100_000, 0, -23_000)
 
 
 def test_vat_on_a_zero_rate_invoice_goes_to_the_list():

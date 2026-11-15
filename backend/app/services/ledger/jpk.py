@@ -14,7 +14,10 @@ z deklaracją od 1 lutego 2026 r.”:
 * ewidencja (``K_``) w groszach, deklaracja (``P_``) w pełnych złotych — od 50 gr
   w górę (art. 63 § 1 Ordynacji), z sumy pola ``K_`` wszystkich wierszy;
 * P_37, P_38, P_48 i sumy kontrolne wg dokumentacji pól w XSD; P_51 = do
-  wpłaty, P_53 = P_62 = nadwyżka do przeniesienia (zwrot P_54 — później).
+  wpłaty, P_53 = P_62 = nadwyżka do przeniesienia (zwrot P_54 — później);
+* znaczniki GTU i TP (K5b-2) z ustawień kontrahenta — ``1`` w polach wiersza
+  sprzedaży, GTU przed procedurami (kolejność z XSD); import usług bez
+  znaczników (GTU nie stosuje się do nabyć z podatkiem należnym).
 
 Plik zawiera faktury osób zespołu (D2): przygotowuje go osoba z listy
 „Księgowi” z Płacami albo administrator, pobiera — osoba z Płacami albo
@@ -45,7 +48,7 @@ from app.services.finance_ledger.costs import LedgerError
 from app.services.hr.payroll_lists import parameters as payroll_parameters
 from app.services.ledger import vat
 from app.services.ledger.documents import Viewer
-from app.services.ledger.settings import LedgerSettings
+from app.services.ledger.settings import MARKERS, LedgerSettings
 from app.services.ledger_vat_schema import NOTE_MAX, REASON_MAX
 
 NS = "http://crd.gov.pl/wzor/2025/12/19/14090/"
@@ -119,13 +122,14 @@ P_48_FROM = ("P_39", "P_41", "P_43", "P_44", "P_45", "P_46", "P_47")
 #: „Do sprawdzenia” rejestrów, przy których JPK nie powstaje (niepełny albo bez
 #: pola JPK); reszta to ostrzeżenia w odpowiedzi.
 BLOCKING = ("rates", "missing_sales", "drafts")
-#: Czego plik z NEXUSA jeszcze nie ma — widoczne przy JPK, dopóki nie powstanie
+#: Czego plik z NEXUSA nie ma albo bierze z ustawień — widoczne przy JPK
 #: (porównanie z JPK z Symfonii w miesiącach równoległych to wyłapie).
 NOTES: tuple[str, ...] = (
-    "Znaczniki GTU i TP (np. GTU_12, transakcje z podmiotami powiązanymi) "
-    "i procedury — jeszcze nie w NEXUSIE; przed wysyłką porównaj z JPK z Symfonii.",
-    "Zakupy zagraniczne bez KSeF (import usług) wejdą do JPK z formularzem "
-    "zakupu zagranicznego (K5b-2).",
+    "Znaczniki GTU i TP pochodzą z listy „Znaczniki kontrahentów” (zakładka VAT) "
+    "i trafiają na wszystkie faktury sprzedaży kontrahenta; pozostałe procedury "
+    "(np. MR_T, I_42, WSTO_EE) — nie w NEXUSIE.",
+    "Import usług wchodzi do JPK z formularza zakupu zagranicznego (zakładka VAT); "
+    "taka faktura z kolejki kosztów stoi na liście „do sprawdzenia”.",
 )
 PREPARE_ONLY = (
     "JPK zawiera faktury osób zespołu — przygotowuje go osoba z listy „Księgowi” "
@@ -289,6 +293,11 @@ def _row(parent: Any, kind: str, index: int, row: dict[str, Any]) -> dict[str, i
     if day != issued:
         _sub(node, "DataSprzedazy" if sales else "DataWplywu", day.isoformat())
     _marker(node, row.get("ksef_number"))
+    if sales:
+        # GTU_01…GTU_13, potem procedury (TP) — sekwencja z XSD.
+        for key in MARKERS:
+            if key in (row.get("markers") or ()):
+                _sub(node, key, 1)
     fields = row_fields(row["groups"])
     for key in SALES_K if sales else PURCHASE_K:
         if key in fields:
@@ -299,17 +308,21 @@ def _row(parent: Any, kind: str, index: int, row: dict[str, Any]) -> dict[str, i
 def fingerprint(data: dict[str, Any]) -> str:
     """Odcisk rejestrów (dokumenty i kwoty) — zmiana po wysłaniu = korekta JPK."""
 
-    rows = [
-        [
-            kind,
-            row["document_id"],
-            row["net"],
-            row["vat"],
-            sorted((g["key"], g["net"], g["vat"]) for g in row["groups"]),
-        ]
-        for kind in ("sales", "purchases")
-        for row in data[kind]
-    ]
+    rows = []
+    for kind in ("sales", "purchases"):
+        for row in data[kind]:
+            entry: list[Any] = [
+                kind,
+                row["document_id"],
+                row["net"],
+                row["vat"],
+                sorted((g["key"], g["net"], g["vat"]) for g in row["groups"]),
+            ]
+            # Znaczniki tylko, gdy są — odcisk wysłanych wersji bez znaczników
+            # (K5b-1) zostaje ten sam (K5b-2).
+            if row.get("markers"):
+                entry.append(sorted(row["markers"]))
+            rows.append(entry)
     raw = json.dumps(sorted(rows), ensure_ascii=False)
     return hashlib.sha256(raw.encode()).hexdigest()
 
