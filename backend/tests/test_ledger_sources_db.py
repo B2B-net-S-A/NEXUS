@@ -4353,6 +4353,9 @@ async def test_vat_uek_corrects_the_original_period_from_month_k(client, world, 
             _sales_invoice(
                 nips["client"],
                 number=number,
+                # NIP z kartoteki testu — synchronizacja szuka nabywcy po nim;
+                # zdejmowany po zatwierdzeniu (niżej), jak w teście VAT-UE.
+                buyer_nip=nips["client"],
                 buyer_foreign_id="FI28583949",
                 buyer_name="Klient Testowy",
                 invoice_type="KOR",
@@ -4385,8 +4388,19 @@ async def test_vat_uek_corrects_the_original_period_from_month_k(client, world, 
         await _document("client_sales_invoice", books["sales"][key])
         for key in ("uek_march", "uek_feb")
     ]
-    assert all(doc is not None and doc.op_date == date(year, 5, 10) for doc in docs)
+    assert all(doc is not None and doc.op_date == date(year, 5, 10) for doc in docs), synced.text
     await _approve_ids(client, world, [doc.id for doc in docs])
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(
+                ClientSalesInvoice.id.in_(
+                    [books["sales"]["uek_march"], books["sales"]["uek_feb"]]
+                )
+            )
+            .values(buyer_nip=None)
+        )
+        await db.commit()
     headers = _headers(world["module_only"])
 
     may = (await client.get(f"{ACC}/vat/ue", params={"year": year, "month": 5}, headers=headers)).json()
