@@ -10,7 +10,8 @@ każdy powód trafia do jednego z koszy raportu:
 * ``data`` — brak albo nieaktualność danych, np. za droga, gdy system stawki
   nie znał, nieaktualne CV;
 * ``person`` — sprawa osoby (nie szuka, nie odbiera, już u nas w procesie);
-* ``other`` — „Inne”, z opisem.
+* ``other`` — „Inne”, z opisem, i „Porządki” (duplikat, nieaktualny
+  proces), których raport jakości w ogóle nie liczy.
 
 Kosz liczy się przy zapisie z migawki ``entry_meta`` procesu (co system
 wiedział w chwili dodania), nie z dzisiejszego profilu. Reguła wymagania
@@ -96,6 +97,7 @@ REASON_LABELS: dict[str, str] = {
     "no_polish": "Brak polskiego",
     "weak_english": "Angielski za słaby",
     "contract_form": "Forma umowy (UoP / B2B)",
+    "cleanup": "Porządki (nie ocena osoby)",
     "other": "Inne",
 }
 assert set(REASON_LABELS) == set(REASONS)
@@ -105,6 +107,55 @@ assert set(REASON_LABELS) == set(REASONS)
 GAP_REASON = "missing_skill"
 MAX_GAPS = 10
 GAP_LABEL_MAX = 120
+
+
+# Runda 5 (16.11.2026, 0717): szczegół powodu z porcji. Na 13.11 „Inna rola”
+# była 49×, z opisem 0×; 22 z 45 „Inne” to porządki tablicy albo sama kropka.
+CLEANUP_REASON = "cleanup"
+ROLE_REASON = "other_level_or_role"
+ROLE_KINDS = ("profession", "level", "specialty")
+ROLE_WANTED_MAX = 120
+AVAILABILITY_KINDS = ("not_looking", "notice", "from_date")
+CLEANUP_KINDS = ("duplicate", "stale_process", "cv_broken")
+# „Inne” = choć tyle liter; kropka nie mówi nic (11 z 45 „Inne” 13.11).
+OTHER_NOTE_MIN_LETTERS = 3
+_UNKNOWN_DETAIL = "Szczegół powodu nie pasuje do wybranego powodu."
+
+
+def clean_detail(reason: Optional[str], raw: Any) -> Optional[dict]:
+    """Szczegół powodu z żądania albo ``None``. Klucze zależą od powodu:
+    „Inna rola” — ``role_kind`` i ``role_wanted``, „Nie szuka” —
+    ``availability``, „Porządki” — ``cleanup`` (wymagany). Inny klucz albo
+    wartość spoza listy = 422."""
+    raw = raw or {}
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
+    allowed = {
+        ROLE_REASON: {"role_kind", "role_wanted"},
+        NOT_LOOKING_REASON: {"availability"},
+        CLEANUP_REASON: {"cleanup"},
+    }.get(reason or "", set())
+    if set(raw) - allowed:
+        raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
+    out: dict = {}
+    if raw.get("role_kind") is not None:
+        if raw["role_kind"] not in ROLE_KINDS:
+            raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
+        out["role_kind"] = raw["role_kind"]
+    wanted = str(raw.get("role_wanted") or "").strip()[:ROLE_WANTED_MAX]
+    if wanted:
+        out["role_wanted"] = wanted
+    if raw.get("availability") is not None:
+        if raw["availability"] not in AVAILABILITY_KINDS:
+            raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
+        out["availability"] = raw["availability"]
+    if reason == CLEANUP_REASON:
+        if raw.get("cleanup") not in CLEANUP_KINDS:
+            raise HTTPException(
+                status_code=422, detail="Przy „Porządkach” wybierz, czego dotyczą."
+            )
+        out["cleanup"] = raw["cleanup"]
+    return out or None
 
 
 def clean_gaps(raw: Any) -> list[dict]:
@@ -178,6 +229,7 @@ def validate(
     note: Optional[str],
     not_looking_until: Optional[date] = None,
     gaps: Optional[list] = None,
+    detail: Optional[dict] = None,
 ) -> None:
     """422 przed zapisem ruchu: brak powodu przy osobie od systemu, powód przy
     innej osobie, „Inne” bez opisu albo zła data „Nie szuka do”."""
@@ -217,8 +269,11 @@ def validate(
         )
     if reason not in REASONS or learned_from not in LEARNED_FROM:
         raise HTTPException(status_code=422, detail="Nieznany powód odrzucenia.")
-    if reason == "other" and not (note or "").strip():
-        raise HTTPException(status_code=422, detail="Przy „Inne” opisz powód.")
+    if reason == "other" and (
+        sum(ch.isalpha() for ch in (note or "")) < OTHER_NOTE_MIN_LETTERS
+    ):
+        raise HTTPException(status_code=422, detail="Przy „Inne” opisz powód słowami.")
+    clean_detail(reason, detail)
     if gaps:
         clean_gaps(gaps)
     if gaps and reason != GAP_REASON:
@@ -241,6 +296,7 @@ async def record(
     actor_id: Optional[int],
     whole_client: bool = False,
     gaps: Optional[list] = None,
+    detail: Optional[dict] = None,
 ) -> AutofillFeedback:
     from app.services.dealbreaker_filters import resolve_job_budget_hourly
 
@@ -259,6 +315,7 @@ async def record(
         snapshot=snapshot,
         whole_client=bool(whole_client) and reason in CLIENT_WIDE_REASONS,
         gaps=clean_gaps(gaps) if reason == GAP_REASON and gaps else None,
+        detail=clean_detail(reason, detail),
         created_by=actor_id,
     )
     db.add(row)

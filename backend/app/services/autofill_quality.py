@@ -43,7 +43,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services import candidate_claim
-from app.services.autofill_feedback import REASON_LABELS
+from app.services.autofill_feedback import CLEANUP_REASON, REASON_LABELS
 from app.services.autofill_feedback_schema import BUCKETS
 from app.services.request_work_state import IN_WORK_STATES
 
@@ -135,6 +135,10 @@ async def _waiting_now(db, now: datetime) -> int:
     return len(await due_decisions(db, job_ids, now))
 
 
+# „Porządki” (16.11.2026) to nie ocena osoby — raport ich nie liczy.
+_ASSESSMENT = AutofillFeedback.reason != CLEANUP_REASON
+
+
 async def _worst_jobs(db, since: datetime, until: datetime) -> list[dict]:
     from app.services.job_working_title import job_display_title_expr
 
@@ -147,6 +151,7 @@ async def _worst_jobs(db, since: datetime, until: datetime) -> list[dict]:
             ).where(
                 AutofillFeedback.created_at >= since,
                 AutofillFeedback.created_at < until,
+                _ASSESSMENT,
             )
         )
     ).all()
@@ -220,6 +225,7 @@ async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dic
             .where(
                 AutofillFeedback.created_at >= since,
                 AutofillFeedback.created_at < until,
+                _ASSESSMENT,
             )
             .group_by(AutofillFeedback.bucket, AutofillFeedback.reason)
         )
@@ -362,6 +368,7 @@ async def _notes(db, since: datetime, until: datetime) -> list[str]:
                 AutofillFeedback.created_at >= since,
                 AutofillFeedback.created_at < until,
                 AutofillFeedback.note.is_not(None),
+                _ASSESSMENT,
             )
             .order_by(AutofillFeedback.created_at.desc())
             .limit(MAX_NOTES)

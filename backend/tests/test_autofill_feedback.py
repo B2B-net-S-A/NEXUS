@@ -755,3 +755,122 @@ def test_gaps_are_cleaned_and_only_go_with_missing_skill():
             note=None,
             gaps=gaps,
         )
+
+
+# ── Runda 5 (16.11.2026, 0717): szczegół powodu i „Porządki” ────────────────
+# Raport https://claude.ai/artifact/2TiEpPVCj6k42o2xkegDKv: 13.11 „Inna rola”
+# 49× bez słowa, 22 z 45 „Inne” to porządki tablicy albo sama kropka.
+
+
+def test_detail_keys_follow_the_reason():
+    assert feedback.clean_detail(
+        "other_level_or_role", {"role_kind": "level", "role_wanted": "  analityk  "}
+    ) == {"role_kind": "level", "role_wanted": "analityk"}
+    assert feedback.clean_detail("not_looking", {"availability": "notice"}) == {
+        "availability": "notice"
+    }
+    assert feedback.clean_detail("cleanup", {"cleanup": "duplicate"}) == {
+        "cleanup": "duplicate"
+    }
+    assert feedback.clean_detail("too_junior", None) is None
+    assert feedback.clean_detail("other_level_or_role", {"role_wanted": " "}) is None
+    for reason, raw in [
+        ("too_junior", {"role_kind": "level"}),  # klucz innego powodu
+        ("other_level_or_role", {"role_kind": "manager"}),  # spoza listy
+        ("not_looking", {"availability": "never"}),
+        ("cleanup", {}),  # porządki bez rodzaju
+        ("cleanup", {"cleanup": "boring"}),
+        ("other_level_or_role", ["level"]),
+    ]:
+        with pytest.raises(HTTPException) as bad:
+            feedback.clean_detail(reason, raw)
+        assert bad.value.status_code == 422, (reason, raw)
+
+
+def test_other_needs_words_and_cleanup_needs_a_kind():
+    process = SimpleNamespace(entry_source="system")
+    for note in [".", " . . ", "--", "a1"]:
+        with pytest.raises(HTTPException):
+            feedback.validate(
+                process=process, reason="other", learned_from="profile", note=note
+            )
+    feedback.validate(
+        process=process, reason="other", learned_from="profile", note="duplikat"
+    )
+    with pytest.raises(HTTPException):
+        feedback.validate(
+            process=process, reason="cleanup", learned_from="profile", note=None
+        )
+    feedback.validate(
+        process=process,
+        reason="cleanup",
+        learned_from="profile",
+        note=None,
+        detail={"cleanup": "stale_process"},
+    )
+    assert feedback.bucket_for("cleanup", snapshot=None, budget_hourly=None) == "other"
+
+
+async def test_move_stores_detail_and_cleanup_stays_out_of_the_report(
+    api_client, monkeypatch
+):
+    from app.services import autofill_quality
+
+    monkeypatch.setattr(autofill, "TARGET", 1)
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        assert await autofill.fill_job(
+            db, world["job_id"], now=datetime.now(timezone.utc)
+        ) == [world["system"]]
+        await db.commit()
+    login = await api_client.post(
+        "/api/auth/login",
+        json={"email": world["email"], "password": world["password"]},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    async with AsyncSessionLocal() as db:
+        other_id = await db.scalar(
+            select(RejectionReason.id).where(
+                RejectionReason.category == "rejected",
+                RejectionReason.template_id.is_(None),
+            )
+        )
+    base = {
+        "candidate_id": world["system"],
+        "job_id": world["job_id"],
+        "stage": "rejected",
+        "rejection_reason_id": other_id,
+        "rejection_reason": None if other_id else "porządki",
+        "notes": "Porządki: duplikat",
+        "autofill_reason": "cleanup",
+        "autofill_learned_from": "profile",
+    }
+    wrong = await api_client.post(
+        "/api/pipeline/move",
+        headers=headers,
+        json={**base, "autofill_detail": {"role_kind": "level"}},
+    )
+    assert wrong.status_code == 422, wrong.text
+    ok = await api_client.post(
+        "/api/pipeline/move",
+        headers=headers,
+        json={**base, "autofill_detail": {"cleanup": "duplicate"}},
+    )
+    assert ok.status_code == 200, ok.text
+    async with AsyncSessionLocal() as db:
+        [row] = (
+            await db.scalars(
+                select(AutofillFeedback).where(
+                    AutofillFeedback.job_id == world["job_id"]
+                )
+            )
+        ).all()
+        assert (row.reason, row.bucket, row.detail) == (
+            "cleanup",
+            "other",
+            {"cleanup": "duplicate"},
+        )
+        since = row.created_at - timedelta(minutes=1)
+        until = row.created_at + timedelta(minutes=1)
+        worst = await autofill_quality._worst_jobs(db, since, until)
+        assert all(entry.get("job_id") != world["job_id"] for entry in worst)

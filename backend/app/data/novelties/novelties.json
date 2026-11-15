@@ -1,5 +1,23 @@
 [
   {
+    "id": "porcja-szczegol-powodu",
+    "pr": 3470,
+    "title": "Porcja dnia: dokładniejszy powód „Nie pasuje”",
+    "why": "„Inna rola”: zawód, poziom albo specjalizacja. „Za drogi”: ile chce. „Nie szuka”: wypowiedzenie albo data. Duplikaty i porządki osobno pod „Inne” — system się z nich nie uczy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Nie pasuje",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.reject",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
     "id": "zespol-rozbij-zapytanie",
     "pr": 3461,
     "title": "Nowa rekrutacja: rozbij zapytanie na stanowiska zespołu",
