@@ -28,6 +28,7 @@ export type AutofillReason =
   | "no_polish"
   | "weak_english"
   | "contract_form"
+  | "cleanup"
   | "other";
 
 export type AutofillLearnedFrom = "profile" | "call";
@@ -48,6 +49,37 @@ export const GAP_KIND_LABEL: Record<AutofillGapKind, string> = {
   too_few_years: "za mało lat",
 };
 
+/**
+ * Szczegół powodu z porcji (16.11.2026, 0716; lustro `clean_detail` serwera).
+ * 13.11 „Inna rola” była 49× bez słowa, a 22 z 45 „Inne” to porządki tablicy.
+ */
+export type AutofillRoleKind = "profession" | "level" | "specialty";
+export type AutofillAvailability = "not_looking" | "notice" | "from_date";
+export type AutofillCleanupKind = "duplicate" | "stale_process" | "cv_broken";
+export interface AutofillDetail {
+  role_kind?: AutofillRoleKind;
+  role_wanted?: string;
+  availability?: AutofillAvailability;
+  cleanup?: AutofillCleanupKind;
+}
+
+export const ROLE_KIND_LABEL: Record<AutofillRoleKind, string> = {
+  profession: "Inny zawód",
+  level: "Za wysoki poziom / za senior",
+  specialty: "Inna specjalizacja w tym zawodzie",
+};
+export const CLEANUP_KIND_LABEL: Record<AutofillCleanupKind, string> = {
+  duplicate: "Duplikat",
+  stale_process: "Nieaktualny proces / porządki",
+  cv_broken: "CV się nie otwiera",
+};
+
+/** „Inne” = choć 3 litery opisu (lustro `OTHER_NOTE_MIN_LETTERS`); kropka to 11 z 45 „Inne” z 13.11. */
+export const OTHER_NOTE_MIN_LETTERS = 3;
+export function otherNoteHasWords(note: string): boolean {
+  return (note.match(/\p{L}/gu) ?? []).length >= OTHER_NOTE_MIN_LETTERS;
+}
+
 export interface AutofillFeedbackChoice {
   reason: AutofillReason;
   learnedFrom: AutofillLearnedFrom;
@@ -67,6 +99,8 @@ export interface AutofillFeedbackChoice {
   notLookingUntil?: string | null;
   /** Braki przy pozycjach — tylko przy „Brak umiejętności”. */
   gaps?: AutofillGap[];
+  /** Szczegół powodu (porcja): rodzaj „Innej roli”, dostępność, rodzaj porządków. */
+  detail?: AutofillDetail | null;
 }
 
 /** Powody, przy których okno pyta „na cały klient” (lustro `CLIENT_WIDE_REASONS`). */
@@ -144,6 +178,7 @@ export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   no_polish: null,
   weak_english: null,
   contract_form: null,
+  cleanup: null,
   other: null,
 };
 
@@ -171,6 +206,8 @@ export function autofillReasonLabel(reason: AutofillReason): string {
   // „Język” zastąpiły 12.11.2026 „Brak polskiego” i „Angielski za słaby”;
   // stare wpisy dalej mają tę nazwę.
   if (reason === "language") return "Język";
+  // „Porządki” (16.11.2026) są tylko w porcji, poza listą okna odrzucenia.
+  if (reason === "cleanup") return "Porządki (nie ocena osoby)";
   return reason;
 }
 
@@ -212,6 +249,7 @@ export function autofillMoveFields(choice: AutofillFeedbackChoice | null | undef
   autofill_whole_client?: boolean;
   autofill_not_looking_until?: string;
   autofill_gaps?: AutofillGap[];
+  autofill_detail?: AutofillDetail;
 } {
   if (!choice) return {};
   return {
@@ -224,6 +262,7 @@ export function autofillMoveFields(choice: AutofillFeedbackChoice | null | undef
       choice.reason === "not_looking" && choice.notLookingUntil ? choice.notLookingUntil : undefined,
     autofill_gaps:
       choice.reason === "missing_skill" && choice.gaps && choice.gaps.length > 0 ? choice.gaps : undefined,
+    autofill_detail: choice.detail && Object.keys(choice.detail).length > 0 ? choice.detail : undefined,
   };
 }
 
@@ -257,6 +296,7 @@ export function autofillBucketHint(reason: AutofillReason | null, rateKnown: boo
     return "Do raportu: „Sprawa osoby” — nie liczymy jako błędu wyszukiwania.";
   }
   if (reason === "other") return "Do raportu: „Inne” — z Twoim opisem.";
+  if (reason === "cleanup") return "Nie liczy się do raportu — to porządki, nie ocena osoby.";
   return "Do raportu: „Błąd wyszukiwania” — z tego poprawiamy podpowiedzi.";
 }
 

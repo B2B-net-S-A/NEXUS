@@ -40,6 +40,9 @@ REASONS: tuple[str, ...] = (
     "no_polish",
     "weak_english",
     "contract_form",
+    # Runda 5 (0716, 16.11.2026): 22 z 45 „Inne” z 13.11 to porządki tablicy
+    # (duplikat, „czyszczenie pipeline”, sama kropka) — nie ocena osoby.
+    "cleanup",
     "other",
 )
 # Braki przy pozycjach (0686): „Brak umiejętności” kliknięty przy pozycji.
@@ -75,6 +78,13 @@ GAPS_DDL: list[str] = [
     *REASON_CHECK_DDL,
 ]
 
+# 0716 (16.11.2026): szczegół powodu — rodzaj „Innej roli”, dostępność przy
+# „Nie szuka”, rodzaj porządków (``autofill_feedback.clean_detail``).
+DETAIL_DDL: list[str] = [
+    "ALTER TABLE autofill_feedback ADD COLUMN IF NOT EXISTS detail JSONB NULL",
+    *REASON_CHECK_DDL,
+]
+
 TABLE_DDL: list[str] = [
     f"""CREATE TABLE IF NOT EXISTS autofill_feedback (
            id BIGSERIAL PRIMARY KEY,
@@ -101,6 +111,7 @@ TABLE_DDL: list[str] = [
     "ON autofill_feedback (candidate_id)",
     *WHOLE_CLIENT_DDL,
     *GAPS_DDL,
+    *DETAIL_DDL,
 ]
 
 DOWNGRADE_DDL: list[str] = ["DROP TABLE IF EXISTS autofill_feedback"]

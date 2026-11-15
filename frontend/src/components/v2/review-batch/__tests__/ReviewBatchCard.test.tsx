@@ -11,6 +11,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { gapRows, orderLine, ReviewBatchCard, rejectMissing } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
+import { notLookingUntil } from "@/lib/autofill-feedback";
 
 const move = vi.hoisted(() => ({
   send: vi.fn(async () => ({ ok: true as const, data: {} })),
@@ -147,6 +148,91 @@ describe("ReviewBatchCard", () => {
   });
 });
 
+// Runda 5 (16.11.2026): feedback z 13.11 — „Inna rola” 49× bez słowa,
+// „Za drogi” 27× bez kwoty, 22 z 45 „Inne” to porządki albo sama kropka.
+describe("ReviewBatchCard: szczegół powodu (runda 5)", () => {
+  async function openReason(key: string) {
+    render(<ReviewBatchCard item={{ ...item, position: "Oracle Database Administrator" }} onDecided={() => {}} />);
+    fireEvent.keyDown(window, { key: "o" });
+    fireEvent.keyDown(window, { key });
+  }
+  async function sent(): Promise<Record<string, unknown>> {
+    await vi.waitFor(() => expect(move.send).toHaveBeenCalled());
+    return (move.send.mock.calls[0] as unknown as [Record<string, unknown>])[0];
+  }
+
+  it("„Inna rola” mówi, co nie pasuje, i kogo szukamy zamiast", async () => {
+    const user = userEvent.setup();
+    await openReason("7");
+    expect(screen.getByText("Oracle Database Administrator")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Inny zawód" }));
+    await user.type(screen.getByLabelText("Kogo szukamy zamiast"), "analityk biznesowy");
+    await user.click(screen.getByTestId("review-reject-confirm"));
+    expect(await sent()).toMatchObject({
+      autofill_reason: "other_level_or_role",
+      autofill_detail: { role_kind: "profession", role_wanted: "analityk biznesowy" },
+      rejection_reason_id: "41",
+      notes: "Inny zawód, szukamy: analityk biznesowy",
+    });
+  });
+
+  it("„Inna rola” bez kliknięcia dalej idzie jednym klawiszem, bez szczegółu", async () => {
+    const payload = await rejectWithKey("7");
+    expect(payload.autofill_reason).toBe("other_level_or_role");
+    expect(payload.autofill_detail).toBeUndefined();
+  });
+
+  it("„Za drogi” z kwotą zapisuje „Ile chce?”, bez kwoty idzie jak dotąd", async () => {
+    const user = userEvent.setup();
+    await openReason("4");
+    await user.type(screen.getByLabelText("Ile chce?"), "14a0");
+    await user.click(screen.getByTestId("review-reject-confirm"));
+    expect(await sent()).toMatchObject({ autofill_reason: "too_expensive", autofill_rate_hourly: 140 });
+  });
+
+  it("„Za drogi” bez kwoty nie wysyła stawki", async () => {
+    expect((await rejectWithKey("4")).autofill_rate_hourly).toBeUndefined();
+  });
+
+  it("okres wypowiedzenia ustawia „Nie szuka do” za tyle miesięcy", async () => {
+    const user = userEvent.setup();
+    await openReason("8");
+    await user.click(screen.getByRole("button", { name: "Okres wypowiedzenia" }));
+    await user.selectOptions(screen.getByLabelText("Okres wypowiedzenia"), "2");
+    await user.click(screen.getByTestId("review-reject-confirm"));
+    expect(await sent()).toMatchObject({
+      autofill_reason: "not_looking",
+      autofill_not_looking_until: notLookingUntil(2),
+      autofill_detail: { availability: "notice" },
+    });
+  });
+
+  it("„Dostępny od” bez daty nie pozwala odrzucić", async () => {
+    const user = userEvent.setup();
+    await openReason("8");
+    await user.click(screen.getByRole("button", { name: "Dostępny od…" }));
+    expect(screen.getByTestId("review-reject-confirm")).toBeDisabled();
+    expect(screen.getByText("Podaj, od kiedy jest dostępny.")).toBeInTheDocument();
+  });
+
+  it("„Inne” z samą kropką nie przechodzi, porządki idą jako `cleanup`", async () => {
+    const user = userEvent.setup();
+    await openReason("0");
+    await user.type(screen.getByRole("textbox"), ".");
+    expect(screen.getByTestId("review-reject-confirm")).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Duplikat" }));
+    await user.click(screen.getByTestId("review-reject-confirm"));
+    const payload = await sent();
+    expect(payload).toMatchObject({
+      autofill_reason: "cleanup",
+      autofill_detail: { cleanup: "duplicate" },
+      rejection_reason_id: "49",
+    });
+    expect(String(payload.notes)).toMatch(/^Porządki \(nie ocena osoby\)\. Duplikat/);
+    expect(serverRefusal(payload)).toBeNull();
+  });
+});
+
 describe("ReviewBatchCard: każdy powód zapisuje się jednym klawiszem", () => {
   it.each(["2", "3", "4", "5", "6", "7", "8", "9"])("klawisz %s przechodzi walidację serwera", async (key) => {
     expect(serverRefusal(await rejectWithKey(key))).toBeNull();
@@ -225,6 +311,9 @@ describe("rejectMissing", () => {
     expect(rejectMissing("missing_skill", " ")).toMatch(/Kliknij, czego brakuje/);
     expect(rejectMissing("missing_skill", " ", 1)).toBe("");
     expect(rejectMissing("other", "")).toMatch(/Opisz/);
+    expect(rejectMissing("other", ".")).toMatch(/Opisz powód słowami/);
+    expect(rejectMissing("other", ".", 0, { cleanup: "duplicate" })).toBe("");
+    expect(rejectMissing("other", "brak bankowości")).toBe("");
     expect(rejectMissing("too_junior", "")).toBe("");
   });
 
