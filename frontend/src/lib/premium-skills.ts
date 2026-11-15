@@ -29,3 +29,31 @@ export function proposalLabel(e: PremiumEvidence): string {
   if (e.uses) return "korzysta";
   return "zna, brak dowodu użycia";
 }
+
+/** Przyznana dopłata dla technologii (zamknięty wniosek ze zgodą klienta). */
+export function grantedClaim(claims: PremiumClaim[], technology: string): PremiumClaim | null {
+  const wanted = technology.toLocaleLowerCase("pl");
+  return claims.find((c) => c.status === "granted" && c.technology.toLocaleLowerCase("pl") === wanted) ?? null;
+}
+
+/**
+ * Umowa daje jedną dopłatę — wyższą. Gdy przyznano już dopłatę co najmniej
+ * tak wysoką, wniosek o inną technologię nic nie zmieni (zwraca przyznaną).
+ */
+export function coveredBy(
+  claims: PremiumClaim[],
+  evidence: PremiumEvidence[],
+  technology: string,
+): PremiumClaim | null {
+  const percentOf = (tech: string) =>
+    Number(evidence.find((e) => e.technology.toLocaleLowerCase("pl") === tech.toLocaleLowerCase("pl"))?.percent ?? 0);
+  const own = percentOf(technology);
+  return (
+    claims.find(
+      (c) =>
+        c.status === "granted" &&
+        c.technology.toLocaleLowerCase("pl") !== technology.toLocaleLowerCase("pl") &&
+        percentOf(c.technology) >= own,
+    ) ?? null
+  );
+}

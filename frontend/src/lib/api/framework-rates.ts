@@ -266,6 +266,9 @@ export interface FrameworkProlongation {
   levers: FrameworkLever[];
   claim_status: ClaimStatus | null;
   claim_technology: string | null;
+  /** Technologia z dowodem, której dopłata mieści stawkę („Spark +20%: zna i korzysta”). */
+  evidence_technology: string | null;
+  evidence_label: string | null;
 }
 
 const premiumKey = (contractId: number) => ["premium-skills", contractId] as const;
@@ -285,6 +288,9 @@ function usePremiumMutation<TInput>(contractId: number, run: (input: TInput) => 
     onSuccess: (data) => {
       queryClient.setQueryData(premiumKey(contractId), data);
       void queryClient.invalidateQueries({ queryKey: frameworkKeys.category(contractId) });
+      // Przyznana dopłata zmienia limit także na karcie „Stawki finansowe”.
+      void queryClient.invalidateQueries({ queryKey: ["contract", contractId] });
+      void queryClient.invalidateQueries({ queryKey: ["contract", String(contractId)] });
     },
   });
 }

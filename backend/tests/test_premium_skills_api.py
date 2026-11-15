@@ -176,6 +176,8 @@ async def test_prolongation_queue_and_bell_for_over_limit_before_order_end(
     (row,) = queue.json()
     assert row["contract_id"] == contract_id and row["days_left"] == 10
     assert [lv["kind"] for lv in row["levers"]] == ["addon"]
+    assert row["evidence_technology"] == "Kafka"
+    assert row["evidence_label"] == "Kafka +20%: zna, brak dowodu użycia"
 
     async with AsyncSessionLocal() as db:
         await rule_framework_over_limit(db)

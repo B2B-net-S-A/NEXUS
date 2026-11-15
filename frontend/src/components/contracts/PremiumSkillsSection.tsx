@@ -21,7 +21,7 @@ import {
   type PremiumEvidence,
 } from "@/lib/api/framework-rates";
 import { formatIsoDatePl } from "@/lib/date-pl";
-import { CLAIM_LABEL, lastRefusal, openClaimFor, proposalLabel } from "@/lib/premium-skills";
+import { CLAIM_LABEL, coveredBy, grantedClaim, lastRefusal, openClaimFor, proposalLabel } from "@/lib/premium-skills";
 import { warsawToday } from "@/lib/warsaw-date";
 
 type Dialog =
@@ -55,6 +55,8 @@ export function PremiumSkillsSection({ contractId, canEdit }: { contractId: numb
         <ul className="space-y-2">
           {evidence.map((e) => {
             const open = openClaimFor(claims, e.technology);
+            const granted = open ? null : grantedClaim(claims, e.technology);
+            const covered = open || granted ? null : coveredBy(claims, evidence, e.technology);
             const refused = lastRefusal(claims, e.technology);
             return (
               <li key={e.technology} className="text-xs">
@@ -67,10 +69,20 @@ export function PremiumSkillsSection({ contractId, canEdit }: { contractId: numb
                       NEXUS: {proposalLabel(e)}
                     </Badge>
                     {open && <Badge variant="info" size="sm">{CLAIM_LABEL[open.status]}</Badge>}
+                    {granted && (
+                      <Badge variant="success" size="sm">
+                        Przyznana{granted.client_confirmed_on ? ` ${formatIsoDatePl(granted.client_confirmed_on)}` : ""}
+                      </Badge>
+                    )}
                   </span>
                 </div>
                 <div className="text-[11px] text-muted-foreground">{e.sources.join(" · ")}</div>
-                {refused && !open && (
+                {covered && (
+                  <div className="text-[11px] text-muted-foreground">
+                    Umowa daje jedną dopłatę — przyznana już za {covered.technology}.
+                  </div>
+                )}
+                {refused && !open && !granted && (
                   <div className="text-[11px] text-warning">
                     Odmowa klienta: {refused.outcome_reason}
                     {refused.next_try_on ? ` · ponów od ${formatIsoDatePl(refused.next_try_on)}` : ""}
@@ -78,7 +90,7 @@ export function PremiumSkillsSection({ contractId, canEdit }: { contractId: numb
                 )}
                 {canEdit && (
                   <div className="mt-1 flex flex-wrap gap-1.5">
-                    {!open && (
+                    {!open && !granted && !covered && (
                       <Button size="sm" variant="outline" data-tour="contracts.premium-skills" onClick={() => setDialog({ kind: "decide", evidence: e })}>
                         Oceń i złóż wniosek
                       </Button>

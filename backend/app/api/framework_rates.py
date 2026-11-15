@@ -879,6 +879,10 @@ class ProlongationOut(BaseModel):
     levers: list[LeverOut] = Field(default_factory=list)
     claim_status: Optional[str] = None
     claim_technology: Optional[str] = None
+    # Technologia z umowy, którą osoba zna (najpierw „korzysta”) i której dopłata
+    # mieści stawkę — tę wpisać we wniosek, a nie najtańszą z umowy.
+    evidence_technology: Optional[str] = None
+    evidence_label: Optional[str] = None
 
 
 @router.get(
@@ -920,6 +924,7 @@ async def get_framework_prolongations(
         for claim in claims:
             latest[claim.contract_id] = claim
     rows.sort(key=lambda r: r.order_end)
+    best = await _best_evidence(db, client_id, rows, today)
     return [
         ProlongationOut(
             contract_id=r.contract_id,
@@ -940,6 +945,32 @@ async def get_framework_prolongations(
             claim_technology=latest[r.contract_id].technology
             if r.contract_id in latest
             else None,
+            evidence_technology=best.get(r.contract_id, (None, None))[0],
+            evidence_label=best.get(r.contract_id, (None, None))[1],
         )
         for r in rows
     ]
+
+
+async def _best_evidence(db: AsyncSession, client_id: int, rows, today: date) -> dict:
+    """Dla kolejki prolongat: technologia z dowodem, której dopłata mieści stawkę."""
+    from app.services.framework_limits import framework_limit
+    from app.services.premium_skills import contract_evidence
+
+    terms = await load_terms(db, client_id)
+    out: dict[int, tuple[str, str]] = {}
+    for row in rows:
+        contract = await _contract(db, row.contract_id)
+        card = terms.card(contract.client_rate_card_id)
+        if card is None or row.rate is None:
+            continue
+        for ev in await contract_evidence(db, contract, terms, today):
+            limit = framework_limit(card, Decimal(ev.percent))
+            if limit is not None and row.rate <= limit:
+                label = "zna i korzysta" if ev.uses else "zna, brak dowodu użycia"
+                out[row.contract_id] = (
+                    ev.technology,
+                    f"{ev.technology} +{ev.percent}%: {label}",
+                )
+                break
+    return out
