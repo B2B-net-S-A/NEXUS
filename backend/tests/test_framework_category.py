@@ -44,7 +44,8 @@ def terms():
 
 
 def contract(**kw):
-    c = Contract(id=7, client_id=1, framework_rate=None, **kw)
+    kw.setdefault("framework_rate", None)
+    c = Contract(id=7, client_id=1, **kw)
     c.framework_rate_schedule = []
     return c
 
@@ -129,3 +130,12 @@ def test_removing_addon_lowers_limit_and_clears_confirmation():
     assert c.framework_addon_technology is None and c.framework_addon_confirmed_by is None
     assert c.effective_framework_rate(DAY) == Decimal("120.00")
     assert c.effective_framework_rate(later) == Decimal("100.00")
+
+
+def test_coa_never_lowers_a_limit_that_already_holds_an_unrecorded_addon():
+    # Dawny import zapisał 120 (100 + 20%) samą liczbą, bez technologii.
+    db, c = FakeDb(), contract(framework_rate=Decimal("120.00"))
+    outcome = apply_category(db, c, terms(), "IT Developer - Senior", effective_from=DAY, actor_id=None)
+    assert outcome == "higher_limit_kept"
+    assert c.client_rate_card_id == 1 and c.framework_rate_schedule == []
+    assert c.effective_framework_rate(DAY) == Decimal("120.00")

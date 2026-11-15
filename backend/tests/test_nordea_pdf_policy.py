@@ -729,3 +729,9 @@ def test_third_name_word_does_not_leak_into_the_category():
     (row,) = nordea.extract_rows(text)
     assert row.uncertain
     assert row.client_category == "IT Operations - Senior"
+
+
+def test_business_category_is_not_cut_as_a_third_name_word():
+    text = ORDER.replace("Jan Testowy IT Operations - Senior", "Jan Testowy Business Analyst - Expert")
+    (row,) = nordea.extract_rows(text)
+    assert row.client_category == "Business Analyst - Expert"

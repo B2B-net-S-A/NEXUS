@@ -395,7 +395,10 @@ def _category(rest: str, extra: Optional[re.Match]) -> Optional[str]:
     kategorii COA). Trzeci człon nazwy przed kategorią nie wchodzi do etykiety."""
     from app.services.framework_limits import category_label, parse_category_label
 
-    text = rest[extra.end():] if extra else rest
+    # „Business Analyst - Expert” wygląda jak trzeci człon nazwiska („Business”),
+    # więc ogon odcinamy tylko wtedy, gdy kolumna nie zaczyna się od kategorii.
+    keep_whole = re.match(r"(?:IT|Business|I&O)\b", rest)
+    text = rest[extra.end():] if extra and not keep_whole else rest
     parsed = parse_category_label(text)
     return category_label(*parsed) if parsed else None
 

@@ -144,7 +144,9 @@ def apply_category(
     """Kategoria z wiersza COA → kontrakt. Zwraca wynik do raportu.
 
     ``no_label`` — wiersz bez kategorii; ``no_card`` — cennik klienta nie ma
-    takiej pozycji (etykieta zostaje zapisana); ``unchanged`` / ``updated``.
+    takiej pozycji (etykieta zostaje zapisana); ``higher_limit_kept`` — limit
+    na kontrakcie jest wyższy niż z cennika (np. dawna dopłata bez technologii),
+    więc zostaje; ``unchanged`` / ``updated``.
     """
     if not label:
         return "no_label"
@@ -159,6 +161,12 @@ def apply_category(
     limit = framework_limit(card, addon.percent if addon else None)
     if limit is None:
         return "updated" if changed else "unchanged"
+    current = contract.effective_framework_rate(effective_from)
+    if current is not None and limit < current:
+        # Limit wyższy niż cennik bywa dopłatą zapisaną dawniej samą liczbą
+        # (195,80 = 178 + 10%) bez technologii na kontrakcie. Odczyt COA go nie
+        # obniża — kategoria jest zapisana, decyzję o limicie podejmuje DL.
+        return "higher_limit_kept"
     suffix = f" +{percent_text(addon.percent)}% {addon.technology}" if addon else ""
     stepped = _write_limit_step(
         db,
@@ -316,6 +324,9 @@ async def recompute_from_coa(
         try:
             path = storage_service.get_client_order_po_path(order.file_path)
             rows = await asyncio.to_thread(_read_rows, str(path), order.filename or path.name, extractor)
+        except FileNotFoundError:
+            row.outcome = "file_missing"
+            continue
         except Exception as exc:  # noqa: BLE001 — jeden zły PDF nie zatrzymuje porcji
             logger.warning("[framework_category] COA read failed for contract %s (%s)", contract.id, type(exc).__name__)
             row.outcome = "unreadable"

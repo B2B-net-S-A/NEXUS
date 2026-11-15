@@ -10,6 +10,8 @@ export const RECOMPUTE_OUTCOME_LABEL: Record<string, string> = {
   person_not_found: "Osoby nie ma w COA",
   person_ambiguous: "Kilka pasujących osób",
   unreadable: "Nieczytelny PDF",
+  file_missing: "Brak pliku PDF",
+  higher_limit_kept: "Limit wyższy niż cennik — sprawdź dopłatę",
   preview: "Do zmiany",
 };
 

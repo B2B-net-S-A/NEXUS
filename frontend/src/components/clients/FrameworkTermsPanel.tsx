@@ -65,6 +65,7 @@ export function FrameworkTermsPanel({ clientId, canImport, canRecompute }: Props
   const runRecompute = async () => {
     setBusy(true);
     setError(null);
+    setRecompute([]);
     const rows: FrameworkRecomputeRow[] = [];
     try {
       let after: number | null = 0;
@@ -200,8 +201,8 @@ export function FrameworkTermsPanel({ clientId, canImport, canRecompute }: Props
               Kategoria i poziom z ostatniego zapisanego COA każdej osoby ustawiają limit z cennika.
             </p>
             <Button size="sm" variant="outline" disabled={busy} onClick={() => void runRecompute()}>
-              <RefreshCw className="mr-1 h-3.5 w-3.5" />
-              Przelicz kategorie z COA
+              <RefreshCw className={`mr-1 h-3.5 w-3.5${busy && recompute ? " animate-spin" : ""}`} />
+              {busy && recompute ? `Przeliczam… ${recompute.length} umów` : "Przelicz kategorie z COA"}
             </Button>
           </div>
           {summary && (

@@ -103,7 +103,7 @@ export function addonTechnology(label: string): string {
 export function useFrameworkTerms(clientId: number, enabled: boolean) {
   return useQuery({
     queryKey: frameworkKeys.terms(clientId),
-    queryFn: async () => (await api.get<FrameworkTerms>(`/clients/${clientId}/framework-terms`)).data,
+    queryFn: async () => (await api.get<FrameworkTerms>(`/api/clients/${clientId}/framework-terms`)).data,
     enabled,
   });
 }
@@ -112,7 +112,7 @@ export function useFrameworkCategory(contractId: number, enabled: boolean) {
   return useQuery({
     queryKey: frameworkKeys.category(contractId),
     queryFn: async () =>
-      (await api.get<FrameworkCategory>(`/contracts/${contractId}/framework-category`)).data,
+      (await api.get<FrameworkCategory>(`/api/contracts/${contractId}/framework-category`)).data,
     enabled,
   });
 }
@@ -121,7 +121,7 @@ export function useSaveFrameworkCategory(contractId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (input: FrameworkCategoryInput) =>
-      (await api.put<FrameworkCategory>(`/contracts/${contractId}/framework-category`, input)).data,
+      (await api.put<FrameworkCategory>(`/api/contracts/${contractId}/framework-category`, input)).data,
     onSuccess: (data) => {
       queryClient.setQueryData(frameworkKeys.category(contractId), data);
       void queryClient.invalidateQueries({ queryKey: ["contract", String(contractId)] });
@@ -140,7 +140,12 @@ export async function importFrameworkTerms(
   form.append("file", file);
   form.append("apply", apply ? "true" : "false");
   if (validFrom) form.append("valid_from", validFrom);
-  return (await api.post<FrameworkImportResult>(`/clients/${clientId}/framework-terms/import`, form)).data;
+  // Bez jawnego multipartu axios zserializowałby FormData do JSON-a (422).
+  return (
+    await api.post<FrameworkImportResult>(`/api/clients/${clientId}/framework-terms/import`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+  ).data;
 }
 
 export async function recomputeFrameworkCategories(
@@ -150,7 +155,7 @@ export async function recomputeFrameworkCategories(
 ): Promise<FrameworkRecomputeResult> {
   return (
     await api.post<FrameworkRecomputeResult>(
-      `/clients/${clientId}/framework-categories/recompute`,
+      `/api/clients/${clientId}/framework-categories/recompute`,
       null,
       { params: { after_id: afterId, apply } },
     )
