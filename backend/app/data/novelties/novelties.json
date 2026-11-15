@@ -2841,5 +2841,18 @@
     "where": "Menu → Firma → Szkolenia → Kalendarz",
     "href": "/trainings",
     "dot_anchor": "trainings.calendar"
+  },
+  {
+    "id": "umowa-ramowa-kategoria-doplata",
+    "pr": 3459,
+    "title": "Umowa ramowa: kategoria, limit i dopłata za technologię",
+    "why": "Kontrakt pokazuje kategorię z zamówienia, limit z cennika i czy stawka się mieści. Dopłatę (np. Kafka +20%) wpisujesz z potwierdzeniem klienta: podnosi limit, nie stawkę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Kontrakty → kontrakt → Szczegóły → Umowa ramowa",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.framework-category"
   }
 ]

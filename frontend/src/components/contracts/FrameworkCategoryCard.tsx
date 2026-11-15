@@ -55,7 +55,7 @@ export function FrameworkCategoryCard({ contractId, canView, canEdit }: Props) {
           Umowa ramowa
         </h2>
         {canEdit && (
-          <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+          <Button size="sm" variant="outline" data-tour="contracts.framework-category" onClick={() => setOpen(true)}>
             Kategoria i dopłata
           </Button>
         )}
