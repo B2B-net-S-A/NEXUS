@@ -36,6 +36,8 @@
   "GET /api/accounting/vat/jpk": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/vat/jpk/{file_id}/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/vat/markers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/vat/ue": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/vat/ue/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/foreign": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/jpk": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/jpk/{file_id}/sent": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
