@@ -65,12 +65,32 @@ _OFFICIAL_SUFFIX = ".gov.pl"
 _DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
+_HOSTNAME = re.compile(
+    r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
+)
+
+
 def host_of(url: str) -> str:
-    host = (urlsplit(url).hostname or "").lower().rstrip(".")
+    """Host z adresu; podejrzany adres (``\\``, dane logowania, dziwne znaki) to "".
+
+    Przeglądarka czyta ``\\`` jak ``/``, a ``urlsplit`` jako część hosta, więc
+    ``https://evil.com\\.gov.pl`` udawałby stronę urzędową (przegląd 15.11.2026).
+    """
+
+    if "\\" in url:
+        return ""
+    parts = urlsplit(url)
+    if "@" in parts.netloc:
+        return ""
+    host = (parts.hostname or "").lower().rstrip(".")
+    if not _HOSTNAME.match(host):
+        return ""
     return host.removeprefix("www.")
 
 
 def is_official_host(host: str) -> bool:
+    if not host:
+        return False
     return host in OFFICIAL_HOSTS or host.endswith(_OFFICIAL_SUFFIX)
 
 

@@ -417,3 +417,38 @@ def test_collect_report_flags_skipped_lex_and_task_says_when() -> None:
     text = collect.task_text(collect.build_request(date(2026, 11, 12)))
     assert "lex_skipped = true" in text
     assert collect.report_format()["lex_skipped"] is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evil.com\\.gov.pl/x",
+        "https://evil.com\\@zus.pl/",
+        "https://user@zus.pl/aktualnosci",
+        "https://zus.pl.evil.com/",
+    ],
+)
+def test_spoofed_host_is_never_official(url: str) -> None:
+    assert gate.classify("other", url) == "practice"
+
+
+@pytest.mark.parametrize("url", ["https://evil.com\\.gov.pl/x", "https://a@zus.pl/"])
+def test_collect_report_refuses_backslash_and_userinfo_urls(url: str) -> None:
+    with pytest.raises(ValidationError):
+        collect.CollectReport.model_validate(
+            {
+                "items": [
+                    {
+                        "source": "other",
+                        "title": "T",
+                        "url": url,
+                        "published": "2026-11-14",
+                    }
+                ]
+            }
+        )
+
+
+def test_real_official_hosts_stay_official() -> None:
+    assert gate.classify("zus", "https://www.zus.pl/o-zus/aktualnosci") == "official"
+    assert gate.classify("mf", "https://www.podatki.gov.pl/ksef/") == "official"

@@ -97,6 +97,16 @@ class CollectItem(BaseModel):
     def _empty_is_none(cls, value: Optional[str]) -> Optional[str]:
         return _optional_text(value)
 
+    @field_validator("url")
+    @classmethod
+    def _plain_host(cls, value: str) -> str:
+        """Bez ``\\`` i danych logowania w adresie: host musi być tym, co zobaczy
+        przeglądarka (inaczej obca strona udawałaby urzędową)."""
+
+        if not gate.host_of(value):
+            raise ValueError("Adres źródła ma nieprawidłowy host.")
+        return value
+
 
 class CollectReport(BaseModel):
     """Jeden raport na bieg: surowe pozycje, bez oceny."""
