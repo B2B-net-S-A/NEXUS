@@ -340,7 +340,8 @@ async def _position(db: AsyncSession, job: Job) -> dict[str, Any]:
         )
     return {
         "job_id": job.id,
-        "title": job.title,
+        # Ekran wewnętrzny: tytuł dla zespołu (`trzy-nazwy-rekrutacji.md`).
+        "title": job.working_title or job.title,
         "headcount": headcount(job),
         "closed": is_closed(job),
         "budget_min": _number(job.rate_budget_hourly_min),

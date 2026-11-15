@@ -307,12 +307,12 @@ function PositionRow({
   const tiers = showRate ? profileTiers(candidates) : [];
   const chosen = picks[position.key] ?? [];
   const seats = Math.max(1, position.headcount);
-  const ordered = [
-    ...candidates.filter((c) => chosen.includes(c.public_id)),
-    ...candidates.filter((c) => !chosen.includes(c.public_id)),
-  ];
-  const shown = expanded ? ordered : ordered.slice(0, VISIBLE_ALTERNATIVES);
-  const hidden = ordered.length - shown.length;
+  // Kolejność stała (z serwera): karta pod kursorem nie przeskakuje po kliku.
+  // Wybrana osoba spoza pierwszych kart jest zawsze widoczna.
+  const shown = expanded
+    ? candidates
+    : candidates.filter((c, index) => index < VISIBLE_ALTERNATIVES || chosen.includes(c.public_id));
+  const hidden = candidates.length - shown.length;
 
   return (
     <section className={cn(PANEL_CARD, "px-3.5 py-2.5")} data-testid={`position-${position.key}`}>

@@ -146,6 +146,8 @@ async def test_create_returns_team_detail_with_positions_and_rates(
     first = detail["positions"][0]
     assert first["job_id"] == world.job_a
     assert first["headcount"] == 2
+    # Ekrany wewnętrzne: tytuł dla zespołu, nie nazwa od klienta z numerem.
+    assert first["title"] == "Tytuł roboczy wewnętrzny"
     assert (first["budget_min"], first["budget_max"]) == (120.0, 160.0)
     assert first["closed"] is False
     assert first["delivery_lead"]["id"] == world.dl_id

@@ -117,3 +117,29 @@ describe("panel zespołu: granica publiczna", () => {
     expect(source).toMatch(/referrer:\s*"no-referrer"/);
   });
 });
+
+describe("panel zespołu: kolejność kart", () => {
+  it("klik nie przestawia kart, a wybrana osoba spoza pierwszych czterech jest widoczna", async () => {
+    const user = userEvent.setup();
+    const team = fictionalTeam();
+    const extra = ["t4", "t5", "t6"].map((id) => ({
+      ...team.positions[1].view.candidates[0],
+      public_id: id,
+      name: `Osoba ${id}`,
+      available_from: "2026-10-01",
+    }));
+    team.positions[1].view.candidates.push(...extra);
+    renderTeam(transport({ fetchTeam: () => Promise.resolve(team) }));
+    await screen.findByText("Zespół testowy, 3 osoby");
+    const tester = screen.getByTestId("position-bbbbbbbbbbbbbbbb");
+    const names = () =>
+      Array.from(tester.querySelectorAll("button[aria-pressed]")).map((b) => b.getAttribute("data-testid"));
+    // Najwcześniej dostępni (t4, t5) są wybrani, choć stoją za pierwszą czwórką.
+    expect(names()).toEqual(["alt-t1", "alt-t2", "alt-t3", "alt-t4", "alt-t5"]);
+    await user.click(screen.getByTestId("alt-t2"));
+    // Pełne stanowisko: t2 zastępuje ostatnio wybraną (t5), karty stoją w miejscu.
+    expect(names()).toEqual(["alt-t1", "alt-t2", "alt-t3", "alt-t4"]);
+    expect(screen.getByTestId("alt-t2")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("alt-t4")).toHaveAttribute("aria-pressed", "true");
+  });
+});
