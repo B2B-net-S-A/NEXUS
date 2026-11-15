@@ -43,7 +43,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional
 
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
@@ -287,7 +287,14 @@ async def bank_positions(
 ) -> tuple[list[Position], list[Skipped]]:
     """Salda rachunków walutowych w roku obrotowym ``day`` (BO + obroty do ``day``)."""
 
-    accounts = [item for item in bank_settings.accounts if item.currency != "PLN"]
+    # Jedna pozycja na konto księgi — dwa rachunki (NRB) na jednym koncie
+    # liczyłyby korektę podwójnie (drugi przegląd K4c-2).
+    accounts = []
+    seen: set[str] = set()
+    for item in bank_settings.accounts:
+        if item.currency != "PLN" and item.account not in seen:
+            seen.add(item.account)
+            accounts.append(item)
     if not accounts:
         return [], []
     years = dict(
@@ -311,8 +318,15 @@ async def bank_positions(
     corrections = select(LedgerDocument.id).where(
         LedgerDocument.source_type.in_((SOURCE, REVERSAL_SOURCE))
     )
+    # ``reverses_id IS NOT NULL`` wprost: „NULL IN (…)” to NULL, a „NOT NULL”
+    # wyłączało sprawdzenie zapisów bez waluty, gdy w księdze była już
+    # jakakolwiek PK wyceny (drugi przegląd K4c-2).
     correction = or_(
-        LedgerDocument.id.in_(corrections), LedgerDocument.reverses_id.in_(corrections)
+        LedgerDocument.id.in_(corrections),
+        and_(
+            LedgerDocument.reverses_id.is_not(None),
+            LedgerDocument.reverses_id.in_(corrections),
+        ),
     )
     positions: list[Position] = []
     skipped: list[Skipped] = []

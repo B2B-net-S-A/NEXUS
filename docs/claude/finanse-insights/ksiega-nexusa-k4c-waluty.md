@@ -77,7 +77,8 @@ sekcja niżej.
   zapisów **bieżącego roku obrotowego** (BO + obroty do końca miesiąca — jak
   w obrotach i saldach), bez wyceny tego miesiąca (wszystkich wersji) i jej storna.
   Wyceny i odwrócenia innych miesięcy zostają w saldzie — znoszą się, bo pilnuje
-  tego blokada kolejności niżej.
+  tego blokada kolejności niżej. Dwa rachunki (NRB) na jednym koncie księgi to
+  jedna pozycja (inaczej korekta szłaby podwójnie).
 - **Rachunek pominięty z powodem** (lista „Poza wyceną — wyceń ręcznie”), gdy:
   - ma zapisy bez kwoty w walucie rachunku, które nie znoszą się do zera (BO
     z Symfonii jest tylko w PLN, ręczna PK nie ma pola waluty) — wycena
@@ -127,6 +128,7 @@ pozycja bez kursu, odwrócenie odwraca wycenę, stany listy zamknięcia) i sekcj
 K4c-2 w `tests/test_ledger_sources_db.py`: wycena należności i rachunku EUR
 z odwróceniem, bez zmian / przebudowa / zatwierdzona zostaje z flagą, kwiecień
 czeka na odwrócenie marca, 403; PK płacowa rachunku z wypłatą (D2); BO z Symfonii
-bez EUR = rachunek pominięty; storno własnej wyceny poza saldem; nowy rok od BO
+bez EUR = rachunek pominięty (też gdy w księdze jest już PK wyceny); dwa NRB na
+jednym koncie = jedna pozycja; storno własnej wyceny poza saldem; nowy rok od BO
 (bez BO = pominięty); maj czeka na marzec; czekające odwrócenie z zaksięgowanej
 PK po otwarciu roku; dokładny kurs i grudzień bez kursu na liście zamknięcia.

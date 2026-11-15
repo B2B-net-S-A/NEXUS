@@ -3030,6 +3030,51 @@ async def test_valuation_skips_a_currency_account_without_currency_amounts(
         booked = await _post_valuation(client, world, year, 3)
         assert booked.status_code == 200 and booked.json()["groups"] == [], booked.text
         assert await _document("fx_valuation", f"{year}-03") is None
+        # Gdy w księdze jest już jakakolwiek PK wyceny, rachunek dalej jest
+        # pominięty (drugi przegląd K4c-2: „NULL IN (…)” wyłączało sprawdzenie).
+        await _euro_invoice(client, world, books)
+        first = await _post_valuation(client, world, year, 3)
+        assert first.status_code == 200, first.text
+        assert await _document("fx_valuation", f"{year}-03") is not None
+        again = await _valuation(client, world, year, 3)
+        assert _bank_row(again, accounts["eur_bank"]) == []
+        assert [item["account"] for item in again["skipped"]] == [accounts["eur_bank"]]
+        assert (again["gain"], again["loss"]) == (5_000, 0)
+    finally:
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(end_day)
+
+
+async def test_valuation_counts_a_shared_ledger_account_once(client, world, books):
+    """Dwa rachunki (NRB) na jednym koncie księgi: jedna pozycja i jedna korekta
+    (drugi przegląd K4c-2 — korekta szła podwójnie)."""
+
+    year = books["year"]
+    accounts, settings = await _eur_setup(world, books, fx_accounts=True)
+    settings["bank"]["accounts"].append(
+        {
+            "number": _valid_nrb("109010140000071219812879"),
+            "account": accounts["eur_bank"],
+            "name": "Drugi rachunek EUR",
+            "currency": "EUR",
+        }
+    )
+    await _set_ledger(settings)
+    nbp_day = rate_day(date(year, 3, 25))
+    end_day = rate_day(date(year, 4, 1))
+    await _set_eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(end_day, "4.400000")
+    try:
+        await _eur_wb(client, world, books)
+        data = await _valuation(client, world, year, 3)
+        assert _bank_row(data, accounts["eur_bank"]) == [(10_000, 42_500, 44_000, 1_500)]
+        assert data["gain"] == 1_500
+        booked = await _post_valuation(client, world, year, 3)
+        assert booked.status_code == 200, booked.text
+        valued = await _document("fx_valuation", f"{year}-03")
+        assert sorted(await _lines(valued.id)) == sorted(
+            [("debit", accounts["eur_bank"], 1_500), ("credit", accounts["gain"], 1_500)]
+        )
     finally:
         await _drop_eur_rate(nbp_day)
         await _drop_eur_rate(end_day)
