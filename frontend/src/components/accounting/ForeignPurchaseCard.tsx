@@ -367,7 +367,7 @@ function ForeignForm({ data, onClose }: { data: ForeignOverview; onClose: () => 
         </label>
       </div>
       {receivedWrong ? (
-        <p className="text-[12px] text-destructive-text">Data otrzymania faktury nie może być wcześniejsza niż data wystawienia.</p>
+        <p className="text-[12px] text-destructive">Data otrzymania faktury nie może być wcześniejsza niż data wystawienia.</p>
       ) : null}
       {correction ? (
         <p className="text-[12px] text-warning-muted-foreground">
