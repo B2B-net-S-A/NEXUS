@@ -128,7 +128,7 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 Decyzja Artura z 15.11.2026 po audycie eBI24: za październik 2026 eBI24 wystawił 212 faktur sprzedaży bez zamówienia
 w NEXUSIE — 155 refaktur benefitów do kontraktorów (pakiet sportowy, opieka medyczna) i ok. 57 usług do firm bez
 zamówienia (część jednorazowa). Bez tej drogi eBI24 nie da się wyłączyć. Kod: `services/client_invoicing/templates.py`,
-trasy w `api/client_issued_invoices.py`, migracja `0708_sales_invoice_templates`
+trasy w `api/client_issued_invoices.py`, migracja `0709_sales_invoice_templates`
 (`services/client_invoice_templates_schema.py`).
 
 - **Faktura z ręki** („Szkice” → „Nowa faktura”): klient z kartoteki albo dowolny nabywca. `client_issued_invoices.client_id`

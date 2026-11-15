@@ -21,8 +21,15 @@ na wymyślonych danych.
   zatrzymany (`useStartGate`) i prowadzony na `/poligon`, dopóki nie zaliczy
   wszystkich ćwiczeń. Poligon zastępuje mu przeklikania Startu z `replaces`.
   Obecne osoby mogą wejść na mapę, ale poligon ich nie blokuje.
-  Wyłącznik Startu (`app_settings.start_gate`) i podgląd jako inna osoba
-  zdejmują też tę blokadę.
+  Podgląd jako inna osoba zdejmuje tę blokadę. Wyłącznik Startu
+  (`app_settings.start_gate`) jej nie zdejmuje, bo dotyczy tylko przeklikań
+  Startu (Artur, 15.11.2026: Start był wyłączony od 30.10, więc poligon nikogo
+  nie zatrzymywał). Blokadę Poligonu zdejmuje jej własny wyłącznik
+  `app_settings.poligon_gate` (brak wiersza = włączona): przycisk „Wyłącz
+  blokadę” w Ustawienia → „Nowości — kto już umie” (admin, HoR; ten sam
+  `PUT /api/novelties/start/gate` z polem `poligon`). To zabezpieczenie na
+  wypadek, gdyby ćwiczenie przestało się zaliczać (Artur, 15.11.2026). Stack
+  E2E wyłącza go w `scripts/seed_e2e.py`.
 - **Dzień onboardingu nie liczy się do statystyk.** To dzień (Europe/Warsaw)
   pierwszego zaliczonego ćwiczenia, tylko u osoby, której poligon jest
   wymagany (`app/services/onboarding_day.py`). Taki dzień nie jest dniem pracy
@@ -114,7 +121,19 @@ na wymyślonych danych.
   `[poligon] brak odpowiedzi w zestawie: <adres>`. Wtedy nagraj ekran jeszcze raz
   i przebuduj zestaw (opis wywołania w nagłówku skryptu). Przed commitem
   przejrzyj `--report` i przejdź całą ścieżkę w przeglądarce.
-- Nowe ćwiczenie dopisujesz w trzech miejscach:
+- **Test całej ścieżki w CI** (`frontend/e2e/poligon-walk.spec.ts`, projekt
+  `poligon-chromium`, od 15.11.2026). W kolejce merge'ów po buildzie frontendu
+  przechodzi 19 ćwiczeń na podstawionym backendzie (bez bazy). Pada na każdy brak
+  w zestawie, zapis poza postępem `poligon-*` i błąd strony, bo taki brak blokuje
+  nową osobę na cały dzień. Odczyt, na który serwer odpowiada 404 (np.
+  rekrutacja bez migawki rekomendacji), zapisuje się w zestawie jako
+  `{"@status": 404}`, nie jako brak. Powłoka (pasek, powiadomienia) dostaje 404,
+  poza szablonem etapów z `e2e/fixtures/poligon-shell.json`. Nowe ćwiczenie
+  dopisujesz też do tego testu.
+- Stan poligonu żyje w pamięci karty: przeładowanie strony cofa ruchy,
+  notatki i screening z ćwiczeń (postęp ćwiczeń zostaje).
+- Nowe ćwiczenie dopisujesz w czterech miejscach:
   - `exercises.ts`;
   - `poligon.json` (to samo id z przedrostkiem `poligon-`);
-  - test oceny w `store.test.ts`.
+  - test oceny w `store.test.ts`;
+  - krok w `e2e/poligon-walk.spec.ts`.

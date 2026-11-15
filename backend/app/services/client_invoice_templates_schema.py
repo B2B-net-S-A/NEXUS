@@ -1,6 +1,6 @@
-"""Szablony faktur cyklicznych i faktura z ręki (E6): SQL migracji ``0708_sales_invoice_templates`` i lustra entrypointu.
+"""Szablony faktur cyklicznych i faktura z ręki (E6): SQL migracji ``0709_sales_invoice_templates`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0708_sales_invoice_templates.py``
+Jedno źródło instrukcji dla ``alembic/versions/0709_sales_invoice_templates.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

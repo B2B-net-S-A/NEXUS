@@ -35,13 +35,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
+from app.services.finance_ledger.posting import money_pl
 from app.services.ledger import (
     bank,
     exports,
+    jpk,
     payroll_lists,
     settlements,
     sources,
     valuation,
+    vat,
 )
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
@@ -271,6 +274,75 @@ def valuation_check(data: dict[str, Any], href: str) -> Optional[dict[str, Any]]
     return check("ok", "w ciągu roku opcjonalna — obowiązkowa na 31.12")
 
 
+#: Rodzaje „do sprawdzenia” rejestrów VAT, przy których rejestr jest niepełny
+#: albo bez podziału na pola JPK (problem); reszta = do zrobienia.
+VAT_PROBLEMS = ("rates", "missing_sales")
+
+
+def vat_check(data: dict[str, Any], href: str) -> dict[str, Any]:
+    """Rejestry VAT (K5a): problem, gdy faktura sprzedaży z KSeF nie ma dokumentu
+    albo wiersz nie ma podziału na pola JPK; do zrobienia — bufor, kolejka kosztów,
+    zapisy na kontach VAT spoza rejestru; inaczej saldo VAT miesiąca."""
+
+    issues = {issue["kind"]: issue for issue in data["issues"]}
+    item = {"key": "vat_registers", "label": "Rejestry VAT", "href": href}
+    if issues:
+        parts = [
+            f"{issue['label'].split(' — ')[0].lower()}: {issue['count']}"
+            for issue in issues.values()
+        ]
+        state = "problem" if any(kind in issues for kind in VAT_PROBLEMS) else "todo"
+        return {**item, "state": state, "detail": "; ".join(parts)}
+    due = data["summary"]["due"]
+    balance = (
+        f"VAT do zapłaty {money_pl(due)}"
+        if due >= 0
+        else f"nadwyżka naliczonego {money_pl(-due)}"
+    )
+    hidden = "; bez części płacowej" if data["payroll_hidden"] else ""
+    return {
+        **item,
+        "state": "ok",
+        "detail": (
+            f"sprzedaż: {len(data['sales'])}, zakup: {len(data['purchases'])}; "
+            f"{balance} (bez nadwyżki z poprzedniego okresu){hidden}"
+        ),
+    }
+
+
+def jpk_check(status: dict[str, Any], href: str) -> dict[str, Any]:
+    """JPK_V7M miesiąca (K5b): do zrobienia do wysłania; problem, gdy rejestr
+    VAT zmienił się po wysłaniu (trzeba korekty)."""
+
+    item = {"key": "jpk", "label": "JPK_V7M", "href": href}
+    latest = status["latest"]
+    if latest is None:
+        return {
+            **item,
+            "state": "todo",
+            "detail": "przygotuj i wyślij JPK_V7M (termin 25.)",
+        }
+    if latest["status"] != "sent":
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"wersja {latest['version']} przygotowana — wyślij i oznacz jako wysłaną",
+        }
+    if status["changed"]:
+        detail = (
+            "korekta JPK za poprzedni miesiąc zmieniła nadwyżkę (P_39) — przygotuj korektę"
+            if status.get("reason") == "surplus"
+            else "rejestr VAT zmienił się po wysłaniu JPK — przygotuj korektę"
+        )
+        return {**item, "state": "problem", "detail": detail}
+    note = f", {latest['sent_note']}" if latest.get("sent_note") else ""
+    return {
+        **item,
+        "state": "ok",
+        "detail": f"wysłany (wersja {latest['version']}{note})",
+    }
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -369,6 +441,20 @@ async def checklist(
         )
         if valued is not None:
             items.append(valued)
+    vat_open = settings.modules.get("vat", False) or viewer.admin
+    if vat_open:
+        items.append(
+            vat_check(
+                await vat.registers(db, viewer, settings, year=year, month=month),
+                f"/accounting/vat{query}",
+            )
+        )
+        items.append(
+            jpk_check(
+                await jpk.month_status(db, viewer, settings, year=year, month=month),
+                f"/accounting/vat{query}",
+            )
+        )
     year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
     period = None
     if year_row is not None:
@@ -409,7 +495,9 @@ async def checklist(
         # pozycję, gdy moduł jest otwarty.
         if not (key == "assets" and sources.assets_open(settings, viewer))
         and not (key == "bank" and bank_open)
+        and not (key == "vat" and vat_open)
     )
+
     return {
         "year": year,
         "month": month,

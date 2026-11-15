@@ -6,7 +6,7 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/client_invoice_issue_s
 
 * ``ClientInvoiceSeries`` — następny numer serii w miesiącu (blokada wiersza przy nadaniu),
 * ``ClientIssuedInvoice`` — faktura od szkicu do przyjęcia w KSeF,
-* ``ClientInvoiceTemplate`` — szablon faktury „co miesiąc” (E6, 0708; CHECK-i
+* ``ClientInvoiceTemplate`` — szablon faktury „co miesiąc” (E6, 0709; CHECK-i
   w ``app/services/client_invoice_templates_schema.py``).
 """
 

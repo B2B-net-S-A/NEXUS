@@ -316,6 +316,8 @@ export interface StartStatus {
   enforced: boolean;
   /** Wyłącznik firmowy — widzi go panel „kto już umie”. */
   gate_on: boolean;
+  /** Wyłącznik blokady Poligonu nowych osób (osobny od Startu, 15.11.2026). */
+  poligon_gate_on?: boolean;
   done: number;
   total: number;
   items: StartItem[];

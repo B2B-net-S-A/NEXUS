@@ -571,7 +571,10 @@ async def test_hor_switches_the_start_gate_off_and_recruiter_cannot(
         resp = await app_client.put(
             "/api/novelties/start/gate", json={"enforced": False}, headers=hor
         )
-        assert resp.status_code == 200 and resp.json() == {"enforced": False}
+        assert resp.status_code == 200 and resp.json() == {
+            "enforced": False,
+            "poligon": True,
+        }
         start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
         assert start["enforced"] is False and start["gate_on"] is False
     finally:
@@ -580,6 +583,39 @@ async def test_hor_switches_the_start_gate_off_and_recruiter_cannot(
         )
     start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
     assert start["enforced"] is True
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_hor_switches_the_poligon_gate_alone_and_recruiter_cannot(
+    app_client: AsyncClient, frozen_start
+) -> None:
+    """Wyłącznik Poligonu (Artur, 15.11.2026) nie rusza wyłącznika Startu."""
+    _, recruiter = await _user("recruiter")
+    _, hor = await _user("head_of_recruitment")
+    refused = await app_client.put(
+        "/api/novelties/start/gate", json={"poligon": False}, headers=recruiter
+    )
+    assert refused.status_code == 403
+    empty = await app_client.put("/api/novelties/start/gate", json={}, headers=hor)
+    assert empty.status_code == 422
+
+    try:
+        resp = await app_client.put(
+            "/api/novelties/start/gate", json={"poligon": False}, headers=hor
+        )
+        assert resp.status_code == 200 and resp.json() == {
+            "enforced": True,
+            "poligon": False,
+        }
+        start = (await app_client.get("/api/novelties/start", headers=hor)).json()
+        assert start["poligon_gate_on"] is False and start["gate_on"] is True
+    finally:
+        await app_client.put(
+            "/api/novelties/start/gate", json={"poligon": True}, headers=hor
+        )
+    start = (await app_client.get("/api/novelties/start", headers=hor)).json()
+    assert start["poligon_gate_on"] is True
 
 
 @_DB
@@ -736,11 +772,37 @@ def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -
     )
     done = start_status([], {}, gate_on=True, impersonating=False, poligon=full)
     assert done["enforced"] is False and done["redirect"] == "/start"
-    # Wyłącznik blokady i podgląd jako inna osoba zdejmują też blokadę poligonu.
-    assert not start_status([], {}, gate_on=False, impersonating=False, poligon=half)[
+    # Wyłącznik Startu nie zdejmuje blokady poligonu (Artur, 15.11.2026):
+    # od 30.10 Start jest wyłączony, a nowa osoba ma stać na poligonie.
+    off = start_status(
+        [_novelty(id="start-jeden")],
+        {},
+        gate_on=False,
+        impersonating=False,
+        poligon=half,
+    )
+    assert off["enforced"] is True and off["redirect"] == "/poligon"
+    # Po zaliczeniu poligonu wyłączony Start nikogo nie zatrzymuje.
+    assert not start_status(
+        [_novelty(id="start-jeden")],
+        {},
+        gate_on=False,
+        impersonating=False,
+        poligon=full,
+    )["enforced"]
+    # Wyłącznik Poligonu (panel „Nowości”, stack E2E) zdejmuje tę blokadę.
+    poligon_off = start_status(
+        [], {}, gate_on=False, impersonating=False, poligon=half, poligon_gate_on=False
+    )
+    assert poligon_off["poligon_gate_on"] is False
+    assert not start_status(
+        [], {}, gate_on=False, impersonating=False, poligon=half, poligon_gate_on=False
+    )["enforced"]
+    # Podgląd jako inna osoba niczego nie blokuje.
+    assert not start_status([], {}, gate_on=True, impersonating=True, poligon=half)[
         "enforced"
     ]
-    assert not start_status([], {}, gate_on=True, impersonating=True, poligon=half)[
+    assert not start_status([], {}, gate_on=False, impersonating=True, poligon=half)[
         "enforced"
     ]
     # Obecna osoba (poligon nie wymagany) nie jest blokowana niezaliczonym poligonem.

@@ -257,6 +257,7 @@ from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
 from app.api import ledger_assets as ledger_assets_api
 from app.api import ledger_settlements as ledger_settlements_api
+from app.api import ledger_vat as ledger_vat_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2327,6 +2328,13 @@ app.include_router(
     tags=["accounting"],
     dependencies=_HR_PROGRAM,
 )
+# Rejestry VAT (K5a): sprzedaż i zakup z dokumentów księgi, moduł „VAT i JPK”.
+app.include_router(
+    ledger_vat_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
@@ -3982,13 +3990,10 @@ async def api_health_deep_check(request: Request):
         LedgerPrepayment,
         LedgerRecurring,
         LedgerSettlement,
+        LedgerVatFile,
         LedgerYear,
     )
     from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
-    from app.models.client_issued_invoice import (
-        ClientInvoiceTemplate,
-        ClientIssuedInvoice,
-    )
     from app.models.hr_payroll_lists import (
         PayrollGrossInput,
         PayrollList,
@@ -3996,6 +4001,121 @@ async def api_health_deep_check(request: Request):
         PayrollParameterVersion,
         PayrollPersonData,
         PayrollYearOpening,
+    )
+
+    # Pozostałe tabele paczki `hr_schema_bundle` (0455–0696), sondy na końcu listy.
+    from app.models.hr_ops import HrImportIdMap
+    from app.models.hr_leave import HrM365MailboxState, LeaveRequestDay
+    from app.models.hr_time import (
+        AttendanceDay,
+        TimesheetRoleDefault,
+        TimesheetTemplate,
+    )
+    from app.models.hr_payroll import (
+        HrBonusClawback,
+        HrBonusClawbackOffset,
+        PayrollLine,
+    )
+    from app.models.hr_lifecycle import (
+        LifecycleTask,
+        LifecycleTemplate,
+        LifecycleTemplateItem,
+    )
+    from app.models.contract_care import (
+        CareCadencePeriod,
+        CarePlanItem,
+        ClientArea,
+        ClientFeedbackScore,
+        RedeployQueueItem,
+        SkillReviewItem,
+        TechCardSkill,
+        TechCardVendor,
+        TechVendor,
+    )
+    from app.models.admin_case import (
+        AdminCaseComment,
+        AdminCaseMessage,
+        AdminMailIngestState,
+    )
+    from app.models.equipment import (
+        ClientOnboardingPack,
+        ClientOnboardingPackItem,
+        ConsultantWelcomeMail,
+        EquipmentExternalPerson,
+        EquipmentImportBatch,
+        EquipmentImportRow,
+        EquipmentModel,
+        EquipmentProtocolLine,
+        EquipmentProtocolLink,
+        EquipmentProtocolTemplate,
+    )
+    from app.models.equipment_intune import EquipmentIntuneSyncState
+    from app.models.care_announcement import (
+        CareAnnouncement,
+        CareAnnouncementOptOut,
+        CareAnnouncementRecipient,
+        CareAnnouncementReply,
+    )
+    from app.models.hr_settlement import (
+        EmployeeBillingDetails,
+        PayrollInvoice,
+        PayrollPayment,
+        PayrollSettlement,
+    )
+    from app.models.hr_document import HrDocument
+    from app.models.hr_agreement import (
+        HrAgreement,
+        HrAgreementTemplate,
+        HrAgreementTemplateVersion,
+    )
+    from app.models.client_sales_invoice import (
+        ClientSalesInvoice,
+        ClientSalesInvoiceLink,
+        ClientSalesInvoicePayment,
+    )
+    from app.models.client_structure import ClientStructureSkip
+    from app.models.back_office import BoCard, BoCardEvent, BoTeamMember
+    from app.models.consultant_portal import (
+        CpDocument,
+        CpFaqItem,
+        CpLink,
+        CpMailboxState,
+        CpMeeting,
+        CpRating,
+        CpSession,
+        CpSmsCode,
+    )
+    from app.models.consultant_panel import (
+        ClientOnboardingMaterial,
+        ClientSettlementRule,
+        CpActivation,
+        CpActivationMaterial,
+        CpTrainerApplication,
+    )
+    from app.models.client_settlement import (
+        ClientContractorInvoice,
+        ClientSettlement,
+        ClientSettlementExtra,
+        ClientSettlementRuleSet,
+    )
+    from app.models.client_time_report import (
+        ClientExternalId,
+        ClientTimeReport,
+        ClientTimeReportRow,
+    )
+    from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.training import (
+        Training,
+        TrainingAttendance,
+        TrainingFeedback,
+        TrainingFile,
+        TrainingRegistration,
+        TrainingTranscript,
+    )
+    from app.models.client_issued_invoice import (
+        ClientInvoiceSeries,
+        ClientInvoiceTemplate,
+        ClientIssuedInvoice,
     )
 
     core_checks = [
@@ -4401,6 +4521,8 @@ async def api_health_deep_check(request: Request):
         ("ledger_bank_lines", LedgerBankLine),
         # 0706: rozrachunki z rozliczaniem pozycji (K4b).
         ("ledger_settlements", LedgerSettlement),
+        # 0708: pliki JPK_V7M (K5b).
+        ("ledger_vat_files", LedgerVatFile),
         # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
         ("payroll_person_data", PayrollPersonData),
         ("payroll_parameter_versions", PayrollParameterVersion),
@@ -4408,9 +4530,123 @@ async def api_health_deep_check(request: Request):
         ("payroll_list_lines", PayrollListLine),
         ("payroll_gross_inputs", PayrollGrossInput),
         ("payroll_year_openings", PayrollYearOpening),
-        # 0708: szablony faktur i faktura z ręki (E6) — `template_id` i `client_id`
-        # bez NOT NULL w fakturach wystawianych.
+        # Reszta tabel paczki `hr_schema_bundle` (reguła z 22.10, F79). Pomiar
+        # 14.11.2026: 79 ze 133 tabel modułów było bez sondy, a siatka entrypointu
+        # bywa jedynym wdrożeniem schematu. Każdą nową tabelę paczki łapie
+        # `test_every_hr_bundle_table_is_probed`.
+        # 0455: fundament — mapa identyfikatorów z importu.
+        ("hr_import_id_map", HrImportIdMap),
+        # 0458: urlopy — dni wniosku i stan skrzynki M365.
+        ("leave_request_days", LeaveRequestDay),
+        ("hr_m365_mailbox_state", HrM365MailboxState),
+        # 0459: czas pracy — obecność, szablony ewidencji, ustawienia ról.
+        ("attendance_days", AttendanceDay),
+        ("timesheet_templates", TimesheetTemplate),
+        ("timesheet_role_defaults", TimesheetRoleDefault),
+        # 0460: płace — pozycje okresu.
+        ("payroll_lines", PayrollLine),
+        # 0461: wejścia i odejścia — szablony i zadania.
+        ("lifecycle_templates", LifecycleTemplate),
+        ("lifecycle_template_items", LifecycleTemplateItem),
+        ("lifecycle_tasks", LifecycleTask),
+        # 0462 (+0474): opieka nad konsultantami — działy klienta, technologie
+        # karty, plan kontaktu, kolejki, oceny klienta i rytm kontaktu.
+        ("client_areas", ClientArea),
+        ("tech_vendors", TechVendor),
+        ("contract_care_plan_items", CarePlanItem),
+        ("tech_card_skills", TechCardSkill),
+        ("tech_card_vendors", TechCardVendor),
+        ("skill_review_queue", SkillReviewItem),
+        ("redeploy_queue_items", RedeployQueueItem),
+        ("client_feedback_scores", ClientFeedbackScore),
+        ("care_cadence_periods", CareCadencePeriod),
+        # 0463: sprawy — wiadomości, komentarze i stan skrzynki.
+        ("admin_case_messages", AdminCaseMessage),
+        ("admin_case_comments", AdminCaseComment),
+        ("admin_mail_ingest_state", AdminMailIngestState),
+        # 0464: sprzęt — modele, osoby zewnętrzne, protokoły, import, wzory
+        # protokołów, pakiety klienta i maile powitalne.
+        ("equipment_models", EquipmentModel),
+        ("equipment_external_people", EquipmentExternalPerson),
+        ("equipment_protocol_lines", EquipmentProtocolLine),
+        ("equipment_protocol_links", EquipmentProtocolLink),
+        ("equipment_import_batches", EquipmentImportBatch),
+        ("equipment_import_rows", EquipmentImportRow),
+        ("equipment_protocol_templates", EquipmentProtocolTemplate),
+        ("client_onboarding_packs", ClientOnboardingPack),
+        ("client_onboarding_pack_items", ClientOnboardingPackItem),
+        ("consultant_welcome_mails", ConsultantWelcomeMail),
+        # 0465: stan pętli Intune.
+        ("equipment_intune_sync_state", EquipmentIntuneSyncState),
+        # 0466: ogłoszenia opieki.
+        ("care_announcements", CareAnnouncement),
+        ("care_announcement_recipients", CareAnnouncementRecipient),
+        ("care_announcement_opt_outs", CareAnnouncementOptOut),
+        ("care_announcement_replies", CareAnnouncementReply),
+        # 0468: rozliczenia pracowników — dane do faktur, rozliczenia,
+        # faktury i płatności.
+        ("employee_billing_details", EmployeeBillingDetails),
+        ("payroll_settlements", PayrollSettlement),
+        ("payroll_invoices", PayrollInvoice),
+        ("payroll_payments", PayrollPayment),
+        # 0469: dokumenty kadrowe.
+        ("hr_documents", HrDocument),
+        # 0470: umowy kadrowe — szablony, wersje i umowy.
+        ("hr_agreement_templates", HrAgreementTemplate),
+        ("hr_agreement_template_versions", HrAgreementTemplateVersion),
+        ("hr_agreements", HrAgreement),
+        # 0471 (+0685, 0696): faktury sprzedaży, powiązania i zapłaty.
+        ("client_sales_invoices", ClientSalesInvoice),
+        ("client_sales_invoice_links", ClientSalesInvoiceLink),
+        ("client_sales_invoice_payments", ClientSalesInvoicePayment),
+        # 0475: pominięte propozycje struktury klienta.
+        ("client_structure_skips", ClientStructureSkip),
+        # 0642: kolejka spraw back office'u — modeli nie ma w `app.models`,
+        # więc `create_all` z entrypointu tych tabel nie dowozi.
+        ("bo_cards", BoCard),
+        ("bo_card_events", BoCardEvent),
+        ("bo_team_members", BoTeamMember),
+        # 0643: portal konsultanta.
+        ("cp_meetings", CpMeeting),
+        ("cp_links", CpLink),
+        ("cp_sessions", CpSession),
+        ("cp_sms_codes", CpSmsCode),
+        ("cp_faq_items", CpFaqItem),
+        ("cp_ratings", CpRating),
+        ("cp_documents", CpDocument),
+        ("cp_mailbox_state", CpMailboxState),
+        # 0648: panel konsultanta — aktywacja, materiały, sposób rozliczenia
+        # klienta i zgłoszenia „Zostań trenerem”.
+        ("cp_activations", CpActivation),
+        ("client_onboarding_materials", ClientOnboardingMaterial),
+        ("cp_activation_materials", CpActivationMaterial),
+        ("client_settlement_rules", ClientSettlementRule),
+        ("cp_trainer_applications", CpTrainerApplication),
+        # 0653: gwarancja premii DL — dług i potrącenia.
+        ("hr_bonus_clawbacks", HrBonusClawback),
+        ("hr_bonus_clawback_offsets", HrBonusClawbackOffset),
+        # 0679 (+0688, 0691): rozliczenia klientów.
+        ("client_settlements", ClientSettlement),
+        ("client_settlement_rule_sets", ClientSettlementRuleSet),
+        ("client_contractor_invoices", ClientContractorInvoice),
+        ("client_settlement_extras", ClientSettlementExtra),
+        # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T.
+        ("client_external_ids", ClientExternalId),
+        ("client_time_reports", ClientTimeReport),
+        ("client_time_report_rows", ClientTimeReportRow),
+        # 0692: e-faktury Peppol do klientów.
+        ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
+        # 0694 (+0697): szkolenia i trenerzy.
+        ("trainings", Training),
+        ("training_files", TrainingFile),
+        ("training_registrations", TrainingRegistration),
+        ("training_attendance", TrainingAttendance),
+        ("training_transcripts", TrainingTranscript),
+        ("training_feedback", TrainingFeedback),
+        # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
+        ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
+        # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
         ("client_invoice_templates", ClientInvoiceTemplate),
     ]
 

@@ -1,0 +1,215 @@
+"""Księgowość → VAT (K5a): rejestry sprzedaży i zakupu z dokumentów księgi.
+
+Prefiks ``/api/accounting`` (jak księga K1, ``app/main.py``). Bramki: sekcja
+Finanse (router), „Moduł Finanse” (``FinanceModuleUser``) i przełączniki
+modułów ``ledger`` oraz ``vat`` (wyłączony = 404, admin widzi zawsze).
+Faktury osób zespołu (D2) widzi tylko osoba z Płacami. Konta modułu zmienia
+tylko administrator (403).
+
+* ``GET /vat?year=&month=`` — rejestry miesiąca, sumy grup (pola JPK_V7M),
+  lista „do sprawdzenia”,
+* ``PUT /vat/settings`` — konto VAT naliczonego,
+* ``GET /vat/jpk?year=&month=`` — wersje JPK_V7M miesiąca (kwoty tylko z Płacami),
+* ``POST /vat/jpk`` — nowa wersja pliku (lista „Księgowi” z Płacami albo
+  administrator; walidacja XSD MF),
+* ``GET /vat/jpk/{id}/file`` — plik XML (Płace albo administrator, D2),
+* ``POST /vat/jpk/{id}/sent`` — oznaczenie „wysłany” z numerem UPO,
+* ``PUT /vat/jpk/settings`` — e-mail i telefon w JPK (administrator).
+"""
+
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import FinanceModuleUser
+from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
+from app.core.database import get_db
+from app.models.user import User
+from app.services.finance_ledger.costs import LedgerError
+from app.services.ledger import documents, jpk, vat
+from app.services.ledger import settings as ledger_settings
+from app.services.ledger.documents import Viewer
+from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX
+from app.services.ledger_schema import ACCOUNT_MAX
+from app.services.ledger_vat_schema import NOTE_MAX, REASON_MAX
+
+router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
+
+
+ID_MAX = 2**63 - 1
+#: Nadwyżka z poprzedniej deklaracji (P_39) w pełnych złotych (TKwotaC: 14 cyfr).
+SURPLUS_MAX = 10**14 - 1
+
+
+class VatAccountsBody(BaseModel):
+    input_account: str = Field(max_length=ACCOUNT_MAX + 8)
+
+
+class JpkBody(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    #: Uzasadnienie korekty (P_ORDZU) — wymagane po wysłanej wersji.
+    reason: Optional[str] = Field(default=None, max_length=REASON_MAX)
+    #: P_39 dla pierwszego miesiąca w NEXUSIE (pełne złote).
+    opening_surplus: Optional[int] = Field(default=None, ge=0, le=SURPLUS_MAX)
+
+
+class JpkSentBody(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=NOTE_MAX)
+
+
+class JpkContactBody(BaseModel):
+    email: str = Field(max_length=JPK_EMAIL_MAX)
+    phone: str = Field(default="", max_length=JPK_PHONE_MAX)
+
+
+def _fail(exc: LedgerError) -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+async def _context(
+    db: AsyncSession, user: User
+) -> tuple[ledger_settings.LedgerSettings, Viewer]:
+    current = await ledger_settings.load(db)
+    if not (
+        ledger_settings.module_open(user, current, "ledger")
+        and ledger_settings.module_open(user, current, "vat")
+    ):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, ledger_settings.MODULE_DISABLED_DETAIL
+        )
+    return current, documents.viewer_for(user, current)
+
+
+@router.get("/vat")
+async def vat_registers(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await vat.registers(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.put("/vat/settings")
+async def set_vat_accounts(
+    body: VatAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    if not viewer.admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "To ustawienie zmienia tylko administrator."
+        )
+    try:
+        current = await ledger_settings.set_vat_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)["vat"]
+
+
+@router.get("/vat/jpk")
+async def jpk_overview(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    return await jpk.overview(db, viewer, current, year=year, month=month)
+
+
+@router.post("/vat/jpk", status_code=status.HTTP_201_CREATED)
+async def jpk_prepare(
+    body: JpkBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        result = await jpk.prepare(
+            db,
+            viewer,
+            current,
+            year=body.year,
+            month=body.month,
+            reason=body.reason,
+            opening_surplus=body.opening_surplus,
+            now=datetime.now(timezone.utc),
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/vat/jpk/{file_id}/file")
+async def jpk_file(
+    current_user: FinanceModuleUser,
+    file_id: int = Path(ge=1, le=ID_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    _, viewer = await _context(db, current_user)
+    try:
+        name, content = await jpk.download(db, viewer, file_id)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )
+
+
+@router.post("/vat/jpk/{file_id}/sent")
+async def jpk_sent(
+    body: JpkSentBody,
+    current_user: FinanceModuleUser,
+    file_id: int = Path(ge=1, le=ID_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        result = await jpk.mark_sent(
+            db, viewer, file_id, note=body.note, now=datetime.now(timezone.utc)
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.put("/vat/jpk/settings")
+async def set_jpk_contact(
+    body: JpkContactBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    if not viewer.admin:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "To ustawienie zmienia tylko administrator."
+        )
+    try:
+        current = await ledger_settings.set_jpk_contact(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)["jpk"]

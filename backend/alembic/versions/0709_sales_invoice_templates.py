@@ -1,7 +1,7 @@
 """Szablony faktur cyklicznych, refaktury benefitów i faktura z ręki (E6).
 
-Revision ID: 0708_sales_invoice_templates
-Revises: 0707_ledger_fx
+Revision ID: 0709_sales_invoice_templates
+Revises: 0708_ledger_vat_files
 
 Tabela ``client_invoice_templates`` (szablon „co miesiąc” — usługi bez
 zamówienia i refaktury benefitów), ``client_issued_invoices.template_id`` z
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import client_invoice_templates_schema as schema
 
-revision = "0708_sales_invoice_templates"
-down_revision = "0707_ledger_fx"
+revision = "0709_sales_invoice_templates"
+down_revision = "0708_ledger_vat_files"
 branch_labels = None
 depends_on = None
 

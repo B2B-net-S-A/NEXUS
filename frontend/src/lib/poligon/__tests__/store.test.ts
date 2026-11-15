@@ -51,6 +51,20 @@ describe("poligon: zapisy nie wychodzą z przeglądarki", () => {
     expect(res).toMatchObject({ status: 404 });
     expect(acted(actions)).toMatchObject({ type: "missing" });
   });
+
+  it("nagrane 404 (rekrutacja bez migawki rekomendacji) to odpowiedź, nie brak w zestawie", () => {
+    const { store, actions } = setup();
+    const res = store.handle({ method: "get", url: `/api/jobs/${JOB}/proposals/latest` });
+    expect(res).toMatchObject({ status: 404 });
+    expect(actions.some((a) => a.type === "missing")).toBe(false);
+  });
+
+  it("ostatni przegląd bazy na rekrutacji ćwiczebnej jest pusty, nie brakuje go", () => {
+    const { store, actions } = setup();
+    const res = store.handle({ method: "get", url: `/api/candidate-search/jobs/${JOB}/latest-run` });
+    expect(res).toMatchObject({ status: 200, data: { job_id: JOB, run: null } });
+    expect(actions.some((a) => a.type === "missing")).toBe(false);
+  });
 });
 
 describe("poligon: Tablica", () => {

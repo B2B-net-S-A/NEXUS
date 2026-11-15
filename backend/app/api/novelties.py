@@ -23,7 +23,7 @@ from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,11 +72,25 @@ class NoveltyEventIn(BaseModel):
 
 
 class StartGateIn(BaseModel):
-    enforced: bool
+    """Wyłączniki blokad: Startu (``enforced``) i Poligonu nowych osób (``poligon``)."""
+
+    enforced: Optional[bool] = None
+    poligon: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _one_switch(self) -> "StartGateIn":
+        if self.enforced is None and self.poligon is None:
+            raise ValueError("Podaj enforced albo poligon.")
+        return self
 
 
 #: Wyłącznik blokady Startu w ``app_settings``. Brak wiersza = blokada włączona.
 START_GATE_KEY = "start_gate"
+#: Blokada Poligonu nowych osób. Wyłącznik ma admin i HoR w „Nowości — kto już
+#: umie” (Artur, 15.11.2026: na wypadek, gdyby ćwiczenie przestało się zaliczać);
+#: seed stacku E2E (`scripts/seed_e2e.py`) też ją wyłącza, bo scenariusze
+#: zakładają świeże konta rekruterów.
+POLIGON_GATE_KEY = "poligon_gate"
 
 
 class RemindIn(BaseModel):
@@ -469,8 +483,8 @@ async def remind_novelty(
     return {"reminded": int(result.rowcount or 0)}
 
 
-async def start_gate_on(db: AsyncSession) -> bool:
-    row = await db.get(AppSetting, START_GATE_KEY)
+async def start_gate_on(db: AsyncSession, key: str = START_GATE_KEY) -> bool:
+    row = await db.get(AppSetting, key)
     if row is None or not isinstance(row.value, dict):
         return True
     return bool(row.value.get("enforced", True))
@@ -502,6 +516,7 @@ def start_status(
     gate_on: bool,
     impersonating: bool,
     poligon: Optional[dict[str, Any]] = None,
+    poligon_gate_on: bool = True,
 ) -> dict[str, Any]:
     """Start osoby: lista przeklikań i czy front ma ją zatrzymać.
 
@@ -521,13 +536,18 @@ def start_status(
     ]
     done = sum(1 for item in items if item["done"])
     poligon_due = bool(
-        poligon and poligon["required"] and poligon["done"] < poligon["total"]
+        poligon_gate_on
+        and poligon
+        and poligon["required"]
+        and poligon["done"] < poligon["total"]
     )
+    # Wyłącznik Startu (`gate_on`) dotyczy tylko przeklikań; poligon nowej
+    # osoby blokuje zawsze (Artur, 15.11.2026 — Start wyłączony od 30.10).
     return {
-        "enforced": gate_on
-        and not impersonating
-        and (done < len(items) or poligon_due),
+        "enforced": not impersonating
+        and (poligon_due or (gate_on and done < len(items))),
         "gate_on": gate_on,
+        "poligon_gate_on": poligon_gate_on,
         "done": done,
         "total": len(items),
         "items": items,
@@ -559,6 +579,7 @@ async def my_start(
         poligon=(
             poligon_status(progress, open_=open_, required=required) if open_ else None
         ),
+        poligon_gate_on=await start_gate_on(db, POLIGON_GATE_KEY),
     )
 
 
@@ -568,13 +589,22 @@ async def set_start_gate(
     current_user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
-    """Wyłącznik blokady Startu dla całej firmy (admin, HoR)."""
-    value = {"enforced": payload.enforced}
-    row = await db.get(AppSetting, START_GATE_KEY)
-    if row is None:
-        db.add(AppSetting(key=START_GATE_KEY, value=value, updated_by=current_user.id))
-    else:
-        row.value = value
-        row.updated_by = current_user.id
+    """Wyłączniki blokad dla całej firmy (admin, HoR): Startu i Poligonu nowych osób."""
+    for key, enforced in (
+        (START_GATE_KEY, payload.enforced),
+        (POLIGON_GATE_KEY, payload.poligon),
+    ):
+        if enforced is None:
+            continue
+        value = {"enforced": enforced}
+        row = await db.get(AppSetting, key)
+        if row is None:
+            db.add(AppSetting(key=key, value=value, updated_by=current_user.id))
+        else:
+            row.value = value
+            row.updated_by = current_user.id
     await db.commit()
-    return value
+    return {
+        "enforced": await start_gate_on(db),
+        "poligon": await start_gate_on(db, POLIGON_GATE_KEY),
+    }
