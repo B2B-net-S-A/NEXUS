@@ -154,6 +154,10 @@ def apply_category(
     card = match_card(terms.cards, label, on=effective_from)
     if card is None:
         return "no_card"
+    if any(s.effective_from > effective_from for s in contract.framework_rate_schedule):
+        # Nowszy krok limitu (np. z importu albo od DL) obowiązuje po tym COA —
+        # kategoria z COA mogłaby już nie pasować do limitu. Decyduje DL.
+        return "newer_limit_kept"
     changed = contract.client_rate_card_id != card.id
     contract.client_rate_card_id = card.id
     contract.rate_card_source = SOURCE_COA

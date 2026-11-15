@@ -139,3 +139,14 @@ def test_coa_never_lowers_a_limit_that_already_holds_an_unrecorded_addon():
     assert outcome == "higher_limit_kept"
     assert c.client_rate_card_id == 1 and c.framework_rate_schedule == []
     assert c.effective_framework_rate(DAY) == Decimal("120.00")
+
+
+def test_coa_does_not_override_a_newer_limit_step():
+    from app.models.contract_framework_rate import ContractFrameworkRate
+
+    db, c = FakeDb(), contract()
+    later = date(2031, 6, 1)
+    c.framework_rate_schedule.append(ContractFrameworkRate(rate=Decimal("90.00"), effective_from=later))
+    assert apply_category(db, c, terms(), "IT Developer - Expert", effective_from=DAY, actor_id=None) == "newer_limit_kept"
+    assert c.client_rate_card_id is None and c.rate_card_coa_label == "IT Developer - Expert"
+    assert len(c.framework_rate_schedule) == 1

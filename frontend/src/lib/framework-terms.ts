@@ -12,6 +12,7 @@ export const RECOMPUTE_OUTCOME_LABEL: Record<string, string> = {
   unreadable: "Nieczytelny PDF",
   file_missing: "Brak pliku PDF",
   higher_limit_kept: "Limit wyższy niż cennik — sprawdź dopłatę",
+  newer_limit_kept: "Nowszy limit niż COA — sprawdź kategorię",
   preview: "Do zmiany",
 };
 
