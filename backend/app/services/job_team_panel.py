@@ -396,6 +396,39 @@ async def _selections(db: AsyncSession, team_id: int) -> list[dict[str, Any]]:
     ]
 
 
+async def _detail_variants(db: AsyncSession, team: JobTeam) -> list[dict[str, Any]]:
+    """Zatwierdzone gotowe składy z imionami, jak w ``selections``."""
+    stored = list(team.variants or [])
+    ids = {
+        int(cid)
+        for variant in stored
+        for pick in variant.get("picks") or []
+        for cid in pick.get("candidate_ids") or []
+    }
+    names = {
+        cid: _full_name(person.name, person.lastname)
+        for cid, person in (await _people(db, ids)).items()
+    }
+    return [
+        {
+            "key": variant.get("key"),
+            "name": variant.get("name"),
+            "why": variant.get("why"),
+            "picks": [
+                {
+                    "job_id": pick.get("job_id"),
+                    "candidates": [
+                        {"candidate_id": int(cid), "name": names.get(int(cid))}
+                        for cid in pick.get("candidate_ids") or []
+                    ],
+                }
+                for pick in variant.get("picks") or []
+            ],
+        }
+        for variant in stored
+    ]
+
+
 async def team_detail(
     db: AsyncSession, team: JobTeam, jobs: Optional[list[Job]] = None
 ) -> dict[str, Any]:
@@ -417,6 +450,8 @@ async def team_detail(
             "short_url": short_url,
         },
         "selections": await _selections(db, team.id),
+        "variants": await _detail_variants(db, team),
+        "variants_approved_at": _iso(team.variants_approved_at),
     }
 
 
@@ -475,6 +510,43 @@ async def _owner_name(
     return author.name if author is not None else None
 
 
+def public_variants(
+    stored: Iterable[Mapping[str, Any]],
+    seen: Mapping[int, tuple[str, Mapping[int, str]]],
+) -> list[dict[str, Any]]:
+    """Zatwierdzone składy w kształcie klienta: ``picks = {klucz: [public_id]}``.
+
+    ``seen``: rekrutacja → (klucz stanowiska, {kandydat: public_id}) dla osób,
+    które klient widzi teraz na liście. Osoba ukryta, wycofana albo ze
+    stanowiska, którego klient nie widzi, wypada; skład bez nikogo wypada.
+    """
+    out: list[dict[str, Any]] = []
+    for variant in stored:
+        picks: dict[str, list[str]] = {}
+        for pick in variant.get("picks") or []:
+            position = seen.get(pick.get("job_id"))
+            if position is None:
+                continue
+            key, people = position
+            chosen = [
+                people[int(cid)]
+                for cid in pick.get("candidate_ids") or []
+                if int(cid) in people
+            ]
+            if chosen:
+                picks.setdefault(key, []).extend(chosen)
+        if picks:
+            out.append(
+                {
+                    "key": variant.get("key"),
+                    "name": variant.get("name"),
+                    "why": variant.get("why"),
+                    "picks": picks,
+                }
+            )
+    return out
+
+
 async def public_team_view(
     db: AsyncSession,
     team: JobTeam,
@@ -483,6 +555,7 @@ async def public_team_view(
     if positions is None:
         positions = await public_positions(db, team)
     items = []
+    seen: dict[int, tuple[str, dict[int, str]]] = {}
     for position in positions:
         view = await panel_service.public_panel_view(
             db, position.panel, position.job, None
@@ -495,6 +568,17 @@ async def public_team_view(
                 "view": view,
             }
         )
+        if team.variants:
+            listed = {c["public_id"] for c in view.get("candidates") or []}
+            rows = await panel_service.candidate_rows(db, position.panel.id)
+            seen[position.job.id] = (
+                position.key,
+                {
+                    cid: row.public_id
+                    for cid, row in rows.items()
+                    if row.public_id in listed
+                },
+            )
     return {
         "team": {
             "name": team.name,
@@ -504,6 +588,7 @@ async def public_team_view(
         },
         "hours_per_month": HOURS_PER_MONTH,
         "positions": items,
+        "variants": public_variants(team.variants or [], seen),
     }
 
 

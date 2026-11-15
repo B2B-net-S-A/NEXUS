@@ -408,6 +408,8 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     # Zespół dla klienta (0710): skład kilku rekrutacji pod jednym linkiem.
     ("GET", "/api/public/team-panel/{token}"),
     ("POST", "/api/public/team-panel/{token}/selection"),
+    # Z3: rozmowy z całym składem = N wniosków przez wspólny serwis terminów.
+    ("POST", "/api/public/team-panel/{token}/interviews"),
 }
 
 # Publiczne bez `@limiter.limit`: sondy i webhooki wołają automaty, nie ludzie.

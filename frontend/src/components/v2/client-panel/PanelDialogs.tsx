@@ -38,6 +38,7 @@ import {
   togglePicked,
   warsawLocalToIso,
   type SlotKey,
+  type SlotWeek,
 } from "./panel-logic";
 
 const BODY_LIMIT = 2000;
@@ -387,6 +388,109 @@ export function NotFitDialog({
   );
 }
 
+/**
+ * Siatka terminów tygodnia z przełącznikiem tygodni — wspólna dla rozmowy z jedną
+ * osobą i rozmów z całym składem zespołu (`/k/z/{token}`).
+ */
+export function SlotWeekGrid({
+  weeks,
+  weekIndex,
+  onWeekChange,
+  picked,
+  onToggle,
+}: {
+  weeks: readonly SlotWeek[];
+  weekIndex: number;
+  onWeekChange: (index: number) => void;
+  picked: readonly SlotKey[];
+  onToggle: (key: SlotKey) => void;
+}) {
+  const setWeekIndex = (update: (index: number) => number) => onWeekChange(update(weekIndex));
+  const week = weeks[weekIndex];
+  const holidays = week?.days.filter((day) => day.holiday).map((day) => day.label.slice(3)) ?? [];
+  return (
+    <>
+          <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span className="min-w-0">
+          Zaznacz terminy, które Ci pasują. Tydzień {week?.label}
+          {holidays.length > 0 ? `, ${holidays.join(", ")} to dzień wolny` : ""}.
+        </span>
+        {weeks.length > 1 ? (
+          <span className="ml-auto flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Poprzedni tydzień"
+              disabled={weekIndex === 0}
+              onClick={() => setWeekIndex((index) => index - 1)}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="Następny tydzień"
+              disabled={weekIndex === weeks.length - 1}
+              onClick={() => setWeekIndex((index) => index + 1)}
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </span>
+        ) : null}
+      </div>
+      {week ? (
+        <div
+          className="grid grid-cols-[40px_repeat(5,minmax(0,1fr))] gap-px overflow-hidden rounded-lg border border-border bg-border text-xs"
+          data-testid="slots-grid"
+        >
+          <div className="bg-card" />
+          {week.days.map((day) => (
+            <div key={day.ymd} className="bg-card px-0.5 py-1 text-center font-semibold">
+              {day.label}
+            </div>
+          ))}
+          {SLOT_HOURS.map((hour) => (
+            <div key={hour} className="contents">
+              <div className="bg-card py-1 text-center text-[11px] text-muted-foreground">
+                {hour}
+              </div>
+              {week.days.map((day) => {
+                const key = slotKey(day.ymd, hour);
+                if (!day.hours.includes(hour)) {
+                  return <div key={key} className="bg-muted" aria-hidden />;
+                }
+                const on = picked.includes(key);
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-pressed={on}
+                    aria-label={slotKeyLabel(key)}
+                    onClick={() => onToggle(key)}
+                    className={cn(
+                      "grid min-h-6 place-items-center transition-colors pointer-coarse:min-h-9",
+                      "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                      on
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-card hover:bg-primary/10",
+                    )}
+                  >
+                    {on ? <Check className="h-3 w-3" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          W najbliższych dwóch tygodniach nie ma dni roboczych. Napisz do opiekuna procesu.
+        </p>
+      )}
+    </>
+  );
+}
+
 export function SlotsDialog({
   candidate,
   onClose,
@@ -411,9 +515,6 @@ export function SlotsDialog({
       onClose();
     },
   );
-  const week = weeks[weekIndex];
-  const holidays = week?.days.filter((day) => day.holiday).map((day) => day.label.slice(3)) ?? [];
-
   const send = () =>
     submit(picked.length > 0 ? null : "Zaznacz co najmniej jeden termin.", (who) =>
       transport.sendInterview(candidate.public_id, {
@@ -443,83 +544,13 @@ export function SlotsDialog({
     >
       <div className="grid gap-3.5 md:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-w-0">
-          <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span className="min-w-0">
-              Zaznacz terminy, które Ci pasują. Tydzień {week?.label}
-              {holidays.length > 0 ? `, ${holidays.join(", ")} to dzień wolny` : ""}.
-            </span>
-            {weeks.length > 1 ? (
-              <span className="ml-auto flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="Poprzedni tydzień"
-                  disabled={weekIndex === 0}
-                  onClick={() => setWeekIndex((index) => index - 1)}
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="Następny tydzień"
-                  disabled={weekIndex === weeks.length - 1}
-                  onClick={() => setWeekIndex((index) => index + 1)}
-                >
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </Button>
-              </span>
-            ) : null}
-          </div>
-          {week ? (
-            <div
-              className="grid grid-cols-[40px_repeat(5,minmax(0,1fr))] gap-px overflow-hidden rounded-lg border border-border bg-border text-xs"
-              data-testid="slots-grid"
-            >
-              <div className="bg-card" />
-              {week.days.map((day) => (
-                <div key={day.ymd} className="bg-card px-0.5 py-1 text-center font-semibold">
-                  {day.label}
-                </div>
-              ))}
-              {SLOT_HOURS.map((hour) => (
-                <div key={hour} className="contents">
-                  <div className="bg-card py-1 text-center text-[11px] text-muted-foreground">
-                    {hour}
-                  </div>
-                  {week.days.map((day) => {
-                    const key = slotKey(day.ymd, hour);
-                    if (!day.hours.includes(hour)) {
-                      return <div key={key} className="bg-muted" aria-hidden />;
-                    }
-                    const on = picked.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        aria-pressed={on}
-                        aria-label={slotKeyLabel(key)}
-                        onClick={() => setPicked((current) => togglePicked(current, key))}
-                        className={cn(
-                          "grid min-h-6 place-items-center transition-colors pointer-coarse:min-h-9",
-                          "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-                          on
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-card hover:bg-primary/10",
-                        )}
-                      >
-                        {on ? <Check className="h-3 w-3" /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              W najbliższych dwóch tygodniach nie ma dni roboczych. Napisz do opiekuna procesu.
-            </p>
-          )}
+          <SlotWeekGrid
+            weeks={weeks}
+            weekIndex={weekIndex}
+            onWeekChange={setWeekIndex}
+            picked={picked}
+            onToggle={(key) => setPicked((current) => togglePicked(current, key))}
+          />
         </div>
         <div className="grid content-start gap-2">
           <label className={FIELD_LABEL}>

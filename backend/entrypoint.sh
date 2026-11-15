@@ -1340,7 +1340,8 @@ except Exception as _client_panel_schema_err:  # noqa: BLE001
 try:
     from app.services import job_team_schema as _job_team_schema
 
-    _JOB_TEAMS_DDL = list(_job_team_schema.TABLE_DDL)
+    # 0711: gotowe składy — ORM czyta `job_teams.variants*` przy każdym odczycie zespołu.
+    _JOB_TEAMS_DDL = [*_job_team_schema.TABLE_DDL, *_job_team_schema.VARIANTS_DDL]
 except Exception as _job_team_schema_err:  # noqa: BLE001
     print(f"job team schema unavailable: {_job_team_schema_err!r}")
     _JOB_TEAMS_DDL = []
