@@ -1,4 +1,4 @@
-"""Zespół dla klienta (0711) — ``services/job_team_schema.py``."""
+"""Zespół dla klienta (0711, gotowe składy 0712) — ``services/job_team_schema.py``."""
 
 from datetime import datetime
 from typing import Optional
@@ -50,6 +50,17 @@ class JobTeam(Base):
     panel_token_nonce: Mapped[Optional[str]] = mapped_column(String(32))
     panel_token_sha256: Mapped[Optional[str]] = mapped_column(String(64))
     created_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL")
+    )
+    # 0713: gotowe składy zatwierdzone przez DL-a, jedyne, które widzi klient.
+    # ``[{"key", "name", "why", "picks": [{"job_id", "candidate_ids"}]}]``
+    variants: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    variants_approved_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True)
+    )
+    variants_approved_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(

@@ -1,5 +1,18 @@
 [
   {
+    "id": "zespol-gotowe-sklady",
+    "pr": 3454,
+    "title": "Zespół: gotowe składy dla klienta i rozmowy z całym składem",
+    "why": "„Zaproponuj składy” układa trzy składy zespołu. Po Twoim zatwierdzeniu klient wybiera skład w linku i prosi o rozmowy z całym składem jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Zespół → „Gotowe składy dla klienta” → „Zaproponuj składy”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.team.variants"
+  },
+  {
     "id": "zespol-dla-klienta",
     "pr": 3450,
     "title": "Zespół dla klienta: kilka stanowisk, jeden link i cena zespołu",
@@ -2880,5 +2893,18 @@
     "href": "/clients",
     "section": "delivery",
     "dot_anchor": "clients.reports"
+  },
+  {
+    "id": "stawki-ramowe-raport-kwartalny",
+    "pr": 3462,
+    "title": "Stawki ramowe klienta i raport kwartalny",
+    "why": "Kto jest w stawce z umowy, kto dzięki dopłacie, kto ponad i co daje umowa. Raport kwartalny dla klienta pobierzesz jako Excel, bez marży.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Klienci → klient → Stawki ramowe → Raport kwartalny",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.framework-rates.report"
   }
 ]

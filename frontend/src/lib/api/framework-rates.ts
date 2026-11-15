@@ -161,3 +161,53 @@ export async function recomputeFrameworkCategories(
     )
   ).data;
 }
+
+// --- F2: przegląd „Stawki ramowe” i raport kwartalny ------------------------------
+
+export interface FrameworkLever {
+  kind: "addon" | "level" | "level_addon";
+  label: string;
+  limit: string;
+}
+
+export interface FrameworkOverviewRow {
+  contract_id: number;
+  person: string;
+  category: string | null;
+  source: "coa" | "dl" | null;
+  coa_label: string | null;
+  rate: string | null;
+  limit: string | null;
+  base: string | null;
+  addon: string | null;
+  status: FrameworkStatus;
+  gap: string | null;
+  order_end: string | null;
+  levers: FrameworkLever[];
+  /** Limit na kontrakcie inny niż z cennika (dawny import, ręczny krok). */
+  limit_mismatch: boolean;
+}
+
+export type FrameworkCounts = Record<FrameworkStatus, number>;
+
+export interface FrameworkOverview {
+  client_id: number;
+  on: string;
+  counts: FrameworkCounts;
+  over_gap: string;
+  by_category: { category: string; counts: Record<"in" | "in_addon" | "over", number> }[];
+  trend: { on: string; counts: FrameworkCounts }[];
+  rows: FrameworkOverviewRow[];
+}
+
+export function useFrameworkOverview(clientId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["framework-overview", clientId] as const,
+    queryFn: async () =>
+      (await api.get<FrameworkOverview>(`/api/clients/${clientId}/framework-overview`)).data,
+    enabled,
+  });
+}
+
+export const frameworkReportPath = (clientId: number) =>
+  `/api/clients/${clientId}/framework-overview/report.xlsx`;

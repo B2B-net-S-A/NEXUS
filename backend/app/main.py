@@ -4562,6 +4562,7 @@ async def api_health_deep_check(request: Request):
         ("client_panel_views", ClientPanelView),
         # 0711: zespół dla klienta — brak tabeli = 500 na `/zespoly` i pod `/k/z/`.
         # `jobs.team_id` sprawdza sonda `jobs` (ORM czyta kolumnę zawsze).
+        # 0713: sonda `job_teams` czyta też `variants*` (gotowe składy).
         ("job_teams", JobTeam),
         ("job_team_selections", JobTeamSelection),
         # Rekrutacja własna: brak tabeli = 500 na Tablicy i pod linkiem z zaproszenia.
