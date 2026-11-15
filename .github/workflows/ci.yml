@@ -1006,6 +1006,34 @@ jobs:
         run: |
           rm -rf src/app/preview
           npm run build
+      # Poligon NEXUSA (15.11.2026): nowa osoba ma zablokowany NEXUS, dopóki nie
+      # zaliczy 19 ćwiczeń na rekrutacji ćwiczebnej, a odczyty tej rekrutacji
+      # podaje nagrany zestaw (`src/lib/poligon/dataset.json`). Zmiana ekranu,
+      # która dokłada odczyt spoza zestawu, nie psuje ani builda, ani Vitesta —
+      # psuje dopiero onboarding nowej osoby. Ten krok przechodzi całą ścieżkę
+      # w Chromium na zbudowanym froncie z podstawionym backendem (bez bazy)
+      # i pada na każdy brak w zestawie (~2 min z pobraniem Chromium).
+      # Tylko w kolejce, po buildzie — na PR-ze builda nie ma.
+      - name: Poligon NEXUSA — cała ścieżka onboardingu (Playwright)
+        if: steps.scope.outputs.run == 'true' && github.event_name != 'pull_request'
+        env:
+          E2E_BASE_URL: http://localhost:3000
+          E2E_API_ORIGIN: http://localhost:8000
+        run: |
+          npx playwright install --with-deps chromium
+          # Jak w `frontend/Dockerfile`: serwer standalone + statyczne pliki obok.
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          (cd .next/standalone && PORT=3000 HOSTNAME=127.0.0.1 node server.js > "$RUNNER_TEMP/next.log" 2>&1 &)
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:3000/login && break
+            sleep 1
+          done
+          npx playwright test --project=poligon-chromium --reporter=list || {
+            echo "::error::Poligon NEXUSA: ścieżka onboardingu nie przechodzi. Brak w zestawie = nagraj ekran jeszcze raz (docs/claude/ui/poligon-nexusa-onboarding.md)."
+            tail -50 "$RUNNER_TEMP/next.log"
+            exit 1
+          }
 
   frontend-vitest:
     # Pełny Vitest z pokryciem, równolegle do lint/type-check/build — tylko

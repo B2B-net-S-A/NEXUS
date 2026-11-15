@@ -114,7 +114,19 @@ na wymyślonych danych.
   `[poligon] brak odpowiedzi w zestawie: <adres>`. Wtedy nagraj ekran jeszcze raz
   i przebuduj zestaw (opis wywołania w nagłówku skryptu). Przed commitem
   przejrzyj `--report` i przejdź całą ścieżkę w przeglądarce.
-- Nowe ćwiczenie dopisujesz w trzech miejscach:
+- **Test całej ścieżki w CI** (`frontend/e2e/poligon-walk.spec.ts`, projekt
+  `poligon-chromium`, od 15.11.2026). W kolejce merge'ów po buildzie frontendu
+  przechodzi 19 ćwiczeń na podstawionym backendzie (bez bazy). Pada na każdy brak
+  w zestawie, zapis poza postępem `poligon-*` i błąd strony, bo taki brak blokuje
+  nową osobę na cały dzień. Odczyt, na który serwer odpowiada 404 (np.
+  rekrutacja bez migawki rekomendacji), zapisuje się w zestawie jako
+  `{"@status": 404}`, nie jako brak. Powłoka (pasek, powiadomienia) dostaje 404,
+  poza szablonem etapów z `e2e/fixtures/poligon-shell.json`. Nowe ćwiczenie
+  dopisujesz też do tego testu.
+- Stan poligonu żyje w pamięci karty: przeładowanie strony cofa ruchy,
+  notatki i screening z ćwiczeń (postęp ćwiczeń zostaje).
+- Nowe ćwiczenie dopisujesz w czterech miejscach:
   - `exercises.ts`;
   - `poligon.json` (to samo id z przedrostkiem `poligon-`);
-  - test oceny w `store.test.ts`.
+  - test oceny w `store.test.ts`;
+  - krok w `e2e/poligon-walk.spec.ts`.

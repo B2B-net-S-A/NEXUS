@@ -873,6 +873,14 @@ def main() -> None:
             },
         },
     )
+    # Odczyty Tablicy, których jedno nagranie nie łapie (zależą od stanu
+    # rekrutacji): ostatni przegląd bazy i migawka rekomendacji. Na rekrutacji
+    # ćwiczebnej ich nie ma — serwer odpowiada wtedy `run: null` i 404, a 404
+    # zapisujemy jawnie (`@status`), żeby adapter nie brał go za brak w zestawie.
+    dataset.setdefault(
+        f"GET /api/candidate-search/jobs/{job}/latest-run", {"job_id": job, "run": None}
+    )
+    dataset.setdefault(f"GET /api/jobs/{job}/proposals/latest", {"@status": 404})
     fix_counts(dataset)
     meta = {
         "job_id": POLIGON_JOB,
