@@ -1,5 +1,18 @@
 [
   {
+    "id": "zespol-rozbij-zapytanie",
+    "pr": 3461,
+    "title": "Nowa rekrutacja: rozbij zapytanie na stanowiska zespołu",
+    "why": "Przy „Stanowisko w zespole” odczyt wypisze stanowiska z wklejonego maila, a „Użyj” wpisze rolę i liczbę osób. Na ekranie zespołu zobaczysz też stawki z historii klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Nowa rekrutacja → „Co zamawia klient?” → „Stanowisko w zespole”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "jobs.new.team-split"
+  },
+  {
     "id": "zespol-gotowe-sklady",
     "pr": 3454,
     "title": "Zespół: gotowe składy dla klienta i rozmowy z całym składem",

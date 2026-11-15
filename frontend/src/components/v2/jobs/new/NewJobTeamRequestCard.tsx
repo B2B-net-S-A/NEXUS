@@ -102,6 +102,7 @@ function RequestSplit({
         <Button
           size="sm"
           variant="outline"
+          data-tour="jobs.new.team-split"
           disabled={tooShort || split.isPending}
           onClick={() => split.mutate()}
         >
