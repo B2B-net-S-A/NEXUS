@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
+import { ComplianceBanner } from "@/components/compliance/ComplianceBanner";
 import { QueryStateNotice } from "@/components/ds";
 import { RequirePermission } from "@/components/RequirePermission";
 import { useLedgerConfig, type LedgerConfig } from "@/lib/api/accounting";
@@ -129,6 +130,8 @@ function ShellBody({ config, children }: { config: LedgerConfig; children: React
             );
           })}
         </nav>
+        {/* „Przepisy” (15.11.2026): zmiany dla Księgowości do decyzji; bez nich pasek znika. */}
+        <ComplianceBanner role="accounting" />
         {children}
       </div>
     </AccountingContext.Provider>

@@ -1368,6 +1368,15 @@ class Settings(BaseSettings):
     GROK_BOT_PEOPLE_WEBHOOK_KEY: str = ""
     SALES_COGNISM_PEOPLE_ENABLED: bool = False
     SALES_COGNISM_PEOPLE_RESEARCH_SINCE: Optional[AwareDatetime] = None
+    # Radar przepisów (0713, ``app/services/law_radar``): Grok Zbieracz czyta źródła
+    # prawa, bramka NEXUSA sprawdza numery w API Sejmu, Grok Analityk opisuje zmiany.
+    # OFF: pętla stoi, ekran mówi „Radar wyłączony”; trasa raportu działa zawsze.
+    LAW_RADAR_ENABLED: bool = False
+    # Adresy webhooków dwóch rutyn i ich klucze (nagłówek ``Authorization: Bearer``).
+    GROK_BOT_LAW_COLLECT_WEBHOOK_URL: str = ""
+    GROK_BOT_LAW_COLLECT_WEBHOOK_KEY: str = ""
+    GROK_BOT_LAW_ANALYZE_WEBHOOK_URL: str = ""
+    GROK_BOT_LAW_ANALYZE_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
     # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):

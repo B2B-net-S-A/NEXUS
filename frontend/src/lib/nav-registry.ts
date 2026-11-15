@@ -27,6 +27,7 @@ import {
   Lightbulb,
   PhoneCall,
   Radar,
+  Scale,
   Search,
   Settings,
   Star,
@@ -46,6 +47,7 @@ import {
   hasCapability,
   type Capability,
 } from "@/lib/capabilities";
+import { canOpenCompliance } from "@/lib/compliance-access";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { hasPermission, type Permission } from "@/lib/permissions";
 import {
@@ -153,6 +155,12 @@ export type NavEntry = {
    * Te wejścia nie mają listy ról: kto ma uprawnienie, ten widzi pozycję.
    */
   permission?: Permission;
+  /**
+   * Bramka „rola ALBO jedno z kilku uprawnień”, której nie da się zapisać
+   * parą `roles` + `permission` (te łączy „i”). Dziś tylko „Przepisy”:
+   * `compliance` = lustro `require_compliance_access` (`lib/compliance-access.ts`).
+   */
+  access?: "compliance";
   action?: ProductAction;
   /**
    * Capability z `lib/capabilities.ts`, której bramka (lista ról albo
@@ -619,6 +627,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     paletteKeywords: ["księga", "dziennik", "obroty", "salda", "plan kont", "pk", "symfonia"],
     inPalette: true,
   },
+  // Przepisy (15.11.2026): zmiany w prawie, terminy i co znaczą dla nas.
+  // Bez nowego uprawnienia: admin i HoR z roli albo jedno z czterech uprawnień
+  // (Moduł Finanse, Płace, Kadry, Kontrakty i zamówienia) — jak API.
+  {
+    id: "compliance",
+    href: "/compliance",
+    label: "Przepisy",
+    icon: Scale,
+    section: "finance",
+    access: "compliance",
+    placement: "primary",
+    paletteKeywords: ["prawo", "przepisy", "lex", "ustawa", "terminy", "cit", "ksef", "pip"],
+    inPalette: true,
+  },
   // Sprzedaż (Atlas → NEXUS, 26.10.2026): firmy, szanse, kontakty, zadania.
   // Bez sekcji produktu (jak „Ludzie”) — decyduje uprawnienie „Sprzedaż: podgląd”.
   {
@@ -782,7 +804,8 @@ export const NAV_PRIMARY_GROUPS: readonly {
     title: "Klienci i umowy",
     ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"],
   },
-  { key: "company", title: "Firma", ids: ["insights", "people", "equipment", "trainings"] },
+  // „Przepisy” (15.11.2026) w „Firmie”: widzi je też HoR, który nie ma „Klientów i umów”.
+  { key: "company", title: "Firma", ids: ["insights", "people", "equipment", "trainings", "compliance"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
@@ -848,6 +871,7 @@ function isEntryVisible(
     (!productSection || hasSectionAccess(user, productSection)) &&
     (!entry.roles || hasRole(user, ...entry.roles)) &&
     (!entry.permission || hasPermission(user, entry.permission)) &&
+    (!entry.access || canOpenCompliance(user)) &&
     (!entry.action || hasActionAccess(user, entry.action)) &&
     featureFlagOn(entry.featureFlag, opts)
   );
