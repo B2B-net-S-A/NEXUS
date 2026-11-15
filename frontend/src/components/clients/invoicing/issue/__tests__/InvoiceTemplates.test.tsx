@@ -24,6 +24,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
+import { BatchSendBar } from "@/components/clients/invoicing/issue/BatchSendBar";
 import { ImportTemplatesDialog } from "@/components/clients/invoicing/issue/ImportTemplatesDialog";
 import { ManualInvoiceDialog } from "@/components/clients/invoicing/issue/ManualInvoiceDialog";
 import { TemplatesPanel } from "@/components/clients/invoicing/issue/TemplatesPanel";
@@ -218,5 +219,36 @@ describe("ManualInvoiceDialog", () => {
       }),
     );
     await waitFor(() => expect(push).toHaveBeenCalledWith("/finance/faktury/77"));
+  });
+});
+
+describe("BatchSendBar", () => {
+  it("sends selected drafts one by one after confirmation and reports what needs fixing", async () => {
+    const user = userEvent.setup();
+    post.mockImplementation((url: string) =>
+      url.endsWith("/41/send")
+        ? Promise.resolve({ data: { id: 41, status: "accepted", invoice_number: "1/11/2026" } })
+        : Promise.reject(Object.assign(new Error("409"), { response: { status: 409, data: { detail: "Uzupełnij nazwę i adres nabywcy." } } })),
+    );
+    const onDone = vi.fn();
+    wrap(<BatchSendBar ids={[41, 42]} labels={{ 41: "Kontraktor 1", 42: "Kontraktor 2" }} disabledReason={null} onDone={onDone} />);
+    await user.click(screen.getByRole("button", { name: "Wyślij zaznaczone do KSeF (2)" }));
+    expect(post).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("alertdialog").catch(() => screen.findByRole("dialog"));
+    await user.click(within(dialog).getByRole("button", { name: "Wyślij do KSeF" }));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(post.mock.calls.map((call) => call[0])).toEqual([
+      "/api/finance/issued-invoices/41/send",
+      "/api/finance/issued-invoices/42/send",
+    ]);
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Przyjęte w KSeF: 1");
+    expect(status).toHaveTextContent("do poprawy: 1");
+    expect(within(status).getByRole("link", { name: "Kontraktor 2" })).toHaveAttribute("href", "/finance/faktury/42");
+  });
+
+  it("stays disabled with the reason when sending is off", () => {
+    wrap(<BatchSendBar ids={[41]} labels={{}} disabledReason="Wysyłka wyłączona." onDone={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Wyślij zaznaczone do KSeF (1)" })).toBeDisabled();
   });
 });

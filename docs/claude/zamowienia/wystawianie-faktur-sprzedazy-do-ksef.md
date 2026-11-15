@@ -112,7 +112,7 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 ## Poza tym etapem (następne)
 
 - Noty księgowe, wezwania do zapłaty, faktura rozliczeniowa do zaliczek, korekta zaliczkowej,
-  wystawianie seryjne jednym kliknięciem (wysyłka wielu szkiców do KSeF), wysyłka faktur mailem do klienta,
+  wysyłka faktur mailem do klienta,
   certyfikat zamiast tokenu dla wysyłki, walidacja XSD FA(3) w CI, tryb offline KSeF.
 
 ## Zamówienie zafakturowane poza NEXUSEM (14.11.2026)
@@ -147,3 +147,7 @@ trasy w `api/client_issued_invoices.py`, migracja `0708_sales_invoice_templates`
   z kartoteki kontrahentów (`finance_counterparties`, import „Partnerzy” z eBI24) po NIP-ie, potem z klienta. Bez importu
   kartoteki szkic refaktury pokaże „Uzupełnij nazwę i adres nabywcy”.
 - „Zapisz jako szablon” na karcie faktury VAT (bez korekty i zaliczkowej) — pozycje bez zamówienia i konsultanta.
+- **Wysyłka seryjna** („Szkice” → zaznacz → „Wyślij zaznaczone do KSeF”): przeglądarka wysyła szkice po kolei tą samą
+  trasą co karta (`POST /{id}/send`), bez nowej ścieżki w backendzie — numer, plik, wynik i UPO jak przy jednej
+  fakturze. „Zatrzymaj” albo zamknięcie karty zostawia resztę jako szkice bez numeru; wynik nieznany = „w drodze”
+  („Sprawdź status” na karcie). Podsumowanie: przyjęte, w drodze, do poprawy z powodem.

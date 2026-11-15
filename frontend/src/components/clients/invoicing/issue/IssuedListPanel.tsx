@@ -6,6 +6,7 @@ import { Plus } from "lucide-react";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -21,8 +22,11 @@ import { formatMoney } from "@/lib/money";
 import { resolveViewState } from "@/lib/view-state";
 
 import { AdvanceDialog } from "./AdvanceDialog";
+import { BatchSendBar } from "./BatchSendBar";
 import { ManualInvoiceDialog } from "./ManualInvoiceDialog";
 import { STATUS_TONE, paymentLabel } from "./issue-format";
+
+const SENDABLE = new Set<IssuedInvoiceRow["status"]>(["draft", "rejected", "failed"]);
 
 const EMPTY: Record<"drafts" | "sent", string> = {
   drafts:
@@ -40,7 +44,17 @@ export function IssuedListPanel({ view, period }: { view: "drafts" | "sent"; per
   const query = useIssuedList(view, view === "sent" ? period : null);
   const [advance, setAdvance] = useState(false);
   const [manual, setManual] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
   const invoices = query.data?.invoices ?? [];
+  // Seryjnie idą szkice i faktury do ponownej wysyłki (odrzucone, niewysłane).
+  const sendable = view === "drafts" ? invoices.filter((invoice) => SENDABLE.has(invoice.status)) : [];
+  const toggle = (id: number, on: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
   const state = resolveViewState({
     isLoading: query.isLoading,
     error: query.error,
@@ -76,7 +90,32 @@ export function IssuedListPanel({ view, period }: { view: "drafts" | "sent"; per
           {view === "sent" ? `${monthTitlePl(period)}: ${EMPTY.sent}` : EMPTY.drafts}
         </div>
       ) : (
-        <IssuedTable invoices={invoices} />
+        <>
+          {view === "drafts" ? (
+            <BatchSendBar
+              ids={sendable.filter((invoice) => selected.has(invoice.id)).map((invoice) => invoice.id)}
+              labels={Object.fromEntries(
+                invoices.map((invoice) => [invoice.id, invoice.client_name ?? invoice.buyer.name]),
+              )}
+              disabledReason={query.data?.ksef.enabled ? null : query.data?.ksef.disabled_reason ?? "Wysyłka wyłączona."}
+              onDone={() => setSelected(new Set())}
+            />
+          ) : null}
+          <IssuedTable
+            invoices={invoices}
+            selection={
+              view === "drafts"
+                ? {
+                    selected,
+                    sendable: new Set(sendable.map((invoice) => invoice.id)),
+                    toggle,
+                    toggleAll: (on) =>
+                      setSelected(on ? new Set(sendable.map((invoice) => invoice.id)) : new Set()),
+                  }
+                : null
+            }
+          />
+        </>
       )}
       {advance ? <AdvanceDialog onClose={() => setAdvance(false)} /> : null}
       {manual ? <ManualInvoiceDialog onClose={() => setManual(false)} /> : null}
@@ -84,12 +123,33 @@ export function IssuedListPanel({ view, period }: { view: "drafts" | "sent"; per
   );
 }
 
-function IssuedTable({ invoices }: { invoices: IssuedInvoiceRow[] }) {
+interface Selection {
+  selected: Set<number>;
+  sendable: Set<number>;
+  toggle: (id: number, on: boolean) => void;
+  toggleAll: (on: boolean) => void;
+}
+
+function IssuedTable({ invoices, selection }: { invoices: IssuedInvoiceRow[]; selection: Selection | null }) {
+  const allChecked =
+    selection !== null &&
+    selection.sendable.size > 0 &&
+    [...selection.sendable].every((id) => selection.selected.has(id));
   return (
     <div className="rounded-lg border border-border bg-card">
       <Table density="compact" className="table-fixed">
         <TableHeader>
           <TableRow>
+            {selection ? (
+              <TableHead className={`${CALM_HEAD} w-10`}>
+                <Checkbox
+                  aria-label="Zaznacz wszystkie do wysyłki"
+                  checked={allChecked}
+                  disabled={selection.sendable.size === 0}
+                  onCheckedChange={(value) => selection.toggleAll(value === true)}
+                />
+              </TableHead>
+            ) : null}
             <TableHead className={`${CALM_HEAD} w-[26%]`}>Nabywca</TableHead>
             <TableHead className={`${CALM_HEAD} w-[20%]`}>Faktura</TableHead>
             <TableHead className={`${CALM_HEAD} w-[14%] text-right`}>Netto</TableHead>
@@ -100,6 +160,16 @@ function IssuedTable({ invoices }: { invoices: IssuedInvoiceRow[] }) {
         <TableBody>
           {invoices.map((invoice) => (
             <TableRow key={invoice.id} className={`${CALM_ROW} align-top`} data-testid={`issued-${invoice.id}`}>
+              {selection ? (
+                <TableCell>
+                  <Checkbox
+                    aria-label={`Zaznacz do wysyłki: ${invoice.client_name ?? invoice.buyer.name}`}
+                    checked={selection.selected.has(invoice.id)}
+                    disabled={!selection.sendable.has(invoice.id)}
+                    onCheckedChange={(value) => selection.toggle(invoice.id, value === true)}
+                  />
+                </TableCell>
+              ) : null}
               <TableCell className="min-w-0">
                 <span className="block truncate">{invoice.client_name ?? invoice.buyer.name}</span>
                 <span className={CALM_SUBLINE}>{invoice.client_order_number ?? "bez numeru zamówienia"}</span>

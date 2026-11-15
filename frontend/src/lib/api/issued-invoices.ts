@@ -382,6 +382,15 @@ export function useDeleteIssued() {
   });
 }
 
+/** Wysyłka jednej faktury — wysyłka seryjna woła ją po kolei (ta sama trasa co przycisk na karcie). */
+export async function sendIssued(id: number): Promise<IssuedInvoiceCard> {
+  return (await api.post<IssuedInvoiceCard>(`${BASE}/${id}/send`)).data;
+}
+
+export function useInvalidateIssued() {
+  return useInvalidate();
+}
+
 export function useSendIssued() {
   const invalidate = useInvalidate();
   return useMutation({
