@@ -49,15 +49,23 @@ class Fragment:
 _FRAGMENTS_SQL = text(
     """
     SELECT ch.id, fc.id, ch.amendment_id,
-           coalesce(a.filename, a.name, fc.filename, fc.name) AS document, ch.text
+           coalesce(a.filename, a.name, fc.filename, fc.name) AS document,
+           ch.text || coalesce(' ' || left(nx.text, :tail), '') AS text
       FROM client_framework_contract_chunks ch
       JOIN client_framework_contracts fc ON fc.id = ch.framework_contract_id
       LEFT JOIN client_contract_amendments a ON a.id = ch.amendment_id
+      LEFT JOIN client_framework_contract_chunks nx
+        ON nx.framework_contract_id = ch.framework_contract_id
+       AND nx.amendment_id IS NOT DISTINCT FROM ch.amendment_id
+       AND nx.chunk_index = ch.chunk_index + 1
      WHERE fc.client_id = :client_id
        AND ch.text ~* :pattern
      ORDER BY fc.id, ch.amendment_id NULLS FIRST, ch.chunk_index
     """
 )
+#: Początek następnego fragmentu: termin bywa ucięty granicą fragmentu
+#: („… przesłane do” | „5-tego dnia kolejnego miesiąca”).
+NEXT_TAIL = 300
 
 
 async def keyword_fragments(
@@ -182,6 +190,18 @@ def parse_proposals(raw: str, allowed_chunks: set[int]) -> list[dict[str, Any]]:
 
 def normalize_name(name: str) -> str:
     return re.sub(r"\W+", " ", name.casefold()).strip()
+
+
+def is_known(name: str, known: set[str]) -> bool:
+    """Ta sama nazwa albo jedna zawiera drugą („Zestawienie zaangażowania”
+    i „Zestawienie zaangażowania (liczba osób w miesiącu)”)."""
+    key = normalize_name(name)
+    if key in known:
+        return True
+    return any(
+        min(len(other), len(key)) >= 12 and (other in key or key in other)
+        for other in known
+    )
 
 
 def _short(value: Any, limit: int) -> Optional[str]:

@@ -501,7 +501,7 @@ async def suggest_from_contracts(
     by_chunk = {f.chunk_id: f for f in fragments}
     created: list[ClientReportDefinition] = []
     for item in proposals:
-        if suggest.normalize_name(item["name"]) in names:
+        if suggest.is_known(item["name"], names):
             continue
         fragment = by_chunk[item["source_chunk_id"]]
         definition = ClientReportDefinition(

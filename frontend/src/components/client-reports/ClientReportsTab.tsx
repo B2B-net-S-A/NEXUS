@@ -34,11 +34,16 @@ import { ReportStateDot } from "./ReportStateDot";
 
 const FAMILIES: ReportFamily[] = ["settlement", "management", "compliance", "on_request"];
 
-function sourceText(definition: ReportDefinition): string {
-  if (definition.source_kind === "dl") return definition.source_ref || "od Delivery Leada";
-  if (definition.source_kind === "manual") return definition.source_ref || "wpis ręczny";
-  const where = definition.source_kind === "amendment" ? "aneks" : "umowa";
-  return definition.source_ref ? `${where}, ${definition.source_ref}` : where;
+const SOURCE_KIND_LABELS: Record<ReportDefinition["source_kind"], string> = {
+  contract: "umowa ramowa",
+  amendment: "aneks",
+  dl: "od Delivery Leada",
+  manual: "wpis ręczny",
+};
+
+/** Paragraf albo załącznik, gdy jest; inaczej skąd wpis. */
+export function sourceText(definition: Pick<ReportDefinition, "source_kind" | "source_ref">): string {
+  return definition.source_ref?.trim() || SOURCE_KIND_LABELS[definition.source_kind];
 }
 
 /** Zakładka „Raporty” w karcie klienta: co klient wymaga i jedno okno pobrania. */
@@ -96,65 +101,21 @@ export function ClientReportsTab({ clientId }: { clientId: number }) {
   const data = query.data;
   const rows = data?.definitions ?? [];
   const canEdit = Boolean(data?.can_edit);
-  const proposals = rows.filter((d) => d.status === "proposal").length;
+  const active = rows.filter((d) => d.status === "active");
+  const pending = rows.filter((d) => d.status === "proposal");
+  const proposals = pending.length;
   const overdue = rows.filter((d) => d.status === "active" && d.next.state === "overdue").length;
 
-  const archive = async (definition: ReportDefinition) => {
-    const ok = await askConfirm({
-      title: `Zarchiwizować „${definition.name}”?`,
-      description: "Raport zniknie z katalogu i kalendarza. Historia wysyłek zostaje.",
-      confirmLabel: "Archiwizuj",
-      variant: "destructive",
-    });
-    if (ok) status.mutate({ id: definition.id, action: "archive" });
-  };
-
-  return (
-    <div className="space-y-3 p-3 sm:p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h2 className="font-display text-base font-semibold text-foreground">Raporty dla klienta</h2>
-          <p className="text-xs text-muted-foreground">
-            Co klient wymaga, z jakiego zapisu umowy albo od kogo, kto przygotowuje i kiedy.
-          </p>
-        </div>
-        <InlineStats
-          stats={[
-            { id: "all", label: "raportów w katalogu", value: rows.length },
-            { id: "over", label: "po terminie", value: overdue },
-            { id: "prop", label: "propozycje do zatwierdzenia", value: proposals },
-          ]}
-        />
-        {canEdit ? (
-          <div className="flex gap-1.5">
-            <Button size="sm" variant="outline" onClick={() => suggest.mutate()} loading={suggest.isPending}>
-              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Znajdź w umowach
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj raport
-            </Button>
-          </div>
-        ) : null}
-      </div>
-
-      {found ? <SuggestSummary result={found} clientId={clientId} onClose={() => setFound(null)} /> : null}
-
-      {query.isSuccess && rows.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          Katalog jest pusty. „Znajdź w umowach” zaproponuje raporty z umowy ramowej i aneksów, „Dodaj raport” wpisze raport ustalony z klientem.
-        </p>
-      ) : null}
-
-      {rows.length > 0 ? (
+  const renderTable = (list: ReportDefinition[]) => (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full min-w-[880px] table-fixed text-sm">
             <colgroup>
-              <col className="w-[27%]" />
+              <col className="w-[25%]" />
+              <col className="w-[15%]" />
+              <col className="w-[14%]" />
               <col className="w-[17%]" />
               <col className="w-[15%]" />
-              <col className="w-[18%]" />
-              <col className="w-[12%]" />
-              <col className="w-[11%]" />
+              <col className="w-[14%]" />
             </colgroup>
             <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
               <tr>
@@ -169,7 +130,7 @@ export function ClientReportsTab({ clientId }: { clientId: number }) {
               </tr>
             </thead>
             {FAMILIES.map((family) => {
-              const group = rows.filter((d) => d.family === family);
+              const group = list.filter((d) => d.family === family);
               if (group.length === 0) return null;
               return (
                 <tbody key={family} className="divide-y divide-border">
@@ -261,6 +222,65 @@ export function ClientReportsTab({ clientId }: { clientId: number }) {
             })}
           </table>
         </div>
+  );
+
+  const archive = async (definition: ReportDefinition) => {
+    const ok = await askConfirm({
+      title: `Zarchiwizować „${definition.name}”?`,
+      description: "Raport zniknie z katalogu i kalendarza. Historia wysyłek zostaje.",
+      confirmLabel: "Archiwizuj",
+      variant: "destructive",
+    });
+    if (ok) status.mutate({ id: definition.id, action: "archive" });
+  };
+
+  return (
+    <div className="space-y-3 p-3 sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h2 className="font-display text-base font-semibold text-foreground">Raporty dla klienta</h2>
+          <p className="text-xs text-muted-foreground">
+            Co klient wymaga, z jakiego zapisu umowy albo od kogo, kto przygotowuje i kiedy.
+          </p>
+        </div>
+        <InlineStats
+          stats={[
+            { id: "all", label: "raportów w katalogu", value: rows.length },
+            { id: "over", label: "po terminie", value: overdue },
+            { id: "prop", label: "propozycje do zatwierdzenia", value: proposals },
+          ]}
+        />
+        {canEdit ? (
+          <div className="flex gap-1.5">
+            <Button size="sm" variant="outline" onClick={() => suggest.mutate()} loading={suggest.isPending}>
+              <Sparkles className="h-3.5 w-3.5" aria-hidden="true" /> Znajdź w umowach
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Dodaj raport
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {found ? <SuggestSummary result={found} clientId={clientId} onClose={() => setFound(null)} /> : null}
+
+      {query.isSuccess && rows.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
+          Katalog jest pusty. „Znajdź w umowach” zaproponuje raporty z umowy ramowej i aneksów, „Dodaj raport” wpisze raport ustalony z klientem.
+        </p>
+      ) : null}
+
+      {active.length > 0 ? renderTable(active) : null}
+      {pending.length > 0 ? (
+        <details open={active.length === 0} className="rounded-lg border border-border">
+          <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-foreground">
+            Propozycje do zatwierdzenia ({pending.length})
+            <span className="ml-2 text-xs font-normal text-muted-foreground">
+              z umów albo od osób spoza zespołu klienta — obowiązują po zatwierdzeniu przez DL-a
+            </span>
+          </summary>
+          <div className="p-2">{renderTable(pending)}</div>
+        </details>
       ) : null}
 
       <ReportDownloadDialog definition={open} canEdit={canEdit} onClose={() => setOpen(null)} />

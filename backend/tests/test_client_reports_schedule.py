@@ -280,3 +280,12 @@ def test_parse_proposals_keeps_valid_and_drops_invented_fragments(monkeypatch):
 def test_parse_proposals_survives_garbage():
     assert suggest.parse_proposals("nie wiem", {1}) == []
     assert suggest.parse_proposals("[{]", {1}) == []
+
+
+def test_known_name_by_containment():
+    known = {suggest.normalize_name("Zestawienie zaangażowania")}
+    assert suggest.is_known("Zestawienie zaangażowania (liczba osób w miesiącu)", known)
+    assert suggest.is_known("zestawienie  ZAANGAŻOWANIA", known)
+    assert not suggest.is_known(
+        "Raport", {suggest.normalize_name("Raport miesięczny rekrutacji")}
+    )

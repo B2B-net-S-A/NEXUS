@@ -72,7 +72,11 @@ function DialogInner({
     queryFn: () => getPeriods(definition.id),
     enabled: periodic,
   });
-  const [period, setPeriod] = useState<string>(initialPeriod ?? definition.next.period_key ?? "");
+  // Termin „do ustalenia” wskazuje okres bieżący (niezamknięty) — wtedy
+  // domyślnie ostatni zamknięty okres z listy.
+  const [period, setPeriod] = useState<string>(
+    initialPeriod ?? (definition.next.state && definition.next.state !== "no_date" ? definition.next.period_key ?? "" : ""),
+  );
   useEffect(() => {
     if (!period && periods.data?.length) {
       setPeriod((periods.data.find((p) => p.closed) ?? periods.data[0]).key);

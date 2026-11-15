@@ -151,11 +151,11 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1 sm:col-span-2">
+          <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="text-xs text-muted-foreground">Nazwa raportu</span>
             <Input id="report-name" value={form.name} maxLength={200} onChange={(e) => set("name", e.target.value)} />
           </label>
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Rodzaj</span>
             <select id="report-family" className={FIELD} value={form.family} onChange={(e) => set("family", e.target.value as ReportFamily)}>
               {(Object.keys(FAMILY_LABELS) as ReportFamily[]).map((key) => (
@@ -165,7 +165,7 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
               ))}
             </select>
           </label>
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Rytm</span>
             <select id="report-rhythm" className={FIELD} value={form.rhythm} onChange={(e) => set("rhythm", e.target.value as ReportRhythm)}>
               {(Object.keys(RHYTHM_LABELS) as ReportRhythm[]).map((key) => (
@@ -176,8 +176,8 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
             </select>
           </label>
           {CALENDAR_RHYTHMS.includes(form.rhythm) ? (
-            <div className="grid gap-2 sm:col-span-2 sm:grid-cols-[1fr_auto_auto]">
-              <label className="space-y-1">
+            <div className="grid gap-2 sm:col-span-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+              <label className="flex flex-col gap-1">
                 <span className="text-xs text-muted-foreground">Termin</span>
                 <select id="report-due-type" className={FIELD} value={due.type} onChange={(e) => setForm((prev) => ({ ...prev, due_rule: { type: e.target.value as DueRuleType, anchor: prev.due_rule.anchor } }))}>
                   {DUE_TYPES.map((option) => (
@@ -188,32 +188,32 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
                 </select>
               </label>
               {due.type === "day_of_month" || due.type === "fixed" ? (
-                <label className="space-y-1">
+                <label className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">Dzień</span>
                   <Input id="report-due-day" type="number" min={1} max={31} className="w-20" value={due.day ?? ""} onChange={(e) => setDue({ day: Number(e.target.value) || undefined })} />
                 </label>
               ) : null}
               {due.type === "fixed" ? (
-                <label className="space-y-1">
+                <label className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">Miesiąc</span>
                   <Input id="report-due-month" type="number" min={1} max={12} className="w-20" value={due.month ?? ""} onChange={(e) => setDue({ month: Number(e.target.value) || undefined })} />
                 </label>
               ) : null}
               {needsNumber ? (
-                <label className="space-y-1">
+                <label className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">Dni</span>
                   <Input id="report-due-days" type="number" min={0} max={120} className="w-20" value={due.days ?? ""} onChange={(e) => setDue({ days: Number(e.target.value) })} />
                 </label>
               ) : null}
               {form.rhythm === "contract_year" ? (
-                <label className="space-y-1">
+                <label className="flex flex-col gap-1">
                   <span className="text-xs text-muted-foreground">Początek roku umowy (MM-DD)</span>
                   <Input id="report-due-anchor" placeholder="02-27" className="w-28" value={due.anchor ?? ""} onChange={(e) => setDue({ anchor: e.target.value || undefined })} />
                 </label>
               ) : null}
             </div>
           ) : null}
-          <label className="space-y-1 sm:col-span-2">
+          <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="text-xs text-muted-foreground">Plik z NEXUSA</span>
             <select id="report-generator" className={FIELD} value={generator?.key ?? ""} onChange={(e) => setForm((prev) => ({ ...prev, generator_key: e.target.value || null, params: {} }))}>
               <option value="">Brak — plik przygotowany poza NEXUSEM</option>
@@ -253,11 +253,11 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
               onChange={(tiers) => set("params", { ...form.params, tiers })}
             />
           ) : null}
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Odbiorca po stronie klienta (rola)</span>
             <Input id="report-recipient" value={form.recipient ?? ""} maxLength={255} onChange={(e) => set("recipient", e.target.value)} />
           </label>
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Przygotowuje</span>
             <select id="report-preparer" className={FIELD} value={form.preparer} onChange={(e) => set("preparer", e.target.value as ReportPreparer)}>
               {(Object.keys(PREPARER_LABELS) as ReportPreparer[]).map((key) => (
@@ -267,23 +267,23 @@ export function DefinitionFormDialog({ clientId, definition, open, onClose }: De
               ))}
             </select>
           </label>
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Kanał</span>
             <Input id="report-channel" value={form.channel ?? ""} maxLength={32} onChange={(e) => set("channel", e.target.value)} />
           </label>
-          <label className="space-y-1">
-            <span className="text-xs text-muted-foreground">Źródło (paragraf, załącznik albo „ustalenie z klientem”)</span>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">Źródło (paragraf albo ustalenie)</span>
             <Input id="report-source-ref" value={form.source_ref ?? ""} maxLength={255} onChange={(e) => set("source_ref", e.target.value)} />
           </label>
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Obowiązuje od</span>
             <Input id="report-valid-from" type="date" value={form.valid_from ?? ""} onChange={(e) => set("valid_from", e.target.value || null)} />
           </label>
-          <label className="space-y-1">
+          <label className="flex flex-col gap-1">
             <span className="text-xs text-muted-foreground">Obowiązuje do</span>
             <Input id="report-valid-to" type="date" value={form.valid_to ?? ""} onChange={(e) => set("valid_to", e.target.value || null)} />
           </label>
-          <label className="space-y-1 sm:col-span-2">
+          <label className="flex flex-col gap-1 sm:col-span-2">
             <span className="text-xs text-muted-foreground">Uwagi</span>
             <Textarea id="report-notes" rows={2} value={form.notes ?? ""} maxLength={4000} onChange={(e) => set("notes", e.target.value)} />
           </label>
