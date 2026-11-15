@@ -712,3 +712,20 @@ async def test_refresh_never_moves_the_document_to_another_client(
     assert method == "marker"
     assert row.identification_method == "marker"
     assert row.client_id == 77
+
+
+def test_row_keeps_competence_category_for_the_framework_limit():
+    # 15.11.2026: kategoria i poziom z COA ustawiają limit z umowy ramowej
+    # (``framework_category``). Osoba i stawka bez zmian.
+    rows = nordea.extract_rows(BROKEN_ROW)
+    assert [(r.consultant_name, r.client_category, r.rate_client) for r in rows] == [
+        ("Jan Testowy", "IT Operations - Senior", Decimal("175.00")),
+        ("Anna Druga", "IT Developer", Decimal("234.00")),
+    ]
+
+
+def test_third_name_word_does_not_leak_into_the_category():
+    text = ORDER.replace("Jan Testowy IT", "Jan Testowy Nowak IT")
+    (row,) = nordea.extract_rows(text)
+    assert row.uncertain
+    assert row.client_category == "IT Operations - Senior"
