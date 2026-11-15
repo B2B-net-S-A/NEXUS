@@ -13651,6 +13651,13 @@
     "total_sources": 0,
     "reason_if_empty": null
    }
+  },
+  "GET /api/candidate-search/jobs/990001/latest-run": {
+   "job_id": 990001,
+   "run": null
+  },
+  "GET /api/jobs/990001/proposals/latest": {
+   "@status": 404
   }
  }
 }

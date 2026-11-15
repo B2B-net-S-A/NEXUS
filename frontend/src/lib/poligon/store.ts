@@ -69,6 +69,10 @@ export const BLOCKED_WRITE_MESSAGE =
   "Na poligonie ta akcja się nie zapisuje. W prawdziwej rekrutacji zadziała normalnie.";
 const MISSING_MESSAGE = "Tego ekranu nie ma jeszcze na poligonie.";
 
+function isRecordedStatus(data: unknown): data is { "@status": number } {
+  return typeof data === "object" && data !== null && typeof (data as Record<string, unknown>)["@status"] === "number";
+}
+
 type Json = unknown;
 type KanbanItem = Record<string, Json> & { candidate_id: number; stage?: string; stage_def_id?: number };
 type KanbanColumn = Record<string, Json> & { stage?: string; stage_def_id?: number; items: KanbanItem[]; count?: number };
@@ -446,6 +450,9 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       emit({ type: "missing", key });
       return { status: 404, data: { detail: MISSING_MESSAGE } };
     }
+    // Nagrana odmowa serwera (np. 404 „rekrutacja nie ma jeszcze migawki”) —
+    // to odpowiedź, nie brak w zestawie.
+    if (isRecordedStatus(data)) return { status: data["@status"], data: { detail: "Brak danych." } };
     data = asPerson(clone(data), person);
 
     if (path === "/api/screening-form") {
