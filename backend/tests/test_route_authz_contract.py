@@ -405,7 +405,7 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/public/panel/{token}/candidates/{public_id}/questions"),
     ("POST", "/api/public/panel/{token}/events"),
     ("POST", "/api/public/panel/{token}/requirements-change"),
-    # Zespół dla klienta (0710): skład kilku rekrutacji pod jednym linkiem.
+    # Zespół dla klienta (0711): skład kilku rekrutacji pod jednym linkiem.
     ("GET", "/api/public/team-panel/{token}"),
     ("POST", "/api/public/team-panel/{token}/selection"),
     # Z3: rozmowy z całym składem = N wniosków przez wspólny serwis terminów.

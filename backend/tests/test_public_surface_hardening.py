@@ -77,7 +77,7 @@ _RATE_LIMITED_MODULES = (
     "api/public_career.py",
     # Panel klienta (0639): dane kandydatów pod samym linkiem, bez logowania.
     "api/public_client_panel.py",
-    # Zespół dla klienta (0710): skład kilku rekrutacji pod samym linkiem.
+    # Zespół dla klienta (0711): skład kilku rekrutacji pod samym linkiem.
     "api/public_job_team_panel.py",
     # Rekrutacja własna: wybór terminu pod linkiem z maila, bez logowania.
     "api/public_own_hiring.py",

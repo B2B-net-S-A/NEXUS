@@ -1,4 +1,4 @@
-# Zespół dla klienta: kilka rekrutacji, jeden link (0710, 15.11.2026)
+# Zespół dla klienta: kilka rekrutacji, jeden link (0711, 15.11.2026)
 <!-- indeks: `/zespoly/{id}`, `/k/z/{token}`, pojemnik a nie typ rekrutacji, link wyłączony domyślnie, włączenie zespołu włącza panele stanowisk, kształt publiczny z paneli stanowisk, wybór składu bez treści w dzwonku, gotowe składy (automat proponuje, DL zatwierdza), rozmowy z całym składem, odłożone Z4 -->
 
 Decyzje Artura z 15.11.2026 (zakres Z1 + Z2). Makiety:
@@ -61,7 +61,7 @@ rekrutacji”, nie ten moduł.
 - **Odłożone:** odczyt maila rozbijający zapytanie na stanowiska (AI), cennik
   z `rate_cards` (Z4). Bez AI w żądaniu publicznym.
 
-## Z3: gotowe składy i rozmowy z całym składem (0711, 15.11.2026)
+## Z3: gotowe składy i rozmowy z całym składem (0712, 15.11.2026)
 
 Kod: `services/job_team_variants.py` (reguły bez bazy, zapis, otwarty wniosek),
 widok klienta `public_variants` w `services/job_team_panel.py`. Kolumny
