@@ -17,8 +17,9 @@ import {
   selection,
   settleBlocker,
   settleMessage,
+  valuationMessage,
 } from "@/components/accounting/settlements-model";
-import type { SettlementItem } from "@/lib/api/accounting-settlements";
+import type { SettlementItem, ValuationGroupResult } from "@/lib/api/accounting-settlements";
 
 function item(lineId: number, direction: "debit" | "credit", remaining: number): SettlementItem {
   return {
@@ -150,5 +151,55 @@ describe("rozrachunki — waluty (K4c-1)", () => {
     expect(autoMessage({ bank: 0, correction: 0, zero: 0, fx_waiting: 2, created: 0, amount: 0 })).toBe(
       "Automat nie znalazł nic do rozliczenia. W walucie czeka 2 pary — konto różnic kursowych w Ustawieniach (Bank) albo otwarty okres.",
     );
+  });
+});
+
+describe("rozrachunki — wycena walut (K4c-2)", () => {
+  function group(overrides: Partial<ValuationGroupResult> = {}): ValuationGroupResult {
+    return {
+      key: "2026-12",
+      payroll: false,
+      valuation: { outcome: "created", id: 1, number: "PK 9/12/2026", status: "draft" },
+      reversal: { outcome: "created", id: 2, number: "PK 1/01/2027", status: "draft" },
+      reversal_waiting: null,
+      changed: false,
+      ...overrides,
+    };
+  }
+
+  it("toast: zwykła i płacowa PK, czekające odwrócenie", () => {
+    expect(
+      valuationMessage({
+        groups: [
+          group({ reversal: { outcome: "waiting" }, reversal_waiting: "odwrócenie 01.01.2027 czeka na rok obrotowy 2027" }),
+          group({ key: "2026-12-payroll", payroll: true, valuation: { outcome: "unchanged", id: 3, number: "PK 10/12/2026", status: "draft" } }),
+        ],
+        gain: 5_000,
+        loss: 0,
+      }),
+    ).toBe(
+      "Wycena PK 9/12/2026 w buforze; odwrócenie 01.01.2027 czeka na rok obrotowy 2027; " +
+        "Wycena płacowa PK 10/12/2026 bez zmian; odwrócenie PK 1/01/2027 w buforze.",
+    );
+  });
+
+  it("toast: zatwierdzona i zmieniona, nic do wyceny", () => {
+    expect(
+      valuationMessage({
+        groups: [
+          group({
+            valuation: { outcome: "approved", id: 1, number: "PK 9/12/2026", status: "approved" },
+            reversal: { outcome: "unchanged", id: 2, number: "PK 1/01/2027", status: "draft" },
+            changed: true,
+          }),
+        ],
+        gain: 0,
+        loss: 0,
+      }),
+    ).toBe(
+      "Wycena PK 9/12/2026 zatwierdzona; różni się od dzisiejszego przeliczenia — storno i ponowna wycena; " +
+        "odwrócenie PK 1/01/2027 bez zmian.",
+    );
+    expect(valuationMessage({ groups: [], gain: 0, loss: 0 })).toBe("Nic do wyceny na ten dzień.");
   });
 });

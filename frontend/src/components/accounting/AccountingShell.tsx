@@ -70,7 +70,9 @@ function ShellBody({ config, children }: { config: LedgerConfig; children: React
 
   return (
     <AccountingContext.Provider value={value}>
-      <div className="space-y-3.5">
+      {/* `pb-16`: ostatnia karta (np. „Zaksięguj wycenę”) wyjeżdża nad
+          pływającą postać „Moi ludzie”, która przy 1280×720 zasłaniała jej przycisk. */}
+      <div className="space-y-3.5 pb-16">
         <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-3 gap-y-1">
             <h1 className="font-display text-xl font-semibold leading-tight tracking-tight">Księgowość</h1>

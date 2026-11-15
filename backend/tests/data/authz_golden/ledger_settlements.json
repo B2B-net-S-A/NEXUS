@@ -34,7 +34,9 @@
   "DELETE /api/accounting/settlements/{settlement_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/settlements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/settlements/accounts/{account}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/settlements/valuation": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/settlements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
-  "POST /api/accounting/settlements/auto": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
+  "POST /api/accounting/settlements/auto": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/settlements/valuation": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

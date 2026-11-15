@@ -404,6 +404,9 @@ async def update_draft(
 
 #: Źródło PK różnicy kursowej z rozrachunków (K4c-1, ``settlements.FX_SOURCE``).
 FX_DIFFERENCE_SOURCE = "fx_difference"
+#: Źródła PK wyceny walut na koniec miesiąca i jej odwrócenia (K4c-2).
+FX_VALUATION_SOURCE = "fx_valuation"
+FX_VALUATION_REVERSAL_SOURCE = "fx_valuation_reversal"
 
 
 async def delete_draft(

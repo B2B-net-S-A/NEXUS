@@ -22,7 +22,7 @@ import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 
 from app.api import ledger as ledger_api
@@ -113,6 +113,22 @@ async def _purge_years(year_numbers: list[int]) -> None:
                 delete(LedgerEvent).where(
                     (LedgerEvent.document_id.in_(doc_ids or [0]))
                     | (LedgerEvent.period_id.in_(period_ids or [0]))
+                )
+            )
+            # Storno i nowy dokument z tego samego źródła (np. ponowna wycena
+            # walut): bez powiązania storna oba byłyby „żywe” i zderzyłyby się
+            # na unikalnym źródle — stary dostaje inne ``source_id``.
+            await db.execute(
+                update(LedgerDocument)
+                .where(
+                    LedgerDocument.id.in_(doc_ids or [0]),
+                    LedgerDocument.reversed_by_id.is_not(None),
+                    LedgerDocument.source_type.is_not(None),
+                )
+                .values(
+                    source_id=func.concat(
+                        LedgerDocument.source_id, "-r", LedgerDocument.id
+                    )
                 )
             )
             await db.execute(

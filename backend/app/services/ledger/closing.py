@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -35,7 +35,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
-from app.services.ledger import bank, exports, payroll_lists, settlements, sources
+from app.services.ledger import (
+    bank,
+    exports,
+    payroll_lists,
+    settlements,
+    sources,
+    valuation,
+)
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
 
@@ -215,6 +222,55 @@ def settlements_check(counts: dict[str, int], href: str) -> dict[str, Any]:
     }
 
 
+def valuation_check(data: dict[str, Any], href: str) -> Optional[dict[str, Any]]:
+    """Wycena walut (K4c-2): w grudniu obowiązkowa (dzień bilansowy), w ciągu roku
+    opcjonalna; bez pozycji w walucie pozycji listy nie ma. Zatwierdzona wycena,
+    która różni się od dzisiejszego przeliczenia, to problem (storno i ponowna
+    wycena); w grudniu blokada (np. brak kursu) i pominięty rachunek = do zrobienia."""
+
+    groups = data["groups"]
+    if not (data["positions"] or data["skipped"] or groups or data["payroll_hidden"]):
+        return None
+    december = data["month"] == 12
+    notes = []
+    if data["skipped"]:
+        accounts = ", ".join(entry["account"] for entry in data["skipped"])
+        notes.append(f"pominięte: {accounts} — wyceń ręcznie")
+    if data["payroll_hidden"]:
+        notes.append("część płacowa — osoba z Płacami")
+
+    def check(state: str, detail: str) -> dict[str, Any]:
+        return {
+            "key": "valuation",
+            "label": "Wycena walut",
+            "state": state,
+            "detail": "; ".join([detail, *notes]),
+            "href": href,
+        }
+
+    changed = [group["valuation"]["number"] for group in groups if group["changed"]]
+    if changed:
+        return check(
+            "problem",
+            f"{', '.join(changed)} zatwierdzona, a dziś wychodzi inna — storno "
+            "i ponowna wycena",
+        )
+    if december and data["blocker"]:
+        return check("todo", data["blocker"])
+    booked = [group["valuation"] for group in groups if group["valuation"]]
+    drafts = [doc["number"] for doc in booked if doc["status"] != "approved"]
+    if drafts:
+        return check("todo", f"{', '.join(drafts)} w buforze")
+    pending = any(group["valuation"] is None and group["to_book"] for group in groups)
+    if booked and not pending:
+        numbers = ", ".join(doc["number"] for doc in booked)
+        approved = "zatwierdzona" if len(booked) == 1 else "zatwierdzone"
+        return check("todo" if december and notes else "ok", f"{numbers} {approved}")
+    if december:
+        return check("todo", "wycena na dzień bilansowy (art. 30 ust. 1 UoR)")
+    return check("ok", "w ciągu roku opcjonalna — obowiązkowa na 31.12")
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -307,6 +363,12 @@ async def checklist(
                 f"/accounting/settlements{query}",
             )
         )
+        valued = valuation_check(
+            await valuation.preview(db, viewer, settings.bank, year=year, month=month),
+            f"/accounting/settlements{query}",
+        )
+        if valued is not None:
+            items.append(valued)
     year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
     period = None
     if year_row is not None:

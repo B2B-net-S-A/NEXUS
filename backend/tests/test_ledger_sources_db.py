@@ -19,6 +19,7 @@ import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
+import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from openpyxl import load_workbook
@@ -2736,3 +2737,546 @@ async def test_currency_statement_needs_the_account_currency_and_the_nbp_rate(
     )
     assert gbp.status_code == 422
 
+
+
+# ── Wycena walut na koniec miesiąca (K4c-2) ─────────────────────────────────
+
+
+async def _set_eur_rate(day: date, rate: str) -> None:
+    await _drop_eur_rate(day)
+    await _eur_rate(day, rate)
+
+
+async def _valuation(client, world, year: int, month: int, user: str = "accountant") -> dict:
+    response = await client.get(
+        f"{ACC}/settlements/valuation",
+        params={"year": year, "month": month},
+        headers=_headers(world[user]),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _post_valuation(client, world, year: int, month: int, user: str = "accountant"):
+    return await client.post(
+        f"{ACC}/settlements/valuation",
+        json={"year": year, "month": month},
+        headers=_headers(world[user]),
+    )
+
+
+async def _valuation_item(client, world, year: int, month: int) -> dict:
+    response = await client.get(
+        f"{ACC}/closing",
+        params={"year": year, "month": month},
+        headers=_headers(world["accountant"]),
+    )
+    assert response.status_code == 200, response.text
+    return next(item for item in response.json()["items"] if item["key"] == "valuation")
+
+
+async def _eur_wb(client, world, books, mmdd: str = "0325") -> int:
+    """Zatwierdzony WB z rachunku EUR: wpływ 100 EUR (konto przychodów)."""
+
+    headers = _headers(world["accountant"])
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _mt940_blocks(
+        books["year"],
+        (EUR_COMPANY, "EUR", [(mmdd, "C", "100,00", "Wpłata bez faktury", OTHER_ACCOUNT, f"V{marker}")]),
+    )
+    imported = await _bank_import(client, world, content)
+    assert imported.status_code == 201, imported.text
+    statement = imported.json()
+    assigned = await client.patch(
+        f"{ACC}/bank/lines/{statement['lines'][0]['id']}",
+        json={"account": books["acc"]["revenue"]},
+        headers=headers,
+    )
+    assert assigned.status_code == 200, assigned.text
+    posted = await client.post(f"{ACC}/bank/statements/{statement['id']}/post", headers=headers)
+    assert posted.status_code == 200, posted.text
+    wb_id = posted.json()["documents"][0]["id"]
+    await _approve_ids(client, world, [wb_id])
+    return wb_id
+
+
+async def _euro_invoice(client, world, books) -> None:
+    """Zatwierdzona faktura 500 EUR po 4,30 (należność 2 150,00 zł)."""
+
+    synced = await _sync(client, world, books, "sales")
+    assert synced.status_code == 200, synced.text
+    invoice = await _document("client_sales_invoice", books["sales"]["euro"])
+    await _approve_ids(client, world, [invoice.id])
+
+
+def _bank_row(data: dict, account: str) -> list[tuple]:
+    return [
+        (p["amount_cur"], p["book"], p["valued"], p["diff"])
+        for p in data["positions"]
+        if p["account"] == account
+    ]
+
+
+async def _next_year_free(year: int) -> bool:
+    async with AsyncSessionLocal() as db:
+        return await db.scalar(select(LedgerYear.id).where(LedgerYear.year == year + 1)) is None
+
+
+async def _open_year(world, year: int) -> None:
+    async with AsyncSessionLocal() as db:
+        await ledger_years.ensure_year(db, year, actor_id=world["admin"].id)
+        await db.commit()
+
+
+async def _draft(world, *, doc_type: str, day: date, lines, sensitivity=None) -> int:
+    from app.services.ledger import documents as ledger_documents
+    from app.services.ledger.documents import DocumentSpec
+
+    async with AsyncSessionLocal() as db:
+        doc = await ledger_documents.create_draft(
+            db,
+            DocumentSpec(
+                doc_type=doc_type,
+                op_date=day,
+                doc_date=day,
+                description="Dokument testu wyceny",
+                sensitivity=sensitivity,
+                lines=lines,
+            ),
+            actor_id=world["accountant"].id,
+        )
+        await db.commit()
+        return doc.id
+
+
+async def test_month_end_valuation_books_and_reverses_currency_positions(
+    client, world, books
+):
+    year, acc = books["year"], books["acc"]
+    receivable = f"{acc['receivable']}-{books['partner']['c']}"
+    accounts, _ = await _eur_setup(world, books, fx_accounts=True)
+    nbp_day = rate_day(date(year, 3, 25))
+    end_day = rate_day(date(year, 4, 1))  # ostatni dzień roboczy marca
+    await _eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(end_day, "4.400000")
+    headers = _headers(world["accountant"])
+    try:
+        await _euro_invoice(client, world, books)
+        await _eur_wb(client, world, books)
+
+        data = await _valuation(client, world, year, 3)
+        assert data["blocker"] is None and data["missing_rates"] == []
+        assert data["rate_day"] == end_day.isoformat()
+        positions = {(p["account"], p["kind"]): p for p in data["positions"]}
+        # Należność 500 EUR po 4,30 = 2 150,00 → po 4,40 = 2 200,00 (+50,00);
+        # rachunek EUR 100 EUR po 4,25 = 425,00 → 440,00 (+15,00).
+        assert {key: (p["amount_cur"], p["book"], p["valued"], p["diff"]) for key, p in positions.items()} == {
+            (receivable, "settlement"): (50_000, 215_000, 220_000, 5_000),
+            (accounts["eur_bank"], "bank"): (10_000, 42_500, 44_000, 1_500),
+        }
+        assert (data["gain"], data["loss"], data["skipped"]) == (6_500, 0, [])
+        booked = await _post_valuation(client, world, year, 3)
+        assert booked.status_code == 200, booked.text
+        [group] = booked.json()["groups"]
+        assert group["key"] == f"{year}-03" and not group["payroll"]
+        assert (group["valuation"]["outcome"], group["reversal"]["outcome"]) == ("created", "created")
+        valued_doc = await _document("fx_valuation", f"{year}-03")
+        reversal_doc = await _document("fx_valuation_reversal", f"{year}-03")
+        assert valued_doc.op_date == date(year, 3, 31) and reversal_doc.op_date == date(year, 4, 1)
+        assert sorted(await _lines(valued_doc.id)) == sorted(
+            [
+                ("debit", receivable, 5_000),
+                ("debit", accounts["eur_bank"], 1_500),
+                ("credit", accounts["gain"], 6_500),
+            ]
+        )
+        assert sorted(await _lines(reversal_doc.id)) == sorted(
+            [
+                ("credit", receivable, 5_000),
+                ("credit", accounts["eur_bank"], 1_500),
+                ("debit", accounts["gain"], 6_500),
+            ]
+        )
+        again = await _post_valuation(client, world, year, 3)
+        [group] = again.json()["groups"]
+        assert (group["valuation"]["outcome"], group["reversal"]["outcome"]) == (
+            "unchanged",
+            "unchanged",
+        )
+        # Rozrachunki zostają w kursie historycznym — wycena nie jest pozycją.
+        card = await _account_card(client, world, receivable, as_of=f"{year}-03-31")
+        assert [(i["doc_type"], i["remaining"]) for i in card["open"]] == [("FVS", 215_000)]
+        # Inny kurs = przebudowa szkicu (z odwróceniem).
+        await _set_eur_rate(end_day, "4.410000")
+        rebuilt = await _post_valuation(client, world, year, 3)
+        [group] = rebuilt.json()["groups"]
+        assert (group["valuation"]["outcome"], group["reversal"]["outcome"]) == (
+            "rebuilt",
+            "rebuilt",
+        ), rebuilt.text
+        current = await _document("fx_valuation", f"{year}-03")
+        await _approve_ids(client, world, [current.id])
+        # Zatwierdzonej się nie podmienia: flaga „zmieniona”, odwrócenie dalej
+        # z zaksięgowanej PK (przegląd K4c-2).
+        await _set_eur_rate(end_day, "4.420000")
+        kept = await _post_valuation(client, world, year, 3)
+        assert kept.status_code == 200, kept.text
+        [group] = kept.json()["groups"]
+        assert (group["valuation"]["outcome"], group["changed"]) == ("approved", True)
+        assert group["reversal"]["outcome"] == "unchanged"
+        assert (await _valuation(client, world, year, 3))["groups"][0]["changed"] is True
+        item = await _valuation_item(client, world, year, 3)
+        assert item["state"] == "problem" and "storno" in item["detail"]
+        # Kwiecień: odwrócenie marca w buforze — wycena kwietnia czeka.
+        april = await _valuation(client, world, year, 4)
+        assert "nie ma zaksięgowanego odwrócenia" in april["blocker"]
+        outsider = await _post_valuation(client, world, year, 3, user="module_only")
+        assert outsider.status_code == 403
+    finally:
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(end_day)
+
+
+async def test_valuation_keeps_payroll_bank_activity_to_payroll(client, world, books):
+    """Rachunek walutowy z wypłatami dla zespołu wycenia osoba z Płacami, w PK
+    płacowej — osoba bez Płac nie widzi jego salda (D2, przegląd K4c-2)."""
+
+    from app.services.ledger.engine import LineIn
+
+    year, acc = books["year"], books["acc"]
+    accounts, settings = await _eur_setup(world, books, fx_accounts=True)
+    settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+    await _set_ledger(settings)
+    end_day = rate_day(date(year, 4, 1))
+    await _set_eur_rate(end_day, "4.400000")
+    try:
+        payout = await _draft(
+            world,
+            doc_type="PK",
+            day=date(year, 3, 12),
+            sensitivity="payroll",
+            lines=[
+                LineIn("debit", acc["payroll_settle"], 43_000, "wypłata"),
+                LineIn(
+                    "credit",
+                    accounts["eur_bank"],
+                    43_000,
+                    "wypłata",
+                    currency="EUR",
+                    amount_cur=10_000,
+                ),
+            ],
+        )
+        await _approve_ids(client, world, [payout])
+        blind = await _valuation(client, world, year, 3, user="module_only")
+        assert [p for p in blind["positions"] if p["account"] == accounts["eur_bank"]] == []
+        assert (blind["payroll_hidden"], blind["groups"], blind["rates"]) == (True, [], [])
+        booked = await _post_valuation(client, world, year, 3, user="module_only")
+        assert booked.status_code == 200, booked.text
+        assert booked.json()["groups"] == []
+        assert await _document("fx_valuation", f"{year}-03-payroll") is None
+        seen = await _valuation(client, world, year, 3)
+        bank = next(p for p in seen["positions"] if p["account"] == accounts["eur_bank"])
+        # −100 EUR po 4,30 = −430,00 → po 4,40 = −440,00 (−10,00).
+        assert (bank["amount_cur"], bank["book"], bank["diff"], bank["payroll"]) == (
+            -10_000,
+            -43_000,
+            -1_000,
+            True,
+        )
+        assert [(g["key"], g["payroll"]) for g in seen["groups"]] == [(f"{year}-03-payroll", True)]
+        payroll = await _post_valuation(client, world, year, 3)
+        assert payroll.status_code == 200, payroll.text
+        doc = await _document("fx_valuation", f"{year}-03-payroll")
+        assert doc is not None and doc.sensitivity == "payroll"
+        assert sorted(await _lines(doc.id)) == sorted(
+            [("credit", accounts["eur_bank"], 1_000), ("debit", accounts["loss"], 1_000)]
+        )
+        reversal = await _document("fx_valuation_reversal", f"{year}-03-payroll")
+        assert reversal is not None and reversal.sensitivity == "payroll"
+    finally:
+        await _drop_eur_rate(end_day)
+
+
+async def test_valuation_skips_a_currency_account_without_currency_amounts(
+    client, world, books
+):
+    """BO z Symfonii (tylko PLN) na rachunku walutowym: rachunek pominięty
+    z powodem — wcześniej wycena odpisywała całe saldo (przegląd K4c-2)."""
+
+    year = books["year"]
+    accounts, _ = await _eur_setup(world, books, fx_accounts=True)
+    nbp_day = rate_day(date(year, 3, 25))
+    end_day = rate_day(date(year, 4, 1))
+    await _set_eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(end_day, "4.400000")
+    try:
+        content = (
+            "Konto;Nazwa;BO Wn;BO Ma\n"
+            f"{accounts['eur_bank']};Rachunek EUR;4 300,00;\n"
+            f"{books['acc']['settle']};Rozliczenie;;4 300,00\n"
+            "Razem;;4 300,00;4 300,00\n"
+        ).encode()
+        saved = await _import(client, world, books, content, save=True)
+        assert saved.status_code == 200, saved.text
+        await _approve_ids(client, world, [saved.json()["document_id"]])
+        await _eur_wb(client, world, books)
+        data = await _valuation(client, world, year, 3)
+        assert _bank_row(data, accounts["eur_bank"]) == []
+        [skipped] = data["skipped"]
+        assert skipped["account"] == accounts["eur_bank"]
+        assert "bez kwoty w EUR" in skipped["reason"] and "ręcznie" in skipped["reason"]
+        assert (data["gain"], data["loss"], data["groups"]) == (0, 0, [])
+        booked = await _post_valuation(client, world, year, 3)
+        assert booked.status_code == 200 and booked.json()["groups"] == [], booked.text
+        assert await _document("fx_valuation", f"{year}-03") is None
+        # Gdy w księdze jest już jakakolwiek PK wyceny, rachunek dalej jest
+        # pominięty (drugi przegląd K4c-2: „NULL IN (…)” wyłączało sprawdzenie).
+        await _euro_invoice(client, world, books)
+        first = await _post_valuation(client, world, year, 3)
+        assert first.status_code == 200, first.text
+        assert await _document("fx_valuation", f"{year}-03") is not None
+        again = await _valuation(client, world, year, 3)
+        assert _bank_row(again, accounts["eur_bank"]) == []
+        assert [item["account"] for item in again["skipped"]] == [accounts["eur_bank"]]
+        assert (again["gain"], again["loss"]) == (5_000, 0)
+    finally:
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(end_day)
+
+
+async def test_valuation_counts_a_shared_ledger_account_once(client, world, books):
+    """Dwa rachunki (NRB) na jednym koncie księgi: jedna pozycja i jedna korekta
+    (drugi przegląd K4c-2 — korekta szła podwójnie)."""
+
+    year = books["year"]
+    accounts, settings = await _eur_setup(world, books, fx_accounts=True)
+    settings["bank"]["accounts"].append(
+        {
+            "number": _valid_nrb("109010140000071219812879"),
+            "account": accounts["eur_bank"],
+            "name": "Drugi rachunek EUR",
+            "currency": "EUR",
+        }
+    )
+    await _set_ledger(settings)
+    nbp_day = rate_day(date(year, 3, 25))
+    end_day = rate_day(date(year, 4, 1))
+    await _set_eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(end_day, "4.400000")
+    try:
+        await _eur_wb(client, world, books)
+        data = await _valuation(client, world, year, 3)
+        assert _bank_row(data, accounts["eur_bank"]) == [(10_000, 42_500, 44_000, 1_500)]
+        assert data["gain"] == 1_500
+        booked = await _post_valuation(client, world, year, 3)
+        assert booked.status_code == 200, booked.text
+        valued = await _document("fx_valuation", f"{year}-03")
+        assert sorted(await _lines(valued.id)) == sorted(
+            [("debit", accounts["eur_bank"], 1_500), ("credit", accounts["gain"], 1_500)]
+        )
+    finally:
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(end_day)
+
+
+async def test_valuation_leaves_out_its_own_storno(client, world, books):
+    """Storno wyceny z datą tego miesiąca nie zostaje w saldzie rachunku —
+    inaczej ponowna wycena dodałaby różnicę drugi raz (przegląd K4c-2)."""
+
+    year = books["year"]
+    accounts, _ = await _eur_setup(world, books, fx_accounts=True)
+    nbp_day = rate_day(date(year, 3, 25))
+    end_day = rate_day(date(year, 4, 1))
+    await _set_eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(end_day, "4.400000")
+    try:
+        await _eur_wb(client, world, books)
+        first = await _post_valuation(client, world, year, 3)
+        assert first.status_code == 200, first.text
+        valued = await _document("fx_valuation", f"{year}-03")
+        reversal = await _document("fx_valuation_reversal", f"{year}-03")
+        await _approve_ids(client, world, [valued.id])
+        await _reverse(client, world, valued.id, date(year, 3, 31))
+        data = await _valuation(client, world, year, 3)
+        assert _bank_row(data, accounts["eur_bank"]) == [(10_000, 42_500, 44_000, 1_500)]
+        again = await _post_valuation(client, world, year, 3)
+        assert again.status_code == 200, again.text
+        [group] = again.json()["groups"]
+        assert (group["valuation"]["outcome"], group["reversal"]["outcome"]) == (
+            "created",
+            "unchanged",
+        )
+        rebuilt = await _document("fx_valuation", f"{year}-03")
+        assert rebuilt.id != valued.id
+        assert sorted(await _lines(rebuilt.id)) == sorted(
+            [("debit", accounts["eur_bank"], 1_500), ("credit", accounts["gain"], 1_500)]
+        )
+        assert (await _document("fx_valuation_reversal", f"{year}-03")).id == reversal.id
+    finally:
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(end_day)
+
+
+async def test_valuation_of_a_new_year_starts_from_its_opening_balance(
+    client, world, books
+):
+    """Saldo rachunku z bieżącego roku obrotowego: BO następnego roku nie dubluje
+    obrotów poprzedniego, a bez BO rachunek czeka (przegląd K4c-2)."""
+
+    from app.services.ledger.engine import LineIn
+
+    year = books["year"]
+    if not await _next_year_free(year):
+        pytest.skip("następny rok zajęty przez inny test")
+    accounts, _ = await _eur_setup(world, books, fx_accounts=True)
+    nbp_day = rate_day(date(year, 3, 25))
+    jan_end = rate_day(date(year + 1, 2, 1))
+    await _set_eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(jan_end, "4.400000")
+    try:
+        await _eur_wb(client, world, books)
+        await _open_year(world, year + 1)
+        waiting = await _valuation(client, world, year + 1, 1)
+        assert _bank_row(waiting, accounts["eur_bank"]) == []
+        [skipped] = waiting["skipped"]
+        assert f"brak BO {year + 1}" in skipped["reason"]
+        opening = await _draft(
+            world,
+            doc_type="BO",
+            day=date(year + 1, 1, 1),
+            lines=[
+                LineIn("debit", accounts["eur_bank"], 42_500, "BO", currency="EUR", amount_cur=10_000),
+                LineIn("credit", books["acc"]["revenue"], 42_500, "BO"),
+            ],
+        )
+        await _approve_ids(client, world, [opening])
+        data = await _valuation(client, world, year + 1, 1)
+        assert data["skipped"] == []
+        assert _bank_row(data, accounts["eur_bank"]) == [(10_000, 42_500, 44_000, 1_500)]
+    finally:
+        await _purge_years([year + 1])
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(jan_end)
+
+
+async def test_valuation_waits_for_every_earlier_reversal(client, world, books):
+    """Maj czeka na odwrócenie marca, nie tylko kwiecień (przegląd K4c-2)."""
+
+    year = books["year"]
+    await _eur_setup(world, books, fx_accounts=True)
+    march_end = rate_day(date(year, 4, 1))
+    may_end = rate_day(date(year, 6, 1))
+    await _set_eur_rate(march_end, "4.400000")
+    await _set_eur_rate(may_end, "4.400000")
+    try:
+        await _euro_invoice(client, world, books)
+        march = await _post_valuation(client, world, year, 3)
+        assert march.status_code == 200, march.text
+        valued = await _document("fx_valuation", f"{year}-03")
+        reversal = await _document("fx_valuation_reversal", f"{year}-03")
+        await _approve_ids(client, world, [valued.id])  # odwrócenie zostaje w buforze
+        may = await _valuation(client, world, year, 5)
+        assert "nie ma zaksięgowanego odwrócenia" in may["blocker"]
+        refused = await _post_valuation(client, world, year, 5)
+        assert refused.status_code == 422
+        await _approve_ids(client, world, [reversal.id])
+        assert (await _valuation(client, world, year, 5))["blocker"] is None
+    finally:
+        await _drop_eur_rate(march_end)
+        await _drop_eur_rate(may_end)
+
+
+async def test_waiting_reversal_follows_the_booked_valuation(client, world, books):
+    """Odwrócenie czekało na nowy rok, a w międzyczasie przyszedł późny dokument:
+    odwrócenie powstaje z zaksięgowanej PK, a wycena dostaje flagę „zmieniona”
+    (wcześniej 409 i styczeń stał — przegląd K4c-2)."""
+
+    from app.services.ledger.engine import LineIn
+
+    year, acc = books["year"], books["acc"]
+    receivable = f"{acc['receivable']}-{books['partner']['c']}"
+    if not await _next_year_free(year):
+        pytest.skip("następny rok zajęty przez inny test")
+    accounts, _ = await _eur_setup(world, books, fx_accounts=True)
+    dec_end = rate_day(date(year + 1, 1, 1))
+    await _set_eur_rate(dec_end, "4.400000")
+    try:
+        await _euro_invoice(client, world, books)
+        first = await _post_valuation(client, world, year, 12)
+        assert first.status_code == 200, first.text
+        [group] = first.json()["groups"]
+        assert group["reversal"]["outcome"] == "waiting"
+        assert "czeka na rok obrotowy" in group["reversal_waiting"]
+        valued = await _document("fx_valuation", f"{year}-12")
+        await _approve_ids(client, world, [valued.id])
+        late = await _draft(
+            world,
+            doc_type="PK",
+            day=date(year, 12, 10),
+            lines=[
+                LineIn(
+                    "debit",
+                    receivable,
+                    43_000,
+                    "późna należność",
+                    counterparty_id=books["buyer"].id,
+                    currency="EUR",
+                    amount_cur=10_000,
+                ),
+                LineIn("credit", acc["revenue"], 43_000, "późna należność"),
+            ],
+        )
+        await _approve_ids(client, world, [late])
+        stale = await _valuation(client, world, year, 12)
+        assert stale["groups"][0]["changed"] is True
+        item = await _valuation_item(client, world, year, 12)
+        assert item["state"] == "problem", item
+        await _open_year(world, year + 1)
+        again = await _post_valuation(client, world, year, 12)
+        assert again.status_code == 200, again.text
+        [group] = again.json()["groups"]
+        assert (group["valuation"]["outcome"], group["changed"]) == ("approved", True)
+        assert group["reversal"]["outcome"] == "created"
+        reversal = await _document("fx_valuation_reversal", f"{year}-12")
+        # Odwraca to, co zaksięgowano (+50,00), nie dzisiejsze przeliczenie (+60,00).
+        assert sorted(await _lines(reversal.id)) == sorted(
+            [("credit", receivable, 5_000), ("debit", accounts["gain"], 5_000)]
+        )
+        january = await _valuation(client, world, year + 1, 1)
+        assert "nie ma zaksięgowanego odwrócenia" in january["blocker"]
+        await _approve_ids(client, world, [reversal.id])
+        january = await _valuation(client, world, year + 1, 1)
+        assert "odwrócenia" not in (january["blocker"] or "")
+    finally:
+        await _purge_years([year + 1])
+        await _drop_eur_rate(dec_end)
+
+
+async def test_valuation_needs_the_exact_nbp_rate_and_keeps_positions_without_it(
+    client, world, books
+):
+    """Kurs z ostatniego dnia roboczego miesiąca, nie sprzed kilku dni; bez kursu
+    pozycje zostają, a grudzień zostaje na liście zamknięcia (przegląd K4c-2)."""
+
+    year, acc = books["year"], books["acc"]
+    receivable = f"{acc['receivable']}-{books['partner']['c']}"
+    await _eur_setup(world, books, fx_accounts=True)
+    stale = rate_day(date(year, 3, 27))
+    exact = rate_day(date(year, 4, 1))
+    await _set_eur_rate(stale, "4.300000")
+    try:
+        await _euro_invoice(client, world, books)
+        data = await _valuation(client, world, year, 3)
+        assert data["missing_rates"] == ["EUR"] and data["rates"] == []
+        assert f"EUR z dnia {exact:%d.%m.%Y}" in data["blocker"]
+        assert [(p["account"], p["valued"], p["diff"]) for p in data["positions"]] == [
+            (receivable, None, None)
+        ]
+        refused = await _post_valuation(client, world, year, 3)
+        assert refused.status_code == 422
+        assert await _document("fx_valuation", f"{year}-03") is None
+        item = await _valuation_item(client, world, year, 12)
+        assert item["state"] == "todo" and "EUR" in item["detail"], item
+    finally:
+        await _drop_eur_rate(stale)

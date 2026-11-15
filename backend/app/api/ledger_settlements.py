@@ -15,7 +15,10 @@ z Płacami.
   albo na wpisaną kwotę),
 * ``POST /settlements/auto?account=`` — automat: wyciąg ↔ faktura, korekta ↔
   faktura, saldo zerowe (wszystkie konta albo jedno),
-* ``DELETE /settlements/{id}`` — cofnięcie rozliczenia (ślad zostaje).
+* ``DELETE /settlements/{id}`` — cofnięcie rozliczenia (ślad zostaje),
+* ``GET /settlements/valuation?year=&month=`` — wycena walut na koniec
+  miesiąca (podgląd, K4c-2), ``POST /settlements/valuation`` — PK wyceny
+  i odwrócenia do bufora (lista „Księgowi”).
 """
 
 from datetime import date, datetime, timezone
@@ -32,7 +35,7 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import User
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import documents, settlements, settlements_view
+from app.services.ledger import documents, settlements, settlements_view, valuation
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import Viewer
 from app.services.ledger_schema import ACCOUNT_MAX
@@ -44,6 +47,11 @@ ACCOUNT_PATTERN = r"^[0-9A-Za-z][0-9A-Za-z-]*$"
 #: Identyfikatory ponad BIGINT → 422 (inaczej błąd bazy i 500; przegląd K4b).
 ID_MAX = 2**63 - 1
 LineId = Annotated[int, Field(ge=1, le=ID_MAX)]
+
+
+class ValuationBody(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
 
 
 class SettleBody(BaseModel):
@@ -174,3 +182,35 @@ async def remove_settlement(
         await db.rollback()
         raise _fail(exc) from exc
     await db.commit()
+
+
+@router.get("/settlements/valuation")
+async def valuation_preview(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await valuation.preview(db, viewer, current.bank, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/settlements/valuation")
+async def valuation_post(
+    body: ValuationBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        result = await valuation.post(
+            db, viewer, current.bank, year=body.year, month=body.month
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
