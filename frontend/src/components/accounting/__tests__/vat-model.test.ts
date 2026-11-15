@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { dueLabel, fieldsLabel, issueLink, rowGroups, taxIdLabel } from "@/components/accounting/vat-model";
+import { dueLabel, fieldsLabel, issueLink, jpkBlockers, rowGroups, taxIdLabel } from "@/components/accounting/vat-model";
 
 describe("rejestry VAT — etykiety (K5a)", () => {
   it("pola JPK grupy", () => {
@@ -28,5 +28,15 @@ describe("rejestry VAT — etykiety (K5a)", () => {
     expect(issueLink("drafts", 2026, 3)).toEqual({ href: "/accounting/documents?year=2026&month=3&status=draft", label: "Bufor" });
     expect(issueLink("missing_sales", 2026, 3).href).toBe("/accounting/sources?year=2026&month=3");
     expect(issueLink("outside", 2026, 3).label).toBe("Dokumenty");
+  });
+
+  it("blokady JPK z listy „do sprawdzenia”", () => {
+    expect(
+      jpkBlockers([
+        { kind: "missing_sales", label: "Faktury sprzedaży z KSeF bez dokumentu w księdze", count: 7, items: [] },
+        { kind: "outside", label: "Zapisy na kontach VAT spoza rejestru", count: 1, items: [] },
+        { kind: "drafts", label: "FVS i FVZ w buforze — rejestr liczy tylko zatwierdzone", count: 2, items: [] },
+      ]),
+    ).toEqual(["faktury sprzedaży z ksef bez dokumentu w księdze: 7", "fvs i fvz w buforze: 2"]);
   });
 });

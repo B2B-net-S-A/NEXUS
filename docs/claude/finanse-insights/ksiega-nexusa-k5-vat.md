@@ -1,11 +1,12 @@
 # Księga NEXUSA K5 (15.11.2026): rejestry VAT, JPK_V7M
 
 Etap K5 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar).
-K5a (ten plik): rejestry VAT z dokumentów księgi — kod w
-`app/services/ledger/vat.py`, trasy `app/api/ledger_vat.py`, zakładka „VAT”
-(`/accounting/vat`), moduł `vat` w Ustawieniach (włącza administrator). Bez
-migracji: rejestr liczy się z dokumentów przy każdym otwarciu. JPK_V7M, VAT-UE
-i dokument rozliczenia VAT — K5b (osobny dopisek).
+K5a: rejestry VAT z dokumentów księgi — kod w `app/services/ledger/vat.py`,
+trasy `app/api/ledger_vat.py`, zakładka „VAT” (`/accounting/vat`), moduł `vat`
+w Ustawieniach (włącza administrator). Bez migracji: rejestr liczy się
+z dokumentów przy każdym otwarciu. K5b-1: plik JPK_V7M(3) — `ledger/jpk.py`,
+migracja `0708_ledger_vat_files` (sekcja niżej). VAT-UE, zakupy zagraniczne
+i dokument rozliczenia VAT — dalsze części K5b.
 
 ## Co jest
 
@@ -58,6 +59,11 @@ i dokument rozliczenia VAT — K5b (osobny dopisek).
   dokument w buforze, rejestr i JPK. Kolejka kosztów E2 zostaje tylko z KSeF.
 - **Schematy XSD JPK_V7M(3)** z crd.gov.pl w repo (dane testowe) — walidacja
   w testach i przed pobraniem pliku.
+- **Dostawca zagraniczny** (K5b-2): formularz zakłada go w kartotece kontrahentów
+  (nazwa, kraj, VAT UE, opcjonalnie ID Symfonii) z kontem rozrachunkowym pod
+  kontem z ustawień VAT; potem wybiera się go z listy.
+- **GTU i TP** per kontrahent w zakładce VAT (bez migracji), dla wszystkich jego
+  faktur sprzedaży; importu usług GTU nie dotyczy.
 
 ## Zasady, których łatwo nie zauważyć
 
@@ -73,6 +79,55 @@ i dokument rozliczenia VAT — K5b (osobny dopisek).
   (`sales.vat_account`); konto naliczonego — `vat.input_account`. Analityka
   (`221-1`) należy do konta, `2210` — nie.
 
+## JPK_V7M(3) (K5b-1)
+
+- **Struktura**: wzór 2025/12/19/14090 (crd.gov.pl), obowiązuje od rozliczenia
+  za luty 2026. Schematy XSD w `app/services/ledger/jpk_schema/` (pobrane
+  15.11.2026 za zgodą Artura; w `schemat.xsd` adresy importów przepisane na pliki
+  obok, reszta bajt w bajt) — walidacja przy każdym „Przygotuj JPK”, bez sieci.
+  Nowa wersja wzoru MF = nowe pliki i zmiana `NS` w `jpk.py`.
+- **Zasady wypełniania** (broszura MF „JPK_VAT z deklaracją od 1 lutego 2026 r.”):
+  `NrKontrahenta` bez kodu kraju (kod w `KodKrajuNadaniaTIN`, krajowy NIP bez
+  kodu), brak numeru = „BRAK”, brak nazwy = „BRAK”; faktura z numerem KSeF =
+  `NrKSeF`, inaczej `BFK`; `DataSprzedazy` i `DataWplywu` tylko, gdy różne od daty
+  wystawienia; ewidencja (`K_`) w groszach, deklaracja (`P_`) w pełnych złotych
+  (od 50 gr w górę, art. 63 § 1 OP) z sumy pola; P_37, P_38, P_48 i sumy
+  kontrolne wg dokumentacji pól w XSD; P_51 do wpłaty, P_53 = P_62 do
+  przeniesienia (zwrot P_54 — później). `Rok` w XSD najwyżej 2090 (testy losują
+  lata do 2090).
+- **Wersje** (`ledger_vat_files`): 1. = złożenie; po wersji oznaczonej jako
+  wysłana kolejna to korekta (CelZlozenia 2) z uzasadnieniem P_ORDZU. „Wysłany”
+  oznacza księgowa po wysłaniu bramką MF (z numerem UPO) — także starszą wersję
+  (wysłaną, zanim ktoś przygotował nową), byle nie było nowszej wysłanej;
+  pozostałe niewysłane wersje miesiąca stają się `void` (unieważnione). Złożenia
+  nie oznacza się po wysłanym JPK. „Wysłany” bierze tę samą blokadę co
+  „Przygotuj JPK” — cel nowej wersji nie powstaje z nieaktualnego stanu.
+  Plik i sumy deklaracji zapisane (bajty + SHA-256), nie liczone na nowo.
+- **P_39** = P_62 z JPK poprzedniego miesiąca (ostatni wysłany, inaczej ostatni)
+  i wtedy nie wpisuje się jej ręcznie (422); pierwszy miesiąc w NEXUSIE — kwota
+  z deklaracji z Symfonii, wpisywana i poprawialna przy każdej wersji (podpowiedź
+  = P_39 ostatniej). **Łańcuch korekt**: korekta miesiąca, która zmienia P_62,
+  oznacza wysłany JPK następnego miesiąca jako nieaktualny (`stale = surplus`,
+  lista zamknięcia: problem).
+- **Blokady przygotowania** (422): okres przed lutym 2026 (wzór 2 — Symfonia);
+  brak kodu urzędu skarbowego (dane płatnika K7a) albo e-maila do JPK (zakładka
+  VAT, admin); wiersz bez pola JPK, faktura sprzedaży z KSeF bez dokumentu,
+  FVS/FVZ w buforze; wiersz, którego netto lub VAT nie mieści się w polach JPK
+  (np. VAT na stawce np/zw — w rejestrze to „do sprawdzenia”). Kolejka kosztów
+  i zapisy na kontach VAT spoza rejestru = ostrzeżenia w odpowiedzi.
+- **Kontrahent w pliku**: kraj nadania z rodzaju identyfikatora, nie z adresu
+  (NIP = bez kodu, VAT UE = prefiks numeru, PESEL = „BRAK”), Grecja = EL; znaki
+  sterujące z nazw i numerów usuwane (lxml odrzucał je błędem 500).
+- **Czego plik jeszcze nie ma** (uwagi na karcie JPK): znaczniki GTU i TP oraz
+  procedury; import usług bez KSeF (formularz K5b-2). Porównanie z JPK
+  z Symfonii w miesiącach równoległych to wyłapie.
+- **D2**: plik ma faktury osób zespołu — przygotowuje lista „Księgowi” z Płacami
+  albo administrator, pobiera osoba z Płacami albo administrator; reszta widzi
+  wersje i stan bez kwot (`totals`), bez P_39.
+- **Lista zamknięcia** „JPK_V7M”: do zrobienia do przygotowania i wysłania;
+  „problem”, gdy odcisk rejestrów (dokumenty i kwoty) różni się od odcisku
+  wysłanej wersji — trzeba korekty.
+
 ## Testy
 
 `tests/test_ledger_vat_rules.py` (podział stawek, kwoty z dekretu, pola JPK,
@@ -80,4 +135,9 @@ pozycja listy zamknięcia), sekcja K5a w `tests/test_ledger_sources_db.py`
 (rejestry z FVS/FVZ fixture `books`: 23%, EUR `np II`, korekta, faktura osoby
 zespołu — D2, brak FVS dla zaliczki i nabywcy spoza kartoteki, PK na koncie VAT,
 lista zamknięcia; ustawienia i bramki), wzorzec `tests/data/authz_golden/ledger_vat.json`,
-front: `VatView.test.tsx`, `vat-model.test.ts`.
+front: `VatView.test.tsx`, `vat-model.test.ts`. JPK: `tests/test_ledger_jpk_rules.py`
+(zaokrąglenie, kontrahent, pola P_, oznaczenia, daty, walidacja XSD, korekta),
+`test_jpk_is_prepared_sent_and_corrected` (braki, D2, wersje, „wysłany”, korekta
+z P_ORDZU, lista zamknięcia po zmianie rejestru, P_39 z poprzedniego miesiąca)
+i po przeglądzie: łańcuch korekt, złożona starsza wersja, „wysłany” czeka na
+„Przygotuj JPK”, poprawialna nadwyżka pierwszego miesiąca.

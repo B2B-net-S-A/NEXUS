@@ -1,6 +1,6 @@
 // Rejestry VAT (K5a) — etykiety grup, pól JPK i salda miesiąca (bez Reacta).
 
-import type { VatGroup, VatGroupKey, VatIssueKind, VatRow } from "@/lib/api/accounting-vat";
+import type { VatGroup, VatGroupKey, VatIssue, VatIssueKind, VatRow } from "@/lib/api/accounting-vat";
 
 import { gr } from "./ledger-model";
 
@@ -52,4 +52,11 @@ export function issueLink(kind: VatIssueKind, year: number, month: number): { hr
   if (kind === "drafts") return { href: `/accounting/documents?${query}&status=draft`, label: "Bufor" };
   if (kind === "missing_sales" || kind === "missing_costs") return { href: `/accounting/sources?${query}`, label: "Źródła" };
   return { href: `/accounting/documents?${query}&status=approved`, label: "Dokumenty" };
+}
+
+/** Listy „do sprawdzenia”, przy których JPK nie powstanie (jak `jpk.BLOCKING` w backendzie). */
+const JPK_BLOCKING: readonly VatIssueKind[] = ["rates", "missing_sales", "drafts"];
+
+export function jpkBlockers(issues: readonly VatIssue[]): string[] {
+  return issues.filter((issue) => JPK_BLOCKING.includes(issue.kind)).map((issue) => `${issue.label.split(" — ")[0].toLowerCase()}: ${issue.count}`);
 }

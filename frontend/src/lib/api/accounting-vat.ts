@@ -97,3 +97,105 @@ export function useSetVatAccounts() {
     },
   });
 }
+
+// ── JPK_V7M (K5b) ───────────────────────────────────────────────────────────
+// Plik zawiera faktury osób zespołu (D2): przygotowuje lista „Księgowi” z Płacami
+// albo administrator (`can_prepare`), pobiera osoba z Płacami albo administrator
+// (`can_download`); kwoty wersji serwer pokazuje tylko jej (`totals`).
+
+export interface JpkTotals {
+  P_38: number | null;
+  P_39: number | null;
+  P_48: number | null;
+  P_51: number | null;
+  P_62: number | null;
+  sales_rows: number | null;
+  purchase_rows: number | null;
+}
+
+export interface JpkFile {
+  id: number;
+  version: number;
+  purpose: "submission" | "correction";
+  /** `void` = unieważniona (wysłano inną wersję miesiąca). */
+  status: "prepared" | "sent" | "void";
+  created_at: string | null;
+  sent_at: string | null;
+  sent_note: string | null;
+  totals?: JpkTotals;
+  reason?: string | null;
+}
+
+export interface JpkOverview {
+  year: number;
+  month: number;
+  files: JpkFile[];
+  purpose: "submission" | "correction";
+  needs_opening_surplus: boolean;
+  /** Pierwszy miesiąc w NEXUSIE: P_39 wpisuje się (i poprawia) przy każdej wersji. */
+  surplus_editable: boolean;
+  /** Podpowiedź P_39 (tylko z Płacami). */
+  surplus_value: number | null;
+  previous_surplus: number | null;
+  /** Wysłany JPK nieaktualny: rejestr zmienił się albo korekta poprzedniego miesiąca zmieniła P_39. */
+  stale: "registers" | "surplus" | null;
+  missing: string[];
+  notes: string[];
+  contact: { email: string; phone: string };
+  can_prepare: boolean;
+  can_download: boolean;
+  can_mark_sent: boolean;
+  can_edit_contact: boolean;
+}
+
+export const jpkKeys = {
+  month: (year: number, month: number) => ["accounting", "vat", "jpk", year, month] as const,
+};
+
+export function useJpk(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: jpkKeys.month(year, month),
+    queryFn: async () => (await api.get<JpkOverview>(`${BASE}/vat/jpk`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+/** Ścieżka pliku JPK (pobranie z sesją przez `downloadAuthenticatedFile`). */
+export function jpkFilePath(id: number): string {
+  return `${BASE}/vat/jpk/${id}/file`;
+}
+
+function useJpkRefresh() {
+  const client = useQueryClient();
+  return () => {
+    client.invalidateQueries({ queryKey: vatKeys.all });
+    client.invalidateQueries({ queryKey: ["accounting", "closing"] });
+  };
+}
+
+export function usePrepareJpk() {
+  const refresh = useJpkRefresh();
+  return useMutation({
+    mutationFn: async (body: { year: number; month: number; reason?: string; opening_surplus?: number }) =>
+      (await api.post<{ file: JpkFile; warnings: string[] }>(`${BASE}/vat/jpk`, body)).data,
+    onSettled: refresh,
+  });
+}
+
+export function useMarkJpkSent() {
+  const refresh = useJpkRefresh();
+  return useMutation({
+    mutationFn: async ({ id, note }: { id: number; note?: string }) =>
+      (await api.post<JpkFile>(`${BASE}/vat/jpk/${id}/sent`, { note: note || null })).data,
+    onSettled: refresh,
+  });
+}
+
+export function useSetJpkContact() {
+  const refresh = useJpkRefresh();
+  return useMutation({
+    mutationFn: async (body: { email: string; phone: string }) =>
+      (await api.put<{ email: string; phone: string }>(`${BASE}/vat/jpk/settings`, body)).data,
+    onSettled: refresh,
+  });
+}

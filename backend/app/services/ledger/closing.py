@@ -39,6 +39,7 @@ from app.services.finance_ledger.posting import money_pl
 from app.services.ledger import (
     bank,
     exports,
+    jpk,
     payroll_lists,
     settlements,
     sources,
@@ -309,6 +310,39 @@ def vat_check(data: dict[str, Any], href: str) -> dict[str, Any]:
     }
 
 
+def jpk_check(status: dict[str, Any], href: str) -> dict[str, Any]:
+    """JPK_V7M miesiąca (K5b): do zrobienia do wysłania; problem, gdy rejestr
+    VAT zmienił się po wysłaniu (trzeba korekty)."""
+
+    item = {"key": "jpk", "label": "JPK_V7M", "href": href}
+    latest = status["latest"]
+    if latest is None:
+        return {
+            **item,
+            "state": "todo",
+            "detail": "przygotuj i wyślij JPK_V7M (termin 25.)",
+        }
+    if latest["status"] != "sent":
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"wersja {latest['version']} przygotowana — wyślij i oznacz jako wysłaną",
+        }
+    if status["changed"]:
+        detail = (
+            "korekta JPK za poprzedni miesiąc zmieniła nadwyżkę (P_39) — przygotuj korektę"
+            if status.get("reason") == "surplus"
+            else "rejestr VAT zmienił się po wysłaniu JPK — przygotuj korektę"
+        )
+        return {**item, "state": "problem", "detail": detail}
+    note = f", {latest['sent_note']}" if latest.get("sent_note") else ""
+    return {
+        **item,
+        "state": "ok",
+        "detail": f"wysłany (wersja {latest['version']}{note})",
+    }
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -415,6 +449,12 @@ async def checklist(
                 f"/accounting/vat{query}",
             )
         )
+        items.append(
+            jpk_check(
+                await jpk.month_status(db, viewer, settings, year=year, month=month),
+                f"/accounting/vat{query}",
+            )
+        )
     year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
     period = None
     if year_row is not None:
@@ -457,16 +497,7 @@ async def checklist(
         and not (key == "bank" and bank_open)
         and not (key == "vat" and vat_open)
     )
-    if vat_open:
-        items.append(
-            {
-                "key": "later:jpk",
-                "label": "JPK_V7M i rozliczenie VAT",
-                "state": "later",
-                "detail": "etap K5b — do tego czasu JPK z Symfonii (rejestry: zakładka VAT)",
-                "href": None,
-            }
-        )
+
     return {
         "year": year,
         "month": month,

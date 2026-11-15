@@ -3990,6 +3990,7 @@ async def api_health_deep_check(request: Request):
         LedgerPrepayment,
         LedgerRecurring,
         LedgerSettlement,
+        LedgerVatFile,
         LedgerYear,
     )
     from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
@@ -4519,6 +4520,8 @@ async def api_health_deep_check(request: Request):
         ("ledger_bank_lines", LedgerBankLine),
         # 0706: rozrachunki z rozliczaniem pozycji (K4b).
         ("ledger_settlements", LedgerSettlement),
+        # 0708: pliki JPK_V7M (K5b).
+        ("ledger_vat_files", LedgerVatFile),
         # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
         ("payroll_person_data", PayrollPersonData),
         ("payroll_parameter_versions", PayrollParameterVersion),

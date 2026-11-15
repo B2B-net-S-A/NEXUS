@@ -200,6 +200,10 @@ def split_sales(
     if len(keys) > 1:
         keys = [key for key in keys if weights[key] != 0 or key in without_net]
     if len(keys) == 1:
+        if vat and CATEGORIES[keys[0]].rate == 0:
+            # VAT na stawce bez podatku (np, zw, 0%) nie ma pola w JPK — po cichu
+            # by zniknął z deklaracji (przegląd K5b).
+            return {}, "VAT na stawce bez podatku (np, zw, 0%) — sprawdź fakturę"
         return {keys[0]: (net, vat)}, None
     if without_net or not keys:
         return {}, "kilka stawek, a pozycje bez kwoty netto — rozdziel ręcznie"
@@ -320,6 +324,24 @@ def summarize(sales_rows: list[Row], purchase_rows: list[Row]) -> dict[str, Any]
         "input_vat": input_vat,
         "due": output_vat - input_vat,
     }
+
+
+def _party_tax_id(
+    party: Optional[FinanceCounterparty],
+) -> tuple[Optional[str], Optional[str]]:
+    """Numer i kraj nadania z rodzaju identyfikatora, nie z kraju adresu:
+    NIP = Polska, VAT UE = prefiks numeru (przegląd K5b), PESEL = bez numeru VAT."""
+
+    if party is None or not party.id_value:
+        return None, None
+    if party.id_type == "nip":
+        return party.id_value, "PL"
+    if party.id_type == "vat_eu":
+        prefix = party.id_value[:2].upper()
+        return party.id_value, prefix if prefix.isalpha() else party.country
+    if party.id_type == "pesel":
+        return None, None
+    return party.id_value, party.country or None
 
 
 def _tax_id(
@@ -475,6 +497,7 @@ async def _purchase_rows(
             continue
         party = parties.get(doc.counterparty_id or 0)
         issued = (doc.meta or {}).get("issue_date")
+        tax_id, country = _party_tax_id(party)
         common = {
             "document_id": doc.id,
             "number": doc.number,
@@ -482,8 +505,8 @@ async def _purchase_rows(
             "issue_date": date.fromisoformat(issued) if issued else doc.doc_date,
             "day": doc.op_date,
             "counterparty": party.name if party else doc.description,
-            "tax_id": party.id_value if party else None,
-            "country": (party.country if party else None) or None,
+            "tax_id": tax_id,
+            "country": country,
             "correction": found.net < 0 or found.vat < 0 or found.output < 0,
             "payroll": doc.sensitivity is not None,
         }
