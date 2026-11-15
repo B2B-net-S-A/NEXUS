@@ -44,11 +44,16 @@ export function VatUeCard({ year, month }: { year: number; month: number }) {
     }
   };
   // Korekty wcześniejszych okresów: VAT-UEK per okres faktury pierwotnej.
+  // Okres nie wcześniejszy niż miesiąc karty (korekta sprzed daty sprzedaży
+  // faktury pierwotnej) zostaje na liście problemów — VAT-UEK go nie obejmie.
+  const current = `${year}-${String(month).padStart(2, "0")}`;
+  const toUek = (item: (typeof data.problems)[number]) =>
+    item.kind === "earlier" && !!item.period && item.period < current;
   const uek = new Map<string, string[]>();
   for (const item of data.problems) {
-    if (item.kind === "earlier" && item.period) uek.set(item.period, [...(uek.get(item.period) ?? []), item.number]);
+    if (toUek(item) && item.period) uek.set(item.period, [...(uek.get(item.period) ?? []), item.number]);
   }
-  const problems = data.problems.filter((item) => !(item.kind === "earlier" && item.period));
+  const problems = data.problems.filter((item) => !toUek(item));
   const empty = !data.lines.length && !data.problems.length;
   return (
     <SectionCard
