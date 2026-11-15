@@ -21,16 +21,25 @@ import {
   type PremiumEvidence,
 } from "@/lib/api/framework-rates";
 import { formatIsoDatePl } from "@/lib/date-pl";
-import { CLAIM_LABEL, coveredBy, grantedClaim, lastRefusal, openClaimFor, proposalLabel } from "@/lib/premium-skills";
+import { CLAIM_LABEL, coveredBy, grantedClaim, justificationDraft, lastRefusal, openClaimFor, proposalLabel } from "@/lib/premium-skills";
 import { warsawToday } from "@/lib/warsaw-date";
 
 type Dialog =
   | { kind: "decide"; evidence: PremiumEvidence }
+  | { kind: "justify"; evidence: PremiumEvidence; claim: PremiumClaim }
   | { kind: "grant"; claim: PremiumClaim }
   | { kind: "refuse"; claim: PremiumClaim }
   | null;
 
-export function PremiumSkillsSection({ contractId, canEdit }: { contractId: number; canEdit: boolean }) {
+export function PremiumSkillsSection({
+  contractId,
+  canEdit,
+  category,
+}: {
+  contractId: number;
+  canEdit: boolean;
+  category: string | null;
+}) {
   const query = usePremiumSkills(contractId, true);
   const action = useClaimAction(contractId);
   const { showError } = useToast();
@@ -102,6 +111,9 @@ export function PremiumSkillsSection({ contractId, canEdit }: { contractId: numb
                     )}
                     {open && (
                       <>
+                        <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "justify", evidence: e, claim: open })}>
+                          Uzasadnienie (EN)
+                        </Button>
                         <Button size="sm" onClick={() => setDialog({ kind: "grant", claim: open })}>
                           Klient przyznał
                         </Button>
@@ -122,6 +134,19 @@ export function PremiumSkillsSection({ contractId, canEdit }: { contractId: numb
       )}
       {dialog?.kind === "decide" && (
         <DecideDialog contractId={contractId} evidence={dialog.evidence} onClose={() => setDialog(null)} />
+      )}
+      {dialog?.kind === "justify" && (
+        <JustificationDialog
+          text={justificationDraft({
+            technology: dialog.evidence.technology,
+            percent: dialog.evidence.percent,
+            category,
+            sources: dialog.evidence.sources,
+            dlNote: dialog.claim.dl_note,
+          })}
+          technology={dialog.evidence.technology}
+          onClose={() => setDialog(null)}
+        />
       )}
       {(dialog?.kind === "grant" || dialog?.kind === "refuse") && (
         <OutcomeDialog contractId={contractId} claim={dialog.claim} kind={dialog.kind} onClose={() => setDialog(null)} />
@@ -266,6 +291,43 @@ function OutcomeDialog({
         </div>
       )}
       {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
+    </AppModal>
+  );
+}
+
+
+function JustificationDialog({ text, technology, onClose }: { text: string; technology: string; onClose: () => void }) {
+  const { showSuccess } = useToast();
+  const [value, setValue] = useState(text);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      showSuccess("Skopiowano uzasadnienie");
+    } catch {
+      const field = document.getElementById("justification-text") as HTMLTextAreaElement | null;
+      field?.select();
+    }
+  };
+  return (
+    <AppModal
+      open
+      onOpenChange={(next) => !next && onClose()}
+      title={`Uzasadnienie dopłaty: ${technology}`}
+      description="Szkic z faktów NEXUSA i Twoich przykładów. Popraw przed wysłaniem — NEXUS nie dopisuje zdań bez dowodu."
+      size="lg"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Zamknij
+          </Button>
+          <Button onClick={() => void copy()}>Kopiuj</Button>
+        </>
+      }
+    >
+      <Label htmlFor="justification-text" className="sr-only">
+        Uzasadnienie po angielsku
+      </Label>
+      <Textarea id="justification-text" rows={9} value={value} onChange={(e) => setValue(e.target.value)} />
     </AppModal>
   );
 }

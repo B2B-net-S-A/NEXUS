@@ -111,7 +111,7 @@ export function FrameworkCategoryCard({ contractId, canView, canEdit }: Props) {
           </div>
         )}
       </dl>
-      <PremiumSkillsSection contractId={contractId} canEdit={canEdit} />
+      <PremiumSkillsSection contractId={contractId} canEdit={canEdit} category={data.card?.label ?? null} />
       {open && <CategoryDialog data={data} contractId={contractId} onClose={() => setOpen(false)} />}
     </div>
   );

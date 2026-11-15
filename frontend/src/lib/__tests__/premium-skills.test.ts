@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PremiumClaim } from "@/lib/api/framework-rates";
-import { coveredBy, grantedClaim, lastRefusal, openClaimFor, proposalLabel } from "@/lib/premium-skills";
+import { coveredBy, grantedClaim, justificationDraft, lastRefusal, openClaimFor, proposalLabel } from "@/lib/premium-skills";
 
 const claim = (id: number, technology: string, status: PremiumClaim["status"]): PremiumClaim => ({
   id, technology, status, knows: true, uses: true, dl_note: null, client_confirmed_by: null, client_confirmed_on: null,
@@ -34,5 +34,22 @@ describe("technologie premium", () => {
     expect(coveredBy(claims, evidence, "PEGA")?.technology).toBe("Spark");
     expect(coveredBy(claims, evidence, "Spark")).toBeNull();
     expect(coveredBy([claim(2, "PEGA", "granted")], evidence, "Spark")).toBeNull();
+  });
+
+  it("składa uzasadnienie EN tylko z faktów", () => {
+    const text = justificationDraft({
+      technology: "Spark",
+      percent: "20.00",
+      category: "IT Developer - Senior",
+      sources: ["CV", "oś czasu CV: 40 mies., obecnie", "karta techniczna projektu (opieka)"],
+      dlNote: "Daily Spark jobs in the KYC pipeline.",
+    });
+    expect(text).toContain("40 months of hands-on use in the consultant's career timeline, ongoing on the current assignment");
+    expect(text).toContain("IT Developer - Senior competence category");
+    expect(text).toContain("20% Premium Technology Price Adder for Spark");
+    expect(text).toContain("Examples from the project: Daily Spark jobs in the KYC pipeline.");
+    const bare = justificationDraft({ technology: "PEGA", percent: "10", category: null, sources: [], dlNote: null });
+    expect(bare).not.toContain("Evidence:");
+    expect(bare).not.toContain("Examples");
   });
 });
