@@ -39,9 +39,9 @@ def test_mirror_matches_migration_without_cascade() -> None:
     module = _migration()
     expected = {name for group in module.TABLE_GROUPS for name in group}
     source = ENTRYPOINT.read_text(encoding="utf-8")
-    assert (
-        _dropped(";".join(re.findall(r'"(DROP TABLE IF EXISTS [^"]+)"', source)))
-        == expected
+    # Pozostałe DROP-y siatki rozlicza `test_drop_traffit_sync_cortex_tables_mirror.py`.
+    assert expected <= _dropped(
+        ";".join(re.findall(r'"(DROP TABLE IF EXISTS [^"]+)"', source))
     )
     for statement in module.OUTSIDE_FK_DROPS:
         assert statement in source

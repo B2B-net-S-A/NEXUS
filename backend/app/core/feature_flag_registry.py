@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="LAW_RADAR_ENABLED",
+        purpose="Radar przepisów: codzienny bieg Grok Zbieracza i Analityka, ekran „Przepisy”; włącza Artur po próbie obu rutyn.",
+        decided=date(2026, 11, 15),
+        expires=date(2027, 1, 14),
+    ),
+    FeatureFlag(
         name="TRAININGS_TEAMS_ENABLED",
         purpose="Spotkania szkoleń w Teams zakłada NEXUS w kalendarzu szkolenia@, nagranie wraca samo; włącza Artur po kroku admina M365.",
         decided=date(2026, 11, 13),

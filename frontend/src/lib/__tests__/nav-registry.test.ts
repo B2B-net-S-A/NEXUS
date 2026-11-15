@@ -110,7 +110,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // „Księgowość” (13.11.2026): przy otwartym module księgi, za Finansami.
       ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"]],
       // „Szkolenia” (13.11.2026): każdy zalogowany przy włączonym programie „Ludzi”.
-      ["Firma", ["insights", "people", "equipment", "trainings"]],
+      // „Przepisy” (15.11.2026): w „Firmie”, bo widzi je też HoR bez „Klientów i umów”.
+      ["Firma", ["insights", "people", "equipment", "trainings", "compliance"]],
     ]);
   });
 
@@ -154,12 +155,12 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     expect(groupsOf("delivery_lead")).toEqual([
       ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
       ["Klienci i umowy", ["/clients", "/contracts"]],
-      ["Firma", ["/insights"]],
+      ["Firma", ["/insights", "/compliance"]],
     ]);
     const full = [
       ["Praca", ["/dashboard", "/jobs", "/candidates", "/calendar"]],
       ["Klienci i umowy", ["/clients", "/contracts", "/finance"]],
-      ["Firma", ["/insights"]],
+      ["Firma", ["/insights", "/compliance"]],
     ];
     expect(groupsOf("finance")).toEqual(full);
     // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
@@ -214,6 +215,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/client-contracts",
       "/finance",
       "/insights",
+      "/compliance",
     ]);
     // Bramka jest ta sama co dotąd — szyna niczego nie odsłania.
     expect(primaryHrefs("recruiter")).not.toContain("/clients");
@@ -294,7 +296,7 @@ describe("rejestr nawigacji ↔ rejestr capability", () => {
     const gated = NAV_REGISTRY.filter(
       (entry) => entry.section === "delivery" || entry.section === "finance",
     );
-    expect(gated.map((entry) => [entry.id, entry.permission])).toEqual([
+    expect(gated.map((entry) => [entry.id, entry.permission ?? entry.access])).toEqual([
       ["clients", "delivery_view"],
       ["my-clients", "delivery_view"],
       ["order-mail", "delivery_view"],
@@ -302,7 +304,21 @@ describe("rejestr nawigacji ↔ rejestr capability", () => {
       ["contracts", "delivery_view"],
       ["finance", "orders_work"],
       ["accounting", "finance_module"],
+      // „Przepisy”: rola albo jedno z czterech uprawnień (lustro API).
+      ["compliance", "compliance"],
     ]);
+  });
+
+  it("„Przepisy” widzą admin, HoR i posiadacze jednego z czterech uprawnień — rekruter nie", () => {
+    const sees = (user: Parameters<typeof visibleNavEntries>[0]) =>
+      visibleNavEntries(user, { contactQueueEnabled: true }).some((entry) => entry.id === "compliance");
+    for (const role of ["admin", "head_of_recruitment", "finance", "delivery_lead", "back_office"] as UserRole[]) {
+      expect(sees(userOf(role))).toBe(true);
+    }
+    expect(sees(userOf("recruiter"))).toBe(false);
+    expect(sees(accessSnapshot("recruiter", { grant: ["people_admin"] }))).toBe(true);
+    expect(sees(accessSnapshot("recruiter", { grant: ["payroll"] }))).toBe(true);
+    expect(sees(accessSnapshot("finance", { revoke: ["finance_module", "payroll", "contracts_orders_edit"] }))).toBe(false);
   });
 });
 
@@ -423,11 +439,13 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...INSIGHTS,
       ...SYSTEM,
     ],
+    // „Przepisy” (15.11.2026): z uprawnienia „Kontrakty i zamówienia”.
     delivery_lead: [
       ...SOURCING_OPERATIONAL,
       ...PIPELINE,
       ...DELIVERY,
       ...INSIGHTS,
+      "/compliance",
       ...SYSTEM,
     ],
     admin: [
@@ -436,6 +454,7 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
+      "/compliance",
       // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
       "/sales",
       // Umowy klientów (04.11.2026): bez sekcji produktu, uprawnienie admina.
@@ -448,13 +467,16 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
+      "/compliance",
       ...SYSTEM,
     ],
     // HoR nie rozpatruje zgłoszeń (UAT A-B02) i nie ma sekcji Delivery.
+    // „Przepisy” (15.11.2026): HoR z roli, jak w API.
     head_of_recruitment: [
       ...SOURCING_OPERATIONAL,
       ...PIPELINE,
       ...INSIGHTS,
+      "/compliance",
       ...SYSTEM,
     ],
     // Wycofywany viewer (0 kont): od 0637 bez żadnej sekcji.

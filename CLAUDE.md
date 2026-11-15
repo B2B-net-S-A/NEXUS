@@ -130,6 +130,7 @@ kodu sprzed 10.10.2026 odnoszą się do plików z tych katalogów.
 - **Kontrakty i umowy B2B** — `kontrakty/`: Generator umów B2B, cykl życia kontraktu, zakończenie i cofnięcie, synchronizacja kontrakt ↔ zamówienia, dokumenty, zakładki rejestru.
 - **Zamówienia i poczta zamówień** — `zamowienia/`: Poczta zamówień i odczyt PDF per klient, zamówienia MD, kosztowe i okresowe, import zużycia MD, alerty Delivery Leada, instrukcja zamówień.
 - **Finanse i Insights** — `finanse-insights/`: Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zespół, Firma, raporty).
+- **Przepisy (radar zmian w prawie)** — `przepisy/`: Ekran „Przepisy”, dwa Grok Boty (Zbieracz, Analityk), bramka w API Sejmu, sondy „u nas”, LEX, flaga `LAW_RADAR_ENABLED`.
 - **Powiadomienia i maile** — `powiadomienia/`: Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.
 - **Integracje** — `integracje/`: Traffit, COMPASS, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań, usunięta telefonia.
 - **Sprzedaż (dawny Atlas)** — `sprzedaz/`: Uprawnienia Sprzedaży, kartoteka firm sprzedaży, szanse, „Kogo znamy”, daty per firma, powiązanie z klientem, leady, import z Atlasa.

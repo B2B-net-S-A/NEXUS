@@ -124,6 +124,12 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
         "Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zespół, Firma, raporty).",
     ),
     (
+        "przepisy",
+        "Przepisy (radar zmian w prawie)",
+        "Ekran „Przepisy”, dwa Grok Boty (Zbieracz, Analityk), bramka w API Sejmu, "
+        "sondy „u nas”, LEX, flaga `LAW_RADAR_ENABLED`.",
+    ),
+    (
         "powiadomienia",
         "Powiadomienia i maile",
         "Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.",

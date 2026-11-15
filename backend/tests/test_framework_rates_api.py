@@ -171,3 +171,30 @@ async def test_only_finance_imports_the_appendix_and_preview_writes_nothing(app_
     assert applied.status_code == 200, applied.text
     labels = {c["label"]: c["rate_max"] for c in (await app_client.get(f"/api/clients/{client_id}/framework-terms", headers=admin)).json()["cards"]}
     assert labels["IT Developer - Senior"] == 105 and labels["IT Tester - Senior"] == 90
+
+
+async def test_overview_counts_levers_and_governance_report(app_client: AsyncClient):
+    client_id, contract_id, senior_id = await _seed()
+    headers = await _headers(app_client, "delivery_lead", assigned_client_id=client_id)
+    await app_client.put(
+        f"/api/contracts/{contract_id}/framework-category",
+        headers=headers,
+        json={"rate_card_id": senior_id, "effective_from": business_today().isoformat()},
+    )
+    ov = await app_client.get(f"/api/clients/{client_id}/framework-overview", headers=headers)
+    assert ov.status_code == 200, ov.text
+    body = ov.json()
+    assert body["counts"]["over"] == 1
+    (row,) = body["rows"]
+    # Stawka 115 przy limicie 100: dopłata Kafka 20% (120) albo awans na Expert (110 — za mało).
+    assert [(l["kind"], l["label"]) for l in row["levers"]] == [("addon", "Dopłata +20% (Kafka)")]
+    assert row["limit_mismatch"] is False
+    assert len(body["trend"]) == 5
+
+    report = await app_client.get(f"/api/clients/{client_id}/framework-overview/report.xlsx", headers=headers)
+    assert report.status_code == 200
+    assert report.content[:2] == b"PK"
+
+    other = await _headers(app_client, "delivery_lead", assigned_client_id=(await _seed())[0])
+    assert (await app_client.get(f"/api/clients/{client_id}/framework-overview", headers=other)).status_code == 403
+    assert (await app_client.get(f"/api/clients/{client_id}/framework-overview/report.xlsx", headers=other)).status_code == 403

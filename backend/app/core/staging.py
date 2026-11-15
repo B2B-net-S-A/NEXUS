@@ -89,6 +89,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
     {
         # Webhook do bota researchu w USA: drugi bieg ze stagingu to koszt i dane poza UE.
         "sales_signals",
+        # Webhooki Grok Zbieracza i Analityka (radar przepisów) i API Sejmu.
+        "law_radar",
         "consultant_portal_transcripts",
         "consultant_portal_ratings",
         "consultant_portal_mailbox",
