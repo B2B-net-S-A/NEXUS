@@ -57,6 +57,18 @@ export function draftHourly(team: TeamDetail, draft: TeamVariantInput): { total:
   return { total, unpriced };
 }
 
+/** Ten sam skład co wcześniejszy na liście (te same osoby na tych samych stanowiskach)? */
+export function duplicateOf(drafts: readonly TeamVariantInput[], index: number): TeamVariantInput | null {
+  const signature = (d: TeamVariantInput) =>
+    d.picks
+      .filter((p) => p.candidate_ids.length > 0)
+      .map((p) => `${p.job_id}:${[...p.candidate_ids].sort((a, b) => a - b).join(",")}`)
+      .sort()
+      .join("|");
+  const own = signature(drafts[index]);
+  return drafts.slice(0, index).find((d) => signature(d) === own) ?? null;
+}
+
 /** Zmiana osoby na miejscu `seat` stanowiska `jobId`; `null` = puste miejsce. */
 export function setSeat(
   draft: TeamVariantInput,
@@ -183,7 +195,11 @@ export function TeamVariantsCard({ team }: { team: TeamDetail }) {
     if (yes) save.mutate([]);
   };
   const approve = () => {
-    const ready = (drafts ?? []).filter((d) => d.name.trim() && d.picks.some((p) => p.candidate_ids.length > 0));
+    const all = drafts ?? [];
+    const ready = all.filter(
+      (d, index) =>
+        d.name.trim() && d.picks.some((p) => p.candidate_ids.length > 0) && duplicateOf(all, index) == null,
+    );
     save.mutate(ready.map((d) => ({ ...d, name: d.name.trim(), why: d.why.trim() })));
   };
 
@@ -206,14 +222,23 @@ export function TeamVariantsCard({ team }: { team: TeamDetail }) {
             Propozycja automatu. Podmień osoby, popraw nazwę i zdanie dla klienta. Klient zobaczy składy dopiero po
             zatwierdzeniu.
           </p>
-          {drafts.map((draft, index) => (
-            <DraftEditor
-              key={draft.key}
-              team={team}
-              draft={draft}
-              onChange={(next) => setDrafts(drafts.map((d, i) => (i === index ? next : d)))}
-            />
-          ))}
+          {drafts.map((draft, index) => {
+            const same = duplicateOf(drafts, index);
+            return (
+              <div key={draft.key} className="grid gap-1">
+                <DraftEditor
+                  team={team}
+                  draft={draft}
+                  onChange={(next) => setDrafts(drafts.map((d, i) => (i === index ? next : d)))}
+                />
+                {same ? (
+                  <p className="text-xs text-warning-muted-foreground">
+                    Taki sam jak „{same.name}”: klient go nie zobaczy, chyba że zmienisz osoby.
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
           <div className="flex flex-wrap gap-2">
             <Button size="sm" disabled={save.isPending} onClick={approve}>
               Zatwierdź i pokaż klientowi

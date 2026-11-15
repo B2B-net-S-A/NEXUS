@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { TeamDetail } from "@/lib/api/jobTeams";
 
-import { draftHourly, draftsFromSaved, setSeat } from "../TeamVariantsCard";
+import { draftHourly, draftsFromSaved, duplicateOf, setSeat } from "../TeamVariantsCard";
 
 function team(): TeamDetail {
   const money = (value: number) => ({ value, unit: "hourly", currency: "PLN" });
@@ -52,5 +52,16 @@ describe("gotowe składy po stronie DL-a", () => {
     expect(setSeat(draft, 10, 1, 3).picks).toEqual([{ job_id: 10, candidate_ids: [1, 3] }]);
     expect(setSeat(draft, 10, 0, null).picks).toEqual([{ job_id: 10, candidate_ids: [2] }]);
     expect(setSeat(draft, 10, 1, 1).picks).toEqual([{ job_id: 10, candidate_ids: [1] }]);
+  });
+});
+
+describe("identyczne składy", () => {
+  it("drugi taki sam skład wskazuje pierwszy, kolejność osób nie ma znaczenia", () => {
+    const a = { key: "fast", name: "Najszybszy start", why: "", picks: [{ job_id: 10, candidate_ids: [1, 3] }] };
+    const b = { key: "cheap", name: "Najniższa cena", why: "", picks: [{ job_id: 10, candidate_ids: [3, 1] }, { job_id: 11, candidate_ids: [] }] };
+    const c = { key: "evidence", name: "Najwięcej w CV", why: "", picks: [{ job_id: 10, candidate_ids: [2] }] };
+    expect(duplicateOf([a, b, c], 1)?.key).toBe("fast");
+    expect(duplicateOf([a, b, c], 2)).toBeNull();
+    expect(duplicateOf([a, b, c], 0)).toBeNull();
   });
 });
