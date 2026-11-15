@@ -40,6 +40,7 @@
   "GET /api/accounting/vat/ue/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/foreign": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/jpk": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/vat/jpk/compare": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/jpk/{file_id}/sent": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/vat/jpk/settings": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/vat/markers/{counterparty_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
