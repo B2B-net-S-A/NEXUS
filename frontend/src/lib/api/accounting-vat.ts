@@ -388,8 +388,16 @@ export interface VatUeOverview {
   month: number;
   lines: VatUeLine[];
   totals: { goods: number; services: number };
-  /** `earlier` = korekta wcześniejszego okresu (na VAT-UEK) — nie blokuje pliku. */
-  problems: { number: string; detail: string; kind: "counterparty" | "negative" | "unknown" | "earlier" }[];
+  /**
+   * `earlier` = korekta wcześniejszego okresu (na VAT-UEK, `period` = `RRRR-MM`)
+   * — nie blokuje pliku.
+   */
+  problems: {
+    number: string;
+    detail: string;
+    kind: "counterparty" | "negative" | "unknown" | "earlier";
+    period?: string;
+  }[];
   blockers: string[];
   missing: string[];
   can_download: boolean;
@@ -460,4 +468,68 @@ export function useCompareJpk() {
       ).data;
     },
   });
+}
+/** Pozycja VAT-UEK(5) (K5b-3c): kontrahent „było” → „jest”, pełne złote. */
+export interface VatUekLine {
+  section: "goods" | "services";
+  section_label: string;
+  country: string;
+  number: string;
+  name: string;
+  /** `null` = kontrahenta nie było w informacji (dopisany). */
+  before: number | null;
+  /** `null` = kontrahent znika z informacji. */
+  after: number | null;
+  documents: string[];
+  documents_count: number;
+}
+
+/** VAT-UEK za okres `year`/`month` z korekt wystawionych w `issued_*`. */
+export interface VatUekOverview {
+  year: number;
+  month: number;
+  issued_year: number;
+  issued_month: number;
+  lines: VatUekLine[];
+  /** Korekty faktur z okresu zaksięgowane w miesiącu korekt. */
+  corrections: number;
+  /** Wcześniejsze miesiące z korektami tego okresu (wliczone w „było”). */
+  earlier_months: string[];
+  problems: { number: string; detail: string; kind: "counterparty" | "negative" | "outside" }[];
+  blockers: string[];
+  missing: string[];
+  can_download: boolean;
+  notes: string[];
+}
+
+export interface VatUekPeriod {
+  year: number;
+  month: number;
+  issuedYear: number;
+  issuedMonth: number;
+}
+
+function uekParams(period: VatUekPeriod) {
+  return {
+    year: period.year,
+    month: period.month,
+    issued_year: period.issuedYear,
+    issued_month: period.issuedMonth,
+  };
+}
+
+export function useVatUek(period: VatUekPeriod, enabled = true) {
+  return useQuery({
+    queryKey: ["accounting", "vat", "uek", period.year, period.month, period.issuedYear, period.issuedMonth] as const,
+    queryFn: async () => (await api.get<VatUekOverview>(`${BASE}/vat/uek`, { params: uekParams(period) })).data,
+    enabled,
+  });
+}
+
+/** Ścieżka pliku VAT-UEK (pobranie z sesją przez `downloadAuthenticatedFile`). */
+export function vatUekFilePath(period: VatUekPeriod): string {
+  const query = new URLSearchParams(
+    Object.entries(uekParams(period)).map(([key, value]) => [key, String(value)]),
+  );
+  return `${BASE}/vat/uek/file?${query.toString()}`;
 }

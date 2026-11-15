@@ -26,7 +26,12 @@ tylko administrator (403).
 * ``GET /vat/ue/file?year=&month=`` — plik VAT-UE(5) po walidacji schematem MF
   (tylko sprzedaż dla firm z UE — bez danych osób zespołu, więc bez Płac),
 * ``POST /vat/jpk/compare?year=&month=`` — porównanie z JPK z Symfonii (K5b-3b,
-  plik XML w żądaniu, niezapisywany; Płace albo administrator — D2).
+  plik XML w żądaniu, niezapisywany; Płace albo administrator — D2),
+* ``GET /vat/uek?year=&month=&issued_year=&issued_month=`` — pozycje VAT-UEK(5)
+  za okres ``year``/``month`` z korekt wystawionych w miesiącu ``issued_*``
+  (K5b-3c; „było” i „jest”),
+* ``GET /vat/uek/file?…`` — plik VAT-UEK(5) po walidacji schematem MF (bez Płac,
+  jak VAT-UE).
 """
 
 from datetime import date, datetime, timezone
@@ -57,7 +62,15 @@ from app.services.finance_ledger_schema import (
     NAME_MAX,
     SYMFONIA_ID_MAX,
 )
-from app.services.ledger import documents, foreign, jpk, jpk_compare, vat, vat_ue
+from app.services.ledger import (
+    documents,
+    foreign,
+    jpk,
+    jpk_compare,
+    vat,
+    vat_ue,
+    vat_uek,
+)
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX, MARKERS
@@ -393,3 +406,54 @@ async def jpk_compare_with_symfonia(
         )
     except LedgerError as exc:
         raise _fail(exc) from exc
+@router.get("/vat/uek")
+async def vat_uek_overview(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    issued_year: int = Query(ge=2000, le=2100),
+    issued_month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await vat_uek.overview(
+            db,
+            viewer,
+            current,
+            year=year,
+            month=month,
+            issued_year=issued_year,
+            issued_month=issued_month,
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/vat/uek/file")
+async def vat_uek_file(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    issued_year: int = Query(ge=2000, le=2100),
+    issued_month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    current, viewer = await _context(db, current_user)
+    try:
+        name, content = await vat_uek.file(
+            db,
+            viewer,
+            current,
+            year=year,
+            month=month,
+            issued_year=issued_year,
+            issued_month=issued_month,
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

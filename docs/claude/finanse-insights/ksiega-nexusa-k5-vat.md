@@ -9,7 +9,8 @@ migracja `0708_ledger_vat_files` (sekcja niżej). K5b-2: zakupy zagraniczne
 (import usług) — `ledger/foreign.py` — i znaczniki GTU/TP per kontrahent, bez
 migracji (sekcja niżej). K5b-3a: VAT-UE(5) — `ledger/vat_ue.py` (sekcja niżej).
 K5b-3b: porównanie z JPK z Symfonii — `ledger/jpk_compare.py` (sekcja niżej).
-Dalej VAT-UEK, dokument rozliczenia VAT (K5b-3c) i art. 86 ust. 10i.
+VAT-UEK(5) — `ledger/vat_uek.py` (sekcja niżej). Dalej dokument rozliczenia
+VAT (K5b-3c) i art. 86 ust. 10i.
 
 ## Co jest
 
@@ -184,7 +185,7 @@ Dalej VAT-UEK, dokument rozliczenia VAT (K5b-3c) i art. 86 ust. 10i.
   (`app/services/ledger/vat_ue_schema/`, wzór 2021/01/12/10293, wersja 2-0E —
   najnowsza na liście struktur e-Deklaracji; importy przepisane na pliki obok),
   NEXUS składa plik i sprawdza go schematem przy pobraniu. Korekty składa się
-  na VAT-UEK(5) — w NEXUSIE jeszcze nie ma (uwaga na karcie).
+  na VAT-UEK(5) (sekcja niżej).
 - **Z czego**: wiersze rejestru sprzedaży z grup `np_ue` (usługi, art. 100
   ust. 1 pkt 4 — Grupa3) i `0_wdt` (WDT — Grupa1, bez trójstronnej). Okres =
   okres rejestru. Suma netto PLN per kontrahent i sekcja, w pełnych złotych.
@@ -223,6 +224,39 @@ Dalej VAT-UEK, dokument rozliczenia VAT (K5b-3c) i art. 86 ust. 10i.
 - **VAT-UEK**: pobrać XSD VAT-UEK(5) z crd.gov.pl (wzór 2021/01/26/10316),
   NEXUS składa plik korekty za okres faktury pierwotnej.
 
+## VAT-UEK(5) — korekta VAT-UE
+
+- **Decyzja Artura 15.11.2026**: schemat VAT-UEK(5) z crd.gov.pl w repo
+  (`app/services/ledger/vat_uek_schema/`, wzór 2021/01/26/10316, wersja 2-1E —
+  najnowsza na liście struktur e-Deklaracji 16.11.2026; importy te same co
+  w VAT-UE(5), adresy przepisane na pliki obok, reszta bajt w bajt). Uwaga:
+  `kodSystemowy` = „VATUEK (5)” — bez myślnika, inaczej niż VAT-UE.
+- **Okres korekty** = miesiąc faktury pierwotnej (`corrected_month` wiersza
+  rejestru). Korekta faktury z wcześniejszego okresu nie pomniejsza bieżącego
+  VAT-UE: na karcie VAT-UE miesiąca K jest lista „Do VAT-UEK” — blok per okres
+  z pozycjami i plikiem (`GET /vat/uek?year=&month=&issued_year=&issued_month=`
+  i `/vat/uek/file`; okres = `year`/`month`, miesiąc korekt = `issued_*`).
+- **Pozycja** (XSD i MF): „BYŁO” = dane z poprzednio złożonej informacji,
+  „JEST” = dane prawidłowe — obie jako łączna wartość za okres, nie różnica.
+  Sama „JEST” = kontrahent dopisany, sama „BYŁO” = usunięty; pozycja tylko,
+  gdy kwota w pełnych złotych się zmienia. WDT z P_DBd/P_DJd = 1 (bez
+  trójstronnej).
+- **Skąd „BYŁO” — decyzja Artura 16.11.2026 („per miesiąc korekty”)**: NEXUS
+  nie zapisuje złożonych VAT-UE, więc VAT-UEK za okres M składa się z korekt
+  zaksięgowanych w miesiącu K. „BYŁO” = suma za M z rejestru M liczona dziś
+  (z korektami z tego samego miesiąca, jak VAT-UE) + korekty faktur z M
+  z miesięcy między M a K (zakładamy, że ich VAT-UEK złożono — karta to mówi);
+  „JEST” = „BYŁO” + korekty z K. Odrzucone warianty: narastająco od VAT-UE
+  (błędne przy drugiej korekcie okresu) i zapis złożonych wersji (migracja).
+- **Blokady pliku** (422 z powodem): nabywca bez numeru VAT UE, suma okresu
+  poniżej zera, faktura pierwotna bez dokumentu w księdze za M (VAT-UE poszedł
+  spoza NEXUSA — korekta w Symfonii), listy rejestru K blokujące JPK, brak
+  danych płatnika (K7a); brak korekt z K albo bez zmiany w pełnych złotych =
+  VAT-UEK się nie składa. Bez danych osób zespołu — pobiera każdy z modułem VAT.
+- **Schemat**: `Rok` od 2021, `etd:TRok` do 2030 — jak VAT-UE, testy na bazie
+  sprawdzają pozycje, schemat testy reguł. Nowy wzór MF = nowe pliki i zmiana
+  `NS` w `vat_uek.py`.
+
 ## Testy
 
 `tests/test_ledger_vat_rules.py` (podział stawek, kwoty z dekretu, pola JPK,
@@ -248,3 +282,8 @@ front: karta VAT-UE w `VatView.test.tsx`. K5b-3b: `tests/test_ledger_jpk_compare
 (te same rejestry = zero różnic, kwota, wiersz, znacznik, pole P_, złe pliki
 i encje), `test_jpk_compare_with_symfonia_file` w `test_ledger_sources_db.py`,
 front: karta porównania w `VatView.test.tsx`.
+VAT-UEK:
+`tests/test_ledger_vat_uek_rules.py` („było” z wcześniejszymi korektami,
+dopisany i usunięty kontrahent, zaokrąglenie bez zmiany, WDT, problemy, XSD),
+`test_vat_uek_corrects_the_original_period_from_month_k` w
+`test_ledger_sources_db.py`, front: bloki „Do VAT-UEK” w `VatView.test.tsx`.

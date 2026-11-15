@@ -33,7 +33,14 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { VatView } from "@/components/accounting/VatView";
 import type { LedgerConfig } from "@/lib/api/accounting";
-import type { ForeignOverview, JpkOverview, VatMarkers, VatRegisters, VatUeOverview } from "@/lib/api/accounting-vat";
+import type {
+  ForeignOverview,
+  JpkOverview,
+  VatMarkers,
+  VatRegisters,
+  VatUekOverview,
+  VatUeOverview,
+} from "@/lib/api/accounting-vat";
 import { useAuthStore } from "@/store/auth";
 
 function config(vatOpen = true): LedgerConfig {
@@ -238,7 +245,48 @@ function vatUe(overrides: Partial<VatUeOverview> = {}): VatUeOverview {
     blockers: [],
     missing: [],
     can_download: true,
-    notes: ["Korekta informacji za wcześniejszy okres (VAT-UEK) — jeszcze nie w NEXUSIE."],
+    notes: ["Korekty faktur z wcześniejszych okresów idą na VAT-UEK za tamten okres."],
+    ...overrides,
+  };
+}
+
+function vatUek(overrides: Partial<VatUekOverview> = {}): VatUekOverview {
+  return {
+    year: 2026,
+    month: 10,
+    issued_year: 2026,
+    issued_month: 11,
+    lines: [
+      {
+        section: "services",
+        section_label: "Usługi (art. 100 ust. 1 pkt 4)",
+        country: "FI",
+        number: "12345678",
+        name: "Nordic Bank Abp",
+        before: 2150,
+        after: 1720,
+        documents: ["KOR 1/11"],
+        documents_count: 1,
+      },
+      {
+        section: "services",
+        section_label: "Usługi (art. 100 ust. 1 pkt 4)",
+        country: "DE",
+        number: "123456789",
+        name: "Test GmbH",
+        before: null,
+        after: 300,
+        documents: ["KOR 2/11"],
+        documents_count: 1,
+      },
+    ],
+    corrections: 2,
+    earlier_months: [],
+    problems: [],
+    blockers: [],
+    missing: [],
+    can_download: true,
+    notes: [],
     ...overrides,
   };
 }
@@ -250,6 +298,7 @@ function route(
   foreign: ForeignOverview = foreignOverview(),
   marked: VatMarkers = markers(),
   ue: VatUeOverview = vatUe(),
+  uek: VatUekOverview = vatUek(),
 ) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
@@ -258,6 +307,7 @@ function route(
     if (url === "/api/accounting/vat/foreign") return { data: foreign };
     if (url === "/api/accounting/vat/markers") return { data: marked };
     if (url === "/api/accounting/vat/ue") return { data: ue };
+    if (url === "/api/accounting/vat/uek") return { data: uek };
     if (url === "/api/finance/counterparties")
       return {
         data: {
@@ -605,6 +655,7 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
         lines: [],
         problems: [
           { number: "1/11/2026/UE", detail: "nabywca bez numeru VAT UE", kind: "counterparty" },
+          // Bez okresu (starszy serwer) — zostaje na liście problemów.
           { number: "KOR 1/11", detail: "korekta faktury z 10.2026 — na VAT-UEK za 10.2026", kind: "earlier" },
         ],
         blockers: ["FVS i FVZ w buforze — rejestr liczy tylko zatwierdzone: 1"],
@@ -616,6 +667,62 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
     expect(screen.getByText(/na VAT-UEK za 10.2026/).closest("li")).toHaveClass("text-warning-muted-foreground");
     expect(screen.getByText(/VAT-UE powstanie po zamknięciu listy/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pobierz VAT-UE (XML)" })).toBeDisabled();
+  });
+
+  it("korekty wcześniejszego okresu: VAT-UEK z „było” i „jest” i pobranie pliku", async () => {
+    route(
+      config(),
+      registers({ issues: [] }),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe({
+        problems: [
+          { number: "KOR 1/11", detail: "korekta faktury z 10.2026", kind: "earlier", period: "2026-10" },
+          { number: "KOR 2/11", detail: "korekta faktury z 10.2026", kind: "earlier", period: "2026-10" },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderView();
+    const block = await screen.findByRole("region", { name: "VAT-UEK za 10.2026" });
+    expect(within(block).getByText("korekty: KOR 1/11, KOR 2/11")).toBeInTheDocument();
+    const changed = (await within(block).findByText("FI 12345678")).closest("tr") as HTMLElement;
+    expect(within(changed).getByText("2 150,00")).toBeInTheDocument();
+    expect(within(changed).getByText("1 720,00")).toBeInTheDocument();
+    const added = within(block).getByText("DE 123456789").closest("tr") as HTMLElement;
+    expect(within(added).getByText("—")).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith("/api/accounting/vat/uek", {
+      params: { year: 2026, month: 10, issued_year: 2026, issued_month: 11 },
+    });
+    // Korekty z okresem nie wiszą już na liście problemów VAT-UE.
+    expect(screen.queryByText(/korekta faktury z 10.2026/)).not.toBeInTheDocument();
+    await user.click(within(block).getByRole("button", { name: "Pobierz VAT-UEK za 10.2026 (XML)" }));
+    expect(download).toHaveBeenCalledWith(
+      "/api/accounting/vat/uek/file?year=2026&month=10&issued_year=2026&issued_month=11",
+      "VAT-UEK_2026-10_korekty_2026-11.xml",
+    );
+  });
+
+  it("VAT-UEK z problemem i bez zmiany kwot nie daje pliku", async () => {
+    route(
+      config(),
+      registers({ issues: [] }),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe({ problems: [{ number: "KOR 1/11", detail: "korekta", kind: "earlier", period: "2026-09" }] }),
+      vatUek({
+        month: 9,
+        lines: [],
+        problems: [{ number: "KOR 1/11", detail: "faktura pierwotna nie ma dokumentu w księdze", kind: "outside" }],
+        can_download: false,
+      }),
+    );
+    renderView();
+    const block = await screen.findByRole("region", { name: "VAT-UEK za 09.2026" });
+    expect(await within(block).findByText(/faktura pierwotna nie ma dokumentu/)).toBeInTheDocument();
+    expect(within(block).getByRole("button", { name: "Pobierz VAT-UEK za 09.2026 (XML)" })).toBeDisabled();
   });
 });
 

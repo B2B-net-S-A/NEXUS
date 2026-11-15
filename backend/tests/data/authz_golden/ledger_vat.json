@@ -38,6 +38,8 @@
   "GET /api/accounting/vat/markers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/vat/ue": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/vat/ue/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/vat/uek": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/vat/uek/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/foreign": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/jpk": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/vat/jpk/compare": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
