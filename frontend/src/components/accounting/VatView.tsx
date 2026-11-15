@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { SectionCard, useAccounting } from "./AccountingShell";
 import { ForeignPurchaseCard } from "./ForeignPurchaseCard";
 import { JpkCard } from "./JpkCard";
+import { JpkCompareCard } from "./JpkCompareCard";
 import { VatMarkersCard } from "./VatMarkersCard";
 import { VatUeCard } from "./VatUeCard";
 import { datePl, gr } from "./ledger-model";
@@ -76,6 +77,7 @@ export function VatView() {
         </div>
       </div>
       <JpkCard year={data.year} month={data.month} blockers={jpkBlockers(data.issues)} />
+      <JpkCompareCard year={data.year} month={data.month} />
       <VatUeCard year={data.year} month={data.month} />
       <ForeignPurchaseCard year={data.year} month={data.month} />
       <RegisterCard
