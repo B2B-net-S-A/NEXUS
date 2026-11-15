@@ -2880,5 +2880,18 @@
     "href": "/clients",
     "section": "delivery",
     "dot_anchor": "clients.reports"
+  },
+  {
+    "id": "stawki-ramowe-raport-kwartalny",
+    "pr": 3462,
+    "title": "Stawki ramowe klienta i raport kwartalny",
+    "why": "Kto jest w stawce z umowy, kto dzięki dopłacie, kto ponad i co daje umowa. Raport kwartalny dla klienta pobierzesz jako Excel, bez marży.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Klienci → klient → Stawki ramowe → Raport kwartalny",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.framework-rates.report"
   }
 ]

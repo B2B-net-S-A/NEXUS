@@ -8,6 +8,12 @@ export function plnPerHour(value: string | number | null): string {
   return `${PLN.format(Number(value))} zł/h`;
 }
 
+/** Kwota w tabeli: bez jednostki (jest w nagłówku kolumny). */
+export function plnAmount(value: string | number | null): string {
+  if (value === null || value === "") return "—";
+  return PLN.format(Number(value));
+}
+
 export const STATUS_LABEL: Record<FrameworkStatus, string> = {
   in: "W stawce",
   in_addon: "W stawce dzięki dopłacie",

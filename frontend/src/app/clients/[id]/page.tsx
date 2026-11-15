@@ -92,6 +92,8 @@ import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
 import { FrameworkTermsPanel } from "@/components/clients/FrameworkTermsPanel";
+import { FrameworkRatesTab } from "@/components/clients/FrameworkRatesTab";
+import { useFrameworkTerms } from "@/lib/api/framework-rates";
 import { MaterialsTab } from "./MaterialsTab";
 import { ClientSettlementCard } from "./ClientSettlementCard";
 import { OnboardingPackTab } from "./OnboardingPackTab";
@@ -1083,6 +1085,8 @@ export default function ClientDetailPage() {
   // widzi kwoty TEGO klienta („Stawki i kwoty: podgląd”; Delivery Lead —
   // u klientów z przypisania). Serwer odmawia tak samo.
   const canViewDeliveryLegal = canViewClientFinance(user, Number(id));
+  // Zakładka „Stawki ramowe” tylko u klienta z cennikiem umowy ramowej (F2).
+  const frameworkTerms = useFrameworkTerms(Number(id), canViewDeliveryLegal);
   // Zapis warunków kontraktowych to dokumenty prawne klienta, nie edycja
   // klienta: „Kontrakty i zamówienia” + podgląd kwot (lustro backendu).
   const canEditDeliveryLegal = canEditClientLegalDocuments(user, Number(id));
@@ -1314,6 +1318,7 @@ export default function ClientDetailPage() {
       </div>
     );
 
+  const hasFrameworkTerms = canViewDeliveryLegal && (frameworkTerms.data?.cards.length ?? 0) > 0;
   const allTabs: { key: ClientTab; label: string }[] = [
     { key: "profil", label: "Profil" },
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
@@ -1328,6 +1333,7 @@ export default function ClientDetailPage() {
     { key: "zamowienia", label: "Zamówienia" },
     { key: "umowy-ramowe", label: "Umowy" },
     { key: "raporty", label: "Raporty" },
+    { key: "stawki-ramowe", label: "Stawki ramowe" },
     // Rzadkie — pod „Więcej” (`CLIENT_MORE_TABS`, makieta P5): DL klienta
     // stoi też w nagłówku, wiedza o kliencie ma wejście z „Ludzi i technologii”.
     { key: "zespol", label: "Delivery Lead" },
@@ -1339,6 +1345,7 @@ export default function ClientDetailPage() {
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
+      (hasFrameworkTerms || tab.key !== "stawki-ramowe") &&
       (careOpen || tab.key !== "ludzie") &&
       (startDocsOpen || packOpen || tab.key !== "wejscie") &&
       (invoicingOpen || tab.key !== "faktury") &&
@@ -1678,6 +1685,13 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
+          {hasFrameworkTerms && activeTab === "stawki-ramowe" && (
+            <FrameworkRatesTab
+              clientId={Number(id)}
+              canImport={hasAnalyticsCapability(user, "manage_finance")}
+              canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+            />
+          )}
           {canViewSales && activeTab === "sprzedaz" && <ClientSalesTab clientId={Number(id)} />}
           {careOpen && activeTab === "ludzie" && (
             <ClientPeopleTechTab
