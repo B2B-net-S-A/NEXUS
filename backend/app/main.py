@@ -4117,6 +4117,133 @@ async def api_health_deep_check(request: Request):
         ClientIssuedInvoice,
     )
 
+    # Tabele spoza paczki: siatka `entrypoint.sh` i moduły DDL w `app/services`
+    # (pomiar 15.11.2026), sondy na końcu listy.
+    from app.models.interview_feedback import InterviewFeedback
+    from app.models.linkedin_snapshot import CandidateLinkedinSnapshot
+    from app.models.marketplace_alert_log import MarketplaceAlertLog
+    from app.models.team_structure import ClientTacAssignment
+    from app.models.engagement_token import EngagementDeclarationToken
+    from app.models.job_chat import JobChatMention, JobChatMessage, JobChatReadState
+    from app.models.chat_reaction import (
+        CandidateChatMessageReaction,
+        JobChatMessageReaction,
+    )
+    from app.models.candidate_chat import (
+        CandidateChatMention,
+        CandidateChatMessage,
+        CandidateChatReadState,
+    )
+    from app.models.document_signature import DocumentSignature
+    from app.models.document_signature_event import DocumentSignatureEvent
+    from app.models.saved_search_alert_log import SavedSearchAlertLog
+    from app.models.cortex import (
+        CortexExtractionRun,
+        CortexSkillFact,
+        CortexUnmatchedObservation,
+    )
+    from app.models.contract_framework_rate import ContractFrameworkRate
+    from app.models.match_telemetry import MatchImpression, MatchOutcome
+    from app.models.index_outbox import IndexOutboxEvent
+    from app.models.traffit_integration import (
+        IntegrationLease,
+        TraffitEntityLink,
+        TraffitFieldContract,
+        TraffitIntegrationControl,
+        TraffitOutboxEvent,
+        TraffitSyncConflict,
+        TraffitSyncRun,
+        TraffitSyncRunPhase,
+        TraffitWebhookEvent,
+    )
+    from app.models.financial_adjustment import FinancialAdjustment
+    from app.models.analytics_snapshot import AnalyticsCutover, AnalyticsMetricSnapshot
+    from app.models.workflow_revision import (
+        StageRevision,
+        WorkflowDefinition,
+        WorkflowEdge,
+        WorkflowRevision,
+    )
+    from app.models.contract_alert_dedup import ContractAlertDedup
+    from app.models.application_submission import ApplicationSubmission
+    from app.models.match_score_invalidation import MatchScoreInvalidation
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.models.candidate_activity_summary import CandidateActivitySummary
+    from app.models.client_directory import (
+        ClientAlias,
+        ClientImportRow,
+        ClientImportRun,
+        ClientPortfolioScope,
+    )
+    from app.models.candidate_language import CandidateLanguage
+    from app.models.candidate_source_identity_review import (
+        CandidateSourceIdentityReview,
+    )
+    from app.models.section_permission import (
+        RBAC_RELATIONSHIP_RECONCILIATION,
+        ROLE_SESSION_MIGRATION_AUDIT,
+        RbacPermissionAudit,
+        RbacPolicyState,
+        RoleActionPermission,
+        RoleSectionPermission,
+        UserActionOverride,
+        UserSectionOverride,
+    )
+    from app.models.cv_generated_share import CvGeneratedShareToken, CvShareChatMessage
+    from app.models.help_material import HelpMaterial
+    from app.models.service_account import ServiceAccount, ServiceAccountKey
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+    from app.models.order_mail import OrderMailSyncState
+    from app.models.integration_run import (
+        IntegrationAlertState,
+        IntegrationRun,
+        IntegrationRunEvent,
+    )
+    from app.models.integration_external_item import IntegrationExternalItem
+    from app.models.mail_delivery import MailDeliveryState
+    from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal
+    from app.models.competition_period_closure import CompetitionPeriodClosure
+    from app.models.dz_review_hint import DzReviewHint
+    from app.models.b2b_register_import import B2BRegisterImportRow
+    from app.models.contract_termination_snapshot import ContractTerminationSnapshot
+    from app.models.deleted_note_source import DeletedNoteSource
+    from app.models.contract_doc_sharepoint import ContractDocSpRunItem
+    from app.services.candidate_rate_from import (
+        CANDIDATE_RATE_DECISIONS,
+        CANDIDATE_RATE_FROM_QUEUE,
+    )
+    from app.models.job_intake_form import JobIntakeForm
+    from app.models.cv_finding_dismissal import CvFindingDismissal
+    from app.models.integration_write_receipt import IntegrationWriteReceipt
+    from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
+    from app.models.job_previous_recruiter import JobPreviousRecruiter
+    from app.models.job_champion import JobChampion
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.models.autofill_feedback import AutofillFeedback
+    from app.models.autofill_quality_report import AutofillQualityReport
+    from app.models.candidate_job_owner import CandidateJobOwnerEvent
+    from app.models.sales import (
+        SalesCallDayTotal,
+        SalesCompanyBriefing,
+        SalesCompanyContact,
+        SalesContact,
+        SalesFile,
+        SalesLead,
+        SalesOpportunityContact,
+        SalesOpportunityEvent,
+        SalesPipeline,
+        SalesSignalRun,
+    )
+    from app.models.linkedin_extension import LinkedinExtensionConnection
+    from app.models.announcement import Announcement, AnnouncementRead
+    from app.models.candidate_ai_assessment import CandidateAiAssessment
+    from app.models.cpro_mail import CproMailEvent
+    from app.models.cv_generator_feedback import CvGeneratorFeedback
+    from app.models.job_recruiter_channel import JobRecruiterChannel
+    from app.models.candidate_conversation_fact import CandidateConversationFact
+    from app.models.duty_search_run import DutySearchResult, DutySearchRun
+    from app.models.b2b_signing_document import B2BSigningDocument
+
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
         ("recruitment_allocation_state", RecruitmentAllocationState),
@@ -4645,6 +4772,187 @@ async def api_health_deep_check(request: Request):
         # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
         ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
+        # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
+        # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
+        # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.
+        # 0043: opinie po rozmowach (feedback kandydata i klienta).
+        ("interview_feedback", InterviewFeedback),
+        # 0049: migawki profilu LinkedIn kandydata.
+        ("candidate_linkedin_snapshots", CandidateLinkedinSnapshot),
+        # 0053: dedup powiadomień Targu kandydatów.
+        ("marketplace_alert_log", MarketplaceAlertLog),
+        # 0060: przypisania TAC × klient.
+        ("client_tac_assignments", ClientTacAssignment),
+        # 0062: linki do deklaracji „Otwartość na dodatkowe projekty”.
+        ("engagement_declaration_tokens", EngagementDeclarationToken),
+        # 0063 i 0065: czaty rekrutacji i kandydata — wiadomości, wzmianki,
+        # stan przeczytania i reakcje.
+        ("job_chat_messages", JobChatMessage),
+        ("job_chat_mentions", JobChatMention),
+        ("job_chat_read_state", JobChatReadState),
+        ("job_chat_message_reactions", JobChatMessageReaction),
+        ("candidate_chat_messages", CandidateChatMessage),
+        ("candidate_chat_mentions", CandidateChatMention),
+        ("candidate_chat_read_state", CandidateChatReadState),
+        ("candidate_chat_message_reactions", CandidateChatMessageReaction),
+        # 0080: podpisy Autenti i zdarzenia z webhooka.
+        ("document_signatures", DocumentSignature),
+        ("document_signature_events", DocumentSignatureEvent),
+        # 0131: dedup alertów zapisanych wyszukiwań.
+        ("saved_search_alert_log", SavedSearchAlertLog),
+        # 0158: fakty umiejętności — czyta je wyszukiwarka i dedup słownika.
+        ("cortex_skill_facts", CortexSkillFact),
+        # 0166: harmonogram stawek z umowy ramowej.
+        ("contract_framework_rates", ContractFrameworkRate),
+        # 0167: przebiegi i obserwacje Cortexa — kod ich nie czyta od usunięcia
+        # Cortexa (23.09.2026), ale model i DDL siatki zostały.
+        ("cortex_extraction_runs", CortexExtractionRun),
+        ("cortex_unmatched_observations", CortexUnmatchedObservation),
+        # 0169: telemetria dopasowań (wyświetlenia i wyniki).
+        ("match_impressions", MatchImpression),
+        ("match_outcomes", MatchOutcome),
+        # 0171: kolejka indeksu wektorowego.
+        ("match_index_outbox", IndexOutboxEvent),
+        # 0173: Traffit — powiązania encji (scalanie kandydatów) i skrzynka webhooków;
+        # reszta to synchronizacja dwukierunkowa (#767), wyłączona, tabele puste.
+        ("traffit_entity_links", TraffitEntityLink),
+        ("traffit_webhook_events", TraffitWebhookEvent),
+        ("traffit_field_contracts", TraffitFieldContract),
+        ("traffit_outbox_events", TraffitOutboxEvent),
+        ("traffit_sync_conflicts", TraffitSyncConflict),
+        ("traffit_sync_runs", TraffitSyncRun),
+        ("traffit_sync_run_phases", TraffitSyncRunPhase),
+        ("integration_leases", IntegrationLease),
+        ("traffit_integration_control", TraffitIntegrationControl),
+        # 0176: korekty finansowe zamówień.
+        ("financial_adjustments", FinancialAdjustment),
+        # 0177: migawki metryk i rejestr cutoverów; wersjonowane workflow.
+        ("analytics_cutovers", AnalyticsCutover),
+        ("analytics_metric_snapshots", AnalyticsMetricSnapshot),
+        ("workflow_definitions", WorkflowDefinition),
+        ("workflow_revisions", WorkflowRevision),
+        ("stage_revisions", StageRevision),
+        ("workflow_edges", WorkflowEdge),
+        # 0188: dedup alertów wygasania kontraktów.
+        ("contract_alert_dedup", ContractAlertDedup),
+        # 0189: zgłoszenia z publicznego formularza do akceptacji.
+        ("application_submissions", ApplicationSubmission),
+        # 0194: unieważnienia pamięci wyników dopasowania.
+        ("match_score_invalidations", MatchScoreInvalidation),
+        # 0199: archiwum historii rekrutacji usuniętej korekcyjnie.
+        ("candidate_stage_removals", CandidateStageRemoval),
+        # 0204: „Podsumowanie aktywności” kandydata.
+        ("candidate_activity_summaries", CandidateActivitySummary),
+        # 0205: katalog klientów — aliasy, import portfela, zakresy.
+        ("client_aliases", ClientAlias),
+        ("client_import_runs", ClientImportRun),
+        ("client_import_rows", ClientImportRow),
+        ("client_portfolio_scopes", ClientPortfolioScope),
+        # 0206: języki kandydata.
+        ("candidate_languages", CandidateLanguage),
+        # 0207: decyzje o tożsamości źródła kandydata.
+        ("candidate_source_identity_reviews", CandidateSourceIdentityReview),
+        # 0210: cutover ról — bez modelu ORM, lekkie `table()`. Migawkę ról
+        # zapisuje scalenie ról przy każdym starcie, kolejkę domyka przypisanie TAC.
+        ("role_session_migration_audit", ROLE_SESSION_MIGRATION_AUDIT),
+        ("rbac_relationship_reconciliation", RBAC_RELATIONSHIP_RECONCILIATION),
+        # 0217: interaktywne CV — linki i czat na publicznym linku.
+        ("cv_generated_share_tokens", CvGeneratedShareToken),
+        ("cv_share_chat_messages", CvShareChatMessage),
+        # 0218: materiały w zakładce Pomoc.
+        ("help_materials", HelpMaterial),
+        # 0220: konta serwisowe i ich klucze API.
+        ("service_accounts", ServiceAccount),
+        ("service_account_keys", ServiceAccountKey),
+        # 0249: decyzje o zejściu konsultanta z linii MD.
+        ("client_order_offboarding_cases", ClientOrderOffboardingCase),
+        # 0264: stan pętli poczty zamówień.
+        ("order_mail_sync_state", OrderMailSyncState),
+        # 0269 i 0273: uprawnienia sekcji i akcji — czytane przy każdym żądaniu.
+        ("rbac_policy_state", RbacPolicyState),
+        ("rbac_role_section_permissions", RoleSectionPermission),
+        ("rbac_user_section_overrides", UserSectionOverride),
+        ("rbac_permission_audit", RbacPermissionAudit),
+        ("rbac_role_action_permissions", RoleActionPermission),
+        ("rbac_user_action_overrides", UserActionOverride),
+        # 0314 i 0315: przebiegi integracji, ich zdarzenia i alerty, stan importu JJIT.
+        ("integration_runs", IntegrationRun),
+        ("integration_run_events", IntegrationRunEvent),
+        ("integration_alert_state", IntegrationAlertState),
+        ("integration_external_items", IntegrationExternalItem),
+        # 0332: stan wysyłki poczty app-only (`checks.m365_mail`).
+        ("mail_delivery_state", MailDeliveryState),
+        # 0341: podobne rekrutacje.
+        ("job_similar_links", JobSimilarLink),
+        # 0344: zamknięcia okresów konkursów.
+        ("competition_period_closures", CompetitionPeriodClosure),
+        # 0353: podpowiedzi AI do przeglądu DZ, pamiętane per etap.
+        ("dz_review_hints", DzReviewHint),
+        # 0363: wiersze importu rejestru umów B2B.
+        ("b2b_register_import_rows", B2BRegisterImportRow),
+        # 0368: stan kontraktu przed zakończeniem (do cofnięcia).
+        ("contract_termination_snapshots", ContractTerminationSnapshot),
+        # 0395: nagrobki usuniętych notatek z Traffita.
+        ("deleted_note_sources", DeletedNoteSource),
+        # 0402: pozycje przebiegów dokumentów z SharePointa.
+        ("contract_doc_sp_run_items", ContractDocSpRunItem),
+        # 0414: „Stawka od” — decyzje rekrutera i kolejka przeliczeń; bez modelu
+        # ORM, lekkie `table()`.
+        ("candidate_rate_decisions", CANDIDATE_RATE_DECISIONS),
+        ("candidate_rate_from_queue", CANDIDATE_RATE_FROM_QUEUE),
+        # 0416: niedokończone formularze „Nowa rekrutacja”.
+        ("job_intake_forms", JobIntakeForm),
+        # 0439: pominięte uwagi QC CV („To nieprawda”).
+        ("cv_finding_dismissals", CvFindingDismissal),
+        # 0443: potwierdzenia zapisów API v1.
+        ("integration_write_receipts", IntegrationWriteReceipt),
+        # 0445: migawki szkicu CV przed „Napisz od nowa”.
+        ("cv_stage_draft_snapshots", CvStageDraftSnapshot),
+        # 0447: poprzedni rekruterzy rekrutacji.
+        ("job_previous_recruiters", JobPreviousRecruiter),
+        # 0450: championi rekrutacji.
+        ("job_champions", JobChampion),
+        # 0513, 0516, 0518: dopełnianie „Nowych” — pula, powody odrzucenia
+        # i raport jakości.
+        ("job_autofill_pool", JobAutofillPool),
+        ("autofill_feedback", AutofillFeedback),
+        ("autofill_quality_reports", AutofillQualityReport),
+        # 0519: historia „Prowadzi”.
+        ("candidate_job_owner_events", CandidateJobOwnerEvent),
+        # 0601–0683: Sprzedaż — lejki, kontakty, pliki, leady, historia szansy,
+        # biegi bota, dzienne liczniki dzwonienia.
+        ("sales_pipelines", SalesPipeline),
+        ("sales_contacts", SalesContact),
+        ("sales_opportunity_contacts", SalesOpportunityContact),
+        ("sales_files", SalesFile),
+        ("sales_leads", SalesLead),
+        ("sales_company_contacts", SalesCompanyContact),
+        ("sales_opportunity_events", SalesOpportunityEvent),
+        ("sales_signal_runs", SalesSignalRun),
+        ("sales_company_briefings", SalesCompanyBriefing),
+        ("sales_call_day_totals", SalesCallDayTotal),
+        # 0608: połączenia wtyczki LinkedIn.
+        ("linkedin_extension_connections", LinkedinExtensionConnection),
+        # 0615: pary „To nie bliźniak”.
+        ("job_twin_dismissals", JobTwinDismissal),
+        # 0619: ogłoszenia i ich odczyty.
+        ("announcements", Announcement),
+        ("announcement_reads", AnnouncementRead),
+        # 0620: „Oceń z AI”.
+        ("candidate_ai_assessments", CandidateAiAssessment),
+        # 0635: zdarzenia z maili CPro.
+        ("cpro_mail_events", CproMailEvent),
+        # 0636: powody „co generator zrobił źle”.
+        ("cv_generator_feedback", CvGeneratorFeedback),
+        # 0655: koszyki „Baza” / „LinkedIn” w zespole rekrutacji.
+        ("job_recruiter_channels", JobRecruiterChannel),
+        # 0670: rejestr faktów z rozmów.
+        ("candidate_conversation_facts", CandidateConversationFact),
+        # 0678: „Kto już to robił” — przebiegi i wyniki.
+        ("duty_search_runs", DutySearchRun),
+        ("duty_search_results", DutySearchResult),
+        # 0687: paczka do podpisu B2B.
+        ("b2b_signing_documents", B2BSigningDocument),
     ]
 
     checks: dict[str, str] = {}
