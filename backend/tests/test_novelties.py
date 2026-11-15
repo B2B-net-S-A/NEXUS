@@ -736,11 +736,33 @@ def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -
     )
     done = start_status([], {}, gate_on=True, impersonating=False, poligon=full)
     assert done["enforced"] is False and done["redirect"] == "/start"
-    # Wyłącznik blokady i podgląd jako inna osoba zdejmują też blokadę poligonu.
-    assert not start_status([], {}, gate_on=False, impersonating=False, poligon=half)[
+    # Wyłącznik Startu nie zdejmuje blokady poligonu (Artur, 15.11.2026):
+    # od 30.10 Start jest wyłączony, a nowa osoba ma stać na poligonie.
+    off = start_status(
+        [_novelty(id="start-jeden")],
+        {},
+        gate_on=False,
+        impersonating=False,
+        poligon=half,
+    )
+    assert off["enforced"] is True and off["redirect"] == "/poligon"
+    # Po zaliczeniu poligonu wyłączony Start nikogo nie zatrzymuje.
+    assert not start_status(
+        [_novelty(id="start-jeden")],
+        {},
+        gate_on=False,
+        impersonating=False,
+        poligon=full,
+    )["enforced"]
+    # Stack E2E wyłącza blokadę poligonu osobnym przełącznikiem (`poligon_gate`).
+    assert not start_status(
+        [], {}, gate_on=False, impersonating=False, poligon=half, poligon_gate_on=False
+    )["enforced"]
+    # Podgląd jako inna osoba niczego nie blokuje.
+    assert not start_status([], {}, gate_on=True, impersonating=True, poligon=half)[
         "enforced"
     ]
-    assert not start_status([], {}, gate_on=True, impersonating=True, poligon=half)[
+    assert not start_status([], {}, gate_on=False, impersonating=True, poligon=half)[
         "enforced"
     ]
     # Obecna osoba (poligon nie wymagany) nie jest blokowana niezaliczonym poligonem.

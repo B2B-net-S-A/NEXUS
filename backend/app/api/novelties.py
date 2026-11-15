@@ -77,6 +77,9 @@ class StartGateIn(BaseModel):
 
 #: Wyłącznik blokady Startu w ``app_settings``. Brak wiersza = blokada włączona.
 START_GATE_KEY = "start_gate"
+#: Blokada Poligonu bez wyłącznika w UI; wyłącza ją tylko seed stacku E2E
+#: (`scripts/seed_e2e.py`), bo scenariusze zakładają świeże konta rekruterów.
+POLIGON_GATE_KEY = "poligon_gate"
 
 
 class RemindIn(BaseModel):
@@ -469,8 +472,8 @@ async def remind_novelty(
     return {"reminded": int(result.rowcount or 0)}
 
 
-async def start_gate_on(db: AsyncSession) -> bool:
-    row = await db.get(AppSetting, START_GATE_KEY)
+async def start_gate_on(db: AsyncSession, key: str = START_GATE_KEY) -> bool:
+    row = await db.get(AppSetting, key)
     if row is None or not isinstance(row.value, dict):
         return True
     return bool(row.value.get("enforced", True))
@@ -502,6 +505,7 @@ def start_status(
     gate_on: bool,
     impersonating: bool,
     poligon: Optional[dict[str, Any]] = None,
+    poligon_gate_on: bool = True,
 ) -> dict[str, Any]:
     """Start osoby: lista przeklikań i czy front ma ją zatrzymać.
 
@@ -521,12 +525,16 @@ def start_status(
     ]
     done = sum(1 for item in items if item["done"])
     poligon_due = bool(
-        poligon and poligon["required"] and poligon["done"] < poligon["total"]
+        poligon_gate_on
+        and poligon
+        and poligon["required"]
+        and poligon["done"] < poligon["total"]
     )
+    # Wyłącznik Startu (`gate_on`) dotyczy tylko przeklikań; poligon nowej
+    # osoby blokuje zawsze (Artur, 15.11.2026 — Start wyłączony od 30.10).
     return {
-        "enforced": gate_on
-        and not impersonating
-        and (done < len(items) or poligon_due),
+        "enforced": not impersonating
+        and (poligon_due or (gate_on and done < len(items))),
         "gate_on": gate_on,
         "done": done,
         "total": len(items),
@@ -559,6 +567,7 @@ async def my_start(
         poligon=(
             poligon_status(progress, open_=open_, required=required) if open_ else None
         ),
+        poligon_gate_on=await start_gate_on(db, POLIGON_GATE_KEY),
     )
 
 
