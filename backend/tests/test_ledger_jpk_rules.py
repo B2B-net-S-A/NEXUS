@@ -4,6 +4,8 @@ z crd.gov.pl). Kwoty w groszach, firma, kontrahenci i numery fikcyjne."""
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timezone
 
 from lxml import etree
@@ -189,8 +191,10 @@ def test_schema_catches_a_broken_file():
 
 
 def test_counterparty_country_comes_from_the_identifier():
-    """Przegląd K5b: kraj nadania z prefiksu numeru VAT UE, Grecja = EL."""
+    """Przegląd K5b: kraj nadania z prefiksu numeru VAT UE, Grecja = EL;
+    „UK” z kartoteki (spoza słownika MF) = GB (przegląd K5b-2)."""
 
+    assert jpk.counterparty("GB123456789", "UK") == ("GB", "123456789")
     assert jpk.counterparty("DE123456789", None) == ("DE", "123456789")
     assert jpk.counterparty("EL123456789", "GR") == ("EL", "123456789")
     assert jpk.counterparty("123456789", "GR") == ("EL", "123456789")
@@ -226,3 +230,119 @@ def test_rows_whose_amounts_do_not_fit_jpk_fields_are_listed():
 def test_periods_before_february_2026_are_refused():
     assert jpk.period_problem(2026, 1) and jpk.period_problem(2025, 12)
     assert jpk.period_problem(2026, 2) is None
+
+
+def _tags(node) -> list[str]:
+    return [child.tag.split("}")[1] for child in node]
+
+
+def test_markers_and_import_of_services_pass_the_schema():
+    """K5b-2: GTU/TP z kartoteki na fakturze sprzedaży (GTU przed TP), import
+    usług od podatnika z UE (K_29/K_30) i spoza UE (K_27/K_28) z BFK."""
+
+    data = _data()
+    data["sales"][0]["markers"] = ["GTU_12", "TP"]
+    data["sales"] += [
+        _row(
+            "INV-0042",
+            [("imp_28b", 43_000, 9_890)],
+            tax_id="IE1234567T",
+            country="IE",
+            counterparty="Dostawca SaaS Ltd",
+            issue_date="2026-03-21",
+            date="2026-03-20",
+        ),
+        _row(
+            "US-77",
+            [("imp_other", 50_000, 11_500)],
+            tax_id="123456789",
+            country="US",
+            counterparty="Vendor Inc.",
+        ),
+    ]
+    data["purchases"].append(
+        _row(
+            "INV-0042",
+            [("other", 43_000, 9_890)],
+            tax_id="IE1234567T",
+            country="IE",
+            counterparty="Dostawca SaaS Ltd",
+            issue_date="2026-03-21",
+            date="2026-03-21",
+        )
+    )
+    content, totals = _build_data(data)
+    assert jpk.validate(content) == []
+    root = etree.fromstring(content)
+    rows = root.findall(".//j:SprzedazWiersz", NS)
+    first, imported, outside = rows[0], rows[3], rows[4]
+    tags = _tags(first)
+    assert tags.index("NrKSeF") < tags.index("GTU_12") < tags.index("TP") < tags.index("K_19")
+    assert (first.findtext("j:GTU_12", namespaces=NS), first.findtext("j:TP", namespaces=NS)) == ("1", "1")
+    assert not any(tag.startswith("GTU") or tag == "TP" for tag in _tags(rows[1]))
+    assert (imported.findtext("j:KodKrajuNadaniaTIN", namespaces=NS), imported.findtext("j:NrKontrahenta", namespaces=NS)) == ("IE", "1234567T")
+    assert imported.findtext("j:BFK", namespaces=NS) == "1"
+    assert imported.findtext("j:DataSprzedazy", namespaces=NS) == "2026-03-20"
+    assert (imported.findtext("j:K_29", namespaces=NS), imported.findtext("j:K_30", namespaces=NS)) == ("430.00", "98.90")
+    assert not any(tag.startswith("GTU") for tag in _tags(imported))
+    assert (outside.findtext("j:KodKrajuNadaniaTIN", namespaces=NS), outside.findtext("j:K_27", namespaces=NS), outside.findtext("j:K_28", namespaces=NS)) == ("US", "500.00", "115.00")
+    purchase = root.findall(".//j:ZakupWiersz", NS)[-1]
+    assert (purchase.findtext("j:K_42", namespaces=NS), purchase.findtext("j:K_43", namespaces=NS), purchase.findtext("j:BFK", namespaces=NS)) == ("430.00", "98.90", "1")
+    assert purchase.find("j:DataWplywu", NS) is None
+    positions = {child.tag.split("}")[1]: int(child.text) for child in root.find(".//j:PozycjeSzczegolowe", NS)}
+    assert {key: positions[key] for key in ("P_27", "P_28", "P_29", "P_30", "P_37", "P_38", "P_43", "P_48", "P_62")} == {
+        "P_27": 500,
+        "P_28": 115,
+        "P_29": 430,
+        "P_30": 99,
+        "P_37": 3980,
+        "P_38": 421,
+        "P_43": 329,
+        "P_48": 1479,
+        "P_62": 1058,
+    }
+    assert root.findtext(".//j:PodatekNalezny", namespaces=NS) == "420.90"
+    assert root.findtext(".//j:PodatekNaliczony", namespaces=NS) == "1478.90"
+    assert totals["sales_rows"] == 5
+
+
+def _build_data(data: dict):
+    return jpk.build(
+        data,
+        company=COMPANY,
+        email="ksiegowosc@example.com",
+        phone="",
+        purpose="submission",
+        reason=None,
+        surplus=0,
+        now=NOW,
+    )
+
+
+def test_fingerprint_without_markers_stays_as_in_k5b1():
+    """Odcisk wersji wysłanych przed K5b-2 (bez znaczników) się nie zmienia;
+    znacznik dodany po wysłaniu = rejestr inny niż w pliku (korekta)."""
+
+    data = _data()
+    k5b1 = hashlib.sha256(
+        json.dumps(
+            sorted(
+                [
+                    kind,
+                    row["document_id"],
+                    row["net"],
+                    row["vat"],
+                    sorted((g["key"], g["net"], g["vat"]) for g in row["groups"]),
+                ]
+                for kind in ("sales", "purchases")
+                for row in data[kind]
+            ),
+            ensure_ascii=False,
+        ).encode()
+    ).hexdigest()
+    assert jpk.fingerprint(data) == k5b1
+    for row in data["sales"]:
+        row["markers"] = []
+    assert jpk.fingerprint(data) == k5b1
+    data["sales"][0]["markers"] = ["GTU_12"]
+    assert jpk.fingerprint(data) != k5b1

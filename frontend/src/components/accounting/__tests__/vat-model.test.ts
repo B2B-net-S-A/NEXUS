@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { dueLabel, fieldsLabel, issueLink, jpkBlockers, rowGroups, taxIdLabel } from "@/components/accounting/vat-model";
+import {
+  dueLabel,
+  fieldsLabel,
+  issueLink,
+  jpkBlockers,
+  markersLabel,
+  netValid,
+  rowGroups,
+  supplierGroup,
+  taxIdLabel,
+} from "@/components/accounting/vat-model";
 
 describe("rejestry VAT — etykiety (K5a)", () => {
   it("pola JPK grupy", () => {
@@ -38,5 +48,25 @@ describe("rejestry VAT — etykiety (K5a)", () => {
         { kind: "drafts", label: "FVS i FVZ w buforze — rejestr liczy tylko zatwierdzone", count: 2, items: [] },
       ]),
     ).toEqual(["faktury sprzedaży z ksef bez dokumentu w księdze: 7", "fvs i fvz w buforze: 2"]);
+  });
+});
+
+describe("zakup zagraniczny i znaczniki (K5b-2)", () => {
+  it("grupa JPK nowego dostawcy: z UE z numerem VAT = art. 28b", () => {
+    expect(supplierGroup("ie", "1234567T")).toBe("imp_28b");
+    expect(supplierGroup("IE", "")).toBe("imp_other");
+    expect(supplierGroup("US", "123456789")).toBe("imp_other");
+    expect(supplierGroup("GB", "GB123456789")).toBe("imp_other");
+  });
+
+  it("netto: przecinek, spacje, korekta in minus, bez zera i trzech miejsc", () => {
+    expect(["1 234,56", "100", "-15.5", "0.01"].map(netValid)).toEqual([true, true, true, true]);
+    expect(["0", "0,00", "10.005", "abc", "", "1e3"].map(netValid)).toEqual([false, false, false, false, false, false]);
+  });
+
+  it("wiersz rejestru: import usług i znaczniki", () => {
+    expect(rowGroups({ groups: [{ key: "imp_28b", net: 1, vat: 1 }], problem: null })).toBe("import usług UE");
+    expect(markersLabel(["GTU_12", "TP"])).toBe("GTU_12, TP");
+    expect(markersLabel([])).toBe("bez znaczników");
   });
 });

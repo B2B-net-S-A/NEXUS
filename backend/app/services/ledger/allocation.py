@@ -7,7 +7,8 @@ miesiąc powstaje jedno polecenie księgowania: Wn konta „5” z MPK, Ma konto
 rozliczenia kosztów (490).
 
 * **Z czego**: zapisy miesiąca, jak w dzienniku — zatwierdzone FVZ okresu ze
-  źródłem w kolejce kosztów (``finance_cost_entry``), także później odwrócone,
+  źródłem w kolejce kosztów (``finance_cost_entry``) albo w formularzu zakupu
+  zagranicznego (``foreign_purchase``, K5b-2), także później odwrócone,
   i zatwierdzone storna takich FVZ zaksięgowane w tym okresie (z MPK faktury
   pierwotnej). Storno w kwietniu odejmuje koszt w kwietniu, a zamknięty marzec
   zostaje zgodny (przegląd poprawności 14.11.2026). Kwota = Wn − Ma pozycji na
@@ -15,8 +16,9 @@ rozliczenia kosztów (490).
   już nieksięgowalnego — zmiana planu nie gubi zaksięgowanych kosztów).
 * **MPK**: faktura kontraktora → klient kontraktu (``K<id klienta>``); faktura
   osoby zespołu → pion z kartoteki (``FO`` / ``BO``); dokument akceptacji →
-  klient wniosku, inaczej pion wnioskującego; reszta → koszty ogólne (``OG``,
-  do czasu klucza podziału biura od Finansów).
+  klient wniosku, inaczej pion wnioskującego; reszta — także zakup zagraniczny
+  (faktura bez klienta i pionu) → koszty ogólne (``OG``, do czasu klucza
+  podziału biura od Finansów).
 * **D2**: koszty z faktur osób zespołu idą osobnym PK z wrażliwością
   ``payroll`` na jednym koncie kosztów zespołu, z pionem tylko w MPK pozycji —
   suma pionu bywa kwotą jednej osoby, a obroty kont pokazują sumy każdemu
@@ -44,13 +46,15 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.hr_settlement import PayrollInvoice
 from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.hr.structure import DIVISION_LABELS
-from app.services.ledger.documents import DocumentSpec
+from app.services.ledger.documents import FOREIGN_PURCHASE_SOURCE, DocumentSpec
 from app.services.ledger.engine import LineIn, PlanAccount
 from app.services.ledger.settings import AllocationAccounts
 from app.services.ledger_schema import DESCRIPTION_MAX, LINE_TEXT_MAX
 
 SOURCE_TYPE = "cost_allocation"
 COST_SOURCE = "finance_cost_entry"
+#: FVZ, których koszt idzie na „5”: kolejka kosztów i zakup zagraniczny (K5b-2).
+COST_SOURCES = (COST_SOURCE, FOREIGN_PURCHASE_SOURCE)
 OVERHEAD = "OG"
 DIVISION_CODES: dict[str, str] = {"front_office": "FO", "back_office": "BO"}
 KIND_ACCOUNT: dict[str, str] = {
@@ -170,8 +174,9 @@ def account_kind(number: str, plan: dict[str, PlanAccount]) -> Optional[str]:
 
 async def _cost_by_entry(
     db: AsyncSession, period_id: int, plan: dict[str, PlanAccount], *, payroll: bool
-) -> dict[int, int]:
-    """Koszt okresu (Wn − Ma na kontach „koszt”) per wpis kolejki kosztów.
+) -> tuple[dict[int, int], int]:
+    """Koszt okresu (Wn − Ma na kontach „koszt”) per wpis kolejki kosztów
+    i — osobno, jedną kwotą — z zakupów zagranicznych (K5b-2, koszty ogólne).
 
     FVZ zaksięgowane w okresie (także odwrócone później) i storna FVZ
     zaksięgowane w okresie — storno czerwone ma kwoty ujemne, więc odejmuje się
@@ -182,12 +187,16 @@ async def _cost_by_entry(
     signed = case(
         (LedgerLine.side == "debit", LedgerLine.amount), else_=-LedgerLine.amount
     )
+    kind = case(
+        (LedgerDocument.reverses_id.is_(None), LedgerDocument.source_type),
+        else_=original.source_type,
+    )
     entry = case(
         (LedgerDocument.reverses_id.is_(None), LedgerDocument.source_id),
         else_=original.source_id,
     )
     rows = await db.execute(
-        select(entry, LedgerLine.account, func.sum(signed))
+        select(kind, entry, LedgerLine.account, func.sum(signed))
         .select_from(LedgerDocument)
         .join(LedgerLine, LedgerLine.document_id == LedgerDocument.id)
         .outerjoin(original, original.id == LedgerDocument.reverses_id)
@@ -195,10 +204,10 @@ async def _cost_by_entry(
             LedgerDocument.period_id == period_id,
             LedgerDocument.status == "approved",
             or_(
-                LedgerDocument.source_type == COST_SOURCE,
+                LedgerDocument.source_type.in_(COST_SOURCES),
                 and_(
                     LedgerDocument.doc_type == "ST",
-                    original.source_type == COST_SOURCE,
+                    original.source_type.in_(COST_SOURCES),
                 ),
             ),
             (
@@ -207,15 +216,18 @@ async def _cost_by_entry(
                 else LedgerDocument.sensitivity.is_(None)
             ),
         )
-        .group_by(entry, LedgerLine.account)
+        .group_by(kind, entry, LedgerLine.account)
     )
     out: dict[int, int] = defaultdict(int)
-    for raw_id, account, amount in rows.all():
+    foreign = 0
+    for source_type, raw_id, account, amount in rows.all():
         if account_kind(account, plan) != "cost":
             continue
-        if raw_id and raw_id.isdigit():
+        if source_type == FOREIGN_PURCHASE_SOURCE:
+            foreign += int(amount or 0)
+        elif raw_id and raw_id.isdigit():
             out[int(raw_id)] += int(amount or 0)
-    return dict(out)
+    return dict(out), foreign
 
 
 async def _mpk_by_entry(db: AsyncSession, entry_ids: list[int]) -> dict[int, Mpk]:
@@ -303,14 +315,15 @@ async def month_totals(
 ) -> dict[Mpk, int]:
     """Koszty zatwierdzonych FVZ okresu zsumowane po MPK (grosze)."""
 
-    by_entry = await _cost_by_entry(db, period_id, plan, payroll=payroll)
-    if not by_entry:
-        return {}
-    mpks = await _mpk_by_entry(db, list(by_entry))
+    by_entry, foreign = await _cost_by_entry(db, period_id, plan, payroll=payroll)
     overhead = Mpk(OVERHEAD, "overhead", "Koszty ogólne")
     totals: dict[Mpk, int] = defaultdict(int)
-    for entry_id, amount in by_entry.items():
-        totals[mpks.get(entry_id, overhead)] += amount
+    if by_entry:
+        mpks = await _mpk_by_entry(db, list(by_entry))
+        for entry_id, amount in by_entry.items():
+            totals[mpks.get(entry_id, overhead)] += amount
+    if foreign:
+        totals[overhead] += foreign
     return dict(totals)
 
 
@@ -326,7 +339,7 @@ async def pending_cost_documents(
             .where(
                 LedgerDocument.period_id == period_id,
                 LedgerDocument.status == "draft",
-                LedgerDocument.source_type == COST_SOURCE,
+                LedgerDocument.source_type.in_(COST_SOURCES),
                 (
                     LedgerDocument.sensitivity.is_not(None)
                     if payroll
