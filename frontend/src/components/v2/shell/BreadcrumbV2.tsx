@@ -127,6 +127,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   costs: "Koszty",
   // 13.11.2026: /accounting — Księgowość (księga NEXUSA, K1).
   accounting: "Księgowość",
+  // 15.11.2026: /compliance — Przepisy (zmiany w prawie i terminy).
+  compliance: "Przepisy",
   documents: "Dokumenty",
   "trial-balance": "Obroty i salda",
   chart: "Plan kont",

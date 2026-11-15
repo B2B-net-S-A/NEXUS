@@ -1624,6 +1624,9 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // należą do sekcji, a nie do osobnej capability nawigacyjnej.
   "/calendar",
   "/cv-generator",
+  // „Przepisy” (15.11.2026): rola (admin, HoR) ALBO jedno z czterech uprawnień
+  // — lustro `require_compliance_access`; pilnuje `nav-registry.test.ts`.
+  "/compliance",
 ];
 
 describe("kontrakt sidebar ↔ rejestr capability", () => {
