@@ -21,10 +21,12 @@ import { formatMoney } from "@/lib/money";
 import { resolveViewState } from "@/lib/view-state";
 
 import { AdvanceDialog } from "./AdvanceDialog";
+import { ManualInvoiceDialog } from "./ManualInvoiceDialog";
 import { STATUS_TONE, paymentLabel } from "./issue-format";
 
 const EMPTY: Record<"drafts" | "sent", string> = {
-  drafts: "Nie ma szkiców ani faktur do poprawienia. Szkice tworzysz w „Wystaw za miesiąc”.",
+  drafts:
+    "Nie ma szkiców ani faktur do poprawienia. Szkice tworzysz w „Wystaw za miesiąc”, w „Szablonach” albo przyciskiem „Nowa faktura”.",
   sent: "W tym miesiącu nie wysłano z NEXUSA żadnej faktury.",
 };
 
@@ -37,6 +39,7 @@ export function IssuedListPanel({ view, period }: { view: "drafts" | "sent"; per
   // Szkice bez filtra miesiąca: szkic z poprzedniego miesiąca też czeka na wysłanie.
   const query = useIssuedList(view, view === "sent" ? period : null);
   const [advance, setAdvance] = useState(false);
+  const [manual, setManual] = useState(false);
   const invoices = query.data?.invoices ?? [];
   const state = resolveViewState({
     isLoading: query.isLoading,
@@ -48,7 +51,11 @@ export function IssuedListPanel({ view, period }: { view: "drafts" | "sent"; per
   return (
     <div className="space-y-2">
       {view === "drafts" ? (
-        <div className="flex justify-end">
+        <div className="flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => setManual(true)}>
+            <Plus className="h-4 w-4" aria-hidden />
+            Nowa faktura
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setAdvance(true)}>
             <Plus className="h-4 w-4" aria-hidden />
             Faktura zaliczkowa
@@ -72,6 +79,7 @@ export function IssuedListPanel({ view, period }: { view: "drafts" | "sent"; per
         <IssuedTable invoices={invoices} />
       )}
       {advance ? <AdvanceDialog onClose={() => setAdvance(false)} /> : null}
+      {manual ? <ManualInvoiceDialog onClose={() => setManual(false)} /> : null}
     </div>
   );
 }

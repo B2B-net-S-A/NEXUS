@@ -30,6 +30,7 @@ import {
   useDeleteIssued,
   useIssueSettings,
   useIssuedCard,
+  useSaveAsTemplate,
   useSendIssued,
   useUpdateIssued,
   type IssueBuyer,
@@ -166,6 +167,7 @@ function CardBody({
   const send = useSendIssued();
   const check = useCheckIssued();
   const remove = useDeleteIssued();
+  const saveTemplate = useSaveAsTemplate();
   const [form, setForm] = useState<FormState>(() => formFrom(card));
   const [dirty, setDirty] = useState(false);
   const [correction, setCorrection] = useState(false);
@@ -352,6 +354,29 @@ function CardBody({
               }
             >
               XML
+            </Button>
+          ) : null}
+          {card.invoice_type === "VAT" && card.template_id === null ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={saveTemplate.isPending}
+              onClick={() =>
+                saveTemplate.mutate(card.id, {
+                  onSuccess: () =>
+                    showToast(
+                      "Zapisano szablon — znajdziesz go w „Szablony”",
+                      "success",
+                    ),
+                  onError: (err) =>
+                    showToast(
+                      apiErrorMessage(err, "Nie udało się zapisać szablonu."),
+                      "error",
+                    ),
+                })
+              }
+            >
+              Zapisz jako szablon
             </Button>
           ) : null}
           {card.can_correct ? (
