@@ -254,7 +254,12 @@ export async function markSent(id: number, input: MarkSentInput): Promise<Report
   if (input.note) form.append("note", input.note);
   if (input.run_id != null) form.append("run_id", String(input.run_id));
   if (input.file) form.append("file", input.file);
-  return (await api.post<ReportRun>(`${BASE}/definitions/${id}/runs`, form)).data;
+  // Jawny multipart: domyślny JSON w `api` zserializowałby plik (strażnik formdata-multipart).
+  return (
+    await api.post<ReportRun>(`${BASE}/definitions/${id}/runs`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+  ).data;
 }
 
 export async function getCalendar(month: string, mine: boolean): Promise<ReportsCalendar> {
