@@ -85,6 +85,9 @@ _GATE_QUALNAME_MARKERS = (
     # Skrzynka Outlook (28.10.2026): odczyt kandydatów albo „Sprzedaż: podgląd”
     # (``api/microsoft365.require_mailbox_owner`` / ``_status_reader``).
     "require_mailbox_",
+    # Radar przepisów (15.11.2026): admin i HoR z roli, reszta z uprawnień
+    # Finanse, Płace, Kadry albo Kontrakty (``app/api/law_radar.py``).
+    "require_compliance_access",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
@@ -100,6 +103,8 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "portal_context",
     # Raport bota researchu: jednorazowy token biegu (``X-Run-Token``).
     "require_signal_run_token",
+    # Raport botów radaru przepisów: jednorazowy token biegu (``X-Run-Token``).
+    "require_law_run_token",
 )
 
 # Many handlers carry no gate in their signature but check imperatively as the
@@ -408,6 +413,8 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     # Zespół dla klienta (0711): skład kilku rekrutacji pod jednym linkiem.
     ("GET", "/api/public/team-panel/{token}"),
     ("POST", "/api/public/team-panel/{token}/selection"),
+    # Z3: rozmowy z całym składem = N wniosków przez wspólny serwis terminów.
+    ("POST", "/api/public/team-panel/{token}/interviews"),
 }
 
 # Publiczne bez `@limiter.limit`: sondy i webhooki wołają automaty, nie ludzie.

@@ -1,5 +1,5 @@
 # Zespół dla klienta: kilka rekrutacji, jeden link (0711, 15.11.2026)
-<!-- indeks: `/zespoly/{id}`, `/k/z/{token}`, pojemnik a nie typ rekrutacji, link wyłączony domyślnie, włączenie zespołu włącza panele stanowisk, kształt publiczny z paneli stanowisk, wybór składu bez treści w dzwonku, odłożone Z3–Z4 -->
+<!-- indeks: `/zespoly/{id}`, `/k/z/{token}`, pojemnik a nie typ rekrutacji, link wyłączony domyślnie, włączenie zespołu włącza panele stanowisk, kształt publiczny z paneli stanowisk, wybór składu bez treści w dzwonku, gotowe składy (automat proponuje, DL zatwierdza), rozmowy z całym składem, odłożone Z4 -->
 
 Decyzje Artura z 15.11.2026 (zakres Z1 + Z2). Makiety:
 https://claude.ai/artifact/KAz5WWuPqsyZFBdHFE9ohn. Kod: `api/job_team_panel.py`,
@@ -58,6 +58,47 @@ rekrutacji”, nie ten moduł.
   na Tablicy: decyzja i rozmowy zostają u DL-a.
 - **Cena = suma stawek do klienta, bez rabatu**, 168 godzin w miesiącu
   (`hours_per_month`); liczy ekran. Kropki wymagań tylko w szczegółach stanowiska.
-- **Odłożone:** odczyt maila rozbijający zapytanie na stanowiska (AI), gotowe
-  składy z automatu z zatwierdzeniem DL-a i „Rozmowy z całym składem” (Z3),
-  cennik z `rate_cards` (Z4). Bez AI w żądaniu publicznym.
+- **Odłożone:** odczyt maila rozbijający zapytanie na stanowiska (AI), cennik
+  z `rate_cards` (Z4). Bez AI w żądaniu publicznym.
+
+## Z3: gotowe składy i rozmowy z całym składem (0713, 15.11.2026)
+
+Kod: `services/job_team_variants.py` (reguły bez bazy, zapis, otwarty wniosek),
+widok klienta `public_variants` w `services/job_team_panel.py`. Kolumny
+`job_teams.variants`, `variants_approved_at`, `variants_approved_by`
+(`VARIANTS_DDL` w `services/job_team_schema.py`, lustro w `entrypoint.sh`,
+sonda `job_teams` czyta je przez model).
+
+- **Automat proponuje, DL zatwierdza, klient widzi tylko zatwierdzone.**
+  `GET /api/job-teams/{id}/variants/proposal` liczy trzy składy na żądanie
+  i niczego nie zapisuje: „Najszybszy start” (najwcześniejsza dostępność, data
+  z przeszłości = dziś, brak daty na końcu; remis → tańszy), „Najniższa cena”
+  (stawka godzinowa do klienta, inna jednostka albo brak = na końcu; remis →
+  wcześniejszy start), „Najwięcej w CV” (`in_projects` z dowodów jak w panelu;
+  remis → tańszy). Ostatni remis: kolejność wysyłki CV. Kandydaci to pary
+  z widoku DL-a (wysłane, proces otwarty), bez osób ukrytych w panelu i „nie
+  pasuje”; zamknięte stanowisko pomijane. Na każde miejsce jedna osoba,
+  stanowisko z mniejszą liczbą osób dostaje wszystkie, puste znika ze składu.
+  Takie same składy zostają, ekran je pokazuje. `hourly_total` = suma znanych
+  stawek godzinowych (`null`, gdy żadnej), `start` = najpóźniejsza znana
+  dostępność, `unknown_start` = osoby bez daty.
+- **`PUT /api/job-teams/{id}/variants`** (0–3 składy) zapisuje to, co DL
+  zatwierdził albo podmienił: rekrutacja spoza zespołu, osoba spoza wysłanych
+  CV stanowiska, więcej osób niż miejsc, powtórzone stanowisko lub klucz albo
+  skład bez nikogo = 422. Nazwa (1–60) i uzasadnienie (0–240) idą do klienta:
+  zwykły tekst bez znaków sterujących, żadnej treści od klienta. `[]` =
+  wycofanie (`variants_approved_at` = `null`). Audyt `job_team_variants_approved`
+  / `job_team_variants_withdrawn` na każdej rekrutacji. Bramka jak reszta zespołu.
+- **Klient** dostaje `variants: [{key, name, why, picks: {klucz stanowiska:
+  [public_id]}}]` w `GET /api/public/team-panel/{token}`. Osoba, której klient
+  już nie widzi na liście stanowiska (ukryta, wycofana, stanowisko zamknięte
+  albo z wyłączonym panelem), wypada; skład bez nikogo wypada.
+- **Rozmowy z całym składem** (`POST /api/public/team-panel/{token}/interviews`,
+  jedna siatka terminów i `picks`) to N wniosków przez wspólny serwis
+  `create_slot_request_for_pair`, dokładnie jak prośba o jedną osobę z panelu
+  stanowiska: normalizacja terminów i limit 6, karta na „Rozmowę u klienta”,
+  dzwonek rekrutera i DL-a, sprawa `interview` w panelu stanowiska. Czekający
+  wniosek = `skipped` z `open_request`, stanowisko z wyłączonymi prośbami =
+  `actions_disabled`; to nie są błędy. Dzienny limit panelu stanowiska (30) daje
+  429 dla całego żądania przed zapisem. Każdy wniosek jest zatwierdzany osobno,
+  bo wspólny serwis przy wyścigu o otwarty wniosek cofa całą transakcję.

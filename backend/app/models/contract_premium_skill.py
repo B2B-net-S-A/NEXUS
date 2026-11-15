@@ -1,4 +1,4 @@
-"""Wniosek o dopłatę za technologię premium dla kontraktu (0713, F3).
+"""Wniosek o dopłatę za technologię premium dla kontraktu (0716, F3).
 
 Historia osoby: zamknięte wnioski zostają (przyznana z potwierdzeniem klienta,
 odmowa z powodem i datą kolejnej próby). Logika w ``services/premium_skills.py``.

@@ -8,6 +8,7 @@ Reguły: ``docs/claude/klienci/zespol-dla-klienta.md``.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Iterable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -30,6 +31,7 @@ from app.models.job_team_panel import JobTeam
 from app.models.user import User, UserRole
 from app.services import client_panel as panel_service
 from app.services import job_team_panel as team_service
+from app.services import job_team_variants as variants_service
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -85,6 +87,43 @@ class TeamUpdate(BaseModel):
 class TeamPanelUpdate(BaseModel):
     enabled: Optional[bool] = None
     show_rate: Optional[bool] = None
+
+
+class VariantPickIn(BaseModel):
+    job_id: int
+    candidate_ids: list[int] = Field(default_factory=list, max_length=50)
+
+
+class VariantIn(BaseModel):
+    """Gotowy skład od DL-a; nazwę i uzasadnienie czyta klient."""
+
+    key: str = Field(..., min_length=1, max_length=variants_service.KEY_MAX)
+    name: str = Field(..., min_length=1, max_length=4 * variants_service.NAME_MAX)
+    why: str = Field("", max_length=4 * variants_service.WHY_MAX)
+    picks: list[VariantPickIn] = Field(..., max_length=team_service.MAX_JOBS)
+
+    @field_validator("key")
+    @classmethod
+    def _key(cls, value: str) -> str:
+        return variants_service.clean_key(value)
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        return variants_service.clean_text(
+            value, limit=variants_service.NAME_MAX, required=True
+        )
+
+    @field_validator("why")
+    @classmethod
+    def _why(cls, value: str) -> str:
+        return variants_service.clean_text(
+            value, limit=variants_service.WHY_MAX, required=False
+        )
+
+
+class VariantsUpdate(BaseModel):
+    variants: list[VariantIn] = Field(..., max_length=variants_service.MAX_VARIANTS)
 
 
 async def _ensure_manages(db: AsyncSession, user: User, jobs: Iterable[Job]) -> None:
@@ -332,6 +371,48 @@ async def rotate_team_link(
             panel_service.issue_token(panel)
         db.add(
             _audit(job.id, current_user, "job_team_panel_link_rotated", team_id=team.id)
+        )
+    await db.flush()
+    view = await team_service.team_detail(db, team, jobs)
+    await db.commit()
+    return view
+
+
+# ── Gotowe składy (Z3, 0713) ─────────────────────────────────────────────────
+
+
+@router.get("/{team_id}/variants/proposal")
+async def propose_variants(
+    team_id: int,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Trzy składy automatu do przejrzenia przez DL-a; nic nie zapisuje."""
+    _, jobs = await _team_for(db, current_user, team_id)
+    return {"variants": await variants_service.proposal(db, jobs)}
+
+
+@router.put("/{team_id}/variants")
+async def approve_variants(
+    team_id: int,
+    body: VariantsUpdate,
+    current_user: RecruitmentManageUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Zatwierdzone składy dla klienta; pusta lista = wycofanie."""
+    team, jobs = await _team_for(db, current_user, team_id, lock=True)
+    variants = variants_service.validate_variants(
+        [variant.model_dump() for variant in body.variants],
+        seats={job.id: team_service.headcount(job) for job in jobs},
+        sent=await variants_service.sent_by_job(db, jobs),
+    )
+    team.variants = variants
+    team.variants_approved_at = datetime.now(timezone.utc) if variants else None
+    team.variants_approved_by = current_user.id if variants else None
+    action = "job_team_variants_approved" if variants else "job_team_variants_withdrawn"
+    for job in jobs:
+        db.add(
+            _audit(job.id, current_user, action, team_id=team.id, count=len(variants))
         )
     await db.flush()
     view = await team_service.team_detail(db, team, jobs)

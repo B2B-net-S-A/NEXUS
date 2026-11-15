@@ -1344,7 +1344,8 @@ except Exception as _client_panel_schema_err:  # noqa: BLE001
 try:
     from app.services import job_team_schema as _job_team_schema
 
-    _JOB_TEAMS_DDL = list(_job_team_schema.TABLE_DDL)
+    # 0713: gotowe składy — ORM czyta `job_teams.variants*` przy każdym odczycie zespołu.
+    _JOB_TEAMS_DDL = [*_job_team_schema.TABLE_DDL, *_job_team_schema.VARIANTS_DDL]
 except Exception as _job_team_schema_err:  # noqa: BLE001
     print(f"job team schema unavailable: {_job_team_schema_err!r}")
     _JOB_TEAMS_DDL = []
@@ -1508,7 +1509,7 @@ except Exception as _framework_rate_schema_err:  # noqa: BLE001
     print(f"framework rate schema unavailable: {_framework_rate_schema_err!r}")
     _FRAMEWORK_RATE_DDL = []
 
-# 0713: wnioski o dopłatę za technologię premium (`app/services/premium_skill_schema.py`).
+# 0716: wnioski o dopłatę za technologię premium (`app/services/premium_skill_schema.py`).
 try:
     from app.services import premium_skill_schema as _premium_skill_schema
 
@@ -7157,7 +7158,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_SKILL_RELATIONS_TABLE_DDL,
     # 0710: po `rate_cards`, `contracts` i `users`, na które wskazuje.
     *_FRAMEWORK_RATE_DDL,
-    # 0713: po `contracts` i `users`.
+    # 0716: po `contracts` i `users`.
     *_PREMIUM_SKILL_DDL,
     # 0667: 70 porzuconych tabel bez modelu. Przywrócenie którejś ze zrzutu
     # wymaga usunięcia jej stąd, bo następny start skasowałby ją ponownie.
@@ -7167,6 +7168,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "DROP TABLE IF EXISTS dr_about_calendar, dr_about_career_paths, dr_about_clients_partners, dr_about_contacts, dr_about_faq, dr_about_feedback, dr_about_glossary, dr_about_links, dr_about_org_chart, dr_about_positions, dr_about_procedures, dr_about_templates, dr_about_training, dr_about_values, dr_alerts, dr_api_key_audit_log, dr_api_keys, dr_applied_migrations, dr_competence_categories, dr_consultant_group_assignments, dr_consultant_rate_history, dr_consultants, dr_data_audit_log, dr_delivery_lead_client_assignments, dr_group_monthly_costs, dr_monthly_mrr_data, dr_mrr_import_history, dr_project_cost_groups, dr_project_monthly_costs, dr_project_other_cost_items, dr_przetargi_mrr, dr_system_config, dr_tac_linkedin_farming",
     "DROP TABLE IF EXISTS ai_budget_reservations, ai_call_ledger, ai_eval_cases, ai_eval_labels, ai_eval_outputs, ai_eval_runs, ai_eval_sets, ai_provider_compliance, ai_rollout_events, ai_rollout_observations, ai_rollout_reports, ai_rollout_state, ai_routing_activation_log, ai_routing_state",
     "DROP TABLE IF EXISTS signature_links",
+    # 0714 (15.11.2026): 9 nieużywanych tabel — synchronizacja dwukierunkowa
+    # Traffita (0173) i ślad Cortexa (0167). Lustro 1:1 z migracją; pilnuje
+    # `test_drop_traffit_sync_cortex_tables_mirror.py`. Przywrócenie tabeli
+    # Cortexa ze zrzutu wymaga usunięcia jej stąd.
+    "DROP TABLE IF EXISTS traffit_field_contracts, traffit_outbox_events, traffit_sync_conflicts, traffit_sync_runs, traffit_sync_run_phases, integration_leases, traffit_integration_control",
+    "DROP TABLE IF EXISTS cortex_extraction_runs, cortex_unmatched_observations",
     # 0682 (11.11.2026): kolumny usuniętej telefonii (integracja zdjęta
     # 08.11.2026). Indeksy znikają razem z kolumnami. Lustro 1:1 z migracją —
     # pilnuje `test_telephony_columns_dropped.py`.

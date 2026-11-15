@@ -1,4 +1,4 @@
-"""Wnioski o dopłatę za technologię premium (F3, 15.11.2026) — SQL migracji ``0713_premium_skill_claims``.
+"""Wnioski o dopłatę za technologię premium (F3, 15.11.2026) — SQL migracji ``0716_premium_skill_claims``.
 
 Jedno źródło DDL dla migracji i lustra ``entrypoint.sh``; same dodatki.
 

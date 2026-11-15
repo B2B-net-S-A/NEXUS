@@ -1,8 +1,9 @@
-"""Zespół dla klienta bez bazy: token, adres, wybór składu, kontrakty repo."""
+"""Zespół dla klienta bez bazy: token, adres, wybór składu, gotowe składy, kontrakty repo."""
 
 from __future__ import annotations
 
 import ast
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,7 +14,13 @@ from app.core.config import settings
 from app.models.job import JobStatus
 from app.services import client_panel as panel_service
 from app.services import job_team_panel as service
-from app.services.job_team_schema import DOWNGRADE_DDL, TABLE_DDL
+from app.services import job_team_variants as variants
+from app.services.job_team_schema import (
+    DOWNGRADE_DDL,
+    TABLE_DDL,
+    VARIANTS_DDL,
+    VARIANTS_DOWNGRADE_DDL,
+)
 
 BACKEND = Path(__file__).resolve().parents[1]
 
@@ -146,6 +153,7 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
         created_by=None,
         panel_expires_at=None,
         panel_token_nonce="x",
+        variants=[],
     )
 
     async def fake_view(db, panel, job, focus):
@@ -157,7 +165,8 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
     monkeypatch.setattr(panel_service, "public_panel_view", fake_view)
     monkeypatch.setattr(service, "_client_name", fake_client_name)
     body = await service.public_team_view(None, team, [position])  # type: ignore[arg-type]
-    assert set(body) == {"team", "hours_per_month", "positions"}
+    assert set(body) == {"team", "hours_per_month", "positions", "variants"}
+    assert body["variants"] == []
     assert set(body["team"]) == {"name", "client_name", "expires_at", "owner"}
     assert body["team"]["owner"] == {"name": None}
     assert body["hours_per_month"] == 168
@@ -169,6 +178,278 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
             "view": {"job": {"title": "Programista"}, "candidates": []},
         }
     ]
+
+
+# ── Gotowe składy: reguły automatu ───────────────────────────────────────────
+
+_TODAY = date(2026, 11, 16)
+
+
+def _o(cid: int, **extra) -> variants.Option:
+    return variants.Option(candidate_id=cid, order=cid, **extra)
+
+
+def _picks(groups, key: str) -> dict[int, list[int]]:
+    proposed = {v["key"]: v for v in variants.propose(groups, _TODAY)}
+    return {p["job_id"]: p["candidate_ids"] for p in proposed[key]["picks"]}
+
+
+def test_proposal_gives_three_variants_in_a_fixed_order() -> None:
+    group = variants.SeatGroup(1, 1, (_o(1),))
+    proposed = variants.propose([group], _TODAY)
+    assert [v["key"] for v in proposed] == ["fast", "cheap", "evidence"]
+    assert [v["name"] for v in proposed] == [
+        "Najszybszy start",
+        "Najniższa cena",
+        "Najwięcej w CV",
+    ]
+    assert all(len(v["why"]) <= variants.WHY_MAX for v in proposed)
+    assert set(proposed[0]) == {
+        "key",
+        "name",
+        "why",
+        "picks",
+        "hourly_total",
+        "start",
+        "unknown_start",
+    }
+
+
+def test_fastest_start_puts_no_date_last_and_breaks_ties_by_rate() -> None:
+    group = variants.SeatGroup(
+        1,
+        1,
+        (
+            _o(1, available_from=None, hourly=50.0),
+            _o(2, available_from=date(2026, 12, 1), hourly=200.0),
+            _o(3, available_from=date(2026, 12, 1), hourly=150.0),
+        ),
+    )
+    assert _picks([group], "fast") == {1: [3]}
+    only_undated = variants.SeatGroup(1, 1, (_o(1, hourly=90.0), _o(2, hourly=80.0)))
+    assert _picks([only_undated], "fast") == {1: [2]}
+
+
+def test_a_date_in_the_past_counts_as_today() -> None:
+    # „Od zaraz” to remis niezależnie od tego, jak dawno osoba jest wolna.
+    group = variants.SeatGroup(
+        1,
+        1,
+        (
+            _o(1, available_from=date(2026, 1, 1), hourly=200.0),
+            _o(2, available_from=date(2026, 11, 10), hourly=150.0),
+        ),
+    )
+    assert _picks([group], "fast") == {1: [2]}
+
+
+def test_lowest_price_puts_no_rate_last_and_breaks_ties_by_start() -> None:
+    group = variants.SeatGroup(
+        1,
+        1,
+        (
+            _o(1, hourly=None, available_from=_TODAY),
+            _o(2, hourly=150.0, available_from=date(2027, 1, 1)),
+            _o(3, hourly=150.0, available_from=date(2026, 12, 1)),
+        ),
+    )
+    assert _picks([group], "cheap") == {1: [3]}
+    no_rates = variants.SeatGroup(
+        1, 1, (_o(1, available_from=None), _o(2, available_from=_TODAY))
+    )
+    assert _picks([no_rates], "cheap") == {1: [2]}
+
+
+def test_most_in_projects_breaks_ties_by_rate_then_sending_order() -> None:
+    group = variants.SeatGroup(
+        1,
+        1,
+        (
+            _o(1, in_projects=2, hourly=180.0),
+            _o(2, in_projects=3, hourly=200.0),
+            _o(3, in_projects=3, hourly=170.0),
+        ),
+    )
+    assert _picks([group], "evidence") == {1: [3]}
+    tie = variants.SeatGroup(1, 1, (_o(5, in_projects=1), _o(4, in_projects=1)))
+    assert _picks([tie], "evidence") == {1: [4]}
+
+
+def test_headcount_above_one_takes_that_many_people() -> None:
+    group = variants.SeatGroup(
+        1, 2, (_o(1, hourly=300.0), _o(2, hourly=100.0), _o(3, hourly=200.0))
+    )
+    assert _picks([group], "cheap") == {1: [2, 3]}
+
+
+def test_hidden_and_not_fit_people_are_never_proposed() -> None:
+    group = variants.SeatGroup(
+        1,
+        2,
+        (
+            _o(1, hourly=100.0, hidden=True),
+            _o(2, hourly=110.0, not_fit=True),
+            _o(3, hourly=500.0),
+        ),
+    )
+    for key in ("fast", "cheap", "evidence"):
+        assert _picks([group], key) == {1: [3]}
+
+
+def test_fewer_people_than_seats_and_empty_positions() -> None:
+    short = variants.SeatGroup(1, 3, (_o(1), _o(2)))
+    empty = variants.SeatGroup(2, 1, ())
+    assert _picks([short, empty], "fast") == {1: [1, 2]}
+
+
+def test_summary_sums_known_rates_and_takes_the_latest_start() -> None:
+    groups = [
+        variants.SeatGroup(
+            1, 1, (_o(1, hourly=150.5, available_from=date(2026, 12, 1)),)
+        ),
+        variants.SeatGroup(2, 1, (_o(2, hourly=None, available_from=None),)),
+        variants.SeatGroup(3, 1, (_o(3, hourly=99.5, available_from=date(2026, 1, 1)),)),
+    ]
+    fast = variants.propose(groups, _TODAY)[0]
+    assert fast["hourly_total"] == 250.0
+    assert fast["start"] == "2026-12-01"
+    assert fast["unknown_start"] == 1
+    nothing = variants.propose([variants.SeatGroup(1, 1, (_o(1),))], _TODAY)[0]
+    assert (nothing["hourly_total"], nothing["start"], nothing["unknown_start"]) == (
+        None,
+        None,
+        1,
+    )
+
+
+def test_identical_variants_are_kept() -> None:
+    group = variants.SeatGroup(
+        1, 1, (_o(1, hourly=100.0, available_from=_TODAY, in_projects=5),)
+    )
+    proposed = variants.propose([group], _TODAY)
+    assert len(proposed) == 3
+    assert len({str(v["picks"]) for v in proposed}) == 1
+
+
+# ── Gotowe składy: zapis DL-a ────────────────────────────────────────────────
+
+
+def _variant(**extra) -> dict:
+    return {
+        "key": "fast",
+        "name": "Najszybszy",
+        "why": "",
+        "picks": [{"job_id": 10, "candidate_ids": [1]}],
+        **extra,
+    }
+
+
+_SEATS = {10: 1, 20: 2}
+_SENT = {10: {1, 2}, 20: {3, 4, 5}}
+
+
+def test_valid_variants_drop_empty_positions_and_duplicates() -> None:
+    saved = variants.validate_variants(
+        [
+            _variant(
+                picks=[
+                    {"job_id": 10, "candidate_ids": []},
+                    {"job_id": 20, "candidate_ids": [3, 4, 3]},
+                ]
+            )
+        ],
+        seats=_SEATS,
+        sent=_SENT,
+    )
+    assert saved == [
+        {
+            "key": "fast",
+            "name": "Najszybszy",
+            "why": "",
+            "picks": [{"job_id": 20, "candidate_ids": [3, 4]}],
+        }
+    ]
+    assert variants.validate_variants([], seats=_SEATS, sent=_SENT) == []
+
+
+@pytest.mark.parametrize(
+    "items",
+    [
+        # Rekrutacja spoza zespołu.
+        [_variant(picks=[{"job_id": 99, "candidate_ids": [1]}])],
+        # Osoba bez wysłanego CV na tym stanowisku.
+        [_variant(picks=[{"job_id": 10, "candidate_ids": [3]}])],
+        # Więcej osób niż miejsc.
+        [_variant(picks=[{"job_id": 10, "candidate_ids": [1, 2]}])],
+        [_variant(picks=[{"job_id": 10, "candidate_ids": []}])],
+        [
+            _variant(
+                picks=[
+                    {"job_id": 10, "candidate_ids": [1]},
+                    {"job_id": 10, "candidate_ids": [2]},
+                ]
+            )
+        ],
+        [_variant(), _variant()],
+    ],
+)
+def test_invalid_variants_are_422(items) -> None:
+    with pytest.raises(HTTPException) as refused:
+        variants.validate_variants(items, seats=_SEATS, sent=_SENT)
+    assert refused.value.status_code == 422
+
+
+def test_text_for_the_client_is_plain_and_bounded() -> None:
+    assert (
+        variants.clean_text("  Skład\n\tA\x00 ", limit=60, required=True) == "Skład A"
+    )
+    with pytest.raises(ValueError):
+        variants.clean_text("   ", limit=60, required=True)
+    with pytest.raises(ValueError):
+        variants.clean_text("x" * 61, limit=60, required=True)
+    assert variants.clean_text("", limit=240, required=False) == ""
+    assert variants.clean_key(" Fast ") == "fast"
+    for bad in ("", "a b", "<x>", "x" * 41, "-a"):
+        with pytest.raises(ValueError):
+            variants.clean_key(bad)
+
+
+# ── Gotowe składy: widok klienta ─────────────────────────────────────────────
+
+
+def test_public_variants_use_position_keys_and_drop_people_the_client_cannot_see() -> (
+    None
+):
+    stored = [
+        {
+            "key": "fast",
+            "name": "Najszybszy",
+            "why": "Bo szybko",
+            "picks": [
+                {"job_id": 10, "candidate_ids": [1, 2]},
+                {"job_id": 20, "candidate_ids": [3]},
+                # Stanowisko, którego klient już nie widzi.
+                {"job_id": 30, "candidate_ids": [7]},
+            ],
+        },
+        # Nikogo z tego składu klient nie widzi: skład wypada.
+        {
+            "key": "cheap",
+            "name": "Tani",
+            "why": "",
+            "picks": [{"job_id": 10, "candidate_ids": [9]}],
+        },
+    ]
+    seen = {10: ("klucz-a", {1: "pa"}), 20: ("klucz-b", {3: "pc"})}
+    assert service.public_variants(stored, seen) == [
+        {
+            "key": "fast",
+            "name": "Najszybszy",
+            "why": "Bo szybko",
+            "picks": {"klucz-a": ["pa"], "klucz-b": ["pc"]},
+        }
+    ]
+    assert service.public_variants([], seen) == []
 
 
 # ── Kontrakty repo ───────────────────────────────────────────────────────────
@@ -190,6 +471,20 @@ def test_migration_and_entrypoint_share_one_ddl_source() -> None:
     assert "schema.TABLE_DDL" in migration
     assert "schema.DOWNGRADE_DDL" in migration
     assert 'down_revision = "0710_framework_rate_categories"' in migration
+    variants_migration = (
+        BACKEND / "alembic/versions/0713_job_team_variants.py"
+    ).read_text(encoding="utf-8")
+    assert "schema.VARIANTS_DDL" in variants_migration
+    assert "schema.VARIANTS_DOWNGRADE_DDL" in variants_migration
+    assert 'down_revision = "0712_client_reports"' in variants_migration
+    assert "*_job_team_schema.VARIANTS_DDL" in entrypoint
+
+
+def test_variant_columns_are_idempotent_and_dropped_in_reverse() -> None:
+    assert all("IF NOT EXISTS" in s for s in VARIANTS_DDL)
+    assert all("IF EXISTS" in s for s in VARIANTS_DOWNGRADE_DDL)
+    assert "variants JSONB NOT NULL" in VARIANTS_DDL[0]
+    assert "REFERENCES users(id) ON DELETE SET NULL" in VARIANTS_DDL[2]
 
 
 def test_team_table_is_created_before_the_job_column_points_at_it() -> None:
@@ -220,6 +515,7 @@ def test_no_ai_import_in_the_public_path() -> None:
     for name in (
         "app/api/public_job_team_panel.py",
         "app/services/job_team_panel.py",
+        "app/services/job_team_variants.py",
     ):
         source = (BACKEND / name).read_text(encoding="utf-8")
         assert "ai_feature" not in source
