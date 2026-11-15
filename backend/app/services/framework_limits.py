@@ -72,7 +72,11 @@ class AdderView:
 
 
 def _norm(text: Optional[str]) -> str:
-    return re.sub(r"\s+", " ", (text or "").replace("–", "-").replace("—", "-")).strip().casefold()
+    return (
+        re.sub(r"\s+", " ", (text or "").replace("–", "-").replace("—", "-"))
+        .strip()
+        .casefold()
+    )
 
 
 def _level(value: Optional[str]) -> Optional[str]:
@@ -90,7 +94,9 @@ def parse_category_label(label: Optional[str]) -> Optional[tuple[str, Optional[s
     Przyjmuje też ogon wiersza COA z krajem. Kategoria bez poziomu, która sama
     ma myślnik („I&O - Oracle DBA”), zostaje w całości jako rola.
     """
-    text = re.sub(r"\s+", " ", (label or "").replace("–", "-").replace("—", "-")).strip()
+    text = re.sub(
+        r"\s+", " ", (label or "").replace("–", "-").replace("—", "-")
+    ).strip()
     text = _COUNTRY_TAIL_RE.sub("", text).strip(" -")
     if not text:
         return None
@@ -111,7 +117,9 @@ def _valid(item: CardView | AdderView, on: date) -> bool:
     )
 
 
-def match_card(cards: Iterable[CardView], label: Optional[str], *, on: date) -> Optional[CardView]:
+def match_card(
+    cards: Iterable[CardView], label: Optional[str], *, on: date
+) -> Optional[CardView]:
     """Pozycja cennika dla etykiety kategorii, ważna w dniu ``on``."""
     parsed = parse_category_label(label)
     if parsed is None:
@@ -137,7 +145,9 @@ def _eligible(adder: AdderView, card: CardView) -> bool:
     )
 
 
-def addon_choices(adders: Sequence[AdderView], card: CardView, *, on: date) -> list[AdderView]:
+def addon_choices(
+    adders: Sequence[AdderView], card: CardView, *, on: date
+) -> list[AdderView]:
     """Dopłaty, które umowa dopuszcza dla tej kategorii i poziomu w dniu ``on``."""
     return sorted(
         (a for a in adders if _valid(a, on) and _eligible(a, card)),
@@ -145,12 +155,16 @@ def addon_choices(adders: Sequence[AdderView], card: CardView, *, on: date) -> l
     )
 
 
-def framework_limit(card: CardView, addon_percent: Optional[Decimal]) -> Optional[Decimal]:
+def framework_limit(
+    card: CardView, addon_percent: Optional[Decimal]
+) -> Optional[Decimal]:
     """Maksimum z cennika × (1 + dopłata), do grosza; brak maksimum = brak limitu."""
     if card.rate_client_max is None:
         return None
     base = Decimal(str(card.rate_client_max))
-    factor = Decimal(1) + (Decimal(str(addon_percent)) / 100 if addon_percent else Decimal(0))
+    factor = Decimal(1) + (
+        Decimal(str(addon_percent)) / 100 if addon_percent else Decimal(0)
+    )
     return (base * factor).quantize(_CENT, rounding=ROUND_HALF_UP)
 
 

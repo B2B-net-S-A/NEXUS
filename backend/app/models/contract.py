@@ -163,14 +163,24 @@ class Contract(Base, TimestampMixin):
         ForeignKey("rate_cards.id", ondelete="SET NULL"), nullable=True, index=True
     )
     rate_card_source: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
-    rate_card_coa_label: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    rate_card_coa_label: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     # Dopłata za technologię premium z umowy ramowej. Nie zmienia COA ani
     # stawki przychodowej (decyzja Artura 15.11.2026) — tylko limit. Wpisuje
     # ją Delivery Lead z potwierdzeniem klienta (kto, kiedy, dowód).
-    framework_addon_technology: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    framework_addon_percent: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2), nullable=True)
-    framework_addon_confirmed_by: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    framework_addon_confirmed_on: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    framework_addon_technology: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    framework_addon_percent: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    framework_addon_confirmed_by: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    framework_addon_confirmed_on: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
     framework_addon_evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     framework_addon_set_by_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

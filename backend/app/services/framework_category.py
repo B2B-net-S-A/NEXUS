@@ -70,7 +70,9 @@ async def load_terms(db: AsyncSession, client_id: int) -> ClientTerms:
     cards = (
         await db.execute(
             select(RateCard)
-            .where(RateCard.client_id == client_id, RateCard.rate_unit == RateUnit.hourly)
+            .where(
+                RateCard.client_id == client_id, RateCard.rate_unit == RateUnit.hourly
+            )
             .order_by(RateCard.id)
         )
     ).scalars()
@@ -87,12 +89,18 @@ async def load_terms(db: AsyncSession, client_id: int) -> ClientTerms:
     )
 
 
-def eligible_addon(terms: ClientTerms, card: CardView, technology: Optional[str], on: date) -> Optional[AdderView]:
+def eligible_addon(
+    terms: ClientTerms, card: CardView, technology: Optional[str], on: date
+) -> Optional[AdderView]:
     if not technology:
         return None
     wanted = technology.strip().casefold()
     return next(
-        (a for a in addon_choices(terms.adders, card, on=on) if a.technology.casefold() == wanted),
+        (
+            a
+            for a in addon_choices(terms.adders, card, on=on)
+            if a.technology.casefold() == wanted
+        ),
         None,
     )
 
@@ -109,7 +117,11 @@ def _write_limit_step(
     """Krok limitu od ``effective_from``; ``False`` = limit w tym dniu już taki był."""
     if contract.effective_framework_rate(effective_from) == limit:
         return False
-    same_day = [s for s in contract.framework_rate_schedule if s.effective_from == effective_from]
+    same_day = [
+        s
+        for s in contract.framework_rate_schedule
+        if s.effective_from == effective_from
+    ]
     if same_day:
         step = same_day[-1]
         step.rate = limit
@@ -129,7 +141,11 @@ def _write_limit_step(
 
 
 def _current_addon(contract: Contract) -> Optional[Decimal]:
-    return contract.framework_addon_percent if contract.framework_addon_technology else None
+    return (
+        contract.framework_addon_percent
+        if contract.framework_addon_technology
+        else None
+    )
 
 
 def apply_category(
@@ -161,7 +177,9 @@ def apply_category(
     changed = contract.client_rate_card_id != card.id
     contract.client_rate_card_id = card.id
     contract.rate_card_source = SOURCE_COA
-    addon = eligible_addon(terms, card, contract.framework_addon_technology, effective_from)
+    addon = eligible_addon(
+        terms, card, contract.framework_addon_technology, effective_from
+    )
     limit = framework_limit(card, addon.percent if addon else None)
     if limit is None:
         return "updated" if changed else "unchanged"
@@ -199,7 +217,9 @@ def set_by_delivery_lead(
     """Kategoria i dopłata wpisane przez DL. Dopłata wymaga potwierdzenia klienta."""
     card = terms.card(rate_card_id)
     if card is None:
-        raise FrameworkCategoryError("Ta pozycja cennika nie należy do klienta tego kontraktu.")
+        raise FrameworkCategoryError(
+            "Ta pozycja cennika nie należy do klienta tego kontraktu."
+        )
     addon = None
     if addon_technology:
         addon = eligible_addon(terms, card, addon_technology, effective_from)
@@ -217,9 +237,13 @@ def set_by_delivery_lead(
         contract.rate_card_source = SOURCE_DL
     contract.framework_addon_technology = addon.technology if addon else None
     contract.framework_addon_percent = addon.percent if addon else None
-    contract.framework_addon_confirmed_by = (confirmed_by or "").strip()[:255] or None if addon else None
+    contract.framework_addon_confirmed_by = (
+        (confirmed_by or "").strip()[:255] or None if addon else None
+    )
     contract.framework_addon_confirmed_on = confirmed_on if addon else None
-    contract.framework_addon_evidence = (evidence or "").strip() or None if addon else None
+    contract.framework_addon_evidence = (
+        (evidence or "").strip() or None if addon else None
+    )
     contract.framework_addon_set_by_id = actor_id
     contract.framework_addon_set_at = datetime.now(timezone.utc)
     limit = framework_limit(card, addon.percent if addon else None)
@@ -293,33 +317,47 @@ async def recompute_from_coa(
         )
     terms = await load_terms(db, client_id)
     contracts = (
-        await db.execute(
-            select(Contract)
-            .options(selectinload(Contract.framework_rate_schedule), selectinload(Contract.candidate))
-            .where(
-                Contract.client_id == client_id,
-                Contract.status.in_(LIVE_STATUSES),
-                Contract.id > after_id,
+        (
+            await db.execute(
+                select(Contract)
+                .options(
+                    selectinload(Contract.framework_rate_schedule),
+                    selectinload(Contract.candidate),
+                )
+                .where(
+                    Contract.client_id == client_id,
+                    Contract.status.in_(LIVE_STATUSES),
+                    Contract.id > after_id,
+                )
+                .order_by(Contract.id)
+                .limit(RECOMPUTE_PAGE)
+                .with_for_update(of=Contract)
             )
-            .order_by(Contract.id)
-            .limit(RECOMPUTE_PAGE)
-            .with_for_update(of=Contract)
         )
-    ).scalars().all()
-    report = RecomputeReport(next_after_id=contracts[-1].id if len(contracts) == RECOMPUTE_PAGE else None)
+        .scalars()
+        .all()
+    )
+    report = RecomputeReport(
+        next_after_id=contracts[-1].id if len(contracts) == RECOMPUTE_PAGE else None
+    )
     today = business_today()
     for contract in contracts:
         before_card = terms.card(contract.client_rate_card_id)
         row = RecomputeRow(
             contract_id=contract.id,
             outcome="no_coa",
-            category_before=category_label(before_card.role, before_card.seniority) if before_card else None,
+            category_before=category_label(before_card.role, before_card.seniority)
+            if before_card
+            else None,
             limit_before=contract.effective_framework_rate(today),
         )
         report.rows.append(row)
         order = await db.scalar(
             select(ClientOrder)
-            .where(ClientOrder.contract_id == contract.id, ClientOrder.file_path.is_not(None))
+            .where(
+                ClientOrder.contract_id == contract.id,
+                ClientOrder.file_path.is_not(None),
+            )
             .order_by(ClientOrder.start_date.desc().nulls_last(), ClientOrder.id.desc())
             .limit(1)
         )
@@ -327,16 +365,30 @@ async def recompute_from_coa(
             continue
         try:
             path = storage_service.get_client_order_po_path(order.file_path)
-            rows = await asyncio.to_thread(_read_rows, str(path), order.filename or path.name, extractor)
+            rows = await asyncio.to_thread(
+                _read_rows, str(path), order.filename or path.name, extractor
+            )
         except FileNotFoundError:
             row.outcome = "file_missing"
             continue
         except Exception as exc:  # noqa: BLE001 — jeden zły PDF nie zatrzymuje porcji
-            logger.warning("[framework_category] COA read failed for contract %s (%s)", contract.id, type(exc).__name__)
+            logger.warning(
+                "[framework_category] COA read failed for contract %s (%s)",
+                contract.id,
+                type(exc).__name__,
+            )
             row.outcome = "unreadable"
             continue
-        person = f"{contract.candidate.name} {contract.candidate.lastname}" if contract.candidate else ""
-        hits = [r for r in rows if (m := match_names(r.consultant_name, person)) and m.level == MATCH_AUTO]
+        person = (
+            f"{contract.candidate.name} {contract.candidate.lastname}"
+            if contract.candidate
+            else ""
+        )
+        hits = [
+            r
+            for r in rows
+            if (m := match_names(r.consultant_name, person)) and m.level == MATCH_AUTO
+        ]
         if len(hits) != 1:
             row.outcome = "person_not_found" if not hits else "person_ambiguous"
             continue
@@ -344,22 +396,41 @@ async def recompute_from_coa(
         effective_from = order.start_date or today
         if not apply:
             card = match_card(terms.cards, row.coa_label, on=effective_from)
-            row.outcome = "no_label" if not row.coa_label else ("no_card" if card is None else "preview")
+            row.outcome = (
+                "no_label"
+                if not row.coa_label
+                else ("no_card" if card is None else "preview")
+            )
             if card is not None:
                 row.category_after = category_label(card.role, card.seniority)
-                addon = eligible_addon(terms, card, contract.framework_addon_technology, effective_from)
-                row.limit_after = framework_limit(card, addon.percent if addon else None)
+                addon = eligible_addon(
+                    terms, card, contract.framework_addon_technology, effective_from
+                )
+                row.limit_after = framework_limit(
+                    card, addon.percent if addon else None
+                )
             continue
         row.outcome = apply_category(
-            db, contract, terms, row.coa_label, effective_from=effective_from, actor_id=actor_id
+            db,
+            contract,
+            terms,
+            row.coa_label,
+            effective_from=effective_from,
+            actor_id=actor_id,
         )
         after_card = terms.card(contract.client_rate_card_id)
-        row.category_after = category_label(after_card.role, after_card.seniority) if after_card else None
+        row.category_after = (
+            category_label(after_card.role, after_card.seniority)
+            if after_card
+            else None
+        )
         row.limit_after = contract.effective_framework_rate(today)
     return report
 
 
-async def sync_from_mail_document(db: AsyncSession, doc, result, *, actor_id: Optional[int]) -> None:
+async def sync_from_mail_document(
+    db: AsyncSession, doc, result, *, actor_id: Optional[int]
+) -> None:
     """Po zapisie zamówienia z maila: kategoria z wiersza COA → kontrakt.
 
     Dodatek, nie bramka: błąd zostaje w logu, zamówienie jest już zapisane
@@ -371,7 +442,10 @@ async def sync_from_mail_document(db: AsyncSession, doc, result, *, actor_id: Op
     labelled = {
         r.row_index: rows[r.row_index].client_category
         for r in result.rows
-        if r.order_id and not r.error and 0 <= r.row_index < len(rows) and rows[r.row_index].client_category
+        if r.order_id
+        and not r.error
+        and 0 <= r.row_index < len(rows)
+        and rows[r.row_index].client_category
     }
     if not labelled:
         return
@@ -403,4 +477,6 @@ async def sync_from_mail_document(db: AsyncSession, doc, result, *, actor_id: Op
                 )
             await db.flush()
     except Exception:  # noqa: BLE001 — dodatek do zapisu zamówienia
-        logger.exception("[framework_category] category from mail document %s failed", doc.id)
+        logger.exception(
+            "[framework_category] category from mail document %s failed", doc.id
+        )
