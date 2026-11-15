@@ -4114,6 +4114,7 @@ async def api_health_deep_check(request: Request):
         ClientTimeReportRow,
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.client_report import ClientReportDefinition, ClientReportRun
     from app.models.training import (
         Training,
         TrainingAttendance,
@@ -4644,6 +4645,9 @@ async def api_health_deep_check(request: Request):
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),
         ("client_time_report_rows", ClientTimeReportRow),
+        # 0710: katalog raportów klienta — definicje i historia wysyłek.
+        ("client_report_definitions", ClientReportDefinition),
+        ("client_report_runs", ClientReportRun),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.
