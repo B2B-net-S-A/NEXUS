@@ -4123,14 +4123,22 @@ async def test_foreign_purchase_books_import_of_services_into_both_registers(
                 id_type="other",
                 id_value=f"X{random.randint(10**6, 10**7)}",
                 values={"name": f"DOSTAWCA SAAS {tag}"},
-            )
+            ),
+            # Ta sama nazwa z polskim NIP-em to inna firma (np. oddział) — wchodzi.
+            importer.ParsedRow(
+                line=3,
+                id_type="nip",
+                id_value=str(random.randint(10**9, 10**10 - 1)),
+                values={"name": f"Dostawca SaaS {tag}"},
+            ),
         ]
     )
     async with AsyncSessionLocal() as db:
         result = await kartoteka.apply_import(
             db, parsed, save=False, actor_id=world["admin"].id, now=datetime.now(timezone.utc)
         )
-    assert result.created == 0 and "formularza zakupu zagranicznego" in result.errors[0]["message"]
+    assert result.created == 1 and [error["line"] for error in result.errors] == [2]
+    assert "formularza zakupu zagranicznego" in result.errors[0]["message"]
 
 
 async def test_foreign_purchase_needs_the_suppliers_account_setting(
