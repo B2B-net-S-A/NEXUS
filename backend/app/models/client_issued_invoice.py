@@ -5,7 +5,9 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/client_invoice_issue_s
 — w docstringu modułu schematu.
 
 * ``ClientInvoiceSeries`` — następny numer serii w miesiącu (blokada wiersza przy nadaniu),
-* ``ClientIssuedInvoice`` — faktura od szkicu do przyjęcia w KSeF.
+* ``ClientIssuedInvoice`` — faktura od szkicu do przyjęcia w KSeF,
+* ``ClientInvoiceTemplate`` — szablon faktury „co miesiąc” (E6, 0709; CHECK-i
+  w ``app/services/client_invoice_templates_schema.py``).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -35,6 +38,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.models.base import TimestampMixin
 from app.services import client_invoice_issue_schema as schema
+from app.services import client_invoice_templates_schema as templates_schema
 from app.services.client_sales_invoices_schema import KSEF_NUMBER_MAX
 
 
@@ -129,11 +133,24 @@ class ClientIssuedInvoice(Base, TimestampMixin):
             "corrects_id",
             postgresql_where=text(schema.CORRECTS_WHERE),
         ),
+        Index(
+            "uq_client_issued_invoices_template_period",
+            "template_id",
+            "period_year",
+            "period_month",
+            unique=True,
+            postgresql_where=text(templates_schema.TEMPLATE_PERIOD_WHERE),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    client_id: Mapped[int] = mapped_column(
-        ForeignKey("clients.id", ondelete="RESTRICT"), nullable=False
+    #: Pusty przy fakturze z ręki albo z szablonu do nabywcy spoza kartoteki
+    #: klientów (E6) — nabywcą jest migawka ``buyer``.
+    client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id", ondelete="RESTRICT"), nullable=True
+    )
+    template_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_invoice_templates.id", ondelete="SET NULL"), nullable=True
     )
     invoice_type: Mapped[str] = mapped_column(
         String(8), nullable=False, default="VAT", server_default="VAT"
@@ -235,4 +252,85 @@ class ClientIssuedInvoice(Base, TimestampMixin):
     )
     accepted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class ClientInvoiceTemplate(Base, TimestampMixin):
+    """Szablon faktury „co miesiąc”: usługi bez zamówienia albo refaktura benefitu."""
+
+    __tablename__ = "client_invoice_templates"
+    __table_args__ = (
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_KIND, name="ck_client_invoice_templates_kind"
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_BENEFIT,
+            name="ck_client_invoice_templates_benefit",
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_SOURCE,
+            name="ck_client_invoice_templates_source",
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_SERIES,
+            name="ck_client_invoice_templates_series",
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_CURRENCY,
+            name="ck_client_invoice_templates_currency",
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_JSON, name="ck_client_invoice_templates_json"
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_DAYS, name="ck_client_invoice_templates_days"
+        ),
+        CheckConstraint(
+            templates_schema.CK_TEMPLATE_VALID,
+            name="ck_client_invoice_templates_valid",
+        ),
+        Index("ix_client_invoice_templates_kind", "kind", "active"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="service", server_default="service"
+    )
+    benefit: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    name: Mapped[str] = mapped_column(String(templates_schema.NAME_MAX), nullable=False)
+    active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    client_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
+    )
+    buyer: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, default="PLN", server_default="PLN"
+    )
+    series_code: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="PL", server_default="PL"
+    )
+    lines: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    payment_days: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(
+        String(schema.NOTES_MAX), nullable=True
+    )
+    valid_from: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    valid_to: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    source: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="manual", server_default="manual"
+    )
+    source_ref: Mapped[Optional[str]] = mapped_column(
+        String(KSEF_NUMBER_MAX), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

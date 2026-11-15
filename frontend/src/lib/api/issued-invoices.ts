@@ -61,8 +61,11 @@ export interface IssuedInvoiceRow {
   type_label: string;
   series_code: SeriesCode;
   invoice_number: string | null;
-  client_id: number;
+  /** Pusty przy fakturze z ręki albo z szablonu do nabywcy spoza kartoteki klientów (E6). */
+  client_id: number | null;
   client_name: string | null;
+  /** Szkic z szablonu „co miesiąc” (E6). */
+  template_id: number | null;
   buyer: IssueBuyer;
   buyer_kind: "nip" | "eu" | "other" | "none";
   order_group_id: number | null;
@@ -208,6 +211,10 @@ export const issuedKeys = {
   list: (view: "drafts" | "sent", period: string | null) =>
     ["issued-invoices", "list", view, period] as const,
   card: (id: number) => ["issued-invoices", "card", id] as const,
+  templates: (kind: TemplateKind | null, period: string) =>
+    ["issued-invoices", "templates", kind, period] as const,
+  suggestions: (period: string) =>
+    ["issued-invoices", "template-suggestions", period] as const,
 };
 
 export const issuedPaths = {
@@ -375,6 +382,15 @@ export function useDeleteIssued() {
   });
 }
 
+/** Wysyłka jednej faktury — wysyłka seryjna woła ją po kolei (ta sama trasa co przycisk na karcie). */
+export async function sendIssued(id: number): Promise<IssuedInvoiceCard> {
+  return (await api.post<IssuedInvoiceCard>(`${BASE}/${id}/send`)).data;
+}
+
+export function useInvalidateIssued() {
+  return useInvalidate();
+}
+
 export function useSendIssued() {
   const invalidate = useInvalidate();
   return useMutation({
@@ -402,6 +418,176 @@ export function useCreateCorrection() {
           reason: payload.reason,
         })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+// ── Faktura z ręki i szablony „co miesiąc” (E6) ─────────────────────────────
+
+export type TemplateKind = "service" | "benefit";
+export type BenefitKind = "sport" | "medical" | "other";
+
+export interface InvoiceTemplate {
+  id: number;
+  kind: TemplateKind;
+  kind_label: string;
+  benefit: BenefitKind | null;
+  benefit_label: string | null;
+  name: string;
+  active: boolean;
+  client_id: number | null;
+  buyer: IssueBuyer;
+  currency: IssueCurrency;
+  series_code: "PL" | "UE";
+  lines: IssueLine[];
+  net: string | null;
+  payment_days: number | null;
+  notes: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  source: "manual" | "ksef" | "invoice";
+  source_ref: string | null;
+  /** Obowiązuje w wybranym miesiącu (od–do). */
+  in_month: boolean;
+  /** Co blokuje szkic (brak pozycji, pozycja bez ceny). */
+  problem: string | null;
+  address_missing: boolean;
+  issued: {
+    id: number;
+    invoice_number: string | null;
+    status: IssuedStatus;
+    status_label: string;
+  } | null;
+  /** Numery faktur z KSeF spoza NEXUSA (np. z eBI24) do tego nabywcy za ten miesiąc — szkicu nie będzie. */
+  invoiced_in_ksef: string[];
+  selectable: boolean;
+}
+
+export type TemplatePatch = Partial<{
+  kind: TemplateKind;
+  benefit: BenefitKind | null;
+  name: string;
+  active: boolean;
+  client_id: number | null;
+  buyer: Partial<IssueBuyer>;
+  currency: IssueCurrency;
+  series_code: "PL" | "UE";
+  lines: Partial<IssueLine>[];
+  payment_days: number | null;
+  notes: string | null;
+  valid_from: string | null;
+  valid_to: string | null;
+}>;
+
+export interface TemplateSuggestion {
+  ksef_number: string;
+  invoice_number: string | null;
+  buyer_name: string | null;
+  buyer_number: string;
+  client_id: number | null;
+  kind: TemplateKind;
+  benefit: BenefitKind | null;
+  lines: IssueLine[];
+  net: string | null;
+  currency: string;
+  address_missing: boolean;
+  /** Faktura z zamówienia, której automat nie dopasował — wystawiasz ją w „Wystaw za miesiąc”, nie szablonem. */
+  from_order: boolean;
+  has_template: boolean;
+}
+
+export function useCreateManual() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: {
+      client_id?: number;
+      buyer?: Partial<IssueBuyer>;
+      currency: IssueCurrency;
+    }) => (await api.post<IssuedInvoiceCard>(`${BASE}/manual`, payload)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useTemplates(kind: TemplateKind | null, period: string) {
+  return useQuery({
+    queryKey: issuedKeys.templates(kind, period),
+    queryFn: async () =>
+      (
+        await api.get<{ year: number; month: number; templates: InvoiceTemplate[] }>(
+          `${BASE}/templates`,
+          { params: { ...periodParams(period), ...(kind ? { kind } : {}) } },
+        )
+      ).data,
+  });
+}
+
+export function useTemplateSuggestions(period: string, enabled = true) {
+  return useQuery({
+    queryKey: issuedKeys.suggestions(period),
+    queryFn: async () =>
+      (
+        await api.get<{
+          rows: TemplateSuggestion[];
+          counts: { all: number; benefit: number; has_template: number; from_order: number };
+        }>(`${BASE}/templates/suggestions`, { params: periodParams(period) })
+      ).data,
+    enabled,
+  });
+}
+
+export function useSaveTemplate(id: number | null) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (patch: TemplatePatch) =>
+      id === null
+        ? (await api.post<InvoiceTemplate>(`${BASE}/templates`, patch)).data
+        : (await api.put<InvoiceTemplate>(`${BASE}/templates/${id}`, patch)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteTemplate() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.delete<{ result: string }>(`${BASE}/templates/${id}`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useImportTemplates() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: {
+      year: number;
+      month: number;
+      ksef_numbers: string[];
+    }) =>
+      (await api.post<{ created: number[] }>(`${BASE}/templates/import`, payload))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useRunTemplates() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: {
+      year: number;
+      month: number;
+      template_ids: number[];
+    }) =>
+      (await api.post<{ created: number[] }>(`${BASE}/templates/run`, payload))
+        .data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useSaveAsTemplate() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (invoiceId: number) =>
+      (await api.post<InvoiceTemplate>(`${BASE}/${invoiceId}/template`)).data,
     onSuccess: invalidate,
   });
 }
