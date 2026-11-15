@@ -35,8 +35,9 @@
   nazwy przez zaimportowany model (`test_every_probe_reads_its_own_table`).
   Od 15.11.2026 także każdą tabelę z `CREATE TABLE IF NOT EXISTS` w
   `entrypoint.sh` i w modułach DDL `app/services` (`test_every_entrypoint_table_is_probed`;
-  bez sondy było tam 111 tabel, w tym 9, których kod już nie czyta: Traffit
-  dwukierunkowy z 0173 i ślad Cortexa z 0167). Przy dopisywaniu sondy sprawdź
+  bez sondy było tam 111 tabel, w tym 9, których kod już nie czytał: Traffit
+  dwukierunkowy z 0173 i ślad Cortexa z 0167; ich modele, sondy i DDL siatki
+  zdjęto 15.11.2026, a tabele kasuje osobna migracja). Przy dopisywaniu sondy sprawdź
   kolumny modelu z DDL siatki: lustro `document_signatures` kończyło się na
   0080 i baza z osieroconym alembikiem nie miałaby 9 kolumn modelu.
 - **`/api/health/deep` anonimowo = tylko sygnał wdrożenia, limit 10/min per IP

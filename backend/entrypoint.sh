@@ -3258,37 +3258,8 @@ END $$""",
     END $$""",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_by VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_at TIMESTAMPTZ",
-    """CREATE TABLE IF NOT EXISTS cortex_extraction_runs (
-        id BIGSERIAL PRIMARY KEY,
-        run_type VARCHAR(10) NOT NULL,
-        source VARCHAR(20) NOT NULL DEFAULT 'traffit',
-        status VARCHAR(12) NOT NULL DEFAULT 'running',
-        triggered_by VARCHAR(120) NULL,
-        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        finished_at TIMESTAMPTZ NULL,
-        heartbeat_at TIMESTAMPTZ NULL,
-        cursor_candidate_id INTEGER NULL,
-        stats JSONB NULL,
-        last_error TEXT NULL
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_runs_status_started "
-    "ON cortex_extraction_runs (status, started_at)",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_runs_started "
-    "ON cortex_extraction_runs (started_at)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_cortex_single_running "
-    "ON cortex_extraction_runs (source) WHERE status = 'running'",
-    """CREATE TABLE IF NOT EXISTS cortex_unmatched_observations (
-        id BIGSERIAL PRIMARY KEY,
-        term TEXT NOT NULL,
-        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-        source VARCHAR(20) NOT NULL DEFAULT 'traffit',
-        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_cortex_unmatched_obs UNIQUE (term, candidate_id, source)
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_obs_term "
-    "ON cortex_unmatched_observations (term)",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_obs_candidate "
-    "ON cortex_unmatched_observations (candidate_id)",
+    # 0167: przebiegów i obserwacji Cortexa siatka już nie zakłada (15.11.2026);
+    # kod ich nie czytał od usunięcia Cortexa 23.09.2026.
     "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_status "
     "ON cortex_unmatched_terms (status)",
     # Guard po dedupie taksonomii (0160). Jeśli alembic nie zdążył scalić
@@ -3302,6 +3273,9 @@ END $$""",
     # Nowe TABELE lustrzane tutaj mimo create_all (precedens cortex
     # 2026-07-12: create_all potrafi cicho paść), a nowe KOLUMNY na
     # istniejących tabelach create_all nigdy nie dołoży. DDL 1:1 z 0173.
+    # Zostały powiązania encji i skrzynka webhooków. Siedmiu tabel synchronizacji
+    # dwukierunkowej (outbox, konflikty, przebiegi i fazy, dzierżawy, przełączniki)
+    # siatka już nie zakłada (15.11.2026): kod ich nie używał, na produkcji były puste.
     """CREATE TABLE IF NOT EXISTS traffit_entity_links (
         id                     BIGSERIAL PRIMARY KEY,
         entity_type            VARCHAR(50) NOT NULL,
@@ -3331,62 +3305,6 @@ END $$""",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_traffit_entity_links_remote ON traffit_entity_links (entity_type, traffit_entity_id) WHERE traffit_entity_id IS NOT NULL',
     'CREATE INDEX IF NOT EXISTS ix_traffit_entity_links_candidate_status ON traffit_entity_links (candidate_id, status)',
     'CREATE INDEX IF NOT EXISTS ix_traffit_entity_links_last_seen ON traffit_entity_links (entity_type, last_seen_at)',
-    """CREATE TABLE IF NOT EXISTS traffit_field_contracts (
-        id                 BIGSERIAL PRIMARY KEY,
-        field_name         VARCHAR(255) NOT NULL,
-        capability         VARCHAR(20) NOT NULL,
-        endpoint           VARCHAR(255) NULL,
-        local_path         VARCHAR(255) NULL,
-        data_type          VARCHAR(100) NULL,
-        adapter            VARCHAR(100) NULL,
-        required           BOOLEAN NOT NULL DEFAULT false,
-        readable           BOOLEAN NOT NULL DEFAULT true,
-        writable           BOOLEAN NOT NULL DEFAULT false,
-        choices            JSONB NULL,
-        raw_metadata       JSONB NULL,
-        schema_hash        VARCHAR(64) NOT NULL,
-        status             VARCHAR(30) NOT NULL DEFAULT 'active',
-        quarantine_reason  TEXT NULL,
-        discovered_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_traffit_field_contract_capability
-            UNIQUE (field_name, capability)
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_field_contracts_status ON traffit_field_contracts (status)',
-    """CREATE TABLE IF NOT EXISTS traffit_outbox_events (
-        id               BIGSERIAL PRIMARY KEY,
-        event_uuid       VARCHAR(36) NOT NULL UNIQUE,
-        aggregate_type   VARCHAR(50) NOT NULL,
-        aggregate_id     BIGINT NOT NULL,
-        candidate_id     INTEGER NULL
-                             REFERENCES candidates(id) ON DELETE SET NULL,
-        entity_link_id   BIGINT NULL
-                             REFERENCES traffit_entity_links(id) ON DELETE SET NULL,
-        event_type       VARCHAR(100) NOT NULL,
-        payload          JSONB NOT NULL DEFAULT '{}'::jsonb,
-        changed_fields   JSONB NOT NULL DEFAULT '[]'::jsonb,
-        actor_user_id    INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        origin           VARCHAR(20) NOT NULL DEFAULT 'nexus',
-        idempotency_key  VARCHAR(128) NOT NULL UNIQUE,
-        sequence         BIGINT NOT NULL DEFAULT 0,
-        priority         INTEGER NOT NULL DEFAULT 100,
-        status           VARCHAR(30) NOT NULL DEFAULT 'pending',
-        attempts         INTEGER NOT NULL DEFAULT 0,
-        max_attempts     INTEGER NOT NULL DEFAULT 8,
-        next_attempt_at  TIMESTAMPTZ NULL DEFAULT now(),
-        locked_at        TIMESTAMPTZ NULL,
-        locked_by        VARCHAR(255) NULL,
-        processed_at     TIMESTAMPTZ NULL,
-        remote_response  JSONB NULL,
-        last_error       TEXT NULL,
-        created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_traffit_outbox_due ON traffit_outbox_events (priority, next_attempt_at, id) WHERE status IN ('pending', 'retry')",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_outbox_aggregate_order ON traffit_outbox_events (aggregate_type, aggregate_id, sequence, id)',
-    'CREATE INDEX IF NOT EXISTS ix_traffit_outbox_candidate_status ON traffit_outbox_events (candidate_id, status)',
     """CREATE TABLE IF NOT EXISTS traffit_webhook_events (
         id                  BIGSERIAL PRIMARY KEY,
         subscription_id     VARCHAR(100) NOT NULL,
@@ -3411,106 +3329,6 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_traffit_webhook_due ON traffit_webhook_events (next_attempt_at, id) WHERE status IN ('pending', 'retry')",
     'CREATE INDEX IF NOT EXISTS ix_traffit_webhook_remote_entity ON traffit_webhook_events (remote_entity_type, remote_entity_id)',
-    """CREATE TABLE IF NOT EXISTS traffit_sync_conflicts (
-        id                 BIGSERIAL PRIMARY KEY,
-        entity_link_id     BIGINT NULL
-                               REFERENCES traffit_entity_links(id) ON DELETE SET NULL,
-        outbox_event_id    BIGINT NULL
-                               REFERENCES traffit_outbox_events(id) ON DELETE SET NULL,
-        entity_type        VARCHAR(50) NOT NULL,
-        nexus_entity_id    BIGINT NULL,
-        traffit_entity_id  VARCHAR(255) NULL,
-        candidate_id       INTEGER NULL
-                               REFERENCES candidates(id) ON DELETE SET NULL,
-        field_path         VARCHAR(255) NULL,
-        conflict_type      VARCHAR(50) NOT NULL,
-        idempotency_key    VARCHAR(128) NULL,
-        base_value         JSONB NULL,
-        nexus_value        JSONB NULL,
-        traffit_value      JSONB NULL,
-        status             VARCHAR(30) NOT NULL DEFAULT 'open',
-        resolution         VARCHAR(30) NULL,
-        resolved_value     JSONB NULL,
-        resolution_note    TEXT NULL,
-        detected_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-        resolved_at        TIMESTAMPTZ NULL,
-        resolved_by        INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_traffit_conflicts_open ON traffit_sync_conflicts (detected_at, id) WHERE status IN ('open', 'manual_action_required')",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_conflicts_candidate ON traffit_sync_conflicts (candidate_id, status)',
-    'CREATE INDEX IF NOT EXISTS ix_traffit_conflicts_entity ON traffit_sync_conflicts (entity_type, nexus_entity_id, traffit_entity_id)',
-    'CREATE UNIQUE INDEX IF NOT EXISTS ux_traffit_conflicts_idempotency ON traffit_sync_conflicts (idempotency_key) WHERE idempotency_key IS NOT NULL',
-    """CREATE TABLE IF NOT EXISTS traffit_sync_runs (
-        id             BIGSERIAL PRIMARY KEY,
-        run_uuid       VARCHAR(36) NOT NULL UNIQUE,
-        mode           VARCHAR(30) NOT NULL,
-        trigger        VARCHAR(30) NOT NULL,
-        scope          JSONB NOT NULL DEFAULT '{}'::jsonb,
-        status         VARCHAR(30) NOT NULL DEFAULT 'queued',
-        dry_run        BOOLEAN NOT NULL DEFAULT true,
-        leader_id      VARCHAR(255) NULL,
-        started_at     TIMESTAMPTZ NULL,
-        finished_at    TIMESTAMPTZ NULL,
-        cursor_before  JSONB NULL,
-        cursor_after   JSONB NULL,
-        stats          JSONB NOT NULL DEFAULT '{}'::jsonb,
-        errors         JSONB NOT NULL DEFAULT '[]'::jsonb,
-        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_sync_runs_status_started ON traffit_sync_runs (status, started_at)',
-    'CREATE INDEX IF NOT EXISTS ix_traffit_sync_runs_mode_created ON traffit_sync_runs (mode, created_at)',
-    """CREATE TABLE IF NOT EXISTS traffit_sync_run_phases (
-        id                 BIGSERIAL PRIMARY KEY,
-        run_id             BIGINT NOT NULL
-                               REFERENCES traffit_sync_runs(id) ON DELETE CASCADE,
-        phase              VARCHAR(100) NOT NULL,
-        status             VARCHAR(30) NOT NULL DEFAULT 'queued',
-        started_at         TIMESTAMPTZ NULL,
-        finished_at        TIMESTAMPTZ NULL,
-        cursor_before      JSONB NULL,
-        cursor_after       JSONB NULL,
-        pages_processed    INTEGER NOT NULL DEFAULT 0,
-        items_seen         INTEGER NOT NULL DEFAULT 0,
-        items_applied      INTEGER NOT NULL DEFAULT 0,
-        items_skipped      INTEGER NOT NULL DEFAULT 0,
-        conflicts_created  INTEGER NOT NULL DEFAULT 0,
-        complete           BOOLEAN NOT NULL DEFAULT false,
-        stats              JSONB NOT NULL DEFAULT '{}'::jsonb,
-        error              TEXT NULL,
-        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_traffit_sync_run_phase UNIQUE (run_id, phase)
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_sync_run_phases_run_status ON traffit_sync_run_phases (run_id, status)',
-    """CREATE TABLE IF NOT EXISTS integration_leases (
-        name          VARCHAR(100) PRIMARY KEY,
-        holder_id     VARCHAR(255) NOT NULL,
-        acquired_at   TIMESTAMPTZ NOT NULL,
-        heartbeat_at  TIMESTAMPTZ NOT NULL,
-        expires_at    TIMESTAMPTZ NOT NULL,
-        generation    BIGINT NOT NULL DEFAULT 1,
-        metadata      JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_integration_leases_expires_at ON integration_leases (expires_at)',
-    """CREATE TABLE IF NOT EXISTS traffit_integration_control (
-        integration             VARCHAR(50) PRIMARY KEY,
-        webhook_accept_enabled  BOOLEAN NOT NULL DEFAULT false,
-        inbound_apply_enabled   BOOLEAN NOT NULL DEFAULT false,
-        poll_enabled            BOOLEAN NOT NULL DEFAULT false,
-        outbound_enabled        BOOLEAN NOT NULL DEFAULT false,
-        dry_run                 BOOLEAN NOT NULL DEFAULT true,
-        paused_reason           TEXT NULL,
-        settings                JSONB NOT NULL DEFAULT '{}'::jsonb,
-        updated_by              INTEGER NULL
-                                    REFERENCES users(id) ON DELETE SET NULL,
-        created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
     # Rozszerzenia istniejących encji (0173) — bez UPDATE (ten w _DATA_).
     'ALTER TABLE candidates ADD COLUMN IF NOT EXISTS profile_about TEXT',
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb",

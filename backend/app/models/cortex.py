@@ -37,7 +37,6 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -107,8 +106,8 @@ class CortexSkillFact(Base):
     )
 
     # Provenance — pozwala odtworzyć/wycofać wynik konkretnego runu.
-    # ``run_id`` to miękka referencja do ``cortex_extraction_runs.id`` (bez FK,
-    # żeby prune runów nie kaskadował na miliony faktów).
+    # ``run_id`` wskazywał przebieg w ``cortex_extraction_runs`` (bez FK). Ta tabela
+    # i jej model zniknęły po usunięciu Cortexa; kolumna zostaje jako ślad pochodzenia.
     extractor_version: Mapped[Optional[str]] = mapped_column(String(40))
     run_id: Mapped[Optional[int]] = mapped_column(BigInteger)
     # sha256 surowego źródła (traffit_technologie) — fingerprint pod skip-unchanged.
@@ -129,10 +128,10 @@ class CortexUnmatchedTerm(Base):
     """Kolejka kuracji słownika — tokeny spoza taksonomii, po jednym wierszu na term.
 
     ``occurrences`` = liczba UNIKALNYCH kandydatów z tym terminem (nie liczba
-    uruchomień backfillu). Utrzymywane idempotentnie: licznik rośnie tylko przy
-    pierwszej obserwacji danego ``(term, candidate, source)`` (patrz
-    ``cortex_unmatched_observations`` + ``fact_store.record_unmatched``), więc
-    rerun na niezmienionych danych NIE zawyża licznika.
+    uruchomień backfillu). Do usunięcia Cortexa (23.09.2026) licznik rósł tylko
+    przy pierwszej obserwacji ``(term, candidate, source)`` w
+    ``cortex_unmatched_observations``; od tego dnia nikt go nie zmienia, a model
+    tabeli obserwacji zdjęto 15.11.2026.
     """
 
     __tablename__ = "cortex_unmatched_terms"
@@ -166,88 +165,3 @@ class CortexUnmatchedTerm(Base):
 
     def __repr__(self) -> str:  # pragma: no cover - debug helper
         return f"<CortexUnmatchedTerm term={self.term!r} n={self.occurrences}>"
-
-
-class CortexUnmatchedObservation(Base):
-    """Relacja term ↔ kandydat ↔ źródło — czyni licznik unmatched idempotentnym.
-
-    UNIQUE(term, candidate_id, source): powtórna obserwacja tego samego terminu
-    u tego samego kandydata jest no-op (odświeża tylko ``last_seen_at``), więc
-    ``cortex_unmatched_terms.occurrences`` liczy unikalnych kandydatów, a nie
-    liczbę przebiegów backfillu.
-    """
-
-    __tablename__ = "cortex_unmatched_observations"
-    __table_args__ = (
-        UniqueConstraint(
-            "term", "candidate_id", "source", name="uq_cortex_unmatched_obs"
-        ),
-        Index("ix_cortex_unmatched_obs_term", "term"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    term: Mapped[str] = mapped_column(Text, nullable=False)
-    candidate_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("candidates.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    source: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="traffit"
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    def __repr__(self) -> str:  # pragma: no cover - debug helper
-        return (
-            f"<CortexUnmatchedObservation term={self.term!r} "
-            f"candidate={self.candidate_id}>"
-        )
-
-
-class CortexExtractionRun(Base):
-    """Trwały ślad przebiegu ekstrakcji Cortexa (zastępuje in-memory ``_TRAFFIT_JOB``).
-
-    Restart-safe status + single-flight (advisory lock w API) + orphan reaper.
-    Wzorzec z ``traffit_sync_state`` — patrz [[api/cortex.py]].
-    """
-
-    __tablename__ = "cortex_extraction_runs"
-    __table_args__ = (
-        Index("ix_cortex_runs_status_started", "status", "started_at"),
-        Index("ix_cortex_runs_started", "started_at"),
-        CheckConstraint(
-            "run_type IN ('manual', 'daily', 'full')",
-            name="ck_cortex_run_type",
-        ),
-        CheckConstraint(
-            "status IN ('running', 'ok', 'errors', 'failed')",
-            name="ck_cortex_run_status",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
-    run_type: Mapped[str] = mapped_column(String(10), nullable=False)
-    source: Mapped[str] = mapped_column(
-        String(20), nullable=False, server_default="traffit"
-    )
-    status: Mapped[str] = mapped_column(
-        String(12), nullable=False, server_default="running"
-    )
-    triggered_by: Mapped[Optional[str]] = mapped_column(String(120))
-    started_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    heartbeat_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    cursor_candidate_id: Mapped[Optional[int]] = mapped_column(Integer)
-    stats: Mapped[Optional[dict]] = mapped_column(JSONB)
-    last_error: Mapped[Optional[str]] = mapped_column(Text)
-
-    def __repr__(self) -> str:  # pragma: no cover - debug helper
-        return (
-            f"<CortexExtractionRun id={self.id} type={self.run_type} "
-            f"status={self.status}>"
-        )

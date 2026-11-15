@@ -4138,25 +4138,11 @@ async def api_health_deep_check(request: Request):
     from app.models.document_signature import DocumentSignature
     from app.models.document_signature_event import DocumentSignatureEvent
     from app.models.saved_search_alert_log import SavedSearchAlertLog
-    from app.models.cortex import (
-        CortexExtractionRun,
-        CortexSkillFact,
-        CortexUnmatchedObservation,
-    )
+    from app.models.cortex import CortexSkillFact
     from app.models.contract_framework_rate import ContractFrameworkRate
     from app.models.match_telemetry import MatchImpression, MatchOutcome
     from app.models.index_outbox import IndexOutboxEvent
-    from app.models.traffit_integration import (
-        IntegrationLease,
-        TraffitEntityLink,
-        TraffitFieldContract,
-        TraffitIntegrationControl,
-        TraffitOutboxEvent,
-        TraffitSyncConflict,
-        TraffitSyncRun,
-        TraffitSyncRunPhase,
-        TraffitWebhookEvent,
-    )
+    from app.models.traffit_integration import TraffitEntityLink, TraffitWebhookEvent
     from app.models.financial_adjustment import FinancialAdjustment
     from app.models.analytics_snapshot import AnalyticsCutover, AnalyticsMetricSnapshot
     from app.models.workflow_revision import (
@@ -4807,26 +4793,14 @@ async def api_health_deep_check(request: Request):
         ("cortex_skill_facts", CortexSkillFact),
         # 0166: harmonogram stawek z umowy ramowej.
         ("contract_framework_rates", ContractFrameworkRate),
-        # 0167: przebiegi i obserwacje Cortexa — kod ich nie czyta od usunięcia
-        # Cortexa (23.09.2026), ale model i DDL siatki zostały.
-        ("cortex_extraction_runs", CortexExtractionRun),
-        ("cortex_unmatched_observations", CortexUnmatchedObservation),
         # 0169: telemetria dopasowań (wyświetlenia i wyniki).
         ("match_impressions", MatchImpression),
         ("match_outcomes", MatchOutcome),
         # 0171: kolejka indeksu wektorowego.
         ("match_index_outbox", IndexOutboxEvent),
-        # 0173: Traffit — powiązania encji (scalanie kandydatów) i skrzynka webhooków;
-        # reszta to synchronizacja dwukierunkowa (#767), wyłączona, tabele puste.
+        # 0173: Traffit — powiązania encji (scalanie kandydatów) i skrzynka webhooków.
         ("traffit_entity_links", TraffitEntityLink),
         ("traffit_webhook_events", TraffitWebhookEvent),
-        ("traffit_field_contracts", TraffitFieldContract),
-        ("traffit_outbox_events", TraffitOutboxEvent),
-        ("traffit_sync_conflicts", TraffitSyncConflict),
-        ("traffit_sync_runs", TraffitSyncRun),
-        ("traffit_sync_run_phases", TraffitSyncRunPhase),
-        ("integration_leases", IntegrationLease),
-        ("traffit_integration_control", TraffitIntegrationControl),
         # 0176: korekty finansowe zamówień.
         ("financial_adjustments", FinancialAdjustment),
         # 0177: migawki metryk i rejestr cutoverów; wersjonowane workflow.
