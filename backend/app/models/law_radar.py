@@ -1,4 +1,4 @@
-"""Radar przepisów: biegi botów, surowe pozycje, zmiany w prawie (0713).
+"""Radar przepisów: biegi botów, surowe pozycje, zmiany w prawie (0714).
 
 CHECK-i i indeksy jak w ``app/services/law_radar/schema.py`` (strażnik dryfu
 schematu porównuje model z bazą po migracji).

@@ -85,7 +85,7 @@ sprzedaży z numerem KSeF w ostatnim pełnym miesiącu),
 - Na stagingu pętla zablokowana (`STAGING_BLOCKED_TASKS`: `law_radar`).
 - Logi są publiczne: same liczby, bez tytułów i nazw.
 
-## Zbudowane: backend (PR1, migracja 0713)
+## Zbudowane: backend (PR1, migracja 0714)
 
 - **Kod:** `services/law_radar/` (`schema`, `runs`, `collect`, `gate`, `analyze`,
   `probes`, `flow`), model `models/law_radar.py`, pętla `tasks/law_radar.py`,

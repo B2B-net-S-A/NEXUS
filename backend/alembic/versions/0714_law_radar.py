@@ -1,7 +1,7 @@
 """Radar przepisów: biegi dwóch Grok Botów, pozycje po bramce, zmiany w prawie.
 
-Revision ID: 0713_law_radar
-Revises: 0712_client_reports
+Revision ID: 0714_law_radar
+Revises: 0713_job_team_variants
 
 SQL i powody: ``app/services/law_radar/schema.py`` (to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``). Reguły:
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services.law_radar import schema
 
-revision = "0713_law_radar"
-down_revision = "0712_client_reports"
+revision = "0714_law_radar"
+down_revision = "0713_job_team_variants"
 branch_labels = None
 depends_on = None
 
