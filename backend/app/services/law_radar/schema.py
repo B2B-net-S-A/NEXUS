@@ -1,7 +1,7 @@
-"""Radar przepisów (decyzje Artura 15.11.2026): SQL migracji ``0714_law_radar``
+"""Radar przepisów (decyzje Artura 15.11.2026): SQL migracji ``0715_law_radar``
 i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0714_law_radar.py``
+Jedno źródło instrukcji dla ``alembic/versions/0715_law_radar.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``).
 
 Tabele:
