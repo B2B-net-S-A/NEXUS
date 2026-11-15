@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 
-import { ComplianceBanner } from "@/components/compliance/ComplianceBanner";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
@@ -47,8 +46,6 @@ export function PayrollMonthsScreen({ config }: { config: HrConfig }) {
 
   return (
     <div className="space-y-4">
-      {/* „Przepisy” (15.11.2026): zmiany dla Kadr i płac do decyzji; bez nich pasek znika. */}
-      <ComplianceBanner role="payroll" />
       <PageHeader
         title="Rozliczenia"
         description="Godziny z potwierdzonych raportów godzin × stawka, plus przyznane premie. Zamknięty miesiąc ma zamrożone kwoty."
