@@ -1,4 +1,4 @@
-"""Zespół dla klienta: zakładanie, skład, link dla klienta (0708).
+"""Zespół dla klienta: zakładanie, skład, link dla klienta (0709).
 
 Bramka jak w panelu rekrutacji (``api/client_panel.py``): uprawnienie
 „Rekrutacje” i prawo do panelu na KAŻDEJ rekrutacji zespołu, bo link zespołu

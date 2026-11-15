@@ -184,12 +184,12 @@ def test_migration_and_entrypoint_share_one_ddl_source() -> None:
     assert entrypoint.index("*_JOB_TEAMS_DDL,") > entrypoint.index(
         "*_CLIENT_PANEL_DDL,"
     )
-    migration = (BACKEND / "alembic/versions/0708_job_teams.py").read_text(
+    migration = (BACKEND / "alembic/versions/0709_job_teams.py").read_text(
         encoding="utf-8"
     )
     assert "schema.TABLE_DDL" in migration
     assert "schema.DOWNGRADE_DDL" in migration
-    assert 'down_revision = "0707_ledger_fx"' in migration
+    assert 'down_revision = "0708_ledger_vat_files"' in migration
 
 
 def test_team_table_is_created_before_the_job_column_points_at_it() -> None:
