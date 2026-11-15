@@ -67,6 +67,7 @@ function template(id: number, patch: Partial<InvoiceTemplate> = {}): InvoiceTemp
     problem: null,
     address_missing: false,
     issued: null,
+    invoiced_in_ksef: [],
     selectable: true,
     ...patch,
   };
@@ -80,6 +81,7 @@ const TEMPLATES = [
     issued: { id: 40, invoice_number: null, status: "draft", status_label: "Szkic" },
   }),
   template(4, { active: false, selectable: false }),
+  template(5, { selectable: false, invoiced_in_ksef: ["5/10/2026"] }),
 ];
 
 function wrap(node: React.ReactNode) {
@@ -110,6 +112,8 @@ describe("TemplatesPanel", () => {
       "/finance/faktury/40",
     );
     expect(within(screen.getByTestId("template-4")).getByText("wyłączony")).toBeInTheDocument();
+    expect(within(screen.getByTestId("template-5")).getByText("zafakturowane w KSeF")).toBeInTheDocument();
+    expect(within(screen.getByTestId("template-5")).getByText("5/10/2026")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Zaznacz wszystkie do wystawienia" }));
     await user.click(screen.getByRole("button", { name: "Utwórz szkice (2)" }));

@@ -356,6 +356,12 @@ async def from_invoice(
 
     if invoice.invoice_type != "VAT":
         raise IssueError("Szablon robi się z faktury VAT (nie z korekty ani zaliczki).")
+    if invoice.order_group_id is not None or invoice.order_id is not None:
+        # Szablon obok „Wystaw za miesiąc” zafakturowałby tę samą usługę drugi raz.
+        raise IssueError(
+            "Faktura z zamówienia powstaje co miesiąc w „Wystaw za miesiąc” — "
+            "szablon robi się z faktury bez zamówienia."
+        )
     year, month = invoice.period_year, invoice.period_month
     lines = [
         {
@@ -590,6 +596,34 @@ async def _issued_for(
     return {row.template_id: row for row in rows if row.template_id is not None}
 
 
+def _buyer_match_key(buyer: dict[str, Any]) -> str:
+    key = _key(buyer.get("number"))
+    if key:
+        return key
+    name = " ".join(str(buyer.get("name") or "").split()).lower()
+    return f"name:{name}" if name else ""
+
+
+async def _in_ksef(db: AsyncSession, year: int, month: int) -> dict[str, list[str]]:
+    """Faktury z KSeF spoza NEXUSA (np. z eBI24) bez zamówienia za miesiąc → nabywca.
+
+    Miesiąc przejściowy (przegląd 15.11.2026): eBI24 wystawia te same faktury
+    z własnych szablonów, więc szablon NEXUSA do nabywcy, który ma już taką
+    fakturę za ten miesiąc, nie robi szkicu. Porównanie po nabywcy, nie po
+    pozycjach — inna nazwa pozycji nie może przepuścić duplikatu; brakującą
+    fakturę (np. drugi benefit tej samej osoby) wystawia się „Nową fakturą”.
+    """
+
+    out: dict[str, list[str]] = {}
+    for invoice in await _unlinked(db, year=year, month=month):
+        key = _buyer_match_key(_buyer_from_sales(invoice))
+        if key:
+            out.setdefault(key, []).append(
+                invoice.invoice_number or invoice.ksef_number
+            )
+    return out
+
+
 def template_net(template: ClientInvoiceTemplate) -> Optional[Decimal]:
     priced = issue._priced(template.lines or [])  # noqa: SLF001
     if not priced:
@@ -629,11 +663,13 @@ async def listing(
     )
     first, last = month_range(year, month)
     issued = await _issued_for(db, year, month, [t.id for t in templates])
+    in_ksef = await _in_ksef(db, year, month)
     book = await buyer_book(db, [(t.buyer or {}).get("number") for t in templates])
     return [
         payload(
             template,
             issued=issued.get(template.id),
+            invoiced_in_ksef=in_ksef.get(_buyer_match_key(template.buyer or {}), []),
             in_month=_valid_in(template, first, last),
             address_missing=not book.fill(template.buyer or {})["address_l1"],
         )
@@ -645,6 +681,7 @@ def payload(
     template: ClientInvoiceTemplate,
     *,
     issued: Optional[ClientIssuedInvoice] = None,
+    invoiced_in_ksef: Sequence[str] = (),
     in_month: bool = True,
     address_missing: bool = False,
 ) -> dict[str, Any]:
@@ -682,10 +719,13 @@ def payload(
             if issued is not None
             else None
         ),
+        #: Numery faktur z KSeF spoza NEXUSA do tego nabywcy za ten miesiąc (eBI24).
+        "invoiced_in_ksef": list(invoiced_in_ksef),
         "selectable": template.active
         and in_month
         and problem is None
-        and issued is None,
+        and issued is None
+        and not invoiced_in_ksef,
     }
 
 
@@ -715,6 +755,7 @@ async def run(
     }
     first, last = month_range(year, month)
     issued = await _issued_for(db, year, month, wanted)
+    in_ksef = await _in_ksef(db, year, month)
     problems = []
     for tid in wanted:
         template = templates.get(tid)
@@ -727,6 +768,12 @@ async def run(
             problems.append(f"{template.name}: szablon nie obowiązuje w tym miesiącu.")
         elif issued.get(tid) is not None:
             problems.append(f"{template.name}: ma już fakturę za ten miesiąc.")
+        elif in_ksef.get(_buyer_match_key(template.buyer or {})):
+            numbers = ", ".join(in_ksef[_buyer_match_key(template.buyer or {})])
+            problems.append(
+                f"{template.name}: nabywca ma już w KSeF fakturę za ten miesiąc "
+                f"({numbers}) — brakującą wystaw „Nową fakturą”."
+            )
         elif _problem(template):
             problems.append(f"{template.name}: {_problem(template)}.")
     if problems:

@@ -424,25 +424,35 @@ async def test_inactive_and_expired_templates_are_not_issued(client, seed):
     ).status_code == 404
 
 
-async def test_save_invoice_as_template(client, seed):
+async def test_save_manual_invoice_as_template(client, seed):
     await _settings(client, seed)
-    response = await client.post(
-        f"{BASE}/drafts",
-        json={**OCTOBER, "keys": [f"g{seed.groups['118']}"]},
+    created = await client.post(
+        f"{BASE}/manual", json={"client_id": seed.client_id}, headers=_h(seed)
+    )
+    assert created.status_code == 201, created.text
+    invoice_id = created.json()["id"]
+    await client.put(
+        f"{BASE}/{invoice_id}",
+        json={
+            "lines": [
+                {
+                    "name": "Abonament",
+                    "quantity": "1",
+                    "unit_price": "100",
+                    "vat_rate": "23",
+                }
+            ]
+        },
         headers=_h(seed),
     )
-    assert response.status_code == 201, response.text
-    (invoice_id,) = response.json()["created"]
     saved = await client.post(f"{BASE}/{invoice_id}/template", headers=_h(seed))
     assert saved.status_code == 201, saved.text
     template = saved.json()
     assert template["kind"] == "service"
     assert template["client_id"] == seed.client_id
     assert template["source"] == "invoice"
-    assert all(line["order_id"] is None for line in template["lines"])
-    assert all("{okres}" in line["name"] for line in template["lines"]), template[
-        "lines"
-    ]
+    assert [line["name"] for line in template["lines"]] == ["Abonament"]
+    assert template["net"] == "100.00"
 
 
 # ── Nazwy pozycji ───────────────────────────────────────────────────────────
@@ -473,3 +483,75 @@ def test_benefit_is_recognised_by_line_name():
     assert templates.benefit_of(["Refaktura kosztów opieki medycznej"]) == "medical"
     assert templates.benefit_of(["Refaktura kosztów notarialnych"]) == "other"
     assert templates.benefit_of(["Usługa informatyczna"]) is None
+
+
+async def test_template_for_month_already_invoiced_by_ebi24_is_not_drafted(
+    client, seed
+):
+    """Miesiąc przejściowy: eBI24 już wystawił refakturę za październik — szablon nie robi drugiej.
+
+    Przegląd 15.11.2026: bez tej blokady import z września i „Utwórz szkice” za
+    październik wysłałyby drugą fakturę każdemu kontraktorowi.
+    """
+
+    await _settings(client, seed)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            _sales(
+                5,
+                nip=fx.UNKNOWN_NIP,
+                name="Jan Testowy Usługi IT",
+                items=[
+                    {
+                        **SPORT,
+                        "name": "Refaktura pakietu sportowego za październik 2026",
+                    }
+                ],
+            )
+        )
+        await db.commit()
+    created = await client.post(
+        f"{BASE}/templates",
+        json={
+            "kind": "benefit",
+            "benefit": "sport",
+            "buyer": {"name": "Jan Testowy Usługi IT", "number": fx.UNKNOWN_NIP},
+            "lines": [{**SPORT, "name": "Refaktura pakietu sportowego za {okres}"}],
+        },
+        headers=_h(seed),
+    )
+    assert created.status_code == 201, created.text
+    template_id = created.json()["id"]
+
+    october = (
+        await client.get(f"{BASE}/templates", params=OCTOBER, headers=_h(seed))
+    ).json()["templates"]
+    (row,) = [t for t in october if t["id"] == template_id]
+    assert row["selectable"] is False
+    assert row["invoiced_in_ksef"] == ["5/10/2026"]
+    refused = await client.post(
+        f"{BASE}/templates/run",
+        json={**OCTOBER, "template_ids": [template_id]},
+        headers=_h(seed),
+    )
+    assert refused.status_code == 409, refused.text
+    assert "5/10/2026" in refused.json()["detail"]
+
+    # Listopad bez faktury z eBI24 — szablon wystawia normalnie.
+    november = (
+        await client.get(f"{BASE}/templates", params=NOVEMBER, headers=_h(seed))
+    ).json()["templates"]
+    assert [t["selectable"] for t in november if t["id"] == template_id] == [True]
+
+
+async def test_invoice_from_order_cannot_become_a_template(client, seed):
+    await _settings(client, seed)
+    response = await client.post(
+        f"{BASE}/drafts",
+        json={**OCTOBER, "keys": [f"g{seed.groups['118']}"]},
+        headers=_h(seed),
+    )
+    (invoice_id,) = response.json()["created"]
+    refused = await client.post(f"{BASE}/{invoice_id}/template", headers=_h(seed))
+    assert refused.status_code == 409, refused.text
+    assert "Wystaw za miesiąc" in refused.json()["detail"]

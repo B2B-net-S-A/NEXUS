@@ -458,6 +458,8 @@ export interface InvoiceTemplate {
     status: IssuedStatus;
     status_label: string;
   } | null;
+  /** Numery faktur z KSeF spoza NEXUSA (np. z eBI24) do tego nabywcy za ten miesiąc — szkicu nie będzie. */
+  invoiced_in_ksef: string[];
   selectable: boolean;
 }
 

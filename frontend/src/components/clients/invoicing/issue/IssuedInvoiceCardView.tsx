@@ -356,7 +356,10 @@ function CardBody({
               XML
             </Button>
           ) : null}
-          {card.invoice_type === "VAT" && card.template_id === null ? (
+          {card.invoice_type === "VAT" &&
+          card.template_id === null &&
+          card.order_group_id === null &&
+          card.order_id === null ? (
             <Button
               size="sm"
               variant="ghost"

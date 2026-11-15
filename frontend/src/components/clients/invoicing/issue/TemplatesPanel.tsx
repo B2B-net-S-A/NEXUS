@@ -51,6 +51,13 @@ function TemplateState({ template }: { template: InvoiceTemplate }) {
       </a>
     );
   }
+  if (template.invoiced_in_ksef.length) {
+    return (
+      <StatusDot tone="success" note={template.invoiced_in_ksef.join(", ")}>
+        zafakturowane w KSeF
+      </StatusDot>
+    );
+  }
   if (!template.active) return <StatusDot tone="neutral">wyłączony</StatusDot>;
   if (!template.in_month) return <StatusDot tone="neutral">poza okresem ważności</StatusDot>;
   if (template.problem) {
