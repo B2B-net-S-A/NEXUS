@@ -23,7 +23,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from openpyxl import load_workbook
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import case, delete, func, select, update
 
 from app.api import ledger as ledger_api
 from app.api import ledger_settlements as ledger_settlements_api
@@ -51,6 +51,7 @@ from app.models.ledger import (
     LedgerBankLine,
     LedgerBankStatement,
     LedgerDocument,
+    LedgerSettlement,
     LedgerLine,
     LedgerPrepayment,
     LedgerRecurring,
@@ -1958,14 +1959,14 @@ async def test_bank_refuses_files_that_do_not_fit_one_wb(client, world, books):
     )
     refused = await _bank_import(client, world, two_accounts)
     assert refused.status_code == 422 and "kilku rachunków" in refused.json()["detail"]
-    # Ten sam rachunek, ale operacje w EUR — WB jest w PLN (waluty: K4c).
+    # Ten sam rachunek, operacje w PLN i w EUR — plik ma jedną walutę (K4c-1).
     euro = _mt940_blocks(
         year,
         (COMPANY, "PLN", [("0320", "D", "12,50", "Opłata za przelew", "", f"G{marker}")]),
         (COMPANY, "EUR", [("0321", "D", "100,00", "Faktura w EUR", STRANGER_ACCOUNT, f"H{marker}")]),
     )
     refused = await _bank_import(client, world, euro)
-    assert refused.status_code == 422 and "PLN" in refused.json()["detail"]
+    assert refused.status_code == 422 and "kilku walutach" in refused.json()["detail"]
     # Operacje z dwóch miesięcy — WB ma jeden okres.
     two_months = _mt940_blocks(
         year,
@@ -2502,4 +2503,236 @@ async def test_settlements_keep_payroll_documents_to_payroll(client, world, book
         f"{ACC}/settlements/accounts/{acc['bank']}", headers=_headers(world["admin"])
     )
     assert plain.status_code == 404 and "słownikiem" in plain.json()["detail"]
+
+
+# ── Rachunki walutowe i różnice kursowe (K4c-1) ─────────────────────────────
+
+EUR_COMPANY = _valid_nrb("109010140000071219812877")
+
+
+async def _eur_setup(world, books, *, fx_accounts: bool) -> tuple[dict, dict]:
+    """Rachunek firmy w EUR (konto 131) i konta różnic kursowych w planie."""
+
+    prefix = books["acc"]["bank"].rsplit("-", 1)[0]
+    accounts = {
+        "eur_bank": f"{prefix}-131",
+        "gain": f"{prefix}-750",
+        "loss": f"{prefix}-751",
+    }
+    async with AsyncSessionLocal() as db:
+        for key, name in (
+            ("eur_bank", "Rachunek walutowy"),
+            ("gain", "Przychody finansowe"),
+            ("loss", "Koszty finansowe"),
+        ):
+            db.add(FinanceAccount(number=accounts[key], name=name, kind="other"))
+        await db.commit()
+    settings = _bank_settings(world, books)
+    settings["bank"]["accounts"].append(
+        {
+            "number": EUR_COMPANY,
+            "account": accounts["eur_bank"],
+            "name": "Rachunek EUR",
+            "currency": "EUR",
+        }
+    )
+    if fx_accounts:
+        settings["bank"]["fx_gain_account"] = accounts["gain"]
+        settings["bank"]["fx_loss_account"] = accounts["loss"]
+    await _set_ledger(settings)
+    return accounts, settings
+
+
+async def _eur_rate(day: date, rate: str) -> None:
+    async with AsyncSessionLocal() as db:
+        db.add(
+            FxRate(
+                effective_date=day,
+                currency="EUR",
+                rate_to_pln=Decimal(rate),
+                source="NBP",
+            )
+        )
+        await db.commit()
+
+
+async def _drop_eur_rate(day: date) -> None:
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(FxRate).where(FxRate.effective_date == day, FxRate.currency == "EUR")
+        )
+        await db.commit()
+
+
+async def test_currency_account_books_wb_at_nbp_rate_and_settles_the_fx_difference(
+    client, world, books
+):
+    year = books["year"]
+    receivable = f"{books['acc']['receivable']}-{books['partner']['c']}"
+    accounts, settings = await _eur_setup(world, books, fx_accounts=False)
+    paid_day = date(year, 3, 25)
+    nbp_day = rate_day(paid_day)
+    await _eur_rate(nbp_day, "4.250000")
+    try:
+        synced = await _sync(client, world, books, "sales")
+        assert synced.status_code == 200, synced.text
+        invoice = await _document("client_sales_invoice", books["sales"]["euro"])
+        await _approve_ids(client, world, [invoice.id])
+        marker = uuid.uuid4().hex[:6].upper()
+        content = _mt940_blocks(
+            year,
+            (
+                EUR_COMPANY,
+                "EUR",
+                [("0325", "C", "500,00", "Zapłata FS 2/03", OTHER_ACCOUNT, f"X{marker}")],
+            ),
+        )
+        imported = await _bank_import(client, world, content)
+        assert imported.status_code == 201, imported.text
+        statement = imported.json()
+        assert statement["currency"] == "EUR" and statement["credit_total"] == 50_000
+        line = statement["lines"][0]
+        # 500 EUR po średnim kursie NBP z ostatniego dnia roboczego przed wpłatą.
+        assert (line["currency"], line["amount"], line["amount_pln"]) == ("EUR", 50_000, 212_500)
+        assert (line["fx_rate"], line["fx_date"]) == ("4.250000", nbp_day.isoformat())
+        await _as_matched(
+            line["id"],
+            kind="sales_invoice",
+            ref_id=books["sales"]["euro"],
+            account=receivable,
+            counterparty_id=books["buyer"].id,
+        )
+        headers = _headers(world["accountant"])
+        posted = await client.post(
+            f"{ACC}/bank/statements/{statement['id']}/post", headers=headers
+        )
+        assert posted.status_code == 200, posted.text
+        wb = await _document("bank_statement", statement["id"])
+        assert await _lines(wb.id) == [
+            ("debit", accounts["eur_bank"], 212_500),
+            ("credit", receivable, 212_500),
+        ]
+        async with AsyncSessionLocal() as db:
+            rates = (
+                await db.execute(
+                    select(LedgerLine.currency, LedgerLine.amount_cur, LedgerLine.fx_rate)
+                    .where(LedgerLine.document_id == wb.id)
+                )
+            ).all()
+        assert set(rates) == {("EUR", 50_000, Decimal("4.250000"))}
+        await _approve_ids(client, world, [wb.id])
+        # Bez konta ujemnych różnic kursowych para czeka (podgląd i automat).
+        waiting = await client.post(
+            f"{ACC}/settlements/auto", params={"account": receivable}, headers=headers
+        )
+        assert (waiting.json()["fx_waiting"], waiting.json()["created"]) == (1, 0)
+        settings["bank"]["fx_gain_account"] = accounts["gain"]
+        settings["bank"]["fx_loss_account"] = accounts["loss"]
+        await _set_ledger(settings)
+        auto = await client.post(
+            f"{ACC}/settlements/auto", params={"account": receivable}, headers=headers
+        )
+        result = auto.json()
+        assert (result["bank"], result["created"]) == (1, 1), auto.text
+        assert [doc["amount"] for doc in result["fx_documents"]] == [2_500]
+        async with AsyncSessionLocal() as db:
+            row = await db.scalar(
+                select(LedgerSettlement).where(
+                    LedgerSettlement.account == receivable,
+                    LedgerSettlement.removed_at.is_(None),
+                )
+            )
+            fx_doc = await db.scalar(
+                select(LedgerDocument).where(
+                    LedgerDocument.source_type == "fx_difference",
+                    LedgerDocument.source_id == str(row.id),
+                )
+            )
+        # 500 EUR: faktura 2 150,00 (kurs 4,30), wpłata 2 125,00 (kurs 4,25).
+        assert (row.currency, row.amount_cur, row.amount, row.credit_amount) == (
+            "EUR",
+            50_000,
+            215_000,
+            212_500,
+        )
+        assert await _lines(fx_doc.id) == [
+            ("debit", accounts["loss"], 2_500),
+            ("credit", receivable, 2_500),
+        ]
+        card = await _account_card(client, world, receivable, as_of=f"{year}-03-31")
+        assert card["open"] == []
+        assert [(doc["status"], doc["kind"], doc["amount"], doc["orphan"]) for doc in card["fx_documents"]] == [
+            ("draft", "loss", 2_500, False)
+        ]
+        # Szkicu różnicy nie usuwa się z bufora — saldo konta rozjechałoby się
+        # z pozycjami po cichu (przegląd K4c 15.11.2026); zabiera go cofnięcie.
+        dropped = await client.delete(f"{ACC}/documents/{fx_doc.id}", headers=headers)
+        assert dropped.status_code == 409 and "Rozrachunki" in dropped.json()["detail"]
+        # Cofnięcie rozliczenia zabiera szkic różnicy kursowej.
+        removed = await client.delete(f"{ACC}/settlements/{row.id}", headers=headers)
+        assert removed.status_code == 204
+        assert await _document("fx_difference", row.id) is None
+        again = await client.post(
+            f"{ACC}/settlements/auto", params={"account": receivable}, headers=headers
+        )
+        assert again.json()["created"] == 1
+        fx_id = again.json()["fx_documents"][0]["id"]
+        await _approve_ids(client, world, [fx_id])
+        async with AsyncSessionLocal() as db:
+            live = await db.scalar(
+                select(LedgerSettlement.id).where(
+                    LedgerSettlement.account == receivable,
+                    LedgerSettlement.removed_at.is_(None),
+                )
+            )
+            balance = await db.scalar(
+                select(
+                    func.sum(
+                        case(
+                            (LedgerLine.side == "debit", LedgerLine.amount),
+                            else_=-LedgerLine.amount,
+                        )
+                    )
+                )
+                .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
+                .where(
+                    LedgerLine.account == receivable,
+                    LedgerDocument.status == "approved",
+                    LedgerDocument.id.in_([invoice.id, wb.id, fx_id]),
+                )
+            )
+        # Po różnicy kursowej saldo konta zgadza się z pozycjami (zero).
+        assert balance == 0
+        locked = await client.delete(f"{ACC}/settlements/{live}", headers=headers)
+        assert locked.status_code == 409 and "storno" in locked.json()["detail"]
+    finally:
+        await _drop_eur_rate(nbp_day)
+
+
+async def test_currency_statement_needs_the_account_currency_and_the_nbp_rate(
+    client, world, books
+):
+    year = books["year"]
+    await _eur_setup(world, books, fx_accounts=True)
+    marker = uuid.uuid4().hex[:6].upper()
+    to_pln_account = _mt940_blocks(
+        year,
+        (COMPANY, "EUR", [("0326", "C", "10,00", "Wpłata", OTHER_ACCOUNT, f"P{marker}")]),
+    )
+    refused = await _bank_import(client, world, to_pln_account)
+    assert refused.status_code == 422
+    assert "jest w PLN, a wyciąg w EUR" in refused.json()["detail"]
+    no_rate = _mt940_blocks(
+        year,
+        (EUR_COMPANY, "EUR", [("0326", "C", "10,00", "Wpłata", OTHER_ACCOUNT, f"Q{marker}")]),
+    )
+    missing = await _bank_import(client, world, no_rate)
+    assert missing.status_code == 422
+    assert f"Brak kursu NBP EUR z dnia {rate_day(date(year, 3, 26)):%d.%m.%Y}" in missing.json()["detail"]
+    gbp = await client.put(
+        f"{ACC}/config/bank",
+        json={"accounts": [{"number": EUR_COMPANY, "account": "130", "currency": "GBP"}]},
+        headers=_headers(world["admin"]),
+    )
+    assert gbp.status_code == 422
 

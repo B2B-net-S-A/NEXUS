@@ -20,11 +20,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.finance_ledger import FinanceCounterparty
-from app.models.ledger import LedgerSettlement
+from app.models.ledger import LedgerDocument, LedgerLine, LedgerSettlement
 from app.models.user import User
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import settlements as core
 from app.services.ledger.documents import Viewer
+from app.services.ledger.settings import BankSettings
 from app.services.ledger.settlements import Item, aging_key, overdue_days
 
 METHOD_LABELS: dict[str, str] = {
@@ -112,6 +113,7 @@ def _item_payload(item: Item, as_of: date) -> dict[str, Any]:
         "remaining": item.remaining,
         "currency": item.currency,
         "amount_cur": item.amount_cur,
+        "remaining_cur": item.remaining_cur,
     }
 
 
@@ -128,6 +130,7 @@ def _empty_aging() -> list[dict[str, Any]]:
 async def overview(
     db: AsyncSession,
     viewer: Viewer,
+    bank_settings: BankSettings,
     *,
     as_of: date,
     side: str = "all",
@@ -202,7 +205,7 @@ async def overview(
             row["account"],
         )
     )
-    auto = await core.auto_counts(db, viewer)
+    auto = await core.auto_counts(db, viewer, bank_settings)
     return {
         "as_of": as_of.isoformat(),
         "accounts_configured": bool(parents),
@@ -214,6 +217,48 @@ async def overview(
         "auto": auto,
         "can_settle": viewer.approver,
     }
+
+
+async def _fx_documents(
+    db: AsyncSession,
+    viewer: Viewer,
+    account: str,
+    *,
+    as_of: date,
+    live: set[int],
+) -> list[dict[str, Any]]:
+    """Różnice kursowe konta (K4c-1): numer, stan, kwota i czy ich rozliczenie
+    jeszcze obowiązuje — storno faktury albo wpłaty po zaksięgowaniu różnicy
+    zostawia ją bez pary, a saldo konta przestaje się zgadzać z pozycjami."""
+
+    query = (
+        select(LedgerDocument, LedgerLine)
+        .join(LedgerLine, LedgerLine.document_id == LedgerDocument.id)
+        .where(
+            LedgerDocument.source_type == core.FX_SOURCE,
+            LedgerDocument.reversed_by_id.is_(None),
+            LedgerDocument.op_date <= as_of,
+            LedgerLine.account == account,
+        )
+        .order_by(LedgerDocument.op_date, LedgerDocument.id)
+    )
+    if not viewer.payroll:
+        query = query.where(LedgerDocument.sensitivity.is_(None))
+    out: list[dict[str, Any]] = []
+    for doc, line in (await db.execute(query)).all():
+        settlement_id = int(doc.source_id) if (doc.source_id or "").isdigit() else 0
+        out.append(
+            {
+                "id": doc.id,
+                "number": doc.number,
+                "status": doc.status,
+                "op_date": doc.op_date.isoformat(),
+                "amount": abs(line.amount),
+                "kind": "loss" if line.side == "credit" else "gain",
+                "orphan": settlement_id not in live,
+            }
+        )
+    return out
 
 
 async def account_detail(
@@ -257,10 +302,15 @@ async def account_detail(
             (row.credit_line_id, row.debit_line_id),
         ):
             partner = by_line[other]
+            mine = row.amount
+            if own == row.credit_line_id and row.credit_amount is not None:
+                mine = row.credit_amount
             per_line[own].append(
                 {
                     "id": row.id,
-                    "amount": row.amount,
+                    "amount": mine,
+                    "currency": row.currency,
+                    "amount_cur": row.amount_cur,
                     "settled_on": row.settled_on.isoformat(),
                     "method": row.method,
                     "method_label": METHOD_LABELS[row.method],
@@ -276,7 +326,10 @@ async def account_detail(
             )
     names = await _names(db, items, fallback=viewer.payroll) if items else {}
     open_items = [item for item in items if item.remaining > 0]
-    settled = [item for item in items if item.remaining <= 0]
+    settled = [item for item in items if item not in open_items]
+    fx_docs = await _fx_documents(
+        db, viewer, account, as_of=as_of, live={row.id for row in settlements}
+    )
     debit_open = sum(item.remaining for item in open_items if item.direction == "debit")
     credit_open = sum(
         item.remaining for item in open_items if item.direction == "credit"
@@ -299,5 +352,6 @@ async def account_detail(
         "open": [payload(item) for item in open_items],
         "settled": [payload(item) for item in settled[-SETTLED_MAX:]],
         "settled_total": len(settled),
+        "fx_documents": fx_docs,
         "can_settle": viewer.approver,
     }

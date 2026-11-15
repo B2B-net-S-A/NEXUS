@@ -52,6 +52,14 @@ export interface AutoCounts {
   bank: number;
   correction: number;
   zero: number;
+  /** Pary w walucie, których różnicy kursowej nie da się zaksięgować (konto, okres). */
+  fx_waiting?: number;
+}
+
+export interface FxDocument {
+  id: number;
+  number: string;
+  amount: number;
 }
 
 export interface SettlementsOverview {
@@ -69,7 +77,10 @@ export interface SettlementsOverview {
 
 export interface SettlementLink {
   id: number;
+  /** Udział PLN tej pozycji (w walucie strony różnią się o różnicę kursową). */
   amount: number;
+  currency: string | null;
+  amount_cur: number | null;
   settled_on: string;
   method: SettlementMethod;
   method_label: string;
@@ -92,7 +103,20 @@ export interface SettlementItem {
   remaining: number;
   currency: string;
   amount_cur: number | null;
+  /** Ile zostało w walucie (pozycja walutowa, K4c-1). */
+  remaining_cur: number | null;
   settlements: SettlementLink[];
+}
+
+export interface AccountFxDocument {
+  id: number;
+  number: string;
+  status: "draft" | "approved";
+  op_date: string;
+  amount: number;
+  kind: "gain" | "loss";
+  /** Rozliczenie tej różnicy już nie obowiązuje (storno faktury albo wpłaty). */
+  orphan: boolean;
 }
 
 export interface SettlementAccount {
@@ -107,6 +131,7 @@ export interface SettlementAccount {
   open: SettlementItem[];
   settled: SettlementItem[];
   settled_total: number;
+  fx_documents?: AccountFxDocument[];
   can_settle: boolean;
 }
 
@@ -114,11 +139,13 @@ export interface SettleResult {
   account: string;
   created: number;
   amount: number;
+  fx_documents?: FxDocument[];
 }
 
 export interface AutoResult extends AutoCounts {
   created: number;
   amount: number;
+  fx_documents?: FxDocument[];
 }
 
 export interface SettlementsQuery {

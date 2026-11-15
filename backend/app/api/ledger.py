@@ -182,6 +182,7 @@ class CompanyAccountBody(BaseModel):
     number: str = Field(max_length=40)
     account: str = Field(max_length=ACCOUNT_MAX + 8)
     name: str = Field(default="", max_length=ledger_settings.BANK_NAME_MAX)
+    currency: Literal["PLN", "EUR", "USD"] = "PLN"
 
 
 class BankSettingsBody(BaseModel):
@@ -193,6 +194,8 @@ class BankSettingsBody(BaseModel):
     vat_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
     pit_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
     cit_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    fx_gain_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    fx_loss_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
 
 
 class BankLineBody(BaseModel):

@@ -39,7 +39,10 @@ NOTE_MAX = 300
 LINE_REF_MAX = 64
 BANK_REF_MAX = 48
 
-CK_STATEMENT_CURRENCY = "currency = 'PLN'"
+#: Waluty rachunków firmy (jak E8 i R9). K4a: tylko PLN; K4c-1 (0707) dodaje EUR
+#: i USD — CHECK na istniejącej bazie zamienia ``ledger_fx_schema``.
+CURRENCIES: tuple[str, ...] = ("PLN", "EUR", "USD")
+CK_STATEMENT_CURRENCY = f"currency IN ({quoted(CURRENCIES)})"
 CK_LINE_DIRECTION = f"direction IN ({quoted(DIRECTIONS)})"
 CK_LINE_KIND = f"kind IN ({quoted(LINE_KINDS)})"
 CK_LINE_AMOUNT = "amount > 0"

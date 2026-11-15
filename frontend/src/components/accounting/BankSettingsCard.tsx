@@ -5,18 +5,31 @@ import { Plus, X } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import { useSetBankSettings, type BankSettings } from "@/lib/api/accounting-bank";
+import { useSetBankSettings, type BankCurrency, type BankSettings } from "@/lib/api/accounting-bank";
 import { apiErrorMessage } from "@/lib/api-error";
 import { CALM_HEAD, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
-import { companyAccountProblems, groupNrb, nrbDigits, type CompanyAccountDraft } from "./bank-model";
+import {
+  BANK_CURRENCIES,
+  companyAccountProblems,
+  groupNrb,
+  nrbDigits,
+  type CompanyAccountDraft,
+} from "./bank-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const ACCOUNTS_MAX = 20;
 
-type RuleKey = "fees_account" | "zus_account" | "vat_account" | "pit_account" | "cit_account";
+type RuleKey =
+  | "fees_account"
+  | "zus_account"
+  | "vat_account"
+  | "pit_account"
+  | "cit_account"
+  | "fx_loss_account"
+  | "fx_gain_account";
 
 const RULE_FIELDS: { key: RuleKey; label: string; hint: string; placeholder: string }[] = [
   { key: "zus_account", label: "ZUS", hint: "przelew na rachunek ZUS (numer banku 60000002)", placeholder: "np. 229" },
@@ -24,6 +37,8 @@ const RULE_FIELDS: { key: RuleKey; label: string; hint: string; placeholder: str
   { key: "vat_account", label: "VAT", hint: "mikrorachunek podatkowy, w tytule /SFP/VAT", placeholder: "np. 222" },
   { key: "cit_account", label: "CIT", hint: "mikrorachunek podatkowy, w tytule /SFP/CIT", placeholder: "np. 220" },
   { key: "fees_account", label: "Opłaty i prowizje banku", hint: "operacja bez rachunku kontrahenta, „opłata/prowizja” w tytule", placeholder: "np. 409" },
+  { key: "fx_loss_account", label: "Ujemne różnice kursowe", hint: "koszty finansowe — rozliczenie w walucie: wpłata dała mniej PLN niż faktura", placeholder: "np. 751" },
+  { key: "fx_gain_account", label: "Dodatnie różnice kursowe", hint: "przychody finansowe — wpłata dała więcej PLN niż faktura", placeholder: "np. 750" },
 ];
 
 const EMPTY: BankSettings = {
@@ -33,19 +48,27 @@ const EMPTY: BankSettings = {
   vat_account: "",
   pit_account: "",
   cit_account: "",
+  fx_gain_account: "",
+  fx_loss_account: "",
 };
 
 let rowSeq = 0;
 function draftRows(settings: BankSettings): CompanyAccountDraft[] {
   return settings.accounts.map((item) => {
     rowSeq += 1;
-    return { key: `r${rowSeq}`, number: groupNrb(item.number), account: item.account, name: item.name };
+    return {
+      key: `r${rowSeq}`,
+      number: groupNrb(item.number),
+      account: item.account,
+      name: item.name,
+      currency: item.currency ?? "PLN",
+    };
   });
 }
 
 function emptyRow(): CompanyAccountDraft {
   rowSeq += 1;
-  return { key: `r${rowSeq}`, number: "", account: "", name: "" };
+  return { key: `r${rowSeq}`, number: "", account: "", name: "", currency: "PLN" };
 }
 
 /** Ustawienia → rachunki firmy (NRB → konto 130-x) i konta reguł wyciągu (K4a). Zmienia administrator. */
@@ -69,10 +92,13 @@ export function BankSettingsCard() {
       rows.every((row, index) => {
         const item = saved.accounts[index];
         return (
-          nrbDigits(row.number) === item.number && row.account.trim() === item.account && row.name.trim() === item.name
+          nrbDigits(row.number) === item.number &&
+          row.account.trim() === item.account &&
+          row.name.trim() === item.name &&
+          row.currency === (item.currency ?? "PLN")
         );
       });
-    const sameRules = RULE_FIELDS.every((field) => rules[field.key].trim() === saved[field.key]);
+    const sameRules = RULE_FIELDS.every((field) => rules[field.key].trim() === (saved[field.key] ?? ""));
     return !sameRows || !sameRules;
   }, [rows, rules, saved]);
 
@@ -82,7 +108,12 @@ export function BankSettingsCard() {
   const submit = () =>
     save.mutate(
       {
-        accounts: rows.map((row) => ({ number: nrbDigits(row.number), account: row.account.trim(), name: row.name.trim() })),
+        accounts: rows.map((row) => ({
+          number: nrbDigits(row.number),
+          account: row.account.trim(),
+          name: row.name.trim(),
+          currency: row.currency,
+        })),
         ...(Object.fromEntries(RULE_FIELDS.map((field) => [field.key, rules[field.key].trim()])) as Record<RuleKey, string>),
       },
       {
@@ -96,7 +127,10 @@ export function BankSettingsCard() {
       <div className="space-y-3 px-3.5 py-3 text-[13px]">
         <div>
           <p className={CALM_HEAD}>Rachunki firmy</p>
-          <p className={CALM_SUBLINE}>Wyciąg z rachunku spoza listy jest odrzucany. Konto rachunku musi być w Planie kont.</p>
+          <p className={CALM_SUBLINE}>
+            Wyciąg z rachunku spoza listy jest odrzucany, a plik musi być w walucie rachunku. Konto rachunku musi być w
+            Planie kont.
+          </p>
           {rows.length ? (
             <div className="mt-2 space-y-2">
               {rows.map((row, index) => (
@@ -121,7 +155,7 @@ export function BankSettingsCard() {
                       </button>
                     ) : null}
                   </div>
-                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-1.5">
+                  <div className="grid grid-cols-[110px_74px_minmax(0,1fr)] gap-1.5">
                     <input
                       aria-label={`Konto rachunku ${index + 1}`}
                       className={cn(CONTROL, "min-w-0 tabular-nums")}
@@ -130,6 +164,19 @@ export function BankSettingsCard() {
                       placeholder="konto, np. 130-1"
                       onChange={(event) => update(row.key, { account: event.target.value })}
                     />
+                    <select
+                      aria-label={`Waluta rachunku ${index + 1}`}
+                      className={cn(CONTROL, "min-w-0 px-1.5")}
+                      value={row.currency}
+                      disabled={!admin}
+                      onChange={(event) => update(row.key, { currency: event.target.value as BankCurrency })}
+                    >
+                      {BANK_CURRENCIES.map((currency) => (
+                        <option key={currency} value={currency}>
+                          {currency}
+                        </option>
+                      ))}
+                    </select>
                     <input
                       aria-label={`Nazwa rachunku ${index + 1}`}
                       className={cn(CONTROL, "min-w-0")}
@@ -197,5 +244,7 @@ function pickRules(settings: BankSettings): Record<RuleKey, string> {
     vat_account: settings.vat_account,
     pit_account: settings.pit_account,
     cit_account: settings.cit_account,
+    fx_loss_account: settings.fx_loss_account ?? "",
+    fx_gain_account: settings.fx_gain_account ?? "",
   };
 }

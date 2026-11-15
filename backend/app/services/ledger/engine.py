@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
 from app.services.finance_ledger.costs import LedgerError
@@ -100,6 +101,9 @@ class LineIn:
     mpk: Optional[str] = None
     currency: str = "PLN"
     amount_cur: Optional[int] = None
+    #: Kurs pozycji, gdy inny niż kurs dokumentu (K4c-1: WB z rachunku walutowego).
+    fx_rate: Optional[Decimal] = None
+    fx_date: Optional[date] = None
 
 
 @dataclass(frozen=True)

@@ -113,6 +113,7 @@ function entry(lineId: number, direction: "debit" | "credit", remaining: number,
     remaining,
     currency: "PLN",
     amount_cur: null,
+    remaining_cur: null,
     settlements: [],
     ...extra,
   };
@@ -245,6 +246,8 @@ describe("Księgowość — Rozrachunki", () => {
         {
           id: 77,
           amount: 50_000,
+          currency: null,
+          amount_cur: null,
           settled_on: "2026-11-10",
           method: "bank",
           method_label: "z wyciągu",
@@ -270,6 +273,36 @@ describe("Księgowość — Rozrachunki", () => {
     await user.click(screen.getByRole("button", { name: "Cofnij" }));
     await user.click(await screen.findByRole("button", { name: "Cofnij rozliczenie" }));
     await waitFor(() => expect(remove).toHaveBeenCalledWith("/api/accounting/settlements/77"));
+  });
+
+  it("pozycja w walucie i różnica kursowa bez obowiązującego rozliczenia (K4c-1)", async () => {
+    const euro = entry(21, "debit", 107_500, {
+      number: "FS 2/11/2026/UE",
+      value: 215_000,
+      currency: "EUR",
+      amount_cur: 50_000,
+      remaining_cur: 25_000,
+    });
+    route(
+      config(),
+      overview(),
+      account({
+        open: [euro],
+        fx_documents: [
+          { id: 5, number: "PK 7/11/2026", status: "approved", op_date: "2026-11-12", amount: 2_500, kind: "loss", orphan: true },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "Klient Testowy" }));
+    const row = (await screen.findByText("FVS FS 2/11/2026/UE")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("250,00 EUR")).toBeInTheDocument();
+    expect(within(row).getByText("1 075,00 zł")).toBeInTheDocument();
+    expect(within(row).getByText("z 500,00 EUR")).toBeInTheDocument();
+    expect(screen.getByText("PK 7/11/2026")).toBeInTheDocument();
+    expect(screen.getByText(/ujemna 25,00 zł/)).toBeInTheDocument();
+    expect(screen.getByText(/rozliczenie już nie obowiązuje/)).toBeInTheDocument();
   });
 
   it("bez listy „Księgowi” nie ma przycisków rozliczania", async () => {

@@ -54,12 +54,14 @@ function config(bankOpen = true): LedgerConfig {
 }
 
 const SETTINGS = {
-  accounts: [{ number: "…2875", account: "130-1", name: "Konto główne" }],
+  accounts: [{ number: "…2875", account: "130-1", name: "Konto główne", currency: "PLN" as const }],
   fees_account: "409",
   zus_account: "229",
   vat_account: "222",
   pit_account: "225",
   cit_account: "",
+  fx_gain_account: "",
+  fx_loss_account: "",
 };
 
 function overview(overrides: Partial<BankOverview> = {}): BankOverview {
@@ -70,6 +72,7 @@ function overview(overrides: Partial<BankOverview> = {}): BankOverview {
         bank_account_last4: "2875",
         account_name: "Konto główne",
         ledger_account: "130-1",
+        currency: "PLN",
         first_day: "2026-11-02",
         last_day: "2026-11-20",
         operations: 3,
@@ -92,6 +95,10 @@ function line(overrides: Partial<BankLine>): BankLine {
     booked_on: "2026-11-15",
     direction: "debit",
     amount: 100_000,
+    currency: "PLN",
+    amount_pln: 100_000,
+    fx_rate: null,
+    fx_date: null,
     title: "Składki 10/2026",
     counterparty_name: "ZUS",
     counterparty_last4: "0000",
@@ -112,6 +119,7 @@ function statement(overrides: Partial<BankStatement> = {}): BankStatement {
     bank_account_last4: "2875",
     account_name: "Konto główne",
     ledger_account: "130-1",
+    currency: "PLN",
     first_day: "2026-11-02",
     last_day: "2026-11-20",
     debit_total: 101_250,

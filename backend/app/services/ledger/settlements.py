@@ -25,13 +25,24 @@ pozycji − jej rozliczenia.
 * **D2**: dokumenty płacowe widzi i rozlicza tylko osoba z Płacami albo
   administrator. Rozliczenie łączy pozycje o tej samej wrażliwości, więc
   osobie bez Płac nic się nie „rozlicza” dokumentem, którego nie widzi.
+* **Waluty (K4c-1)**: pozycja walutowa ma kwotę w walucie (``amount_cur``).
+  Para w tej samej walucie obcej rozlicza się w walucie: każda strona zdejmuje
+  swój udział PLN (PLN pozostałe × rozliczana część waluty pozostałej), więc
+  pozycje zamykają się w walucie i w PLN naraz. Różnicę udziałów (różnicę
+  kursową zrealizowaną) księguje PK w buforze (źródło ``fx_difference``):
+  nadwyżka po Wn = ujemna (Wn koszty finansowe, Ma konto kontrahenta), po Ma =
+  dodatnia (Wn konto kontrahenta, Ma przychody finansowe); jej pozycje nie są
+  rozrachunkami. Faktura w walucie zapłacona w PLN rozlicza się w PLN (jak
+  w K4b), a z pozycji walutowej schodzi proporcjonalna część waluty; dwóch
+  różnych walut obcych się nie łączy.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Optional
 
 from sqlalchemy import String, and_, case, cast, func, or_, select, union_all
@@ -44,12 +55,16 @@ from app.models.ledger import (
     LedgerBankLine,
     LedgerDocument,
     LedgerLine,
+    LedgerPeriod,
     LedgerSettlement,
     LedgerYear,
 )
 from app.services.finance_ledger.costs import LedgerError
+from app.services.finance_ledger.posting import money_pl
 from app.services.ledger import bank, documents, sources
-from app.services.ledger.documents import Viewer
+from app.services.ledger.documents import DocumentSpec, Viewer
+from app.services.ledger.engine import LineIn
+from app.services.ledger.settings import BankSettings
 
 SALES_SOURCE = sources.SOURCE_TYPES[sources.SALES]
 COST_SOURCE = sources.SOURCE_TYPES[sources.COSTS]
@@ -78,6 +93,19 @@ NO_ITEMS = (
 )
 NO_SETTLEMENT = "Tego rozliczenia nie ma albo zostało już cofnięte."
 APPROVERS_ONLY = "Pozycje rozlicza osoba z listy „Księgowi” albo administrator."
+FX_SOURCE = documents.FX_DIFFERENCE_SOURCE
+MIXED_CURRENCIES = (
+    "Pozycje są w dwóch różnych walutach obcych — rozlicza się walutę z tą samą "
+    "walutą albo z PLN."
+)
+FX_ACCOUNT_MISSING = (
+    "Rozliczenie w walucie daje różnicę kursową {amount} — ustaw konto "
+    "{kind} różnic kursowych w Ustawieniach (Bank)."
+)
+FX_APPROVED = (
+    "Różnica kursowa tego rozliczenia jest zaksięgowana ({number}) — najpierw "
+    "storno tego dokumentu."
+)
 
 
 @dataclass
@@ -102,18 +130,61 @@ class Item:
     sensitivity: Optional[str]
     source_type: Optional[str]
     source_id: Optional[str]
+    used_cur: int = 0
 
     @property
     def remaining(self) -> int:
         return self.value - self.used
 
+    @property
+    def is_currency(self) -> bool:
+        return self.currency != "PLN" and bool(self.amount_cur)
+
+    @property
+    def remaining_cur(self) -> Optional[int]:
+        """Ile zostało w walucie; PLN zamknięte = zamknięta (rozliczenia z K4b nie
+        mają kwoty w walucie, a o otwarciu pozycji decyduje kwota w PLN)."""
+
+        if not self.is_currency:
+            return None
+        if self.remaining <= 0:
+            return 0
+        return max(0, (self.amount_cur or 0) - self.used_cur)
+
 
 @dataclass(frozen=True)
 class Proposal:
+    """Rozliczenie pary: ``amount`` = udział PLN pozycji Wn, ``credit_amount`` —
+    pozycji Ma (tylko w walucie; bez niego Ma zdejmuje ``amount``)."""
+
     debit: Item
     credit: Item
     amount: int
     method: str
+    amount_cur: Optional[int] = None
+    credit_amount: Optional[int] = None
+
+    @property
+    def credit_share(self) -> int:
+        return self.credit_amount if self.credit_amount is not None else self.amount
+
+    @property
+    def fx(self) -> int:
+        """Różnica kursowa w PLN: dodatnia = Wn zdjęła więcej (ujemna różnica)."""
+
+        return self.amount - self.credit_share
+
+    @property
+    def settled_on(self) -> date:
+        return max(self.debit.op_date, self.credit.op_date)
+
+    @property
+    def currency(self) -> Optional[str]:
+        """Waluta rozliczenia (pozycji walutowej pary) albo ``None`` — same PLN."""
+
+        if not self.amount_cur:
+            return None
+        return self.debit.currency if self.debit.is_currency else self.credit.currency
 
 
 # ── Reguły bez bazy ─────────────────────────────────────────────────────────
@@ -155,26 +226,172 @@ def _order(item: Item) -> tuple[date, int, int]:
     return (item.op_date, item.document_id, item.line_no)
 
 
-def fifo(
-    debits: list[Item], credits: list[Item], left: dict[int, int]
-) -> list[tuple[Item, Item, int]]:
-    """Pary od najstarszych pozycji; ``left`` — ile zostało (zmieniane w miejscu)."""
+def share(left_pln: int, left_cur: int, part: int) -> int:
+    """Udział PLN części waluty: proporcja tego, co zostało (cała reszta = całe PLN)."""
 
-    pairs: list[tuple[Item, Item, int]] = []
-    queue_d = sorted((item for item in debits if left[item.line_id] > 0), key=_order)
-    queue_c = sorted((item for item in credits if left[item.line_id] > 0), key=_order)
+    if part >= left_cur:
+        return left_pln
+    return int(
+        (Decimal(left_pln) * part / left_cur).quantize(
+            Decimal("1"), rounding=ROUND_HALF_UP
+        )
+    )
+
+
+@dataclass
+class Left:
+    """Ile zostało do rozliczenia: PLN i — przy pozycjach walutowych — waluta."""
+
+    pln: dict[int, int]
+    cur: dict[int, int]
+
+    @classmethod
+    def of(cls, items: Iterable[Item]) -> "Left":
+        listed = list(items)
+        return cls(
+            {item.line_id: item.remaining for item in listed},
+            {
+                item.line_id: item.remaining_cur or 0
+                for item in listed
+                if item.is_currency
+            },
+        )
+
+    def open(self, item: Item) -> bool:
+        """Otwarta = zostało PLN (kwota w księdze); waluta idzie za nią."""
+
+        return self.pln[item.line_id] > 0
+
+
+def pairable(debit: Item, credit: Item) -> bool:
+    """Para do rozliczenia: nie dwie różne waluty obce (EUR z USD)."""
+
+    return not (
+        debit.is_currency and credit.is_currency and debit.currency != credit.currency
+    )
+
+
+def terms(
+    debit: Item,
+    credit: Item,
+    left: Left,
+    *,
+    method: str,
+    amount: Optional[int] = None,
+) -> Optional[Proposal]:
+    """Rozliczenie pary na tym, co zostało; ``amount`` — kwota w walucie pary.
+
+    * obie w tej samej walucie obcej — kwota w walucie, każda strona zdejmuje
+      swój udział PLN, różnica udziałów to różnica kursowa;
+    * jedna w walucie, druga w PLN (faktura w EUR zapłacona w złotych) — kwota
+      w PLN jak w K4b, a pozycja walutowa traci proporcjonalną część waluty;
+    * obie w PLN — kwota w PLN.
+
+    ``None`` = nie da się rozliczyć.
+    """
+
+    if not pairable(debit, credit):
+        return None
+    d_id, c_id = debit.line_id, credit.line_id
+    if debit.is_currency and credit.is_currency:
+        limit = min(left.cur[d_id], left.cur[c_id])
+        part = limit if amount is None else amount
+        if part <= 0 or part > limit:
+            return None
+        d_share = share(left.pln[d_id], left.cur[d_id], part)
+        c_share = share(left.pln[c_id], left.cur[c_id], part)
+        if d_share <= 0 or c_share <= 0:
+            return None
+        return Proposal(
+            debit, credit, d_share, method, amount_cur=part, credit_amount=c_share
+        )
+    limit = min(left.pln[d_id], left.pln[c_id])
+    value = limit if amount is None else amount
+    if value <= 0 or value > limit:
+        return None
+    foreign = debit if debit.is_currency else credit if credit.is_currency else None
+    if foreign is None:
+        return Proposal(debit, credit, value, method)
+    f_id = foreign.line_id
+    part = share(left.cur[f_id], left.pln[f_id], value)
+    if value < left.pln[f_id]:
+        # Dopóki zostają złote, zostaje też waluta — inaczej zaokrąglenie
+        # zamknęłoby walutę przy 0,01 zł reszty (przegląd K4c 15.11.2026).
+        part = min(part, left.cur[f_id] - 1)
+    if part <= 0:
+        return Proposal(debit, credit, value, method)
+    return Proposal(debit, credit, value, method, amount_cur=part)
+
+
+def take(left: Left, proposal: Proposal) -> None:
+    """Zdejmuje rozliczenie z tego, co zostało (w miejscu)."""
+
+    left.pln[proposal.debit.line_id] -= proposal.amount
+    left.pln[proposal.credit.line_id] -= proposal.credit_share
+    if proposal.amount_cur:
+        for item in (proposal.debit, proposal.credit):
+            if item.is_currency:
+                left.cur[item.line_id] -= proposal.amount_cur
+
+
+def fifo(
+    debits: list[Item], credits: list[Item], left: Left, *, method: str
+) -> list[Proposal]:
+    """Pary od najstarszych pozycji jednej waluty; ``left`` zmieniane w miejscu."""
+
+    proposals: list[Proposal] = []
+    queue_d = sorted((item for item in debits if left.open(item)), key=_order)
+    queue_c = sorted((item for item in credits if left.open(item)), key=_order)
     i = j = 0
     while i < len(queue_d) and j < len(queue_c):
-        debit, credit = queue_d[i], queue_c[j]
-        amount = min(left[debit.line_id], left[credit.line_id])
-        pairs.append((debit, credit, amount))
-        left[debit.line_id] -= amount
-        left[credit.line_id] -= amount
-        if left[debit.line_id] == 0:
+        proposal = terms(queue_d[i], queue_c[j], left, method=method)
+        if proposal is None:
+            break
+        take(left, proposal)
+        proposals.append(proposal)
+        if not left.open(queue_d[i]):
             i += 1
-        if left[credit.line_id] == 0:
+        if not left.open(queue_c[j]):
             j += 1
-    return pairs
+    return proposals
+
+
+@dataclass(frozen=True)
+class FxContext:
+    """Czy różnicę kursową da się zaksięgować: konta z Ustawień i otwarte okresy."""
+
+    gain_account: str = ""
+    loss_account: str = ""
+    open_months: frozenset[tuple[int, int]] = frozenset()
+
+    def blocker(self, proposal: Proposal) -> Optional[str]:
+        fx = proposal.fx
+        if not fx:
+            return None
+        if fx > 0 and not self.loss_account:
+            return FX_ACCOUNT_MISSING.format(amount=money_pl(fx), kind="ujemnych")
+        if fx < 0 and not self.gain_account:
+            return FX_ACCOUNT_MISSING.format(amount=money_pl(-fx), kind="dodatnich")
+        day = proposal.settled_on
+        if (day.year, day.month) not in self.open_months:
+            return (
+                f"Różnica kursowa ({money_pl(abs(fx))}) wpada w zamknięty okres "
+                f"{day.month:02d}.{day.year} — otwórz go albo zaksięguj ją ręcznie."
+            )
+        return None
+
+
+async def fx_context(db: AsyncSession, bank_settings: BankSettings) -> FxContext:
+    rows = await db.execute(
+        select(LedgerYear.year, LedgerPeriod.month)
+        .join(LedgerPeriod, LedgerPeriod.year_id == LedgerYear.id)
+        .where(LedgerYear.status == "open", LedgerPeriod.status == "open")
+    )
+    return FxContext(
+        gain_account=bank_settings.fx_gain_account,
+        loss_account=bank_settings.fx_loss_account,
+        open_months=frozenset((year, month) for year, month in rows.all()),
+    )
 
 
 # ── Odczyt pozycji ──────────────────────────────────────────────────────────
@@ -229,14 +446,22 @@ def _accounts_clause(parents: tuple[str, ...]) -> Any:
 
 
 def _used(as_of: Optional[date], bo_years: list[int]) -> Any:
-    """Rozliczone kwoty pozycji — tylko z żywą pozycją po drugiej stronie."""
+    """Rozliczone kwoty pozycji — tylko z żywą pozycją po drugiej stronie.
+
+    Strona Wn zdejmuje ``amount``, strona Ma ``credit_amount`` (rozliczenie
+    w walucie, K4c-1), a gdy go nie ma — też ``amount``.
+    """
 
     other = aliased(LedgerLine)
     other_doc = aliased(LedgerDocument)
 
-    def side(own: Any, theirs: Any) -> Any:
+    def side(own: Any, theirs: Any, amount: Any) -> Any:
         query = (
-            select(own.label("line_id"), LedgerSettlement.amount.label("amount"))
+            select(
+                own.label("line_id"),
+                amount.label("amount"),
+                func.coalesce(LedgerSettlement.amount_cur, 0).label("amount_cur"),
+            )
             .join(other, other.id == theirs)
             .join(other_doc, other_doc.id == other.document_id)
             .where(
@@ -249,11 +474,23 @@ def _used(as_of: Optional[date], bo_years: list[int]) -> Any:
         return query
 
     both = union_all(
-        side(LedgerSettlement.debit_line_id, LedgerSettlement.credit_line_id),
-        side(LedgerSettlement.credit_line_id, LedgerSettlement.debit_line_id),
+        side(
+            LedgerSettlement.debit_line_id,
+            LedgerSettlement.credit_line_id,
+            LedgerSettlement.amount,
+        ),
+        side(
+            LedgerSettlement.credit_line_id,
+            LedgerSettlement.debit_line_id,
+            func.coalesce(LedgerSettlement.credit_amount, LedgerSettlement.amount),
+        ),
     ).subquery()
     return (
-        select(both.c.line_id, func.sum(both.c.amount).label("used"))
+        select(
+            both.c.line_id,
+            func.sum(both.c.amount).label("used"),
+            func.sum(both.c.amount_cur).label("used_cur"),
+        )
         .group_by(both.c.line_id)
         .subquery()
     )
@@ -284,6 +521,7 @@ async def load_items(
             _DIRECTION.label("direction"),
             value.label("value"),
             used_amount.label("used"),
+            func.coalesce(used.c.used_cur, 0).label("used_cur"),
             LedgerLine.description,
             LedgerLine.currency,
             LedgerLine.amount_cur,
@@ -316,7 +554,16 @@ async def load_items(
                 LedgerDocument.source_id == cast(FinanceCostEntry.id, String),
             ),
         )
-        .where(*_live(LedgerDocument, bo_years, as_of), _accounts_clause(parents))
+        .where(
+            *_live(LedgerDocument, bo_years, as_of),
+            _accounts_clause(parents),
+            # Różnica kursowa zamyka różnicę udziałów PLN rozliczenia w walucie —
+            # sama nie jest pozycją do rozliczenia.
+            or_(
+                LedgerDocument.source_type.is_(None),
+                LedgerDocument.source_type != FX_SOURCE,
+            ),
+        )
         .order_by(
             LedgerLine.account,
             LedgerDocument.op_date,
@@ -350,11 +597,12 @@ async def load_items(
             description=row.description or row.doc_description or "",
             due_on=row.due_on,
             currency=row.currency,
-            amount_cur=row.amount_cur,
+            amount_cur=abs(row.amount_cur) if row.amount_cur is not None else None,
             counterparty_id=row.counterparty_id or row.doc_counterparty_id,
             sensitivity=row.sensitivity,
             source_type=row.source_type,
             source_id=row.source_id,
+            used_cur=int(row.used_cur or 0),
         )
         for row in rows
     ]
@@ -431,15 +679,25 @@ async def _corrections(db: AsyncSession, items: list[Item]) -> dict[str, str]:
     return {str(own): str(original) for own, original in rows.all()}
 
 
-async def propose(db: AsyncSession, items: list[Item]) -> list[Proposal]:
+@dataclass
+class Proposals:
+    """Rozliczenia automatu i pary, które czekają na różnicę kursową."""
+
+    items: list[Proposal] = field(default_factory=list)
+    fx_waiting: int = 0
+
+
+async def propose(
+    db: AsyncSession, items: list[Item], fx: FxContext = FxContext()
+) -> Proposals:
     """Rozliczenia automatu na otwartych pozycjach (bez zapisu)."""
 
-    left = {item.line_id: item.remaining for item in items}
+    left = Left.of(items)
     by_source: dict[tuple[str, str, str], list[Item]] = defaultdict(list)
     for item in items:
         if item.source_type and item.source_id:
             by_source[(item.source_type, item.source_id, item.account)].append(item)
-    proposals: list[Proposal] = []
+    out = Proposals()
 
     def pair(first: Item, second: Item, method: str) -> None:
         debit, credit = (
@@ -449,24 +707,26 @@ async def propose(db: AsyncSession, items: list[Item]) -> list[Proposal]:
             return
         if debit.account != credit.account or debit.sensitivity != credit.sensitivity:
             return
-        amount = min(left[debit.line_id], left[credit.line_id])
-        if amount <= 0:
+        proposal = terms(debit, credit, left, method=method)
+        if proposal is None:
             return
-        left[debit.line_id] -= amount
-        left[credit.line_id] -= amount
-        proposals.append(Proposal(debit, credit, amount, method))
+        if fx.blocker(proposal):
+            out.fx_waiting += 1
+            return
+        take(left, proposal)
+        out.items.append(proposal)
 
     links = await _bank_links(db, items)
     for item in items:
         line = links.get(item.line_id)
         if line is None or line.kind not in BANK_TARGETS or not line.ref_id:
             continue
-        # Pozycja WB musi być tą operacją: konto, kwota i strona z wyciągu
+        # Pozycja WB musi być tą operacją: konto, kwota w PLN i strona z wyciągu
         # (szkic WB poprawiony ręcznie mógł zmienić kolejność pozycji).
         expected = "debit" if line.direction == "debit" else "credit"
         if (
             line.counter_account != item.account
-            or line.amount != item.value
+            or bank.pln(line) != item.value
             or item.direction != expected
         ):
             continue
@@ -484,27 +744,40 @@ async def propose(db: AsyncSession, items: list[Item]) -> list[Proposal]:
         ):
             pair(item, target, "correction")
 
+    # Saldo zerowe liczy się w PLN; grupa z dwiema walutami obcymi (EUR i USD)
+    # nie ma wspólnej miary, więc ją pomijamy.
     groups: dict[tuple[str, Optional[str]], list[Item]] = defaultdict(list)
     for item in items:
-        if left[item.line_id] > 0:
+        if left.open(item):
             groups[(item.account, item.sensitivity)].append(item)
     for group in groups.values():
         debits = [item for item in group if item.direction == "debit"]
         credits = [item for item in group if item.direction == "credit"]
-        debit_sum = sum(left[item.line_id] for item in debits)
         if not debits or not credits:
             continue
-        if debit_sum != sum(left[item.line_id] for item in credits):
+        if len({item.currency for item in group if item.is_currency}) > 1:
             continue
-        for debit, credit, amount in fifo(debits, credits, left):
-            proposals.append(Proposal(debit, credit, amount, "zero"))
-    return proposals
+        debit_sum = sum(left.pln[item.line_id] for item in debits)
+        if debit_sum != sum(left.pln[item.line_id] for item in credits):
+            continue
+        trial = Left(dict(left.pln), dict(left.cur))
+        found = fifo(debits, credits, trial, method="zero")
+        # Grupa równa w PLN, a para walutowa daje różnicę kursową = różnica jest
+        # już zaksięgowana (np. PK ręcznie) albo jej brak — automat jej nie
+        # dzieli i nie księguje drugi raz (przegląd K4c 15.11.2026).
+        if any(proposal.fx for proposal in found):
+            continue
+        left.pln.update(trial.pln)
+        left.cur.update(trial.cur)
+        out.items.extend(found)
+    return out
 
 
-def _counts(proposals: list[Proposal]) -> dict[str, int]:
+def _counts(found: Proposals) -> dict[str, int]:
     out = {method: 0 for method in ("bank", "correction", "zero")}
-    for proposal in proposals:
+    for proposal in found.items:
         out[proposal.method] += 1
+    out["fx_waiting"] = found.fx_waiting
     return out
 
 
@@ -523,11 +796,16 @@ async def _open_items(
 
 
 async def auto_counts(
-    db: AsyncSession, viewer: Viewer, *, account: Optional[str] = None
+    db: AsyncSession,
+    viewer: Viewer,
+    bank_settings: BankSettings,
+    *,
+    account: Optional[str] = None,
 ) -> dict[str, int]:
     """Ile rozliczeń zrobiłby automat (podgląd, bez zapisu); ``account`` — jedno konto."""
 
-    return _counts(await propose(db, await _open_items(db, viewer, account)))
+    fx = await fx_context(db, bank_settings)
+    return _counts(await propose(db, await _open_items(db, viewer, account), fx))
 
 
 # ── Zapis ───────────────────────────────────────────────────────────────────
@@ -544,14 +822,17 @@ def _require_approver(viewer: Viewer) -> None:
         raise LedgerError(APPROVERS_ONLY, status=403)
 
 
-def _row(proposal: Proposal, *, method: str, viewer: Viewer) -> LedgerSettlement:
+def _row(proposal: Proposal, *, viewer: Viewer) -> LedgerSettlement:
     return LedgerSettlement(
         account=proposal.debit.account,
         debit_line_id=proposal.debit.line_id,
         credit_line_id=proposal.credit.line_id,
         amount=proposal.amount,
-        settled_on=max(proposal.debit.op_date, proposal.credit.op_date),
-        method=method,
+        credit_amount=proposal.credit_amount,
+        currency=proposal.currency,
+        amount_cur=proposal.amount_cur,
+        settled_on=proposal.settled_on,
+        method=proposal.method,
         sensitivity=proposal.debit.sensitivity,
         created_by=viewer.user_id,
     )
@@ -565,15 +846,95 @@ def _label(item: Item) -> str:
     return f"{item.doc_type} {item.number}"
 
 
+async def _fx_document(
+    db: AsyncSession,
+    row: LedgerSettlement,
+    proposal: Proposal,
+    fx: FxContext,
+    *,
+    viewer: Viewer,
+    plan: dict[str, Any],
+) -> Optional[LedgerDocument]:
+    """PK różnicy kursowej rozliczenia w walucie (bufor); ``None`` = bez różnicy.
+
+    Nadwyżka udziału po Wn = ujemna różnica (Wn koszty finansowe, Ma konto
+    kontrahenta), po Ma = dodatnia (Wn konto kontrahenta, Ma przychody
+    finansowe) — po niej saldo konta zgadza się z pozycjami.
+    """
+
+    diff = proposal.fx
+    if not diff:
+        return None
+    party = proposal.debit.counterparty_id or proposal.credit.counterparty_id
+    text_ = (
+        f"Różnica kursowa {row.currency}: {_label(proposal.debit)} — "
+        f"{_label(proposal.credit)}"
+    )[:200]
+    if diff > 0:
+        lines = [
+            LineIn("debit", fx.loss_account, diff, text_),
+            LineIn("credit", row.account, diff, text_, counterparty_id=party),
+        ]
+    else:
+        lines = [
+            LineIn("debit", row.account, -diff, text_, counterparty_id=party),
+            LineIn("credit", fx.gain_account, -diff, text_),
+        ]
+    spec = DocumentSpec(
+        doc_type="PK",
+        op_date=row.settled_on,
+        doc_date=row.settled_on,
+        lines=lines,
+        description=text_,
+        counterparty_id=party,
+        source_type=FX_SOURCE,
+        source_id=str(row.id),
+        sensitivity=row.sensitivity,
+        meta={"settlement": row.id, "fx": diff, "currency": row.currency},
+    )
+    return await documents.create_draft(db, spec, actor_id=viewer.user_id, plan=plan)
+
+
+async def _write(
+    db: AsyncSession,
+    proposals: list[Proposal],
+    fx: FxContext,
+    *,
+    viewer: Viewer,
+) -> dict[str, Any]:
+    """Wiersze rozliczeń i PK różnic kursowych (bez commita)."""
+
+    rows = [_row(proposal, viewer=viewer) for proposal in proposals]
+    db.add_all(rows)
+    await db.flush()
+    plan = await documents.load_plan(db) if any(p.fx for p in proposals) else {}
+    created_fx: list[dict[str, Any]] = []
+    for row, proposal in zip(rows, proposals):
+        doc = await _fx_document(db, row, proposal, fx, viewer=viewer, plan=plan)
+        if doc is not None:
+            created_fx.append(
+                {"id": doc.id, "number": doc.number, "amount": abs(proposal.fx)}
+            )
+    return {
+        "created": len(rows),
+        "amount": sum(row.amount for row in rows),
+        "fx_documents": created_fx,
+    }
+
+
 async def settle(
     db: AsyncSession,
     viewer: Viewer,
+    bank_settings: BankSettings,
     *,
     debit_ids: list[int],
     credit_ids: list[int],
     amount: Optional[int] = None,
 ) -> dict[str, Any]:
-    """Rozliczenie zaznaczonych pozycji (od najstarszych), bez commita."""
+    """Rozliczenie zaznaczonych pozycji (od najstarszych), bez commita.
+
+    ``amount`` — kwota jednej pary w jej walucie (grosze/centy).
+    """
 
     _require_approver(viewer)
     debit_ids = list(dict.fromkeys(debit_ids))
@@ -624,58 +985,59 @@ async def settle(
             "Dokumentu płacowego nie rozlicza się z dokumentem spoza Płac.",
             status=422,
         )
+    if len({item.currency for item in chosen if item.is_currency}) > 1:
+        raise LedgerError(MIXED_CURRENCIES, status=422)
+    left = Left.of(chosen)
     for item in chosen:
-        if item.remaining <= 0:
+        if not left.open(item):
             raise LedgerError(
                 f"Pozycja {_label(item)} jest już rozliczona.", status=409
             )
-    left = {item.line_id: item.remaining for item in chosen}
     if amount is not None:
-        limit = min(left[debits[0].line_id], left[credits[0].line_id])
-        if amount <= 0 or amount > limit:
+        proposal = terms(debits[0], credits[0], left, method="manual", amount=amount)
+        if proposal is None:
             raise LedgerError(
                 "Kwota rozliczenia musi być większa od zera i nie większa niż to, "
                 "co zostało do rozliczenia.",
                 status=422,
             )
-        pairs = [(debits[0], credits[0], amount)]
+        proposals = [proposal]
     else:
-        pairs = fifo(debits, credits, left)
-    rows = [
-        _row(Proposal(debit, credit, value, "manual"), method="manual", viewer=viewer)
-        for debit, credit, value in pairs
-    ]
-    db.add_all(rows)
-    await db.flush()
-    return {
-        "account": chosen[0].account,
-        "created": len(rows),
-        "amount": sum(row.amount for row in rows),
-    }
+        proposals = fifo(debits, credits, left, method="manual")
+    fx = await fx_context(db, bank_settings)
+    for proposal in proposals:
+        problem = fx.blocker(proposal)
+        if problem:
+            raise LedgerError(problem, status=422)
+    result = await _write(db, proposals, fx, viewer=viewer)
+    return {"account": chosen[0].account, **result}
 
 
 async def settle_auto(
-    db: AsyncSession, viewer: Viewer, *, account: Optional[str] = None
+    db: AsyncSession,
+    viewer: Viewer,
+    bank_settings: BankSettings,
+    *,
+    account: Optional[str] = None,
 ) -> dict[str, Any]:
     """Automat: wyciąg ↔ faktura, korekta ↔ faktura, saldo zerowe (bez commita)."""
 
     _require_approver(viewer)
     await _lock(db)
-    proposals = await propose(db, await _open_items(db, viewer, account))
-    rows = [_row(item, method=item.method, viewer=viewer) for item in proposals]
-    db.add_all(rows)
-    await db.flush()
-    return {
-        **_counts(proposals),
-        "created": len(rows),
-        "amount": sum(row.amount for row in rows),
-    }
+    fx = await fx_context(db, bank_settings)
+    found = await propose(db, await _open_items(db, viewer, account), fx)
+    result = await _write(db, found.items, fx, viewer=viewer)
+    return {**_counts(found), **result}
 
 
 async def unsettle(
     db: AsyncSession, viewer: Viewer, settlement_id: int, *, now: datetime
 ) -> None:
-    """Cofnięcie rozliczenia — wiersz zostaje jako ślad (kto i kiedy)."""
+    """Cofnięcie rozliczenia — wiersz zostaje jako ślad (kto i kiedy).
+
+    Szkic różnicy kursowej tego rozliczenia znika razem z nim; zaksięgowanej
+    nie ruszamy — najpierw jej storno (409).
+    """
 
     _require_approver(viewer)
     await _lock(db)
@@ -686,6 +1048,17 @@ async def unsettle(
         raise LedgerError(NO_SETTLEMENT, status=404)
     if row.sensitivity is not None and not viewer.payroll:
         raise LedgerError(NO_SETTLEMENT, status=404)
+    fx_doc = await db.scalar(
+        select(LedgerDocument).where(
+            LedgerDocument.source_type == FX_SOURCE,
+            LedgerDocument.source_id == str(row.id),
+            LedgerDocument.reversed_by_id.is_(None),
+        )
+    )
+    if fx_doc is not None:
+        if fx_doc.status != "draft":
+            raise LedgerError(FX_APPROVED.format(number=fx_doc.number), status=409)
+        await documents.delete_draft(db, fx_doc.id, viewer=viewer, settlement=True)
     row.removed_at = now
     row.removed_by = viewer.user_id
     await db.flush()

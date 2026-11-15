@@ -35,6 +35,7 @@ from app.core.database import Base
 from app.services import ledger_automation_schema as automation
 from app.services import ledger_bank_schema as bank
 from app.services import ledger_export_schema as export
+from app.services import ledger_fx_schema as fx
 from app.services import ledger_schema as schema
 from app.services import ledger_settlement_schema as settlement
 
@@ -250,6 +251,9 @@ class LedgerLine(Base):
     description: Mapped[str] = mapped_column(
         String(schema.LINE_TEXT_MAX), nullable=False, server_default=text("''")
     )
+    #: Kurs pozycji, gdy inny niż kurs dokumentu (K4c-1, 0707 — WB walutowy).
+    fx_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 6), nullable=True)
+    fx_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
 
 class LedgerEvent(Base):
@@ -497,6 +501,8 @@ class LedgerBankLine(Base):
         CheckConstraint(bank.CK_LINE_DIRECTION, name="ck_ledger_bank_lines_direction"),
         CheckConstraint(bank.CK_LINE_KIND, name="ck_ledger_bank_lines_kind"),
         CheckConstraint(bank.CK_LINE_AMOUNT, name="ck_ledger_bank_lines_amount"),
+        CheckConstraint(fx.CK_BANK_LINE_CURRENCY, name="ck_ledger_bank_lines_currency"),
+        CheckConstraint(fx.CK_BANK_LINE_FX, name="ck_ledger_bank_lines_fx"),
         Index("ix_ledger_bank_lines_statement", "statement_id", "position"),
         Index("ix_ledger_bank_lines_bank_ref", "bank_ref", "booked_on", "amount"),
     )
@@ -540,6 +546,14 @@ class LedgerBankLine(Base):
     assigned_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: K4c-1 (0707): ``amount`` jest w walucie wyciągu; operacja walutowa ma też
+    #: kwotę w PLN po kursie NBP z ostatniego dnia roboczego przed operacją.
+    currency: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=text("'PLN'")
+    )
+    amount_pln: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    fx_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 6), nullable=True)
+    fx_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
 
 class LedgerSettlement(Base):
@@ -552,6 +566,9 @@ class LedgerSettlement(Base):
         CheckConstraint(settlement.CK_LINES, name="ck_ledger_settlements_lines"),
         CheckConstraint(
             settlement.CK_SENSITIVITY, name="ck_ledger_settlements_sensitivity"
+        ),
+        CheckConstraint(
+            fx.CK_SETTLEMENT_CURRENCY, name="ck_ledger_settlements_currency"
         ),
         Index(
             "ix_ledger_settlements_debit",
@@ -595,3 +612,8 @@ class LedgerSettlement(Base):
     removed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: K4c-1 (0707): para pozycji w tej samej walucie obcej rozlicza się w walucie;
+    #: ``amount`` = udział PLN pozycji Wn, ``credit_amount`` = udział PLN pozycji Ma.
+    currency: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
+    amount_cur: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    credit_amount: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)

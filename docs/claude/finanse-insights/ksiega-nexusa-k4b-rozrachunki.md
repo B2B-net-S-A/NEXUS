@@ -67,8 +67,10 @@ była „otwarta”). Wyciągi: `ksiega-nexusa-k4-bank.md`, fundament:
 - Rozrachunki ze stanu sprzed K4b: faktury z miesięcy bez wyciągów w księdze są
   otwarte, dopóki nie wczyta się tych wyciągów w „Banku” (jeden plik = jeden
   miesiąc; E3/E8 rozpoznają zapłaty, które już znały, bez dubli).
-- Waluty: rozliczenie jest w PLN; różnicę kursową między fakturą w walucie
-  a zapłatą zaksięguje K4c. Do tego czasu zostaje jako reszta pozycji.
+- Waluty (K4c-1, `ksiega-nexusa-k4c-waluty.md`): para w tej samej walucie
+  obcej rozlicza się w walucie (każda strona zdejmuje swój udział PLN), różnica
+  udziałów idzie na PK różnicy kursowej; faktura w walucie zapłacona w PLN —
+  w PLN, z proporcjonalną częścią waluty.
 
 ## Testy
 

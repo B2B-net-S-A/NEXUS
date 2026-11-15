@@ -172,6 +172,14 @@ def fingerprint(spec: DocumentSpec) -> str:
     detail = (spec.meta or {}).get("detail_hash")
     if detail:
         payload["detail"] = detail
+    # Kursy pozycji (K4c-1, WB walutowy) — też tylko gdy są, z tego samego powodu.
+    rates = [
+        [index, str(line.fx_rate), line.fx_date.isoformat() if line.fx_date else None]
+        for index, line in enumerate(spec.lines)
+        if line.fx_rate is not None
+    ]
+    if rates:
+        payload["line_rates"] = rates
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24]
 

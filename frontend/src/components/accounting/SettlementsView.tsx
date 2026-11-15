@@ -15,6 +15,7 @@ import {
   useSettlementAccount,
   useSettlements,
   useUnsettle,
+  type AccountFxDocument,
   type SettlementAccount,
   type SettlementAccountRow,
   type SettlementItem,
@@ -26,6 +27,7 @@ import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/li
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
+import { curAmount } from "./bank-model";
 import { datePl, gr, short } from "./ledger-model";
 import {
   agingRows,
@@ -36,6 +38,8 @@ import {
   autoTotal,
   daysLabel,
   docLabel,
+  isForeign,
+  pairsLabel,
   periodAsOf,
   positionsLabel,
   readAccount,
@@ -187,6 +191,12 @@ function AutoButton({ overview }: { overview: SettlementsOverview }) {
     <div className="flex items-center gap-2">
       <span className="text-[12px] text-muted-foreground">
         {total ? `Automat: ${autoLabel(overview.auto)}` : "Automat nie ma nic do rozliczenia"}
+        {overview.auto.fx_waiting ? (
+          <span className="block text-warning-muted-foreground">
+            W walucie czeka {pairsLabel(overview.auto.fx_waiting)} — konto różnic kursowych w Ustawieniach (Bank)
+            albo otwarty okres.
+          </span>
+        ) : null}
       </span>
       <Button size="sm" disabled={!total} loading={auto.isPending} onClick={() => void run()}>
         Rozlicz automatycznie
@@ -396,7 +406,8 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
   const [showSettled, setShowSettled] = useState(false);
   const chosen = selection(data.open, picked);
   const blocker = settleBlocker(chosen, data.can_settle);
-  const problem = chosen.partial ? amountProblem(raw, chosen.amount) : null;
+  const problem = chosen.partial ? amountProblem(raw, chosen.amount, chosen.unit) : null;
+  const unitAmount = (value: number) => (chosen.unit === "PLN" ? `${gr(value)} zł` : curAmount(value, chosen.unit));
   const typed = chosen.partial ? amountCents(raw) : null;
   const toggle = (lineId: number) =>
     setPicked((current) => {
@@ -419,7 +430,7 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
       {
         onSuccess: (result) => {
           reset();
-          showToast(settleMessage(result.amount, result.created));
+          showToast(settleMessage(result.amount, result.created, result.fx_documents));
         },
         onError: (error) => showToast(apiErrorMessage(error, "Nie udało się rozliczyć pozycji."), "error"),
       },
@@ -458,7 +469,7 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
                   className={cn(CONTROL, "w-32 text-right tabular-nums")}
                   inputMode="decimal"
                   placeholder={gr(chosen.amount)}
-                  aria-label="Kwota rozliczenia"
+                  aria-label={chosen.unit === "PLN" ? "Kwota rozliczenia" : `Kwota rozliczenia w ${chosen.unit}`}
                   value={raw}
                   onChange={(event) => setRaw(event.target.value)}
                 />
@@ -472,7 +483,7 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
               loading={settle.isPending}
               onClick={submit}
             >
-              {chosen.amount ? `Rozlicz ${gr(typed ?? chosen.amount)} zł` : "Rozlicz zaznaczone"}
+              {chosen.amount ? `Rozlicz ${unitAmount(typed ?? chosen.amount)}` : "Rozlicz zaznaczone"}
             </Button>
           </div>
         ) : (
@@ -499,6 +510,7 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
           Na ten dzień konto nie ma otwartych pozycji.
         </p>
       )}
+      {data.fx_documents?.length ? <FxDocuments documents={data.fx_documents} /> : null}
       {data.settled_total ? (
         <div className="border-t border-border/70">
           <button
@@ -513,6 +525,37 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
         </div>
       ) : null}
     </SectionCard>
+  );
+}
+
+function FxDocuments({ documents }: { documents: readonly AccountFxDocument[] }) {
+  return (
+    <div className="border-t border-border/70 px-3.5 py-2 text-[13px]">
+      <p className="text-[12px] font-semibold text-muted-foreground">Różnice kursowe z rozliczeń w walucie</p>
+      <ul className="mt-1 space-y-0.5">
+        {documents.map((doc) => (
+          <li key={doc.id} className="flex flex-wrap items-baseline gap-x-2">
+            <Link
+              className="text-primary hover:underline"
+              href={`/accounting/documents?status=${doc.status}&type=PK`}
+            >
+              {doc.number}
+            </Link>
+            <span className="tabular-nums">
+              {doc.kind === "loss" ? "ujemna" : "dodatnia"} {gr(doc.amount)} zł
+            </span>
+            <span className="text-muted-foreground">
+              {doc.status === "draft" ? "w buforze" : "zatwierdzona"} · {datePl(doc.op_date)}
+            </span>
+            {doc.orphan ? (
+              <span className="text-warning-muted-foreground">
+                rozliczenie już nie obowiązuje (storno faktury albo wpłaty) — zrób storno tej różnicy
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -579,15 +622,20 @@ function ItemsTable({
                   ) : null}
                 </td>
                 <td className={cn(CALM_AMOUNT, "px-3.5 py-1.5 text-right")}>
-                  {gr(item.remaining)}
-                  {item.remaining !== item.value ? (
-                    <span className={CALM_SUBLINE}>z {gr(item.value)}</span>
-                  ) : null}
-                  {item.currency !== "PLN" && item.amount_cur != null ? (
-                    <span className={CALM_SUBLINE}>
-                      {gr(item.amount_cur)} {item.currency}
-                    </span>
-                  ) : null}
+                  {isForeign(item) ? (
+                    <>
+                      {curAmount(item.remaining_cur ?? 0, item.currency)}
+                      <span className={CALM_SUBLINE}>{gr(item.remaining)} zł</span>
+                      {item.remaining_cur !== item.amount_cur ? (
+                        <span className={CALM_SUBLINE}>z {curAmount(item.amount_cur ?? 0, item.currency)}</span>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      {gr(item.remaining)}
+                      {item.remaining !== item.value ? <span className={CALM_SUBLINE}>z {gr(item.value)}</span> : null}
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -633,7 +681,10 @@ function SettledList({ items, canUndo }: { items: SettlementItem[]; canUndo: boo
               return (
                 <li key={`${link.id}`} className="flex flex-wrap items-baseline gap-x-2 text-[12px] text-muted-foreground">
                   <span className="text-foreground">{docLabel(link.other)}</span>
-                  <span className="tabular-nums">{gr(link.amount)} zł</span>
+                  <span className="tabular-nums">
+                    {link.amount_cur && link.currency ? `${curAmount(link.amount_cur, link.currency)} · ` : ""}
+                    {gr(link.amount)} zł
+                  </span>
                   <span>
                     {link.method_label} · {datePl(link.settled_on)}
                     {link.by ? ` · ${link.by}` : ""}
