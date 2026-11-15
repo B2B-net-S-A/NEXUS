@@ -251,6 +251,7 @@ from app.api import client_sales_invoices as client_sales_invoices_api
 from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import client_reports as client_reports_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_payments as finance_payments_api
@@ -848,6 +849,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
+    from app.tasks.client_report_reminders import client_report_reminders_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
@@ -1056,6 +1058,10 @@ async def lifespan(app: FastAPI):
                 start_documents_sweeper_loop()
             ),
             "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+            # 15.11.2026: raporty dla klientów — dzwonek przed terminem i po nim.
+            "client_report_reminders": asyncio.create_task(
+                client_report_reminders_loop()
+            ),
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
@@ -1575,6 +1581,10 @@ app.include_router(
 )
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(bnp_report_api.router, prefix="/api/clients", tags=["clients"])
+# Katalog raportów klienta (15.11.2026): definicje, kalendarz, pobranie, historia.
+app.include_router(
+    client_reports_api.router, prefix="/api/client-reports", tags=["client-reports"]
+)
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
@@ -4125,6 +4135,7 @@ async def api_health_deep_check(request: Request):
         ClientTimeReportRow,
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.client_report import ClientReportDefinition, ClientReportRun
     from app.models.training import (
         Training,
         TrainingAttendance,
@@ -4774,6 +4785,9 @@ async def api_health_deep_check(request: Request):
         ("client_external_ids", ClientExternalId),
         ("client_time_reports", ClientTimeReport),
         ("client_time_report_rows", ClientTimeReportRow),
+        # 0712: katalog raportów klienta — definicje i historia wysyłek.
+        ("client_report_definitions", ClientReportDefinition),
+        ("client_report_runs", ClientReportRun),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.

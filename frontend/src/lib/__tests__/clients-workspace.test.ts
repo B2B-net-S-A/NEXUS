@@ -26,6 +26,8 @@ describe("clients-workspace", () => {
 
   it("tryby ekranów: nieznana wartość = widok domyślny", () => {
     expect(resolveClientsView("contacts")).toBe("contacts");
+    // 15.11.2026: kalendarz raportów dla klientów.
+    expect(resolveClientsView("reports")).toBe("reports");
     expect(resolveClientsView("bogus")).toBe("list");
     expect(resolveClientsView(null)).toBe("list");
     expect(resolveContractsView("order-mail")).toBe("order-mail");

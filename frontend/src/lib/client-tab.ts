@@ -34,7 +34,9 @@ export type ClientTab =
   | "zespol"
   // Sprzedaż (27.10.2026): powiązana firma sprzedaży i jej szanse — tylko
   // z uprawnieniem „Sprzedaż: podgląd”.
-  | "sprzedaz";
+  | "sprzedaz"
+  // Katalog raportów klienta (15.11.2026): co klient wymaga, terminy, pobranie.
+  | "raporty";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
@@ -50,6 +52,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "ludzie",
   "zespol",
   "sprzedaz",
+  "raporty",
 ] as const;
 
 /**
@@ -64,6 +67,7 @@ export const CLIENT_MORE_TABS: readonly ClientTab[] = [
   "faktury",
   "analityka",
   "sprzedaz",
+  "raporty",
 ];
 
 /**

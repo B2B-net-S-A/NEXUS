@@ -906,6 +906,7 @@ from app.models import consultant_portal as _consultant_portal_models  # noqa: F
 from app.models import consultant_panel as _consultant_panel_models  # noqa: F401,E402
 from app.models import client_settlement as _client_settlement_models  # noqa: F401,E402
 from app.models import client_time_report as _client_time_report_models  # noqa: F401,E402
+from app.models import client_report as _client_report_models  # noqa: F401,E402
 from app.models import training as _training_models  # noqa: F401,E402  (0694 szkolenia)
 from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E402  (0695 księgowość)
 from app.models import finance_payments as _finance_payments_models  # noqa: F401,E402  (0699 przelewy kosztów)
