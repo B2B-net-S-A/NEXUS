@@ -1,5 +1,18 @@
 [
   {
+    "id": "zespol-gotowe-sklady",
+    "pr": 3454,
+    "title": "Zespół: gotowe składy dla klienta i rozmowy z całym składem",
+    "why": "„Zaproponuj składy” układa trzy składy zespołu. Po Twoim zatwierdzeniu klient wybiera skład w linku i prosi o rozmowy z całym składem jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Zespół → „Gotowe składy dla klienta” → „Zaproponuj składy”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.team.variants"
+  },
+  {
     "id": "zespol-dla-klienta",
     "pr": 3450,
     "title": "Zespół dla klienta: kilka stanowisk, jeden link i cena zespołu",
