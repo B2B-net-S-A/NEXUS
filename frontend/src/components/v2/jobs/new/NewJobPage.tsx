@@ -1514,12 +1514,6 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
         }
       />
 
-      <NewJobTeamRequestCard
-        clientId={client?.id ?? null}
-        value={teamChoice}
-        onChange={setTeamChoice}
-      />
-
       {templateError ? (
         <div
           role="alert"
@@ -1579,6 +1573,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
 
         <div className="flex flex-col gap-4">
           <NewJobSectionNav missing={missing} />
+          {/* Pod nawigacją sekcji, nie nad nią: na laptopie 1280 × 720 nawigacja
+              musi zostać w górnej połowie okna (e2e/responsive-preview). */}
+          <NewJobTeamRequestCard
+            clientId={client?.id ?? null}
+            value={teamChoice}
+            onChange={setTeamChoice}
+          />
           <NewJobReviewForm
             form={form}
             onChange={setForm}
