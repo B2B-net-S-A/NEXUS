@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import {
   adoptionKey,
   remindNovelty,
+  setPoligonGate,
   setStartGate,
   startKey,
   useNoveltiesAdoption,
@@ -67,6 +68,7 @@ export default function NoveltiesAdoptionPage() {
   return (
     <div className="space-y-4">
       <StartGateSwitch />
+      <PoligonGateSwitch />
       <NoveltiesAdoptionView
         load={load}
         onRetry={() => void query.refetch()}
@@ -128,6 +130,63 @@ function StartGateSwitch() {
         onClick={() => void toggle()}
       >
         {status.gate_on ? "Wyłącz obowiązek" : "Włącz obowiązek"}
+      </Button>
+    </section>
+  );
+}
+
+/**
+ * Wyłącznik blokady Poligonu NEXUSA (15.11.2026), osobny od Startu: nowa osoba
+ * stoi na poligonie, dopóki nie zaliczy ćwiczeń. Gdyby ćwiczenie przestało się
+ * zaliczać, admin albo HoR zdejmuje blokadę bez deployu.
+ */
+function PoligonGateSwitch() {
+  const status = useStartStatus(true);
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const [saving, setSaving] = useState(false);
+  if (!status || status.poligon_gate_on === undefined) return null;
+  const on = status.poligon_gate_on;
+
+  const toggle = async () => {
+    setSaving(true);
+    try {
+      const next = await setPoligonGate(!on);
+      showSuccess(
+        next
+          ? "Włączone — nowa osoba znów przechodzi Poligon, zanim zacznie pracę."
+          : "Wyłączone — Poligon jest dostępny, ale nikogo nie zatrzymuje.",
+      );
+      await queryClient.invalidateQueries({ queryKey: startKey });
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zmienić blokady Poligonu."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-4"
+      aria-label="Blokada Poligonu NEXUSA"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-foreground">
+          Poligon NEXUSA dla nowych osób: {on ? "obowiązkowy" : "wyłączony"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {on
+            ? "Nowy rekruter widzi tylko Poligon, dopóki nie zaliczy wszystkich ćwiczeń; dzień onboardingu nie liczy się do jego statystyk. Wyłącz, gdyby ćwiczenie przestało się zaliczać."
+            : "Poligon jest dostępny, ale nikogo nie zatrzymuje."}
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant={on ? "outline" : "primary"}
+        disabled={saving}
+        onClick={() => void toggle()}
+      >
+        {on ? "Wyłącz blokadę" : "Włącz blokadę"}
       </Button>
     </section>
   );
