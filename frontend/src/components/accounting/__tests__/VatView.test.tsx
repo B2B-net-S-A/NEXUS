@@ -33,7 +33,7 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { VatView } from "@/components/accounting/VatView";
 import type { LedgerConfig } from "@/lib/api/accounting";
-import type { ForeignOverview, JpkOverview, VatMarkers, VatRegisters } from "@/lib/api/accounting-vat";
+import type { ForeignOverview, JpkOverview, VatMarkers, VatRegisters, VatUeOverview } from "@/lib/api/accounting-vat";
 import { useAuthStore } from "@/store/auth";
 
 function config(vatOpen = true): LedgerConfig {
@@ -216,12 +216,40 @@ function markers(overrides: Partial<VatMarkers> = {}): VatMarkers {
   };
 }
 
+function vatUe(overrides: Partial<VatUeOverview> = {}): VatUeOverview {
+  return {
+    year: 2026,
+    month: 11,
+    lines: [
+      {
+        section: "services",
+        section_label: "Usługi (art. 100 ust. 1 pkt 4)",
+        country: "FI",
+        number: "12345678",
+        name: "Nordic Bank Abp",
+        amount: 2150,
+        net: 215_000,
+        documents: ["1/11/2026/UE"],
+        documents_count: 1,
+      },
+    ],
+    totals: { goods: 0, services: 2150 },
+    problems: [],
+    blockers: [],
+    missing: [],
+    can_download: true,
+    notes: ["Korekta informacji za wcześniejszy okres (VAT-UEK) — jeszcze nie w NEXUSIE."],
+    ...overrides,
+  };
+}
+
 function route(
   cfg: LedgerConfig,
   data: VatRegisters = registers(),
   jpk: JpkOverview = jpkOverview(),
   foreign: ForeignOverview = foreignOverview(),
   marked: VatMarkers = markers(),
+  ue: VatUeOverview = vatUe(),
 ) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
@@ -229,6 +257,7 @@ function route(
     if (url === "/api/accounting/vat/jpk") return { data: jpk };
     if (url === "/api/accounting/vat/foreign") return { data: foreign };
     if (url === "/api/accounting/vat/markers") return { data: marked };
+    if (url === "/api/accounting/vat/ue") return { data: ue };
     if (url === "/api/finance/counterparties")
       return {
         data: {
@@ -550,5 +579,38 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
     expect(await screen.findByText("GTU i TP w JPK")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dodaj kontrahenta" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zmień" })).not.toBeInTheDocument();
+  });
+});
+
+describe("Księgowość — VAT-UE (K5b-3a)", () => {
+  it("pozycje kontrahentów z UE i pobranie pliku XML", async () => {
+    route(config(), registers({ issues: [] }));
+    const user = userEvent.setup();
+    renderView();
+    const row = (await screen.findByText("FI 12345678")).closest("tr") as HTMLElement;
+    expect(within(row).getByText("Nordic Bank Abp")).toBeInTheDocument();
+    expect(within(row).getByText("2 150,00")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Pobierz VAT-UE (XML)" }));
+    expect(download).toHaveBeenCalledWith("/api/accounting/vat/ue/file?year=2026&month=11", "VAT-UE_2026-11.xml");
+  });
+
+  it("problem z numerem VAT UE i blokady rejestru wyłączają pobranie", async () => {
+    route(
+      config(),
+      registers({ issues: [] }),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe({
+        lines: [],
+        problems: [{ number: "1/11/2026/UE", detail: "nabywca bez numeru VAT UE" }],
+        blockers: ["FVS i FVZ w buforze — rejestr liczy tylko zatwierdzone: 1"],
+        can_download: false,
+      }),
+    );
+    renderView();
+    expect(await screen.findByText(/nabywca bez numeru VAT UE/)).toBeInTheDocument();
+    expect(screen.getByText(/VAT-UE powstanie po zamknięciu listy/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pobierz VAT-UE (XML)" })).toBeDisabled();
   });
 });
