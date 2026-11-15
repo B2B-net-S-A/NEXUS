@@ -105,6 +105,11 @@ export function VatUekCorrection({ period, documents }: { period: VatUekPeriod; 
                 Plik powstanie po zamknięciu listy „Do sprawdzenia”: {overview.data.blockers.join("; ")}.
               </p>
             ) : null}
+            {overview.data.lines.some((line) => line.before === null || line.after === null) ? (
+              <p className="text-muted-foreground">
+                „—” w „Było” = kontrahent dopisany, w „Jest” = kontrahent znika z informacji.
+              </p>
+            ) : null}
             {overview.data.earlier_months.length ? (
               <p className="text-muted-foreground">
                 „Było” obejmuje korekty z{" "}

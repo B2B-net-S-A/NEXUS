@@ -311,15 +311,19 @@ async def _correction_months(
 
 async def _outside_books(
     db: AsyncSession, viewer: Viewer, document_ids: list[int], start: date, end: date
-) -> list[dict[str, Any]]:
-    """Korekty z K, których faktura pierwotna nie ma dokumentu w księdze za
+) -> dict[int, dict[str, Any]]:
+    """Korekty z K (id dokumentu → problem), których faktura pierwotna nie ma dokumentu w księdze za
     okres — ich VAT-UE poszedł spoza NEXUSA i „BYŁO” byłoby zgadywaniem."""
 
     if not document_ids:
-        return []
+        return {}
     rows = (
         await db.execute(
-            select(LedgerDocument.number, ClientSalesInvoice.corrects_invoice_id)
+            select(
+                LedgerDocument.id,
+                LedgerDocument.number,
+                ClientSalesInvoice.corrects_invoice_id,
+            )
             .join(
                 ClientSalesInvoice,
                 cast(ClientSalesInvoice.id, String) == LedgerDocument.source_id,
@@ -327,7 +331,7 @@ async def _outside_books(
             .where(LedgerDocument.id.in_(document_ids))
         )
     ).all()
-    originals = {item for _, item in rows if item}
+    originals = {item for _, _, item in rows if item}
     booked: set[str] = set()
     if originals:
         booked = set(
@@ -341,16 +345,16 @@ async def _outside_books(
                 )
             ).all()
         )
-    return [
-        {
+    return {
+        doc_id: {
             "number": number,
             "kind": "outside",
             "detail": "faktura pierwotna nie ma dokumentu w księdze NEXUSA za ten "
             "okres — VAT-UE poszedł spoza NEXUSA, korektę przygotuj w Symfonii",
         }
-        for number, original in rows
+        for doc_id, number, original in rows
         if original and str(original) not in booked
-    ]
+    }
 
 
 async def _gather(
@@ -398,7 +402,6 @@ async def _gather(
             for issue in data["issues"]
             if issue["kind"] in jpk.BLOCKING
         ]
-    positions, problems = combine(base, earlier_rows, current_rows, period=period)
     current_ids = [
         row["document_id"]
         for row in current_rows
@@ -406,7 +409,16 @@ async def _gather(
         and row.get("corrected_month") == period
         and any(group["key"] in vat_ue.SECTIONS for group in row["groups"])
     ]
-    problems = await _outside_books(db, viewer, current_ids, start, end) + problems
+    outside = await _outside_books(db, viewer, current_ids, start, end)
+    # Bez faktury pierwotnej w księdze „BYŁO” byłoby zerem — sam problem
+    # „outside”, bez pozycji i bez „poniżej zera” z tej samej korekty.
+    positions, problems = combine(
+        base,
+        earlier_rows,
+        [row for row in current_rows if row["document_id"] not in outside],
+        period=period,
+    )
+    problems = list(outside.values()) + problems
     company, missing = await vat_ue._company(db)
     return {
         "positions": positions,

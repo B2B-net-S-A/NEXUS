@@ -692,6 +692,7 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
     expect(within(changed).getByText("1 720,00")).toBeInTheDocument();
     const added = within(block).getByText("DE 123456789").closest("tr") as HTMLElement;
     expect(within(added).getByText("—")).toBeInTheDocument();
+    expect(within(block).getByText(/„—” w „Było” = kontrahent dopisany/)).toBeInTheDocument();
     expect(get).toHaveBeenCalledWith("/api/accounting/vat/uek", {
       params: { year: 2026, month: 10, issued_year: 2026, issued_month: 11 },
     });
