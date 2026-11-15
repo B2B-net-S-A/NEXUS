@@ -37,8 +37,9 @@ export default function ClientsPage() {
 const MODES = [
   { value: "list", label: "Lista klientów" },
   { value: "contacts", label: "Kluczowe relacje" },
-  { value: "reports", label: "Raporty dla klientów" },
-] as const satisfies readonly { value: ClientsView; label: string }[];
+  // Nowość „Raporty dla klientów”: kropka na przycisku trybu (WorkspaceModeTabs).
+  { value: "reports", label: "Raporty dla klientów", tourId: "clients.reports" }, // data-tour="clients.reports"
+] as const satisfies readonly { value: ClientsView; label: string; tourId?: string }[];
 
 function ClientsWorkspace() {
   const { replaceUrl } = useUrlWriter();

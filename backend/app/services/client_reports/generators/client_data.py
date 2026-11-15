@@ -237,26 +237,29 @@ class InvoiceRow:
         return self.invoice_kind == "correction" or self.invoice_type == "KOR"
 
 
-_INVOICE_COLUMNS = """
+# Dwa pełne napisy zamiast sklejania wspólnego początku: SQL jest stały,
+# parametry idą przez bind (Semgrep nie przepuszcza konkatenacji w text()).
+_INVOICES_BY_ISSUE_SQL = text(
+    """
     SELECT invoice_number, invoice_type, invoice_kind, issue_date,
            coalesce(make_date(period_year, period_month, 1),
                     date_trunc('month', issue_date)::date) AS service_month,
            upper(currency), coalesce(net_amount, 0)
       FROM client_sales_invoices
      WHERE client_id = :client_id
-"""
-
-_INVOICES_BY_ISSUE_SQL = text(
-    _INVOICE_COLUMNS
-    + """
        AND issue_date BETWEEN :start AND :end
      ORDER BY issue_date, invoice_number
     """
 )
 
 _INVOICES_BY_SERVICE_SQL = text(
-    _INVOICE_COLUMNS
-    + """
+    """
+    SELECT invoice_number, invoice_type, invoice_kind, issue_date,
+           coalesce(make_date(period_year, period_month, 1),
+                    date_trunc('month', issue_date)::date) AS service_month,
+           upper(currency), coalesce(net_amount, 0)
+      FROM client_sales_invoices
+     WHERE client_id = :client_id
        AND coalesce(make_date(period_year, period_month, 1),
                     date_trunc('month', issue_date)::date) BETWEEN :start AND :end
      ORDER BY service_month, issue_date, invoice_number

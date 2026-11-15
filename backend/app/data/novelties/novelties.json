@@ -2841,5 +2841,18 @@
     "where": "Menu → Firma → Szkolenia → Kalendarz",
     "href": "/trainings",
     "dot_anchor": "trainings.calendar"
+  },
+  {
+    "id": "raporty-dla-klientow",
+    "pr": 3456,
+    "title": "Raporty dla klientów: co, komu i do kiedy",
+    "why": "W Klientach nowy widok „Raporty dla klientów”: terminy raportów z umów w jednym kalendarzu miesiąca. Pobierzesz plik i zapiszesz, że raport poszedł.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → Raporty dla klientów",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.reports"
   }
 ]
