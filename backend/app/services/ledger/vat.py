@@ -174,6 +174,9 @@ class Row:
     counterparty_id: Optional[int] = None
     #: Znaczniki JPK wiersza (GTU, TP) — z ustawień kontrahenta (K5b-2).
     markers: tuple[str, ...] = ()
+    #: Korekta FVS: miesiąc sprzedaży faktury korygowanej (``RRRR-MM``) — VAT-UE
+    #: (K5b-3a) ujmuje korektę wcześniejszego okresu na VAT-UEK za tamten okres.
+    corrected_month: Optional[str] = None
 
 
 def _decimal(value: object) -> Optional[Decimal]:
@@ -448,6 +451,26 @@ async def _sales_rows(
                 )
             ).all()
         }
+    originals: dict[int, Optional[date]] = {}
+    corrected = {
+        item.corrects_invoice_id
+        for item in invoices.values()
+        if item.invoice_kind == "correction" and item.corrects_invoice_id
+    }
+    if corrected:
+        originals = {
+            item_id: day
+            for item_id, day in (
+                await db.execute(
+                    select(
+                        ClientSalesInvoice.id,
+                        func.coalesce(
+                            ClientSalesInvoice.sale_date, ClientSalesInvoice.issue_date
+                        ),
+                    ).where(ClientSalesInvoice.id.in_(corrected))
+                )
+            ).all()
+        }
     rows = []
     for doc in docs:
         invoice = (
@@ -486,9 +509,19 @@ async def _sales_rows(
                 problem=problem,
                 counterparty_id=doc.counterparty_id,
                 markers=settings.vat_markers.get(doc.counterparty_id or 0, ()),
+                corrected_month=_corrected_month(invoice, originals),
             )
         )
     return rows
+
+
+def _corrected_month(
+    invoice: Optional[ClientSalesInvoice], originals: dict[int, Optional[date]]
+) -> Optional[str]:
+    if invoice is None or invoice.invoice_kind != "correction":
+        return None
+    day = originals.get(invoice.corrects_invoice_id or 0)
+    return f"{day.year}-{day.month:02d}" if day else None
 
 
 #: Wiersz sprzedaży z VAT należnym z FVZ z kolejki kosztów — import usług
@@ -769,6 +802,7 @@ def _row_payload(row: Row) -> dict[str, Any]:
         "problem": row.problem,
         "counterparty_id": row.counterparty_id,
         "markers": list(row.markers),
+        "corrected_month": row.corrected_month,
     }
 
 

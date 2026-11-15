@@ -14,10 +14,14 @@ obok, reszta bajt w bajt), więc walidacja nie sięga do sieci.
   w pełnych złotych (od 50 gr w górę) — formularz nie ma groszy.
 * **Kontrahent**: numer VAT UE bez kodu kraju, kraj z prefiksu (Grecja = EL);
   bez numeru VAT UE albo z kraju spoza słownika sekcji = problem (blokuje plik).
+* **Korekty** (przegląd K5b-3a): korekta faktury z tego samego miesiąca nettuje
+  się z nią; korekta wcześniejszego okresu nie pomniejsza tego miesiąca — idzie
+  na VAT-UEK za tamten okres (lista „do VAT-UEK”, nie blokuje pliku); korekta
+  bez faktury pierwotnej w NEXUSIE blokuje plik.
 * **Blokady**: listy rejestru, przy których JPK nie powstaje (stawki bez pola
   JPK, faktura z KSeF bez dokumentu, bufor), brak NIP-u, nazwy albo kodu urzędu
-  w danych płatnika (K7a) i suma kontrahenta poniżej zera (korekta zmniejszająca
-  wcześniejszy okres to VAT-UEK — jeszcze nie w NEXUSIE).
+  w danych płatnika (K7a), nabywca bez numeru VAT UE i suma kontrahenta poniżej
+  zera.
 * VAT-UE(5) ma tylko złożenie (``CelZlozenia`` = 1); korekty składa się na
   VAT-UEK(5). WNT i call-off stock — NEXUS ich nie ewidencjonuje.
 """
@@ -107,10 +111,21 @@ def country_codes() -> dict[str, frozenset[str]]:
     }
 
 
+#: Rodzaje problemów, które nie blokują pliku (korekta na VAT-UEK).
+NOT_BLOCKING = ("earlier",)
+
+
+def blocking(problems: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [item for item in problems if item.get("kind") not in NOT_BLOCKING]
+
+
 def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
-    """Pozycje VAT-UE z rejestru sprzedaży i wiersze, których nie da się ująć."""
+    """Pozycje VAT-UE z rejestru sprzedaży i wiersze, których nie da się ująć
+    (``kind``: ``counterparty``, ``negative``, ``unknown`` — blokują; ``earlier``
+    — korekta wcześniejszego okresu do VAT-UEK)."""
 
     allowed = country_codes()
+    period = f"{data['year']}-{data['month']:02d}"
     lines: dict[tuple[str, str, str], Line] = {}
     problems: list[dict[str, Any]] = []
     for row in data["sales"]:
@@ -118,6 +133,29 @@ def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
             section = SECTIONS.get(group["key"])
             if section is None:
                 continue
+            if row.get("correction"):
+                corrected = row.get("corrected_month")
+                if corrected is None:
+                    problems.append(
+                        {
+                            "number": row["number"],
+                            "kind": "unknown",
+                            "detail": "korekta bez faktury pierwotnej w NEXUSIE — nie "
+                            "wiadomo, czy należy do tego miesiąca, czy na VAT-UEK",
+                        }
+                    )
+                    continue
+                if corrected != period:
+                    year, month = corrected.split("-")
+                    problems.append(
+                        {
+                            "number": row["number"],
+                            "kind": "earlier",
+                            "detail": f"korekta faktury z {month}.{year} — na VAT-UEK "
+                            f"za {month}.{year}, nie w tym VAT-UE",
+                        }
+                    )
+                    continue
             # Kraj z prefiksu numeru VAT UE, nie z kartoteki (XI pod krajem GB).
             raw = "".join(
                 ch for ch in (row.get("tax_id") or "") if ch.isalnum()
@@ -128,6 +166,7 @@ def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
                 problems.append(
                     {
                         "number": row["number"],
+                        "kind": "counterparty",
                         "detail": "nabywca bez numeru VAT UE — VAT-UE wymaga numeru "
                         "z kodem kraju (kartoteka albo faktura w KSeF)",
                     }
@@ -141,6 +180,7 @@ def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
                 problems.append(
                     {
                         "number": row["number"],
+                        "kind": "counterparty",
                         "detail": f"numer {code}{number} nie pasuje do VAT-UE "
                         f"({SECTION_LABELS[section].lower()})",
                     }
@@ -159,14 +199,16 @@ def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
             problems.append(
                 {
                     "number": ", ".join(line.documents[:5]),
+                    "kind": "negative",
                     "detail": f"{line.country}{line.number}: suma miesiąca poniżej "
-                    "zera — korekta wcześniejszego okresu to VAT-UEK",
+                    "zera — sprawdź faktury i korekty kontrahenta",
                 }
             )
         elif line.amount > AMOUNT_MAX:
             problems.append(
                 {
                     "number": ", ".join(line.documents[:5]),
+                    "kind": "negative",
                     "detail": f"{line.country}{line.number}: kwota za duża dla VAT-UE",
                 }
             )
@@ -216,8 +258,8 @@ def build(
             _sub(group, "P_Da", line.country)
             _sub(group, "P_Db", line.number)
             _sub(group, "P_Dc", line.amount)
-            # 2 = nie jest to dostawa w procedurze trójstronnej.
-            _sub(group, "P_Dd", 2)
+            # 1 = pozycja nie dotyczy transakcji trójstronnych (dokumentacja XSD).
+            _sub(group, "P_Dd", 1)
     for line in lines:
         if line.section == "services":
             group = _sub(positions, "Grupa3")
@@ -303,7 +345,7 @@ async def overview(
 
     found = await _month(db, viewer, settings, year, month)
     lines: list[Line] = found["lines"]
-    ready = not (found["problems"] or found["blockers"] or found["missing"])
+    ready = not (blocking(found["problems"]) or found["blockers"] or found["missing"])
     return {
         "year": year,
         "month": month,
@@ -329,7 +371,10 @@ async def file(
     reasons = (
         found["missing"]
         + found["blockers"]
-        + [f"{item['number']}: {item['detail']}" for item in found["problems"]]
+        + [
+            f"{item['number']}: {item['detail']}"
+            for item in blocking(found["problems"])
+        ]
     )
     if reasons:
         raise LedgerError(

@@ -388,7 +388,8 @@ export interface VatUeOverview {
   month: number;
   lines: VatUeLine[];
   totals: { goods: number; services: number };
-  problems: { number: string; detail: string }[];
+  /** `earlier` = korekta wcześniejszego okresu (na VAT-UEK) — nie blokuje pliku. */
+  problems: { number: string; detail: string; kind: "counterparty" | "negative" | "unknown" | "earlier" }[];
   blockers: string[];
   missing: string[];
   can_download: boolean;

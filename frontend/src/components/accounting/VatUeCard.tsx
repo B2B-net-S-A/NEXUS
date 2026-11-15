@@ -52,9 +52,12 @@ export function VatUeCard({ year, month }: { year: number; month: number }) {
         </p>
       ) : null}
       {data.problems.length ? (
-        <ul className="space-y-0.5 border-b border-border/70 px-3.5 py-2 text-[13px] text-destructive-text">
+        <ul className="space-y-0.5 border-b border-border/70 px-3.5 py-2 text-[13px]">
           {data.problems.map((item, index) => (
-            <li key={`${item.number}:${index}`}>
+            <li
+              key={`${item.number}:${index}`}
+              className={item.kind === "earlier" ? "text-warning-muted-foreground" : "text-destructive-text"}
+            >
               <span className="font-medium">{item.number}</span> — {item.detail}
             </li>
           ))}

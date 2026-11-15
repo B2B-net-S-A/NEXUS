@@ -603,13 +603,17 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
       markers(),
       vatUe({
         lines: [],
-        problems: [{ number: "1/11/2026/UE", detail: "nabywca bez numeru VAT UE" }],
+        problems: [
+          { number: "1/11/2026/UE", detail: "nabywca bez numeru VAT UE", kind: "counterparty" },
+          { number: "KOR 1/11", detail: "korekta faktury z 10.2026 — na VAT-UEK za 10.2026", kind: "earlier" },
+        ],
         blockers: ["FVS i FVZ w buforze — rejestr liczy tylko zatwierdzone: 1"],
         can_download: false,
       }),
     );
     renderView();
     expect(await screen.findByText(/nabywca bez numeru VAT UE/)).toBeInTheDocument();
+    expect(screen.getByText(/na VAT-UEK za 10.2026/).closest("li")).toHaveClass("text-warning-muted-foreground");
     expect(screen.getByText(/VAT-UE powstanie po zamknięciu listy/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pobierz VAT-UE (XML)" })).toBeDisabled();
   });
