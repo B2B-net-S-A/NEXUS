@@ -162,9 +162,9 @@ def report_format() -> dict[str, Any]:
         "items": [
             {
                 "source": "sejm",
-                "title": "Ustawa o zmianie ustawy o podatku od towarów i usług",
+                "title": "Ustawa z dnia 11 marca 2026 r. o zmianie ustawy o Państwowej Inspekcji Pracy oraz niektórych innych ustaw",
                 "url": "https://api.sejm.gov.pl/eli/acts/DU/2026/473",
-                "published": "2026-11-14",
+                "published": "2026-04-08",
                 "act_ref": "DU/2026/473",
                 "print_no": None,
                 "stage": "opublikowano",

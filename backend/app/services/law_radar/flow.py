@@ -144,6 +144,19 @@ async def start_analyze(
     )
 
 
+async def record_gate(db: AsyncSession, run_id: int, checked: dict[str, int]) -> None:
+    """Wynik bramki w raporcie biegu Zbieracza (ekran „Boty dziś”): same liczby."""
+
+    run = await db.get(LawRadarRun, run_id)
+    if run is None:
+        return
+    counts = {
+        key: int(checked.get(key, 0)) for key in ("verified", "unverified", "rejected")
+    }
+    run.report = {**(run.report or {}), "gate": counts}
+    await db.commit()
+
+
 async def after_collect(
     db: AsyncSession,
     run_id: int,
@@ -154,6 +167,7 @@ async def after_collect(
     """Bramka dla pozycji biegu, potem Analityk, gdy coś przeszło."""
 
     checked = await gate.verify_pending(db, run_id=run_id, client=gate_client)
+    await record_gate(db, run_id, checked)
     passed = checked["verified"] + checked["unverified"]
     started = None
     if passed:

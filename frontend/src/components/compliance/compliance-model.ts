@@ -325,6 +325,16 @@ export function runSummaryLine(run: Pick<RadarRun, "kind" | "summary">): string 
     const value = run.summary[key];
     if (typeof value === "number") parts.push(`${label}: ${value}`);
   }
+  const gate = run.summary.gate;
+  if (run.kind === "collect" && gate && typeof gate === "object") {
+    const n = (key: string) => {
+      const value = (gate as Record<string, unknown>)[key];
+      return typeof value === "number" ? value : 0;
+    };
+    parts.push(
+      `bramka: zgodne z API Sejmu ${n("verified")}, bez numeru ${n("unverified")}, odrzucone ${n("rejected")}`,
+    );
+  }
   if (run.kind === "collect" && run.summary.lex_skipped === true) parts.push("LEX pominięty");
   return parts.join(" · ");
 }

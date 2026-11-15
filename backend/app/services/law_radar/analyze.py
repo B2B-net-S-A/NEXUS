@@ -186,18 +186,24 @@ def report_format() -> dict[str, Any]:
         "changes": [
             {
                 "change_ref": None,
-                "title": "KSeF obowiązkowy dla wszystkich podatników VAT",
-                "summary": ["Od 1.02.2026 faktury sprzedaży wyłącznie przez KSeF."],
-                "roles": ["accounting", "board"],
+                "title": "PIP może decyzją uznać umowę B2B za umowę o pracę",
+                "summary": [
+                    "Inspektor pracy może decyzją stwierdzić stosunek pracy przy "
+                    "umowie cywilnej albo B2B."
+                ],
+                "roles": ["contracts", "payroll", "board"],
                 "urgency": "now",
-                "stage": "journal",
-                "effective_on": "2026-02-01",
+                "stage": "in_force",
+                "effective_on": "2026-07-08",
                 "deadline": None,
-                "legal_ref": "DU/2026/473",
+                "legal_ref": "Dz.U. 2026 poz. 473",
                 "item_ids": [1],
-                "probes": ["ksef_sales_invoices"],
+                "probes": ["b2b_long_contracts"],
                 "todo": [
-                    {"text": "Sprawdzić numerację faktur w KSeF", "role": "accounting"}
+                    {
+                        "text": "Lista kontraktów z czynnikami ryzyka",
+                        "role": "contracts",
+                    }
                 ],
             }
         ]

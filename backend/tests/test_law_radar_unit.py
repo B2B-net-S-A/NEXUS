@@ -452,3 +452,13 @@ def test_collect_report_refuses_backslash_and_userinfo_urls(url: str) -> None:
 def test_real_official_hosts_stay_official() -> None:
     assert gate.classify("zus", "https://www.zus.pl/o-zus/aktualnosci") == "official"
     assert gate.classify("mf", "https://www.podatki.gov.pl/ksef/") == "official"
+
+
+def test_report_examples_pair_act_numbers_with_their_real_titles() -> None:
+    item = collect.report_format()["items"][0]
+    assert item["act_ref"] == "DU/2026/473"
+    assert "Inspekcji Pracy" in item["title"]
+    change = analyze.report_format()["changes"][0]
+    assert "PIP" in change["title"] and change["legal_ref"] == "Dz.U. 2026 poz. 473"
+    analyze.AnalyzeReport.model_validate(analyze.report_format())
+    collect.CollectReport.model_validate(collect.report_format())

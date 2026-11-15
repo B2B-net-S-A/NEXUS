@@ -85,4 +85,15 @@ describe("Przepisy — model", () => {
     ).toBe("pozycje w raporcie: 4 · nowe: 3 · znane: 1 · powtórki: 0");
     expect(runSummaryLine({ kind: "analyze", summary: { created: 2, dropped: { no_items: 1 } } })).toBe("nowe zmiany: 2");
   });
+
+  it("linia Zbieracza pokazuje wynik bramki i pominięty LEX", () => {
+    expect(
+      runSummaryLine({
+        kind: "collect",
+        summary: { items_in: 9, gate: { verified: 5, unverified: 3, rejected: 1 }, lex_skipped: true },
+      }),
+    ).toBe(
+      "pozycje w raporcie: 9 · bramka: zgodne z API Sejmu 5, bez numeru 3, odrzucone 1 · LEX pominięty",
+    );
+  });
 });
