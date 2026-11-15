@@ -375,6 +375,22 @@ _CONTRACT_LINEAGE_FIELDS = {
 # kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
 # która po scaleniu ma zamówienia.
 _CONTRACT_PRESENTATION_FIELDS = {"orders_card_dismissed_at", "orders_card_dismissed_by"}
+# Kategoria z umowy ramowej i przyznana dopłata (0710) idą w parze z limitem
+# (`framework_rate`, cache wyżej) — zostają na kontrakcie zachowanym, nie
+# składamy ich z dwóch wierszy. Kategorię ocalałego odświeża „Przelicz
+# kategorie z COA” z jego zamówień.
+_CONTRACT_FRAMEWORK_CATEGORY_FIELDS = {
+    "client_rate_card_id",
+    "rate_card_source",
+    "rate_card_coa_label",
+    "framework_addon_technology",
+    "framework_addon_percent",
+    "framework_addon_confirmed_by",
+    "framework_addon_confirmed_on",
+    "framework_addon_evidence",
+    "framework_addon_set_by_id",
+    "framework_addon_set_at",
+}
 _CLASSIFIED_CONTRACT_FIELDS = (
     set(_MERGEABLE_FIELDS)
     | _CONTRACT_IDENTITY_FIELDS
@@ -384,6 +400,7 @@ _CLASSIFIED_CONTRACT_FIELDS = (
     | _CONTRACT_AUDIT_FIELDS
     | _CONTRACT_LINEAGE_FIELDS
     | _CONTRACT_PRESENTATION_FIELDS
+    | _CONTRACT_FRAMEWORK_CATEGORY_FIELDS
 )
 
 _STATUS_RANK = {
