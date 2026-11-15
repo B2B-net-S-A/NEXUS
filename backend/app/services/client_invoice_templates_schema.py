@@ -83,7 +83,19 @@ TABLE_DDL: tuple[str, ...] = (
 )
 
 COLUMN_DDL: tuple[str, ...] = (
-    "ALTER TABLE client_issued_invoices ALTER COLUMN client_id DROP NOT NULL",
+    # Blok DO, bo strażnik paczki (`test_hr_module_chain`) przyjmuje tylko
+    # instrukcje warunkowe — entrypoint wykonuje je przy każdym starcie.
+    """DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'client_issued_invoices'
+          AND column_name = 'client_id'
+          AND is_nullable = 'NO'
+    ) THEN
+        ALTER TABLE client_issued_invoices ALTER COLUMN client_id DROP NOT NULL;
+    END IF;
+END $$""",
     "ALTER TABLE client_issued_invoices ADD COLUMN IF NOT EXISTS template_id "
     "INTEGER NULL REFERENCES client_invoice_templates(id) ON DELETE SET NULL",
 )
