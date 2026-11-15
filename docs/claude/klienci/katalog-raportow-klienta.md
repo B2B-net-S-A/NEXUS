@@ -1,4 +1,4 @@
-# Katalog raportów klienta (0710, 15.11.2026)
+# Katalog raportów klienta (0711, 15.11.2026)
 <!-- indeks: raport klienta = wiersz danych, nie kod; rejestr generatorów; zatwierdza DL klienta (zgodność: admin); DL wysyła sam, NEXUS zapisuje; kalendarz z definicji × okresów; „Znajdź w umowach” to propozycja; bez listy id klientów w kodzie -->
 
 Każdy klient wymaga innych raportów: karty czasu i protokoły do faktury,
@@ -12,7 +12,7 @@ sesji, nie w repo — ma nazwy i liczby). Decyzje Artura z 15.11.2026 niżej.
   Lead), rodzina, rytm, reguła terminu (`services/client_reports/schedule.py`),
   odbiorca, kanał, kto przygotowuje, generator i jego `params`. Nie dokładaj
   listy id klientów w kodzie ani `if client == …` w generatorze: tak zaczął
-  raport BNP (`frozenset({12})`, #3265) i od 0710 jego przycisk w Projektach
+  raport BNP (`frozenset({12})`, #3265) i od 0711 jego przycisk w Projektach
   bierze dostępność z katalogu (zasiew definicji dla dotychczasowego klienta).
 - **Generator jest wspólny** (`services/client_reports/registry.py`, moduły
   w `generators/`): klucz, rytmy, czy plik ma kwoty (`needs_amounts` →

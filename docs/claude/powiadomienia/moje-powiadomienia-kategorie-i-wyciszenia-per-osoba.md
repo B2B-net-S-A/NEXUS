@@ -24,7 +24,7 @@ dzwonka z kreską prosto w dzwonku), które KATEGORIE powiadomień do niego traf
   która przesunęła kartę. Kategoria „Ruchy w rekrutacjach” (jak `stage_rule`,
   do wyciszenia), sekcja Rekrutacje, bez maila. Front potrzebuje ikony typu
   w `NotificationsDropdown.tsx`.
-- **`client_report_due` (0710, 15.11.2026)** — „Raport dla klienta — termin
+- **`client_report_due` (0711, 15.11.2026)** — „Raport dla klienta — termin
   za N dni / termin minął” z katalogu raportów klienta (decyzja Artura:
   przypomnienie DL-a kilka dni przed terminem). Własna kategoria „Raporty dla
   klientów” (do wyciszenia), sekcja Delivery, praca bieżąca (idzie do

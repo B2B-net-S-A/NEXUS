@@ -262,7 +262,7 @@ def test_type_is_registered_for_reports_category_delivery_and_substitution():
 
 
 def test_entrypoint_mirrors_the_enum_value_of_0708():
-    path = _BACKEND / "alembic" / "versions" / "0710_client_reports.py"
+    path = _BACKEND / "alembic" / "versions" / "0711_client_reports.py"
     spec = importlib.util.spec_from_file_location("m0708", path)
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)

@@ -465,7 +465,7 @@ class NotificationType(str, enum.Enum):
     # sprawdzenia” u Delivery Leada klienta. Sekcja Delivery, link
     # `/care?card=<klucz karty>`.
     care_demand_signal = "care_demand_signal"
-    # 0710: raport dla klienta z katalogu — termin za N dni roboczych albo
+    # 0711: raport dla klienta z katalogu — termin za N dni roboczych albo
     # termin minął bez zapisanej wysyłki (decyzja Artura 15.11.2026). Do osoby,
     # która przygotowuje raport (``preparer_user_id`` albo Delivery Leadzi
     # klienta); related_entity=(client_report_definition, id). Sekcja Delivery,

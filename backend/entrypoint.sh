@@ -381,9 +381,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'skill_dictionary_proposals'",
     # 0677: podsumowanie spotkania handlowca do wysłania klientowi (Sonnet 5.5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_client_summary'",
-    # 0710: katalog raportów klienta — obowiązki raportowe z umów ramowych.
+    # 0711: katalog raportów klienta — obowiązki raportowe z umów ramowych.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_report_requirements'",
-    # 0710: przypomnienie o terminie raportu dla klienta (dzwonek).
+    # 0711: przypomnienie o terminie raportu dla klienta (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
@@ -8094,7 +8094,7 @@ _DATA_STATEMENTS = [
     "SELECT 'duty_search_judge', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'duty_search_judge')",
-    # 0710: seed klucza AI obowiązków raportowych z umów.
+    # 0711: seed klucza AI obowiązków raportowych z umów.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'client_report_requirements', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

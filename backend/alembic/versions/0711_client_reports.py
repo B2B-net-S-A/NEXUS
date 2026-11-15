@@ -1,7 +1,7 @@
 """Katalog raportów klienta: definicje raportów per klient i historia wysyłek.
 
-Revision ID: 0710_client_reports
-Revises: 0709_sales_invoice_templates
+Revision ID: 0711_client_reports
+Revises: 0710_framework_rate_categories
 
 SQL i powody: ``app/services/client_reports_schema.py`` (to samo źródło
 czyta ``entrypoint.sh`` przez ``hr_schema_bundle``). Klucz AI
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import client_reports_schema as schema
 
-revision = "0710_client_reports"
-down_revision = "0709_sales_invoice_templates"
+revision = "0711_client_reports"
+down_revision = "0710_framework_rate_categories"
 branch_labels = None
 depends_on = None
 
@@ -47,13 +47,13 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0710 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0711 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
     IF EXISTS (
         SELECT 1 FROM notifications
         WHERE notification_type::text = '{_NOTIFICATION_TYPE}'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0710 odmawia: notifications ma wpisy {_NOTIFICATION_TYPE}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0711 odmawia: notifications ma wpisy {_NOTIFICATION_TYPE}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

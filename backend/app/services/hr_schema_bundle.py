@@ -138,7 +138,7 @@ MODULES = (
     ledger_vat,
     # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
     client_invoice_templates,
-    # 0710: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
+    # 0711: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
     client_reports,
 )
 
