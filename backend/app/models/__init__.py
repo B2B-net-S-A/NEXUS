@@ -58,7 +58,7 @@ from app.models.contract_equipment import (
     EquipmentReturnStatus,
 )
 from app.models.rate_benchmark import RateBenchmark, SeniorityLevel
-from app.models.rate_card import RateCard
+from app.models.rate_card import RateCard, RateCardAdder
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
@@ -406,6 +406,7 @@ __all__ = [
     "RateBenchmark",
     "SeniorityLevel",
     "RateCard",
+    "RateCardAdder",
     "ContractAmendment",
     "ContractAmendmentType",
     "ContractCandidateRate",
