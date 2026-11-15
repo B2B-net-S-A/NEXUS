@@ -250,3 +250,20 @@ describe("authenticated-files", () => {
     });
   });
 });
+
+describe("authenticated-files na Poligonie NEXUSA", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+    vi.unstubAllGlobals();
+  });
+
+  it("plik generowany POST-em (podgląd szkicu CV) nie wychodzi do API", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    sessionStorage.setItem("nexus.poligon", "1");
+    await expect(
+      postAuthenticatedDownload("/api/candidates/stages/990309/cv/branded/preview-docx", { content_html: "" }),
+    ).rejects.toMatchObject({ response: { status: 409 } });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

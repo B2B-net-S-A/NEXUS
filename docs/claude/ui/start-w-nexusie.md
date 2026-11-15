@@ -37,7 +37,9 @@ gdzie co jest, a samo „zaproszenie” do przewodnika otwierała jedna osoba na
 - **Nowa funkcja, która zmienia podstawy pracy roli**, może dojść do Startu
   (wtedy zatrzyma też tych, którzy Start już mają) — to decyzja Artura,
   nie dopisuj jej sam. Zwykła nowość idzie do `novelties.json`.
-- **Nowy rekruter (konto od 15.11.2026) przechodzi Poligon NEXUSA zamiast
-  przeklikań rekrutacji** (decyzja Artura z 14.11.2026): ta sama blokada,
-  ale prowadzi na `/poligon`, a dzień onboardingu nie liczy się do statystyk
+- **Rekruter, Delivery Lead i TCM z rolą nadaną od 15.11.2026 przechodzą
+  Poligon NEXUSA zamiast przeklikań rekrutacji** (decyzje Artura z 14.11
+  i 15.11.2026): ta sama blokada, ale prowadzi na `/poligon`, każda rola ma
+  własną ścieżkę, a po zmianie roli zostają tylko brakujące ćwiczenia nowej
+  roli. Dzień onboardingu nie liczy się do statystyk
   → `poligon-nexusa-onboarding.md`.

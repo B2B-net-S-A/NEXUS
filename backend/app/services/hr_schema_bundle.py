@@ -24,6 +24,7 @@ from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_einvoices_schema as client_einvoices
 from app.services import client_invoice_issue_schema as client_invoice_issue
+from app.services import client_invoice_templates_schema as client_invoice_templates
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -135,6 +136,8 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
+    # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
+    client_invoice_templates,
     # 0710: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
     client_reports,
 )

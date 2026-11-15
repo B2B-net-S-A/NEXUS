@@ -69,11 +69,13 @@ import { UnknownBuyersPanel } from "./UnknownBuyersPanel";
 import { IssueMonthPanel } from "./issue/IssueMonthPanel";
 import { IssueSettingsPanel } from "./issue/IssueSettingsPanel";
 import { IssuedListPanel } from "./issue/IssuedListPanel";
+import { TemplatesPanel } from "./issue/TemplatesPanel";
 
 export type SalesInvoicesView =
   | "invoices"
   | "to-invoice"
   | "issue"
+  | "templates"
   | "drafts"
   | "sent"
   | "issue-settings"
@@ -279,6 +281,7 @@ export function FinanceSalesInvoicesTab({
           { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
           { value: "to-invoice", label: "Do faktury" },
           { value: "issue", label: "Wystaw za miesiąc" },
+          { value: "templates", label: "Szablony" },
           { value: "drafts", label: "Szkice" },
           { value: "sent", label: "Wysłane" },
           { value: "issue-settings", label: "Ustawienia wystawiania" },
@@ -364,6 +367,7 @@ export function FinanceSalesInvoicesTab({
       ) : null}
 
       {view === "issue" ? <IssueMonthPanel period={period} onCreated={() => setView("drafts")} /> : null}
+      {view === "templates" ? <TemplatesPanel period={period} onCreated={() => setView("drafts")} /> : null}
       {view === "drafts" || view === "sent" ? <IssuedListPanel view={view} period={period} /> : null}
       {view === "issue-settings" ? <IssueSettingsPanel period={warsawToday().slice(0, 7)} /> : null}
 

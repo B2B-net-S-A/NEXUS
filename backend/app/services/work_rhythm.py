@@ -972,7 +972,7 @@ async def build_rhythm(
         absent = absence.get(user.id, {})
         started = account_start(user)
         if user.id in onboarding:
-            day_after = onboarding[user.id] + timedelta(days=1)
+            day_after = min(onboarding[user.id]) + timedelta(days=1)
             started = day_after if started is None else max(started, day_after)
         rows: list[dict[str, Any]] = []
         for day in sorted(set(source_days) | set(days)):

@@ -97,6 +97,7 @@ const CARD: IssuedInvoiceCard = {
   invoice_number: null,
   client_id: 7,
   client_name: "Bank Testowy S.A.",
+  template_id: null,
   buyer: {
     name: "Bank Testowy S.A.",
     number: "1111111111",

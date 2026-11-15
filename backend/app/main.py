@@ -4124,6 +4124,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
+        ClientInvoiceTemplate,
         ClientIssuedInvoice,
     )
 
@@ -4655,6 +4656,8 @@ async def api_health_deep_check(request: Request):
         # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
         ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
+        # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
+        ("client_invoice_templates", ClientInvoiceTemplate),
     ]
 
     checks: dict[str, str] = {}
