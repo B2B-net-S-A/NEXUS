@@ -21,7 +21,10 @@ tylko administrator (403).
   (nowy dostawca trafia do kartoteki),
 * ``GET /vat/markers`` — kontrahenci ze znacznikami GTU/TP,
 * ``PUT /vat/markers/{counterparty_id}`` — znaczniki kontrahenta (lista
-  „Księgowi” albo administrator).
+  „Księgowi” albo administrator),
+* ``GET /vat/ue?year=&month=`` — pozycje VAT-UE(5) miesiąca (K5b-3a), problemy,
+* ``GET /vat/ue/file?year=&month=`` — plik VAT-UE(5) po walidacji schematem MF
+  (tylko sprzedaż dla firm z UE — bez danych osób zespołu, więc bez Płac).
 """
 
 from datetime import date, datetime, timezone
@@ -42,7 +45,7 @@ from app.services.finance_ledger_schema import (
     NAME_MAX,
     SYMFONIA_ID_MAX,
 )
-from app.services.ledger import documents, foreign, jpk, vat
+from app.services.ledger import documents, foreign, jpk, vat, vat_ue
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX, MARKERS
@@ -327,3 +330,36 @@ async def set_vat_markers(
         raise _fail(exc) from exc
     await db.commit()
     return await vat.marked_item(db, current, counterparty_id)
+
+
+@router.get("/vat/ue")
+async def vat_ue_overview(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await vat_ue.overview(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/vat/ue/file")
+async def vat_ue_file(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    current, viewer = await _context(db, current_user)
+    try:
+        name, content = await vat_ue.file(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

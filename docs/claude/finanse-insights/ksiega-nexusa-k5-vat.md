@@ -7,7 +7,8 @@ w Ustawieniach (włącza administrator). Bez migracji: rejestr liczy się
 z dokumentów przy każdym otwarciu. K5b-1: plik JPK_V7M(3) — `ledger/jpk.py`,
 migracja `0708_ledger_vat_files` (sekcja niżej). K5b-2: zakupy zagraniczne
 (import usług) — `ledger/foreign.py` — i znaczniki GTU/TP per kontrahent, bez
-migracji (sekcja niżej). VAT-UE i dokument rozliczenia VAT — K5b-3.
+migracji (sekcja niżej). K5b-3a: VAT-UE(5) — `ledger/vat_ue.py` (sekcja niżej).
+Porównanie z JPK z Symfonii (K5b-3b) i dokument rozliczenia VAT (K5b-3c) — dalej.
 
 ## Co jest
 
@@ -176,6 +177,28 @@ migracji (sekcja niżej). VAT-UE i dokument rozliczenia VAT — K5b-3.
 - Id kontrahenta w trasach do 2³¹ − 1 (kolumna INTEGER) — większe = 422, nie
   500 z bazy.
 
+## VAT-UE(5) (K5b-3a)
+
+- **Decyzja Artura 15.11.2026**: schemat VAT-UE(5) z crd.gov.pl w repo
+  (`app/services/ledger/vat_ue_schema/`, wzór 2021/01/12/10293, wersja 2-0E —
+  najnowsza na liście struktur e-Deklaracji; importy przepisane na pliki obok),
+  NEXUS składa plik i sprawdza go schematem przy pobraniu. Korekty składa się
+  na VAT-UEK(5) — w NEXUSIE jeszcze nie ma (uwaga na karcie).
+- **Z czego**: wiersze rejestru sprzedaży z grup `np_ue` (usługi, art. 100
+  ust. 1 pkt 4 — Grupa3) i `0_wdt` (WDT — Grupa1, bez trójstronnej). Okres =
+  okres rejestru. Suma netto PLN per kontrahent i sekcja, w pełnych złotych.
+- **Kontrahent**: kraj z prefiksu numeru VAT UE, nie z kartoteki (XI pod GB),
+  Grecja = EL; bez numeru VAT UE, z kodem spoza słownika sekcji albo z GB (po
+  brexicie) = problem. Suma kontrahenta poniżej zera = problem (to korekta
+  wcześniejszego okresu — VAT-UEK).
+- **Blokady pliku** (422 z powodem): problemy, listy rejestru blokujące JPK
+  (stawki, faktura z KSeF bez dokumentu, bufor), brak NIP-u, nazwy albo kodu
+  urzędu w danych płatnika (K7a); miesiąc bez usług UE i WDT = VAT-UE się nie
+  składa. Plik nie ma danych osób zespołu — pobiera każdy z modułem VAT.
+- **Schemat**: `etd:TRok` w strukturach v6 kończy się na 2030 — testy na bazie
+  (lata 2050–2090) sprawdzają pozycje, walidację XSD testy reguł (rok 2026).
+  Nowy wzór MF = nowe pliki i zmiana `NS` w `vat_ue.py`.
+
 ## Testy
 
 `tests/test_ledger_vat_rules.py` (podział stawek, kwoty z dekretu, pola JPK,
@@ -194,4 +217,7 @@ korekta, pola formularza i odmowy, numer dostawcy), w `test_ledger_jpk_rules.py`
 znaczniki i import usług przez XSD MF oraz odcisk bez znaczników, sekcja K5b-2
 w `test_ledger_sources_db.py` (formularz od nowego dostawcy do JPK, odmowy,
 strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS), front:
-`VatView.test.tsx` (lista, formularz, znaczniki), `vat-model.test.ts`.
+`VatView.test.tsx` (lista, formularz, znaczniki), `vat-model.test.ts`. K5b-3a:
+`tests/test_ledger_vat_ue_rules.py` (pozycje, zaokrąglenie, problemy, XSD),
+`test_vat_ue_lines_come_from_the_sales_register` w `test_ledger_sources_db.py`,
+front: karta VAT-UE w `VatView.test.tsx`.

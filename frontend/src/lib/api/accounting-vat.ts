@@ -363,3 +363,48 @@ export function useSetVatMarkers() {
     },
   });
 }
+
+// ── VAT-UE(5) (K5b-3a) ──────────────────────────────────────────────────────
+// Informacja podsumowująca z rejestru sprzedaży: usługi dla podatników z UE
+// (np II) i WDT, suma per kontrahent w pełnych złotych. Plik serwer składa
+// i sprawdza schematem MF przy pobraniu (422 z powodem).
+
+export interface VatUeLine {
+  section: "goods" | "services";
+  section_label: string;
+  country: string;
+  number: string;
+  name: string;
+  /** Pełne złote. */
+  amount: number;
+  /** Grosze. */
+  net: number;
+  documents: string[];
+  documents_count: number;
+}
+
+export interface VatUeOverview {
+  year: number;
+  month: number;
+  lines: VatUeLine[];
+  totals: { goods: number; services: number };
+  /** `earlier` = korekta wcześniejszego okresu (na VAT-UEK) — nie blokuje pliku. */
+  problems: { number: string; detail: string; kind: "counterparty" | "negative" | "unknown" | "earlier" }[];
+  blockers: string[];
+  missing: string[];
+  can_download: boolean;
+  notes: string[];
+}
+
+export function useVatUe(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: ["accounting", "vat", "ue", year, month] as const,
+    queryFn: async () => (await api.get<VatUeOverview>(`${BASE}/vat/ue`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+/** Ścieżka pliku VAT-UE (pobranie z sesją przez `downloadAuthenticatedFile`). */
+export function vatUeFilePath(year: number, month: number): string {
+  return `${BASE}/vat/ue/file?year=${year}&month=${month}`;
+}

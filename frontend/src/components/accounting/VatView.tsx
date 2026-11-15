@@ -21,6 +21,7 @@ import { SectionCard, useAccounting } from "./AccountingShell";
 import { ForeignPurchaseCard } from "./ForeignPurchaseCard";
 import { JpkCard } from "./JpkCard";
 import { VatMarkersCard } from "./VatMarkersCard";
+import { VatUeCard } from "./VatUeCard";
 import { datePl, gr } from "./ledger-model";
 import { dueLabel, fieldsLabel, issueLink, jpkBlockers, rowGroups, taxIdLabel } from "./vat-model";
 
@@ -75,6 +76,7 @@ export function VatView() {
         </div>
       </div>
       <JpkCard year={data.year} month={data.month} blockers={jpkBlockers(data.issues)} />
+      <VatUeCard year={data.year} month={data.month} />
       <ForeignPurchaseCard year={data.year} month={data.month} />
       <RegisterCard
         title="Rejestr sprzedaży"

@@ -4238,3 +4238,39 @@ async def test_foreign_purchase_cost_goes_to_overhead_in_the_allocation(
     alloc = (await _summary(client, world, books))["allocation"]
     assert alloc["pending_costs"] == 0
     assert {(d["code"], d["amount"]) for d in alloc["details"]} == {("OG", 43_000)}
+
+
+# ── VAT-UE(5) (K5b-3a) ──────────────────────────────────────────────────────
+
+
+async def test_vat_ue_lines_come_from_the_sales_register(client, world, books):
+    """Usługa np II dla nabywcy z polskim NIP-em = problem; z numerem VAT UE na
+    fakturze = pozycja VAT-UE w pełnych złotych; niepełny rejestr blokuje plik."""
+
+    await _vat_books(client, world, books)
+    params = {"year": books["year"], "month": 3}
+    headers = _headers(world["accountant"])
+    first = (await client.get(f"{ACC}/vat/ue", params=params, headers=headers)).json()
+    assert first["lines"] == [] and first["can_download"] is False
+    assert [item["number"] for item in first["problems"]] == ["FS 2/03"]
+    assert "bez numeru VAT UE" in first["problems"][0]["detail"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == books["sales"]["euro"])
+            .values(buyer_nip=None, buyer_foreign_id="FI28583949")
+        )
+        await db.commit()
+    data = (await client.get(f"{ACC}/vat/ue", params=params, headers=headers)).json()
+    assert [(line["section"], line["country"], line["number"], line["amount"], line["documents"]) for line in data["lines"]] == [
+        ("services", "FI", "28583949", 2150, ["FS 2/03"])
+    ]
+    assert data["problems"] == [] and data["totals"]["services"] == 2150
+    # Faktury z KSeF bez dokumentu w księdze (fixture) blokują plik jak JPK.
+    assert any("bez dokumentu w księdze" in item for item in data["blockers"])
+    refused = await client.get(f"{ACC}/vat/ue/file", params=params, headers=headers)
+    assert refused.status_code == 422 and "VAT-UE nie powstanie" in refused.json()["detail"]
+    closed = await client.get(
+        f"{ACC}/vat/ue", params={"year": books["year"], "month": 13}, headers=headers
+    )
+    assert closed.status_code == 422
