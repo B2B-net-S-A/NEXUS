@@ -4,14 +4,23 @@
 // na rekrutacji ćwiczebnej, otwarcie ekranu), nigdy przycisk „Rozumiem”.
 // Informacja zwrotna to stałe reguły, bez modelu AI — każdy dostaje tę samą.
 //
-// Id ćwiczeń (z przedrostkiem `poligon-`) są też w rejestrze serwera
+// Ścieżka per rola (15.11.2026): rekruter, Delivery Lead i TCM przechodzą
+// wspólne moduły (lista, Tablica, panel osoby, baza) i moduły swojej roli
+// (rekruter: screening i przekazanie do QC; Delivery Lead: przegląd, kwoty
+// i wysyłka do klienta). Admin i Head of Recruitment widzą wszystkie ćwiczenia.
+//
+// Id ćwiczeń (z przedrostkiem `poligon-`) i ich role są też w rejestrze serwera
 // `backend/app/data/novelties/poligon.json`; test pilnuje, że to te same listy.
 
 import type { PoligonAction } from "./store";
 
+export type PoligonRole = "admin" | "head_of_recruitment" | "delivery_lead" | "talent_community_manager" | "recruiter";
+
 export interface ExerciseContext {
   /** Osoba z pierwszej kolumny, którą ćwiczenie każe przesunąć. */
   firstNew: { candidateId: number; fullName: string } | null;
+  /** Rola, z perspektywy której mówią treści ćwiczeń (kogo oznaczyć, kto poleca). */
+  role: PoligonRole;
 }
 
 export type Verdict = { done: true; tip?: string } | { done: false; feedback: string } | null;
@@ -19,6 +28,8 @@ export type Verdict = { done: true; tip?: string } | { done: false; feedback: st
 export interface Exercise {
   id: string;
   module: string;
+  /** Czyja to ścieżka — lustro `roles` w `poligon.json`. */
+  roles: readonly PoligonRole[];
   title: (ctx: ExerciseContext) => string;
   task: (ctx: ExerciseContext) => string;
   hint: string;
@@ -42,6 +53,7 @@ const REJECTED = "rejected";
 const VERIFIED = "verified";
 /** „QC CV” ma w szablonie kod `interview` (etap 823). */
 const QC_CV = "interview";
+const CV_SENT = "cv_sent";
 const MIN_NOTE_LENGTH = 25;
 /** Pola karty, bez których Delivery Lead nie wyśle CV (ta sama lista co bramka serwera). */
 const SCREENING_FIELDS: ReadonlyArray<[string, string]> = [
@@ -49,6 +61,24 @@ const SCREENING_FIELDS: ReadonlyArray<[string, string]> = [
   ["work_mode", "tryb pracy"],
   ["recommendation", "„Dlaczego ten kandydat”"],
 ];
+
+/** Budżet rekrutacji ćwiczebnej i stawka kandydata w przeglądzie DL-a (zestaw: `build_poligon_dataset.py`). */
+export const POLIGON_BUDGET_MAX_HOURLY = 115;
+export const POLIGON_CANDIDATE_HOURLY = 105;
+const HOURS_PER_UNIT: Record<string, number> = { hourly: 1, daily: 8, monthly: 168 };
+
+const EVERYONE: readonly PoligonRole[] = ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"];
+const RECRUITER: readonly PoligonRole[] = ["admin", "head_of_recruitment", "recruiter"];
+const RECRUITER_AND_DL: readonly PoligonRole[] = ["admin", "head_of_recruitment", "delivery_lead", "recruiter"];
+const DELIVERY_LEAD: readonly PoligonRole[] = ["admin", "head_of_recruitment", "delivery_lead"];
+
+/** Rola, z której perspektywy mówią ćwiczenia: rekruter ma pierwszeństwo (DL z rolą rekrutera robi oba). */
+export function primaryRole(roles: readonly string[]): PoligonRole {
+  if (roles.includes("recruiter")) return "recruiter";
+  if (roles.includes("delivery_lead")) return "delivery_lead";
+  if (roles.includes("talent_community_manager")) return "talent_community_manager";
+  return "recruiter";
+}
 
 const isPoligonProfile = (path: string): boolean => /^\/api\/candidates\/99\d{4}\/notes-facts$/.test(path);
 /** Parametry listy, które nie są szukaniem (strona, sortowanie, dociągane kolumny). */
@@ -58,6 +88,7 @@ export const EXERCISES: readonly Exercise[] = [
   // ── Lista rekrutacji ────────────────────────────────────────────────
   {
     id: "lista-zakres",
+    roles: EVERYONE,
     module: "Lista rekrutacji",
     title: () => "Przełącz „Moje / Wszystkie”",
     task: () => "Kliknij przełącznik nad listą. „Moje” to rekrutacje, w których jesteś w zespole, „Wszystkie” — cała firma.",
@@ -69,6 +100,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "lista-filtry",
+    roles: EVERYONE,
     module: "Lista rekrutacji",
     title: () => "Otwórz filtry",
     task: () => "Kliknij w pasek filtrów. Tu zawężasz listę do klienta, statusu i osób.",
@@ -80,6 +112,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "lista-otworz",
+    roles: EVERYONE,
     module: "Lista rekrutacji",
     title: () => "Otwórz rekrutację ĆW-01",
     task: () => "Wpisz w szukajkę „bankowość” albo „ĆW-01” i kliknij nazwę rekrutacji. Otworzy się jej Tablica.",
@@ -93,6 +126,7 @@ export const EXERCISES: readonly Exercise[] = [
   // ── Tablica ─────────────────────────────────────────────────────────
   {
     id: "tablica-biore",
+    roles: RECRUITER,
     module: "Tablica",
     title: () => "Weź osobę przyciskiem „Biorę”",
     task: () => "Kliknij „Biorę” na dowolnej karcie. Od teraz zespół widzi, że to Ty prowadzisz tę osobę.",
@@ -104,6 +138,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "tablica-przesun",
+    roles: EVERYONE,
     module: "Tablica",
     title: (ctx) => `Przesuń ${ctx.firstNew?.fullName ?? "osobę z „Nowych”"} na „Screening”`,
     task: (ctx) =>
@@ -121,10 +156,11 @@ export const EXERCISES: readonly Exercise[] = [
       }
       return { done: true };
     },
-    tip: "Zanim przesuniesz osobę dalej, dopisz w panelu notatkę z rozmowy — Delivery Lead zobaczy, dlaczego ją prowadzisz.",
+    tip: "Zanim przesuniesz osobę dalej, dopisz w panelu notatkę z rozmowy — zespół zobaczy, dlaczego idzie dalej.",
   },
   {
     id: "tablica-zrodla",
+    roles: EVERYONE,
     module: "Tablica",
     title: () => "Zajrzyj, skąd brać kandydatów",
     task: () =>
@@ -137,6 +173,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "tablica-moi-ludzie",
+    roles: RECRUITER,
     module: "Tablica",
     title: () => "Otwórz „Moi ludzie”",
     task: () =>
@@ -151,6 +188,7 @@ export const EXERCISES: readonly Exercise[] = [
   // ── Panel osoby ─────────────────────────────────────────────────────
   {
     id: "panel-notatka",
+    roles: EVERYONE,
     module: "Panel osoby",
     title: () => "Dodaj notatkę po rozmowie",
     task: () => "Kliknij kartę osoby, żeby otworzyć panel, i dodaj notatkę z ustaleniami rozmowy: stawka, dostępność, motywacja.",
@@ -168,10 +206,13 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "panel-wzmianka",
+    roles: EVERYONE,
     module: "Panel osoby",
     title: () => "Oznacz kogoś z zespołu w notatce",
-    task: () =>
-      "Napisz notatkę z pytaniem do Delivery Leada i oznacz go: wpisz „@”, wybierz „Anna Poligonowa” z listy i dokończ pytanie.",
+    task: (ctx) =>
+      ctx.role === "recruiter"
+        ? "Napisz notatkę z pytaniem do Delivery Leada i oznacz go: wpisz „@”, wybierz „Anna Poligonowa” z listy i dokończ pytanie."
+        : "Napisz notatkę z pytaniem do rekrutera i oznacz go: wpisz „@”, wybierz „Jakub Szkoleniowy” z listy i dokończ pytanie.",
     hint: "Po wpisaniu „@” w polu notatki pojawia się lista osób z zespołu.",
     href: POLIGON_JOB_HREF,
     anchor: "jobs.person.note",
@@ -186,6 +227,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "panel-odrzuc",
+    roles: EVERYONE,
     module: "Panel osoby",
     title: () => "Odrzuć osobę z właściwym powodem",
     task: () => "W rozmowie padło 160 zł/h, a budżet to 115 zł/h. Otwórz panel osoby i odrzuć ją z powodem, który to opisuje.",
@@ -207,6 +249,7 @@ export const EXERCISES: readonly Exercise[] = [
   // ── Screening i weryfikacja ─────────────────────────────────────────
   {
     id: "screening-otworz",
+    roles: RECRUITER,
     module: "Screening i weryfikacja",
     title: () => "Otwórz formularz screeningu",
     task: () =>
@@ -219,6 +262,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "screening-bramka",
+    roles: RECRUITER,
     module: "Screening i weryfikacja",
     title: () => "Spróbuj zweryfikować osobę bez screeningu",
     task: () =>
@@ -235,6 +279,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "screening-zapisz",
+    roles: RECRUITER,
     module: "Screening i weryfikacja",
     title: () => "Wypełnij i zapisz screening",
     task: () =>
@@ -255,6 +300,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "screening-zweryfikuj",
+    roles: RECRUITER,
     module: "Screening i weryfikacja",
     title: () => "Zweryfikuj osobę",
     task: () => "Screening jest zapisany — przesuń tę osobę na „Zweryfikowany”. To jedna z Twoich dziennych weryfikacji.",
@@ -274,6 +320,7 @@ export const EXERCISES: readonly Exercise[] = [
   // ── Rekomendacja do klienta ─────────────────────────────────────────
   {
     id: "rekomendacja-cv",
+    roles: RECRUITER_AND_DL,
     module: "Rekomendacja do klienta",
     title: () => "Zajrzyj do CV dla klienta",
     task: () =>
@@ -286,6 +333,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "rekomendacja-qc",
+    roles: RECRUITER,
     module: "Rekomendacja do klienta",
     title: () => "Przekaż zweryfikowaną osobę do QC CV",
     task: () =>
@@ -302,13 +350,79 @@ export const EXERCISES: readonly Exercise[] = [
     tip: "Rekomendacja liczy się, kiedy CV trafi do klienta. Ty dostarczasz zweryfikowaną osobę i dobre CV, DL je wysyła.",
   },
 
+  // ── Przegląd Delivery Leada (ścieżka DL) ────────────────────────────
+  {
+    id: "dl-przeglad-otworz",
+    roles: DELIVERY_LEAD,
+    module: "Przegląd Delivery Leada",
+    title: () => "Otwórz przegląd osoby z „QC CV”",
+    task: () =>
+      "W kolumnie „QC CV” czekają dwie osoby po kontroli CV. Kliknij „Przejrzyj i wyślij” na karcie jednej z nich: obok CV zobaczysz wymagania, ocenę rekrutera, kwoty i decyzję.",
+    hint: "Przycisk „Przejrzyj i wyślij” jest na karcie w kolumnie „QC CV”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.card",
+    judge: (a) => (a.type === "view" && a.path === "/api/dl-review/context" ? { done: true } : null),
+    tip: "Przegląd zaczynasz od wymagań: brak w wymaganiu „musi” to zwykle powód do poprawy albo odrzucenia, nie do wysyłki.",
+  },
+  {
+    id: "dl-wyslij",
+    roles: DELIVERY_LEAD,
+    module: "Przegląd Delivery Leada",
+    title: () => "Wyślij CV do klienta ze stawką w budżecie",
+    task: () =>
+      `Osoba chce ${POLIGON_CANDIDATE_HOURLY} zł/h, a budżet rekrutacji to do ${POLIGON_BUDGET_MAX_HOURLY} zł/h. W przeglądzie wpisz stawkę do klienta, sprawdź marżę i kliknij „Akceptuj”. Stawka ma się zmieścić w budżecie i dać marżę.`,
+    hint: "Pole „Stawka do klienta” jest w kolumnie decyzji, nad przyciskiem „Akceptuj”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.card",
+    judge: (a) => {
+      if (a.type !== "move" || a.fromStage !== QC_CV || a.toStage !== CV_SENT) return null;
+      const again = "Przeciągnij kartę z „CV wysłane” z powrotem na „QC CV” i wyślij jeszcze raz.";
+      const rate = a.clientRate;
+      if (!rate) return { done: false, feedback: `CV poszło bez stawki do klienta. ${again}` };
+      if (rate.currency !== "PLN") {
+        return { done: false, feedback: `Budżet tej rekrutacji jest w złotówkach — stawka w ${rate.currency} utrudni klientowi porównanie. ${again}` };
+      }
+      const hourly = rate.value / (HOURS_PER_UNIT[rate.unit] ?? 1);
+      if (hourly > POLIGON_BUDGET_MAX_HOURLY) {
+        return { done: false, feedback: `${formatHourly(hourly)} to ponad budżet klienta (do ${POLIGON_BUDGET_MAX_HOURLY} zł/h). Klient odrzuci CV albo zażąda niższej stawki. ${again}` };
+      }
+      if (hourly <= POLIGON_CANDIDATE_HOURLY) {
+        return { done: false, feedback: `Przy ${formatHourly(hourly)} do klienta i ${POLIGON_CANDIDATE_HOURLY} zł/h dla kandydata firma nic nie zarabia. Stawka do klienta musi być wyższa od stawki kandydata. ${again}` };
+      }
+      return { done: true };
+    },
+    tip: "Marżę widzisz od razu pod stawką. Gdy jest poniżej mediany u klienta, NEXUS ostrzeże — wtedy zastanów się, czy stawka do klienta nie jest za niska.",
+  },
+  {
+    id: "dl-poprawki",
+    roles: DELIVERY_LEAD,
+    module: "Przegląd Delivery Leada",
+    title: () => "Oddaj CV rekruterowi do poprawy",
+    task: () =>
+      "Druga osoba z „QC CV” nie ma potwierdzonego angielskiego, a klient go wymaga. Otwórz jej przegląd, kliknij „Wróć do poprawy…”, zaznacz, co rekruter ma poprawić, i oddaj.",
+    hint: "„Wróć do poprawy…” jest w stopce kolumny decyzji przeglądu.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.card",
+    judge: (a) => {
+      if (a.type !== "move" || a.fromStage !== QC_CV || a.toStage !== VERIFIED) return null;
+      if (!a.fixFields.length) {
+        return { done: false, feedback: "Osoba wróciła do rekrutera, ale bez zaznaczonych pól nie wie, co poprawić. Przeciągnij ją z powrotem na „QC CV” i oddaj z zaznaczonymi polami." };
+      }
+      return { done: true };
+    },
+    tip: "Rekruter widzi zaznaczone pola podświetlone w formularzu screeningu i dostaje dzwonek. Im dokładniej zaznaczysz, tym szybciej CV wróci.",
+  },
+
   // ── Baza kandydatów ─────────────────────────────────────────────────
   {
     id: "baza-szukaj",
+    roles: EVERYONE,
     module: "Baza kandydatów",
     title: () => "Wyszukaj w bazie kandydatów",
-    task: () =>
-      "Delivery Lead poleca Laurę Olszyńską z Twoich ludzi. Znajdź ją w bazie: wpisz „Olszyńska” w szukajkę na górze ekranu.",
+    task: (ctx) =>
+      ctx.role === "recruiter"
+        ? "Delivery Lead poleca Laurę Olszyńską z Twoich ludzi. Znajdź ją w bazie: wpisz „Olszyńska” w szukajkę na górze ekranu."
+        : "Rekruter poleca Laurę Olszyńską. Znajdź ją w bazie: wpisz „Olszyńska” w szukajkę na górze ekranu.",
     hint: "Szukajka po nazwisku jest na górze ekranu „Kandydaci”, słowa kluczowe — pod nią.",
     href: POLIGON_CANDIDATES_HREF,
     anchor: "candidates.list.search",
@@ -320,6 +434,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "baza-profil",
+    roles: EVERYONE,
     module: "Baza kandydatów",
     title: () => "Otwórz profil osoby",
     task: () => "Kliknij Laurę Olszyńską na liście. Otworzy się jej profil: CV, rekrutacje, notatki i historia.",
@@ -331,6 +446,7 @@ export const EXERCISES: readonly Exercise[] = [
   },
   {
     id: "baza-przypisz",
+    roles: EVERYONE,
     module: "Baza kandydatów",
     title: () => "Przypisz osobę do rekrutacji",
     task: () => "Na profilu kliknij „Przypisz do rekrutacji” i przy rekrutacji ĆW-01 kliknij „Przypisz”. Laura pojawi się w kolumnie „Nowi”.",
@@ -342,6 +458,11 @@ export const EXERCISES: readonly Exercise[] = [
   },
 ];
 
-export function exerciseCount(): number {
-  return EXERCISES.length;
+function formatHourly(value: number): string {
+  return `${value.toLocaleString("pl-PL", { maximumFractionDigits: 2 })} zł/h`;
+}
+
+/** Ścieżka osoby: ćwiczenia każdej jej roli, w kolejności listy (lustro `PoligonPlan.exercises_for`). */
+export function exercisesFor(roles: readonly string[]): readonly Exercise[] {
+  return EXERCISES.filter((e) => e.roles.some((r) => roles.includes(r)));
 }

@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import dataset from "../dataset.json";
 import poligonRegistry from "../../../../../backend/app/data/novelties/poligon.json";
-import { EXERCISES } from "../exercises";
+import { EXERCISES, POLIGON_BUDGET_MAX_HOURLY, POLIGON_CANDIDATE_HOURLY, exercisesFor, primaryRole } from "../exercises";
+import { poligonPath } from "../usePoligonPath";
 import { BLOCKED_WRITE_MESSAGE, POLIGON_PROGRESS, createPoligonStore, mentionsPoligon, resolveDates, type PoligonAction, type PoligonDataset } from "../store";
 
 const DATA = dataset as unknown as PoligonDataset;
@@ -136,11 +137,11 @@ describe("poligon: pomocnicze", () => {
 });
 
 describe("poligon: ćwiczenia", () => {
-  const ctx = { firstNew: { candidateId: first.candidate_id, fullName: `${first.name} ${first.lastname}` } };
+  const ctx = { firstNew: { candidateId: first.candidate_id, fullName: `${first.name} ${first.lastname}` }, role: "recruiter" as const };
   const judge = (id: string, action: PoligonAction) => EXERCISES.find((e) => e.id === id)!.judge!(action, ctx);
   const move = (over: Partial<Extract<PoligonAction, { type: "move" }>>): PoligonAction => ({
     type: "move", candidateId: first.candidate_id, fromStage: "new", toStage: "screening",
-    rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "", ...over,
+    rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "", fixFields: [], clientRate: null, ...over,
   });
 
   it("przesunięcie zalicza tylko wskazaną osobę na Screening", () => {
@@ -234,6 +235,126 @@ describe("poligon: baza kandydatów", () => {
   });
 });
 
+describe("poligon: ścieżka per rola", () => {
+  const ids = (roles: string[]) => exercisesFor(roles).map((e) => e.id);
+
+  it("Delivery Lead: wspólne moduły i przegląd DL, bez screeningu i „Biorę”", () => {
+    const dl = ids(["delivery_lead"]);
+    expect(dl).toEqual(expect.arrayContaining(["lista-zakres", "tablica-przesun", "panel-odrzuc", "baza-przypisz", "dl-przeglad-otworz", "dl-wyslij", "dl-poprawki"]));
+    expect(dl).not.toContain("tablica-biore");
+    expect(dl.filter((id) => id.startsWith("screening-"))).toEqual([]);
+    expect(dl).not.toContain("rekomendacja-qc");
+  });
+
+  it("TCM: wspólne moduły Startu, bez ćwiczeń rekrutera i DL-a", () => {
+    const tcm = exercisesFor(["talent_community_manager"]);
+    expect([...new Set(tcm.map((e) => e.module))]).toEqual(["Lista rekrutacji", "Tablica", "Panel osoby", "Baza kandydatów"]);
+    expect(tcm.some((e) => e.id.startsWith("dl-") || e.id.startsWith("screening-"))).toBe(false);
+  });
+
+  it("rekruter ma dawną ścieżkę 19 ćwiczeń, osoba z dwiema rolami — sumę", () => {
+    expect(ids(["recruiter"])).toHaveLength(19);
+    expect(ids(["recruiter"]).some((id) => id.startsWith("dl-"))).toBe(false);
+    const both = ids(["delivery_lead", "recruiter"]);
+    expect(both).toEqual(EXERCISES.filter((e) => both.includes(e.id)).map((e) => e.id));
+    expect(both).toEqual(expect.arrayContaining(["screening-zapisz", "dl-wyslij"]));
+    expect(ids(["admin"])).toHaveLength(EXERCISES.length);
+    expect(ids(["finance"])).toEqual([]);
+  });
+
+  it("ścieżki ról zgadzają się z rejestrem serwera", () => {
+    for (const role of ["recruiter", "delivery_lead", "talent_community_manager"]) {
+      expect(ids([role]).map((id) => `poligon-${id}`)).toEqual(poligonRegistry.exercises.filter((e) => e.roles.includes(role)).map((e) => e.id));
+    }
+  });
+
+  it("wymagany poligon idzie po liście z serwera: po zmianie roli tylko brakujące ćwiczenia nowej roli", () => {
+    const dlOnly = ["poligon-dl-przeglad-otworz", "poligon-dl-wyslij", "poligon-dl-poprawki"];
+    const status = { open: true, required: true, exercise_ids: dlOnly, done_ids: [], done: 0, total: 3 };
+    expect(poligonPath(["delivery_lead"], status).map((e) => e.id)).toEqual(["dl-przeglad-otworz", "dl-wyslij", "dl-poprawki"]);
+    // Bez wymogu (obecna osoba) albo ze starszego serwera bez listy — cała ścieżka ról.
+    expect(poligonPath(["delivery_lead"], { ...status, required: false })).toEqual(exercisesFor(["delivery_lead"]));
+    expect(poligonPath(["delivery_lead"], { ...status, exercise_ids: undefined })).toEqual(exercisesFor(["delivery_lead"]));
+    expect(poligonPath(["delivery_lead"], null)).toEqual(exercisesFor(["delivery_lead"]));
+  });
+
+  it("treść mówi z perspektywy roli: DL oznacza rekrutera, rekruter — DL-a", () => {
+    const wzmianka = EXERCISES.find((e) => e.id === "panel-wzmianka")!;
+    expect(wzmianka.task({ firstNew: null, role: primaryRole(["delivery_lead"]) })).toContain("Jakub Szkoleniowy");
+    expect(wzmianka.task({ firstNew: null, role: primaryRole(["recruiter", "delivery_lead"]) })).toContain("Anna Poligonowa");
+  });
+});
+
+describe("poligon: przegląd Delivery Leada", () => {
+  const ctx = { firstNew: null, role: "delivery_lead" as const };
+  const judge = (id: string, action: PoligonAction) => EXERCISES.find((e) => e.id === id)!.judge!(action, ctx);
+  const fromQc = (over: Partial<Extract<PoligonAction, { type: "move" }>>): PoligonAction => ({
+    type: "move", candidateId: 1, fromStage: "interview", toStage: "cv_sent",
+    rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "", fixFields: [], clientRate: null, ...over,
+  });
+  const rate = (value: number, unit = "hourly", currency = "PLN") => ({ value, unit, currency });
+  const board = (store: ReturnType<typeof createPoligonStore>) => (store.handle({ method: "get", url: `/api/pipeline/kanban/${JOB}` }) as { data: Board }).data;
+
+  it("otwarcie przeglądu zalicza odczyt kontekstu przeglądu", () => {
+    expect(judge("dl-przeglad-otworz", { type: "view", path: "/api/dl-review/context", query: {} })).toEqual({ done: true });
+    expect(judge("dl-przeglad-otworz", { type: "view", path: "/api/screening-form", query: {} })).toBeNull();
+  });
+
+  it("wysyłka: stawka w budżecie i powyżej stawki kandydata zalicza", () => {
+    expect(judge("dl-wyslij", fromQc({ clientRate: rate(POLIGON_BUDGET_MAX_HOURLY) }))).toEqual({ done: true });
+    expect(judge("dl-wyslij", fromQc({ clientRate: rate(112 * 8, "daily") }))).toEqual({ done: true });
+  });
+
+  it("wysyłka: ponad budżet, bez marży, w innej walucie albo bez stawki — nie zalicza", () => {
+    expect(judge("dl-wyslij", fromQc({ clientRate: rate(POLIGON_BUDGET_MAX_HOURLY + 1) }))).toMatchObject({ done: false, feedback: expect.stringContaining("ponad budżet") });
+    expect(judge("dl-wyslij", fromQc({ clientRate: rate(POLIGON_CANDIDATE_HOURLY) }))).toMatchObject({ done: false, feedback: expect.stringContaining("nic nie zarabia") });
+    expect(judge("dl-wyslij", fromQc({ clientRate: rate(30, "hourly", "EUR") }))).toMatchObject({ done: false });
+    expect(judge("dl-wyslij", fromQc({ clientRate: null }))).toMatchObject({ done: false });
+    expect(judge("dl-wyslij", fromQc({ fromStage: "verified", clientRate: rate(110) }))).toBeNull();
+  });
+
+  it("„Wróć do poprawy” zalicza tylko z zaznaczonymi polami", () => {
+    expect(judge("dl-poprawki", fromQc({ toStage: "verified", fixFields: ["field:english"] }))).toEqual({ done: true });
+    expect(judge("dl-poprawki", fromQc({ toStage: "verified", fixFields: [] }))).toMatchObject({ done: false });
+    expect(judge("dl-poprawki", fromQc({ toStage: "rejected" }))).toBeNull();
+  });
+
+  it("kolumna „QC CV” ma osoby gotowe do przeglądu, a przegląd każdej z nich ma jej imię i fikcyjne kwoty", () => {
+    const { store } = setup();
+    const qc = board(store).columns.find((c) => c.stage === "interview")!;
+    expect(qc.items.length).toBeGreaterThanOrEqual(2);
+    const person = DATA.meta.people.find((p) => p.candidate_id === qc.items[0].candidate_id)!;
+    const ctxRes = store.handle({ method: "get", url: `/api/dl-review/context?candidate_id=${person.candidate_id}&job_id=${JOB}` }) as {
+      status: number; data: { candidate_id: number; candidate_name: string; budget: { max_hourly: number }; candidate_rate: { hourly_pln: number } };
+    };
+    expect(ctxRes.status).toBe(200);
+    expect(ctxRes.data).toMatchObject({ candidate_id: person.candidate_id, candidate_name: `${person.name} ${person.lastname}` });
+    expect(ctxRes.data.budget.max_hourly).toBe(POLIGON_BUDGET_MAX_HOURLY);
+    expect(ctxRes.data.candidate_rate.hourly_pln).toBe(POLIGON_CANDIDATE_HOURLY);
+    const row = store.handle({ method: "get", url: `/api/board-tasks/dl-review-row?candidate_id=${person.candidate_id}&job_id=${JOB}` }) as { data: { row: { candidate_id: number; stage_id: number } } };
+    expect(row.data.row).toMatchObject({ candidate_id: person.candidate_id, stage_id: person.entry_id });
+  });
+
+  it("wysyłka i zwrot z przeglądu to ruch karty w pamięci z polami przeglądu", () => {
+    const { store, actions } = setup();
+    const columns = board(store).columns;
+    const [a, b] = columns.find((c) => c.stage === "interview")!.items.map((i) => i.candidate_id);
+    const sent = columns.find((c) => c.stage === "cv_sent")!.stage_def_id;
+    const verified = columns.find((c) => c.stage === "verified")!.stage_def_id;
+    expect(store.handle({ method: "post", url: "/api/pipeline/move", body: { candidate_id: a, job_id: JOB, stage_def_id: sent, client_rate_value: 112, client_rate_unit: "hourly", client_rate_currency: "PLN" } })).toMatchObject({ status: 200 });
+    expect(acted(actions)).toMatchObject({ type: "move", fromStage: "interview", toStage: "cv_sent", clientRate: { value: 112, unit: "hourly", currency: "PLN" } });
+    expect(store.handle({ method: "post", url: "/api/pipeline/move", body: { candidate_id: b, job_id: JOB, stage_def_id: verified, fix_fields: ["field:english", "cv"] } })).toMatchObject({ status: 200 });
+    expect(acted(actions)).toMatchObject({ type: "move", fromStage: "interview", toStage: "verified", fixFields: ["field:english", "cv"] });
+    expect(store.stageOf(a)).toBe("cv_sent");
+    expect(store.stageOf(b)).toBe("verified");
+  });
+
+  it("podgląd maila odrzucenia w przeglądzie to odczyt, nie zapis", () => {
+    const { store } = setup();
+    expect(store.handle({ method: "post", url: "/api/rejection-emails/preview", body: { candidate_ids: [first.candidate_id] } })).toMatchObject({ status: 200 });
+  });
+});
+
 describe("poligon: postęp i rejestr serwera", () => {
   it("zaliczenie ćwiczenia jako jedyny zapis idzie do API", () => {
     const { store } = setup();
@@ -242,13 +363,15 @@ describe("poligon: postęp i rejestr serwera", () => {
     expect(store.handle({ method: "post", url: "/api/novelties/inna-nowosc/events", body: { event: "seen" } })).toEqual({ status: 204, data: null });
   });
 
-  it("ćwiczenia frontu i rejestr serwera to te same id", () => {
+  it("ćwiczenia frontu i rejestr serwera to te same id i te same role", () => {
     expect(poligonRegistry.exercises.map((e) => e.id)).toEqual(EXERCISES.map((e) => `poligon-${e.id}`));
     expect(new Set(EXERCISES.map((e) => e.id)).size).toBe(EXERCISES.length);
+    const roles = Object.fromEntries(poligonRegistry.exercises.map((e) => [e.id, [...e.roles].sort()]));
+    expect(Object.fromEntries(EXERCISES.map((e) => [`poligon-${e.id}`, [...e.roles].sort()]))).toEqual(roles);
   });
 
   it("ćwiczenia screeningu oceniają braki i bramkę", () => {
-    const ctx = { firstNew: null };
+    const ctx = { firstNew: null, role: "recruiter" as const };
     const judge = (id: string, action: PoligonAction) => EXERCISES.find((e) => e.id === id)!.judge!(action, ctx);
     expect(judge("screening-bramka", { type: "gate", candidateId: 1, missing: ["Arkusz screeningu"] })).toEqual({ done: true });
     expect(judge("screening-zapisz", { type: "screening", candidateId: 1, sheetSaved: true, fields: { location: "Gdańsk" } })).toMatchObject({ done: false });
@@ -256,8 +379,9 @@ describe("poligon: postęp i rejestr serwera", () => {
     expect(judge("screening-zweryfikuj", { type: "gate", candidateId: 1, missing: ["Tryb pracy"] })).toMatchObject({ done: false });
     expect(judge("panel-wzmianka", { type: "note", candidateId: 1, content: "Bez oznaczenia nikogo w zespole" })).toMatchObject({ done: false });
     expect(judge("panel-wzmianka", { type: "note", candidateId: 1, content: "@Anna Poligonowa czy stawka 140 jest ok?" })).toEqual({ done: true });
-    expect(judge("rekomendacja-qc", { type: "move", candidateId: 1, fromStage: "verified", toStage: "cv_sent", rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "" })).toMatchObject({ done: false });
-    expect(judge("rekomendacja-qc", { type: "move", candidateId: 1, fromStage: "verified", toStage: "interview", rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "" })).toEqual({ done: true });
+    const noExtras = { rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "", fixFields: [], clientRate: null };
+    expect(judge("rekomendacja-qc", { type: "move", candidateId: 1, fromStage: "verified", toStage: "cv_sent", ...noExtras })).toMatchObject({ done: false });
+    expect(judge("rekomendacja-qc", { type: "move", candidateId: 1, fromStage: "verified", toStage: "interview", ...noExtras })).toEqual({ done: true });
   });
 });
 

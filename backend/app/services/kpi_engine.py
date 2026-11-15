@@ -143,7 +143,7 @@ async def absence_for_periods(
     """Zatwierdzona nieobecność osób w bieżącym tygodniu i miesiącu.
 
     ``include_onboarding=False`` — wołający wie, że nikt z ``user_ids`` nie ma
-    dnia onboardingu (``onboarding_day.poligon_required``), więc bez zapytania.
+    dnia onboardingu (``onboarding_day.poligon_may_be_required``), więc bez zapytania.
     """
     from app.services.person_workdays import absence_by_user
 
@@ -559,7 +559,7 @@ async def personal_days_off(
     start = min(month_start, week_start)
     end = max(month_end, week_start + timedelta(days=6))
     onboarding_off = (
-        frozenset((await onboarding_days(db, [user_id], start, end)).values())
+        frozenset().union(*(await onboarding_days(db, [user_id], start, end)).values())
         if onboarding
         else frozenset()
     )
@@ -588,9 +588,9 @@ async def evaluate_user_kpis(
     coach_kpis = [k for k in KPI_CATALOG if k.in_coach and kpi_available(k)]
     # Dzień onboardingu ma tylko osoba, której poligon jest wymagany — reszta
     # bez dodatkowego zapytania (ta ścieżka biegnie co minutę dla każdego).
-    from app.services.onboarding_day import poligon_required
+    from app.services.onboarding_day import poligon_may_be_required
 
-    may_onboard = poligon_required(user)
+    may_onboard = poligon_may_be_required(user)
     days_off = await personal_days_off(db, user.id, now, onboarding=may_onboard)
     absence = (
         await absence_for_periods(db, [user.id], now, include_onboarding=may_onboard)

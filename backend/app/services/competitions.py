@@ -1279,7 +1279,8 @@ async def required_verifications_by_user(
         )
         business = set(business_days(first, last)) if onboarding else set()
         return {
-            uid: per_day * (common - (1 if onboarding.get(int(uid)) in business else 0))
+            uid: per_day
+            * (common - len(onboarding.get(int(uid), frozenset()) & business))
             for uid in user_ids
         }
     if last < first:

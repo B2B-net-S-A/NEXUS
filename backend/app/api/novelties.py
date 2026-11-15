@@ -45,8 +45,11 @@ from app.models.user import User
 from app.services.action_permissions import named_permissions_of
 from app.services.onboarding_day import (
     POLIGON_ID_PREFIX,
+    PoligonRequirement,
+    poligon_exercises,
     poligon_open,
-    poligon_required,
+    poligon_replaces,
+    poligon_requirement,
 )
 from app.services.section_permissions import SectionAccess, section_access_for_user
 
@@ -332,7 +335,11 @@ async def record_novelty_event(
     Ćwiczenie Poligonu (``poligon-…``) zapisuje się tym samym zdarzeniem."""
     if novelty_id.startswith(POLIGON_ID_PREFIX):
         plan = load_poligon()
-        if novelty_id not in plan.by_id() or not poligon_open(current_user, plan):
+        # Ćwiczenie spoza ścieżki ról osoby nie istnieje dla niej (np. TCM
+        # i ćwiczenie przeglądu Delivery Leada).
+        if not poligon_open(current_user, plan) or novelty_id not in poligon_exercises(
+            current_user, plan
+        ):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Nie ma takiego ćwiczenia.",
@@ -491,21 +498,33 @@ async def start_gate_on(db: AsyncSession, key: str = START_GATE_KEY) -> bool:
 
 
 def poligon_status(
-    progress: dict[str, NoveltyProgress], *, open_: bool, required: bool
+    progress: dict[str, NoveltyProgress],
+    path_ids: list[str],
+    *,
+    open_: bool,
+    required: bool,
+    required_ids: Optional[list[str]] = None,
 ) -> dict[str, Any]:
-    """Poligon osoby: zaliczone ćwiczenia i czy blokuje resztę ekranów."""
-    exercises = load_poligon().exercises
+    """Poligon osoby: zaliczone ćwiczenia jej ścieżki i czy blokuje resztę ekranów.
+
+    ``path_ids`` to ścieżka ról osoby (mapa), ``required_ids`` — ćwiczenia,
+    których poligon od niej wymaga (``PoligonRequirement``; domyślnie cała
+    ścieżka). Licznik ``done``/``total`` i blokada liczą wymagane: Delivery
+    Lead nie czeka na screening rekrutera, a po zmianie roli zostają tylko
+    niezaliczone ćwiczenia nowej roli."""
+    counted = list(path_ids if required_ids is None else required_ids)
     done_ids = [
-        e.id
-        for e in exercises
-        if e.id in progress and progress[e.id].completed_at is not None
+        eid
+        for eid in path_ids
+        if eid in progress and progress[eid].completed_at is not None
     ]
     return {
         "open": open_,
         "required": required,
+        "exercise_ids": counted,
         "done_ids": done_ids,
-        "done": len(done_ids),
-        "total": len(exercises),
+        "done": sum(1 for eid in counted if eid in done_ids),
+        "total": len(counted),
     }
 
 
@@ -564,10 +583,17 @@ async def my_start(
     tours = [t for t in load_start_tours().values() if _audience_of(current_user, t)]
     plan = load_poligon()
     open_ = poligon_open(current_user, plan)
-    required = poligon_required(current_user, plan)
+    # Wymagany od nadania roli z poligonem (Artur, 15.11.2026) — z historii ról.
+    need = (
+        await poligon_requirement(db, current_user, plan)
+        if open_
+        else PoligonRequirement((), ())
+    )
+    required = need.required
     if required:
-        tours = [t for t in tours if t.id not in plan.replaces]
-    poligon_ids = [e.id for e in plan.exercises] if open_ else []
+        replaced = poligon_replaces(current_user, plan)
+        tours = [t for t in tours if t.id not in replaced]
+    poligon_ids = poligon_exercises(current_user, plan) if open_ else []
     progress = await _progress_rows(
         db, current_user.id, [t.id for t in tours] + poligon_ids
     )
@@ -577,7 +603,15 @@ async def my_start(
         gate_on=await start_gate_on(db),
         impersonating=_impersonating(request),
         poligon=(
-            poligon_status(progress, open_=open_, required=required) if open_ else None
+            poligon_status(
+                progress,
+                poligon_ids,
+                open_=open_,
+                required=required,
+                required_ids=list(need.exercise_ids) if required else None,
+            )
+            if open_
+            else None
         ),
         poligon_gate_on=await start_gate_on(db, POLIGON_GATE_KEY),
     )

@@ -100,8 +100,8 @@ async def absence_by_user(
     if include_onboarding:
         from app.services.onboarding_day import onboarding_days
 
-        for uid, day in (await onboarding_days(db, ids, start, end)).items():
-            out[uid] = {day: 1.0}
+        for uid, days in (await onboarding_days(db, ids, start, end)).items():
+            out[uid] = {day: 1.0 for day in days}
     if not await nexus_absences_known(db):
         return out
     rows = (

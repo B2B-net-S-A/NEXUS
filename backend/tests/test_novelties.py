@@ -708,10 +708,20 @@ def _poligon_plan(**overrides) -> PoligonPlan:
         "roles": ["recruiter", "delivery_lead"],
         "required_roles": ["recruiter"],
         "required_since": "2026-11-15",
-        "replaces": [],
+        "replaces": {},
         "exercises": [
-            {"id": "poligon-jeden", "module": "Tablica", "title": "Jeden"},
-            {"id": "poligon-dwa", "module": "Tablica", "title": "Dwa"},
+            {
+                "id": "poligon-jeden",
+                "module": "Tablica",
+                "title": "Jeden",
+                "roles": ["recruiter", "delivery_lead"],
+            },
+            {
+                "id": "poligon-dwa",
+                "module": "Tablica",
+                "title": "Dwa",
+                "roles": ["recruiter", "delivery_lead"],
+            },
         ],
     }
     base.update(overrides)
@@ -719,37 +729,261 @@ def _poligon_plan(**overrides) -> PoligonPlan:
 
 
 class _Newcomer:
-    def __init__(self, role: str, created_at: datetime) -> None:
+    def __init__(
+        self,
+        role: str,
+        created_at: datetime | None,
+        *extra: str,
+        profile_completed_at: datetime | None = None,
+    ) -> None:
         self.role = type("R", (), {"value": role})()
+        self.extra = [type("R", (), {"value": r})() for r in extra]
         self.created_at = created_at
+        # Onboarding roli zrobiony przy założeniu konta, chyba że test mówi inaczej.
+        self.profile_completed_at = profile_completed_at or created_at
 
     def get_all_roles(self):
-        return [self.role]
+        return [self.role, *self.extra]
 
 
 def test_poligon_registry_replaces_recruiting_start_and_ids_are_unique() -> None:
     plan = load_poligon()
-    assert {"recruiter"} <= set(plan.required_roles) <= set(plan.roles)
-    assert set(plan.replaces) <= set(load_start_tours())
+    required = {"recruiter", "delivery_lead", "talent_community_manager"}
+    assert required <= set(plan.required_roles) <= set(plan.roles)
+    starts = load_start_tours()
+    for role in required:
+        # Poligon zastępuje każdej z tych ról przeklikania rekrutacji ze Startu.
+        assert plan.replaces[role] and set(plan.replaces[role]) <= set(starts)
+        assert all(role in starts[t].audience.roles for t in plan.replaces[role])
     assert all(e.id.startswith("poligon-") for e in plan.exercises)
     assert len(plan.exercises) >= 15
 
 
-def test_poligon_required_only_for_new_people_in_required_roles() -> None:
-    from app.services.onboarding_day import poligon_open, poligon_required
+def test_poligon_path_per_role() -> None:
+    """Rekruter, Delivery Lead i TCM mają własne ścieżki ze wspólnymi modułami."""
+    plan = load_poligon()
+    recruiter = {e.id for e in plan.exercises_for(["recruiter"])}
+    dl = {e.id for e in plan.exercises_for(["delivery_lead"])}
+    tcm = {e.id for e in plan.exercises_for(["talent_community_manager"])}
+    assert len(recruiter) == 19
+    assert {
+        "poligon-dl-przeglad-otworz",
+        "poligon-dl-wyslij",
+        "poligon-dl-poprawki",
+    } <= dl
+    assert not {i for i in dl if i.startswith("poligon-screening-")}
+    assert "poligon-tablica-biore" not in dl | tcm
+    assert tcm < recruiter and tcm < dl
+    assert {e.module for e in plan.exercises_for(["talent_community_manager"])} == {
+        "Lista rekrutacji",
+        "Tablica",
+        "Panel osoby",
+        "Baza kandydatów",
+    }
+    # Osoba z dwiema rolami przechodzi sumę, w kolejności rejestru.
+    both = [e.id for e in plan.exercises_for(["delivery_lead", "recruiter"])]
+    assert set(both) == recruiter | dl
+    assert both == [e.id for e in plan.exercises if e.id in set(both)]
+    assert plan.exercises_for(["finance"]) == []
+
+
+def test_poligon_registry_refuses_inconsistent_roles() -> None:
+    with pytest.raises(ValidationError):
+        _poligon_plan(replaces={"finance": []})
+    with pytest.raises(ValidationError):
+        _poligon_plan(
+            exercises=[
+                {"id": "poligon-x", "module": "M", "title": "X", "roles": ["finance"]}
+            ]
+        )
+    # Rola wymagana musi mieć choć jedno ćwiczenie — inaczej blokada byłaby pusta.
+    with pytest.raises(ValidationError):
+        _poligon_plan(
+            required_roles=["recruiter", "delivery_lead"],
+            exercises=[
+                {"id": "poligon-x", "module": "M", "title": "X", "roles": ["recruiter"]}
+            ],
+        )
+
+
+def test_poligon_may_be_required_only_for_new_people_in_required_roles() -> None:
+    """Szybki filtr bez bazy (ścieżki KPI co minutę): rola z poligonem i konto
+    albo onboarding roli od `required_since`."""
+    from app.services.onboarding_day import poligon_may_be_required, poligon_open
 
     plan = _poligon_plan()
     new = datetime(2026, 11, 16, 8, tzinfo=timezone.utc)
     old = datetime(2026, 11, 14, 22, 59, tzinfo=timezone.utc)  # 14.11 23:59 w Warszawie
-    assert poligon_required(_Newcomer("recruiter", new), plan) is True
-    assert poligon_required(_Newcomer("recruiter", old), plan) is False
-    assert poligon_required(_Newcomer("delivery_lead", new), plan) is False
+    assert poligon_may_be_required(_Newcomer("recruiter", new), plan) is True
+    assert poligon_may_be_required(_Newcomer("recruiter", old), plan) is False
+    assert poligon_may_be_required(_Newcomer("delivery_lead", new), plan) is False
+    with_dl = _poligon_plan(required_roles=["recruiter", "delivery_lead"])
+    assert poligon_may_be_required(_Newcomer("delivery_lead", new), with_dl) is True
+    assert poligon_may_be_required(_Newcomer("delivery_lead", old), with_dl) is False
+    # Stare konto po zmianie roli: onboarding roli zerowany albo zrobiony od 15.11.
+    assert poligon_may_be_required(
+        _Newcomer("delivery_lead", old, profile_completed_at=new), with_dl
+    )
+    # Konto bez daty (atrapa w testach KPI) — bez zapytania.
+    assert poligon_may_be_required(_Newcomer("recruiter", None), plan) is False
     assert poligon_open(_Newcomer("delivery_lead", new), plan) is True
     assert poligon_open(_Newcomer("finance", new), plan) is False
     # Północ w Warszawie: 14.11 23:00 UTC to już 15.11.
-    assert poligon_required(
+    assert poligon_may_be_required(
         _Newcomer("recruiter", datetime(2026, 11, 14, 23, 0, tzinfo=timezone.utc)), plan
     )
+
+
+# ── Wymagany od nadania roli (decyzja Artura 15.11.2026) ───────────────────
+
+_OCT = datetime(2026, 10, 1, 9, tzinfo=timezone.utc)
+_NOV_10 = datetime(2026, 11, 10, 9, tzinfo=timezone.utc)
+_NOV_16 = datetime(2026, 11, 16, 9, tzinfo=timezone.utc)
+_NOV_20 = datetime(2026, 11, 20, 9, tzinfo=timezone.utc)
+_NOV_25 = datetime(2026, 11, 25, 9, tzinfo=timezone.utc)
+
+
+def _roles_row(at: datetime, before: list[str], after: list[str]):
+    """Wiersz `activities` z „Osoby i role” (`roles_changed`)."""
+    return ("roles_changed", {"from": before, "to": after}, at)
+
+
+def _need(roles: set[str], created_at: datetime, rows: list):
+    from app.services.onboarding_day import requirement_for, role_changes
+
+    return requirement_for(
+        roles=roles,
+        created_at=created_at,
+        changes=role_changes(rows),
+        plan=load_poligon(),
+    )
+
+
+def _path(*roles: str) -> list[str]:
+    return [e.id for e in load_poligon().exercises_for(roles)]
+
+
+def test_poligon_starts_with_the_role_grant_not_the_account() -> None:
+    # Konto SSO sprzed 15.11 jako „Pracownik”, rekruter nadany 16.11 → cały poligon.
+    granted = _need(
+        {"recruiter"}, _OCT, [_roles_row(_NOV_16, ["employee"], ["recruiter"])]
+    )
+    assert list(granted.exercise_ids) == _path("recruiter")
+    assert granted.granted_at == (_NOV_16,)
+    # Rekruter nadany przed 15.11 → poligon nie wymagany (miał Start).
+    early = _need(
+        {"recruiter"}, _OCT, [_roles_row(_NOV_10, ["employee"], ["recruiter"])]
+    )
+    assert early.required is False
+    # „Pracownik” (pierwsze logowanie SSO) — poligonu nie ma.
+    assert _need({"employee"}, _NOV_16, []).required is False
+    # Konto założone od razu z rolą od 15.11 → wymagany od założenia.
+    fresh = _need({"talent_community_manager"}, _NOV_16, [])
+    assert list(fresh.exercise_ids) == _path("talent_community_manager")
+    assert fresh.granted_at == (_NOV_16,)
+
+
+def test_role_change_requires_only_the_new_roles_missing_exercises() -> None:
+    # Rekruter od 16.11 (poligon zaliczony) → 20.11 Delivery Lead zamiast rekrutera.
+    rows = [_roles_row(_NOV_20, ["recruiter"], ["delivery_lead"])]
+    dl = _need({"delivery_lead"}, _NOV_16, rows)
+    assert list(dl.exercise_ids) == _path("delivery_lead")
+    assert dl.granted_at == (_NOV_16, _NOV_20)
+    recruiter_done = {
+        eid: NoveltyProgress(user_id=1, novelty_id=eid, seen_count=0, completed_at=NOW)
+        for eid in _path("recruiter")
+    }
+    status = poligon_status(
+        recruiter_done,
+        _path("delivery_lead"),
+        open_=True,
+        required=True,
+        required_ids=list(dl.exercise_ids),
+    )
+    # Wspólne moduły liczą się raz: zostają tylko ćwiczenia przeglądu DL-a.
+    left = [e for e in dl.exercise_ids if e not in status["done_ids"]]
+    assert left == [
+        "poligon-dl-przeglad-otworz",
+        "poligon-dl-wyslij",
+        "poligon-dl-poprawki",
+    ]
+    assert status["total"] - status["done"] == 3
+
+    # Powrót do rekrutera 25.11 → ćwiczenia już zaliczone, nic nie blokuje.
+    back = _need(
+        {"recruiter"},
+        _NOV_16,
+        rows + [_roles_row(_NOV_25, ["delivery_lead"], ["recruiter"])],
+    )
+    back_status = poligon_status(
+        recruiter_done,
+        _path("recruiter"),
+        open_=True,
+        required=back.required,
+        required_ids=list(back.exercise_ids),
+    )
+    assert back_status["done"] == back_status["total"]
+    assert not start_status(
+        [], {}, gate_on=True, impersonating=False, poligon=back_status
+    )["enforced"]
+
+
+def test_role_change_of_a_person_from_before_the_poligon() -> None:
+    # Rekruter sprzed 15.11 (bez poligonu) → 20.11 DL: tylko ćwiczenia, których
+    # ścieżka rekrutera nie miała — przegląd DL-a.
+    need = _need(
+        {"delivery_lead"},
+        _OCT,
+        [_roles_row(_NOV_20, ["recruiter"], ["delivery_lead"])],
+    )
+    assert list(need.exercise_ids) == [
+        "poligon-dl-przeglad-otworz",
+        "poligon-dl-wyslij",
+        "poligon-dl-poprawki",
+    ]
+    # Zdjęcie roli (admin) przy tej samej roli z poligonem — nic.
+    assert (
+        _need(
+            {"recruiter"},
+            _OCT,
+            [_roles_row(_NOV_20, ["recruiter", "admin"], ["recruiter"])],
+        ).required
+        is False
+    )
+
+
+def test_role_changes_read_every_role_history_row() -> None:
+    from app.services.onboarding_day import role_changes
+
+    changes = role_changes(
+        [
+            # „Osoby i role”: oba wiersze w jednej transakcji.
+            ("role_changed", {"from": "recruiter", "to": "delivery_lead"}, _NOV_16),
+            _roles_row(_NOV_16, ["recruiter"], ["delivery_lead"]),
+            # Sama zmiana roli głównej w obrębie listy — zbiór ról bez zmian.
+            ("role_changed", {"from": "delivery_lead", "to": "recruiter"}, _NOV_20),
+            # Resync z grup Entra: tylko wiersz roli głównej z `all_roles`.
+            (
+                "admin_aad_role_resynced",
+                {
+                    "from": "employee",
+                    "to": "talent_community_manager",
+                    "all_roles": ["talent_community_manager"],
+                },
+                _NOV_25,
+            ),
+            # Dawna rola TAC to rekruter; JSON jako tekst też się czyta.
+            (
+                "sso_aad_roles_updated",
+                '{"from": ["tac"], "to": ["recruiter"]}',
+                _NOV_10,
+            ),
+        ]
+    )
+    assert [(c.at, set(c.removed), set(c.added)) for c in changes] == [
+        (_NOV_16, {"recruiter"}, {"delivery_lead"}),
+        (_NOV_25, {"employee"}, {"talent_community_manager"}),
+    ]
 
 
 def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -> None:
@@ -759,7 +993,8 @@ def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -
     one = NoveltyProgress(
         user_id=1, novelty_id="poligon-jeden", seen_count=0, completed_at=NOW
     )
-    half = poligon_status({"poligon-jeden": one}, open_=True, required=True)
+    ids = ["poligon-jeden", "poligon-dwa"]
+    half = poligon_status({"poligon-jeden": one}, ids, open_=True, required=True)
     assert (half["done"], half["total"], half["done_ids"]) == (1, 2, ["poligon-jeden"])
     status = start_status([], {}, gate_on=True, impersonating=False, poligon=half)
     assert status["enforced"] is True and status["redirect"] == "/poligon"
@@ -768,7 +1003,7 @@ def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -
         user_id=1, novelty_id="poligon-dwa", seen_count=0, completed_at=NOW
     )
     full = poligon_status(
-        {"poligon-jeden": one, "poligon-dwa": two}, open_=True, required=True
+        {"poligon-jeden": one, "poligon-dwa": two}, ids, open_=True, required=True
     )
     done = start_status([], {}, gate_on=True, impersonating=False, poligon=full)
     assert done["enforced"] is False and done["redirect"] == "/start"
@@ -806,7 +1041,7 @@ def test_poligon_blocks_a_new_person_until_every_exercise_is_done(monkeypatch) -
         "enforced"
     ]
     # Obecna osoba (poligon nie wymagany) nie jest blokowana niezaliczonym poligonem.
-    optional = poligon_status({}, open_=True, required=False)
+    optional = poligon_status({}, ids, open_=True, required=False)
     assert not start_status(
         [], {}, gate_on=True, impersonating=False, poligon=optional
     )["enforced"]
@@ -860,3 +1095,104 @@ async def test_new_recruiter_records_poligon_progress_and_is_sent_to_poligon(
         "/api/novelties/poligon-jeden/events", json={"event": "used"}, headers=finance
     )
     assert outsider.status_code == 404
+
+
+def test_poligon_status_counts_only_the_exercises_of_the_persons_roles() -> None:
+    from app.services.onboarding_day import poligon_exercises, poligon_replaces
+
+    plan = load_poligon()
+    new = datetime(2026, 11, 16, 8, tzinfo=timezone.utc)
+    dl = _Newcomer("delivery_lead", new)
+    dl_ids = poligon_exercises(dl, plan)
+    # Zaliczony cały screening rekrutera nie przybliża DL-a do końca ścieżki.
+    progress = {
+        e.id: NoveltyProgress(
+            user_id=1, novelty_id=e.id, seen_count=0, completed_at=NOW
+        )
+        for e in plan.exercises
+        if e.id.startswith("poligon-screening-")
+    }
+    status = poligon_status(progress, dl_ids, open_=True, required=True)
+    assert status["done"] == 0 and status["total"] == len(dl_ids)
+    assert status["exercise_ids"] == dl_ids
+    for eid in dl_ids:
+        progress[eid] = NoveltyProgress(
+            user_id=1, novelty_id=eid, seen_count=0, completed_at=NOW
+        )
+    done = poligon_status(progress, dl_ids, open_=True, required=True)
+    assert done["done"] == done["total"]
+    assert not start_status([], {}, gate_on=True, impersonating=False, poligon=done)[
+        "enforced"
+    ]
+    # Przeklikania Startu zastąpione per rola; obecna osoba nie ma wymaganego poligonu.
+    assert poligon_replaces(dl, plan) == set(plan.replaces["delivery_lead"])
+    assert poligon_replaces(_Newcomer("admin", new), plan) == set()
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_new_dl_and_tcm_are_sent_to_poligon_and_record_only_their_path(
+    app_client: AsyncClient, monkeypatch
+) -> None:
+    from app.api import novelties as api
+
+    plan = _poligon_plan(
+        roles=["recruiter", "delivery_lead", "talent_community_manager", "admin"],
+        required_roles=["recruiter", "delivery_lead", "talent_community_manager"],
+        required_since="2000-01-01",
+        exercises=[
+            {
+                "id": "poligon-wspolne",
+                "module": "Lista",
+                "title": "Wspólne",
+                "roles": ["recruiter", "delivery_lead", "talent_community_manager"],
+            },
+            {
+                "id": "poligon-rekruter",
+                "module": "Screening",
+                "title": "Rekruter",
+                "roles": ["recruiter"],
+            },
+            {
+                "id": "poligon-dl",
+                "module": "Przegląd",
+                "title": "DL",
+                "roles": ["delivery_lead"],
+            },
+        ],
+    )
+    monkeypatch.setattr(api, "load_poligon", lambda: plan)
+    monkeypatch.setattr(api, "load_start_tours", lambda: {})
+    _, dl = await _user("delivery_lead")
+    _, tcm = await _user("talent_community_manager")
+    _, admin = await _user("admin")
+
+    start = (await app_client.get("/api/novelties/start", headers=dl)).json()
+    assert start["poligon"]["required"] is True and start["redirect"] == "/poligon"
+    assert start["poligon"]["exercise_ids"] == ["poligon-wspolne", "poligon-dl"]
+    tcm_start = (await app_client.get("/api/novelties/start", headers=tcm)).json()
+    assert tcm_start["poligon"]["exercise_ids"] == ["poligon-wspolne"]
+    assert tcm_start["poligon"]["total"] == 1
+
+    # Ćwiczenie spoza ścieżki roli nie istnieje dla tej osoby.
+    foreign = await app_client.post(
+        "/api/novelties/poligon-rekruter/events", json={"event": "used"}, headers=dl
+    )
+    assert foreign.status_code == 404
+    dl_only = await app_client.post(
+        "/api/novelties/poligon-dl/events", json={"event": "used"}, headers=tcm
+    )
+    assert dl_only.status_code == 404
+
+    for exercise in ("poligon-wspolne", "poligon-dl"):
+        resp = await app_client.post(
+            f"/api/novelties/{exercise}/events", json={"event": "used"}, headers=dl
+        )
+        assert resp.status_code == 204
+    start = (await app_client.get("/api/novelties/start", headers=dl)).json()
+    assert start["poligon"]["done"] == 2 and start["enforced"] is False
+
+    # Admin (poza required_roles) ma poligon otwarty, ale go nie blokuje.
+    admin_start = (await app_client.get("/api/novelties/start", headers=admin)).json()
+    assert admin_start["poligon"]["required"] is False
+    assert admin_start["poligon"]["open"] is True
