@@ -28,6 +28,7 @@ from sqlalchemy import case, delete, func, select, update
 
 from app.api import ledger as ledger_api
 from app.api import ledger_settlements as ledger_settlements_api
+from app.api import ledger_vat as ledger_vat_api
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
 from app.models.client_sales_invoice import (
@@ -83,6 +84,7 @@ async def client():
     app = FastAPI()
     app.include_router(ledger_api.router, prefix=ACC)
     app.include_router(ledger_settlements_api.router, prefix=ACC)
+    app.include_router(ledger_vat_api.router, prefix=ACC)
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://testserver"
     ) as c:
@@ -3280,3 +3282,244 @@ async def test_valuation_needs_the_exact_nbp_rate_and_keeps_positions_without_it
         assert item["state"] == "todo" and "EUR" in item["detail"], item
     finally:
         await _drop_eur_rate(stale)
+
+
+# ── Rejestry VAT (K5a) ──────────────────────────────────────────────────────
+
+
+async def _vat_registers(client, world, books, user: str = "accountant", month: int = 3):
+    return await client.get(
+        f"{ACC}/vat",
+        params={"year": books["year"], "month": month},
+        headers=_headers(world[user]),
+    )
+
+
+async def _vat_books(client, world, books, keep_items: tuple[str, ...] = ()) -> dict:
+    """Moduł VAT, pozycje faktur ze stawkami i zatwierdzone FVS/FVZ marca."""
+
+    settings = _ledger_settings(world, books, allocation=False)
+    settings["modules"]["vat"] = True
+    settings["vat"] = {"input_account": books["acc"]["vat_in"]}
+    await _set_ledger(settings)
+    items = {
+        "plain": [{"name": "Rekrutacja", "net": "1000.00", "vat_rate": "23"}],
+        "euro": [{"name": "Usługa", "net": "500.00", "vat_rate": "np II"}],
+        "correction": [
+            {"name": "Rekrutacja", "net": "1000.00", "vat_rate": "23", "before_correction": True},
+            {"name": "Rekrutacja", "net": "900.00", "vat_rate": "23"},
+        ],
+    }
+    async with AsyncSessionLocal() as db:
+        for key, value in items.items():
+            if key in keep_items:
+                continue
+            await db.execute(
+                update(ClientSalesInvoice)
+                .where(ClientSalesInvoice.id == books["sales"][key])
+                .values(items=value)
+            )
+        await db.commit()
+    for kind in ("sales", "costs"):
+        synced = await _sync(client, world, books, kind)
+        assert synced.status_code == 200, synced.text
+    docs = {
+        key: await _document("client_sales_invoice", books["sales"][key])
+        for key in ("plain", "euro", "correction")
+    }
+    docs["expense"] = await _document("finance_cost_entry", books["expense"])
+    docs["payroll"] = await _document("finance_cost_entry", books["payroll"])
+    await _approve_ids(client, world, [doc.id for doc in docs.values()])
+    return docs
+
+
+async def test_vat_registers_follow_approved_documents(client, world, books):
+    from app.services.ledger.engine import LineIn
+
+    year, acc = books["year"], books["acc"]
+    docs = await _vat_books(client, world, books)
+    response = await _vat_registers(client, world, books)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    sales = {row["number"]: row for row in data["sales"]}
+    # FS 1/03: 23%; FS 2/03: 500 EUR po 4,30 dla podatnika z UE (np II);
+    # korekta FK 1/03: −100 zł netto, −23 zł VAT.
+    assert {n: (r["net"], r["vat"], [g["key"] for g in r["groups"]], r["correction"]) for n, r in sales.items()} == {
+        "FS 1/03": (100_000, 23_000, ["23"], False),
+        "FS 2/03": (215_000, 0, ["np_ue"], False),
+        "FK 1/03": (-10_000, -2_300, ["23"], True),
+    }
+    assert sales["FS 1/03"]["date"] == f"{year}-03-31" and sales["FS 1/03"]["issue_date"] == f"{year}-04-02"
+    purchases = {row["number"]: (row["net"], row["vat"], row["payroll"]) for row in data["purchases"]}
+    assert purchases == {
+        docs["expense"].number: (100_000, 23_000, False),
+        docs["payroll"].number: (1_000_000, 230_000, True),
+    }
+    summary = data["summary"]
+    assert [(g["key"], g["net"], g["vat"]) for g in summary["groups"]] == [
+        ("23", 90_000, 20_700),
+        ("np_ue", 215_000, 0),
+        ("other", 1_100_000, 253_000),
+    ]
+    assert (summary["output_vat"], summary["input_vat"], summary["due"]) == (20_700, 253_000, -232_300)
+    issues = {issue["kind"]: issue for issue in data["issues"]}
+    # Zaliczka i faktura nabywcy spoza kartoteki nie mają FVS — VAT jest należny.
+    assert set(issues) == {"missing_sales"}
+    missing = {item["number"]: item["detail"] for item in issues["missing_sales"]["items"]}
+    assert set(missing) == {"FS 3/03", "FZ 1/03"} and "zaliczka" in missing["FZ 1/03"]
+    assert data["payroll_hidden"] is False
+
+    # D2: osoba bez Płac — rejestr zakupu i sumy bez faktury osoby zespołu.
+    settings = _ledger_settings(world, books, allocation=False)
+    settings["modules"]["vat"] = True
+    settings["vat"] = {"input_account": acc["vat_in"]}
+    settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+    await _set_ledger(settings)
+    blind = (await _vat_registers(client, world, books, user="module_only")).json()
+    assert [row["number"] for row in blind["purchases"]] == [docs["expense"].number]
+    assert (blind["summary"]["input_vat"], blind["payroll_hidden"]) == (23_000, True)
+    assert not any(row["payroll"] for row in blind["purchases"])
+    assert blind["summary"]["groups"][-1]["vat"] == 23_000
+
+    # PK na koncie VAT należnego poza rejestrem.
+    async with AsyncSessionLocal() as db:
+        from app.services.ledger import documents as ledger_documents
+        from app.services.ledger.documents import DocumentSpec
+
+        manual = await ledger_documents.create_draft(
+            db,
+            DocumentSpec(
+                doc_type="PK",
+                op_date=date(year, 3, 28),
+                doc_date=date(year, 3, 28),
+                description="Korekta VAT ręcznie",
+                lines=[
+                    LineIn("debit", acc["revenue"], 1_000, "korekta"),
+                    LineIn("credit", acc["vat_out"], 1_000, "korekta"),
+                ],
+            ),
+            actor_id=world["accountant"].id,
+        )
+        await db.commit()
+    await _approve_ids(client, world, [manual.id])
+    data = (await _vat_registers(client, world, books)).json()
+    outside = next(issue for issue in data["issues"] if issue["kind"] == "outside")
+    assert [(item["number"], item["amount"]) for item in outside["items"]] == [(manual.number, -1_000)]
+    closing_items = (await _closing(client, world, books))["items"]
+    registers = next(item for item in closing_items if item["key"] == "vat_registers")
+    assert registers["state"] == "problem" and "bez dokumentu w księdze: 2" in registers["detail"]
+    assert any(item["key"] == "later:jpk" for item in closing_items)
+    assert not any(item["key"] == "later:vat" for item in closing_items)
+
+
+async def test_vat_module_settings_and_gates(client, world, books):
+    settings = _ledger_settings(world, books, allocation=False)
+    await _set_ledger(settings)
+    closed = await _vat_registers(client, world, books)
+    assert closed.status_code == 404
+    assert (await _vat_registers(client, world, books, user="admin")).status_code == 200
+    settings["modules"]["vat"] = True
+    await _set_ledger(settings)
+    outsider = await client.put(
+        f"{ACC}/vat/settings",
+        json={"input_account": books["acc"]["vat_in"]},
+        headers=_headers(world["accountant"]),
+    )
+    assert outsider.status_code == 403
+    missing = await client.put(
+        f"{ACC}/vat/settings",
+        json={"input_account": "9999-999"},
+        headers=_headers(world["admin"]),
+    )
+    assert missing.status_code == 422 and "planie kont" in missing.json()["detail"]
+    saved = await client.put(
+        f"{ACC}/vat/settings",
+        json={"input_account": books["acc"]["vat_in"]},
+        headers=_headers(world["admin"]),
+    )
+    assert saved.status_code == 200 and saved.json() == {"input_account": books["acc"]["vat_in"]}
+    data = (await _vat_registers(client, world, books)).json()
+    assert data["accounts"]["input_account"] == books["acc"]["vat_in"]
+    assert data["can_edit_accounts"] is False
+    bad_month = await client.get(
+        f"{ACC}/vat", params={"year": books["year"], "month": 13}, headers=_headers(world["accountant"])
+    )
+    assert bad_month.status_code == 422
+
+
+async def test_vat_registers_keep_reverse_charge_and_ignore_storno_pairs(client, world, books):
+    """Przegląd K5a: FVZ z VAT należnym (import usług) daje wiersz sprzedaży
+    bez pola JPK (problem) i nie zawyża nadwyżki; korekta zmieniająca stawkę
+    zostaje w sumach; PK na koncie VAT ze stornem znika z „do sprawdzenia”."""
+
+    from app.services.ledger import documents as ledger_documents
+    from app.services.ledger.documents import DocumentSpec
+    from app.services.ledger.engine import LineIn
+
+    year, acc = books["year"], books["acc"]
+    # Usługa bez VAT u sprzedawcy, VAT rozliczany przez nabywcę (ręczny dekret E2).
+    imported = await _expense(world, number="IMP 1/03", net="1000.00", vat="0.00", gross="1000.00")
+    decree = _decree(acc, net=100_000, vat=0, payable=books["supplier"].cost_account, text="Import usług")
+    decree["manual"] = True
+    decree["positions"] = [
+        {"kind": "cost", "account": acc["cost"], "side": "debit", "amount": 100_000},
+        {"kind": "vat", "account": acc["vat_in"], "side": "debit", "amount": 23_000},
+        {"kind": "vat", "account": acc["vat_out"], "side": "credit", "amount": 23_000},
+        {"kind": "counterparty", "account": books["supplier"].cost_account, "side": "credit", "amount": 100_000},
+    ]
+    await _ready(
+        imported,
+        received=datetime(year, 3, 16, 10, 0, tzinfo=timezone.utc),
+        counterparty_id=books["supplier"].id,
+        decree=decree,
+    )
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == books["sales"]["correction"])
+            .values(
+                items=[
+                    {"net": "1000.00", "vat_rate": "23", "before_correction": True},
+                    {"net": "1000.00", "vat_rate": "np II"},
+                ]
+            )
+        )
+        await db.commit()
+    await _vat_books(client, world, books, keep_items=("correction",))
+    expense = await _document("finance_cost_entry", imported)
+    await _approve_ids(client, world, [expense.id])
+    data = (await _vat_registers(client, world, books)).json()
+    sales = {row["number"]: row for row in data["sales"]}
+    # Korekta 23% → np II: bez podziału, ale z kwotami z dekretu.
+    assert (sales["FK 1/03"]["net"], sales["FK 1/03"]["vat"], sales["FK 1/03"]["groups"]) == (-10_000, -2_300, [])
+    # Import usług: VAT należny z dokumentu zakupu jako wiersz sprzedaży do przypisania.
+    self_row = sales[expense.number]
+    assert (self_row["net"], self_row["vat"], self_row["groups"]) == (100_000, 23_000, [])
+    assert "odwrotne obciążenie" in self_row["problem"]
+    purchase = next(row for row in data["purchases"] if row["number"] == expense.number)
+    assert (purchase["net"], purchase["vat"]) == (100_000, 23_000)
+    summary = data["summary"]
+    # 23% z FS 1/03 (23 000) − korekta (2 300) + import usług (23 000).
+    assert summary["output_vat"] == 23_000 - 2_300 + 23_000
+    rates = next(issue for issue in data["issues"] if issue["kind"] == "rates")
+    assert {item["number"] for item in rates["items"]} == {"FK 1/03", expense.number}
+    async with AsyncSessionLocal() as db:
+        manual = await ledger_documents.create_draft(
+            db,
+            DocumentSpec(
+                doc_type="PK",
+                op_date=date(year, 3, 28),
+                doc_date=date(year, 3, 28),
+                description="Pomyłka na koncie VAT",
+                lines=[
+                    LineIn("debit", acc["revenue"], 1_000, "x"),
+                    LineIn("credit", acc["vat_out"], 1_000, "x"),
+                ],
+            ),
+            actor_id=world["accountant"].id,
+        )
+        await db.commit()
+    await _approve_ids(client, world, [manual.id])
+    await _reverse(client, world, manual.id, date(year, 3, 29))
+    data = (await _vat_registers(client, world, books)).json()
+    assert [issue["kind"] for issue in data["issues"] if issue["kind"] == "outside"] == []

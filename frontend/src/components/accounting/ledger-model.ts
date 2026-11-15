@@ -167,6 +167,7 @@ export const ACCOUNTING_TABS: readonly AreaTab[] = [
   { href: "/accounting/settlements", label: "Rozrachunki", description: "Należności i zobowiązania kontrahentów, rozliczanie pozycji", module: "bank" },
   { href: "/accounting/automations", label: "Automaty", description: "PK cykliczne i RMK — polecenia księgowania co miesiąc same", module: "automations" },
   { href: "/accounting/documents", label: "Dokumenty", description: "Dziennik: dokumenty z dekretem, bufor i zatwierdzone", module: "ledger" },
+  { href: "/accounting/vat", label: "VAT", description: "Rejestry VAT sprzedaży i zakupu, sumy do deklaracji", module: "vat" },
   { href: "/accounting/symfonia", label: "Do Symfonii", description: "Paczka zatwierdzonych dokumentów do importu w Symfonii FK", module: "ledger" },
   { href: "/accounting/trial-balance", label: "Obroty i salda", description: "Zestawienie obrotów i sald, karta konta", module: "ledger" },
   { href: "/accounting/assets", label: "Środki trwałe", description: "Ewidencja środków trwałych i WNiP, plan amortyzacji", module: "assets" },
