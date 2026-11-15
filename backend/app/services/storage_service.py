@@ -38,6 +38,8 @@ JOB_FILES_DIR = STORAGE_ROOT / "job_files"
 # wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
 B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
 PRE_CONTRACTS_DIR = STORAGE_ROOT / "pre_contracts"
+# Katalog raportów klienta: wygenerowane i wysłane pliki (historia wysyłek).
+CLIENT_REPORTS_DIR = STORAGE_ROOT / "client_reports"
 # Dokumenty do startu: wzory klienta i pliki par (NDA, KRK).
 START_DOCUMENTS_DIR = STORAGE_ROOT / "start_documents"
 # Sprzedaż (Atlas → NEXUS): pliki przy firmie sprzedaży albo szansie.
@@ -637,3 +639,21 @@ def read_sales_file(relative_path: str) -> bytes:
 
 def delete_sales_file(relative_path: str) -> None:
     _delete_relative(relative_path, "sales file")
+
+
+# ── Katalog raportów klienta (0712) ──────────────────────────────────────────
+
+
+def save_client_report_file(client_id: int, name: str, data: bytes) -> tuple[str, int]:
+    """Zapisz plik raportu pod /client_reports/{client_id}/{uuid}-{name}."""
+    rel, size = _save_to(CLIENT_REPORTS_DIR / str(client_id), name, io.BytesIO(data))
+    logger.info("Saved client report file: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def read_client_report_file(relative_path: str) -> bytes:
+    return _resolve_under_root(relative_path).read_bytes()
+
+
+def delete_client_report_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "client report file")

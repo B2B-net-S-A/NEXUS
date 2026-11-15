@@ -64,3 +64,11 @@ it('retains a safe replay with private identity/context removed', () => {
   expect(result).not.toBeNull()
   expect(JSON.stringify(result)).not.toContain('private')
 })
+
+it('redacts the team panel token in source locations, not just the "z" segment', () => {
+  const event = {
+    exception: { values: [{ type: 'Error', value: 'x', stacktrace: { frames: [{ filename: 'https://nexus.example.com/k/z/syntheticteamtoken/page.js' }] } }] },
+  } as Event
+  const frame = scrubSentryEvent(event).exception?.values?.[0].stacktrace?.frames?.[0]
+  expect(frame?.filename).toBe('https://nexus.example.com/k/z/[redacted]/page.js')
+})

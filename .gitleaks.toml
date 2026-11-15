@@ -101,6 +101,10 @@ regexes = [
   # (``regexTarget`` domyślnie ``"secret"``, nie ``"line"`` jak w blokach
   # per-reguła niżej) — wpis z prefiksem ``token=`` nigdy by nie zadziałał.
   '''^abcdef123456$''',
+  # Atrapa klucza stanowiska z testu panelu zespołu (pierwszy commit PR #3450,
+  # dziś ``aaaaaaaaaaaaaaaa``). Skan commitów PR-a widzi ją w historii, a historii
+  # gałęzi w kolejce nie przepisujemy.
+  '''^kluczstanowiska1$''',
   # Identyfikator rewizji alembica użyty jako klucz markera jednorazowej
   # korekty danych w ``app_settings`` (``WHERE key = '0243_revive_...'``).
   # ``generic-api-key`` widzi tam przypisanie długiego ciągu do pola o nazwie

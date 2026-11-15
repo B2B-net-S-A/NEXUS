@@ -2720,6 +2720,9 @@
    "max_twins": 3,
    "twins": []
   },
+  "GET /api/job-teams/by-job/990001": {
+   "team": null
+  },
   "GET /api/jobs/990001/proposal-counts": {
    "job_id": 990001,
    "days": 7,

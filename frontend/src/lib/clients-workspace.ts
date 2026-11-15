@@ -9,6 +9,9 @@
  * | `/my-relationships`  | `/clients?view=contacts`            |
  * | `/order-mail`        | `/contracts?view=order-mail`        |
  *
+ * Od 15.11.2026 trzeci tryb Klientów: `/clients?view=reports` — kalendarz
+ * „Raporty dla klientów” (co i komu w miesiącu; DL widzi domyślnie swoje).
+ *
  * Stare adresy przekierowują na stałe — powiadomienia w bazie mają zapisane
  * `link="/order-mail?doc=…"`.
  *
@@ -49,9 +52,10 @@ export function resolveClientsMine(
   return true;
 }
 
-export type ClientsView = "list" | "contacts";
+export type ClientsView = "list" | "contacts" | "reports";
 
 export function resolveClientsView(param: string | null): ClientsView {
+  if (param === "reports") return "reports";
   return param === "contacts" ? "contacts" : "list";
 }
 

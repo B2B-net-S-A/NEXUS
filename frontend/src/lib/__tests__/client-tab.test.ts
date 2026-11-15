@@ -143,12 +143,15 @@ describe("„Ludzie i technologie” (22.10.2026)", () => {
 
   it("rzadkie zakładki stoją pod „Więcej”", () => {
     // „Sprzedaż” (27.10.2026) — tylko z uprawnieniem „Sprzedaż: podgląd”.
+    // „Raporty” (15.11.2026) — katalog raportów klienta; główne wejście DL-a
+    // to kalendarz w trybie „Raporty dla klientów” modułu Klienci.
     expect([...CLIENT_MORE_TABS]).toEqual([
       "zespol",
       "importy-md",
       "faktury",
       "analityka",
       "sprzedaz",
+      "raporty",
     ]);
   });
 
