@@ -55,13 +55,13 @@ from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.finance_ledger import costs
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import sources
-from app.services.ledger.documents import Viewer
+from app.services.ledger.documents import FOREIGN_PURCHASE_SOURCE, Viewer
 from app.services.ledger.settings import MARKERS, LedgerSettings
 
 SALES_SOURCE = sources.SOURCE_TYPES[sources.SALES]
 COST_SOURCE = sources.SOURCE_TYPES[sources.COSTS]
 #: Formularz zakupu zagranicznego (K5b-2, ``ledger/foreign.py``).
-FOREIGN_SOURCE = "foreign_purchase"
+FOREIGN_SOURCE = FOREIGN_PURCHASE_SOURCE
 PURCHASE_SOURCES = (COST_SOURCE, FOREIGN_SOURCE)
 REGISTER_SOURCES = (SALES_SOURCE, COST_SOURCE, FOREIGN_SOURCE)
 #: Dokumenty, które z zasady dotykają kont VAT poza rejestrem: rozliczenie VAT

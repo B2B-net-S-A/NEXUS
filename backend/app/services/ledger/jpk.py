@@ -157,7 +157,9 @@ def counterparty(
     """(``KodKrajuNadaniaTIN``, numer): numer bez kodu kraju, brak = „BRAK”."""
 
     number = "".join(ch for ch in (tax_id or "") if ch.isalnum()).upper()
-    code = (country or "").upper()
+    # „UK” z kartoteki (import eBI24 przyjmuje dowolne dwie litery) — w słowniku
+    # MF to GB (przegląd K5b-2).
+    code = {"UK": "GB"}.get((country or "").upper(), (country or "").upper())
     if not number:
         return None, BRAK
     if not code and number[:2].isalpha():

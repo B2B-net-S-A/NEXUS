@@ -146,3 +146,23 @@ def test_supplier_number_gets_the_country_prefix_and_refuses_polish_ids():
     with pytest.raises(LedgerError) as caught:
         foreign.clean_tax_id("PL5260300517", "US")
     assert "polski numer" in caught.value.message
+
+
+def test_supplier_country_must_be_in_the_mf_dictionary():
+    """Przegląd K5b-2: „UK” nie ma w słowniku krajów MF — plik JPK z takim
+    kodem nie przechodził schematu, a kraju w kartotece nie da się poprawić."""
+
+    assert [foreign.clean_country(code) for code in ("ie", "UK", "EL", "US", "XI")] == ["IE", "GB", "GR", "US", "XI"]
+    for code in ("XX", "U", "PL"):
+        with pytest.raises(LedgerError) as caught:
+            foreign.clean_country(code)
+        assert caught.value.status == 422
+
+
+def test_eu_vat_number_typed_as_other_still_counts_as_eu():
+    """Import z eBI24 bywa z typem „inny” — numer z prefiksem kraju UE to dalej
+    podatnik VAT z UE (art. 28b, K_29/K_30); spoza UE i XI — K_27/K_28."""
+
+    assert foreign.jpk_group("other", "DE123456789") == "imp_28b"
+    assert foreign.jpk_group("other", "CHE123456789MWST") == "imp_other"
+    assert foreign.jpk_group("other", "123456789") == "imp_other"

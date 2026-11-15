@@ -191,8 +191,10 @@ def test_schema_catches_a_broken_file():
 
 
 def test_counterparty_country_comes_from_the_identifier():
-    """Przegląd K5b: kraj nadania z prefiksu numeru VAT UE, Grecja = EL."""
+    """Przegląd K5b: kraj nadania z prefiksu numeru VAT UE, Grecja = EL;
+    „UK” z kartoteki (spoza słownika MF) = GB (przegląd K5b-2)."""
 
+    assert jpk.counterparty("GB123456789", "UK") == ("GB", "123456789")
     assert jpk.counterparty("DE123456789", None) == ("DE", "123456789")
     assert jpk.counterparty("EL123456789", "GR") == ("EL", "123456789")
     assert jpk.counterparty("123456789", "GR") == ("EL", "123456789")

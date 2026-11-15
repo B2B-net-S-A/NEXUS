@@ -24,8 +24,14 @@ w Księgowości, a nowego dostawcę formularz zakłada w kartotece kontrahentów
   - Ma rozrachunek z dostawcą — netto, w walucie faktury.
 
 * **Grupa JPK** z dostawcy: numer VAT UE (bez XI — Irlandia Północna to VAT UE
-  tylko dla towarów) = usługa od podatnika VAT z UE, art. 28b → K_29/K_30;
-  reszta → K_27/K_28. Zapisana w dokumencie (``meta.jpk_group``).
+  tylko dla towarów; także numer z prefiksem kraju UE zapisany w kartotece jako
+  „inny”) = usługa od podatnika VAT z UE, art. 28b → K_29/K_30; reszta →
+  K_27/K_28. Zapisana w dokumencie (``meta.jpk_group``).
+* **Kraj** nowego dostawcy ze słownika krajów MF (``KodyKrajow`` z XSD JPK; „UK”
+  = GB, „EL” = GR) — kod spoza słownika blokował plik JPK, a kraju w kartotece
+  się nie edytuje (przegląd K5b-2).
+* **Rozliczenie na „5”**: koszt z dokumentu idzie na koszty ogólne (OG) —
+  ``allocation.py``.
 * Jedna faktura dostawcy = jeden dokument: źródło ``foreign_purchase``
   z identyfikatorem dostawcy i skrótem numeru faktury.
 """
@@ -37,8 +43,10 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from functools import lru_cache
 from typing import Any, Optional
 
+from lxml import etree
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -48,7 +56,7 @@ from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.finance_ledger import identifiers, posting
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger_schema import NAME_MAX, SYMFONIA_ID_MAX
-from app.services.ledger import documents, engine
+from app.services.ledger import documents, engine, jpk
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger.settings import LedgerSettings
@@ -69,6 +77,9 @@ SUPPLIERS_MAX = 500
 LISTED_MAX = 200
 _CURRENCY = re.compile(r"^[A-Z]{3}$")
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
+#: Kody spoza słownika MF wpisywane z przyzwyczajenia (Wielka Brytania, Grecja).
+COUNTRY_ALIASES = {"UK": "GB", "EL": "GR"}
+_XSD = "{http://www.w3.org/2001/XMLSchema}"
 #: Kraj ISO → prefiks numeru VAT UE (Grecja: GR → EL).
 _VAT_PREFIX = {"GR": "EL"}
 STATUS_LABELS = {"draft": "w buforze", "approved": "zatwierdzony"}
@@ -83,12 +94,54 @@ NO_FOREIGN_ACCOUNT = (
 
 
 def jpk_group(id_type: Optional[str], id_value: Optional[str]) -> str:
-    """K_29/K_30 (``imp_28b``) dla podatnika VAT z UE, reszta K_27/K_28."""
+    """K_29/K_30 (``imp_28b``) dla podatnika VAT z UE, reszta K_27/K_28.
 
-    prefix = (id_value or "")[:2].upper()
-    if id_type == "vat_eu" and id_value and prefix not in GOODS_ONLY_PREFIXES:
+    Numer z prefiksem kraju UE zapisany jako „inny” (import z eBI24 bywa z takim
+    typem) to też numer VAT UE."""
+
+    value = (id_value or "").upper()
+    prefix = value[:2]
+    eu_number = (
+        prefix in identifiers.EU_PREFIXES
+        and prefix not in GOODS_ONLY_PREFIXES
+        and len(value) > 4
+    )
+    if id_type in ("vat_eu", "other") and eu_number:
         return "imp_28b"
     return "imp_other"
+
+
+@lru_cache(maxsize=1)
+def mf_countries() -> frozenset[str]:
+    """Kody krajów ze słownika MF (``KodyKrajow`` obok schematu JPK)."""
+
+    parser = etree.XMLParser(resolve_entities=False, no_network=True)
+    tree = etree.parse(str(jpk.SCHEMA.with_name("KodyKrajow_v13-0E.xsd")), parser)
+    return frozenset(
+        node.get("value")
+        for node in tree.iter(f"{_XSD}enumeration")
+        if node.get("value")
+    )
+
+
+def clean_country(raw: object) -> str:
+    """Kraj dostawcy: kod ISO ze słownika MF; Polska — odmowa (faktura w KSeF)."""
+
+    code = _text(raw, 4).upper()
+    code = COUNTRY_ALIASES.get(code, code)
+    if not _COUNTRY.fullmatch(code) or code not in mf_countries():
+        raise LedgerError(
+            f"Kraj dostawcy: „{code[:4]}” nie ma w słowniku krajów MF — podaj kod "
+            "ISO, np. IE, DE, GB, US.",
+            status=422,
+        )
+    if code == "PL":
+        raise LedgerError(
+            "Dostawca z Polski wystawia fakturę w KSeF — zaksięgujesz ją "
+            "z kolejki kosztów.",
+            status=422,
+        )
+    return code
 
 
 def source_key(supplier_id: int, number: str) -> str:
@@ -369,15 +422,7 @@ async def create_supplier(
         raise LedgerError("Podaj nazwę dostawcy.", status=422)
     if len(name) > NAME_MAX:
         raise LedgerError(f"Nazwa dostawcy: najwyżej {NAME_MAX} znaków.", status=422)
-    country = _text(raw.get("country"), 4).upper()
-    if not _COUNTRY.fullmatch(country):
-        raise LedgerError("Kraj dostawcy: kod z dwóch liter, np. IE.", status=422)
-    if country == "PL":
-        raise LedgerError(
-            "Dostawca z Polski wystawia fakturę w KSeF — zaksięgujesz ją "
-            "z kolejki kosztów.",
-            status=422,
-        )
+    country = clean_country(raw.get("country"))
     tax_id = clean_tax_id(raw.get("tax_id"), country)
     symfonia = _text(raw.get("symfonia_partner_id"), SYMFONIA_ID_MAX + 1) or None
     if symfonia and len(symfonia) > SYMFONIA_ID_MAX:

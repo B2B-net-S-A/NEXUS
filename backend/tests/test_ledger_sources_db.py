@@ -3874,7 +3874,7 @@ async def test_jpk_first_month_surplus_can_be_fixed(client, world, books):
 # ── Zakup zagraniczny i znaczniki GTU/TP (K5b-2) ────────────────────────────
 
 
-async def _foreign_setup(world, books, *, parent: bool = True) -> str:
+async def _foreign_setup(world, books, *, parent: bool = True, allocation: bool = False) -> str:
     """Moduł VAT; ``parent`` — konto dostawców zagranicznych ze słownikiem."""
 
     number = f"{books['acc']['cost'].rsplit('-', 1)[0]}-202"
@@ -3889,7 +3889,7 @@ async def _foreign_setup(world, books, *, parent: bool = True) -> str:
                 )
             )
             await db.commit()
-    settings = _ledger_settings(world, books, allocation=False)
+    settings = _ledger_settings(world, books, allocation=allocation)
     settings["modules"]["vat"] = True
     settings["vat"] = {"input_account": books["acc"]["vat_in"]}
     if parent:
@@ -4205,3 +4205,36 @@ async def test_vat_markers_go_on_the_buyers_sales_invoices(client, world, books)
     assert (await client.get(f"{ACC}/vat/markers", headers=_headers(world["accountant"]))).json()["items"] == []
     plain = (await _vat_registers(client, world, books)).json()
     assert jpk.fingerprint(plain) != marked
+
+
+async def test_foreign_purchase_cost_goes_to_overhead_in_the_allocation(
+    client, world, books, monkeypatch
+):
+    """Przegląd K5b-2: koszt FVZ z formularza wchodzi do rozliczenia na „5”
+    (koszty ogólne — faktura bez klienta i pionu), a szkic czeka jak FVZ
+    z kolejki kosztów — inaczej konta „4” rozjeżdżały się z 490."""
+
+    year = books["year"]
+    monkeypatch.setattr(ledger_vat_api, "business_today", lambda: date(year, 12, 31))
+    parent = await _foreign_setup(world, books, allocation=True)
+    tag = parent.split("-")[0]
+    created = await _foreign(
+        client,
+        world,
+        _foreign_body(
+            books,
+            new_supplier={
+                "name": f"Dostawca Koszt {tag}",
+                "country": "IE",
+                "tax_id": f"IE{random.randint(1_000_000, 9_999_999)}K",
+            },
+        ),
+    )
+    assert created.status_code == 201, created.text
+    books["extra_parties"].append(created.json()["supplier"]["id"])
+    waiting = (await _summary(client, world, books))["allocation"]
+    assert waiting["pending_costs"] == 1
+    await _approve_ids(client, world, [created.json()["document"]["id"]])
+    alloc = (await _summary(client, world, books))["allocation"]
+    assert alloc["pending_costs"] == 0
+    assert {(d["code"], d["amount"]) for d in alloc["details"]} == {("OG", 43_000)}
