@@ -406,6 +406,8 @@ async def jpk_compare_with_symfonia(
         )
     except LedgerError as exc:
         raise _fail(exc) from exc
+
+
 @router.get("/vat/uek")
 async def vat_uek_overview(
     current_user: FinanceModuleUser,
