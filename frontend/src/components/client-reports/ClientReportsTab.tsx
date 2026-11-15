@@ -107,7 +107,7 @@ export function ClientReportsTab({ clientId }: { clientId: number }) {
   const overdue = rows.filter((d) => d.status === "active" && d.next.state === "overdue").length;
 
   const renderTable = (list: ReportDefinition[]) => (
-        <div className="overflow-x-auto rounded-lg border border-border">
+        <div className="relative overflow-x-auto rounded-lg border border-border">
           <table className="w-full min-w-[880px] table-fixed text-sm">
             <colgroup>
               <col className="w-[25%]" />

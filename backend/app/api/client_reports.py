@@ -240,6 +240,7 @@ async def _payloads(
     allowed: Optional[frozenset[int]],
 ) -> list[dict[str, Any]]:
     today = business_today()
+    can_view_amounts = has_permission(user, ProductAction.amounts_view)
     assignments = await catalog.dl_assignments(db, {d.client_id for d in definitions})
     users = await catalog.user_names(
         db, [d.preparer_user_id for d in definitions if d.preparer_user_id]
@@ -258,6 +259,7 @@ async def _payloads(
                 confirmable=catalog.can_confirm(
                     user, definition.family, definition.client_id, allowed
                 ),
+                can_view_amounts=can_view_amounts,
             )
         )
     return out
@@ -397,6 +399,19 @@ async def update_definition(
     definition.name = body.name.strip()
     definition.generator_key = body.generator_key or None
     definition.due_rule = due_rule
+    generator = get_generator(definition.generator_key)
+    if (
+        generator
+        and generator.needs_amounts
+        and not has_permission(current_user, ProductAction.amounts_view)
+    ):
+        # Formularz bez podglądu kwot nie widział progów — nie kasujemy ich.
+        hidden = {
+            k: v
+            for k, v in (definition.params or {}).items()
+            if k not in catalog.AMOUNT_FREE_PARAMS
+        }
+        params = {**hidden, **params}
     definition.params = params
     await db.commit()
     await db.refresh(definition)

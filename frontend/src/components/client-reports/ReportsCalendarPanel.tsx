@@ -168,7 +168,7 @@ function CalendarTable({
     );
   }
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
+    <div className="relative overflow-x-auto rounded-lg border border-border">
       <table className="w-full min-w-[820px] text-sm">
         <thead className="bg-muted/40 text-left text-xs text-muted-foreground">
           <tr>

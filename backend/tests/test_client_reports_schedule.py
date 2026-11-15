@@ -289,3 +289,48 @@ def test_known_name_by_containment():
     assert not suggest.is_known(
         "Raport", {suggest.normalize_name("Raport miesięczny rekrutacji")}
     )
+
+
+def _payload_definition(**kwargs):
+    from datetime import datetime, timezone
+
+    base = dict(
+        id=9,
+        client_id=12,
+        name="Rabat od obrotu",
+        family="management",
+        generator_key="annual_spend",
+        params={
+            "tiers": [{"up_to": 1000.0, "rate": 2.5}],
+            "currency": "EUR",
+            "marginal": True,
+        },
+        rhythm="annual",
+        due_rule={"type": "fixed", "month": 1, "day": 31},
+        recipient=None,
+        channel=None,
+        file_format=None,
+        preparer="finance",
+        preparer_user_id=None,
+        source_kind="contract",
+        source_contract_id=None,
+        source_chunk_id=None,
+        source_ref=None,
+        status="active",
+        valid_from=None,
+        valid_to=None,
+        notes=None,
+        confirmed_at=datetime(2026, 11, 15, tzinfo=timezone.utc),
+    )
+    base.update(kwargs)
+    return SimpleNamespace(**base)
+
+
+def test_amount_params_hidden_without_amounts_view():
+    definition = _payload_definition()
+    common = dict(preparer="Finanse", next_info={}, last_sent=None, confirmable=False)
+    hidden = catalog.definition_payload(definition, can_view_amounts=False, **common)
+    assert "tiers" not in hidden["params"]
+    assert hidden["params"] == {"currency": "EUR", "marginal": True}
+    shown = catalog.definition_payload(definition, can_view_amounts=True, **common)
+    assert shown["params"]["tiers"] == [{"up_to": 1000.0, "rate": 2.5}]

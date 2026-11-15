@@ -44,6 +44,10 @@ FAMILY_LABELS: dict[str, str] = {
 OVERDUE_LOOKBACK_DAYS = 92
 #: „Dalej: kwartalne i roczne” — terminy w kolejnych miesiącach.
 UPCOMING_DAYS = 150
+#: Parametry generatorów z kwotami, które nie niosą kwot ani stawek.
+AMOUNT_FREE_PARAMS = frozenset(
+    {"currency", "marginal", "include_active", "list_people"}
+)
 LONG_RHYTHMS = frozenset({"quarterly", "semiannual", "annual", "contract_year"})
 
 
@@ -299,8 +303,14 @@ def definition_payload(
     next_info: dict[str, Any],
     last_sent: Optional[ClientReportRun],
     confirmable: bool,
+    can_view_amounts: bool,
 ) -> dict[str, Any]:
     generator = get_generator(definition.generator_key)
+    params = dict(definition.params or {})
+    if generator and generator.needs_amounts and not can_view_amounts:
+        # Progi i stawki rabatu to warunki handlowe z umowy — jak kwoty, tylko
+        # dla „Stawki i kwoty: podgląd”. Zostają pola bez kwot (waluta, tryb).
+        params = {k: v for k, v in params.items() if k in AMOUNT_FREE_PARAMS}
     return {
         "id": definition.id,
         "client_id": definition.client_id,
@@ -310,7 +320,7 @@ def definition_payload(
         "generator_key": definition.generator_key,
         "generator_label": generator.label if generator else None,
         "needs_amounts": bool(generator and generator.needs_amounts),
-        "params": definition.params or {},
+        "params": params,
         "rhythm": definition.rhythm,
         "due_rule": definition.due_rule or {},
         "due_label": schedule.describe_due_rule(definition.due_rule),
