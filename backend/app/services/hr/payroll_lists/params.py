@@ -123,6 +123,52 @@ SPECS: dict[str, ParamSpec] = {
     "senior_age_male": _spec(
         "Ulga dla seniora od wieku — mężczyźni", "Wiek", "lat", "40", "90", integer=True
     ),
+    # ── K7b: choroba i urlop (art. 92 KP, ustawa zasiłkowa, rozporządzenie urlopowe)
+    "sick_pay_rate": _spec(
+        "Wynagrodzenie chorobowe — procent podstawy", "Choroba i urlop", "%", "50", "100"
+    ),
+    "sick_pay_days_limit": _spec(
+        "Wynagrodzenie chorobowe od pracodawcy — dni w roku",
+        "Choroba i urlop",
+        "dni",
+        "1",
+        "366",
+        integer=True,
+    ),
+    "sick_pay_days_limit_senior": _spec(
+        "Wynagrodzenie chorobowe od pracodawcy — dni w roku po 50. roku życia",
+        "Choroba i urlop",
+        "dni",
+        "1",
+        "366",
+        integer=True,
+    ),
+    "sick_pay_senior_age": _spec(
+        "Krótszy limit chorobowego od roku po ukończeniu",
+        "Choroba i urlop",
+        "lat",
+        "40",
+        "80",
+        integer=True,
+    ),
+    "waiting_period_days": _spec(
+        "Okres wyczekiwania na chorobowe", "Choroba i urlop", "dni", "0", "180", integer=True
+    ),
+    "benefit_payer": _spec(
+        "Firma wypłaca zasiłki (1 = ponad 20 ubezpieczonych chorobowo na 30.11)",
+        "Choroba i urlop",
+        "×",
+        "0",
+        "1",
+        integer=True,
+    ),
+    "leave_coefficient": _spec(
+        "Współczynnik urlopowy do ekwiwalentu (pełny etat)",
+        "Choroba i urlop",
+        "dni",
+        "15",
+        "25",
+    ),
 }
 
 #: Wartości na 2026 r. — do potwierdzenia przez Płace (zasiew migracji 0704).
@@ -158,6 +204,21 @@ SEED_2026: dict[str, str] = {
     "senior_age_female": "60",
     "senior_age_male": "65",
 }
+#: Klucze dodane w K7b (16.11.2026). Wersje zapisane wcześniej (zasiew 0704
+#: i zmiany Płac) ich nie mają — ``parse`` bierze wtedy te wartości, a ekran
+#: pokazuje je przy pierwszej zmianie parametrów.
+LATER_DEFAULTS: dict[str, str] = {
+    "sick_pay_rate": "80",
+    "sick_pay_days_limit": "33",
+    "sick_pay_days_limit_senior": "14",
+    "sick_pay_senior_age": "50",
+    "waiting_period_days": "30",
+    "benefit_payer": "0",
+    # 2026: 365 − 52 niedziele − 52 soboty − 10 świąt w dni od poniedziałku do
+    # soboty (z 24.12) = 251 dni pracy; 251 / 12 = 20,92 (§ 19 rozporządzenia).
+    "leave_coefficient": "20.92",
+}
+SEED_2026.update(LATER_DEFAULTS)
 SEED_EFFECTIVE_FROM = "2026-01-01"
 SEED_NOTE = (
     "Zasiew 2026 z ustaw i obwieszczeń — do potwierdzenia przez Płace "
@@ -197,6 +258,13 @@ class Params:
     labour_fund_exempt_age_male: int
     senior_age_female: int
     senior_age_male: int
+    sick_pay_rate: Decimal
+    sick_pay_days_limit: int
+    sick_pay_days_limit_senior: int
+    sick_pay_senior_age: int
+    waiting_period_days: int
+    benefit_payer: int
+    leave_coefficient: Decimal
 
 
 _FIELD_NAMES = tuple(item.name for item in fields(Params))
@@ -233,12 +301,16 @@ def parse(values: Mapping[str, Any]) -> Params:
     unknown = sorted(set(values) - set(SPECS))
     if unknown:
         raise ParamsError("Nieznany parametr płac.")
-    missing = [SPECS[key].label for key in SPECS if key not in values]
+    missing = [
+        SPECS[key].label
+        for key in SPECS
+        if key not in values and key not in LATER_DEFAULTS
+    ]
     if missing:
         raise ParamsError(f"Brakuje parametru: {missing[0]}.")
     parsed: dict[str, Any] = {}
     for key in SPECS:
-        number = _number(key, values[key])
+        number = _number(key, values.get(key, LATER_DEFAULTS.get(key)))
         parsed[key] = int(number) if SPECS[key].integer else number
     if parsed["pit_rate_high"] < parsed["pit_rate_low"]:
         raise ParamsError("Druga stawka skali PIT nie może być niższa od pierwszej.")
@@ -309,6 +381,7 @@ SEED_PARAMS = parse(SEED_2026)
 __all__ = [
     "ParamSpec",
     "Params",
+    "LATER_DEFAULTS",
     "ParamsError",
     "SEED_2026",
     "SEED_EFFECTIVE_FROM",

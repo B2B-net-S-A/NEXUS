@@ -312,7 +312,16 @@ def _sql_text(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
-_SEED_JSON = json.dumps(payroll_params.SEED_2026, sort_keys=True)
+#: Zasiew 0704 bez kluczy K7b — tekst instrukcji zostaje taki jak przy pierwszym
+#: wdrożeniu, a brakujące klucze ``params.parse`` uzupełnia z ``LATER_DEFAULTS``.
+_SEED_JSON = json.dumps(
+    {
+        key: value
+        for key, value in payroll_params.SEED_2026.items()
+        if key not in payroll_params.LATER_DEFAULTS
+    },
+    sort_keys=True,
+)
 
 #: Zasiew parametrów 2026 „do potwierdzenia przez Płace” — raz (znacznik: wiersz
 #: ``source='seed'`` z tą datą, także zastąpiony), więc zmiana Płac go nie wraca.
