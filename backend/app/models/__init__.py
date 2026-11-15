@@ -928,3 +928,6 @@ from app.models import insight_decision as _insight_decision_models  # noqa: F40
 
 # 0639: panel klienta pod linkiem z CV.
 from app.models import client_panel as _client_panel_models  # noqa: F401,E402
+
+# 0711: zespół dla klienta (kilka rekrutacji, jeden link).
+from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E402

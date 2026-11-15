@@ -1,5 +1,18 @@
 [
   {
+    "id": "zespol-dla-klienta",
+    "pr": 3450,
+    "title": "Zespół dla klienta: kilka stanowisk, jeden link i cena zespołu",
+    "why": "Klient zamawia kilka stanowisk? „Utwórz zespół” łączy je w jeden link: klient widzi wszystkie stanowiska, wybiera osoby do składu i od razu widzi cenę zespołu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacja → pasek nad Tablicą → „Utwórz zespół”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.team"
+  },
+  {
     "id": "sprzedaz-dzwonienie-przypomnienia",
     "pr": 3374,
     "title": "Dzwonienie: Przypomnienia, „Nie odebrane” i cudza kolejka",
