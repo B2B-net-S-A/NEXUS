@@ -24,7 +24,8 @@ na wymyślonych danych.
   Podgląd jako inna osoba zdejmuje tę blokadę. Wyłącznik Startu
   (`app_settings.start_gate`) jej nie zdejmuje, bo dotyczy tylko przeklikań
   Startu (Artur, 15.11.2026: Start był wyłączony od 30.10, więc poligon nikogo
-  nie zatrzymywał).
+  nie zatrzymywał). Na stacku E2E blokadę wyłącza `app_settings.poligon_gate`
+  (`{"enforced": false}`, zapisuje go tylko `scripts/seed_e2e.py`, bez przycisku w UI).
 - **Dzień onboardingu nie liczy się do statystyk.** To dzień (Europe/Warsaw)
   pierwszego zaliczonego ćwiczenia, tylko u osoby, której poligon jest
   wymagany (`app/services/onboarding_day.py`). Taki dzień nie jest dniem pracy
