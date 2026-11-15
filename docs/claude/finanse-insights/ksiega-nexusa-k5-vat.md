@@ -59,6 +59,11 @@ i dokument rozliczenia VAT — dalsze części K5b.
   dokument w buforze, rejestr i JPK. Kolejka kosztów E2 zostaje tylko z KSeF.
 - **Schematy XSD JPK_V7M(3)** z crd.gov.pl w repo (dane testowe) — walidacja
   w testach i przed pobraniem pliku.
+- **Dostawca zagraniczny** (K5b-2): formularz zakłada go w kartotece kontrahentów
+  (nazwa, kraj, VAT UE, opcjonalnie ID Symfonii) z kontem rozrachunkowym pod
+  kontem z ustawień VAT; potem wybiera się go z listy.
+- **GTU i TP** per kontrahent w zakładce VAT (bez migracji), dla wszystkich jego
+  faktur sprzedaży; importu usług GTU nie dotyczy.
 
 ## Zasady, których łatwo nie zauważyć
 
