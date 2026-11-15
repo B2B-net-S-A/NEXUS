@@ -59,7 +59,8 @@ def _text(cell) -> str:
     from docx.oxml.ns import qn
 
     text = " ".join(
-        "".join(t.text or "" for t in p.iter(qn("w:t"))) for p in cell._tc.iter(qn("w:p"))
+        "".join(t.text or "" for t in p.iter(qn("w:t")))
+        for p in cell._tc.iter(qn("w:p"))
     )
     return re.sub(r"\s+", " ", text).strip()
 
@@ -81,14 +82,21 @@ def _rates_from(rows: list[list[str]], out: TermsProposal) -> None:
             continue
         row = RateRow(parsed[0], parsed[1], _decimal(values[-1]))
         if any(r.label == row.label for r in out.rates):
-            out.warnings.append(f"Kategoria {row.label} występuje dwa razy — wzięta pierwsza stawka.")
+            out.warnings.append(
+                f"Kategoria {row.label} występuje dwa razy — wzięta pierwsza stawka."
+            )
             continue
         out.rates.append(row)
 
 
 def _adders_from(rows: list[list[str]], out: TermsProposal) -> None:
     header_index = next(
-        (i for i, cells in enumerate(rows) if cells and _HEADER_HINT_RE.search(cells[0])), None
+        (
+            i
+            for i, cells in enumerate(rows)
+            if cells and _HEADER_HINT_RE.search(cells[0])
+        ),
+        None,
     )
     if header_index is None:
         return
@@ -107,7 +115,14 @@ def _adders_from(rows: list[list[str]], out: TermsProposal) -> None:
             if pair is None or not match:
                 continue
             percent = _decimal(match.group(1))
-            adder = next((a for a in out.adders if a.technology.casefold() == technology.casefold()), None)
+            adder = next(
+                (
+                    a
+                    for a in out.adders
+                    if a.technology.casefold() == technology.casefold()
+                ),
+                None,
+            )
             if adder is None:
                 adder = AdderRow(technology=technology, percent=percent)
                 out.adders.append(adder)
@@ -142,5 +157,7 @@ def parse_terms_docx(data: bytes) -> TermsProposal:
             if category_label(p["role"], p["seniority"]).casefold() not in known
         ]
         if missing:
-            out.warnings.append(f"{adder.technology}: kategorie spoza tabeli stawek — {', '.join(missing)}.")
+            out.warnings.append(
+                f"{adder.technology}: kategorie spoza tabeli stawek — {', '.join(missing)}."
+            )
     return out

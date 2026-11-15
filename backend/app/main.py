@@ -1789,7 +1789,9 @@ app.include_router(contractors.router, prefix="/api/contractors", tags=["contrac
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
 # 0710: cennik umowy ramowej, dopłaty i kategoria na kontrakcie (F1, 15.11.2026).
 app.include_router(framework_rates.router, prefix="/api", tags=["framework-rates"])
-app.include_router(framework_rates.finance_router, prefix="/api", tags=["framework-rates"])
+app.include_router(
+    framework_rates.finance_router, prefix="/api", tags=["framework-rates"]
+)
 app.include_router(
     contract_analytics.router,
     prefix="/api/contract-analytics",

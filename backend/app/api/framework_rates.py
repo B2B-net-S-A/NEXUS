@@ -16,7 +16,17 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,8 +53,18 @@ from app.services.framework_category import (
     recompute_from_coa,
     set_by_delivery_lead,
 )
-from app.services.framework_limits import addon_choices, category_label, framework_limit, percent_text
-from app.services.framework_overview import Overview, build_overview, classify, quarter_ends
+from app.services.framework_limits import (
+    addon_choices,
+    category_label,
+    framework_limit,
+    percent_text,
+)
+from app.services.framework_overview import (
+    Overview,
+    build_overview,
+    classify,
+    quarter_ends,
+)
 from app.services.framework_terms_import import parse_terms_docx
 
 # Odczyt i praca DL — sekcja Delivery jak kontrakty; cennik zapisują Finanse
@@ -57,8 +77,12 @@ MAX_APPENDIX_BYTES = 5 * 1024 * 1024
 
 async def _assert_client_finance(user: User, db: AsyncSession, client_id: int) -> None:
     ids = await resolve_delivery_lead_finance_client_ids(user, db)
-    if not can_read_client_finance(user, client_id=client_id, delivery_lead_finance_client_ids=ids):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL)
+    if not can_read_client_finance(
+        user, client_id=client_id, delivery_lead_finance_client_ids=ids
+    ):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail=DL_CLIENT_OUT_OF_SCOPE_DETAIL
+        )
 
 
 # --- Schematy -------------------------------------------------------------------
@@ -178,7 +202,10 @@ def _card_out(terms: ClientTerms, card, on: date) -> CardOut:
         rate_max=card.rate_client_max,
         valid_from=card.valid_from,
         valid_to=card.valid_to,
-        addons=[f"{a.technology} {percent_text(a.percent)}%" for a in addon_choices(terms.adders, card, on=on)],
+        addons=[
+            f"{a.technology} {percent_text(a.percent)}%"
+            for a in addon_choices(terms.adders, card, on=on)
+        ],
     )
 
 
@@ -208,7 +235,9 @@ async def get_framework_terms(
     today = business_today()
     adders = (
         await db.execute(
-            select(RateCardAdder).where(RateCardAdder.client_id == client_id).order_by(RateCardAdder.technology)
+            select(RateCardAdder)
+            .where(RateCardAdder.client_id == client_id)
+            .order_by(RateCardAdder.technology)
         )
     ).scalars()
     return TermsOut(
@@ -218,7 +247,9 @@ async def get_framework_terms(
     )
 
 
-@finance_router.post("/clients/{client_id}/framework-adders", response_model=AdderOut, status_code=201)
+@finance_router.post(
+    "/clients/{client_id}/framework-adders", response_model=AdderOut, status_code=201
+)
 async def create_framework_adder(
     client_id: int,
     payload: AdderIn,
@@ -261,7 +292,9 @@ async def delete_framework_adder(
     await db.delete(row)
 
 
-@finance_router.post("/clients/{client_id}/framework-terms/import", response_model=ImportOut)
+@finance_router.post(
+    "/clients/{client_id}/framework-terms/import", response_model=ImportOut
+)
 async def import_framework_terms(
     client_id: int,
     current_user: FinanceManageUser,
@@ -273,7 +306,9 @@ async def import_framework_terms(
     """Podgląd (``apply=false``) albo zapis cennika z załącznika umowy (.docx)."""
     await assert_client_assignable(db, client_id)
     if not (file.filename or "").casefold().endswith(".docx"):
-        raise HTTPException(422, detail="Wgraj załącznik umowy w formacie Word (.docx).")
+        raise HTTPException(
+            422, detail="Wgraj załącznik umowy w formacie Word (.docx)."
+        )
     data = await file.read(MAX_APPENDIX_BYTES + 1)
     if len(data) > MAX_APPENDIX_BYTES:
         raise HTTPException(413, detail="Plik przekracza 5 MB.")
@@ -282,26 +317,46 @@ async def import_framework_terms(
     try:
         proposal = parse_terms_docx(data)
     except Exception as exc:  # noqa: BLE001 — uszkodzony plik to błąd użytkownika
-        raise HTTPException(422, detail="Nie udało się odczytać tabel z pliku Word.") from exc
+        raise HTTPException(
+            422, detail="Nie udało się odczytać tabel z pliku Word."
+        ) from exc
 
     existing = (
-        await db.execute(
-            select(RateCard).where(RateCard.client_id == client_id, RateCard.valid_to.is_(None))
+        (
+            await db.execute(
+                select(RateCard).where(
+                    RateCard.client_id == client_id, RateCard.valid_to.is_(None)
+                )
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_label = {category_label(c.role, c.seniority).casefold(): c for c in existing}
-    adders = (await db.execute(select(RateCardAdder).where(RateCardAdder.client_id == client_id))).scalars().all()
+    adders = (
+        (
+            await db.execute(
+                select(RateCardAdder).where(RateCardAdder.client_id == client_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     adder_by_tech = {a.technology.casefold(): a for a in adders}
     warnings = list(proposal.warnings)
     rates_out: list[ImportRateOut] = []
     for rate in proposal.rates:
         if rate.rate != rate.rate.to_integral_value():
-            warnings.append(f"{rate.label}: stawka z groszami — wpisz ją ręcznie w cenniku.")
+            warnings.append(
+                f"{rate.label}: stawka z groszami — wpisz ją ręcznie w cenniku."
+            )
             continue
         card = by_label.get(rate.label.casefold())
         if card is None:
             action = "create"
-        elif card.rate_client_max == int(rate.rate) and card.rate_unit == RateUnit.hourly:
+        elif (
+            card.rate_client_max == int(rate.rate) and card.rate_unit == RateUnit.hourly
+        ):
             action = "unchanged"
         else:
             action = "update"
@@ -309,22 +364,35 @@ async def import_framework_terms(
         if not apply or action == "unchanged":
             continue
         if card is None:
-            card = RateCard(client_id=client_id, role=rate.role, seniority=rate.seniority, currency="PLN")
+            card = RateCard(
+                client_id=client_id,
+                role=rate.role,
+                seniority=rate.seniority,
+                currency="PLN",
+            )
             db.add(card)
         card.rate_client_max = int(rate.rate)
         card.rate_unit = RateUnit.hourly
         card.valid_from = valid_from or card.valid_from
-        card.notes = f"Import z załącznika umowy ramowej ({business_today().isoformat()})"
+        card.notes = (
+            f"Import z załącznika umowy ramowej ({business_today().isoformat()})"
+        )
     adders_out: list[ImportAdderOut] = []
     for item in proposal.adders:
         row = adder_by_tech.get(item.technology.casefold())
-        same = row is not None and row.percent == item.percent and list(row.eligible or []) == item.eligible
+        same = (
+            row is not None
+            and row.percent == item.percent
+            and list(row.eligible or []) == item.eligible
+        )
         action = "create" if row is None else ("unchanged" if same else "update")
         adders_out.append(
             ImportAdderOut(
                 technology=item.technology,
                 percent=item.percent,
-                eligible=[category_label(p["role"], p["seniority"]) for p in item.eligible],
+                eligible=[
+                    category_label(p["role"], p["seniority"]) for p in item.eligible
+                ],
                 action=action,
             )
         )
@@ -338,10 +406,14 @@ async def import_framework_terms(
         row.valid_from = valid_from or row.valid_from
     if apply:
         await db.flush()
-    return ImportOut(applied=apply, rates=rates_out, adders=adders_out, warnings=warnings)
+    return ImportOut(
+        applied=apply, rates=rates_out, adders=adders_out, warnings=warnings
+    )
 
 
-@router.post("/clients/{client_id}/framework-categories/recompute", response_model=RecomputeOut)
+@router.post(
+    "/clients/{client_id}/framework-categories/recompute", response_model=RecomputeOut
+)
 async def recompute_framework_categories(
     client_id: int,
     current_user: ContractsOrdersOrAmountsEditUser,
@@ -362,17 +434,23 @@ async def recompute_framework_categories(
     if apply:
         await db.flush()
     return RecomputeOut(
-        rows=[RecomputeRowOut(**vars(r)) for r in report.rows], next_after_id=report.next_after_id
+        rows=[RecomputeRowOut(**vars(r)) for r in report.rows],
+        next_after_id=report.next_after_id,
     )
 
 
 # --- Kontrakt -------------------------------------------------------------------
 
 
-async def _contract(db: AsyncSession, contract_id: int, *, lock: bool = False) -> Contract:
+async def _contract(
+    db: AsyncSession, contract_id: int, *, lock: bool = False
+) -> Contract:
     query = (
         select(Contract)
-        .options(selectinload(Contract.framework_rate_schedule), selectinload(Contract.client_rate_schedule))
+        .options(
+            selectinload(Contract.framework_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+        )
         .where(Contract.id == contract_id)
     )
     if lock:
@@ -505,7 +583,10 @@ def _rows_out(ov: Overview) -> list[OverviewRowOut]:
     return [
         OverviewRowOut(
             **{k: v for k, v in vars(r).items() if k != "levers"},
-            levers=[LeverOut(kind=l.kind, label=l.label, limit=l.limit) for l in r.levers],
+            levers=[
+                LeverOut(kind=lv.kind, label=lv.label, limit=lv.limit)
+                for lv in r.levers
+            ],
         )
         for r in ov.rows
     ]
@@ -525,14 +606,20 @@ async def get_framework_overview(
     ov = await build_overview(db, client_id, on=day, today=today)
     trend = []
     for point in [*quarter_ends(today), today] if on is None else []:
-        snap = ov if point == day else await build_overview(db, client_id, on=point, today=today)
+        snap = (
+            ov
+            if point == day
+            else await build_overview(db, client_id, on=point, today=today)
+        )
         trend.append(PointOut(on=point, counts=snap.counts))
     return OverviewOut(
         client_id=client_id,
         on=day,
         counts=ov.counts,
         over_gap=ov.over_gap,
-        by_category=[CategoryCountOut(category=k, counts=v) for k, v in ov.by_category()],
+        by_category=[
+            CategoryCountOut(category=k, counts=v) for k, v in ov.by_category()
+        ],
         trend=trend,
         rows=_rows_out(ov),
     )
@@ -564,11 +651,26 @@ def governance_xlsx(ov: Overview) -> bytes:
     for key, count in ov.counts.items():
         summary.append(safe_row([_STATUS_PL[key], count]))
     summary.append([])
-    summary.append(safe_row(["Kategoria", "W stawce", "Dzięki dopłacie", "Ponad stawką"]))
+    summary.append(
+        safe_row(["Kategoria", "W stawce", "Dzięki dopłacie", "Ponad stawką"])
+    )
     for family, counts in ov.by_category():
-        summary.append(safe_row([family, counts["in"], counts["in_addon"], counts["over"]]))
+        summary.append(
+            safe_row([family, counts["in"], counts["in_addon"], counts["over"]])
+        )
     people = book.create_sheet("Konsultanci")
-    people.append(safe_row(["Konsultant", "Kategoria", "Dopłata", "Stawka (PLN/h)", "Limit z umowy (PLN/h)", "Status"]))
+    people.append(
+        safe_row(
+            [
+                "Konsultant",
+                "Kategoria",
+                "Dopłata",
+                "Stawka (PLN/h)",
+                "Limit z umowy (PLN/h)",
+                "Status",
+            ]
+        )
+    )
     for row in ov.rows:
         people.append(
             safe_row(
@@ -587,7 +689,9 @@ def governance_xlsx(ov: Overview) -> bytes:
     return buffer.getvalue()
 
 
-@router.get("/clients/{client_id}/framework-overview/report.xlsx", dependencies=NOT_READ_ONLY)
+@router.get(
+    "/clients/{client_id}/framework-overview/report.xlsx", dependencies=NOT_READ_ONLY
+)
 async def get_framework_governance_report(
     client_id: int,
     current_user: DeliveryViewUser,

@@ -40,7 +40,9 @@ STATUS_NO_LIMIT = "no_limit"
 _LEVEL_ORDER = ("Junior", None, "Senior", "Expert")
 
 
-def classify(rate: Optional[Decimal], limit: Optional[Decimal], base: Optional[Decimal]) -> str:
+def classify(
+    rate: Optional[Decimal], limit: Optional[Decimal], base: Optional[Decimal]
+) -> str:
     """W limicie / w limicie dzięki dopłacie / ponad / bez limitu."""
     if rate is None or limit is None:
         return STATUS_NO_LIMIT
@@ -69,7 +71,12 @@ def _next_cards(terms: ClientTerms, card: CardView) -> list[CardView]:
     out = []
     for level in _LEVEL_ORDER[start + 1 :]:
         hit = next(
-            (c for c in terms.cards if _norm(c.role) == _norm(card.role) and _norm(c.seniority) == _norm(level)),
+            (
+                c
+                for c in terms.cards
+                if _norm(c.role) == _norm(card.role)
+                and _norm(c.seniority) == _norm(level)
+            ),
             None,
         )
         if hit is not None:
@@ -77,7 +84,9 @@ def _next_cards(terms: ClientTerms, card: CardView) -> list[CardView]:
     return out
 
 
-def levers(terms: ClientTerms, card: Optional[CardView], rate: Optional[Decimal], on: date) -> list[Lever]:
+def levers(
+    terms: ClientTerms, card: Optional[CardView], rate: Optional[Decimal], on: date
+) -> list[Lever]:
     """Co umowa daje osobie ponad limitem, od najtańszego dla klienta.
 
     Dopłata wymaga technologii, której klient zażąda w zapytaniu (CPRO) —
@@ -86,17 +95,33 @@ def levers(terms: ClientTerms, card: Optional[CardView], rate: Optional[Decimal]
     if card is None or rate is None:
         return []
     out: list[Lever] = []
-    for adder in sorted(addon_choices(terms.adders, card, on=on), key=lambda a: a.percent):
+    for adder in sorted(
+        addon_choices(terms.adders, card, on=on), key=lambda a: a.percent
+    ):
         limit = framework_limit(card, adder.percent)
         if limit is not None and rate <= limit:
-            out.append(Lever("addon", f"Dopłata +{percent_text(adder.percent)}% ({adder.technology})", limit))
+            out.append(
+                Lever(
+                    "addon",
+                    f"Dopłata +{percent_text(adder.percent)}% ({adder.technology})",
+                    limit,
+                )
+            )
             break
     for higher in _next_cards(terms, card):
         limit = framework_limit(higher, None)
         if limit is not None and rate <= limit:
-            out.append(Lever("level", f"Awans na {category_label(higher.role, higher.seniority)}", limit))
+            out.append(
+                Lever(
+                    "level",
+                    f"Awans na {category_label(higher.role, higher.seniority)}",
+                    limit,
+                )
+            )
             break
-        for adder in sorted(addon_choices(terms.adders, higher, on=on), key=lambda a: a.percent):
+        for adder in sorted(
+            addon_choices(terms.adders, higher, on=on), key=lambda a: a.percent
+        ):
             limit = framework_limit(higher, adder.percent)
             if limit is not None and rate <= limit:
                 out.append(
@@ -138,21 +163,31 @@ class Overview:
     @property
     def counts(self) -> dict[str, int]:
         c = Counter(r.status for r in self.rows)
-        return {k: c.get(k, 0) for k in (STATUS_IN, STATUS_IN_ADDON, STATUS_OVER, STATUS_NO_LIMIT)}
+        return {
+            k: c.get(k, 0)
+            for k in (STATUS_IN, STATUS_IN_ADDON, STATUS_OVER, STATUS_NO_LIMIT)
+        }
 
     @property
     def over_gap(self) -> Decimal:
-        return sum((r.gap for r in self.rows if r.status == STATUS_OVER and r.gap), Decimal(0))
+        return sum(
+            (r.gap for r in self.rows if r.status == STATUS_OVER and r.gap), Decimal(0)
+        )
 
     def by_category(self) -> list[tuple[str, dict[str, int]]]:
         groups: dict[str, Counter] = {}
         for row in self.rows:
             if row.status == STATUS_NO_LIMIT:
                 continue
-            family = re.sub(r" - (Junior|Senior|Expert)$", "", row.category or "Bez kategorii")
+            family = re.sub(
+                r" - (Junior|Senior|Expert)$", "", row.category or "Bez kategorii"
+            )
             groups.setdefault(family, Counter())[row.status] += 1
         return sorted(
-            ((k, {s: v.get(s, 0) for s in (STATUS_IN, STATUS_IN_ADDON, STATUS_OVER)}) for k, v in groups.items()),
+            (
+                (k, {s: v.get(s, 0) for s in (STATUS_IN, STATUS_IN_ADDON, STATUS_OVER)})
+                for k, v in groups.items()
+            ),
             key=lambda kv: -sum(kv[1].values()),
         )
 
@@ -170,16 +205,22 @@ def _population(client_id: int, on: date, today: date):
         .where(Contract.client_id == client_id)
     )
     if on >= today:
-        return query.where(Contract.status.in_((ContractStatus.active, ContractStatus.ending)))
+        return query.where(
+            Contract.status.in_((ContractStatus.active, ContractStatus.ending))
+        )
     # Stan z przeszłości: kontrakty obowiązujące w tym dniu, także zakończone później.
     return query.where(
-        Contract.status.in_((ContractStatus.active, ContractStatus.ending, ContractStatus.ended)),
+        Contract.status.in_(
+            (ContractStatus.active, ContractStatus.ending, ContractStatus.ended)
+        ),
         current_contract_clause(on),
         or_(Contract.end_date.is_(None), Contract.end_date >= on),
     )
 
 
-async def build_overview(db: AsyncSession, client_id: int, *, on: date, today: date) -> Overview:
+async def build_overview(
+    db: AsyncSession, client_id: int, *, on: date, today: date
+) -> Overview:
     terms = await load_terms(db, client_id)
     contracts = (await db.execute(_population(client_id, on, today))).scalars().all()
     rows = []
@@ -189,7 +230,11 @@ async def build_overview(db: AsyncSession, client_id: int, *, on: date, today: d
         limit = contract.effective_framework_rate(on)
         base = framework_limit(card, None) if card else None
         status = classify(rate, limit, base)
-        addon_pct = contract.framework_addon_percent if contract.framework_addon_technology else None
+        addon_pct = (
+            contract.framework_addon_percent
+            if contract.framework_addon_technology
+            else None
+        )
         expected = framework_limit(card, addon_pct) if card else None
         # Limit na kontrakcie inny niż z cennika (dawny import, ręczny krok):
         # dźwignie liczone od cennika wprowadzałyby w błąd.
@@ -198,7 +243,9 @@ async def build_overview(db: AsyncSession, client_id: int, *, on: date, today: d
         rows.append(
             OverviewRow(
                 contract_id=contract.id,
-                person=f"{candidate.name} {candidate.lastname}".strip() if candidate else f"Kontrakt #{contract.id}",
+                person=f"{candidate.name} {candidate.lastname}".strip()
+                if candidate
+                else f"Kontrakt #{contract.id}",
                 category=category_label(card.role, card.seniority) if card else None,
                 source=contract.rate_card_source,
                 coa_label=contract.rate_card_coa_label,
@@ -207,13 +254,16 @@ async def build_overview(db: AsyncSession, client_id: int, *, on: date, today: d
                 base=base,
                 addon=(
                     f"{contract.framework_addon_technology} {percent_text(contract.framework_addon_percent)}%"
-                    if contract.framework_addon_technology and contract.framework_addon_percent is not None
+                    if contract.framework_addon_technology
+                    and contract.framework_addon_percent is not None
                     else None
                 ),
                 status=status,
                 gap=(rate - limit) if rate is not None and limit is not None else None,
                 order_end=contract.client_order_end_date,
-                levers=levers(terms, card, rate, on) if status == STATUS_OVER and not mismatch else [],
+                levers=levers(terms, card, rate, on)
+                if status == STATUS_OVER and not mismatch
+                else [],
                 limit_mismatch=mismatch,
             )
         )
