@@ -138,6 +138,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   bank: "Bank",
   // 14.11.2026: /accounting/settlements — rozrachunki z rozliczaniem pozycji (K4b).
   settlements: "Rozrachunki",
+  // 15.11.2026: /accounting/vat — rejestry VAT sprzedaży i zakupu (K5a).
+  vat: "VAT",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",

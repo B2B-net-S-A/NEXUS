@@ -89,9 +89,10 @@ MODULE_REPLACES: dict[str, str] = {
     "reports": "Symfonia FK",
 }
 #: Moduły z gotowymi ekranami (kolejne etapy dopisują tu swój klucz).
-#: ``payroll`` — K7a (lista płac, parametry, dane osób; 14.11.2026).
+#: ``payroll`` — K7a (lista płac, parametry, dane osób; 14.11.2026);
+#: ``vat`` — K5a (rejestry VAT; 15.11.2026).
 BUILT: frozenset[str] = frozenset(
-    {"ledger", "automations", "bank", "assets", "payroll"}
+    {"ledger", "automations", "bank", "vat", "assets", "payroll"}
 )
 MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
@@ -187,6 +188,18 @@ class AssetsAccounts:
     disposal_account: str = ASSETS_ACCOUNT_FIELDS["disposal_account"][0]
 
 
+#: Konta rejestrów VAT (K5a): klucz → (domyślne konto, etykieta). VAT należny
+#: jest w kontach sprzedaży (``SALES_ACCOUNT_FIELDS["vat_account"]``).
+VAT_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
+    "input_account": ("221", "VAT naliczony"),
+}
+
+
+@dataclass(frozen=True)
+class VatAccounts:
+    input_account: str = VAT_ACCOUNT_FIELDS["input_account"][0]
+
+
 #: Konta wyciągów (K4a): klucz → (domyślne konto, etykieta). Puste = bez reguły.
 BANK_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "fees_account": ("", "Opłaty i prowizje bankowe"),
@@ -248,6 +261,7 @@ class LedgerSettings:
     payroll: PayrollAccounts = field(default_factory=PayrollAccounts)
     assets: AssetsAccounts = field(default_factory=AssetsAccounts)
     bank: BankSettings = field(default_factory=BankSettings)
+    vat: VatAccounts = field(default_factory=VatAccounts)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -279,6 +293,10 @@ def _payroll(raw: object) -> PayrollAccounts:
 
 def _assets(raw: object) -> AssetsAccounts:
     return AssetsAccounts(**_accounts(raw, ASSETS_ACCOUNT_FIELDS))
+
+
+def _vat(raw: object) -> VatAccounts:
+    return VatAccounts(**_accounts(raw, VAT_ACCOUNT_FIELDS))
 
 
 def _bank(raw: object) -> BankSettings:
@@ -338,6 +356,7 @@ def normalize(raw: object) -> LedgerSettings:
         payroll=_payroll(data.get("payroll")),
         assets=_assets(data.get("assets")),
         bank=_bank(data.get("bank")),
+        vat=_vat(data.get("vat")),
     )
 
 
@@ -357,6 +376,7 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
             key: getattr(settings.payroll, key) for key in PAYROLL_ACCOUNT_FIELDS
         },
         "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
+        "vat": {key: getattr(settings.vat, key) for key in VAT_ACCOUNT_FIELDS},
         "bank": {
             "accounts": [
                 {
@@ -535,6 +555,18 @@ async def set_assets_accounts(
     cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS)
     current = await load(db)
     settings = replace(current, assets=AssetsAccounts(**cleaned))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_vat_accounts(
+    db: AsyncSession, values: dict[str, str], *, actor: User
+) -> LedgerSettings:
+    """Konta rejestrów VAT (bez commita, admin): każde z planu kont."""
+
+    cleaned = await _plan_accounts(db, values, VAT_ACCOUNT_FIELDS)
+    current = await load(db)
+    settings = replace(current, vat=VatAccounts(**cleaned))
     await _save(db, settings, actor=actor)
     return settings
 

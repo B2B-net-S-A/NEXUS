@@ -257,6 +257,7 @@ from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
 from app.api import ledger_assets as ledger_assets_api
 from app.api import ledger_settlements as ledger_settlements_api
+from app.api import ledger_vat as ledger_vat_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -2323,6 +2324,13 @@ app.include_router(
 # Rozrachunki z rozliczaniem pozycji (K4b, 0706): część modułu „Bank”.
 app.include_router(
     ledger_settlements_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
+# Rejestry VAT (K5a): sprzedaż i zakup z dokumentów księgi, moduł „VAT i JPK”.
+app.include_router(
+    ledger_vat_api.router,
     prefix="/api/accounting",
     tags=["accounting"],
     dependencies=_HR_PROGRAM,
