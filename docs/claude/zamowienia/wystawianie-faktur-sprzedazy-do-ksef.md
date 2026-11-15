@@ -111,8 +111,8 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 
 ## Poza tym etapem (następne)
 
-- Noty księgowe, wezwania do zapłaty, refaktury benefitów, faktura rozliczeniowa do zaliczek, korekta zaliczkowej,
-  szablony cykliczne (604 w eBI24) i wystawianie seryjne jednym kliknięciem, wysyłka faktur mailem do klienta,
+- Noty księgowe, wezwania do zapłaty, faktura rozliczeniowa do zaliczek, korekta zaliczkowej,
+  wysyłka faktur mailem do klienta,
   certyfikat zamiast tokenu dla wysyłki, walidacja XSD FA(3) w CI, tryb offline KSeF.
 
 ## Zamówienie zafakturowane poza NEXUSEM (14.11.2026)
@@ -122,3 +122,37 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
   w KSeF”, a szkic dla takiego zamówienia to 409 z numerem faktury. Poprawka to korekta albo odpięcie faktury
   w „Do faktury”. Powód: przeklikanie na kopii produkcji 14.11.2026 — za październik 302 z 502 zamówień miało już
   fakturę z eBI24, a lista pokazywała je jako „do wystawienia” (w miesiącu przejściowym druga faktura).
+
+## Faktura z ręki, szablony „co miesiąc” i refaktury benefitów (E6, 15.11.2026)
+
+Decyzja Artura z 15.11.2026 po audycie eBI24: za październik 2026 eBI24 wystawił 212 faktur sprzedaży bez zamówienia
+w NEXUSIE — 155 refaktur benefitów do kontraktorów (pakiet sportowy, opieka medyczna) i ok. 57 usług do firm bez
+zamówienia (część jednorazowa). Bez tej drogi eBI24 nie da się wyłączyć. Kod: `services/client_invoicing/templates.py`,
+trasy w `api/client_issued_invoices.py`, migracja `0709_sales_invoice_templates`
+(`services/client_invoice_templates_schema.py`).
+
+- **Faktura z ręki** („Szkice” → „Nowa faktura”): klient z kartoteki albo dowolny nabywca. `client_issued_invoices.client_id`
+  może być pusty — nabywcą jest migawka `buyer`, przyjęta faktura trafia do `client_sales_invoices` bez klienta.
+  Jednorazowe sprzedaże (sprzęt, samochód) idą tą drogą, nie szablonem.
+- **Szablon** (`client_invoice_templates`): rodzaj `service` albo `benefit` (z `benefit` = `sport`/`medical`/`other`),
+  nabywca, pozycje, waluta, seria PL/UE, ważność od–do, termin, aktywny. Nazwa pozycji ze znacznikami `{okres}`
+  („październik 2026”), `{okresu}` („października 2026”), `{mm}`, `{rrrr}`. Zakładka „Szablony”: zaznaczenie →
+  szkice za miesiąc; **jeden szkic szablonu na miesiąc** (`uq_client_issued_invoices_template_period`, wycofana faktura
+  się nie liczy), szablon wyłączony albo spoza ważności — 409. Szkic idzie dalej zwykłą drogą E4.
+- **Szablony z faktur z KSeF** (zamiast eksportu 604 szablonów od dostawcy): faktury VAT z wybranego miesiąca bez
+  powiązania z zamówieniem i bez faktury z NEXUSA → propozycje. Refaktura benefitu rozpoznana po nazwie pozycji
+  („refaktur…” + sport/medyczne). Miesiąc z nazwy zamienia się na znacznik. Drugi import tej samej faktury albo tego
+  samego nabywcy z tymi samymi pozycjami nic nie tworzy.
+- **Adres nabywcy**: `client_sales_invoices` nie przechowuje adresu, więc pusty adres w szablonie i szkicu uzupełnia się
+  z kartoteki kontrahentów (`finance_counterparties`, import „Partnerzy” z eBI24) po NIP-ie, potem z klienta. Bez importu
+  kartoteki szkic refaktury pokaże „Uzupełnij nazwę i adres nabywcy”.
+- **Miesiąc przejściowy (przegląd 15.11.2026):** szablon do nabywcy, który ma już za ten miesiąc fakturę z KSeF spoza
+  NEXUSA bez zamówienia (eBI24 wystawia z własnych szablonów), ma stan „zafakturowane w KSeF” z numerem i nie daje
+  szkicu (409). Porównanie po nabywcy (NIP, bez NIP-u — nazwa), nie po pozycjach, żeby inna nazwa pozycji nie
+  przepuściła duplikatu; brakującą fakturę tego nabywcy wystawia się „Nową fakturą”.
+- „Zapisz jako szablon” tylko z faktury VAT bez zamówienia (bez korekty i zaliczkowej) — faktura z zamówienia powstaje
+  co miesiąc w „Wystaw za miesiąc”, szablon zafakturowałby usługę drugi raz (409).
+- **Wysyłka seryjna** („Szkice” → zaznacz → „Wyślij zaznaczone do KSeF”): przeglądarka wysyła szkice po kolei tą samą
+  trasą co karta (`POST /{id}/send`), bez nowej ścieżki w backendzie — numer, plik, wynik i UPO jak przy jednej
+  fakturze. „Zatrzymaj” albo zamknięcie karty zostawia resztę jako szkice bez numeru; wynik nieznany = „w drodze”
+  („Sprawdź status” na karcie). Podsumowanie: przyjęte, w drodze, do poprawy z powodem.
