@@ -29,6 +29,12 @@
   i `care_board_states` (0509) — dopisane 22.10. Tabela bez modelu ORM dostaje
   sondę przez lekkie `table()` modułu (jak `CARE_BOARD_STATES`), bo `select()`
   wymusza wtedy każdą kolumnę. Strażnik: `tests/test_health_deep_hot_tables.py`.
+  Od 15.11.2026 obejmuje każdą tabelę, którą tworzy paczka `hr_schema_bundle`
+  (`test_every_hr_bundle_table_is_probed`; 14.11 bez sondy było 79 ze 133
+  tabel ORM jej modułów), i sprawdza, że każda sonda czyta tabelę ze swojej
+  nazwy przez zaimportowany model (`test_every_probe_reads_its_own_table`).
+  Tabel tworzonych poza paczką (`entrypoint.sh`, inne `*_schema.py`) strażnik
+  nie widzi — tam sondę dopisuje się jak dotąd.
 - **`/api/health/deep` anonimowo = tylko sygnał wdrożenia, limit 10/min per IP
   (od pentestu stagingu 13.11.2026).** Anonim dostawał ok. 210 nazw tabel, raport
   dryfu schematu, kolację i liczby z importu portfela klientów, a każde wywołanie
