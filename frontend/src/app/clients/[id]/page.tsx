@@ -91,6 +91,7 @@ import { useToast } from "@/components/Toast";
 import { DeleteButton } from "@/components/ConfirmDialog";
 import { EditClientModal } from "@/components/AppShell";
 import { RateCardsTab } from "@/components/RateCardsTab";
+import { FrameworkTermsPanel } from "@/components/clients/FrameworkTermsPanel";
 import { MaterialsTab } from "./MaterialsTab";
 import { ClientSettlementCard } from "./ClientSettlementCard";
 import { OnboardingPackTab } from "./OnboardingPackTab";
@@ -122,7 +123,7 @@ import {
 } from "@/components/clients/KeyRelationshipsPanel";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
-import { canViewClientFinance, useAuthStore } from "@/store/auth";
+import { canViewClientFinance, hasAnalyticsCapability, useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
 import { useCanonicalClientRedirect } from "@/hooks/useCanonicalClientRedirect";
 import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
@@ -1625,6 +1626,20 @@ export default function ClientDetailPage() {
                 title="Cennik (rate cards)"
               >
                 <RateCardsTab clientId={Number(id)} />
+              </LazyDetails>
+
+              {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
+                  Czyta też DL swojego klienta (bramka kwot z portfela). */}
+              <LazyDetails
+                defaultOpen
+                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                title="Umowa ramowa: kategorie i dopłaty"
+              >
+                <FrameworkTermsPanel
+                  clientId={Number(id)}
+                  canImport={hasAnalyticsCapability(user, "manage_finance")}
+                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                />
               </LazyDetails>
             </div>
           )}

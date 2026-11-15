@@ -14,11 +14,21 @@ tylko administrator (403).
   administrator; walidacja XSD MF),
 * ``GET /vat/jpk/{id}/file`` — plik XML (Płace albo administrator, D2),
 * ``POST /vat/jpk/{id}/sent`` — oznaczenie „wysłany” z numerem UPO,
-* ``PUT /vat/jpk/settings`` — e-mail i telefon w JPK (administrator).
+* ``PUT /vat/jpk/settings`` — e-mail i telefon w JPK (administrator),
+* ``GET /vat/foreign?year=&month=`` — zakupy zagraniczne miesiąca (import usług,
+  K5b-2) i dane formularza (dostawcy, waluty, konto dostawców),
+* ``POST /vat/foreign`` — faktura dostawcy zagranicznego jako FVZ w buforze
+  (nowy dostawca trafia do kartoteki),
+* ``GET /vat/markers`` — kontrahenci ze znacznikami GTU/TP,
+* ``PUT /vat/markers/{counterparty_id}`` — znaczniki kontrahenta (lista
+  „Księgowi” albo administrator),
+* ``GET /vat/ue?year=&month=`` — pozycje VAT-UE(5) miesiąca (K5b-3a), problemy,
+* ``GET /vat/ue/file?year=&month=`` — plik VAT-UE(5) po walidacji schematem MF
+  (tylko sprzedaż dla firm z UE — bez danych osób zespołu, więc bez Płac).
 """
 
-from datetime import datetime, timezone
-from typing import Any, Optional
+from datetime import date, datetime, timezone
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
 from pydantic import BaseModel, Field
@@ -29,23 +39,34 @@ from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.user import User
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import documents, jpk, vat
+from app.core.scheduling import business_today
+from app.services.finance_ledger_schema import (
+    ID_VALUE_MAX,
+    NAME_MAX,
+    SYMFONIA_ID_MAX,
+)
+from app.services.ledger import documents, foreign, jpk, vat, vat_ue
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import Viewer
-from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX
-from app.services.ledger_schema import ACCOUNT_MAX
+from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX, MARKERS
+from app.services.ledger_schema import ACCOUNT_MAX, DESCRIPTION_MAX, NUMBER_MAX
 from app.services.ledger_vat_schema import NOTE_MAX, REASON_MAX
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 
 ID_MAX = 2**63 - 1
+#: ``finance_counterparties.id`` to INTEGER — większa liczba = 422, nie 500.
+COUNTERPARTY_ID_MAX = 2**31 - 1
 #: Nadwyżka z poprzedniej deklaracji (P_39) w pełnych złotych (TKwotaC: 14 cyfr).
 SURPLUS_MAX = 10**14 - 1
 
 
 class VatAccountsBody(BaseModel):
-    input_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    """``None`` = bez zmiany; pusty ``foreign_account`` wyłącza zakładanie dostawców."""
+
+    input_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    foreign_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
 
 
 class JpkBody(BaseModel):
@@ -64,6 +85,37 @@ class JpkSentBody(BaseModel):
 class JpkContactBody(BaseModel):
     email: str = Field(max_length=JPK_EMAIL_MAX)
     phone: str = Field(default="", max_length=JPK_PHONE_MAX)
+
+
+class NewSupplierBody(BaseModel):
+    name: str = Field(max_length=NAME_MAX)
+    country: str = Field(max_length=2)
+    tax_id: Optional[str] = Field(default=None, max_length=ID_VALUE_MAX + 8)
+    symfonia_partner_id: Optional[str] = Field(default=None, max_length=SYMFONIA_ID_MAX)
+    #: Puste = pierwszy wolny numer pod kontem dostawców zagranicznych.
+    account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+
+
+class ForeignPurchaseBody(BaseModel):
+    """Faktura dostawcy zagranicznego: dostawca z listy albo nowy (jedno z dwóch)."""
+
+    supplier_id: Optional[int] = Field(default=None, ge=1, le=COUNTERPARTY_ID_MAX)
+    new_supplier: Optional[NewSupplierBody] = None
+    number: str = Field(max_length=NUMBER_MAX)
+    issue_date: date
+    #: Wykonanie usługi = obowiązek podatkowy (okres VAT i dzień kursu).
+    service_date: date
+    currency: str = Field(max_length=3)
+    #: Netto w walucie faktury (kropka albo przecinek; ujemna = korekta).
+    net: str = Field(max_length=24)
+    vat_rate: Literal["23", "8", "5"]
+    deduction: Literal["full", "none"]
+    cost_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+
+
+class MarkersBody(BaseModel):
+    markers: list[str] = Field(default_factory=list, max_length=len(MARKERS))
 
 
 def _fail(exc: LedgerError) -> HTTPException:
@@ -213,3 +265,101 @@ async def set_jpk_contact(
         raise _fail(exc) from exc
     await db.commit()
     return ledger_settings.to_json(current)["jpk"]
+
+
+@router.get("/vat/foreign")
+async def foreign_purchases(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await foreign.overview(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/vat/foreign", status_code=status.HTTP_201_CREATED)
+async def create_foreign_purchase(
+    body: ForeignPurchaseBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        result = await foreign.create(
+            db, viewer, current, body.model_dump(), today=business_today()
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
+
+
+@router.get("/vat/markers")
+async def vat_markers(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    return await vat.markers(db, viewer, current)
+
+
+@router.put("/vat/markers/{counterparty_id}")
+async def set_vat_markers(
+    body: MarkersBody,
+    current_user: FinanceModuleUser,
+    counterparty_id: int = Path(ge=1, le=COUNTERPARTY_ID_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    if not viewer.approver:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Znaczniki JPK ustawia osoba z listy „Księgowi” albo administrator.",
+        )
+    try:
+        current = await ledger_settings.set_vat_markers(
+            db, counterparty_id, body.markers, actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await vat.marked_item(db, current, counterparty_id)
+
+
+@router.get("/vat/ue")
+async def vat_ue_overview(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await vat_ue.overview(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/vat/ue/file")
+async def vat_ue_file(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    current, viewer = await _context(db, current_user)
+    try:
+        name, content = await vat_ue.file(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+    return Response(
+        content=content,
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{name}"'},
+    )

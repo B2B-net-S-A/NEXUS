@@ -6,6 +6,8 @@
 // 404, admin widzi). Faktury osób zespołu (D2) serwer pokazuje tylko osobie
 // z Płacami — reszta nie widzi ich ani w wierszach, ani w sumach
 // (`payroll_hidden` mówi tylko, że są). Konta modułu zmienia administrator.
+// K5b-2: zakupy zagraniczne (import usług) z formularza i znaczniki GTU/TP
+// per kontrahent (`/vat/foreign`, `/vat/markers`).
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -13,7 +15,20 @@ import { api } from "@/lib/api";
 
 const BASE = "/api/accounting";
 
-export type VatGroupKey = "23" | "8" | "5" | "0" | "0_wdt" | "0_ex" | "zw" | "np" | "np_ue" | "assets" | "other";
+export type ImportGroup = "imp_other" | "imp_28b";
+export type VatGroupKey =
+  | "23"
+  | "8"
+  | "5"
+  | "0"
+  | "0_wdt"
+  | "0_ex"
+  | "zw"
+  | "np"
+  | "np_ue"
+  | ImportGroup
+  | "assets"
+  | "other";
 
 export interface VatRowGroup {
   key: VatGroupKey;
@@ -38,6 +53,9 @@ export interface VatRow {
   correction: boolean;
   payroll: boolean;
   problem: string | null;
+  counterparty_id: number | null;
+  /** Znaczniki JPK (GTU_xx, TP) — z listy kontrahentów, tylko faktury sprzedaży. */
+  markers: string[];
 }
 
 /** Suma grupy = para pól JPK_V7M (netto, VAT); `also` = pole „w tym” (K_12). */
@@ -64,7 +82,7 @@ export interface VatIssue {
 export interface VatRegisters {
   year: number;
   month: number;
-  accounts: { output_account: string; input_account: string; intake_account: string };
+  accounts: { output_account: string; input_account: string; intake_account: string; foreign_account: string };
   sales: VatRow[];
   purchases: VatRow[];
   summary: { groups: VatGroup[]; output_vat: number; input_vat: number; due: number };
@@ -86,11 +104,17 @@ export function useVatRegisters(year: number, month: number, enabled = true) {
   });
 }
 
+export interface VatAccounts {
+  input_account: string;
+  foreign_account: string;
+}
+
 export function useSetVatAccounts() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { input_account: string }) =>
-      (await api.put<{ input_account: string }>(`${BASE}/vat/settings`, body)).data,
+    /** Pole pominięte = bez zmiany; pusty `foreign_account` wyłącza zakładanie dostawców. */
+    mutationFn: async (body: Partial<VatAccounts>) =>
+      (await api.put<VatAccounts>(`${BASE}/vat/settings`, body)).data,
     onSettled: () => {
       client.invalidateQueries({ queryKey: vatKeys.all });
       client.invalidateQueries({ queryKey: ["accounting", "closing"] });
@@ -198,4 +222,189 @@ export function useSetJpkContact() {
       (await api.put<{ email: string; phone: string }>(`${BASE}/vat/jpk/settings`, body)).data,
     onSettled: refresh,
   });
+}
+
+// ── Zakup zagraniczny (K5b-2) ───────────────────────────────────────────────
+// Faktura dostawcy spoza KSeF (import usług) wchodzi jako FVZ do bufora: VAT
+// należny (K_27/K_28 albo K_29/K_30) i — przy odliczeniu — naliczony (K_42/K_43).
+// Nowego dostawcę serwer zakłada w kartotece z kontem pod kontem z ustawień VAT.
+
+export interface ForeignSupplier {
+  id: number;
+  name: string;
+  country: string | null;
+  tax_id: string | null;
+  symfonia_partner_id: string | null;
+  /** Konto rozrachunkowe (kartoteka: „konto kosztowe”). */
+  account: string | null;
+  group: ImportGroup;
+  /** Założony formularzem (jeszcze nie z importu eBI24). */
+  from_form: boolean;
+}
+
+export interface ForeignPurchase {
+  id: number;
+  number: string;
+  status: "draft" | "approved";
+  status_label: string;
+  supplier_id: number | null;
+  supplier: string | null;
+  issue_date: string | null;
+  service_date: string;
+  currency: string;
+  rate: string | null;
+  rate_day: string | null;
+  /** Grosze: netto w walucie, netto i VAT w PLN. */
+  net_cur: number | null;
+  net: number | null;
+  vat: number | null;
+  vat_rate: string | null;
+  deduction: "full" | "none" | null;
+  group: ImportGroup | null;
+}
+
+export interface ForeignOverview {
+  year: number;
+  month: number;
+  items: ForeignPurchase[];
+  suppliers: ForeignSupplier[];
+  foreign_account: string;
+  next_account: string | null;
+  currencies: string[];
+  vat_rates: string[];
+  missing: string[];
+}
+
+export interface NewSupplierInput {
+  name: string;
+  country: string;
+  tax_id?: string;
+  symfonia_partner_id?: string;
+  account?: string;
+}
+
+export interface ForeignPurchaseInput {
+  supplier_id?: number;
+  new_supplier?: NewSupplierInput;
+  number: string;
+  issue_date: string;
+  service_date: string;
+  currency: string;
+  /** Netto w walucie faktury (ujemne = korekta). */
+  net: string;
+  vat_rate: "23" | "8" | "5";
+  deduction: "full" | "none";
+  cost_account: string;
+  description?: string;
+}
+
+export const foreignKeys = {
+  month: (year: number, month: number) => ["accounting", "vat", "foreign", year, month] as const,
+};
+
+export function useForeignPurchases(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: foreignKeys.month(year, month),
+    queryFn: async () => (await api.get<ForeignOverview>(`${BASE}/vat/foreign`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+export function useCreateForeignPurchase() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: ForeignPurchaseInput) =>
+      (await api.post<{ document: ForeignPurchase; supplier: ForeignSupplier }>(`${BASE}/vat/foreign`, body)).data,
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: vatKeys.all });
+      client.invalidateQueries({ queryKey: ["accounting", "closing"] });
+      client.invalidateQueries({ queryKey: ["accounting", "documents"] });
+    },
+  });
+}
+
+// ── Znaczniki GTU i TP per kontrahent (K5b-2) ───────────────────────────────
+
+export interface MarkedCounterparty {
+  counterparty_id: number;
+  name: string;
+  tax_id: string | null;
+  country: string | null;
+  markers: string[];
+}
+
+export interface VatMarkers {
+  items: MarkedCounterparty[];
+  labels: { key: string; label: string }[];
+  /** Lista „Księgowi” albo administrator. */
+  can_edit: boolean;
+}
+
+export const markerKeys = {
+  all: ["accounting", "vat", "markers"] as const,
+};
+
+export function useVatMarkers(enabled = true) {
+  return useQuery({
+    queryKey: markerKeys.all,
+    queryFn: async () => (await api.get<VatMarkers>(`${BASE}/vat/markers`)).data,
+    enabled,
+  });
+}
+
+export function useSetVatMarkers() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ counterpartyId, markers }: { counterpartyId: number; markers: string[] }) =>
+      (await api.put<MarkedCounterparty>(`${BASE}/vat/markers/${counterpartyId}`, { markers })).data,
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: vatKeys.all });
+      client.invalidateQueries({ queryKey: ["accounting", "closing"] });
+    },
+  });
+}
+
+// ── VAT-UE(5) (K5b-3a) ──────────────────────────────────────────────────────
+// Informacja podsumowująca z rejestru sprzedaży: usługi dla podatników z UE
+// (np II) i WDT, suma per kontrahent w pełnych złotych. Plik serwer składa
+// i sprawdza schematem MF przy pobraniu (422 z powodem).
+
+export interface VatUeLine {
+  section: "goods" | "services";
+  section_label: string;
+  country: string;
+  number: string;
+  name: string;
+  /** Pełne złote. */
+  amount: number;
+  /** Grosze. */
+  net: number;
+  documents: string[];
+  documents_count: number;
+}
+
+export interface VatUeOverview {
+  year: number;
+  month: number;
+  lines: VatUeLine[];
+  totals: { goods: number; services: number };
+  /** `earlier` = korekta wcześniejszego okresu (na VAT-UEK) — nie blokuje pliku. */
+  problems: { number: string; detail: string; kind: "counterparty" | "negative" | "unknown" | "earlier" }[];
+  blockers: string[];
+  missing: string[];
+  can_download: boolean;
+  notes: string[];
+}
+
+export function useVatUe(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: ["accounting", "vat", "ue", year, month] as const,
+    queryFn: async () => (await api.get<VatUeOverview>(`${BASE}/vat/ue`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+/** Ścieżka pliku VAT-UE (pobranie z sesją przez `downloadAuthenticatedFile`). */
+export function vatUeFilePath(year: number, month: number): string {
+  return `${BASE}/vat/ue/file?year=${year}&month=${month}`;
 }
