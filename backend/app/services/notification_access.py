@@ -220,6 +220,9 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.care_client_structure: ProductSection.delivery,
     # 0509: popyt z rozmowy opiekuna — karta na tablicy „Do zrobienia” DL.
     NotificationType.care_demand_signal: ProductSection.delivery,
+    # 0708: link prowadzi do zakładki „Raporty” klienta (trasy katalogu za
+    # bramką podglądu Delivery).
+    NotificationType.client_report_due: ProductSection.delivery,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

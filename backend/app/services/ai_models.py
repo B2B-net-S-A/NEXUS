@@ -70,6 +70,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F46 | sales_meeting_client_summary     | claude-sonnet-5-5 (z 5)  |
 | F47 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
 | F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
+| F49 | client_report_requirements       | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -594,6 +595,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z dosłownym cytatem — to samo zadanie „znajdź i zacytuj” co „Oceń z AI” (F39). Prototyp "
         "na stagingu 09.11: ok. 100 CV w 42-50 s przy 8 wątkach, przy celach opisowych top 10 "
         "trafnych 2->10 (Jira) i 6->10 (AWS). Dodatek: awaria modelu = komunikat, nie pusta lista.",
+    ),
+    AIFeatureKey.client_report_requirements: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CLIENT_REPORT_REQUIREMENTS_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F49 (decyzja Artura 15.11.2026, POZA badaniem 16.09). Wyciąg obowiązków "
+        "raportowych z fragmentów umowy ramowej (co, jak często, termin, dla kogo) z numerem "
+        "fragmentu — to samo czytanie dokumentu co odczyt kosztu (F33), więc jego model. Rzadko "
+        "(przycisk „Znajdź w umowach”). Dodatek: bez modelu DL dostaje fragmenty ze słowami "
+        "kluczowymi i wpisuje raport sam; propozycja obowiązuje dopiero po potwierdzeniu DL-a.",
     ),
 }
 

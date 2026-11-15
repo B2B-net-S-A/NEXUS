@@ -36,6 +36,7 @@ from app.models.client_framework_contract import (
     FrameworkContractStatus,
 )
 from app.models.client_framework_contract_chunk import ClientFrameworkContractChunk
+from app.models.client_report import ClientReportDefinition
 from app.models.contract import RateUnit
 from app.models.job import Job, JobStatus, Seniority
 from app.models.pipeline_template import RejectionReason
@@ -48,7 +49,6 @@ from app.services.access_scope import (
 )
 from app.services.auto_match_outbox import enqueue_job_safe
 from app.services.bnp_report.calculations import (
-    BNP_REPORT_CLIENT_IDS,
     SENIORITY_LABELS,
     RateBand,
     ReportJob,
@@ -66,6 +66,7 @@ router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 
 XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 RATE_DENIED = "Raport zawiera stawki do klienta, których Twoja rola nie widzi."
+BNP_GENERATOR_KEY = "bnp_recruitment_monthly"
 
 
 def require_client_rate_viewer(
@@ -113,8 +114,26 @@ def _month_bounds(month: str) -> tuple[date, date]:
     return first, next_month - timedelta(days=1)
 
 
+async def _has_catalog_report(db: AsyncSession, client_id: int) -> bool:
+    """Klient ma ten raport, gdy ma go w katalogu raportów (od 15.11.2026).
+
+    Do katalogu raport był przyciskiem dla jednego klienta zaszytego w kodzie;
+    zasiew 0708 założył mu definicję, kolejny klient dostaje ją z katalogu.
+    """
+    found = await db.scalar(
+        select(ClientReportDefinition.id)
+        .where(
+            ClientReportDefinition.client_id == client_id,
+            ClientReportDefinition.generator_key == BNP_GENERATOR_KEY,
+            ClientReportDefinition.status == "active",
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
 async def _ensure_report_client(db: AsyncSession, user: User, client_id: int) -> None:
-    if client_id not in BNP_REPORT_CLIENT_IDS:
+    if not await _has_catalog_report(db, client_id):
         raise HTTPException(404, "Ten klient nie ma raportu miesięcznego.")
     assert_delivery_lead_client_visible(
         client_id, await resolve_delivery_lead_client_ids(user, db)
@@ -318,7 +337,7 @@ async def report_availability(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Czy pokazać przycisk raportu: bez 404 i 403 dla zwykłego klienta."""
-    if client_id not in BNP_REPORT_CLIENT_IDS:
+    if not await _has_catalog_report(db, client_id):
         return {"available": False}
     allowed = await resolve_delivery_lead_client_ids(current_user, db)
     return {"available": allowed is None or client_id in allowed}

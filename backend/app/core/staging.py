@@ -75,6 +75,8 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "cc_participants_sync",
         "competition_autofreeze",
         "dl_portal_expiry",
+        # Dzwonki w bazie kopii, bez maila (jak `dl_portal_expiry`).
+        "client_report_reminders",
         "index_outbox",
         "sales_archive_shadow",
     }

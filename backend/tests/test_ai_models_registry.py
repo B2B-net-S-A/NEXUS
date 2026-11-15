@@ -181,6 +181,8 @@ DECISION_2026_09_16 = {
     # F47/F48 — 09.11.2026: „Kto już to robił” (rozbicie celu, ocena CV z cytatem).
     AIFeatureKey.duty_search_plan: ("F47", "claude-sonnet-5"),
     AIFeatureKey.duty_search_judge: ("F48", "gpt-6-luna"),
+    # F49 — 15.11.2026: obowiązki raportowe z umów ramowych klienta.
+    AIFeatureKey.client_report_requirements: ("F49", "claude-sonnet-5"),
 }
 
 

@@ -17,6 +17,7 @@ import api from "@/lib/api";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { ClientReportsTab } from "@/components/client-reports/ClientReportsTab";
 import {
   ClientPeopleTechTab,
   PeopleTechHeaderActions,
@@ -1325,6 +1326,7 @@ export default function ClientDetailPage() {
     { key: "projekty", label: "Projekty" },
     { key: "zamowienia", label: "Zamówienia" },
     { key: "umowy-ramowe", label: "Umowy" },
+    { key: "raporty", label: "Raporty" },
     // Rzadkie — pod „Więcej” (`CLIENT_MORE_TABS`, makieta P5): DL klienta
     // stoi też w nagłówku, wiedza o kliencie ma wejście z „Ludzi i technologii”.
     { key: "zespol", label: "Delivery Lead" },
@@ -1605,6 +1607,7 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
+          {activeTab === "raporty" && <ClientReportsTab clientId={Number(id)} />}
 
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
 

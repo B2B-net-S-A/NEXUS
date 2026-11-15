@@ -5,8 +5,10 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 import { ClientsListV2 } from "@/components/v2/pages/ClientsListV2";
 import { KeyRelationshipsPanel } from "@/components/clients/KeyRelationshipsPanel";
+import { ReportsCalendarPanel } from "@/components/client-reports/ReportsCalendarPanel";
 import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
-import { resolveClientsView, type ClientsView } from "@/lib/clients-workspace";
+import { CLIENTS_MINE_ROLES, resolveClientsView, type ClientsView } from "@/lib/clients-workspace";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 /**
  * „Klienci" = jeden ekran z dwoma trybami: lista klientów (z przełącznikiem
@@ -35,12 +37,14 @@ export default function ClientsPage() {
 const MODES = [
   { value: "list", label: "Lista klientów" },
   { value: "contacts", label: "Kluczowe relacje" },
+  { value: "reports", label: "Raporty dla klientów" },
 ] as const satisfies readonly { value: ClientsView; label: string }[];
 
 function ClientsWorkspace() {
   const { replaceUrl } = useUrlWriter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const user = useAuthStore((state) => state.user);
   // Tryb czytany z WARTOŚCI parametru przy każdym renderze — miękka
   // nawigacja (np. z palety ⌘K) przełącza widok bez odmontowania strony.
   const view = resolveClientsView(searchParams.get("view"));
@@ -48,7 +52,7 @@ function ClientsWorkspace() {
   const changeView = (next: ClientsView) => {
     if (next === view) return;
     // Wejście w tryb jest świeże: filtry listy nie przechodzą do kontaktów.
-    replaceUrl(next === "contacts" ? `${pathname}?view=contacts` : pathname);
+    replaceUrl(next === "list" ? pathname : `${pathname}?view=${next}`);
   };
 
   const modeTabs = (
@@ -64,7 +68,14 @@ function ClientsWorkspace() {
     <div className="space-y-4">
       {/* Lista klientów rysuje tryby pod swoim tytułem (jak Kontrakty);
           kluczowe relacje nie mają tytułu, więc tryby stoją nad nimi. */}
-      {view === "contacts" ? (
+      {view === "reports" ? (
+        <>
+          {modeTabs}
+          <ReportsCalendarPanel
+            defaultMine={searchParams.get("mine") === "1" || (searchParams.get("mine") !== "0" && hasRole(user, ...CLIENTS_MINE_ROLES))}
+          />
+        </>
+      ) : view === "contacts" ? (
         <>
           {modeTabs}
           <KeyRelationshipsPanel />

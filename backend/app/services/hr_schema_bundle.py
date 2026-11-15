@@ -27,6 +27,7 @@ from app.services import client_invoice_issue_schema as client_invoice_issue
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
+from app.services import client_reports_schema as client_reports
 from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
@@ -134,6 +135,8 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
+    # 0709: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
+    client_reports,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
