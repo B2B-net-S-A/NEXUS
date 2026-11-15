@@ -1,4 +1,4 @@
-"""DDL zespołu dla klienta (0710) — jedno źródło dla migracji i ``entrypoint.sh``.
+"""DDL zespołu dla klienta (0711) — jedno źródło dla migracji i ``entrypoint.sh``.
 
 Zespół to pojemnik na kilka zwykłych rekrutacji jednego klienta i jeden link
 dla klienta na cały skład (``docs/claude/klienci/zespol-dla-klienta.md``).
@@ -8,7 +8,7 @@ Nie jest typem rekrutacji. Link domyślnie wyłączony.
 - ``jobs.team_id``: rekrutacja należy najwyżej do jednego zespołu.
 - ``job_team_selections``: skład wybrany przez klienta pod linkiem. Autor jest
   niezweryfikowany, IP tylko jako skrót z solą dnia.
-- 0711 ``job_teams.variants``: gotowe składy zatwierdzone przez DL-a
+- 0712 ``job_teams.variants``: gotowe składy zatwierdzone przez DL-a
   (``[{key, name, why, picks: [{job_id, candidate_ids}]}]``). Klient widzi tylko
   te; propozycje automatu nie są zapisywane.
 """
@@ -56,7 +56,7 @@ DOWNGRADE_DDL = (
     "DROP TABLE IF EXISTS job_teams",
 )
 
-# 0711: gotowe składy. Osobno od 0710, bo 0710 jest już wdrożona swoją listą.
+# 0712: gotowe składy. Osobno od 0711, bo 0711 jest już wdrożona swoją listą.
 VARIANTS_DDL = (
     "ALTER TABLE job_teams ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL "
     "DEFAULT '[]'::jsonb",

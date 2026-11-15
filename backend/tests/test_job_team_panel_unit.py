@@ -476,18 +476,18 @@ def test_migration_and_entrypoint_share_one_ddl_source() -> None:
     assert entrypoint.index("*_JOB_TEAMS_DDL,") > entrypoint.index(
         "*_CLIENT_PANEL_DDL,"
     )
-    migration = (BACKEND / "alembic/versions/0710_job_teams.py").read_text(
+    migration = (BACKEND / "alembic/versions/0711_job_teams.py").read_text(
         encoding="utf-8"
     )
     assert "schema.TABLE_DDL" in migration
     assert "schema.DOWNGRADE_DDL" in migration
-    assert 'down_revision = "0709_sales_invoice_templates"' in migration
+    assert 'down_revision = "0710_client_reports"' in migration
     variants_migration = (
-        BACKEND / "alembic/versions/0711_job_team_variants.py"
+        BACKEND / "alembic/versions/0712_job_team_variants.py"
     ).read_text(encoding="utf-8")
     assert "schema.VARIANTS_DDL" in variants_migration
     assert "schema.VARIANTS_DOWNGRADE_DDL" in variants_migration
-    assert 'down_revision = "0710_job_teams"' in variants_migration
+    assert 'down_revision = "0711_job_teams"' in variants_migration
     assert "*_job_team_schema.VARIANTS_DDL" in entrypoint
 
 

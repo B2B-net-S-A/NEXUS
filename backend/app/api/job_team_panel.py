@@ -1,4 +1,4 @@
-"""Zespół dla klienta: zakładanie, skład, link dla klienta (0710).
+"""Zespół dla klienta: zakładanie, skład, link dla klienta (0711).
 
 Bramka jak w panelu rekrutacji (``api/client_panel.py``): uprawnienie
 „Rekrutacje” i prawo do panelu na KAŻDEJ rekrutacji zespołu, bo link zespołu
@@ -378,7 +378,7 @@ async def rotate_team_link(
     return view
 
 
-# ── Gotowe składy (Z3, 0711) ─────────────────────────────────────────────────
+# ── Gotowe składy (Z3, 0712) ─────────────────────────────────────────────────
 
 
 @router.get("/{team_id}/variants/proposal")
