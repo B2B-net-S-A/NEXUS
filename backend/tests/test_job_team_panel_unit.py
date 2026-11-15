@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.models.job import JobStatus
 from app.services import client_panel as panel_service
 from app.services import job_team_panel as service
+from app.services import job_team_rates as rates
 from app.services import job_team_variants as variants
 from app.services.job_team_schema import (
     DOWNGRADE_DDL,
@@ -145,7 +146,9 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
         client_id=5,
         status=JobStatus.published,
     )
-    position = service.PublicPosition("aaaaaaaaaaaaaaaa", job, SimpleNamespace(id=4))
+    position = service.PublicPosition(
+        "aaaaaaaaaaaaaaaa", job, SimpleNamespace(id=4, show_rate=False)
+    )
     team = SimpleNamespace(
         id=1,
         name="Zespół mobilny",
@@ -156,8 +159,14 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
         variants=[],
     )
 
+    view = {
+        "panel": {"show_rate": False},
+        "job": {"title": "Programista"},
+        "candidates": [],
+    }
+
     async def fake_view(db, panel, job, focus):
-        return {"job": {"title": "Programista"}, "candidates": []}
+        return view
 
     async def fake_client_name(db, client_id):
         return "Klient"
@@ -175,7 +184,9 @@ async def test_public_team_shape_is_built_from_explicit_fields(monkeypatch) -> N
             "key": "aaaaaaaaaaaaaaaa",
             "short": "Programista",
             "headcount": 2,
-            "view": {"job": {"title": "Programista"}, "candidates": []},
+            # Ukryta stawka: bez szacunku i bez zapytania o historię stawek.
+            "estimate": None,
+            "view": view,
         }
     ]
 
@@ -520,3 +531,50 @@ def test_no_ai_import_in_the_public_path() -> None:
         source = (BACKEND / name).read_text(encoding="utf-8")
         assert "ai_feature" not in source
         assert "ai_models" not in source
+
+
+# ── Podpowiedź stawki (Z4) ───────────────────────────────────────────────────
+
+
+def test_rate_hint_needs_three_pairs_and_interpolates_quartiles() -> None:
+    assert rates.summarize([]) is None
+    assert rates.summarize([120.0, 140.0]) is None
+    assert rates.summarize([140.0, 100.0, 120.0]) == {
+        "p25": 110.0,
+        "median": 120.0,
+        "p75": 130.0,
+        "count": 3,
+    }
+    assert rates.summarize([100.0, 110.0, 130.0, 170.0]) == {
+        "p25": 107.5,
+        "median": 120.0,
+        "p75": 140.0,
+        "count": 4,
+    }
+
+
+def test_client_estimate_carries_only_the_quartile_range() -> None:
+    assert rates.public_estimate(None) is None
+    hint = {"p25": 110.0, "median": 120.0, "p75": 130.0, "count": 3}
+    assert rates.public_estimate(hint) == {"min": 110.0, "max": 130.0}
+
+
+def _view(show_rate: bool, *candidate_rates) -> dict:
+    return {
+        "panel": {"show_rate": show_rate},
+        "candidates": [{"rate": rate} for rate in candidate_rates],
+    }
+
+
+def test_estimate_only_without_a_shown_hourly_rate() -> None:
+    hint = {"p25": 110.0, "median": 120.0, "p75": 130.0, "count": 3}
+    daily = {"value": "1200.00", "unit": "daily", "currency": "PLN"}
+    hourly = {"value": "150.00", "unit": "hourly", "currency": "PLN"}
+    assert service._estimate(_view(True), hint) == {"min": 110.0, "max": 130.0}
+    assert service._estimate(_view(True, None, daily), hint) == {
+        "min": 110.0,
+        "max": 130.0,
+    }
+    assert service._estimate(_view(True, daily, hourly), hint) is None
+    assert service._estimate(_view(False), hint) is None
+    assert service._estimate(_view(True), None) is None

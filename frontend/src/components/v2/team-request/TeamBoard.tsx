@@ -339,6 +339,19 @@ function PositionsTable({ team }: { team: TeamDetail }) {
                 </td>
                 <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums">
                   {min == null ? "—" : min === max ? formatHourly(min) : `${formatHourly(min)}–${formatHourly(max!)}`}
+                  {position.rate_hint ? (
+                    <div
+                      className="text-[11px] text-muted-foreground"
+                      title={`Stawki do klienta u tego klienta w tej kategorii, 365 dni, ${position.rate_hint.count} par`}
+                    >
+                      historia: {Math.round(position.rate_hint.p25)}–{Math.round(position.rate_hint.p75)} zł/h
+                    </div>
+                  ) : null}
+                  {rates.length < position.candidates.length ? (
+                    <div className="text-[11px] text-warning-muted-foreground">
+                      bez stawki: {position.candidates.length - rates.length}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-muted-foreground">
                   {position.budget_max != null

@@ -294,6 +294,7 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.champion_draft: [
         "Treść CV kandydata-Championa",
         "Historia rekrutacji (top-K podobnych zamkniętych ról)",
+        "Wklejony mail klienta z kilkoma rolami — rozbicie na stanowiska zespołu",
     ],
     AIFeatureKey.order_parser: [
         "Tekst wyekstrahowany z PDF/DOCX zamówienia od klienta",

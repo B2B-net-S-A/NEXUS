@@ -1579,6 +1579,10 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
             clientId={client?.id ?? null}
             value={teamChoice}
             onChange={setTeamChoice}
+            requestText={requestText || pasteDraft}
+            onUsePosition={(position) =>
+              setForm((f) => ({ ...f, title: position.title, headcount: String(position.headcount) }))
+            }
           />
           <NewJobReviewForm
             form={form}
