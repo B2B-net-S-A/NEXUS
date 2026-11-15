@@ -404,6 +404,10 @@ async def update_draft(
 
 #: Źródło PK różnicy kursowej z rozrachunków (K4c-1, ``settlements.FX_SOURCE``).
 FX_DIFFERENCE_SOURCE = "fx_difference"
+#: Źródło FVZ z formularza zakupu zagranicznego (K5b-2, ``ledger/foreign.py``) —
+#: tu, bo czytają je rejestry VAT i rozliczenie na „5” (``allocation`` nie może
+#: importować ``vat``: ``sources`` → ``allocation``).
+FOREIGN_PURCHASE_SOURCE = "foreign_purchase"
 #: Źródła PK wyceny walut na koniec miesiąca i jej odwrócenia (K4c-2).
 FX_VALUATION_SOURCE = "fx_valuation"
 FX_VALUATION_REVERSAL_SOURCE = "fx_valuation_reversal"

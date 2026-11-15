@@ -21,12 +21,20 @@ Etap K5 planu „Księgowość w NEXUSIE”; reguła modułu:
 * **D2**: faktury osób zespołu (``sensitivity = 'payroll'``) widzi tylko Płace
   i admin — osoba bez Płac dostaje rejestry, sumy i listy „do sprawdzenia” bez
   nich, a ``payroll_hidden`` mówi tylko, że są (bez liczby).
+* **Zakup zagraniczny** (K5b-2, FVZ ze źródła ``foreign_purchase`` —
+  formularz w zakładce VAT): import usług bez KSeF. VAT należny z dokumentu
+  idzie do rejestru sprzedaży w grupie z dokumentu (K_29/K_30 — usługa od
+  podatnika VAT z UE, art. 28b; K_27/K_28 — reszta), VAT naliczony (odliczenie)
+  do rejestru zakupu jak każda FVZ.
+* **Znaczniki GTU i TP** (K5b-2): per kontrahent z ustawień, na każdym wierszu
+  sprzedaży z faktury (FVS) tego kontrahenta; importu usług nie oznacza się
+  (GTU nie stosuje się do nabyć z podatkiem należnym — broszura MF).
 * **Do sprawdzenia**: stawka spoza słownika, FVS/FVZ w buforze, faktura
   sprzedaży z KSeF z tego miesiąca bez dokumentu w księdze (np. zaliczka —
   VAT od zaliczki jest należny), faktura kosztowa z wpływem w tym miesiącu bez
   FVZ, zapisy na kontach VAT spoza rejestru (PK; bez rozliczenia VAT, wyciągu
   i BO).
-* JPK_V7M, VAT-UE i dokument rozliczenia VAT — K5b.
+* JPK_V7M — ``jpk.py``; VAT-UE i dokument rozliczenia VAT — K5b-3.
 """
 
 from __future__ import annotations
@@ -47,12 +55,15 @@ from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.finance_ledger import costs
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import sources
-from app.services.ledger.documents import Viewer
-from app.services.ledger.settings import LedgerSettings
+from app.services.ledger.documents import FOREIGN_PURCHASE_SOURCE, Viewer
+from app.services.ledger.settings import MARKERS, LedgerSettings
 
 SALES_SOURCE = sources.SOURCE_TYPES[sources.SALES]
 COST_SOURCE = sources.SOURCE_TYPES[sources.COSTS]
-REGISTER_SOURCES = (SALES_SOURCE, COST_SOURCE)
+#: Formularz zakupu zagranicznego (K5b-2, ``ledger/foreign.py``).
+FOREIGN_SOURCE = FOREIGN_PURCHASE_SOURCE
+PURCHASE_SOURCES = (COST_SOURCE, FOREIGN_SOURCE)
+REGISTER_SOURCES = (SALES_SOURCE, COST_SOURCE, FOREIGN_SOURCE)
 #: Dokumenty, które z zasady dotykają kont VAT poza rejestrem: rozliczenie VAT
 #: (K5b), wyciąg (przelew do urzędu, /SFP/) i bilans otwarcia.
 OUTSIDE_OK = ("VAT", "WB", "BO")
@@ -94,7 +105,24 @@ SALES_CATEGORIES: tuple[Category, ...] = (
         Decimal("0"),
         also="K_12",
     ),
+    # Import usług (K5b-2) — VAT należny z dokumentu zakupu zagranicznego.
+    Category(
+        "imp_other",
+        "Import usług (pozostały)",
+        "K_27",
+        "K_28",
+        Decimal("0"),
+    ),
+    Category(
+        "imp_28b",
+        "Import usług z UE (art. 28b)",
+        "K_29",
+        "K_30",
+        Decimal("0"),
+    ),
 )
+#: Grupy importu usług — wybiera je formularz zakupu zagranicznego.
+IMPORT_GROUPS: tuple[str, ...] = ("imp_other", "imp_28b")
 PURCHASE_CATEGORIES: tuple[Category, ...] = (
     Category("assets", "Nabycie środków trwałych", "K_40", "K_41", Decimal("0")),
     Category(
@@ -143,6 +171,12 @@ class Row:
     correction: bool = False
     payroll: bool = False
     problem: Optional[str] = None
+    counterparty_id: Optional[int] = None
+    #: Znaczniki JPK wiersza (GTU, TP) — z ustawień kontrahenta (K5b-2).
+    markers: tuple[str, ...] = ()
+    #: Korekta FVS: miesiąc sprzedaży faktury korygowanej (``RRRR-MM``) — VAT-UE
+    #: (K5b-3a) ujmuje korektę wcześniejszego okresu na VAT-UEK za tamten okres.
+    corrected_month: Optional[str] = None
 
 
 def _decimal(value: object) -> Optional[Decimal]:
@@ -283,8 +317,11 @@ def purchase_amounts(
             intake += sign * amount
     if not touched:
         return None
-    # Sprzedawca nie doliczył VAT, który nabywca rozlicza sam (VAT należny).
-    return Purchase("assets" if intake else "other", gross - vat + output, vat, output)
+    # VAT doliczony przez sprzedawcę = naliczony bez części rozliczanej przez
+    # nabywcę (VAT należny); bez odliczenia (naliczony 0) sprzedawca nie
+    # doliczył nic — netto to kwota od dostawcy, nie koszt z VAT (K5b-2).
+    seller_vat = vat - output if vat else 0
+    return Purchase("assets" if intake else "other", gross - seller_vat, vat, output)
 
 
 def summarize(sales_rows: list[Row], purchase_rows: list[Row]) -> dict[str, Any]:
@@ -414,6 +451,26 @@ async def _sales_rows(
                 )
             ).all()
         }
+    originals: dict[int, Optional[date]] = {}
+    corrected = {
+        item.corrects_invoice_id
+        for item in invoices.values()
+        if item.invoice_kind == "correction" and item.corrects_invoice_id
+    }
+    if corrected:
+        originals = {
+            item_id: day
+            for item_id, day in (
+                await db.execute(
+                    select(
+                        ClientSalesInvoice.id,
+                        func.coalesce(
+                            ClientSalesInvoice.sale_date, ClientSalesInvoice.issue_date
+                        ),
+                    ).where(ClientSalesInvoice.id.in_(corrected))
+                )
+            ).all()
+        }
     rows = []
     for doc in docs:
         invoice = (
@@ -450,16 +507,29 @@ async def _sales_rows(
                 amounts=amounts,
                 correction=bool(invoice and invoice.invoice_kind == "correction"),
                 problem=problem,
+                counterparty_id=doc.counterparty_id,
+                markers=settings.vat_markers.get(doc.counterparty_id or 0, ()),
+                corrected_month=_corrected_month(invoice, originals),
             )
         )
     return rows
 
 
-#: Wiersz sprzedaży z VAT należnym z dokumentu zakupu — pole JPK (import usług
-#: K_27–K_30 albo krajowe odwrotne obciążenie) wybierze K5b.
+def _corrected_month(
+    invoice: Optional[ClientSalesInvoice], originals: dict[int, Optional[date]]
+) -> Optional[str]:
+    if invoice is None or invoice.invoice_kind != "correction":
+        return None
+    day = originals.get(invoice.corrects_invoice_id or 0)
+    return f"{day.year}-{day.month:02d}" if day else None
+
+
+#: Wiersz sprzedaży z VAT należnym z FVZ z kolejki kosztów — import usług
+#: i krajowe odwrotne obciążenie mają pola JPK tylko z formularza zakupu
+#: zagranicznego (K5b-2), który zapisuje grupę w dokumencie.
 SELF_ASSESSED = (
-    "import usług / odwrotne obciążenie (VAT należny z dokumentu zakupu) — "
-    "pole JPK przypisze etap K5b"
+    "import usług / odwrotne obciążenie z kolejki kosztów (VAT należny w FVZ) — "
+    "zaksięguj fakturę formularzem zakupu zagranicznego w zakładce VAT"
 )
 
 
@@ -469,7 +539,8 @@ async def _purchase_rows(
     lines: dict[int, list[Line]],
     settings: LedgerSettings,
 ) -> tuple[list[Row], list[Row]]:
-    """Wiersze zakupu i — dla FVZ z VAT należnym — wiersze sprzedaży bez pola JPK."""
+    """Wiersze zakupu i — dla FVZ z VAT należnym — wiersze sprzedaży (pole JPK
+    tylko z formularza zakupu zagranicznego)."""
 
     party_ids = {doc.counterparty_id for doc in docs if doc.counterparty_id}
     parties: dict[int, FinanceCounterparty] = {}
@@ -497,23 +568,29 @@ async def _purchase_rows(
             continue
         party = parties.get(doc.counterparty_id or 0)
         issued = (doc.meta or {}).get("issue_date")
+        issue_date = date.fromisoformat(issued) if issued else doc.doc_date
         tax_id, country = _party_tax_id(party)
+        group = (doc.meta or {}).get("jpk_group")
+        foreign = doc.source_type == FOREIGN_SOURCE and group in IMPORT_GROUPS
         common = {
             "document_id": doc.id,
             "number": doc.number,
             "ksef_number": (doc.meta or {}).get("ksef_number"),
-            "issue_date": date.fromisoformat(issued) if issued else doc.doc_date,
-            "day": doc.op_date,
+            "issue_date": issue_date,
             "counterparty": party.name if party else doc.description,
             "tax_id": tax_id,
             "country": country,
             "correction": found.net < 0 or found.vat < 0 or found.output < 0,
             "payroll": doc.sensitivity is not None,
+            "counterparty_id": doc.counterparty_id,
         }
         if found.vat or found.output == 0:
             rows.append(
                 Row(
                     **common,
+                    # Data wpływu faktury zagranicznej nie jest znana: data
+                    # dowodu (bez DataWplywu w JPK), okres = miesiąc dokumentu.
+                    day=issue_date if foreign else doc.op_date,
                     net=found.net,
                     vat=found.vat,
                     amounts={found.key: (found.net, found.vat)},
@@ -523,10 +600,12 @@ async def _purchase_rows(
             self_rows.append(
                 Row(
                     **common,
+                    # Import usług: data wykonania usługi (DataSprzedazy w JPK).
+                    day=doc.op_date,
                     net=found.net,
                     vat=found.output,
-                    amounts={},
-                    problem=SELF_ASSESSED,
+                    amounts={group: (found.net, found.output)} if foreign else {},
+                    problem=None if foreign else SELF_ASSESSED,
                 )
             )
     return rows, self_rows
@@ -721,6 +800,9 @@ def _row_payload(row: Row) -> dict[str, Any]:
         "correction": row.correction,
         "payroll": row.payroll,
         "problem": row.problem,
+        "counterparty_id": row.counterparty_id,
+        "markers": list(row.markers),
+        "corrected_month": row.corrected_month,
     }
 
 
@@ -753,7 +835,10 @@ async def registers(
         db, [doc for doc in docs if doc.source_type == SALES_SOURCE], lines, settings
     )
     purchase_rows, self_rows = await _purchase_rows(
-        db, [doc for doc in docs if doc.source_type == COST_SOURCE], lines, settings
+        db,
+        [doc for doc in docs if doc.source_type in PURCHASE_SOURCES],
+        lines,
+        settings,
     )
     sales_rows += self_rows
 
@@ -814,6 +899,7 @@ async def registers(
             "output_account": settings.sales.vat_account,
             "input_account": settings.vat.input_account,
             "intake_account": settings.assets.intake_account,
+            "foreign_account": settings.vat.foreign_account,
         },
         "sales": [_row_payload(row) for row in sales_rows],
         "purchases": [_row_payload(row) for row in purchase_rows],
@@ -822,3 +908,73 @@ async def registers(
         "payroll_hidden": hidden,
         "can_edit_accounts": viewer.admin,
     }
+
+
+#: Znaczniki JPK_V7M per kontrahent (K5b-2) — opisy z broszury MF (skrót).
+MARKER_LABELS: dict[str, str] = {
+    "GTU_01": "Napoje alkoholowe",
+    "GTU_02": "Paliwa (art. 103 ust. 5aa)",
+    "GTU_03": "Oleje opałowe i smarowe",
+    "GTU_04": "Wyroby tytoniowe",
+    "GTU_05": "Odpady (zał. 15)",
+    "GTU_06": "Urządzenia elektroniczne (zał. 15)",
+    "GTU_07": "Pojazdy i części",
+    "GTU_08": "Metale szlachetne i nieszlachetne",
+    "GTU_09": "Leki i wyroby medyczne",
+    "GTU_10": "Budynki, budowle i grunty",
+    "GTU_11": "Uprawnienia do emisji gazów",
+    "GTU_12": "Usługi niematerialne (doradcze, prawne, zarządcze, marketingowe…)",
+    "GTU_13": "Usługi transportowe i magazynowe",
+    "TP": "Powiązania nabywcy z dostawcą (art. 32 ust. 2 pkt 1)",
+}
+assert set(MARKER_LABELS) == set(MARKERS)
+
+
+def _marked_payload(
+    party: FinanceCounterparty, markers: tuple[str, ...]
+) -> dict[str, Any]:
+    tax_id, country = _party_tax_id(party)
+    return {
+        "counterparty_id": party.id,
+        "name": party.name,
+        "tax_id": tax_id,
+        "country": country,
+        "markers": list(markers),
+    }
+
+
+async def markers(
+    db: AsyncSession, viewer: Viewer, settings: LedgerSettings
+) -> dict[str, Any]:
+    """Kontrahenci ze znacznikami GTU/TP (do faktur sprzedaży w JPK)."""
+
+    ids = list(settings.vat_markers)
+    parties = (
+        list(
+            (
+                await db.scalars(
+                    select(FinanceCounterparty).where(FinanceCounterparty.id.in_(ids))
+                )
+            ).all()
+        )
+        if ids
+        else []
+    )
+    items = [
+        _marked_payload(party, settings.vat_markers[party.id])
+        for party in sorted(parties, key=lambda item: (item.name.lower(), item.id))
+    ]
+    return {
+        "items": items,
+        "labels": [{"key": key, "label": MARKER_LABELS[key]} for key in MARKERS],
+        "can_edit": viewer.approver,
+    }
+
+
+async def marked_item(
+    db: AsyncSession, settings: LedgerSettings, counterparty_id: int
+) -> dict[str, Any]:
+    party = await db.get(FinanceCounterparty, counterparty_id)
+    if party is None:  # pragma: no cover — zapis sprawdza kontrahenta
+        raise LedgerError("Nie ma takiego kontrahenta w kartotece.", status=404)
+    return _marked_payload(party, settings.vat_markers.get(counterparty_id, ()))

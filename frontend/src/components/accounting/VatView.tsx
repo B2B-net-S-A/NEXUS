@@ -18,7 +18,10 @@ import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
+import { ForeignPurchaseCard } from "./ForeignPurchaseCard";
 import { JpkCard } from "./JpkCard";
+import { VatMarkersCard } from "./VatMarkersCard";
+import { VatUeCard } from "./VatUeCard";
 import { datePl, gr } from "./ledger-model";
 import { dueLabel, fieldsLabel, issueLink, jpkBlockers, rowGroups, taxIdLabel } from "./vat-model";
 
@@ -31,7 +34,8 @@ export const ROWS_SHOWN = 50;
  * Księgowość → VAT (K5a): rejestry sprzedaży i zakupu miesiąca z nagłówka —
  * z zatwierdzonych FVS i FVZ, z sumami grup (pola JPK_V7M) i listą „do
  * sprawdzenia” (faktura z KSeF bez dokumentu, bufor, kolejka kosztów, zapisy na
- * kontach VAT spoza rejestru) i JPK_V7M miesiąca (K5b).
+ * kontach VAT spoza rejestru) i JPK_V7M miesiąca (K5b). K5b-2: zakupy
+ * zagraniczne (import usług) z formularza i znaczniki GTU/TP kontrahentów.
  */
 export function VatView() {
   const { config, period } = useAccounting();
@@ -68,9 +72,12 @@ export function VatView() {
         <div className="space-y-3.5">
           <IssuesCard issues={data.issues} year={data.year} month={data.month} />
           <AccountsCard data={data} />
+          <VatMarkersCard />
         </div>
       </div>
       <JpkCard year={data.year} month={data.month} blockers={jpkBlockers(data.issues)} />
+      <VatUeCard year={data.year} month={data.month} />
+      <ForeignPurchaseCard year={data.year} month={data.month} />
       <RegisterCard
         title="Rejestr sprzedaży"
         aside="FVS zatwierdzone · data sprzedaży (korekta — wystawienia)"
@@ -180,8 +187,10 @@ function IssuesCard({ issues, year, month }: { issues: readonly VatIssue[]; year
 function AccountsCard({ data }: { data: VatRegisters }) {
   const { showToast } = useToast();
   const save = useSetVatAccounts();
+  const savedForeign = data.accounts.foreign_account;
   const [input, setInput] = useState(data.accounts.input_account);
-  const changed = input.trim() !== data.accounts.input_account;
+  const [foreign, setForeign] = useState(savedForeign);
+  const changed = input.trim() !== data.accounts.input_account || foreign.trim() !== savedForeign;
   return (
     <SectionCard title="Konta VAT">
       <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 px-3.5 py-2.5 text-[13px]">
@@ -189,37 +198,53 @@ function AccountsCard({ data }: { data: VatRegisters }) {
         <dd className="tabular-nums">{data.accounts.output_account} · z Ustawień (sprzedaż)</dd>
         <dt className="text-muted-foreground">Środki trwałe (K_40/K_41)</dt>
         <dd className="tabular-nums">Wn {data.accounts.intake_account}</dd>
-        <dt className="self-center text-muted-foreground">VAT naliczony</dt>
-        <dd>
-          {data.can_edit_accounts ? (
-            <form
-              className="flex items-center gap-1.5"
-              onSubmit={(event) => {
-                event.preventDefault();
-                save.mutate(
-                  { input_account: input.trim() },
-                  {
-                    onSuccess: () => showToast("Zapisano konto VAT naliczonego."),
-                    onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać konta."), "error"),
-                  },
-                );
-              }}
-            >
-              <input
-                className={cn(CONTROL, "w-24 tabular-nums")}
-                aria-label="Konto VAT naliczonego"
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-              />
-              <Button size="sm" type="submit" variant="outline" disabled={!changed} loading={save.isPending}>
-                Zapisz
-              </Button>
-            </form>
-          ) : (
-            <span className="tabular-nums">{data.accounts.input_account}</span>
-          )}
-        </dd>
+        {data.can_edit_accounts ? null : (
+          <>
+            <dt className="text-muted-foreground">VAT naliczony</dt>
+            <dd className="tabular-nums">{data.accounts.input_account}</dd>
+            <dt className="text-muted-foreground">Dostawcy zagraniczni</dt>
+            <dd className="tabular-nums">{savedForeign ? `${savedForeign}-NNN` : "nie ustawiono"}</dd>
+          </>
+        )}
       </dl>
+      {data.can_edit_accounts ? (
+        <form
+          className="flex flex-wrap items-end gap-2 border-t border-border/70 px-3.5 py-2.5 text-[13px]"
+          onSubmit={(event) => {
+            event.preventDefault();
+            save.mutate(
+              { input_account: input.trim(), foreign_account: foreign.trim() },
+              {
+                onSuccess: () => showToast("Zapisano konta VAT."),
+                onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać kont."), "error"),
+              },
+            );
+          }}
+        >
+          <label className="flex flex-col gap-1">
+            <span className="text-muted-foreground">VAT naliczony</span>
+            <input
+              className={cn(CONTROL, "w-24 tabular-nums")}
+              aria-label="Konto VAT naliczonego"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1" title="Konto ze słownikiem kontrahentów — nowy dostawca dostaje analitykę NNN">
+            <span className="text-muted-foreground">Dostawcy zagraniczni</span>
+            <input
+              className={cn(CONTROL, "w-24 tabular-nums")}
+              aria-label="Konto dostawców zagranicznych"
+              placeholder="np. 202-1"
+              value={foreign}
+              onChange={(event) => setForeign(event.target.value)}
+            />
+          </label>
+          <Button size="sm" type="submit" variant="outline" disabled={!changed || !input.trim()} loading={save.isPending}>
+            Zapisz
+          </Button>
+        </form>
+      ) : null}
     </SectionCard>
   );
 }
@@ -270,8 +295,11 @@ function RegisterCard({
                   <span className="block truncate">{row.counterparty}</span>
                   <span className={CALM_SUBLINE}>{taxIdLabel(row)}</span>
                 </td>
-                <td className={cn("px-2 py-1.5 text-[13px]", row.problem ? "text-destructive-text" : "")} title={row.problem ?? undefined}>
-                  {rowGroups(row)}
+                <td className={cn("min-w-0 px-2 py-1.5 text-[13px]", row.problem ? "text-destructive-text" : "")}>
+                  <span className="block truncate" title={row.problem ?? undefined}>
+                    {rowGroups(row)}
+                  </span>
+                  {row.markers?.length ? <span className={cn(CALM_SUBLINE, "block truncate")}>{row.markers.join(", ")}</span> : null}
                 </td>
                 <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{gr(row.net)}</td>
                 <td className={cn(CALM_AMOUNT, "py-1.5 pl-2 pr-3.5 text-right")}>{gr(row.vat)}</td>

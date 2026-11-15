@@ -9,7 +9,9 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    column,
     func,
+    table,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -213,3 +215,28 @@ class RbacPermissionAudit(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+# Tabele cutoveru ról 0210 bez modelu ORM (zapisy idą surowym SQL-em: migawka
+# ról przed zmianą z `role_merge` przy każdym starcie, kolejka niejasnych
+# powiązań TAC domykana w `api/clients_team`). Lekkie `table()` dla sondy
+# schematu w `/api/health/deep`.
+ROLE_SESSION_MIGRATION_AUDIT = table(
+    "role_session_migration_audit",
+    column("id", BigInteger),
+    column("migration_key", String),
+    column("user_id", Integer),
+    column("original_state", JSONB),
+    column("created_at", DateTime(timezone=True)),
+)
+RBAC_RELATIONSHIP_RECONCILIATION = table(
+    "rbac_relationship_reconciliation",
+    column("id", BigInteger),
+    column("migration_key", String),
+    column("issue_kind", String),
+    column("user_id", Integer),
+    column("details", JSONB),
+    column("resolved_at", DateTime(timezone=True)),
+    column("resolved_by", Integer),
+    column("created_at", DateTime(timezone=True)),
+)

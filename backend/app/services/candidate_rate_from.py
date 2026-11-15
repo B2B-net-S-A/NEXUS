@@ -34,7 +34,17 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import case, literal, text
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    case,
+    column,
+    literal,
+    table,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -48,6 +58,24 @@ from app.services.candidate_rate_observations import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Lekkie odwzorowanie tabel 0414 bez modelu ORM (zapisy idą surowym SQL-em)
+#: — dla sondy schematu w ``/api/health/deep``.
+CANDIDATE_RATE_DECISIONS = table(
+    "candidate_rate_decisions",
+    column("candidate_id", Integer),
+    column("observation_key", String),
+    column("decision", String),
+    column("observed_amount", Numeric),
+    column("observed_at", DateTime(timezone=True)),
+    column("decided_by", Integer),
+    column("decided_at", DateTime(timezone=True)),
+)
+CANDIDATE_RATE_FROM_QUEUE = table(
+    "candidate_rate_from_queue",
+    column("candidate_id", Integer),
+    column("queued_at", DateTime(timezone=True)),
+)
 
 RATE_FROM_WINDOW_MONTHS = 18
 

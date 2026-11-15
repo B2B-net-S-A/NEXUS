@@ -122,14 +122,7 @@ from app.models.integration_run import (
     IntegrationRunEvent,
 )
 from app.models.traffit_integration import (
-    IntegrationLease,
     TraffitEntityLink,
-    TraffitFieldContract,
-    TraffitIntegrationControl,
-    TraffitOutboxEvent,
-    TraffitSyncConflict,
-    TraffitSyncRun,
-    TraffitSyncRunPhase,
     TraffitWebhookEvent,
 )
 from app.models.client_knowledge import ClientKnowledge
@@ -462,14 +455,7 @@ __all__ = [
     "CandidateContactTraffitLedger",
     "TraffitSyncState",
     "TraffitEntityLink",
-    "TraffitFieldContract",
-    "TraffitOutboxEvent",
     "TraffitWebhookEvent",
-    "TraffitSyncConflict",
-    "TraffitSyncRun",
-    "TraffitSyncRunPhase",
-    "IntegrationLease",
-    "TraffitIntegrationControl",
     "ClientKnowledge",
     "ClientOnePager",
     "ClientContractTerms",
@@ -703,9 +689,7 @@ from app.models.dr_sales import (
 from app.models.dr_upload import DrUploadHistory  # noqa: F401
 from app.models.dr_user_seniority import DrUserSeniority  # noqa: F401
 from app.models.cortex import (  # noqa: F401
-    CortexExtractionRun,
     CortexSkillFact,
-    CortexUnmatchedObservation,
     CortexUnmatchedTerm,
 )
 
