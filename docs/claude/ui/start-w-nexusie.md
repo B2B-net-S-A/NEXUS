@@ -29,6 +29,7 @@ gdzie co jest, a samo „zaproszenie” do przewodnika otwierała jedna osoba na
   wiersz `app_settings.start_gate`; brak wiersza = blokada włączona. Przycisk
   „Wyłącz blokadę” stoi na górze Ustawienia → „Nowości — kto już umie”. To
   zabezpieczenie na wypadek, gdyby przeklikanie kogoś zatrzymało — bez deployu.
+  Blokady Poligonu nowej osoby nie zdejmuje (Artur, 15.11.2026).
 - **Postęp** liczy się w `novelty_progress` jak nowości (przeklikanie albo
   użycie); panel „kto już umie” pokazuje pozycje Startu z plakietką „Start”.
 - **Nowa funkcja, która zmienia podstawy pracy roli**, może dojść do Startu
