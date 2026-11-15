@@ -4161,6 +4161,81 @@ async def test_foreign_purchase_needs_the_suppliers_account_setting(
         ) is None
 
 
+async def test_late_foreign_invoice_stays_in_the_service_month_and_flags_its_jpk(
+    client, world, books, monkeypatch
+):
+    """Faktura importu usług otrzymana pół roku po usłudze: VAT należny
+    i naliczony w miesiącu usługi (art. 86 ust. 10b pkt 3 — bez terminu
+    3 miesięcy od 7.09.2021), data otrzymania = DataWplywu, wysłany JPK
+    marca staje się „do korekty”."""
+
+    from lxml import etree
+
+    from app.services.ledger import jpk
+
+    year = books["year"]
+    monkeypatch.setattr(ledger_vat_api, "business_today", lambda: date(year, 12, 31))
+    previous = await _payer("0202")
+    try:
+        parent = await _foreign_setup(world, books)
+        await _jpk_ready(client, world, books)
+        settings = _ledger_settings(world, books, allocation=False)
+        settings["modules"]["vat"] = True
+        settings["vat"] = {"input_account": books["acc"]["vat_in"], "foreign_account": parent}
+        settings["jpk"] = {"email": "vat@example.com", "phone": ""}
+        await _set_ledger(settings)
+        march = await _jpk(client, world, books, opening_surplus=0)
+        assert march.status_code == 201, march.text
+        assert (await _jpk_sent(client, world, march.json()["file"]["id"])).status_code == 200
+        assert (await _jpk_item(client, world, books, 3))["state"] == "ok"
+        assert f"{year}-03" in (await _foreign_overview(client, world, books))["jpk_sent"]
+
+        supplier = {
+            "name": f"Dostawca Spozniony {parent.split('-')[0]}",
+            "country": "IE",
+            "tax_id": f"{random.randint(1_000_000, 9_999_999)}T",
+        }
+        early = await _foreign(
+            client, world, _foreign_body(books, new_supplier=supplier, received_date=f"{year}-03-20")
+        )
+        assert early.status_code == 422 and "wcześniejsza niż data wystawienia" in early.json()["detail"]
+        created = await _foreign(
+            client, world, _foreign_body(books, new_supplier=supplier, received_date=f"{year}-09-14")
+        )
+        assert created.status_code == 201, created.text
+        books["extra_parties"].append(created.json()["supplier"]["id"])
+        doc = created.json()["document"]
+        assert (doc["service_date"], doc["received_date"]) == (f"{year}-03-20", f"{year}-09-14")
+        await _approve_ids(client, world, [doc["id"]])
+
+        registers = (await _vat_registers(client, world, books)).json()
+        sale = next(row for row in registers["sales"] if row["number"] == "INV-0042")
+        bought = next(row for row in registers["purchases"] if row["number"] == "INV-0042")
+        assert (sale["date"], [g["key"] for g in sale["groups"]]) == (f"{year}-03-20", ["imp_28b"])
+        assert (bought["date"], bought["issue_date"], bought["vat"]) == (f"{year}-09-14", f"{year}-03-21", 9_890)
+        content = _jpk_file(registers)
+        assert jpk.validate(content) == []
+        rows = [
+            node
+            for node in etree.fromstring(content).iter("{*}ZakupWiersz")
+            if node.findtext("{*}DowodZakupu") == "INV-0042"
+        ]
+        assert [(n.findtext("{*}DataZakupu"), n.findtext("{*}DataWplywu")) for n in rows] == [
+            (f"{year}-03-21", f"{year}-09-14")
+        ]
+        # Wrzesień (miesiąc otrzymania) bez tej faktury — ani należny, ani naliczony.
+        september = (await _vat_registers(client, world, books, month=9)).json()
+        assert "INV-0042" not in {row["number"] for row in september["sales"] + september["purchases"]}
+        assert (await _jpk_item(client, world, books, 3))["state"] == "problem"
+        overview = (
+            await client.get(f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["accountant"]))
+        ).json()
+        assert overview["stale"] == "registers"
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
 async def test_vat_markers_go_on_the_buyers_sales_invoices(client, world, books):
     """GTU/TP per kontrahent (decyzja 15.11): na każdej FVS kontrahenta, w pliku
     JPK zgodnym z XSD; zmiana znaczników = inny odcisk rejestru (korekta)."""

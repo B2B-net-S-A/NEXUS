@@ -158,11 +158,25 @@ Porównanie z JPK z Symfonii (K5b-3b) i dokument rozliczenia VAT (K5b-3c) — da
   tylko dla towarów) = usługa od podatnika z UE, art. 28b → K_29/K_30; reszta
   (spoza UE, bez numeru VAT UE) → K_27/K_28. Grupa w `meta.jpk_group`. Wiersz
   zakupu (K_42/K_43, środek trwały K_40/K_41) tylko z odliczeniem; data wiersza
-  zakupu = data faktury (bez DataWplywu), wiersz sprzedaży — data usługi
-  (DataSprzedazy). Oba z BFK (faktura poza KSeF).
-- **Odliczenie** w miesiącu usługi. Faktura otrzymana ponad 3 miesiące po
-  obowiązku podatkowym (art. 86 ust. 10i — odliczenie w bieżącym okresie)
-  formularz nie rozdziela — ujęcie do uzgodnienia z księgową (K5b-3).
+  zakupu = data faktury (`DataZakupu`) i data otrzymania z formularza
+  (`DataWplywu`, gdy inna; pole domyślnie = data wystawienia, nie wcześniejsza
+  niż ona — 422), wiersz sprzedaży — data usługi (DataSprzedazy). Oba z BFK
+  (faktura poza KSeF).
+- **Odliczenie** w miesiącu usługi, także gdy faktura przyszła po miesiącach.
+  Decyzja Artura z 16.11.2026: bez podziału dekretu. Warunek „3 miesięcy od
+  końca miesiąca obowiązku” w art. 86 ust. 10b pkt 3 i ust. 10i (odliczenie
+  w bieżącym okresie) uchyliła ustawa z 11.08.2021 (Dz.U. 2021 poz. 1626,
+  art. 1 pkt 8) od 7.09.2021; tekst jednolity Dz.U. 2026 poz. 1263: „10i.
+  (uchylony)”. Prawo do odliczenia powstaje w okresie obowiązku (ust. 10),
+  jeśli VAT należny jest w deklaracji za ten okres — spóźniona faktura to
+  korekta JPK miesiąca usługi po obu stronach. Nie wracaj do rozdzielania
+  należnego i naliczonego na dwa miesiące bez nowej podstawy prawnej.
+- **Spóźniona faktura a wysłany JPK**: `GET /vat/foreign` zwraca `jpk_sent`
+  (miesiące z wysłanym JPK, do 60), karta ostrzega przed zapisem, że JPK
+  miesiąca usługi trzeba skorygować; po zatwierdzeniu FVZ odcisk rejestru
+  się zmienia i lista zamknięcia pokazuje problem (`stale = registers`).
+  Data otrzymania nie wchodzi do odcisku — zmiana samej daty nie oznacza
+  korekty.
 - **Import kartoteki z eBI24** nie dubluje dostawcy z formularza: wiersz pliku
   z tą samą nazwą, którego nie da się dopasować po numerze ani ID Symfonii, to
   błąd wiersza (dostawca z formularza = `imported_at` pusty).
@@ -213,11 +227,15 @@ z P_ORDZU, lista zamknięcia po zmianie rejestru, P_39 z poprzedniego miesiąca)
 i po przeglądzie: łańcuch korekt, złożona starsza wersja, „wysłany” czeka na
 „Przygotuj JPK”, poprawialna nadwyżka pierwszego miesiąca. K5b-2:
 `tests/test_ledger_foreign_rules.py` (grupa JPK, kwoty po kursie, dekret,
-korekta, pola formularza i odmowy, numer dostawcy), w `test_ledger_jpk_rules.py`
+korekta, pola formularza i odmowy, numer dostawcy, data otrzymania nie
+przesuwa okresu na granicy 3 miesięcy), w `test_ledger_jpk_rules.py`
 znaczniki i import usług przez XSD MF oraz odcisk bez znaczników, sekcja K5b-2
 w `test_ledger_sources_db.py` (formularz od nowego dostawcy do JPK, odmowy,
-strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS), front:
-`VatView.test.tsx` (lista, formularz, znaczniki), `vat-model.test.ts`. K5b-3a:
+strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS;
+`test_late_foreign_invoice_stays_in_the_service_month_and_flags_its_jpk` —
+faktura pół roku po usłudze: oba rejestry w marcu, `DataWplywu`, JPK marca do
+korekty), front: `VatView.test.tsx` (lista, formularz, znaczniki, data
+otrzymania i ostrzeżenie o korekcie), `vat-model.test.ts`. K5b-3a:
 `tests/test_ledger_vat_ue_rules.py` (pozycje, zaokrąglenie, problemy, XSD),
 `test_vat_ue_lines_come_from_the_sales_register` w `test_ledger_sources_db.py`,
 front: karta VAT-UE w `VatView.test.tsx`.

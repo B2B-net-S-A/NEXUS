@@ -250,6 +250,8 @@ export interface ForeignPurchase {
   supplier_id: number | null;
   supplier: string | null;
   issue_date: string | null;
+  /** Otrzymanie faktury (DataWplywu w JPK); starsze dokumenty — data wystawienia. */
+  received_date: string | null;
   service_date: string;
   currency: string;
   rate: string | null;
@@ -272,6 +274,8 @@ export interface ForeignOverview {
   next_account: string | null;
   currencies: string[];
   vat_rates: string[];
+  /** Miesiące (`RRRR-MM`) z wysłanym JPK_V7M — faktura za taki miesiąc = korekta tamtego JPK. */
+  jpk_sent: string[];
   missing: string[];
 }
 
@@ -289,6 +293,8 @@ export interface ForeignPurchaseInput {
   number: string;
   issue_date: string;
   service_date: string;
+  /** Otrzymanie faktury; pominięte = data wystawienia. */
+  received_date?: string;
   currency: string;
   /** Netto w walucie faktury (ujemne = korekta). */
   net: string;

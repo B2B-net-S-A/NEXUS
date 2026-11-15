@@ -105,6 +105,8 @@ class ForeignPurchaseBody(BaseModel):
     issue_date: date
     #: Wykonanie usługi = obowiązek podatkowy (okres VAT i dzień kursu).
     service_date: date
+    #: Otrzymanie faktury (DataWplywu w JPK); puste = data wystawienia.
+    received_date: Optional[date] = None
     currency: str = Field(max_length=3)
     #: Netto w walucie faktury (kropka albo przecinek; ujemna = korekta).
     net: str = Field(max_length=24)
