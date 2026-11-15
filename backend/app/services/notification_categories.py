@@ -97,7 +97,7 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
         "Kontrakty, zamówienia i podpisy",
         "Koniec umowy lub zamówienia, brak kolejnego zamówienia, podpisy, zwrot sprzętu.",
     ),
-    # 0709 (15.11.2026): przypomnienie przed terminem raportu z katalogu klienta
+    # 0710 (15.11.2026): przypomnienie przed terminem raportu z katalogu klienta
     # i po terminie bez wysyłki. Osobna kategoria, bo dotyczy innej pracy niż
     # koniec zamówień i ma się dać wyciszyć bez nich.
     NotificationCategory.client_reports: CategoryInfo(
@@ -280,7 +280,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.signature_rejected: _C.contracts,
     _T.signature_failed: _C.contracts,
     _T.signature_renewal_requested: _C.contracts,
-    # Raporty dla klientów (0709)
+    # Raporty dla klientów (0710)
     _T.client_report_due: _C.client_reports,
     # KPI
     _T.powercalling_kpi: _C.kpi,

@@ -207,7 +207,7 @@ class AIFeatureKey(str, enum.Enum):
     # do sprawdzenia w CV i ocena CV z cytatem (wyszukiwanie po obowiązkach).
     duty_search_plan = "duty_search_plan"
     duty_search_judge = "duty_search_judge"
-    # 0709 (15.11.2026): katalog raportów klienta — obowiązki raportowe
+    # 0710 (15.11.2026): katalog raportów klienta — obowiązki raportowe
     # odczytane z fragmentów umów ramowych jako propozycje dla DL-a.
     client_report_requirements = "client_report_requirements"
 

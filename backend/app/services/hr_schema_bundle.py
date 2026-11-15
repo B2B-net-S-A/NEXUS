@@ -135,7 +135,7 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
-    # 0709: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
+    # 0710: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
     client_reports,
 )
 
