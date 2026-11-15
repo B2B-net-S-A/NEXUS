@@ -61,6 +61,7 @@ export function FrameworkRatesTab({ clientId, canImport, canRecompute }: Props) 
               type="button"
               role="tab"
               aria-selected={view === key}
+              data-tour={key === "report" ? "clients.framework-rates.report" : undefined}
               onClick={() => setView(key)}
               className={cn(
                 "rounded-md px-2.5 py-1 font-medium transition-colors",
