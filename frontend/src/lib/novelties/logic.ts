@@ -332,6 +332,10 @@ export interface PoligonStatus {
   open: boolean;
   /** Poligon blokuje pracę, dopóki go nie przejdzie (nowa osoba). */
   required: boolean;
+  /** Ćwiczenia, które liczy licznik i blokada: wymagane od osoby (od nadania
+   *  roli z poligonem, 15.11.2026), a gdy poligon nie jest wymagany — cała
+   *  ścieżka jej ról. Starszy serwer bez pola = cała ścieżka. */
+  exercise_ids?: string[];
   done_ids: string[];
   done: number;
   total: number;

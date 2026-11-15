@@ -5,9 +5,13 @@ ekrany NEXUSA na rekrutacji ćwiczebnej. Front podaje im odpowiedzi z pliku
 `frontend/src/lib/poligon/dataset.json`; ten skrypt go buduje.
 
 Wejście to katalog nagrania (`log.json` + ciała odpowiedzi `0000.json`…),
-zrobionego na stagingu z laptopa jednym kontem rekrutera: lista rekrutacji,
-Tablica jednej rekrutacji i panel jednej osoby. Nagranie zawiera prawdziwe dane,
-więc zostaje lokalnie i NIGDY nie trafia do repo.
+zrobionego na stagingu z laptopa kontem rekrutera: lista rekrutacji,
+Tablica jednej rekrutacji i panel jednej osoby. Od 15.11.2026 (ścieżka Delivery
+Leada) nagranie ma też fazy `dl-review*` z konta Delivery Leada: przegląd
+jednej osoby z kolumny „QC CV” innej rekrutacji (`--dl-*`). Jej odpowiedzi
+trafiają pod osobę-szablon rekrutacji ćwiczebnej, a kwoty, wymagania i ocena
+w kontekście przeglądu są wymyślone (`DL_CONTEXT`). Nagranie zawiera prawdziwe
+dane, więc zostaje lokalnie i NIGDY nie trafia do repo.
 
 Zasada bezpieczeństwa (repo jest publiczne): każdy tekst, którego nie ma
 w `frontend/src/lib/poligon/vocab.json` ani w słowniku osób ćwiczebnych poniżej,
@@ -18,7 +22,12 @@ frontu, więc nowy tekst w zestawie bez wpisu w słowniku zatrzyma CI.
 
 Użycie (z `backend/`):
     python3 scripts/build_poligon_dataset.py <katalog-nagrania> --job <id> \
-        --client <id> --candidate <id> [--report]
+        --client <id> --candidate <id> \
+        [--dl-job <id> --dl-client <id> --dl-candidate <id> --dl-stage <id>] [--report]
+
+Nagranie robi skrypt Playwrighta ze scratchpadu sesji (logowanie
+`python -m scripts.staging_login_as --user-id …`, zapis każdej odpowiedzi API
+z portu 8100 z polem `phase`); opis kroków w `docs/claude/ui/poligon-nexusa-onboarding.md`.
 
 `--report` wypisuje teksty, które zniknęły, pogrupowane po kluczu — z tej listy
 dopisuje się do `vocab.json` etykiety interfejsu (nigdy osoby, firmy, notatki).
@@ -78,7 +87,54 @@ FICTIONAL_NAMES = (
 )
 
 # Ile kart zostaje w kolumnie Tablicy (po kodzie etapu); reszta kolumn pusta.
-CARDS_PER_STAGE = {"new": 4, "screening": 3, "verified": 2}
+# „QC CV” (`interview`) dostaje karty z „CV wysłane” nagranej rekrutacji
+# (QC zdane) — na nich Delivery Lead ćwiczy przegląd i wysyłkę.
+CARDS_PER_STAGE = {"new": 4, "screening": 3, "verified": 2, "interview": 2}
+QC_STAGE = "interview"
+QC_SOURCE_STAGE = "cv_sent"
+# Karta czeka na przegląd DL-a, więc nie ma jeszcze stawki do klienta.
+QC_CARD_RESET = {
+    "client_rate_value": None,
+    "client_rate_unit": None,
+    "client_rate_currency": None,
+    "next_action_owner": "recruiter",
+    "followup": None,
+}
+
+# Fazy nagrania z konta Delivery Leada, które dokładamy do zestawu (przegląd
+# osoby z „QC CV”). Odpowiedź pod adresem, który ma już nagranie rekrutera,
+# zostaje z nagrania rekrutera — Tablica i panel osoby są wspólne.
+DL_PHASES = {"dl-review", "dl-review-return", "dl-review-reject"}
+# Z Tablicy DL-a bierzemy tylko odczyty nagłówka, które widzi Delivery Lead
+# (gotowość do przekazania, „Klient milczy”, rekrutacja bez ruchu).
+DL_BOARD_PATHS = re.compile(r"^/api/(jobs/\d+/(readiness|idle)|client-wait/jobs/\d+)$")
+
+# Kwoty w zestawie są wymyślone: repo jest publiczne, a stawki osób i marże
+# klientów to tajemnica firmy. Liczby pasują do treści ćwiczeń: kandydat
+# 105 zł/h, budżet rekrutacji do 115 zł/h (`lib/poligon/exercises.ts`).
+POLIGON_CANDIDATE_HOURLY = 105.0
+POLIGON_BUDGET_MAX_HOURLY = 115.0
+MONEY_KEY = re.compile(
+    r"(^|_)(rate|rates|budget|margin|cost|revenue|salary|fee|amount|price|hourly)(_|$)"
+)
+NUMERIC = re.compile(r"^-?\d+(\.\d+)?$")
+NOT_MONEY_KEY = re.compile(r"(count|version|_usd)$")
+
+
+def money_value(key: str) -> float:
+    k = key.lower()
+    if "budget" in k:
+        return 95.0 if "min" in k else POLIGON_BUDGET_MAX_HOURLY
+    if "margin" in k:
+        return 18.0
+    if "fee" in k:
+        return 20.0
+    if "client" in k or "revenue" in k:
+        return 122.0
+    if "from" in k:
+        return 100.0
+    return POLIGON_CANDIDATE_HOURLY
+
 
 # Treść CV i notatek osoby z nagrania zastępujemy CV ćwiczebnym, bo nawet bez
 # nazwiska opis kariery i lista firm wskazują konkretnego człowieka.
@@ -407,6 +463,15 @@ class Builder:
             return [self.clean(v, key) for v in value]
         if isinstance(value, bool) or value is None:
             return value
+        if (
+            isinstance(value, (int, float, str))
+            and MONEY_KEY.search(key)
+            and not NOT_MONEY_KEY.search(key)
+            and not self.is_id_key(key)
+            and NUMERIC.match(str(value))
+        ):
+            fake = money_value(key)
+            return f"{fake:.2f}" if isinstance(value, str) else fake
         if isinstance(value, int):
             if self.is_id_key(key) and (
                 value >= 1000 or (key == "client_id" and value in self.client_ids)
@@ -442,8 +507,33 @@ class Builder:
         return p + ("?" + urlencode(q) if q else "")
 
 
+def with_qc_cards(data: dict) -> dict:
+    """Kolumna „QC CV” z kartami gotowymi do przeglądu DL-a (QC zdane)."""
+    columns = data["columns"]
+    qc = next((c for c in columns if c.get("stage") == QC_STAGE), None)
+    sent = next((c for c in columns if c.get("stage") == QC_SOURCE_STAGE), None)
+    if qc is None or sent is None:
+        return data
+    ready = [
+        {
+            **item,
+            **QC_CARD_RESET,
+            "stage": qc["stage"],
+            "stage_def_id": qc["stage_def_id"],
+        }
+        for item in sent.get("items", [])
+        if (item.get("qc") or {}).get("status") == "passed"
+    ]
+    out = [
+        {**c, "items": ready + list(c.get("items", []))} if c is qc else c
+        for c in columns
+    ]
+    return {**data, "columns": out}
+
+
 def shape_kanban(b: Builder, data: dict) -> dict:
     """Mała Tablica: kilka kart w pierwszych kolumnach, osoby ćwiczebne."""
+    data = with_qc_cards(data)
     people = iter(enumerate(PEOPLE))
     columns = []
     for col in data["columns"]:
@@ -521,6 +611,9 @@ CALM_JOB = {
     "p0_set_at": None,
     "p0_set_by_name": None,
     "priority": "normal",
+    # Kolejka Cpro (Nordea) zmienia przegląd DL-a w akceptację do Cpro —
+    # rekrutacja ćwiczebna wysyła CV prosto do klienta.
+    "cpro_enabled": False,
 }
 
 
@@ -626,8 +719,12 @@ def fix_counts(dataset: dict) -> None:
     if not board:
         return
     per_stage: dict[str, int] = collections.Counter()
+    # Kilka kolumn szablonu ma ten sam kod etapu (`new`: „Wysłać do Cpro”,
+    # „Umowa wysłana”…), więc kolumna listy liczy się po `stage_def_id`.
+    per_def: dict[int, int] = collections.Counter()
     for c in board["columns"]:
         per_stage[c.get("stage")] += len(c.get("items", []))
+        per_def[c.get("stage_def_id")] += len(c.get("items", []))
     total = sum(per_stage.values())
     ours = {FIRST_CANDIDATE + i for i in range(len(PEOPLE))}
     for key, value in dataset.items():
@@ -661,7 +758,7 @@ def fix_counts(dataset: dict) -> None:
             for item in value.get("items", []):
                 item["stage_breakdown"] = {k: v for k, v in per_stage.items() if v}
                 for col in item.get("stage_columns", []):
-                    col["count"] = per_stage.get(col.get("stage"), 0)
+                    col["count"] = per_def.get(col.get("stage_def_id"), 0)
                 item["candidate_count"] = total
                 for k in (
                     "needs_action_count",
@@ -704,12 +801,146 @@ def keep_ours(value):
     return value
 
 
+def dl_context(recorded: dict) -> dict:
+    """Kontekst przeglądu DL-a: kształt z nagrania, treść wymyślona.
+
+    Wymagania, ocena rekrutera i pola do poprawy pochodzą z innej (prawdziwej)
+    rekrutacji, a kwoty klienta i wcześniejsze wysyłki to tajemnica firmy —
+    wszystko to zastępujemy treścią pasującą do rekrutacji ćwiczebnej."""
+    question = REQUIRED_TEXT["question"]
+    rate_at = (recorded.get("candidate_rate") or {}).get("at")
+    return {
+        **recorded,
+        "category_name": "Zarządzanie projektami",
+        "candidate_rate": {
+            "amount": POLIGON_CANDIDATE_HOURLY,
+            "unit": "hourly",
+            "currency": "PLN",
+            "hourly_pln": POLIGON_CANDIDATE_HOURLY,
+            "at": rate_at,
+        },
+        "rate_from_hourly": 100.0,
+        "budget": {"min_hourly": None, "max_hourly": POLIGON_BUDGET_MAX_HOURLY},
+        "client_rate_hint": None,
+        "client_rates": {
+            "consultants": 4,
+            "client_margin_median_hourly": 18.0,
+            "category_name": "Zarządzanie projektami",
+            "category_count": 3,
+            "category_cost_min": 98.0,
+            "category_cost_max": 110.0,
+            "category_revenue_min": 115.0,
+            "category_revenue_max": 128.0,
+            "category_margin_median_hourly": 17.0,
+        },
+        "requirements": [
+            {
+                "key": "must:0",
+                "label": "Zarządzanie projektami IT",
+                "level": "must",
+                "status": "met",
+                "sources": ["profil", "CV", "rozmowa"],
+                "candidate_value": "9 lat jako Project Manager w bankowości",
+            },
+            {
+                "key": "must:1",
+                "label": "Agile / Scrum",
+                "level": "must",
+                "status": "met",
+                "sources": ["CV", "rozmowa"],
+                "candidate_value": "Scrum, SAFe",
+            },
+            {
+                "key": "must:2",
+                "label": "Angielski B2+",
+                "level": "must",
+                "status": "missing",
+                "sources": [],
+                "candidate_value": None,
+            },
+            {
+                "key": "nice:0",
+                "label": "Bankowość",
+                "level": "nice",
+                "status": "unknown",
+                "sources": ["CV"],
+                "candidate_value": "Programy płatności w bankach",
+            },
+            {
+                "key": "nice:1",
+                "label": "PMP lub PRINCE2",
+                "level": "nice",
+                "status": "met",
+                "sources": ["CV"],
+                "candidate_value": "PMP (aktywny)",
+            },
+        ],
+        "requirements_met": 3,
+        "requirements_total": 5,
+        "assessment": {
+            "overall_fit": "fit",
+            "overall_fit_label": "Pasuje",
+            "fields": {
+                "recommendation": CV_FICTION["matching_facts"],
+                "motivation": "Chce prowadzić większy program niż obecnie.",
+                "red_flags": None,
+                "availability": "Od 1. dnia przyszłego miesiąca",
+                "work_mode": "Hybrydowo",
+                "location": "Warszawa",
+                "english": None,
+                "worked_at_client": "Nie",
+            },
+            "answers": [
+                {
+                    "question": question,
+                    "question_id": "q1",
+                    "answer": "Program migracji płatności: cztery zespoły, 35 osób, 18 miesięcy; prowadziła harmonogram, ryzyka i komitet sterujący.",
+                    "deal_breaker_hit": False,
+                }
+            ],
+        },
+        "risks": [],
+        "start": "1 miesiąc",
+        "previous_sends": [],
+        "job_sends": [],
+        "last_contract": None,
+        "hiring_manager_name": None,
+        "earlier_interviews": [],
+        "recruiter_handoff_remark": None,
+        "fix_options": [
+            {"key": "question:q1", "label": question, "group": "answers"},
+            {"key": "field:availability", "label": "Dostępność", "group": "terms"},
+            {"key": "field:work_mode", "label": "Tryb pracy", "group": "terms"},
+            {"key": "field:location", "label": "Lokalizacja", "group": "terms"},
+            {"key": "field:english", "label": "Angielski", "group": "terms"},
+            {
+                "key": "field:overall_fit",
+                "label": "Ocena rekrutera",
+                "group": "assessment",
+            },
+            {
+                "key": "field:recommendation",
+                "label": "Dlaczego ten kandydat",
+                "group": "assessment",
+            },
+            {"key": "candidate_rate", "label": "Stawka kandydata", "group": "rate"},
+            {"key": "cv", "label": "CV firmowe", "group": "cv"},
+        ],
+    }
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("recording", type=Path)
     ap.add_argument("--job", type=int, required=True)
     ap.add_argument("--client", type=int, required=True)
     ap.add_argument("--candidate", type=int, required=True)
+    # Przegląd Delivery Leada (fazy `dl-review*`): inna rekrutacja, osoba i jej
+    # wiersz etapu „QC CV” — trafiają pod rekrutację i osobę-szablon poligonu.
+    ap.add_argument("--dl-job", type=int)
+    ap.add_argument("--dl-client", type=int)
+    ap.add_argument("--dl-candidate", type=int)
+    ap.add_argument("--dl-stage", type=int)
     ap.add_argument("--captured-at", default=datetime.now(timezone.utc).isoformat())
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
@@ -722,10 +953,23 @@ def main() -> None:
     entries: list[tuple[dict, object]] = []
     for i, e in enumerate(log):
         body_file = args.recording / f"{i:04d}.json"
+        dl_phase = e.get("phase", "").startswith("dl-")
         if (
             e["status"] != 200
             or not body_file.exists()
             or e["path"].startswith("/api/novelties/")
+            or (
+                dl_phase
+                and (
+                    not args.dl_job
+                    or not (
+                        e["phase"] in DL_PHASES
+                        or (
+                            e["phase"] == "dl-board" and DL_BOARD_PATHS.match(e["path"])
+                        )
+                    )
+                )
+            )
         ):
             continue
         try:
@@ -763,6 +1007,24 @@ def main() -> None:
     )
     if template_entry:
         b.ids.setdefault(template_stage, FIRST_ENTRY)
+    if args.dl_job:
+        # Przegląd DL-a nagrany na innej rekrutacji = ta sama osoba-szablon:
+        # jej identyfikatory, wiersz etapu i CV etapu, imię i nazwisko.
+        template_entry_id = b.ids.get(template_stage, FIRST_ENTRY)
+        b.ids[args.dl_job] = POLIGON_JOB
+        b.ids[args.dl_candidate] = b.ids[args.candidate]
+        b.ids[args.dl_stage] = template_entry_id
+        if args.dl_client:
+            b.ids[args.dl_client] = POLIGON_CLIENT
+            b.client_ids.add(args.dl_client)
+        first, last = PEOPLE[b.ids[args.candidate] - FIRST_CANDIDATE]
+        for e, body in entries:
+            if e["path"] == "/api/board-tasks/dl-review-row":
+                row = body.get("row") or {}
+                if isinstance(row.get("cv_stage_id"), int):
+                    b.ids[row["cv_stage_id"]] = template_entry_id
+                if isinstance(row.get("candidate_name"), str):
+                    b.person_names[row["candidate_name"].strip()] = f"{first} {last}"
 
     owned_markers = {
         str(args.job),
@@ -770,6 +1032,8 @@ def main() -> None:
         f"client_id={args.client}",
         f"/clients/{args.client}/",
     }
+    if args.dl_job:
+        owned_markers |= {str(args.dl_job), str(args.dl_candidate), str(args.dl_stage)}
     dataset: dict[str, object] = {}
     for e, body in entries:
         raw = e["path"] + e["query"] + (e.get("reqBody") or "")
@@ -788,6 +1052,8 @@ def main() -> None:
         if not owned:
             continue
         key = f"{e['method']} {b.clean_url(e['path'], e['query'])}"
+        if e.get("phase", "").startswith("dl-") and key in dataset:
+            continue
         if re.match(rf"/api/candidates/{args.candidate}(/quick-view)?$", e["path"]):
             first, last = PEOPLE[b.ids[args.candidate] - FIRST_CANDIDATE]
             body = fictionalize_candidate(body, first, last)
@@ -873,6 +1139,26 @@ def main() -> None:
             },
         },
     )
+    for key in [k for k in dataset if k.startswith("GET /api/dl-review/context?")]:
+        dataset[key] = dl_context(dataset[key])
+    # Rekrutacja ćwiczebna jest gotowa do przekazania (nagrana miała braki).
+    key = f"GET /api/jobs/{POLIGON_JOB}/readiness"
+    if isinstance(dataset.get(key), dict):
+        dataset[key] = {
+            **dataset[key],
+            "ready": True,
+            "blockers": [],
+            "blocker_items": [],
+        }
+    # Inne procesy osoby w mailu odrzucenia to prawdziwe rekrutacje.
+    for key in [
+        k for k in dataset if k.startswith("POST /api/rejection-emails/preview")
+    ]:
+        for person in dataset[key].get("people") or []:
+            person["other_processes"] = []
+    # „Pasuje też do” wskazywałoby prawdziwe rekrutacje — na poligonie nic.
+    for key in [k for k in dataset if k.startswith("GET /api/dl-match/candidates/")]:
+        dataset[key] = {**dataset[key], "jobs": []}
     # Odczyty Tablicy, których jedno nagranie nie łapie (zależą od stanu
     # rekrutacji): ostatni przegląd bazy i migawka rekomendacji. Na rekrutacji
     # ćwiczebnej ich nie ma — serwer odpowiada wtedy `run: null` i 404, a 404

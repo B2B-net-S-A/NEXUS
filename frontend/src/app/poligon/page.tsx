@@ -1,7 +1,8 @@
 "use client";
 
 // Poligon NEXUSA — onboarding pierwszego dnia (decyzje Artura z 14.11.2026).
-// Jedna ścieżka bez poziomów: nowa osoba przechodzi wszystkie ćwiczenia, zanim
+// Ścieżka bez poziomów, per rola (15.11.2026: rekruter, Delivery Lead, TCM —
+// `usePoligonPath`): nowa osoba przechodzi wszystkie ćwiczenia swojej roli, zanim
 // NEXUS wpuści ją do pracy (blokada Startu prowadzi tu), a dzień onboardingu
 // nie liczy się do jej statystyk. Ćwiczenia idą na prawdziwych ekranach
 // w trybie poligonu (`lib/poligon/`), na rekrutacji ćwiczebnej.
@@ -12,9 +13,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { useStartStatus } from "@/lib/novelties/api";
-import { EXERCISES } from "@/lib/poligon/exercises";
 import { enterPoligon } from "@/lib/poligon/mode";
 import { nextExerciseId, readDone, resetProgress } from "@/lib/poligon/progress";
+import { usePoligonPath } from "@/lib/poligon/usePoligonPath";
 import { cn } from "@/lib/utils";
 
 export default function PoligonPage() {
@@ -23,6 +24,7 @@ export default function PoligonPage() {
   const status = useStartStatus(true);
   const poligon = status?.poligon ?? null;
   const serverIds = poligon?.done_ids;
+  const { path, context } = usePoligonPath(poligon);
 
   useEffect(() => {
     setDone(readDone(serverIds ?? []));
@@ -30,13 +32,14 @@ export default function PoligonPage() {
   }, [serverIds]);
 
   const modules = useMemo(() => {
-    const byModule = new Map<string, (typeof EXERCISES)[number][]>();
-    for (const e of EXERCISES) byModule.set(e.module, [...(byModule.get(e.module) ?? []), e]);
+    const byModule = new Map<string, (typeof path)[number][]>();
+    for (const e of path) byModule.set(e.module, [...(byModule.get(e.module) ?? []), e]);
     return [...byModule.entries()];
-  }, []);
-  const nextId = nextExerciseId(done);
-  const next = EXERCISES.find((e) => e.id === nextId) ?? null;
-  const doneCount = EXERCISES.filter((e) => done.has(e.id)).length;
+  }, [path]);
+  const nextId = nextExerciseId(done, path);
+  const next = path.find((e) => e.id === nextId) ?? null;
+  const doneCount = path.filter((e) => done.has(e.id)).length;
+  const total = Math.max(path.length, 1);
   const required = Boolean(poligon?.required);
   const locked = required && Boolean(status?.enforced) && status?.redirect === "/poligon";
 
@@ -49,9 +52,9 @@ export default function PoligonPage() {
         </p>
         <h1 className="text-2xl font-semibold text-foreground">Naucz się NEXUSA na rekrutacji ćwiczebnej</h1>
         <p className="max-w-3xl text-sm text-muted-foreground">
-          Pracujesz na prawdziwych ekranach, ale wszystkie osoby i firmy są wymyślone. Przeciągasz karty, wypełniasz
-          screening, odrzucasz i przypisujesz z bazy — nic nie trafia do bazy ani do klientów. Każde ćwiczenie zalicza się
-          samo, kiedy je wykonasz.
+          Pracujesz na prawdziwych ekranach, ale wszystkie osoby i firmy są wymyślone. Przeciągasz karty, piszesz
+          notatki, odrzucasz, przypisujesz z bazy i robisz to, co należy do Twojej roli — nic nie trafia do bazy ani do
+          klientów. Każde ćwiczenie zalicza się samo, kiedy je wykonasz.
         </p>
       </header>
 
@@ -88,12 +91,12 @@ export default function PoligonPage() {
       <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-card px-4 py-3">
         <p className="text-sm">
           <b className="text-base font-semibold tabular-nums">
-            {mounted ? doneCount : "–"} z {EXERCISES.length}
+            {mounted ? doneCount : "–"} z {path.length}
           </b>{" "}
           <span className="text-muted-foreground">ćwiczeń</span>
         </p>
         <div className="h-1.5 min-w-[120px] flex-1 overflow-hidden rounded-full bg-accent" aria-hidden="true">
-          <i className="block h-full bg-primary" style={{ width: `${(doneCount / EXERCISES.length) * 100}%` }} />
+          <i className="block h-full bg-primary" style={{ width: `${(doneCount / total) * 100}%` }} />
         </div>
         {next ? (
           <Button onClick={() => enterPoligon(next.href)} disabled={!mounted}>
@@ -155,7 +158,7 @@ export default function PoligonPage() {
                     ) : (
                       <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
                     )}
-                    <span className="min-w-0 truncate">{e.title({ firstNew: null })}</span>
+                    <span className="min-w-0 truncate">{e.title({ ...context, firstNew: null })}</span>
                   </li>
                 ))}
               </ul>
