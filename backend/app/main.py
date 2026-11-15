@@ -2100,7 +2100,7 @@ app.include_router(
     prefix="/api/client-panel",
     tags=["client-panel"],
 )
-# 0711: zespół dla klienta — kilka rekrutacji jednego klienta, jeden link.
+# 0710: zespół dla klienta — kilka rekrutacji jednego klienta, jeden link.
 app.include_router(
     public_job_team_panel_api.router,
     prefix="/api/public/team-panel",
@@ -4403,7 +4403,7 @@ async def api_health_deep_check(request: Request):
         ("client_panel_candidates", ClientPanelCandidate),
         ("client_panel_requests", ClientPanelRequest),
         ("client_panel_views", ClientPanelView),
-        # 0711: zespół dla klienta — brak tabeli = 500 na `/zespoly` i pod `/k/z/`.
+        # 0710: zespół dla klienta — brak tabeli = 500 na `/zespoly` i pod `/k/z/`.
         # `jobs.team_id` sprawdza sonda `jobs` (ORM czyta kolumnę zawsze).
         ("job_teams", JobTeam),
         ("job_team_selections", JobTeamSelection),

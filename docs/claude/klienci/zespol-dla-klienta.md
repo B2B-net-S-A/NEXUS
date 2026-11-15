@@ -1,4 +1,4 @@
-# Zespół dla klienta: kilka rekrutacji, jeden link (0711, 15.11.2026)
+# Zespół dla klienta: kilka rekrutacji, jeden link (0710, 15.11.2026)
 <!-- indeks: `/zespoly/{id}`, `/k/z/{token}`, pojemnik a nie typ rekrutacji, link wyłączony domyślnie, włączenie zespołu włącza panele stanowisk, kształt publiczny z paneli stanowisk, wybór składu bez treści w dzwonku, odłożone Z3–Z4 -->
 
 Decyzje Artura z 15.11.2026 (zakres Z1 + Z2). Makiety:

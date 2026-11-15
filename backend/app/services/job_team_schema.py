@@ -1,4 +1,4 @@
-"""DDL zespołu dla klienta (0711) — jedno źródło dla migracji i ``entrypoint.sh``.
+"""DDL zespołu dla klienta (0710) — jedno źródło dla migracji i ``entrypoint.sh``.
 
 Zespół to pojemnik na kilka zwykłych rekrutacji jednego klienta i jeden link
 dla klienta na cały skład (``docs/claude/klienci/zespol-dla-klienta.md``).
