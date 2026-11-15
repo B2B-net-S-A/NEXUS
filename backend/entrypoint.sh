@@ -1334,7 +1334,7 @@ except Exception as _client_panel_schema_err:  # noqa: BLE001
     print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
     _CLIENT_PANEL_DDL = []
 
-# Zespół dla klienta (0709) — JEDNO źródło z migracją
+# Zespół dla klienta (0710) — JEDNO źródło z migracją
 # (`app/services/job_team_schema.py`, pilnuje test_job_team_panel_unit). ORM czyta
 # `jobs.team_id` przy każdym zapytaniu o rekrutację, więc ten blok jest wdrożeniem.
 try:
@@ -7228,7 +7228,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
-    # 0709: zespół dla klienta (po `clients`, `users` i `jobs`).
+    # 0710: zespół dla klienta (po `clients`, `users` i `jobs`).
     *_JOB_TEAMS_DDL,
     *_OWN_HIRING_DDL,
     *_CPRO_MAIL_DDL,

@@ -1,4 +1,4 @@
-"""Zespół dla klienta (0709) — ``services/job_team_schema.py``."""
+"""Zespół dla klienta (0710) — ``services/job_team_schema.py``."""
 
 from datetime import datetime
 from typing import Optional
