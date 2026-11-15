@@ -85,6 +85,9 @@ _GATE_QUALNAME_MARKERS = (
     # Skrzynka Outlook (28.10.2026): odczyt kandydatów albo „Sprzedaż: podgląd”
     # (``api/microsoft365.require_mailbox_owner`` / ``_status_reader``).
     "require_mailbox_",
+    # Radar przepisów (15.11.2026): admin i HoR z roli, reszta z uprawnień
+    # Finanse, Płace, Kadry albo Kontrakty (``app/api/law_radar.py``).
+    "require_compliance_access",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
@@ -100,6 +103,8 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "portal_context",
     # Raport bota researchu: jednorazowy token biegu (``X-Run-Token``).
     "require_signal_run_token",
+    # Raport botów radaru przepisów: jednorazowy token biegu (``X-Run-Token``).
+    "require_law_run_token",
 )
 
 # Many handlers carry no gate in their signature but check imperatively as the

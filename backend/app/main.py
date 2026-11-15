@@ -116,6 +116,7 @@ from app.api import insights_campaigns
 from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
+from app.api import integrations_law_radar
 from app.api import integrations_sales_signals
 from app.api import integrations_v1
 from app.api.integrations_v1.common import (
@@ -252,6 +253,7 @@ from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_reports as client_reports_api
+from app.api import law_radar as law_radar_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_payments as finance_payments_api
@@ -854,6 +856,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.sales_signals import sales_signals_loop
+    from app.tasks.law_radar import law_radar_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -1094,6 +1097,9 @@ async def lifespan(app: FastAPI):
             "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
             # Sprzedaż: biegi bota researchu (Grok Bot); wyłącznik SALES_SIGNALS_ENABLED.
             "sales_signals": asyncio.create_task(sales_signals_loop()),
+            # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
+            # wyłącznik LAW_RADAR_ENABLED przed pętlą.
+            "law_radar": asyncio.create_task(law_radar_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
@@ -1585,6 +1591,8 @@ app.include_router(bnp_report_api.router, prefix="/api/clients", tags=["clients"
 app.include_router(
     client_reports_api.router, prefix="/api/client-reports", tags=["client-reports"]
 )
+# Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
+app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
@@ -2016,6 +2024,12 @@ app.include_router(
 app.include_router(
     integrations_sales_signals.router,
     prefix="/api/integrations/sales-signals",
+    tags=["integrations"],
+)
+# Raport botów radaru przepisów (Zbieracz, Analityk): jednorazowy token biegu.
+app.include_router(
+    integrations_law_radar.router,
+    prefix="/api/integrations/law-radar",
     tags=["integrations"],
 )
 # API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
@@ -4136,6 +4150,14 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
     from app.models.client_report import ClientReportDefinition, ClientReportRun
+    from app.models.law_radar import (
+        LawChange,
+        LawChangeEvent,
+        LawChangeProbe,
+        LawChangeTask,
+        LawRadarItem,
+        LawRadarRun,
+    )
     from app.models.training import (
         Training,
         TrainingAttendance,
@@ -4788,6 +4810,13 @@ async def api_health_deep_check(request: Request):
         # 0712: katalog raportów klienta — definicje i historia wysyłek.
         ("client_report_definitions", ClientReportDefinition),
         ("client_report_runs", ClientReportRun),
+        # 0713: radar przepisów — biegi botów, pozycje, zmiany, zadania, sondy.
+        ("law_radar_runs", LawRadarRun),
+        ("law_radar_items", LawRadarItem),
+        ("law_changes", LawChange),
+        ("law_change_tasks", LawChangeTask),
+        ("law_change_events", LawChangeEvent),
+        ("law_change_probes", LawChangeProbe),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.

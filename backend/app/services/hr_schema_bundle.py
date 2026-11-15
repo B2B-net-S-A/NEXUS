@@ -65,6 +65,7 @@ from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 from app.services import trainings_schema as trainings
+from app.services.law_radar import schema as law_radar
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -140,6 +141,8 @@ MODULES = (
     client_invoice_templates,
     # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
     client_reports,
+    # 0713: radar przepisów — biegi botów, pozycje, zmiany w prawie (15.11.2026).
+    law_radar,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
