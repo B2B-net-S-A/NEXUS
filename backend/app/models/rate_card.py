@@ -57,7 +57,7 @@ class RateCard(Base, TimestampMixin):
 
 
 class RateCardAdder(Base, TimestampMixin):
-    """Dopłata za technologię premium z umowy ramowej klienta (0708).
+    """Dopłata za technologię premium z umowy ramowej klienta (0710).
 
     ``eligible`` to lista par ``{"role": …, "seniority": …}`` z ``rate_cards``,
     dla których umowa dopuszcza dopłatę (``seniority`` ``null`` = poziom

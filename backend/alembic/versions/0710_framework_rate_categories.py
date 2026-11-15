@@ -1,7 +1,7 @@
 """Limit z umowy ramowej: kategoria na kontrakcie i dopłaty technologiczne (F1).
 
-Revision ID: 0708_framework_rate_categories
-Revises: 0707_ledger_fx
+Revision ID: 0710_framework_rate_categories
+Revises: 0709_sales_invoice_templates
 
 Kategoria i poziom z umowy ramowej (pozycja ``rate_cards``) na kontrakcie,
 dopłaty za technologie premium per klient (``rate_card_adders``) i przyznana
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import framework_rate_schema as schema
 
-revision = "0708_framework_rate_categories"
-down_revision = "0707_ledger_fx"
+revision = "0710_framework_rate_categories"
+down_revision = "0709_sales_invoice_templates"
 branch_labels = None
 depends_on = None
 

@@ -1,4 +1,4 @@
-"""Limit z umowy ramowej (F1, 15.11.2026) — SQL migracji ``0708_framework_rate_categories``.
+"""Limit z umowy ramowej (F1, 15.11.2026) — SQL migracji ``0710_framework_rate_categories``.
 
 Jedno źródło DDL dla migracji i lustra ``entrypoint.sh``; każda instrukcja
 idempotentna i dodaje (nowa tabela, kolumny NULL), więc stary kod działa na

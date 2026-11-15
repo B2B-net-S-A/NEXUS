@@ -155,7 +155,7 @@ class Contract(Base, TimestampMixin):
     # Numeric(16,6): stawki ramowe bywają z groszami (np. 215,60 — migracja
     # 0157), a po przeliczeniu MD → godziny mają do 5 miejsc (migracja 0309).
     framework_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6))
-    # Kategoria i poziom z umowy ramowej (0708): pozycja cennika klienta,
+    # Kategoria i poziom z umowy ramowej (0710): pozycja cennika klienta,
     # źródło (`coa` — z zamówienia klienta, `dl` — wybrał Delivery Lead) i surowa
     # etykieta z ostatniego COA. Limit = maksimum z cennika × (1 + dopłata);
     # liczy `services/framework_category.py`, zapisuje krok harmonogramu wyżej.

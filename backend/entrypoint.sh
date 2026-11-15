@@ -1483,7 +1483,7 @@ except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
 
-# 0708: limit z umowy ramowej — dopłaty i kategoria na kontrakcie
+# 0710: limit z umowy ramowej — dopłaty i kategoria na kontrakcie
 # (`app/services/framework_rate_schema.py`).
 try:
     from app.services import framework_rate_schema as _framework_rate_schema
@@ -7253,7 +7253,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,
     *_SKILL_RELATIONS_TABLE_DDL,
-    # 0708: po `rate_cards`, `contracts` i `users`, na które wskazuje.
+    # 0710: po `rate_cards`, `contracts` i `users`, na które wskazuje.
     *_FRAMEWORK_RATE_DDL,
     # 0667: 70 porzuconych tabel bez modelu. Przywrócenie którejś ze zrzutu
     # wymaga usunięcia jej stąd, bo następny start skasowałby ją ponownie.

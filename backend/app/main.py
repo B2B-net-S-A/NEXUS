@@ -1787,7 +1787,7 @@ app.include_router(
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
-# 0708: cennik umowy ramowej, dopłaty i kategoria na kontrakcie (F1, 15.11.2026).
+# 0710: cennik umowy ramowej, dopłaty i kategoria na kontrakcie (F1, 15.11.2026).
 app.include_router(framework_rates.router, prefix="/api", tags=["framework-rates"])
 app.include_router(framework_rates.finance_router, prefix="/api", tags=["framework-rates"])
 app.include_router(
@@ -4132,7 +4132,7 @@ async def api_health_deep_check(request: Request):
         ("contracts", Contract),
         ("contract_candidate_rates", ContractCandidateRate),
         ("contract_client_rates", ContractClientRate),
-        # 0708: dopłaty z umowy ramowej (limit kontraktu czyta je przy zapisie).
+        # 0710: dopłaty z umowy ramowej (limit kontraktu czyta je przy zapisie).
         ("rate_card_adders", RateCardAdder),
         # 0227: moduł Finanse. Bez tych dwóch wpisów zielony deploy nie mówi
         # nic o tym, czy tabele w ogóle powstały — a prodowy alembic bywa
