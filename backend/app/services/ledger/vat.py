@@ -135,18 +135,14 @@ class Row:
     counterparty: str
     tax_id: Optional[str]
     country: Optional[str]
+    #: Sumy z dekretu — także gdy wiersz nie ma podziału na pola JPK (inaczej
+    #: „do zapłaty” rozjeżdżało się z kontem VAT; przegląd K5a).
+    net: int
+    vat: int
     amounts: dict[str, tuple[int, int]]
     correction: bool = False
     payroll: bool = False
     problem: Optional[str] = None
-
-    @property
-    def net(self) -> int:
-        return sum(net for net, _ in self.amounts.values())
-
-    @property
-    def vat(self) -> int:
-        return sum(vat for _, vat in self.amounts.values())
 
 
 def _decimal(value: object) -> Optional[Decimal]:
@@ -244,25 +240,47 @@ def sales_amounts(lines: Iterable[Line], *, output_account: str) -> tuple[int, i
     return gross - vat, vat
 
 
-def purchase_amounts(
-    lines: Iterable[Line], *, input_account: str, intake_account: str
-) -> Optional[tuple[str, int, int]]:
-    """Grupa, netto i VAT naliczony FVZ; ``None`` = bez odliczenia w dekrecie."""
+@dataclass(frozen=True)
+class Purchase:
+    """FVZ w rejestrach: grupa, netto i VAT naliczony; ``output`` = VAT należny
+    rozliczany przez nabywcę w tym samym dokumencie (import usług, odwrotne
+    obciążenie) — trafia do rejestru sprzedaży."""
 
-    vat = gross = 0
-    touched = assets = False
+    key: str
+    net: int
+    vat: int
+    output: int
+
+
+def purchase_amounts(
+    lines: Iterable[Line],
+    *,
+    input_account: str,
+    output_account: str,
+    intake_account: str,
+) -> Optional[Purchase]:
+    """Kwoty FVZ z dekretu; ``None`` = bez VAT naliczonego i należnego."""
+
+    vat = output = gross = intake = 0
+    touched = False
     for side, account, amount, party in lines:
         sign = 1 if side == "debit" else -1
         if _matches(account, input_account):
             touched = True
             vat += sign * amount
+        elif _matches(account, output_account):
+            touched = True
+            output -= sign * amount
         elif party is not None:
             gross -= sign * amount
-        if side == "debit" and _matches(account, intake_account):
-            assets = True
+        if _matches(account, intake_account):
+            # Ruch netto, nie strona: korekta zakupu środka trwałego ma Ma na
+            # koncie przyjęcia i dalej jest K_40/K_41 (przegląd K5a).
+            intake += sign * amount
     if not touched:
         return None
-    return ("assets" if assets else "other", gross - vat, vat)
+    # Sprzedawca nie doliczył VAT, który nabywca rozlicza sam (VAT należny).
+    return Purchase("assets" if intake else "other", gross - vat + output, vat, output)
 
 
 def summarize(sales_rows: list[Row], purchase_rows: list[Row]) -> dict[str, Any]:
@@ -388,6 +406,8 @@ async def _sales_rows(
             amounts, problem = {}, "brak faktury źródłowej w KSeF"
         else:
             amounts, problem = split_sales(invoice.items or [], net, vat)
+        if any(_matches(line[1], settings.vat.input_account) for line in lines[doc.id]):
+            amounts, problem = {}, "FVS z VAT naliczonym w dekrecie — sprawdź dokument"
         tax_id, country = _tax_id(
             invoice.buyer_nip if invoice else None,
             invoice.buyer_foreign_id if invoice else None,
@@ -403,6 +423,8 @@ async def _sales_rows(
                 or doc.description,
                 tax_id=tax_id,
                 country=country,
+                net=net,
+                vat=vat,
                 amounts=amounts,
                 correction=bool(invoice and invoice.invoice_kind == "correction"),
                 problem=problem,
@@ -411,12 +433,22 @@ async def _sales_rows(
     return rows
 
 
+#: Wiersz sprzedaży z VAT należnym z dokumentu zakupu — pole JPK (import usług
+#: K_27–K_30 albo krajowe odwrotne obciążenie) wybierze K5b.
+SELF_ASSESSED = (
+    "import usług / odwrotne obciążenie (VAT należny z dokumentu zakupu) — "
+    "pole JPK przypisze etap K5b"
+)
+
+
 async def _purchase_rows(
     db: AsyncSession,
     docs: list[LedgerDocument],
     lines: dict[int, list[Line]],
     settings: LedgerSettings,
-) -> list[Row]:
+) -> tuple[list[Row], list[Row]]:
+    """Wiersze zakupu i — dla FVZ z VAT należnym — wiersze sprzedaży bez pola JPK."""
+
     party_ids = {doc.counterparty_id for doc in docs if doc.counterparty_id}
     parties: dict[int, FinanceCounterparty] = {}
     if party_ids:
@@ -430,34 +462,51 @@ async def _purchase_rows(
                 )
             ).all()
         }
-    rows = []
+    rows: list[Row] = []
+    self_rows: list[Row] = []
     for doc in docs:
         found = purchase_amounts(
             lines[doc.id],
             input_account=settings.vat.input_account,
+            output_account=settings.sales.vat_account,
             intake_account=settings.assets.intake_account,
         )
         if found is None:
             continue
-        key, net, vat = found
         party = parties.get(doc.counterparty_id or 0)
         issued = (doc.meta or {}).get("issue_date")
-        rows.append(
-            Row(
-                document_id=doc.id,
-                number=doc.number,
-                ksef_number=(doc.meta or {}).get("ksef_number"),
-                issue_date=date.fromisoformat(issued) if issued else doc.doc_date,
-                day=doc.op_date,
-                counterparty=party.name if party else doc.description,
-                tax_id=party.id_value if party else None,
-                country=(party.country if party else None) or None,
-                amounts={key: (net, vat)},
-                correction=net < 0 or vat < 0,
-                payroll=doc.sensitivity is not None,
+        common = {
+            "document_id": doc.id,
+            "number": doc.number,
+            "ksef_number": (doc.meta or {}).get("ksef_number"),
+            "issue_date": date.fromisoformat(issued) if issued else doc.doc_date,
+            "day": doc.op_date,
+            "counterparty": party.name if party else doc.description,
+            "tax_id": party.id_value if party else None,
+            "country": (party.country if party else None) or None,
+            "correction": found.net < 0 or found.vat < 0 or found.output < 0,
+            "payroll": doc.sensitivity is not None,
+        }
+        if found.vat or found.output == 0:
+            rows.append(
+                Row(
+                    **common,
+                    net=found.net,
+                    vat=found.vat,
+                    amounts={found.key: (found.net, found.vat)},
+                )
             )
-        )
-    return rows
+        if found.output:
+            self_rows.append(
+                Row(
+                    **common,
+                    net=found.net,
+                    vat=found.output,
+                    amounts={},
+                    problem=SELF_ASSESSED,
+                )
+            )
+    return rows, self_rows
 
 
 async def _missing_sales(
@@ -567,9 +616,6 @@ async def _outside(
     ]
     if not accounts:
         return []
-    register = select(LedgerDocument.id).where(
-        LedgerDocument.source_type.in_(REGISTER_SOURCES)
-    )
     on_vat = or_(
         *[
             or_(LedgerLine.account == item, LedgerLine.account.like(f"{item}-%"))
@@ -597,10 +643,10 @@ async def _outside(
                 LedgerDocument.source_type.is_(None),
                 LedgerDocument.source_type.not_in(REGISTER_SOURCES),
             ),
-            or_(
-                LedgerDocument.reverses_id.is_(None),
-                LedgerDocument.reverses_id.not_in(register),
-            ),
+            # Dokument ze stornem i samo storno się znoszą (przegląd K5a);
+            # storno dokumentu z rejestru też tu nie należy.
+            LedgerDocument.reversed_by_id.is_(None),
+            LedgerDocument.reverses_id.is_(None),
         )
         .order_by(LedgerDocument.op_date, LedgerDocument.id)
     )
@@ -683,14 +729,16 @@ async def registers(
     sales_rows = await _sales_rows(
         db, [doc for doc in docs if doc.source_type == SALES_SOURCE], lines, settings
     )
-    purchase_rows = await _purchase_rows(
+    purchase_rows, self_rows = await _purchase_rows(
         db, [doc for doc in docs if doc.source_type == COST_SOURCE], lines, settings
     )
+    sales_rows += self_rows
+
     drafts = await _documents(db, start, end, viewer, status="draft")
     issues = [
         _issue(
             "rates",
-            "Stawki do sprawdzenia — wiersz bez podziału na pola JPK",
+            "Wiersze bez pola JPK — stawka albo odwrotne obciążenie do sprawdzenia",
             [
                 {"id": row.document_id, "number": row.number, "detail": row.problem}
                 for row in sales_rows

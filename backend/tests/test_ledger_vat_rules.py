@@ -74,26 +74,20 @@ def test_amounts_come_from_the_decree():
         ("debit", "221-1", 23_000, None),
         ("credit", "201-5", 123_000, 9),
     ]
-    assert vat.purchase_amounts(purchase, input_account="221", intake_account="080") == (
-        "other",
-        100_000,
-        23_000,
-    )
+    found = vat.purchase_amounts(purchase, input_account="221", output_account="222", intake_account="080")
+    assert (found.key, found.net, found.vat, found.output) == ("other", 100_000, 23_000, 0)
     asset = [("debit", "080", 500_000, None), ("debit", "221", 115_000, None), ("credit", "201-5", 615_000, 9)]
-    assert vat.purchase_amounts(asset, input_account="221", intake_account="080") == (
-        "assets",
-        500_000,
-        115_000,
-    )
+    found = vat.purchase_amounts(asset, input_account="221", output_account="222", intake_account="080")
+    assert (found.key, found.net, found.vat) == ("assets", 500_000, 115_000)
     # Bez VAT naliczonego w dekrecie (bez odliczenia) — poza rejestrem.
     no_deduction = [("debit", "402", 123_000, None), ("credit", "201-5", 123_000, 9)]
-    assert vat.purchase_amounts(no_deduction, input_account="221", intake_account="080") is None
+    assert vat.purchase_amounts(no_deduction, input_account="221", output_account="222", intake_account="080") is None
     # „2210” to inne konto niż analityka „221-…”.
     other = [("debit", "2210", 5, None), ("credit", "201-5", 5, 9)]
-    assert vat.purchase_amounts(other, input_account="221", intake_account="080") is None
+    assert vat.purchase_amounts(other, input_account="221", output_account="222", intake_account="080") is None
 
 
-def _row(key: str, net: int, tax: int, **extra) -> vat.Row:
+def _row(key: str | None, net: int, tax: int, **extra) -> vat.Row:
     return vat.Row(
         document_id=1,
         number="X",
@@ -103,7 +97,9 @@ def _row(key: str, net: int, tax: int, **extra) -> vat.Row:
         counterparty="K",
         tax_id=None,
         country=None,
-        amounts={key: (net, tax)},
+        net=net,
+        vat=tax,
+        amounts={key: (net, tax)} if key else {},
         **extra,
     )
 
@@ -150,3 +146,42 @@ def test_closing_item_for_vat_registers():
         "faktury sprzedaży z ksef bez dokumentu w księdze: 2; fvs i fvz w buforze: 1"
     )
     assert closing.vat_check(_data(issues=[drafts]), href)["state"] == "todo"
+
+
+def test_row_without_jpk_field_keeps_the_decree_amounts_in_the_totals():
+    """Wiersz bez podziału (np. korekta zmieniająca stawkę) zostaje w sumach
+    z kwotami z dekretu — inaczej „do zapłaty” nie zgadza się z kontem 222
+    (przegląd K5a)."""
+
+    summary = vat.summarize(
+        [_row("23", 100_000, 23_000), _row(None, -10_000, -2_300, problem="korekta zmienia stawki")],
+        [],
+    )
+    assert [(g["key"], g["vat"]) for g in summary["groups"]] == [("23", 23_000)]
+    assert (summary["output_vat"], summary["due"]) == (20_700, 20_700)
+
+
+def test_fixed_asset_correction_stays_in_fixed_assets():
+    """Korekta zakupu środka trwałego (strony odwrócone) to dalej K_40/K_41."""
+
+    correction = [("credit", "080", 10_000, None), ("credit", "221", 2_300, None), ("debit", "201-1", 12_300, 7)]
+    found = vat.purchase_amounts(correction, input_account="221", output_account="222", intake_account="080")
+    assert (found.key, found.net, found.vat, found.output) == ("assets", -10_000, -2_300, 0)
+
+
+def test_reverse_charge_in_a_purchase_keeps_net_and_output_vat():
+    """FVZ z VAT należnym i naliczonym (import usług, odwrotne obciążenie):
+    netto = brutto od dostawcy, VAT należny osobno (przegląd K5a)."""
+
+    lines = [
+        ("debit", "402", 100_000, None),
+        ("debit", "221", 23_000, None),
+        ("credit", "222", 23_000, None),
+        ("credit", "201-5", 100_000, 9),
+    ]
+    found = vat.purchase_amounts(lines, input_account="221", output_account="222", intake_account="080")
+    assert (found.key, found.net, found.vat, found.output) == ("other", 100_000, 23_000, 23_000)
+    # Sam VAT należny w zakupie (bez odliczenia) też nie znika.
+    only_output = [("debit", "402", 123_000, None), ("credit", "222", 23_000, None), ("credit", "201-5", 100_000, 9)]
+    found = vat.purchase_amounts(only_output, input_account="221", output_account="222", intake_account="080")
+    assert (found.vat, found.output) == (0, 23_000)

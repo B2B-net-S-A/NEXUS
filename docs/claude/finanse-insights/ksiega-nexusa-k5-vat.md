@@ -21,24 +21,43 @@ i dokument rozliczenia VAT — K5b (osobny dopisek).
   - kilka stawek = netto w proporcji pozycji, VAT tylko na stawkach z podatkiem,
     w proporcji netto × stawka (ostatnia grupa bierze resztę groszy);
   - stawka spoza słownika (np. `oo`), pozycje bez stawki, kilka stawek bez netto
-    albo korekta zmieniająca stawki = wiersz „do sprawdzenia”, bez podziału.
+    albo korekta zmieniająca stawki = wiersz „do sprawdzenia”, bez podziału —
+    ale **z kwotami z dekretu w sumach** (inaczej „do zapłaty” rozjeżdża się
+    z kontem VAT należnego; przegląd K5a).
 - **Grupy**: 23% (22%) K_19/K_20, 8% (7%) K_17/K_18, 5% K_15/K_16, 0% w kraju
   K_13, WDT K_21, eksport K_22, zw K_10, `np I` K_11, `np II` (usługi dla
   podatników z UE, art. 100 ust. 1 pkt 4) K_11 i „w tym” K_12. Zakup: środki
   trwałe K_40/K_41 (Wn na koncie przyjęcia z K6), pozostałe K_42/K_43.
 - **Rejestr zakupu**: zatwierdzone FVZ z VAT naliczonym w dekrecie (obroty
   Wn − Ma konta VAT naliczonego, moduł VAT — admin; domyślnie 221). Faktura bez
-  VAT naliczonego (bez odliczenia) do rejestru nie wchodzi.
+  VAT naliczonego (bez odliczenia) do rejestru nie wchodzi. Środek trwały =
+  ruch netto na koncie przyjęcia (K6), nie strona — korekta zakupu środka też
+  jest K_40/K_41.
+- **FVZ z VAT należnym** (ręczny dekret E2: import usług, odwrotne obciążenie):
+  netto = brutto od dostawcy (sprzedawca nie doliczył VAT), VAT naliczony
+  w rejestrze zakupu, a VAT należny jako wiersz rejestru sprzedaży bez pola JPK
+  („do sprawdzenia” — pole K_27–K_32 przypisze K5b). Bez tego nadwyżka
+  naliczonego była zawyżona o ten VAT. FVS z VAT naliczonym — wiersz do
+  sprawdzenia.
 - **Do sprawdzenia** (karta i lista zamknięcia „Rejestry VAT”):
   - stawki bez podziału na pola JPK — problem;
   - faktura sprzedaży z KSeF z tego miesiąca bez dokumentu w księdze — problem
     (VAT jest należny, np. od zaliczki, która czeka na regułę zaliczek K3);
   - FVS i FVZ w buforze, faktura kosztowa z wpływem w tym miesiącu bez FVZ
     (kolejka kosztów, bez odrzuconych i proform), zapisy na kontach VAT
-    w dokumentach spoza rejestru (PK; bez rozliczenia VAT, wyciągu i BO) —
-    do zrobienia.
+    w dokumentach spoza rejestru (PK; bez rozliczenia VAT, wyciągu i BO;
+    dokument ze stornem i samo storno się znoszą) — do zrobienia.
 - Saldo miesiąca = VAT należny − naliczony, **bez nadwyżki z poprzedniego
   okresu** (ta przyjdzie z JPK w K5b).
+
+## Decyzje Artura do K5b (15.11.2026)
+
+- **Zakupy zagraniczne bez KSeF** (import usług: LinkedIn, Google, Microsoft,
+  Cognism) — ręcznie w Księgowości: formularz w zakładce VAT (sprzedawca, kraj,
+  nr VAT UE, kwota w walucie, kurs NBP z dnia przed, VAT 23% po obu stronach) →
+  dokument w buforze, rejestr i JPK. Kolejka kosztów E2 zostaje tylko z KSeF.
+- **Schematy XSD JPK_V7M(3)** z crd.gov.pl w repo (dane testowe) — walidacja
+  w testach i przed pobraniem pliku.
 
 ## Zasady, których łatwo nie zauważyć
 
