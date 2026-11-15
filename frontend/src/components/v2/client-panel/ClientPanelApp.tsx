@@ -9,7 +9,7 @@
  * Awaria zapytania i link nieaktualny to osobne ekrany, nigdy pusta lista.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle } from "lucide-react";
 
@@ -33,6 +33,8 @@ export interface ClientPanelAppProps {
   initialPublicId?: string | null;
   /** Harness i testy: dane fikcyjne, zero zapytań. */
   transport?: PanelTransport;
+  /** Pasek pod nagłówkiem, np. powrót do zespołu w panelu zespołu (`/k/z/{token}`). */
+  header?: ReactNode;
 }
 
 export type PanelFailureKind = "gone" | "expired" | "closed" | "failed";
@@ -127,6 +129,7 @@ export function ClientPanelApp({
   token,
   initialPublicId = null,
   transport,
+  header = null,
 }: ClientPanelAppProps) {
   const client = useMemo(() => transport ?? httpPanelTransport(token), [transport, token]);
   // Osoba z wejścia decyduje o liście, gdy „inni kandydaci” są wyłączeni, więc
@@ -190,6 +193,7 @@ export function ClientPanelApp({
     <PanelContextProvider value={contextValue}>
       <div className="flex h-dvh flex-col bg-background text-foreground" data-testid="client-panel">
         <PanelTopBar view={view} />
+        {header}
         {current ? (
           <CandidateView
             key={current.public_id}

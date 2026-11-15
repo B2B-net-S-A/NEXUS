@@ -22,7 +22,6 @@ from app.services.candidate_followups import add_business_days
 from app.services.rejection_reason_labels import CLIENT_NOT_A_VERDICT
 
 # Klient, dla którego istnieje szablon. Numer z bazy, jak w `order_policies`.
-BNP_REPORT_CLIENT_IDS = frozenset({12})
 SUPPLIER_NAME = "B2B.net S.A."
 SLA_WORKDAYS = 10
 MIN_CV_FOR_RITM_SLA = 2

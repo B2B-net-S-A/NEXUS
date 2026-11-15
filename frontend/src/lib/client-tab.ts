@@ -35,6 +35,8 @@ export type ClientTab =
   // Sprzedaż (27.10.2026): powiązana firma sprzedaży i jej szanse — tylko
   // z uprawnieniem „Sprzedaż: podgląd”.
   | "sprzedaz"
+  // Katalog raportów klienta (15.11.2026): co klient wymaga, terminy, pobranie.
+  | "raporty"
   // Stawki z umowy ramowej (F2, 15.11.2026): kto w limicie, kto ponad, raport
   // kwartalny. Widoczna u klienta z cennikiem umowy ramowej.
   | "stawki-ramowe";
@@ -53,6 +55,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "ludzie",
   "zespol",
   "sprzedaz",
+  "raporty",
   "stawki-ramowe",
 ] as const;
 
@@ -68,6 +71,7 @@ export const CLIENT_MORE_TABS: readonly ClientTab[] = [
   "faktury",
   "analityka",
   "sprzedaz",
+  "raporty",
 ];
 
 /**

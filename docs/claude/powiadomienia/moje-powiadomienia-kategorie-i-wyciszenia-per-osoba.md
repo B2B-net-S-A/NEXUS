@@ -24,3 +24,15 @@ dzwonka z kreską prosto w dzwonku), które KATEGORIE powiadomień do niego traf
   która przesunęła kartę. Kategoria „Ruchy w rekrutacjach” (jak `stage_rule`,
   do wyciszenia), sekcja Rekrutacje, bez maila. Front potrzebuje ikony typu
   w `NotificationsDropdown.tsx`.
+- **`client_report_due` (0712, 15.11.2026)** — „Raport dla klienta — termin
+  za N dni / termin minął” z katalogu raportów klienta (decyzja Artura:
+  przypomnienie DL-a kilka dni przed terminem). Własna kategoria „Raporty dla
+  klientów” (do wyciszenia), sekcja Delivery, praca bieżąca (idzie do
+  zastępcy), temat paska `other` (dymek), bez maila. Odbiorca:
+  `preparer_user_id` definicji, inaczej przy `preparer='dl'` DL-e klienta;
+  Finanse/Zarząd/IOD/konsultanci/klient bez wskazanej osoby nie dostają nic.
+  Pasmo: termin w ciągu 3 dni roboczych (z dziś), „po terminie” do 3 dni
+  roboczych po nim, gdy okres nie ma wysyłki; okresy sprzed
+  `catalog.tracking_start` pomijane. Plan liczy czysta funkcja
+  `services/client_reports/reminders.py`, pętla `tasks/client_report_reminders.py`
+  (co godzinę, od 9:00 w dni robocze, przez `emit`).

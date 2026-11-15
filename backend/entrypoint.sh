@@ -381,6 +381,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'skill_dictionary_proposals'",
     # 0677: podsumowanie spotkania handlowca do wysłania klientowi (Sonnet 5.5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_client_summary'",
+    # 0712: katalog raportów klienta — obowiązki raportowe z umów ramowych.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_report_requirements'",
+    # 0712: przypomnienie o terminie raportu dla klienta (dzwonek).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -1333,6 +1337,17 @@ try:
 except Exception as _client_panel_schema_err:  # noqa: BLE001
     print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
     _CLIENT_PANEL_DDL = []
+
+# Zespół dla klienta (0711) — JEDNO źródło z migracją
+# (`app/services/job_team_schema.py`, pilnuje test_job_team_panel_unit). ORM czyta
+# `jobs.team_id` przy każdym zapytaniu o rekrutację, więc ten blok jest wdrożeniem.
+try:
+    from app.services import job_team_schema as _job_team_schema
+
+    _JOB_TEAMS_DDL = list(_job_team_schema.TABLE_DDL)
+except Exception as _job_team_schema_err:  # noqa: BLE001
+    print(f"job team schema unavailable: {_job_team_schema_err!r}")
+    _JOB_TEAMS_DDL = []
 
 # Rekrutacja własna — JEDNO źródło z migracją (`app/services/own_hiring/schema.py`).
 try:
@@ -7112,6 +7127,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
+    # 0711: zespół dla klienta (po `clients`, `users` i `jobs`).
+    *_JOB_TEAMS_DDL,
     *_OWN_HIRING_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
@@ -7989,6 +8006,11 @@ _DATA_STATEMENTS = [
     "SELECT 'duty_search_judge', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'duty_search_judge')",
+    # 0712: seed klucza AI obowiązków raportowych z umów.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'client_report_requirements', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'client_report_requirements')",
     # 0637: seed klucza AI rozdzielania spraw back office'u.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'case_triage', TRUE, 0, now(), now() "

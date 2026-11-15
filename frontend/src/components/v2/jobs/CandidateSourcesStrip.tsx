@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { JobTwinChip } from "@/components/v2/jobs/twins/JobTwinChip";
+import { JobTeamChip } from "@/components/v2/team-request/JobTeamChip";
 import { JobApplicantsTile } from "@/components/v2/jobs/JobApplicantsTile";
 import { MyPeopleTile } from "@/components/v2/jobs/MyPeopleTile";
 import { OpenSimilarTile } from "@/components/v2/jobs/twins/OpenSimilarTile";
@@ -366,7 +367,12 @@ export function CandidateSourcesStrip({
         </>
       }
       afterSimilar={<OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />}
-      twins={canSeeSimilar ? <JobTwinChip jobId={jobId} /> : null}
+      twins={
+        <>
+          {canSeeSimilar ? <JobTwinChip jobId={jobId} /> : null}
+          <JobTeamChip jobId={jobId} />
+        </>
+      }
     />
   );
 }
