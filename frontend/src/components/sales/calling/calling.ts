@@ -194,8 +194,11 @@ export function itemReason(item: QueueItem, todayIso: string): string {
       ? `${item.opportunity_title ?? "Szansa"} · Lead od ${weekdayOf(item.since)}`
       : "Nowy rekord, jeszcze bez rozmowy";
   }
+  // Rekordy przeniesione z Excela nie mają daty ostatniej rozmowy — wtedy sam wynik.
   const parts = [
-    `${outcomeLabel(item.state)} ${weekdayOf(item.last_outcome_at)}`,
+    item.last_outcome_at
+      ? `${outcomeLabel(item.state)} ${weekdayOf(item.last_outcome_at)}`
+      : outcomeLabel(item.state),
     `${item.attempts + 1}. rozmowa`,
   ];
   if (item.due_on && item.due_on < todayIso) parts.push(`termin minął ${formatWeekdayDayPl(item.due_on)}`);
