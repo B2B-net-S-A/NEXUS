@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
@@ -35,7 +35,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
-from app.services.ledger import bank, exports, payroll_lists, settlements, sources
+from app.services.ledger import (
+    bank,
+    exports,
+    payroll_lists,
+    settlements,
+    sources,
+    valuation,
+)
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
 
@@ -215,6 +222,34 @@ def settlements_check(counts: dict[str, int], href: str) -> dict[str, Any]:
     }
 
 
+def valuation_check(data: dict[str, Any], href: str) -> Optional[dict[str, Any]]:
+    """Wycena walut (K4c-2): w grudniu obowiązkowa (dzień bilansowy), w ciągu roku
+    opcjonalna; bez pozycji w walucie pozycji listy nie ma."""
+
+    if not data["positions"]:
+        return None
+    doc = data["documents"]["valuation"]
+    item = {"key": "valuation", "label": "Wycena walut", "href": href}
+    if doc is not None:
+        approved = doc["status"] == "approved"
+        return {
+            **item,
+            "state": "ok" if approved else "todo",
+            "detail": f"{doc['number']} {'zatwierdzona' if approved else 'w buforze'}",
+        }
+    if data["month"] == 12:
+        return {
+            **item,
+            "state": "todo",
+            "detail": "wycena na dzień bilansowy (art. 30 ust. 1 UoR)",
+        }
+    return {
+        **item,
+        "state": "ok",
+        "detail": "w ciągu roku opcjonalna — obowiązkowa na 31.12",
+    }
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -307,6 +342,12 @@ async def checklist(
                 f"/accounting/settlements{query}",
             )
         )
+        valued = valuation_check(
+            await valuation.preview(db, viewer, settings.bank, year=year, month=month),
+            f"/accounting/settlements{query}",
+        )
+        if valued is not None:
+            items.append(valued)
     year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
     period = None
     if year_row is not None:

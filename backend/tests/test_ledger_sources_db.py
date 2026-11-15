@@ -2736,3 +2736,116 @@ async def test_currency_statement_needs_the_account_currency_and_the_nbp_rate(
     )
     assert gbp.status_code == 422
 
+
+
+# ── Wycena walut na koniec miesiąca (K4c-2) ─────────────────────────────────
+
+
+async def _set_eur_rate(day: date, rate: str) -> None:
+    await _drop_eur_rate(day)
+    await _eur_rate(day, rate)
+
+
+async def test_month_end_valuation_books_and_reverses_currency_positions(
+    client, world, books
+):
+    year, acc = books["year"], books["acc"]
+    receivable = f"{acc['receivable']}-{books['partner']['c']}"
+    accounts, _ = await _eur_setup(world, books, fx_accounts=True)
+    nbp_day = rate_day(date(year, 3, 25))
+    end_day = rate_day(date(year, 4, 1))  # ostatni dzień roboczy marca
+    await _eur_rate(nbp_day, "4.250000")
+    await _set_eur_rate(end_day, "4.400000")
+    headers = _headers(world["accountant"])
+    try:
+        synced = await _sync(client, world, books, "sales")
+        assert synced.status_code == 200, synced.text
+        invoice = await _document("client_sales_invoice", books["sales"]["euro"])
+        await _approve_ids(client, world, [invoice.id])
+        marker = uuid.uuid4().hex[:6].upper()
+        content = _mt940_blocks(
+            year,
+            (
+                EUR_COMPANY,
+                "EUR",
+                [("0325", "C", "100,00", "Wpłata bez faktury", OTHER_ACCOUNT, f"V{marker}")],
+            ),
+        )
+        imported = await _bank_import(client, world, content)
+        assert imported.status_code == 201, imported.text
+        statement = imported.json()
+        assigned = await client.patch(
+            f"{ACC}/bank/lines/{statement['lines'][0]['id']}",
+            json={"account": acc["revenue"]},
+            headers=headers,
+        )
+        assert assigned.status_code == 200, assigned.text
+        posted = await client.post(
+            f"{ACC}/bank/statements/{statement['id']}/post", headers=headers
+        )
+        assert posted.status_code == 200, posted.text
+        await _approve_ids(client, world, [posted.json()["documents"][0]["id"]])
+
+        params = {"year": year, "month": 3}
+        preview = await client.get(f"{ACC}/settlements/valuation", params=params, headers=headers)
+        assert preview.status_code == 200, preview.text
+        data = preview.json()
+        assert data["blocker"] is None and data["missing_rates"] == []
+        positions = {(p["account"], p["kind"]): p for p in data["positions"]}
+        # Należność 500 EUR po 4,30 = 2 150,00 → po 4,40 = 2 200,00 (+50,00);
+        # rachunek EUR 100 EUR po 4,25 = 425,00 → 440,00 (+15,00).
+        assert {key: (p["amount_cur"], p["book"], p["valued"], p["diff"]) for key, p in positions.items()} == {
+            (receivable, "settlement"): (50_000, 215_000, 220_000, 5_000),
+            (accounts["eur_bank"], "bank"): (10_000, 42_500, 44_000, 1_500),
+        }
+        assert (data["gain"], data["loss"]) == (6_500, 0)
+        booked = await client.post(f"{ACC}/settlements/valuation", json=params, headers=headers)
+        assert booked.status_code == 200, booked.text
+        result = booked.json()
+        assert (result["valuation"]["outcome"], result["reversal"]["outcome"]) == ("created", "created")
+        valued_doc = await _document("fx_valuation", f"{year}-03")
+        reversal_doc = await _document("fx_valuation_reversal", f"{year}-03")
+        assert valued_doc.op_date == date(year, 3, 31) and reversal_doc.op_date == date(year, 4, 1)
+        assert sorted(await _lines(valued_doc.id)) == sorted(
+            [
+                ("debit", receivable, 5_000),
+                ("debit", accounts["eur_bank"], 1_500),
+                ("credit", accounts["gain"], 6_500),
+            ]
+        )
+        assert sorted(await _lines(reversal_doc.id)) == sorted(
+            [
+                ("credit", receivable, 5_000),
+                ("credit", accounts["eur_bank"], 1_500),
+                ("debit", accounts["gain"], 6_500),
+            ]
+        )
+        again = await client.post(f"{ACC}/settlements/valuation", json=params, headers=headers)
+        assert (again.json()["valuation"]["outcome"], again.json()["reversal"]["outcome"]) == (
+            "unchanged",
+            "unchanged",
+        )
+        # Rozrachunki zostają w kursie historycznym — wycena nie jest pozycją.
+        card = await _account_card(client, world, receivable, as_of=f"{year}-03-31")
+        assert [(i["doc_type"], i["remaining"]) for i in card["open"]] == [("FVS", 215_000)]
+        # Inny kurs = przebudowa szkicu; zatwierdzona wycena = 409.
+        await _set_eur_rate(end_day, "4.410000")
+        rebuilt = await client.post(f"{ACC}/settlements/valuation", json=params, headers=headers)
+        assert rebuilt.json()["valuation"]["outcome"] == "rebuilt", rebuilt.text
+        current = await _document("fx_valuation", f"{year}-03")
+        await _approve_ids(client, world, [current.id])
+        await _set_eur_rate(end_day, "4.420000")
+        locked = await client.post(f"{ACC}/settlements/valuation", json=params, headers=headers)
+        assert locked.status_code == 409 and "storno" in locked.json()["detail"]
+        # Kwiecień: odwrócenie marca w buforze — wycena kwietnia czeka.
+        april = await client.get(
+            f"{ACC}/settlements/valuation", params={"year": year, "month": 4}, headers=headers
+        )
+        assert "nie ma zaksięgowanego odwrócenia" in april.json()["blocker"]
+        outsider = await client.post(
+            f"{ACC}/settlements/valuation", json=params, headers=_headers(world["module_only"])
+        )
+        assert outsider.status_code == 403
+    finally:
+        await _drop_eur_rate(nbp_day)
+        await _drop_eur_rate(end_day)

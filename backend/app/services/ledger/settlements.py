@@ -94,6 +94,13 @@ NO_ITEMS = (
 NO_SETTLEMENT = "Tego rozliczenia nie ma albo zostało już cofnięte."
 APPROVERS_ONLY = "Pozycje rozlicza osoba z listy „Księgowi” albo administrator."
 FX_SOURCE = documents.FX_DIFFERENCE_SOURCE
+#: Dokumenty, których pozycje nie są rozrachunkami: różnica kursowa (K4c-1)
+#: i wycena walut z odwróceniem (K4c-2) — rozrachunki są w kursach historycznych.
+NOT_ITEMS: tuple[str, ...] = (
+    FX_SOURCE,
+    documents.FX_VALUATION_SOURCE,
+    documents.FX_VALUATION_REVERSAL_SOURCE,
+)
 MIXED_CURRENCIES = (
     "Pozycje są w dwóch różnych walutach obcych — rozlicza się walutę z tą samą "
     "walutą albo z PLN."
@@ -557,11 +564,12 @@ async def load_items(
         .where(
             *_live(LedgerDocument, bo_years, as_of),
             _accounts_clause(parents),
-            # Różnica kursowa zamyka różnicę udziałów PLN rozliczenia w walucie —
-            # sama nie jest pozycją do rozliczenia.
+            # Różnica kursowa zamyka różnicę udziałów PLN rozliczenia w walucie,
+            # a wycena walut przelicza saldo na koniec miesiąca — same nie są
+            # pozycjami do rozliczenia.
             or_(
                 LedgerDocument.source_type.is_(None),
-                LedgerDocument.source_type != FX_SOURCE,
+                LedgerDocument.source_type.not_in(NOT_ITEMS),
             ),
         )
         .order_by(

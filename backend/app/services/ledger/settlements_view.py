@@ -43,7 +43,7 @@ NOT_SETTLEMENT_ACCOUNT = (
 )
 
 
-async def _names(
+async def account_names(
     db: AsyncSession, items: Iterable[Item], *, fallback: bool
 ) -> dict[str, dict[str, Any]]:
     """Konto → kontrahent z widocznych zapisów; ``fallback`` — też z kartoteki po koncie.
@@ -141,7 +141,7 @@ async def overview(
 
     parents = await core.load_parents(db)
     items = await core.load_items(db, viewer, parents=parents, as_of=as_of)
-    names = await _names(db, items, fallback=viewer.payroll)
+    names = await account_names(db, items, fallback=viewer.payroll)
     rows: dict[str, dict[str, Any]] = {}
     aging = {"debit": _empty_aging(), "credit": _empty_aging()}
     aging_index = {row["key"]: index for index, row in enumerate(aging["debit"])}
@@ -324,7 +324,7 @@ async def account_detail(
                     },
                 }
             )
-    names = await _names(db, items, fallback=viewer.payroll) if items else {}
+    names = await account_names(db, items, fallback=viewer.payroll) if items else {}
     open_items = [item for item in items if item.remaining > 0]
     settled = [item for item in items if item not in open_items]
     fx_docs = await _fx_documents(

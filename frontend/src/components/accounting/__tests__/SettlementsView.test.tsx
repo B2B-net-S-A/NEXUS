@@ -33,6 +33,7 @@ import type {
   SettlementAccount,
   SettlementItem,
   SettlementsOverview,
+  ValuationPreview,
 } from "@/lib/api/accounting-settlements";
 import { useAuthStore } from "@/store/auth";
 
@@ -137,11 +138,34 @@ function account(overrides: Partial<SettlementAccount> = {}): SettlementAccount 
   };
 }
 
-function route(cfg: LedgerConfig, data: SettlementsOverview = overview(), card: SettlementAccount = account()) {
+function valuation(overrides: Partial<ValuationPreview> = {}): ValuationPreview {
+  return {
+    year: 2026,
+    month: 11,
+    day: "2026-11-20",
+    rates: [{ currency: "EUR", rate: "4.400000", date: "2026-11-19" }],
+    missing_rates: [],
+    positions: [],
+    gain: 0,
+    loss: 0,
+    documents: { valuation: null, reversal: null },
+    blocker: null,
+    can_post: true,
+    ...overrides,
+  };
+}
+
+function route(
+  cfg: LedgerConfig,
+  data: SettlementsOverview = overview(),
+  card: SettlementAccount = account(),
+  valued: ValuationPreview = valuation(),
+) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
     if (url === "/api/accounting/settlements") return { data };
     if (url === "/api/accounting/settlements/accounts/200-1234") return { data: card };
+    if (url === "/api/accounting/settlements/valuation") return { data: valued };
     throw new Error(`nieoczekiwane ${url}`);
   });
 }
@@ -303,6 +327,47 @@ describe("Księgowość — Rozrachunki", () => {
     expect(screen.getByText("PK 7/11/2026")).toBeInTheDocument();
     expect(screen.getByText(/ujemna 25,00 zł/)).toBeInTheDocument();
     expect(screen.getByText(/rozliczenie już nie obowiązuje/)).toBeInTheDocument();
+  });
+
+  it("wycena walut: pozycje, korekta i księgowanie z odwróceniem (K4c-2)", async () => {
+    route(
+      config(),
+      overview(),
+      account(),
+      valuation({
+        positions: [
+          { account: "200-75002", name: "Nordea Bank Abp", kind: "settlement", currency: "EUR", amount_cur: 50_000, book: 215_000, valued: 220_000, diff: 5_000 },
+          { account: "131-1", name: "Rachunek EUR", kind: "bank", currency: "EUR", amount_cur: 10_000, book: 44_500, valued: 44_000, diff: -500 },
+        ],
+        gain: 5_000,
+        loss: 500,
+      }),
+    );
+    post.mockResolvedValue({
+      data: {
+        valuation: { outcome: "created", id: 1, number: "PK 9/11/2026", status: "draft" },
+        reversal: { outcome: "created", id: 2, number: "PK 1/12/2026", status: "draft" },
+        reversal_waiting: null,
+        gain: 5_000,
+        loss: 500,
+      },
+    });
+    const user = userEvent.setup();
+    renderView();
+    expect(await screen.findByText("Wycena walut na 20.11.2026")).toBeInTheDocument();
+    expect(screen.getByText("kurs NBP: EUR 4,4000 (19.11)")).toBeInTheDocument();
+    const nordea = screen.getByText("Nordea Bank Abp").closest("tr") as HTMLElement;
+    expect(within(nordea).getByText("500,00 EUR")).toBeInTheDocument();
+    expect(within(nordea).getByText("+50,00")).toBeInTheDocument();
+    const bank = screen.getByText("Rachunek EUR").closest("tr") as HTMLElement;
+    expect(within(bank).getByText("−5,00")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zaksięguj wycenę" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/api/accounting/settlements/valuation", { year: 2026, month: 11 }),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith("Wycena PK 9/11/2026 w buforze; odwrócenie PK 1/12/2026 w buforze."),
+    );
   });
 
   it("bez listy „Księgowi” nie ma przycisków rozliczania", async () => {

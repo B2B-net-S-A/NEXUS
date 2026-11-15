@@ -1,11 +1,12 @@
-# Księga NEXUSA K4c-1 (15.11.2026): rachunki walutowe i różnice kursowe zrealizowane
+# Księga NEXUSA K4c (15.11.2026): rachunki walutowe, różnice kursowe, wycena walut
 
 Etap K4 planu „Księgowość w NEXUSIE” (https://claude.ai/artifact/U9Z3unvSK62Ff5U36hkaar),
 część trzecia. Wyciągi: `ksiega-nexusa-k4-bank.md`, rozrachunki:
 `ksiega-nexusa-k4b-rozrachunki.md`. Migracja `0707_ledger_fx`
 (`ledger_fx_schema.py`, lustro przez `hr_schema_bundle`), kod w
 `app/services/ledger/bank.py` (import, WB) i `settlements.py` (rozliczenie
-w walucie, PK różnicy kursowej). Wycena na koniec okresu to K4c-2 (osobno).
+w walucie, PK różnicy kursowej). Wycena na koniec miesiąca (K4c-2): `valuation.py`,
+sekcja niżej.
 
 ## Co jest
 
@@ -60,6 +61,32 @@ w walucie, PK różnicy kursowej). Wycena na koniec okresu to K4c-2 (osobno).
   zastosowany”) idzie przez konto ręczne (np. środki w drodze) — automat go nie
   rozpoznaje.
 
+## Wycena na koniec miesiąca (K4c-2)
+
+- Art. 30 ust. 1 UoR: na dzień bilansowy (31.12) obowiązkowo, w ciągu roku na
+  koniec dowolnego miesiąca (zarządczo) — karta „Wycena walut” w Rozrachunkach
+  dla miesiąca z nagłówka, przycisk dla listy „Księgowi”. Lista zamknięcia:
+  w grudniu bez wyceny = „do zrobienia”, w innych miesiącach „opcjonalna”;
+  bez pozycji w walucie pozycji listy nie ma.
+- Kurs: średni NBP obowiązujący na ostatni dzień miesiąca (ostatni ogłoszony do
+  tego dnia, nie starszy niż 7 dni — starszy = luka w pobieraniu, odmowa).
+- Co się wycenia: otwarte pozycje walutowe kontrahentów na ten dzień, netto per
+  konto i waluta (Wn +, Ma −), **bez płacowych** (D2 — ich wycenę robi osoba
+  z Płacami ręcznie), i salda rachunków walutowych z Ustawień (Σ `amount_cur`
+  i PLN zatwierdzonych zapisów do tego dnia, storno ze znakiem).
+- Korekta konta = wartość po kursie − kwota w księdze; dodatnia → Wn konto,
+  Ma przychody finansowe; ujemna → Wn koszty finansowe, Ma konto (konta różnic
+  kursowych z K4c-1, zbiorczo po jednej linii).
+- PK wyceny na ostatni dzień miesiąca (`fx_valuation` / RRRR-MM) i odwrócenie
+  1. dnia następnego miesiąca (`fx_valuation_reversal` / RRRR-MM). Brak
+  następnego roku albo zamknięty okres = odwrócenie czeka (komunikat), wycena
+  idzie. Odcisk jak w K2: bez zmian / przebudowa szkicu / zatwierdzona inna = 409.
+- **Wycena miesiąca czeka**, gdy wycena poprzedniego miesiąca jest zatwierdzona,
+  a jej odwrócenie nie — inaczej różnica weszłaby do salda konta drugi raz.
+- Pozycje PK wyceny i odwrócenia nie są rozrachunkami (`settlements.NOT_ITEMS`):
+  rozrachunki są w kursach historycznych, a saldo konta po wycenie różni się od
+  nich o korektę wyceny do jej odwrócenia.
+
 ## Testy
 
 `tests/test_ledger_settlement_rules.py` (udział PLN, warunki par EUR/EUR, EUR/PLN,
@@ -69,3 +96,8 @@ automat z różnicą kursową, brak konta = czeka, cofnięcie szkicu, 409 po
 zatwierdzeniu, saldo konta = 0; zła waluta rachunku, brak kursu, waluta spoza
 listy), front: `SettlementsView.test.tsx`, `settlements-model.test.ts`,
 `bank-model.test.ts`.
+Wycena: `tests/test_ledger_valuation_rules.py` (pozycje netto bez płacowych i PLN,
+linie korekt, odwrócenie, pozycja listy zamknięcia), test
+`test_month_end_valuation_books_and_reverses_currency_positions` (wycena
+należności i rachunku EUR, odwrócenie 1.04, rozrachunki w kursie historycznym,
+bez zmian / przebudowa / 409, kwiecień czeka na odwrócenie marca, 403).

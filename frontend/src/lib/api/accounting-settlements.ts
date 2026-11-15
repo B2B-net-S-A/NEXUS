@@ -155,8 +155,50 @@ export interface SettlementsQuery {
   q: string;
 }
 
+export interface ValuationPosition {
+  account: string;
+  name: string;
+  kind: "settlement" | "bank";
+  currency: string;
+  /** Kwota w walucie ze znakiem: + = saldo Wn (należność, środki), − = Ma. */
+  amount_cur: number;
+  book: number;
+  valued: number;
+  /** Korekta konta: + = Wn konto (dodatnia różnica), − = Ma konto. */
+  diff: number;
+}
+
+export interface ValuationDoc {
+  id: number;
+  number: string;
+  status: "draft" | "approved";
+}
+
+export interface ValuationPreview {
+  year: number;
+  month: number;
+  day: string;
+  rates: { currency: string; rate: string; date: string }[];
+  missing_rates: string[];
+  positions: ValuationPosition[];
+  gain: number;
+  loss: number;
+  documents: { valuation: ValuationDoc | null; reversal: ValuationDoc | null };
+  blocker: string | null;
+  can_post: boolean;
+}
+
+export interface ValuationResult {
+  valuation: { outcome: string } & Partial<ValuationDoc>;
+  reversal: { outcome: string } & Partial<ValuationDoc>;
+  reversal_waiting: string | null;
+  gain: number;
+  loss: number;
+}
+
 export const settlementKeys = {
   all: ["accounting", "settlements"] as const,
+  valuation: (year: number, month: number) => ["accounting", "settlements", "valuation", year, month] as const,
   overview: (query: SettlementsQuery) => ["accounting", "settlements", "overview", query] as const,
   account: (account: string, asOf: string) => ["accounting", "settlements", "account", account, asOf] as const,
 };
@@ -225,5 +267,25 @@ export function useUnsettle() {
       await api.delete(`${BASE}/settlements/${settlementId}`);
     },
     onSettled: refresh,
+  });
+}
+
+/** Wycena walut na koniec miesiąca (K4c-2): podgląd. */
+export function useValuation(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: settlementKeys.valuation(year, month),
+    queryFn: async () =>
+      (await api.get<ValuationPreview>(`${BASE}/settlements/valuation`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+/** „Zaksięguj wycenę”: PK wyceny i odwrócenia do bufora; odświeża też dokumenty i listę zamknięcia. */
+export function usePostValuation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { year: number; month: number }) =>
+      (await api.post<ValuationResult>(`${BASE}/settlements/valuation`, body)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: ["accounting"] }),
   });
 }

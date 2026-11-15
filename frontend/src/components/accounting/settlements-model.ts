@@ -7,6 +7,7 @@ import type {
   FxDocument,
   SettlementItem,
   SettlementsOverview,
+  ValuationResult,
 } from "@/lib/api/accounting-settlements";
 
 import { curAmount } from "./bank-model";
@@ -182,4 +183,24 @@ export function periodAsOf(year: number, month: number, today: string): string {
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const end = `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
   return end < today ? end : today;
+}
+
+const OUTCOMES: Record<string, string> = {
+  created: "w buforze",
+  rebuilt: "przebudowana w buforze",
+  unchanged: "bez zmian",
+  removed: "usunięta (nic do wyceny)",
+  none: "",
+};
+
+/** Toast po „Zaksięguj wycenę”: numery PK, stan i — gdy czeka — powód odwrócenia. */
+export function valuationMessage(result: ValuationResult): string {
+  const parts: string[] = [];
+  const valuation = result.valuation;
+  if (valuation.number) parts.push(`Wycena ${valuation.number} ${OUTCOMES[valuation.outcome] ?? ""}`.trim());
+  else if (valuation.outcome === "none") parts.push("Nic do wyceny na ten dzień");
+  const reversal = result.reversal;
+  if (reversal.number) parts.push(`odwrócenie ${reversal.number} ${OUTCOMES[reversal.outcome] ?? ""}`.trim());
+  if (result.reversal_waiting) parts.push(result.reversal_waiting);
+  return `${parts.join("; ")}.`;
 }

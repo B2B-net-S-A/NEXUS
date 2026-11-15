@@ -11,10 +11,12 @@ import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
   useAutoSettle,
+  usePostValuation,
   useSettle,
   useSettlementAccount,
   useSettlements,
   useUnsettle,
+  useValuation,
   type AccountFxDocument,
   type SettlementAccount,
   type SettlementAccountRow,
@@ -27,7 +29,7 @@ import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/li
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
-import { curAmount } from "./bank-model";
+import { curAmount, rateLabel } from "./bank-model";
 import { datePl, gr, short } from "./ledger-model";
 import {
   agingRows,
@@ -47,6 +49,7 @@ import {
   selection,
   settleBlocker,
   settleMessage,
+  valuationMessage,
 } from "./settlements-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
@@ -163,6 +166,7 @@ export function SettlementsView() {
             <AccountsCard overview={overview.data} selected={account} onSelect={select} />
             <AgingCard overview={overview.data} />
           </div>
+          <ValuationCard year={period.year} month={period.month} />
         </>
       )}
     </div>
@@ -524,6 +528,120 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
           {showSettled ? <SettledList items={data.settled} canUndo={data.can_settle} /> : null}
         </div>
       ) : null}
+    </SectionCard>
+  );
+}
+
+/**
+ * Wycena walut na koniec miesiąca z nagłówka (K4c-2): otwarte pozycje walutowe
+ * i salda rachunków walutowych po kursie NBP z tego dnia, PK wyceny i jej
+ * odwrócenie 1. dnia następnego miesiąca. Rozrachunki zostają w kursach
+ * historycznych.
+ */
+function ValuationCard({ year, month }: { year: number; month: number }) {
+  const { showToast } = useToast();
+  const preview = useValuation(year, month);
+  const post = usePostValuation();
+  if (preview.isError) {
+    return (
+      <SectionCard title="Wycena walut">
+        <div className="p-3.5">
+          <QueryStateNotice state="error" onRetry={() => preview.refetch()} />
+        </div>
+      </SectionCard>
+    );
+  }
+  if (!preview.isSuccess) return null;
+  const data = preview.data;
+  const rates = data.rates.map((rate) => `${rate.currency} ${rateLabel(rate.rate)} (${datePl(rate.date).slice(0, 5)})`);
+  const docs = [data.documents.valuation, data.documents.reversal].filter((doc) => doc != null);
+  const run = () =>
+    post.mutate(
+      { year, month },
+      {
+        onSuccess: (result) => showToast(valuationMessage(result)),
+        onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zaksięgować wyceny."), "error"),
+      },
+    );
+  return (
+    <SectionCard
+      title={`Wycena walut na ${datePl(data.day)}`}
+      aside={rates.length ? `kurs NBP: ${rates.join(" · ")}` : "art. 30 ust. 1 UoR"}
+    >
+      {data.positions.length ? (
+        <table className="w-full table-fixed text-sm">
+          <thead>
+            <tr className="border-b border-border/70">
+              <th className={cn(CALM_HEAD, "px-3.5 py-2 text-left")}>Konto</th>
+              <th className={cn(CALM_HEAD, "w-[18%] px-2 py-2 text-right")}>W walucie</th>
+              <th className={cn(CALM_HEAD, "w-[16%] px-2 py-2 text-right")}>W księdze</th>
+              <th className={cn(CALM_HEAD, "w-[16%] px-2 py-2 text-right")}>Po kursie</th>
+              <th className={cn(CALM_HEAD, "w-[14%] py-2 pl-2 pr-3.5 text-right")}>Korekta</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.positions.map((item) => (
+              <tr key={`${item.kind}:${item.account}:${item.currency}`} className={cn(CALM_ROW, "last:border-0")}>
+                <td className="min-w-0 px-3.5 py-1.5">
+                  <span className="block truncate font-medium">{item.name || item.account}</span>
+                  <span className={CALM_SUBLINE}>
+                    {item.account} · {item.kind === "bank" ? "rachunek walutowy" : "rozrachunki"}
+                  </span>
+                </td>
+                <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{curAmount(item.amount_cur, item.currency)}</td>
+                <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{gr(item.book)}</td>
+                <td className={cn(CALM_AMOUNT, "px-2 py-1.5 text-right")}>{gr(item.valued)}</td>
+                <td
+                  className={cn(
+                    CALM_AMOUNT,
+                    "py-1.5 pl-2 pr-3.5 text-right",
+                    item.diff < 0 ? "text-destructive-text" : item.diff > 0 ? "text-success-muted-foreground" : "",
+                  )}
+                >
+                  {item.diff > 0 ? "+" : ""}
+                  {gr(item.diff)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : (
+        <p className="px-3.5 py-4 text-[13px] text-muted-foreground">
+          Na ten dzień nie ma otwartych pozycji ani sald w walucie.
+        </p>
+      )}
+      <div className="flex flex-wrap items-start justify-between gap-3 border-t border-border/70 px-3.5 py-2.5 text-[13px]">
+        <div className="min-w-0 space-y-0.5">
+          <p className="tabular-nums">
+            Dodatnie różnice <b className="font-semibold">{gr(data.gain)} zł</b> · ujemne{" "}
+            <b className="font-semibold">{gr(data.loss)} zł</b>
+          </p>
+          {docs.length ? (
+            <p className="text-[12px] text-muted-foreground">
+              {docs.map((doc, index) => (
+                <span key={doc.id}>
+                  {index ? " · " : ""}
+                  {index ? "odwrócenie " : "wycena "}
+                  <Link className="text-primary hover:underline" href={`/accounting/documents?status=${doc.status}&type=PK`}>
+                    {doc.number}
+                  </Link>{" "}
+                  {doc.status === "approved" ? "zatwierdzona" : "w buforze"}
+                </span>
+              ))}
+            </p>
+          ) : (
+            <p className="text-[12px] text-muted-foreground">
+              PK wyceny na ten dzień i odwrócenie 1. dnia następnego miesiąca — rozrachunki zostają w kursach historycznych.
+            </p>
+          )}
+          {data.blocker ? <p className="text-[12px] text-warning-muted-foreground">{data.blocker}</p> : null}
+        </div>
+        {data.can_post && data.positions.length ? (
+          <Button size="sm" disabled={data.blocker != null} title={data.blocker ?? undefined} loading={post.isPending} onClick={run}>
+            Zaksięguj wycenę
+          </Button>
+        ) : null}
+      </div>
     </SectionCard>
   );
 }
