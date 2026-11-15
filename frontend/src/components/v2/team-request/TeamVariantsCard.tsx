@@ -209,7 +209,13 @@ export function TeamVariantsCard({ team }: { team: TeamDetail }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-display text-sm font-semibold">Gotowe składy dla klienta</h2>
         {drafts == null ? (
-          <Button size="sm" variant="outline" disabled={propose.isPending} onClick={() => propose.mutate()}>
+          <Button
+            size="sm"
+            variant="outline"
+            data-tour="jobs.team.variants"
+            disabled={propose.isPending}
+            onClick={() => propose.mutate()}
+          >
             <Sparkles className="h-3.5 w-3.5" />
             {team.variants.length ? "Ułóż od nowa" : "Zaproponuj składy"}
           </Button>
