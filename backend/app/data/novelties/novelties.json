@@ -2867,5 +2867,18 @@
     "href": "/clients",
     "section": "delivery",
     "dot_anchor": "clients.framework-rates.report"
+  },
+  {
+    "id": "doplata-wniosek-zna-korzysta",
+    "pr": 0,
+    "title": "Dopłata za technologię: wniosek z propozycją NEXUSA",
+    "why": "Na kontrakcie NEXUS pokazuje, czy osoba zna i korzysta z technologii z umowy. Zatwierdzasz, wysyłasz do klienta i zapisujesz wynik. Przed prolongatą przyjdzie dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.premium-skills"
   }
 ]

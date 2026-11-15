@@ -1793,3 +1793,61 @@ async def test_plan_blocks_a_returned_after_break_pair():
             if client_id is not None:
                 await db.execute(delete(Client).where(Client.id == client_id))
             await db.commit()
+
+
+async def test_merge_keeps_one_open_premium_claim_per_technology():
+    """0711: otwarty wniosek przegranego o technologię, którą zachowany też ma otwartą, jest zamykany."""
+    import uuid
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.contract import Contract, ContractStatus, RateUnit
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
+    from app.services.contract_merge import apply_contract_merge_plan, build_contract_merge_plan
+
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(name="Merge", lastname=f"Claims-{suffix}", email=f"merge-claims-{suffix}@example.com")
+        client = Client(name=f"Merge Claims {suffix}")
+        db.add_all([candidate, client])
+        await db.flush()
+        common = dict(candidate_id=candidate.id, client_id=client.id, start_date=today - timedelta(days=90))
+        survivor = Contract(**common, status=ContractStatus.active, rate_candidate=Decimal("100"), rate_client=Decimal("150"),
+                            margin=Decimal("50"), rate_unit=RateUnit.hourly, billing_hours_per_month=160, currency="PLN")
+        loser = Contract(**common, status=ContractStatus.draft, rate_unit=RateUnit.hourly, billing_hours_per_month=160, currency="PLN")
+        db.add_all([survivor, loser])
+        await db.flush()
+        db.add_all([
+            ContractPremiumSkillClaim(contract_id=survivor.id, technology="Kafka", status="sent"),
+            ContractPremiumSkillClaim(contract_id=loser.id, technology="kafka", status="approved"),
+            ContractPremiumSkillClaim(contract_id=loser.id, technology="PEGA", status="approved"),
+        ])
+        await db.commit()
+        survivor_id, loser_id = survivor.id, loser.id
+        manifest = ContractMergeManifest(same_client_groups=((survivor_id, loser_id),))
+        audit = await build_contract_merge_plan(db, manifest, today=today)
+        assert audit["global_blockers"] == []
+        await db.rollback()
+        await apply_contract_merge_plan(
+            db,
+            manifest,
+            expected_fingerprint=audit["fingerprint"],
+            expected_approval_fingerprint=approval_fingerprint(audit["fingerprint"]),
+            today=today,
+        )
+        await db.commit()
+        db.expunge_all()
+        claims = (
+            await db.execute(
+                select(ContractPremiumSkillClaim.technology, ContractPremiumSkillClaim.status)
+                .where(ContractPremiumSkillClaim.contract_id == survivor_id)
+                .order_by(ContractPremiumSkillClaim.id)
+            )
+        ).all()
+    assert [tuple(c) for c in claims] == [("Kafka", "sent"), ("kafka", "dropped"), ("PEGA", "approved")]

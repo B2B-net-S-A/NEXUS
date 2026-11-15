@@ -211,3 +211,101 @@ export function useFrameworkOverview(clientId: number, enabled: boolean) {
 
 export const frameworkReportPath = (clientId: number) =>
   `/api/clients/${clientId}/framework-overview/report.xlsx`;
+
+// --- F3: technologie premium, wnioski o dopłatę i kolejka prolongat ---------------
+
+export interface PremiumEvidence {
+  technology: string;
+  percent: string;
+  knows: boolean;
+  uses: boolean;
+  sources: string[];
+}
+
+export type ClaimStatus = "approved" | "sent" | "granted" | "refused" | "dropped";
+
+export interface PremiumClaim {
+  id: number;
+  technology: string;
+  status: ClaimStatus;
+  knows: boolean | null;
+  uses: boolean | null;
+  dl_note: string | null;
+  client_confirmed_by: string | null;
+  client_confirmed_on: string | null;
+  outcome_reason: string | null;
+  next_try_on: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PremiumSkills {
+  contract_id: number;
+  evidence: PremiumEvidence[];
+  claims: PremiumClaim[];
+}
+
+export interface ClaimActionInput {
+  action: "send" | "grant" | "refuse" | "drop";
+  confirmed_by?: string | null;
+  confirmed_on?: string | null;
+  client_evidence?: string | null;
+  reason?: string | null;
+  next_try_on?: string | null;
+}
+
+export interface FrameworkProlongation {
+  contract_id: number;
+  person: string;
+  category: string | null;
+  rate: string | null;
+  limit: string | null;
+  gap: string | null;
+  order_end: string | null;
+  days_left: number | null;
+  levers: FrameworkLever[];
+  claim_status: ClaimStatus | null;
+  claim_technology: string | null;
+}
+
+const premiumKey = (contractId: number) => ["premium-skills", contractId] as const;
+
+export function usePremiumSkills(contractId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: premiumKey(contractId),
+    queryFn: async () => (await api.get<PremiumSkills>(`/api/contracts/${contractId}/premium-skills`)).data,
+    enabled,
+  });
+}
+
+function usePremiumMutation<TInput>(contractId: number, run: (input: TInput) => Promise<PremiumSkills>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: (data) => {
+      queryClient.setQueryData(premiumKey(contractId), data);
+      void queryClient.invalidateQueries({ queryKey: frameworkKeys.category(contractId) });
+    },
+  });
+}
+
+export function useCreateClaim(contractId: number) {
+  return usePremiumMutation(contractId, async (input: { technology: string; knows: boolean; uses: boolean; note: string | null }) =>
+    (await api.post<PremiumSkills>(`/api/contracts/${contractId}/premium-skills/claims`, input)).data,
+  );
+}
+
+export function useClaimAction(contractId: number) {
+  return usePremiumMutation(contractId, async ({ claimId, ...input }: ClaimActionInput & { claimId: number }) =>
+    (await api.post<PremiumSkills>(`/api/contracts/${contractId}/premium-skills/claims/${claimId}/action`, input)).data,
+  );
+}
+
+export function useFrameworkProlongations(clientId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["framework-prolongations", clientId] as const,
+    queryFn: async () =>
+      (await api.get<FrameworkProlongation[]>(`/api/clients/${clientId}/framework-prolongations`)).data,
+    enabled,
+  });
+}
