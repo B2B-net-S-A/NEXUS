@@ -9,6 +9,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useToast } from "@/components/Toast";
+import { KtoZnaNexus } from "@/components/settings/novelties/KtoZnaNexus";
 import {
   NoveltiesAdoptionView,
   type AdoptionLoad,
@@ -69,6 +70,7 @@ export default function NoveltiesAdoptionPage() {
     <div className="space-y-4">
       <StartGateSwitch />
       <PoligonGateSwitch />
+      <KtoZnaNexus />
       <NoveltiesAdoptionView
         load={load}
         onRetry={() => void query.refetch()}

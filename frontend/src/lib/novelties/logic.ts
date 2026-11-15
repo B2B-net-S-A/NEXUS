@@ -339,6 +339,44 @@ export interface PoligonStatus {
   done_ids: string[];
   done: number;
   total: number;
+  /** Poligon dla obecnych (16.11.2026): termin i ćwiczenia zaliczone z pracy. */
+  luki?: PoligonLuki | null;
+}
+
+/** Kampania „tylko luki”: do terminu poligon prosi, po terminie blokuje. */
+export interface PoligonLuki {
+  /** Termin (YYYY-MM-DD, kalendarz firmy). */
+  due: string;
+  /** Ćwiczenia zaliczone z pracy z ostatnich 60 dni. */
+  credited_ids: string[];
+}
+
+/** „Kto zna NEXUS” — rekruterzy × ważne funkcje z 60 dni pracy (HoR). */
+export interface LukiMatrix {
+  window_days: number;
+  features: Array<{ key: string; label: string; group: string; users: number }>;
+  people: Array<{
+    id: number;
+    name: string;
+    used: string[];
+    gaps: number;
+    poligon: { done: number; total: number } | null;
+  }>;
+  campaign: { due: string; started_at: string | null } | null;
+}
+
+/** Termin kampanii po polsku: „pt 21.11”. */
+export function formatLukiDue(due: string): string {
+  const [y, m, d] = due.split("-").map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const names = ["nd", "pn", "wt", "śr", "cz", "pt", "sb"];
+  return `${names[day]} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}`;
+}
+
+/** Ile ćwiczeń z luk zostało osobie (bez kampanii albo po wszystkim: 0). */
+export function lukiLeft(poligon: PoligonStatus | null | undefined): number {
+  if (!poligon?.luki) return 0;
+  return Math.max(poligon.total - poligon.done, 0);
 }
 
 /** Ekran Startu. */

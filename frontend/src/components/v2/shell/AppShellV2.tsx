@@ -18,6 +18,7 @@ import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
 import { PoligonBanner, PoligonLayer } from "@/components/poligon/PoligonLayer";
+import { PoligonLukiNotice } from "@/components/poligon/PoligonLukiNotice";
 import { isPoligonActive } from "@/lib/poligon/mode";
 import { useStartGate } from "@/components/novelties/useStartGate";
 import { PREVIEW_PATH } from "@/components/phone-preview/access";
@@ -247,7 +248,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
               dolnym rogu — ostatnie przyciski strony dają się wyprzewijać
               spod niej. */}
           <div className="p-4 pb-24 md:p-6 animate-fadeIn">
-            {poligon && <PoligonBanner />}
+            {poligon ? <PoligonBanner /> : <PoligonLukiNotice />}
             {startBlocked ? null : children}
           </div>
         </main>

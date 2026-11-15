@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, ścieżki per rola (rekruter 19, DL 15, TCM 11), wymagany od nadania roli, blokada nowej osoby zamiast Startu, dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 19, DL 15, TCM 11), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -75,6 +75,37 @@ na wymyślonych danych.
   że ma te same id i role co `exercises.ts`. Ćwiczenie spoza ścieżki ról osoby
   dostaje 404. `localStorage` służy tylko jako pamięć
   podręczna mapy.
+
+## Poligon dla obecnych: tylko luki (16.11.2026)
+
+Analiza 60 dni pracy 16 rekruterów (nocna kopia produkcji z 15.11): rdzeń
+procesu używa 16 z 16 osób, a luki są różne u każdej (2–11 funkcji). Najwięcej
+mają osoby z kontem z października i listopada. Artur wybrał 16.11.2026: obecni
+nie przechodzą całego poligonu, tylko luki, z terminem.
+
+- **Funkcje i sygnały użycia** są w `app/services/poligon_luki.py` (`FEATURES`,
+  24 funkcje). Sygnał to zdarzenie w pracy z 60 dni: `activities`,
+  `user_activities`, notatki, przeglądy bazy, kalendarz itd. Brak użycia przez dwa
+  miesiące traktujemy jako lukę. Nową funkcję rekrutera dopisujesz tam razem z
+  sygnałem i ćwiczeniami, które zalicza.
+- **Kampania** (`POST /api/novelties/poligon/luki`, admin i HoR, przycisk
+  „Wyślij poligon z lukami” w „Nowości — kto już umie”):
+  - obejmuje aktywnych rekruterów bez roli admina i HoR;
+  - ćwiczenia z używanych funkcji (i lista rekrutacji) zalicza wiersz
+    `novelty_progress` z `completed_via = 'used'` („użyciem w pracy”, bez migracji);
+  - termin domyślnie za tydzień;
+  - stan leży w `app_settings.poligon_luki` (termin i lista zaliczonych z pracy na osobę).
+- **Do terminu poligon prosi:** pasek `PoligonLukiNotice` nad treścią ekranu,
+  a na mapie luki i znaczki „z pracy”. **Po terminie blokuje** jak u nowej
+  osoby (`required`, `redirect=/poligon`) i zdejmuje to ten sam wyłącznik
+  `poligon_gate`. Dzień ćwiczeń nie wypada ze statystyk, bo to kilkanaście–
+  kilkadziesiąt minut.
+- **„Kto zna NEXUS”** (`GET /api/novelties/poligon/luki`, admin i HoR) to macierz
+  osoba × funkcja, z liczbą luk i postępem poligonu po wysłaniu.
+- Funkcje, których nie ma jeszcze na poligonie (screening w kalendarzu, terminy
+  u klienta, osoba z pliku CV, zapisane wyszukiwanie, pula talentów, czat,
+  polecenie AI w CV, Jarvis), macierz już liczy, ale nie mają ćwiczeń. Artur
+  16.11: uczyć ich na poligonie, także tych prawie nieużywanych.
 
 ## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
 
