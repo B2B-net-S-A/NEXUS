@@ -523,10 +523,11 @@ def start_status(
     poligon_due = bool(
         poligon and poligon["required"] and poligon["done"] < poligon["total"]
     )
+    # Wyłącznik Startu (`gate_on`) dotyczy tylko przeklikań; poligon nowej
+    # osoby blokuje zawsze (Artur, 15.11.2026 — Start wyłączony od 30.10).
     return {
-        "enforced": gate_on
-        and not impersonating
-        and (done < len(items) or poligon_due),
+        "enforced": not impersonating
+        and (poligon_due or (gate_on and done < len(items))),
         "gate_on": gate_on,
         "done": done,
         "total": len(items),
