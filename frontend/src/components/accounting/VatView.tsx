@@ -22,6 +22,7 @@ import { ForeignPurchaseCard } from "./ForeignPurchaseCard";
 import { JpkCard } from "./JpkCard";
 import { JpkCompareCard } from "./JpkCompareCard";
 import { VatMarkersCard } from "./VatMarkersCard";
+import { VatSettlementCard } from "./VatSettlementCard";
 import { VatUeCard } from "./VatUeCard";
 import { datePl, gr } from "./ledger-model";
 import { dueLabel, fieldsLabel, issueLink, jpkBlockers, rowGroups, taxIdLabel } from "./vat-model";
@@ -37,6 +38,7 @@ export const ROWS_SHOWN = 50;
  * sprawdzenia” (faktura z KSeF bez dokumentu, bufor, kolejka kosztów, zapisy na
  * kontach VAT spoza rejestru) i JPK_V7M miesiąca (K5b). K5b-2: zakupy
  * zagraniczne (import usług) z formularza i znaczniki GTU/TP kontrahentów.
+ * K5b-3c: dokument rozliczenia VAT z kwot JPK (karta pod JPK).
  */
 export function VatView() {
   const { config, period } = useAccounting();
@@ -78,6 +80,7 @@ export function VatView() {
       </div>
       <JpkCard year={data.year} month={data.month} blockers={jpkBlockers(data.issues)} />
       <JpkCompareCard year={data.year} month={data.month} />
+      <VatSettlementCard year={data.year} month={data.month} />
       <VatUeCard year={data.year} month={data.month} />
       <ForeignPurchaseCard year={data.year} month={data.month} />
       <RegisterCard
@@ -190,9 +193,17 @@ function AccountsCard({ data }: { data: VatRegisters }) {
   const { showToast } = useToast();
   const save = useSetVatAccounts();
   const savedForeign = data.accounts.foreign_account;
+  const savedGain = data.accounts.rounding_gain_account;
+  const savedLoss = data.accounts.rounding_loss_account;
   const [input, setInput] = useState(data.accounts.input_account);
   const [foreign, setForeign] = useState(savedForeign);
-  const changed = input.trim() !== data.accounts.input_account || foreign.trim() !== savedForeign;
+  const [gain, setGain] = useState(savedGain);
+  const [loss, setLoss] = useState(savedLoss);
+  const changed =
+    input.trim() !== data.accounts.input_account ||
+    foreign.trim() !== savedForeign ||
+    gain.trim() !== savedGain ||
+    loss.trim() !== savedLoss;
   return (
     <SectionCard title="Konta VAT">
       <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 px-3.5 py-2.5 text-[13px]">
@@ -206,6 +217,10 @@ function AccountsCard({ data }: { data: VatRegisters }) {
             <dd className="tabular-nums">{data.accounts.input_account}</dd>
             <dt className="text-muted-foreground">Dostawcy zagraniczni</dt>
             <dd className="tabular-nums">{savedForeign ? `${savedForeign}-NNN` : "nie ustawiono"}</dd>
+            <dt className="text-muted-foreground">Zaokrąglenia VAT — przychód / koszt</dt>
+            <dd className="tabular-nums">
+              {savedGain || "nie ustawiono"} / {savedLoss || "nie ustawiono"}
+            </dd>
           </>
         )}
       </dl>
@@ -215,7 +230,12 @@ function AccountsCard({ data }: { data: VatRegisters }) {
           onSubmit={(event) => {
             event.preventDefault();
             save.mutate(
-              { input_account: input.trim(), foreign_account: foreign.trim() },
+              {
+                input_account: input.trim(),
+                foreign_account: foreign.trim(),
+                rounding_gain_account: gain.trim(),
+                rounding_loss_account: loss.trim(),
+              },
               {
                 onSuccess: () => showToast("Zapisano konta VAT."),
                 onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać kont."), "error"),
@@ -240,6 +260,32 @@ function AccountsCard({ data }: { data: VatRegisters }) {
               placeholder="np. 202-1"
               value={foreign}
               onChange={(event) => setForeign(event.target.value)}
+            />
+          </label>
+          <label
+            className="flex flex-col gap-1"
+            title="Różnica groszy w rozliczeniu VAT, gdy deklaracja (pełne złote) jest niżej niż konta"
+          >
+            <span className="text-muted-foreground">Zaokrąglenia — przychód</span>
+            <input
+              className={cn(CONTROL, "w-24 tabular-nums")}
+              aria-label="Konto przychodu z zaokrągleń VAT"
+              placeholder="np. 760"
+              value={gain}
+              onChange={(event) => setGain(event.target.value)}
+            />
+          </label>
+          <label
+            className="flex flex-col gap-1"
+            title="Różnica groszy w rozliczeniu VAT, gdy deklaracja (pełne złote) jest wyżej niż konta"
+          >
+            <span className="text-muted-foreground">Zaokrąglenia — koszt</span>
+            <input
+              className={cn(CONTROL, "w-24 tabular-nums")}
+              aria-label="Konto kosztu z zaokrągleń VAT"
+              placeholder="np. 761"
+              value={loss}
+              onChange={(event) => setLoss(event.target.value)}
             />
           </label>
           <Button size="sm" type="submit" variant="outline" disabled={!changed || !input.trim()} loading={save.isPending}>

@@ -196,6 +196,9 @@ async def books(world):
             "zus": (f"{prefix}-229", "Rozrachunki z ZUS", "other", None),
             "pit": (f"{prefix}-225", "Rozrachunki z US", "other", None),
             "ppk": (f"{prefix}-234", "Rozrachunki PPK", "other", None),
+            "vat_due": (f"{prefix}-224", "VAT do zapłaty", "other", None),
+            "other_income": (f"{prefix}-760", "Pozostałe przychody operacyjne", "other", None),
+            "other_cost": (f"{prefix}-761", "Pozostałe koszty operacyjne", "other", None),
         }
         for number, name, kind, dictionary in acc.values():
             db.add(
@@ -4319,3 +4322,214 @@ async def test_jpk_compare_with_symfonia_file(client, world, books):
     assert other_month.status_code == 422 and "za 03." in other_month.json()["detail"]
     blind = await send(content, user="module_only")
     assert blind.status_code == 403 and "Płacami" in blind.json()["detail"]
+
+
+# ── Rozliczenie VAT (K5b-3c) ────────────────────────────────────────────────
+
+
+async def _settlement(client, world, books, user: str = "accountant", month: int = 3) -> dict:
+    response = await client.get(
+        f"{ACC}/vat/settlement",
+        params={"year": books["year"], "month": month},
+        headers=_headers(world[user]),
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _prepare_settlement(client, world, books, user: str = "accountant", month: int = 3):
+    return await client.post(
+        f"{ACC}/vat/settlement",
+        json={"year": books["year"], "month": month},
+        headers=_headers(world[user]),
+    )
+
+
+async def _settlement_item(client, world, books) -> dict:
+    items = (await _closing(client, world, books))["items"]
+    return next(item for item in items if item["key"] == "vat_settlement")
+
+
+async def _vat_balances(books) -> tuple[int, int, int]:
+    """Saldo Wn − Ma kont 222, 221 i „VAT do zapłaty” po zatwierdzonych dokumentach marca."""
+
+    acc, year = books["acc"], books["year"]
+    sign = case((LedgerLine.side == "debit", 1), else_=-1)
+    async with AsyncSessionLocal() as db:
+        rows = dict(
+            (
+                await db.execute(
+                    select(LedgerLine.account, func.sum(sign * LedgerLine.amount))
+                    .join(LedgerDocument, LedgerDocument.id == LedgerLine.document_id)
+                    .where(
+                        LedgerDocument.status == "approved",
+                        LedgerDocument.op_date.between(date(year, 3, 1), date(year, 3, 31)),
+                        LedgerLine.account.in_([acc["vat_out"], acc["vat_in"], acc["vat_due"]]),
+                    )
+                    .group_by(LedgerLine.account)
+                )
+            ).all()
+        )
+    return tuple(int(rows.get(acc[key], 0)) for key in ("vat_out", "vat_in", "vat_due"))
+
+
+async def test_vat_settlement_moves_month_vat_to_the_tax_account(client, world, books):
+    from app.services.ledger.engine import LineIn
+
+    year, acc = books["year"], books["acc"]
+    previous = await _payer("0202")
+    try:
+        docs = await _jpk_ready(client, world, books)
+        settings = _ledger_settings(world, books, allocation=False)
+        settings["modules"]["vat"] = True
+        settings["vat"] = {"input_account": acc["vat_in"]}
+        settings["jpk"] = {"email": "vat@example.com", "phone": ""}
+        settings["accountants"] = [world["accountant"].id, world["module_only"].id]
+        await _set_ledger(settings)
+
+        # Bez kont: dokument nie powstaje, lista zamknięcia mówi, czego brakuje.
+        blocked = await _settlement(client, world, books)
+        assert "VAT do zapłaty" in blocked["blocker"] and "zaokrągleń" in blocked["blocker"]
+        item = await _settlement_item(client, world, books)
+        assert item["state"] == "todo" and "brakuje kont" in item["detail"]
+        refused = await client.put(
+            f"{ACC}/vat/settings",
+            json={"rounding_gain_account": acc["other_income"]},
+            headers=_headers(world["accountant"]),
+        )
+        assert refused.status_code == 403
+        unknown = await client.put(
+            f"{ACC}/vat/settings",
+            json={"rounding_gain_account": "999-999"},
+            headers=_headers(world["admin"]),
+        )
+        assert unknown.status_code == 422
+        saved = await client.put(
+            f"{ACC}/vat/settings",
+            json={
+                "rounding_gain_account": acc["other_income"],
+                "rounding_loss_account": acc["other_cost"],
+            },
+            headers=_headers(world["admin"]),
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["rounding_loss_account"] == acc["other_cost"]
+        assert saved.json()["input_account"] == acc["vat_in"]
+        async with AsyncSessionLocal() as db:
+            current = await ledger_settings.load(db)
+        value = ledger_settings.to_json(current)
+        value["bank"]["vat_account"] = acc["vat_due"]
+        await _set_ledger(value)
+
+        # Bez JPK: rozliczenie bierze kwoty z JPK.
+        waiting = await _settlement(client, world, books)
+        assert "przygotuj JPK" in waiting["blocker"]
+        first = await _jpk(client, world, books, opening_surplus=120)
+        assert first.status_code == 201, first.text
+        v1 = first.json()["file"]
+
+        preview = await _settlement(client, world, books)
+        assert preview["blocker"] is None and preview["problem"] is None
+        assert preview["jpk"]["version"] == 1 and preview["payroll"] is True
+        # Należny 207 zł, naliczony 2 530 zł (z fakturą osoby zespołu); P_39 = 120 zł
+        # z Symfonii nie zmienia dokumentu — nadwyżka miesiąca 2 323 zł na Wn.
+        assert preview["amounts"] == {
+            "ledger_output": 20_700,
+            "ledger_input": 253_000,
+            "output_tax": 20_700,
+            "input_tax": 253_000,
+            "due": -2_323,
+            "rounding": 0,
+        }
+        assert [(line["side"], line["account"], line["amount"]) for line in preview["lines"]] == [
+            ("debit", acc["vat_out"], 20_700),
+            ("credit", acc["vat_in"], 253_000),
+            ("debit", acc["vat_due"], 232_300),
+        ]
+        # D2: osoba bez Płac widzi stan, bez kwot, i dokumentu nie przygotuje.
+        blind = await _settlement(client, world, books, user="module_only")
+        assert blind["amounts"] is None and blind["lines"] == [] and blind["can_prepare"] is False
+        assert (await _prepare_settlement(client, world, books, user="module_only")).status_code == 403
+
+        created = await _prepare_settlement(client, world, books)
+        assert created.status_code == 200, created.text
+        assert created.json()["outcome"] == "created"
+        doc_id = created.json()["document"]["id"]
+        again = await _prepare_settlement(client, world, books)
+        assert again.json()["outcome"] == "unchanged" and again.json()["document"]["id"] == doc_id
+        async with AsyncSessionLocal() as db:
+            doc = await db.get(LedgerDocument, doc_id)
+            assert (doc.doc_type, doc.status, doc.sensitivity) == ("VAT", "draft", "payroll")
+            assert (doc.source_type, doc.source_id) == ("vat_settlement", f"{year}-03")
+            assert doc.op_date == date(year, 3, 31)
+        item = await _settlement_item(client, world, books)
+        assert item["state"] == "todo" and "w buforze" in item["detail"]
+
+        await _approve_ids(client, world, [doc_id])
+        item = await _settlement_item(client, world, books)
+        assert item["state"] == "ok" and "zatwierdzony" in item["detail"]
+        # 221 i 222 zerują się, nadwyżka miesiąca zostaje saldem Wn „VAT do zapłaty”.
+        assert await _vat_balances(books) == (0, 0, 232_300)
+        # Rejestr nie liczy dokumentu rozliczenia jako zapisu spoza rejestru.
+        registers = (await _vat_registers(client, world, books)).json()
+        assert not any(issue["kind"] == "outside" for issue in registers["issues"])
+
+        # Korekta JPK po rozliczeniu: storno FVS zmienia kwoty — najpierw księga
+        # różni się od wysłanego JPK (problem), po korekcie JPK zatwierdzony
+        # dokument jest do storna.
+        assert (await _jpk_sent(client, world, v1["id"])).status_code == 200
+        await _reverse(client, world, docs["plain"].id, date(year, 3, 31))
+        mismatch = await _settlement(client, world, books)
+        assert "VAT należny" in mismatch["problem"] and "korekta JPK" in mismatch["problem"]
+        item = await _settlement_item(client, world, books)
+        assert item["state"] == "problem"
+        hidden = await _settlement(client, world, books, user="module_only")
+        assert "Płacami" in hidden["problem"] and "zł" not in hidden["problem"]
+        refused = await _prepare_settlement(client, world, books)
+        assert refused.status_code == 422 and "VAT należny" in refused.json()["detail"]
+        corrected = await _jpk(client, world, books, reason="Storno faktury sprzedaży.")
+        assert corrected.status_code == 201, corrected.text
+        assert (await _jpk_sent(client, world, corrected.json()["file"]["id"], "UPO 2")).status_code == 200
+        changed = await _settlement(client, world, books)
+        assert changed["changed"] is True and changed["jpk"]["version"] == 2
+        item = await _settlement_item(client, world, books)
+        assert item["state"] == "problem" and "storno" in item["detail"]
+        conflict = await _prepare_settlement(client, world, books)
+        assert conflict.status_code == 409 and "storno" in conflict.json()["detail"]
+        await _reverse(client, world, doc_id, date(year, 3, 31))
+        rebuilt = await _prepare_settlement(client, world, books)
+        assert rebuilt.status_code == 200 and rebuilt.json()["outcome"] == "created", rebuilt.text
+        lines = (await _settlement(client, world, books))["lines"]
+        # Bez FS 1/03 zostaje korekta: VAT należny −23 zł — Ma 222.
+        assert ("credit", acc["vat_out"], 2_300) in [
+            (line["side"], line["account"], line["amount"]) for line in lines
+        ]
+        await _approve_ids(client, world, [rebuilt.json()["document"]["id"]])
+        assert (await _vat_balances(books))[:2] == (0, 0)
+
+        # PK na koncie VAT naliczonego poza rejestrem: księga ≠ JPK, bez dokumentu.
+        async with AsyncSessionLocal() as db:
+            from app.services.ledger import documents as ledger_documents
+            from app.services.ledger.documents import DocumentSpec
+
+            manual = await ledger_documents.create_draft(
+                db,
+                DocumentSpec(
+                    doc_type="PK",
+                    op_date=date(year, 3, 30),
+                    doc_date=date(year, 3, 30),
+                    description="Korekta VAT ręcznie",
+                    lines=[
+                        LineIn("debit", acc["vat_in"], 1_000, "korekta"),
+                        LineIn("credit", acc["cost"], 1_000, "korekta"),
+                    ],
+                ),
+                actor_id=world["accountant"].id,
+            )
+            await db.commit()
+        await _approve_ids(client, world, [manual.id])
+        problem = (await _settlement(client, world, books))["problem"]
+        assert "VAT naliczony" in problem and "spoza rejestru" in problem
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)

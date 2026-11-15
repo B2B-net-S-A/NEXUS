@@ -900,6 +900,8 @@ async def registers(
             "input_account": settings.vat.input_account,
             "intake_account": settings.assets.intake_account,
             "foreign_account": settings.vat.foreign_account,
+            "rounding_gain_account": settings.vat.rounding_gain_account,
+            "rounding_loss_account": settings.vat.rounding_loss_account,
         },
         "sales": [_row_payload(row) for row in sales_rows],
         "purchases": [_row_payload(row) for row in purchase_rows],

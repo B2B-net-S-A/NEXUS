@@ -22,6 +22,10 @@ tylko administrator (403).
 * ``GET /vat/markers`` — kontrahenci ze znacznikami GTU/TP,
 * ``PUT /vat/markers/{counterparty_id}`` — znaczniki kontrahenta (lista
   „Księgowi” albo administrator),
+* ``GET /vat/settlement?year=&month=`` — rozliczenie VAT miesiąca (K5b-3c):
+  JPK, obroty kont VAT, pozycje dokumentu (kwoty tylko z Płacami, D2),
+* ``POST /vat/settlement`` — dokument rozliczenia VAT do bufora (lista
+  „Księgowi” z Płacami albo administrator),
 * ``GET /vat/ue?year=&month=`` — pozycje VAT-UE(5) miesiąca (K5b-3a), problemy,
 * ``GET /vat/ue/file?year=&month=`` — plik VAT-UE(5) po walidacji schematem MF
   (tylko sprzedaż dla firm z UE — bez danych osób zespołu, więc bez Płac),
@@ -57,7 +61,15 @@ from app.services.finance_ledger_schema import (
     NAME_MAX,
     SYMFONIA_ID_MAX,
 )
-from app.services.ledger import documents, foreign, jpk, jpk_compare, vat, vat_ue
+from app.services.ledger import (
+    documents,
+    foreign,
+    jpk,
+    jpk_compare,
+    vat,
+    vat_settlement,
+    vat_ue,
+)
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX, MARKERS
@@ -79,6 +91,13 @@ class VatAccountsBody(BaseModel):
 
     input_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
     foreign_account: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    #: Różnice z zaokrągleń w rozliczeniu VAT (K5b-3c); pusty = brak konta.
+    rounding_gain_account: Optional[str] = Field(
+        default=None, max_length=ACCOUNT_MAX + 8
+    )
+    rounding_loss_account: Optional[str] = Field(
+        default=None, max_length=ACCOUNT_MAX + 8
+    )
 
 
 class JpkBody(BaseModel):
@@ -88,6 +107,11 @@ class JpkBody(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=REASON_MAX)
     #: P_39 dla pierwszego miesiąca w NEXUSIE (pełne złote).
     opening_surplus: Optional[int] = Field(default=None, ge=0, le=SURPLUS_MAX)
+
+
+class SettlementBody(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
 
 
 class JpkSentBody(BaseModel):
@@ -277,6 +301,38 @@ async def set_jpk_contact(
         raise _fail(exc) from exc
     await db.commit()
     return ledger_settings.to_json(current)["jpk"]
+
+
+@router.get("/vat/settlement")
+async def vat_settlement_preview(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await vat_settlement.preview(db, viewer, current, year=year, month=month)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/vat/settlement")
+async def vat_settlement_prepare(
+    body: SettlementBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        result = await vat_settlement.prepare(
+            db, viewer, current, year=body.year, month=body.month
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
 
 
 @router.get("/vat/foreign")

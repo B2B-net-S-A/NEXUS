@@ -9,7 +9,8 @@ migracja `0708_ledger_vat_files` (sekcja niżej). K5b-2: zakupy zagraniczne
 (import usług) — `ledger/foreign.py` — i znaczniki GTU/TP per kontrahent, bez
 migracji (sekcja niżej). K5b-3a: VAT-UE(5) — `ledger/vat_ue.py` (sekcja niżej).
 K5b-3b: porównanie z JPK z Symfonii — `ledger/jpk_compare.py` (sekcja niżej).
-Dalej VAT-UEK, dokument rozliczenia VAT (K5b-3c) i art. 86 ust. 10i.
+K5b-3c: dokument rozliczenia VAT — `ledger/vat_settlement.py` (sekcja niżej).
+Dalej VAT-UEK i art. 86 ust. 10i.
 
 ## Co jest
 
@@ -223,6 +224,46 @@ Dalej VAT-UEK, dokument rozliczenia VAT (K5b-3c) i art. 86 ust. 10i.
 - **VAT-UEK**: pobrać XSD VAT-UEK(5) z crd.gov.pl (wzór 2021/01/26/10316),
   NEXUS składa plik korekty za okres faktury pierwotnej.
 
+## Rozliczenie VAT (K5b-3c)
+
+- **Decyzje Artura 15–16.11.2026**: dokument typu VAT przenosi saldo VAT
+  należnego (`sales.vat_account`) i naliczonego (`vat.input_account`) okresu na
+  „VAT do zapłaty” z Kont wyciągów (`bank.vat_account`, rozrachunek z US), więc
+  **221 i 222 zerują się co miesiąc**. Nadwyżka naliczonego do przeniesienia
+  (P_62) też idzie na to konto (saldo Wn), nie zostaje na 221 — wariant
+  wybrany 16.11 przy dwóch sprzecznych zdaniach briefu. Saldo konta = P_51
+  (Ma) albo P_62 (Wn), przelew do US je zamyka.
+- **Kwoty z JPK** miesiąca (ostatni wysłany, inaczej ostatni nieunieważniony,
+  `totals`): Wn 222 = VAT należny z ewidencji (grosze), Ma 221 = naliczony,
+  „VAT do zapłaty” = P_38 − (P_48 − P_39) w złotych (bez nadwyżki z poprzedniego
+  okresu — ta już jest saldem Wn konta), różnica groszy: + = Wn konto kosztu,
+  − = Ma konto przychodu (`vat.rounding_gain_account` / `rounding_loss_account`,
+  np. 760/761, admin w „Kontach VAT”). Puste konto (także `bank.vat_account`)
+  = dokument nie powstaje, lista zamknięcia mówi czego brakuje. „VAT do
+  zapłaty” na koncie 221/222 = 422.
+- **Księga przed dokumentem**: obroty kont 221/222 z analityką w zatwierdzonych
+  dokumentach miesiąca (`op_date`), bez typów VAT i BO, bez dokumentów ze stornem
+  i storn (jak rejestr — „stan dziś”). Różne od podatku w JPK = problem
+  z wyjaśnieniem (zapis spoza rejestru albo zmiana po JPK → korekta JPK),
+  dokument nie powstaje. Pozycje 221/222 idą **per konto z obrotów** — analityka
+  zeruje się sama.
+- **Dokument**: źródło `vat_settlement` / `RRRR-MM`, data = ostatni dzień
+  miesiąca, w buforze (zatwierdza lista „Księgowi”, edycja tylko przez
+  „Przygotuj” — dokument ze źródła). Ponowne „Przygotuj” podmienia szkic
+  (odcisk `sources.fingerprint` — opis bez wersji JPK, więc korekta JPK z tymi
+  samymi kwotami nie zmienia dokumentu); zatwierdzonego nie rusza — inne
+  kwoty dziś (korekta JPK po rozliczeniu) = `changed`, lista zamknięcia:
+  problem, „Przygotuj” = 409; storno i ponowne „Przygotuj”.
+- **D2**: obroty z dokumentami płacowymi (faktury osób zespołu) = dokument
+  `sensitivity = 'payroll'` (zatwierdza osoba z Płacami). Przygotowuje osoba
+  z listy „Księgowi” z Płacami albo admin (`jpk.can_prepare`), kwoty i pozycje
+  widzi osoba z Płacami albo admin; reszta — stan, numer i problem bez kwot.
+- **Lista zamknięcia** „Rozliczenie VAT”: problem (księga ≠ JPK, zatwierdzony
+  ≠ dzisiejsze kwoty), do zrobienia (brak kont, brak JPK, brak dokumentu,
+  szkic w buforze), ok (zatwierdzony, miesiąc bez kwot).
+- Trasy: `GET /vat/settlement`, `POST /vat/settlement` (blokada `ledger-jpk`
+  — wersja JPK nie zmienia się w trakcie). Bez migracji.
+
 ## Testy
 
 `tests/test_ledger_vat_rules.py` (podział stawek, kwoty z dekretu, pola JPK,
@@ -248,3 +289,8 @@ front: karta VAT-UE w `VatView.test.tsx`. K5b-3b: `tests/test_ledger_jpk_compare
 (te same rejestry = zero różnic, kwota, wiersz, znacznik, pole P_, złe pliki
 i encje), `test_jpk_compare_with_symfonia_file` w `test_ledger_sources_db.py`,
 front: karta porównania w `VatView.test.tsx`.
+K5b-3c: `tests/test_ledger_vat_settlement_rules.py` (kwoty, grosze, nadwyżka,
+analityka, korekta JPK po rozliczeniu, pozycja listy zamknięcia),
+`test_vat_settlement_moves_month_vat_to_the_tax_account` w
+`test_ledger_sources_db.py` (konta, D2, bufor, salda 221/222 = 0, storno FVS,
+korekta JPK, PK spoza rejestru), front: karta rozliczenia w `VatView.test.tsx`.
