@@ -675,6 +675,11 @@ async def apply_document(
         await resolve_hired_order_cases_safely(
             db, contract_ids=sorted(touched_contracts)
         )
+    # Kategoria i poziom z wiersza COA (umowa ramowa) → limit kontraktu.
+    # Dopłata za technologię nie przychodzi z COA — wpisuje ją DL (15.11.2026).
+    from app.services.framework_category import sync_from_mail_document  # noqa: PLC0415
+
+    await sync_from_mail_document(db, doc, result, actor_id=actor_user_id)
     return result
 
 

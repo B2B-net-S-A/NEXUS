@@ -1,9 +1,11 @@
 """Rate card — cennik stawek per klient × rola × seniority."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import Date, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, Enum, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -52,3 +54,29 @@ class RateCard(Base, TimestampMixin):
             f"<RateCard id={self.id} client={self.client_id} "
             f"role={self.role!r} seniority={self.seniority}>"
         )
+
+
+class RateCardAdder(Base, TimestampMixin):
+    """Dopłata za technologię premium z umowy ramowej klienta (0708).
+
+    ``eligible`` to lista par ``{"role": …, "seniority": …}`` z ``rate_cards``,
+    dla których umowa dopuszcza dopłatę (``seniority`` ``null`` = poziom
+    podstawowy). Kilka technologii naraz daje jedną dopłatę — wyższą
+    (``services/framework_limits.py``). Dane klienta, nie kod: repo jest publiczne.
+    """
+
+    __tablename__ = "rate_card_adders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    client_id: Mapped[int] = mapped_column(
+        ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    technology: Mapped[str] = mapped_column(String(100), nullable=False)
+    percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)
+    eligible: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    valid_from: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    valid_to: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<RateCardAdder id={self.id} client={self.client_id} {self.technology} {self.percent}%>"
