@@ -118,6 +118,7 @@ LEDGER_TABLES = (
     "ledger_bank_statements",
     "ledger_bank_lines",
     "ledger_settlements",
+    "ledger_vat_files",
 )
 
 
@@ -247,3 +248,46 @@ def test_every_probe_reads_its_own_table() -> None:
         if table.name != name:
             wrong.append(f"{name}: {symbol} czyta `{table.name}`")
     assert not wrong, wrong
+
+
+# Ta sama reguła dla reszty schematu. Pomiar 15.11.2026 (main b9a671f18 z #3446):
+# poza paczką siatka `entrypoint.sh` i moduły DDL w `app/services` (`*_schema.py`,
+# `schema_sql.py`) zakładały 111 tabel bez sondy — m.in. kontakty i leady
+# Sprzedaży, czaty, uprawnienia sekcji i konta serwisowe. Strażnik bierze każdą
+# tabelę z `CREATE TABLE IF NOT EXISTS <nazwa> (` w tych plikach, także tabele
+# paczki, więc nowy moduł DDL nie potrzebuje osobnej listy.
+_CREATE_TABLE = re.compile(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\(", re.IGNORECASE)
+
+
+def _entrypoint_tables() -> dict[str, set[str]]:
+    """Tabela → pliki, które ją zakładają: `entrypoint.sh` i DDL w `app/services`."""
+    paths = (
+        BACKEND / "entrypoint.sh",
+        *sorted((BACKEND / "app/services").rglob("*.py")),
+    )
+    tables: dict[str, set[str]] = {}
+    for path in paths:
+        for match in _CREATE_TABLE.finditer(path.read_text(encoding="utf-8")):
+            tables.setdefault(match.group(1), set()).add(str(path.relative_to(BACKEND)))
+    return tables
+
+
+def test_every_entrypoint_table_is_probed() -> None:
+    tables = _entrypoint_tables()
+    anchors = {
+        "sales_contacts",  # app/services/sales_schema.py
+        "job_chat_messages",  # entrypoint.sh
+        "candidate_rate_from_queue",  # tabela bez modelu ORM
+        "contract_doc_sp_run_items",  # app/services/contract_folder_docs/schema_sql.py
+        "employee_profiles",  # paczka hr_schema_bundle
+    }
+    assert anchors <= tables.keys(), "skaner nie widzi tabel siatki entrypointu"
+    probed = {name for name, _ in _core_check_pairs()}
+    missing = sorted(set(tables) - probed)
+    assert not missing, (
+        "tabele z `CREATE TABLE IF NOT EXISTS` w entrypoint.sh i app/services bez "
+        "sondy w `core_checks` /api/health/deep: "
+        + "; ".join(f"{t} ({', '.join(sorted(tables[t]))})" for t in missing)
+        + " — dopisz `(nazwa_tabeli, Model)` w app/main.py; tabela bez modelu ORM "
+        "dostaje lekkie `table()` jak `CARE_BOARD_STATES`"
+    )

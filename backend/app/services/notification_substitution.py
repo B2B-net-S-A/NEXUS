@@ -57,6 +57,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.client_order_ending_30d,
         T.client_order_ending_7d,
         T.client_panel_request,
+        # 0708: termin raportu dla klienta nie czeka na powrót osoby.
+        T.client_report_due,
         T.consultant_in_other_recruitment,
         T.contract_activated,
         T.contract_ending,

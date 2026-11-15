@@ -61,7 +61,7 @@ rekrutacji”, nie ten moduł.
 - **Odłożone:** odczyt maila rozbijający zapytanie na stanowiska (AI), cennik
   z `rate_cards` (Z4). Bez AI w żądaniu publicznym.
 
-## Z3: gotowe składy i rozmowy z całym składem (0712, 15.11.2026)
+## Z3: gotowe składy i rozmowy z całym składem (0713, 15.11.2026)
 
 Kod: `services/job_team_variants.py` (reguły bez bazy, zapis, otwarty wniosek),
 widok klienta `public_variants` w `services/job_team_panel.py`. Kolumny

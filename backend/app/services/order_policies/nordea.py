@@ -384,9 +384,23 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
                 rate_unit="hour",
                 uncertain=bool(concerns),
                 uncertain_reason="; ".join(concerns) or None,
+                client_category=_category(m.group("rest"), extra),
             )
         )
     return rows
+
+
+def _category(rest: str, extra: Optional[re.Match]) -> Optional[str]:
+    """„IT Operations - Senior Poland -” → „IT Operations - Senior” (kolumna
+    kategorii COA). Trzeci człon nazwy przed kategorią nie wchodzi do etykiety."""
+    from app.services.framework_limits import category_label, parse_category_label
+
+    # „Business Analyst - Expert” wygląda jak trzeci człon nazwiska („Business”),
+    # więc ogon odcinamy tylko wtedy, gdy kolumna nie zaczyna się od kategorii.
+    keep_whole = re.match(r"(?:IT|Business|I&O)\b", rest)
+    text = rest[extra.end() :] if extra and not keep_whole else rest
+    parsed = parse_category_label(text)
+    return category_label(*parsed) if parsed else None
 
 
 # Słowo pisane jak nazwisko (wielka litera + małe), a nie jak kategoria

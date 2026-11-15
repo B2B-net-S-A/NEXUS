@@ -42,7 +42,7 @@ from app.services.notification_access import user_can_receive_notification
 from app.services.section_permissions import resolve_effective_section_access_for_users
 from app.models.user import User, UserRole
 from app.services.kpi_catalog import KpiPeriod
-from app.services.onboarding_day import poligon_required
+from app.services.onboarding_day import poligon_may_be_required
 from app.services.kpi_engine import (
     KpiResult,
     WARSAW,
@@ -176,7 +176,7 @@ async def run_scheduled_sweep(
                     kpi_result.period,
                     now_w,
                     await personal_days_off(
-                        db, user.id, now_w, onboarding=poligon_required(user)
+                        db, user.id, now_w, onboarding=poligon_may_be_required(user)
                     ),
                 )
                 if ratio < _REMIND_MIN_RATIO:

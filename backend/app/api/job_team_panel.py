@@ -378,7 +378,7 @@ async def rotate_team_link(
     return view
 
 
-# ── Gotowe składy (Z3, 0712) ─────────────────────────────────────────────────
+# ── Gotowe składy (Z3, 0713) ─────────────────────────────────────────────────
 
 
 @router.get("/{team_id}/variants/proposal")

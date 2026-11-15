@@ -13,6 +13,10 @@ o numerze, w tej kolejności:
 Import nadpisuje pola, które plik ma wypełnione; pusta komórka niczego nie
 kasuje (konto wpisane ręcznie w NEXUSIE nie znika po ponownym imporcie pliku
 bez tej kolumny). Kontrahenta szukamy po identyfikatorze, potem po ID Symfonii.
+Dostawca założony formularzem zakupu zagranicznego (K5b-2: bez ``imported_at``
+i bez NIP-u/PESEL-u — innych kontrahentów formularz nie zakłada) nie dostaje
+bliźniaka: wiersz pliku bez NIP-u i PESEL-u z tą samą nazwą, którego nie da się
+dopasować po numerze ani ID Symfonii, to błąd wiersza, nie nowy kontrahent.
 """
 
 from __future__ import annotations
@@ -39,6 +43,9 @@ ROLE_LABELS = {
     "supplier": "dostawca",
 }
 EDITABLE = ("symfonia_partner_id", "cost_account", "revenue_account", "email")
+#: Identyfikatory krajowe — takich kontrahentów formularz zakupu zagranicznego
+#: nie zakłada (strażnik bliźniaków w imporcie ich nie dotyczy).
+DOMESTIC_ID_TYPES = ("nip", "pesel")
 ERROR_SAMPLE = 50
 
 
@@ -241,6 +248,13 @@ async def apply_import(
     by_symfonia = {
         row.symfonia_partner_id: row for row in existing if row.symfonia_partner_id
     }
+    from_form = {
+        folded: row
+        for row in existing
+        if row.imported_at is None
+        and row.id_type not in DOMESTIC_ID_TYPES
+        and (folded := identifiers.fold(row.name))
+    }
     for item in parsed.rows:
         row = by_id.get((item.id_type, item.id_value)) if item.id_value else None
         symfonia = item.values.get("symfonia_partner_id")
@@ -265,6 +279,22 @@ async def apply_import(
             )
             continue
         if row is None:
+            twin = (
+                None
+                if item.id_type in DOMESTIC_ID_TYPES
+                else from_form.get(identifiers.fold(item.values.get("name") or ""))
+            )
+            if twin is not None:
+                result.errors.append(
+                    {
+                        "line": item.line,
+                        "message": f"„{twin.name}” jest już w kartotece z formularza "
+                        "zakupu zagranicznego z innym identyfikatorem — popraw numer "
+                        "albo ID Symfonii w pliku lub w kartotece, żeby nie powstał "
+                        "duplikat.",
+                    }
+                )
+                continue
             result.created += 1
             if save:
                 created = FinanceCounterparty(

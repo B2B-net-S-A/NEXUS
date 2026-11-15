@@ -24,9 +24,11 @@ from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_einvoices_schema as client_einvoices
 from app.services import client_invoice_issue_schema as client_invoice_issue
+from app.services import client_invoice_templates_schema as client_invoice_templates
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
+from app.services import client_reports_schema as client_reports
 from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
@@ -42,6 +44,7 @@ from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_fx_schema as ledger_fx
 from app.services import ledger_schema as ledger
 from app.services import ledger_settlement_schema as ledger_settlement
+from app.services import ledger_vat_schema as ledger_vat
 from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
@@ -131,6 +134,12 @@ MODULES = (
     ledger_settlement,
     # 0707: waluty w księdze K4c-1 — rachunki walutowe, kurs pozycji (15.11.2026).
     ledger_fx,
+    # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
+    ledger_vat,
+    # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
+    client_invoice_templates,
+    # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
+    client_reports,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

@@ -163,6 +163,8 @@ import {
 import type { AvailabilityStatus, EmploymentInfo } from "@/components/v2/CandidateHighlights";
 import { candidatesListFiltersForQuery } from "@/lib/job-search-filters";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+import { useHydrated } from "@/hooks/useHydrated";
+import { CandidatesListSkeleton } from "@/components/SkeletonLoader";
 import { isRecruiterOnly } from "@/lib/cv-download-access";
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
 import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
@@ -722,7 +724,23 @@ export interface CandidatesListV2Props {
 // Wspólne z oknem „Kandydaci do dodania” — `lib/job-search-filters.ts`.
 export { candidatesListFiltersForQuery };
 
-export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Props = {}) {
+/**
+ * Pierwszy render listy zależy od pamięci tej karty (`sessionStorage`:
+ * ostatnie wyszukiwanie, obejrzane CV) i od `localStorage` (wyszukiwanie
+ * w rekrutacji), a serwer jej nie ma. Goły `/candidates` załadowany od zera
+ * (odświeżenie, link spoza aplikacji, wyjście z Poligonu) renderował na
+ * serwerze listę bez filtrów, a w przeglądarce baner „Wróciłeś do swojego
+ * wyszukiwania” — błąd hydratacji React #418 (e2e Poligonu, 15.11.2026).
+ * Do końca hydratacji stoi szkielet; przy nawigacji w aplikacji lista
+ * renderuje się od razu.
+ */
+export function CandidatesListV2(props: CandidatesListV2Props = {}) {
+  const hydrated = useHydrated();
+  if (!hydrated) return <CandidatesListSkeleton />;
+  return <CandidatesListBody {...props} />;
+}
+
+function CandidatesListBody({ onRequestSearch, embed }: CandidatesListV2Props) {
   const router = useRouter();
   const { showSuccess, showError } = useToast();
   const routeSearchParams = useSearchParams();

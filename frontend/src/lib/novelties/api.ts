@@ -123,3 +123,11 @@ export async function setStartGate(enforced: boolean): Promise<boolean> {
   });
   return resp.data.enforced;
 }
+
+/** Wyłącznik blokady Poligonu nowych osób (admin, HoR). Start zostaje, jak był. */
+export async function setPoligonGate(on: boolean): Promise<boolean> {
+  const resp = await api.put<{ poligon: boolean }>("/api/novelties/start/gate", {
+    poligon: on,
+  });
+  return resp.data.poligon;
+}

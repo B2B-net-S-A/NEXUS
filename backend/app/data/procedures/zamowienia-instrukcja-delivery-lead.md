@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 09.11.2026
+> **Zgodność z systemem sprawdzona:** 15.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -1386,6 +1386,14 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
   przychodowa**. Stawka z zamówienia zaczynającego się w przyszłości obowiązuje
   w umowie dopiero od jego daty startu. Szkic umowy, który dzięki temu ma
   komplet danych, sam przechodzi na **Aktywny**.
+* **Ustawia kategorię z umowy ramowej i limit stawki** (klient z cennikiem
+  umowy ramowej, np. Nordea). Wiersz zamówienia ze skrzynki niesie kategorię
+  i poziom („IT Developer - Senior”); umowa tej osoby dostaje tę pozycję cennika
+  i limit od daty startu zamówienia. Dopłaty za technologię (np. Kafka +20%)
+  zamówienie nie zawiera i nie zmienia ona stawki przychodowej — wpisujesz ją
+  w umowie, w karcie **„Umowa ramowa”** → „Kategoria i dopłata”, z potwierdzeniem
+  klienta (kto i kiedy). Zamówienia zapisane wcześniej przelicza przycisk
+  **„Przelicz kategorie z COA”** w zakładce klienta **Umowy**.
 * **Uzupełnia brakujący okres zamówienia raz na dobę.** Umowa, której
   zamówienia nikt nie zapisał od wdrożenia synchronizacji, dostaje w nocy sam
   **okres zamówienia** z najnowszego uzupełnionego zamówienia. Stawki, jednostki

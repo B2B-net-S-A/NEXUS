@@ -42,6 +42,7 @@ Podział AM na „5” bierze konta z ``allocation``.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
@@ -53,6 +54,7 @@ from app.models.app_setting import AppSetting
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
+from app.models.finance_ledger import FinanceCounterparty
 from app.models.finance_posting import FinanceAccount
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import clean_account
@@ -190,14 +192,38 @@ class AssetsAccounts:
 
 #: Konta rejestrów VAT (K5a): klucz → (domyślne konto, etykieta). VAT należny
 #: jest w kontach sprzedaży (``SALES_ACCOUNT_FIELDS["vat_account"]``).
+#: ``foreign_account`` (K5b-2) — konto ze słownikiem kontrahentów, pod którym
+#: formularz zakupu zagranicznego zakłada rozrachunek nowego dostawcy (``202-1``
+#: → ``202-1-NNN``); puste = formularz nie zakłada dostawców.
 VAT_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "input_account": ("221", "VAT naliczony"),
+    "foreign_account": ("", "Rozrachunki z dostawcami zagranicznymi"),
 }
+VAT_OPTIONAL = frozenset({"foreign_account"})
 
 
 @dataclass(frozen=True)
 class VatAccounts:
     input_account: str = VAT_ACCOUNT_FIELDS["input_account"][0]
+    foreign_account: str = ""
+
+
+#: Znaczniki JPK_V7M per kontrahent (K5b-2, decyzja Artura z 15.11.2026): GTU
+#: i TP w kolejności z XSD, na wszystkich fakturach sprzedaży kontrahenta.
+MARKERS: tuple[str, ...] = tuple(f"GTU_{n:02d}" for n in range(1, 14)) + ("TP",)
+MARKED_MAX = 500
+
+
+#: Kontakt w JPK_V7M (Podmiot1): e-mail obowiązkowy, telefon opcjonalny (K5b).
+JPK_EMAIL_MAX = 255
+JPK_PHONE_MAX = 16
+_JPK_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@dataclass(frozen=True)
+class JpkContact:
+    email: str = ""
+    phone: str = ""
 
 
 #: Konta wyciągów (K4a): klucz → (domyślne konto, etykieta). Puste = bez reguły.
@@ -262,6 +288,9 @@ class LedgerSettings:
     assets: AssetsAccounts = field(default_factory=AssetsAccounts)
     bank: BankSettings = field(default_factory=BankSettings)
     vat: VatAccounts = field(default_factory=VatAccounts)
+    jpk: JpkContact = field(default_factory=JpkContact)
+    #: Kontrahent (``finance_counterparties.id``) → znaczniki z ``MARKERS``.
+    vat_markers: dict[int, tuple[str, ...]] = field(default_factory=dict)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -297,6 +326,28 @@ def _assets(raw: object) -> AssetsAccounts:
 
 def _vat(raw: object) -> VatAccounts:
     return VatAccounts(**_accounts(raw, VAT_ACCOUNT_FIELDS))
+
+
+def _markers(raw: object) -> dict[int, tuple[str, ...]]:
+    data = raw if isinstance(raw, dict) else {}
+    found: dict[int, tuple[str, ...]] = {}
+    for key, value in data.items():
+        if not (isinstance(key, str) and key.isdigit()) or not isinstance(value, list):
+            continue
+        items = tuple(item for item in MARKERS if item in value)
+        if items and int(key) > 0:
+            found[int(key)] = items
+    return dict(sorted(found.items())[:MARKED_MAX])
+
+
+def _jpk(raw: object) -> JpkContact:
+    data = raw if isinstance(raw, dict) else {}
+
+    def text(key: str) -> str:
+        value = data.get(key)
+        return " ".join(value.split()) if isinstance(value, str) else ""
+
+    return JpkContact(email=text("email"), phone=text("phone"))
 
 
 def _bank(raw: object) -> BankSettings:
@@ -357,6 +408,8 @@ def normalize(raw: object) -> LedgerSettings:
         assets=_assets(data.get("assets")),
         bank=_bank(data.get("bank")),
         vat=_vat(data.get("vat")),
+        jpk=_jpk(data.get("jpk")),
+        vat_markers=_markers(data.get("vat_markers")),
     )
 
 
@@ -377,6 +430,10 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         },
         "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
         "vat": {key: getattr(settings.vat, key) for key in VAT_ACCOUNT_FIELDS},
+        "jpk": {"email": settings.jpk.email, "phone": settings.jpk.phone},
+        "vat_markers": {
+            str(key): list(value) for key, value in sorted(settings.vat_markers.items())
+        },
         "bank": {
             "accounts": [
                 {
@@ -560,13 +617,92 @@ async def set_assets_accounts(
 
 
 async def set_vat_accounts(
-    db: AsyncSession, values: dict[str, str], *, actor: User
+    db: AsyncSession, values: dict[str, Optional[str]], *, actor: User
 ) -> LedgerSettings:
-    """Konta rejestrów VAT (bez commita, admin): każde z planu kont."""
+    """Konta rejestrów VAT (bez commita, admin): każde z planu kont.
 
-    cleaned = await _plan_accounts(db, values, VAT_ACCOUNT_FIELDS)
+    ``None`` = bez zmiany (formularz bez pola nie kasuje konta). Konto
+    dostawców zagranicznych musi prowadzić słownik kontrahentów — formularz
+    zakupu zakłada pod nim analitykę dostawcy."""
+
     current = await load(db)
+    merged = {
+        key: getattr(current.vat, key) if values.get(key) is None else values[key]
+        for key in VAT_ACCOUNT_FIELDS
+    }
+    cleaned = await _plan_accounts(
+        db, merged, VAT_ACCOUNT_FIELDS, optional=VAT_OPTIONAL
+    )
+    if cleaned["foreign_account"]:
+        dictionary = await db.scalar(
+            select(FinanceAccount.dictionary).where(
+                FinanceAccount.number == cleaned["foreign_account"]
+            )
+        )
+        if dictionary != "counterparty":
+            raise LedgerError(
+                f"{VAT_ACCOUNT_FIELDS['foreign_account'][1]}: konto "
+                f"{cleaned['foreign_account']} musi mieć w planie kont słownik "
+                "analityki „kontrahenci” (dostawca dostaje konto "
+                f"{cleaned['foreign_account']}-NNN).",
+                status=422,
+            )
     settings = replace(current, vat=VatAccounts(**cleaned))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_vat_markers(
+    db: AsyncSession,
+    counterparty_id: int,
+    markers: list[str],
+    *,
+    actor: User,
+) -> LedgerSettings:
+    """Znaczniki GTU/TP kontrahenta (bez commita; lista „Księgowi” albo admin
+    — sprawdza trasa). Pusta lista zdejmuje kontrahenta z listy."""
+
+    unknown = sorted({item for item in markers if item not in MARKERS})
+    if unknown:
+        raise LedgerError(
+            f"Nieznane oznaczenie JPK: {', '.join(unknown[:5])}.", status=422
+        )
+    exists = await db.scalar(
+        select(FinanceCounterparty.id).where(FinanceCounterparty.id == counterparty_id)
+    )
+    if exists is None:
+        raise LedgerError("Nie ma takiego kontrahenta w kartotece.", status=404)
+    current = await load(db)
+    updated = dict(current.vat_markers)
+    cleaned = tuple(item for item in MARKERS if item in set(markers))
+    if cleaned:
+        updated[counterparty_id] = cleaned
+    else:
+        updated.pop(counterparty_id, None)
+    if len(updated) > MARKED_MAX:
+        raise LedgerError(
+            f"Znaczniki ma najwyżej {MARKED_MAX} kontrahentów.", status=422
+        )
+    settings = replace(current, vat_markers=dict(sorted(updated.items())))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def set_jpk_contact(
+    db: AsyncSession, values: dict[str, Any], *, actor: User
+) -> LedgerSettings:
+    """Kontakt w JPK_V7M (bez commita, admin): e-mail i opcjonalny telefon."""
+
+    email = " ".join(str(values.get("email") or "").split())
+    phone = " ".join(str(values.get("phone") or "").split())
+    if len(email) > JPK_EMAIL_MAX or not _JPK_EMAIL.match(email):
+        raise LedgerError("E-mail do JPK: podaj adres e-mail.", status=422)
+    if len(phone) > JPK_PHONE_MAX:
+        raise LedgerError(
+            f"Telefon do JPK: najwyżej {JPK_PHONE_MAX} znaków.", status=422
+        )
+    current = await load(db)
+    settings = replace(current, jpk=JpkContact(email=email, phone=phone))
     await _save(db, settings, actor=actor)
     return settings
 

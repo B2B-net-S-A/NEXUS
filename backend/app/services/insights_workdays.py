@@ -358,7 +358,7 @@ async def race_workdays_to_date(
     business = set(business_days(month_start, last)) if onboarding else set()
     out: dict[int, tuple[float, str]] = {}
     for uid in user_ids:
-        off = 1.0 if onboarding.get(int(uid)) in business else 0.0
+        off = float(len(onboarding.get(int(uid), frozenset()) & business))
         compass = by_user.get(int(uid))
         if compass is not None:
             working, absent = compass
