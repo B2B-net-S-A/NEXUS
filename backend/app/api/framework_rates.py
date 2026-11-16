@@ -12,7 +12,7 @@ Bramki (decyzja Artura z 15.11.2026: kwoty widzi DL swojego klienta i Finanse):
   domyślnie nie ma „Stawki i kwoty: zmiana”.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
@@ -707,3 +707,270 @@ async def get_framework_governance_report(
         media_type=_XLSX,
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+# --- F3: technologie premium, wnioski i kolejka prolongat --------------------------
+
+
+class EvidenceOut(BaseModel):
+    technology: str
+    percent: str
+    knows: bool
+    uses: bool
+    sources: list[str]
+
+
+class ClaimOut(BaseModel):
+    id: int
+    technology: str
+    status: str
+    knows: Optional[bool] = None
+    uses: Optional[bool] = None
+    dl_note: Optional[str] = None
+    client_confirmed_by: Optional[str] = None
+    client_confirmed_on: Optional[date] = None
+    outcome_reason: Optional[str] = None
+    next_try_on: Optional[date] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PremiumSkillsOut(BaseModel):
+    contract_id: int
+    evidence: list[EvidenceOut]
+    claims: list[ClaimOut]
+
+
+class ClaimIn(BaseModel):
+    technology: str = Field(min_length=1, max_length=100)
+    knows: bool
+    uses: bool
+    note: Optional[str] = Field(default=None, max_length=4000)
+
+
+class ClaimActionIn(BaseModel):
+    action: str = Field(pattern="^(send|grant|refuse|drop)$")
+    confirmed_by: Optional[str] = Field(default=None, max_length=255)
+    confirmed_on: Optional[date] = None
+    client_evidence: Optional[str] = Field(default=None, max_length=4000)
+    reason: Optional[str] = Field(default=None, max_length=4000)
+    next_try_on: Optional[date] = None
+    effective_from: Optional[date] = None
+
+
+async def _premium_out(db: AsyncSession, contract: Contract) -> PremiumSkillsOut:
+    from app.services.premium_skills import claims_for, contract_evidence
+
+    terms = await load_terms(db, contract.client_id)
+    rows = await contract_evidence(db, contract, terms, business_today())
+    return PremiumSkillsOut(
+        contract_id=contract.id,
+        evidence=[EvidenceOut(**{**vars(e), "sources": list(e.sources)}) for e in rows],
+        claims=[
+            ClaimOut.model_validate(c, from_attributes=True)
+            for c in await claims_for(db, contract.id)
+        ],
+    )
+
+
+@router.get("/contracts/{contract_id}/premium-skills", response_model=PremiumSkillsOut)
+async def get_premium_skills(
+    contract_id: int,
+    current_user: DeliveryViewUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Propozycja NEXUSA „zna / korzysta” i historia wniosków o dopłatę."""
+    contract = await _contract(db, contract_id)
+    await _assert_client_finance(current_user, db, contract.client_id)
+    return await _premium_out(db, contract)
+
+
+@router.post(
+    "/contracts/{contract_id}/premium-skills/claims", response_model=PremiumSkillsOut
+)
+async def create_premium_skill_claim(
+    contract_id: int,
+    payload: ClaimIn,
+    current_user: ContractsOrdersOrAmountsEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.premium_skills import create_claim
+
+    contract = await _contract(db, contract_id, lock=True)
+    await _assert_client_finance(current_user, db, contract.client_id)
+    await assert_client_assignable(db, contract.client_id)
+    terms = await load_terms(db, contract.client_id)
+    try:
+        await create_claim(
+            db,
+            contract,
+            terms,
+            technology=payload.technology,
+            knows=payload.knows,
+            uses=payload.uses,
+            note=payload.note,
+            actor_id=current_user.id,
+            on=business_today(),
+        )
+    except FrameworkCategoryError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    await db.flush()
+    return await _premium_out(db, contract)
+
+
+@router.post(
+    "/contracts/{contract_id}/premium-skills/claims/{claim_id}/action",
+    response_model=PremiumSkillsOut,
+)
+async def act_on_premium_skill_claim(
+    contract_id: int,
+    claim_id: int,
+    payload: ClaimActionIn,
+    current_user: ContractsOrdersOrAmountsEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
+    from app.services.premium_skills import advance_claim
+
+    contract = await _contract(db, contract_id, lock=True)
+    await _assert_client_finance(current_user, db, contract.client_id)
+    await assert_client_assignable(db, contract.client_id)
+    claim = await db.scalar(
+        select(ContractPremiumSkillClaim)
+        .where(
+            ContractPremiumSkillClaim.id == claim_id,
+            ContractPremiumSkillClaim.contract_id == contract_id,
+        )
+        .with_for_update()
+    )
+    if claim is None:
+        raise HTTPException(404, detail="Nie ma takiego wniosku.")
+    terms = await load_terms(db, contract.client_id)
+    try:
+        advance_claim(
+            db,
+            contract,
+            terms,
+            claim,
+            action=payload.action,
+            actor_id=current_user.id,
+            confirmed_by=payload.confirmed_by,
+            confirmed_on=payload.confirmed_on,
+            client_evidence=payload.client_evidence,
+            reason=payload.reason,
+            next_try_on=payload.next_try_on,
+            effective_from=payload.effective_from,
+        )
+    except FrameworkCategoryError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    await db.flush()
+    return await _premium_out(db, contract)
+
+
+class ProlongationOut(BaseModel):
+    contract_id: int
+    person: str
+    category: Optional[str] = None
+    rate: Optional[Decimal] = None
+    limit: Optional[Decimal] = None
+    gap: Optional[Decimal] = None
+    order_end: Optional[date] = None
+    days_left: Optional[int] = None
+    levers: list[LeverOut] = Field(default_factory=list)
+    claim_status: Optional[str] = None
+    claim_technology: Optional[str] = None
+    # Technologia z umowy, którą osoba zna (najpierw „korzysta”) i której dopłata
+    # mieści stawkę — tę wpisać we wniosek, a nie najtańszą z umowy.
+    evidence_technology: Optional[str] = None
+    evidence_label: Optional[str] = None
+
+
+@router.get(
+    "/clients/{client_id}/framework-prolongations", response_model=list[ProlongationOut]
+)
+async def get_framework_prolongations(
+    client_id: int,
+    current_user: DeliveryViewUser,
+    days: int = Query(90, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+):
+    """Osoby ponad limitem z dźwignią w umowie, według końca zamówienia (prolongata)."""
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
+
+    await _assert_client_finance(current_user, db, client_id)
+    today = business_today()
+    ov = await build_overview(db, client_id, on=today, today=today)
+    rows = [
+        r
+        for r in ov.rows
+        if r.status == "over"
+        and r.levers
+        and r.order_end is not None
+        and 0 <= (r.order_end - today).days <= days
+    ]
+    latest: dict[int, ContractPremiumSkillClaim] = {}
+    if rows:
+        claims = (
+            await db.execute(
+                select(ContractPremiumSkillClaim)
+                .where(
+                    ContractPremiumSkillClaim.contract_id.in_(
+                        [r.contract_id for r in rows]
+                    )
+                )
+                .order_by(ContractPremiumSkillClaim.created_at)
+            )
+        ).scalars()
+        for claim in claims:
+            latest[claim.contract_id] = claim
+    rows.sort(key=lambda r: r.order_end)
+    best = await _best_evidence(db, client_id, rows, today)
+    return [
+        ProlongationOut(
+            contract_id=r.contract_id,
+            person=r.person,
+            category=r.category,
+            rate=r.rate,
+            limit=r.limit,
+            gap=r.gap,
+            order_end=r.order_end,
+            days_left=(r.order_end - today).days,
+            levers=[
+                LeverOut(kind=lv.kind, label=lv.label, limit=lv.limit)
+                for lv in r.levers
+            ],
+            claim_status=latest[r.contract_id].status
+            if r.contract_id in latest
+            else None,
+            claim_technology=latest[r.contract_id].technology
+            if r.contract_id in latest
+            else None,
+            evidence_technology=best.get(r.contract_id, (None, None))[0],
+            evidence_label=best.get(r.contract_id, (None, None))[1],
+        )
+        for r in rows
+    ]
+
+
+async def _best_evidence(db: AsyncSession, client_id: int, rows, today: date) -> dict:
+    """Dla kolejki prolongat: technologia z dowodem, której dopłata mieści stawkę."""
+    from app.services.framework_limits import framework_limit
+    from app.services.premium_skills import contract_evidence
+
+    terms = await load_terms(db, client_id)
+    out: dict[int, tuple[str, str]] = {}
+    for row in rows:
+        contract = await _contract(db, row.contract_id)
+        card = terms.card(contract.client_rate_card_id)
+        if card is None or row.rate is None:
+            continue
+        for ev in await contract_evidence(db, contract, terms, today):
+            limit = framework_limit(card, Decimal(ev.percent))
+            if limit is not None and row.rate <= limit:
+                label = "zna i korzysta" if ev.uses else "zna, brak dowodu użycia"
+                out[row.contract_id] = (
+                    ev.technology,
+                    f"{ev.technology} +{ev.percent}%: {label}",
+                )
+                break
+    return out

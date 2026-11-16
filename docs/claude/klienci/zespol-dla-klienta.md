@@ -1,5 +1,5 @@
 # Zespół dla klienta: kilka rekrutacji, jeden link (0711, 15.11.2026)
-<!-- indeks: `/zespoly/{id}`, `/k/z/{token}`, pojemnik a nie typ rekrutacji, link wyłączony domyślnie, włączenie zespołu włącza panele stanowisk, kształt publiczny z paneli stanowisk, wybór składu bez treści w dzwonku, gotowe składy (automat proponuje, DL zatwierdza), rozmowy z całym składem, odłożone Z4 -->
+<!-- indeks: `/zespoly/{id}`, `/k/z/{token}`, pojemnik a nie typ rekrutacji, link wyłączony domyślnie, włączenie zespołu włącza panele stanowisk, kształt publiczny z paneli stanowisk, wybór składu bez treści w dzwonku, gotowe składy (automat proponuje, DL zatwierdza), rozmowy z całym składem, podpowiedź stawki z historii klienta, szacunek p25–p75 dla klienta, odczyt maila na stanowiska -->
 
 Decyzje Artura z 15.11.2026 (zakres Z1 + Z2). Makiety:
 https://claude.ai/artifact/KAz5WWuPqsyZFBdHFE9ohn. Kod: `api/job_team_panel.py`,
@@ -58,8 +58,8 @@ rekrutacji”, nie ten moduł.
   na Tablicy: decyzja i rozmowy zostają u DL-a.
 - **Cena = suma stawek do klienta, bez rabatu**, 168 godzin w miesiącu
   (`hours_per_month`); liczy ekran. Kropki wymagań tylko w szczegółach stanowiska.
-- **Odłożone:** odczyt maila rozbijający zapytanie na stanowiska (AI), cennik
-  z `rate_cards` (Z4). Bez AI w żądaniu publicznym.
+- **Odłożone:** cennik z `rate_cards`. Bez AI w żądaniu publicznym. Odczyt
+  maila i podpowiedź stawki: sekcja Z4 niżej.
 
 ## Z3: gotowe składy i rozmowy z całym składem (0713, 15.11.2026)
 
@@ -102,3 +102,37 @@ sonda `job_teams` czyta je przez model).
   `actions_disabled`; to nie są błędy. Dzienny limit panelu stanowiska (30) daje
   429 dla całego żądania przed zapisem. Każdy wniosek jest zatwierdzany osobno,
   bo wspólny serwis przy wyścigu o otwarty wniosek cofa całą transakcję.
+
+## Z4 i odczyt maila (bez migracji, 15.11.2026)
+
+Kod: `services/job_team_rates.py` (podpowiedź stawki), `services/team_request_split.py`
+(odczyt maila), trasa `POST /api/job-intake/team-positions` w `api/job_request_intake.py`,
+prompt `TEAM_REQUEST_SPLIT` w `services/llm_prompts.py`.
+
+- **Podpowiedź stawki to historia TEGO klienta, nie cennik.** Stanowisko zespołu
+  dostaje `rate_hint: {p25, median, p75, count}` (zł/h): stawki do klienta
+  z wierszy etapu (najnowsza na parę kandydat–rekrutacja, ta sama reguła co
+  `stage_client_rate.latest_client_rates`) z rekrutacji tego klienta w tej
+  samej kategorii kompetencji z 365 dni (`business_today()`), bez samego
+  stanowiska. Tylko godzinowe w złotych: para, której najnowsza stawka jest
+  dzienna albo w innej walucie, nie wchodzi. Mniej niż 3 pary albo brak
+  kategorii = `null`; innych klientów nie dobieramy, bo stawka jednego klienta
+  nie może wyciec do drugiego. Kwartyle: interpolacja liniowa.
+- **Klient widzi tylko szacunek p25–p75 i tylko bez prawdziwych stawek.**
+  W `GET /api/public/team-panel/{token}` każde stanowisko ma
+  `estimate: {min, max} | null`: widełki tylko wtedy, gdy panel stanowiska
+  pokazuje stawki, a na liście stanowiska nie ma żadnej stawki godzinowej.
+  Nigdy liczby par, mediany ani niczego o innych klientach. Ekran podpisuje
+  widełki jako szacunek z historii zleceń klienta. Ukryta stawka na panelu =
+  brak szacunku, bo inaczej ukrycie dałoby się obejść.
+- **Odczyt maila na stanowiska to dodatek.** `POST /api/job-intake/team-positions`
+  `{text}` (20–20 000 znaków) → `{positions: [{title, headcount, seniority,
+  words}], model}`. Ten sam model i ta sama telemetria co odczyt requestu
+  (`ai_feature(champion_draft)`, `model_for(champion_draft)`): osobny klucz
+  `aifeaturekey` wymagałby migracji. Ugruntowanie jak w wierszach wymagań
+  (`job_request_intake._grounded_search_word`): słowo spoza maila wypada
+  (najwyżej 8), liczba osób przechodzi tylko z dosłownym cytatem zawierającym
+  tę liczbę (`_headcount`, 1–50), inaczej 1; poziom tylko `junior`, `regular`,
+  `senior` albo `null`. Awaria modelu albo zła odpowiedź = 200 z pustą listą
+  i wpis w logu bez treści maila. Bramka jak odczyt requestu
+  (`RecruitmentManageUser`), limit 20/min.

@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Scale } from "lucide-react";
 
+import { PremiumSkillsSection } from "@/components/contracts/PremiumSkillsSection";
 import { AppModal } from "@/components/ds/AppModal";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
@@ -110,6 +111,7 @@ export function FrameworkCategoryCard({ contractId, canView, canEdit }: Props) {
           </div>
         )}
       </dl>
+      <PremiumSkillsSection contractId={contractId} canEdit={canEdit} category={data.card?.label ?? null} />
       {open && <CategoryDialog data={data} contractId={contractId} onClose={() => setOpen(false)} />}
     </div>
   );

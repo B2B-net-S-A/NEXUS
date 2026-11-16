@@ -24,13 +24,25 @@ tylko administrator (403).
   „Księgowi” albo administrator),
 * ``GET /vat/ue?year=&month=`` — pozycje VAT-UE(5) miesiąca (K5b-3a), problemy,
 * ``GET /vat/ue/file?year=&month=`` — plik VAT-UE(5) po walidacji schematem MF
-  (tylko sprzedaż dla firm z UE — bez danych osób zespołu, więc bez Płac).
+  (tylko sprzedaż dla firm z UE — bez danych osób zespołu, więc bez Płac),
+* ``POST /vat/jpk/compare?year=&month=`` — porównanie z JPK z Symfonii (K5b-3b,
+  plik XML w żądaniu, niezapisywany; Płace albo administrator — D2).
 """
 
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Path,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,7 +57,7 @@ from app.services.finance_ledger_schema import (
     NAME_MAX,
     SYMFONIA_ID_MAX,
 )
-from app.services.ledger import documents, foreign, jpk, vat, vat_ue
+from app.services.ledger import documents, foreign, jpk, jpk_compare, vat, vat_ue
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import JPK_EMAIL_MAX, JPK_PHONE_MAX, MARKERS
@@ -363,3 +375,21 @@ async def vat_ue_file(
         media_type="application/xml",
         headers={"Content-Disposition": f'attachment; filename="{name}"'},
     )
+
+
+@router.post("/vat/jpk/compare")
+async def jpk_compare_with_symfonia(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+    file: UploadFile = File(..., description="JPK_V7M z Symfonii (XML)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    content = await file.read(jpk_compare.MAX_BYTES + 1)
+    try:
+        return await jpk_compare.run(
+            db, viewer, current, year=year, month=month, content=content
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc

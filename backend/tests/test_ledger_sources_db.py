@@ -4274,3 +4274,48 @@ async def test_vat_ue_lines_come_from_the_sales_register(client, world, books):
         f"{ACC}/vat/ue", params={"year": books["year"], "month": 13}, headers=headers
     )
     assert closed.status_code == 422
+
+
+# ── Porównanie z JPK z Symfonii (K5b-3b) ────────────────────────────────────
+
+
+async def test_jpk_compare_with_symfonia_file(client, world, books):
+    """Plik „z Symfonii” = JPK z tych samych rejestrów: zero różnic; zmieniona
+    kwota wychodzi w wierszu; bez Płac — 403; plik za inny miesiąc — 422."""
+
+    from app.services.ledger import jpk
+
+    await _vat_books(client, world, books)
+    registers = (await _vat_registers(client, world, books)).json()
+    # Rejestry pełne (D2) dla porównania: księgowa w fixture ma Płace.
+    content, _ = jpk.build(
+        registers,
+        company=_test_company(),
+        email="ksiegowosc@example.com",
+        phone="",
+        purpose="submission",
+        reason=None,
+        surplus=0,
+        now=datetime.now(timezone.utc),
+    )
+    url = f"{ACC}/vat/jpk/compare"
+    params = {"year": books["year"], "month": 3}
+
+    async def send(body: bytes, user: str = "accountant", **extra):
+        return await client.post(
+            url,
+            params={**params, **extra},
+            files={"file": ("jpk.xml", body, "application/xml")},
+            headers=_headers(world[user]),
+        )
+
+    same = await send(content)
+    assert same.status_code == 200, same.text
+    assert same.json()["differences"] == 0
+    changed = await send(content.replace(b"<K_20>230.00</K_20>", b"<K_20>231.00</K_20>", 1))
+    sales = changed.json()["rows"][0]
+    assert [item["number"] for item in sales["different"]] == ["FS 1/03"]
+    other_month = await send(content, month=4)
+    assert other_month.status_code == 422 and "za 03." in other_month.json()["detail"]
+    blind = await send(content, user="module_only")
+    assert blind.status_code == 403 and "Płacami" in blind.json()["detail"]

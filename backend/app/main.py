@@ -3916,6 +3916,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.rate_card import RateCardAdder
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
     from app.models.insight_decision import InsightDecision
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
@@ -4304,6 +4305,8 @@ async def api_health_deep_check(request: Request):
         ("contract_client_rates", ContractClientRate),
         # 0710: dopłaty z umowy ramowej (limit kontraktu czyta je przy zapisie).
         ("rate_card_adders", RateCardAdder),
+        # 0716: wnioski o dopłatę za technologię premium.
+        ("contract_premium_skill_claims", ContractPremiumSkillClaim),
         # 0227: moduł Finanse. Bez tych dwóch wpisów zielony deploy nie mówi
         # nic o tym, czy tabele w ogóle powstały — a prodowy alembic bywa
         # osierocony, więc /api/health/deep jest jedynym realnym dowodem.

@@ -37,6 +37,7 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services import client_panel as panel_service
+from app.services import job_team_rates as rates_service
 from app.services.stage_client_rate import latest_client_rates
 
 logger = logging.getLogger(__name__)
@@ -314,7 +315,9 @@ async def _people(db: AsyncSession, candidate_ids: Iterable[int]) -> dict[int, A
     return {row.id: row for row in rows.all()}
 
 
-async def _position(db: AsyncSession, job: Job) -> dict[str, Any]:
+async def _position(
+    db: AsyncSession, job: Job, rate_hint: Optional[dict[str, float]]
+) -> dict[str, Any]:
     sent = await panel_service.sent_pairs(db, job.id)
     people = await _people(db, sent)
     stages = await _current_stages(db, job.id, sent)
@@ -348,6 +351,8 @@ async def _position(db: AsyncSession, job: Job) -> dict[str, Any]:
         "budget_max": _number(job.rate_budget_hourly),
         "delivery_lead": {"id": lead.id, "name": lead.name} if lead else None,
         "candidates": candidates,
+        # Z4: stawki do klienta z jego historii w tej kategorii (tylko dla DL-a).
+        "rate_hint": rate_hint,
     }
 
 
@@ -435,13 +440,14 @@ async def team_detail(
     jobs = jobs if jobs is not None else await team_jobs(db, team.id)
     token = current_token(team) if team.panel_enabled else None
     url, short_url = team_urls(token) if token else (None, None)
+    hints = await rates_service.rate_hints(db, jobs)
     return {
         "id": team.id,
         "name": team.name,
         "client_id": team.client_id,
         "client_name": await _client_name(db, team.client_id),
         "hours_per_month": HOURS_PER_MONTH,
-        "positions": [await _position(db, job) for job in jobs],
+        "positions": [await _position(db, job, hints.get(job.id)) for job in jobs],
         "panel": {
             "enabled": team.panel_enabled,
             "show_rate": team.panel_show_rate,
@@ -547,6 +553,24 @@ def public_variants(
     return out
 
 
+def _estimate(
+    view: Mapping[str, Any], hint: Optional[Mapping[str, float]]
+) -> Optional[dict[str, float]]:
+    """Widełki z historii klienta tylko tam, gdzie klient nie widzi żadnej stawki.
+
+    Panel z ukrytą stawką nie dostaje widełek (inaczej wyłączenie stawek
+    wypuszczałoby cenę inną drogą). Stanowisko z choć jedną stawką godzinową
+    na liście też nie: klient widzi wtedy prawdziwą cenę, nie szacunek.
+    """
+    if not view["panel"]["show_rate"]:
+        return None
+    for candidate in view.get("candidates") or []:
+        rate = candidate.get("rate")
+        if rate and rate.get("unit") == rates_service.HOURLY:
+            return None
+    return rates_service.public_estimate(hint)
+
+
 async def public_team_view(
     db: AsyncSession,
     team: JobTeam,
@@ -556,6 +580,9 @@ async def public_team_view(
         positions = await public_positions(db, team)
     items = []
     seen: dict[int, tuple[str, dict[int, str]]] = {}
+    hints: dict[int, Optional[dict[str, float]]] = {}
+    if any(position.panel.show_rate for position in positions):
+        hints = await rates_service.rate_hints(db, [p.job for p in positions])
     for position in positions:
         view = await panel_service.public_panel_view(
             db, position.panel, position.job, None
@@ -565,6 +592,7 @@ async def public_team_view(
                 "key": position.key,
                 "short": view["job"]["title"],
                 "headcount": headcount(position.job),
+                "estimate": _estimate(view, hints.get(position.job.id)),
                 "view": view,
             }
         )

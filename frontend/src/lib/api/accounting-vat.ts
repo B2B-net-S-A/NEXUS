@@ -408,3 +408,56 @@ export function useVatUe(year: number, month: number, enabled = true) {
 export function vatUeFilePath(year: number, month: number): string {
   return `${BASE}/vat/ue/file?year=${year}&month=${month}`;
 }
+
+// ── Porównanie z JPK z Symfonii (K5b-3b) ────────────────────────────────────
+// Plik XML z Symfonii idzie w żądaniu i nie jest zapisywany. Porównuje osoba
+// z Płacami albo administrator (plik ma faktury osób zespołu — D2).
+
+export interface JpkCompareSide {
+  number: string;
+  party: string;
+  document_id: number | null;
+  /** Grosze. */
+  vat: number;
+}
+
+export interface JpkCompareRows {
+  kind: "sales" | "purchases";
+  nexus_rows: number;
+  symfonia_rows: number;
+  matched: number;
+  only_nexus: JpkCompareSide[];
+  only_nexus_count: number;
+  only_symfonia: JpkCompareSide[];
+  only_symfonia_count: number;
+  different: (JpkCompareSide & {
+    fields: Record<string, { nexus: number; symfonia: number }>;
+    markers: { nexus: string[]; symfonia: string[] } | null;
+  })[];
+  different_count: number;
+}
+
+export interface JpkCompareResult {
+  year: number;
+  month: number;
+  /** Pola P_ w pełnych złotych. */
+  declaration: { field: string; nexus: number; symfonia: number }[];
+  rows: JpkCompareRows[];
+  differences: number;
+  problems: { number: string; detail: string }[];
+}
+
+export function useCompareJpk() {
+  return useMutation({
+    mutationFn: async ({ year, month, file }: { year: number; month: number; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<JpkCompareResult>(`${BASE}/vat/jpk/compare`, form, {
+          params: { year, month },
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+  });
+}

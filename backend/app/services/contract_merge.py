@@ -227,6 +227,10 @@ _KNOWN_CONTRACT_FKS = {
     ("redeploy_queue_items", "contract_id"),
     # Karty technologiczne — historia rozmów u klienta, przenoszona w całości.
     ("tech_cards", "contract_id"),
+    # Wnioski o dopłatę za technologię premium (0716) — historia osoby,
+    # przenoszona w całości. Otwarty wniosek przegranego o technologię, o którą
+    # zachowany też ma otwarty, jest wcześniej zamykany (indeks częściowy).
+    ("contract_premium_skill_claims", "contract_id"),
     # Kolejka back office: ``source_key`` zostaje, więc karta duplikatu zamknie się
     # przy następnym przebiegu, a karta zachowanego kontraktu powstanie sama.
     ("bo_cards", "contract_id"),
@@ -3706,6 +3710,19 @@ async def _reparent_fks(
         moved["contract_termination_snapshots_superseded"] = int(
             superseded.rowcount or 0
         )
+    dropped = await db.execute(
+        text(
+            "UPDATE contract_premium_skill_claims AS loser "
+            "SET status = 'dropped', outcome_reason = 'Scalenie kontraktów: "
+            "otwarty wniosek o tę technologię ma kontrakt zachowany', updated_at = NOW() "
+            "WHERE loser.contract_id = ANY(:losers) AND loser.status IN ('approved', 'sent') "
+            "AND EXISTS (SELECT 1 FROM contract_premium_skill_claims AS kept "
+            "WHERE kept.contract_id = :survivor AND kept.status IN ('approved', 'sent') "
+            "AND lower(kept.technology) = lower(loser.technology))"
+        ),
+        {"survivor": survivor_id, "losers": list(loser_ids)},
+    )
+    moved["contract_premium_skill_claims_dropped"] = int(dropped.rowcount or 0)
     for fk in catalog:
         table, column = str(fk["table_name"]), str(fk["column_name"])
         if int(fk["column_count"]) != 1 or (table, column) not in _KNOWN_CONTRACT_FKS:

@@ -1,5 +1,18 @@
 [
   {
+    "id": "zespol-rozbij-zapytanie",
+    "pr": 3461,
+    "title": "Nowa rekrutacja: rozbij zapytanie na stanowiska zespołu",
+    "why": "Przy „Stanowisko w zespole” odczyt wypisze stanowiska z wklejonego maila, a „Użyj” wpisze rolę i liczbę osób. Na ekranie zespołu zobaczysz też stawki z historii klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Nowa rekrutacja → „Co zamawia klient?” → „Stanowisko w zespole”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "jobs.new.team-split"
+  },
+  {
     "id": "zespol-gotowe-sklady",
     "pr": 3454,
     "title": "Zespół: gotowe składy dla klienta i rozmowy z całym składem",
@@ -2906,5 +2919,18 @@
     "href": "/clients",
     "section": "delivery",
     "dot_anchor": "clients.framework-rates.report"
+  },
+  {
+    "id": "doplata-wniosek-zna-korzysta",
+    "pr": 3465,
+    "title": "Dopłata za technologię: wniosek z propozycją NEXUSA",
+    "why": "Na kontrakcie NEXUS pokazuje, czy osoba zna i korzysta z technologii z umowy. Zatwierdzasz, wysyłasz do klienta i zapisujesz wynik. Przed prolongatą przyjdzie dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.premium-skills"
   }
 ]

@@ -32,6 +32,8 @@ export interface TeamPositionDetail {
   budget_max: number | null;
   delivery_lead: { id: number; name: string } | null;
   candidates: TeamCandidate[];
+  /** Stawki do klienta z historii tego klienta w tej kategorii (365 dni, ≥ 3 pary); Z4. */
+  rate_hint?: { p25: number; median: number; p75: number; count: number } | null;
 }
 
 export interface TeamSelection {
@@ -138,3 +140,14 @@ export const proposeVariants = (id: number): Promise<{ variants: TeamVariantProp
 
 export const saveVariants = (id: number, variants: TeamVariantInput[]): Promise<TeamDetail> =>
   api.put<TeamDetail>(`/api/job-teams/${id}/variants`, { variants }).then((r) => r.data);
+
+/** Stanowisko z odczytu maila (AI, dodatek): tytuł, liczba osób, poziom, słowa z treści. */
+export interface SplitPosition {
+  title: string;
+  headcount: number;
+  seniority: "junior" | "regular" | "senior" | null;
+  words: string[];
+}
+
+export const splitTeamRequest = (text: string): Promise<{ positions: SplitPosition[] }> =>
+  api.post("/api/job-intake/team-positions", { text }).then((r) => r.data);

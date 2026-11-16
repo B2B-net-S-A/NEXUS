@@ -618,3 +618,42 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
     expect(screen.getByRole("button", { name: "Pobierz VAT-UE (XML)" })).toBeDisabled();
   });
 });
+
+describe("Księgowość — porównanie z JPK z Symfonii (K5b-3b)", () => {
+  it("wgrany plik: różnice deklaracji i wierszy", async () => {
+    route(config(), registers({ issues: [] }));
+    post.mockResolvedValue({
+      data: {
+        year: 2026,
+        month: 11,
+        declaration: [{ field: "P_38", nexus: 207, symfonia: 208 }, { field: "P_48", nexus: 230, symfonia: 230 }],
+        rows: [
+          { kind: "sales", nexus_rows: 2, symfonia_rows: 2, matched: 1, only_nexus: [], only_nexus_count: 0, only_symfonia: [], only_symfonia_count: 0,
+            different: [{ number: "FS 1/11/2026", party: "Klient Testowy", document_id: 11, vat: 23_000, fields: { K_20: { nexus: 23_000, symfonia: 23_100 } }, markers: null }], different_count: 1 },
+          { kind: "purchases", nexus_rows: 1, symfonia_rows: 0, matched: 0, only_nexus: [{ number: "FV 7/11", party: "Dostawca Testowy", document_id: 21, vat: 23_000 }], only_nexus_count: 1, only_symfonia: [], only_symfonia_count: 0, different: [], different_count: 0 },
+        ],
+        differences: 3,
+        problems: [],
+      },
+    });
+    const user = userEvent.setup();
+    renderView();
+    const input = await screen.findByLabelText("Plik JPK z Symfonii");
+    await user.upload(input, new File(["<JPK/>"], "jpk.xml", { type: "application/xml" }));
+    await user.click(screen.getByRole("button", { name: "Porównaj" }));
+    expect(await screen.findByText("Różnice: 3")).toBeInTheDocument();
+    expect(post).toHaveBeenCalledWith("/api/accounting/vat/jpk/compare", expect.any(FormData), expect.objectContaining({ params: { year: 2026, month: 11 } }));
+    const p38 = screen.getByText("P_38").closest("tr") as HTMLElement;
+    expect(within(p38).getByText("208")).toBeInTheDocument();
+    expect(screen.queryByText("P_48")).not.toBeInTheDocument();
+    expect(screen.getByText("Tylko w NEXUSIE: 1")).toBeInTheDocument();
+    expect(screen.getByText(/FS 1\/11\/2026 — K_20: 230,00 \/ 231,00/)).toBeInTheDocument();
+  });
+
+  it("bez prawa do pliku JPK karty porównania nie ma", async () => {
+    route(config(), registers({ issues: [] }), jpkOverview({ can_download: false, can_prepare: false }));
+    renderView();
+    expect(await screen.findByText("JPK_V7M za listopad 2026")).toBeInTheDocument();
+    expect(screen.queryByText("Porównanie z JPK z Symfonii")).not.toBeInTheDocument();
+  });
+});

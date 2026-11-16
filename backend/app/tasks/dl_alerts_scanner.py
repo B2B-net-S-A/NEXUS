@@ -80,6 +80,7 @@ from app.models.dl_alert import (
     ALERT_DRAFT_CONSULTANT_UNASSIGNED,
     ALERT_FRAMEWORK_CONTRACT_EXPIRING,
     ALERT_INVOICE_WITHOUT_ORDER_LINE,
+    ALERT_FRAMEWORK_OVER_LIMIT,
     ALERT_MD_BASE_USAGE_HIGH,
     ALERT_MD_BUDGET_LOW,
     ALERT_MISSING_REVENUE_RATE,
@@ -1425,6 +1426,80 @@ async def rule_order_missing_successor(
     return await remind_open_gaps(db, recipient_scope)
 
 
+async def rule_framework_over_limit(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope | None = None,
+) -> int:
+    """Ponad limitem z umowy ramowej, zamówienie kończy się, umowa daje dźwignię (F3).
+
+    Prolongacja bez uzgodnienia idzie po cenie z poprzedniego zamówienia, więc
+    o dopłatę albo awans poziomu DL walczy PRZED nią (decyzja Artura z
+    15.11.2026: przy każdej prolongacji). Okno jak przy kończącym się
+    zamówieniu (``DL_ALERT_ENDING_WINDOW_DAYS``); powtórka co 7 dni. Klucz
+    encji niesie datę końca zamówienia: przedłużenie to nowa sprawa.
+    Tylko klienci z cennikiem umowy ramowej (kontrakt z kategorią).
+    """
+    from app.services.framework_overview import STATUS_OVER, build_overview
+
+    if recipient_scope is None:
+        recipient_scope = await load_delivery_alert_recipient_scope(db)
+    today = business_today()
+    start, stop = _ending_window(today)
+    client_ids = (
+        (
+            await db.execute(
+                select(Contract.client_id)
+                .where(Contract.client_rate_card_id.is_not(None))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    names = await _client_names(db, set(client_ids))
+    live: set[str] = set()
+    created = 0
+    for client_id in client_ids:
+        user_ids = await dl_user_ids_for_client(db, client_id, scope=recipient_scope)
+        if not user_ids:
+            continue
+        overview = await build_overview(db, client_id, on=today, today=today)
+        for row in overview.rows:
+            if (
+                row.status != STATUS_OVER
+                or not row.levers
+                or row.order_end is None
+                or not (start <= row.order_end <= stop)
+            ):
+                continue
+            entity_key = f"contract:{row.contract_id}:end:{row.order_end.isoformat()}"
+            levers = ", ".join(lever.label for lever in row.levers)
+            created += len(
+                await emit(
+                    db,
+                    alert_type=ALERT_FRAMEWORK_OVER_LIMIT,
+                    user_ids=user_ids,
+                    client_id=client_id,
+                    entity_key=entity_key,
+                    title=f"{names.get(client_id, 'Klient')} — {row.person} ponad stawką z umowy",
+                    message=(
+                        f"Zamówienie kończy się {row.order_end.strftime('%d.%m.%Y')}, a stawka "
+                        f"jest o {row.gap} zł/h ponad limitem z umowy ramowej. Umowa daje: "
+                        f"{levers}. Prolongata bez uzgodnienia pójdzie po starej cenie."
+                    ),
+                    link=f"/contracts/{row.contract_id}",
+                    payload={
+                        "candidate_name": row.person,
+                        "contract_id": row.contract_id,
+                    },
+                    repeat_every_days=7,
+                )
+            )
+            live |= _live_keys(ALERT_FRAMEWORK_OVER_LIMIT, entity_key, user_ids)
+    await resolve_stale(db, alert_type=ALERT_FRAMEWORK_OVER_LIMIT, live_event_keys=live)
+    return created
+
+
 #: Rejestr reguł. Dołożenie typu alertu = dopisanie funkcji i wpisu.
 ALERT_RULES: dict[str, Rule] = {
     ALERT_DRAFT_CONSULTANT_UNASSIGNED: rule_draft_consultant_unassigned,
@@ -1440,6 +1515,7 @@ ALERT_RULES: dict[str, Rule] = {
     ALERT_ORDER_MAIL_REVIEW: rule_order_mail_review,
     ALERT_CANDIDATE_CONFLICT_EXPIRED: rule_candidate_conflict_expired,
     ALERT_INVOICE_WITHOUT_ORDER_LINE: rule_invoice_without_order_line,
+    ALERT_FRAMEWORK_OVER_LIMIT: rule_framework_over_limit,
 }
 
 

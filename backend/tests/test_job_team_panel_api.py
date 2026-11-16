@@ -3,6 +3,7 @@ składy i rozmowy z całym składem. Dane fikcyjne."""
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -15,6 +16,7 @@ from sqlalchemy import select
 import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
+from app.models.candidate import Candidate, CandidateStatus
 from app.models.client import Client
 from app.models.client_interview_slot_request import ClientInterviewSlotRequest
 from app.models.client_panel import (
@@ -22,6 +24,7 @@ from app.models.client_panel import (
     ClientPanelCandidate,
     ClientPanelRequest,
 )
+from app.models.contract import RateUnit
 from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.job_team_panel import JobTeam, JobTeamSelection
@@ -433,7 +436,9 @@ async def test_public_team_shape_has_no_private_fields(
     assert set(body["team"]["owner"]) == {"name"}
     assert body["team"]["name"] == "Zespół mobilny"
     position = body["positions"][0]
-    assert set(position) == {"key", "short", "headcount", "view"}
+    assert set(position) == {"key", "short", "headcount", "estimate", "view"}
+    # Stanowisko ze stawką godzinową na liście nie dostaje szacunku.
+    assert position["estimate"] is None
     assert set(position["view"]) == {
         "panel",
         "job",
@@ -1033,6 +1038,178 @@ async def test_team_interviews_unknown_and_expired_links(
                 )
             )
         ) is None
+
+
+# ── Podpowiedź stawki z historii klienta (Z4) ────────────────────────────────
+
+# Kategorie kompetencji z danych referencyjnych (0371): 2 = software_development.
+_CATEGORY = 2
+_OTHER_CATEGORY = 3
+
+
+async def _rated_pair(
+    db,
+    job_id: int,
+    world: World,
+    value: str,
+    *,
+    unit: RateUnit = RateUnit.hourly,
+    currency: str = "PLN",
+    days_ago: int = 30,
+) -> int:
+    """Osoba z jedną stawką do klienta na rekrutacji ``job_id``."""
+    tag = uuid.uuid4().hex[:6]
+    candidate = Candidate(
+        name="Osoba", lastname=f"Historyczna{tag}", status=CandidateStatus.active
+    )
+    db.add(candidate)
+    await db.flush()
+    db.add(
+        CandidateStage(
+            candidate_id=candidate.id,
+            job_id=job_id,
+            stage=PipelineStage.cv_sent,
+            moved_by=world.recruiter_id,
+            moved_at=datetime.now(timezone.utc) - timedelta(days=days_ago),
+            client_rate_value=Decimal(value),
+            client_rate_unit=unit,
+            client_rate_currency=currency,
+        )
+    )
+    await db.flush()
+    return candidate.id
+
+
+async def _history(db, world: World, client_id: int, category: int) -> int:
+    """Zamknięta rekrutacja klienta w kategorii — źródło historii stawek."""
+    return await _job(
+        db,
+        world,
+        client_id,
+        f"Historia {uuid.uuid4().hex[:6]}",
+        status=JobStatus.closed,
+        competence_category_id=category,
+    )
+
+
+async def _set_category(job_id: int, category: int | None) -> None:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.competence_category_id = category
+        await db.commit()
+
+
+async def test_rate_hint_uses_only_this_client_category_and_window(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    await _set_category(world.job_a, _CATEGORY)
+    await _set_category(world.job_b, _OTHER_CATEGORY)
+    async with AsyncSessionLocal() as db:
+        past = await _history(db, world, world.client_id, _CATEGORY)
+        for value in ("100.00", "120.00", "140.00"):
+            await _rated_pair(db, past, world, value)
+        # Nie wchodzą: stawka dzienna, inna waluta, starsza niż 365 dni.
+        await _rated_pair(db, past, world, "1500.00", unit=RateUnit.daily)
+        await _rated_pair(db, past, world, "33.30", currency="EUR")
+        await _rated_pair(db, past, world, "90.00", days_ago=400)
+        # Para, której NAJNOWSZA stawka jest dzienna: starszej godzinowej nie bierzemy.
+        changed = await _rated_pair(db, past, world, "95.00", days_ago=60)
+        db.add(
+            CandidateStage(
+                candidate_id=changed,
+                job_id=past,
+                stage=PipelineStage.client_interview,
+                moved_by=world.recruiter_id,
+                moved_at=datetime.now(timezone.utc) - timedelta(days=20),
+                client_rate_value=Decimal("1400.00"),
+                client_rate_unit=RateUnit.daily,
+                client_rate_currency="PLN",
+            )
+        )
+        # Inny klient w tej samej kategorii: nigdy nie wchodzi.
+        stranger = Client(name=f"Inny Klient {uuid.uuid4().hex[:6]}")
+        db.add(stranger)
+        await db.flush()
+        foreign = await _history(db, world, stranger.id, _CATEGORY)
+        for value in ("977.31", "977.32", "977.33"):
+            await _rated_pair(db, foreign, world, value)
+        # Druga kategoria tego klienta ma tylko dwie pary: za mało.
+        thin = await _history(db, world, world.client_id, _OTHER_CATEGORY)
+        for value in ("555.55", "560.00"):
+            await _rated_pair(db, thin, world, value)
+        await db.commit()
+
+    detail = await _create(app_client, world)
+    by_job = {position["job_id"]: position for position in detail["positions"]}
+    # Własna stawka stanowiska (150,50 przy pierwszej osobie) nie wchodzi.
+    assert by_job[world.job_a]["rate_hint"] == {
+        "p25": 110.0,
+        "median": 120.0,
+        "p75": 130.0,
+        "count": 3,
+    }
+    assert by_job[world.job_b]["rate_hint"] is None
+
+    await _set_category(world.job_b, None)
+    detail = await app_client.get(f"{BASE}/{detail['id']}", headers=world.dl_headers)
+    assert detail.json()["positions"][1]["rate_hint"] is None
+
+
+async def test_client_sees_an_estimate_only_without_real_rates(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    await _set_category(world.job_a, _CATEGORY)
+    await _set_category(world.job_b, _CATEGORY)
+    async with AsyncSessionLocal() as db:
+        past = await _history(db, world, world.client_id, _CATEGORY)
+        for value in ("100.00", "120.00", "140.00"):
+            await _rated_pair(db, past, world, value)
+        stranger = Client(name=f"Inny Klient {uuid.uuid4().hex[:6]}")
+        db.add(stranger)
+        await db.flush()
+        foreign = await _history(db, world, stranger.id, _CATEGORY)
+        for value in ("977.31", "977.32", "977.33"):
+            await _rated_pair(db, foreign, world, value)
+        # Drugie stanowisko nie ma jeszcze żadnej stawki godzinowej na liście.
+        stages = await db.scalars(
+            select(CandidateStage).where(CandidateStage.job_id == world.job_b)
+        )
+        for stage in stages.all():
+            stage.client_rate_value = None
+            stage.client_rate_unit = None
+            stage.client_rate_currency = None
+        await db.commit()
+
+    detail = await _create(app_client, world)
+    token = await _enable(app_client, world, detail["id"])
+    body = (await _public(app_client, token)).json()
+    by_job = {
+        position["view"]["job"]["title"]: position for position in body["positions"]
+    }
+    android, backend = (
+        next(p for title, p in by_job.items() if title.startswith(prefix))
+        for prefix in ("Android", "Backend")
+    )
+    # Stanowisko ze stawką: klient widzi cenę, nie szacunek.
+    assert android["estimate"] is None
+    # Bez stawki: p25–p75 historii TEGO klienta (jego trzy pary + 150,50
+    # z pierwszego stanowiska), nic o liczbie par, medianie ani innym kliencie.
+    assert backend["estimate"] == {"min": 115.0, "max": 142.62}
+    assert set(backend["estimate"]) == {"min", "max"}
+    text = json.dumps(body, ensure_ascii=False)
+    for leaked in ("977.3", '"count"', "median", "p25", "p75", "rate_hint"):
+        assert leaked not in text, leaked
+
+    hidden = await app_client.put(
+        f"{BASE}/{detail['id']}/panel",
+        headers=world.dl_headers,
+        json={"show_rate": False},
+    )
+    assert hidden.status_code == 200, hidden.text
+    body = (await _public(app_client, token)).json()
+    assert [position["estimate"] for position in body["positions"]] == [None, None]
 
 
 # ── Bramki ───────────────────────────────────────────────────────────────────

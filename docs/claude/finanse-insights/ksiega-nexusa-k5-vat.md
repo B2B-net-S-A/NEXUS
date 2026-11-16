@@ -8,7 +8,8 @@ z dokumentów przy każdym otwarciu. K5b-1: plik JPK_V7M(3) — `ledger/jpk.py`,
 migracja `0708_ledger_vat_files` (sekcja niżej). K5b-2: zakupy zagraniczne
 (import usług) — `ledger/foreign.py` — i znaczniki GTU/TP per kontrahent, bez
 migracji (sekcja niżej). K5b-3a: VAT-UE(5) — `ledger/vat_ue.py` (sekcja niżej).
-Porównanie z JPK z Symfonii (K5b-3b) i dokument rozliczenia VAT (K5b-3c) — dalej.
+K5b-3b: porównanie z JPK z Symfonii — `ledger/jpk_compare.py` (sekcja niżej).
+Dalej VAT-UEK, dokument rozliczenia VAT (K5b-3c) i art. 86 ust. 10i.
 
 ## Co jest
 
@@ -199,6 +200,29 @@ Porównanie z JPK z Symfonii (K5b-3b) i dokument rozliczenia VAT (K5b-3c) — da
   (lata 2050–2090) sprawdzają pozycje, walidację XSD testy reguł (rok 2026).
   Nowy wzór MF = nowe pliki i zmiana `NS` w `vat_ue.py`.
 
+## Porównanie z JPK z Symfonii (K5b-3b)
+
+- **Decyzja Artura 15.11.2026**: w miesiącach równoległych NEXUS pokazuje
+  różnice między swoim JPK a plikiem z Symfonii; prawdziwy plik za październik
+  2026 przyśle Finanse. Karta „Porównanie z JPK z Symfonii” w zakładce VAT,
+  `POST /vat/jpk/compare?year=&month=` z plikiem XML — **pliku nie zapisujemy**.
+- Plik czytany bez sieci, encji i DTD (lxml), po nazwach elementów bez
+  przestrzeni nazw; okres z nagłówka musi być miesiącem porównania (422), do
+  20 MB (413). Porównuje osoba z Płacami albo administrator (plik ma faktury
+  osób zespołu — D2, 403).
+- Strona NEXUSA = rejestry pełne i deklaracja jak przy „Przygotuj JPK”, z P_39
+  z pliku Symfonii (nadwyżka to wejście). Wiersz = numer dowodu (bez spacji
+  i wielkości liter) + numer kontrahenta (bez kodu kraju); różnice: pola `K_`
+  w groszach, znaczniki GTU/TP, wiersze tylko po jednej stronie, pola `P_`.
+
+## Decyzje Artura 15.11.2026 (dalsze K5b-3)
+
+- **K5b-3c dokument rozliczenia VAT**: różnica groszy (deklaracja w pełnych
+  złotych, konta w groszach) → pozostałe przychody/koszty operacyjne 760/761
+  (konta ustawia admin w zakładce VAT); 221/222 zerują się co miesiąc.
+- **VAT-UEK**: pobrać XSD VAT-UEK(5) z crd.gov.pl (wzór 2021/01/26/10316),
+  NEXUS składa plik korekty za okres faktury pierwotnej.
+
 ## Testy
 
 `tests/test_ledger_vat_rules.py` (podział stawek, kwoty z dekretu, pola JPK,
@@ -220,4 +244,7 @@ strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS), fro
 `VatView.test.tsx` (lista, formularz, znaczniki), `vat-model.test.ts`. K5b-3a:
 `tests/test_ledger_vat_ue_rules.py` (pozycje, zaokrąglenie, problemy, XSD),
 `test_vat_ue_lines_come_from_the_sales_register` w `test_ledger_sources_db.py`,
-front: karta VAT-UE w `VatView.test.tsx`.
+front: karta VAT-UE w `VatView.test.tsx`. K5b-3b: `tests/test_ledger_jpk_compare_rules.py`
+(te same rejestry = zero różnic, kwota, wiersz, znacznik, pole P_, złe pliki
+i encje), `test_jpk_compare_with_symfonia_file` w `test_ledger_sources_db.py`,
+front: karta porównania w `VatView.test.tsx`.
