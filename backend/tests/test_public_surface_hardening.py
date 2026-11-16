@@ -77,6 +77,8 @@ _RATE_LIMITED_MODULES = (
     "api/public_career.py",
     # Panel klienta (0639): dane kandydatów pod samym linkiem, bez logowania.
     "api/public_client_panel.py",
+    # Zespół dla klienta (0711): skład kilku rekrutacji pod samym linkiem.
+    "api/public_job_team_panel.py",
     # Rekrutacja własna: wybór terminu pod linkiem z maila, bez logowania.
     "api/public_own_hiring.py",
     # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
@@ -114,6 +116,7 @@ _DOCSTRING_MODULES = (
     "api/auth.py",
     "api/candidates.py",
     "api/public_client_panel.py",
+    "api/public_job_team_panel.py",
     *_V1_MODULES,
 )
 

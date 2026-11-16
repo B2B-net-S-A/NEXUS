@@ -91,11 +91,14 @@ def test_prod_pools_fit_max_connections() -> None:
         for arg in services["postgres"]["command"]
         if str(arg).startswith("max_connections=")
     )
-    total = 0
+    pools = {}
     for name in ("backend", "worker"):
         env = services[name]["environment"]
-        total += int(env["DB_POOL_SIZE"]) + int(env["DB_MAX_OVERFLOW"])
-    assert total <= limit - 15, "zapas na zrzut bazy i docker exec"
+        pools[name] = int(env["DB_POOL_SIZE"]) + int(env["DB_MAX_OVERFLOW"])
+    # Rolling update (etap B2): przez chwilę dwa procesy tej samej roli naraz.
+    web, worker = pools["backend"], pools["worker"]
+    worst = max(2 * web + worker, web + 2 * worker)
+    assert worst <= limit - 15, "zapas na zrzut bazy, blokady i docker exec"
 
 
 def test_worker_name_stays_outside_backend_prefix() -> None:

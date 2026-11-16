@@ -28,9 +28,9 @@ router = APIRouter()
 
 GENERIC_404 = "Link nieprawidłowy lub wygasły."
 
-# slowapi liczy ``@limiter.limit`` osobno dla każdego ADRESU (``key_style="url"``),
-# czyli osobno dla każdego tokenu. Wspólny kubełek per IP na wszystkie tokeny
-# (``shared_limit``) zamyka zgadywanie tokenów seriami różnych adresów.
+# ``@limiter.limit`` liczy się per trasa (``key_style="endpoint"``), więc seria
+# różnych tokenów wpada w limit trasy. ``shared_limit`` dokłada wspólny kubełek
+# per IP na kilka tras naraz (podgląd + PDF, podpis).
 SHARED_READ = "60/minute"
 SHARED_SIGN = "10/minute"
 

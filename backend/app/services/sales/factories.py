@@ -102,9 +102,14 @@ def in_queue_levels(entry: dict[str, Any]) -> bool:
 
 
 def waits_for_first_contact(entry: dict[str, Any]) -> bool:
-    """Osoba z nazwiskiem, bez kontaktu i bez sprzeciwu wobec kontaktu."""
+    """Osoba z nazwiskiem, bez kontaktu, bez sprzeciwu i nadal w firmie."""
 
-    return _named(entry) and not is_contacted(entry) and not entry.get("do_not_contact")
+    return (
+        _named(entry)
+        and not is_contacted(entry)
+        and not entry.get("do_not_contact")
+        and entry.get("active") is not False
+    )
 
 
 def map_counts(

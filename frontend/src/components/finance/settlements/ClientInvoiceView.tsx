@@ -114,6 +114,11 @@ export function ClientInvoiceView({ clientId, month }: { clientId: number; month
           </div>
         </div>
       </section>
+      {data.signature_hold ? (
+        <p className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-1.5 text-xs text-warning-muted-foreground">
+          {data.signature_hold.label}. Pozycje do skopiowania pojawią się po podpisie klienta.
+        </p>
+      ) : null}
       {rows.length === 0 ? (
         <p className="rounded-xl border bg-card px-3 py-6 text-center text-sm text-muted-foreground">
           W tym miesiącu nie ma jeszcze przyjętego RCP.

@@ -35,7 +35,7 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import AdminUser
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.integration_event import IntegrationWebhook
 from app.models.integration_write_receipt import IntegrationWriteReceipt
 from app.models.service_account import (
@@ -209,7 +209,7 @@ async def delete_account(
     response_model=ServiceAccountKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
 )
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def create_key(
     request: Request,
     account_id: int,

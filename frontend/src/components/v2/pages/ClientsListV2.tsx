@@ -470,7 +470,7 @@ export function ClientsListV2({
       const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
       const res = await fetch(
         `${apiBase}/api/clients/directory/export?${params}`,
-        { headers: getAuthenticatedRequestHeaders() },
+        { credentials: "include", headers: getAuthenticatedRequestHeaders() },
       );
       if (!res.ok) {
         setToast("Eksport nie powiódł się.");

@@ -1324,6 +1324,8 @@ async def _group_to_read(
             item.job_title = job_titles.get(item.job_id)
         reads.append(item)
     await _apply_line_history(db, group, lines, reads)
+    if with_finance:
+        await _apply_revenue_steps(db, lines, reads)
     await _apply_consumption_signals(db, group, lines, reads)
     if uses_shared_md_budget and lines:
         # Kolumna „Zużycie” listy: suma MD osoby ze zejść wspólnej puli —
@@ -1636,6 +1638,35 @@ async def _apply_consumption_signals(
         if line.id in to_verify:
             flags.append("import_to_verify")
         item.consumption_flags = flags  # type: ignore[assignment]
+
+
+async def _apply_revenue_steps(
+    db: AsyncSession, lines: list[ClientOrder], reads: list[OrderLineRead]
+) -> None:
+    """Stawka przychodowa na dziś i kroki z aneksów (``order_revenue_steps``)."""
+
+    from app.schemas.client_order_group import OrderLineRevenueStepRead
+    from app.services.order_revenue_steps import current_rates, load_steps
+
+    steps = await load_steps(db, (line.id for line in lines))
+    if not steps:
+        return
+    today = business_today()
+    by_id = {line.id: line for line in lines}
+    for item in reads:
+        own = steps.get(item.id)
+        if not own:
+            continue
+        rates = current_rates(by_id[item.id], own, today)
+        item.current_rate_revenue = rates["current_md_rate_revenue"]
+        item.revenue_steps = [
+            OrderLineRevenueStepRead(
+                effective_from=step["effective_from"],
+                first_month=step["first_month"],
+                md_rate_revenue=step["md_rate_revenue"],
+            )
+            for step in rates["revenue_steps"]
+        ]
 
 
 async def _apply_line_history(

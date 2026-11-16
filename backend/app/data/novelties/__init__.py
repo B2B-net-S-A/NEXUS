@@ -197,3 +197,97 @@ def in_audience(
     if audience.permissions and set(permissions) & set(audience.permissions):
         return True
     return False
+
+
+#: Poligon NEXUSA (decyzje Artura 14.11.2026): onboarding nowej osoby na
+#: rekrutacji ćwiczebnej. Rejestr ćwiczeń zapisujemy tu, bo postęp idzie do
+#: ``novelty_progress`` (id ``poligon-…``) tym samym zdarzeniem co nowości.
+#: Treść i ocena ćwiczeń są we froncie (``lib/poligon/exercises.ts``) —
+#: test frontu pilnuje, że oba rejestry mają te same id.
+POLIGON_PATH = Path(__file__).resolve().parent / "poligon.json"
+
+
+class PoligonExercise(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^poligon-[a-z0-9-]{2,51}$")
+    module: str = Field(min_length=1, max_length=60)
+    title: str = Field(min_length=1, max_length=90)
+    #: Czyja to ścieżka (15.11.2026: rekruter, Delivery Lead, TCM mają własne).
+    #: Osoba przechodzi ćwiczenia każdej swojej roli; lustro `roles` w `exercises.ts`.
+    roles: list[str] = Field(min_length=1)
+
+
+class PoligonPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Kto może przejść poligon i zapisać postęp (mapa jest otwarta dla nich).
+    roles: list[str]
+    #: Kogo poligon blokuje, dopóki go nie przejdzie: te role…
+    required_roles: list[str]
+    #: …i konto założone tego dnia albo później (obecni mają Start za sobą).
+    required_since: date
+    #: Przeklikania Startu, które poligon zastępuje osobie, której jest
+    #: wymagany — per rola z ``required_roles``.
+    replaces: dict[str, list[str]]
+    exercises: list[PoligonExercise] = Field(min_length=1)
+
+    @field_validator("roles", "required_roles")
+    @classmethod
+    def _known_roles(cls, value: list[str]) -> list[str]:
+        known = {role.value for role in UserRole}
+        unknown = [role for role in value if role not in known]
+        if unknown:
+            raise ValueError(f"Nieznana rola w poligonie: {unknown}")
+        return value
+
+    @model_validator(mode="after")
+    def _consistent(self) -> "PoligonPlan":
+        ids = [e.id for e in self.exercises]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Powtórzone id ćwiczenia poligonu")
+        if not set(self.required_roles) <= set(self.roles):
+            raise ValueError("required_roles poligonu musi być w roles")
+        if not set(self.replaces) <= set(self.required_roles):
+            raise ValueError("replaces poligonu tylko dla ról z required_roles")
+        for exercise in self.exercises:
+            if not set(exercise.roles) <= set(self.roles):
+                raise ValueError(f"Rola spoza poligonu w ćwiczeniu {exercise.id}")
+        empty = [
+            role
+            for role in self.required_roles
+            if not any(role in e.roles for e in self.exercises)
+        ]
+        if empty:
+            raise ValueError(f"Rola wymagana bez ćwiczeń poligonu: {empty}")
+        return self
+
+    def by_id(self) -> dict[str, PoligonExercise]:
+        return {e.id: e for e in self.exercises}
+
+    def exercises_for(self, roles: Collection[str]) -> list[PoligonExercise]:
+        """Ścieżka osoby: ćwiczenia każdej jej roli, w kolejności rejestru."""
+        return [e for e in self.exercises if set(e.roles) & set(roles)]
+
+    def replaced_for(self, roles: Collection[str]) -> set[str]:
+        return {tour for role in roles for tour in self.replaces.get(role, [])}
+
+
+@lru_cache(maxsize=1)
+def load_poligon() -> PoligonPlan:
+    plan = PoligonPlan.model_validate(
+        json.loads(POLIGON_PATH.read_text(encoding="utf-8"))
+    )
+    starts = load_start_tours()
+    unknown = [
+        tour_id
+        for tours in plan.replaces.values()
+        for tour_id in tours
+        if tour_id not in starts
+    ]
+    if unknown:
+        raise ValueError(f"Poligon zastępuje nieznane przeklikania Startu: {unknown}")
+    clash = set(plan.by_id()) & (set(starts) | set(load_novelties()))
+    if clash:
+        raise ValueError(f"Id ćwiczenia poligonu zajęte przez nowość: {sorted(clash)}")
+    return plan

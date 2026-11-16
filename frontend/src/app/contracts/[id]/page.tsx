@@ -24,6 +24,7 @@ import {
   FinancialRatesCard,
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
+import { FrameworkCategoryCard } from "@/components/contracts/FrameworkCategoryCard";
 import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
@@ -104,7 +105,7 @@ import { ContractAdminDetailsCard } from "@/components/hr/payroll/ContractAdminD
 import { ContractBonusesCard } from "@/components/hr/payroll/ContractBonusesCard";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
-import { permissionLabel } from "@/lib/permissions";
+import { hasAnyPermission, permissionLabel } from "@/lib/permissions";
 import {
   buildContractDetailHref,
   buildContractsListUrl,
@@ -324,6 +325,7 @@ function GenerateDocumentButton({
     const url = `${base}/api/contract-templates/${templateId}/render?contract_id=${contractId}`;
     try {
       const resp = await fetch(url, {
+        credentials: "include",
         headers: getAuthenticatedRequestHeaders(),
       });
       // Komunikaty toastem, nie natywnym `alert()` (audyt 24.09, N7) —
@@ -1501,7 +1503,14 @@ export default function ContractDetailPage() {
                 zostaje obok formularza (prawa kolumna), jak dotąd. */}
             {!editing &&
               (canViewFinance ? (
-                <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />
+                <>
+                  <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />
+                  <FrameworkCategoryCard
+                    contractId={contract.id}
+                    canView={canViewFinance}
+                    canEdit={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                  />
+                </>
               ) : (
                 <div
                   className="rounded-lg border border-border bg-card p-4"

@@ -28,9 +28,10 @@ export type InvoiceCheck = "ok" | "accepted" | "difference" | "unknown" | "unmat
 /** `budget` — faktura zamówienia kosztowego porównana z resztą jego budżetu. */
 export type CheckBasis = "amount" | "budget";
 export type MatchStatus = "unmatched" | "matched" | "ignored";
-export type MatchMethod = "order_number" | "amount" | "person" | "correction" | "manual";
+export type MatchMethod = "order_number" | "amount" | "person" | "correction" | "manual" | "issued";
 export type PaymentStatus = "paid" | "partial" | "unpaid" | "overpaid" | "none";
 export type ExportFormat = "csv" | "xlsx";
+export type BuyerNumberKind = "nip" | "vat_ue" | "foreign_id";
 
 export interface BillingLine {
   order_id: number | null;
@@ -99,6 +100,8 @@ export interface SalesInvoice {
   buyer_name: string | null;
   buyer_nip: string | null;
   buyer_foreign_id: string | null;
+  /** Starszy backend zwracał zagraniczny identyfikator wyłącznie dla VAT UE. */
+  buyer_number_kind?: BuyerNumberKind | null;
   corrections: {
     id: number;
     invoice_number: string;
@@ -220,7 +223,7 @@ export type BuyerNumberState = "add" | "same" | "differs" | "taken" | "none";
 export interface BuyerNumberCheck {
   state: BuyerNumberState;
   number: string | null;
-  kind: "nip" | "vat_ue";
+  kind: BuyerNumberKind;
   client_name: string | null;
   existing: string | null;
   owner_name: string | null;
@@ -263,7 +266,7 @@ export type UnknownBuyerSuggestion = {
 
 export type UnknownBuyer = {
   number: string | null;
-  kind: "nip" | "vat_ue" | null;
+  kind: BuyerNumberKind | null;
   buyer_name: string | null;
   invoices: number;
   totals: { currency: string; amount: string }[];

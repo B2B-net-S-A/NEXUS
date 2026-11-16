@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Faktura xmlns="http://crd.gov.pl/wzor/2025/06/25/13775/">
+  <Naglowek>
+    <KodFormularza kodSystemowy="FA (3)" wersjaSchemy="1-0E">FA</KodFormularza>
+    <WariantFormularza>3</WariantFormularza>
+    <DataWytworzeniaFa>2026-11-06T09:00:00Z</DataWytworzeniaFa>
+    <SystemInfo>Program Przykładowy</SystemInfo>
+  </Naglowek>
+  <Podmiot1>
+    <DaneIdentyfikacyjne><NIP>9876543210</NIP><Nazwa>Spółka Testowa sp. z o.o.</Nazwa></DaneIdentyfikacyjne>
+    <Adres><KodKraju>PL</KodKraju><AdresL1>ul. Testowa 10</AdresL1><AdresL2>00-001 Warszawa</AdresL2></Adres>
+  </Podmiot1>
+  <Podmiot2>
+    <DaneIdentyfikacyjne><KodUE>FI</KodUE><NrVatUE>28583949</NrVatUE><Nazwa>Nordea Bank Abp</Nazwa></DaneIdentyfikacyjne>
+    <Adres><KodKraju>FI</KodKraju><AdresL1>Satamaradankatu 5</AdresL1><AdresL2>00020 Helsinki</AdresL2></Adres>
+    <JST>2</JST><GV>2</GV>
+  </Podmiot2>
+  <Fa>
+    <KodWaluty>PLN</KodWaluty>
+    <P_1>2026-11-06</P_1>
+    <P_2>1/11/2026/UE</P_2>
+    <P_6>2026-10-31</P_6>
+    <P_13_9>36679.50</P_13_9>
+    <P_15>36679.50</P_15>
+    <Adnotacje><P_16>2</P_16><P_17>2</P_17><P_18>1</P_18><P_18A>2</P_18A>
+      <Zwolnienie><P_19N>1</P_19N></Zwolnienie><NoweSrodkiTransportu><P_22N>1</P_22N></NoweSrodkiTransportu>
+      <P_23>2</P_23><PMarzy><P_PMarzyN>1</P_PMarzyN></PMarzy></Adnotacje>
+    <RodzajFaktury>VAT</RodzajFaktury>
+    <DodatkowyOpis><NrWiersza>1</NrWiersza><Klucz>Uwagi</Klucz><Wartosc>Discount according to the Frame Agreement – 2,5%.</Wartosc></DodatkowyOpis>
+    <FaWiersz><NrWierszaFa>1</NrWierszaFa><P_7>NIDS:1000000001, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>86</P_8B><P_9A>180.00</P_9A><P_10>387.00</P_10><P_11>15093.00</P_11><P_12>np II</P_12></FaWiersz>
+    <FaWiersz><NrWierszaFa>2</NrWierszaFa><P_7>NIDS:1500000002, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>103.5</P_8B><P_9A>180.00</P_9A><P_10>465.75</P_10><P_11>18164.25</P_11><P_12>np II</P_12></FaWiersz>
+    <FaWiersz><NrWierszaFa>3</NrWierszaFa><P_7>NIDS:1600000003, IT Retail Banking, Nordea Contact: Anna Testowa, Contractor Jan Przykładowy ID: M000001</P_7><P_8A>godz.</P_8A><P_8B>19.5</P_8B><P_9A>180.00</P_9A><P_10>87.75</P_10><P_11>3422.25</P_11><P_12>np II</P_12></FaWiersz>
+
+    <Platnosc>
+      <TerminPlatnosci><Termin>2026-12-05</Termin></TerminPlatnosci>
+      <FormaPlatnosci>6</FormaPlatnosci>
+      <RachunekBankowy><NrRB>11 1111 1111 0000 0000 1111 1111</NrRB><SWIFT>TESTPLPW</SWIFT></RachunekBankowy>
+    </Platnosc>
+  </Fa>
+</Faktura>

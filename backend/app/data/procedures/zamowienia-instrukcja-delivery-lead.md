@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 09.11.2026
+> **Zgodność z systemem sprawdzona:** 16.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -252,6 +252,17 @@ linii nie ma wcale.
 wtedy notka znika. Zamówienia z maila porównują stawkę z rekrutacją **tylko
 przy pierwszym zamówieniu osoby** u klienta — przedłużenie porównują
 z poprzednim zamówieniem tej osoby, więc rekrutacji sprzed lat nie poprawiasz.
+
+**Klient zmienia stawkę w trakcie zamówienia (aneks od jakiegoś dnia)** —
+wpisz to aneksem w kontrakcie: kontrakt → zakładka „Aneksy” → **„Zmień
+stawkę”**, data wejścia w życie i **„Nowa stawka klienta”**. Zanim zapiszesz,
+okno pokaże, które zamówienia się zmienią (np. „1615,050 → 1775,050 zł/MD
+od 01.11.2026”). Po zapisie wiersz osoby w zamówieniu pokazuje nową stawkę
+z dopiskiem „od …” i „wcześniej …”, a w Historii zamówienia jest wpis.
+Zużycie sprzed tego dnia zostaje po starej stawce. Zużycie MD liczy się
+miesiącami, więc aneks od połowy miesiąca wchodzi do rozliczenia od
+następnego miesiąca. Nie poprawiaj stawki przychodowej w zamówieniu ręcznie:
+przeliczyłoby to także miesiące sprzed aneksu.
 
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa
@@ -1386,6 +1397,14 @@ widać tam było wyłącznie odczyty uruchamiane ręcznie w formularzach.
   przychodowa**. Stawka z zamówienia zaczynającego się w przyszłości obowiązuje
   w umowie dopiero od jego daty startu. Szkic umowy, który dzięki temu ma
   komplet danych, sam przechodzi na **Aktywny**.
+* **Ustawia kategorię z umowy ramowej i limit stawki** (klient z cennikiem
+  umowy ramowej, np. Nordea). Wiersz zamówienia ze skrzynki niesie kategorię
+  i poziom („IT Developer - Senior”); umowa tej osoby dostaje tę pozycję cennika
+  i limit od daty startu zamówienia. Dopłaty za technologię (np. Kafka +20%)
+  zamówienie nie zawiera i nie zmienia ona stawki przychodowej — wpisujesz ją
+  w umowie, w karcie **„Umowa ramowa”** → „Kategoria i dopłata”, z potwierdzeniem
+  klienta (kto i kiedy). Zamówienia zapisane wcześniej przelicza przycisk
+  **„Przelicz kategorie z COA”** w zakładce klienta **Umowy**.
 * **Uzupełnia brakujący okres zamówienia raz na dobę.** Umowa, której
   zamówienia nikt nie zapisał od wdrożenia synchronizacji, dostaje w nocy sam
   **okres zamówienia** z najnowszego uzupełnionego zamówienia. Stawki, jednostki
@@ -1499,6 +1518,7 @@ nie samą zakładkę. Karty są pogrupowane:
 |---|---|---|---|
 | Kończące się zamówienia i umowy | **Zamówienie okresowe** kończy się (a u klientów z rozszerzonymi alertami — także **zamówienie MD/kosztowe**, osobno dla każdego konsultanta) | 30 dni przed datą końca — **pierwsza karta od razu z mailem**. **Nie powstaje, gdy do zamówienia dodano już przyszłe zamówienie** (także szkic) — wtedy nic nie trzeba robić, a otwarta karta zamyka się sama; to samo dotyczy powiadomienia w dzwonku. Samo przyszłe zamówienie dostaje kartę na tych samych zasadach | co 7 dni bez maila; **14 dni przed — mail**; **7 dni przed — wysoki priorytet (czerwona karta) + mail** |
 | | **Umowa ramowa** klienta wygasa | 30 dni przed wygaśnięciem | jak wyżej |
+| | **[Klient] — [kto] ponad stawką z umowy** (klient z cennikiem umowy ramowej) | zamówienie kończy się w ciągu 30 dni, stawka jest ponad limitem z umowy, a umowa daje dopłatę za technologię albo awans poziomu. Prolongata bez uzgodnienia pójdzie po starej cenie — wniosek o dopłatę złóż w kontrakcie, karta „Umowa ramowa” → „Technologie premium” | co 7 dni; przedłużenie zamówienia zamyka kartę |
 | | **Kontrakt** konsultanta kończy się (umowa B2B ma datę końca dopiero po „Zakończ współpracę") | 30 dni przed końcem. Gdy tego samego dnia kończy się zamówienie, które ma już własną kartę, kontrakt drugiej karty nie dostaje; ale jeśli za zamówieniem czeka kontynuacja (np. szkic), karta kontraktu **powstaje** — umowa się kończy, a szkic zostałby bez współpracy | jak wyżej |
 | | **[Klient] — wygasł konflikt z kandydatem** (NDA / cooling-off, czarna lista klienta albo konkurencja z datą wygaśnięcia) | data wygaśnięcia wpisu w „Konflikty" na profilu kandydata minęła — kandydata znów można proponować temu klientowi; przycisk otwiera profil kandydata | raz; bez maila |
 | | **Mało MD** — konsultantowi (budżet przy osobie; nie osobie, która już zeszła z zamówienia) albo całemu zamówieniu (wspólna pula) | zostało **21 MD lub mniej** | co 7 dni; **wysoki priorytet + mail**, gdy zostało MD na ok. **7 dni roboczych** pracy przy dotychczasowym tempie tego zamówienia |
@@ -2148,7 +2168,8 @@ też **surowy tekst tabeli** z PDF-a, a system liczy w niej pozycje ze stawką:
 gdy jest ich więcej niż odczytanych osób (np. wiersz przełamany w PDF-ie na dwie
 linie), wpis czeka na Ciebie. Osoba, przed której kategorią stoi jeszcze jedno
 słowo pisane jak nazwisko („Jan Kowalski Nowak IT…"), też idzie do sprawdzenia —
-system nie zgaduje, czy nazwisko ma trzy człony.
+system nie zgaduje, czy nazwisko ma trzy człony. Kategoria z grupy Business
+(„Jan Kowalski Business Analyst – Expert…") nie jest takim słowem i wiersza nie wstrzymuje.
 
 **2. Import zamówień z CSV — nie dla Ciebie.** W zakładce „Zamówienia" jest
 zwijany panel **„Import zamówień Nordea z CSV"**, ale **widzi go wyłącznie

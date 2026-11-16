@@ -5,6 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
+/** Świat wyglądu na koncie (0693). `world: null` = konto jeszcze nic nie zapisało. */
+export interface AppearancePreferences {
+  world: string | null;
+  world_before_season: string | null;
+}
+
 export interface UserPreferences {
   kpi_coach_enabled: boolean;
   /** Poranny skrót „Twój dzień w NEXUSIE” — wyłącznik tylko dla tego konta. */
@@ -16,6 +22,8 @@ export interface UserPreferences {
    * w rekrutacjach, które konto prowadzi (domyślnie tylko własnych).
    */
   stage_moves_all_led_jobs: boolean;
+  /** Brak pola = serwer sprzed 0693; świat zostaje wtedy tylko w przeglądarce. */
+  appearance?: AppearancePreferences;
 }
 
 export type UserPreferencesUpdate = Partial<
@@ -23,7 +31,7 @@ export type UserPreferencesUpdate = Partial<
     UserPreferences,
     "kpi_coach_enabled" | "daily_digest_email_enabled" | "stage_moves_all_led_jobs"
   >
->;
+> & { appearance?: Partial<AppearancePreferences> };
 
 export const USER_PREFERENCES_QUERY_KEY = ["user-preferences", "me"] as const;
 

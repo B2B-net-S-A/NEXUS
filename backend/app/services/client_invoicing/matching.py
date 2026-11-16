@@ -45,7 +45,7 @@ from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
-from app.services.client_invoicing import billing, clients
+from app.services.client_invoicing import billing, clients, rebate
 from app.services.client_invoicing.billing import BillingLine, BillingRow, OrderRef
 
 MIN_NUMBER_LENGTH = 3
@@ -97,6 +97,13 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "original_unmatched",
         "original_missing",
     }
+)
+#: Przypisania, których automat nie przepina: ręczne Finansów i faktura
+#: wystawiona w NEXUSIE (E4) — ta wie, z którego zamówienia powstała.
+KEPT_METHODS: frozenset[str] = frozenset({"manual", "issued"})
+#: Powód „Pominięta” faktury wystawionej w NEXUSIE bez zamówienia (E6).
+ISSUED_WITHOUT_ORDER_REASON = (
+    "Wystawiona w NEXUSIE bez zamówienia (faktura z ręki, z szablonu albo zaliczkowa)."
 )
 #: Ostatnia faktura po kolei w ``rematch_pending`` (``{"after_id": …}``).
 REMATCH_CURSOR_KEY = "client_sales_rematch_cursor"
@@ -426,9 +433,9 @@ async def auto_match(
     *,
     registry: Optional[clients.NipRegistry] = None,
 ) -> Decision:
-    """Dopasowanie automatyczne; ręcznych i pominiętych nie rusza."""
+    """Dopasowanie automatyczne; ręcznych, pominiętych i wystawionych w NEXUSIE nie rusza."""
 
-    if invoice.match_status == "ignored" or invoice.match_method == "manual":
+    if invoice.match_status == "ignored" or invoice.match_method in KEPT_METHODS:
         return Decision(reason=invoice.match_reason)
     registry = registry or await clients.nip_registry(db)
     if invoice.client_id is None:
@@ -461,7 +468,7 @@ async def auto_match(
     )
     refs = await billing.order_refs(db, members)
     decision = decide(
-        net=invoice.net_amount,
+        net=rebate.pre_discount(Decimal(invoice.net_amount), invoice.items or []),
         currency=invoice.currency,
         texts=invoice_texts(invoice),
         rows=rows,
@@ -484,6 +491,58 @@ async def auto_match(
     if decision.matched:
         await propagate_to_corrections(db, invoice)
     return decision
+
+
+async def link_issued(
+    db: AsyncSession,
+    invoice: ClientSalesInvoice,
+    *,
+    targets: Sequence[Target],
+    period: tuple[int, int],
+    actor_id: Optional[int],
+) -> None:
+    """Faktura wystawiona w NEXUSIE (E4) wiąże się z zamówieniem, z którego powstała.
+
+    Metoda ``issued`` — automat jej nie przepina (jak ręcznego przypisania),
+    a Finanse mogą ją cofnąć tak samo jak każde inne przypisanie.
+    """
+
+    await _replace_links(db, invoice, targets, period, actor_id)
+    invoice.match_status = "matched"
+    invoice.match_method = "issued"
+    invoice.match_reason = None
+    invoice.matched_by = actor_id
+    invoice.matched_at = _now()
+    invoice.ignore_reason = None
+    _clear_difference(invoice)
+    await db.flush()
+    await propagate_to_corrections(db, invoice)
+
+
+async def keep_issued_without_order(
+    db: AsyncSession, invoice: ClientSalesInvoice, *, actor_id: Optional[int]
+) -> None:
+    """Faktura wystawiona w NEXUSIE bez zamówienia (E6) — „Pominięta” z powodem.
+
+    Bez tego automat przypiąłby ją „po kwocie” do zamówienia klienta z tą samą
+    kwotą, a „Wystaw za miesiąc” uznałby to zamówienie za zafakturowane.
+    Pominiętej automat nie rusza; Finanse mogą ją cofnąć i przypisać ręcznie.
+    """
+
+    await db.execute(
+        delete(ClientSalesInvoiceLink).where(
+            ClientSalesInvoiceLink.invoice_id == invoice.id
+        )
+    )
+    invoice.match_status = "ignored"
+    invoice.match_method = None
+    invoice.match_reason = None
+    invoice.ignore_reason = ISSUED_WITHOUT_ORDER_REASON
+    invoice.matched_by = actor_id
+    invoice.matched_at = _now()
+    _clear_difference(invoice)
+    await db.flush()
+    await propagate_to_corrections(db, invoice)
 
 
 class MatchingError(ValueError):

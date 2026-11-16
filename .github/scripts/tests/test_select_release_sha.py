@@ -471,5 +471,91 @@ class CliTests(unittest.TestCase):
         self.assertEqual(env.read_text(), f"ACCEPTED_SHA={B}\n")
 
 
+class EveningBatchTests(unittest.TestCase):
+    """13.11.2026 (decyzja Artura): wieczorem merge'e czekają na slot budzika.
+
+    12.11 między 21:06 a 22:03 było pięć osobnych przebudów, każda z ok. 90 s
+    przerwy API i restartem bazy. Pon–pt 18:00–21:59 automatyczny bieg po
+    merge'u (``workflow_run``) się odracza, a wdraża slot budzika
+    (``--scheduled``: 18:05, 20:05, 22:05) albo bieg ręczny.
+    """
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.out = Path(tmp.name, "out")
+        old = os.environ.get("GITHUB_OUTPUT")
+        os.environ["GITHUB_OUTPUT"] = str(self.out)
+        self.addCleanup(
+            lambda: os.environ.pop("GITHUB_OUTPUT", None)
+            if old is None
+            else os.environ.__setitem__("GITHUB_OUTPUT", old)
+        )
+
+    @staticmethod
+    def green_fetch(path):
+        if path.startswith("repos/o/r/commits/"):
+            return {"sha": A}
+        return {"workflow_runs": [run("completed", "success")]}
+
+    def select(self, now, *extra, fetch=None):
+        args = SELECT.parse_args(
+            ["select", "--repo", "o/r", "--target", A, "--freeze-window", "8-18",
+             "--batch-window", "18-22", *extra]
+        )
+        return SELECT._run_select(args, fetch or self.green_fetch, now=now)
+
+    def test_merge_at_9pm_on_a_weekday_waits_for_the_slot_without_api(self):
+        def fetch(path):
+            raise AssertionError("odroczenie wieczorne nie pyta API")
+
+        now = datetime(2026, 11, 12, 20, 6, tzinfo=timezone.utc)  # czw. 21:06
+        self.assertEqual(self.select(now, fetch=fetch), 0)
+        text = self.out.read_text()
+        self.assertIn("defer=true", text)
+        self.assertIn("head_status=evening_batch", text)
+        self.assertIn("hold_alert=\n", text)
+
+    def test_window_slot_deploys_in_the_evening(self):
+        now = datetime(2026, 11, 12, 21, 5, tzinfo=timezone.utc)  # czw. 22:05
+        self.assertEqual(self.select(now, "--scheduled"), 0)
+        self.assertIn("defer=false", self.out.read_text())
+        now = datetime(2026, 11, 12, 19, 5, tzinfo=timezone.utc)  # czw. 20:05
+        self.assertEqual(self.select(now, "--scheduled"), 0)
+        self.assertIn("defer=false", self.out.read_text())
+
+    def test_manual_dispatch_in_the_evening_deploys(self):
+        now = datetime(2026, 11, 12, 18, 40, tzinfo=timezone.utc)  # czw. 19:40
+        self.assertEqual(self.select(now, "--target-unverified"), 0)
+        self.assertIn("defer=false", self.out.read_text())
+
+    def test_merge_after_10pm_deploys_right_away(self):
+        now = datetime(2026, 11, 12, 21, 3, tzinfo=timezone.utc)  # czw. 22:03
+        self.assertEqual(self.select(now), 0)
+        self.assertIn("defer=false", self.out.read_text())
+
+    def test_weekend_evening_merge_deploys_right_away(self):
+        now = datetime(2026, 11, 14, 20, 0, tzinfo=timezone.utc)  # sob. 21:00
+        self.assertEqual(self.select(now), 0)
+        self.assertIn("defer=false", self.out.read_text())
+
+    def test_without_batch_window_evening_merge_deploys(self):
+        args = SELECT.parse_args(
+            ["select", "--repo", "o/r", "--target", A, "--freeze-window", "8-18"]
+        )
+        now = datetime(2026, 11, 12, 20, 6, tzinfo=timezone.utc)
+        self.assertEqual(SELECT._run_select(args, self.green_fetch, now=now), 0)
+        self.assertIn("defer=false", self.out.read_text())
+
+    def test_bad_batch_window_does_not_stop_deploys(self):
+        now = datetime(2026, 11, 12, 20, 6, tzinfo=timezone.utc)
+        args = SELECT.parse_args(
+            ["select", "--repo", "o/r", "--target", A, "--freeze-window", "8-18",
+             "--batch-window", "wieczór"]
+        )
+        self.assertEqual(SELECT._run_select(args, self.green_fetch, now=now), 0)
+        self.assertIn("defer=false", self.out.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

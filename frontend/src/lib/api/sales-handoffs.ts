@@ -66,6 +66,8 @@ export interface InviteDraft {
   meeting_at: string | null;
   duration_minutes: number;
   sent_at: string | null;
+  /** Treść zaproszenia wpisana przy umawianiu (lista dzwoniących 13.11.2026). */
+  message?: string | null;
 }
 
 export interface InviteInput {
@@ -120,6 +122,9 @@ export interface BookMeetingInput {
   problem?: string | null;
   decision_maker?: string | null;
   timing?: string | null;
+  /** Treść zaproszenia i adres klienta: podpowiedź do okna zaproszenia prowadzącego. */
+  invite_message?: string | null;
+  invite_to?: string | null;
 }
 
 export interface VerdictInput {

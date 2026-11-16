@@ -479,22 +479,6 @@ async def search_open_jobs(
     )
 
 
-def bell_message(
-    *,
-    actor_name: str,
-    candidate_name: str,
-    job_title: str,
-    origin_title: Optional[str],
-    manual: bool = False,
-) -> str:
-    where = f" Znaleziony przy rekrutacji „{origin_title}”." if origin_title else ""
-    how = "dodane ręcznie przy rozmowie" if manual else "podpowiedź „Pasuje też do”"
-    return (
-        f"{actor_name} dodał(a) {candidate_name} do Twojej rekrutacji „{job_title}”"
-        f" — {how}.{where} Rezerwacja 12 h u osoby, która dodała."
-    )
-
-
 async def record_also_fits_added(
     db: AsyncSession,
     *,
@@ -503,71 +487,24 @@ async def record_also_fits_added(
     actor_id: int,
     origin_job_id: Optional[int],
     manual: bool = False,
-) -> int:
-    """Po „+ Dodaj” z „Pasuje też do”: wpis w historii i dzwonek do rekruterów B.
+) -> None:
+    """Po „+ Dodaj” z „Pasuje też do”: wpis w historii kandydata.
 
     ``manual`` — rekrutacja wskazana ręcznie („+ Dodaj inną rekrutację”,
-    29.10.2026): ten sam wpis i dzwonek, inne słowa i ``via`` w historii.
+    29.10.2026): ten sam wpis z ``via: "manual"``.
 
-    Decyzja Artura 14.10.2026 (D2): rekruter rekrutacji B wie, że ktoś dodał mu
-    osobę — kto i skąd. Bez osoby, która dodała. Wołane PO zapisie dodania;
-    nigdy nie rzuca (dzwonek nie może cofnąć dodania). Zwraca liczbę dzwonków.
+    Bez dzwonka do rekruterów rekrutacji B (decyzja Artura 16.11.2026, wariant C;
+    zastępuje D2 z 14.10.2026): przez 12 h rezerwacji osobę prowadzi dodający,
+    więc dzwonek nie dawał odbiorcy nic do zrobienia. Wołane PO zapisie
+    dodania; nigdy nie rzuca (wpis nie może cofnąć dodania).
     """
     from app.models.activity import Activity
-    from app.models.notification import NotificationType
-    from app.models.user import User
-    from app.services.job_team import recruiters_for_jobs, working
-    from app.services.job_working_title import display_title
-    from app.services.notification_triggers import emit
 
     if not candidate_ids:
-        return 0
+        return
     job_id = int(job.id)
-    sent = 0
     try:
-        job_title = display_title(job)
-        origin_title: Optional[str] = None
-        if origin_job_id and origin_job_id != job_id:
-            origin = await db.get(Job, origin_job_id)
-            origin_title = display_title(origin) if origin is not None else None
-        actor = await db.get(User, actor_id)
-        actor_name = (actor.name if actor is not None else None) or "Ktoś z zespołu"
-        names = {
-            int(cid): " ".join(p for p in (name, lastname) if p) or f"#{cid}"
-            for cid, name, lastname in (
-                await db.execute(
-                    select(Candidate.id, Candidate.name, Candidate.lastname).where(
-                        Candidate.id.in_(sorted({int(c) for c in candidate_ids}))
-                    )
-                )
-            ).all()
-        }
-        # Klucz dzwonka = nowy wiersz etapu pary w B: indeks `ix_notif_dedup_daily`
-        # (user, typ, encja, dzień) zjadałby drugi dzwonek, gdyby kluczem była
-        # osoba dodana tego samego dnia do dwóch rekrutacji jednego rekrutera.
-        stage_ids = {
-            int(cid): int(stage_id)
-            for cid, stage_id in (
-                await db.execute(
-                    select(CandidateStage.candidate_id, func.max(CandidateStage.id))
-                    .where(
-                        CandidateStage.job_id == job_id,
-                        CandidateStage.candidate_id.in_(sorted(names)),
-                    )
-                    .group_by(CandidateStage.candidate_id)
-                )
-            ).all()
-        }
-        recipients = sorted(
-            {
-                p.user_id
-                for p in working(
-                    (await recruiters_for_jobs(db, [job_id])).get(job_id, [])
-                )
-                if p.user_id != actor_id
-            }
-        )
-        for cid in sorted(names):
+        for cid in sorted({int(c) for c in candidate_ids}):
             db.add(
                 Activity(
                     entity_type="candidate",
@@ -581,39 +518,10 @@ async def record_also_fits_added(
                     },
                 )
             )
-            for user_id in recipients:
-                try:
-                    async with db.begin_nested():
-                        created = await emit(
-                            db,
-                            user_id=user_id,
-                            title="Nowa osoba w Twojej rekrutacji",
-                            message=bell_message(
-                                actor_name=actor_name,
-                                candidate_name=names[cid],
-                                job_title=job_title,
-                                origin_title=origin_title,
-                                manual=manual,
-                            ),
-                            ntype=NotificationType.also_fits_added,
-                            related_entity_type=(
-                                "candidate_stage" if cid in stage_ids else "candidate"
-                            ),
-                            related_entity_id=stage_ids.get(cid, cid),
-                            link=f"/jobs/{job_id}?candidate={cid}",
-                        )
-                    sent += int(created is not None)
-                except Exception:  # noqa: BLE001 — jeden odbiorca nie blokuje reszty
-                    logger.exception(
-                        "[also_fits] dzwonek nie wyszedł job=%s user=%s",
-                        job_id,
-                        user_id,
-                    )
         await db.commit()
     except Exception:  # noqa: BLE001 — dodanie już zapisane
         logger.exception("[also_fits] wpis po dodaniu nie wyszedł job=%s", job_id)
         await db.rollback()
-    return sent
 
 
 __all__ = [
@@ -625,7 +533,6 @@ __all__ = [
     "ManualJobHit",
     "Scored",
     "also_fits_for_candidate",
-    "bell_message",
     "open_pool_job_ids",
     "other_open_jobs_for_candidates",
     "record_also_fits_added",

@@ -81,7 +81,15 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    sessionStorage.clear();
     clearCookies();
+    // Te scenariusze opisują API sprzed ciasteczka HttpOnly: brak
+    // `POST /api/auth/session` (404) → stara ścieżka z tokenem w nagłówku.
+    // Sesję w ciasteczku sprawdza `session-cookie.test.tsx`.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response(null, { status: 404 }))),
+    );
     searchParams = new URLSearchParams();
     useAuthStore.setState({ user: null, token: null, realUser: null, hydrated: false });
     // /api/auth/methods jest wołane bezwarunkowo przy montowaniu.
@@ -95,6 +103,7 @@ describe("LoginPage — walidacja zastanej sesji (F-18)", () => {
 
   afterEach(() => {
     clearCookies();
+    vi.unstubAllGlobals();
   });
 
   it("(b) ważny JWT + brak cookie → jedna walidacja, cookie odtworzone, jedno przekierowanie", async () => {

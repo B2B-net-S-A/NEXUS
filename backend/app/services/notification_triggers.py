@@ -57,7 +57,7 @@ from app.services.job_priority import level_of
 from app.services.job_team import recruiters_for_jobs, working
 from app.services.stage_verifier import verifier_ids
 from app.services.notification_access import notification_recipient_has_access
-from app.services.notification_substitution import notification_route
+from app.services.notification_substitution import Route, notification_route
 from app.services.notification_topics import (
     STAGE_STUCK_DIGEST_ENTITY,
     STAGE_STUCK_UNSTAFFED_ENTITY,
@@ -134,8 +134,17 @@ async def emit(
     # Adresat zastępowany: praca bieżąca idzie do zastępcy (09.11.2026).
     on_behalf_of: Optional[int] = None
     route = await notification_route(db, user_id, ntype)
-    if route.skip:
-        return None
+    if route.quiet:
+        return await _emit_quiet(
+            db,
+            route,
+            title=title,
+            message=message,
+            ntype=ntype,
+            related_entity_type=related_entity_type,
+            related_entity_id=related_entity_id,
+            link=link,
+        )
     if route.on_behalf_of is not None and await notification_recipient_has_access(
         db,
         route.user_id,
@@ -239,6 +248,44 @@ async def emit(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+async def _emit_quiet(
+    db: AsyncSession,
+    route: Route,
+    *,
+    title: str,
+    message: str,
+    ntype: NotificationType,
+    related_entity_type: Optional[str],
+    related_entity_id: Optional[int],
+    link: Optional[str],
+) -> Optional[Notification]:
+    """Zastępca sam wykonał ruch za nieobecną osobę: wiersz do wglądu.
+
+    Przeczytany od razu, bez dymka i maila (``quiet``), ale z
+    ``on_behalf_of_user_id``, więc osoba po powrocie widzi go w „Gdy Cię nie
+    było” (``services/while_away.py``). Do 16.11.2026 nie powstawał wcale.
+    """
+    notif = Notification(
+        user_id=route.user_id,
+        on_behalf_of_user_id=route.on_behalf_of,
+        title=title,
+        message=message,
+        link=link,
+        notification_type=ntype,
+        related_entity_type=related_entity_type,
+        related_entity_id=related_entity_id,
+        is_read=True,
+        quiet=True,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(notif)
+            await db.flush()
+    except IntegrityError:
+        return None
+    return notif
 
 
 def _is_substitution_duplicate(

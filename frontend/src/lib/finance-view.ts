@@ -8,7 +8,13 @@ export type FinanceViewMode =
   | "sales-invoices"
   | "rate-divergences"
   | "approved-expenses"
-  | "settlements";
+  | "settlements"
+  | "costs"
+  | "counterparties"
+  | "payments"
+  | "booking"
+  | "accounts"
+  | "ebi24-archive";
 
 const VIEW_MODES: readonly FinanceViewMode[] = [
   "results",
@@ -20,6 +26,12 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "rate-divergences",
   "approved-expenses",
   "settlements",
+  "costs",
+  "counterparties",
+  "payments",
+  "booking",
+  "accounts",
+  "ebi24-archive",
 ];
 
 /** `?view=` → widok; nieznany albo brak = „Wyniki miesięczne” (FE-N09). */

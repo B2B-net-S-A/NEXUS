@@ -84,6 +84,14 @@ def annex_change(
             "kind": "delegate",
             "name": (values.get("delegate_name") or "").strip() or None,
         }
+    if doc_type_key == "annex_custom":
+        title = str(values.get("annex_title") or "").strip()
+        changes = values.get("changes")
+        return {
+            "kind": "custom",
+            "title": title or None,
+            "count": len(changes) if isinstance(changes, list) else 0,
+        }
     if doc_type_key == "annex_mandate":
         return {
             "kind": "mandate",

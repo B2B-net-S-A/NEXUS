@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -244,6 +244,7 @@ async def list_contacts(
             else SalesContact.archived_at.is_(None)
         )
     )
+    order = [SalesContact.full_name, SalesContact.id]
     if company_id is not None:
         # Osoby firmy głównej i powiązane z firmą jako drugą, kolejną.
         linked = select(SalesCompanyContact.contact_id).where(
@@ -252,6 +253,12 @@ async def list_contacts(
         query = query.where(
             or_(SalesContact.company_id == company_id, SalesContact.id.in_(linked))
         )
+        # „Nie pracuje” w tej firmie na końcu listy (decyzja Artura 13.11.2026).
+        gone = select(SalesCompanyContact.contact_id).where(
+            SalesCompanyContact.company_id == company_id,
+            SalesCompanyContact.is_current.is_(False),
+        )
+        order = [SalesContact.id.in_(gone), *order]
     if executives:
         query = query.where(SalesContact.is_executive.is_(True))
     text = (q or "").strip()
@@ -271,13 +278,7 @@ async def list_contacts(
             )
         query = query.where(or_(*conditions))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = (
-        await db.execute(
-            query.order_by(SalesContact.full_name, SalesContact.id)
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
+    rows = (await db.execute(query.order_by(*order).limit(limit).offset(offset))).all()
     companies = await _companies(db, [contact.id for contact, _ in rows])
     return ContactList(
         items=[
@@ -338,9 +339,20 @@ async def update_contact(
     primary_changed = (
         "company_id" in fields and fields["company_id"] != contact.company_id
     )
+    title_changed = "title" in fields and fields["title"] != contact.title
     _apply(contact, fields)
     if primary_changed:
         await set_primary_company(db, contact, contact.company_id)
+    elif title_changed and contact.company_id is not None:
+        # Lista firmy pokazuje stanowisko z powiązania: ręczna zmiana ma być tam widać.
+        await db.execute(
+            update(SalesCompanyContact)
+            .where(
+                SalesCompanyContact.contact_id == contact.id,
+                SalesCompanyContact.company_id == contact.company_id,
+            )
+            .values(title=contact.title)
+        )
     if {"full_name", "first_name", "last_name"} & fields.keys():
         full_name = _full_name(fields, contact)
         if not full_name:
@@ -395,6 +407,8 @@ async def link_company(
         )
         .on_conflict_do_update(index_elements=["company_id", "contact_id"], set_=values)
     )
+    # Zmiana „pracuje / nie pracuje” to zmiana kontaktu: nowsza niż dawne źródła bota.
+    contact.updated_at = datetime.now(timezone.utc)
     await db.commit()
     return await _load(db, contact_id)
 

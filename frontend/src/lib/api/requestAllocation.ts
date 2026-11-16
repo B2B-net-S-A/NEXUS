@@ -65,6 +65,15 @@ export interface BoardRequest {
   /** Nowe profile dodane w 7 dni i ile z nich doszło do CV (B6). */
   new_profiles_7d?: number
   new_profiles_7d_cv?: number
+  /** Ten sam licznik rozbity na osoby (pierwszy wpis pary), 16.11.2026. */
+  new_profiles_7d_by?: BoardNewProfilesBy[]
+}
+
+export interface BoardNewProfilesBy {
+  user_id: number
+  name: string | null
+  added: number
+  reached_cv: number
 }
 
 export interface BoardGroup {

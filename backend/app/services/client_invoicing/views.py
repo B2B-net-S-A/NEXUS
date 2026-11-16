@@ -39,6 +39,7 @@ from app.services.client_identity import (
 from app.services.client_invoicing import billing, clients, ledger, matching, payments
 from app.services.client_invoicing.billing import BillingRow, money, plain
 from app.services.client_invoicing.ledger import ZERO, Chain, ChainCheck
+from app.services.order_client_identity import is_eu_buyer_number
 
 ROW_STATUS_LABELS = {
     "not_invoiced": "jeszcze nie wystawiona",
@@ -112,6 +113,7 @@ def chain_payload(
         "buyer_name": head.buyer_name,
         "buyer_nip": head.buyer_nip,
         "buyer_foreign_id": head.buyer_foreign_id,
+        "buyer_number_kind": _number_kind(matching.buyer_number(head)),
         "corrections": [
             {
                 "id": c.id,
@@ -196,7 +198,7 @@ def row_status(
 
     if not attached:
         return ("sheet" if row.sheet_invoiced else "not_invoiced"), None, None
-    invoiced = money(sum((chain.net for chain, _ in attached), ZERO))
+    invoiced = money(sum((chain.order_net for chain, _ in attached), ZERO))
     checks = {result.status for _, result in attached}
     if row.budget is not None:
         return _budget_status(row.budget.available, attached, single, invoiced, checks)
@@ -535,9 +537,8 @@ async def buyer_number_view(
 ) -> dict[str, Any]:
     """Numer nabywcy względem klienta wybranego w „Przypisz”."""
 
-    check = await clients.check_buyer_number(
-        db, client_id, matching.buyer_number(invoice)
-    )
+    number = matching.buyer_number(invoice)
+    check = await clients.check_buyer_number(db, client_id, number)
     known = await clients.names(
         db, [cid for cid in (check.client_id, check.owner_id) if cid is not None]
     )
@@ -552,9 +553,7 @@ async def buyer_number_view(
     return {
         "state": check.state,
         "number": check.number,
-        "kind": "vat_ue"
-        if invoice.buyer_foreign_id and not invoice.buyer_nip
-        else "nip",
+        "kind": _number_kind(number) or "nip",
         "client_name": known.get(check.client_id) if check.client_id else None,
         "existing": check.existing,
         "owner_name": known.get(check.owner_id) if check.owner_id else None,
@@ -639,7 +638,9 @@ def _suggestion(
 def _number_kind(number: Optional[str]) -> Optional[str]:
     if number is None:
         return None
-    return "nip" if number.isdigit() else "vat_ue"
+    if number.isdigit():
+        return "nip"
+    return "vat_ue" if is_eu_buyer_number(number) else "foreign_id"
 
 
 def _invoice_period_rows(

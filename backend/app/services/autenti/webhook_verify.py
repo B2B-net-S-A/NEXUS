@@ -6,7 +6,10 @@ payload that doesn't verify against the keys at
 
 Cache strategy (plan §1):
 - Module-level dict keyed by JWK ``kid``.
-- Refreshed when an unknown ``kid`` appears OR after 24h whichever is sooner.
+- Refreshed when an unknown ``kid`` appears OR after 24h whichever is sooner,
+  but at most one network fetch per ``_MIN_REFETCH_SECONDS`` (pentest
+  13.11.2026: a random ``kid`` per anonymous request turned every webhook
+  call into a JWKS fetch under the global lock).
 - On fetch failure we keep the previous cache (Sentry alert) and refuse the
   webhook — never "trust unsigned".
 
@@ -43,6 +46,10 @@ _jwks_cache: dict[str, dict[str, Any]] = {}
 _jwks_fetched_at: float = 0.0
 _jwks_lock = asyncio.Lock()
 _CACHE_TTL_SECONDS = 24 * 60 * 60
+# Najkrótszy odstęp między pobraniami JWKS, także nieudanymi. Rotacja klucza
+# u Autenti czeka najwyżej tyle — webhook dostaje 401, a Autenti ponawia 4xx.
+_MIN_REFETCH_SECONDS = 60.0
+_jwks_last_attempt_at: float = 0.0
 
 
 async def _fetch_jwks(force: bool = False) -> dict[str, dict[str, Any]]:
@@ -55,12 +62,17 @@ async def _fetch_jwks(force: bool = False) -> dict[str, dict[str, Any]]:
     ``force=True`` skips the TTL gate (used when a webhook arrives with an
     unknown ``kid``).
     """
-    global _jwks_cache, _jwks_fetched_at
+    global _jwks_cache, _jwks_fetched_at, _jwks_last_attempt_at
 
     async with _jwks_lock:
         now = time.time()
         if not force and _jwks_cache and (now - _jwks_fetched_at) < _CACHE_TTL_SECONDS:
             return _jwks_cache
+        if now - _jwks_last_attempt_at < _MIN_REFETCH_SECONDS:
+            if _jwks_cache:
+                return _jwks_cache
+            raise AutentiWebhookError("JWKS unavailable; refetch throttled")
+        _jwks_last_attempt_at = now
 
         url = settings.AUTENTI_WEBHOOK_JWKS_URL
         try:
@@ -111,9 +123,10 @@ async def _fetch_jwks(force: bool = False) -> dict[str, dict[str, Any]]:
 
 def _reset_cache_for_tests() -> None:
     """Test helper — clear module state between tests."""
-    global _jwks_cache, _jwks_fetched_at
+    global _jwks_cache, _jwks_fetched_at, _jwks_last_attempt_at
     _jwks_cache = {}
     _jwks_fetched_at = 0.0
+    _jwks_last_attempt_at = 0.0
 
 
 async def verify_jwt(token: str) -> dict[str, Any]:
@@ -121,7 +134,7 @@ async def verify_jwt(token: str) -> dict[str, Any]:
 
     Validates:
     - RS256 signature against a key in the JWKS cache (refreshed on unknown kid).
-    - ``iat`` within the configured clock-skew window (default 24h).
+    - ``iat`` present and within the configured clock-skew window (default 24h).
 
     Raises :class:`AutentiWebhookError` on any failure — the caller should
     return HTTP 401 to refuse the webhook.
@@ -152,14 +165,16 @@ async def verify_jwt(token: str) -> dict[str, Any]:
     except JWTError as exc:
         raise AutentiWebhookError(f"JWT signature/claims invalid: {exc}") from exc
 
+    # Pentest 13.11.2026: token bez ``iat`` omijał okno ochrony przed powtórką.
     iat = claims.get("iat")
-    if iat is not None:
-        max_age = settings.AUTENTI_WEBHOOK_IAT_MAX_AGE_HOURS * 3600
-        age = int(time.time()) - int(iat)
-        if age > max_age:
-            raise AutentiWebhookError(
-                f"JWT iat is {age}s old (max {max_age}s) — replay protection"
-            )
+    if iat is None:
+        raise AutentiWebhookError("JWT has no `iat` — replay protection")
+    max_age = settings.AUTENTI_WEBHOOK_IAT_MAX_AGE_HOURS * 3600
+    age = int(time.time()) - int(iat)
+    if age > max_age:
+        raise AutentiWebhookError(
+            f"JWT iat is {age}s old (max {max_age}s) — replay protection"
+        )
 
     return claims
 

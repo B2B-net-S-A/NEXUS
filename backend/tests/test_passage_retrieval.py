@@ -151,16 +151,16 @@ class _RecordingClient:
         self._hits = hits
         self.last_filter = None
 
-    def search(
+    def query_points(
         self,
         collection_name,
-        query_vector,
+        query,
         query_filter=None,
         limit=0,
         with_payload=True,
     ):
         self.last_filter = query_filter
-        return self._hits
+        return SimpleNamespace(points=self._hits)
 
 
 def _passage_hit(candidate_id: int, score: float):

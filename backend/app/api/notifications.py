@@ -1267,3 +1267,105 @@ def _resurface(
     existing.is_read = False
     existing.created_at = func.now()
     return existing
+
+
+# ── „Gdy Cię nie było” (16.11.2026) ───────────────────────────────────────────
+# Praca, która w czasie nieobecności poszła do zastępcy, pokazana osobie po
+# powrocie (`services/while_away.py`). Tylko własne wiersze: `on_behalf_of`
+# = zalogowana osoba; załatwić może też zastępca (adresat wiersza).
+
+
+class WhileAwayAction(BaseModel):
+    id: int
+    title: str
+    message: str
+    link: Optional[str] = None
+    created_at: str
+    substitute_name: str
+    seen_by_substitute: bool
+    handled_at: Optional[str] = None
+    handled_by_name: Optional[str] = None
+
+
+class WhileAwayGroup(BaseModel):
+    label: str
+    count: int
+
+
+class WhileAwayResponse(BaseModel):
+    since: str
+    until: str
+    substitute_names: List[str]
+    total: int
+    actions: List[WhileAwayAction]
+    others: List[WhileAwayGroup]
+
+
+@router.get("/notifications/while-away", response_model=Optional[WhileAwayResponse])
+async def get_while_away(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Podsumowanie pracy z nieobecności; ``null``, gdy nie ma czego pokazać."""
+    from app.services import while_away  # noqa: PLC0415
+
+    if await while_away.is_substituted(db, current_user.id):
+        return None
+    summary = while_away.summarize(await while_away.load_rows(db, current_user.id))
+    if summary is None:
+        return None
+    names = await while_away.user_names(
+        db,
+        [*summary.substitute_ids]
+        + [row.handled_by_id for row in summary.actions if row.handled_by_id],
+    )
+    return WhileAwayResponse(
+        since=summary.since.isoformat(),
+        until=summary.until.isoformat(),
+        substitute_names=[names.get(uid, "") for uid in summary.substitute_ids],
+        total=summary.total,
+        actions=[
+            WhileAwayAction(
+                id=row.id,
+                title=row.title,
+                message=row.message,
+                link=row.link,
+                created_at=row.created_at.isoformat(),
+                substitute_name=names.get(row.substitute_id, ""),
+                seen_by_substitute=row.seen_by_substitute,
+                handled_at=row.handled_at.isoformat() if row.handled_at else None,
+                handled_by_name=(
+                    names.get(row.handled_by_id) if row.handled_by_id else None
+                ),
+            )
+            for row in summary.actions
+        ],
+        others=[WhileAwayGroup(label=g.label, count=g.count) for g in summary.others],
+    )
+
+
+@router.post("/notifications/while-away/{notification_id}/handled", status_code=204)
+async def mark_while_away_handled(
+    notification_id: int,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sprawa z nieobecności załatwiona — osoba albo jej zastępca."""
+    from app.services import while_away  # noqa: PLC0415
+
+    note = await while_away.mark_handled(db, notification_id, actor_id=current_user.id)
+    if note is None:
+        raise HTTPException(status_code=404, detail="Powiadomienie nie znalezione")
+    await db.commit()
+
+
+@router.post("/notifications/while-away/dismiss", status_code=204)
+async def dismiss_while_away(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Osoba zamyka podsumowanie po powrocie."""
+    from app.services import while_away  # noqa: PLC0415
+
+    await while_away.dismiss(db, current_user.id)
+    await db.commit()

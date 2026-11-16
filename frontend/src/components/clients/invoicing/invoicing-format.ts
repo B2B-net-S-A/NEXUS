@@ -6,6 +6,7 @@ import type { StatusDotTone } from "@/components/ds/StatusDot";
 import type {
   BillingLine,
   BillingRow,
+  BuyerNumberKind,
   InvoiceCheck,
   InvoicingSummary,
   MoneyTotal,
@@ -52,7 +53,21 @@ export const METHOD_LABELS: Record<string, string> = {
   person: "osoba i stawka z faktury",
   correction: "korekta faktury",
   manual: "przypisana ręcznie",
+  issued: "wystawiona w NEXUSIE",
 };
+
+export const BUYER_NUMBER_LABELS: Record<BuyerNumberKind, string> = {
+  nip: "NIP",
+  vat_ue: "VAT UE",
+  foreign_id: "ID zagraniczne",
+};
+
+export function invoiceBuyerNumberText(invoice: SalesInvoice): string | null {
+  if (invoice.buyer_nip) return `NIP ${invoice.buyer_nip}`;
+  if (!invoice.buyer_foreign_id) return null;
+  const label = BUYER_NUMBER_LABELS[invoice.buyer_number_kind ?? "vat_ue"];
+  return `${label} ${invoice.buyer_foreign_id}`;
+}
 
 /** Miesiąc, który zwykle się fakturuje: poprzedni względem dzisiejszego (czas firmy). */
 export function defaultPeriod(today: string = warsawToday()): string {

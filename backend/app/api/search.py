@@ -65,6 +65,7 @@ from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.hr.people import DIRECTORY_STATUSES
 from app.services.hr.program import program_enabled
 from app.services.advanced_candidate_search import _POLISH_FOLD_DST, _POLISH_FOLD_SRC
+from app.services.name_match_rank import candidate_name_rank, match_rank
 from app.services.polish_ilike import (
     contains_pattern,
     folded_contains_pattern,
@@ -1258,6 +1259,11 @@ async def unified_search(
                     Candidate.location.ilike(_contains_pattern(q)),
                 )
             )
+            .order_by(
+                candidate_name_rank(q),
+                Candidate.updated_at.desc().nullslast(),
+                Candidate.id.desc(),
+            )
             .limit(10)
         )
         results["candidates"] = [
@@ -1347,6 +1353,12 @@ async def global_search(
                     *_candidate_quick_match(q),
                 )
             )
+            # Remis: ostatnio ruszane osoby wyżej, id dla stałej kolejności.
+            .order_by(
+                candidate_name_rank(q),
+                Candidate.updated_at.desc().nullslast(),
+                Candidate.id.desc(),
+            )
             .limit(LIMIT)
         )
         candidates = [
@@ -1368,6 +1380,11 @@ async def global_search(
             select(Job)
             .where(
                 polish_folded_ilike(Job.title, q),
+            )
+            .order_by(
+                match_rank(q, exact=[Job.title], prefix=[Job.title]),
+                Job.updated_at.desc().nullslast(),
+                Job.id.desc(),
             )
             .limit(LIMIT)
         )
@@ -1446,6 +1463,15 @@ async def global_search(
                     polish_folded_ilike(Contact.name, q),
                     polish_folded_ilike(Contact.email, q),
                 )
+            )
+            .order_by(
+                match_rank(
+                    q,
+                    exact=[Contact.name, func.coalesce(Contact.email, "")],
+                    prefix=[Contact.name],
+                ),
+                func.lower(Contact.name),
+                Contact.id,
             )
             .limit(LIMIT)
         )

@@ -129,6 +129,10 @@ class TestFeatureKeyEnum:
             # 0678: „Kto już to robił” — rozbicie celu i ocena CV.
             "duty_search_plan",
             "duty_search_judge",
+            # 0712: katalog raportów klienta — obowiązki z umów ramowych.
+            "client_report_requirements",
+            # 0725: szkic uzasadnienia dopłaty za technologię premium.
+            "premium_skill_justification",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

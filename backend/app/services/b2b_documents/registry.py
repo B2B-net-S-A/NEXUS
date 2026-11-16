@@ -28,6 +28,9 @@ FieldKind = Literal[
     # Lista pozycji stawki aneksu (kwota, klient z NEXUSA, od, do) — wartość
     # to lista słowników, nie tekst. Walidacja: ``rate_items_problems``.
     "rate_items",
+    # Lista zmian aneksu z własną nazwą (16.11.2026): wiersze ``op``,
+    # ``paragraph``, ``section``, ``text``. Walidacja: ``annex_changes_problems``.
+    "annex_changes",
 ]
 
 #: Grupy pól w kolejności formularza. ``change`` = treść zmiany aneksu.
@@ -53,6 +56,31 @@ class FieldDef:
     #: je potem zmienić.
     lookup: Literal["registry"] | None = None
     lookup_fills: tuple[tuple[str, str], ...] = ()
+
+
+@dataclass(frozen=True)
+class ClauseRow:
+    """Wiersz listy zmian wpisywany przez gotową klauzulę."""
+
+    op: Literal["replace", "add", "delete", "free"]
+    text: str
+    paragraph: str = ""
+    section: str = ""
+
+
+@dataclass(frozen=True)
+class AnnexClause:
+    """Gotowa klauzula aneksu z własną nazwą — front wpisuje ją do listy zmian.
+
+    W ``text`` i ``title`` mogą stać ``{non_compete_paragraph}`` (numer
+    z wersji wzoru umowy bazowej, ``contract_versions``) i
+    ``{client_legal_name}`` (klient umowy) — podstawia je front z prefillu,
+    a człowiek może tekst potem zmienić."""
+
+    key: str
+    label: str
+    title: str
+    rows: tuple[ClauseRow, ...]
 
 
 @dataclass(frozen=True)
@@ -96,6 +124,8 @@ class DocumentType:
     #: W ilu dniach roboczych od akceptacji Klienta zawiera się umowę B2B
     #: (CeZ: § 2 ust. 3). ``None`` = wzór takiego terminu nie ma.
     b2b_term_business_days: int | None = None
+    #: Gotowe klauzule pola ``annex_changes`` (aneks z własną nazwą).
+    clauses: tuple[AnnexClause, ...] = ()
 
     @property
     def carries_money(self) -> bool:
@@ -522,6 +552,71 @@ ANNEX_GENERATOR_TYPES: tuple[DocumentType, ...] = (
 )
 
 
+#: Aneks z własną nazwą (16.11.2026) — ostatni na liście typów, bo to wyjście
+#: dla zmian, których nie obsługuje żaden typ dedykowany.
+ANNEX_CUSTOM_TYPE = DocumentType(
+    key="annex_custom",
+    label="Aneks — inna zmiana",
+    family="annex",
+    languages=("pl",),
+    parent="b2b",
+    uses_refs=False,
+    allows_external=True,
+    description=(
+        "Zmiana, której nie ma na liście: sam nazywasz aneks, wybierasz "
+        "gotową klauzulę albo wpisujesz zmiany paragrafów."
+    ),
+    effect_label=(
+        "Kontrakt nie zmieni się sam — aneks pojawi się w zakładce "
+        "„Aneksy” kontraktu pod swoją nazwą."
+    ),
+    fields=(
+        *ANNEX_CONTRACT_FIELDS,
+        *ANNEX_DATE_FIELDS,
+        *ANNEX_PARTNER_FIELDS,
+        FieldDef(
+            "annex_title",
+            "Czego dotyczy aneks",
+            required=True,
+            help=(
+                "Trafi do tytułu dokumentu („w sprawie: …”) i do rejestru "
+                "aneksów, np. „zwolnienie z zakazu konkurencji”."
+            ),
+            group="change",
+        ),
+        FieldDef(
+            "changes",
+            "Zmiany w umowie",
+            "annex_changes",
+            required=True,
+            group="change",
+        ),
+    ),
+    clauses=(
+        # Zdanie z porozumienia o rozwiązaniu umowy
+        # (``termination_agreement_pl``) — ta sama, przyjęta już treść.
+        AnnexClause(
+            key="non_compete_release",
+            label="Zwolnienie z zakazu konkurencji",
+            title="zwolnienie z zakazu konkurencji",
+            rows=(
+                ClauseRow(
+                    op="free",
+                    text=(
+                        "B2B.net S.A. zwalnia Partnera z zakazu konkurencji "
+                        "określonego w {non_compete_paragraph} Umowy i zgadza "
+                        "się na bezpośrednie zatrudnienie Partnera lub "
+                        "świadczenie przez Partnera usług bezpośrednio na "
+                        "rzecz: {client_legal_name}, spółek macierzystych oraz "
+                        "innych podmiotów powiązanych."
+                    ),
+                ),
+            ),
+        ),
+    ),
+)
+
+
 def _non_compete_fields() -> tuple[FieldDef, ...]:
     return (
         FieldDef(
@@ -728,6 +823,7 @@ TYPES: dict[str, DocumentType] = {
                 ),
             ),
         ),
+        ANNEX_CUSTOM_TYPE,
         DocumentType(
             key="termination_agreement",
             label="Porozumienie o rozwiązaniu umowy",
@@ -1066,12 +1162,73 @@ def rate_items_problems(items: object) -> list[str]:
     return problems
 
 
+#: Lista zmian aneksu z własną nazwą — granice (lustro formularza).
+ANNEX_CHANGE_OPS = ("replace", "add", "delete", "free")
+MAX_ANNEX_CHANGES = 20
+MAX_ANNEX_CHANGE_TEXT = 4000
+MAX_ANNEX_REF = 12
+MAX_ANNEX_TITLE = 150
+#: Miejsce gotowej klauzuli bez danych (front wpisuje je, gdy umowa nie ma
+#: klienta) — aneks z takim miejscem nie wychodzi do podpisu.
+CLAUSE_GAP = "[uzupełnij]"
+
+
+def annex_changes_problems(rows: object) -> list[str]:
+    """Zdania o wierszach listy zmian, których aneks nie przyjmie.
+
+    „Nowe brzmienie”, „dodaje się” i „skreśla się” cytują paragraf umowy, więc
+    bez numeru paragrafu zmieniałyby nie wiadomo co; „dodaje się” potrzebuje
+    też numeru nowego ustępu. Treść jest wymagana wszędzie poza skreśleniem."""
+    if not isinstance(rows, list) or not rows:
+        return []
+    problems: list[str] = []
+    if len(rows) > MAX_ANNEX_CHANGES:
+        problems.append(f"Aneks mieści najwyżej {MAX_ANNEX_CHANGES} zmian.")
+    for number, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            problems.append(f"Zmiana {number} jest nieczytelna.")
+            continue
+        op = row.get("op")
+        if op not in ANNEX_CHANGE_OPS:
+            problems.append(f"Zmiana {number}: wybierz, co się dzieje z umową.")
+            continue
+        paragraph = str(row.get("paragraph") or "").strip()
+        section = str(row.get("section") or "").strip()
+        text = str(row.get("text") or "").strip()
+        if op != "free" and not paragraph:
+            problems.append(f"Zmiana {number}: podaj numer paragrafu (§).")
+        if op == "add" and not section:
+            problems.append(f"Zmiana {number}: podaj numer dodawanego ustępu.")
+        if op != "delete" and not text:
+            problems.append(f"Zmiana {number}: wpisz treść.")
+        if CLAUSE_GAP in text:
+            problems.append(
+                f"Zmiana {number}: uzupełnij miejsca oznaczone {CLAUSE_GAP}."
+            )
+        if len(paragraph) > MAX_ANNEX_REF or len(section) > MAX_ANNEX_REF:
+            problems.append(
+                f"Zmiana {number}: numer paragrafu albo ustępu jest za długi."
+            )
+        if len(text) > MAX_ANNEX_CHANGE_TEXT:
+            problems.append(
+                f"Zmiana {number}: treść ma więcej niż {MAX_ANNEX_CHANGE_TEXT} znaków."
+            )
+    return problems
+
+
 def invalid_values(doc_type: DocumentType, values: dict) -> list[str]:
     """Zdania o wartościach, których dokument nie przyjmie (poza brakami)."""
     problems: list[str] = []
     for f in doc_type.fields:
         if f.kind == "rate_items" and visible(f, values):
             problems.extend(rate_items_problems(values.get(f.key)))
+        if f.kind == "annex_changes" and visible(f, values):
+            problems.extend(annex_changes_problems(values.get(f.key)))
+    title = values.get("annex_title")
+    if isinstance(title, str) and len(title.strip()) > MAX_ANNEX_TITLE:
+        problems.append(
+            f"„Czego dotyczy aneks” ma więcej niż {MAX_ANNEX_TITLE} znaków."
+        )
     for f in doc_type.fields:
         if f.kind != "money" or not visible(f, values):
             continue
@@ -1102,7 +1259,11 @@ def invalid_values(doc_type: DocumentType, values: dict) -> list[str]:
 
 
 __all__ = [
+    "ANNEX_CHANGE_OPS",
+    "AnnexClause",
+    "ClauseRow",
     "DocumentType",
+    "annex_changes_problems",
     "MAX_RATE_ITEMS",
     "MONEY_MAX",
     "invalid_values",

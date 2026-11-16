@@ -40,6 +40,10 @@ SENSITIVE_OPERATION_BLOCKED = "sensitive_operation_blocked"
 # „Kogo znamy”: handlowiec dostał listę osób przy firmie (P8, 09.11.2026). Samo
 # przeglądanie, więc celowo poza alarmem o pobieraniu (decyzja z 07.11.2026).
 SALES_COMPANY_PEOPLE_READ = "sales_company_people_read"
+# Karta kontaktu w podglądzie na telefonie (decyzja Artura 14.11.2026): numer
+# i mail wolno zobaczyć z telefonu, ale każde otwarcie zostaje w historii
+# kandydata. Samo przeglądanie, więc poza alarmem o pobieraniu (07.11.2026).
+CONTACT_VIEWED_ON_PHONE = "candidate_contact_viewed_phone"
 # Trwałe usunięcie profilu kandydata (admin). Zapisywane PRZED usunięciem, żeby
 # ślad przetrwał samą operację — po `db.delete()` nie ma już czego audytować.
 HARD_DELETED = "candidate_hard_deleted"

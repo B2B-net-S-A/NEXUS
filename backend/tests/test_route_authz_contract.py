@@ -85,6 +85,9 @@ _GATE_QUALNAME_MARKERS = (
     # Skrzynka Outlook (28.10.2026): odczyt kandydatów albo „Sprzedaż: podgląd”
     # (``api/microsoft365.require_mailbox_owner`` / ``_status_reader``).
     "require_mailbox_",
+    # Radar przepisów (15.11.2026): admin i HoR z roli, reszta z uprawnień
+    # Finanse, Płace, Kadry albo Kontrakty (``app/api/law_radar.py``).
+    "require_compliance_access",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
@@ -100,6 +103,8 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "portal_context",
     # Raport bota researchu: jednorazowy token biegu (``X-Run-Token``).
     "require_signal_run_token",
+    # Raport botów radaru przepisów: jednorazowy token biegu (``X-Run-Token``).
+    "require_law_run_token",
 )
 
 # Many handlers carry no gate in their signature but check imperatively as the
@@ -278,6 +283,11 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/notifications/interviews"),
     ("GET", "/api/notifications/jobs"),
     ("GET", "/api/notifications/preferences"),
+    # „Gdy Cię nie było” (16.11.2026): własne wiersze z nieobecności
+    # (on_behalf_of = zalogowana osoba albo zastępca będący adresatem).
+    ("GET", "/api/notifications/while-away"),
+    ("POST", "/api/notifications/while-away/dismiss"),
+    ("POST", "/api/notifications/while-away/{notification_id}/handled"),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
     ("GET", "/api/procedures"),
     ("GET", "/api/procedures/{id_or_slug}"),
@@ -309,6 +319,9 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("PATCH", "/api/notifications/{notification_id}/read"),
     ("PATCH", "/api/users/me/preferences"),
     ("POST", "/api/auth/change-password"),
+    # Przeniesienie sesji z nagłówka Bearer do ciasteczka HttpOnly — każda
+    # zalogowana osoba, tylko własny token (`core/session_cookie`).
+    ("POST", "/api/auth/session"),
     # Talent Radar dla KAŻDEJ zalogowanej roli — decyzja produktowa Artura
     # 19.08 (poszła po 403 u Head of Recruitment). Wyniki to lista triage bez
     # kontaktu i stawek (salary wygaszone), a pełny profil kandydata pozostaje
@@ -336,6 +349,8 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     # Logowanie, rejestracja i zwrotki OAuth — z definicji przed sesją.
     ("POST", "/api/auth/forgot-password"),
     ("POST", "/api/auth/login"),
+    # Usunięcie ciasteczka sesji — działa też po wygaśnięciu tokenu.
+    ("POST", "/api/auth/logout"),
     ("GET", "/api/auth/methods"),
     ("GET", "/api/auth/microsoft/authorize"),
     ("GET", "/api/auth/microsoft/callback"),
@@ -385,6 +400,9 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/public/cv/{token}"),
     ("GET", "/api/public/engagement-declaration/{token}"),
     ("POST", "/api/public/engagement-declaration/{token}"),
+    # Szkolenia (0694): odtwarzanie pliku z biletem HMAC jednego pliku, ważnym 6 h
+    # (``services/trainings/media.py``) — ``<video>`` nie dołoży nagłówka sesji.
+    ("GET", "/api/public/training-media/{file_id}"),
     ("GET", "/api/public/equipment-protocols/{token}"),
     ("GET", "/api/public/equipment-protocols/{token}/document.pdf"),
     ("POST", "/api/public/equipment-protocols/{token}/sign"),
@@ -397,6 +415,11 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/public/panel/{token}/candidates/{public_id}/questions"),
     ("POST", "/api/public/panel/{token}/events"),
     ("POST", "/api/public/panel/{token}/requirements-change"),
+    # Zespół dla klienta (0711): skład kilku rekrutacji pod jednym linkiem.
+    ("GET", "/api/public/team-panel/{token}"),
+    ("POST", "/api/public/team-panel/{token}/selection"),
+    # Z3: rozmowy z całym składem = N wniosków przez wspólny serwis terminów.
+    ("POST", "/api/public/team-panel/{token}/interviews"),
 }
 
 # Publiczne bez `@limiter.limit`: sondy i webhooki wołają automaty, nie ludzie.
@@ -404,7 +427,6 @@ _PUBLIC_WITHOUT_RATE_LIMIT: set[tuple[str, str]] = {
     ("GET", "/api/health"),
     ("GET", "/api/health/alembic"),
     ("GET", "/api/health/background"),
-    ("GET", "/api/health/deep"),
     ("GET", "/api/health/live"),
     ("POST", "/api/autenti/webhook"),
     ("POST", "/api/microsoft365/webhooks"),

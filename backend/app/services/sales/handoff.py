@@ -51,6 +51,7 @@ from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
 from app.services.sales import client_gate, history, owner_tasks
 from app.services.sales import companies as company_service
+from app.services.sales.calling_file import valid_email
 from app.services.sales.contacts import (
     ensure_new_person_not_objected,
     set_primary_company,
@@ -183,6 +184,20 @@ class BookRequest(BaseModel):
     problem: Optional[str] = Field(default=None, max_length=1000)
     decision_maker: Optional[str] = Field(default=None, max_length=1000)
     timing: Optional[str] = Field(default=None, max_length=1000)
+    #: Treść zaproszenia i adres klienta od umawiającego (lista dzwoniących 13.11.2026).
+    #: Nic nie wychodzi samo: to podpowiedź do okna „Wyślij zaproszenie” prowadzącego.
+    invite_message: Optional[str] = Field(default=None, max_length=5000)
+    invite_to: Optional[str] = Field(default=None, max_length=255)
+
+    @field_validator("invite_to")
+    @classmethod
+    def _invite_address(cls, value: Optional[str]) -> Optional[str]:
+        address = (value or "").strip().lower()
+        if not address:
+            return None
+        if valid_email(address) is None:
+            raise ValueError("Niepoprawny adres e-mail klienta do zaproszenia.")
+        return address
 
     @model_validator(mode="after")
     def _one_company_one_person(self) -> "BookRequest":
@@ -594,6 +609,9 @@ async def book(
         "decision_maker": clean(payload.decision_maker)
         or previous.get("decision_maker"),
         "timing": clean(payload.timing) or previous.get("timing"),
+        "invite_message": (payload.invite_message or "").strip()
+        or previous.get("invite_message"),
+        "invite_to": clean(payload.invite_to) or previous.get("invite_to"),
         "meeting_at": (
             to_utc(payload.meeting_at).isoformat() if payload.meeting_at else None
         ),

@@ -390,6 +390,63 @@ async def test_hr_jobs_probe_forgets_stuck_claim_after_a_day(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_hr_jobs_probe_ignores_claim_superseded_by_later_run(monkeypatch) -> None:
+    """Wdrożenie zatrzymuje kontener w trakcie przebiegu (``sales_ksef_fetch``
+    14.11.2026, klucz ``…T03``): rezerwacja zostaje bez końca, a następna godzina
+    kończy się ``done``. Zabitej godziny nikt nie przejmie, więc sonda stała
+    w ``degraded`` prawie dobę, choć zadanie działało. Zawieszona jest tylko
+    rezerwacja, po której nie było już przebiegu tego samego rodzaju."""
+
+    monkeypatch.setattr(settings, "HR_PROGRAM_ENABLED", True)
+    monkeypatch.setattr(settings, "HR_LOOPS_ENABLED", True)
+    async with AsyncSessionLocal() as db:
+        try:
+            await db.execute(delete(HrJobRun))
+            db.add(
+                HrJobRun(
+                    kind="probe_hourly",
+                    period_key="2091-03-07T04",
+                    status="claimed",
+                    claimed_at=NOW - timedelta(hours=9),
+                )
+            )
+            db.add(
+                HrJobRun(
+                    kind="probe_hourly",
+                    period_key="2091-03-07T05",
+                    status="done",
+                    claimed_at=NOW - timedelta(hours=8),
+                    finished_at=NOW - timedelta(hours=8),
+                )
+            )
+            await db.flush()
+            assert await health.hr_jobs_state(db, now=NOW) == "healthy"
+
+            # Przebieg innego rodzaju nie zastępuje rezerwacji: to zadanie stoi.
+            db.add(
+                HrJobRun(
+                    kind="probe_stopped",
+                    period_key="2091-03-07T06",
+                    status="claimed",
+                    claimed_at=NOW - timedelta(hours=6),
+                )
+            )
+            db.add(
+                HrJobRun(
+                    kind="probe_other",
+                    period_key="2091-03-07T07",
+                    status="done",
+                    claimed_at=NOW - timedelta(hours=5),
+                    finished_at=NOW - timedelta(hours=5),
+                )
+            )
+            await db.flush()
+            assert await health.hr_jobs_state(db, now=NOW) == "degraded"
+        finally:
+            await db.rollback()
+
+
+@pytest.mark.asyncio
 async def test_admin_cases_mail_probe(monkeypatch) -> None:
     monkeypatch.delenv("ADMIN_CASES_MAIL_INGEST_ENABLED", raising=False)
     async with AsyncSessionLocal() as db:

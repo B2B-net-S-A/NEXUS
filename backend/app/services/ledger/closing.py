@@ -1,0 +1,569 @@
+"""Lista zamknięcia miesiąca i terminy podatków (K3d, zakładka „Miesiąc”).
+
+Przed zamknięciem okresu widać, czy źródła miesiąca są w księdze (Źródła K2,
+automaty K3a), czy bufor jest pusty i czy zatwierdzone dokumenty poszły do
+Symfonii (K3b, tylko w trybie roku „symfonia” albo „równolegle”), czy
+wyciągi miesiąca mają konta i WB (K4a, gdy moduł „Bank” jest otwarty), czy
+automat rozrachunków nie ma czego rozliczyć (K4b) i — dla
+Płac — czy jest lista płac z Enovy (K3c; osoba bez Płac widzi tylko, kto ją
+wczytuje, bez liczby). Etapy, których jeszcze nie ma albo są wyłączone (bank,
+VAT, środki trwałe), stoją na liście z numerem etapu — do tego czasu robi je
+Symfonia.
+
+Terminy za miesiąc M przypadają w miesiącu M+1; sobota, niedziela i święto
+przesuwają termin na następny dzień roboczy (art. 12 § 5 Ordynacji podatkowej,
+do składek przez ustawę o systemie ubezpieczeń społecznych):
+
+* ZUS (DRA i składki) — 15. (płatnik, który nie jest osobą fizyczną opłacającą
+  składki tylko za siebie; art. 47 ustawy o systemie ubezpieczeń społecznych),
+* PPK — 15. (art. 28 ustawy o PPK),
+* PIT-4: zaliczki od wynagrodzeń pobrane w M — 20. (art. 38 ustawy o PIT),
+* VAT i JPK_V7M — 25. (art. 99 i 103 ustawy o VAT).
+
+Kwoty dojdą z listą płac (K3c z pliku Enovy, potem K7) i rozliczeniem VAT (K5).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from typing import Any, Optional
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.scheduling import DEFAULT_TZ, is_business_day
+from app.models.ledger import LedgerDocument, LedgerPeriod, LedgerYear
+from app.services.finance_ledger.posting import money_pl
+from app.services.ledger import (
+    bank,
+    exports,
+    jpk,
+    payroll_lists,
+    settlements,
+    sources,
+    valuation,
+    vat,
+    vat_settlement,
+)
+from app.services.ledger.documents import Viewer
+from app.services.ledger.settings import LedgerSettings
+
+
+@dataclass(frozen=True)
+class Deadline:
+    key: str
+    label: str
+    nominal: date
+    due: date
+    basis: str
+    amount_from: str
+
+
+#: Terminy za miesiąc M w miesiącu M+1: klucz, dzień, etykieta, podstawa, skąd kwota.
+DEADLINES: tuple[tuple[str, int, str, str, str], ...] = (
+    (
+        "zus",
+        15,
+        "ZUS — DRA i składki",
+        "art. 47 ustawy o systemie ubezpieczeń społecznych",
+        "lista płac (K3c z pliku Enovy, potem K7)",
+    ),
+    ("ppk", 15, "PPK — wpłaty", "art. 28 ustawy o PPK", "lista płac (K3c, K7)"),
+    (
+        "pit",
+        20,
+        "PIT-4 — zaliczki od wynagrodzeń pobrane w miesiącu",
+        "art. 38 ustawy o PIT",
+        "lista płac (K3c, K7)",
+    ),
+    (
+        "vat",
+        25,
+        "VAT — JPK_V7M i przelew",
+        "art. 99 i 103 ustawy o VAT",
+        "rozliczenie VAT (K5)",
+    ),
+)
+#: Etapy, których jeszcze nie ma: klucz, etykieta, kto robi to do tego czasu.
+LATER: tuple[tuple[str, str, str], ...] = (
+    ("bank", "Wyciągi bankowe", "etap K4 — do tego czasu import XML w Symfonii"),
+    (
+        "vat",
+        "Rozliczenie VAT i JPK_V7M",
+        "etap K5 — do tego czasu rejestry w Symfonii",
+    ),
+    ("assets", "Amortyzacja", "etap K6 — do tego czasu Symfonia Środki Trwałe"),
+)
+
+
+def next_business_day(day: date) -> date:
+    """Ten sam dzień, gdy roboczy; inaczej następny dzień roboczy (kalendarz PL)."""
+
+    zone = ZoneInfo(DEFAULT_TZ)
+    while not is_business_day(datetime(day.year, day.month, day.day, 12, tzinfo=zone)):
+        day += timedelta(days=1)
+    return day
+
+
+def deadlines(year: int, month: int) -> list[Deadline]:
+    """Terminy za miesiąc ``year``-``month`` (płatne w następnym miesiącu)."""
+
+    following = (year + 1, 1) if month == 12 else (year, month + 1)
+    out: list[Deadline] = []
+    for key, day, label, basis, amount_from in DEADLINES:
+        nominal = date(following[0], following[1], day)
+        out.append(
+            Deadline(
+                key=key,
+                label=label,
+                nominal=nominal,
+                due=next_business_day(nominal),
+                basis=basis,
+                amount_from=amount_from,
+            )
+        )
+    return out
+
+
+def source_check(item: dict[str, Any], href: str) -> dict[str, Any]:
+    """Pozycja listy z karty „Źródeł” miesiąca (``sources.month_summary``)."""
+
+    pending = int(item["to_post"]) + int(item["changed"])
+    problems = int(item["problems_total"])
+    parts = []
+    if pending:
+        parts.append(f"do zaksięgowania: {pending}")
+    if problems:
+        parts.append(f"do wyjaśnienia: {problems}")
+    if problems:
+        state = "problem"
+    elif pending:
+        state = "todo"
+    else:
+        state = "ok"
+    detail = ", ".join(parts) or (
+        "w księdze" if item["total"] else "nic w tym miesiącu"
+    )
+    return {
+        "key": f"source:{item['kind']}",
+        "label": item["label"],
+        "state": state,
+        "detail": detail,
+        "href": href,
+    }
+
+
+def bank_check(rows: list[dict[str, Any]], href: str) -> dict[str, Any]:
+    """Pozycja listy z wyciągów miesiąca (K4a, wiersze ``bank.overview``)."""
+
+    unresolved = sum(int(row["unresolved"]) for row in rows)
+    to_post = sum(1 for row in rows if row["to_post"])
+    parts = []
+    if unresolved:
+        parts.append(f"operacje bez konta: {unresolved}")
+    if to_post:
+        parts.append(f"wyciągi bez WB: {to_post}")
+    if unresolved:
+        state = "problem"
+    elif to_post or not rows:
+        state = "todo"
+    else:
+        state = "ok"
+    if not rows:
+        detail = "brak wyciągu z tego miesiąca"
+    else:
+        detail = ", ".join(parts) or f"wyciągi: {len(rows)}, WB w księdze"
+    return {
+        "key": "bank",
+        "label": "Wyciągi bankowe",
+        "state": state,
+        "detail": detail,
+        "href": href,
+    }
+
+
+def settlements_check(counts: dict[str, int], href: str) -> dict[str, Any]:
+    """Pozycja listy z podglądu automatu rozrachunków (K4b, ``settlements.auto_counts``)."""
+
+    labels = (
+        ("bank", "z wyciągów"),
+        ("correction", "korekty"),
+        ("zero", "salda zerowe"),
+    )
+    total = sum(counts.get(key, 0) for key, _ in labels)
+    waiting = counts.get("fx_waiting", 0)
+    if waiting:
+        return {
+            "key": "settlements",
+            "label": "Rozrachunki",
+            "state": "problem",
+            "detail": (
+                f"pary w walucie czekają na konta różnic kursowych albo otwarty "
+                f"okres: {waiting}"
+                + (f"; automat rozliczy pozycje: {total}" if total else "")
+            ),
+            "href": href,
+        }
+    if not total:
+        return {
+            "key": "settlements",
+            "label": "Rozrachunki",
+            "state": "ok",
+            "detail": "automat nie ma nic do rozliczenia",
+            "href": href,
+        }
+    parts = ", ".join(
+        f"{label} {counts[key]}" for key, label in labels if counts.get(key)
+    )
+    return {
+        "key": "settlements",
+        "label": "Rozrachunki",
+        "state": "todo",
+        "detail": f"automat rozliczy pozycje: {total} ({parts})",
+        "href": href,
+    }
+
+
+def valuation_check(data: dict[str, Any], href: str) -> Optional[dict[str, Any]]:
+    """Wycena walut (K4c-2): w grudniu obowiązkowa (dzień bilansowy), w ciągu roku
+    opcjonalna; bez pozycji w walucie pozycji listy nie ma. Zatwierdzona wycena,
+    która różni się od dzisiejszego przeliczenia, to problem (storno i ponowna
+    wycena); w grudniu blokada (np. brak kursu) i pominięty rachunek = do zrobienia."""
+
+    groups = data["groups"]
+    if not (data["positions"] or data["skipped"] or groups or data["payroll_hidden"]):
+        return None
+    december = data["month"] == 12
+    notes = []
+    if data["skipped"]:
+        accounts = ", ".join(entry["account"] for entry in data["skipped"])
+        notes.append(f"pominięte: {accounts} — wyceń ręcznie")
+    if data["payroll_hidden"]:
+        notes.append("część płacowa — osoba z Płacami")
+
+    def check(state: str, detail: str) -> dict[str, Any]:
+        return {
+            "key": "valuation",
+            "label": "Wycena walut",
+            "state": state,
+            "detail": "; ".join([detail, *notes]),
+            "href": href,
+        }
+
+    changed = [group["valuation"]["number"] for group in groups if group["changed"]]
+    if changed:
+        return check(
+            "problem",
+            f"{', '.join(changed)} zatwierdzona, a dziś wychodzi inna — storno "
+            "i ponowna wycena",
+        )
+    if december and data["blocker"]:
+        return check("todo", data["blocker"])
+    booked = [group["valuation"] for group in groups if group["valuation"]]
+    drafts = [doc["number"] for doc in booked if doc["status"] != "approved"]
+    if drafts:
+        return check("todo", f"{', '.join(drafts)} w buforze")
+    pending = any(group["valuation"] is None and group["to_book"] for group in groups)
+    if booked and not pending:
+        numbers = ", ".join(doc["number"] for doc in booked)
+        approved = "zatwierdzona" if len(booked) == 1 else "zatwierdzone"
+        return check("todo" if december and notes else "ok", f"{numbers} {approved}")
+    if december:
+        return check("todo", "wycena na dzień bilansowy (art. 30 ust. 1 UoR)")
+    return check("ok", "w ciągu roku opcjonalna — obowiązkowa na 31.12")
+
+
+#: Rodzaje „do sprawdzenia” rejestrów VAT, przy których rejestr jest niepełny
+#: albo bez podziału na pola JPK (problem); reszta = do zrobienia.
+VAT_PROBLEMS = ("rates", "missing_sales")
+
+
+def vat_check(data: dict[str, Any], href: str) -> dict[str, Any]:
+    """Rejestry VAT (K5a): problem, gdy faktura sprzedaży z KSeF nie ma dokumentu
+    albo wiersz nie ma podziału na pola JPK; do zrobienia — bufor, kolejka kosztów,
+    zapisy na kontach VAT spoza rejestru; inaczej saldo VAT miesiąca."""
+
+    issues = {issue["kind"]: issue for issue in data["issues"]}
+    item = {"key": "vat_registers", "label": "Rejestry VAT", "href": href}
+    if issues:
+        parts = [
+            f"{issue['label'].split(' — ')[0].lower()}: {issue['count']}"
+            for issue in issues.values()
+        ]
+        state = "problem" if any(kind in issues for kind in VAT_PROBLEMS) else "todo"
+        return {**item, "state": state, "detail": "; ".join(parts)}
+    due = data["summary"]["due"]
+    balance = (
+        f"VAT do zapłaty {money_pl(due)}"
+        if due >= 0
+        else f"nadwyżka naliczonego {money_pl(-due)}"
+    )
+    hidden = "; bez części płacowej" if data["payroll_hidden"] else ""
+    return {
+        **item,
+        "state": "ok",
+        "detail": (
+            f"sprzedaż: {len(data['sales'])}, zakup: {len(data['purchases'])}; "
+            f"{balance} (bez nadwyżki z poprzedniego okresu){hidden}"
+        ),
+    }
+
+
+def jpk_check(status: dict[str, Any], href: str) -> dict[str, Any]:
+    """JPK_V7M miesiąca (K5b): do zrobienia do wysłania; problem, gdy rejestr
+    VAT zmienił się po wysłaniu (trzeba korekty)."""
+
+    item = {"key": "jpk", "label": "JPK_V7M", "href": href}
+    latest = status["latest"]
+    if latest is None:
+        return {
+            **item,
+            "state": "todo",
+            "detail": "przygotuj i wyślij JPK_V7M (termin 25.)",
+        }
+    if latest["status"] != "sent":
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"wersja {latest['version']} przygotowana — wyślij i oznacz jako wysłaną",
+        }
+    if status["changed"]:
+        detail = (
+            "korekta JPK za poprzedni miesiąc zmieniła nadwyżkę (P_39) — przygotuj korektę"
+            if status.get("reason") == "surplus"
+            else "rejestr VAT zmienił się po wysłaniu JPK — przygotuj korektę"
+        )
+        return {**item, "state": "problem", "detail": detail}
+    note = f", {latest['sent_note']}" if latest.get("sent_note") else ""
+    return {
+        **item,
+        "state": "ok",
+        "detail": f"wysłany (wersja {latest['version']}{note})",
+    }
+
+
+def settlement_check(data: dict[str, Any], href: str) -> dict[str, Any]:
+    """Rozliczenie VAT (K5b-3c): problem, gdy księga różni się od JPK albo
+    zatwierdzony dokument od dzisiejszych kwot (korekta JPK); do zrobienia —
+    brak kont, brak JPK, szkic w buforze; ok — zatwierdzony albo bez kwot."""
+
+    item = {"key": "vat_settlement", "label": "Rozliczenie VAT", "href": href}
+    doc = data["document"]
+    if data["problem"]:
+        return {**item, "state": "problem", "detail": data["problem"]}
+    if data["changed"] and doc is not None:
+        return {
+            **item,
+            "state": "problem",
+            "detail": f"{doc['number']} zatwierdzony, a z JPK wychodzą dziś inne "
+            "kwoty — storno i ponowne „Przygotuj”",
+        }
+    if data["blocker"]:
+        return {**item, "state": "todo", "detail": data["blocker"]}
+    if doc is not None and doc["status"] != "approved" and data.get("stale_draft"):
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"{doc['number']} w buforze jest nieaktualny — przelicz "
+            "(„Przygotuj” w zakładce VAT)",
+        }
+    if doc is not None and doc["status"] != "approved":
+        who = " (osoba z Płacami)" if doc["payroll"] else ""
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"{doc['number']} w buforze — zatwierdza lista „Księgowi”{who}",
+        }
+    if doc is not None:
+        return {**item, "state": "ok", "detail": f"{doc['number']} zatwierdzony"}
+    if not data["to_book"]:
+        return {**item, "state": "ok", "detail": "bez kwot do rozliczenia"}
+    return {
+        **item,
+        "state": "todo",
+        "detail": "przygotuj dokument rozliczenia VAT (zakładka VAT)",
+    }
+
+
+def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
+    """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
+
+    parts = []
+    if status["outside"]:
+        parts.append(f"zatwierdzone poza paczką: {status['outside']}")
+    if status["waiting"]:
+        parts.append(
+            "czeka na „Zaksięgowana w Symfonii”: " + ", ".join(status["waiting"])
+        )
+    return {
+        "key": "symfonia",
+        "label": "Paczka do Symfonii",
+        "state": "todo" if parts else "ok",
+        "detail": "; ".join(parts) or "wszystko w paczkach",
+        "href": href,
+    }
+
+
+async def payroll_check(
+    db: AsyncSession, period_id: int, viewer: Viewer, href: str
+) -> dict[str, Any]:
+    """Lista płac z Enovy w okresie (K3c). Osoba bez Płac nie widzi liczby (D2)."""
+
+    if not viewer.payroll:
+        return {
+            "key": "payroll",
+            "label": "Lista płac",
+            "state": "later",
+            "detail": "wczytują ją Płace z pliku Enovy (Automaty)",
+            "href": None,
+        }
+    count = await db.scalar(
+        select(func.count())
+        .select_from(LedgerDocument)
+        .where(
+            LedgerDocument.period_id == period_id,
+            LedgerDocument.source_type == payroll_lists.SOURCE_TYPE,
+            LedgerDocument.reversed_by_id.is_(None),
+        )
+    )
+    return {
+        "key": "payroll",
+        "label": "Lista płac z Enovy",
+        "state": "ok" if count else "todo",
+        "detail": f"w księdze: {count}"
+        if count
+        else "wczytaj listę z Enovy w „Automatach”",
+        "href": None if count else href,
+    }
+
+
+async def _drafts(db: AsyncSession, period_id: int, viewer: Viewer) -> int:
+    conditions = [
+        LedgerDocument.period_id == period_id,
+        LedgerDocument.status == "draft",
+    ]
+    if not viewer.payroll:
+        conditions.append(LedgerDocument.sensitivity.is_(None))
+    count = await db.scalar(
+        select(func.count()).select_from(LedgerDocument).where(*conditions)
+    )
+    return int(count or 0)
+
+
+async def checklist(
+    db: AsyncSession,
+    year: int,
+    month: int,
+    *,
+    viewer: Viewer,
+    settings: LedgerSettings,
+) -> dict[str, Any]:
+    """Lista zamknięcia miesiąca i terminy (bez zapisu)."""
+
+    query = f"?year={year}&month={month}"
+    summary = await sources.month_summary(
+        db, year, month, viewer=viewer, settings=settings
+    )
+    items = [
+        source_check(item, f"/accounting/sources{query}") for item in summary["items"]
+    ]
+    bank_open = bank.bank_open(settings, viewer)
+    if bank_open:
+        listed = await bank.overview(db, viewer, settings.bank, year=year, month=month)
+        items.append(bank_check(listed["statements"], f"/accounting/bank{query}"))
+        items.append(
+            settlements_check(
+                await settlements.auto_counts(db, viewer, settings.bank),
+                f"/accounting/settlements{query}",
+            )
+        )
+        valued = valuation_check(
+            await valuation.preview(db, viewer, settings.bank, year=year, month=month),
+            f"/accounting/settlements{query}",
+        )
+        if valued is not None:
+            items.append(valued)
+    vat_open = settings.modules.get("vat", False) or viewer.admin
+    if vat_open:
+        items.append(
+            vat_check(
+                await vat.registers(db, viewer, settings, year=year, month=month),
+                f"/accounting/vat{query}",
+            )
+        )
+        items.append(
+            jpk_check(
+                await jpk.month_status(db, viewer, settings, year=year, month=month),
+                f"/accounting/vat{query}",
+            )
+        )
+        items.append(
+            settlement_check(
+                await vat_settlement.preview(
+                    db, viewer, settings, year=year, month=month
+                ),
+                f"/accounting/vat{query}",
+            )
+        )
+    year_row = await db.scalar(select(LedgerYear).where(LedgerYear.year == year))
+    period = None
+    if year_row is not None:
+        period = await db.scalar(
+            select(LedgerPeriod).where(
+                LedgerPeriod.year_id == year_row.id, LedgerPeriod.month == month
+            )
+        )
+    if period is not None:
+        drafts = await _drafts(db, period.id, viewer)
+        items.append(
+            {
+                "key": "drafts",
+                "label": "Bufor — dokumenty do zatwierdzenia",
+                "state": "todo" if drafts else "ok",
+                "detail": f"w buforze: {drafts}" if drafts else "pusty",
+                "href": f"/accounting/documents{query}&status=draft",
+            }
+        )
+        items.append(
+            await payroll_check(
+                db, period.id, viewer, f"/accounting/automations{query}"
+            )
+        )
+    status = await exports.month_status(db, year, month, viewer=viewer)
+    if status is not None:
+        items.append(symfonia_check(status, f"/accounting/symfonia{query}"))
+    items.extend(
+        {
+            "key": f"later:{key}",
+            "label": label,
+            "state": "later",
+            "detail": detail,
+            "href": None,
+        }
+        for key, label, detail in LATER
+        # Środki trwałe (K6) są już w „Źródłach”, a wyciągi (K4a) mają swoją
+        # pozycję, gdy moduł jest otwarty.
+        if not (key == "assets" and sources.assets_open(settings, viewer))
+        and not (key == "bank" and bank_open)
+        and not (key == "vat" and vat_open)
+    )
+
+    return {
+        "year": year,
+        "month": month,
+        "period_status": period.status if period is not None else None,
+        "items": items,
+        "deadlines": [
+            {
+                "key": item.key,
+                "label": item.label,
+                "nominal": item.nominal.isoformat(),
+                "due": item.due.isoformat(),
+                "basis": item.basis,
+                "amount_from": item.amount_from,
+            }
+            for item in deadlines(year, month)
+        ],
+    }

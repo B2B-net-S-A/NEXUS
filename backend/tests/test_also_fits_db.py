@@ -151,7 +151,9 @@ async def test_route_requires_from_job_id(app_client, app_auth_headers):
 
 @needs_db
 @pytest.mark.asyncio
-async def test_add_from_also_fits_rings_job_recruiter_not_the_actor(app_client):
+async def test_add_from_also_fits_leaves_trail_without_bell(app_client):
+    """Decyzja Artura 16.11.2026 (wariant C): dodanie z „Pasuje też do” nie
+    dzwoni rekruterom rekrutacji B — zostaje wpis w historii kandydata."""
     from app.core.database import AsyncSessionLocal
     from app.core.security import create_access_token
     from app.models.activity import Activity
@@ -198,12 +200,7 @@ async def test_add_from_also_fits_rings_job_recruiter_not_the_actor(app_client):
                 )
             )
         ).all()
-        # Jeden dzwonek na rekrutację — dedup dzienny nie zjada drugiego.
-        assert {b.user_id for b in bells} == {owner_id}
-        assert sorted(b.link for b in bells) == sorted(
-            [f"/jobs/{target_id}?candidate={cid}", f"/jobs/{second_id}?candidate={cid}"]
-        )
-        assert {b.related_entity_type for b in bells} == {"candidate_stage"}
+        assert bells == []
         trail = (
             await db.scalars(
                 select(Activity).where(
@@ -338,7 +335,7 @@ async def test_manual_search_same_pool_team_first(app_client):
 
 @needs_db
 @pytest.mark.asyncio
-async def test_manual_add_rings_with_manual_wording(app_client):
+async def test_manual_add_leaves_manual_trail_without_bell(app_client):
     from app.core.database import AsyncSessionLocal
     from app.core.security import create_access_token
     from app.models.activity import Activity
@@ -376,11 +373,9 @@ async def test_manual_add_rings_with_manual_wording(app_client):
             select(Notification).where(
                 Notification.notification_type == NotificationType.also_fits_added,
                 Notification.user_id == owner_id,
-                Notification.link == f"/jobs/{target_id}?candidate={cid}",
             )
         )
-        assert bell is not None
-        assert "dodane ręcznie przy rozmowie" in bell.message
+        assert bell is None
         trail = await db.scalar(
             select(Activity).where(
                 Activity.entity_type == "candidate",

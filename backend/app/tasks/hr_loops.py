@@ -685,3 +685,28 @@ async def equipment_intune_sync_loop() -> None:
         EQUIPMENT_INTUNE_INTERVAL_SECONDS,
         equipment_intune_sync_job,
     )
+
+
+TRAININGS_TEAMS_INTERVAL_SECONDS = 5 * 60
+
+
+async def trainings_teams_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.trainings.recordings import run_once
+
+    result = await run_once(db)
+    quiet = not any(result["reminders"].values()) and result["recordings"] in (
+        {},
+        {"status": "disabled"},
+    )
+    return None if quiet else result
+
+
+async def trainings_teams_loop() -> None:
+    if not loops_enabled("trainings_teams"):
+        return
+    beat = loop_heartbeat.register(
+        "trainings_teams", max_silence_seconds=TRAININGS_TEAMS_INTERVAL_SECONDS + 1800
+    )
+    await run_periodic(
+        "trainings_teams", beat, TRAININGS_TEAMS_INTERVAL_SECONDS, trainings_teams_job
+    )

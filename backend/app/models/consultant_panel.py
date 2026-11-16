@@ -191,6 +191,21 @@ class CpTrainerApplication(Base):
     materials: Mapped[str] = mapped_column(
         String(schema.MATERIAL_URL_MAX), nullable=False, server_default="", default=""
     )
+    # 0694 (13.11.2026): zgłoszenie zgodne z umową szkoleniową.
+    proposal_title: Mapped[str] = mapped_column(
+        String(200), nullable=False, server_default="", default=""
+    )
+    proposal_hours: Mapped[str] = mapped_column(
+        String(schema.TRAINER_SHORT_MAX), nullable=False, server_default="", default=""
+    )
+    audience: Mapped[str] = mapped_column(
+        String(schema.TRAINER_SHORT_MAX), nullable=False, server_default="", default=""
+    )
+    sample_path: Mapped[Optional[str]] = mapped_column(
+        String(schema.MATERIAL_URL_MAX), nullable=True
+    )
+    sample_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    sample_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -40,7 +40,7 @@ from app.models.client_sales_invoice import (
     ClientSalesInvoiceLink,
     ClientSalesInvoicePayment,
 )
-from app.services.client_invoicing import billing, clients
+from app.services.client_invoicing import billing, clients, rebate
 from app.services.client_invoicing.billing import BillingRow, money
 
 ZERO = Decimal("0.00")
@@ -61,6 +61,20 @@ class Chain:
     @property
     def net(self) -> Decimal:
         return money(sum((Decimal(i.net_amount) for i in self.invoices), ZERO))
+
+    @property
+    def order_net(self) -> Decimal:
+        """Netto przed rabatem % na wierszach — to porównujemy z zamówieniem."""
+
+        return money(
+            sum(
+                (
+                    rebate.pre_discount(Decimal(i.net_amount), i.items or [])
+                    for i in self.invoices
+                ),
+                ZERO,
+            )
+        )
 
     @property
     def gross(self) -> Decimal:
@@ -209,7 +223,7 @@ def check(chain: Chain, rows: dict[str, BillingRow]) -> ChainCheck:
     if budgets:
         return _budget_check(chain, money(total), money(sum(budgets.values(), ZERO)))
     expected = money(total)
-    difference = money(chain.net - expected)
+    difference = money(chain.order_net - expected)
     if difference == ZERO:
         return ChainCheck("ok", expected, difference)
     return _difference(chain, expected, difference, "amount")
@@ -227,7 +241,7 @@ def _difference(
 def _budget_check(chain: Chain, fixed: Decimal, available: Decimal) -> ChainCheck:
     """Część faktury na zamówienia kosztowe a reszta ich budżetu."""
 
-    cost_part = money(chain.net - fixed)
+    cost_part = money(chain.order_net - fixed)
     if cost_part < ZERO:
         return _difference(chain, None, cost_part, "budget")
     over = money(cost_part - available)

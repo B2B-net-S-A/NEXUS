@@ -29,9 +29,12 @@ import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { useSidebarPinned } from "./useSidebarPinned";
 import { PaletteSwitcher } from "./PaletteSwitcher";
-import { KidsModeToggleButton, ThemeToggleButton } from "./ThemeControls";
+import { ThemeToggleButton } from "./ThemeControls";
+import { WorldGalleryButton } from "./WorldGallery";
+import { useThemeStore } from "@/store/theme";
 import { hasSectionAccess } from "@/lib/section-access";
-import { useHrNavState } from "@/lib/api/hr";
+import { useHrNavState, useHrProgram } from "@/lib/api/hr";
+import { useAccountingNavOpen } from "@/lib/api/accounting";
 import { useOwnHiringMembership } from "@/lib/api/ownHiring";
 import { hasCapability } from "@/lib/capabilities";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
@@ -85,6 +88,7 @@ export function SidebarV2({
   const { user, logout, hydrated } = useAuthStore();
   const defaultDashboardHref = dashboardHref(user);
   const setSidebarCollapsed = useUiStore((s) => s.setSidebarCollapsed);
+  const worldActive = useThemeStore((s) => s.world !== "none");
   const canUseContactQueue =
     hasSectionAccess(user, "sourcing") &&
     hasRole(user, "talent_community_manager", "recruiter");
@@ -94,8 +98,17 @@ export function SidebarV2({
   // Szyna = rdzeń pracy w grupach z nagłówkami, reszta pod „Więcej". Bramka
   // widoczności jest w rejestrze jedna — obie listy to ten sam zbiór, podzielony.
   const hrNav = useHrNavState(user);
+  // „Szkolenia” (13.11.2026) widzi każdy, gdy program „Ludzi” jest włączony.
+  const hrProgram = useHrProgram(Boolean(user));
   const ownHiring = useOwnHiringMembership(user);
-  const navOptions = { contactQueueEnabled: contactFeature.enabled, hr: hrNav, ownHiring };
+  // Księgowość (K1): pozycja przy otwartym module księgi.
+  const accounting = useAccountingNavOpen(user);
+  const navOptions = {
+    contactQueueEnabled: contactFeature.enabled,
+    hr: { ...hrNav, trainings: hrProgram },
+    ownHiring,
+    accounting,
+  };
   const primaryGroups = visiblePrimaryGroups(user, navOptions);
   const moreGroups = visibleMoreGroups(user, navOptions);
 
@@ -328,9 +341,10 @@ export function SidebarV2({
         {mobileOpen && (
           <div className="mb-2 flex items-center gap-1 px-2">
             <span className="flex-1 text-xs text-sidebar-muted">Wygląd</span>
-            <PaletteSwitcher />
-            <KidsModeToggleButton />
-            <ThemeToggleButton />
+            {/* Świat ma własne kolory i sam wybiera jasny/ciemny — jak w menu „Wygląd”. */}
+            {!worldActive && <PaletteSwitcher />}
+            <WorldGalleryButton />
+            {!worldActive && <ThemeToggleButton />}
           </div>
         )}
         {!hydrated ? (

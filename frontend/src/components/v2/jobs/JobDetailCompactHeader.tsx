@@ -495,6 +495,7 @@ export function JobDetailCompactHeader({
             aria-label={unreadLabel}
             title="Historia i czat"
             data-testid="open-history-chat"
+            data-help="jobs.board.chat"
           >
             <MessageCircle className="h-4 w-4" aria-hidden="true" />
             {chatUnreadCount > 0 ? (

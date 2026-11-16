@@ -13,6 +13,8 @@ deployem).
 
 from __future__ import annotations
 
+import ast
+import importlib
 import re
 from pathlib import Path
 
@@ -95,3 +97,197 @@ def test_october_probe_models_are_imported() -> None:
         "from app.services.care.board_state import CARE_BOARD_STATES",
     ):
         assert symbol in src, symbol
+
+
+# Księga NEXUSA (plan K1–K9, 13–14.11.2026): tabele z 0700–0702 (K1–K3)
+# i 0705 (K4a) weszły bez sondy, choć wymaga jej reguła z 22.10 (F79);
+# K6 (0703) dopisał swoje od razu. Lista przypina sondy, żeby nie zniknęły
+# bez echa, a skaner modeli niżej łapie tabele kolejnych etapów.
+LEDGER_TABLES = (
+    "ledger_years",
+    "ledger_periods",
+    "ledger_documents",
+    "ledger_lines",
+    "ledger_events",
+    "ledger_recurring",
+    "ledger_prepayments",
+    "ledger_exports",
+    "ledger_export_documents",
+    "ledger_assets",
+    "ledger_asset_operations",
+    "ledger_bank_statements",
+    "ledger_bank_lines",
+    "ledger_settlements",
+    "ledger_vat_files",
+)
+
+
+@pytest.mark.parametrize("table", LEDGER_TABLES)
+def test_ledger_tables_are_probed(table: str) -> None:
+    block = _core_checks_block()
+    assert re.search(rf'\("{table}",\s*\w+\)', block), (
+        f"`{table}` musi być w `core_checks` (reguła z 22.10, F79)"
+    )
+
+
+def test_every_ledger_model_table_is_probed() -> None:
+    """Każda tabela `ledger_*` z modeli ma sondę od pierwszego PR-a etapu."""
+    tables = {
+        match.group(1)
+        for path in (BACKEND / "app/models").rglob("*.py")
+        for match in re.finditer(
+            r'__tablename__ = "(ledger_\w+)"', path.read_text(encoding="utf-8")
+        )
+    }
+    assert set(LEDGER_TABLES) <= tables, "skaner nie widzi modeli księgi"
+    block = _core_checks_block()
+    missing = sorted(t for t in tables if not re.search(rf'\("{t}",\s*\w+\)', block))
+    assert not missing, (
+        f"tabele księgi bez sondy w `core_checks` /api/health/deep: {missing} — "
+        "dopisz je w app/main.py i do LEDGER_TABLES"
+    )
+
+
+def test_ledger_probe_models_are_imported() -> None:
+    """Brakujący import wywaliłby endpoint 500 — czyli bramkę schematu."""
+    imported = {
+        alias.asname or alias.name
+        for node in ast.walk(ast.parse(MAIN.read_text(encoding="utf-8")))
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith("app.models.ledger")
+        for alias in node.names
+    }
+    probed = re.findall(r'\("ledger_\w+",\s*(\w+)\)', _core_checks_block())
+    missing = sorted(model for model in probed if model not in imported)
+    assert not missing, missing
+
+
+# Ta sama reguła poza księgą. Pomiar 14.11.2026 (main a4028f962): 79 ze 133
+# tabel ORM z modułów `hr_schema_bundle` nie miało sondy — sprzęt, opieka,
+# portal konsultanta, szkolenia (0694), rozliczenia klientów (0679), faktury
+# sprzedaży — a do tego 3 tabele back office'u (0642), których modele nie są
+# w `app.models`, i `hr_import_id_map` z fundamentu (0455). Paczka to siatka
+# entrypointu, czyli jedyne wdrożenie schematu przy osieroconym alembicu,
+# więc strażnik bierze każdą tabelę, którą ona tworzy, zamiast listy łatanej
+# moduł po module. Tabela bez modelu ORM dostaje sondę przez lekkie `table()`
+# (jak `CARE_BOARD_STATES`).
+def _core_check_pairs() -> list[tuple[str, str]]:
+    """(nazwa sondy, symbol) z `core_checks`, czytane z AST, nie regexem."""
+    for node in ast.walk(ast.parse(MAIN.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "core_checks"
+            for target in node.targets
+        ):
+            return [(elt.elts[0].value, elt.elts[1].id) for elt in node.value.elts]
+    raise AssertionError("brak listy `core_checks` w app/main.py")
+
+
+def _hr_bundle_tables() -> set[str]:
+    from app.services import hr_schema_bundle as bundle
+
+    return {
+        match.group(1)
+        for stmt in (*bundle.COLUMN_DDL, *bundle.DATA_DDL, *bundle.CONSTRAINT_DDL)
+        for match in re.finditer(r"CREATE TABLE IF NOT EXISTS (\w+)", stmt)
+    }
+
+
+def test_every_hr_bundle_table_is_probed() -> None:
+    tables = _hr_bundle_tables()
+    anchors = {"employee_profiles", "equipment_items", "trainings", "bo_cards"}
+    assert anchors <= tables, "skaner nie widzi tabel paczki `hr_schema_bundle`"
+    probed = {name for name, _ in _core_check_pairs()}
+    missing = sorted(tables - probed)
+    assert not missing, (
+        f"tabele z `hr_schema_bundle` bez sondy w `core_checks` /api/health/deep: "
+        f"{missing} — dopisz `(nazwa_tabeli, Model)` w app/main.py; tabela bez "
+        "modelu ORM dostaje lekkie `table()` jak `CARE_BOARD_STATES`"
+    )
+
+
+def _probe_imports() -> dict[str, tuple[str, str]]:
+    """Symbol → (moduł, nazwa) z importów, które widzi lista `core_checks`.
+
+    Importy modułu i importy w ciele endpointu — tak jak rozwiązuje je Python.
+    """
+    tree = ast.parse(MAIN.read_text(encoding="utf-8"))
+    endpoint = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and any(
+            isinstance(child, ast.Name) and child.id == "core_checks"
+            for child in ast.walk(node)
+        )
+    )
+    imports: dict[str, tuple[str, str]] = {}
+    for scope in (tree.body, list(ast.walk(endpoint))):
+        for node in scope:
+            if isinstance(node, ast.ImportFrom) and node.module:
+                for alias in node.names:
+                    imports[alias.asname or alias.name] = (node.module, alias.name)
+    return imports
+
+
+def test_every_probe_reads_its_own_table() -> None:
+    """`("trainings", Training)` ma czytać `trainings`, a `Training` być zaimportowany.
+
+    Brak importu to NameError przy budowaniu listy, czyli 500 całej bramki
+    schematu. Symbol z sąsiedniego wiersza sondowałby nie tę tabelę: zielony
+    deploy przy brakującej.
+    """
+    imports = _probe_imports()
+    wrong = []
+    for name, symbol in _core_check_pairs():
+        if symbol not in imports:
+            wrong.append(f"{name}: {symbol} bez importu")
+            continue
+        module, attr = imports[symbol]
+        probe = getattr(importlib.import_module(module), attr)
+        table = getattr(probe, "__table__", probe)
+        if table.name != name:
+            wrong.append(f"{name}: {symbol} czyta `{table.name}`")
+    assert not wrong, wrong
+
+
+# Ta sama reguła dla reszty schematu. Pomiar 15.11.2026 (main b9a671f18 z #3446):
+# poza paczką siatka `entrypoint.sh` i moduły DDL w `app/services` (`*_schema.py`,
+# `schema_sql.py`) zakładały 111 tabel bez sondy — m.in. kontakty i leady
+# Sprzedaży, czaty, uprawnienia sekcji i konta serwisowe. Strażnik bierze każdą
+# tabelę z `CREATE TABLE IF NOT EXISTS <nazwa> (` w tych plikach, także tabele
+# paczki, więc nowy moduł DDL nie potrzebuje osobnej listy.
+_CREATE_TABLE = re.compile(r"CREATE TABLE IF NOT EXISTS\s+(\w+)\s*\(", re.IGNORECASE)
+
+
+def _entrypoint_tables() -> dict[str, set[str]]:
+    """Tabela → pliki, które ją zakładają: `entrypoint.sh` i DDL w `app/services`."""
+    paths = (
+        BACKEND / "entrypoint.sh",
+        *sorted((BACKEND / "app/services").rglob("*.py")),
+    )
+    tables: dict[str, set[str]] = {}
+    for path in paths:
+        for match in _CREATE_TABLE.finditer(path.read_text(encoding="utf-8")):
+            tables.setdefault(match.group(1), set()).add(str(path.relative_to(BACKEND)))
+    return tables
+
+
+def test_every_entrypoint_table_is_probed() -> None:
+    tables = _entrypoint_tables()
+    anchors = {
+        "sales_contacts",  # app/services/sales_schema.py
+        "job_chat_messages",  # entrypoint.sh
+        "candidate_rate_from_queue",  # tabela bez modelu ORM
+        "contract_doc_sp_run_items",  # app/services/contract_folder_docs/schema_sql.py
+        "employee_profiles",  # paczka hr_schema_bundle
+    }
+    assert anchors <= tables.keys(), "skaner nie widzi tabel siatki entrypointu"
+    probed = {name for name, _ in _core_check_pairs()}
+    missing = sorted(set(tables) - probed)
+    assert not missing, (
+        "tabele z `CREATE TABLE IF NOT EXISTS` w entrypoint.sh i app/services bez "
+        "sondy w `core_checks` /api/health/deep: "
+        + "; ".join(f"{t} ({', '.join(sorted(tables[t]))})" for t in missing)
+        + " — dopisz `(nazwa_tabeli, Model)` w app/main.py; tabela bez modelu ORM "
+        "dostaje lekkie `table()` jak `CARE_BOARD_STATES`"
+    )

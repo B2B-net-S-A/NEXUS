@@ -71,6 +71,7 @@ from app.services.hr.calendar import month_range
 from app.services.order_burn_rate import workdays_between
 from app.services.order_engagement_separation import AUTO_DRAFT_TITLE_PLACEHOLDER
 from app.services.order_rate_snapshots import convert_order_rate
+from app.services.order_revenue_steps import priced_for_month
 from app.services.shared_md_orders import (
     shared_md_import_breakdowns,
     shared_md_month_people,
@@ -488,7 +489,12 @@ async def billing_rows(
     )
     if clients is not None:
         order_query = order_query.where(ClientOrder.client_id.in_(clients))
-    orders = list((await db.scalars(order_query)).all())
+    # Stawka przychodowa z pierwszego dnia miesiąca — aneks stawki klienta
+    # zmienia ją od swojego dnia, miesiące wcześniej zostają po starej
+    # (``services/order_revenue_steps.py``).
+    orders = await priced_for_month(
+        db, list((await db.scalars(order_query)).all()), first
+    )
 
     group_ids = {o.order_group_id for o in orders if o.order_group_id is not None}
     groups: dict[int, ClientOrderGroup] = {}

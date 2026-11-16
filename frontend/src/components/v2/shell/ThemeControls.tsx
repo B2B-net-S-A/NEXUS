@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Gamepad2, Moon, Sun } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Moon, Sun } from "lucide-react";
 import { useThemeStore } from "@/store/theme";
 import { celebrate } from "@/lib/celebrate";
 
 /**
- * Przełączniki wyglądu (tryb ciemny, tryb gry). Na telefonie stoją w szufladzie
+ * Przełączniki wyglądu (tryb ciemny; tryb gry jest w galerii światów). Na telefonie stoją w szufladzie
  * nawigacji — pasek 375 px ich nie mieści (audyt responsywności 23.09.2026).
  * W górnym pasku od 13.10.2026 są w jednym menu „Wygląd” (`AppearanceMenu`),
  * żeby zmieścił się przycisk Ligi Mistrzów.
@@ -49,33 +48,4 @@ export function useKidsModeToggle(): { kidsMode: boolean; toggle: () => void } {
     if (turningOn) celebrate({ variant: "welcome", message: "Witaj w grze! 🎮" });
   };
   return { kidsMode, toggle };
-}
-
-export function KidsModeToggleButton() {
-  const { kidsMode, toggle: onToggle } = useKidsModeToggle();
-  const [mounted, setMounted] = useState(false);
-
-  // Avoid hydration mismatch — kidsMode is read from localStorage on client only.
-  useEffect(() => setMounted(true), []);
-
-  if (!mounted) {
-    return <div className="h-8 w-8" aria-hidden />;
-  }
-
-  return (
-    <button
-      onClick={onToggle}
-      aria-label={kidsMode ? "Wyłącz tryb gry" : "Włącz tryb gry (Kids)"}
-      title={kidsMode ? "Wyłącz tryb gry" : "Tryb gry (Kids)"}
-      aria-pressed={kidsMode}
-      className={cn(
-        "h-8 w-8 flex items-center justify-center rounded-md transition-colors",
-        kidsMode
-          ? "bg-primary/10 text-primary"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-      )}
-    >
-      <Gamepad2 className="h-4 w-4" />
-    </button>
-  );
 }

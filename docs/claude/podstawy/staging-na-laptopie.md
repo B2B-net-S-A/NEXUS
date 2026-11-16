@@ -45,7 +45,8 @@ a Qdrant był 10 dni starszy od bazy, co wyrzucało 2 247 osób z rankingu.
   wymaga wpisu w compose, bo inaczej nie dojdzie do backendu (pilnuje
   `tests/test_staging_nightly_sync.py`). `QUERY_ADAPTER_ENABLED` też idzie z produkcji
   (`RANKING_POOL_FLAGS`), bo włączony zmienia stempel: 09.11.2026 produkcja liczyła
-  `dc1ff64ccd10`, a staging bez niego `bdba10363617`. Różnice, które zostają celowo:
+  `dc1ff64ccd10`, a staging bez niego `bdba10363617`. `SALES_BOT_TASKS_ENABLED` i `SALES_REGISTRY_ENABLED` też idą z produkcji
+  (`SALES_FLAGS`, 14.11.2026); pętla `sales_signals` stoi, więc zmieniają tylko trasy. Różnice, które zostają celowo:
   integracje, poczta, pętle w tle, `REVIEW_BATCH_ENABLED` z
   `AUTO_FULL_REVIEW_DAYTIME_FIRST_ENABLED` (silnik porcji stoi, a włączona blokada 423
   zamknęłaby rekruterowi wyszukiwanie bez kart do oceny) i `DB_MAX_OVERFLOW`.

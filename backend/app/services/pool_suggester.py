@@ -78,12 +78,12 @@ def _search_pool_centroids_sync(
         from qdrant_client import QdrantClient
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        hits = client.search(
+        hits = client.query_points(
             collection_name=POOL_CENTROIDS_COLLECTION,
-            query_vector=vector,
+            query=vector,
             limit=limit,
             with_payload=False,
-        )
+        ).points
     except Exception as e:
         logger.debug("[PoolSuggest] centroid search failed: %s", e)
         return {}

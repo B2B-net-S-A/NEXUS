@@ -264,6 +264,44 @@ def test_downtime_report_splits_targets_and_reads_postgres_start() -> None:
     )
 
 
+def test_frontend_app_is_gated_before_compose_and_deployed_after_it() -> None:
+    """Etap B1: osobna aplikacja frontu w tym samym biegu Deploy.
+
+    Bramka przed compose (Coolify zatrzymuje wszystko, zanim odkryje brak sieci
+    `nexus-front`), front dopiero po udanym compose (padnięty backend nie zostawia
+    nowego frontu ze starym API) i przed smoke'iem `version.json`, a raport wie,
+    że front to osobna aplikacja (cel: 0 próbek bez 200).
+    """
+    steps = _load("deploy.yml")["jobs"]["deploy"]["steps"]
+    names = [s.get("name") for s in steps]
+    preflight = _step(steps, "Frontend app preflight")
+    trigger = _step(steps, "Trigger frontend app deployment")
+    wait = _step(steps, "Wait for frontend app deployment")
+    assert names.index("Frontend app preflight") < names.index("Trigger deployment")
+    assert "coolify_frontend_app.py preflight" in preflight["run"]
+    # Compose bez usługi `frontend`: front musi mieć domeny, zanim compose ruszy.
+    assert preflight["env"]["FRONTEND_APP_REQUIRED"] == "true"
+    assert (
+        names.index("Wait for deployment to finish (fail fast on server-side failure)")
+        < names.index("Trigger frontend app deployment")
+        < names.index("Wait for frontend app deployment")
+        < names.index("Frontend osiągalny (aplikacja użytkownika)")
+    )
+    assert (
+        trigger["env"]["COMPOSE_DEPLOYMENT_UUID"]
+        == "${{ steps.trigger.outputs.deployment_uuid }}"
+    )
+    assert "coolify_frontend_app.py trigger" in trigger["run"]
+    assert "coolify_frontend_app.py wait" in wait["run"]
+    assert wait["if"] == "${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}"
+    report = _step(steps, "Report user-facing downtime")
+    assert (
+        report["env"]["FRONTEND_APP"]
+        == "${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}"
+    )
+    assert '--frontend-app "$FRONTEND_APP"' in report["run"]
+
+
 # ── QA-02 / QA-03 ─────────────────────────────────────────────────────────
 
 
@@ -800,6 +838,10 @@ def test_deploy_waits_for_the_evening_window() -> None:
     quiet = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
     assert quiet["env"]["FREEZE_WINDOW"] == freeze
     assert '--freeze-window "$FREEZE_WINDOW"' in step["run"]
+    # Wieczorne grupowanie (13.11.2026): merge'e 18:00–21:59 wdraża slot
+    # budzika, nie każdy merge osobno.
+    assert step["env"]["BATCH_WINDOW"] == "18-22"
+    assert '--batch-window "$BATCH_WINDOW"' in step["run"]
     assert "$SCHEDULED" in step["run"]
     assert step["env"]["SCHEDULED"] == (
         "${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') "
@@ -940,6 +982,7 @@ def test_every_alert_issue_can_also_be_closed_by_a_green_run() -> None:
         ],
         "backup-drill.yml": ["NEXUS backup drill nie przechodzi"],
         "sentry-daily-monitor.yml": ["NEXUS dzienny monitor Sentry nie działa"],
+        "security-weekly.yml": ["NEXUS tygodniowy skan bezpieczeństwa czerwony"],
         "e2e.yml": [
             "Nocny E2E przeciw produkcji jest czerwony",
             "E2E po deployu (prod-smoke) jest czerwony",
@@ -1248,3 +1291,43 @@ def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:
     assert "steps.heads.outcome == 'failure'" in cancel["if"]
     assert "github.event_name == 'merge_group'" in cancel["if"]
     assert "(ci|e2e)" in cancel["run"] and "gh run cancel" in cancel["run"]
+
+
+def test_security_scanners_block_prs_and_run_weekly() -> None:
+    """13.11.2026: Semgrep i audyt zależności w trybie zapadki. Osobny kontekst
+    nie jest wymagany w rulesecie, więc o blokadzie decyduje „Backend (pytest)”;
+    pełny skan raz w tygodniu, nie w kolejce (płatne minuty)."""
+    import json as _json
+
+    ci = _load("ci.yml")["jobs"]
+    gate = ci["backend-pytest-gate"]
+    run = gate["steps"][0]["run"]
+    for job_id in ("semgrep-pr", "deps-audit-pr"):
+        assert job_id in gate["needs"]
+        assert f"needs.{job_id}.result" in run
+        assert ci[job_id]["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert '[ "$semgrep" != "success" ]' in run and '[ "$audit" != "success" ]' in run
+
+    baseline = _json.loads(
+        (_WORKFLOWS.parents[1] / ".semgrep-baseline.json").read_text(encoding="utf-8")
+    )
+    weekly = _load("security-weekly.yml")
+    triggers = weekly.get("on", weekly.get(True))
+    assert [c["cron"] for c in triggers["schedule"]] == ["30 5 * * 1"]
+    scans = [
+        _step(ci["semgrep-pr"]["steps"], "Semgrep")["run"],
+        _step(weekly["jobs"]["semgrep-full"]["steps"], "Semgrep")["run"],
+    ]
+    installs = [
+        _step(ci["semgrep-pr"]["steps"], "Zainstaluj Semgrep")["run"],
+        _step(weekly["jobs"]["semgrep-full"]["steps"], "Zainstaluj Semgrep")["run"],
+    ]
+    for scan in scans:
+        configs = re.findall(r"--config (\S+)", scan)
+        assert configs == baseline["configs"], "Reguły skanu = reguły, z których powstał baseline."
+        assert "p/secrets" not in scan, "Sekrety łapie gitleaks."
+        assert "--metrics=off" in scan
+    for install in installs:
+        assert install.strip().startswith(f"pip install semgrep=={baseline['semgrep']} ")
+    # Jawne pliki omijają .semgrepignore — PR skanuje katalogi z --include.
+    assert "include-args" in scans[0] and scans[0].rstrip().count("backend frontend") == 1

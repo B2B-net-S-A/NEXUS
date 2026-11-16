@@ -29,7 +29,7 @@ import {
 import { formatMoney } from "@/lib/money";
 import { warsawToday } from "@/lib/warsaw-date";
 
-import { splitPeriod } from "./invoicing-format";
+import { BUYER_NUMBER_LABELS, invoiceBuyerNumberText, splitPeriod } from "./invoicing-format";
 
 function ErrorLine({ error }: { error: string | null }) {
   return error ? (
@@ -42,11 +42,9 @@ function ErrorLine({ error }: { error: string | null }) {
 const optionKey = (option: AssignmentOption) =>
   option.group_id ? `g${option.group_id}` : `o${option.order_id}`;
 
-const numberLabel = (kind: BuyerNumberCheck["kind"]) => (kind === "vat_ue" ? "VAT UE" : "NIP");
-
 /** Co się stanie z numerem nabywcy; zapis wybierają Finanse przyciskiem w stopce okna. */
 function BuyerNumberNote({ check }: { check: BuyerNumberCheck }) {
-  const label = numberLabel(check.kind);
+  const label = BUYER_NUMBER_LABELS[check.kind];
   if (check.state === "add") {
     return (
       <p className="mb-3 rounded-md border border-border bg-muted/50 p-3 text-sm">
@@ -108,6 +106,7 @@ export function AssignInvoiceDialog({
   const [error, setError] = useState<string | null>(null);
   const list = options.data?.options ?? [];
   const buyerNumber = options.data?.buyer_number;
+  const buyerNumberText = invoiceBuyerNumberText(invoice);
   const canAddNumber = buyerNumber?.state === "add";
   const hasNote = canAddNumber || buyerNumber?.state === "differs" || buyerNumber?.state === "taken";
 
@@ -180,7 +179,7 @@ export function AssignInvoiceDialog({
             <Button onClick={addNumberOnly} disabled={saveNumber.isPending}>
               {saveNumber.isPending
                 ? "Zapisywanie…"
-                : `Dopisz ${numberLabel(buyerNumber.kind)} bez przypisywania`}
+                : `Dopisz ${BUYER_NUMBER_LABELS[buyerNumber.kind]} bez przypisywania`}
             </Button>
           ) : canAddNumber ? (
             <>
@@ -194,7 +193,7 @@ export function AssignInvoiceDialog({
               <Button onClick={() => submit(true)} disabled={assign.isPending || !list.length}>
                 {assign.isPending
                   ? "Zapisywanie…"
-                  : `Przypisz i dopisz ${numberLabel(buyerNumber.kind)}`}
+                  : `Przypisz i dopisz ${BUYER_NUMBER_LABELS[buyerNumber.kind]}`}
               </Button>
             </>
           ) : (
@@ -209,9 +208,7 @@ export function AssignInvoiceDialog({
         <div className="mb-3 space-y-2">
           <p className="text-sm text-muted-foreground">
             Nabywca na fakturze: {invoice.buyer_name ?? "bez nazwy"}
-            {invoice.buyer_nip || invoice.buyer_foreign_id
-              ? ` · ${invoice.buyer_nip ? "NIP" : "VAT UE"} ${invoice.buyer_nip ?? invoice.buyer_foreign_id}`
-              : ""}
+            {buyerNumberText ? ` · ${buyerNumberText}` : ""}
             . Wskaż klienta, którego dotyczy faktura.
           </p>
           <ClientSinglePicker

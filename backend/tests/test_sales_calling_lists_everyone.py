@@ -67,17 +67,26 @@ async def test_all_scope_filters_by_caller_and_mine_ignores_caller(app_client) -
 
 
 @pytest.mark.asyncio
-async def test_seeing_someone_elses_record_does_not_allow_saving_it(app_client) -> None:
+async def test_someone_elses_record_is_saved_only_with_sales_edit(app_client) -> None:
+    """Decyzja Artura 13.11.2026 zastępuje „cudzy rekord tylko do czytania” z 12.11:
+    wynik w cudzej kolejce zapisuje każdy z „Sprzedaż: edycja”, podgląd dalej nie."""
+
     marcel = await _user("sales_view", "sales_edit")
     seller = await _user("sales_view", "sales_edit")
+    viewer = await _user("sales_view")
     campaign_id = await _campaign()
     record_id = await _record(marcel.id, campaign_id, await _company())
 
-    card = await app_client.get(f"{URL}/records/{record_id}", headers=_headers(seller))
+    card = await app_client.get(f"{URL}/records/{record_id}", headers=_headers(viewer))
     assert card.status_code == 200, card.text
     assert card.json()["can_save"] is False
+    assert (
+        await _save(app_client, viewer, record_id, outcome="no_answer")
+    ).status_code == 403
+    card = await app_client.get(f"{URL}/records/{record_id}", headers=_headers(seller))
+    assert card.json()["can_save"] is True
     resp = await _save(app_client, seller, record_id, outcome="no_answer")
-    assert resp.status_code == 403
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.asyncio

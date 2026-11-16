@@ -25,6 +25,7 @@ import { B2B_EXTENSION_HINT } from "@/lib/contract-end-date";
 import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import { warsawToday } from "@/lib/warsaw-date";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { AnnexClientRateImpact } from "@/components/contracts/AnnexClientRateImpact";
 import { resolveViewState } from "@/lib/view-state";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import {
@@ -47,6 +48,8 @@ const TYPE_LABELS: Record<string, string> = {
   party_data_change: "Uzupełnienie danych firmy",
   subcontractor_consent: "Osoba skierowana",
   mandate_change: "Aneks do umowy zlecenie",
+  // Aneks z własną nazwą (0723) — nazwę niesie `new_values.annex_title` i powód.
+  custom_change: "Inna zmiana",
 };
 
 /** Nazwa typu aneksu; typ, którego front jeszcze nie zna, nie zostaje pusty. */
@@ -69,7 +72,8 @@ interface Amendment {
     | "start_date_change"
     | "party_data_change"
     | "subcontractor_consent"
-    | "mandate_change";
+    | "mandate_change"
+    | "custom_change";
   old_values: Record<string, unknown> | null;
   new_values: Record<string, unknown> | null;
   effective_date: string;
@@ -465,6 +469,13 @@ export function ContractAmendmentsTab({
                 />
               </label>
             </div>
+          )}
+          {form.amendment_type === "rate_change" && canAmendRates && canViewFinance && (
+            <AnnexClientRateImpact
+              contractId={contractId}
+              effectiveDate={form.effective_date}
+              newRateClient={form.new_rate_client}
+            />
           )}
 
           {form.amendment_type === "scope_change" && (

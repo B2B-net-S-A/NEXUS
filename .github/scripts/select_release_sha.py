@@ -37,6 +37,15 @@ Skoro nie da się wskazać Coolify commitu, pilnujemy obu końców budowy:
     po zmianie env nie może zginąć w koalescencji wieczornego biegu).
     ``--emergency --reason "…"`` omija okno — tylko na polecenie Artura.
 
+``select`` — wieczorne grupowanie (13.11.2026, decyzja Artura)
+    Każde wdrożenie to dziś ok. 90 s przerwy API i restart bazy (Coolify
+    w trybie compose zatrzymuje wszystkie kontenery). 12.11 między 21:06
+    a 22:03 było ich pięć. W oknie ``--batch-window`` (w deploy.yml ``18-22``,
+    pon–pt) automatyczny bieg po merge'u odracza się
+    (``head_status=evening_batch``), a zaległe merge'e wdraża slot budzika
+    ``deploy-window`` (18:05, 20:05, 22:05, ``--scheduled``). Ręczny bieg
+    wdraża od razu. Od 22:00 i w weekend merge wdraża się jak dawniej.
+
 ``select`` / ``hold-check`` — alarm wstrzymania (OPS-N07)
     ``hold_alert`` w ``$GITHUB_OUTPUT`` niesie powód, gdy HEAD maina ma czerwoną
     bramkę albo nie ma jej wcale dłużej niż ``MISSING_ALERT_MINUTES`` — deploy
@@ -68,6 +77,7 @@ DEFAULT_MAX_COMMITS = 30
 GREEN = "success"
 PENDING = {"in_progress", "missing"}
 FREEZE_STATUS = "night_freeze"
+BATCH_STATUS = "evening_batch"
 DEFAULT_TZ = "Europe/Warsaw"
 # ``datetime.weekday()``: 5 = sobota, 6 = niedziela — w weekend okna ciszy nie ma.
 WEEKEND_FROM = 5
@@ -316,6 +326,12 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="workflow_dispatch: wdróż mimo okna ciszy (tylko na polecenie Artura)",
     )
+    select.add_argument(
+        "--batch-window",
+        default="",
+        help="wieczorne grupowanie pon–pt, np. 18-22: automatyczny bieg po merge'u "
+        "czeka na slot budzika (pusty = brak)",
+    )
     select.add_argument("--reason", default="", help="powód awaryjnego wdrożenia")
     freeze = sub.add_parser(
         "in-freeze",
@@ -351,6 +367,16 @@ def _age_minutes(date: Optional[datetime], now: datetime) -> Optional[float]:
     if date is None:
         return None
     return max(0.0, (now - date).total_seconds() / 60.0)
+
+
+def _in_batch(now: datetime, window: Optional[str]) -> bool:
+    # Te same godziny i ta sama reguła weekendu co w oknie ciszy.
+    try:
+        return in_freeze(now, window)
+    except ValueError as error:
+        # Zła wartość nie może zatrzymać wdrożeń: bez grupowania, jak dawniej.
+        print(f"::warning::{error} — wieczorne grupowanie pominięte.")
+        return False
 
 
 def _run_select(
@@ -398,6 +424,23 @@ def _run_select(
             print(
                 f"::notice::Deploy odroczony: okno ciszy {args.freeze_window} "
                 f"(czas {DEFAULT_TZ}). Zaległe zmiany wdroży wieczorny przebieg Deploy."
+            )
+            return 0
+        if not (manual or args.scheduled) and _in_batch(now, args.batch_window):
+            _append(
+                os.environ.get("GITHUB_OUTPUT"),
+                [
+                    "release_sha=",
+                    "head_sha=",
+                    f"head_status={BATCH_STATUS}",
+                    "defer=true",
+                    "hold_alert=",
+                ],
+            )
+            print(
+                f"::notice::Deploy odroczony: wieczorne grupowanie {args.batch_window} "
+                f"(czas {DEFAULT_TZ}). Zmiany wdroży najbliższy slot budzika "
+                "(20:05 albo 22:05); od razu tylko ręczny bieg Deploy."
             )
             return 0
     head, head_date = head_commit_info(fetch, args.repo, args.branch)

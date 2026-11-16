@@ -263,6 +263,12 @@ jobs:
           # zmiennej repo: 22.10 zmiana na 8-18 w kodzie nie zadziałała, bo
           # stara zmienna `DEPLOY_FREEZE_WINDOW=7-19` ją nadpisywała (29.10).
           FREEZE_WINDOW: "8-18"
+          # Wieczorne grupowanie (13.11.2026, decyzja Artura): pon–pt
+          # 18:00–21:59 merge nie przebudowuje produkcji od razu, tylko czeka
+          # na slot budzika 20:05 / 22:05 — każde wdrożenie to ok. 90 s
+          # przerwy API i restart bazy, a 12.11 było ich 7 jednego wieczoru.
+          # Ręczny bieg wdraża od razu. → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
+          BATCH_WINDOW: "18-22"
           EMERGENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency && '--emergency' || '' }}
           # Tekst od człowieka tylko przez `env:` — interpolacja `${{ }}` w `run`
           # wkleiłaby go do skryptu powłoki.
@@ -273,6 +279,7 @@ jobs:
           python3 .github/scripts/select_release_sha.py select \
             --repo "${{ github.repository }}" --branch main \
             --target "$TARGET_SHA" --freeze-window "$FREEZE_WINDOW" \
+            --batch-window "$BATCH_WINDOW" \
             --reason "$DEPLOY_REASON" \
             $TARGET_UNVERIFIED $SCHEDULED $EMERGENCY
           if [ -n "$EMERGENCY" ]; then
@@ -485,6 +492,21 @@ jobs:
           fi
           echo "Provisioned a dedicated candidate identity fingerprint key."
 
+      # Front jako osobna aplikacja Coolify (etap B1). Coolify najpierw zatrzymuje
+      # WSZYSTKIE kontenery compose, a brak sieci zewnętrznej `nexus-front` odkrywa
+      # dopiero przy `up` — wtedy leży cała produkcja. Ta bramka sprawdza sieć przed
+      # wyzwoleniem compose; po przepięciu (`FRONTEND_APP_REQUIRED=true`) także to, że
+      # front ma domeny, a compose już ich nie ma. → docs/claude/podstawy/przerwa-przy-wdrozeniu.md
+      - name: Frontend app preflight
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          # Compose nie ma już usługi `frontend`: bez frontu z domenami Deploy dałby 404.
+          FRONTEND_APP_REQUIRED: "true"
+        run: python3 .github/scripts/coolify_frontend_app.py preflight
+
       # ── Pomiar przerwy widzianej przez użytkowników (reaudyt 14.09.2026) ──
       # Zielony deploy i końcowy healthcheck NIE mówią, czy użytkownicy dostali
       # w trakcie 503. 14.09 deploy #1509 zakończył się sukcesem, a niezależne
@@ -666,6 +688,34 @@ jobs:
           done
           echo "::error::Deployment $DEPLOYMENT_UUID still '$status' after 15 min — treating as failed. Run the 'Coolify Ops' workflow to inspect/cancel it."
           exit 1
+
+      # Front wdraża się dopiero po udanym compose, z commitu, który compose zbudował
+      # (`git_commit_sha`): padnięta budowa backendu nie zostawia nowego frontu ze
+      # starym API, a `version.json` ma SHA backendu. Rolling update z retry Traefika
+      # — sonda wyżej mierzy go w tym samym biegu. Aplikacja bez domen (przed
+      # `switch`) = krok pomija front, bo ruch obsługuje jeszcze usługa w compose.
+      - name: Trigger frontend app deployment
+        id: frontend_trigger
+        if: ${{ steps.precheck.outputs.skip != 'true' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          COMPOSE_DEPLOYMENT_UUID: ${{ steps.trigger.outputs.deployment_uuid }}
+        run: python3 .github/scripts/coolify_frontend_app.py trigger
+
+      # Status wdrożenia frontu, SHA w logu builda (bez wypisywania logu), stan
+      # `running:healthy` i ścieżka użytkownika na domenie (callback logowania Microsoft
+      # przez backend, /login) — healthcheck kontenera nie sprawdza drogi front → backend
+      # (13.11.2026). Smoke `version.json` niżej sprawdza wersję z zewnątrz.
+      - name: Wait for frontend app deployment
+        if: ${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          FRONTEND_DEPLOYMENT_UUID: ${{ steps.frontend_trigger.outputs.deployment_uuid }}
+        run: python3 .github/scripts/coolify_frontend_app.py wait
 
       # ── Smoke test scalony z jobem deploy (2026-08-07) ──────────────
       # Był osobnym jobem z `needs: deploy`. Same testy trwają ~5 s, a
@@ -1039,6 +1089,7 @@ jobs:
         if: ${{ always() && steps.downtime_meter.outcome == 'success' }}
         env:
           APP_URL: ${{ vars.APP_URL }}
+          FRONTEND_APP: ${{ steps.frontend_trigger.outputs.deployment_uuid != '' }}
         run: |
           set +e
           probe_dir="$RUNNER_TEMP/downtime-probe"
@@ -1056,6 +1107,7 @@ jobs:
             --samples "$samples" --target "${RELEASE_SHA:-$TARGET_SHA}" \
             --postgres-before "$(cat "$probe_dir/pg_before" 2>/dev/null)" \
             --postgres-after "$pg_after" \
+            --frontend-app "$FRONTEND_APP" \
             --summary-out "$probe_dir/summary.md" \
             --notice-out "$probe_dir/notices.txt" \
             || { echo "::warning::Skrypt raportu przerwy padł — brak pomiaru dla tego deployu."; exit 0; }

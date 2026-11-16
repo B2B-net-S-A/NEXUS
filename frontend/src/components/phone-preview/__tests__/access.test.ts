@@ -5,7 +5,8 @@ import { isBoardAllowedPath } from "@/lib/board-access";
 import { startAllows } from "@/lib/novelties/logic";
 import type { User } from "@/store/auth";
 
-import { resultsKind, seesAllRecruitments, seesAttention, seesRecruitment, seesToday, seesWholeTeam, shortName } from "../access";
+import { resultsKind, seesAllRecruitments, seesAttention, seesRecruitment, seesSearch, seesToday, seesWholeTeam, shortName } from "../access";
+import { dialable, looksLikePhone } from "../contact";
 import { isStartScreen } from "../usePhonePreviewRedirect";
 
 const person = (role: string, extra: Partial<User> = {}) =>
@@ -52,6 +53,38 @@ describe("Podgląd na telefonie: kto co widzi", () => {
 
   it("brak użytkownika nie otwiera rekrutacji", () => {
     expect(seesRecruitment(null)).toBe(false);
+  });
+
+  it("Szukaj mają ci, którzy dzwonią do kandydatów; Rada i Finanse nie", () => {
+    expect(seesSearch(person("recruiter"))).toBe(true);
+    expect(seesSearch(person("delivery_lead"))).toBe(true);
+    expect(seesSearch(person("admin"))).toBe(true);
+    expect(seesSearch(person("head_of_recruitment"))).toBe(true);
+    expect(seesSearch(person("finance"))).toBe(false);
+    expect(seesSearch(person("board"))).toBe(false);
+    expect(seesSearch(null)).toBe(false);
+  });
+});
+
+describe("Podgląd na telefonie: numer do wybrania", () => {
+  it("zostawia same cyfry i plus z przodu", () => {
+    expect(dialable("+48 507 988 829")).toBe("+48507988829");
+    expect(dialable("(22) 123-45-67")).toBe("221234567");
+  });
+
+  it("za krótki albo pusty numer nie daje przycisku", () => {
+    expect(dialable("123")).toBeNull();
+    expect(dialable("brak")).toBeNull();
+    expect(dialable(null)).toBeNull();
+    expect(dialable("  ")).toBeNull();
+  });
+
+  it("rozpoznaje numer wklejony z połączeń, nie nazwisko ani mail", () => {
+    expect(looksLikePhone("507 988 829")).toBe(true);
+    expect(looksLikePhone("+48507988829")).toBe(true);
+    expect(looksLikePhone("Kotow")).toBe(false);
+    expect(looksLikePhone("jan600@example.com")).toBe(false);
+    expect(looksLikePhone("12345")).toBe(false);
   });
 });
 

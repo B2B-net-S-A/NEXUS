@@ -1,5 +1,125 @@
 [
   {
+    "id": "aneks-inna-zmiana",
+    "pr": 3505,
+    "title": "Generator aneksów: aneks z własną nazwą",
+    "why": "Na zmianę spoza listy (np. zwolnienie z zakazu konkurencji): nazwij aneks, wpisz zmiany paragrafów albo wybierz gotową klauzulę. Kontraktu podpis sam nie zmienia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["finance", "delivery_lead", "admin"] },
+    "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.annex-custom"
+  },
+  {
+    "id": "doplata-uzasadnienie-z-modelu",
+    "pr": 3501,
+    "title": "Dopłata za technologię: „Zaproponuj uzasadnienie”",
+    "why": "W oknie „Uzasadnienie (EN)” model pisze szkic po angielsku z faktów NEXUSA i Twoich przykładów — bez nazwiska i stawek. Czytasz, poprawiasz i wysyłasz sam; bez modelu zostaje szablon.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": {
+      "roles": [
+        "admin",
+        "delivery_lead",
+        "finance"
+      ]
+    },
+    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.premium-justification"
+  },
+  {
+    "id": "porcja-szczegol-powodu",
+    "pr": 3470,
+    "title": "Porcja dnia: dokładniejszy powód „Nie pasuje”",
+    "why": "„Inna rola”: zawód, poziom albo specjalizacja. „Za drogi”: ile chce. „Nie szuka”: wypowiedzenie albo data. Duplikaty i porządki osobno pod „Inne” — system się z nich nie uczy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Nie pasuje",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.reject",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "zespol-rozbij-zapytanie",
+    "pr": 3461,
+    "title": "Nowa rekrutacja: rozbij zapytanie na stanowiska zespołu",
+    "why": "Przy „Stanowisko w zespole” odczyt wypisze stanowiska z wklejonego maila, a „Użyj” wpisze rolę i liczbę osób. Na ekranie zespołu zobaczysz też stawki z historii klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Nowa rekrutacja → „Co zamawia klient?” → „Stanowisko w zespole”",
+    "href": "/jobs/new",
+    "section": "pipeline",
+    "dot_anchor": "jobs.new.team-split"
+  },
+  {
+    "id": "zespol-gotowe-sklady",
+    "pr": 3454,
+    "title": "Zespół: gotowe składy dla klienta i rozmowy z całym składem",
+    "why": "„Zaproponuj składy” układa trzy składy zespołu. Po Twoim zatwierdzeniu klient wybiera skład w linku i prosi o rozmowy z całym składem jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Zespół → „Gotowe składy dla klienta” → „Zaproponuj składy”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.team.variants"
+  },
+  {
+    "id": "zespol-dla-klienta",
+    "pr": 3450,
+    "title": "Zespół dla klienta: kilka stanowisk, jeden link i cena zespołu",
+    "why": "Klient zamawia kilka stanowisk? „Utwórz zespół” łączy je w jeden link: klient widzi wszystkie stanowiska, wybiera osoby do składu i od razu widzi cenę zespołu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacja → pasek nad Tablicą → „Utwórz zespół”",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.team"
+  },
+  {
+    "id": "sprzedaz-dzwonienie-przypomnienia",
+    "pr": 3374,
+    "title": "Dzwonienie: Przypomnienia, „Nie odebrane” i cudza kolejka",
+    "why": "„Przypomnienia” zbierają terminy powrotów, dzisiejsze są też w „Moim dniu”. Nieodebrane mają własną sekcję. Otworzysz cudzą kolejkę i zapiszesz w niej wynik. Oferta zakłada lead.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": [
+        "sales_edit"
+      ]
+    },
+    "where": "Sprzedaż → Dzwonienie → Przypomnienia",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.view"
+  },
+  {
+    "id": "sprzedaz-kontakty-jedna-lista",
+    "pr": 3372,
+    "title": "Karta firmy: Kontakty to jedna lista osób",
+    "why": "Osoby od bota Kontakty i z Cognism są od razu w Kontaktach. Nowsze stanowisko zastępuje stare, a kto odszedł, stoi na końcu jako „nie pracuje”. Stan cofasz w oknie kontaktu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → Firmy → karta firmy → Kontakty",
+    "href": "/sales/companies",
+    "dot_anchor": "sales.company.contacts",
+    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+  },
+  {
     "id": "sprzedaz-leady-teczka",
     "pr": 3363,
     "title": "Leady: teczka firmy przy leadzie",
@@ -166,8 +286,8 @@
   {
     "id": "sprzedaz-dzwonienie-po-excelu",
     "pr": 3315,
-    "title": "Dzwonienie: klawisze, „Nie zainteresowany”, licznik „Dziś” i tabela",
-    "why": "To, co było w Excelu, jest w kolejce: wynik klawiszem 1–7, „Nie zainteresowany” wraca za pół roku albo nigdy, dzień liczy się sam, a tabela pokazuje całą listę z kolorami.",
+    "title": "Dzwonienie: klawisze, licznik „Dziś” i tabela",
+    "why": "To, co było w Excelu, jest w kolejce: wynik klawiszem 1–5, dzień liczy się sam, a tabela pokazuje całą listę z kolorami.",
     "tier": "tour",
     "shipped_on": "2026-11-11",
     "audience": {
@@ -182,8 +302,8 @@
     "steps": [
       {
         "anchor": "sales.calling.outcomes",
-        "text": "Wynik zapiszesz też klawiszem 1–7.",
-        "hint": "Numer stoi przy przycisku, po zapisie od razu następna osoba. „Nie zainteresowany” pyta, kiedy wrócić: domyślnie za pół roku, można „Nigdy”.",
+        "text": "Wynik zapiszesz też klawiszem 1–5.",
+        "hint": "Numer stoi przy przycisku, po zapisie od razu następna osoba. Oferta pyta, czy i kiedy wrócić; „Nie zainteresowany” i „Nie teraz” zdjęto 13.11.2026.",
         "ack": true
       },
       {
@@ -2406,6 +2526,11 @@
     "dot_anchor": "jobs.sources.duties",
     "steps": [
       {
+        "anchor": "jobs.list.title",
+        "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.",
+        "hint": "Otworzy się Tablica tej rekrutacji."
+      },
+      {
         "anchor": "jobs.sources.search",
         "text": "Kliknij „Szukaj” na Tablicy rekrutacji.",
         "hint": "W menu są źródła kandydatów do tej rekrutacji."
@@ -2512,7 +2637,7 @@
       {
         "anchor": "sales.calling.outcomes",
         "text": "Wynik rozmowy to jedno kliknięcie.",
-        "hint": "„Oddzwonić” i „Nie teraz” pytają o dzień i wracają same. Szansa powstaje dopiero z „Umówione spotkanie”: nie zakładaj jej po samym telefonie.",
+        "hint": "„Oddzwonić” i oferta pytają o termin i wracają same. Szansa powstaje dopiero z „Umówione spotkanie”: nie zakładaj jej po samym telefonie.",
         "ack": true
       },
       {
@@ -2741,5 +2866,158 @@
     "where": "Sprzedaż → Leady → Boty",
     "href": "/sales/bots",
     "dot_anchor": "sales.bots.list"
+  },
+  {
+    "id": "sprzedaz-bot-listy",
+    "pr": 3378,
+    "title": "Kampanie: Bot Listy buduje listę do dzwonienia",
+    "why": "Opisz, do kogo dzwonimy, a bot złoży listę z bazy i dosypie ją w poniedziałek. „Co działa” pokazuje, które role kończą się spotkaniem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → Dzwonienie → Kampanie → Bot Listy",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.bot-lists",
+    "requires_setting": "SALES_BOT_LISTS_ENABLED"
+  },
+  {
+    "id": "czat-wszyscy-przypisani",
+    "pr": 3373,
+    "title": "@wszyscy w czacie i notatkach rekrutacji",
+    "why": "Po „@” na górze listy jest „Wszyscy przypisani”. Jeden wybór oznacza rekruterów, Delivery Leada i przypisanych do rekrutacji. Pod polem widać, kto dostanie wzmiankę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Rekrutacja → Historia i czat → Czat zespołu (też notatki w panelu osoby)",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.chat.compose"
+  },
+  {
+    "id": "swiaty-wygladu",
+    "pr": 3388,
+    "title": "Światy wyglądu: kilkanaście motywów zamiast jednego trybu gry",
+    "why": "W „Wyglądzie” → „Świat” wybierzesz klimat NEXUSA: Sakura, Latte, Lawenda, Pit stop, Góry, Kosmos i inne. Wybór idzie za Tobą na każdy komputer.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": {},
+    "where": "Górny pasek → Wygląd → Świat",
+    "href": "/",
+    "dot_anchor": "appearance.menu"
+  },
+  {
+    "id": "szkolenia-biblioteka-nagran",
+    "pr": 3386,
+    "title": "Szkolenia: nagrania, materiały i zapisy w NEXUSIE",
+    "why": "W menu jest nowa pozycja „Szkolenia”. Obejrzysz tam nagrania ze szkoleń z podziałem na rozdziały, pobierzesz materiały i zapiszesz się na najbliższe szkolenie na żywo.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
+    "where": "Menu → Firma → Szkolenia",
+    "href": "/trainings",
+    "dot_anchor": "trainings.library"
+  },
+  {
+    "id": "szkolenia-kalendarz-teams",
+    "pr": 3397,
+    "title": "Szkolenia: kalendarz, zaproszenie do Outlooka i nagranie z transkryptem",
+    "why": "Po „Zapisz się” zaproszenie trafia do Twojego kalendarza, a dzień wcześniej przyjdzie przypomnienie. W „Nagraniach” znajdziesz słowo, które padło na szkoleniu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-13",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
+    "where": "Menu → Firma → Szkolenia → Kalendarz",
+    "href": "/trainings",
+    "dot_anchor": "trainings.calendar"
+  },
+  {
+    "id": "umowa-ramowa-kategoria-doplata",
+    "pr": 3459,
+    "title": "Umowa ramowa: kategoria, limit i dopłata za technologię",
+    "why": "Kontrakt pokazuje kategorię z zamówienia, limit z cennika i czy stawka się mieści. Dopłatę (np. Kafka +20%) wpisujesz z potwierdzeniem klienta: podnosi limit, nie stawkę.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Kontrakty → kontrakt → Szczegóły → Umowa ramowa",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.framework-category"
+  },
+  {
+    "id": "raporty-dla-klientow",
+    "pr": 3456,
+    "title": "Raporty dla klientów: co, komu i do kiedy",
+    "why": "W Klientach nowy widok „Raporty dla klientów”: terminy raportów z umów w jednym kalendarzu miesiąca. Pobierzesz plik i zapiszesz, że raport poszedł.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → Raporty dla klientów",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.reports"
+  },
+  {
+    "id": "stawki-ramowe-raport-kwartalny",
+    "pr": 3462,
+    "title": "Stawki ramowe klienta i raport kwartalny",
+    "why": "Kto jest w stawce z umowy, kto dzięki dopłacie, kto ponad i co daje umowa. Raport kwartalny dla klienta pobierzesz jako Excel, bez marży.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Klienci → klient → Stawki ramowe → Raport kwartalny",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.framework-rates.report"
+  },
+  {
+    "id": "doplata-wniosek-zna-korzysta",
+    "pr": 3465,
+    "title": "Dopłata za technologię: wniosek z propozycją NEXUSA",
+    "why": "Na kontrakcie NEXUS pokazuje, czy osoba zna i korzysta z technologii z umowy. Zatwierdzasz, wysyłasz do klienta i zapisujesz wynik. Przed prolongatą przyjdzie dzwonek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-15",
+    "audience": { "roles": ["admin", "delivery_lead", "finance"] },
+    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.premium-skills"
+  },
+  {
+    "id": "nowa-osoba-przechodzi-poligon",
+    "pr": 3444,
+    "title": "Nowa osoba pierwszego dnia przechodzi Poligon",
+    "why": "Nowy rekruter, Delivery Lead i TCM pierwszego dnia przechodzą Poligon NEXUSA (rekruter: 19 ćwiczeń). Do zaliczenia nie wejdą na inne ekrany, a ten dzień nie liczy się do ich statystyk.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Ustawienia → Nowości — kto już umie → Poligon NEXUSA dla nowych osób",
+    "href": "/settings/nowosci",
+    "dot_anchor": "settings.nowosci.poligon-gate"
+  },
+  {
+    "id": "kto-ilu-dodal-w-zespole",
+    "pr": 3506,
+    "title": "Kto ilu kandydatów dodał do rekrutacji",
+    "why": "W okienku „Rekruter” pod zespołem jest tabela: ile osób dodał każdy, w tym w ostatnich 7 dniach, ile jest w toku i ile doszło do klienta. Osoby z zespołu, które nikogo nie dodały, mają zero.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Rekrutacja → Tablica → fakt „Rekruter” w nagłówku → Kto ilu dodał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.recruiter-team"
+  },
+  {
+    "id": "dodali-do-rekrutacji-zespol",
+    "pr": 3509,
+    "title": "Kto ilu dodał do rekrutacji — na pulpicie i w Raportach",
+    "why": "„Dodali dziś” i „Dodali 7 dni” w „Wynikach osób”: ile osób każdy dodał do rekrutacji, także już będących w bazie. To samo w Raportach → Aktywność zespołu, obok nowych profili.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "talent_community_manager"] },
+    "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.team-table.fullscreen"
   }
 ]

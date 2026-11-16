@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ArrowRight, ChevronDown } from "lucide-react";
 
 import { CHANNEL_LABELS } from "@/lib/job-channels";
@@ -35,6 +35,8 @@ export interface JobRecruiterFactProps {
   onOpenTeam?: () => void;
   /** Zwinięty nagłówek: same awatary, bez napisu. */
   compact?: boolean;
+  /** „Kto ilu dodał” (16.11.2026) — tylko na Tablicy, gdy jest wczytana. */
+  addedToJob?: ReactNode;
 }
 
 /** Co pokazuje fakt: osoby, które pracują, sama propozycja automatu albo nikt. */
@@ -100,6 +102,7 @@ export function JobRecruiterFact({
   canEdit,
   onOpenTeam,
   compact = false,
+  addedToJob,
 }: JobRecruiterFactProps) {
   const viewerId = useAuthStore((s) => s.user?.id ?? null);
   const [open, setOpen] = useState(false);
@@ -183,8 +186,10 @@ export function JobRecruiterFact({
         align="start"
         collisionPadding={8}
         data-testid="job-recruiter-popover"
+        // Z tabelą „Kto ilu dodał” okienko bywa wyższe niż ekran 720 px —
+        // przewija się w środku, zamiast wychodzić poza ekran.
         className={cn(
-          "w-[min(380px,calc(100vw-2rem))] space-y-3",
+          "max-h-[var(--radix-popover-content-available-height)] w-[min(380px,calc(100vw-2rem))] space-y-3 overflow-y-auto",
           layerOpen && "invisible",
         )}
         onInteractOutside={keepOpen}
@@ -200,6 +205,7 @@ export function JobRecruiterFact({
           canEdit={canEdit}
           onLayerOpenChange={setLayerOpen}
         />
+        {addedToJob}
         <div className="flex items-baseline gap-2 border-t border-border pt-2 text-sm">
           <span className="shrink-0 text-[11px] font-semibold uppercase tracking-eyebrow text-muted-foreground">
             Delivery Lead

@@ -198,6 +198,9 @@ class PendingCard:
     # Ktoś wziął kartę („Dzwonię”, aktywna blokada): stoi w „Nowych”, ale już
     # nie czeka (lustro ``waitsInSystemQueue`` z frontu).
     taken: bool = False
+    # Surowa blokada procesu (``claimed_by_user_id`` / ``claimed_until``).
+    claimed_by: Optional[int] = None
+    claimed_until: Optional[datetime] = None
 
 
 async def _other_column_def_ids(db: AsyncSession) -> list[int]:
@@ -277,6 +280,27 @@ def batch_cards(
     cards: Iterable["PendingCard"], now: datetime, min_score: Optional[float] = None
 ) -> list["PendingCard"]:
     return [card for card in cards if in_batch(card, now, min_score)]
+
+
+def claimed_by_other(
+    card: "PendingCard",
+    user_id: int,
+    now: datetime,
+    inactive: frozenset[int] | set[int] = frozenset(),
+) -> bool:
+    """Osobę prowadzi teraz ktoś inny (aktywna blokada 12 h, konto aktywne).
+
+    Taka karta nie należy do porcji właściciela (16.11.2026): odrzucenie
+    dostaje 423 z ``candidate_claim.assert_can_act``, a „Pominąć” się nie da,
+    więc porcja stała do końca cudzej blokady. Po jej końcu karta wraca."""
+    if card.claimed_by is None or card.claimed_by == user_id:
+        return False
+    if card.claimed_by in inactive or card.claimed_until is None:
+        return False
+    until = card.claimed_until
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=timezone.utc)
+    return until > now
 
 
 def _score(meta) -> float:
@@ -361,6 +385,8 @@ async def pending_cards(
                 claimed_by is not None
                 and (claimed_until is None or claimed_until > moment)
             ),
+            claimed_by=claimed_by,
+            claimed_until=claimed_until,
         )
         key = (card.job_id, card.candidate_id)
         prev = by_pair.get(key)
@@ -372,11 +398,16 @@ async def pending_cards(
 
 
 async def absent_today(db: AsyncSession, user_ids: Iterable[int]) -> set[int]:
-    """Kto ma dziś zatwierdzoną nieobecność (urlop, L4). Tych kont porcja nie
-    dotyczy, a ich karty nie stoją przez cały urlop."""
+    """Kto ma dziś zatwierdzoną nieobecność (urlop, L4) albo dzień onboardingu
+    (Poligon NEXUSA, ``onboarding_day``). Tych kont porcja nie dotyczy, a ich
+    karty nie stoją przez cały urlop."""
     from app.services.hr.absence import absences_on
+    from app.services.onboarding_day import onboarding_days
 
-    return set(await absences_on(db, user_ids, business_today()))
+    ids = list(user_ids)
+    today = business_today()
+    absent = set(await absences_on(db, ids, today))
+    return absent | set(await onboarding_days(db, ids, today, today))
 
 
 async def recruiter_ids_for_jobs(
@@ -601,6 +632,20 @@ async def _own_cards(
         ).all()
     )
     cards = [c for c in cards if c.job_id in working]
+    # Osoba, którą prowadzi teraz ktoś inny, nie czeka na decyzję właściciela.
+    holders = {c.claimed_by for c in cards if c.claimed_by not in (None, user_id)}
+    inactive: set[int] = set()
+    if holders:
+        inactive = set(
+            (
+                await db.scalars(
+                    select(User.id).where(
+                        User.id.in_(holders), User.is_active.is_(False)
+                    )
+                )
+            ).all()
+        )
+    cards = [c for c in cards if not claimed_by_other(c, user_id, now, inactive)]
     teams = await recruiter_ids_for_jobs(db, {c.job_id for c in cards})
     return [c for c in cards if user_id in teams.get(c.job_id, [])]
 

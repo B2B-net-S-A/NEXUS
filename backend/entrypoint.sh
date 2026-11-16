@@ -76,6 +76,14 @@ startup_phase() {
 
 echo "=== Nexus ATS Backend Starting (as $(id -un)) ==="
 
+# Kroki DDL pominięte przez limit zamka albo czasu przy TYM starcie
+# (`app/services/startup_locks.record_skipped_ddl`). Przy rolling update stary
+# kontener obsługuje ruch, więc pominięcie jest realne i ma być widoczne:
+# `checks.migrations` w /api/health i `logger.error` przy starcie (→ Sentry).
+STARTUP_DDL_SKIPS_FILE="${STARTUP_DDL_SKIPS_FILE:-/tmp/nexus-startup-ddl-skips.jsonl}"
+export STARTUP_DDL_SKIPS_FILE
+rm -f "$STARTUP_DDL_SKIPS_FILE"
+
 # Wait for postgres to be ready
 startup_phase "wait-for-db"
 echo "Waiting for database..."
@@ -144,6 +152,8 @@ python - <<'PY' || echo "column backfill failed; continuing"
 import asyncio, json, os, re
 import asyncpg
 
+from app.services.startup_locks import record_skipped_ddl
+
 # Every statement here is idempotent. Order matters for enum ADD VALUE
 # (must run outside transaction) vs column adds (can run in tx).
 _ENUM_STATEMENTS = [
@@ -196,6 +206,12 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_assigned'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_low_rating'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_monthly_review'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'training_quote'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'training_file'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'training_sign'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'training_invoice'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'training_reminder'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'training_recording'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_reminder'",
@@ -365,6 +381,12 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'skill_dictionary_proposals'",
     # 0677: podsumowanie spotkania handlowca do wysłania klientowi (Sonnet 5.5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_client_summary'",
+    # 0712: katalog raportów klienta — obowiązki raportowe z umów ramowych.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_report_requirements'",
+    # 0725: szkic uzasadnienia dopłaty za technologię premium (EN).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'premium_skill_justification'",
+    # 0712: przypomnienie o terminie raportu dla klienta (dzwonek).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -1318,6 +1340,18 @@ except Exception as _client_panel_schema_err:  # noqa: BLE001
     print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
     _CLIENT_PANEL_DDL = []
 
+# Zespół dla klienta (0711) — JEDNO źródło z migracją
+# (`app/services/job_team_schema.py`, pilnuje test_job_team_panel_unit). ORM czyta
+# `jobs.team_id` przy każdym zapytaniu o rekrutację, więc ten blok jest wdrożeniem.
+try:
+    from app.services import job_team_schema as _job_team_schema
+
+    # 0713: gotowe składy — ORM czyta `job_teams.variants*` przy każdym odczycie zespołu.
+    _JOB_TEAMS_DDL = [*_job_team_schema.TABLE_DDL, *_job_team_schema.VARIANTS_DDL]
+except Exception as _job_team_schema_err:  # noqa: BLE001
+    print(f"job team schema unavailable: {_job_team_schema_err!r}")
+    _JOB_TEAMS_DDL = []
+
 # Rekrutacja własna — JEDNO źródło z migracją (`app/services/own_hiring/schema.py`).
 try:
     from app.services.own_hiring import schema as _own_hiring_schema
@@ -1361,6 +1395,8 @@ try:
         *_sales_schema.CALL_OUTCOMES_V2_DDL,
         # 0684: zadania bota — rodzaje biegów, zlecenie biegu, wyniki do decyzji.
         *_sales_schema.BOT_TASKS_DDL,
+        # 0690: Bot Listy — brief kampanii dzwonienia.
+        *_sales_schema.BOT_LISTS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
@@ -1464,6 +1500,25 @@ try:
 except Exception as _insight_decisions_schema_err:  # noqa: BLE001
     print(f"insight decisions schema unavailable: {_insight_decisions_schema_err!r}")
     _INSIGHT_DECISIONS_TABLE_DDL = []
+
+# 0710: limit z umowy ramowej — dopłaty i kategoria na kontrakcie
+# (`app/services/framework_rate_schema.py`).
+try:
+    from app.services import framework_rate_schema as _framework_rate_schema
+
+    _FRAMEWORK_RATE_DDL = list(_framework_rate_schema.TABLE_DDL)
+except Exception as _framework_rate_schema_err:  # noqa: BLE001
+    print(f"framework rate schema unavailable: {_framework_rate_schema_err!r}")
+    _FRAMEWORK_RATE_DDL = []
+
+# 0716: wnioski o dopłatę za technologię premium (`app/services/premium_skill_schema.py`).
+try:
+    from app.services import premium_skill_schema as _premium_skill_schema
+
+    _PREMIUM_SKILL_DDL = list(_premium_skill_schema.TABLE_DDL)
+except Exception as _premium_skill_schema_err:  # noqa: BLE001
+    print(f"premium skill schema unavailable: {_premium_skill_schema_err!r}")
+    _PREMIUM_SKILL_DDL = []
 
 # 0687: paczka do podpisu, dokumenty obok umowy B2B
 # (`app/services/b2b_esign/documents_schema.py`).
@@ -2947,10 +3002,68 @@ _COLUMN_STATEMENTS = [
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )""",
+    # 0091 i 0133: podpis umowy ramowej i aneksu oraz kolumny niezależne od
+    # dostawcy (`autenti_process_id` → `provider_ref`, `autenti_signature_type`
+    # → `signature_type`). Do 15.11.2026 lustro kończyło się na 0080, więc
+    # baza z osieroconym alembikiem dostawała tabelę bez 9 kolumn modelu
+    # (sonda `document_signatures` w /api/health/deep). Instrukcje 1:1 z migracji.
+    "ALTER TABLE document_signatures ALTER COLUMN contract_id DROP NOT NULL",
+    "ALTER TABLE document_signatures ALTER COLUMN contract_document_id DROP NOT NULL",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS client_framework_contract_id INTEGER NULL "
+    "REFERENCES client_framework_contracts(id) ON DELETE CASCADE",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS client_contract_amendment_id INTEGER NULL "
+    "REFERENCES client_contract_amendments(id) ON DELETE CASCADE",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_framework "
+    "ON document_signatures(client_framework_contract_id) "
+    "WHERE client_framework_contract_id IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_doc_sig_amendment "
+    "ON document_signatures(client_contract_amendment_id) "
+    "WHERE client_contract_amendment_id IS NOT NULL",
+    """DO $$ BEGIN
+        ALTER TABLE document_signatures
+        ADD CONSTRAINT chk_signature_target_xor CHECK (
+            (CASE WHEN contract_id IS NOT NULL THEN 1 ELSE 0 END) +
+            (CASE WHEN client_framework_contract_id IS NOT NULL THEN 1 ELSE 0 END) +
+            (CASE WHEN client_contract_amendment_id IS NOT NULL THEN 1 ELSE 0 END)
+            = 1
+        ) NOT VALID;
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'document_signatures'
+              AND column_name = 'autenti_process_id'
+        ) THEN
+            ALTER TABLE document_signatures
+                RENAME COLUMN autenti_process_id TO provider_ref;
+        END IF;
+        IF EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'document_signatures'
+              AND column_name = 'autenti_signature_type'
+        ) THEN
+            ALTER TABLE document_signatures
+                RENAME COLUMN autenti_signature_type TO signature_type;
+        END IF;
+    END $$""",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS provider VARCHAR(32) NOT NULL DEFAULT 'autenti'",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS signing_session_id VARCHAR(255)",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS identity_provider VARCHAR(64)",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS signature_level VARCHAR(16)",
+    "ALTER TABLE document_signatures "
+    "ADD COLUMN IF NOT EXISTS validation_report JSONB",
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_contract ON document_signatures(contract_id)",
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_status ON document_signatures(status)",
+    # Po RENAME z 0133 indeks (nazwa z 0080) stoi na `provider_ref`.
     "CREATE INDEX IF NOT EXISTS ix_doc_sig_autenti_process "
-    "ON document_signatures(autenti_process_id) WHERE autenti_process_id IS NOT NULL",
+    "ON document_signatures(provider_ref) WHERE provider_ref IS NOT NULL",
     """CREATE TABLE IF NOT EXISTS document_signature_events (
         id SERIAL PRIMARY KEY,
         signature_id INTEGER NOT NULL
@@ -3182,37 +3295,8 @@ END $$""",
     END $$""",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_by VARCHAR(120)",
     "ALTER TABLE cortex_unmatched_terms ADD COLUMN IF NOT EXISTS curated_at TIMESTAMPTZ",
-    """CREATE TABLE IF NOT EXISTS cortex_extraction_runs (
-        id BIGSERIAL PRIMARY KEY,
-        run_type VARCHAR(10) NOT NULL,
-        source VARCHAR(20) NOT NULL DEFAULT 'traffit',
-        status VARCHAR(12) NOT NULL DEFAULT 'running',
-        triggered_by VARCHAR(120) NULL,
-        started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        finished_at TIMESTAMPTZ NULL,
-        heartbeat_at TIMESTAMPTZ NULL,
-        cursor_candidate_id INTEGER NULL,
-        stats JSONB NULL,
-        last_error TEXT NULL
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_runs_status_started "
-    "ON cortex_extraction_runs (status, started_at)",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_runs_started "
-    "ON cortex_extraction_runs (started_at)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_cortex_single_running "
-    "ON cortex_extraction_runs (source) WHERE status = 'running'",
-    """CREATE TABLE IF NOT EXISTS cortex_unmatched_observations (
-        id BIGSERIAL PRIMARY KEY,
-        term TEXT NOT NULL,
-        candidate_id INTEGER NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
-        source VARCHAR(20) NOT NULL DEFAULT 'traffit',
-        last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_cortex_unmatched_obs UNIQUE (term, candidate_id, source)
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_obs_term "
-    "ON cortex_unmatched_observations (term)",
-    "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_obs_candidate "
-    "ON cortex_unmatched_observations (candidate_id)",
+    # 0167: przebiegów i obserwacji Cortexa siatka już nie zakłada (15.11.2026);
+    # kod ich nie czytał od usunięcia Cortexa 23.09.2026.
     "CREATE INDEX IF NOT EXISTS ix_cortex_unmatched_status "
     "ON cortex_unmatched_terms (status)",
     # Guard po dedupie taksonomii (0160). Jeśli alembic nie zdążył scalić
@@ -3226,6 +3310,9 @@ END $$""",
     # Nowe TABELE lustrzane tutaj mimo create_all (precedens cortex
     # 2026-07-12: create_all potrafi cicho paść), a nowe KOLUMNY na
     # istniejących tabelach create_all nigdy nie dołoży. DDL 1:1 z 0173.
+    # Zostały powiązania encji i skrzynka webhooków. Siedmiu tabel synchronizacji
+    # dwukierunkowej (outbox, konflikty, przebiegi i fazy, dzierżawy, przełączniki)
+    # siatka już nie zakłada (15.11.2026): kod ich nie używał, na produkcji były puste.
     """CREATE TABLE IF NOT EXISTS traffit_entity_links (
         id                     BIGSERIAL PRIMARY KEY,
         entity_type            VARCHAR(50) NOT NULL,
@@ -3255,62 +3342,6 @@ END $$""",
     'CREATE UNIQUE INDEX IF NOT EXISTS ux_traffit_entity_links_remote ON traffit_entity_links (entity_type, traffit_entity_id) WHERE traffit_entity_id IS NOT NULL',
     'CREATE INDEX IF NOT EXISTS ix_traffit_entity_links_candidate_status ON traffit_entity_links (candidate_id, status)',
     'CREATE INDEX IF NOT EXISTS ix_traffit_entity_links_last_seen ON traffit_entity_links (entity_type, last_seen_at)',
-    """CREATE TABLE IF NOT EXISTS traffit_field_contracts (
-        id                 BIGSERIAL PRIMARY KEY,
-        field_name         VARCHAR(255) NOT NULL,
-        capability         VARCHAR(20) NOT NULL,
-        endpoint           VARCHAR(255) NULL,
-        local_path         VARCHAR(255) NULL,
-        data_type          VARCHAR(100) NULL,
-        adapter            VARCHAR(100) NULL,
-        required           BOOLEAN NOT NULL DEFAULT false,
-        readable           BOOLEAN NOT NULL DEFAULT true,
-        writable           BOOLEAN NOT NULL DEFAULT false,
-        choices            JSONB NULL,
-        raw_metadata       JSONB NULL,
-        schema_hash        VARCHAR(64) NOT NULL,
-        status             VARCHAR(30) NOT NULL DEFAULT 'active',
-        quarantine_reason  TEXT NULL,
-        discovered_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-        last_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_traffit_field_contract_capability
-            UNIQUE (field_name, capability)
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_field_contracts_status ON traffit_field_contracts (status)',
-    """CREATE TABLE IF NOT EXISTS traffit_outbox_events (
-        id               BIGSERIAL PRIMARY KEY,
-        event_uuid       VARCHAR(36) NOT NULL UNIQUE,
-        aggregate_type   VARCHAR(50) NOT NULL,
-        aggregate_id     BIGINT NOT NULL,
-        candidate_id     INTEGER NULL
-                             REFERENCES candidates(id) ON DELETE SET NULL,
-        entity_link_id   BIGINT NULL
-                             REFERENCES traffit_entity_links(id) ON DELETE SET NULL,
-        event_type       VARCHAR(100) NOT NULL,
-        payload          JSONB NOT NULL DEFAULT '{}'::jsonb,
-        changed_fields   JSONB NOT NULL DEFAULT '[]'::jsonb,
-        actor_user_id    INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        origin           VARCHAR(20) NOT NULL DEFAULT 'nexus',
-        idempotency_key  VARCHAR(128) NOT NULL UNIQUE,
-        sequence         BIGINT NOT NULL DEFAULT 0,
-        priority         INTEGER NOT NULL DEFAULT 100,
-        status           VARCHAR(30) NOT NULL DEFAULT 'pending',
-        attempts         INTEGER NOT NULL DEFAULT 0,
-        max_attempts     INTEGER NOT NULL DEFAULT 8,
-        next_attempt_at  TIMESTAMPTZ NULL DEFAULT now(),
-        locked_at        TIMESTAMPTZ NULL,
-        locked_by        VARCHAR(255) NULL,
-        processed_at     TIMESTAMPTZ NULL,
-        remote_response  JSONB NULL,
-        last_error       TEXT NULL,
-        created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_traffit_outbox_due ON traffit_outbox_events (priority, next_attempt_at, id) WHERE status IN ('pending', 'retry')",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_outbox_aggregate_order ON traffit_outbox_events (aggregate_type, aggregate_id, sequence, id)',
-    'CREATE INDEX IF NOT EXISTS ix_traffit_outbox_candidate_status ON traffit_outbox_events (candidate_id, status)',
     """CREATE TABLE IF NOT EXISTS traffit_webhook_events (
         id                  BIGSERIAL PRIMARY KEY,
         subscription_id     VARCHAR(100) NOT NULL,
@@ -3335,106 +3366,6 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_traffit_webhook_due ON traffit_webhook_events (next_attempt_at, id) WHERE status IN ('pending', 'retry')",
     'CREATE INDEX IF NOT EXISTS ix_traffit_webhook_remote_entity ON traffit_webhook_events (remote_entity_type, remote_entity_id)',
-    """CREATE TABLE IF NOT EXISTS traffit_sync_conflicts (
-        id                 BIGSERIAL PRIMARY KEY,
-        entity_link_id     BIGINT NULL
-                               REFERENCES traffit_entity_links(id) ON DELETE SET NULL,
-        outbox_event_id    BIGINT NULL
-                               REFERENCES traffit_outbox_events(id) ON DELETE SET NULL,
-        entity_type        VARCHAR(50) NOT NULL,
-        nexus_entity_id    BIGINT NULL,
-        traffit_entity_id  VARCHAR(255) NULL,
-        candidate_id       INTEGER NULL
-                               REFERENCES candidates(id) ON DELETE SET NULL,
-        field_path         VARCHAR(255) NULL,
-        conflict_type      VARCHAR(50) NOT NULL,
-        idempotency_key    VARCHAR(128) NULL,
-        base_value         JSONB NULL,
-        nexus_value        JSONB NULL,
-        traffit_value      JSONB NULL,
-        status             VARCHAR(30) NOT NULL DEFAULT 'open',
-        resolution         VARCHAR(30) NULL,
-        resolved_value     JSONB NULL,
-        resolution_note    TEXT NULL,
-        detected_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-        resolved_at        TIMESTAMPTZ NULL,
-        resolved_by        INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
-        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    "CREATE INDEX IF NOT EXISTS ix_traffit_conflicts_open ON traffit_sync_conflicts (detected_at, id) WHERE status IN ('open', 'manual_action_required')",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_conflicts_candidate ON traffit_sync_conflicts (candidate_id, status)',
-    'CREATE INDEX IF NOT EXISTS ix_traffit_conflicts_entity ON traffit_sync_conflicts (entity_type, nexus_entity_id, traffit_entity_id)',
-    'CREATE UNIQUE INDEX IF NOT EXISTS ux_traffit_conflicts_idempotency ON traffit_sync_conflicts (idempotency_key) WHERE idempotency_key IS NOT NULL',
-    """CREATE TABLE IF NOT EXISTS traffit_sync_runs (
-        id             BIGSERIAL PRIMARY KEY,
-        run_uuid       VARCHAR(36) NOT NULL UNIQUE,
-        mode           VARCHAR(30) NOT NULL,
-        trigger        VARCHAR(30) NOT NULL,
-        scope          JSONB NOT NULL DEFAULT '{}'::jsonb,
-        status         VARCHAR(30) NOT NULL DEFAULT 'queued',
-        dry_run        BOOLEAN NOT NULL DEFAULT true,
-        leader_id      VARCHAR(255) NULL,
-        started_at     TIMESTAMPTZ NULL,
-        finished_at    TIMESTAMPTZ NULL,
-        cursor_before  JSONB NULL,
-        cursor_after   JSONB NULL,
-        stats          JSONB NOT NULL DEFAULT '{}'::jsonb,
-        errors         JSONB NOT NULL DEFAULT '[]'::jsonb,
-        created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_sync_runs_status_started ON traffit_sync_runs (status, started_at)',
-    'CREATE INDEX IF NOT EXISTS ix_traffit_sync_runs_mode_created ON traffit_sync_runs (mode, created_at)',
-    """CREATE TABLE IF NOT EXISTS traffit_sync_run_phases (
-        id                 BIGSERIAL PRIMARY KEY,
-        run_id             BIGINT NOT NULL
-                               REFERENCES traffit_sync_runs(id) ON DELETE CASCADE,
-        phase              VARCHAR(100) NOT NULL,
-        status             VARCHAR(30) NOT NULL DEFAULT 'queued',
-        started_at         TIMESTAMPTZ NULL,
-        finished_at        TIMESTAMPTZ NULL,
-        cursor_before      JSONB NULL,
-        cursor_after       JSONB NULL,
-        pages_processed    INTEGER NOT NULL DEFAULT 0,
-        items_seen         INTEGER NOT NULL DEFAULT 0,
-        items_applied      INTEGER NOT NULL DEFAULT 0,
-        items_skipped      INTEGER NOT NULL DEFAULT 0,
-        conflicts_created  INTEGER NOT NULL DEFAULT 0,
-        complete           BOOLEAN NOT NULL DEFAULT false,
-        stats              JSONB NOT NULL DEFAULT '{}'::jsonb,
-        error              TEXT NULL,
-        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        CONSTRAINT uq_traffit_sync_run_phase UNIQUE (run_id, phase)
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_traffit_sync_run_phases_run_status ON traffit_sync_run_phases (run_id, status)',
-    """CREATE TABLE IF NOT EXISTS integration_leases (
-        name          VARCHAR(100) PRIMARY KEY,
-        holder_id     VARCHAR(255) NOT NULL,
-        acquired_at   TIMESTAMPTZ NOT NULL,
-        heartbeat_at  TIMESTAMPTZ NOT NULL,
-        expires_at    TIMESTAMPTZ NOT NULL,
-        generation    BIGINT NOT NULL DEFAULT 1,
-        metadata      JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
-    'CREATE INDEX IF NOT EXISTS ix_integration_leases_expires_at ON integration_leases (expires_at)',
-    """CREATE TABLE IF NOT EXISTS traffit_integration_control (
-        integration             VARCHAR(50) PRIMARY KEY,
-        webhook_accept_enabled  BOOLEAN NOT NULL DEFAULT false,
-        inbound_apply_enabled   BOOLEAN NOT NULL DEFAULT false,
-        poll_enabled            BOOLEAN NOT NULL DEFAULT false,
-        outbound_enabled        BOOLEAN NOT NULL DEFAULT false,
-        dry_run                 BOOLEAN NOT NULL DEFAULT true,
-        paused_reason           TEXT NULL,
-        settings                JSONB NOT NULL DEFAULT '{}'::jsonb,
-        updated_by              INTEGER NULL
-                                    REFERENCES users(id) ON DELETE SET NULL,
-        created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
-    )""",
     # Rozszerzenia istniejących encji (0173) — bez UPDATE (ten w _DATA_).
     'ALTER TABLE candidates ADD COLUMN IF NOT EXISTS profile_about TEXT',
     "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS custom_fields JSONB NOT NULL DEFAULT '{}'::jsonb",
@@ -4140,6 +4071,18 @@ END $$""",
     # Powiadomienie u zastępcy pamięta, za kogo przyszło (0675).
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS on_behalf_of_user_id "
     "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # „Gdy Cię nie było” (0722): cichy wiersz zastępcy o jego własnym ruchu
+    # i sprawy z nieobecności oznaczone jako załatwione. Bez `quiet` każdy
+    # SELECT z notifications (dzwonek, outbox maili) pada na UndefinedColumn.
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS quiet "
+    "BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS handled_at TIMESTAMPTZ NULL",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS handled_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS away_dismissed_at "
+    "TIMESTAMPTZ NULL",
+    "CREATE INDEX IF NOT EXISTS ix_notif_on_behalf_created ON notifications "
+    "(on_behalf_of_user_id, created_at) WHERE on_behalf_of_user_id IS NOT NULL",
     # Tryb obróbki treści CV (migracja 0202_cv_content_mode). Pipeline zapisuje
     # content_mode przy KAŻDEJ generacji, więc bez tej kolumny INSERT do
     # cv_generated_documents => UndefinedColumn i generator CV pada w całości.
@@ -5239,7 +5182,7 @@ END $$""",
             'periodic_order_ending', 'framework_contract_expiring',
             'contract_ending', 'cost_budget_low', 'new_contractor_draft',
             'md_base_usage_high', 'candidate_conflict_expired',
-            'invoice_without_order_line')),
+            'invoice_without_order_line', 'framework_over_limit')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -6128,6 +6071,10 @@ END $$""",
     # na życzenie konta. Model `User` deklaruje kolumnę — bez niej każdy odczyt
     # użytkownika pada. Lustro 1:1 — `test_stage_moves_candidate_recruiter.py`.
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS stage_moves_all_led_jobs BOOLEAN NOT NULL DEFAULT false",
+    # 0693: świat wyglądu na koncie. Model `User` deklaruje `appearance_prefs` —
+    # bez kolumny każdy odczyt użytkownika (w tym logowanie) pada. Lustro 1:1
+    # z migracją — pilnuje `test_appearance_prefs.py`.
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS appearance_prefs JSONB NOT NULL DEFAULT '{}'::jsonb",
     # 0427: maile wyłączone przez konto („Maile do Ciebie”). Model `User`
     # deklaruje kolumnę — bez niej każdy odczyt użytkownika pada. Lustro 1:1
     # z migracją — pilnuje `test_notification_email_prefs.py`.
@@ -7195,6 +7142,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
+    # 0711: zespół dla klienta (po `clients`, `users` i `jobs`).
+    *_JOB_TEAMS_DDL,
     *_OWN_HIRING_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
@@ -7221,6 +7170,10 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_SKILL_PROPOSALS_TABLE_DDL,
     *_SKILL_ALIAS_TEXT_DDL,
     *_SKILL_RELATIONS_TABLE_DDL,
+    # 0710: po `rate_cards`, `contracts` i `users`, na które wskazuje.
+    *_FRAMEWORK_RATE_DDL,
+    # 0716: po `contracts` i `users`.
+    *_PREMIUM_SKILL_DDL,
     # 0667: 70 porzuconych tabel bez modelu. Przywrócenie którejś ze zrzutu
     # wymaga usunięcia jej stąd, bo następny start skasowałby ją ponownie.
     "ALTER TABLE IF EXISTS dr_przetargi_allocations DROP CONSTRAINT IF EXISTS dr_przetargi_allocations_consultant_id_fkey",
@@ -7229,6 +7182,12 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "DROP TABLE IF EXISTS dr_about_calendar, dr_about_career_paths, dr_about_clients_partners, dr_about_contacts, dr_about_faq, dr_about_feedback, dr_about_glossary, dr_about_links, dr_about_org_chart, dr_about_positions, dr_about_procedures, dr_about_templates, dr_about_training, dr_about_values, dr_alerts, dr_api_key_audit_log, dr_api_keys, dr_applied_migrations, dr_competence_categories, dr_consultant_group_assignments, dr_consultant_rate_history, dr_consultants, dr_data_audit_log, dr_delivery_lead_client_assignments, dr_group_monthly_costs, dr_monthly_mrr_data, dr_mrr_import_history, dr_project_cost_groups, dr_project_monthly_costs, dr_project_other_cost_items, dr_przetargi_mrr, dr_system_config, dr_tac_linkedin_farming",
     "DROP TABLE IF EXISTS ai_budget_reservations, ai_call_ledger, ai_eval_cases, ai_eval_labels, ai_eval_outputs, ai_eval_runs, ai_eval_sets, ai_provider_compliance, ai_rollout_events, ai_rollout_observations, ai_rollout_reports, ai_rollout_state, ai_routing_activation_log, ai_routing_state",
     "DROP TABLE IF EXISTS signature_links",
+    # 0714 (15.11.2026): 9 nieużywanych tabel — synchronizacja dwukierunkowa
+    # Traffita (0173) i ślad Cortexa (0167). Lustro 1:1 z migracją; pilnuje
+    # `test_drop_traffit_sync_cortex_tables_mirror.py`. Przywrócenie tabeli
+    # Cortexa ze zrzutu wymaga usunięcia jej stąd.
+    "DROP TABLE IF EXISTS traffit_field_contracts, traffit_outbox_events, traffit_sync_conflicts, traffit_sync_runs, traffit_sync_run_phases, integration_leases, traffit_integration_control",
+    "DROP TABLE IF EXISTS cortex_extraction_runs, cortex_unmatched_observations",
     # 0682 (11.11.2026): kolumny usuniętej telefonii (integracja zdjęta
     # 08.11.2026). Indeksy znikają razem z kolumnami. Lustro 1:1 z migracją —
     # pilnuje `test_telephony_columns_dropped.py`.
@@ -8068,6 +8027,16 @@ _DATA_STATEMENTS = [
     "SELECT 'duty_search_judge', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'duty_search_judge')",
+    # 0712: seed klucza AI obowiązków raportowych z umów.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'client_report_requirements', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'client_report_requirements')",
+    # 0725: seed klucza AI szkicu uzasadnienia dopłaty za technologię premium.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'premium_skill_justification', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'premium_skill_justification')",
     # 0637: seed klucza AI rozdzielania spraw back office'u.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'case_triage', TRUE, 0, now(), now() "
@@ -9723,7 +9692,7 @@ _CONSTRAINT_STATEMENTS = [
                 'periodic_order_ending', 'framework_contract_expiring',
                 'contract_ending', 'cost_budget_low', 'new_contractor_draft',
                 'md_base_usage_high', 'candidate_conflict_expired',
-                'invoice_without_order_line'
+                'invoice_without_order_line', 'framework_over_limit'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i
@@ -10951,11 +10920,13 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill enum skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         for stmt in _COLUMN_STATEMENTS:
             try:
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill column skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         await _ensure_profile_rate_numeric(conn)
         # `_DATA_STATEMENTS` to backfille i seedy, nie DDL — wolno im trwać
         # (przerankowanie `candidate_documents` idzie po ~136 tys. wierszy).
@@ -10968,6 +10939,7 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill data skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         await _seed_repo_procedures(conn)
         await _seed_client_playbooks(conn)
         await _seed_plain_knowledge(conn)
@@ -10979,6 +10951,7 @@ async def backfill():
                 await conn.execute(stmt)
             except Exception as e:
                 print(f"backfill constraint skip: {stmt!r} -> {e!r}")
+                record_skipped_ddl(stmt, e)
         # Indeksy na końcu: najwolniejsze i najmniej krytyczne. Limit czasu na
         # instrukcję, żeby jeden wolny CREATE INDEX nie zawiesił startu
         # kontenera — nieudany indeks powtórzy się przy następnym starcie
@@ -10998,6 +10971,7 @@ async def backfill():
                     await conn.execute(stmt)
                 except Exception as e:
                     print(f"backfill index skip: {stmt!r} -> {e!r}")
+                    record_skipped_ddl(stmt, e)
         finally:
             # W finally, nie po pętli: wyjątki w środku są łykane, więc w
             # praktyce reset zawsze się wykonywał — ale gdyby cokolwiek
@@ -11051,6 +11025,7 @@ python - <<'PY' || echo "priority work schema finalization failed; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
+from app.services.startup_locks import record_skipped_ddl
 
 _FKS = (
     (
@@ -11175,6 +11150,7 @@ async def _guarded(label, statement):
             await conn.execute(text(statement))
     except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
         print(f"priority work schema finalization: {label} pominięte -> {exc!r}")
+        record_skipped_ddl(f"priority work: {label}", exc)
         return False
     return True
 
@@ -11215,6 +11191,7 @@ import asyncio
 from sqlalchemy import text
 
 from app.core.database import engine
+from app.services.startup_locks import record_skipped_ddl
 
 _DROPS = (
     (
@@ -11243,6 +11220,7 @@ async def main():
             print(f"embedding queue triggers: zdjęty {trigger}")
         except Exception as exc:  # noqa: BLE001 - start kontenera jest ważniejszy
             print(f"embedding queue triggers: {trigger} pominięty -> {exc!r}")
+            record_skipped_ddl(f"embedding queue trigger: {trigger}", exc)
     await engine.dispose()
 
 
@@ -11667,6 +11645,50 @@ async def repair():
             )
             sys.exit(1)
     print(f"contract hourly rate repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+
+# Umowy ramowe z duplikatów klientów (decyzja Artura 16.11.2026) — jednorazowo:
+# umowy z manifestu portfela leżały na scalonych albo zdublowanych rekordach,
+# więc karta klienta, Jarvis i katalog raportów ich nie widziały. Logika
+# i lista ID w `app/services/framework_contract_owner_repair.py`; marker
+# w `app_settings` + advisory lock, porażka nie zapisuje niczego. Plik
+# usuniętego duplikatu i jego wektory znikają dopiero po commicie. Log: ID.
+startup_phase "repair-framework-contract-owner"
+echo "Framework contracts: move contracts off duplicate clients (one-shot)..."
+run_unless_marked "0721_framework_contract_owner_repair" <<'PY' || echo "framework contract owner repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services import framework_contract_index, storage_service
+from app.services.framework_contract_owner_repair import (
+    run_framework_contract_owner_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_framework_contract_owner_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"framework contract owner repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"framework contract owner repair: {summarize_for_log(summary)}")
+    if summary is None:
+        return
+    # Obie funkcje są best-effort i same logują porażkę.
+    for path in summary["dropped_file_paths"]:
+        storage_service.delete_client_framework_contract(path)
+    for fc_id in summary["dropped_fc_ids"]:
+        await framework_contract_index.delete_contract_points(fc_id)
 
 asyncio.run(repair())
 PY

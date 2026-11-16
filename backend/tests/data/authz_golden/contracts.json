@@ -48,6 +48,7 @@
   "GET /api/contracts/{contract_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/contracts/{contract_id}/activities": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/contracts/{contract_id}/amendments": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "GET /api/contracts/{contract_id}/amendments/client-rate-impact": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/contracts/{contract_id}/annex-documents": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
   "GET /api/contracts/{contract_id}/benchmark": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/contracts/{contract_id}/documents": "PPDPDDDDPPPDDDDDDPPDDDDDDDPDP",

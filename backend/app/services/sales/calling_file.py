@@ -56,6 +56,8 @@ _LIMITS: dict[str, int] = {
     "industry": 255,
     "note": 1000,
     "linkedin": 500,
+    "service": 120,
+    "caller": 120,
 }
 
 _HEADERS: dict[str, tuple[str, ...]] = {
@@ -85,18 +87,47 @@ _HEADERS: dict[str, tuple[str, ...]] = {
         "tel",
         "nr telefonu",
         "numer telefonu",
+        "numer kontaktu",
+        "telefon kontaktowy",
         "numer",
         "komorka",
         "telefon komorkowy",
         "phone",
         "mobile",
     ),
-    "email": ("e mail", "email", "mail", "adres e mail", "adres email"),
+    "email": (
+        "e mail",
+        "email",
+        "mail",
+        "adres e mail",
+        "adres email",
+        "adres mailowy",
+    ),
     "website": ("www", "strona", "strona www", "domena", "website", "url"),
     "nip": ("nip",),
     "industry": ("branza", "industry"),
-    "note": ("notatka", "uwagi", "komentarz", "opis", "note", "notes"),
+    "note": (
+        "notatka",
+        "uwagi",
+        "uwagi o firmie",
+        "komentarz",
+        "opis",
+        "note",
+        "notes",
+    ),
     "linkedin": ("linkedin", "profil linkedin", "linkedin url", "link linkedin"),
+    # Lista dzwoniących 13.11.2026: „typ usługi” i podział wierszy między osoby.
+    "service": ("typ uslugi", "usluga", "rodzaj uslugi", "service"),
+    "caller": (
+        "kto dzwoni",
+        "dzwoni",
+        "osoba dzwoniaca",
+        "dzwoniacy",
+        "podzial",
+        "bianca marcel",
+        "przypisanie",
+        "caller",
+    ),
 }
 _FIELD_BY_HEADER = {
     header: field for field, headers in _HEADERS.items() for header in headers
@@ -134,6 +165,10 @@ class ListRow:
     note: Optional[str] = None
     #: Profil LinkedIn osoby (tylko adres linkedin.com po http/https).
     linkedin: Optional[str] = None
+    #: „Typ usługi” z listy; trafia do notatki rekordu.
+    service: Optional[str] = None
+    #: Imię osoby dzwoniącej z kolumny podziału („Bianca”); import szuka jej w Sprzedaży.
+    caller: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -323,6 +358,8 @@ def row_values(
         "industry": values.get("industry"),
         "note": values.get("note"),
         "linkedin": linkedin_url(values.get("linkedin")),
+        "service": values.get("service"),
+        "caller": values.get("caller"),
     }
 
 

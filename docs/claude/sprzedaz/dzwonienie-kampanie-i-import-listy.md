@@ -28,6 +28,10 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
 
 ## Kolejka
 
+> 13.11.2026: kolejka ma wybór osoby, wynik zapisuje każdy z „Sprzedaż: edycja”,
+> „Nie zainteresowany” i „Nie teraz” zdjęte, „Nie odebrane” to osobna sekcja, a oferta
+> zakłada lead w Leadach: `dzwonienie-lista-zmian-od-dzwoniacych-13-11.md`.
+
 - **Zawsze zalogowanej osoby, w stałej kolejności:** oddzwonienia na dziś, spotkania bez
   terminu, nowe rekordy kampanii. Bez celu dziennego, paska postępu, rankingu i
   przełącznika „pokaż osobę”: to narzędzie pracy, nie kontroli (jak „Mój dzień”).
@@ -35,9 +39,9 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
   Wszyscy” (`GET /records?scope=all&caller_id=`) z kolumną „Kto dzwoni” i filtrem osoby,
   dla każdego z „Sprzedaż: podgląd”, żeby handlowiec wiedział, do jakich firm i kto dzwoni.
   Karta firmy pokazuje „Na liście dzwonienia” (`GET /companies/{id}/records`: osoba,
-  kampania, wynik, powrót, bez numeru). Cudzy rekord otwiera się do czytania, wynik
-  zapisuje osoba przypisana albo admin. Sprzeciw nie wychodzi także w „Wszyscy”.
-  Kolejka zostaje osobista.
+  kampania, wynik, powrót, bez numeru). Sprzeciw nie wychodzi także w „Wszyscy”.
+  Od 13.11.2026 wynik w cudzym rekordzie i cudzej kolejce zapisuje każdy z „Sprzedaż:
+  edycja” (wcześniej tylko przypisana osoba albo admin), a kolejka ma wybór osoby.
 - **Nic nie dzwoni i nie wysyła się samo.** Dzwonimy z telefonu, nie z NEXUSA (decyzja
   Artura 12.11.2026): karta pokazuje numer i „Kopiuj numer” zamiast linku `tel:`, a wiersz
   kolejki nie ma etykiety „Zadzwoń”. Lead ani rekord nie dają prawa do zimnego kontaktu
@@ -74,7 +78,8 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
 
 ## Import listy
 
-- **To nie jest silnik leadów.** Listę przygotowuje człowiek i musi podać „Skąd kontakt”
+- **Plik to nie silnik leadów.** Od 13.11.2026 listę może też złożyć Bot Listy z briefu
+  kampanii, tymi samymi bramkami (`bot-listy-kampanie.md`). Plik przygotowuje człowiek i musi podać „Skąd kontakt”
   (zapis przy każdym rekordzie). Bez tego pola import to 422; sam podgląd go nie wymaga.
 - **Najpierw los każdego wiersza, potem zapis.** Podgląd niczego nie zapisuje, a zapis
   liczy plan jeszcze raz pod jedną blokadą importu (`pg_advisory_xact_lock`), więc drugi

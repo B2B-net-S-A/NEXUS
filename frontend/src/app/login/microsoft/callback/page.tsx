@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import api, { extractErrorMsg } from "@/lib/api";
+import { establishSession } from "@/lib/session-establish";
 import { takeSsoBrowserNonce, takeSsoNextPath } from "@/lib/sso-browser-nonce";
 import { postLoginDestination, useAuthStore } from "@/store/auth";
 import { AlertCircle } from "lucide-react";
@@ -52,10 +53,11 @@ function CallbackBody() {
         if (!accessToken) {
           throw new Error("Brak access_token w odpowiedzi");
         }
-        const me = await api.get("/api/auth/me", {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        setAuth(me.data, accessToken);
+        // Sesja w ciasteczku HttpOnly z `/exchange`; na API sprzed
+        // ciasteczka bezpiecznik ze starą ścieżką (`lib/session-establish`).
+        const session = await establishSession(accessToken);
+        const me = { data: session.user };
+        setAuth(session.user, session.handle);
 
         // Most do wtyczki Chrome. Wtyczka miala JEDYNA sciezke logowania —
         // email + haslo — a produkcja odrzuca ja od 19.07 (SSO-only), wiec

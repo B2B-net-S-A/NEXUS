@@ -68,7 +68,9 @@ Odpowiedzi to listy dozwolonych pól (`services/consultant_portal/panel.py`), pi
 - **Szablon rozliczenia** (`client_settlement_rules`) ustawiają Finanse; tabela-siostra, bo `client_playbooks`
   ma bramkę Delivery. `documents.month_row(mode=…)`: przy `client_report` konsultant nie wysyła raportu.
 - **Trener**: dane w `cp_trainer_applications`, a obsługa to sprawa `portal:trainer:*`; drugie wysłanie
-  poprawia pierwsze zamiast dublować sprawę.
+  poprawia pierwsze zamiast dublować sprawę. Od 13.11.2026 zgłoszenie nie pyta o formę ani stawkę
+  za dzień (umowa szkoleniowa: tylko zdalnie, cena w wycenie A–E zamówienia), a zamówienia, umowa,
+  pliki i biblioteka są w zakładce „Szkolenia” → `szkolenia-i-trenerzy.md`.
 
 ## Rozmowy
 

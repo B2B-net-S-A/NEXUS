@@ -16,7 +16,9 @@ HOST="${PROD_HOST:-root@91.99.199.112}"
 
 # Jedno wywołanie SSH na próbkę. Zapytanie SQL jest w transakcji tylko do odczytu.
 read -r -d '' REMOTE <<'EOF'
-b=$(docker ps --format '{{.Names}}' | grep '^backend-ocgkw' | head -1)
+# Backend po roli procesu: po etapie B2 nazwa to `<uuid aplikacji>-<czas>`.
+b=$(docker ps -q | xargs -r docker inspect --format '{{.Name}}{{range .Config.Env}}{{if eq . "NEXUS_PROCESS_ROLE=web" "NEXUS_PROCESS_ROLE=all"}} web{{end}}{{end}}' \
+    | awk '$2 == "web" { sub("^/", "", $1); print $1; exit }')
 p=$(docker ps --format '{{.Names}}' | grep '^postgres-ocgkw' | head -1)
 f=$(docker ps --format '{{.Names}}' | grep '^frontend-ocgkw' | head -1)
 s=$(docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' "$b" "$p" "$f" \

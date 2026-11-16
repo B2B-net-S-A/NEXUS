@@ -17,8 +17,10 @@ w nim nie ma) zapisuje się, ale zapłata wymaga drugiej osoby (R7, R10 —
 z umowy. Zmiana NIP-u kasuje rachunek z wykazu (sprawdzenie dotyczyło
 poprzedniego NIP-u) i dane z wykazu.
 
-PESEL nie trafia do NEXUSA: identyfikator osoby w Symfonii to GUID albo numer
-ewidencyjny, a 11 cyfr z poprawną sumą kontrolną PESEL-u jest odrzucane.
+PESEL nie trafia do danych do rozliczeń: identyfikator osoby w Symfonii to GUID
+albo numer ewidencyjny, a 11 cyfr z poprawną sumą kontrolną PESEL-u jest
+odrzucane. PESEL trzymają wyłącznie dane kadrowo-płacowe (K7a, decyzja Artura
+13.11.2026 — ``payroll_lists/person_data.py``).
 """
 
 from __future__ import annotations

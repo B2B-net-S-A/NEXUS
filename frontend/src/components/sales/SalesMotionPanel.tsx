@@ -32,6 +32,7 @@ function Person({ entry, order, onEdit, onCall }: PersonProps) {
   // Adres z Atlasa to wolny tekst, więc link tylko dla http(s).
   const linkedin = safeHref(entry.linkedin_url);
   const blocked = Boolean(entry.do_not_contact);
+  const gone = entry.active === false;
   const role = entry.role_in_company ?? undefined;
   const level = entry.decision_level ? DECISION_LEVELS[entry.decision_level - 1] : undefined;
   const origin = sourceLine(entry);
@@ -45,9 +46,14 @@ function Person({ entry, order, onEdit, onCall }: PersonProps) {
           className="min-w-0 flex-1 text-left hover:text-primary"
         >
           <span className="flex min-w-0 items-baseline gap-2">
-            <TruncatedText className={`max-w-[9.5rem] shrink-0 font-medium ${blocked ? "text-muted-foreground" : "text-foreground"}`}>
+            <TruncatedText className={`max-w-[9.5rem] shrink-0 font-medium ${blocked || gone ? "text-muted-foreground" : "text-foreground"}`}>
               {entry.name}
             </TruncatedText>
+            {gone && (
+              <Badge variant="neutral" size="sm">
+                nie pracuje
+              </Badge>
+            )}
             {order && (
               <Badge variant="soft" size="sm">
                 {order}
@@ -58,7 +64,7 @@ function Person({ entry, order, onEdit, onCall }: PersonProps) {
                 Nie kontaktować
               </Badge>
             )}
-            {!order && !blocked && role && (
+            {!order && !blocked && !gone && role && (
               <TruncatedText className="min-w-0 max-w-none text-xs text-muted-foreground">{role}</TruncatedText>
             )}
           </span>

@@ -46,6 +46,11 @@ klient API `lib/api/sales-bot-people.ts`.
   Tygodniowy bieg nie podsuwa więc tych samych ludzi po decyzji handlowca.
   Firma bez nowych osób nie dostaje wiersza.
 - Odpowiedź dla bota i logi to same liczby (`numbers_only`).
+- **Osoby, które odeszły** (13.11.2026): lista `left` przy firmie (imię i nazwisko,
+  dawne stanowisko, `source_url`, `published` wymagane, `left_on` gdy źródło podaje,
+  `extra="forbid"`). Znane osoby, także te odrzucone wyżej jako powtórka, idą do
+  zakładki Kontakty z nowszym stanowiskiem albo stanem „nie pracuje”
+  (`kontakty-jedna-lista.md`).
 
 ## Zapis od razu (decyzja Artura 13.11.2026)
 
@@ -129,6 +134,9 @@ osobne daty sprawdzenia stanowiska i dostępnych kontaktów. Bot otwiera pełne
 profile osób w panelu Cognism i odsyła wyniki osobnym webhookiem.
 NEXUS zapisuje jednoznaczne dopasowania po sprawdzeniu pracodawcy i sprzeciwów.
 Brak pola w nowym odczycie nie usuwa wcześniejszej wartości.
+Od 13.11.2026 osoby z mapy trafiają też do zakładki Kontakty, a osoba
+z `active = false` zostaje na mapie jako „Nieaktywna rola” zamiast znikać
+(reguły: `kontakty-jedna-lista.md`).
 
 Mapa należy do karty firmy. Nowe firmy zakwalifikowane przez zakończony
 research trafiają do kolejki Cognism. Przycisk na karcie pozwala zlecić

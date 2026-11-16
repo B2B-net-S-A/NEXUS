@@ -31,10 +31,13 @@ export function P0Chip({ until, reason, size = "sm", className }: P0ChipProps) {
   if (!left) {
     // 06.11.2026: termin minął, P0 trwa do decyzji Head of Recruitment.
     const overdueTitle = `P0 po terminie (${p0UntilLabel(until, now)}) — trwa, dopóki ktoś go nie przedłuży albo nie zakończy${reason ? `: ${reason}` : ""}`;
+    // Ramka w kolorze napisu (`border-current`), nie `border-destructive`:
+    // w trybie ciemnym `--destructive` to ciemna czerwień tła przycisku i
+    // przerywana ramka znikała na karcie razem z napisem (13.11.2026).
     return (
       <span
         className={cn(
-          "inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md border-2 border-dashed border-destructive bg-card font-bold text-destructive",
+          "inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-md border-2 border-dashed border-current bg-card font-bold text-destructive",
           SIZE[size],
           className,
         )}

@@ -434,3 +434,40 @@ async def test_calendar_sync_merges_with_the_sent_invitation(app_client, graph) 
     assert after.id == meeting.id
     assert after.opportunity_id == opportunity_id
     assert booked["company"]["id"] == after.company_id
+
+
+@pytest.mark.asyncio
+async def test_invite_text_and_client_address_from_booking_fill_the_draft(
+    app_client, graph
+) -> None:
+    """Lista dzwoniących 13.11.2026: umawiający wpisuje treść i adres klienta, a
+    prowadzący dostaje je w oknie zaproszenia; nic nie wychodzi samo."""
+
+    typed = f"Klient-{_tag()}@Firma-Z-Oknem.example"
+    _, host, opportunity_id, _ = await _handoff(
+        app_client,
+        new_contact={"full_name": "Anna Przykładowa", "email": "stary@example.com"},
+        invite_to=typed,
+        invite_message="Dzień dobry, zgodnie z rozmową zapraszam na spotkanie.",
+    )
+    draft = (
+        await app_client.get(f"{URL}/{opportunity_id}/invite", headers=_headers(host))
+    ).json()
+    assert [item["address"] for item in draft["recipients"]] == [typed.lower()]
+    assert draft["message"].startswith("Dzień dobry")
+    assert graph.calls == []
+
+
+@pytest.mark.asyncio
+async def test_booking_refuses_a_bad_client_address(app_client) -> None:
+    caller, host = await _pair()
+    resp = await app_client.post(
+        "/api/sales/handoffs",
+        json={
+            "new_company": {"name": f"Firma {_tag()}"},
+            "host_user_id": host.id,
+            "invite_to": "to-nie-adres",
+        },
+        headers=_headers(caller),
+    )
+    assert resp.status_code == 422

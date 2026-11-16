@@ -49,6 +49,8 @@ class AutofillFeedback(Base):
     )
     # 0686: braki przy pozycjach ({label, kind}) przy „Brak umiejętności”.
     gaps: Mapped[Optional[list]] = mapped_column(JSONB)
+    # 0717: szczegół powodu ({role_kind, role_wanted} / {availability} / {cleanup}).
+    detail: Mapped[Optional[dict]] = mapped_column(JSONB)
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

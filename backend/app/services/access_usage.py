@@ -92,7 +92,10 @@ AREA_BY_SCREEN: dict[str, str] = {
         "talents",
     ),
     # „porcja” — porcja dnia od Nexusa (07.11.2026), karty z Tablicy.
-    **_screens(TABLICA, "calendar", "departed-care", "jobs", "manager", "porcja"),
+    # „zespoly” — zespół dla klienta: kilka rekrutacji pod jednym linkiem (15.11.2026).
+    **_screens(
+        TABLICA, "calendar", "departed-care", "jobs", "manager", "porcja", "zespoly"
+    ),
     **_screens(
         KONTRAKTY,
         "back-office",
@@ -104,10 +107,14 @@ AREA_BY_SCREEN: dict[str, str] = {
         "my-relationships",
         "order-mail",
     ),
-    **_screens(FINANSE, "finance"),
+    # „accounting” — Księgowość (księga NEXUSA, K1, 14.11.2026), bramka sekcji Finanse.
+    # „compliance” — Przepisy (radar zmian w prawie, 15.11.2026); używają go też
+    # Kadry, Umowy i HoR, ale ekran stoi w sekcji Finanse menu.
+    **_screens(FINANSE, "accounting", "compliance", "finance"),
     # Podgląd na telefonie stoi za tą samą bramką sekcji co Insights.
     **_screens(INSIGHTS, "insights", "podglad"),
-    **_screens(HR, "equipment", "people"),
+    # „trainings” — szkolenia i biblioteka nagrań (13.11.2026), moduł grupy „Ludzie”.
+    **_screens(HR, "equipment", "people", "trainings"),
     **_screens(SPRZEDAZ, "sales"),
     **_screens(GENERATOR_B2B, "contracts/b2b-generator"),
 }
@@ -127,6 +134,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "profile",
         "settings",
         "start",
+        # Poligon NEXUSA: ćwiczenia na rekrutacji ćwiczebnej, nie praca w obszarze.
+        "poligon",
         # Umowy klientów: nadawane imiennie, poza sekcjami, które mierzy przegląd.
         "client-contracts",
         # Rekrutacja własna: proces dwóch osób, poza sekcjami, które mierzy przegląd.

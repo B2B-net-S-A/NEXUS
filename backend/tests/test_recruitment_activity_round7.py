@@ -60,7 +60,7 @@ def _result(rows):
 
 
 # Atrapa `db` z kolejką odpowiedzi — migawka `credited` jej nie czyta.
-pytestmark = pytest.mark.usefixtures("empty_credited_snapshot")
+pytestmark = pytest.mark.usefixtures("empty_credited_snapshot", "no_person_absences")
 
 
 @pytest.fixture(autouse=True)

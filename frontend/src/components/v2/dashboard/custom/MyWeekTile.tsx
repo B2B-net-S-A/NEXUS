@@ -4,6 +4,8 @@
 // klienta w tym tygodniu i placementy miesiąca wobec celu. Liczby z
 // `/api/kpis/me/panel` — ta sama atrybucja i ten sam klucz zapytania co
 // Insights → „Mój miesiąc”, więc obie powierzchnie pokazują to samo.
+// Cel tygodnia liczy backend z dni pracy osoby (`person_workdays`: święta,
+// urlop, dzień onboardingu) — kafelek go nie przelicza (14.11.2026).
 
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
@@ -13,25 +15,6 @@ import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState"
 import { api, type MyKpiPanel } from "@/lib/api"
 
 export const MY_WEEK_QUERY_KEY = ["insights", "me", "panel"] as const
-
-const WEEKDAY_INDEX: Record<string, number> = {
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
-  Sun: 7,
-}
-
-/** Dni robocze (pn–pt) bieżącego tygodnia do dziś włącznie, w Europe/Warsaw. */
-export function workdaysSoFarThisWeek(now: Date = new Date()): number {
-  const weekday = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Europe/Warsaw",
-    weekday: "short",
-  }).format(now)
-  return Math.min(WEEKDAY_INDEX[weekday] ?? 5, 5)
-}
 
 /** Cel, który da się pokazać: dodatnia liczba; reszta = brak celu. */
 function usableTarget(value: number | null | undefined): number | null {
@@ -88,16 +71,12 @@ export function MyWeekTile() {
     return <p className="text-sm text-muted-foreground">Ta rola nie ma celów KPI.</p>
   }
 
-  const dailyVerifications = usableTarget(panel.target_verifications_daily)
-  const verificationsTarget =
-    dailyVerifications !== null ? dailyVerifications * workdaysSoFarThisWeek() : null
-
   return (
     <div className="flex h-full flex-col gap-3">
       <WeekRow
         label="Weryfikacje w tym tygodniu"
         value={panel.weryfikacje.week}
-        target={verificationsTarget}
+        target={usableTarget(panel.target_verifications_week_to_date)}
       />
       <WeekRow label="CV do klienta w tym tygodniu" value={panel.rekomendacje.week} target={null} />
       <WeekRow

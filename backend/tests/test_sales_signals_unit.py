@@ -212,19 +212,32 @@ def test_signals_run_never_writes_empty_points() -> None:
 # ── webhook ──────────────────────────────────────────────────────────────
 
 
-def test_webhook_body_carries_only_company_names_and_domains() -> None:
+def test_webhook_body_carries_company_ids_but_no_people() -> None:
+    """Decyzja Artura z 13.11.2026: NIP i KRS firm mogą iść do bota, osoby nie."""
+
     run, token = signals.new_run("briefing", [1], now=NOW, modes={1: "first_call"})
     run.id = 11
-    company = SalesCompany(id=1, name="Firma A", domain="firma-a.pl", nip="123")
+    company = SalesCompany(
+        id=1, name="Firma A", domain="firma-a.pl", nip="1234563218", krs="0000012345"
+    )
     body = signals.webhook_body(
         run, token, [company], {"rejected": [], "seen_urls": []}
     )
     assert body["firms"] == [
-        {"ref": 1, "name": "Firma A", "domain": "firma-a.pl", "mode": "first_call"}
+        {
+            "ref": 1,
+            "name": "Firma A",
+            "domain": "firma-a.pl",
+            "nip": "1234563218",
+            "krs": "0000012345",
+            "mode": "first_call",
+        }
     ]
     assert body["token"] == token and body["run_id"] == 11
     assert body["callback_url"].endswith("/api/integrations/sales-signals/runs/11")
-    assert "nip" not in str(body["firms"])
+    bare = SalesCompany(id=2, name="Firma B", domain=None)
+    body = signals.webhook_body(run, token, [bare], {"rejected": [], "seen_urls": []})
+    assert "nip" not in body["firms"][0] and "krs" not in body["firms"][0]
 
 
 # ── harmonogram pętli ────────────────────────────────────────────────────

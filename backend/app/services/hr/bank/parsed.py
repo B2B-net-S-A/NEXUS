@@ -42,6 +42,9 @@ class ParsedStatement:
     account: Optional[str]
     currency: Optional[str]
     lines: tuple[StatementLine, ...] = field(default_factory=tuple)
+    #: Rachunki wszystkich wyciągów w pliku (``:25:`` / ``Stmt/Acct``), po kolei;
+    #: ``account`` to tylko jeden z nich. Księga (K4a) odrzuca plik z kilkoma.
+    accounts: tuple[str, ...] = ()
 
 
 __all__ = ["Direction", "ParsedStatement", "StatementError", "StatementLine"]

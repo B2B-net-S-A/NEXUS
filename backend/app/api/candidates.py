@@ -174,6 +174,7 @@ from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
 )
 from app.services.experience_end import sql_current_end_literals
+from app.services.name_match_rank import candidate_name_rank
 from app.services.polish_ilike import contains_pattern
 from app.services.candidate_search_predicates import (
     FILTER_DATE_MAX,
@@ -2074,6 +2075,11 @@ def _apply_requested_sort(
             # właściciela wpisanego adresu.
             ordering = [score.desc(), Candidate.created_at.desc(), Candidate.id.desc()]
             if filters.q:
+                # Paleta ⌘K bierze stąd kandydatów rekrutera: dokładne nazwisko
+                # albo imię z nazwiskiem przed prefiksem, prefiks przed resztą —
+                # jak `/api/search/global` (#3431). Samo podobieństwo dawało
+                # krótszy stóg wyżej: „Kotow” → Kotowska, Kot, Kot, potem Kotow.
+                ordering.insert(0, candidate_name_rank(filters.q))
                 exact_email = case(
                     (
                         func.lower(func.coalesce(Candidate.email, ""))
@@ -4946,12 +4952,17 @@ async def get_candidate_quick_view(
     candidate_id: int,
     current_user: CandidatePIIAccess,
     exclude_job_id: Optional[int] = Query(default=None, gt=0),
+    via: Optional[Literal["phone"]] = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Typed, bounded projection used by the candidate quick-view drawer.
 
     The response contains no raw CV bytes and no note-author e-mail. Document
     metadata/content stays behind the dedicated document capability routes.
+
+    ``via=phone``: karta kontaktu w podglądzie na telefonie (decyzja Artura
+    14.11.2026). Otwarcie zapisuje się w historii kandydata; awaria zapisu
+    nie odbiera karty, ale zostaje w logu.
     """
 
     from app.services.candidate_quick_view import (
@@ -5121,7 +5132,7 @@ async def get_candidate_quick_view(
     notes_origin = availability_origin(candidate)
     quick_notes_origin = AvailabilityFromNotes(**notes_origin) if notes_origin else None
     employment_markers = await _page_employment_markers(db, [candidate])
-    return CandidateQuickViewResponse(
+    response = CandidateQuickViewResponse(
         candidate=CandidateQuickViewCandidate(
             id=candidate.id,
             name=candidate.name,
@@ -5167,6 +5178,24 @@ async def get_candidate_quick_view(
             can_open_full_profile=True,
         ),
     )
+    if via == "phone":
+        # Zapis po złożeniu odpowiedzi: `rollback()` wygasza obiekty sesji, więc
+        # awaria dziennika przed tym miejscem kończyła się 500 zamiast karty.
+        try:
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.CONTACT_VIEWED_ON_PHONE,
+                user_id=current_user.id,
+                entity_id=candidate_id,
+                details={"via": "phone"},
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001 — karta nie zależy od dziennika
+            logger.exception(
+                "[quick-view] nie udało się zapisać otwarcia karty z telefonu"
+            )
+            await db.rollback()
+    return response
 
 
 # Legacy `activities` actions z importu Traffita, które DUPLIKUJĄ realne wpisy
@@ -6612,7 +6641,7 @@ async def remove_candidate_document(
 
 
 @router.post("/{candidate_id}/cv/reparse", status_code=202)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def reparse_primary_cv(
     request: Request,
     candidate_id: DbIdPath,

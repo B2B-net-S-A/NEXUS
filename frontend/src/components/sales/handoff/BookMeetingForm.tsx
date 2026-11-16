@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   useOpportunities,
@@ -50,11 +51,23 @@ export interface BookMeetingFormProps {
   contactId?: number;
   /** Usługa z kontekstu, np. z kampanii. */
   service?: string;
+  /**
+   * Zaproszenie dla klienta z kolejki dzwonienia (lista dzwoniących 13.11.2026): adres
+   * i treść do poprawienia. Nic nie wychodzi samo: to podpowiedź do okna „Wyślij
+   * zaproszenie”, które prowadzący wysyła ze swojej skrzynki.
+   */
+  invite?: { email: string | null };
   onSaved: (handoff: Handoff) => void;
   onCancel: () => void;
 }
 
 const text = (value: string): string | null => value.trim() || null;
+
+/** Podpowiedź treści zaproszenia po telefonie; dzwoniący ją poprawia. */
+export function inviteTemplate(service?: string): string {
+  const topic = service?.trim() ? ` w sprawie: ${service.trim()}` : "";
+  return `Dzień dobry,\n\nzgodnie z naszą rozmową telefoniczną przesyłam zaproszenie na spotkanie${topic}.\n\nPozdrawiam`;
+}
 
 /**
  * „Umów spotkanie”: jeden formularz zamiast terminu wpisanego w opis szansy. Zapis zakłada
@@ -68,6 +81,7 @@ export function BookMeetingForm({
   handoff,
   contactId,
   service: initialService,
+  invite,
   onSaved,
   onCancel,
 }: BookMeetingFormProps) {
@@ -92,6 +106,10 @@ export function BookMeetingForm({
   const [decisionMaker, setDecisionMaker] = useState(handoff?.decision_maker ?? "");
   const [timing, setTiming] = useState(handoff?.timing ?? "");
   const [reuse, setReuse] = useState(true);
+  const [inviteTo, setInviteTo] = useState(invite?.email ?? "");
+  const [inviteMessage, setInviteMessage] = useState(() =>
+    invite ? inviteTemplate(initialService) : "",
+  );
   const [duplicates, setDuplicates] = useState<DuplicateCompany[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -145,6 +163,10 @@ export function BookMeetingForm({
       decision_maker: text(decisionMaker),
       timing: text(timing),
     };
+    if (invite) {
+      payload.invite_to = text(inviteTo);
+      payload.invite_message = text(inviteMessage);
+    }
     if (opportunity) payload.opportunity_id = opportunity.id;
     else if (picked && mine && reuse) payload.opportunity_id = mine.id;
     else if (picked) payload.company_id = picked.id;
@@ -392,6 +414,31 @@ export function BookMeetingForm({
           />
         </div>
       </section>
+
+      {invite && (
+        <section className="space-y-2">
+          <h3 className={HEADING}>Zaproszenie dla klienta</h3>
+          <Input
+            type="email"
+            aria-label="Adres e-mail klienta"
+            placeholder="Adres e-mail klienta"
+            value={inviteTo}
+            maxLength={255}
+            onChange={(event) => setInviteTo(event.target.value)}
+          />
+          <Textarea
+            aria-label="Treść zaproszenia"
+            rows={4}
+            value={inviteMessage}
+            maxLength={5000}
+            onChange={(event) => setInviteMessage(event.target.value)}
+          />
+          <p className="text-xs leading-snug text-muted-foreground">
+            Adres i treść trafią do okna „Wyślij zaproszenie” prowadzącego;
+            wyśle je on, ze swojej skrzynki.
+          </p>
+        </section>
+      )}
 
       {duplicates.length > 0 && (
         <div role="alert" className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">

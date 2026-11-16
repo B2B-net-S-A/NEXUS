@@ -77,6 +77,7 @@ from app.api import (
     contract_templates,
     fx,
     invoices,
+    framework_rates,
     rate_cards,
     dashboard,
     search,
@@ -115,6 +116,7 @@ from app.api import insights_campaigns
 from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
+from app.api import integrations_law_radar
 from app.api import integrations_sales_signals
 from app.api import integrations_v1
 from app.api.integrations_v1.common import (
@@ -243,11 +245,25 @@ from app.api import hr_contract_admin_details as hr_contract_admin_details_api
 from app.api import hr_settlements as hr_settlements_api
 from app.api import hr_ksef as hr_ksef_api
 from app.api import hr_payments as hr_payments_api
+from app.api import hr_payroll_lists as hr_payroll_lists_api
 from app.api import hr_documents as hr_documents_api
 from app.api import hr_agreements as hr_agreements_api
 from app.api import client_sales_invoices as client_sales_invoices_api
+from app.api import client_issued_invoices as client_issued_invoices_api
 from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
+from app.api import client_reports as client_reports_api
+from app.api import law_radar as law_radar_api
+from app.api import client_einvoices as client_einvoices_api
+from app.api import finance_ledger as finance_ledger_api
+from app.api import finance_archive as finance_archive_api
+from app.api import finance_payments as finance_payments_api
+from app.api import finance_posting as finance_posting_api
+from app.api import ledger as ledger_api
+from app.api import ledger_assets as ledger_assets_api
+from app.api import ledger_settlements as ledger_settlements_api
+from app.api import ledger_reports as ledger_reports_api
+from app.api import ledger_vat as ledger_vat_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
 from app.api import care_atlas as care_atlas_api
@@ -259,6 +275,8 @@ from app.api import back_office as back_office_api
 from app.api import consultant_panel as consultant_panel_api
 from app.api import consultant_portal as consultant_portal_api
 from app.api import consultant_portal_staff as consultant_portal_staff_api
+from app.api import trainings as trainings_api
+from app.api import trainings_media as trainings_media_api
 from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
 from app.api import sales_company_people as sales_company_people_api
@@ -273,6 +291,7 @@ from app.api import sales_research_import as sales_research_import_api
 from app.api import sales_signals as sales_signals_api
 from app.api import sales_bot_results as sales_bot_results_api
 from app.api import sales_bot_people as sales_bot_people_api
+from app.api import sales_bot_lists as sales_bot_lists_api
 from app.api import sales_bots as sales_bots_api
 from app.api import sales_company_bot as sales_company_bot_api
 from app.api import sales_calling as sales_calling_api
@@ -321,6 +340,8 @@ from app.api import public_client_panel as public_client_panel_api
 from app.api import own_hiring as own_hiring_api
 from app.api import public_own_hiring as public_own_hiring_api
 from app.api import client_panel as client_panel_api
+from app.api import job_team_panel as job_team_panel_api
+from app.api import public_job_team_panel as public_job_team_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
@@ -647,6 +668,14 @@ async def lifespan(app: FastAPI):
     _migration_failure = startup_failure_message(read_startup_status())
     if _migration_failure:
         logger.error(_migration_failure)
+    # Etap B2: przy rolling update DDL z entrypointu biegnie obok żywego ruchu,
+    # więc `lock_timeout` realnie odpuszcza kroki. Pominięty krok = błąd w Sentry.
+    from app.services.migration_health import skipped_ddl_message
+    from app.services.startup_locks import read_skipped_ddl
+
+    _skipped_ddl = skipped_ddl_message(read_skipped_ddl())
+    if _skipped_ddl:
+        logger.error(_skipped_ddl)
     # audyt 22.09 r2 (SEC-02): klucz z historii gita — tylko głośny log.
     from app.core.config import log_if_secret_key_leaked
 
@@ -824,10 +853,12 @@ async def lifespan(app: FastAPI):
     from app.tasks.pre_contract_sweeper import pre_contract_sweeper_loop
     from app.tasks.start_documents_sweeper import start_documents_sweeper_loop
     from app.tasks.dl_portal_expiry_scanner import dl_portal_expiry_loop
+    from app.tasks.client_report_reminders import client_report_reminders_loop
     from app.tasks.dl_alerts_scanner import dl_alerts_loop
     from app.tasks.order_gaps import order_gaps_loop
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.sales_signals import sales_signals_loop
+    from app.tasks.law_radar import law_radar_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -871,6 +902,7 @@ async def lifespan(app: FastAPI):
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
+    from app.services.m365.startup_reset import m365_interrupted_reset_loop
     from app.tasks.access_usage import access_usage_loop
     from app.core.process_bus import process_bus_loop
     from app.core.process_role import keep_tasks_for_role
@@ -905,6 +937,15 @@ async def lifespan(app: FastAPI):
 
     freeze_startup_heap()
 
+    from app.core.shutdown_drain import install_shutdown_drain
+
+    if install_shutdown_drain(
+        settings.NEXUS_SHUTDOWN_DRAIN_SECONDS, asyncio.get_running_loop()
+    ):
+        logger.info(
+            "shutdown drain: %.0f s po SIGTERM", settings.NEXUS_SHUTDOWN_DRAIN_SECONDS
+        )
+
     # Pętle ma jeden proces naraz (rolling update trzyma chwilę dwa kontenery).
     # Wolna blokada = start jak dawniej, przed `yield`. Wyłącznik awaryjny:
     # BACKGROUND_LEADER_LOCK_ENABLED=false.
@@ -935,6 +976,12 @@ async def lifespan(app: FastAPI):
             "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
             # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
             "queue_retention": asyncio.create_task(queue_retention_loop()),
+            # Wysyłki i synchronizacje M365 porzucone przez proces, który zginął.
+            # Pętla, nie krok startu: przy rolling update start nie znaczy, że
+            # poprzednik nie żyje (`services/m365/startup_reset.py`).
+            "m365_interrupted_reset": asyncio.create_task(
+                m365_interrupted_reset_loop()
+            ),
             # 0632: zapis i retencja licznika użycia obszarów.
             "access_usage": asyncio.create_task(access_usage_loop()),
             "critical_stats_cache": asyncio.create_task(critical_stats_cache_loop()),
@@ -1016,6 +1063,10 @@ async def lifespan(app: FastAPI):
                 start_documents_sweeper_loop()
             ),
             "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
+            # 15.11.2026: raporty dla klientów — dzwonek przed terminem i po nim.
+            "client_report_reminders": asyncio.create_task(
+                client_report_reminders_loop()
+            ),
             "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
             # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
             "job_idle": asyncio.create_task(job_idle_loop()),
@@ -1048,6 +1099,9 @@ async def lifespan(app: FastAPI):
             "sales_archive_shadow": asyncio.create_task(sales_archive_shadow_loop()),
             # Sprzedaż: biegi bota researchu (Grok Bot); wyłącznik SALES_SIGNALS_ENABLED.
             "sales_signals": asyncio.create_task(sales_signals_loop()),
+            # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
+            # wyłącznik LAW_RADAR_ENABLED przed pętlą.
+            "law_radar": asyncio.create_task(law_radar_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
@@ -1150,6 +1204,8 @@ async def lifespan(app: FastAPI):
             "consultant_portal_mailbox": asyncio.create_task(
                 hr_loops.consultant_portal_mailbox_loop()
             ),
+            # 0697: przypomnienia o szkoleniach i nagranie/transkrypt/obecność z Teams.
+            "trainings_teams": asyncio.create_task(hr_loops.trainings_teams_loop()),
             "admin_cases_mail_ingest": asyncio.create_task(
                 hr_loops.admin_cases_mail_ingest_loop()
             ),
@@ -1198,13 +1254,6 @@ async def lifespan(app: FastAPI):
             _task.add_done_callback(_log_task_death(_name))
 
     async def _on_background_leader_acquired() -> None:
-        from app.services.m365.startup_reset import reset_interrupted_m365_state
-
-        try:
-            async with engine.begin() as _m365_reset_conn:
-                await reset_interrupted_m365_state(_m365_reset_conn)
-        except Exception as _m365_reset_exc:  # noqa: BLE001 — nie blokuje pętli
-            logger.warning("m365 reset pominięty: %r", _m365_reset_exc)
         _start_background_tasks()
 
     async def _on_background_leader_lost() -> None:
@@ -1324,6 +1373,14 @@ app.add_middleware(
     BodySizeLimitMiddleware,
     max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
     path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
+    # Szkolenia (0694): nagranie z Teams i pliki trenera do 2 GB, tylko te dwie trasy.
+    pattern_limits=[
+        (r"/api/trainings/\d+/files", 2_100 * 1024 * 1024),
+        (
+            r"/api/public/consultant-portal/trainings/\d+/deliverables/[a-z]+",
+            2_100 * 1024 * 1024,
+        ),
+    ],
 )
 # Licznik użycia obszarów, domyślnie wyłączony (`ACCESS_USAGE_COUNTER_ENABLED`):
 # tylko dolicza w pamięci, zapis robi pętla `access_usage`.
@@ -1372,6 +1429,8 @@ app.add_middleware(
         "X-Requested-With",
         # Admin „podgląd jako użytkownik" — patrz app/api/deps.py.
         "X-Impersonate-User-Id",
+        # Ochrona CSRF sesji w ciasteczku (app/core/session_cookie.py).
+        "X-Nexus-CSRF",
         # Klucz wtyczki LinkedIn (app/api/extension_deps.py). Panel wtyczki
         # z host_permissions CORS-u nie przechodzi; to dla stron z listy
         # originów (podgląd panelu na stagingu).
@@ -1390,6 +1449,8 @@ app.add_middleware(
         "X-Nexus-Screen",
         # Sesja portalu konsultanta: osobna od JWT pracownika (api/consultant_portal).
         "X-Portal-Session",
+        # Szkolenia: nazwa pliku przy uploadzie surowym ciałem (services/trainings/raw_upload).
+        "X-File-Name",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
@@ -1411,6 +1472,11 @@ app.add_middleware(
         "X-Generated-Contract-Id",
         # Dokumenty B2B i umowa przedwstępna (b2b_documents.py).
         "X-Document-Id",
+        # Paczka przelewów kosztów (finance_payments.py).
+        "X-Batch-File-Sha256",
+        "X-Batch-File-Changed",
+        # Paczka eksportu do Symfonii FK (finance_posting.py).
+        "X-File-SHA256",
         # Paczka CV (candidates.py).
         "X-Included-Count",
         "X-Skipped-Count",
@@ -1523,6 +1589,12 @@ app.include_router(
 )
 app.include_router(clients_team.router, prefix="/api/clients", tags=["clients-team"])
 app.include_router(bnp_report_api.router, prefix="/api/clients", tags=["clients"])
+# Katalog raportów klienta (15.11.2026): definicje, kalendarz, pobranie, historia.
+app.include_router(
+    client_reports_api.router, prefix="/api/client-reports", tags=["client-reports"]
+)
+# Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
+app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
@@ -1737,6 +1809,11 @@ app.include_router(
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
+# 0710: cennik umowy ramowej, dopłaty i kategoria na kontrakcie (F1, 15.11.2026).
+app.include_router(framework_rates.router, prefix="/api", tags=["framework-rates"])
+app.include_router(
+    framework_rates.finance_router, prefix="/api", tags=["framework-rates"]
+)
 app.include_router(
     contract_analytics.router,
     prefix="/api/contract-analytics",
@@ -1951,6 +2028,12 @@ app.include_router(
     prefix="/api/integrations/sales-signals",
     tags=["integrations"],
 )
+# Raport botów radaru przepisów (Zbieracz, Analityk): jednorazowy token biegu.
+app.include_router(
+    integrations_law_radar.router,
+    prefix="/api/integrations/law-radar",
+    tags=["integrations"],
+)
 # API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
 # procesów firmy (na start rozliczanie klientów) na kluczach `X-API-Key`.
 # Osobna warstwa obok tras ekranów — te dla klucza nadal są 401.
@@ -2048,6 +2131,17 @@ app.include_router(
     client_panel_api.router,
     prefix="/api/client-panel",
     tags=["client-panel"],
+)
+# 0711: zespół dla klienta — kilka rekrutacji jednego klienta, jeden link.
+app.include_router(
+    public_job_team_panel_api.router,
+    prefix="/api/public/team-panel",
+    tags=["public-job-team-panel"],
+)
+app.include_router(
+    job_team_panel_api.router,
+    prefix="/api/job-teams",
+    tags=["job-teams"],
 )
 app.include_router(
     public_own_hiring_api.router,
@@ -2185,6 +2279,13 @@ app.include_router(
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
+# K7a: płace liczone w NEXUSIE — parametry, dane osób, listy płac, pliki, przelewy.
+app.include_router(
+    hr_payroll_lists_api.router,
+    prefix="/api/hr/payroll-lists",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
 # Etap 5: e-teczka, umowy z ludźmi, faktury do klientów z KSeF.
 app.include_router(
     hr_documents_api.router,
@@ -2208,6 +2309,89 @@ app.include_router(
     client_sales_invoices_api.finance_router,
     prefix="/api/finance/sales-invoices",
     tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+# Wystawianie faktur sprzedaży do KSeF (E4) — szkice, numeracja, wysyłka.
+app.include_router(
+    client_issued_invoices_api.router,
+    prefix="/api/finance/issued-invoices",
+    tags=["client-invoicing"],
+    dependencies=_HR_PROGRAM,
+)
+# E-faktury Peppol (plan Nordei N2) — przed routerem rozliczeń (wspólny prefiks).
+app.include_router(
+    client_einvoices_api.router,
+    prefix="/api/finance/settlements/einvoices",
+    tags=["client-settlements"],
+    dependencies=_HR_PROGRAM,
+)
+# Księgowość (eBI24 → NEXUS, E0 i E1, 0695): kolejka kosztów i kartoteka kontrahentów.
+app.include_router(
+    finance_ledger_api.costs_router,
+    prefix="/api/finance/costs",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    finance_ledger_api.counterparties_router,
+    prefix="/api/finance/counterparties",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Archiwum dokumentów z eBI24 (E5, 0720): pliki i metadane po wyłączeniu eBI24.
+app.include_router(
+    finance_archive_api.router,
+    prefix="/api/finance/archive-ebi24",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Księgowość E3 (0699): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
+app.include_router(
+    finance_payments_api.router,
+    prefix="/api/finance/payments",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Księgowość E2 (0698): plan kont, reguły dekretu, dekret wpisu, eksport do Symfonii.
+app.include_router(
+    finance_posting_api.router,
+    prefix="/api/finance/posting",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
+# Księga NEXUSA (K1, 0700): dokumenty, dziennik, obroty, plan kont — `/accounting`.
+app.include_router(
+    ledger_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
+# Środki trwałe i WNiP (K6, 0703): ewidencja, plan amortyzacji, OT/LT, AM.
+app.include_router(
+    ledger_assets_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
+# Rozrachunki z rozliczaniem pozycji (K4b, 0706): część modułu „Bank”.
+app.include_router(
+    ledger_settlements_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
+# Rejestry VAT (K5a): sprzedaż i zakup z dokumentów księgi, moduł „VAT i JPK”.
+app.include_router(
+    ledger_vat_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
+# Sprawozdania (K8a): bilans, RZiS (porównawczy), pozycje kont = znaczniki MF.
+app.include_router(
+    ledger_reports_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
     dependencies=_HR_PROGRAM,
 )
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
@@ -2318,6 +2502,9 @@ app.include_router(
     sales_company_bot_api.router, prefix="/api/sales/companies", tags=["sales"]
 )
 app.include_router(sales_bots_api.router, prefix="/api/sales/bots", tags=["sales"])
+app.include_router(
+    sales_bot_lists_api.router, prefix="/api/sales/bot-lists", tags=["sales"]
+)
 app.include_router(sales_my_day_api.router, prefix="/api/sales/my-day", tags=["sales"])
 app.include_router(
     sales_calling_api.router, prefix="/api/sales/calling", tags=["sales"]
@@ -2358,6 +2545,19 @@ app.include_router(
 app.include_router(
     consultant_portal_staff_api.router,
     prefix="/api/back-office/portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Szkolenia i trenerzy (0694, 13.11.2026): zamówienie, wycena, umowa, pliki, biblioteka.
+app.include_router(
+    trainings_api.router,
+    prefix="/api/trainings",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    trainings_media_api.router,
+    prefix="/api/public/training-media",
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
@@ -2622,12 +2822,18 @@ async def api_health_live():
     import os
 
     from app.core.config import settings
+    from app.core.shutdown_drain import is_draining
 
-    return {
+    body = {
         "status": "alive",
         "version": os.environ.get("GIT_SHA", "unknown"),
         "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
     }
+    # Po SIGTERM przy rolling update: Docker oznacza kontener jako unhealthy,
+    # Traefik przestaje na niego kierować, a żądania w toku się kończą.
+    if is_draining():
+        return JSONResponse({**body, "status": "draining"}, status_code=503)
+    return body
 
 
 def _resolve_deployed_at() -> str:
@@ -2775,17 +2981,17 @@ def _probe_qdrant() -> str:
     # healthcheck zrobi się czerwony w minutę, a nie po dwóch godzinach zgłoszeń
     # „wyszukiwarka nic nie znajduje".
     #
-    # Uwaga przy migracji na `query_points()`: to wywołanie MUSI zostać
-    # zmienione razem z ośmioma w `app/services/` (lista w requirements.txt,
-    # w tym pomiar pełnego przeglądu `full_search_measurement._exact_search`) —
-    # inaczej sonda przestanie sprawdzać ścieżkę, którą faktycznie chodzi aplikacja.
+    # Od 14.11.2026 aplikacja woła wyłącznie `query_points()` (wynik w
+    # `.points`) i sonda robi to samo. Gdy kod przejdzie na inną metodę, sonda
+    # musi przejść razem z nim — inaczej przestanie sprawdzać ścieżkę, którą
+    # faktycznie chodzi aplikacja.
     try:
-        client.search(
+        client.query_points(
             collection_name=collection,
-            query_vector=[0.0] * _qdrant_vector_size,
+            query=[0.0] * _qdrant_vector_size,
             limit=1,
             with_payload=False,
-        )
+        ).points
     except Exception as blad:
         if _czy_przekroczony_czas(blad):
             raise _QdrantSlow from blad
@@ -3380,8 +3586,10 @@ async def api_health_check():
             _migration_state = await asyncio.wait_for(
                 alembic_revision_state(session), timeout=2.0
             )
+        from app.services.startup_locks import read_skipped_ddl
+
         checks["migrations"] = migrations_verdict(
-            _migration_state, read_startup_status()
+            _migration_state, read_startup_status(), read_skipped_ddl()
         )
     except Exception as exc:
         logger.warning("[health] migrations check failed: %s", exc)
@@ -3490,8 +3698,59 @@ async def api_health_alembic():
     return JSONResponse(content=out, status_code=http_status.HTTP_200_OK)
 
 
+# Pentest stagingu 13.11.2026: anonim dostawał listę ok. 210 tabel, raport
+# dryfu schematu, kolację i liczby z importu portfela klientów, a każde
+# wywołanie to ok. 210 zapytań do bazy — bez limitu. Deploy (``deploy.yml``)
+# czyta wyłącznie ``status``, ``version``, ``checks``/``errors`` (do logu) i
+# ``postgres_started_at``, więc tylko to zostaje anonimowi, a w ``checks`` —
+# tylko sondy padnięte. Pełny raport: zalogowany admin. Deploy woła sondę
+# najwyżej ok. 4 razy na minutę (co 15 s), stąd 10/min per IP.
+_DEEP_HEALTH_PUBLIC_FIELDS = ("status", "version", "postgres_started_at")
+
+
+async def _deep_health_viewer_is_admin(request: Request) -> bool:
+    """Pełny raport ``/api/health/deep`` tylko dla zalogowanego admina.
+
+    Sonda zostaje bez wymaganego logowania (deploy nie loguje się), więc token
+    sprawdzamy tylko, gdy przyszedł; każdy błąd = wersja anonimowa.
+    """
+    scheme, _, token = (request.headers.get("authorization") or "").partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        return False
+
+    from fastapi.security import HTTPAuthorizationCredentials
+
+    from app.api.deps import get_authenticated_user
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import UserRole
+
+    try:
+        async with AsyncSessionLocal() as db:
+            user = await get_authenticated_user(
+                request,
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=token),
+                db,
+            )
+    except Exception:  # noqa: BLE001 — zły token albo baza: wersja anonimowa
+        return False
+    return user.has_role(UserRole.admin)
+
+
+def _public_deep_health_body(body: dict) -> dict:
+    failing = {
+        name: state for name, state in body["checks"].items() if state != "healthy"
+    }
+    public = {field: body[field] for field in _DEEP_HEALTH_PUBLIC_FIELDS}
+    public["checked"] = body["checked"]
+    public["checks"] = failing
+    if body.get("errors"):
+        public["errors"] = body["errors"]
+    return public
+
+
 @app.get("/api/health/deep")
-async def api_health_deep_check():
+@limiter.limit("10/minute")
+async def api_health_deep_check(request: Request):
     """Deep healthcheck — probes core business tables against the live ORM.
 
     Motivation: /api/health only does `SELECT 1`, so it stays green even when
@@ -3516,9 +3775,10 @@ async def api_health_deep_check():
     exactly how the 0154 incident slipped through.
 
     Auth-free by design (no CI-side login/token coupling that could itself block
-    deploys). Response leaks only table names + the failing exception's class
-    name; full errors go to server logs / Sentry. HTTP 503 if any core table
-    fails; 200 when all pass.
+    deploys). Anonymous callers get only the deploy signal (status, version,
+    the FAILING probes with the exception class name); the full report needs an
+    admin token — see ``_public_deep_health_body``. Full errors go to server
+    logs / Sentry. HTTP 503 if any core table fails; 200 when all pass.
 
     When a NEW core table (or a drift-prone child) is added, extend `core_checks`
     below in the same spirit as the entrypoint.sh safety-net checklist.
@@ -3663,6 +3923,8 @@ async def api_health_deep_check():
         PreContractWatcher,
     )
     from app.services.care.board_state import CARE_BOARD_STATES
+    from app.models.rate_card import RateCardAdder
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
     from app.models.insight_decision import InsightDecision
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
@@ -3709,6 +3971,7 @@ async def api_health_deep_check():
         ClientPanelRequest,
         ClientPanelView,
     )
+    from app.models.job_team_panel import JobTeam, JobTeamSelection
     from app.models.job_ad import JobAd
     from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
@@ -3759,6 +4022,293 @@ async def api_health_deep_check():
         SalesPipelineStage,
         SalesTarget,
     )
+    from app.models.finance_ledger import (
+        FinanceCostEntry,
+        FinanceCostEntryEvent,
+        FinanceCounterparty,
+    )
+    from app.models.finance_payments import (
+        FinanceCostPayment,
+        FinanceCostPaymentRecord,
+        FinanceCounterpartyAccount,
+        FinanceCounterpartyAccountEvent,
+        FinancePaymentBatch,
+        FinancePaymentBatchItem,
+    )
+    from app.models.finance_posting import (
+        FinanceAccount,
+        FinancePostingBatch,
+        FinancePostingRule,
+    )
+    from app.models.ledger import (
+        LedgerBankLine,
+        LedgerBankStatement,
+        LedgerDocument,
+        LedgerEvent,
+        LedgerExport,
+        LedgerExportDocument,
+        LedgerLine,
+        LedgerPeriod,
+        LedgerPrepayment,
+        LedgerRecurring,
+        LedgerSettlement,
+        LedgerVatFile,
+        LedgerYear,
+    )
+    from app.models.ledger_assets import LedgerAsset, LedgerAssetOperation
+    from app.models.hr_payroll_lists import (
+        PayrollGrossInput,
+        PayrollList,
+        PayrollListLine,
+        PayrollParameterVersion,
+        PayrollPersonData,
+        PayrollYearOpening,
+    )
+    from app.models.hr_payroll_k7b import (
+        PayrollAbsenceMark,
+        PayrollBasisMonth,
+        PayrollComponent,
+        PayrollSalary,
+    )
+
+    # Pozostałe tabele paczki `hr_schema_bundle` (0455–0696), sondy na końcu listy.
+    from app.models.hr_ops import HrImportIdMap
+    from app.models.hr_leave import HrM365MailboxState, LeaveRequestDay
+    from app.models.hr_time import (
+        AttendanceDay,
+        TimesheetRoleDefault,
+        TimesheetTemplate,
+    )
+    from app.models.hr_payroll import (
+        HrBonusClawback,
+        HrBonusClawbackOffset,
+        PayrollLine,
+    )
+    from app.models.hr_lifecycle import (
+        LifecycleTask,
+        LifecycleTemplate,
+        LifecycleTemplateItem,
+    )
+    from app.models.contract_care import (
+        CareCadencePeriod,
+        CarePlanItem,
+        ClientArea,
+        ClientFeedbackScore,
+        RedeployQueueItem,
+        SkillReviewItem,
+        TechCardSkill,
+        TechCardVendor,
+        TechVendor,
+    )
+    from app.models.admin_case import (
+        AdminCaseComment,
+        AdminCaseMessage,
+        AdminMailIngestState,
+    )
+    from app.models.equipment import (
+        ClientOnboardingPack,
+        ClientOnboardingPackItem,
+        ConsultantWelcomeMail,
+        EquipmentExternalPerson,
+        EquipmentImportBatch,
+        EquipmentImportRow,
+        EquipmentModel,
+        EquipmentProtocolLine,
+        EquipmentProtocolLink,
+        EquipmentProtocolTemplate,
+    )
+    from app.models.equipment_intune import EquipmentIntuneSyncState
+    from app.models.care_announcement import (
+        CareAnnouncement,
+        CareAnnouncementOptOut,
+        CareAnnouncementRecipient,
+        CareAnnouncementReply,
+    )
+    from app.models.hr_settlement import (
+        EmployeeBillingDetails,
+        PayrollInvoice,
+        PayrollPayment,
+        PayrollSettlement,
+    )
+    from app.models.hr_document import HrDocument
+    from app.models.hr_agreement import (
+        HrAgreement,
+        HrAgreementTemplate,
+        HrAgreementTemplateVersion,
+    )
+    from app.models.client_sales_invoice import (
+        ClientSalesInvoice,
+        ClientSalesInvoiceLink,
+        ClientSalesInvoicePayment,
+    )
+    from app.models.client_structure import ClientStructureSkip
+    from app.models.back_office import BoCard, BoCardEvent, BoTeamMember
+    from app.models.consultant_portal import (
+        CpDocument,
+        CpFaqItem,
+        CpLink,
+        CpMailboxState,
+        CpMeeting,
+        CpRating,
+        CpSession,
+        CpSmsCode,
+    )
+    from app.models.consultant_panel import (
+        ClientOnboardingMaterial,
+        ClientSettlementRule,
+        CpActivation,
+        CpActivationMaterial,
+        CpTrainerApplication,
+    )
+    from app.models.client_settlement import (
+        ClientContractorInvoice,
+        ClientSettlement,
+        ClientSettlementExtra,
+        ClientSettlementRuleSet,
+    )
+    from app.models.client_time_report import (
+        ClientExternalId,
+        ClientTimeReport,
+        ClientTimeReportRow,
+    )
+    from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.client_report import ClientReportDefinition, ClientReportRun
+    from app.models.law_radar import (
+        LawChange,
+        LawChangeEvent,
+        LawChangeProbe,
+        LawChangeTask,
+        LawRadarItem,
+        LawRadarRun,
+    )
+    from app.models.training import (
+        Training,
+        TrainingAttendance,
+        TrainingFeedback,
+        TrainingFile,
+        TrainingRegistration,
+        TrainingTranscript,
+    )
+    from app.models.finance_archive import FinanceArchiveDocument
+    from app.models.client_order_revenue_step import ClientOrderRevenueStep
+    from app.models.client_issued_invoice import (
+        ClientInvoiceSeries,
+        ClientInvoiceTemplate,
+        ClientIssuedInvoice,
+    )
+
+    # Tabele spoza paczki: siatka `entrypoint.sh` i moduły DDL w `app/services`
+    # (pomiar 15.11.2026), sondy na końcu listy.
+    from app.models.interview_feedback import InterviewFeedback
+    from app.models.linkedin_snapshot import CandidateLinkedinSnapshot
+    from app.models.marketplace_alert_log import MarketplaceAlertLog
+    from app.models.team_structure import ClientTacAssignment
+    from app.models.engagement_token import EngagementDeclarationToken
+    from app.models.job_chat import JobChatMention, JobChatMessage, JobChatReadState
+    from app.models.chat_reaction import (
+        CandidateChatMessageReaction,
+        JobChatMessageReaction,
+    )
+    from app.models.candidate_chat import (
+        CandidateChatMention,
+        CandidateChatMessage,
+        CandidateChatReadState,
+    )
+    from app.models.document_signature import DocumentSignature
+    from app.models.document_signature_event import DocumentSignatureEvent
+    from app.models.saved_search_alert_log import SavedSearchAlertLog
+    from app.models.cortex import CortexSkillFact
+    from app.models.contract_framework_rate import ContractFrameworkRate
+    from app.models.match_telemetry import MatchImpression, MatchOutcome
+    from app.models.index_outbox import IndexOutboxEvent
+    from app.models.traffit_integration import TraffitEntityLink, TraffitWebhookEvent
+    from app.models.financial_adjustment import FinancialAdjustment
+    from app.models.analytics_snapshot import AnalyticsCutover, AnalyticsMetricSnapshot
+    from app.models.workflow_revision import (
+        StageRevision,
+        WorkflowDefinition,
+        WorkflowEdge,
+        WorkflowRevision,
+    )
+    from app.models.contract_alert_dedup import ContractAlertDedup
+    from app.models.application_submission import ApplicationSubmission
+    from app.models.match_score_invalidation import MatchScoreInvalidation
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.models.candidate_activity_summary import CandidateActivitySummary
+    from app.models.client_directory import (
+        ClientAlias,
+        ClientImportRow,
+        ClientImportRun,
+        ClientPortfolioScope,
+    )
+    from app.models.candidate_language import CandidateLanguage
+    from app.models.candidate_source_identity_review import (
+        CandidateSourceIdentityReview,
+    )
+    from app.models.section_permission import (
+        RBAC_RELATIONSHIP_RECONCILIATION,
+        ROLE_SESSION_MIGRATION_AUDIT,
+        RbacPermissionAudit,
+        RbacPolicyState,
+        RoleActionPermission,
+        RoleSectionPermission,
+        UserActionOverride,
+        UserSectionOverride,
+    )
+    from app.models.cv_generated_share import CvGeneratedShareToken, CvShareChatMessage
+    from app.models.help_material import HelpMaterial
+    from app.models.service_account import ServiceAccount, ServiceAccountKey
+    from app.models.client_order_offboarding import ClientOrderOffboardingCase
+    from app.models.order_mail import OrderMailSyncState
+    from app.models.integration_run import (
+        IntegrationAlertState,
+        IntegrationRun,
+        IntegrationRunEvent,
+    )
+    from app.models.integration_external_item import IntegrationExternalItem
+    from app.models.mail_delivery import MailDeliveryState
+    from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal
+    from app.models.competition_period_closure import CompetitionPeriodClosure
+    from app.models.dz_review_hint import DzReviewHint
+    from app.models.b2b_register_import import B2BRegisterImportRow
+    from app.models.contract_termination_snapshot import ContractTerminationSnapshot
+    from app.models.deleted_note_source import DeletedNoteSource
+    from app.models.contract_doc_sharepoint import ContractDocSpRunItem
+    from app.services.candidate_rate_from import (
+        CANDIDATE_RATE_DECISIONS,
+        CANDIDATE_RATE_FROM_QUEUE,
+    )
+    from app.models.job_intake_form import JobIntakeForm
+    from app.models.cv_finding_dismissal import CvFindingDismissal
+    from app.models.integration_write_receipt import IntegrationWriteReceipt
+    from app.models.cv_stage_draft_snapshot import CvStageDraftSnapshot
+    from app.models.job_previous_recruiter import JobPreviousRecruiter
+    from app.models.job_champion import JobChampion
+    from app.models.job_autofill_pool import JobAutofillPool
+    from app.models.autofill_feedback import AutofillFeedback
+    from app.models.autofill_quality_report import AutofillQualityReport
+    from app.models.candidate_job_owner import CandidateJobOwnerEvent
+    from app.models.sales import (
+        SalesCallDayTotal,
+        SalesCompanyBriefing,
+        SalesCompanyContact,
+        SalesContact,
+        SalesFile,
+        SalesLead,
+        SalesOpportunityContact,
+        SalesOpportunityEvent,
+        SalesPipeline,
+        SalesSignalRun,
+    )
+    from app.models.linkedin_extension import LinkedinExtensionConnection
+    from app.models.announcement import Announcement, AnnouncementRead
+    from app.models.candidate_ai_assessment import CandidateAiAssessment
+    from app.models.cpro_mail import CproMailEvent
+    from app.models.cv_generator_feedback import CvGeneratorFeedback
+    from app.models.job_recruiter_channel import JobRecruiterChannel
+    from app.models.candidate_conversation_fact import CandidateConversationFact
+    from app.models.duty_search_run import DutySearchResult, DutySearchRun
+    from app.models.b2b_signing_document import B2BSigningDocument
 
     core_checks = [
         ("workforce_availability_state", WorkforceAvailabilityState),
@@ -3769,6 +4319,10 @@ async def api_health_deep_check():
         ("contracts", Contract),
         ("contract_candidate_rates", ContractCandidateRate),
         ("contract_client_rates", ContractClientRate),
+        # 0710: dopłaty z umowy ramowej (limit kontraktu czyta je przy zapisie).
+        ("rate_card_adders", RateCardAdder),
+        # 0716: wnioski o dopłatę za technologię premium.
+        ("contract_premium_skill_claims", ContractPremiumSkillClaim),
         # 0227: moduł Finanse. Bez tych dwóch wpisów zielony deploy nie mówi
         # nic o tym, czy tabele w ogóle powstały — a prodowy alembic bywa
         # osierocony, więc /api/health/deep jest jedynym realnym dowodem.
@@ -4033,6 +4587,11 @@ async def api_health_deep_check():
         ("client_panel_candidates", ClientPanelCandidate),
         ("client_panel_requests", ClientPanelRequest),
         ("client_panel_views", ClientPanelView),
+        # 0711: zespół dla klienta — brak tabeli = 500 na `/zespoly` i pod `/k/z/`.
+        # `jobs.team_id` sprawdza sonda `jobs` (ORM czyta kolumnę zawsze).
+        # 0713: sonda `job_teams` czyta też `variants*` (gotowe składy).
+        ("job_teams", JobTeam),
+        ("job_team_selections", JobTeamSelection),
         # Rekrutacja własna: brak tabeli = 500 na Tablicy i pod linkiem z zaproszenia.
         ("own_hiring_processes", OwnHiringProcess),
         ("own_hiring_applications", OwnHiringApplication),
@@ -4128,6 +4687,356 @@ async def api_health_deep_check():
         ("insight_decisions", InsightDecision),
         ("client_start_documents", ClientStartDocument),
         ("placement_start_documents", PlacementStartDocument),
+        # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów; hook
+        # pobierania z KSeF pisze tu przy każdej fakturze.
+        ("finance_counterparties", FinanceCounterparty),
+        ("finance_cost_entries", FinanceCostEntry),
+        ("finance_cost_entry_events", FinanceCostEntryEvent),
+        # 0699: przelewy i zapłaty faktur kosztowych (E3).
+        ("finance_cost_payments", FinanceCostPayment),
+        ("finance_counterparty_accounts", FinanceCounterpartyAccount),
+        ("finance_payment_batches", FinancePaymentBatch),
+        ("finance_payment_batch_items", FinancePaymentBatchItem),
+        ("finance_cost_payment_records", FinanceCostPaymentRecord),
+        ("finance_counterparty_account_events", FinanceCounterpartyAccountEvent),
+        # 0698: księgowość E2 — plan kont, reguły dekretu, paczki eksportu.
+        ("finance_accounts", FinanceAccount),
+        ("finance_posting_rules", FinancePostingRule),
+        ("finance_posting_batches", FinancePostingBatch),
+        # 0700–0702: księga NEXUSA K1–K3 — lata, okresy, dokumenty, dziennik,
+        # zdarzenia, PK cykliczne i RMK, paczki do Symfonii FK.
+        ("ledger_years", LedgerYear),
+        ("ledger_periods", LedgerPeriod),
+        ("ledger_documents", LedgerDocument),
+        ("ledger_lines", LedgerLine),
+        ("ledger_events", LedgerEvent),
+        ("ledger_recurring", LedgerRecurring),
+        ("ledger_prepayments", LedgerPrepayment),
+        ("ledger_exports", LedgerExport),
+        ("ledger_export_documents", LedgerExportDocument),
+        # 0703: środki trwałe i WNiP (K6).
+        ("ledger_assets", LedgerAsset),
+        ("ledger_asset_operations", LedgerAssetOperation),
+        # 0705: wyciągi bankowe w księdze (K4a).
+        ("ledger_bank_statements", LedgerBankStatement),
+        ("ledger_bank_lines", LedgerBankLine),
+        # 0706: rozrachunki z rozliczaniem pozycji (K4b).
+        ("ledger_settlements", LedgerSettlement),
+        # 0708: pliki JPK_V7M (K5b).
+        ("ledger_vat_files", LedgerVatFile),
+        # 0704: płace liczone w NEXUSIE (K7a) — dane osoby, parametry, listy.
+        ("payroll_person_data", PayrollPersonData),
+        ("payroll_parameter_versions", PayrollParameterVersion),
+        ("payroll_lists", PayrollList),
+        ("payroll_list_lines", PayrollListLine),
+        ("payroll_gross_inputs", PayrollGrossInput),
+        ("payroll_year_openings", PayrollYearOpening),
+        # 0719: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw.
+        ("payroll_salaries", PayrollSalary),
+        ("payroll_components", PayrollComponent),
+        ("payroll_absence_marks", PayrollAbsenceMark),
+        ("payroll_basis_months", PayrollBasisMonth),
+        # Reszta tabel paczki `hr_schema_bundle` (reguła z 22.10, F79). Pomiar
+        # 14.11.2026: 79 ze 133 tabel modułów było bez sondy, a siatka entrypointu
+        # bywa jedynym wdrożeniem schematu. Każdą nową tabelę paczki łapie
+        # `test_every_hr_bundle_table_is_probed`.
+        # 0455: fundament — mapa identyfikatorów z importu.
+        ("hr_import_id_map", HrImportIdMap),
+        # 0458: urlopy — dni wniosku i stan skrzynki M365.
+        ("leave_request_days", LeaveRequestDay),
+        ("hr_m365_mailbox_state", HrM365MailboxState),
+        # 0459: czas pracy — obecność, szablony ewidencji, ustawienia ról.
+        ("attendance_days", AttendanceDay),
+        ("timesheet_templates", TimesheetTemplate),
+        ("timesheet_role_defaults", TimesheetRoleDefault),
+        # 0460: płace — pozycje okresu.
+        ("payroll_lines", PayrollLine),
+        # 0461: wejścia i odejścia — szablony i zadania.
+        ("lifecycle_templates", LifecycleTemplate),
+        ("lifecycle_template_items", LifecycleTemplateItem),
+        ("lifecycle_tasks", LifecycleTask),
+        # 0462 (+0474): opieka nad konsultantami — działy klienta, technologie
+        # karty, plan kontaktu, kolejki, oceny klienta i rytm kontaktu.
+        ("client_areas", ClientArea),
+        ("tech_vendors", TechVendor),
+        ("contract_care_plan_items", CarePlanItem),
+        ("tech_card_skills", TechCardSkill),
+        ("tech_card_vendors", TechCardVendor),
+        ("skill_review_queue", SkillReviewItem),
+        ("redeploy_queue_items", RedeployQueueItem),
+        ("client_feedback_scores", ClientFeedbackScore),
+        ("care_cadence_periods", CareCadencePeriod),
+        # 0463: sprawy — wiadomości, komentarze i stan skrzynki.
+        ("admin_case_messages", AdminCaseMessage),
+        ("admin_case_comments", AdminCaseComment),
+        ("admin_mail_ingest_state", AdminMailIngestState),
+        # 0464: sprzęt — modele, osoby zewnętrzne, protokoły, import, wzory
+        # protokołów, pakiety klienta i maile powitalne.
+        ("equipment_models", EquipmentModel),
+        ("equipment_external_people", EquipmentExternalPerson),
+        ("equipment_protocol_lines", EquipmentProtocolLine),
+        ("equipment_protocol_links", EquipmentProtocolLink),
+        ("equipment_import_batches", EquipmentImportBatch),
+        ("equipment_import_rows", EquipmentImportRow),
+        ("equipment_protocol_templates", EquipmentProtocolTemplate),
+        ("client_onboarding_packs", ClientOnboardingPack),
+        ("client_onboarding_pack_items", ClientOnboardingPackItem),
+        ("consultant_welcome_mails", ConsultantWelcomeMail),
+        # 0465: stan pętli Intune.
+        ("equipment_intune_sync_state", EquipmentIntuneSyncState),
+        # 0466: ogłoszenia opieki.
+        ("care_announcements", CareAnnouncement),
+        ("care_announcement_recipients", CareAnnouncementRecipient),
+        ("care_announcement_opt_outs", CareAnnouncementOptOut),
+        ("care_announcement_replies", CareAnnouncementReply),
+        # 0468: rozliczenia pracowników — dane do faktur, rozliczenia,
+        # faktury i płatności.
+        ("employee_billing_details", EmployeeBillingDetails),
+        ("payroll_settlements", PayrollSettlement),
+        ("payroll_invoices", PayrollInvoice),
+        ("payroll_payments", PayrollPayment),
+        # 0469: dokumenty kadrowe.
+        ("hr_documents", HrDocument),
+        # 0470: umowy kadrowe — szablony, wersje i umowy.
+        ("hr_agreement_templates", HrAgreementTemplate),
+        ("hr_agreement_template_versions", HrAgreementTemplateVersion),
+        ("hr_agreements", HrAgreement),
+        # 0471 (+0685, 0696): faktury sprzedaży, powiązania i zapłaty.
+        ("client_sales_invoices", ClientSalesInvoice),
+        ("client_sales_invoice_links", ClientSalesInvoiceLink),
+        ("client_sales_invoice_payments", ClientSalesInvoicePayment),
+        # 0475: pominięte propozycje struktury klienta.
+        ("client_structure_skips", ClientStructureSkip),
+        # 0642: kolejka spraw back office'u — modeli nie ma w `app.models`,
+        # więc `create_all` z entrypointu tych tabel nie dowozi.
+        ("bo_cards", BoCard),
+        ("bo_card_events", BoCardEvent),
+        ("bo_team_members", BoTeamMember),
+        # 0643: portal konsultanta.
+        ("cp_meetings", CpMeeting),
+        ("cp_links", CpLink),
+        ("cp_sessions", CpSession),
+        ("cp_sms_codes", CpSmsCode),
+        ("cp_faq_items", CpFaqItem),
+        ("cp_ratings", CpRating),
+        ("cp_documents", CpDocument),
+        ("cp_mailbox_state", CpMailboxState),
+        # 0648: panel konsultanta — aktywacja, materiały, sposób rozliczenia
+        # klienta i zgłoszenia „Zostań trenerem”.
+        ("cp_activations", CpActivation),
+        ("client_onboarding_materials", ClientOnboardingMaterial),
+        ("cp_activation_materials", CpActivationMaterial),
+        ("client_settlement_rules", ClientSettlementRule),
+        ("cp_trainer_applications", CpTrainerApplication),
+        # 0653: gwarancja premii DL — dług i potrącenia.
+        ("hr_bonus_clawbacks", HrBonusClawback),
+        ("hr_bonus_clawback_offsets", HrBonusClawbackOffset),
+        # 0679 (+0688, 0691): rozliczenia klientów.
+        ("client_settlements", ClientSettlement),
+        ("client_settlement_rule_sets", ClientSettlementRuleSet),
+        ("client_contractor_invoices", ClientContractorInvoice),
+        ("client_settlement_extras", ClientSettlementExtra),
+        # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T.
+        ("client_external_ids", ClientExternalId),
+        ("client_time_reports", ClientTimeReport),
+        ("client_time_report_rows", ClientTimeReportRow),
+        # 0712: katalog raportów klienta — definicje i historia wysyłek.
+        ("client_report_definitions", ClientReportDefinition),
+        ("client_report_runs", ClientReportRun),
+        # 0713: radar przepisów — biegi botów, pozycje, zmiany, zadania, sondy.
+        ("law_radar_runs", LawRadarRun),
+        ("law_radar_items", LawRadarItem),
+        ("law_changes", LawChange),
+        ("law_change_tasks", LawChangeTask),
+        ("law_change_events", LawChangeEvent),
+        ("law_change_probes", LawChangeProbe),
+        # 0692: e-faktury Peppol do klientów.
+        ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
+        # 0694 (+0697): szkolenia i trenerzy.
+        ("trainings", Training),
+        ("training_files", TrainingFile),
+        ("training_registrations", TrainingRegistration),
+        ("training_attendance", TrainingAttendance),
+        ("training_transcripts", TrainingTranscript),
+        ("training_feedback", TrainingFeedback),
+        # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
+        ("client_invoice_series", ClientInvoiceSeries),
+        ("client_issued_invoices", ClientIssuedInvoice),
+        # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
+        ("client_invoice_templates", ClientInvoiceTemplate),
+        # 0720: archiwum dokumentów z eBI24 (E5).
+        ("finance_archive_documents", FinanceArchiveDocument),
+        # 0724: kroki stawki przychodowej zamówienia (aneks stawki klienta).
+        ("client_order_revenue_steps", ClientOrderRevenueStep),
+        # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
+        # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
+        # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.
+        # 0043: opinie po rozmowach (feedback kandydata i klienta).
+        ("interview_feedback", InterviewFeedback),
+        # 0049: migawki profilu LinkedIn kandydata.
+        ("candidate_linkedin_snapshots", CandidateLinkedinSnapshot),
+        # 0053: dedup powiadomień Targu kandydatów.
+        ("marketplace_alert_log", MarketplaceAlertLog),
+        # 0060: przypisania TAC × klient.
+        ("client_tac_assignments", ClientTacAssignment),
+        # 0062: linki do deklaracji „Otwartość na dodatkowe projekty”.
+        ("engagement_declaration_tokens", EngagementDeclarationToken),
+        # 0063 i 0065: czaty rekrutacji i kandydata — wiadomości, wzmianki,
+        # stan przeczytania i reakcje.
+        ("job_chat_messages", JobChatMessage),
+        ("job_chat_mentions", JobChatMention),
+        ("job_chat_read_state", JobChatReadState),
+        ("job_chat_message_reactions", JobChatMessageReaction),
+        ("candidate_chat_messages", CandidateChatMessage),
+        ("candidate_chat_mentions", CandidateChatMention),
+        ("candidate_chat_read_state", CandidateChatReadState),
+        ("candidate_chat_message_reactions", CandidateChatMessageReaction),
+        # 0080: podpisy Autenti i zdarzenia z webhooka.
+        ("document_signatures", DocumentSignature),
+        ("document_signature_events", DocumentSignatureEvent),
+        # 0131: dedup alertów zapisanych wyszukiwań.
+        ("saved_search_alert_log", SavedSearchAlertLog),
+        # 0158: fakty umiejętności — czyta je wyszukiwarka i dedup słownika.
+        ("cortex_skill_facts", CortexSkillFact),
+        # 0166: harmonogram stawek z umowy ramowej.
+        ("contract_framework_rates", ContractFrameworkRate),
+        # 0169: telemetria dopasowań (wyświetlenia i wyniki).
+        ("match_impressions", MatchImpression),
+        ("match_outcomes", MatchOutcome),
+        # 0171: kolejka indeksu wektorowego.
+        ("match_index_outbox", IndexOutboxEvent),
+        # 0173: Traffit — powiązania encji (scalanie kandydatów) i skrzynka webhooków.
+        ("traffit_entity_links", TraffitEntityLink),
+        ("traffit_webhook_events", TraffitWebhookEvent),
+        # 0176: korekty finansowe zamówień.
+        ("financial_adjustments", FinancialAdjustment),
+        # 0177: migawki metryk i rejestr cutoverów; wersjonowane workflow.
+        ("analytics_cutovers", AnalyticsCutover),
+        ("analytics_metric_snapshots", AnalyticsMetricSnapshot),
+        ("workflow_definitions", WorkflowDefinition),
+        ("workflow_revisions", WorkflowRevision),
+        ("stage_revisions", StageRevision),
+        ("workflow_edges", WorkflowEdge),
+        # 0188: dedup alertów wygasania kontraktów.
+        ("contract_alert_dedup", ContractAlertDedup),
+        # 0189: zgłoszenia z publicznego formularza do akceptacji.
+        ("application_submissions", ApplicationSubmission),
+        # 0194: unieważnienia pamięci wyników dopasowania.
+        ("match_score_invalidations", MatchScoreInvalidation),
+        # 0199: archiwum historii rekrutacji usuniętej korekcyjnie.
+        ("candidate_stage_removals", CandidateStageRemoval),
+        # 0204: „Podsumowanie aktywności” kandydata.
+        ("candidate_activity_summaries", CandidateActivitySummary),
+        # 0205: katalog klientów — aliasy, import portfela, zakresy.
+        ("client_aliases", ClientAlias),
+        ("client_import_runs", ClientImportRun),
+        ("client_import_rows", ClientImportRow),
+        ("client_portfolio_scopes", ClientPortfolioScope),
+        # 0206: języki kandydata.
+        ("candidate_languages", CandidateLanguage),
+        # 0207: decyzje o tożsamości źródła kandydata.
+        ("candidate_source_identity_reviews", CandidateSourceIdentityReview),
+        # 0210: cutover ról — bez modelu ORM, lekkie `table()`. Migawkę ról
+        # zapisuje scalenie ról przy każdym starcie, kolejkę domyka przypisanie TAC.
+        ("role_session_migration_audit", ROLE_SESSION_MIGRATION_AUDIT),
+        ("rbac_relationship_reconciliation", RBAC_RELATIONSHIP_RECONCILIATION),
+        # 0217: interaktywne CV — linki i czat na publicznym linku.
+        ("cv_generated_share_tokens", CvGeneratedShareToken),
+        ("cv_share_chat_messages", CvShareChatMessage),
+        # 0218: materiały w zakładce Pomoc.
+        ("help_materials", HelpMaterial),
+        # 0220: konta serwisowe i ich klucze API.
+        ("service_accounts", ServiceAccount),
+        ("service_account_keys", ServiceAccountKey),
+        # 0249: decyzje o zejściu konsultanta z linii MD.
+        ("client_order_offboarding_cases", ClientOrderOffboardingCase),
+        # 0264: stan pętli poczty zamówień.
+        ("order_mail_sync_state", OrderMailSyncState),
+        # 0269 i 0273: uprawnienia sekcji i akcji — czytane przy każdym żądaniu.
+        ("rbac_policy_state", RbacPolicyState),
+        ("rbac_role_section_permissions", RoleSectionPermission),
+        ("rbac_user_section_overrides", UserSectionOverride),
+        ("rbac_permission_audit", RbacPermissionAudit),
+        ("rbac_role_action_permissions", RoleActionPermission),
+        ("rbac_user_action_overrides", UserActionOverride),
+        # 0314 i 0315: przebiegi integracji, ich zdarzenia i alerty, stan importu JJIT.
+        ("integration_runs", IntegrationRun),
+        ("integration_run_events", IntegrationRunEvent),
+        ("integration_alert_state", IntegrationAlertState),
+        ("integration_external_items", IntegrationExternalItem),
+        # 0332: stan wysyłki poczty app-only (`checks.m365_mail`).
+        ("mail_delivery_state", MailDeliveryState),
+        # 0341: podobne rekrutacje.
+        ("job_similar_links", JobSimilarLink),
+        # 0344: zamknięcia okresów konkursów.
+        ("competition_period_closures", CompetitionPeriodClosure),
+        # 0353: podpowiedzi AI do przeglądu DZ, pamiętane per etap.
+        ("dz_review_hints", DzReviewHint),
+        # 0363: wiersze importu rejestru umów B2B.
+        ("b2b_register_import_rows", B2BRegisterImportRow),
+        # 0368: stan kontraktu przed zakończeniem (do cofnięcia).
+        ("contract_termination_snapshots", ContractTerminationSnapshot),
+        # 0395: nagrobki usuniętych notatek z Traffita.
+        ("deleted_note_sources", DeletedNoteSource),
+        # 0402: pozycje przebiegów dokumentów z SharePointa.
+        ("contract_doc_sp_run_items", ContractDocSpRunItem),
+        # 0414: „Stawka od” — decyzje rekrutera i kolejka przeliczeń; bez modelu
+        # ORM, lekkie `table()`.
+        ("candidate_rate_decisions", CANDIDATE_RATE_DECISIONS),
+        ("candidate_rate_from_queue", CANDIDATE_RATE_FROM_QUEUE),
+        # 0416: niedokończone formularze „Nowa rekrutacja”.
+        ("job_intake_forms", JobIntakeForm),
+        # 0439: pominięte uwagi QC CV („To nieprawda”).
+        ("cv_finding_dismissals", CvFindingDismissal),
+        # 0443: potwierdzenia zapisów API v1.
+        ("integration_write_receipts", IntegrationWriteReceipt),
+        # 0445: migawki szkicu CV przed „Napisz od nowa”.
+        ("cv_stage_draft_snapshots", CvStageDraftSnapshot),
+        # 0447: poprzedni rekruterzy rekrutacji.
+        ("job_previous_recruiters", JobPreviousRecruiter),
+        # 0450: championi rekrutacji.
+        ("job_champions", JobChampion),
+        # 0513, 0516, 0518: dopełnianie „Nowych” — pula, powody odrzucenia
+        # i raport jakości.
+        ("job_autofill_pool", JobAutofillPool),
+        ("autofill_feedback", AutofillFeedback),
+        ("autofill_quality_reports", AutofillQualityReport),
+        # 0519: historia „Prowadzi”.
+        ("candidate_job_owner_events", CandidateJobOwnerEvent),
+        # 0601–0683: Sprzedaż — lejki, kontakty, pliki, leady, historia szansy,
+        # biegi bota, dzienne liczniki dzwonienia.
+        ("sales_pipelines", SalesPipeline),
+        ("sales_contacts", SalesContact),
+        ("sales_opportunity_contacts", SalesOpportunityContact),
+        ("sales_files", SalesFile),
+        ("sales_leads", SalesLead),
+        ("sales_company_contacts", SalesCompanyContact),
+        ("sales_opportunity_events", SalesOpportunityEvent),
+        ("sales_signal_runs", SalesSignalRun),
+        ("sales_company_briefings", SalesCompanyBriefing),
+        ("sales_call_day_totals", SalesCallDayTotal),
+        # 0608: połączenia wtyczki LinkedIn.
+        ("linkedin_extension_connections", LinkedinExtensionConnection),
+        # 0615: pary „To nie bliźniak”.
+        ("job_twin_dismissals", JobTwinDismissal),
+        # 0619: ogłoszenia i ich odczyty.
+        ("announcements", Announcement),
+        ("announcement_reads", AnnouncementRead),
+        # 0620: „Oceń z AI”.
+        ("candidate_ai_assessments", CandidateAiAssessment),
+        # 0635: zdarzenia z maili CPro.
+        ("cpro_mail_events", CproMailEvent),
+        # 0636: powody „co generator zrobił źle”.
+        ("cv_generator_feedback", CvGeneratorFeedback),
+        # 0655: koszyki „Baza” / „LinkedIn” w zespole rekrutacji.
+        ("job_recruiter_channels", JobRecruiterChannel),
+        # 0670: rejestr faktów z rozmów.
+        ("candidate_conversation_facts", CandidateConversationFact),
+        # 0678: „Kto już to robił” — przebiegi i wyniki.
+        ("duty_search_runs", DutySearchRun),
+        ("duty_search_results", DutySearchResult),
+        # 0687: paczka do podpisu B2B.
+        ("b2b_signing_documents", B2BSigningDocument),
     ]
 
     checks: dict[str, str] = {}
@@ -4853,6 +5762,7 @@ async def api_health_deep_check():
     body: dict = {
         "status": "healthy" if all_healthy else "unhealthy",
         "version": os.environ.get("GIT_SHA", "unknown"),
+        "checked": len(checks),
         "checks": checks,
         "collation": collation_report,
         "client_portfolio_import": portfolio_import,
@@ -4861,6 +5771,8 @@ async def api_health_deep_check():
     }
     if errors:
         body["errors"] = errors
+    if not await _deep_health_viewer_is_admin(request):
+        body = _public_deep_health_body(body)
 
     return JSONResponse(
         content=body,

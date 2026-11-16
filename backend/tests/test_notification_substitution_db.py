@@ -100,12 +100,20 @@ async def test_row_goes_to_substitute_and_counts_for_addressee(db, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_no_row_when_substitute_acted_himself(db, monkeypatch):
+async def test_quiet_row_when_substitute_acted_himself(db, monkeypatch):
+    """Zastępca sam wykonał ruch: bez dzwonka i maila, ale wiersz zostaje.
+
+    Do 16.11.2026 nie powstawał wcale i osoba po powrocie nie wiedziała
+    np. o zamknięciu rekrutacji z jej kandydatami („Gdy Cię nie było”).
+    """
     owner, substitute = await _user(db), await _user(db)
     monkeypatch.setattr(sub, "workforce_context", _covering(owner, substitute))
     db.info[sub.ACTOR_KEY] = substitute.id
 
-    assert await _emit(db, owner.id) is None
+    row = await _emit(db, owner.id)
+    assert row is not None
+    assert (row.user_id, row.on_behalf_of_user_id) == (substitute.id, owner.id)
+    assert row.quiet is True and row.is_read is True
 
 
 @pytest.mark.asyncio
@@ -139,6 +147,8 @@ async def test_dl_alert_goes_to_substitute_and_stays_live(db, monkeypatch):
 
     assert len(created) == 1
     assert created[0].user_id == substitute.id
-    assert created[0].event_key == dl_alerts.event_key_for("order_mail_review", "e1", owner.id)
+    assert created[0].event_key == dl_alerts.event_key_for(
+        "order_mail_review", "e1", owner.id
+    )
     assert created[0].message.startswith("W zastępstwie za ")
     assert isinstance(created[0], DlAlert)

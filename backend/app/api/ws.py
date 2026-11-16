@@ -22,6 +22,7 @@ from app.api.deps import is_trainee_only
 from app.core import process_bus
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.core.session_cookie import SESSION_COOKIE_NAME, origin_allowed
 from app.core.security import (
     decode_token,
     token_authorization_version_matches,
@@ -606,6 +607,14 @@ async def ws_notifications(
       {type: "presence:editing", resource_type, resource_id, field, active}
     """
     raw_token, accepted_subprotocol = _extract_ws_token(websocket, token)
+    if not raw_token:
+        # Sesja przeglądarki w ciasteczku HttpOnly (``core/session_cookie``).
+        # Przeglądarka dokleja je do handshake'u z KAŻDEJ strony, a WebSocket
+        # nie zna CORS-u — bez sprawdzenia Origin obca strona czytałaby
+        # powiadomienia zalogowanej osoby (CSWSH).
+        cookie_token = websocket.cookies.get(SESSION_COOKIE_NAME)
+        if cookie_token and origin_allowed(websocket.headers.get("origin")):
+            raw_token = cookie_token
     if not raw_token:
         try:
             await websocket.close(code=4001, reason="Unauthorized")

@@ -10,6 +10,7 @@ import pytest
 from app.services.order_client_identity import (
     ClientMarkers,
     ClientRegistry,
+    client_registry_number,
     fi_business_id_valid,
     identify_client,
     nip_checksum_valid,
@@ -83,14 +84,29 @@ class TestBuyerNumber:
             ("PL 123-456-32-18", BANK_A),
             ("NIP: 123 456 32 18", BANK_A),
             ("NIP 1234563218", BANK_A),
+            ("NIP-1234563218", BANK_A),
+            ("NIP.1234563218", BANK_A),
             ("VAT 1234563218", BANK_A),
-            ("GB123456789", "GB123456789"),
+            ("VAT-1234563218", BANK_A),
             ("", ""),
             ("brak", ""),
         ],
     )
     def test_everything_else_goes_like_the_registry(self, raw, expected):
         assert normalize_buyer_number(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("GB123456789", "GB123456789"),
+            ("GB123456789A", "GB123456789A"),
+            ("CHE-123.456.789", "CHE123456789"),
+            ("NO 123 456 785 MVA", "NO123456785"),
+        ],
+    )
+    def test_non_eu_numbers_keep_their_identity(self, raw, expected):
+        assert normalize_buyer_number(raw) == expected
+        assert client_registry_number(raw) == expected
 
     def test_full_number_in_a_profile_does_not_change_order_mail(self):
         """Poczta zamówień ma stary klucz, a skan znajduje tylko numery PL i FI."""

@@ -32,6 +32,7 @@ import {
 } from "@/lib/nav-registry";
 import { hasSectionAccess } from "@/lib/section-access";
 import { hasPermission } from "@/lib/permissions";
+import { useAccountingNavOpen } from "@/lib/api/accounting";
 import { useHrNavState, useHrProgram } from "@/lib/api/hr";
 import { reviewBatchBlock } from "@/lib/api/reviewBatch";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
@@ -372,6 +373,8 @@ export function CommandPaletteV2({
   // Każda pozycja Ustawień, którą ta osoba widzi — ⌘K „reguły CV" prowadzi
   // prosto do ekranu (przebudowa Ustawień 22.09.2026).
   const hrProgram = useHrProgram(Boolean(user));
+  // Księgowość (K1): w palecie przy otwartym module księgi.
+  const accounting = useAccountingNavOpen(user);
   const settingsItems = useMemo(
     () => listedSettingsItems(user, { hrProgram }),
     [user, hrProgram],
@@ -388,7 +391,9 @@ export function CommandPaletteV2({
             equipment: hrEquipment,
             care: hrCare,
             backOffice: hrBackOffice,
+            trainings: hrProgram,
           },
+          accounting,
         },
         (capability) => can[capability],
       ).map((entry) => ({
@@ -398,7 +403,18 @@ export function CommandPaletteV2({
         icon: entry.icon,
         keywords: entry.paletteKeywords ?? [],
       })),
-    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare, hrBackOffice],
+    [
+      user,
+      contactFeature.enabled,
+      can,
+      hrMyTime,
+      hrPeople,
+      hrEquipment,
+      hrCare,
+      hrBackOffice,
+      hrProgram,
+      accounting,
+    ],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają

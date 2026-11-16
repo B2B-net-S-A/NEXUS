@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
-export type SalesBotKey = "leads" | "research" | "company" | "contacts" | "cognism";
+export type SalesBotKey = "lists" | "leads" | "research" | "company" | "contacts" | "cognism";
 
 export interface SalesBot {
   key: SalesBotKey;

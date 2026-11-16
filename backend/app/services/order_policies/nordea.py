@@ -369,7 +369,12 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
         # nazwisko przed kolumną kategorii („Jan Kowalski Nowak IT…") znaczy,
         # że osoba może mieć trzy człony — zgadywanie dałoby zamówienie
         # komuś innemu, więc wiersz idzie do sprawdzenia (runda 6 audytu).
-        extra = _EXTRA_NAME_WORD_RE.match(m.group("rest"))
+        # Słowo, od którego zaczyna się kategoria Nordei („Business Analyst"),
+        # nie jest trzecim członem (16.11.2026).
+        rest = m.group("rest")
+        extra = (
+            None if _CATEGORY_START_RE.match(rest) else _EXTRA_NAME_WORD_RE.match(rest)
+        )
         if extra:
             concerns.append(
                 f"„{name}”: przed kolumną kategorii stoi jeszcze „{extra.group(1)}” "
@@ -384,10 +389,24 @@ def extract_rows(text: str) -> list[ConsultantOrderRow]:
                 rate_unit="hour",
                 uncertain=bool(concerns),
                 uncertain_reason="; ".join(concerns) or None,
+                client_category=_category(rest, extra),
             )
         )
     return rows
 
+
+def _category(rest: str, extra: Optional[re.Match]) -> Optional[str]:
+    """„IT Operations - Senior Poland -” → „IT Operations - Senior” (kolumna
+    kategorii COA). Trzeci człon nazwy przed kategorią nie wchodzi do etykiety."""
+    from app.services.framework_limits import category_label, parse_category_label
+
+    text = rest[extra.end() :] if extra else rest
+    parsed = parse_category_label(text)
+    return category_label(*parsed) if parsed else None
+
+
+# Początek kolumny kategorii COA: grupy kompetencji Nordei.
+_CATEGORY_START_RE = re.compile(r"(?:IT|Business|I&O)\b")
 
 # Słowo pisane jak nazwisko (wielka litera + małe), a nie jak kategoria
 # kompetencji Nordei („IT Operations", „IT Developer").

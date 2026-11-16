@@ -17,7 +17,9 @@ import { useAuthStore } from "@/store/auth";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 
 import { dayHeading } from "../my-day";
+import { SalesSelect } from "../SalesSelect";
 import { CallCard, type MeetingStage } from "./CallCard";
+import { CallRemindersView } from "./CallRemindersView";
 import { CallTableView } from "./CallTableView";
 import { ExcelTransferDialog } from "./ExcelTransferDialog";
 import { CampaignsDialog } from "./CampaignsDialog";
@@ -30,6 +32,7 @@ import {
   queueItems,
   queueLine,
   resolveSelection,
+  REMINDERS_VIEW,
   SECTION_ORDER,
   SECTION_TITLES,
 } from "./calling";
@@ -159,7 +162,8 @@ function QueueBoard({ queue, canEdit, meetingStage }: QueueBoardProps) {
           </section>
         ))}
         <p className="px-3 py-1.5 text-xs text-muted-foreground">
-          „Oddzwonić”, „Nie teraz” i „Nie zainteresowany” wracają tu same w wybranym dniu.
+          „Oddzwonić” i oferta z ponownym kontaktem wracają tu same w wybranym
+          dniu.
         </p>
       </div>
       {selected && (
@@ -228,13 +232,22 @@ export function CallingActions() {
   );
 }
 
+/** Widok z adresu: link „Wszystkie przypomnienia” z „Mojego dnia” otwiera zakładkę od razu. */
+function initialView(search: string): "queue" | "reminders" {
+  return new URLSearchParams(search).get("view") === REMINDERS_VIEW ? "reminders" : "queue";
+}
+
 /** Zakładka „Dzwonienie”: jedna lista w stałej kolejności i karta wybranej pozycji. */
 export function CallQueueView() {
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
   const [campaignId, setCampaignId] = useState<number | null>(null);
-  const [view, setView] = useState<"queue" | "table">("queue");
-  const query = useCallQueue(campaignId);
+  // Decyzja Artura 13.11.2026: kolejka z wyborem osoby (podział Bianca / Marcel, zastępstwa).
+  const [callerId, setCallerId] = useState<number | null>(null);
+  const [view, setView] = useState<"queue" | "table" | "reminders">(() =>
+    initialView(typeof window === "undefined" ? "" : window.location.search),
+  );
+  const query = useCallQueue(campaignId, callerId);
   const pipelines = usePipelines();
 
   const sales = pipelines.data?.find((pipeline) => pipeline.key === SALES_PIPELINE_KEY);
@@ -266,16 +279,38 @@ export function CallQueueView() {
           <span className="font-medium text-foreground">{dayHeading(queue.today)}:</span> {queueLine(queue)}
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <CampaignFilter queue={queue} value={campaignId} onChange={setCampaignId} />
+          {view === "queue" && (queue.callers?.length ?? 0) > 0 && (
+            <SalesSelect
+              ariaLabel="Czyja kolejka"
+              className="w-44"
+              value={callerId === null ? "" : String(callerId)}
+              onValueChange={(value) =>
+                setCallerId(value ? Number(value) : null)
+              }
+              options={(queue.callers ?? [])
+                .filter((caller) => caller.id !== user?.id)
+                .map((caller) => ({
+                  value: String(caller.id),
+                  label: caller.name,
+                }))}
+              anyLabel="Moja kolejka"
+            />
+          )}
+          <CampaignFilter
+            queue={queue}
+            value={campaignId}
+            onChange={setCampaignId}
+          />
           <span data-tour="sales.calling.view">
             <SegmentedRadio
               label="Widok"
-            size="sm"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: "queue", label: "Kolejka" },
-              { value: "table", label: "Tabela" },
+              size="sm"
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "queue", label: "Kolejka" },
+                { value: "table", label: "Tabela" },
+                { value: "reminders", label: "Przypomnienia" },
               ]}
             />
           </span>
@@ -290,7 +325,18 @@ export function CallQueueView() {
         {formatWeekdayDayPl(queue.yesterday)}: {dayLine(queue.yesterday_counts)}
       </p>
       {view === "table" ? (
-        <CallTableView today={queue.today} campaignId={campaignId} canEdit={canEdit} meetingStage={meetingStage} />
+        <CallTableView
+          today={queue.today}
+          campaignId={campaignId}
+          canEdit={canEdit}
+          meetingStage={meetingStage}
+        />
+      ) : view === "reminders" ? (
+        <CallRemindersView
+          today={queue.today}
+          canEdit={canEdit}
+          meetingStage={meetingStage}
+        />
       ) : isQueueEmpty(queue) ? (
         <div className="rounded-lg border border-border bg-card">
           <EmptyState

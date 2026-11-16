@@ -1,0 +1,1339 @@
+"""Księgowość → księga NEXUSA (K1, 0700): dokumenty, dziennik, obroty, plan kont.
+
+Prefiks ``/api/accounting`` (``app/main.py``, za wyłącznikiem programu „Ludzi
+w NEXUSIE” jak reszta Finansów). Bramki: sekcja Finanse (router), uprawnienie
+„Moduł Finanse” (``FinanceModuleUser``) i przełącznik modułu ``ledger``
+(wyłączony = 404, admin widzi zawsze). W handlerach: zatwierdzenie, storno,
+założenie roku i zamknięcie okresu — lista „Księgowi” albo admin (403);
+przełączniki, lista „Księgowi”, tryb roku i ponowne otwarcie okresu — tylko
+admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
+
+* ``GET /config`` — moduły, rola osoby, lata z okresami,
+  ``PUT /config/modules``, ``PUT /config/accountants``, ``PUT /config/sales``
+  i ``PUT /config/allocation`` (admin; konta sprzedaży i rozliczenia kosztów, K2),
+  ``GET /config/candidates`` (admin: konta z „Modułem Finanse”),
+* ``POST /payroll-lists/import?year=&month=&list=&payment_date=&save=`` (K3c,
+  moduł „automations”) — lista płac z pliku Enovy: podgląd albo LP do bufora;
+  tylko Płace i admin (D2), ``PUT /config/payroll`` (admin, konta listy płac),
+* ``GET /automations``, ``POST/PATCH/DELETE /automations/recurring[/{id}]`` i
+  ``/automations/prepayments[/{id}]`` (K3a, moduł „automations”) — wzory PK
+  cyklicznych i RMK; zapis lista „Księgowi” albo admin,
+* ``POST /opening/import?year=&save=`` (K2) — bilans otwarcia z pliku
+  zestawienia sald Symfonii: podgląd albo zapis BO (lista „Księgowi”, admin),
+* ``GET /bank``, ``POST /bank/import``, ``GET /bank/statements/{id}``,
+  ``PATCH /bank/lines/{id}``, ``POST /bank/statements/{id}/post`` (K4a, moduł
+  „bank”) — jeden import wyciągu (E3, R9/E8 bez zmian ich kodu) i WB w buforze;
+  ``PUT /config/bank`` (admin: rachunki firmy i konta reguł),
+* ``GET /closing?year=&month=`` (K3d) — lista zamknięcia miesiąca (źródła,
+  bufor, paczka do Symfonii, etapy w drodze) i terminy ZUS, PPK, PIT-4, VAT,
+* ``GET /exports?year=&month=``, ``POST /exports``, ``GET /exports/{id}/file``,
+  ``POST /exports/{id}/book`` i ``/cancel`` (K3b) — paczka zatwierdzonych
+  dokumentów do Symfonii FK; paczkę, „zaksięgowaną” i anulowanie robi lista
+  „Księgowi” albo admin, paczkę płacową tylko Płace i admin (D2),
+* ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
+  E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze, PK
+  rozliczenia kosztów na „5” z MPK; przy otwartym module ``assets`` także
+  dokumenty środków trwałych i AM miesiąca (K6, trasy w ``ledger_assets.py``),
+* ``POST /years``, ``PATCH /years/{id}`` (tryb), ``POST /periods/{id}/close``,
+  ``POST /periods/{id}/reopen``,
+* ``GET/POST /documents``, ``GET/PATCH/DELETE /documents/{id}``,
+  ``POST /documents/approve``, ``POST /documents/{id}/reverse``,
+* ``GET /trial-balance``, ``GET /accounts/card``,
+* ``GET/POST /chart``, ``PATCH /chart/{id}``.
+"""
+
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from typing import Any, Literal, Optional
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import FinanceModuleUser
+from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
+from app.core.database import get_db
+from app.core.http_headers import content_disposition
+from app.core.scheduling import business_today
+from app.models.ledger import LedgerYear
+from app.models.user import User
+from app.services.action_permissions import ProductAction, has_permission
+from app.services.effective_access import resolve_effective_access
+from app.services.finance_ledger.costs import LedgerError
+from app.services.finance_ledger.counterparty_import import ImportFileError
+from app.services.finance_ledger.posting import clean_account
+from app.services.ledger import (
+    automations,
+    bank,
+    chart,
+    closing,
+    documents,
+    engine,
+    exports,
+    opening,
+    payroll_lists,
+    reports,
+    sources,
+    years,
+)
+from app.services.ledger_automation_schema import (
+    MONTHS_MAX,
+    NAME_MAX,
+    RECURRING_LINES_MAX,
+    REFERENCE_MAX,
+)
+from app.services.ledger import settings as ledger_settings
+from app.services.ledger.documents import DocumentSpec, Viewer
+from app.services.ledger.export_file import DEFAULT_FORMAT, FORMATS
+from app.services.ledger_export_schema import FORMAT_MAX
+from app.services.ledger_schema import (
+    ACCOUNT_DICTIONARIES,
+    ACCOUNT_KINDS,
+    ACCOUNT_MAX,
+    ACCOUNT_TYPES,
+    DESCRIPTION_MAX,
+    LINE_TEXT_MAX,
+    LINES_MAX,
+    MPK_MAX,
+    NUMBER_MAX,
+    REASON_MAX,
+    REPORT_LINE_MAX,
+    YEAR_MODES,
+)
+
+router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
+
+AMOUNT_MAX = Decimal("1000000000000")
+ADMIN_ONLY = "To ustawienie zmienia tylko administrator."
+
+
+class LineBody(BaseModel):
+    side: Literal["debit", "credit"]
+    account: str = Field(max_length=ACCOUNT_MAX + 8)
+    amount: Decimal = Field(max_digits=15, decimal_places=2)
+    description: str = Field(default="", max_length=LINE_TEXT_MAX)
+    counterparty_id: Optional[int] = None
+    mpk: Optional[str] = Field(default=None, max_length=MPK_MAX + 4)
+
+
+class DocumentBody(BaseModel):
+    doc_type: Literal["PK", "BO"] = "PK"
+    number: Optional[str] = Field(default=None, max_length=NUMBER_MAX)
+    op_date: date
+    doc_date: Optional[date] = None
+    description: str = Field(default="", max_length=DESCRIPTION_MAX)
+    counterparty_id: Optional[int] = None
+    lines: list[LineBody] = Field(min_length=2, max_length=LINES_MAX)
+
+
+class ApproveBody(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)
+
+
+class ReverseBody(BaseModel):
+    op_date: Optional[date] = None
+    reason: str = Field(min_length=3, max_length=REASON_MAX)
+
+
+class ModuleBody(BaseModel):
+    module: str = Field(max_length=32)
+    enabled: bool
+
+
+class AccountantsBody(BaseModel):
+    user_ids: list[int] = Field(max_length=ledger_settings.ACCOUNTANTS_MAX)
+
+
+class SalesAccountsBody(BaseModel):
+    receivable_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    revenue_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    vat_account: str = Field(max_length=ACCOUNT_MAX + 8)
+
+
+class PayrollAccountsBody(BaseModel):
+    wages_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    insurance_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    settlement_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    zus_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    pit_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    ppk_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    deductions_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+
+
+class ExportBody(BaseModel):
+    year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
+    month: int = Field(ge=1, le=12)
+    kinds: list[str] = Field(min_length=1, max_length=len(exports.KIND_LABELS))
+    file_format: str = Field(default=DEFAULT_FORMAT, max_length=FORMAT_MAX)
+    payroll: bool = False
+
+
+class CompanyAccountBody(BaseModel):
+    number: str = Field(max_length=40)
+    account: str = Field(max_length=ACCOUNT_MAX + 8)
+    name: str = Field(default="", max_length=ledger_settings.BANK_NAME_MAX)
+    currency: Literal["PLN", "EUR", "USD"] = "PLN"
+
+
+class BankSettingsBody(BaseModel):
+    accounts: list[CompanyAccountBody] = Field(
+        default_factory=list, max_length=ledger_settings.BANK_ACCOUNTS_MAX
+    )
+    fees_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    zus_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    vat_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    pit_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    cit_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    fx_gain_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+    fx_loss_account: str = Field(default="", max_length=ACCOUNT_MAX + 8)
+
+
+class BankLineBody(BaseModel):
+    account: str = Field(min_length=1, max_length=ACCOUNT_MAX + 8)
+
+
+class AllocationAccountsBody(BaseModel):
+    settlement_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    client_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    front_office_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    back_office_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    overhead_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    team_account: str = Field(max_length=ACCOUNT_MAX + 8)
+
+
+class RecurringBody(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=NAME_MAX)
+    description: Optional[str] = Field(default=None, max_length=DESCRIPTION_MAX)
+    lines: Optional[list[LineBody]] = Field(
+        default=None, min_length=2, max_length=RECURRING_LINES_MAX
+    )
+    start_month: Optional[date] = None
+    end_month: Optional[date] = None
+
+
+class PrepaymentBody(BaseModel):
+    name: str = Field(max_length=NAME_MAX)
+    reference: str = Field(default="", max_length=REFERENCE_MAX)
+    counterparty_id: Optional[int] = None
+    cost_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    prepaid_account: str = Field(max_length=ACCOUNT_MAX + 8)
+    mpk: Optional[str] = Field(default=None, max_length=MPK_MAX + 4)
+    total_amount: Decimal = Field(max_digits=15, decimal_places=2, gt=0)
+    start_month: date
+    months: int = Field(ge=1, le=MONTHS_MAX)
+
+
+class SourcesSyncBody(BaseModel):
+    kind: Literal[
+        "costs",
+        "sales",
+        "allocation",
+        "recurring",
+        "prepayments",
+        "asset_docs",
+        "assets",
+    ]
+    year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
+    month: int = Field(ge=1, le=12)
+
+
+class YearBody(BaseModel):
+    year: int = Field(ge=years.YEAR_MIN, le=years.YEAR_MAX)
+    mode: Literal["symfonia", "parallel", "nexus"] = "symfonia"
+
+
+class YearPatch(BaseModel):
+    mode: Literal["symfonia", "parallel", "nexus"]
+
+
+class ReopenBody(BaseModel):
+    reason: str = Field(min_length=3, max_length=REASON_MAX)
+
+
+class AccountBody(BaseModel):
+    number: str = Field(max_length=ACCOUNT_MAX + 8)
+    name: str = Field(max_length=255)
+    kind: Optional[str] = Field(default=None, max_length=12)
+    account_type: Optional[str] = Field(default=None, max_length=12)
+    parent_number: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    dictionary: Optional[str] = Field(default=None, max_length=16)
+    report_line: Optional[str] = Field(default=None, max_length=REPORT_LINE_MAX)
+
+
+class AccountPatch(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=255)
+    kind: Optional[str] = Field(default=None, max_length=12)
+    account_type: Optional[str] = Field(default=None, max_length=12)
+    parent_number: Optional[str] = Field(default=None, max_length=ACCOUNT_MAX + 8)
+    dictionary: Optional[str] = Field(default=None, max_length=16)
+    report_line: Optional[str] = Field(default=None, max_length=REPORT_LINE_MAX)
+    active: Optional[bool] = None
+
+
+def _fail(exc: LedgerError) -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+async def _context(
+    db: AsyncSession, user: User
+) -> tuple[ledger_settings.LedgerSettings, Viewer]:
+    current = await ledger_settings.load(db)
+    if not ledger_settings.module_open(user, current, "ledger"):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, ledger_settings.MODULE_DISABLED_DETAIL
+        )
+    return current, documents.viewer_for(user, current)
+
+
+def _require_admin(user: User) -> None:
+    if not ledger_settings.is_admin(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, ADMIN_ONLY)
+
+
+def _require_approver(viewer: Viewer) -> None:
+    if not viewer.approver:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "To robi osoba z listy „Księgowi” albo administrator.",
+        )
+
+
+def _grosze(amount: Decimal, index: int) -> int:
+    if amount == 0:
+        raise LedgerError(f"Pozycja {index}: kwota nie może być zerem.", status=422)
+    if abs(amount) >= AMOUNT_MAX:
+        raise LedgerError(f"Pozycja {index}: kwota jest za duża.", status=422)
+    return int((amount * 100).to_integral_value())
+
+
+def _spec(body: DocumentBody) -> DocumentSpec:
+    lines = [
+        engine.clean_line(
+            {
+                "side": line.side,
+                "account": line.account,
+                "amount": _grosze(line.amount, index),
+                "description": line.description,
+                "counterparty_id": line.counterparty_id,
+                "mpk": line.mpk,
+            },
+            index,
+        )
+        for index, line in enumerate(body.lines, start=1)
+    ]
+    return DocumentSpec(
+        doc_type=body.doc_type,
+        op_date=body.op_date,
+        doc_date=body.doc_date or body.op_date,
+        lines=lines,
+        number=body.number,
+        description=body.description,
+        counterparty_id=body.counterparty_id,
+    )
+
+
+def _config_payload(
+    user: User,
+    current: ledger_settings.LedgerSettings,
+    viewer: Viewer,
+    year_list: list[dict[str, Any]],
+) -> dict[str, Any]:
+    today = business_today()
+    return {
+        "modules": [
+            {
+                "key": key,
+                "label": ledger_settings.MODULE_LABELS[key],
+                "replaces": ledger_settings.MODULE_REPLACES[key],
+                "stage": stage,
+                "built": key in ledger_settings.BUILT,
+                "enabled": current.modules.get(key, False),
+                "open": ledger_settings.module_open(user, current, key),
+            }
+            for key, stage in ledger_settings.MODULES.items()
+        ],
+        "me": {
+            "admin": viewer.admin,
+            "approver": viewer.approver,
+            "payroll": viewer.payroll,
+        },
+        "accountants": list(current.accountants) if viewer.admin else None,
+        "sales_accounts": ledger_settings.to_json(current)["sales"],
+        "allocation_accounts": ledger_settings.to_json(current)["allocation"],
+        "payroll_accounts": ledger_settings.to_json(current)["payroll"],
+        "bank_settings": _bank_settings_payload(current, viewer),
+        "years": year_list,
+        "today": today.isoformat(),
+        "doc_types": [
+            {"code": code, "label": label, "manual": code in engine.MANUAL_TYPES}
+            for code, label in engine.DOC_TYPE_LABELS.items()
+        ],
+        "year_modes": [
+            {"code": code, "label": engine.YEAR_MODE_LABELS[code]}
+            for code in YEAR_MODES
+        ],
+        "account_kinds": list(ACCOUNT_KINDS),
+        "account_types": [
+            {"code": code, "label": engine.ACCOUNT_TYPE_LABELS[code]}
+            for code in ACCOUNT_TYPES
+        ],
+        "dictionaries": [
+            {"code": code, "label": engine.DICTIONARY_LABELS[code]}
+            for code in ACCOUNT_DICTIONARIES
+        ],
+    }
+
+
+# ── Konfiguracja ─────────────────────────────────────────────────────────────
+
+
+@router.get("/config")
+async def get_config(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    current = await ledger_settings.load(db)
+    viewer = documents.viewer_for(current_user, current)
+    open_ = ledger_settings.module_open(current_user, current, "ledger")
+    year_list = (
+        await years.list_years(db, include_payroll=viewer.payroll) if open_ else []
+    )
+    payload = _config_payload(current_user, current, viewer, year_list)
+    payload["open"] = open_
+    return payload
+
+
+@router.put("/config/modules")
+async def set_module(
+    body: ModuleBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_module(
+            db, body.module, body.enabled, actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.put("/config/accountants")
+async def set_accountants(
+    body: AccountantsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_accountants(
+            db, body.user_ids, actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.put("/config/sales")
+async def set_sales_accounts(
+    body: SalesAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_sales_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.put("/config/allocation")
+async def set_allocation_accounts(
+    body: AllocationAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_allocation_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.get("/config/candidates")
+async def accountant_candidates(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    users = list(
+        (
+            await db.scalars(
+                select(User).where(User.is_active.is_(True)).order_by(User.name)
+            )
+        ).all()
+    )
+    await resolve_effective_access(db, users)
+    return {
+        "items": [
+            {"id": user.id, "name": user.name, "admin": ledger_settings.is_admin(user)}
+            for user in users
+            if ledger_settings.is_admin(user)
+            or has_permission(user, ProductAction.finance_module)
+        ]
+    }
+
+
+# ── Źródła (K2) ──────────────────────────────────────────────────────────────
+
+
+@router.get("/sources")
+async def get_sources(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        return await sources.month_summary(
+            db, year, month, viewer=viewer, settings=current
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.post("/sources/sync")
+async def sync_sources(
+    body: SourcesSyncBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    try:
+        result = await sources.sync_month(
+            db, body.kind, body.year, body.month, viewer=viewer, settings=current
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
+
+
+# ── PK cykliczne i RMK (K3a) ─────────────────────────────────────────────────
+
+
+async def _automations_context(db: AsyncSession, user: User) -> Viewer:
+    current, viewer = await _context(db, user)
+    if not ledger_settings.module_open(user, current, "automations"):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, ledger_settings.MODULE_DISABLED_DETAIL
+        )
+    return viewer
+
+
+def _recurring_values(body: RecurringBody) -> dict[str, Any]:
+    values = body.model_dump(exclude_unset=True)
+    if body.lines is not None:
+        values["lines"] = [
+            {
+                "side": line.side,
+                "account": line.account,
+                "amount": _grosze(line.amount, index),
+                "description": line.description,
+                "counterparty_id": line.counterparty_id,
+                "mpk": line.mpk,
+            }
+            for index, line in enumerate(body.lines, start=1)
+        ]
+    return values
+
+
+@router.get("/automations")
+async def get_automations(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    await _automations_context(db, current_user)
+    return await automations.overview(db)
+
+
+async def _write_automation(db: AsyncSession, action) -> dict[str, Any]:
+    try:
+        await action()
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await automations.overview(db)
+
+
+@router.post("/automations/recurring", status_code=201)
+async def create_recurring(
+    body: RecurringBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_recurring(db, _recurring_values(body), viewer=viewer),
+    )
+
+
+@router.patch("/automations/recurring/{template_id}")
+async def update_recurring(
+    template_id: int,
+    body: RecurringBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_recurring(
+            db, _recurring_values(body), viewer=viewer, template_id=template_id
+        ),
+    )
+
+
+@router.delete("/automations/recurring/{template_id}")
+async def remove_recurring(
+    template_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db, lambda: automations.remove(db, "recurring", template_id, viewer=viewer)
+    )
+
+
+def _prepayment_values(body: PrepaymentBody) -> dict[str, Any]:
+    values = body.model_dump()
+    values["total_amount"] = _grosze(body.total_amount, 1)
+    return values
+
+
+@router.post("/automations/prepayments", status_code=201)
+async def create_prepayment(
+    body: PrepaymentBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_prepayment(
+            db, _prepayment_values(body), viewer=viewer
+        ),
+    )
+
+
+@router.patch("/automations/prepayments/{item_id}")
+async def update_prepayment(
+    item_id: int,
+    body: PrepaymentBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db,
+        lambda: automations.save_prepayment(
+            db, _prepayment_values(body), viewer=viewer, item_id=item_id
+        ),
+    )
+
+
+@router.delete("/automations/prepayments/{item_id}")
+async def remove_prepayment(
+    item_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    _require_approver(viewer)
+    return await _write_automation(
+        db, lambda: automations.remove(db, "prepayments", item_id, viewer=viewer)
+    )
+
+
+# ── Lista płac z Enovy (K3c) ─────────────────────────────────────────────────
+
+
+@router.put("/config/payroll")
+async def set_payroll_accounts(
+    body: PayrollAccountsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_payroll_accounts(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)
+
+
+@router.post("/payroll-lists/import")
+async def import_payroll_list(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    list_name: str = Query(
+        alias="list", min_length=1, max_length=payroll_lists.LIST_NAME_MAX
+    ),
+    payment_date: Optional[date] = Query(default=None),
+    save: bool = Query(default=False),
+    file: UploadFile = File(..., description="Lista płac z Enovy (XLSX albo CSV)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    viewer = await _automations_context(db, current_user)
+    if not viewer.payroll:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Listę płac wczytują Płace albo administrator.",
+        )
+    current = await ledger_settings.load(db)
+    content = await file.read(payroll_lists.MAX_BYTES + 1)
+    try:
+        result = await payroll_lists.import_list(
+            db,
+            content,
+            year=year,
+            month=month,
+            list_name=list_name,
+            payment_date=payment_date,
+            accounts=current.payroll,
+            viewer=viewer,
+            save=save,
+        )
+    except ImportFileError as exc:
+        await db.rollback()
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    if save:
+        await db.commit()
+    return result
+
+
+# ── Bank: jeden import wyciągu (K4a) ─────────────────────────────────────────
+
+
+def _bank_settings_payload(
+    current: ledger_settings.LedgerSettings, viewer: Viewer
+) -> dict[str, Any]:
+    """Rachunki firmy: pełne numery widzi administrator (edytuje je), reszta końcówkę."""
+
+    data = ledger_settings.to_json(current)["bank"]
+    if not viewer.admin:
+        data["accounts"] = [
+            {**item, "number": f"…{item['number'][-4:]}"} for item in data["accounts"]
+        ]
+    return data
+
+
+async def _bank_context(
+    db: AsyncSession, user: User
+) -> tuple[ledger_settings.LedgerSettings, Viewer]:
+    current, viewer = await _context(db, user)
+    if not ledger_settings.module_open(user, current, "bank"):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, ledger_settings.MODULE_DISABLED_DETAIL
+        )
+    return current, viewer
+
+
+@router.put("/config/bank")
+async def set_bank_settings(
+    body: BankSettingsBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _require_admin(current_user)
+    try:
+        current = await ledger_settings.set_bank_settings(
+            db, body.model_dump(), actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return ledger_settings.to_json(current)["bank"]
+
+
+@router.get("/bank")
+async def bank_overview(
+    current_user: FinanceModuleUser,
+    year: Optional[int] = Query(default=None, ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: Optional[int] = Query(default=None, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _bank_context(db, current_user)
+    if (year is None) != (month is None):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "Podaj rok i miesiąc razem."
+        )
+    return {
+        **await bank.overview(db, viewer, current.bank, year=year, month=month),
+        "settings": _bank_settings_payload(current, viewer),
+    }
+
+
+@router.post("/bank/import", status_code=201)
+async def bank_import(
+    current_user: FinanceModuleUser,
+    file: UploadFile = File(..., description="Wyciąg MT940 albo CAMT.053"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _bank_context(db, current_user)
+    raw = await file.read(bank.hr_statements.MAX_STATEMENT_BYTES + 1)
+    try:
+        statement, fresh = await bank.import_file(
+            db, raw, viewer=viewer, settings=current, now=_now()
+        )
+        payload = await bank.statement_payload(db, statement, viewer, current.bank)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {**payload, "already_imported": not fresh}
+
+
+@router.get("/bank/statements/{statement_id}")
+async def bank_statement(
+    statement_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _bank_context(db, current_user)
+    try:
+        return await bank.get_statement(db, statement_id, viewer, current.bank)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.patch("/bank/lines/{line_id}")
+async def bank_assign(
+    line_id: int,
+    body: BankLineBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _bank_context(db, current_user)
+    try:
+        line = await bank.assign(db, line_id, body.account, viewer=viewer, now=_now())
+        payload = await bank.get_statement(db, line.statement_id, viewer, current.bank)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return payload
+
+
+@router.post("/bank/statements/{statement_id}/post")
+async def bank_post(
+    statement_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _bank_context(db, current_user)
+    try:
+        result = await bank.post(db, statement_id, viewer=viewer)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return result
+
+
+# ── Lista zamknięcia miesiąca (K3d) ──────────────────────────────────────────
+
+
+@router.get("/closing")
+async def get_closing(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, viewer = await _context(db, current_user)
+    return await closing.checklist(db, year, month, viewer=viewer, settings=current)
+
+
+# ── Paczki do Symfonii (K3b) ─────────────────────────────────────────────────
+
+
+@router.get("/exports")
+async def get_exports(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: int = Query(ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    return await exports.preview(db, year, month, viewer=viewer)
+
+
+@router.post("/exports", status_code=201)
+async def create_export(
+    body: ExportBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    try:
+        export = await exports.create(
+            db,
+            body.year,
+            body.month,
+            body.kinds,
+            body.file_format,
+            payroll=body.payroll,
+            viewer=viewer,
+            now=_now(),
+        )
+        payload = await exports.export_payload(db, export)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return payload
+
+
+@router.get("/exports/{export_id}/file")
+async def export_file(
+    export_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> Response:
+    _, viewer = await _context(db, current_user)
+    try:
+        export = await exports.file_of(db, export_id, viewer=viewer)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+    fmt = FORMATS.get(export.file_format)
+    return Response(
+        content=export.file_content,
+        media_type=fmt.media_type if fmt else "application/octet-stream",
+        headers={
+            "Content-Disposition": content_disposition(export.file_name),
+            "X-File-SHA256": export.file_sha256,
+            "Access-Control-Expose-Headers": "Content-Disposition, X-File-SHA256",
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+async def _change_export(db: AsyncSession, user: User, action) -> dict[str, Any]:
+    _, viewer = await _context(db, user)
+    _require_approver(viewer)
+    try:
+        export = await action(viewer)
+        payload = await exports.export_payload(db, export)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return payload
+
+
+@router.post("/exports/{export_id}/book")
+async def book_export(
+    export_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return await _change_export(
+        db,
+        current_user,
+        lambda viewer: exports.book(db, export_id, viewer=viewer, now=_now()),
+    )
+
+
+@router.post("/exports/{export_id}/cancel")
+async def cancel_export(
+    export_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return await _change_export(
+        db,
+        current_user,
+        lambda viewer: exports.cancel(db, export_id, viewer=viewer, now=_now()),
+    )
+
+
+# ── Bilans otwarcia (K2) ─────────────────────────────────────────────────────
+
+
+@router.post("/opening/import")
+async def import_opening(
+    current_user: FinanceModuleUser,
+    year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    save: bool = Query(False),
+    file: UploadFile = File(
+        ..., description="Zestawienie sald z Symfonii FK (XLSX albo CSV)"
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    content = await file.read(opening.MAX_BYTES + 1)
+    try:
+        parsed = opening.parse(content)
+    except ImportFileError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    try:
+        spec, summary = await opening.build(db, parsed, year)
+        if not save:
+            return {**summary, "saved": False, "document_id": None}
+        if spec is None:
+            raise LedgerError(summary["problems"][0], status=422)
+        doc = await opening.save(db, spec, viewer=viewer)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {**summary, "saved": True, "document_id": doc.id}
+
+
+# ── Rok obrotowy i okresy ────────────────────────────────────────────────────
+
+
+@router.post("/years", status_code=201)
+async def create_year(
+    body: YearBody, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    if body.mode != "symfonia":
+        _require_admin(current_user)
+    try:
+        existing = await db.scalar(
+            select(LedgerYear.id).where(LedgerYear.year == body.year)
+        )
+        if existing is not None:
+            raise LedgerError(f"Rok obrotowy {body.year} już jest.", status=409)
+        await years.ensure_year(db, body.year, actor_id=current_user.id, mode=body.mode)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
+
+
+@router.patch("/years/{year_id}")
+async def update_year(
+    year_id: int,
+    body: YearPatch,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_admin(current_user)
+    try:
+        await years.set_mode(db, year_id, body.mode, actor_id=current_user.id)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
+
+
+@router.post("/periods/{period_id}/close")
+async def close_period(
+    period_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    try:
+        await years.close_period(
+            db,
+            period_id,
+            actor_id=current_user.id,
+            now=_now(),
+            include_payroll=viewer.payroll,
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
+
+
+@router.post("/periods/{period_id}/reopen")
+async def reopen_period(
+    period_id: int,
+    body: ReopenBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_admin(current_user)
+    try:
+        await years.reopen_period(
+            db, period_id, body.reason, actor_id=current_user.id, now=_now()
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {"items": await years.list_years(db, include_payroll=viewer.payroll)}
+
+
+# ── Dokumenty ────────────────────────────────────────────────────────────────
+
+
+@router.get("/documents")
+async def list_documents(
+    current_user: FinanceModuleUser,
+    year: int = Query(..., ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    doc_type: Optional[str] = Query(None, pattern=r"^[A-Z]{2,4}$"),
+    status_: Optional[Literal["draft", "approved"]] = Query(None, alias="status"),
+    q: Optional[str] = Query(None, max_length=80),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=documents.PAGE_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    return await documents.list_documents(
+        db,
+        viewer,
+        year=year,
+        month=month,
+        doc_type=doc_type,
+        status=status_,
+        needle=q,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.post("/documents", status_code=201)
+async def create_document(
+    body: DocumentBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        doc = await documents.create_draft(db, _spec(body), actor_id=current_user.id)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await documents.document_card(db, viewer, doc.id)
+
+
+@router.get("/documents/{doc_id}")
+async def document_card(
+    doc_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        return await documents.document_card(db, viewer, doc_id)
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.patch("/documents/{doc_id}")
+async def update_document(
+    doc_id: int,
+    body: DocumentBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        await documents.update_draft(db, doc_id, _spec(body), viewer=viewer)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await documents.document_card(db, viewer, doc_id)
+
+
+@router.delete("/documents/{doc_id}", status_code=204)
+async def delete_document(
+    doc_id: int, current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> None:
+    _, viewer = await _context(db, current_user)
+    try:
+        await documents.delete_draft(db, doc_id, viewer=viewer)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+
+
+@router.post("/documents/approve")
+async def approve_documents(
+    body: ApproveBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    try:
+        result = await documents.approve(db, body.ids, viewer=viewer, now=_now())
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    if not result["approved"] and result["refused"]:
+        await db.rollback()
+        first = result["refused"][0]
+        raise HTTPException(first["status"], first["detail"])
+    await db.commit()
+    return result
+
+
+@router.post("/documents/{doc_id}/reverse")
+async def reverse_document(
+    doc_id: int,
+    body: ReverseBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    try:
+        storno = await documents.reverse(
+            db,
+            doc_id,
+            viewer=viewer,
+            day=body.op_date or business_today(),
+            reason=body.reason,
+            now=_now(),
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return await documents.document_card(db, viewer, storno.id)
+
+
+# ── Raporty ──────────────────────────────────────────────────────────────────
+
+
+@router.get("/trial-balance")
+async def trial_balance(
+    current_user: FinanceModuleUser,
+    year: int = Query(..., ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month_from: Optional[int] = Query(None, ge=1, le=12),
+    month_to: Optional[int] = Query(None, ge=1, le=12),
+    level: Literal["synthetic", "analytic"] = "synthetic",
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        return await reports.trial_balance(
+            db, viewer, year=year, month_from=month_from, month_to=month_to, level=level
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+@router.get("/accounts/card")
+async def account_card(
+    current_user: FinanceModuleUser,
+    account: str = Query(..., min_length=1, max_length=ACCOUNT_MAX),
+    year: int = Query(..., ge=years.YEAR_MIN, le=years.YEAR_MAX),
+    month_from: Optional[int] = Query(None, ge=1, le=12),
+    month_to: Optional[int] = Query(None, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        return await reports.account_card(
+            db,
+            viewer,
+            account=clean_account(account, "Konto"),
+            year=year,
+            month_from=month_from,
+            month_to=month_to,
+        )
+    except LedgerError as exc:
+        raise _fail(exc) from exc
+
+
+# ── Plan kont ────────────────────────────────────────────────────────────────
+
+
+@router.get("/chart")
+async def list_chart(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}
+
+
+@router.post("/chart", status_code=201)
+async def create_account(
+    body: AccountBody,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        await chart.create_account(db, body.model_dump(), actor_id=current_user.id)
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}
+
+
+@router.patch("/chart/{account_id}")
+async def update_account(
+    account_id: int,
+    body: AccountPatch,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    try:
+        await chart.update_account(
+            db,
+            account_id,
+            body.model_dump(exclude_unset=True),
+            actor_id=current_user.id,
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}

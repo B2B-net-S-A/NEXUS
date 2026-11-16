@@ -99,12 +99,19 @@ class RemoteBuildWrapperTests(unittest.TestCase):
         self.assertIn("-f", calls[-1])
         self.assertNotIn("a" * 40, result.stdout)
 
+    def test_compose_without_frontend_builds(self):
+        # Front jest osobną aplikacją Coolify; compose ma tylko backend i resztę.
+        result, calls = self.run_wrapper(f"postgres:16\napp123_backend:{SHA}\napp123_worker:{SHA}")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("GIT_SHA=" + SHA, calls[-1])
+
     def test_unknown_mixed_or_ambiguous_tags_never_start_build(self):
         for images in [
             "app123_backend:unknown\napp123_frontend:unknown",
             f"app123_backend:{SHA}\napp123_frontend:{'a' * 40}",
             f"app123_backend:{SHA}\nother_backend:{SHA}\napp123_frontend:{SHA}",
             f"app123_backend:{SHA}\nother_frontend:{SHA}",
+            f"app123_backend:{SHA}\napp123_frontend:{SHA}\nother_frontend:{SHA}",
         ]:
             with self.subTest(images=images):
                 result, calls = self.run_wrapper(images)

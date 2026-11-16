@@ -18,6 +18,12 @@ from app.models.user import User, UserRole, known_roles
 from app.api.deps import OperationalUser, CurrentUser
 from app.schemas.job import UserBrief
 from app.services import notification_email_prefs
+from app.services.appearance_prefs import (
+    AppearancePrefs,
+    AppearancePrefsUpdate,
+    apply_appearance_update,
+    effective_appearance,
+)
 from app.services.jarvis.prefs import (
     UNLOCKABLE_CHARACTERS,
     JarvisPrefs,
@@ -45,6 +51,10 @@ class UserPreferencesUpdate(BaseModel):
         default=None,
         description="Wygląd i zachowanie maskotki Jarvisa (tylko zmieniane pola).",
     )
+    appearance: Optional[AppearancePrefsUpdate] = Field(
+        default=None,
+        description="Świat wyglądu z menu „Wygląd” (tylko zmieniane pola).",
+    )
     daily_digest_email_enabled: Optional[bool] = Field(
         default=None,
         description="Poranny skrót „Twój dzień w NEXUSIE” mailem — tylko to konto.",
@@ -68,6 +78,7 @@ class JarvisPrefsResponse(JarvisPrefs):
 class UserPreferencesResponse(BaseModel):
     kpi_coach_enabled: bool
     jarvis: JarvisPrefsResponse
+    appearance: AppearancePrefs
     daily_digest_email_enabled: bool
     # Czy skrót w ogóle może trafić do tego konta (rola z listy skrótu) —
     # bez tego przełącznik obiecywałby mail, którego konto nie dostaje.
@@ -91,6 +102,7 @@ async def _preferences_response(
         daily_digest_email_enabled=user.daily_digest_email_enabled,
         daily_digest_email_available=receives_digest(user),
         stage_moves_all_led_jobs=user.stage_moves_all_led_jobs,
+        appearance=effective_appearance(user.appearance_prefs),
         jarvis=JarvisPrefsResponse(
             **prefs.model_dump(),
             unlocked_characters=unlocked,
@@ -286,6 +298,13 @@ async def update_my_preferences(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         current_user.jarvis_prefs = merged.model_dump()
+        changed = True
+
+    if payload.appearance is not None:
+        merged_appearance = apply_appearance_update(
+            effective_appearance(current_user.appearance_prefs), payload.appearance
+        )
+        current_user.appearance_prefs = merged_appearance.model_dump()
         changed = True
 
     if changed:

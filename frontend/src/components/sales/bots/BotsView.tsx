@@ -1,6 +1,6 @@
 "use client";
 
-import { Building2, Newspaper, Search, Users, Database } from "lucide-react";
+import { Building2, Database, ListPlus, Newspaper, Search, Users } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
@@ -21,6 +21,13 @@ interface BotCopy {
 
 /** Opis pracy botów: decyzje Artura z 13.11.2026 (`docs/claude/sprzedaz/cztery-boty-sprzedazy.md`). */
 export const BOT_COPY: Record<SalesBotKey, BotCopy> = {
+  lists: {
+    icon: ListPlus,
+    job: "Buduje listy do dzwonienia z briefu kampanii: do kogo dzwonimy, branża, miasto, wielkość. Kolejność ról bierze z tego, co kończy się spotkaniem.",
+    writes: ["Rekordy w kampanii, od razu w kolejce", "Podział między osoby dzwoniące"],
+    when: ["„Zbuduj listę” w Kampaniach", "poniedziałek 7:00: dosypka do pełnej paczki"],
+    never: "Nie dzwoni i nie pisze. Pomija klientów NEXUSA, „Nie kontaktować”, otwarte szanse i firmy dzwonione w ostatnich 6 miesiącach.",
+  },
   leads: {
     icon: Search,
     job: "Szuka okazji: co dzieje się w obserwowanych firmach, przegrane do odświeżenia i nowe centra IT w Polsce.",

@@ -5,8 +5,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 
 const hook = vi.hoisted(() => ({ result: {} as Record<string, unknown> }));
+// Osoby przypisane do rekrutacji (`@wszyscy`) przychodzą w `assigned` tylko
+// dla pola rekrutacji z `withAssigned` — tak jak robi to prawdziwy hook.
+const assigned = vi.hoisted(() => ({ data: undefined as unknown, jobIds: [] as (number | null)[] }));
 vi.mock("@/hooks/useMentionableUsers", () => ({
-  useMentionableUsers: () => hook.result,
+  useMentionableUsers: (
+    scope: { kind: string; jobId?: number },
+    opts: { withAssigned?: boolean } = {},
+  ) => {
+    const jobId = opts.withAssigned && scope.kind === "job" ? (scope.jobId ?? null) : null;
+    assigned.jobIds.push(jobId);
+    return { ...hook.result, assigned: jobId == null ? undefined : assigned.data };
+  },
+}));
+vi.mock("@/store/auth", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/store/auth")>()),
+  useAuthStore: (select: (s: { user: { id: number } }) => unknown) => select({ user: { id: 1 } }),
 }));
 
 // jsdom nie liczy układu — pomiary ukrytej kopii pola podstawiamy. Zero =
@@ -313,5 +327,77 @@ describe("MentionTextarea — nieobecni (moduł urlopów)", () => {
     expect(screen.getByTestId("mention-absence")).toBeInTheDocument();
     fireEvent.keyDown(field, { key: "Enter" });
     expect(screen.queryByTestId("mention-substitute-hint")).not.toBeInTheDocument();
+  });
+});
+
+describe("@wszyscy — wszyscy przypisani do rekrutacji (13.11.2026)", () => {
+  function JobField({ jobId = 7 }: { jobId?: number }) {
+    const [value, setValue] = useState("");
+    return (
+      <>
+        <MentionTextarea
+          value={value}
+          onChange={setValue}
+          scope={{ kind: "job", jobId }}
+          ariaLabel="Treść"
+        />
+        <output data-testid="value">{value}</output>
+      </>
+    );
+  }
+
+  beforeEach(() => {
+    // Autor (id 1) też jest przypisany — nie liczy się do „dostanie wzmiankę”.
+    assigned.data = [users[0], users[1], users[2]];
+    assigned.jobIds = [];
+  });
+
+  it("samo „@” w rekrutacji: „Wszyscy przypisani” na górze, bez autora", () => {
+    render(<JobField />);
+    type("@");
+    const options = screen.getAllByRole("option");
+    expect(options[0]).toHaveTextContent("Wszyscy przypisani");
+    expect(options[0]).toHaveTextContent("2 osoby");
+    expect(options[0]).toHaveTextContent("Łukasz Żak, Jan Kowalski");
+    expect(options[0]).not.toHaveTextContent("Marta Nowak");
+    expect(assigned.jobIds).toContain(7);
+  });
+
+  it("„@Wszyscy” — dokładnie to, co wpisał Olaf — nie kończy się „Nie ma osoby”", () => {
+    render(<JobField />);
+    const field = type("@Wszyscy");
+    expect(screen.getByTestId("mention-everyone")).toBeInTheDocument();
+    expect(screen.queryByText(/Nie ma osoby pasującej/)).toBeNull();
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(screen.getByTestId("value").textContent).toBe("@wszyscy ");
+    expect(screen.getByTestId("mention-everyone-hint")).toHaveTextContent(
+      "Wzmiankę dostanie 2 osoby: Łukasz Żak, Jan Kowalski",
+    );
+  });
+
+  it("pasuje też „@zesp” i „@all”, a nie pasuje do zwykłego imienia", () => {
+    render(<JobField />);
+    type("@zesp");
+    expect(screen.getByTestId("mention-everyone")).toBeInTheDocument();
+    type("@all");
+    expect(screen.getByTestId("mention-everyone")).toBeInTheDocument();
+    type("@mar");
+    expect(screen.queryByTestId("mention-everyone")).toBeNull();
+    expect(screen.getByRole("option")).toHaveTextContent("Marta Nowak");
+  });
+
+  it("poza rekrutacją nie ma pozycji ani zapytania o przypisanych", () => {
+    render(<Field />);
+    type("@Wszyscy");
+    expect(screen.queryByTestId("mention-everyone")).toBeNull();
+    expect(screen.getByText(/Nie ma osoby pasującej/)).toBeInTheDocument();
+    expect(assigned.jobIds.every((id) => id == null)).toBe(true);
+  });
+
+  it("nikt poza autorem nie jest przypisany — pozycji nie ma", () => {
+    assigned.data = [users[0]];
+    render(<JobField />);
+    type("@");
+    expect(screen.queryByTestId("mention-everyone")).toBeNull();
   });
 });

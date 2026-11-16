@@ -155,6 +155,39 @@ class Contract(Base, TimestampMixin):
     # Numeric(16,6): stawki ramowe bywają z groszami (np. 215,60 — migracja
     # 0157), a po przeliczeniu MD → godziny mają do 5 miejsc (migracja 0309).
     framework_rate: Mapped[Optional[Decimal]] = mapped_column(Numeric(16, 6))
+    # Kategoria i poziom z umowy ramowej (0710): pozycja cennika klienta,
+    # źródło (`coa` — z zamówienia klienta, `dl` — wybrał Delivery Lead) i surowa
+    # etykieta z ostatniego COA. Limit = maksimum z cennika × (1 + dopłata);
+    # liczy `services/framework_category.py`, zapisuje krok harmonogramu wyżej.
+    client_rate_card_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("rate_cards.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    rate_card_source: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    rate_card_coa_label: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    # Dopłata za technologię premium z umowy ramowej. Nie zmienia COA ani
+    # stawki przychodowej (decyzja Artura 15.11.2026) — tylko limit. Wpisuje
+    # ją Delivery Lead z potwierdzeniem klienta (kto, kiedy, dowód).
+    framework_addon_technology: Mapped[Optional[str]] = mapped_column(
+        String(100), nullable=True
+    )
+    framework_addon_percent: Mapped[Optional[Decimal]] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    framework_addon_confirmed_by: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+    framework_addon_confirmed_on: Mapped[Optional[date]] = mapped_column(
+        Date, nullable=True
+    )
+    framework_addon_evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    framework_addon_set_by_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    framework_addon_set_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Waluty są rozdzielone per strona stawki. Kolumny celowo pozostają
     # nullable podczas wdrożenia: starsza wersja aplikacji może jeszcze zapisać
     # wyłącznie legacy ``currency``. Odczyt zawsze przechodzi przez

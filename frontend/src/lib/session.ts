@@ -43,8 +43,29 @@ const AUTH_COOKIE_NAME = "nexus_access";
 const AUTH_COOKIE_MAX_AGE = 60 * 60 * 8;
 
 /**
- * Zapisz cookie routingowe. Zwraca `true` TYLKO gdy cookie realnie wylądowało
- * w przeglądarce.
+ * Sesja w ciasteczku HttpOnly (od 11.2026). Ciasteczko `nexus_access`
+ * ustawia backend (`backend/app/core/session_cookie.py`) i JS go nie widzi —
+ * luka XSS nie wyniesie tokenu. W store'ze auth w miejscu tokenu stoi wtedy
+ * ten znacznik: „sesja jest, ale w ciasteczku”.
+ *
+ * Stara ścieżka (token w localStorage + ciasteczko pisane z JS) zostaje
+ * wyłącznie jako bezpiecznik na niezgodne wersje w trakcie wdrożenia
+ * (front nowszy niż API). Do usunięcia w kolejnym PR-ze.
+ */
+export const COOKIE_SESSION = "cookie-session";
+
+/** Nagłówek CSRF wymagany przez backend przy zapisie sesją z ciasteczka. */
+export const CSRF_HEADER = "X-Nexus-CSRF";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export function isCookieSession(token: string | null | undefined): boolean {
+  return token === COOKIE_SESSION;
+}
+
+/**
+ * Bezpiecznik: zapisz cookie routingowe z JS (tylko stara ścieżka). Zwraca
+ * `true` TYLKO gdy cookie realnie wylądowało w przeglądarce.
  *
  * Zwracany boolean nie jest ozdobnikiem: `document.cookie = ...` jest **cichym
  * no-opem**, gdy przeglądarka blokuje cookies (ustawienie „blokuj wszystkie",
@@ -55,15 +76,13 @@ const AUTH_COOKIE_MAX_AGE = 60 * 60 * 8;
  */
 export function writeAuthCookie(token: string): boolean {
   if (typeof document === "undefined") return false;
-  // SameSite=Lax wystarcza — logowanie nie jest cross-site, CSRF surface nikła.
-  // Bez httpOnly (świadoma decyzja — patrz plan/docs/SUPABASE_ANALYSIS.md).
   document.cookie = `${AUTH_COOKIE_NAME}=${encodeURIComponent(
     token,
   )}; path=/; max-age=${AUTH_COOKIE_MAX_AGE}; samesite=lax`;
   return hasAuthCookie();
 }
 
-/** Czy cookie routingowe istnieje — czyli czy middleware wpuści nas dalej. */
+/** Czy cookie routingowe pisane z JS istnieje (stara ścieżka). */
 export function hasAuthCookie(): boolean {
   if (typeof document === "undefined") return false;
   return document.cookie
@@ -72,11 +91,9 @@ export function hasAuthCookie(): boolean {
 }
 
 /**
- * Odczytaj JWT sesji. Zwraca `null` poza przeglądarką ORAZ gdy storage jest
- * niedostępny — `localStorage` rzuca `SecurityError`, gdy przeglądarka blokuje
- * dane witryn (tryb prywatny z twardą polityką, rozszerzenia). Wołający i tak
- * traktują brak tokenu jako „leć bez nagłówka Authorization", więc rzucenie
- * wyjątkiem tylko wywróciłoby pobieranie pliku zamiast dać czyste 401.
+ * Token ze starej ścieżki (localStorage). W sesji z ciasteczkiem zawsze
+ * `null`. Zwraca `null` poza przeglądarką ORAZ gdy storage jest niedostępny —
+ * `localStorage` rzuca `SecurityError`, gdy przeglądarka blokuje dane witryn.
  */
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -87,8 +104,84 @@ export function getAccessToken(): string | null {
   }
 }
 
+/** Zapisz token starej ścieżki (bezpiecznik na API sprzed ciasteczka). */
+export function storeLegacyAccessToken(token: string): void {
+  try {
+    window.localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  } catch {
+    /* storage wyłączony */
+  }
+}
+
+/**
+ * Usuń token starej ścieżki z localStorage i ciasteczko pisane z JS.
+ * Ciasteczka HttpOnly z backendu to nie dotyka (JS go nie widzi).
+ */
+export function dropLegacyAccessToken(): void {
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+    } catch {
+      /* storage wyłączony */
+    }
+  }
+  if (typeof document !== "undefined") {
+    document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0; samesite=lax`;
+  }
+}
+
+/**
+ * Przenieś sesję ze starej ścieżki (token w localStorage) do ciasteczka
+ * HttpOnly: `POST /api/auth/session` z nagłówkiem Bearer. Osoby zalogowane
+ * przed wdrożeniem nie muszą logować się ponownie.
+ *
+ * `"adopted"` — ciasteczko ustawione, token zniknął z localStorage;
+ * `"unsupported"` — API sprzed zmiany (404/405), zostaje stara ścieżka;
+ * `"dead"` — token nieważny (401); `"failed"` — sieć / 5xx, nic nie ruszamy.
+ */
+export async function adoptLegacySession(
+  token: string,
+): Promise<"adopted" | "unsupported" | "dead" | "failed"> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/session`, {
+      method: "POST",
+      credentials: "include",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      dropLegacyAccessToken();
+      return "adopted";
+    }
+    if (res.status === 404 || res.status === 405) return "unsupported";
+    if (res.status === 401) return "dead";
+    return "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/**
+ * Zakończ sesję po stronie serwera — tylko serwer usuwa ciasteczko HttpOnly.
+ * `keepalive`, bo zaraz po wywołaniu strona przechodzi na /login.
+ */
+export function endServerSession(): void {
+  if (typeof window === "undefined") return;
+  try {
+    void fetch(`${API_BASE}/api/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      keepalive: true,
+      headers: { [CSRF_HEADER]: "1" },
+    }).catch(() => undefined);
+  } catch {
+    /* fetch niedostępny (testy) */
+  }
+}
+
 /**
  * Headers for native `fetch` calls that bypass the shared axios interceptor.
+ * Wywołanie dokłada `credentials: "include"` (ciasteczko sesji); backend
+ * wymaga nagłówka CSRF przy każdym zapisie z ciasteczka.
  * The impersonation marker is load-bearing: without it file previews and
  * exports execute as the real administrator and can bypass the viewed user's
  * section and row scope.
@@ -96,9 +189,13 @@ export function getAccessToken(): string | null {
 export function getAuthenticatedRequestHeaders(
   extra: Record<string, string> = {},
 ): Record<string, string> {
-  const headers = { ...extra };
+  const headers: Record<string, string> = { ...extra };
   const token = getAccessToken();
+  // Albo Bearer (stara ścieżka), albo nagłówek CSRF (ciasteczko). Nigdy oba:
+  // API sprzed ciasteczka odrzuca preflight z nieznanym nagłówkiem, więc
+  // CSRF przy starej ścieżce wywróciłby każde pobranie pliku.
   if (token) headers.Authorization = `Bearer ${token}`;
+  else headers[CSRF_HEADER] = "1";
   if (typeof window === "undefined") return headers;
   try {
     const impersonateId = window.localStorage.getItem(IMPERSONATE_ID_KEY);

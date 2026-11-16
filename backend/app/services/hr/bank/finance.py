@@ -62,6 +62,8 @@ class PayableInvoice:
     ksef_number: Optional[str]
     gross_amount: Decimal
     kind: str
+    #: Faktura z KSeF (``source='ksef'``), nie PDF dopięty ręcznie.
+    from_ksef: bool = False
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,7 @@ async def matched_invoices(
                 ksef_number=invoice.ksef_number,
                 gross_amount=Decimal(invoice.gross_amount),
                 kind=invoice.invoice_kind,
+                from_ksef=invoice.source == "ksef",
             )
         )
     return found
@@ -194,7 +197,7 @@ async def describe(
         year, month = periods.get(settlement.period_id, (0, 0))
         own = invoices.get(settlement.id, [])
         details = billing.get(settlement.user_id)
-        refs = [InvoiceRef(i.invoice_number, i.ksef_number) for i in own]
+        refs = [InvoiceRef(i.invoice_number, i.ksef_number, i.from_ksef) for i in own]
         rows.append(
             PayableRow(
                 settlement_id=settlement.id,

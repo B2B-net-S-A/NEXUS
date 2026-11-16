@@ -10,9 +10,11 @@ import {
   probeTelemetryCapability,
 } from "./telemetry-capability";
 import { usageScreen } from "./usage-screen";
+import { poligonAdapter } from "./poligon/adapter";
+import { isPoligonActive } from "./poligon/mode";
 
 import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
-import { clearSessionArtifacts, getAccessToken } from "./session";
+import { clearSessionArtifacts, CSRF_HEADER, getAccessToken } from "./session";
 import type { WorkMode } from "./work-mode";
 import type { CallFactsPatch } from "./candidate-call-facts";
 import type { RequestStatus } from "./request-status";
@@ -57,6 +59,17 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 export const api = axios.create({
   baseURL: API_BASE,
   headers: { "Content-Type": "application/json" },
+  // Sesja przeglądarki to ciasteczko HttpOnly z API (`lib/session.ts`).
+  withCredentials: true,
+});
+
+const STATE_CHANGING_METHODS = new Set(["post", "put", "patch", "delete"]);
+
+// Poligon NEXUSA (`lib/poligon/`): w trybie ćwiczeń rekrutację ćwiczebną
+// podaje zestaw z przeglądarki i żaden zapis nie idzie do serwera.
+api.interceptors.request.use((config) => {
+  if (isPoligonActive()) config.adapter = poligonAdapter;
+  return config;
 });
 
 // Domyślny sufit ustawia ten interceptor, a nie `axios.create`: axios scala
@@ -158,6 +171,16 @@ api.interceptors.request.use((config) => {
         : headers?.Authorization != null;
     if (token && !hasExplicitAuth) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    // Sesja z ciasteczka: zapis wymaga nagłówka CSRF (backend
+    // `core/session_cookie.py`). Tylko bez Bearera — API sprzed ciasteczka
+    // nie zna tego nagłówka i odrzuciłoby preflight.
+    if (
+      !token &&
+      !hasExplicitAuth &&
+      STATE_CHANGING_METHODS.has((config.method ?? "get").toLowerCase())
+    ) {
+      config.headers[CSRF_HEADER] = "1";
     }
     // Admin „podgląd jako użytkownik": gdy aktywny, dokleja nagłówek z id
     // podglądanego usera. Backend (admin-only, read-only) podmienia wtedy
@@ -776,6 +799,8 @@ export interface MyKpiPanel {
     window_days: number;
   };
   target_verifications_daily: number;
+  /** Cel dzienny × dni pracy osoby od poniedziałku do dziś (bez świąt, urlopu, dnia onboardingu). */
+  target_verifications_week_to_date: number;
   target_placements_monthly: number;
   target_precision_pct: number;
 }

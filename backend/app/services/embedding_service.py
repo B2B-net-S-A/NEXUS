@@ -797,12 +797,12 @@ async def search_candidates_semantic(
             )
 
             client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-            hits = client.search(
+            hits = client.query_points(
                 collection_name=_collection(),
-                query_vector=embedding,
+                query=embedding,
                 limit=top_k,
                 with_payload=True,
-            )
+            ).points
             base = [
                 {
                     "candidate_id": int(hit.id),
@@ -881,13 +881,13 @@ async def similarity_for_candidate_ids(
         )
 
         client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
-        hits = client.search(
+        hits = client.query_points(
             collection_name=_collection(),
-            query_vector=embedding,
+            query=embedding,
             query_filter=Filter(must=[HasIdCondition(has_id=ids)]),
             limit=len(ids),
             with_payload=False,
-        )
+        ).points
         scores = {int(hit.id): round(float(hit.score), 4) for hit in hits}
         # Fala 2: ta ścieżka zasila TEN SAM cache score'ów co pula z
         # `search_candidates_semantic` (klucz: kandydat×oferta×profil, bez pola
@@ -1478,13 +1478,13 @@ async def search_jobs_semantic(
         )
         if job_ids is not None:
             query_filter = Filter(should=[HasIdCondition(has_id=list(job_ids))])
-        hits = client.search(
+        hits = client.query_points(
             collection_name=_jobs_collection(),
-            query_vector=embedding,
+            query=embedding,
             limit=top_k,
             with_payload=True,
             query_filter=query_filter,
-        )
+        ).points
         return [
             {
                 "job_id": int(hit.id),
@@ -1583,12 +1583,12 @@ async def search_similar_jobs_by_job_id(
 
         limit = top_k + 1 if exclude_self else top_k
         try:
-            hits = client.search(
+            hits = client.query_points(
                 collection_name=_jobs_collection(),
-                query_vector=list(vector),
+                query=list(vector),
                 limit=limit,
                 with_payload=True,
-            )
+            ).points
         except Exception as e:
             # Też "nie wiem": wektor mamy, ale wyszukiwanie nie odpowiedziało.
             logger.error(

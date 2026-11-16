@@ -27,6 +27,7 @@ from app.services.hr_approval_settlement_schema import (
 )
 from app.services.hr_approvals_schema import NOTIFICATION_TYPES as APPROVAL_TYPES
 from app.services.hr_settlement_schema import NOTIFICATION_TYPES as SETTLEMENT_TYPES
+from app.services.trainings_schema import NOTIFICATION_TYPES as TRAINING_TYPES
 
 #: Osobiste: odbiorcę wybiera reguła modułu; widoczne bez sekcji produktu.
 PERSONAL_TYPES: tuple[str, ...] = (
@@ -63,6 +64,8 @@ PERSONAL_TYPES: tuple[str, ...] = (
     # Kolejka back office'u — do kierownika i do osoby z przydziałem (0637).
     *BACK_OFFICE_TYPES,
     *CONSULTANT_PORTAL_TYPES,
+    # 0697: szkolenia (dzwonki TCM, reprezentanta, Finansów i uczestników).
+    *TRAINING_TYPES,
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery; struktura

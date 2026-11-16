@@ -69,6 +69,21 @@ Każda strona jest źródłem prawdy dla SWOICH pól:
   (`cost_reference_day`), a przebieg dobowy (`run_daily_order_cost_sync` w cyklu
   `contract_alerts`) wprowadza każdą zaplanowaną podwyżkę w jej dniu. Zakończone
   i anulowane zamówienia są historią — nietknięte.
+- **Aneks stawki klienta → zamówienie od dnia aneksu (ticket Finansów
+  16.11.2026, decyzja Artura, migracja 0724).** Do tego dnia aneks zmieniał
+  przychód tylko w kontrakcie, a linia zamówienia miała jedną stawkę na cały
+  okres — ręczna zmiana przeliczyłaby „Do faktury” także za miesiące sprzed
+  aneksu (kwota liczy się przy odczycie: MD × stawka). Teraz aneks ze stawką
+  klienta (`apply_contract_amendment`, także z Generatora) zapisuje krok
+  `client_order_revenue_steps` w każdym żywym zamówieniu kontraktu, które
+  trwa w dniu aneksu (`services/order_revenue_steps.py`), z wpisem
+  w Historii zamówienia. Kolumny zamówienia ZOSTAJĄ stawką ze startu, więc
+  kierunek zamówienie → kontrakt i każdy czytnik bez kroków liczy jak dawniej.
+  Miesiąc liczy się stawką z jego pierwszego dnia (zużycie MD jest
+  miesięczne; aneks od 15.11 wchodzi od grudnia, okno aneksu to mówi).
+  Czytniki pieniędzy „za miesiąc” biorą stawkę przez `priced_for_month`
+  („Do faktury”) i `priced_one` (Rozliczenia przez `_order_for`); nowy taki
+  czytnik musi zrobić to samo. Kontrakt godzinowy → MD = stawka × 8 do grosza.
 - **Linie zamówień zbiorczych MD/kosztowych (`order_group_id`) są POZA
   kierunkiem kosztowym — świadomie.** Ich stawkę kosztową prowadzi per linia DL
   (patrz „Zamówienia wielo-konsultantowe"), a kontrakty tych osób bywają szkicami

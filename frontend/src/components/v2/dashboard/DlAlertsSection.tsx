@@ -143,6 +143,7 @@ export function DlAlertsSection({
       // droga bywa zawodna cross-origin (ta sama decyzja co w eksporcie
       // kontraktów i w `lib/authenticated-files.ts`).
       const res = await fetch(dlAlertsExportUrl(scope), {
+        credentials: "include",
         headers: getAuthenticatedRequestHeaders(),
       });
       if (!res.ok) {

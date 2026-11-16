@@ -40,6 +40,13 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   przy pierwszym wejściu na `path_prefix`, które można odłożyć raz, do 8:00
   następnego dnia. Nie podnoś poziomu „na wszelki wypadek”: okno przy każdej
   nowości nauczy ludzi klikać „dalej” na ślepo.
+- **Kotwica kropki `dot` stoi na tym, w co ludzie klikają w pracy (14.11.2026):**
+  przycisk, link albo karta osoby, nie sam napis. Kropka nie przyjmuje kliknięć,
+  więc nowość na napisie nagłówka („Aplikowali na ogłoszenie”) miała 24 widzących
+  i 0 zaliczeń; kotwica stoi teraz też na kartach grupy. Klik liczy się po
+  elemencie z `pointerdown` (`onEveryClick` w `lib/novelties/logic.ts`), bo menu
+  Radix (DropdownMenu, Select) kieruje `click` na `<html>` — tak „Zmień plik”
+  przez 10 dni nie zaliczył się nikomu.
 - **Zaliczenie = przeklikanie (`tour`) albo użycie w pracy (`used`, klik
   w `used_anchor` poza przeklikaniem)**. Przycisku „Przeczytałem” nie ma
   i nie dokładamy go. Demo wideo odrzucone 28.10.

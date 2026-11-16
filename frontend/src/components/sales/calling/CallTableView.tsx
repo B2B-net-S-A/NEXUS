@@ -9,14 +9,33 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
-import { useCallRecords, type CallRecordScope, type QueueItem, type RecordState } from "@/lib/api/sales-calling";
+import { useToast } from "@/components/Toast";
+import { apiErrorMessage } from "@/lib/api-error";
+import {
+  TABLE_PAGE_SIZE,
+  useCallRecords,
+  useChangeState,
+  type CallRecordScope,
+  type CorrectableState,
+  type QueueItem,
+  type RecordState,
+} from "@/lib/api/sales-calling";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
 import { SalesSelect } from "../SalesSelect";
 import { CallCard, type MeetingStage } from "./CallCard";
-import { nextKey, STATE_TONES, stateLabel, TABLE_STATES, weekdayOf } from "./calling";
+import {
+  canCorrect,
+  CORRECTABLE_STATES,
+  modifiedLabel,
+  nextKey,
+  STATE_TONES,
+  stateLabel,
+  TABLE_STATES,
+  weekdayOf,
+} from "./calling";
 
 interface CallTableViewProps {
   today: string;
@@ -29,22 +48,48 @@ interface CallTableViewProps {
  * Dzwonienie → „Tabela” (decyzja Artura 11.11.2026): ta sama lista co kolejka, ale cała,
  * z filtrem po wyniku i kolorami jak w legendzie Excela. Klik w wiersz otwiera tę samą
  * kartę rozmowy z tymi samymi wynikami i klawiszami. „Wszyscy” (decyzja Artura 12.11.2026)
- * pokazuje listy każdego dzwoniącego z kolumną „Kto dzwoni”; cudzy rekord otwiera się do
- * czytania, wynik zapisuje osoba przypisana albo admin.
+ * pokazuje listy każdego dzwoniącego z kolumną „Kto dzwoni”. Od 13.11.2026 wynik w cudzym
+ * rekordzie zapisuje każdy z „Sprzedaż: edycja”.
  */
 export function CallTableView({ today, campaignId, canEdit, meetingStage }: CallTableViewProps) {
   const [state, setState] = useState<RecordState | null>(null);
   const [search, setSearch] = useState("");
   const [scope, setScope] = useState<CallRecordScope>("mine");
   const [callerId, setCallerId] = useState<number | null>(null);
+  // Lista dzwoniących 13.11.2026: filtr po dacie powrotu i strony zamiast „Pokazano 200 z 239”.
+  const [callbackFrom, setCallbackFrom] = useState("");
+  const [callbackTo, setCallbackTo] = useState("");
+  const [page, setPage] = useState(0);
   const deferredSearch = useDeferredValue(search);
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const query = useCallRecords({ state, campaignId, search: deferredSearch, scope, callerId });
+  const query = useCallRecords({
+    state,
+    campaignId,
+    search: deferredSearch,
+    scope,
+    callerId,
+    callbackFrom,
+    callbackTo,
+    page,
+  });
   const everyone = scope === "all";
   const items = query.data?.items ?? [];
   const selected = items.find((item) => item.key === selectedKey) ?? null;
   const upcomingKey = selected ? nextKey(items, selected.key) : null;
   const upcoming = items.find((item) => item.key === upcomingKey) ?? null;
+
+  // Każda zmiana filtra wraca na pierwszą stronę.
+  useEffect(() => {
+    setPage(0);
+  }, [
+    state,
+    campaignId,
+    deferredSearch,
+    scope,
+    callerId,
+    callbackFrom,
+    callbackTo,
+  ]);
 
   // Zmiana filtra czyści wybór, gdy wybranego wiersza nie ma już na liście.
   useEffect(() => {
@@ -87,11 +132,59 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
             anyLabel="Każdy dzwoniący"
           />
         )}
+        <div
+          role="group"
+          aria-label="Data powrotu"
+          className="flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          <span>Powrót od</span>
+          <Input
+            type="date"
+            aria-label="Powrót od"
+            className="h-7 w-[8.75rem] text-xs"
+            value={callbackFrom}
+            max={callbackTo || undefined}
+            onChange={(event) => setCallbackFrom(event.target.value)}
+          />
+          <span>do</span>
+          <Input
+            type="date"
+            aria-label="Powrót do"
+            className="h-7 w-[8.75rem] text-xs"
+            value={callbackTo}
+            min={callbackFrom || undefined}
+            onChange={(event) => setCallbackTo(event.target.value)}
+          />
+          {(callbackFrom || callbackTo) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2"
+              onClick={() => {
+                setCallbackFrom("");
+                setCallbackTo("");
+              }}
+            >
+              Wyczyść daty
+            </Button>
+          )}
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        <div role="group" aria-label="Wynik" className="flex flex-wrap items-center gap-1.5">
-          <FilterChip active={state === null} label="Wszystkie" count={all} onClick={() => setState(null)} />
-          {TABLE_STATES.filter((key) => (counts[key] ?? 0) > 0 || state === key).map((key) => (
+        <div
+          role="group"
+          aria-label="Status"
+          className="flex flex-wrap items-center gap-1.5"
+        >
+          <FilterChip
+            active={state === null}
+            label="Wszystkie"
+            count={all}
+            onClick={() => setState(null)}
+          />
+          {TABLE_STATES.filter(
+            (key) => (counts[key] ?? 0) > 0 || state === key,
+          ).map((key) => (
             <FilterChip
               key={key}
               active={state === key}
@@ -119,15 +212,15 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
           <EmptyState
             icon={PhoneCall}
             title={
-              state || search
+              state || search || callbackFrom || callbackTo
                 ? "Nikt nie pasuje do filtra."
                 : everyone
                   ? "Nikt jeszcze nie ma listy do dzwonienia."
                   : "Nie masz jeszcze nikogo na liście."
             }
             description={
-              state || search
-                ? "Zmień wynik albo wyczyść wyszukiwanie."
+              state || search || callbackFrom || callbackTo
+                ? "Zmień status, daty powrotu albo wyczyść wyszukiwanie."
                 : everyone
                   ? "Listy pojawią się tu po imporcie do kampanii."
                   : "Osoby trafiają tu z importu listy do kampanii i z wyników kolejki. Listy innych zobaczysz w „Wszyscy”."
@@ -137,20 +230,25 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
       ) : viewState !== "ready" ? (
         <QueryStateNotice state={viewState} onRetry={() => void query.refetch()} />
       ) : (
-        // „Wszyscy” ma o kolumnę więcej: bez wybranej osoby tabela bierze całą szerokość (1280 px).
-        <div className={cn("grid items-start gap-3", (selected || !everyone) && "lg:grid-cols-[minmax(0,1fr)_364px]")}>
+        // Bez wybranej osoby tabela bierze całą szerokość: przy 1280 px panel podpowiedzi
+        // ucinał „Ostatnią modyfikację” (przeklikanie 13.11.2026).
+        <div className={cn("grid items-start gap-3", selected && "lg:grid-cols-[minmax(0,1fr)_364px]")}>
           <div className="min-w-0 overflow-x-auto rounded-lg border border-border bg-card">
             <RecordTable
               items={items}
               today={today}
               showCaller={everyone}
+              canEdit={canEdit}
               selectedKey={selected?.key ?? null}
               onSelect={setSelectedKey}
             />
-            {query.data && query.data.total > items.length && (
-              <p className="border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
-                Pokazano {items.length} z {query.data.total}. Zawęź filtr albo wyszukiwanie.
-              </p>
+            {query.data && query.data.total > TABLE_PAGE_SIZE && (
+              <Pager
+                page={page}
+                total={query.data.total}
+                shown={items.length}
+                onPage={setPage}
+              />
             )}
           </div>
           {selected ? (
@@ -166,11 +264,7 @@ export function CallTableView({ today, campaignId, canEdit, meetingStage }: Call
                 onSaved={() => setSelectedKey(upcomingKey)}
               />
             </div>
-          ) : everyone ? null : (
-            <p className="hidden rounded-lg border border-dashed border-border px-3 py-6 text-center text-xs text-muted-foreground lg:block">
-              Kliknij osobę w tabeli: obok otworzy się karta rozmowy z wynikami (klawisze 1–7).
-            </p>
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -196,28 +290,148 @@ function FilterChip({
   );
 }
 
-function returnLabel(item: QueueItem, today: string): string {
-  if (!item.due_on) return item.state === "not_interested" ? "nigdy" : "—";
-  if (item.due_on <= today) return "dziś";
-  return formatWeekdayDayPl(item.due_on);
+function Pager({
+  page,
+  total,
+  shown,
+  onPage,
+}: {
+  page: number;
+  total: number;
+  shown: number;
+  onPage: (page: number) => void;
+}) {
+  const first = page * TABLE_PAGE_SIZE + 1;
+  const last = page * TABLE_PAGE_SIZE + shown;
+  const lastPage = Math.max(0, Math.ceil(total / TABLE_PAGE_SIZE) - 1);
+  return (
+    <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
+      <span className="tabular-nums">
+        {first}–{last} z {total}
+      </span>
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2"
+          disabled={page === 0}
+          onClick={() => onPage(page - 1)}
+        >
+          Poprzednie
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2"
+          disabled={page >= lastPage}
+          onClick={() => onPage(page + 1)}
+        >
+          Następne
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function returnLabel(item: QueueItem, today: string): string | null {
+  if (!item.due_on)
+    return item.state === "offer_sent" ? "bez ponownego kontaktu" : null;
+  if (item.due_on <= today) return "powrót dziś";
+  return `powrót ${formatWeekdayDayPl(item.due_on)}`;
+}
+
+/** Zmiana statusu w wierszu (lista dzwoniących 13.11.2026): poprawka bez telefonu w dzienniku. */
+function StatusCell({
+  item,
+  today,
+  canEdit,
+}: {
+  item: QueueItem;
+  today: string;
+  canEdit: boolean;
+}) {
+  const change = useChangeState();
+  const { showError, showSuccess } = useToast();
+  const back = returnLabel(item, today);
+  const editable = canEdit && canCorrect(item);
+  const options = CORRECTABLE_STATES.filter(
+    (value) => value !== item.state,
+  ).map((value) => ({
+    value,
+    label: stateLabel(value),
+  }));
+  const pick = (value: string) => {
+    if (!value || item.record_id === null) return;
+    change
+      .mutateAsync({
+        record_id: item.record_id,
+        state: value as CorrectableState,
+      })
+      .then(() =>
+        showSuccess(`Status: ${stateLabel(value as CorrectableState)}.`),
+      )
+      .catch((error: unknown) =>
+        showError(apiErrorMessage(error, "Nie udało się zmienić statusu.")),
+      );
+  };
+  return (
+    <div
+      className="flex flex-col items-start gap-0.5"
+      onClick={(event) => editable && event.stopPropagation()}
+    >
+      {editable ? (
+        <SalesSelect
+          ariaLabel={`Zmień status: ${item.company.name}`}
+          className="h-7 w-48 whitespace-nowrap text-xs"
+          value=""
+          onValueChange={pick}
+          options={options}
+          anyLabel={stateLabel(item.state)}
+        />
+      ) : (
+        <Badge
+          variant={STATE_TONES[item.state]}
+          size="sm"
+          className="whitespace-nowrap"
+        >
+          {stateLabel(item.state)}
+        </Badge>
+      )}
+      {back && (
+        <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+          {back}
+        </span>
+      )}
+    </div>
+  );
 }
 
 function RecordTable({
   items,
   today,
   showCaller,
+  canEdit,
   selectedKey,
   onSelect,
 }: {
   items: QueueItem[];
   today: string;
   showCaller: boolean;
+  canEdit: boolean;
   selectedKey: string | null;
   onSelect: (key: string) => void;
 }) {
+  // Lista dzwoniących 13.11.2026: „Wynik” → „Status”, „Powrót” → „Ostatnia modyfikacja”.
   const headers = showCaller
-    ? ["Firma", "Osoba", "Kto dzwoni", "Telefon", "Wynik", "Powrót"]
-    : ["Firma", "Osoba", "Telefon", "Wynik", "Powrót"];
+    ? [
+        "Firma",
+        "Osoba",
+        "Kto dzwoni",
+        "Telefon",
+        "Status",
+        "Ostatnia modyfikacja",
+      ]
+    : ["Firma", "Osoba", "Telefon", "Status", "Ostatnia modyfikacja"];
   return (
     <table className="w-full text-xs">
       <thead className="border-b border-border bg-muted/40 text-muted-foreground">
@@ -258,15 +472,19 @@ function RecordTable({
             )}
             <td className="whitespace-nowrap px-2 py-1.5 tabular-nums text-muted-foreground">{item.phone ?? "brak"}</td>
             <td className="px-2 py-1.5">
-              <Badge variant={STATE_TONES[item.state]} size="sm" className="whitespace-nowrap">
-                {stateLabel(item.state)}
-              </Badge>
+              <StatusCell item={item} today={today} canEdit={canEdit} />
             </td>
             <td
               className="whitespace-nowrap px-2 py-1.5 text-muted-foreground"
-              title={item.last_outcome_at ? `Ostatnio ${weekdayOf(item.last_outcome_at)}, prób: ${item.attempts}` : undefined}
+              title={
+                item.last_outcome_at
+                  ? `Ostatnia rozmowa ${weekdayOf(item.last_outcome_at)}, prób: ${item.attempts}`
+                  : undefined
+              }
             >
-              {returnLabel(item, today)}
+              {modifiedLabel(
+                item.modified_at ?? item.last_outcome_at ?? item.since,
+              )}
             </td>
           </tr>
         ))}

@@ -109,8 +109,146 @@ async def alembic_revision_state(session: Any) -> dict[str, Any]:
     return out
 
 
-def migrations_verdict(state: dict[str, Any], startup: Optional[dict[str, Any]]) -> str:
-    """Werdykt ``checks.migrations`` z rewizji i wyniku startu."""
+def migrations_verdict(
+    state: dict[str, Any],
+    startup: Optional[dict[str, Any]],
+    skipped_ddl: Optional[list[dict[str, str]]] = None,
+) -> str:
+    """Werdykt ``checks.migrations`` z rewizji, wyniku startu i pominiętego DDL."""
+    verdict = _revisions_verdict(state, startup)
+    if not skipped_ddl:
+        return verdict
+    summary = skipped_ddl_summary(skipped_ddl, with_names=True)
+    if verdict == "healthy":
+        return f"degraded: {summary}"
+    return f"{verdict}; {summary}"
+
+
+def skipped_ddl_summary(
+    skipped_ddl: list[dict[str, str]], *, with_names: bool = False
+) -> str:
+    """Licznik pominiętych kroków; ``with_names`` dokłada krótkie nazwy obiektów.
+
+    15.11.2026 health mówił tylko „1 step(s)”, a plik z krokami i log kontenera
+    zniknęły przy następnym wdrożeniu — nazwy nie dało się już ustalić. Dlatego
+    ``checks.migrations`` (publiczne ``/api/health``) niesie nazwę obiektu
+    z kodu, nigdy pełny SQL (literały z instrukcji danych zostają poza nim).
+    """
+    names = ""
+    if with_names:
+        shown = [
+            f"{skipped_step_name(row['step'])} [{row['sqlstate']}]"
+            for row in skipped_ddl[:3]
+        ]
+        if len(skipped_ddl) > 3:
+            shown.append(f"+{len(skipped_ddl) - 3} more")
+        names = f" ({'; '.join(shown)})"
+    return (
+        f"{len(skipped_ddl)} startup DDL step(s) skipped by lock/statement timeout"
+        f"{names}, next start retries"
+    )
+
+
+_SQL_IDENT = r'"?([A-Za-z_]\w{0,62})"?'
+_STEP_NAME_PATTERNS = (
+    (
+        re.compile(
+            r"\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?" + _SQL_IDENT,
+            re.I,
+        ),
+        "function {0}",
+    ),
+    (
+        re.compile(
+            r"\b(?:CREATE|DROP)\s+(?:OR\s+REPLACE\s+)?(?:CONSTRAINT\s+)?TRIGGER\s+(?:IF\s+EXISTS\s+)?"
+            + _SQL_IDENT,
+            re.I,
+        ),
+        "trigger {0}",
+    ),
+    (
+        re.compile(
+            r"\bINDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?" + _SQL_IDENT,
+            re.I,
+        ),
+        "index {0}",
+    ),
+    (re.compile(r"\bADD\s+CONSTRAINT\s+" + _SQL_IDENT, re.I), "constraint {0}"),
+    (
+        re.compile(
+            r"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"
+            + _SQL_IDENT
+            + r"\s+ADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?"
+            + _SQL_IDENT,
+            re.I,
+        ),
+        "column {0}.{1}",
+    ),
+    (re.compile(r"\bALTER\s+TYPE\s+" + _SQL_IDENT, re.I), "enum {0}"),
+    (re.compile(r"\bCREATE\s+TYPE\s+" + _SQL_IDENT, re.I), "type {0}"),
+    (
+        re.compile(
+            r"\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?|DROP\s+)(?:MATERIALIZED\s+)?VIEW\s+(?:IF\s+EXISTS\s+)?"
+            + _SQL_IDENT,
+            re.I,
+        ),
+        "view {0}",
+    ),
+    (
+        re.compile(
+            r"\b(?:CREATE|DROP)\s+TABLE\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:public\.)?"
+            + _SQL_IDENT,
+            re.I,
+        ),
+        "table {0}",
+    ),
+    (
+        re.compile(
+            r"\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+(?:public\.)?" + _SQL_IDENT,
+            re.I,
+        ),
+        "data {0}",
+    ),
+    (
+        re.compile(
+            r"\bALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"
+            + _SQL_IDENT,
+            re.I,
+        ),
+        "table {0}",
+    ),
+)
+_SQL_START_RE = re.compile(
+    r"^\s*(?:ALTER|CREATE|DROP|INSERT|UPDATE|DELETE|DO|WITH|SELECT)\b", re.I
+)
+
+
+def skipped_step_name(step: str) -> str:
+    """Krótka nazwa kroku: obiekt schematu z SQL albo etykieta nadana w kodzie."""
+    for pattern, template in _STEP_NAME_PATTERNS:
+        match = pattern.search(step)
+        if match:
+            return template.format(*match.groups())
+    if _SQL_START_RE.match(step):
+        return f"sql {step.split()[0].upper()}"
+    return " ".join(step.split())[:80]
+
+
+def skipped_ddl_message(skipped_ddl: list[dict[str, str]]) -> Optional[str]:
+    """Treść jednorazowego ``logger.error`` przy starcie (→ Sentry).
+
+    Etykiety kroków pochodzą z kodu (``entrypoint.sh``), bez danych z bazy.
+    """
+    if not skipped_ddl:
+        return None
+    steps = "; ".join(
+        f"{row['step'][:120]} [{row['sqlstate']}]" for row in skipped_ddl[:10]
+    )
+    more = f" (+{len(skipped_ddl) - 10} more)" if len(skipped_ddl) > 10 else ""
+    return f"{skipped_ddl_summary(skipped_ddl)}: {steps}{more}"
+
+
+def _revisions_verdict(state: dict[str, Any], startup: Optional[dict[str, Any]]) -> str:
     startup_failed = startup is not None and not startup.get("ok")
     failure = (
         f"alembic upgrade failed at startup (exit {startup.get('exit_code')})"

@@ -57,6 +57,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.client_order_ending_30d,
         T.client_order_ending_7d,
         T.client_panel_request,
+        # 0708: termin raportu dla klienta nie czeka na powrót osoby.
+        T.client_report_due,
         T.consultant_in_other_recruitment,
         T.contract_activated,
         T.contract_ending,
@@ -129,6 +131,11 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.start_documents_reminder,
         T.start_documents_returned,
         T.suggest_next_step,
+        # 0697: szkolenia — wycena, plik od trenera, umowa do podpisu, faktura.
+        T.training_file,
+        T.training_invoice,
+        T.training_quote,
+        T.training_sign,
     }
 )
 
@@ -192,6 +199,9 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.password_reset_requested,
         T.portal_low_rating,
         T.portal_monthly_review,
+        # 0697: przypomnienie o szkoleniu i nagranie dostępne / do zatwierdzenia.
+        T.training_recording,
+        T.training_reminder,
         T.powercalling_kpi,
         T.prep2_skip_threshold,
         T.recruitment_allocation_alert,
@@ -217,7 +227,8 @@ _REPORTED_ROLES = (
 class Route:
     user_id: int
     on_behalf_of: Optional[int] = None
-    skip: bool = False
+    #: Wiersz tylko do wglądu: bez dzwonka, dymka i maila (``Notification.quiet``).
+    quiet: bool = False
 
 
 async def notification_route(
@@ -236,8 +247,11 @@ async def notification_route(
         return Route(user_id)
     # Zastępca sam wykonał ruch za nieobecną osobę: producent porównał autora
     # z nominalnym adresatem, więc o własnej akcji dowiedziałby się dzwonkiem.
+    # Wiersz i tak powstaje, cichy: do 16.11.2026 znikał w całości, a osoba
+    # po powrocie nie wiedziała np. o zamknięciu rekrutacji z jej kandydatami
+    # („Gdy Cię nie było”, ``services/while_away.py``).
     if performer == db.info.get(ACTOR_KEY):
-        return Route(user_id, skip=True)
+        return Route(performer, on_behalf_of=user_id, quiet=True)
     return Route(performer, on_behalf_of=user_id)
 
 

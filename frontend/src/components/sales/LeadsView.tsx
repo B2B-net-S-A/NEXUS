@@ -129,7 +129,8 @@ function LeadRow({ lead, canEdit, showDossier }: LeadRowProps) {
         {showDossier && <LeadDossier dossier={lead.dossier} />}
         <LeadPayloadLine payload={lead.payload} />
         <p className="text-xs text-muted-foreground">
-          {LEAD_SOURCE_LABELS[lead.source]}
+          {/* Lead z „Oferta ogólna wysłana” w Dzwonieniu (13.11.2026): źródło `manual` bez migracji. */}
+          {lead.payload?.origin === "calling" ? "Dzwonienie" : LEAD_SOURCE_LABELS[lead.source]}
           {lead.signal_at ? ` · ${formatIsoDatePl(lead.signal_at)}` : ""}
           {lead.score && lead.source !== "research" ? ` · ocena ${lead.score}` : ""}
           {lead.dismissed_reason ? ` · ${lead.dismissed_reason}` : ""}

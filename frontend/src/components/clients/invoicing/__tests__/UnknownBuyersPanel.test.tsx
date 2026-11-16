@@ -33,8 +33,8 @@ const RESPONSE: UnknownBuyersResponse = {
       suggestion: { client_id: 35, client_name: "Klient Testowy", state: "add" },
     },
     {
-      number: "4444444444",
-      kind: "nip",
+      number: "NO123456789",
+      kind: "foreign_id",
       buyer_name: "Inny Nabywca",
       invoices: 2,
       totals: [{ currency: "EUR", amount: "10.00" }],
@@ -86,6 +86,7 @@ describe("UnknownBuyersPanel", () => {
     expect(await screen.findByText(/16 faktur · 2 nabywców · 2 z podpowiedzią/)).toBeInTheDocument();
     expect(await row("3333333333")).toHaveTextContent("Klient Testowy");
     expect(await row("3333333333")).toHaveTextContent("NIP 3333333333");
+    expect(await row("NO123456789")).toHaveTextContent("ID zagraniczne NO123456789");
     expect(screen.getByTestId("unknown-buyer-none")).toHaveTextContent("bez numeru");
   });
 
@@ -105,7 +106,7 @@ describe("UnknownBuyersPanel", () => {
 
   it("offers no one-click assign for a client that already has a number", async () => {
     renderPanel();
-    const cell = within(await row("4444444444"));
+    const cell = within(await row("NO123456789"));
     expect(cell.getByText("klient ma już inny numer")).toBeInTheDocument();
     expect(cell.queryByRole("button", { name: "Przypisz" })).not.toBeInTheDocument();
     expect(cell.getByRole("button", { name: "Przypisz do…" })).toBeInTheDocument();

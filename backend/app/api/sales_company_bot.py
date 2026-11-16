@@ -32,7 +32,7 @@ from app.models.sales import SalesBotResult, SalesCompany, SalesSignalRun
 from app.models.user import User
 from app.services.action_permissions import has_permission
 from app.services.sales import bot_card_history, bot_tasks, bots, signals
-from app.services.sales.bot_tasks import enrich, people, question
+from app.services.sales.bot_tasks import enrich, question
 from app.services.sales import registry_cards
 
 logger = logging.getLogger(__name__)
@@ -341,7 +341,9 @@ async def company_bot_history(
     if not bots_on and not registry_cards.enabled():
         return HistoryOut(enabled=False, items=[])
     with_people = has_permission(current_user, "sales_edit")
-    kinds = [enrich.KIND, people.KIND] if with_people else [enrich.KIND]
+    kinds = (
+        [enrich.KIND, *bot_card_history.PEOPLE_KINDS] if with_people else [enrich.KIND]
+    )
     rows = (
         []
         if not bots_on

@@ -17,6 +17,9 @@ w Insights → Zespół, tempo i cele „Moich KPI” oraz cele zespołu.
 Nieobecności liczą się tylko przy urlopach NEXUSA
 (``hr_availability_source = local``); przy innym źródle osoba ma pełne dni
 roboczych, tak jak przed tą zmianą. Rodzaj nieobecności nigdy tu nie wchodzi.
+
+Dzień onboardingu nowej osoby (Poligon NEXUSA, ``onboarding_day``) liczy się
+jak cały dzień nieobecności przy każdym źródle — decyzja Artura z 14.11.2026.
 """
 
 from __future__ import annotations
@@ -80,12 +83,27 @@ async def nexus_absences_known(db: AsyncSession) -> bool:
 
 
 async def absence_by_user(
-    db: AsyncSession, user_ids: Iterable[int], start: date, end: date
+    db: AsyncSession,
+    user_ids: Iterable[int],
+    start: date,
+    end: date,
+    *,
+    include_onboarding: bool = True,
 ) -> dict[int, dict[date, float]]:
-    """Zatwierdzona nieobecność w oknie: ``{user_id: {dzień: ułamek}}``."""
+    """Zatwierdzona nieobecność w oknie: ``{user_id: {dzień: ułamek}}``.
+
+    Z ``include_onboarding`` dochodzi dzień onboardingu (cały dzień)."""
     ids = sorted({int(uid) for uid in user_ids})
-    if not ids or not await nexus_absences_known(db):
+    if not ids:
         return {}
+    out: dict[int, dict[date, float]] = {}
+    if include_onboarding:
+        from app.services.onboarding_day import onboarding_days
+
+        for uid, days in (await onboarding_days(db, ids, start, end)).items():
+            out[uid] = {day: 1.0 for day in days}
+    if not await nexus_absences_known(db):
+        return out
     rows = (
         await db.execute(
             text(
@@ -101,7 +119,6 @@ async def absence_by_user(
             {"ids": ids, "start": start, "end": end},
         )
     ).all()
-    out: dict[int, dict[date, float]] = {}
     for row in rows:
         per_day = out.setdefault(int(row.user_id), {})
         per_day[row.day] = per_day.get(row.day, 0.0) + float(row.fraction)

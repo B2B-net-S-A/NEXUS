@@ -30,7 +30,7 @@ def test_status_filter_lets_legacy_points_through():
     """
     source = open(embedding_service.__file__, encoding="utf-8").read()
     block = source[source.index("def search_jobs_semantic") :]
-    block = block[: block.index("hits = client.search")]
+    block = block[: block.index("hits = client.query_points")]
     assert "should=[" in block, "filtr statusu musi być OR, nie AND"
     assert "IsEmptyCondition" in block
     assert "must=[" not in block
@@ -67,5 +67,5 @@ def test_search_narrows_to_given_jobs_without_status_filter():
     assert sig.parameters["job_ids"].default is None
     source = open(embedding_service.__file__, encoding="utf-8").read()
     block = source[source.index("def search_jobs_semantic") :]
-    block = block[: block.index("hits = client.search")]
+    block = block[: block.index("hits = client.query_points")]
     assert "HasIdCondition(has_id=list(job_ids))" in block

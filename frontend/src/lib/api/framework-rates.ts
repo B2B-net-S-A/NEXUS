@@ -1,0 +1,336 @@
+// Cennik umowy ramowej klienta, dopłaty za technologie i kategoria na kontrakcie
+// (F1, 15.11.2026). Backend: `app/api/framework_rates.py`.
+//
+// Dopłata NIE zmienia zamówienia (COA) ani stawki przychodowej — podnosi tylko
+// limit z umowy ramowej (decyzja Artura z 15.11.2026). Kwoty widzi DL swojego
+// klienta i Finanse; 403 dla pozostałych, więc wołający pyta za `enabled`.
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { api } from "@/lib/api";
+
+export interface FrameworkCard {
+  id: number;
+  label: string;
+  role: string;
+  seniority: string | null;
+  rate_max: number | null;
+  valid_from: string | null;
+  valid_to: string | null;
+  /** „Kafka 20%” — dopłaty dozwolone w tej kategorii. */
+  addons: string[];
+}
+
+export interface FrameworkAdder {
+  id: number;
+  technology: string;
+  percent: string;
+  eligible: { role: string; seniority: string | null }[];
+  valid_from: string | null;
+  valid_to: string | null;
+  notes: string | null;
+}
+
+export interface FrameworkTerms {
+  client_id: number;
+  cards: FrameworkCard[];
+  adders: FrameworkAdder[];
+}
+
+export type FrameworkStatus = "in" | "in_addon" | "over" | "no_limit";
+
+export interface FrameworkCategory {
+  contract_id: number;
+  client_id: number;
+  rate_client: string | null;
+  framework_limit: string | null;
+  gap: string | null;
+  status: FrameworkStatus;
+  card: FrameworkCard | null;
+  source: "coa" | "dl" | null;
+  coa_label: string | null;
+  addon: {
+    technology: string;
+    percent: string;
+    confirmed_by: string | null;
+    confirmed_on: string | null;
+    evidence: string | null;
+  } | null;
+  cards: FrameworkCard[];
+}
+
+export interface FrameworkCategoryInput {
+  rate_card_id: number;
+  addon_technology: string | null;
+  confirmed_by: string | null;
+  confirmed_on: string | null;
+  evidence: string | null;
+  effective_from: string | null;
+}
+
+export interface FrameworkImportResult {
+  applied: boolean;
+  rates: { label: string; rate: string; action: "create" | "update" | "unchanged" }[];
+  adders: { technology: string; percent: string; eligible: string[]; action: "create" | "update" | "unchanged" }[];
+  warnings: string[];
+}
+
+export interface FrameworkRecomputeRow {
+  contract_id: number;
+  outcome: string;
+  coa_label: string | null;
+  category_before: string | null;
+  category_after: string | null;
+  limit_before: string | null;
+  limit_after: string | null;
+}
+
+export interface FrameworkRecomputeResult {
+  rows: FrameworkRecomputeRow[];
+  next_after_id: number | null;
+}
+
+export const frameworkKeys = {
+  terms: (clientId: number) => ["framework-terms", clientId] as const,
+  category: (contractId: number) => ["framework-category", contractId] as const,
+};
+
+/** „Kafka 20%” z listy dopłat karty → technologia („Kafka”). */
+export function addonTechnology(label: string): string {
+  return label.replace(/\s+\d+(?:[.,]\d+)?%$/, "");
+}
+
+export function useFrameworkTerms(clientId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: frameworkKeys.terms(clientId),
+    queryFn: async () => (await api.get<FrameworkTerms>(`/api/clients/${clientId}/framework-terms`)).data,
+    enabled,
+  });
+}
+
+export function useFrameworkCategory(contractId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: frameworkKeys.category(contractId),
+    queryFn: async () =>
+      (await api.get<FrameworkCategory>(`/api/contracts/${contractId}/framework-category`)).data,
+    enabled,
+  });
+}
+
+export function useSaveFrameworkCategory(contractId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: FrameworkCategoryInput) =>
+      (await api.put<FrameworkCategory>(`/api/contracts/${contractId}/framework-category`, input)).data,
+    onSuccess: (data) => {
+      queryClient.setQueryData(frameworkKeys.category(contractId), data);
+      void queryClient.invalidateQueries({ queryKey: ["contract", String(contractId)] });
+      void queryClient.invalidateQueries({ queryKey: ["contract", contractId] });
+    },
+  });
+}
+
+export async function importFrameworkTerms(
+  clientId: number,
+  file: File,
+  apply: boolean,
+  validFrom: string | null,
+): Promise<FrameworkImportResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("apply", apply ? "true" : "false");
+  if (validFrom) form.append("valid_from", validFrom);
+  // Bez jawnego multipartu axios zserializowałby FormData do JSON-a (422).
+  return (
+    await api.post<FrameworkImportResult>(`/api/clients/${clientId}/framework-terms/import`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    })
+  ).data;
+}
+
+export async function recomputeFrameworkCategories(
+  clientId: number,
+  afterId: number,
+  apply: boolean,
+): Promise<FrameworkRecomputeResult> {
+  return (
+    await api.post<FrameworkRecomputeResult>(
+      `/api/clients/${clientId}/framework-categories/recompute`,
+      null,
+      { params: { after_id: afterId, apply } },
+    )
+  ).data;
+}
+
+// --- F2: przegląd „Stawki ramowe” i raport kwartalny ------------------------------
+
+export interface FrameworkLever {
+  kind: "addon" | "level" | "level_addon";
+  label: string;
+  limit: string;
+}
+
+export interface FrameworkOverviewRow {
+  contract_id: number;
+  person: string;
+  category: string | null;
+  source: "coa" | "dl" | null;
+  coa_label: string | null;
+  rate: string | null;
+  limit: string | null;
+  base: string | null;
+  addon: string | null;
+  status: FrameworkStatus;
+  gap: string | null;
+  order_end: string | null;
+  levers: FrameworkLever[];
+  /** Limit na kontrakcie inny niż z cennika (dawny import, ręczny krok). */
+  limit_mismatch: boolean;
+}
+
+export type FrameworkCounts = Record<FrameworkStatus, number>;
+
+export interface FrameworkOverview {
+  client_id: number;
+  on: string;
+  counts: FrameworkCounts;
+  over_gap: string;
+  by_category: { category: string; counts: Record<"in" | "in_addon" | "over", number> }[];
+  trend: { on: string; counts: FrameworkCounts }[];
+  rows: FrameworkOverviewRow[];
+}
+
+export function useFrameworkOverview(clientId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["framework-overview", clientId] as const,
+    queryFn: async () =>
+      (await api.get<FrameworkOverview>(`/api/clients/${clientId}/framework-overview`)).data,
+    enabled,
+  });
+}
+
+export const frameworkReportPath = (clientId: number) =>
+  `/api/clients/${clientId}/framework-overview/report.xlsx`;
+
+// --- F3: technologie premium, wnioski o dopłatę i kolejka prolongat ---------------
+
+export interface PremiumEvidence {
+  technology: string;
+  percent: string;
+  knows: boolean;
+  uses: boolean;
+  sources: string[];
+}
+
+export type ClaimStatus = "approved" | "sent" | "granted" | "refused" | "dropped";
+
+export interface PremiumClaim {
+  id: number;
+  technology: string;
+  status: ClaimStatus;
+  knows: boolean | null;
+  uses: boolean | null;
+  dl_note: string | null;
+  client_confirmed_by: string | null;
+  client_confirmed_on: string | null;
+  outcome_reason: string | null;
+  next_try_on: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PremiumSkills {
+  contract_id: number;
+  evidence: PremiumEvidence[];
+  claims: PremiumClaim[];
+}
+
+export interface ClaimActionInput {
+  action: "send" | "grant" | "refuse" | "drop";
+  confirmed_by?: string | null;
+  confirmed_on?: string | null;
+  client_evidence?: string | null;
+  reason?: string | null;
+  next_try_on?: string | null;
+}
+
+export interface FrameworkProlongation {
+  contract_id: number;
+  person: string;
+  category: string | null;
+  rate: string | null;
+  limit: string | null;
+  gap: string | null;
+  order_end: string | null;
+  days_left: number | null;
+  levers: FrameworkLever[];
+  claim_status: ClaimStatus | null;
+  claim_technology: string | null;
+  /** Technologia z dowodem, której dopłata mieści stawkę („Spark +20%: zna i korzysta”). */
+  evidence_technology: string | null;
+  evidence_label: string | null;
+}
+
+const premiumKey = (contractId: number) => ["premium-skills", contractId] as const;
+
+export function usePremiumSkills(contractId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: premiumKey(contractId),
+    queryFn: async () => (await api.get<PremiumSkills>(`/api/contracts/${contractId}/premium-skills`)).data,
+    enabled,
+  });
+}
+
+function usePremiumMutation<TInput>(contractId: number, run: (input: TInput) => Promise<PremiumSkills>) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: run,
+    onSuccess: (data) => {
+      queryClient.setQueryData(premiumKey(contractId), data);
+      void queryClient.invalidateQueries({ queryKey: frameworkKeys.category(contractId) });
+      // Przyznana dopłata zmienia limit także na karcie „Stawki finansowe”.
+      void queryClient.invalidateQueries({ queryKey: ["contract", contractId] });
+      void queryClient.invalidateQueries({ queryKey: ["contract", String(contractId)] });
+    },
+  });
+}
+
+export function useCreateClaim(contractId: number) {
+  return usePremiumMutation(contractId, async (input: { technology: string; knows: boolean; uses: boolean; note: string | null }) =>
+    (await api.post<PremiumSkills>(`/api/contracts/${contractId}/premium-skills/claims`, input)).data,
+  );
+}
+
+export function useClaimAction(contractId: number) {
+  return usePremiumMutation(contractId, async ({ claimId, ...input }: ClaimActionInput & { claimId: number }) =>
+    (await api.post<PremiumSkills>(`/api/contracts/${contractId}/premium-skills/claims/${claimId}/action`, input)).data,
+  );
+}
+
+/** F5: szkic uzasadnienia z modelu. Nic nie zapisuje; bez modelu `text` = null i `message`. */
+export interface JustificationDraft {
+  text: string | null;
+  model_used: boolean;
+  warnings: string[];
+  message: string | null;
+}
+
+export function useJustificationDraft(contractId: number) {
+  return useMutation({
+    mutationFn: async (claimId: number) =>
+      (
+        await api.post<JustificationDraft>(
+          `/api/contracts/${contractId}/premium-skills/claims/${claimId}/justification-draft`,
+        )
+      ).data,
+  });
+}
+
+export function useFrameworkProlongations(clientId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: ["framework-prolongations", clientId] as const,
+    queryFn: async () =>
+      (await api.get<FrameworkProlongation[]>(`/api/clients/${clientId}/framework-prolongations`)).data,
+    enabled,
+  });
+}

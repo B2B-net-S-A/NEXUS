@@ -26,7 +26,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.services.proposal_contract import snapshot_is_stale
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
 from app.models.proposal_snapshot import (
@@ -152,7 +152,7 @@ async def _hydrate_current_items(db, job, snap, *, context_stale=False):
 
 
 @router.get("/jobs/{job_id}/proposals/latest", response_model=ProposalSnapshotResponse)
-@limiter.limit("30/minute")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def get_latest_proposal(
     request: Request,
     job_id: int,
@@ -207,7 +207,7 @@ async def get_latest_proposal(
 
 
 @router.get("/jobs/{job_id}/proposals", response_model=ProposalListResponse)
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def list_proposals(
     request: Request,
     job_id: int,
@@ -259,7 +259,7 @@ async def list_proposals(
     response_model=ProposalSnapshotResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def regenerate_proposals(
     request: Request,
     job_id: int,

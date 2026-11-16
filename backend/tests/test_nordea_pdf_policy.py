@@ -712,3 +712,50 @@ async def test_refresh_never_moves_the_document_to_another_client(
     assert method == "marker"
     assert row.identification_method == "marker"
     assert row.client_id == 77
+
+
+def test_row_keeps_competence_category_for_the_framework_limit():
+    # 15.11.2026: kategoria i poziom z COA ustawiają limit z umowy ramowej
+    # (``framework_category``). Osoba i stawka bez zmian.
+    rows = nordea.extract_rows(BROKEN_ROW)
+    assert [(r.consultant_name, r.client_category, r.rate_client) for r in rows] == [
+        ("Jan Testowy", "IT Operations - Senior", Decimal("175.00")),
+        ("Anna Druga", "IT Developer", Decimal("234.00")),
+    ]
+
+
+def test_third_name_word_does_not_leak_into_the_category():
+    text = ORDER.replace("Jan Testowy IT", "Jan Testowy Nowak IT")
+    (row,) = nordea.extract_rows(text)
+    assert row.uncertain
+    assert row.client_category == "IT Operations - Senior"
+
+
+def test_business_category_is_not_cut_as_a_third_name_word():
+    text = ORDER.replace("Jan Testowy IT Operations - Senior", "Jan Testowy Business Analyst - Expert")
+    (row,) = nordea.extract_rows(text)
+    assert row.client_category == "Business Analyst - Expert"
+
+
+def test_business_category_after_the_name_does_not_make_the_row_uncertain():
+    # 16.11.2026: „Business” to początek kategorii Nordei, nie trzeci człon
+    # nazwiska — wiersz z grupy Business nie idzie przez to do weryfikacji.
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior Poland - 1 728 Hours 175,00 PLN",
+        "Jan Testowy Business Analyst - Expert Poland - 456 Hours 178,00 PLN",
+    )
+    (row,) = nordea.extract_rows(text)
+    assert (row.consultant_name, row.rate_client) == ("Jan Testowy", Decimal("178.00"))
+    assert not row.uncertain
+    assert row.uncertain_reason is None
+    assert row.client_category == "Business Analyst - Expert"
+
+
+def test_third_name_word_before_business_category_is_still_uncertain():
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior", "Jan Testowy Nowak Business Architect"
+    )
+    (row,) = nordea.extract_rows(text)
+    assert row.uncertain
+    assert "Nowak" in row.uncertain_reason
+    assert row.client_category == "Business Architect"

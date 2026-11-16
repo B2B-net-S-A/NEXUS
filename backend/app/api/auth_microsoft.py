@@ -33,7 +33,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel, Field
@@ -44,6 +53,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
+from app.core.session_cookie import set_session_cookie
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -1129,6 +1139,7 @@ async def callback(
 @limiter.limit("60/minute")
 async def exchange(
     request: Request,
+    response: Response,
     payload: ExchangeRequest = Body(...),
     db: AsyncSession = Depends(get_db),
 ) -> ExchangeResponse:
@@ -1229,4 +1240,6 @@ async def exchange(
         profile_completed=user.profile_completed,
     )
     await db.commit()
+    # Sesja przeglądarki = ciasteczko HttpOnly (``core/session_cookie``).
+    set_session_cookie(response, request, access)
     return ExchangeResponse(access_token=access, refresh_token=refresh, user=summary)

@@ -182,14 +182,14 @@ async def test_cognism_callback_saves_the_company_map_without_an_opportunity(
             )
             == 0
         )
-        assert (
-            await db.scalar(
-                select(func.count())
-                .select_from(SalesBotResult)
-                .where(SalesBotResult.run_id == run_id)
+        # Mapa Cognism nie ma wyników do przeglądu; jedyny wiersz to historia
+        # karty z nowym kontaktem (decyzja Artura 13.11.2026: jedna lista).
+        kinds = (
+            await db.execute(
+                select(SalesBotResult.kind).where(SalesBotResult.run_id == run_id)
             )
-            == 0
-        )
+        ).scalars()
+        assert list(kinds) == ["contacts"]
 
 
 @pytest.mark.asyncio

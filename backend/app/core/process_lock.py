@@ -19,7 +19,7 @@ from app.core.config import settings
 _CONNECT_TIMEOUT_SECONDS = 5.0
 
 
-def _namespace(name: str) -> int:
+def lock_namespace(name: str) -> int:
     return zlib.crc32(name.encode()) & 0x7FFF_FFFF
 
 
@@ -37,7 +37,9 @@ async def cross_process_lock(name: str, item: int = 0) -> AsyncIterator[bool]:
     try:
         yield bool(
             await conn.fetchval(
-                "SELECT pg_try_advisory_lock($1::int, $2::int)", _namespace(name), item
+                "SELECT pg_try_advisory_lock($1::int, $2::int)",
+                lock_namespace(name),
+                item,
             )
         )
     finally:

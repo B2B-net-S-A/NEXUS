@@ -42,6 +42,7 @@ import { formatDayMonthPl, formatMomentPl, monthTitlePl, shiftMonth } from "@/li
 import { formatMoney } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 import { resolveViewState } from "@/lib/view-state";
+import { warsawToday } from "@/lib/warsaw-date";
 
 import {
   CHECK_TONE,
@@ -50,6 +51,7 @@ import {
   canMarkPaid,
   checkText,
   defaultPeriod,
+  invoiceBuyerNumberText,
   paymentNote,
   paymentText,
   paymentTone,
@@ -65,8 +67,24 @@ import {
   MarkPaidDialog,
 } from "./SalesInvoiceDialogs";
 import { UnknownBuyersPanel } from "./UnknownBuyersPanel";
+import { IssueMonthPanel } from "./issue/IssueMonthPanel";
+import { IssueSettingsPanel } from "./issue/IssueSettingsPanel";
+import { IssuedListPanel } from "./issue/IssuedListPanel";
+import { TemplatesPanel } from "./issue/TemplatesPanel";
 
-export type SalesInvoicesView = "invoices" | "to-invoice" | "unknown-buyers" | "credits" | "overdue";
+export type SalesInvoicesView =
+  | "invoices"
+  | "to-invoice"
+  | "issue"
+  | "templates"
+  | "drafts"
+  | "sent"
+  | "issue-settings"
+  | "unknown-buyers"
+  | "credits"
+  | "overdue";
+/** Widoki bez przełącznika miesiąca: wszystkie miesiące albo bieżący miesiąc numeracji. */
+const ALL_MONTHS: ReadonlySet<SalesInvoicesView> = new Set(["unknown-buyers", "drafts", "issue-settings"]);
 type View = SalesInvoicesView;
 type Dialog =
   | { kind: "assign"; invoice: SalesInvoice }
@@ -234,8 +252,10 @@ export function FinanceSalesInvoicesTab({
         </div>
       </section>
 
-      {view === "unknown-buyers" ? (
-        <p className="text-sm font-semibold text-foreground">Wszystkie miesiące</p>
+      {ALL_MONTHS.has(view) ? (
+        <p className="text-sm font-semibold text-foreground">
+          {view === "issue-settings" ? "Ustawienia wystawiania faktur" : "Wszystkie miesiące"}
+        </p>
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1">
@@ -261,6 +281,11 @@ export function FinanceSalesInvoicesTab({
         tabs={[
           { value: "invoices", label: "Faktury z KSeF", count: invoices.length },
           { value: "to-invoice", label: "Do faktury" },
+          { value: "issue", label: "Wystaw za miesiąc" },
+          { value: "templates", label: "Szablony" },
+          { value: "drafts", label: "Szkice" },
+          { value: "sent", label: "Wysłane" },
+          { value: "issue-settings", label: "Ustawienia wystawiania" },
           { value: "unknown-buyers", label: "Nieznani nabywcy", count: unknownBuyers.data?.summary.buyers },
           { value: "credits", label: "Wpłaty do sprawdzenia", count: credits.data?.credits.length },
           { value: "overdue", label: "Po terminie", count: overdue.data?.invoices.length },
@@ -341,6 +366,11 @@ export function FinanceSalesInvoicesTab({
           )}
         </div>
       ) : null}
+
+      {view === "issue" ? <IssueMonthPanel period={period} onCreated={() => setView("drafts")} /> : null}
+      {view === "templates" ? <TemplatesPanel period={period} onCreated={() => setView("drafts")} /> : null}
+      {view === "drafts" || view === "sent" ? <IssuedListPanel view={view} period={period} /> : null}
+      {view === "issue-settings" ? <IssueSettingsPanel period={warsawToday().slice(0, 7)} /> : null}
 
       {view === "unknown-buyers" ? <UnknownBuyersPanel /> : null}
 
@@ -472,7 +502,7 @@ function InvoiceTable({
             >
               <TableCell className="min-w-0">
                 <span className="block truncate">{buyerText(invoice)}</span>
-                <span className={CALM_SUBLINE}>{invoice.buyer_nip ? `NIP ${invoice.buyer_nip}` : invoice.buyer_foreign_id ? `VAT UE ${invoice.buyer_foreign_id}` : "bez NIP-u"}</span>
+                <span className={CALM_SUBLINE}>{invoiceBuyerNumberText(invoice) ?? "bez NIP-u"}</span>
               </TableCell>
               <TableCell className="min-w-0">
                 <span className="block truncate" title={invoice.ksef_number}>

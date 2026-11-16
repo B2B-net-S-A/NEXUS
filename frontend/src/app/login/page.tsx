@@ -6,7 +6,15 @@ import Link from "next/link";
 import { isAxiosError } from "axios";
 import api, { extractErrorMsg } from "@/lib/api";
 import { decodeJwtPayload, isJwtExpired } from "@/lib/jwt";
-import { clearSessionArtifacts, getAccessToken, hasAuthCookie } from "@/lib/session";
+import {
+  adoptLegacySession,
+  clearSessionArtifacts,
+  COOKIE_SESSION,
+  getAccessToken,
+  hasAuthCookie,
+  isCookieSession,
+} from "@/lib/session";
+import { establishSession } from "@/lib/session-establish";
 import { ssoErrorMessage } from "@/lib/sso-error";
 import { saveSsoBrowserNonce, saveSsoNextPath } from "@/lib/sso-browser-nonce";
 import { safeInternalPath } from "@/lib/safe-href";
@@ -17,6 +25,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormField } from "@/components/ui/form-field";
 import { AuthShell } from "@/components/blocks/AuthShell";
+
+const COOKIES_BLOCKED =
+  "Twoja przeglądarka blokuje pliki cookie dla tej strony, więc sesja nie może zostać utrzymana. Włącz obsługę cookies i zaloguj się ponownie.";
+
+const LOGIN_BOUNCE_KEY = "nexus_login_bounce";
+const LOGIN_BOUNCE_WINDOW_MS = 15_000;
+
+/** Zapamiętany profil = przeglądarka miała sesję (w ciasteczku HttpOnly). */
+function hasStoredUser(): boolean {
+  try {
+    return window.localStorage.getItem("nexus_user") !== null;
+  } catch {
+    return false;
+  }
+}
+
+function recentLoginBounce(): boolean {
+  try {
+    const at = Number(window.sessionStorage.getItem(LOGIN_BOUNCE_KEY));
+    return Number.isFinite(at) && Date.now() - at < LOGIN_BOUNCE_WINDOW_MS;
+  } catch {
+    return false;
+  }
+}
+
+function markLoginBounce(): void {
+  try {
+    window.sessionStorage.setItem(LOGIN_BOUNCE_KEY, String(Date.now()));
+  } catch {
+    /* storage wyłączony */
+  }
+}
 
 function safeNextPath(raw: string | null): string {
   return safeInternalPath(raw) ?? "/";
@@ -104,7 +144,11 @@ function LoginForm() {
   // serwerowo (users.tokens_valid_after, PR #906) nie udaje żywej sesji;
   // (c) cookie jest odtwarzane RAZ przez setAuth i sprawdzane — bez tego
   // przeglądarka blokująca cookies dawała pętlę mimo poprawnego tokenu;
-  // (d) każda porażka kończy się sprzątnięciem sesji i POZOSTANIEM na /login.
+  // (d) każda porażka kończy się sprzątnięciem sesji i POZOSTANIEM na /login;
+  // (e) od 11.2026 sesja żyje w ciasteczku HttpOnly ustawianym przez API
+  // (`lib/session.ts`): token starej ścieżki jest najpierw przenoszony do
+  // ciasteczka (`adoptLegacySession`), a sesję z ciasteczka potwierdza samo
+  // `/me` — JS nie widzi ciasteczka, więc pętlę zamyka `recentLoginBounce`.
   const sessionProbed = useRef(false);
   // Odrzucaj wynik sondy TYLKO po realnym odmontowaniu. Sprzątaczka zwykłego
   // efektu odpalałaby się przy każdym ponownym renderze (identyczność `router`
@@ -121,52 +165,100 @@ function LoginForm() {
   useEffect(() => {
     if (sessionProbed.current) return;
     const storedToken = getAccessToken();
-    const activeToken = token ?? storedToken;
-    if (!activeToken) return;
+    const legacyToken =
+      token && !isCookieSession(token) ? token : storedToken;
+    // Bez śladu sesji (ani tokenu starej ścieżki, ani zapamiętanego profilu
+    // przy sesji w ciasteczku) nie pytamy API — zwykłe wejście na /login.
+    if (!legacyToken && !hasStoredUser()) return;
     sessionProbed.current = true;
 
-    const payload = decodeJwtPayload(activeToken);
-    if (!payload || isJwtExpired(payload.exp) || !payload.role) {
+    const expired = () => {
       clearSessionArtifacts();
-      return;
-    }
+      setNotice(
+        "Twoja sesja wygasła lub została unieważniona. Zaloguj się ponownie.",
+      );
+    };
 
-    setCheckingSession(true);
-    api
-      .get("/api/auth/me", {
-        // Jawny nagłówek — request-interceptor go NIE nadpisuje (patrz komentarz
-        // w lib/api.ts) i to jest dokładnie ten kontrakt, na którym stoimy.
-        headers: { Authorization: `Bearer ${activeToken}` },
-      })
-      .then(({ data }) => {
-        if (disposed.current) return;
-        // Persystuje usera i ODTWARZA cookie `nexus_access`.
-        setAuth(data, activeToken);
-        if (!hasAuthCookie()) {
+    void (async () => {
+      if (legacyToken) {
+        const payload = decodeJwtPayload(legacyToken);
+        if (!payload || isJwtExpired(payload.exp) || !payload.role) {
           clearSessionArtifacts();
-          setCheckingSession(false);
-          setError(
-            "Twoja przeglądarka blokuje pliki cookie dla tej strony, więc sesja nie może zostać utrzymana. Włącz obsługę cookies i zaloguj się ponownie.",
-          );
           return;
         }
-        router.replace(nextPath);
-      })
-      .catch((err: unknown) => {
+        // Token sprzed ciasteczka HttpOnly (albo „Zaloguj jako” na stagingu)
+        // → przenosimy go do ciasteczka i znika z localStorage.
+        const adopted = await adoptLegacySession(legacyToken);
         if (disposed.current) return;
-        setCheckingSession(false);
-        // 401 = sesja martwa → sprzątamy. 403 = „jesteś zalogowany, ale nie
-        // wolno Ci tego zasobu" — nie kasujemy sesji (kontrakt 401 vs 403).
-        // Błąd sieci / 5xx też nie kasuje: chwilowa awaria backendu nie może
-        // niszczyć poprawnej sesji. W ŻADNYM z tych przypadków nie
-        // przekierowujemy, więc pętla jest niemożliwa.
-        if (isAxiosError(err) && err.response?.status === 401) {
-          clearSessionArtifacts();
-          setNotice(
-            "Twoja sesja wygasła lub została unieważniona. Zaloguj się ponownie.",
-          );
+        if (adopted === "dead") {
+          expired();
+          return;
         }
-      });
+        if (adopted !== "adopted") {
+          probeLegacySession(legacyToken);
+          return;
+        }
+      }
+      probeCookieSession();
+    })();
+
+    // Stara ścieżka (API sprzed ciasteczka): token jawnie w nagłówku.
+    function probeLegacySession(activeToken: string) {
+      setCheckingSession(true);
+      api
+        .get("/api/auth/me", {
+          // Jawny nagłówek — request-interceptor go NIE nadpisuje (patrz
+          // komentarz w lib/api.ts) i to jest dokładnie ten kontrakt.
+          headers: { Authorization: `Bearer ${activeToken}` },
+        })
+        .then(({ data }) => {
+          if (disposed.current) return;
+          // Persystuje usera i ODTWARZA cookie `nexus_access`.
+          setAuth(data, activeToken);
+          if (!hasAuthCookie()) {
+            clearSessionArtifacts();
+            setCheckingSession(false);
+            setError(COOKIES_BLOCKED);
+            return;
+          }
+          router.replace(nextPath);
+        })
+        .catch(onProbeError);
+    }
+
+    // Sesja w ciasteczku HttpOnly: JS go nie widzi, więc pytamy API.
+    function probeCookieSession() {
+      // Bramka routingu i API muszą widzieć to samo ciasteczko. Gdyby nie
+      // widziały (zablokowane ciasteczka, inna domena), /login → next →
+      // middleware → /login kręciłoby się w kółko — drugi taki skok w ciągu
+      // kilkunastu sekund kończymy komunikatem zamiast przekierowania.
+      if (recentLoginBounce()) {
+        clearSessionArtifacts();
+        setError(COOKIES_BLOCKED);
+        return;
+      }
+      setCheckingSession(true);
+      api
+        .get("/api/auth/me")
+        .then(({ data }) => {
+          if (disposed.current) return;
+          setAuth(data, COOKIE_SESSION);
+          markLoginBounce();
+          router.replace(nextPath);
+        })
+        .catch(onProbeError);
+    }
+
+    function onProbeError(err: unknown) {
+      if (disposed.current) return;
+      setCheckingSession(false);
+      // 401 = sesja martwa → sprzątamy. 403 = „jesteś zalogowany, ale nie
+      // wolno Ci tego zasobu" — nie kasujemy sesji (kontrakt 401 vs 403).
+      // Błąd sieci / 5xx też nie kasuje: chwilowa awaria backendu nie może
+      // niszczyć poprawnej sesji. W ŻADNYM z tych przypadków nie
+      // przekierowujemy, więc pętla jest niemożliwa.
+      if (isAxiosError(err) && err.response?.status === 401) expired();
+    }
   }, [token, router, nextPath, setAuth]);
 
   useEffect(() => {
@@ -228,15 +320,18 @@ function LoginForm() {
     setError(null);
     try {
       const { data } = await api.post("/api/auth/login", { email, password });
-      const me = await api.get("/api/auth/me", {
-        headers: { Authorization: `Bearer ${data.access_token}` },
-      });
       // Sesja jest już potwierdzona — bez tego `setAuth` (nowy `token`)
       // odpalał sondę, która robiła `router.replace(next)` z pominięciem
       // `postLoginDestination` (onboarding, „Pracownik” → „Mój czas”).
       sessionProbed.current = true;
-      setAuth(me.data, data.access_token);
-      router.push(postLoginDestination(me.data, nextPath));
+      const session = await establishSession(data.access_token);
+      setAuth(session.user, session.handle);
+      if (!isCookieSession(session.handle) && !hasAuthCookie()) {
+        clearSessionArtifacts();
+        setError(COOKIES_BLOCKED);
+        return;
+      }
+      router.push(postLoginDestination(session.user, nextPath));
     } catch (err: unknown) {
       setError(extractErrorMsg(err) || "Błąd logowania");
     } finally {
