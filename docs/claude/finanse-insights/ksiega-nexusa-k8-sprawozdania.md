@@ -62,9 +62,13 @@ Reguły K1 (`ksiega-nexusa-k1-fundament.md`) obowiązują dalej.
 - **Bilans** na koniec miesiąca (BO + obroty od stycznia), rozrachunki według
   salda każdej analityki. „Zysk (strata) netto” w trakcie roku = konta wynikowe
   od stycznia + saldo konta z BPAVI (860). **RZiS** za wybrane miesiące.
-- Konto z saldem albo obrotem bez znacznika, ze znacznikiem „INNE” albo ze
-  znacznikiem tylko wariantu kalkulacyjnego = problem: sprawozdanie
-  niekompletne (plik K8b nie powstanie).
+- Konto z saldem albo obrotem bez znacznika, ze znacznikiem „INNE”, ze
+  znacznikiem tylko wariantu kalkulacyjnego albo **konto wynikowe z saldem w BO**
+  (BO z niezamkniętego roku) = problem: sprawozdanie niekompletne (plik K8b nie
+  powstanie).
+- Końcówki `_A/_U/_O` (odpisy, umorzenie, odchylenia) łączą się z pozycją
+  nadrzędną tylko w aktywach — `RPJ_RKM_O` to podatek „Odroczony”, osobna
+  pozycja RZiS.
 - **Płace (D2)**: kwoty pozycji to sumy całej księgi (jak sumy kont w obrotach
   i saldach); rozbicie pozycji na konta i lista problemów schodzą najniżej do
   konta syntetycznego (pierwszy segment numeru), bo analityka rozrachunków

@@ -35,8 +35,9 @@ from app.services.ledger_schema import REPORT_LINE_MAX
 SCHEMA = Path(__file__).with_name("jpk_kr_schema") / "schemat.xsd"
 DICTIONARY_TYPE = "TMapKontaPOZ"
 _XSD = "{http://www.w3.org/2001/XMLSchema}"
-#: Końcówki kodów, które korygują pozycję (odpisy, umorzenie, odchylenia) —
-#: należą do pozycji nadrzędnej, nie tworzą własnej.
+#: Końcówki kodów aktywów, które korygują pozycję (odpisy, umorzenie, odchylenia)
+#: — należą do pozycji nadrzędnej, nie tworzą własnej. Tylko ``BA…``: w RZiS
+#: ``RPJ_RKM_O`` to podatek „Odroczony”, osobna pozycja (przegląd K8a).
 ADJUSTMENT_SUFFIXES = ("_A", "_U", "_O")
 #: Pierwsze segmenty kont spoza sprawozdań i spoza wariantu porównawczego.
 OFF_BALANCE_PREFIX = "9"
@@ -68,7 +69,7 @@ class Marker:
         """Ścieżka pozycji sprawozdania (bez nagłówka AKTYWA/PASYWA/WYNIKOWE)."""
 
         path = self.path[1:]
-        if self.code.endswith(ADJUSTMENT_SUFFIXES):
+        if self.group == GROUP_ASSETS and self.code.endswith(ADJUSTMENT_SUFFIXES):
             path = path[:-1]
         return path
 

@@ -312,3 +312,35 @@ def test_range_turnover_feeds_income_and_ytd_feeds_net_result():
         == 3_000_00
     )
     assert result["balance"]["balanced"] is True
+
+
+def test_deferred_tax_keeps_its_own_line():
+    # `_O` to odchylenia zapasów tylko w aktywach — w RZiS „Odroczony” (przegląd K8a).
+    assert markers.dictionary()["RPJ_RKM_O"].position == (
+        "Podatek dochodowy",
+        "Odroczony",
+    )
+    amounts = [("870", 80_00, 80_00), ("871", 20_00, 20_00), ("100", -100_00, -100_00)]
+    result = statements.build(
+        amounts, {"871": "RPJ_RKM_O"}, {}, ytd_result=_ytd(amounts)
+    )
+    tax = _line(result, "J")
+    assert [(child["label"], child["amount"]) for child in tax["children"]] == [
+        ("Bieżący", 80_00),
+        ("Odroczony", 20_00),
+    ]
+
+
+def test_result_account_with_opening_balance_is_a_problem():
+    # BO z niezamkniętego roku: saldo konta wynikowego nie ma miejsca w sprawozdaniu.
+    amounts = [("100", 50_00, 0), ("701-1", -50_00, 0)]
+    result = statements.build(amounts, {}, {}, ytd_result={"100": 0, "701-1": 0})
+    assert result["complete"] is False
+    assert result["issues"] == [
+        {
+            "account": "701",
+            "name": None,
+            "problem": "Konto wynikowe z saldem w bilansie otwarcia",
+            "amount": -50_00,
+        }
+    ]

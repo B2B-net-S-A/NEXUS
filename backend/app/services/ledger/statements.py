@@ -237,6 +237,13 @@ def build(
                 _place(liabilities, marker, -closing, head)
         elif marker.group == GROUP_RESULT:
             net_result -= ytd
+            if closing != ytd:
+                # Saldo z BO na koncie wynikowym (BO z niezamkniętego roku) nie ma
+                # pozycji ani w RZiS, ani w bilansie — bez tego bilans by się
+                # rozjechał bez wyjaśnienia (przegląd K8a).
+                problems[(head, "Konto wynikowe z saldem w bilansie otwarcia")] += (
+                    closing - ytd
+                )
             if not marker.comparative:
                 if turnover:
                     problems[(head, "Znacznik tylko wariantu kalkulacyjnego")] += (
