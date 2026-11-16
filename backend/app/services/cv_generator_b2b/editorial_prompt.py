@@ -50,10 +50,28 @@ MODES = {
 }
 
 
+RESPONSIBILITY_FORM = {
+    "en": """FORM OF RESPONSIBILITIES: Start every responsibility in every role,
+including the current one, with a verb in the simple past ("Developed…",
+"Upgraded…", "Led…"), never the base form ("Develop…"), the third person
+("Develops…") or a gerund ("Developing…"). One form across the whole CV.
+Change ONLY the grammatical form: content, scope, order and facts stay unchanged.
+""",
+    "pl": """FORMA OBOWIĄZKÓW: Every responsibility in every role, także obecnej, starts
+with a Polish action noun („Wdrażanie…”, „Analiza…”, „Projektowanie…”), never a
+past-tense verb („Wdrażał…”, „Wdrażała…”) or a present-tense verb („Wdraża…”).
+One form across the whole CV; the noun form does not depend on the candidate's
+gender. Zmieniasz WYŁĄCZNIE formę gramatyczną: content, scope, order and facts
+stay unchanged.
+""",
+}
+
+
 def editorial_prompt(language: str, mode: str) -> str:
     target = "English" if language == "en" else "Polish"
     return (
         EDITORIAL_PROMPT
+        + RESPONSIBILITY_FORM["en" if language == "en" else "pl"]
         + f"\nOutput language: {target}.\n"
         + MODES.get(mode, MODES["polished"])
     )
