@@ -29,7 +29,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import FinanceModuleUser
+from app.api.deps import AdminUser, FinanceModuleUser
 from app.api.financial_access import can_read_client_finance, has_financial_access
 from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import (
@@ -56,8 +56,11 @@ from app.services.client_settlements import (
     signoffs,
 )
 from app.services.consultant_portal import documents as portal_documents
+from app.services.consultant_portal import preview as panel_preview_service
 from app.services.consultant_portal.auth import PortalError
 from app.services.client_settlements import settings as module_settings
+from app.services.client_settlements import start_checklist
+from app.services.hr import audit
 from app.services.client_settlements.service import SettlementError
 
 router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
@@ -66,6 +69,10 @@ delivery_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 MONTH_PATTERN = r"^[0-9]{4}-(0[1-9]|1[0-2])$"
 #: ``estimate`` — plan miesiąca przed jego końcem (E5.3).
 KIND_PATTERN = r"^(actual|estimate)$"
+
+
+class ModuleIn(BaseModel):
+    enabled: bool
 
 
 class MdIn(BaseModel):
@@ -125,6 +132,36 @@ async def module_state(
     return {"enabled": enabled, "open": module_settings.open_for(current_user, enabled)}
 
 
+@router.put("/module")
+async def set_module(
+    body: ModuleIn, current_user: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Włącznik modułu (admin). Bez wysyłki do kogokolwiek: zmienia, kto w firmie
+    widzi ekrany i czy NEXUS zapisuje faktury kontraktorów z KSeF."""
+
+    value = await module_settings.set_enabled(db, body.enabled, actor=current_user)
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=None,
+        entity_type="client_settlements",
+        entity_id=0,
+        action="module_switch_changed",
+        details={"enabled": value["enabled"]},
+    )
+    await db.commit()
+    return {**value, "open": module_settings.open_for(current_user, value["enabled"])}
+
+
+@router.get("/start")
+async def start_state(
+    current_user: AdminUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Karta „Start rozliczeń” (admin): przełączniki i to, czego brakuje do startu."""
+
+    return await start_checklist.load(db)
+
+
 @router.get("/clients")
 async def clients(
     current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
@@ -149,6 +186,23 @@ async def month(
         )
     except SettlementError as exc:
         raise _fail(exc) from exc
+
+
+@router.get("/contract/{contract_id}/panel-preview")
+async def panel_preview(
+    contract_id: int,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Panel oczami konsultanta, tylko do odczytu: działa przy zamkniętym panelu."""
+
+    await _open(db, current_user)
+    try:
+        return await panel_preview_service.build(
+            db, contract_id, today=business_today(), now=local_now()
+        )
+    except PortalError as exc:
+        raise HTTPException(exc.status, exc.message) from exc
 
 
 @router.get("/contract/{contract_id}")

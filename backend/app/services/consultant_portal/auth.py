@@ -208,7 +208,9 @@ async def open_session(
 
 @dataclass(frozen=True)
 class PortalContext:
-    session: CpSession
+    #: ``None`` tylko w podglądzie panelu dla Finansów (``preview.build``): ekrany
+    #: czytają wyłącznie ``consultant``.
+    session: Optional[CpSession]
     consultant: Consultant
 
 

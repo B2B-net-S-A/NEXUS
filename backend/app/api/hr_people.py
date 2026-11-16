@@ -101,7 +101,8 @@ async def hr_config(
         "open_modules": {
             key: hr_modules.module_open_for(current_user, loaded, key) for key in loaded
         },
-        "consultant_panel_on": await portal_settings.load_raw_state(db) != "off",
+        "consultant_panel_on": await portal_settings.load_raw_state(db)
+        in ("pilot", "all"),
         "me": {
             "has_profile": profile is not None
             and profile.employment_status != EmploymentStatus.exited,

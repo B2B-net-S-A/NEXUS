@@ -70,7 +70,9 @@ async def _ensure_pack_open(db: AsyncSession, user: User) -> None:
     z pakietu pierwszy dzień i dokumenty.
     """
 
-    if await portal_settings.load_raw_state(db) != "off":
+    # „Tylko zespół” (``internal``) nie otwiera pakietu: mail powitalny poszedłby do
+    # konsultanta, a ten stan ma do nikogo spoza firmy nie pisać.
+    if await portal_settings.load_raw_state(db) in ("pilot", "all"):
         return
     await ensure_module(db, user, HrModule.lifecycle)
 

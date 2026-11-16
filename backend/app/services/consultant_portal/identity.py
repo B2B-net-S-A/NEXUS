@@ -78,6 +78,46 @@ async def resolve_by_email(
     return contracts[0] if len(people) == 1 else None
 
 
+async def resolve_sender(
+    db: AsyncSession, email: str, *, settings: PortalSettings, today: date
+) -> Optional[Contract]:
+    """Kontrakt nadawcy maila na rozliczenia@ albo ``None`` (karta do przypisania).
+
+    W pilotażu tylko osoby z aktywnym panelem (jak link). W ``internal`` i ``all`` każdy
+    działający kontrakt: najpierw adres z kontraktu, potem adres z kartoteki kandydata.
+    Dopasowanie nie otwiera panelu ani nie wysyła maila, a dokument z maila i tak czeka
+    na decyzję Finansów. Adres dwóch różnych osób = ``None``.
+    """
+
+    if not settings.any_sender:
+        return await resolve_by_email(db, email, settings=settings, today=today)
+    address = normalize_email(email)
+    if not address:
+        return None
+    by_contract = (
+        await db.scalars(
+            select(Contract)
+            .where(func.lower(func.btrim(Contract.candidate_email)) == address)
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    rows = [row for row in by_contract if eligible(row, today)]
+    if not rows:
+        by_card = (
+            await db.scalars(
+                select(Contract)
+                .join(Candidate, Candidate.id == Contract.candidate_id)
+                .where(func.lower(func.btrim(Candidate.email)) == address)
+                .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+            )
+        ).all()
+        rows = [row for row in by_card if eligible(row, today)]
+    if not rows:
+        return None
+    people = {row.candidate_id if row.candidate_id else f"c{row.id}" for row in rows}
+    return rows[0] if len(people) == 1 else None
+
+
 def _tokens(text: Optional[str]) -> set[str]:
     raw = unicodedata.normalize(
         "NFKD", (text or "").replace("ł", "l").replace("Ł", "L")
@@ -115,7 +155,7 @@ async def resolve_by_name(
         and eligible(contract, today)
         # Osoba z KEŚU nic nie wysyła i nie musi mieć aktywnego panelu; w pilotażu
         # czytnik bierze jednak tylko osoby z pilotażu.
-        and (settings.state == "all" or settings.open_for(contract.id))
+        and (settings.any_sender or settings.open_for(contract.id))
     ]
     if not matches or len({c.candidate_id for c in matches}) != 1:
         return None
