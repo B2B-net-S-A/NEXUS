@@ -515,7 +515,8 @@ async def notify_stage_change(
                 route = await notification_route(
                     db, rec.user_id, NotificationType.stage_rule
                 )
-                if route.skip:
+                # Zastępca sam przesunął kartę: bez maila (wiersz zostaje cichy).
+                if route.quiet:
                     continue
                 # Ta sama bramka odbiorcy co dzwonek (`emit`): nieaktywne
                 # konto, wyciszona kategoria albo odebrana sekcja = bez maila.

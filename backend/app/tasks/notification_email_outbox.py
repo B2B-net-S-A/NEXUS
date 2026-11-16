@@ -152,6 +152,7 @@ async def _claim(db: AsyncSession, notif_id: int) -> bool:
         .where(
             Notification.id == notif_id,
             Notification.email_sent_at.is_(None),
+            Notification.quiet.is_(False),
             Notification.email_delivery_uncertain.is_(False),
             or_(
                 Notification.email_send_started_at.is_(None),
@@ -220,6 +221,8 @@ async def _due(
         .where(User.is_active.is_(True))
         .where(Notification.email_sent_at.is_(None))
         .where(Notification.email_delivery_uncertain.is_(False))
+        # Cichy wiersz zastępcy o jego własnym ruchu (16.11.2026): bez maila.
+        .where(Notification.quiet.is_(False))
         .where(
             or_(
                 Notification.email_send_started_at.is_(None),

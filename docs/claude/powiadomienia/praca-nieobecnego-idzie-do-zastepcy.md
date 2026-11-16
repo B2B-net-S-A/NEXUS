@@ -18,6 +18,8 @@ https://claude.ai/artifact/JGLe9uz3RDwYsU7skyVZbR
 - **Dzwonek o bieżącej pracy tylko u zastępcy** (decyzja Artura 02.11.2026).
   Wiersz nie zostaje u nieobecnej osoby. Autor akcji nie dostaje dzwonka o własnym
   ruchu: `ACTOR_KEY` ustawia `get_current_user`; pętle w tle nie mają autora.
+  Od 16.11.2026 taki wiersz i tak powstaje, cichy (`Route.quiet`), żeby osoba
+  zobaczyła go po powrocie → `gdy-cie-nie-bylo-po-powrocie.md`.
 - **`Notification.on_behalf_of_user_id`** (0675 + lustro w `entrypoint.sh`)
   pamięta, za kogo przyszło; ekrany i mail mówią „w zastępstwie za …”.
 - **Skaner „już wysłano tej osobie” pyta o `Notification.addressee_id`,** nie
