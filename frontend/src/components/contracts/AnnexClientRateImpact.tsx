@@ -1,7 +1,7 @@
 "use client";
 
 // Podgląd w oknie „Zmień stawkę”: które zamówienia zmieni nowa stawka klienta
-// i od którego miesiąca (ticket Finansów 16.11.2026, 0721). Backend liczy to
+// i od którego miesiąca (ticket Finansów 16.11.2026, 0722). Backend liczy to
 // tą samą funkcją, którą zapisuje aneks (`order_revenue_steps`), bez zapisu.
 
 import { useQuery } from "@tanstack/react-query";

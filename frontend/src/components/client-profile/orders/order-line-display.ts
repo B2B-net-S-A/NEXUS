@@ -45,7 +45,7 @@ function shortDate(iso: string): string {
 }
 
 /** Dopisek pod stawką przychodową linii, gdy aneks stawki klienta zmienił ją
- *  od jakiegoś dnia (0721): „od 01.11.2026 · wcześniej 1 615,050” albo
+ *  od jakiegoś dnia (0722): „od 01.11.2026 · wcześniej 1 615,050” albo
  *  zapowiedź „od 01.12.2026: 1 775,050”. `null` — linia bez kroków. */
 export function lineRevenueStepNote(line: OrderLineRead, today: string): string | null {
   const steps = [...(line.revenue_steps ?? [])].sort((a, b) =>

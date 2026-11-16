@@ -1,4 +1,4 @@
-// Stawka przychodowa linii od dnia aneksu (0721, ticket Finansów 16.11.2026).
+// Stawka przychodowa linii od dnia aneksu (0722, ticket Finansów 16.11.2026).
 // Dane fikcyjne.
 
 import { describe, expect, it } from "vitest";

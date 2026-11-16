@@ -630,7 +630,7 @@ function OrdersTableRowView({
   const notes = [...(ended ? [] : lineNotes(line)), ...awaitingNotes(line)];
   const needsDecision = ended && requiresDecision(line);
   const decided = ended ? decisionLabel(line) : null;
-  // Aneks stawki klienta zmienił stawkę linii od jakiegoś dnia (0721).
+  // Aneks stawki klienta zmienił stawkę linii od jakiegoś dnia (0722).
   const revenueNote = lineRevenueStepNote(line, warsawToday());
   return (
     <tr
@@ -673,7 +673,12 @@ function OrdersTableRowView({
       </td>
       <td className={cn(RATE_CELL, ended && "text-muted-foreground")}>
         <RateText label={displayLineRate(line, "revenue")} />
-        {revenueNote ? <span className={CALM_SUBLINE}>{revenueNote}</span> : null}
+        {/* Dwie krótkie linie — przy 1280 px jedna wchodziła pod pasek MD. */}
+        {revenueNote?.split(" · ").map((part) => (
+          <span key={part} className={CALM_SUBLINE}>
+            {part}
+          </span>
+        ))}
       </td>
       <td className={cn(CELL, "min-w-[10rem]")}>
         {ended ? (

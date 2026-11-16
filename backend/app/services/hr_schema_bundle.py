@@ -153,7 +153,7 @@ MODULES = (
     payroll_k7b,
     # 0720: archiwum dokumentów z eBI24 w Finansach (E5, 16.11.2026).
     finance_archive,
-    # 0721: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
+    # 0722: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
     order_revenue_steps,
 )
 
