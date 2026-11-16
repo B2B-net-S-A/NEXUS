@@ -3468,6 +3468,16 @@ async def test_vat_module_settings_and_gates(client, world, books):
         headers=_headers(world["admin"]),
     )
     assert foreign_saved.json()["foreign_account"] == books["acc"]["payable"]
+    # K5b-3c: konta różnic z zaokrągleń VAT — tak samo pole pominięte = bez zmiany.
+    rounding = await client.put(
+        f"{ACC}/vat/settings",
+        json={
+            "rounding_gain_account": books["acc"]["revenue"],
+            "rounding_loss_account": books["acc"]["cost"],
+        },
+        headers=_headers(world["admin"]),
+    )
+    assert rounding.status_code == 200, rounding.text
     kept = await client.put(
         f"{ACC}/vat/settings",
         json={"input_account": books["acc"]["vat_in"]},
@@ -3476,7 +3486,18 @@ async def test_vat_module_settings_and_gates(client, world, books):
     assert kept.json() == {
         "input_account": books["acc"]["vat_in"],
         "foreign_account": books["acc"]["payable"],
+        "rounding_gain_account": books["acc"]["revenue"],
+        "rounding_loss_account": books["acc"]["cost"],
     }
+    # Puste pole wyłącza konto zaokrągleń (jak konto dostawców zagranicznych).
+    cleared = await client.put(
+        f"{ACC}/vat/settings",
+        json={"rounding_loss_account": ""},
+        headers=_headers(world["admin"]),
+    )
+    assert cleared.json()["rounding_loss_account"] == ""
+    assert cleared.json()["rounding_gain_account"] == books["acc"]["revenue"]
+    assert cleared.json()["foreign_account"] == books["acc"]["payable"]
     data = (await _vat_registers(client, world, books)).json()
     assert data["accounts"]["input_account"] == books["acc"]["vat_in"]
     assert data["accounts"]["foreign_account"] == books["acc"]["payable"]
