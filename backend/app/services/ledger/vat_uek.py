@@ -491,6 +491,14 @@ async def file(
         issued_year=issued_year,
         issued_month=issued_month,
     )
+    period = f"{month:02d}.{year}"
+    issued = f"{issued_month:02d}.{issued_year}"
+    if not found["corrections"]:
+        raise LedgerError(
+            f"W {issued} księga nie ma korekt faktur z {period} (usługi dla "
+            "podatników z UE, WDT) — VAT-UEK za ten okres się nie składa.",
+            status=422,
+        )
     reasons = (
         found["missing"]
         + found["blockers"]
@@ -499,14 +507,6 @@ async def file(
     if reasons:
         raise LedgerError(
             f"VAT-UEK nie powstanie — {'; '.join(reasons[:5])}.", status=422
-        )
-    period = f"{month:02d}.{year}"
-    issued = f"{issued_month:02d}.{issued_year}"
-    if not found["corrections"]:
-        raise LedgerError(
-            f"W {issued} księga nie ma korekt faktur z {period} (usługi dla "
-            "podatników z UE, WDT) — VAT-UEK za ten okres się nie składa.",
-            status=422,
         )
     if not found["positions"]:
         raise LedgerError(
