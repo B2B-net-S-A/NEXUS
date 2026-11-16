@@ -1196,3 +1196,170 @@ async def test_new_dl_and_tcm_are_sent_to_poligon_and_record_only_their_path(
     admin_start = (await app_client.get("/api/novelties/start", headers=admin)).json()
     assert admin_start["poligon"]["required"] is False
     assert admin_start["poligon"]["open"] is True
+
+
+# ── Poligon dla obecnych: tylko luki (Artur, 16.11.2026) ─────────────────────
+
+
+def test_work_credits_only_exercises_of_used_features_on_the_persons_path() -> None:
+    from app.services.poligon_luki import credited_exercises
+
+    path = [
+        "poligon-lista-zakres",
+        "poligon-lista-filtry",
+        "poligon-lista-otworz",
+        "poligon-tablica-biore",
+        "poligon-screening-otworz",
+        "poligon-screening-zapisz",
+        "poligon-panel-wzmianka",
+    ]
+    credited = credited_exercises({"biore", "screening", "qc_cv"}, path)
+    # QC CV nie jest na tej ścieżce, wzmianki osoba nie używa.
+    assert credited == path[:6]
+    # Kto nic nie robi w NEXUSIE, nie dostaje nawet listy rekrutacji.
+    assert credited_exercises(set(), path) == []
+
+
+def test_luki_campaign_blocks_only_after_the_due_day() -> None:
+    from app.services.poligon_luki import default_due, overdue
+
+    assert overdue("2026-11-23", date(2026, 11, 23)) is False
+    assert overdue("2026-11-23", date(2026, 11, 24)) is True
+    assert default_due(date(2026, 11, 16)) == date(2026, 11, 23)
+
+
+def test_luki_targets_recruiters_without_leader_roles() -> None:
+    from types import SimpleNamespace
+
+    from app.services.poligon_luki import is_target
+
+    def person(*roles: str, active: bool = True) -> SimpleNamespace:
+        return SimpleNamespace(
+            is_active=active, role=roles[0], get_all_roles=lambda: list(roles)
+        )
+
+    assert is_target(person("recruiter"))
+    assert is_target(person("talent_community_manager", "recruiter"))
+    assert not is_target(person("head_of_recruitment", "recruiter"))
+    assert not is_target(person("recruiter", active=False))
+    assert not is_target(person("delivery_lead"))
+
+
+def test_every_luki_feature_has_a_signal_and_known_exercises() -> None:
+    from app.services.poligon_luki import FEATURES, usage_sql
+
+    ids = {e.id for e in load_poligon().exercises}
+    assert len({f.key for f in FEATURES}) == len(FEATURES)
+    for feature in FEATURES:
+        assert set(feature.exercises) <= ids, feature.key
+        assert ":ids" in feature.sql, feature.key
+    assert usage_sql().count("UNION ALL") == len(FEATURES) - 1
+
+
+@pytest.fixture
+async def luki_campaign(monkeypatch):
+    """Obecne konto (poligon niewymagany), bez Startu; sprząta kampanię."""
+    from app.api import novelties as api
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.services.onboarding_day import PoligonRequirement
+    from app.services.poligon_luki import LUKI_KEY
+
+    async def not_required(db, user, plan=None):
+        return PoligonRequirement((), ())
+
+    monkeypatch.setattr(api, "poligon_requirement", not_required)
+    monkeypatch.setattr(api, "load_start_tours", lambda: {})
+    yield
+    async with AsyncSessionLocal() as db:
+        for key in (LUKI_KEY, api.POLIGON_GATE_KEY):
+            row = await db.get(AppSetting, key)
+            if row is not None:
+                await db.delete(row)
+        await db.commit()
+
+
+async def _used(user_id: int, action: str) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.activity import Activity
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type="pipeline", entity_id=1, action=action, user_id=user_id
+            )
+        )
+        await db.commit()
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_hor_sends_poligon_gaps_and_work_counts_as_done(
+    app_client: AsyncClient, luki_campaign
+) -> None:
+    recruiter_id, recruiter = await _user("recruiter")
+    _, hor = await _user("head_of_recruitment")
+    await _used(recruiter_id, "candidate_claimed")
+
+    refused = await app_client.post(
+        "/api/novelties/poligon/luki", json={}, headers=recruiter
+    )
+    assert refused.status_code == 403
+    past = await app_client.post(
+        "/api/novelties/poligon/luki", json={"due": "2020-01-01"}, headers=hor
+    )
+    assert past.status_code == 422
+
+    sent = await app_client.post("/api/novelties/poligon/luki", json={}, headers=hor)
+    assert sent.status_code == 200 and sent.json()["people"] >= 1
+
+    start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
+    poligon = start["poligon"]
+    assert poligon["luki"]["due"] == sent.json()["due"]
+    assert "poligon-tablica-biore" in poligon["luki"]["credited_ids"]
+    assert "poligon-tablica-biore" in poligon["done_ids"]
+    assert "poligon-screening-zapisz" not in poligon["done_ids"]
+    # Do terminu poligon tylko prosi.
+    assert poligon["required"] is False and start["enforced"] is False
+
+    matrix = (await app_client.get("/api/novelties/poligon/luki", headers=hor)).json()
+    me = next(p for p in matrix["people"] if p["id"] == recruiter_id)
+    assert "biore" in me["used"] and me["poligon"]["done"] >= 4
+    assert len(matrix["features"]) == 24 and matrix["campaign"]["due"]
+    assert (
+        await app_client.get("/api/novelties/poligon/luki", headers=recruiter)
+    ).status_code == 403
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_poligon_gaps_block_after_the_due_day_unless_switched_off(
+    app_client: AsyncClient, luki_campaign
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
+    from app.services.poligon_luki import LUKI_KEY
+
+    recruiter_id, recruiter = await _user("recruiter")
+    _, hor = await _user("head_of_recruitment")
+    async with AsyncSessionLocal() as db:
+        db.add(
+            AppSetting(
+                key=LUKI_KEY,
+                value={
+                    "due": "2026-01-02",
+                    "users": {str(recruiter_id): {"credited": []}},
+                },
+            )
+        )
+        await db.commit()
+
+    start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
+    assert start["poligon"]["required"] is True
+    assert start["enforced"] is True and start["redirect"] == "/poligon"
+
+    await app_client.put(
+        "/api/novelties/start/gate", json={"poligon": False}, headers=hor
+    )
+    start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
+    assert start["enforced"] is False

@@ -11,13 +11,16 @@ import { cn } from "@/lib/utils";
 
 import { SectionCard } from "./AccountingShell";
 import { gr, MONTHS_PL } from "./ledger-model";
+import { VatUekCorrection } from "./VatUekCorrection";
 
 const NOTE = "px-3.5 py-2.5 text-[13px] text-muted-foreground";
 
 /**
  * VAT-UE(5) miesiąca (K5b-3a): kontrahenci z UE z rejestru sprzedaży (usługi
  * np II i WDT) z kwotą w pełnych złotych. Plik serwer składa i sprawdza
- * schematem MF przy pobraniu; NEXUS niczego nie wysyła.
+ * schematem MF przy pobraniu; NEXUS niczego nie wysyła. Korekty faktur
+ * z wcześniejszych okresów idą na VAT-UEK za tamte okresy (K5b-3c) — lista
+ * „Do VAT-UEK” z plikiem per okres.
  */
 export function VatUeCard({ year, month }: { year: number; month: number }) {
   const { showToast } = useToast();
@@ -40,6 +43,17 @@ export function VatUeCard({ year, month }: { year: number; month: number }) {
       showToast(apiErrorMessage(error, "Nie udało się pobrać pliku VAT-UE."), "error");
     }
   };
+  // Korekty wcześniejszych okresów: VAT-UEK per okres faktury pierwotnej.
+  // Okres nie wcześniejszy niż miesiąc karty (korekta sprzed daty sprzedaży
+  // faktury pierwotnej) zostaje na liście problemów — VAT-UEK go nie obejmie.
+  const current = `${year}-${String(month).padStart(2, "0")}`;
+  const toUek = (item: (typeof data.problems)[number]) =>
+    item.kind === "earlier" && !!item.period && item.period < current;
+  const uek = new Map<string, string[]>();
+  for (const item of data.problems) {
+    if (toUek(item) && item.period) uek.set(item.period, [...(uek.get(item.period) ?? []), item.number]);
+  }
+  const problems = data.problems.filter((item) => !toUek(item));
   const empty = !data.lines.length && !data.problems.length;
   return (
     <SectionCard
@@ -51,9 +65,9 @@ export function VatUeCard({ year, month }: { year: number; month: number }) {
           Do VAT-UE brakuje: {data.missing.join("; ")}.
         </p>
       ) : null}
-      {data.problems.length ? (
+      {problems.length ? (
         <ul className="space-y-0.5 border-b border-border/70 px-3.5 py-2 text-[13px]">
-          {data.problems.map((item, index) => (
+          {problems.map((item, index) => (
             <li
               key={`${item.number}:${index}`}
               className={item.kind === "earlier" ? "text-warning-muted-foreground" : "text-destructive-text"}
@@ -104,6 +118,27 @@ export function VatUeCard({ year, month }: { year: number; month: number }) {
           </p>
         ) : null}
       </div>
+      {uek.size ? (
+        <div className="border-t border-border/70">
+          <p className="px-3.5 pt-2.5 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+            Do VAT-UEK
+          </p>
+          <div className="divide-y divide-border/70">
+            {[...uek.entries()]
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([period, documents]) => {
+                const [periodYear, periodMonth] = period.split("-").map(Number);
+                return (
+                  <VatUekCorrection
+                    key={period}
+                    period={{ year: periodYear, month: periodMonth, issuedYear: year, issuedMonth: month }}
+                    documents={documents}
+                  />
+                );
+              })}
+          </div>
+        </div>
+      ) : null}
       {data.notes.length ? (
         <ul className="space-y-0.5 border-t border-border/70 px-3.5 py-2 text-[12px] text-muted-foreground">
           {data.notes.map((note) => (

@@ -111,6 +111,29 @@ def test_form_fields_are_cleaned():
     invoice = foreign.clean_invoice(_form(net="1 234,50", currency="eur"), today=TODAY)
     assert (invoice.net, invoice.currency) == (Decimal("1234.50"), "EUR")
     assert invoice.service_date == date(2026, 10, 31)
+    # Bez daty otrzymania = data wystawienia (DataWplywu w JPK się nie pisze).
+    assert invoice.received_date == invoice.issue_date
+
+
+@pytest.mark.parametrize(
+    ("received", "expected"),
+    [
+        # Ten sam dzień, koniec miesiąca usługi, dokładnie 3 miesiące po końcu
+        # miesiąca usługi i dzień później — okres się nie zmienia (art. 86
+        # ust. 10b pkt 3 bez terminu 3 miesięcy od 7.09.2021, ust. 10i uchylony).
+        ("2026-10-31", date(2026, 10, 31)),
+        ("2026-11-01", date(2026, 11, 1)),
+        ("2027-01-31", date(2027, 1, 31)),
+        ("2027-02-01", date(2027, 2, 1)),
+    ],
+)
+def test_received_date_does_not_move_the_vat_period(received, expected):
+    invoice = foreign.clean_invoice(
+        _form(issue_date="2026-10-31", service_date="2026-10-31", received_date=received),
+        today=date(2027, 3, 1),
+    )
+    assert invoice.received_date == expected
+    assert invoice.service_date == date(2026, 10, 31)
 
 
 @pytest.mark.parametrize(
@@ -126,6 +149,9 @@ def test_form_fields_are_cleaned():
         ({"service_date": "2026-11-16"}, "przyszłości"),
         ({"issue_date": ""}, "Data wystawienia"),
         ({"cost_account": ""}, "Konto kosztu"),
+        ({"received_date": "2026-10-30"}, "wcześniejsza niż data wystawienia"),
+        ({"received_date": "2026-11-16"}, "przyszłości"),
+        ({"received_date": "31.10.2026"}, "Data otrzymania faktury"),
     ],
 )
 def test_form_refuses_bad_fields(extra, message):

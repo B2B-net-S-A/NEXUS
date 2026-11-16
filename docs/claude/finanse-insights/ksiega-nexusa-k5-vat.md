@@ -9,8 +9,8 @@ migracja `0708_ledger_vat_files` (sekcja niżej). K5b-2: zakupy zagraniczne
 (import usług) — `ledger/foreign.py` — i znaczniki GTU/TP per kontrahent, bez
 migracji (sekcja niżej). K5b-3a: VAT-UE(5) — `ledger/vat_ue.py` (sekcja niżej).
 K5b-3b: porównanie z JPK z Symfonii — `ledger/jpk_compare.py` (sekcja niżej).
-K5b-3c: dokument rozliczenia VAT — `ledger/vat_settlement.py` (sekcja niżej).
-Dalej VAT-UEK i art. 86 ust. 10i.
+K5b-3c: dokument rozliczenia VAT — `ledger/vat_settlement.py`; VAT-UEK(5) —
+`ledger/vat_uek.py` (sekcje niżej). Dalej art. 86 ust. 10i.
 
 ## Co jest
 
@@ -160,11 +160,25 @@ Dalej VAT-UEK i art. 86 ust. 10i.
   tylko dla towarów) = usługa od podatnika z UE, art. 28b → K_29/K_30; reszta
   (spoza UE, bez numeru VAT UE) → K_27/K_28. Grupa w `meta.jpk_group`. Wiersz
   zakupu (K_42/K_43, środek trwały K_40/K_41) tylko z odliczeniem; data wiersza
-  zakupu = data faktury (bez DataWplywu), wiersz sprzedaży — data usługi
-  (DataSprzedazy). Oba z BFK (faktura poza KSeF).
-- **Odliczenie** w miesiącu usługi. Faktura otrzymana ponad 3 miesiące po
-  obowiązku podatkowym (art. 86 ust. 10i — odliczenie w bieżącym okresie)
-  formularz nie rozdziela — ujęcie do uzgodnienia z księgową (K5b-3).
+  zakupu = data faktury (`DataZakupu`) i data otrzymania z formularza
+  (`DataWplywu`, gdy inna; pole domyślnie = data wystawienia, nie wcześniejsza
+  niż ona — 422), wiersz sprzedaży — data usługi (DataSprzedazy). Oba z BFK
+  (faktura poza KSeF).
+- **Odliczenie** w miesiącu usługi, także gdy faktura przyszła po miesiącach.
+  Decyzja Artura z 16.11.2026: bez podziału dekretu. Warunek „3 miesięcy od
+  końca miesiąca obowiązku” w art. 86 ust. 10b pkt 3 i ust. 10i (odliczenie
+  w bieżącym okresie) uchyliła ustawa z 11.08.2021 (Dz.U. 2021 poz. 1626,
+  art. 1 pkt 8) od 7.09.2021; tekst jednolity Dz.U. 2026 poz. 1263: „10i.
+  (uchylony)”. Prawo do odliczenia powstaje w okresie obowiązku (ust. 10),
+  jeśli VAT należny jest w deklaracji za ten okres — spóźniona faktura to
+  korekta JPK miesiąca usługi po obu stronach. Nie wracaj do rozdzielania
+  należnego i naliczonego na dwa miesiące bez nowej podstawy prawnej.
+- **Spóźniona faktura a wysłany JPK**: `GET /vat/foreign` zwraca `jpk_sent`
+  (miesiące z wysłanym JPK, do 60), karta ostrzega przed zapisem, że JPK
+  miesiąca usługi trzeba skorygować; po zatwierdzeniu FVZ odcisk rejestru
+  się zmienia i lista zamknięcia pokazuje problem (`stale = registers`).
+  Data otrzymania nie wchodzi do odcisku — zmiana samej daty nie oznacza
+  korekty.
 - **Import kartoteki z eBI24** nie dubluje dostawcy z formularza: wiersz pliku
   z tą samą nazwą, którego nie da się dopasować po numerze ani ID Symfonii, to
   błąd wiersza (dostawca z formularza = `imported_at` pusty).
@@ -185,7 +199,7 @@ Dalej VAT-UEK i art. 86 ust. 10i.
   (`app/services/ledger/vat_ue_schema/`, wzór 2021/01/12/10293, wersja 2-0E —
   najnowsza na liście struktur e-Deklaracji; importy przepisane na pliki obok),
   NEXUS składa plik i sprawdza go schematem przy pobraniu. Korekty składa się
-  na VAT-UEK(5) — w NEXUSIE jeszcze nie ma (uwaga na karcie).
+  na VAT-UEK(5) (sekcja niżej).
 - **Z czego**: wiersze rejestru sprzedaży z grup `np_ue` (usługi, art. 100
   ust. 1 pkt 4 — Grupa3) i `0_wdt` (WDT — Grupa1, bez trójstronnej). Okres =
   okres rejestru. Suma netto PLN per kontrahent i sekcja, w pełnych złotych.
@@ -264,6 +278,39 @@ Dalej VAT-UEK i art. 86 ust. 10i.
 - Trasy: `GET /vat/settlement`, `POST /vat/settlement` (blokada `ledger-jpk`
   — wersja JPK nie zmienia się w trakcie). Bez migracji.
 
+## VAT-UEK(5) — korekta VAT-UE
+
+- **Decyzja Artura 15.11.2026**: schemat VAT-UEK(5) z crd.gov.pl w repo
+  (`app/services/ledger/vat_uek_schema/`, wzór 2021/01/26/10316, wersja 2-1E —
+  najnowsza na liście struktur e-Deklaracji 16.11.2026; importy te same co
+  w VAT-UE(5), adresy przepisane na pliki obok, reszta bajt w bajt). Uwaga:
+  `kodSystemowy` = „VATUEK (5)” — bez myślnika, inaczej niż VAT-UE.
+- **Okres korekty** = miesiąc faktury pierwotnej (`corrected_month` wiersza
+  rejestru). Korekta faktury z wcześniejszego okresu nie pomniejsza bieżącego
+  VAT-UE: na karcie VAT-UE miesiąca K jest lista „Do VAT-UEK” — blok per okres
+  z pozycjami i plikiem (`GET /vat/uek?year=&month=&issued_year=&issued_month=`
+  i `/vat/uek/file`; okres = `year`/`month`, miesiąc korekt = `issued_*`).
+- **Pozycja** (XSD i MF): „BYŁO” = dane z poprzednio złożonej informacji,
+  „JEST” = dane prawidłowe — obie jako łączna wartość za okres, nie różnica.
+  Sama „JEST” = kontrahent dopisany, sama „BYŁO” = usunięty; pozycja tylko,
+  gdy kwota w pełnych złotych się zmienia. WDT z P_DBd/P_DJd = 1 (bez
+  trójstronnej).
+- **Skąd „BYŁO” — decyzja Artura 16.11.2026 („per miesiąc korekty”)**: NEXUS
+  nie zapisuje złożonych VAT-UE, więc VAT-UEK za okres M składa się z korekt
+  zaksięgowanych w miesiącu K. „BYŁO” = suma za M z rejestru M liczona dziś
+  (z korektami z tego samego miesiąca, jak VAT-UE) + korekty faktur z M
+  z miesięcy między M a K (zakładamy, że ich VAT-UEK złożono — karta to mówi);
+  „JEST” = „BYŁO” + korekty z K. Odrzucone warianty: narastająco od VAT-UE
+  (błędne przy drugiej korekcie okresu) i zapis złożonych wersji (migracja).
+- **Blokady pliku** (422 z powodem): nabywca bez numeru VAT UE, suma okresu
+  poniżej zera, faktura pierwotna bez dokumentu w księdze za M (VAT-UE poszedł
+  spoza NEXUSA — korekta w Symfonii), listy rejestru K blokujące JPK, brak
+  danych płatnika (K7a); brak korekt z K albo bez zmiany w pełnych złotych =
+  VAT-UEK się nie składa. Bez danych osób zespołu — pobiera każdy z modułem VAT.
+- **Schemat**: `Rok` od 2021, `etd:TRok` do 2030 — jak VAT-UE, testy na bazie
+  sprawdzają pozycje, schemat testy reguł. Nowy wzór MF = nowe pliki i zmiana
+  `NS` w `vat_uek.py`.
+
 ## Testy
 
 `tests/test_ledger_vat_rules.py` (podział stawek, kwoty z dekretu, pola JPK,
@@ -278,11 +325,15 @@ z P_ORDZU, lista zamknięcia po zmianie rejestru, P_39 z poprzedniego miesiąca)
 i po przeglądzie: łańcuch korekt, złożona starsza wersja, „wysłany” czeka na
 „Przygotuj JPK”, poprawialna nadwyżka pierwszego miesiąca. K5b-2:
 `tests/test_ledger_foreign_rules.py` (grupa JPK, kwoty po kursie, dekret,
-korekta, pola formularza i odmowy, numer dostawcy), w `test_ledger_jpk_rules.py`
+korekta, pola formularza i odmowy, numer dostawcy, data otrzymania nie
+przesuwa okresu na granicy 3 miesięcy), w `test_ledger_jpk_rules.py`
 znaczniki i import usług przez XSD MF oraz odcisk bez znaczników, sekcja K5b-2
 w `test_ledger_sources_db.py` (formularz od nowego dostawcy do JPK, odmowy,
-strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS), front:
-`VatView.test.tsx` (lista, formularz, znaczniki), `vat-model.test.ts`. K5b-3a:
+strażnik importu eBI24, konto dostawców w ustawieniach, znaczniki na FVS;
+`test_late_foreign_invoice_stays_in_the_service_month_and_flags_its_jpk` —
+faktura pół roku po usłudze: oba rejestry w marcu, `DataWplywu`, JPK marca do
+korekty), front: `VatView.test.tsx` (lista, formularz, znaczniki, data
+otrzymania i ostrzeżenie o korekcie), `vat-model.test.ts`. K5b-3a:
 `tests/test_ledger_vat_ue_rules.py` (pozycje, zaokrąglenie, problemy, XSD),
 `test_vat_ue_lines_come_from_the_sales_register` w `test_ledger_sources_db.py`,
 front: karta VAT-UE w `VatView.test.tsx`. K5b-3b: `tests/test_ledger_jpk_compare_rules.py`
@@ -294,3 +345,9 @@ analityka, korekta JPK po rozliczeniu, pozycja listy zamknięcia),
 `test_vat_settlement_moves_month_vat_to_the_tax_account` w
 `test_ledger_sources_db.py` (konta, D2, bufor, salda 221/222 = 0, storno FVS,
 korekta JPK, PK spoza rejestru), front: karta rozliczenia w `VatView.test.tsx`.
+
+VAT-UEK:
+`tests/test_ledger_vat_uek_rules.py` („było” z wcześniejszymi korektami,
+dopisany i usunięty kontrahent, zaokrąglenie bez zmiany, WDT, problemy, XSD),
+`test_vat_uek_corrects_the_original_period_from_month_k` w
+`test_ledger_sources_db.py`, front: bloki „Do VAT-UEK” w `VatView.test.tsx`.

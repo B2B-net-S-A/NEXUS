@@ -2125,6 +2125,7 @@ async def apply_move(
         note=data.notes,
         not_looking_until=data.autofill_not_looking_until,
         gaps=data.autofill_gaps,
+        detail=data.autofill_detail,
     )
     # 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
     # zostawiały w historii samo słowo. Opis przychodzi jako `notes` (okna
@@ -2352,6 +2353,7 @@ async def apply_move(
             actor_id=policy.actor_id,
             whole_client=data.autofill_whole_client,
             gaps=data.autofill_gaps,
+            detail=data.autofill_detail,
         )
         if (
             data.autofill_whole_client

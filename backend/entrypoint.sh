@@ -1509,6 +1509,15 @@ except Exception as _framework_rate_schema_err:  # noqa: BLE001
     print(f"framework rate schema unavailable: {_framework_rate_schema_err!r}")
     _FRAMEWORK_RATE_DDL = []
 
+# 0716: wnioski o dopłatę za technologię premium (`app/services/premium_skill_schema.py`).
+try:
+    from app.services import premium_skill_schema as _premium_skill_schema
+
+    _PREMIUM_SKILL_DDL = list(_premium_skill_schema.TABLE_DDL)
+except Exception as _premium_skill_schema_err:  # noqa: BLE001
+    print(f"premium skill schema unavailable: {_premium_skill_schema_err!r}")
+    _PREMIUM_SKILL_DDL = []
+
 # 0687: paczka do podpisu, dokumenty obok umowy B2B
 # (`app/services/b2b_esign/documents_schema.py`).
 try:
@@ -5159,7 +5168,7 @@ END $$""",
             'periodic_order_ending', 'framework_contract_expiring',
             'contract_ending', 'cost_budget_low', 'new_contractor_draft',
             'md_base_usage_high', 'candidate_conflict_expired',
-            'invoice_without_order_line')),
+            'invoice_without_order_line', 'framework_over_limit')),
         CONSTRAINT ck_dl_alerts_status
             CHECK (status IN ('new', 'handled', 'resolved')),
         CONSTRAINT ck_dl_alerts_handled_coherence
@@ -7149,6 +7158,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_SKILL_RELATIONS_TABLE_DDL,
     # 0710: po `rate_cards`, `contracts` i `users`, na które wskazuje.
     *_FRAMEWORK_RATE_DDL,
+    # 0716: po `contracts` i `users`.
+    *_PREMIUM_SKILL_DDL,
     # 0667: 70 porzuconych tabel bez modelu. Przywrócenie którejś ze zrzutu
     # wymaga usunięcia jej stąd, bo następny start skasowałby ją ponownie.
     "ALTER TABLE IF EXISTS dr_przetargi_allocations DROP CONSTRAINT IF EXISTS dr_przetargi_allocations_consultant_id_fkey",
@@ -9662,7 +9673,7 @@ _CONSTRAINT_STATEMENTS = [
                 'periodic_order_ending', 'framework_contract_expiring',
                 'contract_ending', 'cost_budget_low', 'new_contractor_draft',
                 'md_base_usage_high', 'candidate_conflict_expired',
-                'invoice_without_order_line'
+                'invoice_without_order_line', 'framework_over_limit'
             ));
     END $$""",
     # 0310: status `resolved` (przyczyna ustąpiła bez odhaczenia DL) i

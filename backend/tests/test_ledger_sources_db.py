@@ -4187,6 +4187,81 @@ async def test_foreign_purchase_needs_the_suppliers_account_setting(
         ) is None
 
 
+async def test_late_foreign_invoice_stays_in_the_service_month_and_flags_its_jpk(
+    client, world, books, monkeypatch
+):
+    """Faktura importu usług otrzymana pół roku po usłudze: VAT należny
+    i naliczony w miesiącu usługi (art. 86 ust. 10b pkt 3 — bez terminu
+    3 miesięcy od 7.09.2021), data otrzymania = DataWplywu, wysłany JPK
+    marca staje się „do korekty”."""
+
+    from lxml import etree
+
+    from app.services.ledger import jpk
+
+    year = books["year"]
+    monkeypatch.setattr(ledger_vat_api, "business_today", lambda: date(year, 12, 31))
+    previous = await _payer("0202")
+    try:
+        parent = await _foreign_setup(world, books)
+        await _jpk_ready(client, world, books)
+        settings = _ledger_settings(world, books, allocation=False)
+        settings["modules"]["vat"] = True
+        settings["vat"] = {"input_account": books["acc"]["vat_in"], "foreign_account": parent}
+        settings["jpk"] = {"email": "vat@example.com", "phone": ""}
+        await _set_ledger(settings)
+        march = await _jpk(client, world, books, opening_surplus=0)
+        assert march.status_code == 201, march.text
+        assert (await _jpk_sent(client, world, march.json()["file"]["id"])).status_code == 200
+        assert (await _jpk_item(client, world, books, 3))["state"] == "ok"
+        assert f"{year}-03" in (await _foreign_overview(client, world, books))["jpk_sent"]
+
+        supplier = {
+            "name": f"Dostawca Spozniony {parent.split('-')[0]}",
+            "country": "IE",
+            "tax_id": f"{random.randint(1_000_000, 9_999_999)}T",
+        }
+        early = await _foreign(
+            client, world, _foreign_body(books, new_supplier=supplier, received_date=f"{year}-03-20")
+        )
+        assert early.status_code == 422 and "wcześniejsza niż data wystawienia" in early.json()["detail"]
+        created = await _foreign(
+            client, world, _foreign_body(books, new_supplier=supplier, received_date=f"{year}-09-14")
+        )
+        assert created.status_code == 201, created.text
+        books["extra_parties"].append(created.json()["supplier"]["id"])
+        doc = created.json()["document"]
+        assert (doc["service_date"], doc["received_date"]) == (f"{year}-03-20", f"{year}-09-14")
+        await _approve_ids(client, world, [doc["id"]])
+
+        registers = (await _vat_registers(client, world, books)).json()
+        sale = next(row for row in registers["sales"] if row["number"] == "INV-0042")
+        bought = next(row for row in registers["purchases"] if row["number"] == "INV-0042")
+        assert (sale["date"], [g["key"] for g in sale["groups"]]) == (f"{year}-03-20", ["imp_28b"])
+        assert (bought["date"], bought["issue_date"], bought["vat"]) == (f"{year}-09-14", f"{year}-03-21", 9_890)
+        content = _jpk_file(registers)
+        assert jpk.validate(content) == []
+        rows = [
+            node
+            for node in etree.fromstring(content).iter("{*}ZakupWiersz")
+            if node.findtext("{*}DowodZakupu") == "INV-0042"
+        ]
+        assert [(n.findtext("{*}DataZakupu"), n.findtext("{*}DataWplywu")) for n in rows] == [
+            (f"{year}-03-21", f"{year}-09-14")
+        ]
+        # Wrzesień (miesiąc otrzymania) bez tej faktury — ani należny, ani naliczony.
+        september = (await _vat_registers(client, world, books, month=9)).json()
+        assert "INV-0042" not in {row["number"] for row in september["sales"] + september["purchases"]}
+        assert (await _jpk_item(client, world, books, 3))["state"] == "problem"
+        overview = (
+            await client.get(f"{ACC}/vat/jpk", params={"year": year, "month": 3}, headers=_headers(world["accountant"]))
+        ).json()
+        assert overview["stale"] == "registers"
+    finally:
+        await _purge_jpk(year)
+        await _restore_payer(previous)
+
+
 async def test_vat_markers_go_on_the_buyers_sales_invoices(client, world, books):
     """GTU/TP per kontrahent (decyzja 15.11): na każdej FVS kontrahenta, w pliku
     JPK zgodnym z XSD; zmiana znaczników = inny odcisk rejestru (korekta)."""
@@ -4559,3 +4634,128 @@ async def test_vat_settlement_moves_month_vat_to_the_tax_account(client, world, 
     finally:
         await _purge_jpk(year)
         await _restore_payer(previous)
+
+
+# ── VAT-UEK(5) (K5b-3c) ─────────────────────────────────────────────────────
+
+
+async def test_vat_uek_corrects_the_original_period_from_month_k(client, world, books):
+    """Korekta z maja faktury np II z marca: VAT-UE maja jej nie liczy (lista
+    „do VAT-UEK” z okresem), VAT-UEK za marzec z korekt maja — „było” z rejestru
+    marca, „jest” po korekcie; faktura pierwotna spoza księgi = problem."""
+
+    await _vat_books(client, world, books)
+    year, nips = books["year"], world["nips"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == books["sales"]["euro"])
+            .values(buyer_nip=None, buyer_foreign_id="FI28583949")
+        )
+        # Faktura z lutego bez dokumentu w księdze (VAT-UE z Symfonii).
+        outside = _sales_invoice(
+            nips["client"],
+            number="FS 9/02",
+            buyer_foreign_id="FI28583949",
+            buyer_name="Klient Testowy",
+            issue_date=date(year, 2, 20),
+            sale_date=date(year, 2, 20),
+            net_amount=Decimal("300.00"),
+            vat_amount=Decimal("0"),
+            gross_amount=Decimal("300.00"),
+        )
+        db.add(outside)
+        await db.flush()
+        corrections = [
+            _sales_invoice(
+                nips["client"],
+                number=number,
+                # NIP z kartoteki testu — synchronizacja szuka nabywcy po nim;
+                # zdejmowany po zatwierdzeniu (niżej), jak w teście VAT-UE.
+                buyer_nip=nips["client"],
+                buyer_foreign_id="FI28583949",
+                buyer_name="Klient Testowy",
+                invoice_type="KOR",
+                invoice_kind="correction",
+                corrects_invoice_id=original,
+                corrected_invoice_number=original_number,
+                issue_date=date(year, 5, 10),
+                sale_date=sale,
+                net_amount=Decimal(net),
+                vat_amount=Decimal("0"),
+                gross_amount=Decimal(net),
+                items=[
+                    {"name": "Usługa", "net": before, "vat_rate": "np II", "before_correction": True},
+                    {"name": "Usługa", "net": after, "vat_rate": "np II"},
+                ],
+            )
+            for number, original, original_number, sale, net, before, after in (
+                ("FK 1/05", books["sales"]["euro"], "FS 2/03", date(year, 3, 20), "-430.00", "500.00", "400.00"),
+                ("FK 2/05", outside.id, "FS 9/02", date(year, 2, 20), "-100.00", "300.00", "200.00"),
+            )
+        ]
+        db.add_all(corrections)
+        await db.commit()
+        books["sales"].update(
+            uek_outside=outside.id, uek_march=corrections[0].id, uek_feb=corrections[1].id
+        )
+    synced = await _sync(client, world, books, "sales", month=5)
+    assert synced.status_code == 200, synced.text
+    docs = [
+        await _document("client_sales_invoice", books["sales"][key])
+        for key in ("uek_march", "uek_feb")
+    ]
+    assert all(doc is not None and doc.op_date == date(year, 5, 10) for doc in docs), synced.text
+    await _approve_ids(client, world, [doc.id for doc in docs])
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(
+                ClientSalesInvoice.id.in_(
+                    [books["sales"]["uek_march"], books["sales"]["uek_feb"]]
+                )
+            )
+            .values(buyer_nip=None)
+        )
+        await db.commit()
+    headers = _headers(world["module_only"])
+
+    may = (await client.get(f"{ACC}/vat/ue", params={"year": year, "month": 5}, headers=headers)).json()
+    assert sorted((item["number"], item["kind"], item.get("period")) for item in may["problems"]) == [
+        ("FK 1/05", "earlier", f"{year}-03"),
+        ("FK 2/05", "earlier", f"{year}-02"),
+    ]
+
+    params = {"year": year, "month": 3, "issued_year": year, "issued_month": 5}
+    response = await client.get(f"{ACC}/vat/uek", params=params, headers=headers)
+    assert response.status_code == 200, response.text
+    data = response.json()
+    # 500 EUR po 4,30 = 2 150 zł było, po korekcie −430 zł = 1 720 zł.
+    assert [
+        (line["section"], line["country"], line["number"], line["before"], line["after"], line["documents"])
+        for line in data["lines"]
+    ] == [("services", "FI", "28583949", 2150, 1720, ["FK 1/05"])]
+    assert (data["corrections"], data["earlier_months"], data["problems"]) == (1, [], [])
+    # Rok testu (2050–2090) jest poza etd:TRok (do 2030) — plik nie powstaje;
+    # schemat sprawdzają testy reguł.
+    refused = await client.get(f"{ACC}/vat/uek/file", params=params, headers=headers)
+    assert refused.status_code == 422 and "VAT-UEK" in refused.json()["detail"]
+
+    february = (
+        await client.get(f"{ACC}/vat/uek", params={**params, "month": 2}, headers=headers)
+    ).json()
+    assert [item["kind"] for item in february["problems"]] == ["outside"]
+    assert february["can_download"] is False
+
+    nothing = (
+        await client.get(f"{ACC}/vat/uek", params={**params, "issued_month": 4}, headers=headers)
+    ).json()
+    assert (nothing["lines"], nothing["corrections"]) == ([], 0)
+    empty = await client.get(
+        f"{ACC}/vat/uek/file", params={**params, "issued_month": 4}, headers=headers
+    )
+    assert empty.status_code == 422 and "nie ma korekt" in empty.json()["detail"]
+    backwards = await client.get(
+        f"{ACC}/vat/uek", params={**params, "issued_month": 3}, headers=headers
+    )
+    assert backwards.status_code == 422

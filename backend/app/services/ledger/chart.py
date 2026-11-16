@@ -1,7 +1,8 @@
 """Plan kont księgi (K1): tabela kont z E2 (``finance_accounts``) z syntetyką.
 
 Jeden plan kont dla dekretu faktur (E2) i księgi NEXUSA. K1 dokłada konto
-nadrzędne, typ konta, słownik analityki i pozycję sprawozdania; rodzaj
+nadrzędne, typ konta, słownik analityki i pozycję sprawozdania (od K8a znacznik
+MF z JPK_KR_PD albo para Wn/Ma — ``markers.clean_report_line``); rodzaj
 ``other`` mają konta spoza dekretu faktur. Numeru konta się nie zmienia
 (nowy numer = nowe konto), kont się nie kasuje — wyłącza się je, jak w E2.
 
@@ -21,12 +22,11 @@ from app.models.finance_posting import FinanceAccount, FinancePostingRule
 from app.models.ledger import LedgerDocument, LedgerLine
 from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import ACCOUNT_KIND_LABELS, clean_account
-from app.services.ledger import engine
+from app.services.ledger import engine, markers
 from app.services.ledger_schema import (
     ACCOUNT_DICTIONARIES,
     ACCOUNT_KINDS,
     ACCOUNT_TYPES,
-    REPORT_LINE_MAX,
 )
 from app.services.finance_posting_schema import ACCOUNT_NAME_MAX
 
@@ -174,9 +174,7 @@ async def create_account(
     ):
         raise LedgerError(f"Konto {number} już jest w planie kont.")
     kind = _choice(body.get("kind") or "other", ACCOUNT_KINDS, "rodzaj konta")
-    report_line = (
-        " ".join(str(body.get("report_line") or "").split())[:REPORT_LINE_MAX] or None
-    )
+    report_line = markers.clean_report_line(body.get("report_line"))
     row = FinanceAccount(
         number=number,
         name=_name(body.get("name")),
@@ -234,10 +232,7 @@ async def update_account(
             changes["dictionary"], ACCOUNT_DICTIONARIES, "słownik analityki"
         )
     if "report_line" in changes:
-        row.report_line = (
-            " ".join(str(changes["report_line"] or "").split())[:REPORT_LINE_MAX]
-            or None
-        )
+        row.report_line = markers.clean_report_line(changes["report_line"])
     if "active" in changes and changes["active"] is not None:
         if not changes["active"] and in_rules:
             raise LedgerError(

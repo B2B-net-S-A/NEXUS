@@ -13,16 +13,24 @@ import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 import {
   autofillMoveFields,
   autofillReasonLabel,
+  CLEANUP_KIND_LABEL,
   GAP_KIND_LABEL,
   gapsNote,
   notLookingUntil,
   NOT_LOOKING_DEFAULT_MONTHS,
+  otherNoteHasWords,
+  ROLE_KIND_LABEL,
   templateReasonFor,
+  type AutofillAvailability,
+  type AutofillCleanupKind,
+  type AutofillDetail,
   type AutofillGap,
   type AutofillGapKind,
   type AutofillLearnedFrom,
   type AutofillReason,
+  type AutofillRoleKind,
 } from "@/lib/autofill-feedback";
+import { warsawToday } from "@/lib/warsaw-date";
 import { knownFactLabels } from "@/lib/new-column-queue";
 import { reasonNeedsDescription, WORK_MODE_MISMATCH_REASON } from "@/lib/rejection-reasons";
 import { cn } from "@/lib/utils";
@@ -48,7 +56,7 @@ export const QUICK_REASONS: { key: string; value: AutofillReason; label: string 
   { key: "5", value: "no_polish", label: "Brak polskiego" },
   { key: "6", value: "weak_english", label: "Angielski za słaby" },
   { key: "7", value: "other_level_or_role", label: "Inna rola" },
-  { key: "8", value: "not_looking", label: "Nie szuka pracy" },
+  { key: "8", value: "not_looking", label: "Nie szuka / niedostępny" },
   { key: "9", value: "contract_form", label: "Forma umowy" },
   { key: "0", value: "other", label: "Inne" },
 ];
@@ -70,14 +78,112 @@ export function gapRows(item: Pick<ReviewBatchItem, "matched_must" | "missing_mu
   return rows;
 }
 
+/**
+ * Szczegóły powodu w porcji (16.11.2026, feedback z 13.11): „Inna rola” mówi,
+ * co nie pasuje (49 odrzuceń bez słowa), „Nie szuka” zapisuje wypowiedzenie
+ * albo datę, „Za drogi” kwotę, a porządki tablicy nie uczą systemu.
+ */
+export interface RejectExtras {
+  cleanup?: AutofillCleanupKind | null;
+  availability?: AutofillAvailability;
+  availableFrom?: string;
+}
+
+/** Okres wypowiedzenia do wyboru (miesiące). */
+export const NOTICE_MONTHS = [1, 2, 3] as const;
+
+export const AVAILABILITY_LABEL: Record<AutofillAvailability, string> = {
+  not_looking: `Nie szuka (wraca za ${NOT_LOOKING_DEFAULT_MONTHS} mies.)`,
+  notice: "Okres wypowiedzenia",
+  from_date: "Dostępny od…",
+};
+
 /** Czego brakuje do wysłania odrzucenia (pusty tekst = gotowe). */
-export function rejectMissing(reason: AutofillReason | null, note: string, gapCount = 0): string {
+export function rejectMissing(
+  reason: AutofillReason | null,
+  note: string,
+  gapCount = 0,
+  extras: RejectExtras = {},
+): string {
   if (!reason) return "Wybierz powód (1–9, 0).";
   if (reason === "missing_skill" && gapCount === 0 && !note.trim()) {
     return "Kliknij, czego brakuje, albo wpisz coś spoza listy.";
   }
-  if (reason === "other" && !note.trim()) return "Opisz powód.";
+  if (reason === "other" && !extras.cleanup && !otherNoteHasWords(note)) {
+    return "Opisz powód słowami albo wybierz porządki.";
+  }
+  if (reason === "not_looking" && extras.availability === "from_date") {
+    if (!extras.availableFrom) return "Podaj, od kiedy jest dostępny.";
+    if (extras.availableFrom < tomorrowIso()) return "Data dostępności musi być w przyszłości.";
+  }
   return "";
+}
+
+/** Jutro w kalendarzu firmy („RRRR-MM-DD”). */
+export function tomorrowIso(today: string = warsawToday()): string {
+  const [y, m, d] = today.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
+/** Powód dla serwera: „Inne” z wybranymi porządkami to `cleanup`. */
+export function effectiveReason(reason: AutofillReason, cleanup: AutofillCleanupKind | null): AutofillReason {
+  return reason === "other" && cleanup ? "cleanup" : reason;
+}
+
+/** „Nie szuka do” dla wybranej dostępności. */
+export function availabilityUntil(
+  availability: AutofillAvailability,
+  noticeMonths: number,
+  availableFrom: string,
+): string | null {
+  if (availability === "notice") return notLookingUntil(noticeMonths);
+  if (availability === "from_date") return availableFrom || null;
+  return notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS);
+}
+
+/** Szczegół powodu do `autofill_detail`; `null`, gdy nic nie wybrano. */
+export function rejectDetail(
+  reason: AutofillReason,
+  roleKind: AutofillRoleKind | null,
+  roleWanted: string,
+  availability: AutofillAvailability,
+  cleanup: AutofillCleanupKind | null,
+): AutofillDetail | null {
+  if (reason === "other_level_or_role") {
+    const detail: AutofillDetail = {};
+    if (roleKind) detail.role_kind = roleKind;
+    if (roleWanted.trim()) detail.role_wanted = roleWanted.trim();
+    return Object.keys(detail).length ? detail : null;
+  }
+  if (reason === "not_looking") return { availability };
+  if (reason === "other" && cleanup) return { cleanup };
+  return null;
+}
+
+/** Opis do historii procesu: to, co rekruter kliknął, słowami. */
+export function historyNote(
+  reason: AutofillReason,
+  note: string,
+  roleKind: AutofillRoleKind | null,
+  roleWanted: string,
+  cleanup: AutofillCleanupKind | null,
+): string {
+  if (reason === "other_level_or_role") {
+    return [
+      roleKind ? ROLE_KIND_LABEL[roleKind] : null,
+      roleWanted.trim() ? `szukamy: ${roleWanted.trim()}` : null,
+    ]
+      .filter(Boolean)
+      .join(", ");
+  }
+  if (reason === "other" && cleanup) return [CLEANUP_KIND_LABEL[cleanup], note.trim()].filter(Boolean).join(". ");
+  return note;
+}
+
+/** „Ile chce?” — dodatnia liczba zł/h albo `null`. */
+export function parseAskedRate(value: string): number | null {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 && n <= 10000 ? n : null;
 }
 
 /**
@@ -150,13 +256,23 @@ export function ReviewBatchCard({
   const [officeDays, setOfficeDays] = useState<number | null>(null);
   const [saveWorkMode, setSaveWorkMode] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [roleKind, setRoleKind] = useState<AutofillRoleKind | null>(null);
+  const [roleWanted, setRoleWanted] = useState("");
+  const [askedRate, setAskedRate] = useState("");
+  const [availability, setAvailability] = useState<AutofillAvailability>("not_looking");
+  const [noticeMonths, setNoticeMonths] = useState<number>(3);
+  const [availableFrom, setAvailableFrom] = useState("");
+  const [cleanup, setCleanup] = useState<AutofillCleanupKind | null>(null);
 
   const rows = useMemo(() => gapRows(item), [item]);
   const gaps = useMemo<AutofillGap[]>(
     () => rows.filter((label) => gapKinds[label]).map((label) => ({ label, kind: gapKinds[label] })),
     [rows, gapKinds],
   );
-  const missing = useMemo(() => rejectMissing(reason, note, gaps.length), [reason, note, gaps.length]);
+  const missing = useMemo(
+    () => rejectMissing(reason, note, gaps.length, { cleanup, availability, availableFrom }),
+    [reason, note, gaps.length, cleanup, availability, availableFrom],
+  );
   const templates = useMemo(
     () => rejectionReasons.filter((r) => r.applies_to?.includes("rejected")),
     [rejectionReasons],
@@ -185,27 +301,56 @@ export function ReviewBatchCard({
   const reject = useCallback(async () => {
     if (busy || missing || !reason) return;
     setBusy(true);
+    const sent = effectiveReason(reason, cleanup);
     const outcome = await move.send(
       {
         candidate_id: item.candidate_id,
         job_id: item.job_id,
         stage: "rejected",
         send_rejection_email: false,
-        ...templateMoveFields(reason, note, officeDays, saveWorkMode, templates, gaps),
-        ...autofillMoveFields({
-          reason,
-          learnedFrom,
-          rateHourly: null,
-          notLookingUntil:
-            reason === "not_looking" ? notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS) : null,
+        ...templateMoveFields(
+          sent,
+          historyNote(reason, note, roleKind, roleWanted, cleanup),
+          officeDays,
+          saveWorkMode,
+          templates,
           gaps,
+        ),
+        ...autofillMoveFields({
+          reason: sent,
+          learnedFrom,
+          rateHourly: reason === "too_expensive" ? parseAskedRate(askedRate) : null,
+          notLookingUntil:
+            reason === "not_looking" ? availabilityUntil(availability, noticeMonths, availableFrom) : null,
+          gaps,
+          detail: rejectDetail(reason, roleKind, roleWanted, availability, cleanup),
         }),
       },
       { candidateName: item.name },
     );
     setBusy(false);
     if (outcome.ok) onDecided();
-  }, [busy, missing, reason, templates, move, item, note, officeDays, saveWorkMode, learnedFrom, gaps, onDecided]);
+  }, [
+    busy,
+    missing,
+    reason,
+    templates,
+    move,
+    item,
+    note,
+    officeDays,
+    saveWorkMode,
+    learnedFrom,
+    gaps,
+    cleanup,
+    roleKind,
+    roleWanted,
+    askedRate,
+    availability,
+    noticeMonths,
+    availableFrom,
+    onDecided,
+  ]);
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
@@ -400,6 +545,125 @@ export function ReviewBatchCard({
               ))}
             </div>
           ) : null}
+          {reason === "other_level_or_role" ? (
+            <div className="space-y-1" data-testid="review-reject-role">
+              <div className="text-xs text-muted-foreground">
+                Co nie pasuje? Osoba: <span className="font-medium text-foreground">{item.position || "rola nieznana"}</span>
+              </div>
+              <div className="flex flex-wrap gap-1 text-xs">
+                {(Object.keys(ROLE_KIND_LABEL) as AutofillRoleKind[]).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-pressed={roleKind === kind}
+                    onClick={() => setRoleKind(roleKind === kind ? null : kind)}
+                    className={cn(
+                      "rounded border px-1.5 py-0.5",
+                      roleKind === kind ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
+                    )}
+                  >
+                    {ROLE_KIND_LABEL[kind]}
+                  </button>
+                ))}
+              </div>
+              <input
+                id="review-reject-role-wanted"
+                aria-label="Kogo szukamy zamiast"
+                value={roleWanted}
+                maxLength={120}
+                onChange={(e) => setRoleWanted(e.target.value)}
+                className="w-full rounded border border-border bg-background px-2 py-1 text-xs"
+                placeholder="Kogo szukamy zamiast? np. analityk biznesowy, nie DBA (opcjonalnie)"
+              />
+            </div>
+          ) : null}
+          {reason === "too_expensive" ? (
+            <div className="space-y-1 text-xs" data-testid="review-reject-rate">
+              <div className="flex items-center gap-2">
+                <label htmlFor="review-reject-rate" className="text-muted-foreground">
+                  Ile chce?
+                </label>
+                <input
+                  id="review-reject-rate"
+                  value={askedRate}
+                  onChange={(e) => setAskedRate(e.target.value.replace(/[^\d]/g, "").slice(0, 5))}
+                  inputMode="numeric"
+                  className="w-20 rounded border border-border bg-background px-2 py-1 tabular-nums"
+                  placeholder="np. 140"
+                />
+                <span className="text-muted-foreground">
+                  zł/h{item.budget_hourly != null ? ` · budżet ${Math.round(item.budget_hourly)}` : ""}
+                </span>
+              </div>
+              <p className="text-muted-foreground">
+                Opcjonalnie. Kwota trafi na profil jako „Stawka od”, więc system przestanie proponować tę osobę do niższych budżetów.
+              </p>
+            </div>
+          ) : null}
+          {reason === "not_looking" ? (
+            <div className="flex flex-wrap items-center gap-1 text-xs" data-testid="review-reject-availability">
+              {(Object.keys(AVAILABILITY_LABEL) as AutofillAvailability[]).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={availability === kind}
+                  onClick={() => setAvailability(kind)}
+                  className={cn(
+                    "rounded border px-1.5 py-0.5",
+                    availability === kind ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
+                  )}
+                >
+                  {AVAILABILITY_LABEL[kind]}
+                </button>
+              ))}
+              {availability === "notice" ? (
+                <select
+                  id="review-reject-notice"
+                  aria-label="Okres wypowiedzenia"
+                  value={noticeMonths}
+                  onChange={(e) => setNoticeMonths(Number(e.target.value))}
+                  className="rounded border border-border bg-background px-1 py-0.5"
+                >
+                  {NOTICE_MONTHS.map((m) => (
+                    <option key={m} value={m}>
+                      {m} mies.
+                    </option>
+                  ))}
+                </select>
+              ) : null}
+              {availability === "from_date" ? (
+                <input
+                  id="review-reject-available-from"
+                  aria-label="Dostępny od"
+                  type="date"
+                  min={tomorrowIso()}
+                  max={notLookingUntil(24)}
+                  value={availableFrom}
+                  onChange={(e) => setAvailableFrom(e.target.value)}
+                  className="rounded border border-border bg-background px-1 py-0.5"
+                />
+              ) : null}
+            </div>
+          ) : null}
+          {reason === "other" ? (
+            <div className="flex flex-wrap items-center gap-1 text-xs" data-testid="review-reject-cleanup">
+              <span className="text-muted-foreground">Nie ocena osoby (system się z tego nie uczy):</span>
+              {(Object.keys(CLEANUP_KIND_LABEL) as AutofillCleanupKind[]).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  aria-pressed={cleanup === kind}
+                  onClick={() => setCleanup(cleanup === kind ? null : kind)}
+                  className={cn(
+                    "rounded border px-1.5 py-0.5",
+                    cleanup === kind ? "border-primary bg-primary/10 text-primary" : "border-border hover:bg-muted",
+                  )}
+                >
+                  {CLEANUP_KIND_LABEL[kind]}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {reason === "missing_skill" || reason === "other" ? (
             <Textarea
               id="review-reject-note"
@@ -407,7 +671,11 @@ export function ReviewBatchCard({
               onChange={(e) => setNote(e.target.value)}
               rows={2}
               placeholder={
-                reason === "missing_skill" ? "Coś spoza listy, np. produkty inwestycyjne (opcjonalnie)" : "Opisz powód"
+                reason === "missing_skill"
+                  ? "Coś spoza listy, np. produkty inwestycyjne (opcjonalnie)"
+                  : cleanup
+                    ? "Dodatkowy opis (opcjonalnie)"
+                    : "Opisz powód"
               }
             />
           ) : null}

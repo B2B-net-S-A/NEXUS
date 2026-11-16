@@ -73,6 +73,7 @@ export function cardPill(card: DlAlertCard): string {
 export function cardCta(card: DlAlertCard): string {
   switch (card.alert_type) {
     case "contract_ending":
+    case "framework_over_limit":
       return "Przejdź do kontraktu"
     case "framework_contract_expiring":
       return "Przejdź do umowy"

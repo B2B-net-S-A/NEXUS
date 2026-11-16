@@ -176,6 +176,8 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/novelties/start": "Start w NEXUSIE — własny postęp przy przeklikaniach swojej roli, bez danych domenowych; blokuje osobę na każdej sekcji (decyzja Artura 30.10.2026)",
     "GET /api/cv-generator/feedback/summary": "Ustawienia → „Jakość generatora CV” — zestawienie dla admina i HoR (bramka roli), poza sekcjami jak panel nowości",
     "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
+    "GET /api/novelties/poligon/luki": "„Kto zna NEXUS” — imiennie, których funkcji rekruter używał w 60 dni (liczba luk, postęp poligonu), bez danych domenowych; admin i HoR (decyzja Artura 16.11.2026)",
+    "POST /api/novelties/poligon/luki": "wysyłka poligonu z lukami — zalicza ćwiczenia z pracy i ustawia termin, bez danych domenowych; admin i HoR (decyzja Artura 16.11.2026)",
     # ── Radar przepisów (15.11.2026): osobna oś od sekcji produktu ──────────
     **{
         route: (

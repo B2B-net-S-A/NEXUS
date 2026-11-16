@@ -569,6 +569,7 @@ async def _purchase_rows(
         party = parties.get(doc.counterparty_id or 0)
         issued = (doc.meta or {}).get("issue_date")
         issue_date = date.fromisoformat(issued) if issued else doc.doc_date
+        received = (doc.meta or {}).get("received_date")
         tax_id, country = _party_tax_id(party)
         group = (doc.meta or {}).get("jpk_group")
         foreign = doc.source_type == FOREIGN_SOURCE and group in IMPORT_GROUPS
@@ -588,9 +589,12 @@ async def _purchase_rows(
             rows.append(
                 Row(
                     **common,
-                    # Data wpływu faktury zagranicznej nie jest znana: data
-                    # dowodu (bez DataWplywu w JPK), okres = miesiąc dokumentu.
-                    day=issue_date if foreign else doc.op_date,
+                    # Faktura zagraniczna: data otrzymania z formularza
+                    # (DataWplywu w JPK, gdy inna niż wystawienia; dokumenty
+                    # sprzed pola — data dowodu), okres = miesiąc usługi.
+                    day=(date.fromisoformat(received) if received else issue_date)
+                    if foreign
+                    else doc.op_date,
                     net=found.net,
                     vat=found.vat,
                     amounts={found.key: (found.net, found.vat)},

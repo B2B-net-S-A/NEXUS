@@ -15,6 +15,7 @@ import {
   useIssueSettings,
   useSaveIssueSettings,
   useSetSeriesNext,
+  type IssueAccount,
   type IssueCurrency,
   type IssueSettings,
   type SeriesCode,
@@ -205,7 +206,7 @@ export function IssueSettingsPanel({ period }: { period: string }) {
 
       <section aria-labelledby="issue-clients" className="rounded-lg border border-border bg-card px-4 py-3">
         <h3 id="issue-clients" className="mb-2 text-sm font-semibold text-foreground">
-          Stawka i termin przy kliencie
+          Stawka, termin i rachunek przy kliencie
         </h3>
         {Object.keys(draft.clients).length === 0 ? (
           <p className="text-sm text-muted-foreground">Wszyscy klienci mają ustawienia domyślne.</p>
@@ -257,6 +258,13 @@ export function IssueSettingsPanel({ period }: { period: string }) {
                 >
                   <Trash2 className="h-4 w-4" aria-hidden />
                 </Button>
+                <ClientAccount
+                  label={names[id] ?? `Klient #${id}`}
+                  accounts={entry.accounts ?? {}}
+                  onChange={(accounts) =>
+                    set("clients", { ...draft.clients, [id]: { ...entry, accounts } })
+                  }
+                />
               </li>
             ))}
           </ul>
@@ -365,5 +373,60 @@ function SeriesSection({
         ))}
       </ul>
     </section>
+  );
+}
+
+
+/**
+ * Rachunek klienta w jednej walucie (np. Nordea płaci w EUR na inny rachunek
+ * niż reszta klientów — decyzja Artura 16.11.2026). Pusty numer = rachunek
+ * domyślny z „Rachunki”.
+ */
+function ClientAccount({
+  label,
+  accounts,
+  onChange,
+}: {
+  label: string;
+  accounts: Partial<Record<IssueCurrency, IssueAccount>>;
+  onChange: (accounts: Partial<Record<IssueCurrency, IssueAccount>>) => void;
+}) {
+  const initial = CURRENCIES.find((code) => accounts[code]?.number) ?? "EUR";
+  const [currency, setCurrency] = useState<IssueCurrency>(initial);
+  const current = accounts[currency] ?? { number: "", bank: "", swift: "" };
+  const update = (patch: Partial<IssueAccount>) => {
+    const next = { ...current, ...patch };
+    const rest = { ...accounts };
+    if (next.number.trim()) rest[currency] = next;
+    else delete rest[currency];
+    onChange(rest);
+  };
+  return (
+    <div className="grid gap-2 md:col-span-4 md:grid-cols-[6rem_minmax(0,2fr)_minmax(0,1fr)]">
+      <select
+        aria-label={`Waluta rachunku — ${label}`}
+        className={SELECT}
+        value={currency}
+        onChange={(event) => setCurrency(event.target.value as IssueCurrency)}
+      >
+        {CURRENCIES.map((code) => (
+          <option key={code} value={code}>
+            {code}
+          </option>
+        ))}
+      </select>
+      <Input
+        aria-label={`Rachunek klienta ${currency} — ${label}`}
+        placeholder="rachunek domyślny"
+        value={current.number}
+        onChange={(event) => update({ number: event.target.value })}
+      />
+      <Input
+        aria-label={`Bank rachunku klienta — ${label}`}
+        placeholder="bank"
+        value={current.bank}
+        onChange={(event) => update({ bank: event.target.value })}
+      />
+    </div>
   );
 }

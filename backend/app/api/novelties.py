@@ -18,7 +18,7 @@ Moduł ma ``@limiter.limit``, więc bez ``from __future__ import annotations``
 (ciało żądania trafiłoby do query → 422).
 """
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
@@ -50,6 +50,17 @@ from app.services.onboarding_day import (
     poligon_open,
     poligon_replaces,
     poligon_requirement,
+)
+from app.services.poligon_luki import (
+    FEATURES as LUKI_FEATURES,
+    LUKI_KEY,
+    campaign_entry,
+    credited_exercises,
+    default_due,
+    feature_usage,
+    load_campaign,
+    overdue,
+    targets as luki_targets,
 )
 from app.services.section_permissions import SectionAccess, section_access_for_user
 
@@ -590,10 +601,21 @@ async def my_start(
         else PoligonRequirement((), ())
     )
     required = need.required
-    if required:
+    poligon_ids = poligon_exercises(current_user, plan) if open_ else []
+    required_ids = list(need.exercise_ids) if required else None
+    # Poligon dla obecnych (Artur, 16.11.2026): do terminu prosi, po terminie
+    # blokuje jak u nowej osoby — cała ścieżka, część zaliczona z pracy.
+    luki = (
+        campaign_entry(await load_campaign(db), current_user.id)
+        if open_ and not required
+        else None
+    )
+    if luki:
+        required = overdue(luki["due"], business_today())
+        required_ids = poligon_ids
+    if required and need.required:
         replaced = poligon_replaces(current_user, plan)
         tours = [t for t in tours if t.id not in replaced]
-    poligon_ids = poligon_exercises(current_user, plan) if open_ else []
     progress = await _progress_rows(
         db, current_user.id, [t.id for t in tours] + poligon_ids
     )
@@ -603,13 +625,16 @@ async def my_start(
         gate_on=await start_gate_on(db),
         impersonating=_impersonating(request),
         poligon=(
-            poligon_status(
-                progress,
-                poligon_ids,
-                open_=open_,
-                required=required,
-                required_ids=list(need.exercise_ids) if required else None,
-            )
+            {
+                **poligon_status(
+                    progress,
+                    poligon_ids,
+                    open_=open_,
+                    required=required,
+                    required_ids=required_ids,
+                ),
+                "luki": luki,
+            }
             if open_
             else None
         ),
@@ -642,3 +667,136 @@ async def set_start_gate(
         "enforced": await start_gate_on(db),
         "poligon": await start_gate_on(db, POLIGON_GATE_KEY),
     }
+
+
+# ── Poligon dla obecnych: tylko luki (Artur, 16.11.2026) ─────────────────────
+
+
+class LukiIn(BaseModel):
+    """Start kampanii: termin (domyślnie za tydzień)."""
+
+    due: Optional[date] = None
+
+
+@router.get("/novelties/poligon/luki")
+async def poligon_luki_matrix(
+    current_user: HeadOfRecruitmentPlus, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Kto zna NEXUS”: rekruterzy × ważne funkcje z 60 dni pracy (admin, HoR)."""
+    plan = load_poligon()
+    people = await luki_targets(db)
+    usage = await feature_usage(db, [u.id for u in people], datetime.now(timezone.utc))
+    campaign = await load_campaign(db)
+    done_rows = (
+        await db.execute(
+            select(NoveltyProgress.user_id, NoveltyProgress.novelty_id).where(
+                NoveltyProgress.user_id.in_([u.id for u in people] or [0]),
+                NoveltyProgress.novelty_id.like(f"{POLIGON_ID_PREFIX}%"),
+                NoveltyProgress.completed_at.is_not(None),
+            )
+        )
+    ).all()
+    done_by: dict[int, set[str]] = {}
+    for uid, nid in done_rows:
+        done_by.setdefault(int(uid), set()).add(nid)
+    rows = []
+    for u in people:
+        used = usage.get(u.id, set())
+        entry = campaign_entry(campaign, u.id)
+        path = poligon_exercises(u, plan)
+        rows.append(
+            {
+                "id": u.id,
+                "name": u.name,
+                "used": sorted(used),
+                "gaps": sum(1 for f in LUKI_FEATURES if f.key not in used),
+                "poligon": (
+                    {
+                        "done": sum(1 for e in path if e in done_by.get(u.id, set())),
+                        "total": len(path),
+                    }
+                    if entry
+                    else None
+                ),
+            }
+        )
+    return {
+        "window_days": 60,
+        "features": [
+            {
+                "key": f.key,
+                "label": f.label,
+                "group": f.group,
+                "users": sum(1 for r in rows if f.key in r["used"]),
+            }
+            for f in LUKI_FEATURES
+        ],
+        "people": rows,
+        "campaign": (
+            {"due": campaign["due"], "started_at": campaign.get("started_at")}
+            if campaign
+            else None
+        ),
+    }
+
+
+@router.post("/novelties/poligon/luki")
+async def start_poligon_luki(
+    payload: LukiIn,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Wysyła poligon z lukami: zalicza z pracy, ustawia termin (admin, HoR)."""
+    today = business_today()
+    due = payload.due or default_due(today)
+    if due < today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Termin nie może być w przeszłości.",
+        )
+    plan = load_poligon()
+    now = datetime.now(timezone.utc)
+    people = await luki_targets(db)
+    usage = await feature_usage(db, [u.id for u in people], now)
+    users: dict[str, dict[str, list[str]]] = {}
+    credited_total = 0
+    for u in people:
+        credited = credited_exercises(
+            usage.get(u.id, set()), poligon_exercises(u, plan)
+        )
+        users[str(u.id)] = {"credited": credited}
+        credited_total += len(credited)
+        for eid in credited:
+            await db.execute(
+                pg_insert(NoveltyProgress)
+                .values(
+                    user_id=u.id,
+                    novelty_id=eid,
+                    seen_count=0,
+                    completed_at=now,
+                    completed_via="used",
+                )
+                .on_conflict_do_update(
+                    index_elements=["user_id", "novelty_id"],
+                    set_={
+                        "completed_at": now,
+                        "completed_via": "used",
+                        "updated_at": now,
+                    },
+                    where=NoveltyProgress.completed_at.is_(None),
+                )
+            )
+    value = {
+        "due": due.isoformat(),
+        "started_at": now.isoformat(),
+        "started_by": current_user.id,
+        "users": users,
+    }
+    row = await db.get(AppSetting, LUKI_KEY)
+    if row is None:
+        db.add(AppSetting(key=LUKI_KEY, value=value, updated_by=current_user.id))
+    else:
+        row.value = value
+        row.updated_by = current_user.id
+    await db.commit()
+    return {"due": value["due"], "people": len(users), "credited": credited_total}

@@ -190,10 +190,12 @@ export const SEGMENT_LABELS: Record<string, string> = {
 /**
  * Nazwa zależna od całej ścieżki, gdy ten sam segment znaczy co innego w dwóch
  * miejscach: `payroll` pod Ludźmi to „Rozliczenia”, a pod Księgowością
- * zakładka „Lista płac” (UoP i zlecenia, K7a, 14.11.2026).
+ * zakładka „Lista płac” (UoP i zlecenia, K7a, 14.11.2026). `reports` to
+ * globalnie „Raporty”, a w Księgowości „Sprawozdania” (bilans i RZiS, K8a).
  */
 const PATH_LABELS: Record<string, string> = {
   "/accounting/payroll": "Lista płac",
+  "/accounting/reports": "Sprawozdania",
 };
 
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */

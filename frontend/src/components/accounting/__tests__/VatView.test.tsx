@@ -38,6 +38,7 @@ import type {
   JpkOverview,
   VatMarkers,
   VatRegisters,
+  VatUekOverview,
   VatSettlement,
   VatUeOverview,
 } from "@/lib/api/accounting-vat";
@@ -192,6 +193,7 @@ function foreignOverview(overrides: Partial<ForeignOverview> = {}): ForeignOverv
         supplier_id: 51,
         supplier: "Dostawca SaaS Ltd",
         issue_date: "2026-11-03",
+        received_date: "2026-11-03",
         service_date: "2026-10-31",
         currency: "EUR",
         rate: "4.300000",
@@ -212,6 +214,7 @@ function foreignOverview(overrides: Partial<ForeignOverview> = {}): ForeignOverv
     next_account: "202-1-3",
     currencies: ["PLN", "EUR", "USD"],
     vat_rates: ["23", "8", "5"],
+    jpk_sent: [],
     missing: [],
     ...overrides,
   };
@@ -252,7 +255,48 @@ function vatUe(overrides: Partial<VatUeOverview> = {}): VatUeOverview {
     blockers: [],
     missing: [],
     can_download: true,
-    notes: ["Korekta informacji za wcześniejszy okres (VAT-UEK) — jeszcze nie w NEXUSIE."],
+    notes: ["Korekty faktur z wcześniejszych okresów idą na VAT-UEK za tamten okres."],
+    ...overrides,
+  };
+}
+
+function vatUek(overrides: Partial<VatUekOverview> = {}): VatUekOverview {
+  return {
+    year: 2026,
+    month: 10,
+    issued_year: 2026,
+    issued_month: 11,
+    lines: [
+      {
+        section: "services",
+        section_label: "Usługi (art. 100 ust. 1 pkt 4)",
+        country: "FI",
+        number: "12345678",
+        name: "Nordic Bank Abp",
+        before: 2150,
+        after: 1720,
+        documents: ["KOR 1/11"],
+        documents_count: 1,
+      },
+      {
+        section: "services",
+        section_label: "Usługi (art. 100 ust. 1 pkt 4)",
+        country: "DE",
+        number: "123456789",
+        name: "Test GmbH",
+        before: null,
+        after: 300,
+        documents: ["KOR 2/11"],
+        documents_count: 1,
+      },
+    ],
+    corrections: 2,
+    earlier_months: [],
+    problems: [],
+    blockers: [],
+    missing: [],
+    can_download: true,
+    notes: [],
     ...overrides,
   };
 }
@@ -298,6 +342,7 @@ function route(
   foreign: ForeignOverview = foreignOverview(),
   marked: VatMarkers = markers(),
   ue: VatUeOverview = vatUe(),
+  uek: VatUekOverview = vatUek(),
   settled: VatSettlement = settlement(),
 ) {
   get.mockImplementation(async (url: string) => {
@@ -308,6 +353,7 @@ function route(
     if (url === "/api/accounting/vat/markers") return { data: marked };
     if (url === "/api/accounting/vat/ue") return { data: ue };
     if (url === "/api/accounting/vat/settlement") return { data: settled };
+    if (url === "/api/accounting/vat/uek") return { data: uek };
     if (url === "/api/finance/counterparties")
       return {
         data: {
@@ -552,6 +598,8 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
     const issued = screen.getByLabelText("Data wystawienia");
     await user.type(issued, "2026-11-03");
     expect(screen.getByLabelText("Data wykonania usługi")).toHaveValue("2026-11-03");
+    // Otrzymanie też idzie za wystawieniem; równe wystawieniu nie trafia do żądania.
+    expect(screen.getByLabelText("Data otrzymania faktury")).toHaveValue("2026-11-03");
     await user.clear(screen.getByLabelText("Data wykonania usługi"));
     await user.type(screen.getByLabelText("Data wykonania usługi"), "2026-10-31");
     await user.type(screen.getByRole("textbox", { name: "Netto w walucie" }), "200,00");
@@ -563,6 +611,7 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
         number: "INV-0099",
         issue_date: "2026-11-03",
         service_date: "2026-10-31",
+        received_date: undefined,
         currency: "EUR",
         net: "200.00",
         vat_rate: "23",
@@ -599,6 +648,36 @@ describe("Księgowość — VAT: zakup zagraniczny i znaczniki (K5b-2)", () => {
       expect(post).toHaveBeenCalledWith(
         "/api/accounting/vat/foreign",
         expect.objectContaining({ supplier_id: 52, currency: "USD", net: "-15.5", deduction: "none", service_date: "2026-11-02" }),
+      ),
+    );
+  });
+
+  it("formularz: faktura otrzymana po miesiącach — data otrzymania i ostrzeżenie o korekcie JPK", async () => {
+    route(config(), registers({ issues: [] }), jpkOverview(), foreignOverview({ jpk_sent: ["2026-07", "2026-10"] }));
+    post.mockResolvedValue({ data: { document: foreignOverview().items[0], supplier: foreignOverview().suppliers[0] } });
+    const user = userEvent.setup();
+    renderView();
+    await user.click(await screen.findByRole("button", { name: "Dodaj fakturę zagraniczną" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Dostawca" }), "51");
+    await user.type(screen.getByRole("textbox", { name: "Numer faktury" }), "INV-0071");
+    await user.type(screen.getByLabelText("Data wystawienia"), "2026-07-31");
+    expect(screen.getByText(/JPK_V7M za 07\.2026 jest już wysłany/)).toBeInTheDocument();
+    expect(screen.getByText(/zostają w miesiącu usługi \(art\. 86 ust\. 10b pkt 3\)/)).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Netto w walucie" }), "50");
+    await user.type(screen.getByRole("textbox", { name: "Konto kosztu" }), "402-1");
+    // Otrzymanie przed wystawieniem blokuje zapis.
+    const received = screen.getByLabelText("Data otrzymania faktury");
+    await user.clear(received);
+    await user.type(received, "2026-07-30");
+    expect(screen.getByText("Data otrzymania faktury nie może być wcześniejsza niż data wystawienia.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj do bufora" })).toBeDisabled();
+    await user.clear(received);
+    await user.type(received, "2026-11-12");
+    await user.click(screen.getByRole("button", { name: "Dodaj do bufora" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/accounting/vat/foreign",
+        expect.objectContaining({ supplier_id: 51, issue_date: "2026-07-31", service_date: "2026-07-31", received_date: "2026-11-12" }),
       ),
     );
   });
@@ -662,6 +741,7 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
         lines: [],
         problems: [
           { number: "1/11/2026/UE", detail: "nabywca bez numeru VAT UE", kind: "counterparty" },
+          // Bez okresu (starszy serwer) — zostaje na liście problemów.
           { number: "KOR 1/11", detail: "korekta faktury z 10.2026 — na VAT-UEK za 10.2026", kind: "earlier" },
         ],
         blockers: ["FVS i FVZ w buforze — rejestr liczy tylko zatwierdzone: 1"],
@@ -701,6 +781,7 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
       foreignOverview(),
       markers(),
       vatUe(),
+      vatUek(),
       settlement({ problem: "Obroty kont VAT okresu różnią się od JPK (wersja 1) — VAT naliczony: …", lines: [] }),
     );
     renderView();
@@ -711,7 +792,7 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
 
   it("rozliczenie VAT: zatwierdzone, a korekta JPK zmieniła kwoty — storno", async () => {
     const document = { id: 91, number: "VAT 1/11/2026", status: "approved" as const, payroll: false };
-    route(config(), registers(), jpkOverview(), foreignOverview(), markers(), vatUe(), settlement({ document, changed: true }));
+    route(config(), registers(), jpkOverview(), foreignOverview(), markers(), vatUe(), vatUek(), settlement({ document, changed: true }));
     renderView();
     expect(await screen.findByText(/VAT 1\/11\/2026 jest zatwierdzony, a z JPK wychodzą dziś inne kwoty/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Pokaż w Dokumentach" })).toHaveAttribute(
@@ -730,12 +811,70 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
       foreignOverview(),
       markers(),
       vatUe(),
+      vatUek(),
       settlement({ document, can_prepare: false, can_see_amounts: false, amounts: null, lines: [] }),
     );
     renderView();
     expect(await screen.findByText(/Kwoty rozliczenia widzi osoba z Płacami/)).toBeInTheDocument();
     expect(screen.getByText(/w buforze — zatwierdza lista „Księgowi” — dokument obejmuje faktury osób zespołu/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /rozliczenie VAT/ })).not.toBeInTheDocument();
+  });
+
+  it("korekty wcześniejszego okresu: VAT-UEK z „było” i „jest” i pobranie pliku", async () => {
+    route(
+      config(),
+      registers({ issues: [] }),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe({
+        problems: [
+          { number: "KOR 1/11", detail: "korekta faktury z 10.2026", kind: "earlier", period: "2026-10" },
+          { number: "KOR 2/11", detail: "korekta faktury z 10.2026", kind: "earlier", period: "2026-10" },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    renderView();
+    const block = await screen.findByRole("region", { name: "VAT-UEK za 10.2026" });
+    expect(within(block).getByText("korekty: KOR 1/11, KOR 2/11")).toBeInTheDocument();
+    const changed = (await within(block).findByText("FI 12345678")).closest("tr") as HTMLElement;
+    expect(within(changed).getByText("2 150,00")).toBeInTheDocument();
+    expect(within(changed).getByText("1 720,00")).toBeInTheDocument();
+    const added = within(block).getByText("DE 123456789").closest("tr") as HTMLElement;
+    expect(within(added).getByText("—")).toBeInTheDocument();
+    expect(within(block).getByText(/„—” w „Było” = kontrahent dopisany/)).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith("/api/accounting/vat/uek", {
+      params: { year: 2026, month: 10, issued_year: 2026, issued_month: 11 },
+    });
+    // Korekty z okresem nie wiszą już na liście problemów VAT-UE.
+    expect(screen.queryByText(/korekta faktury z 10.2026/)).not.toBeInTheDocument();
+    await user.click(within(block).getByRole("button", { name: "Pobierz VAT-UEK za 10.2026 (XML)" }));
+    expect(download).toHaveBeenCalledWith(
+      "/api/accounting/vat/uek/file?year=2026&month=10&issued_year=2026&issued_month=11",
+      "VAT-UEK_2026-10_korekty_2026-11.xml",
+    );
+  });
+
+  it("VAT-UEK z problemem i bez zmiany kwot nie daje pliku", async () => {
+    route(
+      config(),
+      registers({ issues: [] }),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe({ problems: [{ number: "KOR 1/11", detail: "korekta", kind: "earlier", period: "2026-09" }] }),
+      vatUek({
+        month: 9,
+        lines: [],
+        problems: [{ number: "KOR 1/11", detail: "faktura pierwotna nie ma dokumentu w księdze", kind: "outside" }],
+        can_download: false,
+      }),
+    );
+    renderView();
+    const block = await screen.findByRole("region", { name: "VAT-UEK za 09.2026" });
+    expect(await within(block).findByText(/faktura pierwotna nie ma dokumentu/)).toBeInTheDocument();
+    expect(within(block).getByRole("button", { name: "Pobierz VAT-UEK za 09.2026 (XML)" })).toBeDisabled();
   });
 });
 

@@ -261,6 +261,7 @@ from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
 from app.api import ledger_assets as ledger_assets_api
 from app.api import ledger_settlements as ledger_settlements_api
+from app.api import ledger_reports as ledger_reports_api
 from app.api import ledger_vat as ledger_vat_api
 from app.api import hr_lifecycle as hr_lifecycle_api
 from app.api import contract_care as contract_care_api
@@ -2378,6 +2379,13 @@ app.include_router(
     tags=["accounting"],
     dependencies=_HR_PROGRAM,
 )
+# Sprawozdania (K8a): bilans, RZiS (porównawczy), pozycje kont = znaczniki MF.
+app.include_router(
+    ledger_reports_api.router,
+    prefix="/api/accounting",
+    tags=["accounting"],
+    dependencies=_HR_PROGRAM,
+)
 # Rozliczenia klientów (roadmapa E1): moduł Finanse, wyłącznik `client_settlements`.
 app.include_router(
     client_settlements_api.router,
@@ -3908,6 +3916,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.rate_card import RateCardAdder
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
     from app.models.access_usage import AccessUsageDaily
     from app.models.insight_decision import InsightDecision
     from app.models.start_document import ClientStartDocument, PlacementStartDocument
@@ -4296,6 +4305,8 @@ async def api_health_deep_check(request: Request):
         ("contract_client_rates", ContractClientRate),
         # 0710: dopłaty z umowy ramowej (limit kontraktu czyta je przy zapisie).
         ("rate_card_adders", RateCardAdder),
+        # 0716: wnioski o dopłatę za technologię premium.
+        ("contract_premium_skill_claims", ContractPremiumSkillClaim),
         # 0227: moduł Finanse. Bez tych dwóch wpisów zielony deploy nie mówi
         # nic o tym, czy tabele w ogóle powstały — a prodowy alembic bywa
         # osierocony, więc /api/health/deep jest jedynym realnym dowodem.

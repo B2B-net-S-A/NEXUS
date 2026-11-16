@@ -17,17 +17,19 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   frameworkReportPath,
   useFrameworkOverview,
+  useFrameworkProlongations,
   type FrameworkOverview,
   type FrameworkStatus,
 } from "@/lib/api/framework-rates";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { STATUS_LABEL, plnAmount, plnPerHour, statusTone } from "@/lib/framework-category";
+import { CLAIM_LABEL } from "@/lib/premium-skills";
 import { filterRows, inRateShare, quarterLabel, type OverviewFilter } from "@/lib/framework-overview";
 import { cn } from "@/lib/utils";
 import { resolveViewState } from "@/lib/view-state";
 
-type View = "people" | "report" | "terms";
+type View = "people" | "fight" | "report" | "terms";
 
 interface Props {
   clientId: number;
@@ -52,6 +54,7 @@ export function FrameworkRatesTab({ clientId, canImport, canRecompute }: Props) 
           {(
             [
               ["people", "Konsultanci"],
+              ["fight", "Do walki przy prolongacji"],
               ["report", "Raport kwartalny"],
               ["terms", "Cennik umowy"],
             ] as [View, string][]
@@ -76,6 +79,8 @@ export function FrameworkRatesTab({ clientId, canImport, canRecompute }: Props) 
 
       {view === "terms" ? (
         <FrameworkTermsPanel clientId={clientId} canImport={canImport} canRecompute={canRecompute} />
+      ) : view === "fight" ? (
+        <ProlongationsView clientId={clientId} />
       ) : query.isPending ? (
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>
       ) : !query.isSuccess ? (
@@ -324,6 +329,93 @@ function ReportView({ data, clientId }: { data: FrameworkOverview; clientId: num
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+
+function ProlongationsView({ clientId }: { clientId: number }) {
+  const query = useFrameworkProlongations(clientId, true);
+  if (query.isPending) return <p className="text-sm text-muted-foreground">Wczytywanie…</p>;
+  if (!query.isSuccess) {
+    return (
+      <QueryStateNotice
+        state={
+          resolveViewState({ isLoading: false, isError: true, error: query.error, isEmpty: false }) === "forbidden"
+            ? "forbidden"
+            : "error"
+        }
+        onRetry={() => void query.refetch()}
+      />
+    );
+  }
+  const rows = query.data;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-muted-foreground">
+        Osoby ponad stawką z dźwignią w umowie, według końca zamówienia (90 dni). Prolongata bez uzgodnienia idzie po
+        starej cenie, więc walczymy przed nią. Prowadzi Delivery Lead; wniosek składasz w kontrakcie.
+      </p>
+      {rows.length === 0 ? (
+        <p className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+          Nikt ponad stawką z dźwignią w umowie nie kończy zamówienia w ciągu 90 dni.
+        </p>
+      ) : (
+        <div className="overflow-auto rounded-xl border border-border bg-card">
+          <table className="w-full text-sm">
+            <thead className="text-left text-[11px] uppercase tracking-wide text-muted-foreground">
+              <tr className="border-b border-border">
+                <th className="px-3 py-1.5 font-medium">Koniec</th>
+                <th className="px-2 py-1.5 font-medium">Konsultant</th>
+                <th className="px-2 py-1.5 text-right font-medium">Ponad o</th>
+                <th className="px-2 py-1.5 font-medium">Dźwignia z umowy</th>
+                <th className="px-3 py-1.5 font-medium">Wniosek</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.contract_id} className="border-b border-border/60 hover:bg-muted/50">
+                  <td className="whitespace-nowrap px-3 py-1.5 text-xs tabular-nums">
+                    {row.order_end ? formatIsoDatePl(row.order_end) : "—"}
+                    <div className={cn("text-[11px]", (row.days_left ?? 99) <= 30 ? "text-destructive" : "text-muted-foreground")}>
+                      za {row.days_left} dni
+                    </div>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <Link href={`/contracts/${row.contract_id}`} className="whitespace-nowrap font-medium text-foreground hover:underline">
+                      {row.person}
+                    </Link>
+                    <div className="text-[11px] text-muted-foreground">{row.category ?? "—"}</div>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-1.5 text-right tabular-nums font-medium text-destructive">
+                    +{plnAmount(row.gap)}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <span className="flex flex-wrap gap-1">
+                      {row.levers.map((l) => (
+                        <Badge key={l.label} variant={l.kind === "addon" ? "soft" : "outline"} size="md" className="whitespace-nowrap">
+                          {l.label}
+                        </Badge>
+                      ))}
+                    </span>
+                    {row.evidence_label && <div className="mt-0.5 text-[11px] text-info">NEXUS: {row.evidence_label}</div>}
+                  </td>
+                  <td className="px-3 py-1.5 text-xs">
+                    {row.claim_status ? (
+                      <span>
+                        {CLAIM_LABEL[row.claim_status]}
+                        {row.claim_technology ? <span className="text-muted-foreground"> · {row.claim_technology}</span> : null}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">brak</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,6 +7,8 @@ import {
   jpkBlockers,
   markersLabel,
   netValid,
+  receivedBeforeIssue,
+  sentJpkMonth,
   rowGroups,
   supplierGroup,
   taxIdLabel,
@@ -68,5 +70,26 @@ describe("zakup zagraniczny i znaczniki (K5b-2)", () => {
     expect(rowGroups({ groups: [{ key: "imp_28b", net: 1, vat: 1 }], problem: null })).toBe("import usług UE");
     expect(markersLabel(["GTU_12", "TP"])).toBe("GTU_12, TP");
     expect(markersLabel([])).toBe("bez znaczników");
+  });
+});
+
+describe("faktura zagraniczna otrzymana później (art. 86 ust. 10b pkt 3)", () => {
+  it("miesiąc usługi z wysłanym JPK = korekta tamtego miesiąca, bez terminu 3 miesięcy", () => {
+    const sent = ["2026-07", "2026-10"];
+    // Usługa w lipcu, faktura w listopadzie (ponad 3 miesiące) — dalej lipiec.
+    expect(sentJpkMonth("2026-07-31", sent)).toBe("07.2026");
+    expect(sentJpkMonth("2026-10-01", sent)).toBe("10.2026");
+    expect(sentJpkMonth("2026-11-03", sent)).toBeNull();
+    expect(sentJpkMonth("2026-06-30", sent)).toBeNull();
+    expect(sentJpkMonth("", sent)).toBeNull();
+    expect(sentJpkMonth("2026-07-31", [])).toBeNull();
+  });
+
+  it("otrzymanie przed wystawieniem jest błędem, puste pola nie", () => {
+    expect(receivedBeforeIssue("2026-11-03", "2026-11-02")).toBe(true);
+    expect(receivedBeforeIssue("2026-11-03", "2026-11-03")).toBe(false);
+    expect(receivedBeforeIssue("2026-11-03", "2027-01-15")).toBe(false);
+    expect(receivedBeforeIssue("", "2026-11-02")).toBe(false);
+    expect(receivedBeforeIssue("2026-11-03", "")).toBe(false);
   });
 });

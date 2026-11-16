@@ -23,7 +23,8 @@ obok, reszta bajt w bajt), więc walidacja nie sięga do sieci.
   w danych płatnika (K7a), nabywca bez numeru VAT UE i suma kontrahenta poniżej
   zera.
 * VAT-UE(5) ma tylko złożenie (``CelZlozenia`` = 1); korekty składa się na
-  VAT-UEK(5). WNT i call-off stock — NEXUS ich nie ewidencjonuje.
+  VAT-UEK(5) — ``vat_uek.py`` (K5b-3c). WNT i call-off stock — NEXUS ich nie
+  ewidencjonuje.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from lxml import etree
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,8 +68,9 @@ NOT_EU_NOW = frozenset({"GB"})
 #: Kwota kontrahenta: ``TKwotaC`` z ``totalDigits`` 12.
 AMOUNT_MAX = 10**12 - 1
 NOTES: tuple[str, ...] = (
-    "Korekta informacji za wcześniejszy okres (VAT-UEK) — jeszcze nie w NEXUSIE; "
-    "przygotuj ją w Symfonii albo e-Deklaracjach.",
+    "Korekty faktur z wcześniejszych okresów idą na VAT-UEK za tamten okres "
+    "(lista „Do VAT-UEK” niżej); VAT-UE za okresy sprzed księgi NEXUSA koryguje "
+    "się w Symfonii.",
     "Wewnątrzwspólnotowe nabycia (WNT) i call-off stock — NEXUS ich nie ewidencjonuje.",
 )
 
@@ -119,12 +121,43 @@ def blocking(problems: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [item for item in problems if item.get("kind") not in NOT_BLOCKING]
 
 
-def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
-    """Pozycje VAT-UE z rejestru sprzedaży i wiersze, których nie da się ująć
-    (``kind``: ``counterparty``, ``negative``, ``unknown`` — blokują; ``earlier``
-    — korekta wcześniejszego okresu do VAT-UEK)."""
+def resolve(
+    row: dict[str, Any], section: str
+) -> tuple[Optional[tuple[str, str]], Optional[dict[str, Any]]]:
+    """(kraj, numer VAT UE) nabywcy wiersza rejestru albo problem
+    ``counterparty`` — kraj z prefiksu numeru, nie z kartoteki (XI pod GB)."""
 
-    allowed = country_codes()
+    raw = "".join(ch for ch in (row.get("tax_id") or "") if ch.isalnum()).upper()
+    prefix = raw[:2] if raw[:2].isalpha() else None
+    code, number = jpk.counterparty(raw or None, prefix or row.get("country"))
+    if not code or number == jpk.BRAK:
+        return None, {
+            "number": row["number"],
+            "kind": "counterparty",
+            "detail": "nabywca bez numeru VAT UE — VAT-UE wymaga numeru "
+            "z kodem kraju (kartoteka albo faktura w KSeF)",
+        }
+    if (
+        code not in country_codes()[section]
+        or code in NOT_EU_NOW
+        or not _NUMBER.match(number)
+    ):
+        return None, {
+            "number": row["number"],
+            "kind": "counterparty",
+            "detail": f"numer {code}{number} nie pasuje do VAT-UE "
+            f"({SECTION_LABELS[section].lower()})",
+        }
+    return (code, number), None
+
+
+def gather(
+    data: dict[str, Any],
+) -> tuple[dict[tuple[str, str, str], Line], list[dict[str, Any]]]:
+    """Sumy miesiąca per (sekcja, kraj, numer) w groszach — także zerowe
+    i ujemne (VAT-UEK, K5b-3c, liczy z nich pozycję „BYŁO”) — i problemy
+    wierszy, których nie da się ująć."""
+
     period = f"{data['year']}-{data['month']:02d}"
     lines: dict[tuple[str, str, str], Line] = {}
     problems: list[dict[str, Any]] = []
@@ -151,48 +184,32 @@ def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
                         {
                             "number": row["number"],
                             "kind": "earlier",
+                            "period": corrected,
                             "detail": f"korekta faktury z {month}.{year} — na VAT-UEK "
                             f"za {month}.{year}, nie w tym VAT-UE",
                         }
                     )
                     continue
-            # Kraj z prefiksu numeru VAT UE, nie z kartoteki (XI pod krajem GB).
-            raw = "".join(
-                ch for ch in (row.get("tax_id") or "") if ch.isalnum()
-            ).upper()
-            prefix = raw[:2] if raw[:2].isalpha() else None
-            code, number = jpk.counterparty(raw or None, prefix or row.get("country"))
-            if not code or number == jpk.BRAK:
-                problems.append(
-                    {
-                        "number": row["number"],
-                        "kind": "counterparty",
-                        "detail": "nabywca bez numeru VAT UE — VAT-UE wymaga numeru "
-                        "z kodem kraju (kartoteka albo faktura w KSeF)",
-                    }
-                )
+            found, problem = resolve(row, section)
+            if found is None:
+                problems.append(problem)
                 continue
-            if (
-                code not in allowed[section]
-                or code in NOT_EU_NOW
-                or not _NUMBER.match(number)
-            ):
-                problems.append(
-                    {
-                        "number": row["number"],
-                        "kind": "counterparty",
-                        "detail": f"numer {code}{number} nie pasuje do VAT-UE "
-                        f"({SECTION_LABELS[section].lower()})",
-                    }
-                )
-                continue
-            key = (section, code, number)
+            key = (section, *found)
             line = lines.setdefault(
                 key,
-                Line(section, code, number, str(row.get("counterparty") or "")),
+                Line(section, *found, str(row.get("counterparty") or "")),
             )
             line.grosze += group["net"]
             line.documents.append(row["number"])
+    return lines, problems
+
+
+def collect(data: dict[str, Any]) -> tuple[list[Line], list[dict[str, Any]]]:
+    """Pozycje VAT-UE z rejestru sprzedaży i wiersze, których nie da się ująć
+    (``kind``: ``counterparty``, ``negative``, ``unknown`` — blokują; ``earlier``
+    — korekta wcześniejszego okresu do VAT-UEK, z ``period`` = ``RRRR-MM``)."""
+
+    lines, problems = gather(data)
     out: list[Line] = []
     for line in lines.values():
         if line.amount < 0:

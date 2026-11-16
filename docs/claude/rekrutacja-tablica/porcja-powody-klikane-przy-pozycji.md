@@ -28,7 +28,7 @@ to forma umowy.
   idą jako „Inne” z nazwą powodu w opisie, jak dawny „Język”.
 - **„Język” zostaje w bazie i w typie** dla starych wpisów, ale nie ma go już na
   liście wyboru ani w porcji, ani w oknie odrzucenia na Tablicy.
-- **Klawisze w porcji:** 1 brak umiejętności, 2 za junior, 3 lokalizacja / tryb,
+- **Klawisze w porcji** (szczegół powodu od 16.11.2026: `porcja-szczegol-powodu-i-porzadki.md`): 1 brak umiejętności, 2 za junior, 3 lokalizacja / tryb,
   4 za drogi, 5 brak polskiego, 6 angielski za słaby, 7 inna rola, 8 nie szuka,
   9 forma umowy, 0 inne.
 
