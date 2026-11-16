@@ -86,11 +86,24 @@ E6_3_RULES = {
 }
 
 
-def test_reguly_z_odpowiedzi_rozliczen_czekaja_na_e6():
-    """Odpowiedzi z 12.11 (E0.3): reguły da się ustawić, silnik ich nie sprawdza."""
+#: Reguły E6, które silnik już sprawdza: PKO (E6.1) i Velo (E6.2), 13.11.2026.
+#: ``cl.after_signed_document`` sprawdza też PKO i Velo, ale etap ma z E6.3.
+E6_CHECKED = {
+    "proof.accept_has_hours": "E6.1",
+    "cl.send_to": "E6.1",
+    "fields.md_month_limit": "E6.2",
+    "pay.per_person": "E6.2",
+    "cl.client_document": "E6.2",
+}
+
+
+def test_reguly_z_odpowiedzi_rozliczen_z_etapem_e6():
+    """Odpowiedzi z 12.11 (E0.3): reguły da się ustawić; te, które silnik
+    sprawdza, mają etap E6.1 albo E6.2, reszta czeka na swój krok (E6)."""
 
     assert E6_RULES <= set(catalog.RULES)
-    assert {catalog.RULES[k].stage for k in E6_RULES} == {"E6"}
+    for key in E6_RULES:
+        assert catalog.RULES[key].stage == E6_CHECKED.get(key, "E6"), key
     assert {catalog.RULES[k].stage for k in E6_3_RULES} == {"E6.3"}
     payment = next(s for s in catalog.SECTIONS if s.key == "payment")
     assert {r.key for r in payment.rules} == {

@@ -84,6 +84,12 @@ class _Group:
     def info(self, title: str, detail: Optional[str] = None) -> None:
         self.checks.append({"state": "none", "title": title, "detail": detail})
 
+    def warn(self, title: str, detail: Optional[str] = None) -> None:
+        """Uwaga niezależna od poziomu reguły (nigdy nie blokuje)."""
+
+        self.result.warn = True
+        self.checks.append({"state": "warn", "title": title, "detail": detail})
+
     def fail(self, key: str, title: str, detail: Optional[str] = None) -> None:
         level = self.rules[key]["level"]
         if level == "off":

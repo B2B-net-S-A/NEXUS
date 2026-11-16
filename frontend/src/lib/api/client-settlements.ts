@@ -21,14 +21,17 @@ export type SettlementStatus =
   | "no_md"
   | "accepted";
 /** Faktura kontraktora z KSeF (E4); `nip_check` — NIP z faktury czeka na Finanse (E4.0). */
-export type ContractorInvoiceState = "none" | "can_issue" | "in_ksef" | "differs" | "nip_check";
-/** `awaiting_signature` — KEŚU bez podpisu klienta (E6.3, `cl.after_signed_document`). */
-export type ClientInvoiceState = "waiting" | "ready" | "issued" | "awaiting_signature";
+export type ContractorInvoiceState =
+  "none" | "can_issue" | "in_ksef" | "differs" | "nip_check";
+/** `awaiting_signature` — czeka na podpis klienta: KEŚU (E6.3), protokół albo arkusze (E6.1, E6.2); reguła `cl.after_signed_document`. */
+export type ClientInvoiceState =
+  "waiting" | "ready" | "issued" | "awaiting_signature";
 /** Stan KEŚU osoby w miesiącu (E6.3, klient z Jirą). */
 export type KesuState = "to_company" | "awaiting_client" | "signed";
 export type CheckState = "ok" | "warn" | "fail" | "none";
 export type RuleLevel = "block" | "warn" | "off";
-export type SettlementFilter = "todo" | "missing" | "needs_fix" | "accepted" | "all";
+export type SettlementFilter =
+  "todo" | "missing" | "needs_fix" | "accepted" | "all";
 
 export interface SettlementClient {
   client_id: number;
@@ -91,7 +94,12 @@ export interface KesuBlock extends KesuSummary {
   extra_costs: string | null;
   total_gross: string | null;
   rate_differs: boolean;
-  mail: { to: string | null; to_name: string | null; subject: string; body: string };
+  mail: {
+    to: string | null;
+    to_name: string | null;
+    subject: string;
+    body: string;
+  };
   payment: KesuPayment | null;
   invoice_waits: boolean;
   package_ready: boolean;
@@ -144,7 +152,11 @@ export interface SettlementDetail {
   settlement_id: number | null;
   kind?: SettlementKind;
   /** Plan tego miesiąca, gdy karta pokazuje RCP faktyczne. */
-  estimate?: { status: SettlementStatus; md_regular: string | null; md_charged: string | null } | null;
+  estimate?: {
+    status: SettlementStatus;
+    md_regular: string | null;
+    md_charged: string | null;
+  } | null;
   person: string;
   client_name: string;
   month: string;
@@ -163,7 +175,11 @@ export interface SettlementDetail {
   total_md: string | null;
   total_net: string | null;
   checks: SettlementCheckGroup[];
-  order: { md_total: string | null; md_charged: string | null; md_remaining_after: string | null } | null;
+  order: {
+    md_total: string | null;
+    md_charged: string | null;
+    md_remaining_after: string | null;
+  } | null;
   contractor_invoice?: ContractorInvoiceBlock;
   kesu?: KesuBlock | null;
 }
@@ -217,23 +233,33 @@ export interface ClientRules {
 export const settlementKeys = {
   module: ["client-settlements", "module"] as const,
   clients: ["client-settlements", "clients"] as const,
-  month: (clientId: number, month: string) => ["client-settlements", "month", clientId, month] as const,
-  detail: (contractId: number, month: string, kind: SettlementKind = "actual") =>
-    ["client-settlements", "detail", contractId, month, kind] as const,
-  clientInvoice: (clientId: number, month: string) => ["client-settlements", "client-invoice", clientId, month] as const,
-  estimates: (clientId: number, month: string) => ["client-settlements", "estimates", clientId, month] as const,
+  month: (clientId: number, month: string) =>
+    ["client-settlements", "month", clientId, month] as const,
+  detail: (
+    contractId: number,
+    month: string,
+    kind: SettlementKind = "actual",
+  ) => ["client-settlements", "detail", contractId, month, kind] as const,
+  clientInvoice: (clientId: number, month: string) =>
+    ["client-settlements", "client-invoice", clientId, month] as const,
+  estimates: (clientId: number, month: string) =>
+    ["client-settlements", "estimates", clientId, month] as const,
   clientDocuments: (clientId: number, month: string) =>
     ["client-settlements", "client-documents", clientId, month] as const,
-  rules: (clientId: number, month: string) => ["client-settlements", "rules", clientId, month] as const,
+  rules: (clientId: number, month: string) =>
+    ["client-settlements", "rules", clientId, month] as const,
   integration: (contractId: number, month: string) =>
     ["client-settlements", "integration", contractId, month] as const,
-  delivery: (clientId: number, month: string) => ["client-settlements", "delivery", clientId, month] as const,
+  delivery: (clientId: number, month: string) =>
+    ["client-settlements", "delivery", clientId, month] as const,
 };
 
 export function useSettlementsModule(enabled = true) {
   return useQuery({
     queryKey: settlementKeys.module,
-    queryFn: async () => (await api.get<{ enabled: boolean; open: boolean }>(`${BASE}/module`)).data,
+    queryFn: async () =>
+      (await api.get<{ enabled: boolean; open: boolean }>(`${BASE}/module`))
+        .data,
     staleTime: 5 * 60 * 1000,
     enabled,
   });
@@ -242,7 +268,8 @@ export function useSettlementsModule(enabled = true) {
 export function useSettlementClients() {
   return useQuery({
     queryKey: settlementKeys.clients,
-    queryFn: async () => (await api.get<SettlementClient[]>(`${BASE}/clients`)).data,
+    queryFn: async () =>
+      (await api.get<SettlementClient[]>(`${BASE}/clients`)).data,
   });
 }
 
@@ -250,16 +277,28 @@ export function useSettlementMonth(clientId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.month(clientId ?? 0, month),
     queryFn: async () =>
-      (await api.get<SettlementMonth>(BASE, { params: { client_id: clientId, month } })).data,
+      (
+        await api.get<SettlementMonth>(BASE, {
+          params: { client_id: clientId, month },
+        })
+      ).data,
     enabled: clientId != null,
   });
 }
 
-export function useSettlementDetail(contractId: number | null, month: string, kind: SettlementKind = "actual") {
+export function useSettlementDetail(
+  contractId: number | null,
+  month: string,
+  kind: SettlementKind = "actual",
+) {
   return useQuery({
     queryKey: settlementKeys.detail(contractId ?? 0, month, kind),
     queryFn: async () =>
-      (await api.get<SettlementDetail>(`${BASE}/contract/${contractId}`, { params: { month, kind } })).data,
+      (
+        await api.get<SettlementDetail>(`${BASE}/contract/${contractId}`, {
+          params: { month, kind },
+        })
+      ).data,
     enabled: contractId != null,
   });
 }
@@ -302,6 +341,8 @@ export interface ClientInvoiceMonth {
   client_name: string;
   month: string;
   can_see_amounts: boolean;
+  /** Faktura do klienta po podpisanym dokumencie (E6); `null` — nic nie wstrzymuje. */
+  signature_hold?: { kind: "protocol" | "sheet"; label: string } | null;
   rows: ClientInvoiceRow[];
 }
 
@@ -336,7 +377,11 @@ export function useClientInvoiceMonth(clientId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.clientInvoice(clientId ?? 0, month),
     queryFn: async () =>
-      (await api.get<ClientInvoiceMonth>(`${BASE}/client-invoice`, { params: { client_id: clientId, month } })).data,
+      (
+        await api.get<ClientInvoiceMonth>(`${BASE}/client-invoice`, {
+          params: { client_id: clientId, month },
+        })
+      ).data,
     enabled: clientId != null,
   });
 }
@@ -345,7 +390,11 @@ export function useEstimates(clientId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.estimates(clientId ?? 0, month),
     queryFn: async () =>
-      (await api.get<EstimatesMonth>(`${BASE}/estimates`, { params: { client_id: clientId, month } })).data,
+      (
+        await api.get<EstimatesMonth>(`${BASE}/estimates`, {
+          params: { client_id: clientId, month },
+        })
+      ).data,
     enabled: clientId != null,
   });
 }
@@ -394,11 +443,57 @@ export interface ClientDocumentCostBlock {
   text: string | null;
 }
 
+/** Protokół odbioru na wszystkie osoby miesiąca (E6.1, PKO). */
+export interface ClientDocumentProtocol {
+  people: number;
+  accepted: number;
+  /** Komplet: wszystkie osoby miesiąca przyjęte. Dopiero wtedy protokół i paczka. */
+  ready: boolean;
+  /** Adres paczki z reguły `cl.send_to`. */
+  send_to: string | null;
+  /** Klient podpisał protokół (rozpoznany po treści i dwóch podpisach). */
+  signed: boolean;
+  signed_by: string | null;
+  missing_roles: string[];
+  missing_orders: string[];
+  waiting: { person: string; status: SettlementStatus }[];
+  hours: string;
+  /** Tylko dla kont z dostępem do kwot. */
+  net: string | null;
+  files: { person: string; timesheet: boolean }[];
+}
+
+/** Arkusze zbiorcze per osoba podpisująca u klienta (E6.2, Velo). */
+export interface ClientDocumentSheets {
+  signers: { signer: string; people: number; md: string; signed: number }[];
+  rows: {
+    contract_id: number;
+    person: string;
+    signer: string;
+    md: string | null;
+    status: SettlementStatus;
+    signed: boolean;
+    signed_by: string | null;
+    signed_at: string | null;
+    amount: string | null;
+  }[];
+  without_sheet: { person: string; status: SettlementStatus }[];
+  all_signed: boolean;
+  net: string | null;
+}
+
+export type ClientDocumentFileKind =
+  "protocol" | "package" | "sheet" | "sheets" | "invoice_sheet";
+
 export interface ClientDocumentsMonth {
   client_id: number;
   month: string;
   /** Reguła obejmuje miesiąc i dokument jest na projekt. */
   enabled: boolean;
+  /** Brak = dokument na projekt (Service Delivery Confirmation). */
+  layout?: "month" | "signer";
+  protocol?: ClientDocumentProtocol;
+  sheets?: ClientDocumentSheets;
   kind: string;
   /** `FORECAST` — z planu miesiąca (estymacja), `ACTUAL` — z Time Sheet. */
   stage: "ACTUAL" | "FORECAST" | null;
@@ -411,12 +506,20 @@ export function useClientDocuments(clientId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.clientDocuments(clientId ?? 0, month),
     queryFn: async () =>
-      (await api.get<ClientDocumentsMonth>(`${BASE}/client-documents`, { params: { client_id: clientId, month } })).data,
+      (
+        await api.get<ClientDocumentsMonth>(`${BASE}/client-documents`, {
+          params: { client_id: clientId, month },
+        })
+      ).data,
     enabled: clientId != null,
   });
 }
 
-export async function fetchClientDocument(clientId: number, month: string, project: string): Promise<Blob> {
+export async function fetchClientDocument(
+  clientId: number,
+  month: string,
+  project: string,
+): Promise<Blob> {
   return (
     await api.get<Blob>(`${BASE}/client-documents/file`, {
       params: { client_id: clientId, month, project },
@@ -425,15 +528,67 @@ export async function fetchClientDocument(clientId: number, month: string, proje
   ).data;
 }
 
+/** Protokół, paczka i arkusze (E6.1, E6.2); `signer` tylko przy jednym arkuszu. */
+export async function fetchClientDocumentFile(
+  clientId: number,
+  month: string,
+  kind: ClientDocumentFileKind,
+  signer?: string,
+): Promise<Blob> {
+  return (
+    await api.get<Blob>(`${BASE}/client-documents/file`, {
+      params: { client_id: clientId, month, kind, signer },
+      responseType: "blob",
+    })
+  ).data;
+}
+
+/** Podpisany przez klienta protokół albo arkusz wgrany ręcznie (rozpoznanie po treści). */
+export function useUploadSignedDocument(month: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("month", month);
+      form.append("file", file);
+      return (
+        await api.post<{ document_id: number; recognized: boolean }>(
+          `${BASE}/client-documents/signed`,
+          form,
+          {
+            headers: { "Content-Type": "multipart/form-data" },
+          },
+        )
+      ).data;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["client-settlements"] }),
+  });
+}
+
 /** Plik RCP albo maila z karty osoby (do sprawdzenia przed przyjęciem). */
-export async function fetchSettlementDocument(contractId: number, documentId: number): Promise<Blob> {
-  return (await api.get<Blob>(`${BASE}/contract/${contractId}/documents/${documentId}`, { responseType: "blob" })).data;
+export async function fetchSettlementDocument(
+  contractId: number,
+  documentId: number,
+): Promise<Blob> {
+  return (
+    await api.get<Blob>(
+      `${BASE}/contract/${contractId}/documents/${documentId}`,
+      { responseType: "blob" },
+    )
+  ).data;
 }
 
 /** Paczka do podpisu spółki: KEŚU ze stawką i faktury kosztów w jednym PDF (E6.3). */
-export async function fetchKesuPackage(contractId: number, month: string): Promise<Blob> {
+export async function fetchKesuPackage(
+  contractId: number,
+  month: string,
+): Promise<Blob> {
   return (
-    await api.get<Blob>(`${BASE}/contract/${contractId}/kesu/package`, { params: { month }, responseType: "blob" })
+    await api.get<Blob>(`${BASE}/contract/${contractId}/kesu/package`, {
+      params: { month },
+      responseType: "blob",
+    })
   ).data;
 }
 
@@ -441,29 +596,54 @@ export function useClientRules(clientId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.rules(clientId ?? 0, month),
     queryFn: async () =>
-      (await api.get<ClientRules>(`${BASE}/rules/${clientId}`, { params: { month } })).data,
+      (
+        await api.get<ClientRules>(`${BASE}/rules/${clientId}`, {
+          params: { month },
+        })
+      ).data,
     enabled: clientId != null,
   });
 }
 
 function useInvalidateSettlements() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: ["client-settlements"] });
+  return () =>
+    queryClient.invalidateQueries({ queryKey: ["client-settlements"] });
 }
 
-export function useAcceptSettlement(month: string, kind: SettlementKind = "actual") {
+export function useAcceptSettlement(
+  month: string,
+  kind: SettlementKind = "actual",
+) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
     mutationFn: async (contractId: number) =>
-      (await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/accept`, null, { params: { month, kind } })).data,
+      (
+        await api.post<SettlementDetail>(
+          `${BASE}/contract/${contractId}/accept`,
+          null,
+          { params: { month, kind } },
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }
 
-export function useSetSettlementMd(month: string, kind: SettlementKind = "actual") {
+export function useSetSettlementMd(
+  month: string,
+  kind: SettlementKind = "actual",
+) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
-    mutationFn: async ({ contractId, mdRegular, mdExtra }: { contractId: number; mdRegular: string; mdExtra: string | null }) =>
+    mutationFn: async ({
+      contractId,
+      mdRegular,
+      mdExtra,
+    }: {
+      contractId: number;
+      mdRegular: string;
+      mdExtra: string | null;
+    }) =>
       (
         await api.put<SettlementDetail>(
           `${BASE}/contract/${contractId}/md`,
@@ -475,12 +655,25 @@ export function useSetSettlementMd(month: string, kind: SettlementKind = "actual
   });
 }
 
-export function useNeedsFixSettlement(month: string, kind: SettlementKind = "actual") {
+export function useNeedsFixSettlement(
+  month: string,
+  kind: SettlementKind = "actual",
+) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
-    mutationFn: async ({ contractId, reason }: { contractId: number; reason: string }) =>
+    mutationFn: async ({
+      contractId,
+      reason,
+    }: {
+      contractId: number;
+      reason: string;
+    }) =>
       (
-        await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/needs-fix`, { reason }, { params: { month, kind } })
+        await api.post<SettlementDetail>(
+          `${BASE}/contract/${contractId}/needs-fix`,
+          { reason },
+          { params: { month, kind } },
+        )
       ).data,
     onSuccess: invalidate,
   });
@@ -491,7 +684,13 @@ export function usePayOnMail(month: string) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
     mutationFn: async (contractId: number) =>
-      (await api.post<SettlementDetail>(`${BASE}/contract/${contractId}/pay-on-mail`, null, { params: { month } })).data,
+      (
+        await api.post<SettlementDetail>(
+          `${BASE}/contract/${contractId}/pay-on-mail`,
+          null,
+          { params: { month } },
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }
@@ -500,8 +699,18 @@ export function usePayOnMail(month: string) {
 export function useNipDecision() {
   const invalidate = useInvalidateSettlements();
   return useMutation({
-    mutationFn: async ({ invoiceId, approve }: { invoiceId: number; approve: boolean }) =>
-      (await api.post(`${BASE}/contractor-invoices/${invoiceId}/${approve ? "approve-nip" : "reject-nip"}`)).data,
+    mutationFn: async ({
+      invoiceId,
+      approve,
+    }: {
+      invoiceId: number;
+      approve: boolean;
+    }) =>
+      (
+        await api.post(
+          `${BASE}/contractor-invoices/${invoiceId}/${approve ? "approve-nip" : "reject-nip"}`,
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }
@@ -509,8 +718,22 @@ export function useNipDecision() {
 export function useAcceptBatch() {
   const invalidate = useInvalidateSettlements();
   return useMutation({
-    mutationFn: async ({ clientId, month, kind = "actual" }: { clientId: number; month: string; kind?: SettlementKind }) =>
-      (await api.post<{ accepted: number }>(`${BASE}/accept-batch`, { client_id: clientId, month, kind })).data,
+    mutationFn: async ({
+      clientId,
+      month,
+      kind = "actual",
+    }: {
+      clientId: number;
+      month: string;
+      kind?: SettlementKind;
+    }) =>
+      (
+        await api.post<{ accepted: number }>(`${BASE}/accept-batch`, {
+          client_id: clientId,
+          month,
+          kind,
+        })
+      ).data,
     onSuccess: invalidate,
   });
 }
@@ -520,7 +743,11 @@ export function useSaveClientRules(clientId: number) {
   return useMutation({
     mutationFn: async (body: {
       effective_from: string;
-      rules: { key: string; level: RuleLevel; params: Record<string, string> }[];
+      rules: {
+        key: string;
+        level: RuleLevel;
+        params: Record<string, string>;
+      }[];
     }) => (await api.put<ClientRules>(`${BASE}/rules/${clientId}`, body)).data,
     onSuccess: invalidate,
   });
@@ -530,11 +757,14 @@ export function useCopyClientRules(clientId: number) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
     mutationFn: async (sourceClientId: number) =>
-      (await api.post<ClientRules>(`${BASE}/rules/${clientId}/copy-from/${sourceClientId}`)).data,
+      (
+        await api.post<ClientRules>(
+          `${BASE}/rules/${clientId}/copy-from/${sourceClientId}`,
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }
-
 
 // ── Koszty integracji (E5.1, reguła `cl.integration_costs`) ─────────────────
 
@@ -573,7 +803,12 @@ export function useIntegrationCosts(contractId: number | null, month: string) {
   return useQuery({
     queryKey: settlementKeys.integration(contractId ?? 0, month),
     queryFn: async () =>
-      (await api.get<IntegrationCard>(`${BASE}/contract/${contractId}/integration-costs`, { params: { month } })).data,
+      (
+        await api.get<IntegrationCard>(
+          `${BASE}/contract/${contractId}/integration-costs`,
+          { params: { month } },
+        )
+      ).data,
     enabled: contractId != null,
   });
 }
@@ -582,8 +817,13 @@ export function useAddIntegrationCost(contractId: number, month: string) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
     mutationFn: async (body: { amount: string; description: string }) =>
-      (await api.post<IntegrationCard>(`${BASE}/contract/${contractId}/integration-costs`, body, { params: { month } }))
-        .data,
+      (
+        await api.post<IntegrationCard>(
+          `${BASE}/contract/${contractId}/integration-costs`,
+          body,
+          { params: { month } },
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }
@@ -592,8 +832,12 @@ export function useWithdrawIntegrationCost(contractId: number, month: string) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
     mutationFn: async (costId: number) =>
-      (await api.delete<IntegrationCard>(`${BASE}/contract/${contractId}/integration-costs/${costId}`, { params: { month } }))
-        .data,
+      (
+        await api.delete<IntegrationCard>(
+          `${BASE}/contract/${contractId}/integration-costs/${costId}`,
+          { params: { month } },
+        )
+      ).data,
     onSuccess: invalidate,
   });
 }
@@ -603,17 +847,32 @@ export function useWithdrawIntegrationCost(contractId: number, month: string) {
 // `can_read_client_finance` (Finanse i DL u klienta z przypisania).
 
 export interface DeliverySettlements extends ClientInvoiceMonth {
-  integration: { enabled: boolean; limit: string | null; year: number; items: IntegrationCost[] };
+  integration: {
+    enabled: boolean;
+    limit: string | null;
+    year: number;
+    items: IntegrationCost[];
+  };
   /** Konto jest Delivery Leadem tego klienta — tylko ono przyjmuje koszty. */
   can_decide: boolean;
 }
 
-const DELIVERY = (clientId: number) => `/api/my-clients/${clientId}/settlements`;
+const DELIVERY = (clientId: number) =>
+  `/api/my-clients/${clientId}/settlements`;
 
-export function useDeliverySettlements(clientId: number, month: string, enabled = true) {
+export function useDeliverySettlements(
+  clientId: number,
+  month: string,
+  enabled = true,
+) {
   return useQuery({
     queryKey: settlementKeys.delivery(clientId, month),
-    queryFn: async () => (await api.get<DeliverySettlements>(DELIVERY(clientId), { params: { month } })).data,
+    queryFn: async () =>
+      (
+        await api.get<DeliverySettlements>(DELIVERY(clientId), {
+          params: { month },
+        })
+      ).data,
     enabled,
     retry: false,
   });
@@ -622,7 +881,13 @@ export function useDeliverySettlements(clientId: number, month: string, enabled 
 export function useDecideIntegrationCost(clientId: number, month: string) {
   const invalidate = useInvalidateSettlements();
   return useMutation({
-    mutationFn: async ({ costId, approve }: { costId: number; approve: boolean }) =>
+    mutationFn: async ({
+      costId,
+      approve,
+    }: {
+      costId: number;
+      approve: boolean;
+    }) =>
       (
         await api.post<DeliverySettlements>(
           `${DELIVERY(clientId)}/integration-costs/${costId}/${approve ? "approve" : "reject"}`,
