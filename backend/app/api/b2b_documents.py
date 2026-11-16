@@ -477,7 +477,14 @@ def _document_label(doc: B2BContractDocument, doc_type: DocumentType) -> str:
 def _filename(doc_type: DocumentType, values: dict, doc_date: date | None) -> str:
     who = values.get("partner_name") or ""
     when = doc_date.isoformat() if doc_date else ""
-    return _ascii_filename(f"{doc_type.label} {who} {when}".strip()) + ".docx"
+    # Aneks z własną nazwą: „Aneks — zwolnienie z zakazu konkurencji …”.
+    title = str(values.get("annex_title") or "").strip()
+    label = (
+        f"Aneks — {title}"
+        if doc_type.key == "annex_custom" and title
+        else doc_type.label
+    )
+    return _ascii_filename(f"{label} {who} {when}".strip()) + ".docx"
 
 
 def _docx_response(data: bytes, filename: str, doc_id: int | None) -> Response:

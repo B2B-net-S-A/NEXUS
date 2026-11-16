@@ -115,6 +115,16 @@ def _values(doc_type: DocumentType, gender: str, **extra) -> dict:
             values[f.key] = gender
         elif f.kind == "rate_items":
             values[f.key] = [{"rate": 185.5}]
+        elif f.kind == "annex_changes":
+            values[f.key] = [
+                {"op": "free", "text": "Strony zgodnie ustalają zmianę próbną."},
+                {
+                    "op": "replace",
+                    "paragraph": "10",
+                    "section": "1",
+                    "text": "Nowa treść ustępu.",
+                },
+            ]
         else:
             values[f.key] = f"Wartość {f.key}"
     values.update(PARTNER[gender])
@@ -148,7 +158,7 @@ def _variants(doc_type: DocumentType) -> list[dict]:
         ]
     if doc_type.key.startswith("termination_agreement"):
         return [{"release_non_compete": True}, {"release_non_compete": False}]
-    if doc_type.key in ("annex_start_date", "annex_rate_change"):
+    if doc_type.key in ("annex_start_date", "annex_rate_change", "annex_custom"):
         return [{"partner_variant": "sole_trader"}, {"partner_variant": "company"}]
     if doc_type.key == "annex_mandate":
         return [
@@ -197,9 +207,14 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "Ewa Zarządcza – Prezes Zarządu",
             "zwaną dalej „",
         ]
-    elif key in ("annex_start_date", "annex_rate_change"):
+    elif key in ("annex_start_date", "annex_rate_change", "annex_custom"):
         out += ["prowadząc", "Próbna Firma IT", "1234563218", "123456785"]
-    if key in ("annex_start_date", "annex_rate_change", "annex_party_data"):
+    if key in (
+        "annex_start_date",
+        "annex_rate_change",
+        "annex_party_data",
+        "annex_custom",
+    ):
         out += [
             "Ustalone zmiany wchodzą w życie z dniem 01.11.2026 r.",
             "zgodnie z art. 78¹ §1 Kodeksu cywilnego",
@@ -219,6 +234,13 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             "sto osiemdziesiąt pięć złotych 50/100",
             "§ 6 ust. 1 otrzymuje następujące brzmienie",
             "netto + VAT za każdą roboczogodzinę",
+        ]
+    elif key == "annex_custom":
+        out += [
+            "w sprawie: Wartość annex_title",
+            "a) Strony zgodnie ustalają zmianę próbną.",
+            "b) § 10 ust. 1 Umowy otrzymuje brzmienie:",
+            "„Nowa treść ustępu.”",
         ]
     elif key == "annex_start_date":
         out += [

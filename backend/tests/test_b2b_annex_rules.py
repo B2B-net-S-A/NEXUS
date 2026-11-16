@@ -206,6 +206,7 @@ def test_every_annex_that_takes_a_contract_waits_for_it_before_signature():
         "annex_start_date",
         "annex_rate_change",
         "annex_mandate",
+        "annex_custom",
     }
     assert waiting == {k for k, t in TYPES.items() if effects.annex_takes_contract(t)}
     # Z kontraktem albo z umową bazową aneks nie czeka na nic.

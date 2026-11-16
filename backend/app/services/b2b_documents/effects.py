@@ -249,6 +249,11 @@ def split_rate_steps(
 ANNEX_STATES: tuple[str, ...] = ("waiting", "signed_pending", "in_force", "cancelled")
 
 
+def annex_custom_title(values: dict[str, Any]) -> str:
+    """Nazwa aneksu z własną nazwą („zwolnienie z zakazu konkurencji”)."""
+    return str(values.get("annex_title") or "").strip() or "inna zmiana"
+
+
 def annex_effective_date(
     doc_type_key: str,
     values: dict[str, Any],
@@ -514,6 +519,17 @@ async def describe(
             plan.warnings.append(no_contract)
         else:
             plan.changes.append("Aneks pojawi się w historii kontraktu.")
+    elif key == "annex_custom":
+        # Dowolnej treści NEXUS nie przełoży na pola kontraktu — zostaje wpis
+        # w zakładce „Aneksy” (ze skanem po podpisie), reszta to ręczna zmiana.
+        if contract is None and not orphan:
+            plan.warnings.append(no_contract)
+        else:
+            plan.changes.append(
+                f"Aneks „{annex_custom_title(values)}” pojawi się w historii "
+                "kontraktu. Pola kontraktu nie zmienią się same — jeśli aneks "
+                "zmienia stawkę albo daty, popraw je w kontrakcie."
+            )
     elif key in (
         "termination_agreement",
         "termination_agreement_mandate",
@@ -904,6 +920,22 @@ async def apply(
             new={"delegate_name": values.get("delegate_name")},
             effective=effective_day,
             reason=reason,
+            document_id=stored.id if stored else None,
+            actor_id=user.id,
+        )
+
+    elif key == "annex_custom" and contract is not None:
+        summary["amendment_id"] = await _add_amendment(
+            db,
+            contract,
+            ContractAmendmentType.custom_change,
+            old={},
+            new={"annex_title": annex_custom_title(values)},
+            effective=effective_day,
+            reason=(
+                f"{doc_type.label}: {annex_custom_title(values)} z dnia "
+                f"{_pl(doc.document_date)} (dokument #{doc.id})"
+            ),
             document_id=stored.id if stored else None,
             actor_id=user.id,
         )

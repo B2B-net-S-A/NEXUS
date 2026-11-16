@@ -13,7 +13,8 @@ Kopernik Office Building…”, marginesy, style) pochodzi z obecnego
 ``annex_party_data_pl.docx`` — jedynego wzoru działu ze stopką. Builder
 czyści jego treść i wstawia nową, więc ponowne uruchomienie daje ten sam wynik.
 
-    python scripts/build_b2b_annex_templates.py
+    python scripts/build_b2b_annex_templates.py               # wszystkie
+    python scripts/build_b2b_annex_templates.py annex_custom_pl  # jeden
 """
 
 from __future__ import annotations
@@ -78,7 +79,8 @@ def heading(text: str) -> P:
     return p(b(text), align="center", space_before=6)
 
 
-def header(action: str) -> list:
+def header(action: str, subject: str | None = None) -> list:
+    """Wstęp aneksu; ``subject`` = linia „w sprawie: …” pod tytułem."""
     return [
         p("{{ document_place }}, {{ document_date }} r.", align="right"),
         p(
@@ -87,6 +89,7 @@ def header(action: str) -> list:
             size=10,
             space_before=12,
         ),
+        *([p(subject, align="center")] if subject else []),
         p(
             f"Strony zgodnie postanawiają dokonać {action} w treści umowy nr "
             "{{ base.contract_number }} zawartej dnia {{ base.signing_date }} roku "
@@ -276,6 +279,25 @@ TEMPLATES: dict[str, list] = {
         Ctl("endif"),
         *FINAL,
     ],
+    # Aneks z własną nazwą (16.11.2026): człowiek pisze tylko § 1 — punkty
+    # składa kontekst (``context.annex_change_points``), reszta jak wyżej.
+    "annex_custom_pl": [
+        *header("zmian", subject="w sprawie: {{ doc.annex_title }}"),
+        *BUSINESS_PARTY,
+        *PARTY_CLOSING,
+        heading("§1"),
+        p(
+            "Aneks zgodnym postanowieniem stron wprowadza do umowy nr "
+            "{{ base.contract_number }} następujące zmiany:"
+        ),
+        Ctl("for point in doc.change_points"),
+        p("{{ point.label }}) {{ point.lead }}"),
+        Ctl("for line in point.lines"),
+        p("{{ line }}", indent_cm=0.63),
+        Ctl("endfor"),
+        Ctl("endfor"),
+        *FINAL,
+    ],
 }
 
 
@@ -415,13 +437,19 @@ def build_html(key: str, blocks: list) -> None:
     (OUT_DIR / f"{key}.html").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def main() -> None:
+def main(keys: list[str] | None = None) -> None:
+    """Bez argumentów buduje wszystkie szablony; z kluczami — tylko te
+    (nowy szablon bez przepisywania bajtów pozostałych DOCX)."""
     shell_bytes = SHELL.read_bytes()
     for key, blocks in TEMPLATES.items():
+        if keys and key not in keys:
+            continue
         build_docx(key, copy.deepcopy(blocks), shell_bytes)
         build_html(key, blocks)
         print(f"zbudowano {key}")
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+
+    main(sys.argv[1:] or None)

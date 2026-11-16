@@ -12,6 +12,8 @@ B2B_DOCUMENT_TYPES: tuple[str, ...] = (
     "annex_party_data",
     "annex_subcontractor",
     "annex_mandate",
+    # Aneks z własną nazwą (0722, 16.11.2026).
+    "annex_custom",
     "termination_agreement",
     "termination_agreement_mandate",
     "termination_notice",
