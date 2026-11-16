@@ -76,7 +76,7 @@ export type OrderOffboardingResolutionInput =
       expected_version: number;
     };
 
-/** Krok stawki przychodowej linii z aneksu stawki klienta (0722). */
+/** Krok stawki przychodowej linii z aneksu stawki klienta (0721). */
 export interface OrderLineRevenueStep {
   effective_from: string;
   /** Pierwszy miesiąc liczony tą stawką — zużycie MD jest miesięczne. */
@@ -106,7 +106,7 @@ export interface OrderLineRead {
   rate_cost: number | null;
   rate_revenue: number | null;
   /** Stawka przychodowa PLN/MD obowiązująca dziś, gdy aneks dodał kroki
-   *  (0722); `rate_revenue` zostaje stawką ze startu linii. */
+   *  (0721); `rate_revenue` zostaje stawką ze startu linii. */
   current_rate_revenue?: number | null;
   revenue_steps?: OrderLineRevenueStep[];
   input_value: number | null;

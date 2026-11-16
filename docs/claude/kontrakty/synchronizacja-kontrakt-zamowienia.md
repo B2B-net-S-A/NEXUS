@@ -70,7 +70,7 @@ Każda strona jest źródłem prawdy dla SWOICH pól:
   `contract_alerts`) wprowadza każdą zaplanowaną podwyżkę w jej dniu. Zakończone
   i anulowane zamówienia są historią — nietknięte.
 - **Aneks stawki klienta → zamówienie od dnia aneksu (ticket Finansów
-  16.11.2026, decyzja Artura, migracja 0722).** Do tego dnia aneks zmieniał
+  16.11.2026, decyzja Artura, migracja 0721).** Do tego dnia aneks zmieniał
   przychód tylko w kontrakcie, a linia zamówienia miała jedną stawkę na cały
   okres — ręczna zmiana przeliczyłaby „Do faktury” także za miesiące sprzed
   aneksu (kwota liczy się przy odczycie: MD × stawka). Teraz aneks ze stawką
