@@ -60,6 +60,12 @@ const SOURCES: readonly { name: string; how: string; klass: "official" | "lex" |
     tone: "info",
   },
   {
+    name: "Gofin",
+    how: "Konto księgowej z Vault Grok Bota. Do NEXUSA trafia tylko tytuł, link i krótki cytat — komentarz wydawnictwa, nie fakt urzędowy.",
+    klass: "practice",
+    tone: "neutral",
+  },
+  {
     name: "Eureka, doradcy, serwis X",
     how: "Praktyka rynkowa: sygnał do sprawdzenia, nigdy fakt urzędowy.",
     klass: "practice",

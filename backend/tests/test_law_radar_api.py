@@ -143,6 +143,7 @@ async def test_collect_report_413_422_then_once(
         "duplicates": 1,
         "by_class": {"official": 1, "lex": 1, "practice": 0},
         "lex_skipped": False,
+        "gofin_skipped": False,
     }
     assert _no_background_gate == [run_id]
     again = await app_client.post(

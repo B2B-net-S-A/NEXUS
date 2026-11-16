@@ -336,5 +336,6 @@ export function runSummaryLine(run: Pick<RadarRun, "kind" | "summary">): string 
     );
   }
   if (run.kind === "collect" && run.summary.lex_skipped === true) parts.push("LEX pominięty");
+  if (run.kind === "collect" && run.summary.gofin_skipped === true) parts.push("Gofin pominięty");
   return parts.join(" · ");
 }
