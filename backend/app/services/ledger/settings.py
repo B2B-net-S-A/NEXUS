@@ -196,17 +196,32 @@ class AssetsAccounts:
 #: ``foreign_account`` (K5b-2) — konto ze słownikiem kontrahentów, pod którym
 #: formularz zakupu zagranicznego zakłada rozrachunek nowego dostawcy (``202-1``
 #: → ``202-1-NNN``); puste = formularz nie zakłada dostawców.
+#: ``rounding_*`` (K5b-3c) — różnica groszy w rozliczeniu VAT (deklaracja
+#: w pełnych złotych, konta w groszach), np. 760 / 761; puste = dokument
+#: rozliczenia VAT nie powstaje.
 VAT_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "input_account": ("221", "VAT naliczony"),
     "foreign_account": ("", "Rozrachunki z dostawcami zagranicznymi"),
+    "rounding_gain_account": (
+        "",
+        "Różnice z zaokrągleń VAT (pozostałe przychody operacyjne)",
+    ),
+    "rounding_loss_account": (
+        "",
+        "Różnice z zaokrągleń VAT (pozostałe koszty operacyjne)",
+    ),
 }
-VAT_OPTIONAL = frozenset({"foreign_account"})
+VAT_OPTIONAL = frozenset(
+    {"foreign_account", "rounding_gain_account", "rounding_loss_account"}
+)
 
 
 @dataclass(frozen=True)
 class VatAccounts:
     input_account: str = VAT_ACCOUNT_FIELDS["input_account"][0]
     foreign_account: str = ""
+    rounding_gain_account: str = ""
+    rounding_loss_account: str = ""
 
 
 #: Znaczniki JPK_V7M per kontrahent (K5b-2, decyzja Artura z 15.11.2026): GTU

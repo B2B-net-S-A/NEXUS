@@ -45,6 +45,7 @@ from app.services.ledger import (
     sources,
     valuation,
     vat,
+    vat_settlement,
 )
 from app.services.ledger.documents import Viewer
 from app.services.ledger.settings import LedgerSettings
@@ -343,6 +344,49 @@ def jpk_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     }
 
 
+def settlement_check(data: dict[str, Any], href: str) -> dict[str, Any]:
+    """Rozliczenie VAT (K5b-3c): problem, gdy księga różni się od JPK albo
+    zatwierdzony dokument od dzisiejszych kwot (korekta JPK); do zrobienia —
+    brak kont, brak JPK, szkic w buforze; ok — zatwierdzony albo bez kwot."""
+
+    item = {"key": "vat_settlement", "label": "Rozliczenie VAT", "href": href}
+    doc = data["document"]
+    if data["problem"]:
+        return {**item, "state": "problem", "detail": data["problem"]}
+    if data["changed"] and doc is not None:
+        return {
+            **item,
+            "state": "problem",
+            "detail": f"{doc['number']} zatwierdzony, a z JPK wychodzą dziś inne "
+            "kwoty — storno i ponowne „Przygotuj”",
+        }
+    if data["blocker"]:
+        return {**item, "state": "todo", "detail": data["blocker"]}
+    if doc is not None and doc["status"] != "approved" and data.get("stale_draft"):
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"{doc['number']} w buforze jest nieaktualny — przelicz "
+            "(„Przygotuj” w zakładce VAT)",
+        }
+    if doc is not None and doc["status"] != "approved":
+        who = " (osoba z Płacami)" if doc["payroll"] else ""
+        return {
+            **item,
+            "state": "todo",
+            "detail": f"{doc['number']} w buforze — zatwierdza lista „Księgowi”{who}",
+        }
+    if doc is not None:
+        return {**item, "state": "ok", "detail": f"{doc['number']} zatwierdzony"}
+    if not data["to_book"]:
+        return {**item, "state": "ok", "detail": "bez kwot do rozliczenia"}
+    return {
+        **item,
+        "state": "todo",
+        "detail": "przygotuj dokument rozliczenia VAT (zakładka VAT)",
+    }
+
+
 def symfonia_check(status: dict[str, Any], href: str) -> dict[str, Any]:
     """Pozycja listy z paczek do Symfonii (``exports.month_status``)."""
 
@@ -452,6 +496,14 @@ async def checklist(
         items.append(
             jpk_check(
                 await jpk.month_status(db, viewer, settings, year=year, month=month),
+                f"/accounting/vat{query}",
+            )
+        )
+        items.append(
+            settlement_check(
+                await vat_settlement.preview(
+                    db, viewer, settings, year=year, month=month
+                ),
                 f"/accounting/vat{query}",
             )
         )

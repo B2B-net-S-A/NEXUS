@@ -411,6 +411,8 @@ FOREIGN_PURCHASE_SOURCE = "foreign_purchase"
 #: Źródła PK wyceny walut na koniec miesiąca i jej odwrócenia (K4c-2).
 FX_VALUATION_SOURCE = "fx_valuation"
 FX_VALUATION_REVERSAL_SOURCE = "fx_valuation_reversal"
+#: Źródło dokumentu rozliczenia VAT na koniec miesiąca (K5b-3c, RRRR-MM).
+VAT_SETTLEMENT_SOURCE = "vat_settlement"
 
 
 async def delete_draft(

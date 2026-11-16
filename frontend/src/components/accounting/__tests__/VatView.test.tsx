@@ -39,6 +39,7 @@ import type {
   VatMarkers,
   VatRegisters,
   VatUekOverview,
+  VatSettlement,
   VatUeOverview,
 } from "@/lib/api/accounting-vat";
 import { useAuthStore } from "@/store/auth";
@@ -68,7 +69,14 @@ function registers(overrides: Partial<VatRegisters> = {}): VatRegisters {
   return {
     year: 2026,
     month: 11,
-    accounts: { output_account: "222", input_account: "221", intake_account: "080", foreign_account: "" },
+    accounts: {
+      output_account: "222",
+      input_account: "221",
+      intake_account: "080",
+      foreign_account: "",
+      rounding_gain_account: "",
+      rounding_loss_account: "",
+    },
     sales: [
       {
         document_id: 11,
@@ -293,6 +301,40 @@ function vatUek(overrides: Partial<VatUekOverview> = {}): VatUekOverview {
   };
 }
 
+/** Rozliczenie VAT (K5b-3c): JPK v1 wysłany, nadwyżka miesiąca na „VAT do zapłaty”. */
+function settlement(overrides: Partial<VatSettlement> = {}): VatSettlement {
+  return {
+    year: 2026,
+    month: 11,
+    day: "2026-11-30",
+    jpk: { id: 7, version: 1, status: "sent" },
+    document: null,
+    changed: false,
+    stale_draft: false,
+    blocker: null,
+    problem: null,
+    to_book: true,
+    payroll: true,
+    can_prepare: true,
+    can_see_amounts: true,
+    amounts: {
+      ledger_output: 20_700,
+      ledger_input: 253_040,
+      output_tax: 20_700,
+      input_tax: 253_040,
+      due: -2_323,
+      rounding: 40,
+    },
+    lines: [
+      { side: "debit", account: "222", name: "VAT należny", amount: 20_700 },
+      { side: "credit", account: "221", name: "VAT naliczony", amount: 253_040 },
+      { side: "debit", account: "224", name: "VAT do zapłaty", amount: 232_300 },
+      { side: "debit", account: "761", name: "Pozostałe koszty operacyjne", amount: 40 },
+    ],
+    ...overrides,
+  };
+}
+
 function route(
   cfg: LedgerConfig,
   data: VatRegisters = registers(),
@@ -301,6 +343,7 @@ function route(
   marked: VatMarkers = markers(),
   ue: VatUeOverview = vatUe(),
   uek: VatUekOverview = vatUek(),
+  settled: VatSettlement = settlement(),
 ) {
   get.mockImplementation(async (url: string) => {
     if (url === "/api/accounting/config") return { data: cfg };
@@ -309,6 +352,7 @@ function route(
     if (url === "/api/accounting/vat/foreign") return { data: foreign };
     if (url === "/api/accounting/vat/markers") return { data: marked };
     if (url === "/api/accounting/vat/ue") return { data: ue };
+    if (url === "/api/accounting/vat/settlement") return { data: settled };
     if (url === "/api/accounting/vat/uek") return { data: uek };
     if (url === "/api/finance/counterparties")
       return {
@@ -386,9 +430,16 @@ describe("Księgowość — VAT (K5a)", () => {
     await user.clear(field);
     await user.type(field, "221-1");
     await user.type(screen.getByRole("textbox", { name: "Konto dostawców zagranicznych" }), "202-1");
+    await user.type(screen.getByRole("textbox", { name: "Konto przychodu z zaokrągleń VAT" }), "760");
+    await user.type(screen.getByRole("textbox", { name: "Konto kosztu z zaokrągleń VAT" }), "761");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() =>
-      expect(put).toHaveBeenCalledWith("/api/accounting/vat/settings", { input_account: "221-1", foreign_account: "202-1" }),
+      expect(put).toHaveBeenCalledWith("/api/accounting/vat/settings", {
+        input_account: "221-1",
+        foreign_account: "202-1",
+        rounding_gain_account: "760",
+        rounding_loss_account: "761",
+      }),
     );
     await waitFor(() => expect(showToast).toHaveBeenCalledWith("Zapisano konta VAT."));
   });
@@ -702,6 +753,71 @@ describe("Księgowość — VAT-UE (K5b-3a)", () => {
     expect(screen.getByText(/na VAT-UEK za 10.2026/).closest("li")).toHaveClass("text-warning-muted-foreground");
     expect(screen.getByText(/VAT-UE powstanie po zamknięciu listy/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Pobierz VAT-UE (XML)" })).toBeDisabled();
+  });
+
+  it("rozliczenie VAT: pozycje z JPK, nadwyżka na „VAT do zapłaty”, przygotowanie do bufora", async () => {
+    route(config());
+    post.mockResolvedValue({ data: { outcome: "created", document: { id: 91, number: "VAT 1/11/2026", status: "draft", payroll: true } } });
+    const user = userEvent.setup();
+    renderView();
+    expect(await screen.findByText("Rozliczenie VAT za listopad 2026")).toBeInTheDocument();
+    expect(get).toHaveBeenCalledWith("/api/accounting/vat/settlement", { params: { year: 2026, month: 11 } });
+    expect(screen.getByText("z JPK v1 (wysłany)")).toBeInTheDocument();
+    expect(screen.getByText("nadwyżka naliczonego 2 323,00 zł")).toBeInTheDocument();
+    expect(screen.getByText("0,40 zł koszt")).toBeInTheDocument();
+    const due = screen.getByText("VAT do zapłaty").closest("tr") as HTMLElement;
+    expect(within(due).getByText("Wn")).toBeInTheDocument();
+    expect(within(due).getByText("2 323,00 zł")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Przygotuj rozliczenie VAT" }));
+    await waitFor(() => expect(post).toHaveBeenCalledWith("/api/accounting/vat/settlement", { year: 2026, month: 11 }));
+    await waitFor(() => expect(showToast).toHaveBeenCalledWith("Dokument rozliczenia VAT jest w buforze."));
+  });
+
+  it("rozliczenie VAT: księga różni się od JPK — problem, bez przygotowania", async () => {
+    route(
+      config(),
+      registers(),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe(),
+      vatUek(),
+      settlement({ problem: "Obroty kont VAT okresu różnią się od JPK (wersja 1) — VAT naliczony: …", lines: [] }),
+    );
+    renderView();
+    const problem = await screen.findByText(/Obroty kont VAT okresu różnią się od JPK/);
+    expect(problem).toHaveClass("text-destructive");
+    expect(screen.getByRole("button", { name: "Przygotuj rozliczenie VAT" })).toBeDisabled();
+  });
+
+  it("rozliczenie VAT: zatwierdzone, a korekta JPK zmieniła kwoty — storno", async () => {
+    const document = { id: 91, number: "VAT 1/11/2026", status: "approved" as const, payroll: false };
+    route(config(), registers(), jpkOverview(), foreignOverview(), markers(), vatUe(), vatUek(), settlement({ document, changed: true }));
+    renderView();
+    expect(await screen.findByText(/VAT 1\/11\/2026 jest zatwierdzony, a z JPK wychodzą dziś inne kwoty/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Pokaż w Dokumentach" })).toHaveAttribute(
+      "href",
+      "/accounting/documents?year=2026&month=11&status=approved",
+    );
+    expect(screen.getByRole("button", { name: "Przygotuj rozliczenie VAT" })).toBeDisabled();
+  });
+
+  it("rozliczenie VAT: D2 — bez Płac stan bez kwot i bez przycisku", async () => {
+    const document = { id: 91, number: "VAT 1/11/2026", status: "draft" as const, payroll: true };
+    route(
+      config(),
+      registers(),
+      jpkOverview(),
+      foreignOverview(),
+      markers(),
+      vatUe(),
+      vatUek(),
+      settlement({ document, can_prepare: false, can_see_amounts: false, amounts: null, lines: [] }),
+    );
+    renderView();
+    expect(await screen.findByText(/Kwoty rozliczenia widzi osoba z Płacami/)).toBeInTheDocument();
+    expect(screen.getByText(/w buforze — zatwierdza lista „Księgowi” — dokument obejmuje faktury osób zespołu/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /rozliczenie VAT/ })).not.toBeInTheDocument();
   });
 
   it("korekty wcześniejszego okresu: VAT-UEK z „było” i „jest” i pobranie pliku", async () => {

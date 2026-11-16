@@ -82,7 +82,15 @@ export interface VatIssue {
 export interface VatRegisters {
   year: number;
   month: number;
-  accounts: { output_account: string; input_account: string; intake_account: string; foreign_account: string };
+  accounts: {
+    output_account: string;
+    input_account: string;
+    intake_account: string;
+    foreign_account: string;
+    /** Różnice z zaokrągleń w rozliczeniu VAT (K5b-3c); puste = brak konta. */
+    rounding_gain_account: string;
+    rounding_loss_account: string;
+  };
   sales: VatRow[];
   purchases: VatRow[];
   summary: { groups: VatGroup[]; output_vat: number; input_vat: number; due: number };
@@ -107,6 +115,8 @@ export function useVatRegisters(year: number, month: number, enabled = true) {
 export interface VatAccounts {
   input_account: string;
   foreign_account: string;
+  rounding_gain_account: string;
+  rounding_loss_account: string;
 }
 
 export function useSetVatAccounts() {
@@ -118,6 +128,78 @@ export function useSetVatAccounts() {
     onSettled: () => {
       client.invalidateQueries({ queryKey: vatKeys.all });
       client.invalidateQueries({ queryKey: ["accounting", "closing"] });
+    },
+  });
+}
+
+// ── Rozliczenie VAT (K5b-3c) ────────────────────────────────────────────────
+// Dokument typu VAT z JPK miesiąca: 222/221 na „VAT do zapłaty”, grosze na konta
+// różnic z zaokrągleń. Kwoty (`amounts`, `lines`) tylko z Płacami (D2).
+
+export interface VatSettlementLine {
+  side: "debit" | "credit";
+  account: string;
+  name: string;
+  amount: number;
+}
+
+export interface VatSettlement {
+  year: number;
+  month: number;
+  day: string;
+  jpk: { id: number; version: number; status: "prepared" | "sent" } | null;
+  document: { id: number; number: string; status: "draft" | "approved"; payroll: boolean } | null;
+  /** Zatwierdzony dokument różni się od dzisiejszych kwot (korekta JPK) — storno. */
+  changed: boolean;
+  /** Szkic z innych kwot niż dzisiejsze (np. nowa wersja JPK) — do przeliczenia. */
+  stale_draft: boolean;
+  blocker: string | null;
+  problem: string | null;
+  to_book: boolean;
+  payroll: boolean;
+  can_prepare: boolean;
+  can_see_amounts: boolean;
+  amounts: {
+    ledger_output: number;
+    ledger_input: number;
+    output_tax: number | null;
+    input_tax: number | null;
+    /** Pełne złote: + do zapłaty, − nadwyżka naliczonego miesiąca. */
+    due: number | null;
+    rounding: number | null;
+  } | null;
+  lines: VatSettlementLine[];
+}
+
+export type VatSettlementOutcome = "created" | "rebuilt" | "unchanged" | "removed" | "approved" | "none";
+
+export const settlementKeys = {
+  month: (year: number, month: number) => ["accounting", "vat", "settlement", year, month] as const,
+};
+
+export function useVatSettlement(year: number, month: number, enabled = true) {
+  return useQuery({
+    queryKey: settlementKeys.month(year, month),
+    queryFn: async () =>
+      (await api.get<VatSettlement>(`${BASE}/vat/settlement`, { params: { year, month } })).data,
+    enabled,
+  });
+}
+
+export function usePrepareVatSettlement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { year: number; month: number }) =>
+      (
+        await api.post<{ outcome: VatSettlementOutcome; document: VatSettlement["document"] }>(
+          `${BASE}/vat/settlement`,
+          body,
+        )
+      ).data,
+    onSettled: () => {
+      client.invalidateQueries({ queryKey: vatKeys.all });
+      client.invalidateQueries({ queryKey: ["accounting", "closing"] });
+      client.invalidateQueries({ queryKey: ["accounting", "documents"] });
     },
   });
 }
