@@ -153,7 +153,7 @@ MODULES = (
     payroll_k7b,
     # 0720: archiwum dokumentów z eBI24 w Finansach (E5, 16.11.2026).
     finance_archive,
-    # 0725: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
+    # 0726: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
     board_documents,
 )
 

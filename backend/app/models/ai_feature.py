@@ -210,7 +210,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0712 (15.11.2026): katalog raportów klienta — obowiązki raportowe
     # odczytane z fragmentów umów ramowych jako propozycje dla DL-a.
     client_report_requirements = "client_report_requirements"
-    # 0725 (16.11.2026): Rada — odczyt skanu uchwały albo protokołu (numer, data,
+    # 0726 (16.11.2026): Rada — odczyt skanu uchwały albo protokołu (numer, data,
     # organ, przedmiot) jako propozycja do zatwierdzenia przez admina.
     board_document_read = "board_document_read"
 

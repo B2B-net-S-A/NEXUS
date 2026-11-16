@@ -1,4 +1,4 @@
-"""Odczyt skanu dokumentu korporacyjnego (F51, 0725).
+"""Odczyt skanu dokumentu korporacyjnego (F51, 0726).
 
 Model z rejestru (``AIFeatureKey.board_document_read``) dostaje sam plik
 wgrany przez admina — uchwałę, protokół albo regulamin. Wynik to propozycja:
