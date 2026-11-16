@@ -1,4 +1,4 @@
-"""Dokumenty Rady nadzorczej i odpisy KRS spółki (0724, R1).
+"""Dokumenty Rady nadzorczej i odpisy KRS spółki (0726, R1).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).

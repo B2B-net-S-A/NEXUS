@@ -1,6 +1,6 @@
-"""Dokumenty Rady nadzorczej (R1): SQL migracji ``0724_board_documents`` i lustra entrypointu.
+"""Dokumenty Rady nadzorczej (R1): SQL migracji ``0726_board_documents`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0724_board_documents.py`` i
+Jedno źródło instrukcji dla ``alembic/versions/0726_board_documents.py`` i
 ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda instrukcja
 idempotentna.
 

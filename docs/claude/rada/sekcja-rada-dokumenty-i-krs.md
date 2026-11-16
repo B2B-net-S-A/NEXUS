@@ -1,4 +1,4 @@
-# Sekcja „Rada”: dokumenty, odpis KRS, pulpit z faktur (R1 0724, R2, 16.11.2026)
+# Sekcja „Rada”: dokumenty, odpis KRS, pulpit z faktur (R1 0726, R2, 16.11.2026)
 <!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5 -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
