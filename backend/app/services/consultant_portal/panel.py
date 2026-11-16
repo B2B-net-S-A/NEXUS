@@ -161,20 +161,29 @@ async def overview_extra(
 
 
 async def todo(
-    db: AsyncSession, context: PortalContext, *, today: date, now: datetime
+    db: AsyncSession,
+    context: PortalContext,
+    *,
+    today: date,
+    now: datetime,
+    since: Optional[tuple[int, int]] = None,
 ) -> list[dict[str, str]]:
+    """``since`` podaje podgląd dla Finansów (miesiąc „jakby aktywacji”); panel bierze
+    miesiąc prawdziwej aktywacji."""
+
     items: list[dict[str, str]] = []
     months = await documents.overview(db, context, today=today)
-    activation = await db.scalar(
-        select(CpActivation).where(
-            CpActivation.contract_id == context.consultant.contract_id
+    if since is None:
+        activation = await db.scalar(
+            select(CpActivation).where(
+                CpActivation.contract_id == context.consultant.contract_id
+            )
         )
-    )
-    since = (
-        (activation.activated_at.year, activation.activated_at.month)
-        if activation
-        else (today.year, today.month)
-    )
+        since = (
+            (activation.activated_at.year, activation.activated_at.month)
+            if activation
+            else (today.year, today.month)
+        )
     from app.services.client_settlements import consultant as settlement_view
 
     contract = await db.get(Contract, context.consultant.contract_id)

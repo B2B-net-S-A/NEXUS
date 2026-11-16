@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -25,7 +26,10 @@ import {
   usePanelSendWelcome,
   usePanelSwitches,
   useSavePanelSwitches,
+  PANEL_STATE_OPTIONS,
+  panelOpenForConsultants,
   type PanelProposal,
+  type PanelState,
 } from "@/lib/api/consultant-panel";
 import { useHrConfig } from "@/lib/api/hr";
 import { resolveViewState } from "@/lib/view-state";
@@ -46,7 +50,7 @@ function AdminSwitches() {
   const switches = usePanelSwitches(true);
   const save = useSavePanelSwitches();
   const apply = async (
-    body: { state?: "off" | "pilot"; welcome_mail?: boolean },
+    body: { state?: PanelState; welcome_mail?: boolean },
     title: string,
     description: string,
   ) => {
@@ -59,25 +63,24 @@ function AdminSwitches() {
     }
   };
   if (!switches.data) return null;
-  const on = switches.data.state !== "off";
+  const current = switches.data.state;
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg bg-muted p-3 text-sm">
-      <label className="flex items-center gap-2">
-        <Switch
-          checked={on}
+      <span className="flex flex-wrap items-center gap-2">
+        <span id="panel-state-label">Panel konsultanta</span>
+        <SegmentedRadio
+          labelledBy="panel-state-label"
+          size="sm"
+          value={current}
           disabled={save.isPending}
-          onCheckedChange={(next) =>
-            apply(
-              { state: next ? "pilot" : "off" },
-              next ? "Włączyć panel konsultanta?" : "Wyłączyć panel dla wszystkich?",
-              next
-                ? "Wejdą tylko osoby z ręczną aktywacją."
-                : "Wszystkie sesje konsultantów zostaną zamknięte, a maile do nich przestaną wychodzić.",
-            )
-          }
+          options={PANEL_STATE_OPTIONS.map(({ value, label }) => ({ value, label }))}
+          onChange={(next) => {
+            const option = PANEL_STATE_OPTIONS.find((o) => o.value === next);
+            if (!option || next === current) return;
+            void apply({ state: next }, `Panel konsultanta: ${option.label}?`, option.confirm);
+          }}
         />
-        Panel włączony
-      </label>
+      </span>
       <label className="flex items-center gap-2">
         <Switch
           checked={switches.data.welcome_mail}
@@ -190,6 +193,7 @@ export function mailBlocker(data: PanelProposal, { addressTyped }: { addressType
   if (data.mail.sent_at) return "Mail powitalny został już wysłany.";
   if (!data.mail.enabled) return "Maile powitalne są wyłączone, włącza je administrator.";
   if (data.portal_state === "off") return "Panel jest wyłączony dla wszystkich, więc mail prowadziłby donikąd.";
+  if (data.portal_state === "internal") return "Panel działa w trybie „Tylko zespół”: konsultanci nie dostają linku ani maili.";
   const blocking = data.mail.issues.find(
     (issue) => issue.blocking && !(addressTyped && ADDRESS_ISSUES.has(issue.code)),
   );
@@ -349,7 +353,7 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
   const toggle = (id: number) =>
     setSelected((list) => (list.includes(id) ? list.filter((item) => item !== id) : [...list, id]));
   const blocker = mailBlocker(data, { addressTyped: Boolean(email.trim()) });
-  const off = data.portal_state === "off";
+  const off = !panelOpenForConsultants(data.portal_state);
 
   const submit = async (sendMail: boolean) => {
     setError(null);
@@ -442,7 +446,9 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
         {blocker ? <p className="text-xs text-muted-foreground">{blocker}</p> : null}
         {off ? (
           <p className="text-xs text-muted-foreground">
-            Panel jest wyłączony dla wszystkich. Aktywacja zadziała, gdy administrator go włączy.
+            {data.portal_state === "internal"
+              ? "Panel działa w trybie „Tylko zespół”. Aktywacja zadziała, gdy administrator wpuści konsultantów."
+              : "Panel jest wyłączony dla wszystkich. Aktywacja zadziała, gdy administrator go włączy."}
           </p>
         ) : null}
         {error ? (

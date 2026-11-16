@@ -127,7 +127,7 @@ async def portal_status(
 
 
 class SwitchBody(BaseModel):
-    state: Literal["off", "pilot", "all"]
+    state: Literal["off", "internal", "pilot", "all"]
 
 
 assert set(SwitchBody.model_fields["state"].annotation.__args__) == set(STATES)
