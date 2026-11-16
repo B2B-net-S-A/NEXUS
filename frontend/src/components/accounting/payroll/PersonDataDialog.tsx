@@ -479,6 +479,27 @@ function PersonDataForm({
                     <input type="date" aria-label="Bez FGŚP do" className={CONTROL} {...text("fgsp_exempt_until")} />
                   </Field>
                 </div>
+                {!contractor ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Field
+                      label="Ubezpieczenie chorobowe nieprzerwanie od"
+                      hint="Puste = od początku umowy. Wcześniej, gdy przerwa po poprzednim tytule była krótsza niż 30 dni."
+                    >
+                      <input
+                        type="date"
+                        aria-label="Ubezpieczenie chorobowe nieprzerwanie od"
+                        className={CONTROL}
+                        {...text("sickness_insured_since")}
+                      />
+                    </Field>
+                    <Check
+                      label="Bez okresu wyczekiwania"
+                      hint="absolwent do 90 dni od dyplomu albo co najmniej 10 lat ubezpieczenia"
+                      checked={form.waiting_period_exempt}
+                      onChange={(value) => set("waiting_period_exempt", value)}
+                    />
+                  </div>
+                ) : null}
               </Section>
 
               {contractor ? (

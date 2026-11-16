@@ -455,10 +455,21 @@ def apply_changes(
     for key, label in (
         ("labour_fund_exempt_until", "Bez Funduszu Pracy do"),
         ("fgsp_exempt_until", "Bez FGŚP do"),
+        # K7b: początek nieprzerwanego ubezpieczenia chorobowego (okres
+        # wyczekiwania, art. 4 ustawy zasiłkowej) — wcześniejszy niż umowa,
+        # gdy przerwa po poprzednim tytule była krótsza niż 30 dni.
+        ("sickness_insured_since", "Ubezpieczenie chorobowe nieprzerwanie od"),
     ):
         if key in changes:
             until = _date(changes[key], label)
             put(key, until.isoformat() if until else None)
+    if "waiting_period_exempt" in changes:
+        # Art. 4 ust. 2: absolwent do 90 dni od dyplomu, co najmniej 10 lat
+        # obowiązkowego ubezpieczenia, poseł albo senator po kadencji.
+        put(
+            "waiting_period_exempt",
+            _bool(changes["waiting_period_exempt"], "Bez okresu wyczekiwania") or None,
+        )
     if "bank_account" in changes:
         raw_account = changes["bank_account"]
         if raw_account in (None, ""):
@@ -742,6 +753,8 @@ def payload(
         "ppk": data.get("ppk"),
         "labour_fund_exempt_until": data.get("labour_fund_exempt_until"),
         "fgsp_exempt_until": data.get("fgsp_exempt_until"),
+        "sickness_insured_since": data.get("sickness_insured_since"),
+        "waiting_period_exempt": bool(data.get("waiting_period_exempt")),
         "bank_account_last4": record.account_last4 if record else None,
         "missing": missing,
         "missing_labels": [FIELD_LABELS[code] for code in missing],

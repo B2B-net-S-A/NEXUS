@@ -25,6 +25,9 @@ Reguły (do potwierdzenia przez Płace na porównaniu z Enovą):
   kończy, dzielimy dniami kalendarzowymi okresu pracy.
 * **Zdrowotna** 9% od przychodu minus składki społeczne osoby; nie odlicza się
   jej od podatku.
+* **Wynagrodzenie chorobowe** (K7b, ``Title.social_exempt``) — część brutto UoP
+  bez składek społecznych, FP, FGŚP i PPK, ale ze zdrowotną i z PIT (przychód
+  ze stosunku pracy, § 2 ust. 1 pkt 15 rozporządzenia o podstawie składek).
 * **PIT:** podstawa = przychód opodatkowany − składki społeczne przypadające na
   niego − koszty uzyskania, zaokrąglona do pełnych złotych; zaliczka też do
   pełnych złotych (art. 63 Ordynacji podatkowej). UoP: skala 12%/32%
@@ -170,6 +173,9 @@ class Title:
     reduction_used: Decimal = ZERO
     #: Koszty uzyskania UoP już odjęte w miesiącu wypłaty (zryczałtowane raz na miesiąc).
     kup_used: Decimal = ZERO
+    #: UoP: część brutto bez składek społecznych (wynagrodzenie chorobowe) —
+    #: zdrowotna i PIT od całości.
+    social_exempt: Decimal = ZERO
 
 
 @dataclass(frozen=True)
@@ -317,9 +323,17 @@ def calculate(
     kind = title.kind
 
     # ── Ubezpieczenia: od jakiej części przychodu i które ─────────────────────
+    exempt_part = money(max(ZERO, title.social_exempt))
+    if exempt_part and kind != "uop":
+        raise ValueError("część bez składek tylko przy umowie o pracę")
+    if exempt_part > gross:
+        raise ValueError("część bez składek większa niż brutto")
+    health_extra = ZERO
     if kind == "uop":
-        insured = gross
-        pension_on = sickness_on = accident_on = health_on = insured > 0
+        insured = gross - exempt_part
+        pension_on = sickness_on = accident_on = insured > 0
+        health_on = gross > 0
+        health_extra = exempt_part
         sickness_cap: Optional[Decimal] = None
     elif kind == "zlecenie":
         exempt_until = student_exempt_until(person, params)
@@ -362,7 +376,9 @@ def calculate(
     disability_employee = pct(pension_basis, params.disability_employee_rate)
     sickness_employee = pct(sickness_basis, params.sickness_employee_rate)
     social_employee = pension_employee + disability_employee + sickness_employee
-    health_basis = max(ZERO, insured - social_employee) if health_on else ZERO
+    health_basis = (
+        max(ZERO, insured + health_extra - social_employee) if health_on else ZERO
+    )
     health = pct(health_basis, params.health_rate)
 
     pension_employer = pct(pension_basis, params.pension_employer_rate)

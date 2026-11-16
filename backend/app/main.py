@@ -4056,6 +4056,12 @@ async def api_health_deep_check(request: Request):
         PayrollPersonData,
         PayrollYearOpening,
     )
+    from app.models.hr_payroll_k7b import (
+        PayrollAbsenceMark,
+        PayrollBasisMonth,
+        PayrollComponent,
+        PayrollSalary,
+    )
 
     # Pozostałe tabele paczki `hr_schema_bundle` (0455–0696), sondy na końcu listy.
     from app.models.hr_ops import HrImportIdMap
@@ -4715,6 +4721,11 @@ async def api_health_deep_check(request: Request):
         ("payroll_list_lines", PayrollListLine),
         ("payroll_gross_inputs", PayrollGrossInput),
         ("payroll_year_openings", PayrollYearOpening),
+        # 0719: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw.
+        ("payroll_salaries", PayrollSalary),
+        ("payroll_components", PayrollComponent),
+        ("payroll_absence_marks", PayrollAbsenceMark),
+        ("payroll_basis_months", PayrollBasisMonth),
         # Reszta tabel paczki `hr_schema_bundle` (reguła z 22.10, F79). Pomiar
         # 14.11.2026: 79 ze 133 tabel modułów było bez sondy, a siatka entrypointu
         # bywa jedynym wdrożeniem schematu. Każdą nową tabelę paczki łapie

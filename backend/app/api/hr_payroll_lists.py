@@ -19,7 +19,17 @@ from contextlib import contextmanager
 from datetime import date
 from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+import uuid
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,9 +48,12 @@ from app.services.action_permissions import ProductAction
 from app.services.hr import audit
 from app.services.hr.payroll_access import is_payroll
 from app.services.hr.payroll_errors import PayrollError
+from app.services.finance_ledger.counterparty_import import ImportFileError
 from app.services.hr.payroll_lists import (
     documents,
+    enova_compare,
     forms_pdf,
+    ledger_post,
     lists,
     parameters,
     payslip_pdf,
@@ -49,6 +62,7 @@ from app.services.hr.payroll_lists import (
     pit_forms,
     sources,
     transfers,
+    uop_admin,
 )
 from app.services.hr.payroll_lists.person_data import Subject
 from app.services.hr_foundation_schema import EmploymentStatus
@@ -170,6 +184,8 @@ class PersonBody(BaseModel):
     ppk: Optional[dict[str, Any]] = None
     labour_fund_exempt_until: Optional[date] = None
     fgsp_exempt_until: Optional[date] = None
+    sickness_insured_since: Optional[date] = None
+    waiting_period_exempt: Optional[bool] = None
     bank_account: Optional[Any] = None
 
 
@@ -895,3 +911,204 @@ async def put_candidate_opening(
     return await _put_opening(
         db, current_user, Subject(candidate_id=candidate_id), year, body
     )
+
+
+# ── K7b: pensje UoP, składniki, oznaczenia L4, historia z Enovy ─────────────
+
+
+class SalaryBody(BaseModel):
+    monthly_amount: str = Field(max_length=20)
+    fte: str = Field(default="1", max_length=8)
+    effective_from: date
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class ComponentBody(BaseModel):
+    user_id: int = Field(ge=1)
+    kind: Literal["variable", "other", "sick_base", "equivalent_days"]
+    amount: Optional[str] = Field(default=None, max_length=20)
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+class MarkBody(BaseModel):
+    sick_rate: Literal["80", "100", "zus"] = "80"
+    waiting_exempt: bool = False
+    note: Optional[str] = Field(default=None, max_length=500)
+
+
+async def _salaries_payload(db: AsyncSession) -> dict[str, Any]:
+    rows = await uop_admin.salaries(db)
+    people = (
+        await db.execute(
+            select(User.id, User.name)
+            .join(EmployeeProfile, EmployeeProfile.user_id == User.id)
+            .where(
+                EmployeeProfile.employment_type == "uop",
+                EmployeeProfile.employment_status != EmploymentStatus.exited.value,
+            )
+            .order_by(User.name)
+        )
+    ).all()
+    return {
+        "people": [{"user_id": int(uid), "name": str(name)} for uid, name in people],
+        "salaries": [uop_admin.salary_payload(row) for row in rows],
+        "component_labels": uop_admin.COMPONENT_LABELS,
+        "sick_rate_labels": uop_admin.SICK_RATE_LABELS,
+    }
+
+
+@router.get("/salaries")
+async def get_salaries(
+    current_user: PayrollGate, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return await _salaries_payload(db)
+
+
+@router.put("/salaries/users/{user_id}")
+async def put_salary(
+    user_id: int,
+    body: SalaryBody,
+    current_user: PayrollGate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        await uop_admin.set_salary(
+            db,
+            actor=current_user,
+            user_id=user_id,
+            monthly_amount=body.monthly_amount,
+            fte=body.fte,
+            effective_from=body.effective_from,
+            note=body.note,
+        )
+    return await _salaries_payload(db)
+
+
+@router.delete("/salaries/{salary_id}")
+async def delete_salary(
+    salary_id: int, current_user: PayrollGate, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    with _http_errors():
+        await uop_admin.delete_salary(db, actor=current_user, salary_id=salary_id)
+    return await _salaries_payload(db)
+
+
+@router.put("/months/{year}/{month}/components")
+async def put_component(
+    year: int,
+    month: int,
+    body: ComponentBody,
+    current_user: PayrollGate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        await uop_admin.set_component(
+            db,
+            actor=current_user,
+            year=year,
+            month=month,
+            user_id=body.user_id,
+            kind=body.kind,
+            amount=body.amount,
+            note=body.note,
+        )
+        return await lists.month_payload(
+            db, viewer=current_user, year=year, month=month
+        )
+
+
+@router.get("/months/{year}/{month}/absences")
+async def month_absences(
+    year: int, month: int, current_user: PayrollGate, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Nieobecności osób z pensją (rodzaj tylko dla Płac — dane o zdrowiu, D6)."""
+
+    with _http_errors():
+        from app.services.hr.payroll_periods import validate_period
+
+        validate_period(year, month)
+        return {"absences": await uop_admin.absences(db, year, month)}
+
+
+@router.put("/absences/{leave_request_id}/mark")
+async def put_absence_mark(
+    leave_request_id: uuid.UUID,
+    body: MarkBody,
+    current_user: PayrollGate,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    with _http_errors():
+        mark = await uop_admin.set_mark(
+            db,
+            actor=current_user,
+            leave_request_id=leave_request_id,
+            sick_rate=body.sick_rate,
+            waiting_exempt=body.waiting_exempt,
+            note=body.note,
+        )
+    return {
+        "id": str(mark.leave_request_id),
+        "sick_rate": mark.sick_rate,
+        "waiting_exempt": mark.waiting_exempt,
+        "note": mark.note,
+    }
+
+
+@router.get("/basis-history")
+async def basis_history(
+    current_user: PayrollGate, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    return {"rows": await uop_admin.history_rows(db)}
+
+
+@router.post("/basis-history/import")
+async def import_basis_history(
+    current_user: PayrollGate,
+    save: bool = False,
+    file: UploadFile = File(
+        ..., description="Historia podstaw z Enovy (XLSX albo CSV)"
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    content = await file.read(uop_admin.MAX_BYTES + 1)
+    try:
+        with _http_errors():
+            return await uop_admin.import_history(
+                db, actor=current_user, content=content, save=save
+            )
+    except ImportFileError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+
+@router.post("/lists/{list_id}/ledger")
+async def post_list_to_ledger(
+    list_id: int, current_user: PayrollGate, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """LP z zatwierdzonej listy NEXUSA w buforze księgi (wrażliwość płacowa)."""
+
+    lst = await _list_or_404(db, list_id, lock=True)
+    with _http_errors():
+        return await ledger_post.post(db, actor=current_user, lst=lst)
+
+
+@router.post("/lists/{list_id}/compare-enova")
+async def compare_with_enova(
+    list_id: int,
+    current_user: PayrollGate,
+    file: UploadFile = File(..., description="Lista płac z Enovy (XLSX albo CSV)"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Różnice osoba po osobie, do grosza — plik nie jest zapisywany."""
+
+    from app.services.ledger import payroll_lists as enova_lists
+
+    lst = await _list_or_404(db, list_id)
+    if lst.status == "cancelled":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Lista jest anulowana.")
+    content = await file.read(enova_lists.MAX_BYTES + 1)
+    try:
+        return await enova_compare.compare(
+            db, actor=current_user, lst=lst, content=content
+        )
+    except ImportFileError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc

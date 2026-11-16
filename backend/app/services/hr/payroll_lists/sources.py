@@ -8,6 +8,9 @@ Pozycje listy:
 * **zleceniobiorcy u klientów** — kontrakty ``uzlecenie`` trwające w miesiącu;
   kwota z przyjętego rozliczenia klienta (``client_settlements``, ``actual``,
   ``accepted``, ``amount_cost``),
+* **UoP z pensją** (K7b, ``payroll_salaries``) — brutto liczy ``salary.month_pay``
+  (pensja, chorobowe, urlopowe, ekwiwalent, składniki Płac, premie z linii);
+  godziny × stawka z linii nie wchodzą (``uop.py``),
 * **kwota wpisana przez Płace** (``payroll_gross_inputs``) zastępuje oba źródła
   (UoP z pensją miesięczną, L4, niepełny miesiąc, dzieło, zlecenie bez
   rozliczenia); kwota 0 zdejmuje pozycję z listy w tym miesiącu.
@@ -41,8 +44,11 @@ from app.models.hr_payroll_lists import (
     PayrollListLine,
     PayrollYearOpening,
 )
+from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
+from app.services.hr.payroll_lists import uop
 from app.services.hr.payroll_lists.engine import ZERO, YearToDate
+from app.services.hr.payroll_lists.salary import MonthInput
 from app.services.hr.payroll_periods import month_end, month_start
 
 #: Statusy kontraktu, przy których zlecenie mogło trwać w miesiącu.
@@ -69,6 +75,8 @@ OPENING_KEYS: tuple[str, ...] = (
     "flat_tax",
     #: Wpłata pracodawcy PPK naliczona w Enovie, jeszcze niedoliczona do przychodu.
     "ppk_employer_pending",
+    #: K7b: dni wynagrodzenia chorobowego w roku przed NEXUSEM (Enova, świadectwa pracy).
+    "sick_pay_days",
 )
 
 
@@ -89,6 +97,10 @@ class Source:
     problems: list[str] = field(default_factory=list)
     #: Podstawa do warunku FP w przeliczeniu na pełny miesiąc (kwota Płac).
     fund_basis: Optional[Decimal] = None
+    #: K7b: wejście pensji UoP (liczone w ``lists.calculate`` z danymi osoby).
+    uop: Optional[MonthInput] = None
+    #: K7b: część brutto bez składek społecznych (wynagrodzenie chorobowe).
+    social_exempt: Decimal = ZERO
 
     def fingerprint(self) -> dict[str, Any]:
         return {
@@ -99,6 +111,7 @@ class Source:
             "fund_basis": None if self.fund_basis is None else str(self.fund_basis),
             "basis": self.basis,
             "problems": sorted(self.problems),
+            "uop": uop.fingerprint(self.uop) if self.uop is not None else None,
         }
 
 
@@ -137,6 +150,8 @@ def _manual(source: Source, item: PayrollGrossInput) -> None:
         "entered_by": item.entered_by,
     }
     source.source = "manual"
+    # ``uop`` zostaje: przy pensji wyliczenie NEXUSA i tak liczy dni L4 do limitu
+    # 33/14 dni i miesiąc historii podstaw (przegląd K7b 16.11.2026).
     source.gross = Decimal(item.gross)
     source.fund_basis = (
         Decimal(item.fund_basis) if item.fund_basis is not None else None
@@ -154,6 +169,17 @@ async def _team(
     inputs: dict[tuple[int, str], PayrollGrossInput],
     problems: list[dict[str, Any]],
 ) -> list[Source]:
+    loaded = await uop.load_period(db, period)
+    profiles: dict[int, EmployeeProfile] = {}
+    if loaded.salaries:
+        profiles = {
+            profile.user_id: profile
+            for profile in await db.scalars(
+                select(EmployeeProfile).where(
+                    EmployeeProfile.user_id.in_(sorted(loaded.salaries))
+                )
+            )
+        }
     lines = list(
         await db.scalars(
             select(PayrollLine)
@@ -205,7 +231,34 @@ async def _team(
             source.problems.append("currency")
         if pln is not None and pln.hourly_rate is None and pln.hours > 0:
             source.problems.append("rate_missing")
-        if (pln is None or pln.total <= 0) and not other:
+        salary_row = loaded.salaries.get(user_id) if kind == "uop" else None
+        if salary_row is not None:
+            # K7b: pensja zamiast godzin × stawki; premie z linii zostają.
+            bonuses = Decimal(pln.bonus_total) if pln else ZERO
+            had_rate = pln is not None and pln.hourly_rate is not None and pln.hours > 0
+            source.problems = [
+                code for code in source.problems if code != "rate_missing"
+            ]
+            if had_rate:
+                source.problems.append("salary_and_rate")
+            month, notes = await uop.month_input(
+                db,
+                period=period,
+                user_id=user_id,
+                salary_row=salary_row,
+                profile=profiles.get(user_id),
+                components=loaded.components.get(user_id, {}),
+                bonuses=bonuses,
+            )
+            source.source = "salary"
+            source.gross = None
+            source.uop = month
+            source.basis = {
+                **source.basis,
+                "salary_id": salary_row.id,
+                "k7b_notes": notes,
+            }
+        elif (pln is None or pln.total <= 0) and not other:
             source.gross = ZERO
             if kind == "uop" and "rate_missing" not in source.problems:
                 # Umowa o pracę bez kwoty to brak danych, nie miesiąc bez pracy.
@@ -214,7 +267,12 @@ async def _team(
         if item is not None:
             _manual(source, item)
             source.problems = [code for code in source.problems if code != "currency"]
-        if source.gross is not None and source.gross <= 0 and not source.problems:
+        if (
+            source.source != "salary"
+            and source.gross is not None
+            and source.gross <= 0
+            and not source.problems
+        ):
             if item is not None:
                 problems.append(
                     {"code": "skipped_zero", "person": source.name, "blocking": False}
