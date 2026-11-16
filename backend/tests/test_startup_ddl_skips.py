@@ -107,3 +107,101 @@ def test_every_backfill_skip_is_recorded() -> None:
     }
     for match in skips:
         assert "record_skipped_ddl(stmt, e)" in match.group(2), match.group(1)
+
+
+def test_verdict_names_the_skipped_step() -> None:
+    """15.11.2026 health mówił tylko „1 step(s)”; plik i log zniknęły z kontenerem.
+
+    Nazwa obiektu (z kodu, nie z bazy) ma być w samym ``checks.migrations``,
+    żeby rutyna czytająca publiczne ``/api/health`` wiedziała, co sprawdzić.
+    """
+    skips = [
+        {
+            "step": "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_jobs_status ON jobs (status)",
+            "sqlstate": "57014",
+        }
+    ]
+    verdict = mh.migrations_verdict(HEALTHY_STATE, None, skips)
+    assert verdict == (
+        "degraded: 1 startup DDL step(s) skipped by lock/statement timeout "
+        "(index ix_jobs_status [57014]), next start retries"
+    )
+
+
+@pytest.mark.parametrize(
+    ("step", "name"),
+    [
+        ("CREATE UNIQUE INDEX IF NOT EXISTS uq_a ON a (x)", "index uq_a"),
+        (
+            "ALTER TABLE candidates ADD COLUMN IF NOT EXISTS foo_bar int",
+            "column candidates.foo_bar",
+        ),
+        ('ALTER TABLE IF EXISTS "jobs" ADD COLUMN x text', "column jobs.x"),
+        (
+            "DO $$ BEGIN ALTER TABLE t ADD CONSTRAINT fk_t_u FOREIGN KEY (u) "
+            "REFERENCES users(id) NOT VALID; EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+            "constraint fk_t_u",
+        ),
+        (
+            "ALTER TYPE activity_type ADD VALUE IF NOT EXISTS 'merged'",
+            "enum activity_type",
+        ),
+        (
+            "CREATE TABLE IF NOT EXISTS finance_archive_documents (id int)",
+            "table finance_archive_documents",
+        ),
+        (
+            "UPDATE users SET email = lower(email) WHERE email <> lower(email)",
+            "data users",
+        ),
+        (
+            "INSERT INTO recruitment_priority_state (id) VALUES (1)",
+            "data recruitment_priority_state",
+        ),
+        ("ALTER TABLE candidates ALTER COLUMN rate TYPE numeric", "table candidates"),
+        (
+            "priority work: fk_process_origin_priority_assignment",
+            "priority work: fk_process_origin_priority_assignment",
+        ),
+        ("named permissions", "named permissions"),
+        (
+            "DO $$ BEGIN CREATE TYPE adjustmentstatus AS ENUM ('draft'); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; END $$",
+            "type adjustmentstatus",
+        ),
+        (
+            "CREATE OR REPLACE FUNCTION trg_rate_from_cards() RETURNS trigger AS $$ "
+            "BEGIN UPDATE candidates SET x = 1; RETURN NEW; END $$ LANGUAGE plpgsql",
+            "function trg_rate_from_cards",
+        ),
+        (
+            "DROP TRIGGER IF EXISTS trg_rate_from_cards ON recommendation_cards",
+            "trigger trg_rate_from_cards",
+        ),
+        ("DROP VIEW IF EXISTS v_x", "view v_x"),
+        ("CREATE OR REPLACE VIEW analytics_kpi AS SELECT 1", "view analytics_kpi"),
+        ("DROP TABLE IF EXISTS old_a, old_b", "table old_a"),
+        ("DROP SEQUENCE IF EXISTS s_x", "sql DROP"),
+        (
+            "CREATE TRIGGER trg_x AFTER UPDATE ON candidates "
+            "FOR EACH ROW EXECUTE FUNCTION trg_rate_from_cards()",
+            "trigger trg_x",
+        ),
+    ],
+)
+def test_step_name_is_a_short_object_name(step: str, name: str) -> None:
+    assert mh.skipped_step_name(step) == name
+
+
+def test_verdict_caps_names_and_never_carries_sql_literals() -> None:
+    skips = [
+        {"step": f"CREATE INDEX IF NOT EXISTS ix_{i} ON t (c)", "sqlstate": "55P03"}
+        for i in range(5)
+    ] + [{"step": "UPDATE users SET note = 'jan@example.com'", "sqlstate": "55P03"}]
+    verdict = mh.migrations_verdict(HEALTHY_STATE, None, skips)
+    assert (
+        "(index ix_0 [55P03]; index ix_1 [55P03]; index ix_2 [55P03]; +3 more)"
+        in verdict
+    )
+    one = mh.migrations_verdict(HEALTHY_STATE, None, skips[-1:])
+    assert "data users" in one and "example.com" not in one

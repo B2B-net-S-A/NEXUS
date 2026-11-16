@@ -52,3 +52,7 @@ czy to prawda; ma zatrzymać migrację, przy której nikt nie pomyślał o stary
 Ta sama reguła dotyczy siatki DDL w `entrypoint.sh`: biegnie przy żywym ruchu, a krok
 pominięty przez `lock_timeout` widać w `/api/health` (`checks.migrations: degraded`)
 i w Sentry (`app/services/startup_locks.record_skipped_ddl`). Następny start go ponowi.
+Od 16.11.2026 `checks.migrations` podaje też nazwę obiektu (do trzech, np.
+`(index ix_jobs_status [57014])`), bo 15.11 sam licznik „1 step(s)” nie dał się
+już przypisać: plik kroków i log kontenera znikają przy następnym wdrożeniu, a Sentry
+wymaga logowania. W health idzie tylko nazwa z kodu (`skipped_step_name`), nigdy SQL.
