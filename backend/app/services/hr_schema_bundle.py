@@ -156,7 +156,7 @@ MODULES = (
     finance_archive,
     # 0724: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
     order_revenue_steps,
-    # 0726: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
+    # 0727: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
     board_documents,
 )
 
