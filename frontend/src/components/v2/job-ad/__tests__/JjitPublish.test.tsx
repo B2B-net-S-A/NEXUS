@@ -27,6 +27,12 @@ vi.mock("@/components/v2/recruitment/PortalListingForm", () => ({
       <button type="button" onClick={() => onChange({ ...value, category: "java" })}>
         Wybierz kategorię
       </button>
+      <button
+        type="button"
+        onClick={() => onChange({ ...value, salary: { from: 150, to: 190, unit: "hour" } })}
+      >
+        Wpisz widełki
+      </button>
       {problems.map((problem) => (
         <p key={problem}>{problem}</p>
       ))}
@@ -262,20 +268,60 @@ describe("okno publikacji", () => {
     expect(screen.getByText("Wybierz kategorię ogłoszenia.")).toBeTruthy();
   });
 
-  it("wysyła ustawienia z wersją z ekranu", async () => {
+  it("z widełkami wysyła ustawienia z wersją z ekranu bez pytania o powód", async () => {
+    const next = adState();
+    const api = { publishJjit: vi.fn(async () => next) };
+    const onPublished = dialog(api);
+    fireEvent.click(screen.getByRole("button", { name: "Wybierz kategorię" }));
+    fireEvent.click(screen.getByRole("button", { name: "Wpisz widełki" }));
+    fireEvent.click(screen.getByTestId("jjit-publish-confirm"));
+    await waitFor(() => expect(onPublished).toHaveBeenCalledWith(next));
+    expect(screen.queryByText("Ogłoszenie bez widełek")).toBeNull();
+    const [jobId, input] = api.publishJjit.mock.calls[0] as unknown as [
+      number,
+      {
+        options: { category: string; salary: unknown; no_salary_reason: string | null };
+        expected_updated_at: string;
+      },
+    ];
+    expect(jobId).toBe(7);
+    expect(input.options.category).toBe("java");
+    expect(input.options.salary).toEqual({ from: 150, to: 190, unit: "hour" });
+    expect(input.options.no_salary_reason).toBeNull();
+    expect(input.expected_updated_at).toBe(adState().ad?.updated_at);
+  });
+
+  it("bez widełek pyta o powód (B2B: zalecane) i wysyła go z ustawieniami", async () => {
     const next = adState();
     const api = { publishJjit: vi.fn(async () => next) };
     const onPublished = dialog(api);
     fireEvent.click(screen.getByRole("button", { name: "Wybierz kategorię" }));
     fireEvent.click(screen.getByTestId("jjit-publish-confirm"));
+    expect(await screen.findByText("Ogłoszenie bez widełek")).toBeTruthy();
+    expect(screen.getByText(/Przy B2B podanie widełek jest zalecane/)).toBeTruthy();
+    const confirm = screen.getByRole("button", { name: "Opublikuj bez widełek" });
+    expect((confirm as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Powód publikacji bez widełek"), {
+      target: { value: "  Stawkę ustalamy po rozmowie technicznej. " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Opublikuj bez widełek" }));
     await waitFor(() => expect(onPublished).toHaveBeenCalledWith(next));
-    const [jobId, input] = api.publishJjit.mock.calls[0] as unknown as [
+    const [, input] = api.publishJjit.mock.calls[0] as unknown as [
       number,
-      { options: { category: string }; expected_updated_at: string },
+      { options: { salary: unknown; no_salary_reason: string } },
     ];
-    expect(jobId).toBe(7);
-    expect(input.options.category).toBe("java");
-    expect(input.expected_updated_at).toBe(adState().ad?.updated_at);
+    expect(input.options.salary).toBeNull();
+    expect(input.options.no_salary_reason).toBe("Stawkę ustalamy po rozmowie technicznej.");
+  });
+
+  it("bez widełek „Wróć i wpisz widełki” niczego nie wysyła", async () => {
+    const api = { publishJjit: vi.fn() };
+    dialog(api);
+    fireEvent.click(screen.getByRole("button", { name: "Wybierz kategorię" }));
+    fireEvent.click(screen.getByTestId("jjit-publish-confirm"));
+    fireEvent.click(await screen.findByRole("button", { name: "Wróć i wpisz widełki" }));
+    await waitFor(() => expect(screen.queryByText("Ogłoszenie bez widełek")).toBeNull());
+    expect(api.publishJjit).not.toHaveBeenCalled();
   });
 
   it("odmowa serwera zostaje w oknie jako komunikat", async () => {
@@ -286,6 +332,7 @@ describe("okno publikacji", () => {
     };
     const onPublished = dialog(api);
     fireEvent.click(screen.getByRole("button", { name: "Wybierz kategorię" }));
+    fireEvent.click(screen.getByRole("button", { name: "Wpisz widełki" }));
     fireEvent.click(screen.getByTestId("jjit-publish-confirm"));
     await waitFor(() => expect(toast.showError).toHaveBeenCalled());
     expect(onPublished).not.toHaveBeenCalled();

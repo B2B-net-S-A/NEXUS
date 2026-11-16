@@ -6,8 +6,9 @@
  * Kontrolowany formularz — stan trzyma rodzic (okno publikacji w oknie
  * zlecenia i krok „Ogłoszenie na portalach” na `/jobs/new`). Kategorie idą ze
  * słownika PIERWSZEGO zaznaczonego portalu dostawcy; awaria odczytu mówi
- * o sobie wprost, nigdy nie wygląda jak pusta lista. Widełki są opcjonalne
- * i wpisuje je Delivery Lead (decyzja 25.09.2026: nigdy z budżetu rekrutacji).
+ * o sobie wprost, nigdy nie wygląda jak pusta lista. Widełki są zalecane
+ * i wpisuje je Delivery Lead (decyzja 25.09.2026: nigdy z budżetu rekrutacji);
+ * bez nich publikacja wymaga powodu (16.11.2026, `lib/postingSalaryGuard.ts`).
  */
 
 import { useId, useState } from "react";
@@ -316,7 +317,7 @@ export function PortalListingForm({
       </div>
 
       <div className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-foreground">Widełki (opcjonalnie)</span>
+        <span className="text-sm font-medium text-foreground">Widełki (zalecane)</span>
         <div className="flex flex-wrap items-center gap-2">
           <Input
             aria-label="Widełki od"

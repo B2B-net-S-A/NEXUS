@@ -171,16 +171,48 @@ describe("JobPortalsSection — RocketJobs / JustJoin.IT", () => {
     expect(apiMock.post).not.toHaveBeenCalled();
   });
 
-  it("wysyła publikację z parametrami ogłoszenia", async () => {
+  it("wysyła publikację z parametrami ogłoszenia i widełkami bez pytania o powód", async () => {
+    apiMock.post.mockResolvedValueOnce({ data: { ...failed, portal: "rocketjobs", status: "publishing" } });
+    renderWith(BOARDS, [], DEFAULTS);
+    fireEvent.click(screen.getByRole("button", { name: "Opublikuj" }));
+    fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
+    fireEvent.change(screen.getByLabelText("Widełki od"), { target: { value: "150" } });
+    fireEvent.change(screen.getByLabelText("Widełki do"), { target: { value: "190" } });
+    const dialogButtons = screen.getAllByRole("button", { name: "Opublikuj" });
+    fireEvent.click(dialogButtons[dialogButtons.length - 1]);
+    await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
+    expect(screen.queryByText("Ogłoszenie bez widełek")).toBeNull();
+    expect(apiMock.post).toHaveBeenCalledWith("/api/jobs/5/portals/rocketjobs/publish", {
+      options: {
+        ...DEFAULTS,
+        category: "java",
+        salary: { from: 150, to: 190, unit: "hour" },
+        no_salary_reason: null,
+      },
+    });
+  });
+
+  it("publikacja bez widełek idzie dopiero z powodem z potwierdzenia", async () => {
     apiMock.post.mockResolvedValueOnce({ data: { ...failed, portal: "rocketjobs", status: "publishing" } });
     renderWith(BOARDS, [], DEFAULTS);
     fireEvent.click(screen.getByRole("button", { name: "Opublikuj" }));
     fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
     const dialogButtons = screen.getAllByRole("button", { name: "Opublikuj" });
     fireEvent.click(dialogButtons[dialogButtons.length - 1]);
+    expect(await screen.findByText("Ogłoszenie bez widełek")).toBeInTheDocument();
+    expect(screen.getByText(/sprawdzamy z prawnikiem/)).toBeInTheDocument();
+    expect(apiMock.post).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("Powód publikacji bez widełek"), {
+      target: { value: "Klient poda stawkę po pierwszym etapie." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Opublikuj bez widełek" }));
     await waitFor(() => expect(apiMock.post).toHaveBeenCalled());
     expect(apiMock.post).toHaveBeenCalledWith("/api/jobs/5/portals/rocketjobs/publish", {
-      options: { ...DEFAULTS, category: "java" },
+      options: {
+        ...DEFAULTS,
+        category: "java",
+        no_salary_reason: "Klient poda stawkę po pierwszym etapie.",
+      },
     });
   });
 

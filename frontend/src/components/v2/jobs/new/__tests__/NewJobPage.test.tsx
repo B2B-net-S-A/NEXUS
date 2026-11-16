@@ -2687,6 +2687,13 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
     fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
     fireEvent.click(screen.getByRole("button", { name: "Utwórz i opublikuj" }));
+    // Bez widełek: rekrutacja powstaje dopiero po potwierdzeniu z powodem.
+    expect(await screen.findByText("Ogłoszenie bez widełek")).toBeInTheDocument();
+    expect(mocks.post.mock.calls.map(([url]) => url)).not.toContain("/api/jobs");
+    fireEvent.change(screen.getByLabelText("Powód publikacji bez widełek"), {
+      target: { value: "Stawkę podajemy na pierwszej rozmowie." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Opublikuj bez widełek" }));
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900"));
     const urls = mocks.post.mock.calls.map(([url]) => url);
@@ -2705,7 +2712,14 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     });
     const publish = mocks.post.mock.calls.find(([url]) => url === "/api/jobs/900/portals/rocketjobs/publish");
     expect(publish?.[1]).toEqual({
-      options: expect.objectContaining({ category: "java", city: "Warszawa", workplace_type: "hybrid", office_days: 2, salary: null }),
+      options: expect.objectContaining({
+        category: "java",
+        city: "Warszawa",
+        workplace_type: "hybrid",
+        office_days: 2,
+        salary: null,
+        no_salary_reason: "Stawkę podajemy na pierwszej rozmowie.",
+      }),
     });
     expect(mocks.showSuccess).toHaveBeenCalledWith(expect.stringContaining("Ogłoszenie w kolejce: RocketJobs"));
   });
@@ -2720,9 +2734,12 @@ describe("NewJobPage — ogłoszenie na portalach", () => {
     fireEvent.click(screen.getByRole("button", { name: "Przygotuj ogłoszenie" }));
     fireEvent.change(await screen.findByLabelText("Kategoria"), { target: { value: "java" } });
     fireEvent.change(screen.getByLabelText("Poziom doświadczenia"), { target: { value: "senior" } });
+    fireEvent.change(screen.getByLabelText("Widełki od"), { target: { value: "150" } });
+    fireEvent.change(screen.getByLabelText("Widełki do"), { target: { value: "190" } });
     fireEvent.click(screen.getByRole("button", { name: "Utwórz i opublikuj" }));
 
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/jobs/900?tab=portals"));
+    expect(screen.queryByText("Ogłoszenie bez widełek")).toBeNull();
     expect(mocks.showError).toHaveBeenCalledWith(expect.stringContaining("Konto portalu niepołączone."));
     expect(mocks.showSuccess).not.toHaveBeenCalled();
   });

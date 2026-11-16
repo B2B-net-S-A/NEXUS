@@ -54,6 +54,11 @@ export interface PortalListingOptions {
   city: string | null;
   /** `null` = ogłoszenie bez widełek (decyzja 25.09: nigdy z budżetu). */
   salary: PortalSalary | null;
+  /**
+   * Powód publikacji bez widełek (16.11.2026, `lib/postingSalaryGuard.ts`);
+   * serwer odmawia publikacji bez widełek i bez powodu.
+   */
+  no_salary_reason?: string | null;
 }
 
 export const EMPTY_LISTING_OPTIONS: PortalListingOptions = {
@@ -64,6 +69,7 @@ export const EMPTY_LISTING_OPTIONS: PortalListingOptions = {
   office_days: null,
   city: null,
   salary: null,
+  no_salary_reason: null,
 };
 
 export interface JobPostingRead {

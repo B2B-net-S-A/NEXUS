@@ -90,6 +90,7 @@ import {
   type RowCriticalState,
 } from "@/lib/requirement-rows";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { confirmSalaryOrReason } from "@/lib/postingSalaryGuard";
 import { fetchRowsFromLegacy, useRowCriticalInfo } from "@/lib/requirement-rows-api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { cn } from "@/lib/utils";
@@ -828,7 +829,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const criticalInfo = preview?.criticalInfo ?? liveCriticalInfo;
   // D2 (13.10.2026): ile osób zostawiają krytyczne razem — „Utwórz” pyta poniżej 20.
   const [criticalReach, setCriticalReach] = useState<number | null | undefined>(undefined);
-  const { askConfirm, confirmDialog } = useConfirmV2();
+  const { askConfirm, askReason, confirmDialog } = useConfirmV2();
   const missing = useMemo(
     () => missingFor(form, { criticalInfo: criticalInfo.info }),
     [form, criticalInfo.info],
@@ -1291,6 +1292,13 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       });
       if (!ok) return;
     }
+    // Bez widełek ogłoszenie wychodzi dopiero z powodem (16.11.2026).
+    let portalPlanToSend = activePortalPlan;
+    if (activePortalPlan.portals.length > 0) {
+      const options = await confirmSalaryOrReason(activePortalPlan.options, askReason);
+      if (!options) return;
+      portalPlanToSend = { ...activePortalPlan, options };
+    }
     setSaving("create");
     setSaveError(null);
     setServerBlockers(null);
@@ -1369,7 +1377,7 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       const labels = Object.fromEntries(
         availablePortals.map((item) => [item.portal, item.label]),
       );
-      const outcome = await publishNewJobToPortals(jobId, activePortalPlan, labels);
+      const outcome = await publishNewJobToPortals(jobId, portalPlanToSend, labels);
       if (!outcome.ok) {
         // Rekrutacja zostaje — w oknie zlecenia da się dokończyć publikację.
         showError(
