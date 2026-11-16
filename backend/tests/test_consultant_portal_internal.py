@@ -9,7 +9,7 @@ Skrzynka i mailer to atrapy; dane fikcyjne.
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 import pytest_asyncio
@@ -17,11 +17,12 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
 from app.models.back_office import BoCard
 from app.models.candidate import Candidate
 from app.models.consultant_portal import CpDocument, CpMailboxState
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.models.user import UserRole
 from app.services import storage_service
 from app.services.consultant_portal import mailbox
@@ -325,3 +326,33 @@ async def test_preview_needs_open_module(app_client) -> None:
         assert refused.status_code in (403, 404)
     finally:
         await _setting("client_settlements", previous)
+
+
+@pytest.mark.usefixtures("internal")
+async def test_person_with_two_live_contracts_waits_for_assignment() -> None:
+    """Zakończony kontrakt żyje jeszcze 60 dni (ostatni raport przychodzi po końcu).
+    Osoba z dwoma takimi kontraktami nie dostaje automatu: czytnik nie zgadnie, czyj
+    to RCP, a przypisanego dokumentu Finanse nie przepną (``assign_contract`` → 409)."""
+
+    old = await make_person(activated=False)
+    new = await make_person(activated=False, candidate_id=old.candidate_id)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == old.contract_id)
+            .values(
+                status=ContractStatus.ended,
+                end_date=business_today() - timedelta(days=10),
+            )
+        )
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == new.contract_id)
+            .values(candidate_email=old.email)
+        )
+        await db.commit()
+    reader = FakeMailbox(
+        [_message("m1", old.email)], {"m1": [_attachment("RCP_10_2026.pdf", PDF)]}
+    )
+    assert (await _read(reader))["created"] == 1
+    assert [row.contract_id for row in await _documents()] == [None]

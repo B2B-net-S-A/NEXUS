@@ -86,7 +86,7 @@ async def resolve_sender(
     W pilotażu tylko osoby z aktywnym panelem (jak link). W ``internal`` i ``all`` każdy
     działający kontrakt: najpierw adres z kontraktu, potem adres z kartoteki kandydata.
     Dopasowanie nie otwiera panelu ani nie wysyła maila, a dokument z maila i tak czeka
-    na decyzję Finansów. Adres dwóch różnych osób = ``None``.
+    na decyzję Finansów. Więcej niż jeden działający kontrakt pod adresem = ``None``.
     """
 
     if not settings.any_sender:
@@ -112,10 +112,10 @@ async def resolve_sender(
             )
         ).all()
         rows = [row for row in by_card if eligible(row, today)]
-    if not rows:
-        return None
-    people = {row.candidate_id if row.candidate_id else f"c{row.id}" for row in rows}
-    return rows[0] if len(people) == 1 else None
+    # Jeden działający kontrakt = jedno dopasowanie. Dwa (zmiana kontraktu w ostatnich
+    # 60 dniach, dwóch klientów naraz) albo dwie osoby = karta do ręcznego przypisania:
+    # przypisanego dokumentu Finanse nie przepną, a RCP od razu liczy rozliczenie.
+    return rows[0] if len(rows) == 1 else None
 
 
 def _tokens(text: Optional[str]) -> set[str]:

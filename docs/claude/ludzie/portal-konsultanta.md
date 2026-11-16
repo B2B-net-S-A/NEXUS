@@ -106,8 +106,9 @@ Portal i czytnik `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` kończą w `documents.s
 (kontrakt, okres, rodzaj), kolumna `invoice` zespołu `finance` (`sources.document_cards`). Ten sam plik z drugiego
 kanału to ten sam wiersz. Raport przyjęty przez Finanse daje sygnał „wystaw fakturę”. W pilotażu czytnik bierze
 tylko nadawców z aktywowanych kontraktów. W `internal` i `all` bierze każdego nadawcę z działającym kontraktem,
-także bez aktywacji panelu (`identity.resolve_sender`: adres z kontraktu, potem z kartoteki; adres dwóch osób
-= brak dopasowania), a nieznany nadawca dostaje kartę do przypisania. Odczyt maila nie otwiera nikomu panelu.
+także bez aktywacji panelu (`identity.resolve_sender`: adres z kontraktu, potem z kartoteki; więcej niż jeden
+działający kontrakt pod adresem, np. zmiana kontraktu w ostatnich 60 dniach, = brak dopasowania, bo
+przypisanego dokumentu Finanse nie przepną), a nieznany nadawca dostaje kartę do przypisania. Odczyt maila nie otwiera nikomu panelu.
 
 Moduł rozliczeń klientów (`app_settings['client_settlements']`) włącza admin przełącznikiem w karcie
 „Start rozliczeń” (`PUT /api/finance/settlements/module`). Na czas testów zespołu reguła klienta
