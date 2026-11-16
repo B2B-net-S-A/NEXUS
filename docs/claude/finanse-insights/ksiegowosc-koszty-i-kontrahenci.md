@@ -257,9 +257,10 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
   brutto bez MPP — podpowiedź „rozważ MPP” (PKWiU nie znamy — XML-a kosztów
   nie pobieramy).
 - **Tytuł**: numer faktury i numer KSeF w osobnych liniach (4 × 35 znaków,
-  numer KSeF nie jest cięty). Od 1.01.2027 (`business_today()`, data
-  wstrzykiwana w testach) faktura z KSeF bez numeru KSeF jest zablokowana; PDF
-  spoza KSeF przechodzi. MPP: `/VAT/{vat z przecinkiem}/IDC/{NIP sprzedawcy}/INV/{numer}/TXT/{numer KSeF albo numer faktury}`.
+  numer KSeF nie jest cięty). Od 1.01.2027 faktura z KSeF bez numeru KSeF
+  jest zablokowana; decyduje data wykonania paczki, nie dzień planu (art. 108g
+  VAT, strażnik `przepisy/numer-ksef-w-tytule-przelewu.md`); PDF spoza KSeF
+  przechodzi. MPP: `/VAT/{vat z przecinkiem}/IDC/{NIP sprzedawcy}/INV/{numer}/TXT/{numer KSeF albo numer faktury}`.
 - **Biała lista**: `white_list.check` na dzień paczki dla rachunku krajowego
   z NIP-em; wynik i `requestId` przy wierszu i w pozycji paczki. Tryb `off` =
   „Nie sprawdzono (sprawdzanie wyłączone)”, awaria = „niesprawdzony” — nigdy

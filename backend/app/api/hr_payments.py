@@ -412,6 +412,7 @@ async def preview_batch(
             settlement_ids=payload.settlement_ids,
             today=business_today(),
             actor_id=current_user.id,
+            pay_date=payload.execution_date,
         )
     return {"items": [batches.item_payload(item) for item in items]}
 

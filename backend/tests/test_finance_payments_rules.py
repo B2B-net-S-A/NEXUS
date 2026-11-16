@@ -76,7 +76,7 @@ def _title(**kwargs):
         "from_ksef": True,
         "vat_amount": Decimal("2300.00"),
         "seller_nip": NIP,
-        "today": BEFORE,
+        "pay_date": BEFORE,
     }
     return rules.title_lines(**{**base, **kwargs})
 
@@ -89,11 +89,11 @@ def test_tytul_numer_faktury_i_ksef_w_osobnych_liniach() -> None:
 def test_brak_numeru_ksef_przed_2027_przechodzi_po_2027_blokuje() -> None:
     assert _title(ksef_number=None) == ["FV/7/11/2026"]
     with pytest.raises(rules.PaymentRuleError) as exc:
-        _title(ksef_number=None, today=AFTER)
+        _title(ksef_number=None, pay_date=AFTER)
     assert exc.value.code == "no_ksef_number"
     # Faktura spoza KSeF (PDF) po 1.01.2027 bez numeru KSeF — dalej przechodzi.
-    assert _title(ksef_number=None, from_ksef=False, today=AFTER) == ["FV/7/11/2026"]
-    assert _title(today=AFTER) == ["FV/7/11/2026", KSEF]
+    assert _title(ksef_number=None, from_ksef=False, pay_date=AFTER) == ["FV/7/11/2026"]
+    assert _title(pay_date=AFTER) == ["FV/7/11/2026", KSEF]
 
 
 def test_tytul_mpp_w_formacie_komunikatu() -> None:
