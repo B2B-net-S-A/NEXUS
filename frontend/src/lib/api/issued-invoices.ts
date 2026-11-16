@@ -26,7 +26,7 @@ export type IssuedStatus =
   | "failed"
   | "cancelled";
 export type IssuedType = "VAT" | "KOR" | "ZAL";
-export type SeriesCode = "PL" | "UE" | "ZAL" | "KOR";
+export type SeriesCode = "PL" | "UE" | "ZAL" | "KOR" | "BEN" | "KORUE";
 export type IssueCurrency = "PLN" | "EUR" | "USD";
 
 export interface IssueLine {
@@ -165,7 +165,15 @@ export interface IssueSettings {
   exemption_basis: string;
   service_name: string;
   series: Record<SeriesCode, string>;
-  clients: Record<string, { vat_rate?: string; payment_days?: number }>;
+  /** Nadpisania przy kliencie; `accounts` — rachunek klienta w walucie (np. Nordea w EUR). */
+  clients: Record<
+    string,
+    {
+      vat_rate?: string;
+      payment_days?: number;
+      accounts?: Partial<Record<IssueCurrency, IssueAccount>>;
+    }
+  >;
 }
 
 export interface SeriesState {
@@ -197,7 +205,7 @@ export type InvoicePatch = Partial<{
   notes: string | null;
   correction_reason: string | null;
   currency: IssueCurrency;
-  series_code: "PL" | "UE";
+  series_code: "PL" | "UE" | "BEN";
   buyer: Partial<IssueBuyer>;
   lines: Partial<IssueLine>[];
 }>;

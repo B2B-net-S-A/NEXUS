@@ -21,7 +21,7 @@ from html import escape
 from typing import Any, Optional
 
 from app.models.client_issued_invoice import ClientIssuedInvoice
-from app.services.client_invoicing import fa3_build
+from app.services.client_invoicing import fa3_build, issue_settings
 from app.services.hr.payroll_rates import format_pln
 
 QR_BASES = {
@@ -189,7 +189,14 @@ def render_html(
         notes.append(f"Zamówienie klienta: {escape(invoice.client_order_number)}.")
     if invoice.notes:
         notes.append(escape(invoice.notes))
-    account = settings["accounts"].get(currency) or {}
+    account = (
+        issue_settings.account_for(
+            settings, invoice.client_id, currency, invoice.series_code
+        )
+        or {}
+    )
+    if invoice.series_code in issue_settings.COMPENSATION_SERIES:
+        notes.append(f"Forma płatności: {issue_settings.COMPENSATION_LABEL.lower()}.")
     if account.get("number"):
         bank = f" ({escape(account['bank'])})" if account.get("bank") else ""
         swift = f", SWIFT {escape(account['swift'])}" if account.get("swift") else ""

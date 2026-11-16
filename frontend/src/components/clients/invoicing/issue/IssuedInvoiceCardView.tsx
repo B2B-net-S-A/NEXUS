@@ -74,7 +74,7 @@ interface FormState {
   notes: string;
   correction_reason: string;
   currency: IssuedInvoiceCard["currency"];
-  series_code: "PL" | "UE";
+  series_code: "PL" | "UE" | "BEN";
   buyer: IssueBuyer;
   lines: IssueLine[];
 }
@@ -90,7 +90,10 @@ function formFrom(card: IssuedInvoiceCard): FormState {
     notes: card.notes ?? "",
     correction_reason: card.correction_reason ?? "",
     currency: card.currency,
-    series_code: card.series_code === "UE" ? "UE" : "PL",
+    series_code:
+      card.series_code === "UE" || card.series_code === "BEN"
+        ? card.series_code
+        : "PL",
     buyer: {
       name: card.buyer.name ?? "",
       number: card.buyer.number ?? "",
@@ -519,11 +522,14 @@ function CardBody({
                   disabled={!editable || card.invoice_number !== null}
                   value={form.series_code}
                   onChange={(e) =>
-                    change({ series_code: e.target.value as "PL" | "UE" })
+                    change({
+                      series_code: e.target.value as "PL" | "UE" | "BEN",
+                    })
                   }
                 >
                   <option value="PL">krajowa</option>
                   <option value="UE">nabywca z UE</option>
+                  <option value="BEN">refaktura benefitu (kompensata)</option>
                 </select>
               </FormField>
             ) : null}

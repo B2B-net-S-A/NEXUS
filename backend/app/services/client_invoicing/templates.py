@@ -818,7 +818,11 @@ async def run(
             client_id=template.client_id,
             template_id=template.id,
             invoice_type="VAT",
-            series_code=template.series_code,
+            # Refaktura benefitu idzie własną serią bez rachunku (kompensata),
+            # jak w eBI24 „N/M/RRRR/Benefit” — decyzja Artura 16.11.2026.
+            series_code="BEN"
+            if template.kind == "benefit" and template.series_code == "PL"
+            else template.series_code,
             status="draft",
             period_year=year,
             period_month=month,
