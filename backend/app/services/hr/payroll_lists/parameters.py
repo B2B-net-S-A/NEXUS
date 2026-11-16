@@ -36,6 +36,7 @@ from app.services.hr.payroll_errors import (
     PayrollError,
     PayrollNotFound,
 )
+from app.services.hr.payroll_lists import next_year
 from app.services.hr.payroll_lists import params as params_rules
 from app.services.hr_payroll_lists_schema import NOTE_MAX
 
@@ -287,6 +288,10 @@ async def history_payload(db: AsyncSession, *, on: date) -> dict[str, Any]:
         "catalog": params_rules.catalog(),
         "current_id": current.id if current else None,
         "versions": items,
+        # Strażnik nowego roku: tylko szkic do formularza, nic się tu nie zapisuje.
+        "next_year": next_year.gap(
+            on, [next_year.Version(v.effective_from, v.params) for v in live]
+        ),
     }
 
 

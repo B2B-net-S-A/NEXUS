@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
@@ -13,6 +13,7 @@ import {
   useSaveParameters,
   useWithdrawParameters,
   type CompanyInput,
+  type NextYearGap,
   type ParamVersion,
   type ParametersOverview,
   type PayrollCompany,
@@ -23,19 +24,25 @@ import { cn } from "@/lib/utils";
 
 import { SectionCard } from "../AccountingShell";
 import { datePl } from "../ledger-model";
+import { NextYearNotice } from "./NextYearNotice";
 import {
   changedParams,
   companyMissing,
+  draftFields,
   nextMonth,
   paramField,
   paramGroups,
   paramProblems,
   paramText,
   paramValue,
+  wantsNextYearDraft,
+  withoutDraftParam,
 } from "./parameters-model";
 
 const CONTROL = "h-8 w-full min-w-0 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const CHANGES_SHOWN = 6;
+
+type FormMode = "none" | "blank" | "draft";
 
 const VERSION_STATUS: Record<ParamVersion["status"], { label: string; tone: "warning" | "success" }> = {
   to_confirm: { label: "Do potwierdzenia", tone: "warning" },
@@ -45,13 +52,41 @@ const VERSION_STATUS: Record<ParamVersion["status"], { label: string; tone: "war
 /** „Parametry”: stawki ZUS, PIT, PPK i limity w wersjach od daty, dane płatnika. */
 export function PayrollParametersView({ today }: { today: string }) {
   const overview = usePayrollParameters();
+  // `?draft=next-year` z ekranów miesięcy otwiera szkic wersji od 1 stycznia (strażnik).
+  const [askedForDraft] = useState(
+    () => typeof window !== "undefined" && wantsNextYearDraft(window.location.search),
+  );
+  const [form, setForm] = useState<FormMode>("none");
+  const gap = overview.data?.next_year ?? null;
+  useEffect(() => {
+    if (!askedForDraft) return;
+    window.history.replaceState(null, "", `${window.location.pathname}${withoutDraftParam(window.location.search)}`);
+  }, [askedForDraft]);
+  useEffect(() => {
+    if (askedForDraft && gap) setForm((mode) => (mode === "none" ? "draft" : mode));
+  }, [askedForDraft, gap]);
+
   if (overview.isError) return <QueryStateNotice state="error" onRetry={() => overview.refetch()} />;
   if (!overview.isSuccess) return <p className="text-sm text-muted-foreground">Wczytywanie parametrów płac…</p>;
   const data = overview.data;
   const current = data.versions.find((version) => version.id === data.current_id) ?? null;
   return (
     <div className="space-y-3.5">
-      <CurrentParameters data={data} current={current} today={today} />
+      {gap ? (
+        <NextYearNotice
+          gap={gap}
+          action={
+            form === "draft" ? (
+              <span className="text-[12.5px]">Szkic otwarty niżej — sprawdź i zapisz.</span>
+            ) : (
+              <Button size="sm" onClick={() => setForm("draft")}>
+                Otwórz szkic od {datePl(gap.effective_from)}
+              </Button>
+            )
+          }
+        />
+      ) : null}
+      <CurrentParameters data={data} current={current} today={today} form={form} setForm={setForm} />
       <div className="grid gap-3.5 xl:grid-cols-2">
         {data.company ? <CompanyCard company={data.company} /> : null}
         <VersionsCard data={data} />
@@ -64,15 +99,24 @@ function CurrentParameters({
   data,
   current,
   today,
+  form,
+  setForm,
 }: {
   data: ParametersOverview;
   current: ParamVersion | null;
   today: string;
+  form: FormMode;
+  setForm: (mode: FormMode) => void;
 }) {
   const { showToast } = useToast();
   const confirm = useConfirmParameters();
-  const [adding, setAdding] = useState(false);
+  const formRef = useRef<HTMLDivElement>(null);
   const status = current ? VERSION_STATUS[current.status] : null;
+  const draft = form === "draft" ? (data.next_year ?? null) : null;
+
+  useEffect(() => {
+    if (form === "draft") formRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [form]);
 
   const doConfirm = (version: ParamVersion) =>
     confirm.mutate(version.id, {
@@ -119,11 +163,18 @@ function CurrentParameters({
           Nie ma parametrów obowiązujących dziś — dodaj wersję, inaczej lista płac się nie policzy.
         </p>
       )}
-      <div className="border-t border-border/70 px-3.5 py-3">
-        {adding ? (
-          <NewVersionForm data={data} current={current} today={today} onDone={() => setAdding(false)} />
+      <div ref={formRef} className="scroll-mt-4 border-t border-border/70 px-3.5 py-3">
+        {form !== "none" ? (
+          <NewVersionForm
+            key={draft ? "draft" : "blank"}
+            data={data}
+            current={current}
+            today={today}
+            draft={draft}
+            onDone={() => setForm("none")}
+          />
         ) : (
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+          <Button size="sm" variant="outline" onClick={() => setForm("blank")}>
             Nowa wersja od…
           </Button>
         )}
@@ -136,20 +187,26 @@ function NewVersionForm({
   data,
   current,
   today,
+  draft,
   onDone,
 }: {
   data: ParametersOverview;
   current: ParamVersion | null;
   today: string;
+  /** Szkic strażnika 1 stycznia — tylko wypełnia pola; zapis i potwierdzenie jak zawsze. */
+  draft: NextYearGap | null;
   onDone: () => void;
 }) {
   const { showToast } = useToast();
   const save = useSaveParameters();
-  const [month, setMonth] = useState(nextMonth(today));
-  const [note, setNote] = useState("");
+  const [month, setMonth] = useState(draft ? draft.effective_from.slice(0, 7) : nextMonth(today));
+  const [note, setNote] = useState(draft?.note ?? "");
   const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(data.catalog.map((item) => [item.key, paramField(current?.params[item.key])])),
+    draft
+      ? draftFields(data.catalog, draft)
+      : Object.fromEntries(data.catalog.map((item) => [item.key, paramField(current?.params[item.key])])),
   );
+  const sources = Object.fromEntries((draft?.known ?? []).map((item) => [item.key, item]));
   const problems = paramProblems(data.catalog, values);
   const changed = changedParams(data.catalog, current?.params ?? {}, values);
   const monthOk = /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
@@ -197,6 +254,12 @@ function NewVersionForm({
           />
         </label>
       </div>
+      {draft ? (
+        <p className="rounded-md bg-muted/60 px-3 py-2 text-[12.5px]">
+          Szkic wersji od {datePl(draft.effective_from)}: wartości wstępne z przepisów ({draft.known.length}) mają
+          źródło pod polem. {draft.unchanged_note} Zapis tworzy wersję „Do potwierdzenia”.
+        </p>
+      ) : null}
       <p className="text-[12px] text-muted-foreground">
         Wersja obowiązuje od pierwszego dnia miesiąca; lista płac bierze wersję z dnia wypłaty. Wersja z tą samą datą
         zastępuje poprzednią, jeśli nie policzyła zatwierdzonej listy. Nowa wersja czeka na potwierdzenie.
@@ -210,18 +273,30 @@ function NewVersionForm({
             <div className="mt-1 space-y-1">
               {group.items.map((item) => {
                 const differs = Number(current?.params[item.key]) !== Number(paramValue(values[item.key] ?? ""));
+                const source = sources[item.key];
                 return (
-                  <label key={item.key} className="grid grid-cols-[minmax(0,1fr)_7.5rem_2rem] items-center gap-2">
-                    <span className={cn("min-w-0", differs && "font-medium text-primary")}>{item.label}</span>
-                    <input
-                      aria-label={item.label}
-                      inputMode="decimal"
-                      className={cn(CONTROL, "text-right tabular-nums")}
-                      value={values[item.key] ?? ""}
-                      onChange={(event) => setValues((state) => ({ ...state, [item.key]: event.target.value }))}
-                    />
-                    <span className="text-[12px] text-muted-foreground">{item.unit}</span>
-                  </label>
+                  <div key={item.key}>
+                    <label className="grid grid-cols-[minmax(0,1fr)_7.5rem_2rem] items-center gap-2">
+                      <span className={cn("min-w-0", differs && "font-medium text-primary")}>{item.label}</span>
+                      <input
+                        aria-label={item.label}
+                        inputMode="decimal"
+                        className={cn(CONTROL, "text-right tabular-nums")}
+                        value={values[item.key] ?? ""}
+                        onChange={(event) => setValues((state) => ({ ...state, [item.key]: event.target.value }))}
+                      />
+                      <span className="text-[12px] text-muted-foreground">{item.unit}</span>
+                    </label>
+                    {source ? (
+                      <p className="mt-0.5 text-[12px] text-muted-foreground" data-testid={`source-${item.key}`}>
+                        Wstępnie z{" "}
+                        <a href={source.url} target="_blank" rel="noreferrer" className="underline underline-offset-2">
+                          {source.source}
+                        </a>
+                        {` · ogłoszono ${datePl(source.published)} · było ${paramText(source.before, item.unit)}`}
+                      </p>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
+import { NextYearBanner } from "@/components/accounting/payroll/NextYearNotice";
 import { PeopleSectionNav } from "@/components/hr/people/PeopleSectionNav";
 import {
   Table,
@@ -52,6 +53,8 @@ export function PayrollMonthsScreen({ config }: { config: HrConfig }) {
         density="compact"
       />
       <PeopleSectionNav config={config} active="payroll" />
+      {/* Strażnik 1 stycznia (parametry list płac Księgowości) — tylko osoby z Płacami. */}
+      <NextYearBanner enabled={config.me.payroll || config.me.is_admin} />
       {state === "loading" ? (
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie miesięcy…</p>
       ) : state === "forbidden" || state === "not_found" || state === "error" ? (
