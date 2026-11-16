@@ -123,8 +123,10 @@ Reguły K1 (`ksiega-nexusa-k1-fundament.md`) obowiązują dalej.
   Lista płac (LP) nie ma `D_3` — pracownik nie jest kontrahentem (pyt. 123).
 - **Braki blokujące** (karta i 422 przy pobraniu): niezamknięte okresy roku,
   brak zatwierdzonych dokumentów, konto bez znacznika (bez Płac lista schodzi do
-  konta syntetycznego dla kont z dokumentów płacowych — D2), spółka nie na CIT
-  estońskim (NEXUS nie liczy RPD ani znaczników PD), brak kodu urzędu (Płace →
+  konta syntetycznego dla kont z dokumentów płacowych — D2), rok nie na CIT
+  estońskim — także **rok sprzed pierwszego roku ryczałtu** (przegląd K8c:
+  szedł z `Znacznik_EST` i RPD z zerami; NEXUS nie liczy RPD ani znaczników
+  PD), brak kodu urzędu (Płace →
   Parametry) albo adresu siedziby i pierwszego roku ryczałtu (ustawienia
   `app_settings['ledger'].jpk_kr`, zapisuje administrator: `PUT
   /reports/jpk-kr/settings`), rok po 2050 (`etd:TData`). Ostrzeżenia: księgą

@@ -178,11 +178,11 @@ def problems(
         out.append(
             jpk_kr.Problem("kst", "Środki trwałe bez symbolu KŚT.", tuple(no_kst[:50]))
         )
-    if not settings.estonian:
+    if not jpk_kr.estonian_year(settings, year):
         out.append(
             jpk_kr.Problem(
                 "estonian",
-                "NEXUS składa JPK_ST_KR tylko dla CIT estońskiego — amortyzacja "
+                "NEXUS składa JPK_ST_KR tylko za lata na CIT estońskim — amortyzacja "
                 "podatkowa na zasadach ogólnych jest poza NEXUSEM.",
             )
         )

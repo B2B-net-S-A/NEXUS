@@ -305,6 +305,15 @@ class Problem:
     items: tuple[str, ...] = ()
 
 
+def estonian_year(settings: JpkKrSettings, year: int) -> bool:
+    """Czy rok jest pod ryczałtem: CIT estoński i rok nie wcześniejszy niż
+    pierwszy rok ryczałtu (rok sprzed niego to zasady ogólne — przegląd K8c)."""
+
+    return settings.estonian and (
+        settings.estonian_since is None or year >= settings.estonian_since
+    )
+
+
 def company_missing(
     company: payroll_parameters.Company, settings: JpkKrSettings
 ) -> list[str]:
@@ -366,12 +375,12 @@ def problems(
                 tuple(unmarked[:LISTED_MAX]),
             )
         )
-    if not settings.estonian:
+    if not estonian_year(settings, year):
         out.append(
             Problem(
                 "estonian",
-                "NEXUS składa JPK_KR_PD tylko dla CIT estońskiego (RPD z zerami) — "
-                "znaczniki PD i RPD na zasadach ogólnych są poza NEXUSEM.",
+                "NEXUS składa JPK_KR_PD tylko za lata na CIT estońskim (RPD z "
+                "zerami) — znaczniki PD i RPD na zasadach ogólnych są poza NEXUSEM.",
             )
         )
     missing = company_missing(company, settings)

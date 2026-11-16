@@ -679,3 +679,23 @@ def test_st_kr_problems() -> None:
         year=YEAR, entries=[], company=COMPANY, settings=SETTINGS
     )
     assert [item.code for item in empty] == ["empty"]
+
+
+def test_year_before_estonian_cit_does_not_build_an_estonian_file() -> None:
+    """Przegląd K8c: rok sprzed pierwszego roku ryczałtu szedł z ``Znacznik_EST``
+    i RPD z zerami — deklaracja dla roku na zasadach ogólnych byłaby błędna."""
+
+    found = jpk_kr.problems(
+        year=2024,
+        open_months=[],
+        rows=_rows(),
+        company=COMPANY,
+        settings=SETTINGS,
+        documents=6,
+    )
+    assert [item.code for item in found] == ["estonian"]
+    entries = [jpk_st_kr.entry(_asset(), year=2024, estonian_since=2025)]
+    st_found = jpk_st_kr.problems(
+        year=2024, entries=entries, company=COMPANY, settings=SETTINGS
+    )
+    assert [item.code for item in st_found] == ["estonian"]
