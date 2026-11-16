@@ -64,7 +64,7 @@ export function JpkCard({ year, month, blockers = [] }: { year: number; month: n
         </p>
       ) : null}
       {data.stale ? (
-        <p className="border-b border-border/70 px-3.5 py-2 text-[13px] text-destructive-text">
+        <p className="border-b border-border/70 px-3.5 py-2 text-[13px] text-destructive">
           {data.stale === "surplus"
             ? "Wysłany JPK jest nieaktualny: korekta JPK za poprzedni miesiąc zmieniła nadwyżkę (P_39) — przygotuj korektę."
             : "Wysłany JPK jest nieaktualny: rejestr VAT zmienił się po wysłaniu — przygotuj korektę."}

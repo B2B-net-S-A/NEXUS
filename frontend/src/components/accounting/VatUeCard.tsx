@@ -70,7 +70,7 @@ export function VatUeCard({ year, month }: { year: number; month: number }) {
           {problems.map((item, index) => (
             <li
               key={`${item.number}:${index}`}
-              className={item.kind === "earlier" ? "text-warning-muted-foreground" : "text-destructive-text"}
+              className={item.kind === "earlier" ? "text-warning-muted-foreground" : "text-destructive"}
             >
               <span className="font-medium">{item.number}</span> — {item.detail}
             </li>

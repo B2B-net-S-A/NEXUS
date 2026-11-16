@@ -157,7 +157,7 @@ function IssuesCard({ issues, year, month }: { issues: readonly VatIssue[]; year
               <summary
                 className={cn(
                   "cursor-pointer font-medium",
-                  issue.kind === "rates" || issue.kind === "missing_sales" ? "text-destructive-text" : "text-warning-muted-foreground",
+                  issue.kind === "rates" || issue.kind === "missing_sales" ? "text-destructive" : "text-warning-muted-foreground",
                 )}
               >
                 {issue.label}: {issue.count}
@@ -343,7 +343,7 @@ function RegisterCard({
                   <span className="block truncate">{row.counterparty}</span>
                   <span className={CALM_SUBLINE}>{taxIdLabel(row)}</span>
                 </td>
-                <td className={cn("min-w-0 px-2 py-1.5 text-[13px]", row.problem ? "text-destructive-text" : "")}>
+                <td className={cn("min-w-0 px-2 py-1.5 text-[13px]", row.problem ? "text-destructive" : "")}>
                   <span className="block truncate" title={row.problem ?? undefined}>
                     {rowGroups(row)}
                   </span>
