@@ -370,3 +370,67 @@ async def test_referral_event_excludes_the_profile() -> None:
         await db.commit()
 
     assert await _counts(job_id) == (0, 0)
+
+
+# ── Podział nowych profili na osoby (Daily, 16.11.2026) ─────────────────────
+
+
+async def _split(job_id: int) -> tuple[int, int, list[tuple[int, int, int]]]:
+    async with AsyncSessionLocal() as db:
+        entry = (await new_profiles_by_job(db, [job_id]))[job_id]
+    return (
+        entry.added,
+        entry.reached_cv,
+        [(p.user_id, p.added, p.reached_cv) for p in entry.by_user],
+    )
+
+
+@pytest.mark.asyncio
+async def test_split_by_person_sums_to_the_job_count() -> None:
+    first = await _user(UserRole.recruiter)
+    second = await _user(UserRole.recruiter)
+    job_id = await _job()
+    now = datetime.now(timezone.utc)
+    for adder, cv in ((first, True), (first, False), (first, True), (second, False)):
+        candidate = await _candidate(now - timedelta(hours=5))
+        await _stage(
+            candidate, job_id, PipelineStage.new, now - timedelta(hours=4), adder
+        )
+        if cv:
+            # CV wysyła ktoś inny — profil zostaje przy osobie, która go dodała.
+            await _stage(
+                candidate,
+                job_id,
+                PipelineStage.cv_sent,
+                now - timedelta(hours=1),
+                second,
+            )
+
+    added, reached_cv, people = await _split(job_id)
+    assert (added, reached_cv) == (4, 2)
+    assert people == [(first, 3, 2), (second, 1, 0)]
+    assert sum(p[1] for p in people) == added
+    assert sum(p[2] for p in people) == reached_cv
+    async with AsyncSessionLocal() as db:
+        names = [
+            p.name for p in (await new_profiles_by_job(db, [job_id]))[job_id].by_user
+        ]
+    assert all(name and name.startswith("Sygnał ") for name in names)
+
+
+@pytest.mark.asyncio
+async def test_card_without_a_person_goes_to_nobody_and_keeps_the_total() -> None:
+    adder = await _user(UserRole.recruiter)
+    job_id = await _job()
+    now = datetime.now(timezone.utc)
+    mine = await _candidate(now - timedelta(hours=5))
+    await _stage(mine, job_id, PipelineStage.new, now - timedelta(hours=4), adder)
+    # Karta automatu, którą człowiek potem przesunął: pierwszy wpis bez osoby,
+    # więc to nie nowy profil i nie trafia do tego, kto ją ruszył.
+    system = await _candidate(now - timedelta(hours=5))
+    await _stage(system, job_id, PipelineStage.new, now - timedelta(hours=4), None)
+    await _stage(
+        system, job_id, PipelineStage.verified, now - timedelta(hours=2), adder
+    )
+
+    assert await _split(job_id) == (1, 0, [(adder, 1, 0)])

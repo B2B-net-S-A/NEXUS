@@ -18,6 +18,7 @@ import { ChevronDown, ChevronRight, ExternalLink, Loader2 } from "lucide-react";
 import { AppModal } from "@/components/ds/AppModal";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
   POSTING_STATUS_LABELS,
@@ -38,6 +39,7 @@ import {
   type PortalConfigItem,
   type PortalListingOptions,
 } from "@/lib/api/jobPortals";
+import { confirmSalaryOrReason } from "@/lib/postingSalaryGuard";
 import { formatDate } from "@/lib/utils";
 import { hasRole, useAuthStore } from "@/store/auth";
 import { PortalListingForm } from "./PortalListingForm";
@@ -234,13 +236,14 @@ function ListingDialogForm({
   const [options, setOptions] = useState<PortalListingOptions>(initial);
   const [serverProblems, setServerProblems] = useState<string[] | null>(null);
   const [touched, setTouched] = useState(false);
+  const { askReason, confirmDialog } = useConfirmV2();
   const portal = state.portal.portal;
   const problems = useMemo(() => validateListingOptions(options, { board: portal }), [options, portal]);
   const save = useMutation({
-    mutationFn: () =>
+    mutationFn: (sent: PortalListingOptions) =>
       state.mode === "edit"
-        ? updatePostingOptions(jobId, portal, options)
-        : publishToPortal(jobId, portal, options),
+        ? updatePostingOptions(jobId, portal, sent)
+        : publishToPortal(jobId, portal, sent),
     onSuccess: () =>
       onDone(state.mode === "edit" ? "Zmiany ogłoszenia czekają w kolejce." : "Ogłoszenie trafiło do kolejki."),
     onError: (err) => {
@@ -270,14 +273,19 @@ function ListingDialogForm({
         <Button
           type="button"
           loading={save.isPending}
-          onClick={() => {
+          onClick={async () => {
             setTouched(true);
-            if (problems.length === 0) save.mutate();
+            if (problems.length > 0) return;
+            const sent = await confirmSalaryOrReason(options, askReason, {
+              editing: state.mode === "edit",
+            });
+            if (sent) save.mutate(sent);
           }}
         >
           {state.mode === "edit" ? "Zapisz zmiany" : "Opublikuj"}
         </Button>
       </div>
+      {confirmDialog}
     </div>
   );
 }

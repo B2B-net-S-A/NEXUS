@@ -80,11 +80,16 @@ async def test_person_without_substitute_keeps_notification() -> None:
 
 @pytest.mark.asyncio
 async def test_substitute_is_not_told_about_own_action() -> None:
-    """Zastępca sam wpisał terminy: dzwonek nie ma do kogo iść."""
+    """Zastępca sam wpisał terminy: bez dzwonka i maila, ale wiersz zostaje.
+
+    Do 16.11.2026 ``skip`` wyrzucał wiersz w całości. Zastępca zamknął dwie
+    rekrutacje nieobecnej rekruterki (789137, 789138) i po powrocie nie miała
+    żadnego śladu, że jej kandydatom trzeba dać znać.
+    """
     route = await sub.notification_route(
-        _db(actor=SUBSTITUTE), OWNER, NotificationType.interview_slots_requested
+        _db(actor=SUBSTITUTE), OWNER, NotificationType.job_closed_people_waiting
     )
-    assert route.skip is True
+    assert route == sub.Route(user_id=SUBSTITUTE, on_behalf_of=OWNER, quiet=True)
 
 
 @pytest.mark.asyncio

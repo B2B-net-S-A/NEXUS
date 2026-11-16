@@ -1,7 +1,7 @@
 """„Pasuje też do” (14.10.2026, D1–D2) — reguła wyboru i przebieg bez bazy.
 
 Pula z SQL, zawężenie Qdrantem i ocena per rekrutacja są podmienione; testy
-z Postgresem (pula, trasa, dodanie z dzwonkiem) są w ``test_also_fits_db.py``.
+z Postgresem (pula, trasa, dodanie z wpisem w historii) są w ``test_also_fits_db.py``.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from app.services.also_fits import (
     ALSO_FITS_LIMIT,
     ALSO_FITS_MIN_SCORE,
     Scored,
-    bell_message,
     select_also_fits,
 )
 
@@ -53,37 +52,6 @@ def test_keeps_only_measured_visible_allowed_at_or_above_threshold() -> None:
 def test_sorts_by_score_then_job_id_and_cuts_to_limit() -> None:
     picked = select_also_fits([_s(9, 80), _s(3, 92), _s(5, 80), _s(4, 75), _s(2, 99)])
     assert [p.job_id for p in picked] == [2, 3, 5]
-
-
-def test_bell_message_names_who_whom_where_and_origin() -> None:
-    msg = bell_message(
-        actor_name="Marta Nowak",
-        candidate_name="Oskar Wzorcowy",
-        job_title="Angular Developer",
-        origin_title="Programista Frontend",
-    )
-    assert "Marta Nowak dodał(a) Oskar Wzorcowy" in msg
-    assert "„Angular Developer”" in msg
-    assert "„Programista Frontend”" in msg
-    no_origin = bell_message(
-        actor_name="A", candidate_name="B", job_title="C", origin_title=None
-    )
-    assert "Znaleziony przy" not in no_origin
-    assert "podpowiedź „Pasuje też do”" in msg
-
-
-def test_bell_message_says_manual_add_instead_of_suggestion() -> None:
-    """„+ Dodaj inną rekrutację” (29.10.2026): rekruter B nie czyta „podpowiedź”."""
-    msg = bell_message(
-        actor_name="A",
-        candidate_name="B",
-        job_title="Backend Java",
-        origin_title="Fullstack",
-        manual=True,
-    )
-    assert "dodane ręcznie przy rozmowie" in msg
-    assert "Pasuje też do" not in msg
-    assert "„Fullstack”" in msg
 
 
 class _Rows:

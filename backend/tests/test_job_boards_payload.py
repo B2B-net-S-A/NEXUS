@@ -59,6 +59,7 @@ def test_default_options_map_job_fields_and_leave_category_to_a_human():
         "office_days": None,
         "city": "Kraków",
         "salary": None,
+        "no_salary_reason": None,
     }
 
 

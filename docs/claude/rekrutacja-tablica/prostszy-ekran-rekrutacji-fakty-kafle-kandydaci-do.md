@@ -204,10 +204,9 @@ w profilu („Pasujące rekrutacje”, starszy wzór, bez bramki i progu). Rapor
   i `origin_job_id`: „Nowi”, `entry_source="added_manual"`, rezerwacja 12 h dla dodającego, „Cofnij”
   przez 15 min (`DELETE …?quick_undo=true`). Odmowy (zamknięta karta, weto) mówią słowami serwera pod
   rekrutacją. Po zapisie `record_also_fits_added`: wpis `Activity(candidate, also_fits_added,
-  {job_id, from_job_id})` i dzwonek `also_fits_added` (kategoria „Kandydaci”, sekcja pipeline,
-  migracja 0444 + lustro w `entrypoint.sh`) do rekruterów B (`job_team.recruiters_for_jobs` +
-  `working`) — bez osoby, która dodała; encja dzwonka to nowy wiersz etapu pary w B (dedup dzienny
-  po osobie zjadałby drugi dzwonek przy „Dodaj do wszystkich”). Dzwonek nigdy nie cofa dodania. Nowe źródło dodania żyje
+  {job_id, from_job_id})`; wpis nigdy nie cofa dodania. Dzwonek `also_fits_added` do rekruterów B
+  (D2) usunięty 16.11.2026 — typ zostaje dla starych wierszy
+  (`powiadomienia/bez-dzwonka-przy-dodaniu-do-cudzej-rekrutacji.md`). Nowe źródło dodania żyje
   w trzech miejscach: `BulkAddSource`, `PIPELINE_ADD_SOURCES`, `BulkAddSource` na froncie.
 - **„+N rekrutacja” na karcie (A2):** `other_open_jobs` karty Tablicy (`build_kanban_view`, jedno
   zapytanie na Tablicę tylko o osoby z kart w „Nowych”/„Screeningu”, same tytuły rekrutacji, filtr

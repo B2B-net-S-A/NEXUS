@@ -539,6 +539,24 @@ class Notification(Base, TimestampMixin):
         Boolean, nullable=False, default=False, server_default="false"
     )
 
+    # „Gdy Cię nie było” (0722, 16.11.2026). ``quiet``: zastępca sam wykonał
+    # ruch za nieobecną osobę — wiersz do wglądu, bez dzwonka i maila.
+    quiet: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Sprawa z nieobecności załatwiona (np. kandydaci dostali wiadomość) —
+    # oznacza osoba po powrocie albo zastępca; jeden wiersz dla obojga.
+    handled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    handled_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Osoba po powrocie zamknęła podsumowanie: wiersz nie wraca na pulpit.
+    away_dismissed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
 

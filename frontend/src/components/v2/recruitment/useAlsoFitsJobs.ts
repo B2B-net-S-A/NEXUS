@@ -5,8 +5,8 @@
  * „Kandydaci do dodania” pytamy, do jakich jeszcze rekrutacji w pracy pasuje ta
  * osoba, i dajemy „+ Dodaj” do każdej z nich. Dodanie to zwykłe dodanie do
  * tamtej rekrutacji (`proposals/bulk`, źródło `also_fits`): „Nowi”, rezerwacja
- * 12 h dla dodającego, „Cofnij” przez 15 min, dzwonek do rekrutera tamtej
- * rekrutacji (serwer).
+ * 12 h dla dodającego, „Cofnij” przez 15 min, wpis w historii kandydata
+ * (serwer; bez dzwonka do rekrutera tamtej rekrutacji od 16.11.2026).
  *
  * Hak żyje w zakładkach okna (`AddCandidatesPanel`, `useSearchBaseTab`), nie
  * w `PickList` — lista jest prezentacyjna i renderuje się bez QueryClient.

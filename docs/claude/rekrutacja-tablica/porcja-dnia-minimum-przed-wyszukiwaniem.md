@@ -60,6 +60,12 @@ z rekrutacji. Ta sekcja wygrywa ze starszymi punktami niżej.
   zero kart i nic do domknięcia = „Nie masz przypisanych rekrutacji.” i jedno
   zdanie: poproś Delivery Leada o przypisanie (`ReviewBatchScreen.hasNoJobs`).
   Screening do domknięcia zostawia zwykły ekran z zakładką „Do domknięcia”.
+- **Osoba, którą prowadzi ktoś inny, wychodzi z porcji** (zgłoszenie rekruterki
+  16.11.2026): cudza aktywna blokada 12 h (`claimed_by_user_id`) zdejmuje kartę
+  z kolejki i licznika właściciela (`claimed_by_other` w `_own_cards`), bo
+  odrzucenie dostaje 423 z `assert_can_act`, a „Pomiń” nie ma, więc porcja
+  stała do końca blokady. Właściciel karty się nie zmienia; po końcu blokady
+  (albo przy nieaktywnym koncie trzymającego) karta wraca do porcji.
 - **Cel wg tempa** (`NEW_COLUMN_TEMPO_TARGET_ENABLED`) przy włączonej porcji nie
   ustala już jej wielkości; zostaje poza porcją i przy „Dodaj 10 kolejnych”.
 

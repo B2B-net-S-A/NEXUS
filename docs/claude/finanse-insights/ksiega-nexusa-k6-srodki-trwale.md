@@ -91,5 +91,7 @@ Migracja `0703_ledger_assets` (`ledger_assets_schema.py`, lustro przez
   (porównania miesięczne K9).
 - „Niskocenne w „Sprzęcie”” na ekranie = pozycje „Sprzętu” firmy (`nasz`,
   bez wycofanych i zgubionych) bez karty środka.
-- Poza K6: JPK_ST_KR (zwolniony za 2026–2028), inwentaryzacja z listy
+- JPK_ST_KR(1) z tej ewidencji: K8c (`ksiega-nexusa-k8-sprawozdania.md`; zwolniony
+  z przesyłania za 2026–2028, plik budujemy na decyzję Artura z 16.11.2026).
+- Poza K6: inwentaryzacja z listy
   „Sprzętu”, zmiana stawki od roku, aktualizacja wyceny.

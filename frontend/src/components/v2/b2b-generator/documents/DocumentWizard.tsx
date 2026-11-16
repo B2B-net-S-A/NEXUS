@@ -330,7 +330,9 @@ export function DocumentWizard({
     if (listProblems.length) {
       setErrorKeys((prev) => {
         const next = new Set(prev);
-        type.fields.filter((f) => f.kind === "rate_items").forEach((f) => next.add(f.key));
+        type.fields
+          .filter((f) => f.kind === "rate_items" || f.kind === "annex_changes")
+          .forEach((f) => next.add(f.key));
         return next;
       });
     }
@@ -619,6 +621,14 @@ export function DocumentWizard({
                   onChange={setValue}
                   errorKeys={errorKeys}
                   notes={prefill.data?.notes}
+                  clauseVars={{
+                    ...prefill.data?.ref_defaults,
+                    ...refs,
+                    client_legal_name:
+                      prefill.data?.base.client_legal_name ??
+                      prefill.data?.base.client_name ??
+                      subject.clientName,
+                  }}
                 />
 
                 {needsRefs ? (
@@ -730,6 +740,8 @@ function TypeStep({
                 key={t.key}
                 type="button"
                 aria-pressed={selected === t.key}
+                // Kropka Nowości „Aneks z własną nazwą” (16.11.2026).
+                data-tour={t.key === "annex_custom" ? "b2b-generator.annex-custom" : undefined}
                 onClick={() => onChoose(t)}
                 className={cn(
                   "flex h-full flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors hover:bg-muted",

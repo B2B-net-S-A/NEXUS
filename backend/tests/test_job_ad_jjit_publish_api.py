@@ -49,6 +49,8 @@ OPTIONS = {
     "office_days": None,
     "city": "Warszawa",
     "salary": None,
+    # 16.11.2026: bez widełek publikacja wymaga powodu (``salary_guard``).
+    "no_salary_reason": "Widełki ustalamy indywidualnie po rozmowie.",
 }
 TECH = [
     {"name": "Java", "level": "critical"},

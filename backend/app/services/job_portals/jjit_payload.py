@@ -27,6 +27,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Optional
 
 from app.core.config import settings
+from app.services.job_portals.salary_guard import REASON_MAX_LENGTH
 
 BOARD_JJIT = "justjoinit"
 BOARD_ROCKETJOBS = "rocketjobs"
@@ -47,6 +48,9 @@ OPTION_KEYS = (
     "office_days",
     "city",
     "salary",
+    # 16.11.2026: powód publikacji bez widełek (``salary_guard``); przy
+    # widełkach zawsze pusty.
+    "no_salary_reason",
 )
 
 _REMOTE_TO_WORKPLACE = {"onsite": "office", "hybrid": "hybrid", "remote": "remote"}
@@ -112,6 +116,9 @@ def normalize_options(raw: Any) -> dict[str, Any]:
         "office_days": office_days,
         "city": _text(data.get("city"), 120),
         "salary": salary,
+        "no_salary_reason": (
+            None if salary else _text(data.get("no_salary_reason"), REASON_MAX_LENGTH)
+        ),
     }
 
 

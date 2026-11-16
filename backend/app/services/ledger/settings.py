@@ -242,6 +242,55 @@ class JpkContact:
     phone: str = ""
 
 
+#: Adres siedziby w JPK_KR_PD i JPK_ST_KR (K8c, węzeł ``AdresPol``): klucz →
+#: (pole MF, najwięcej znaków, wymagane). Długości z typów ``etd`` (v10-0E).
+JPK_KR_ADDRESS_FIELDS: dict[str, tuple[str, int, bool]] = {
+    "province": ("Wojewodztwo", 36, True),
+    "county": ("Powiat", 36, True),
+    "commune": ("Gmina", 36, True),
+    "street": ("Ulica", 65, False),
+    "building": ("NrDomu", 9, True),
+    "unit": ("NrLokalu", 10, False),
+    "city": ("Miejscowosc", 56, True),
+    "postal_code": ("KodPocztowy", 8, True),
+}
+JPK_KR_ADDRESS_LABELS: dict[str, str] = {
+    "province": "województwo",
+    "county": "powiat",
+    "commune": "gmina",
+    "street": "ulica",
+    "building": "numer budynku",
+    "unit": "numer lokalu",
+    "city": "miejscowość",
+    "postal_code": "kod pocztowy",
+}
+_POSTAL_CODE = re.compile(r"^\d{2}-\d{3}$")
+
+
+@dataclass(frozen=True)
+class JpkKrSettings:
+    """Dane do JPK_KR_PD i JPK_ST_KR (K8c), ustawia administrator.
+
+    ``estonian`` — spółka na ryczałcie od dochodów spółek (CIT estoński):
+    ``Znacznik_EST``, bez znaczników PD, RPD z zerami (MF, pytanie 114);
+    ``estonian_since`` — pierwszy rok ryczałtu (JPK_ST_KR, MF, pytanie 137).
+    """
+
+    address: dict[str, str] = field(default_factory=dict)
+    estonian: bool = False
+    estonian_since: Optional[int] = None
+
+    def missing(self) -> list[str]:
+        out = [
+            JPK_KR_ADDRESS_LABELS[key]
+            for key, (_, _, required) in JPK_KR_ADDRESS_FIELDS.items()
+            if required and not self.address.get(key)
+        ]
+        if self.estonian and self.estonian_since is None:
+            out.append("pierwszy rok CIT estońskiego")
+        return out
+
+
 #: Konta wyciągów (K4a): klucz → (domyślne konto, etykieta). Puste = bez reguły.
 BANK_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "fees_account": ("", "Opłaty i prowizje bankowe"),
@@ -305,6 +354,7 @@ class LedgerSettings:
     bank: BankSettings = field(default_factory=BankSettings)
     vat: VatAccounts = field(default_factory=VatAccounts)
     jpk: JpkContact = field(default_factory=JpkContact)
+    jpk_kr: JpkKrSettings = field(default_factory=JpkKrSettings)
     #: Kontrahent (``finance_counterparties.id``) → znaczniki z ``MARKERS``.
     vat_markers: dict[int, tuple[str, ...]] = field(default_factory=dict)
 
@@ -366,6 +416,32 @@ def _jpk(raw: object) -> JpkContact:
     return JpkContact(email=text("email"), phone=text("phone"))
 
 
+#: Lata ryczałtu: estoński CIT jest od 2021 (ustawa z 28.11.2020).
+ESTONIAN_FIRST_YEAR = 2021
+ESTONIAN_LAST_YEAR = 2100
+
+
+def _jpk_kr(raw: object) -> JpkKrSettings:
+    data = raw if isinstance(raw, dict) else {}
+    address_raw = data.get("address") if isinstance(data.get("address"), dict) else {}
+    address = {
+        key: " ".join(value.split())[:limit]
+        for key, (_, limit, _) in JPK_KR_ADDRESS_FIELDS.items()
+        if isinstance(value := address_raw.get(key), str) and value.strip()
+    }
+    since = data.get("estonian_since")
+    valid_since = (
+        isinstance(since, int)
+        and not isinstance(since, bool)
+        and ESTONIAN_FIRST_YEAR <= since <= ESTONIAN_LAST_YEAR
+    )
+    return JpkKrSettings(
+        address=address,
+        estonian=data.get("estonian") is True,
+        estonian_since=since if valid_since else None,
+    )
+
+
 def _bank(raw: object) -> BankSettings:
     data = raw if isinstance(raw, dict) else {}
     items: list[CompanyAccount] = []
@@ -425,6 +501,7 @@ def normalize(raw: object) -> LedgerSettings:
         bank=_bank(data.get("bank")),
         vat=_vat(data.get("vat")),
         jpk=_jpk(data.get("jpk")),
+        jpk_kr=_jpk_kr(data.get("jpk_kr")),
         vat_markers=_markers(data.get("vat_markers")),
     )
 
@@ -447,6 +524,11 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
         "vat": {key: getattr(settings.vat, key) for key in VAT_ACCOUNT_FIELDS},
         "jpk": {"email": settings.jpk.email, "phone": settings.jpk.phone},
+        "jpk_kr": {
+            "address": dict(settings.jpk_kr.address),
+            "estonian": settings.jpk_kr.estonian,
+            "estonian_since": settings.jpk_kr.estonian_since,
+        },
         "vat_markers": {
             str(key): list(value) for key, value in sorted(settings.vat_markers.items())
         },
@@ -719,6 +801,54 @@ async def set_jpk_contact(
         )
     current = await load(db)
     settings = replace(current, jpk=JpkContact(email=email, phone=phone))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+def clean_jpk_kr(values: dict[str, Any]) -> JpkKrSettings:
+    """Formularz „Dane do JPK_KR_PD” → ustawienia albo 422 z polem."""
+
+    raw = values.get("address") if isinstance(values.get("address"), dict) else {}
+    address: dict[str, str] = {}
+    for key, (_, limit, _) in JPK_KR_ADDRESS_FIELDS.items():
+        text = " ".join(str(raw.get(key) or "").split())
+        if len(text) > limit:
+            raise LedgerError(
+                f"Adres do JPK_KR_PD: {JPK_KR_ADDRESS_LABELS[key]} — najwyżej "
+                f"{limit} znaków.",
+                status=422,
+            )
+        if text:
+            address[key] = text
+    postal = address.get("postal_code")
+    if postal and not _POSTAL_CODE.match(postal):
+        raise LedgerError(
+            "Adres do JPK_KR_PD: kod pocztowy w formacie 00-000.", status=422
+        )
+    estonian = values.get("estonian") is True
+    since_raw = values.get("estonian_since")
+    since: Optional[int] = None
+    if estonian and since_raw not in (None, ""):
+        try:
+            since = int(str(since_raw))
+        except ValueError:
+            since = None
+        if since is None or not ESTONIAN_FIRST_YEAR <= since <= ESTONIAN_LAST_YEAR:
+            raise LedgerError(
+                f"Pierwszy rok CIT estońskiego: rok od {ESTONIAN_FIRST_YEAR}.",
+                status=422,
+            )
+    return JpkKrSettings(address=address, estonian=estonian, estonian_since=since)
+
+
+async def set_jpk_kr(
+    db: AsyncSession, values: dict[str, Any], *, actor: User
+) -> LedgerSettings:
+    """Adres siedziby i CIT estoński do JPK_KR_PD (bez commita, admin)."""
+
+    cleaned = clean_jpk_kr(values)
+    current = await load(db)
+    settings = replace(current, jpk_kr=cleaned)
     await _save(db, settings, actor=actor)
     return settings
 

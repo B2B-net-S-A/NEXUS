@@ -98,6 +98,17 @@ describe("światy wyglądu — kontrakt", () => {
         expect(contrast(resolve(tokens, fg), resolve(tokens, bg))).toBeGreaterThanOrEqual(4.5);
       });
 
+      // Szary chip (`Badge` neutral, np. „Bez kategorii” w Requestach i obłożeniu)
+      // ma tło --border i tekst --foreground. W Retro --border jest czarne jak
+      // tekst, więc chip był czarnym prostokątem; świat może podmienić tło na --muted.
+      it("tekst szarego chipu ma kontrast co najmniej 4,5:1", () => {
+        const override = css.includes(
+          `html[data-world="${world.id}"] .bg-\\[hsl\\(var\\(--border\\)\\)\\].text-foreground`,
+        );
+        const chip = resolve(tokens, override ? "--muted" : "--border");
+        expect(contrast(resolve(tokens, "--foreground"), chip)).toBeGreaterThanOrEqual(4.5);
+      });
+
       it("przyciski nie są czerwone (czerwień = pilne)", () => {
         const [h, s] = resolve(tokens, "--primary").split(/\s+/).map((x) => parseFloat(x));
         const reddish = (h <= 12 || h >= 348) && s >= 35;

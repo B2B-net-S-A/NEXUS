@@ -32,7 +32,11 @@
  ],
  "routes": {
   "GET /api/accounting/reports/accounts": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/reports/jpk-kr": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/reports/jpk-kr/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/reports/markers": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
-  "GET /api/accounting/reports/statements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
+  "GET /api/accounting/reports/statements": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/reports/jpk-kr/compare": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/accounting/reports/jpk-kr/settings": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

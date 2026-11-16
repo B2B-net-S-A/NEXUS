@@ -1,5 +1,18 @@
 [
   {
+    "id": "aneks-inna-zmiana",
+    "pr": 3505,
+    "title": "Generator aneksów: aneks z własną nazwą",
+    "why": "Na zmianę spoza listy (np. zwolnienie z zakazu konkurencji): nazwij aneks, wpisz zmiany paragrafów albo wybierz gotową klauzulę. Kontraktu podpis sam nie zmienia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["finance", "delivery_lead", "admin"] },
+    "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.annex-custom"
+  },
+  {
     "id": "doplata-uzasadnienie-z-modelu",
     "pr": 3501,
     "title": "Dopłata za technologię: „Zaproponuj uzasadnienie”",
@@ -2981,5 +2994,18 @@
     "where": "Ustawienia → Nowości — kto już umie → Poligon NEXUSA dla nowych osób",
     "href": "/settings/nowosci",
     "dot_anchor": "settings.nowosci.poligon-gate"
+  },
+  {
+    "id": "kto-ilu-dodal-w-zespole",
+    "pr": 3506,
+    "title": "Kto ilu kandydatów dodał do rekrutacji",
+    "why": "W okienku „Rekruter” pod zespołem jest tabela: ile osób dodał każdy, w tym w ostatnich 7 dniach, ile jest w toku i ile doszło do klienta. Osoby z zespołu, które nikogo nie dodały, mają zero.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
+    "where": "Rekrutacja → Tablica → fakt „Rekruter” w nagłówku → Kto ilu dodał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.recruiter-team"
   }
 ]

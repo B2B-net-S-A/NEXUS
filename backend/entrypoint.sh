@@ -4071,6 +4071,18 @@ END $$""",
     # Powiadomienie u zastępcy pamięta, za kogo przyszło (0675).
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS on_behalf_of_user_id "
     "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # „Gdy Cię nie było” (0722): cichy wiersz zastępcy o jego własnym ruchu
+    # i sprawy z nieobecności oznaczone jako załatwione. Bez `quiet` każdy
+    # SELECT z notifications (dzwonek, outbox maili) pada na UndefinedColumn.
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS quiet "
+    "BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS handled_at TIMESTAMPTZ NULL",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS handled_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS away_dismissed_at "
+    "TIMESTAMPTZ NULL",
+    "CREATE INDEX IF NOT EXISTS ix_notif_on_behalf_created ON notifications "
+    "(on_behalf_of_user_id, created_at) WHERE on_behalf_of_user_id IS NOT NULL",
     # Tryb obróbki treści CV (migracja 0202_cv_content_mode). Pipeline zapisuje
     # content_mode przy KAŻDEJ generacji, więc bez tej kolumny INSERT do
     # cv_generated_documents => UndefinedColumn i generator CV pada w całości.
@@ -11633,6 +11645,50 @@ async def repair():
             )
             sys.exit(1)
     print(f"contract hourly rate repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+
+# Umowy ramowe z duplikatów klientów (decyzja Artura 16.11.2026) — jednorazowo:
+# umowy z manifestu portfela leżały na scalonych albo zdublowanych rekordach,
+# więc karta klienta, Jarvis i katalog raportów ich nie widziały. Logika
+# i lista ID w `app/services/framework_contract_owner_repair.py`; marker
+# w `app_settings` + advisory lock, porażka nie zapisuje niczego. Plik
+# usuniętego duplikatu i jego wektory znikają dopiero po commicie. Log: ID.
+startup_phase "repair-framework-contract-owner"
+echo "Framework contracts: move contracts off duplicate clients (one-shot)..."
+run_unless_marked "0721_framework_contract_owner_repair" <<'PY' || echo "framework contract owner repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services import framework_contract_index, storage_service
+from app.services.framework_contract_owner_repair import (
+    run_framework_contract_owner_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_framework_contract_owner_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"framework contract owner repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"framework contract owner repair: {summarize_for_log(summary)}")
+    if summary is None:
+        return
+    # Obie funkcje są best-effort i same logują porażkę.
+    for path in summary["dropped_file_paths"]:
+        storage_service.delete_client_framework_contract(path)
+    for fc_id in summary["dropped_fc_ids"]:
+        await framework_contract_index.delete_contract_points(fc_id)
 
 asyncio.run(repair())
 PY

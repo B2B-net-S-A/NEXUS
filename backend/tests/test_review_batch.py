@@ -287,6 +287,41 @@ async def test_closed_job_cards_do_not_block(small_batch):
         assert await rb._own_cards(db, a, now=_WORKDAY) == []
 
 
+async def test_card_claimed_by_someone_else_leaves_owners_batch(small_batch):
+    """16.11.2026: karta stała w porcji rekruterki, a prowadził ją kolega
+    (blokada 12 h). Odrzucenie dawało 423, „Pomiń” nie ma, więc porcja stała
+    do końca blokady. Cudza blokada zdejmuje kartę z porcji; po jej końcu
+    karta wraca. Blokada konta nieaktywnego nie wiąże nikogo."""
+    from datetime import timedelta
+
+    a, b = await _user(), await _user()
+    world = await _world(2, recruiters=[a])
+    await _pool(world["job_id"], {cid: 90 for cid in world["ids"]})
+    first, second = await _fill(world["job_id"])
+    async with AsyncSessionLocal() as db:
+        process = await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.job_id == world["job_id"],
+                RecruitmentProcess.candidate_id == first,
+            )
+        )
+        process.claimed_by_user_id = b
+        process.claimed_until = _WORKDAY + timedelta(hours=6)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        mine = {c.candidate_id for c in await rb._own_cards(db, a, now=_WORKDAY)}
+        assert mine == {second}
+        later = _WORKDAY + timedelta(hours=7)
+        mine = {c.candidate_id for c in await rb._own_cards(db, a, now=later)}
+        assert mine == {first, second}
+        holder = await db.get(User, b)
+        holder.is_active = False
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        mine = {c.candidate_id for c in await rb._own_cards(db, a, now=_WORKDAY)}
+        assert mine == {first, second}
+
+
 async def test_batch_card_cannot_be_removed_instead_of_decided(small_batch):
     from fastapi import HTTPException
 

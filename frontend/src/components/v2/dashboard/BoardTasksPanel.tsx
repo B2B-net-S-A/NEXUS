@@ -123,6 +123,7 @@ import { PrepAttentionSection } from "./PrepAttentionSection";
 import { RequirementFixesSection } from "./RequirementFixesSection";
 import { TeamLoadSection } from "./TeamLoadSection";
 import { ToCompleteMovePrompt } from "./ToCompleteMovePrompt";
+import { WhileAwaySection } from "./WhileAwaySection";
 
 export const BOARD_TASKS_ANCHOR = "czeka-na-ciebie";
 
@@ -316,13 +317,19 @@ export function BoardTasksPanel({
       !fixesFailed
     ) {
       return inTile ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          Nic na Ciebie teraz nie czeka.
-        </p>
-      ) : null;
+        <>
+          <WhileAwaySection />
+          <p role="status" className="text-sm text-muted-foreground">
+            Nic na Ciebie teraz nie czeka.
+          </p>
+        </>
+      ) : (
+        <WhileAwaySection standalone />
+      );
     }
     return (
       <div className="flex flex-col gap-3">
+        <WhileAwaySection standalone />
         {quiet ? (
           <p
             id={BOARD_TASKS_ANCHOR}
@@ -407,6 +414,8 @@ export function BoardTasksPanel({
           <CproSenderControl sender={sender.data} loading={sender.isLoading} compact />
         </div>
       ) : null}
+      {/* „Gdy Cię nie było” (16.11.2026): praca z urlopu przed bieżącą. */}
+      <WhileAwaySection />
       {/* PR 6 (04.10.2026): „Twój ruch” i „U innych” — to, co zrobisz sam,
           oddzielone od tego, na co czekasz (przegląd, klient, Cpro). */}
       {othersGroup && (total > 0 || transitIsMine) ? (
