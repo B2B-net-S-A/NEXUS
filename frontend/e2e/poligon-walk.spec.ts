@@ -1,12 +1,14 @@
 import { expect, test, type BrowserContext, type Page, type Route } from "@playwright/test";
 
 import SHELL from "./fixtures/poligon-shell.json";
+import { POLIGON_CLIENT_MAIL } from "../src/lib/poligon/exercises";
 
 /**
  * Poligon NEXUSA — cała ścieżka onboardingu każdej roli bez backendu:
- * rekruter (27 ćwiczeń), Delivery Lead (16) i TCM (13). Od 16.11.2026 ścieżki
+ * rekruter (27 ćwiczeń), Delivery Lead (17) i TCM (13). Od 16.11.2026 ścieżki
  * mają też narzędzia rekrutera (lista, zapisane wyszukiwanie, CV z pliku,
- * telefon, termin u klienta, czat, asystent CV, Jarvis).
+ * telefon, termin u klienta, czat, asystent CV, Jarvis), a ścieżka DL-a
+ * terminy od klienta (wklejony mail bez modelu).
  *
  * Nowa osoba ma zablokowany NEXUS, dopóki nie zaliczy wszystkich ćwiczeń
  * (`docs/claude/ui/poligon-nexusa-onboarding.md`). Ćwiczenia idą na
@@ -432,8 +434,8 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await w.finish();
   });
 
-  test("nowy Delivery Lead przechodzi 16 ćwiczeń z przeglądem, wysyłką do klienta i czatem", async ({ page, context, baseURL }) => {
-    const w = await onPoligon(page, context, baseURL, "delivery_lead", 16);
+  test("nowy Delivery Lead przechodzi 17 ćwiczeń z przeglądem, wysyłką do klienta, terminami od klienta i czatem", async ({ page, context, baseURL }) => {
+    const w = await onPoligon(page, context, baseURL, "delivery_lead", 17);
     const { done, next, board, card, openCard } = w;
 
     await listExercises(page, w);
@@ -465,6 +467,23 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await fix.getByRole("checkbox", { name: /Angielski/ }).check();
     await fix.getByRole("button", { name: /^Wróć do poprawy \(1\)/ }).click();
     await done("dl-poprawki");
+    await next();
+
+    // Terminy od klienta: Weronika po wysyłce stoi w „CV wysłane”. Mail klienta
+    // z ćwiczenia daje na poligonie stały odczyt (bez modelu).
+    await openCard("Weronika");
+    await page.getByRole("button", { name: "Terminy od klienta" }).click();
+    const slots = page.getByRole("dialog", { name: "Terminy rozmowy od klienta" });
+    await slots.getByRole("textbox", { name: /Wklej maila od klienta/ }).fill(POLIGON_CLIENT_MAIL);
+    await slots.getByRole("button", { name: "Odczytaj terminy" }).click();
+    await expect(slots.getByText(/Odczytane terminy: 2/)).toBeVisible();
+    await expect(slots.getByRole("radio", { name: "45 min" })).toHaveAttribute("aria-checked", "true");
+    await slots.getByRole("button", { name: "Wyślij rekruterowi" }).click();
+    await done("dl-terminy-klienta");
+    await expect(slots).toBeHidden();
+    // Karta sama przeszła na „Rozmowę u klienta” z odznaką wyboru dla rekrutera.
+    await board();
+    await expect(card("Weronika")).toContainText(/Wybierz termin/);
     await next();
 
     await candidateBase(page, w);

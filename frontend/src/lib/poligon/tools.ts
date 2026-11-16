@@ -1,12 +1,14 @@
 // Narzędzia rekrutera na poligonie (ćwiczenia z 16.11.2026): telefon
 // screeningowy, wybór terminu u klienta, osoba z pliku CV, zapisane
 // wyszukiwanie, lista (pula), czat rekrutacji, asystent CV i Jarvis.
+// Delivery Lead: terminy od klienta (wpisane ręcznie albo z wklejonego maila).
 //
 // Tak jak reszta `store.ts`: zapisy zmieniają tylko stan w pamięci karty
 // i zgłaszają zdarzenie dla ćwiczeń. Nic nie idzie do serwera, a „odpowiedź
 // AI” (plan asystenta CV, Jarvis) to stałe reguły — bez wywołania modelu.
 
 import { CV_FICTION_TERMS, cvFictionHtml } from "./cv-fiction";
+import { POLIGON_CLIENT_MAIL_SLOTS } from "./exercises";
 import type { PoligonAction, PoligonDataset, PoligonPerson, PoligonResponse } from "./store";
 
 type Json = unknown;
@@ -20,6 +22,11 @@ const LIST_PARAM = /^(page|page_size|limit|offset|sort|order|semantics_version|v
 
 export const SAVED_SEARCH_NO_ALERT_PARAMS =
   "Alert wymaga parametrów API w filters.api — zapisz wyszukiwanie ponownie z aktualnej wersji aplikacji.";
+/** Etapy, w których DL wpisuje terminy od klienta (przycisk w panelu osoby: „CV wysłane” i „Rozmowa u klienta”). */
+const SLOT_STAGES = new Set(["cv_sent", "client_interview"]);
+const OPEN_SLOT_STATUSES = new Set(["awaiting_recruiter", "awaiting_dl"]);
+export const SLOTS_MAIL_OTHER =
+  "Na poligonie NEXUS odczytuje tylko maila klienta z ćwiczenia (terminy o 10:00 i 13:00). Wklej go z okna ćwiczenia albo wpisz terminy ręcznie.";
 const CV_COMMAND_EMPTY =
   "Nic nie zmieniłem — na poligonie asystent zna kilka poleceń. Wpisz na przykład „pogrub Scrum i Jira”.";
 
@@ -30,6 +37,8 @@ export interface ToolsContext {
   findItem: (candidateId: number) => { column: { stage?: string; label?: Json; name?: Json }; item: KanbanItem } | null;
   /** Osoba ląduje w „Nowych” rekrutacji ćwiczebnej (jak przypisanie z bazy). */
   addToNew: (candidateId: number) => boolean;
+  /** Karta przechodzi do kolumny etapu bez zdarzenia `move` (jak ruch serwera po terminach od klienta). */
+  relocate: (candidateId: number, stage: string) => KanbanItem | null;
   /** Odczyt z zestawu bez zdarzenia `view` (np. profil osoby-szablonu). */
   recorded: (method: string, path: string, query?: Array<[string, string]>) => PoligonResponse;
   people: Map<number, PoligonPerson>;
@@ -42,6 +51,23 @@ function isoNow(now: number): string {
 
 function textOf(value: Json): string {
   return typeof value === "string" ? value : "";
+}
+
+/** Dzień za `workdays` dni robocze od `now`, o godzinie `hour` czasu przeglądarki (jak okno terminów). */
+function workdayLocal(now: number, workdays: number, hour: number): Date {
+  const day = new Date(now);
+  for (let left = workdays; left > 0; ) {
+    day.setDate(day.getDate() + 1);
+    if (day.getDay() !== 0 && day.getDay() !== 6) left -= 1;
+  }
+  day.setHours(hour, 0, 0, 0);
+  return day;
+}
+
+function proposals(n: number): string {
+  if (n === 1) return "1 propozycja";
+  const rest = n % 10;
+  return rest >= 2 && rest <= 4 && (n % 100 < 12 || n % 100 > 14) ? `${n} propozycje` : `${n} propozycji`;
 }
 
 /** Czy zapis wyszukiwania ma jakiekolwiek kryterium (słowo, filtr) — inaczej alert łapałby całą bazę. */
@@ -64,6 +90,11 @@ export function createTools(ctx: ToolsContext) {
   const chat: Row[] = [];
   /** Treść CV firmowego per etap (wpis osoby) po autozapisie edytora. */
   const branded = new Map<number, { html: string; revision: number; status: string }>();
+
+  /** Odznaka „Wybierz termin” z zestawu (osoba na „Rozmowie u klienta”) — wzór dla nowych wniosków DL-a. */
+  const badgeTemplate = JSON.parse(JSON.stringify(ctx.findItem(meta.slot_candidate_id)?.item.interview_badge ?? null)) as
+    | (Row & { steps?: Row[] })
+    | null;
 
   const personByEntry = (entryId: number): PoligonPerson | undefined =>
     meta.people.find((p) => p.entry_id === entryId);
@@ -133,6 +164,98 @@ export function createTools(ctx: ToolsContext) {
       return { status: 200, data: { ...chosen, outlook: null } };
     }
     return { status: 404, data: { detail: "Nie ma takiej propozycji terminów." } };
+  }
+
+  // ── Terminy od klienta (Delivery Lead) ───────────────────────────────
+  function createSlots(body: Row, viewerId: number | null): PoligonResponse {
+    const candidateId = Number(body.candidate_id);
+    const found = ctx.findItem(candidateId);
+    if (Number(body.job_id) !== meta.job_id || !found) {
+      return { status: 422, data: { detail: "Kandydat nie jest w pipeline tej rekrutacji." } };
+    }
+    if (!SLOT_STAGES.has(String(found.item.stage ?? ""))) {
+      return { status: 422, data: { detail: "Terminy od klienta wpisujesz osobie z „CV wysłane” albo „Rozmowy u klienta”." } };
+    }
+    const badge = found.item.interview_badge as (Row & { slot_request?: Row }) | null | undefined;
+    const open = badge?.slot_request;
+    const replaces = body.replaces_request_id === undefined ? null : Number(body.replaces_request_id);
+    if (open && OPEN_SLOT_STATUSES.has(String(open.status)) && !open.expired && open.id !== replaces) {
+      return {
+        status: 409,
+        data: {
+          detail: {
+            code: "SLOTS_ALREADY_OPEN",
+            message: "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji. Możesz je zastąpić tymi z formularza.",
+            open_request_id: open.id,
+          },
+        },
+      };
+    }
+    const duration = Number(body.duration_minutes) || 60;
+    const starts = (Array.isArray(body.slots) ? body.slots : []).map((s) => textOf((s as Row).start)).filter(Boolean);
+    if (!starts.length) return { status: 422, data: { detail: "Dodaj co najmniej jeden termin od klienta." } };
+    if (starts.some((s) => new Date(s).getTime() < Date.now())) {
+      return { status: 422, data: { detail: "Termin rozmowy nie może być w przeszłości." } };
+    }
+    const sorted = [...starts].sort();
+    const slots = sorted.map((start) => ({ start, end: new Date(new Date(start).getTime() + duration * 60_000).toISOString() }));
+    const request = {
+      id: nextId++,
+      status: "awaiting_recruiter",
+      expired: false,
+      slots,
+      chosen_index: null,
+      respond_by: textOf(body.respond_by) || null,
+      recruiter_id: meta.trainers.rec?.id ?? null,
+      created_by: viewerId,
+      duration_minutes: duration,
+      note: textOf(body.note) || null,
+      event_id: null,
+      client_reply_pending: false,
+      client_replied_at: null,
+    };
+    // Serwer przesuwa kartę z „CV wysłane” na „Rozmowę u klienta” (`create_slot_request_for_pair`).
+    const moved = found.item.stage === "cv_sent";
+    const item = moved ? ctx.relocate(candidateId, "client_interview") : found.item;
+    if (!item) return { status: 404, data: { detail: "Tego ekranu nie ma jeszcze na poligonie." } };
+    const at = request.respond_by ?? slots[0].start;
+    item.interview_badge = {
+      ...(badgeTemplate ?? {}),
+      kind: "choose_slot",
+      label: `Wybierz termin · ${proposals(slots.length)}`,
+      tone: "wait",
+      at,
+      steps: (badgeTemplate?.steps ?? []).map((s) =>
+        s.key === "slots" ? { ...s, state: "done" } : s.key === "choice" ? { ...s, state: "current", at } : { ...s, state: "todo", at: null },
+      ),
+      interview_event_id: null,
+      tentative_interview_at: slots[0].start,
+      slot_request: request,
+      preps: [],
+      phase: "awaiting_recruiter_pick",
+    };
+    emit({ type: "slot_request", candidateId, starts: sorted, durationMinutes: duration, replaced: replaces !== null });
+    return { status: 201, data: { ...request, moved_to_client_interview: moved, move_skipped_reason: null } };
+  }
+
+  /** „Wklej maila od klienta” bez modelu: stały odczyt maila z ćwiczenia, inny tekst — jasna odmowa. */
+  function slotsFromMail(body: Row): PoligonResponse {
+    const text = textOf(body.text);
+    const empty = { slots: [], extra_slots: 0, dropped: 0, duration_minutes: null, respond_by: null, format: null, location_note: null, people: null, unclear: [] };
+    if (!POLIGON_CLIENT_MAIL_SLOTS.every((s) => text.includes(s.quote))) {
+      return { status: 200, data: { ...empty, status: "empty", message: SLOTS_MAIL_OTHER } };
+    }
+    const slots = POLIGON_CLIENT_MAIL_SLOTS.map((s) => {
+      const start = workdayLocal(ctx.now, s.workdays, s.hour);
+      return {
+        start: start.toISOString(),
+        end: new Date(start.getTime() + 45 * 60_000).toISOString(),
+        window: false,
+        quote: s.quote,
+        warning: null,
+      };
+    });
+    return { status: 200, data: { ...empty, status: "ok", message: null, slots, duration_minutes: 45, format: "online" } };
   }
 
   // ── Osoba z pliku CV ─────────────────────────────────────────────────
@@ -385,6 +508,12 @@ export function createTools(ctx: ToolsContext) {
     const call = path.match(/^\/api\/screening-calls\/(\d+)(\/cancel)?$/);
     if (call && !get) return changeCall(Number(call[1]), call[2] ? null : body);
 
+    if (path === "/api/interview-cycle/slots" && method === "POST") return createSlots(body, viewerId);
+    if (path === "/api/interview-cycle/slots/from-mail" && method === "POST") return slotsFromMail(body);
+    // Komu pójdą terminy: rekruter poligonu, bez zastępstw.
+    if (path === "/api/interview-cycle/slots/recipient" && get) {
+      return { status: 200, data: { recruiter_name: meta.trainers.rec?.name ?? null, substitute_name: null, until: null } };
+    }
     const choose = path.match(/^\/api\/interview-cycle\/slots\/(\d+)\/choose$/);
     if (choose && method === "POST") return chooseSlot(Number(choose[1]), body);
     // Prepy z okna wyboru terminu: na poligonie nikt nie dostaje zaproszenia.
