@@ -120,7 +120,9 @@ def normalize(raw: object) -> dict[str, Any]:
         try:
             terms = rebate.parse_terms(value.get("rebate"))
         except rebate.RebateTermsError:
-            logger.warning("client_invoice_issue: złe warunki rabatu klienta %s", key)
+            logger.warning(
+                "client_invoice_issue: złe warunki rabatu klienta %s", int(key)
+            )
             terms = None
         if terms is not None:
             entry["rebate"] = rebate.to_json(terms)
