@@ -140,6 +140,8 @@ function useSalaryMutation<TArgs>(request: (args: TArgs) => Promise<SalariesOver
     onSuccess: (data) => {
       client.setQueryData(payrollK7bKeys.salaries, data);
       client.invalidateQueries({ queryKey: payrollListKeys.months });
+      // Nieobecności miesiąca pokazują tylko osoby z pensją — nowa pensja dokłada osobę.
+      client.invalidateQueries({ queryKey: ["payroll-lists", "absences"] });
     },
   });
 }

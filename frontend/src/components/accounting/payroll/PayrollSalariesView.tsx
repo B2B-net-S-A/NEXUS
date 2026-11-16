@@ -204,7 +204,7 @@ function SalaryDialog({
 }) {
   return (
     <Dialog open={target != null} onOpenChange={(open) => (!open ? onClose() : undefined)}>
-      <DialogContent size="sm">
+      <DialogContent size="md">
         {target ? (
           <SalaryForm
             key={target.userId}
@@ -269,22 +269,22 @@ function SalaryForm({
           listą nie zmienia się.
         </DialogDescription>
       </DialogHeader>
-      <DialogBody className="grid gap-2.5 text-[13px] sm:grid-cols-3">
+      <DialogBody className="grid gap-2.5 text-[13px] sm:grid-cols-[minmax(0,1fr)_96px_minmax(0,1fr)]">
         <label className="grid gap-1">
           <span className="font-medium">Pensja brutto, zł</span>
-          <input aria-label="Pensja brutto" className={CONTROL} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
+          <input aria-label="Pensja brutto" className={cn(CONTROL, "w-full min-w-0")} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </label>
         <label className="grid gap-1">
           <span className="font-medium">Etat</span>
-          <input aria-label="Etat" className={CONTROL} placeholder="1 albo 1/2" value={fte} onChange={(e) => setFte(e.target.value)} />
+          <input aria-label="Etat" className={cn(CONTROL, "w-full min-w-0")} placeholder="1 albo 1/2" value={fte} onChange={(e) => setFte(e.target.value)} />
         </label>
         <label className="grid gap-1">
           <span className="font-medium">Od miesiąca</span>
-          <input type="month" aria-label="Od miesiąca" className={CONTROL} value={from} onChange={(e) => setFrom(e.target.value)} />
+          <input type="month" aria-label="Od miesiąca" className={cn(CONTROL, "w-full min-w-0")} value={from} onChange={(e) => setFrom(e.target.value)} />
         </label>
         <label className="grid gap-1 sm:col-span-3">
           <span className="font-medium">Opis (opcjonalnie)</span>
-          <input aria-label="Opis pensji" className={CONTROL} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
+          <input aria-label="Opis pensji" className={cn(CONTROL, "w-full min-w-0")} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />
         </label>
         {!ready && amount ? (
           <p className="text-[12px] text-destructive sm:col-span-3">Pensja: kwota większa od zera; etat od 0,01 do 1.</p>
@@ -394,7 +394,7 @@ function ComponentRow({
       <legend className="px-1 text-[12px] font-medium">{label}</legend>
       <input
         aria-label={`${label} — ${days ? "dni" : "kwota"}`}
-        className={CONTROL}
+        className={cn(CONTROL, "w-full min-w-0")}
         inputMode="decimal"
         placeholder={days ? "dni" : "zł"}
         value={amount}
@@ -402,7 +402,7 @@ function ComponentRow({
       />
       <input
         aria-label={`${label} — opis`}
-        className={CONTROL}
+        className={cn(CONTROL, "w-full min-w-0")}
         placeholder="Opis (skąd kwota)"
         maxLength={500}
         value={note}

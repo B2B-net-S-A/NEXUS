@@ -11,7 +11,7 @@ import type {
 } from "@/lib/api/payroll-k7b";
 
 import { gr } from "../ledger-model";
-import { plural, zl } from "./payroll-model";
+import { plural, quantity, zl } from "./payroll-model";
 
 export const SICK_RATE_OPTIONS: readonly { value: SickRate; label: string }[] = [
   { value: "80", label: "80%" },
@@ -133,7 +133,7 @@ export function k7bRows(line: PayrollLine): K7bRow[] {
       value: zl(data.salary_part),
       detail:
         data.nominal_hours != null
-          ? `wymiar ${String(data.nominal_hours).replace(".", ",")} h, przepracowane ${String(data.worked_hours ?? "0").replace(".", ",")} h`
+          ? `wymiar ${quantity(data.nominal_hours)} h, przepracowane ${quantity(data.worked_hours ?? "0")} h`
           : undefined,
     },
   ];

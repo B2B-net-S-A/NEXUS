@@ -62,8 +62,8 @@ describe("rozbicie pozycji z pensji", () => {
         basis: {
           k7b: {
             salary_part: "6666.67",
-            nominal_hours: "160",
-            worked_hours: "128",
+            nominal_hours: "160.000",
+            worked_hours: "128.000000",
             sick: [
               { rate: "100", base: "6903.20", daily: "230.11", paid_days: 5, zus_days: 0, waiting_days: 0, amount: "1150.55" },
             ],
@@ -79,6 +79,7 @@ describe("rozbicie pozycji z pensji", () => {
       "Premie",
     ]);
     expect(rows[1].value).toBe("1 150,55");
+    expect(rows[0].detail).toBe("wymiar 160 h, przepracowane 128 h");
     expect(rows[1].detail).toBe("5 dni × 230,11 · podstawa 6 903,20");
   });
 
