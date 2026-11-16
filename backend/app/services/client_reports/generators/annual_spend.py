@@ -2,16 +2,22 @@
 
 Obrót = suma netto faktur sprzedaży z KSeF wystawionych w okresie (po dacie
 wystawienia), razem z korektami (korekta niesie różnicę, także ujemną)
-i fakturami zaliczkowymi, osobno per waluta. Rabat liczy się tylko od obrotu
-w walucie progów (parametr „Waluta progów”); faktur w innej walucie nie
-przeliczamy kursem — trafiają do kontroli.
+i fakturami zaliczkowymi. Rabat liczy się od obrotu w walucie progów
+(parametr „Waluta progów”): faktury w innej walucie przeliczamy kursem średnim
+NBP z ostatniej tabeli przed datą sprzedaży, a bez daty sprzedaży — przed
+datą wystawienia (decyzja Artura 16.11.2026, ta sama co przy nocie rabatowej
+w ``client_invoicing``; progi Nordei są w EUR, faktury w PLN). Faktura bez kursu w ``fx_rates`` wypada
+z obrotu i trafia do kontroli.
 
 Progi: ``[{"up_to": 15000000, "rate": 2.5}, {"up_to": null, "rate": 3}]`` —
 ``up_to`` to górna granica włącznie, ``null`` = bez górnej granicy, ``rate``
 w procentach. Kolejność z formularza nie ma znaczenia (sortujemy po granicy).
 
-* bez „Progowo” (domyślnie): cały obrót po stawce progu, w który wpada;
-* z „Progowo”: każda część obrotu po stawce swojego progu.
+* z „Progowo” (domyślnie): każda część obrotu po stawce swojego progu — obrót
+  do progu po niższej stawce, nadwyżka po wyższej. Tak liczy się rabat Nordei
+  (umowa ramowa, Appendix 6; decyzja Artura 16.11.2026 po lekturze umowy);
+* bez „Progowo”: cały obrót po stawce progu, w który wpada (dla umów, które
+  wprost tak mówią).
 
 Obrót ponad najwyższą granicą, gdy żaden próg nie jest otwarty, liczy się po
 stawce ostatniego progu, a podgląd to zgłasza. Ujemny obrót (same korekty)
@@ -21,7 +27,7 @@ daje rabat 0.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
 
@@ -36,6 +42,7 @@ from app.services.client_reports.generators.client_data import (
     sheet_amount,
     totals_by_currency,
 )
+from app.services.fx_service import rates_to_pln_by_date
 from app.services.client_reports.registry import (
     Generator,
     ParamField,
@@ -150,6 +157,86 @@ def turnover_by_currency(invoices: Sequence[InvoiceRow]) -> list[Turnover]:
     return out
 
 
+@dataclass(frozen=True)
+class ConvertedTurnover:
+    """Obrót w walucie progów: faktury w tej walucie + przeliczone kursem NBP."""
+
+    currency: str
+    amount: Decimal
+    #: Ile faktur przeliczono kursem (inna waluta niż progów).
+    converted: int
+    #: Waluty bez kursu w ``fx_rates`` — te faktury wypadły z obrotu.
+    missing: tuple[str, ...]
+
+
+def fx_day(day: date) -> date:
+    """Granica kursu: ostatnia tabela NBP z dnia przed ``day``."""
+    return day - timedelta(days=1)
+
+
+def rate_day(invoice: InvoiceRow) -> Optional[date]:
+    """Dzień kursu faktury: przed datą sprzedaży, bez niej — przed wystawieniem."""
+    day = invoice.sale_date or invoice.issue_date
+    return fx_day(day) if day else None
+
+
+RatesByDate = Mapping[date, Mapping[str, Optional[Decimal]]]
+
+
+def convert_turnover(
+    invoices: Sequence[InvoiceRow], currency: str, rates: RatesByDate
+) -> ConvertedTurnover:
+    """Suma netto w ``currency``; ``rates`` to kurs waluty → PLN per dzień kursu."""
+    target = currency.upper()
+    total = Decimal(0)
+    converted = 0
+    missing: list[str] = []
+    for invoice in invoices:
+        source = (invoice.currency or "PLN").upper()
+        if source == target:
+            total += invoice.net_amount
+            continue
+        day = rate_day(invoice)
+        snapshot = rates.get(day, {}) if day else {}
+        source_rate, target_rate = snapshot.get(source), snapshot.get(target)
+        if not source_rate or not target_rate:
+            if source not in missing:
+                missing.append(source)
+            continue
+        total += invoice.net_amount * source_rate / target_rate
+        converted += 1
+    return ConvertedTurnover(target, cents(total), converted, tuple(missing))
+
+
+async def turnover_in(
+    db: AsyncSession, invoices: Sequence[InvoiceRow], currency: str
+) -> ConvertedTurnover:
+    target = currency.upper()
+    needed: dict[date, set[str]] = {}
+    for invoice in invoices:
+        source = (invoice.currency or "PLN").upper()
+        day = rate_day(invoice)
+        if source != target and day is not None:
+            needed.setdefault(day, set()).update({source, target})
+    rates = await rates_to_pln_by_date(db, needed) if needed else {}
+    return convert_turnover(invoices, target, rates)
+
+
+def turnover_checks(converted: ConvertedTurnover) -> list[str]:
+    checks = []
+    if converted.converted:
+        checks.append(
+            f"{converted.converted} faktur w innej walucie przeliczono na {converted.currency} "
+            "kursem średnim NBP sprzed daty sprzedaży — sprawdź, czy umowa nie podaje innego kursu."
+        )
+    if converted.missing:
+        checks.append(
+            f"Brak kursu NBP dla {', '.join(converted.missing)} — te faktury nie weszły do obrotu; "
+            "uzupełnij kursy (Ustawienia → Kursy walut) albo dolicz ręcznie."
+        )
+    return checks
+
+
 #: Pierwsza faktura później niż tyle dni po początku okresu = okres niepełny.
 INCOMPLETE_GRACE_DAYS = 31
 
@@ -183,12 +270,18 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
 
     invoices = await sales_invoices(db, ctx.client_id, period.start, period.end)
     turnovers = turnover_by_currency(invoices)
-    base = next((t.net for t in turnovers if t.currency == currency), Decimal(0))
+    converted = await turnover_in(db, invoices, currency)
+    base = converted.amount
     rebate = compute_rebate(base, tiers, marginal=marginal)
 
-    lines = [SummaryLine(f"Obrót netto ({currency})", format_amount(base), True)]
+    label = f"Obrót netto ({currency}" + (
+        ", z przeliczeniem NBP)" if converted.converted else ")"
+    )
+    lines = [SummaryLine(label, format_amount(base), True)]
     lines += [
-        SummaryLine(f"Obrót netto ({t.currency}) — poza rabatem", format_amount(t.net))
+        SummaryLine(
+            f"w tym faktury w {t.currency} (netto {t.currency})", format_amount(t.net)
+        )
         for t in turnovers
         if t.currency != currency
     ]
@@ -210,12 +303,7 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         checks.append(
             "Definicja nie ma progów rabatu — uzupełnij je w ustawieniach raportu."
         )
-    other = [t.currency for t in turnovers if t.currency != currency]
-    if other:
-        checks.append(
-            f"Faktury w walucie {', '.join(other)} poza rabatem — NEXUS nie przelicza kursów; "
-            "dolicz ręcznie, jeśli umowa tak liczy."
-        )
+    checks += turnover_checks(converted)
     if rebate and rebate.above_top:
         checks.append(
             "Obrót przekracza najwyższy próg — przyjęto stawkę ostatniego progu."
@@ -244,7 +332,8 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
                 for t in turnovers
             ),
             widths=(10, 14, 14, 18),
-            note=f"Rabat liczony od obrotu w {currency}. {MANUAL_EXCLUSION_NOTE}",
+            note=f"Rabat liczony od obrotu w {currency} (inne waluty kursem NBP sprzed daty "
+            f"sprzedaży). {MANUAL_EXCLUSION_NOTE}",
         )
     ]
     if rebate:
@@ -302,7 +391,7 @@ GENERATOR = register(
                 "Waluta progów",
                 "text",
                 "PLN",
-                "Rabat liczy się tylko od faktur w tej walucie.",
+                "Faktury w innej walucie przeliczamy kursem średnim NBP sprzed daty sprzedaży.",
             ),
             ParamField(
                 "tiers",
@@ -315,8 +404,9 @@ GENERATOR = register(
                 "marginal",
                 "Progowo (każdy próg osobno)",
                 "bool",
-                False,
-                "Wyłączone: cały obrót po stawce progu, w który wpada.",
+                True,
+                "Włączone (domyślnie, tak liczy Nordea): obrót do progu po niższej stawce, "
+                "nadwyżka po wyższej. Wyłącz tylko, gdy umowa daje stawkę progu od całego obrotu.",
             ),
         ),
     )

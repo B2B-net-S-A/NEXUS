@@ -92,6 +92,8 @@ class Generator:
     #: Plik ma stawki do klienta (``user_can_view_client_rate``).
     needs_client_rate: bool = False
     params: tuple[ParamField, ...] = field(default_factory=tuple)
+    #: Arkusz, którego pierwsze wiersze okno pobrania pokazuje w podglądzie.
+    preview_sheet: Optional[str] = None
 
 
 _REGISTRY: dict[str, Generator] = {}

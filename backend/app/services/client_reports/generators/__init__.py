@@ -7,5 +7,6 @@ from app.services.client_reports.generators import (  # noqa: F401
     contract_realisation,
     engagement,
     headcount,
+    margin_per_consultant,
     orders_quarterly,
 )

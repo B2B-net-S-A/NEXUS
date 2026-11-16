@@ -136,6 +136,8 @@ export interface ReportPreview {
   lines: { label: string; value: string; strong: boolean }[];
   checks: string[];
   sheets: { name: string; rows: number }[];
+  /** Pierwsze wiersze arkusza, gdy generator go wskazuje (np. marża per konsultant). */
+  table?: { headers: string[]; rows: (string | number | null)[][]; more: number } | null;
 }
 
 export interface ReportRun {
