@@ -22,16 +22,18 @@ import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/li
 import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
+import { JpkKrView } from "./JpkKrView";
 import { MONTHS_PL, findPeriod, gr } from "./ledger-model";
 import { SOURCE_LABELS, flattenStatement, reportLine, shortLabel } from "./reports-model";
 
-type View = "balance" | "income" | "positions";
+type View = "balance" | "income" | "positions" | "jpk";
 type Scope = "month" | "ytd";
 
 const VIEWS: { key: View; label: string }[] = [
   { key: "balance", label: "Bilans" },
   { key: "income", label: "Rachunek zysków i strat" },
   { key: "positions", label: "Pozycje kont" },
+  { key: "jpk", label: "JPK_KR_PD za rok" },
 ];
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const CHIP = "inline-flex items-center rounded px-1.5 py-0.5 text-[11.5px] font-medium";
@@ -310,7 +312,8 @@ export function ReportsView() {
   const [scope, setScope] = useState<Scope>("ytd");
   const [all, setAll] = useState(false);
   const from = scope === "month" ? period.month : 1;
-  const statements = useStatements(year && view !== "positions" ? period.year : null, from, period.month);
+  const statementView = view === "balance" || view === "income";
+  const statements = useStatements(year && statementView ? period.year : null, from, period.month);
   const data = statements.data;
   const range = from === period.month ? MONTHS_PL[from - 1] : `${MONTHS_PL[from - 1]}–${MONTHS_PL[period.month - 1]}`;
 
@@ -332,7 +335,7 @@ export function ReportsView() {
             {item.label}
           </button>
         ))}
-        {view !== "positions" ? (
+        {statementView ? (
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {view === "income" ? (
               <select aria-label="Zakres" value={scope} onChange={(e) => setScope(e.target.value as Scope)} className={CONTROL}>
@@ -354,6 +357,8 @@ export function ReportsView() {
         <p className="rounded-lg border border-dashed border-border px-6 py-10 text-center text-sm text-muted-foreground">
           Nie ma roku obrotowego {period.year}.
         </p>
+      ) : view === "jpk" ? (
+        <JpkKrView year={period.year} />
       ) : statements.isError ? (
         <QueryStateNotice state="error" onRetry={() => statements.refetch()} />
       ) : !statements.isSuccess || !data ? (

@@ -4,7 +4,7 @@
  * Pozycję konta zapisuje się w planie kont (`PATCH /chart/{id}`, pole `report_line`).
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -114,5 +114,112 @@ export function useMarkers(enabled = true) {
     queryFn: async () => (await api.get<{ items: Marker[] }>(`${BASE}/markers`)).data.items,
     enabled,
     staleTime: Infinity,
+  });
+}
+
+// ── K8c: roczne JPK_KR_PD(1) i JPK_ST_KR(1) ──────────────────────────────────
+
+export interface JpkKrProblem {
+  code: string;
+  message: string;
+  items: string[];
+}
+
+export interface JpkKrAddress {
+  province?: string;
+  county?: string;
+  commune?: string;
+  street?: string;
+  building?: string;
+  unit?: string;
+  city?: string;
+  postal_code?: string;
+}
+
+export interface JpkKrSettings {
+  address: JpkKrAddress;
+  estonian: boolean;
+  estonian_since: number | null;
+}
+
+export interface JpkKrOverview {
+  year: number;
+  mode: "symfonia" | "parallel" | "nexus";
+  documents: number;
+  accounts: number;
+  problems: JpkKrProblem[];
+  warnings: string[];
+  ready: boolean;
+  can_download: boolean;
+  can_compare: boolean;
+  can_edit_settings: boolean;
+  settings: JpkKrSettings;
+  file_name: string;
+  st: {
+    assets: number;
+    problems: JpkKrProblem[];
+    warnings: string[];
+    ready: boolean;
+    file_name: string;
+  };
+}
+
+export interface JpkKrSide<T> {
+  nexus: T;
+  symfonia: T;
+}
+
+export interface JpkKrCompareResult {
+  year: number;
+  same: boolean;
+  accounts_nexus: number;
+  accounts_symfonia: number;
+  amounts: { account: string; fields: Record<string, JpkKrSide<number>> }[];
+  markers: { account: string; nexus: string[]; symfonia: string[] }[];
+  only_nexus: string[];
+  only_symfonia: string[];
+  ctrl: Record<string, JpkKrSide<number | null>>;
+  differences: number;
+}
+
+export const jpkKrKeys = {
+  overview: (year: number) => ["accounting", "reports", "jpk-kr", year] as const,
+};
+
+export function useJpkKr(year: number | null) {
+  return useQuery({
+    queryKey: jpkKrKeys.overview(year ?? 0),
+    queryFn: async () => (await api.get<JpkKrOverview>(`${BASE}/jpk-kr`, { params: { year } })).data,
+    enabled: year != null,
+  });
+}
+
+export function jpkKrFilePath(year: number, kind: "kr" | "st", correction: boolean): string {
+  const params = new URLSearchParams({ year: String(year), kind, correction: String(correction) });
+  return `${BASE}/jpk-kr/file?${params.toString()}`;
+}
+
+export function useSaveJpkKrSettings() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: JpkKrSettings) => (await api.put<JpkKrSettings>(`${BASE}/jpk-kr/settings`, body)).data,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: [...reportKeys.all, "jpk-kr"] });
+    },
+  });
+}
+
+export function useCompareJpkKr() {
+  return useMutation({
+    mutationFn: async ({ year, file }: { year: number; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<JpkKrCompareResult>(`${BASE}/jpk-kr/compare`, form, {
+          params: { year },
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
   });
 }

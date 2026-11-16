@@ -1376,3 +1376,112 @@ async def test_statements_need_reports_module_and_balance(client, world):
     assert rows[acc["cost"]]["position"]["debit"]["code"] == "RPBIII"
     catalogue = await client.get(f"{ACC}/reports/markers", headers=finance)
     assert len(catalogue.json()["items"]) == 244
+
+
+async def test_jpk_kr_year_file_blocks_refuses_and_keeps_settings(client, world):
+    """K8c: braki blokują plik, bez Płac nie ma pobrania (D2), adres ustawia admin.
+
+    Lata testów (2050–2099) są poza ``etd:TData`` — plik przez schemat MF
+    sprawdzają testy reguł (``test_ledger_jpk_kr_rules.py``)."""
+
+    await _set_ledger(
+        {
+            "modules": {"ledger": True, "reports": True},
+            "accountants": [world["accountant"].id],
+        }
+    )
+    finance = _headers(world["finance"])
+    # Rekruter z „Modułem Finanse”, bez Płac — D2 (rola Finanse ma Płace).
+    only = _headers(world["module_only"])
+    accountant = _headers(world["accountant"])
+    admin = _headers(world["admin"])
+    document = await _create(client, world, month=3)
+    approved = await client.post(
+        f"{ACC}/documents/approve", json={"ids": [document["id"]]}, headers=accountant
+    )
+    assert approved.status_code == 200, approved.text
+    params = {"year": world["year"]}
+
+    overview = await client.get(f"{ACC}/reports/jpk-kr", params=params, headers=only)
+    assert overview.status_code == 200, overview.text
+    data = overview.json()
+    codes = {item["code"] for item in data["problems"]}
+    assert {"periods", "markers", "estonian"} <= codes
+    assert data["ready"] is False
+    assert data["documents"] == 1
+    assert data["can_download"] is False
+    assert data["can_compare"] is False
+    assert data["st"]["ready"] is False
+    periods = next(item for item in data["problems"] if item["code"] == "periods")
+    assert len(periods["items"]) == 12
+
+    refused = await client.get(
+        f"{ACC}/reports/jpk-kr/file", params=params, headers=only
+    )
+    assert refused.status_code == 403
+    blocked = await client.get(
+        f"{ACC}/reports/jpk-kr/file", params=params, headers=accountant
+    )
+    assert blocked.status_code == 422
+    assert "Niezamknięte okresy" in blocked.json()["detail"]
+    assets = await client.get(
+        f"{ACC}/reports/jpk-kr/file",
+        params={**params, "kind": "st"},
+        headers=accountant,
+    )
+    assert assets.status_code == 422
+    unknown = await client.get(
+        f"{ACC}/reports/jpk-kr/file",
+        params={**params, "kind": "xx"},
+        headers=accountant,
+    )
+    assert unknown.status_code == 422
+
+    body = {
+        "address": {
+            "province": "mazowieckie",
+            "county": "Testowo",
+            "commune": "Testowo",
+            "building": "1",
+            "city": "Testowo",
+            "postal_code": "00-001",
+        },
+        "estonian": True,
+        "estonian_since": 2025,
+    }
+    not_admin = await client.put(
+        f"{ACC}/reports/jpk-kr/settings", json=body, headers=finance
+    )
+    assert not_admin.status_code == 403
+    bad = await client.put(
+        f"{ACC}/reports/jpk-kr/settings",
+        json={**body, "address": {**body["address"], "postal_code": "00001"}},
+        headers=admin,
+    )
+    assert bad.status_code == 422
+    saved = await client.put(f"{ACC}/reports/jpk-kr/settings", json=body, headers=admin)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["estonian_since"] == 2025
+    after = (
+        await client.get(f"{ACC}/reports/jpk-kr", params=params, headers=accountant)
+    ).json()
+    assert "estonian" not in {item["code"] for item in after["problems"]}
+    assert after["settings"]["address"]["city"] == "Testowo"
+    assert after["can_compare"] is True
+
+    files = {"file": ("symfonia.xml", b"<JPK><Naglowek/></JPK>", "application/xml")}
+    compare_refused = await client.post(
+        f"{ACC}/reports/jpk-kr/compare", params=params, files=files, headers=only
+    )
+    assert compare_refused.status_code == 403
+    other_year = (
+        b"<JPK><Naglowek><DataOd>2026-01-01</DataOd><DataDo>2026-12-31</DataDo>"
+        b"</Naglowek></JPK>"
+    )
+    compare_year = await client.post(
+        f"{ACC}/reports/jpk-kr/compare",
+        params=params,
+        files={"file": ("symfonia.xml", other_year, "application/xml")},
+        headers=accountant,
+    )
+    assert compare_year.status_code == 422
