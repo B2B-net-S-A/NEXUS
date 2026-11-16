@@ -89,6 +89,8 @@ class PortalListingOptions(BaseModel):
     office_days: Optional[int] = Field(default=None, ge=0, le=5)
     city: Optional[str] = Field(default=None, max_length=120)
     salary: Optional[PortalSalary] = None
+    # 16.11.2026: bez widełek publikacja wymaga powodu (``salary_guard``).
+    no_salary_reason: Optional[str] = Field(default=None, max_length=300)
 
     def as_dict(self) -> dict[str, Any]:
         data = self.model_dump()

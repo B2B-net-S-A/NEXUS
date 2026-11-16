@@ -69,6 +69,17 @@ const SCREENING_FIELDS: ReadonlyArray<[string, string]> = [
   ["recommendation", "„Dlaczego ten kandydat”"],
 ];
 
+/** Terminy z maila klienta w ćwiczeniu DL-a: za ile dni roboczych i o której (czas przeglądarki). */
+export const POLIGON_CLIENT_MAIL_SLOTS: ReadonlyArray<{ workdays: number; hour: number; quote: string }> = [
+  { workdays: 1, hour: 10, quote: "najbliższy dzień roboczy o 10:00" },
+  { workdays: 2, hour: 13, quote: "kolejny dzień roboczy o 13:00" },
+];
+export const POLIGON_CLIENT_MAIL_MINUTES = 45;
+/** Mail klienta do ćwiczenia „Terminy od klienta” — wklejony w okno daje stały odczyt (`tools.ts`), bez modelu. */
+export const POLIGON_CLIENT_MAIL =
+  "Dzień dobry, chętnie porozmawiamy z Weroniką Cisowską. Pasuje nam " +
+  `${POLIGON_CLIENT_MAIL_SLOTS.map((s) => s.quote).join(" albo ")}, rozmowa online potrwa ${POLIGON_CLIENT_MAIL_MINUTES} minut.`;
+
 /** Budżet rekrutacji ćwiczebnej i stawka kandydata w przeglądzie DL-a (zestaw: `build_poligon_dataset.py`). */
 export const POLIGON_BUDGET_MAX_HOURLY = 115;
 export const POLIGON_CANDIDATE_HOURLY = 105;
@@ -421,6 +432,34 @@ export const EXERCISES: readonly Exercise[] = [
       return { done: true };
     },
     tip: "Rekruter widzi zaznaczone pola podświetlone w formularzu screeningu i dostaje dzwonek. Im dokładniej zaznaczysz, tym szybciej CV wróci.",
+  },
+  {
+    id: "dl-terminy-klienta",
+    roles: DELIVERY_LEAD,
+    module: "Przegląd Delivery Leada",
+    title: () => "Wpisz terminy rozmowy od klienta",
+    task: () =>
+      `Klient odpisał na CV Weroniki Cisowskiej: „${POLIGON_CLIENT_MAIL}” Otwórz jej panel w kolumnie „CV wysłane”, kliknij „Terminy od klienta”, wpisz oba terminy (albo wklej maila w pole okna), ustaw ${POLIGON_CLIENT_MAIL_MINUTES} min i kliknij „Wyślij rekruterowi”. Gdy „CV wysłane” jest puste (np. po przeładowaniu strony), najpierw wyślij Weronikę z „QC CV” do klienta.`,
+    hint: "„Terminy od klienta” jest w panelu osoby, w rzędzie przycisków obok „Odrzuć z powodem”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.person.dock",
+    judge: (a) => {
+      if (a.type !== "slot_request") return null;
+      const again = "Kliknij „Terminy od klienta” jeszcze raz, popraw i wyślij — „Zastąp otwarte terminy” podmieni poprzednie.";
+      const times = a.starts.map((s) => {
+        const d = new Date(s);
+        return d.getHours() * 60 + d.getMinutes();
+      });
+      const missing = POLIGON_CLIENT_MAIL_SLOTS.filter((s) => !times.includes(s.hour * 60));
+      if (missing.length) {
+        return { done: false, feedback: `Rekruter dostał terminy, ale bez ${missing.map((s) => `${s.hour}:00`).join(" i ")} z maila klienta. ${again}` };
+      }
+      if (a.durationMinutes !== POLIGON_CLIENT_MAIL_MINUTES) {
+        return { done: false, feedback: `Klient pisał o ${POLIGON_CLIENT_MAIL_MINUTES} minutach, a terminy poszły na ${a.durationMinutes} min — rekruter zablokuje kandydatowi zły czas. ${again}` };
+      }
+      return { done: true };
+    },
+    tip: "Terminy dostaje rekruter: ustala jeden z kandydatem i odsyła Ci wybór, a Ty potwierdzasz go klientowi. Karta sama przeszła na „Rozmowę u klienta”.",
   },
 
   // ── Baza kandydatów ─────────────────────────────────────────────────

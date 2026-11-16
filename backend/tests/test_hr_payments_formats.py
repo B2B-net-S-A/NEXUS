@@ -92,6 +92,54 @@ def test_title_strips_characters_that_break_the_batch_file():
     assert lines == ["FV 1 10/2026"]
 
 
+def _ksef(day: int, tail: str) -> str:
+    return f"1234563218-202611{day:02d}-5F2A9C0D71{tail}-4E"
+
+
+def test_title_keeps_every_ksef_number_when_invoices_do_not_fit():
+    """Faktura + dwie korekty: numery faktur ustępują, numery KSeF zostają."""
+
+    refs = [
+        titles.InvoiceRef(f"FV {n}/10/2026", _ksef(n, f"B{n}"), from_ksef=True)
+        for n in (1, 2, 3)
+    ]
+    lines = titles.title_lines("b2b", 2026, 10, refs)
+    assert lines == [ref.ksef_number for ref in refs]
+    assert titles.ksef_title_problem(refs, date(2027, 1, 4)) is None
+
+
+def test_title_keeps_pdf_invoice_number_next_to_ksef_numbers():
+    refs = [
+        titles.InvoiceRef("FV 1/10/2026", _ksef(1, "B1"), from_ksef=True),
+        titles.InvoiceRef("FV 2/10/2026", _ksef(2, "B2"), from_ksef=True),
+        titles.InvoiceRef("PDF 3/10/2026", None),
+    ]
+    assert titles.title_lines("b2b", 2026, 10, refs) == [
+        _ksef(1, "B1"),
+        _ksef(2, "B2"),
+        "PDF 3/10/2026",
+    ]
+
+
+def test_ksef_title_problem_decided_by_payment_date():
+    many = [
+        titles.InvoiceRef(f"FV {n}/10/2026", _ksef(n, f"C{n}"), from_ksef=True)
+        for n in range(1, 6)
+    ]
+    # Pięć numerów KSeF nie mieści się w 4 liniach Elixir-O (zbiorczego
+    # identyfikatora NEXUS nie generuje).
+    assert titles.ksef_title_problem(many, date(2026, 12, 31)) is None
+    assert titles.ksef_title_problem(many, date(2027, 1, 1)) == "ksef_title_overflow"
+    # Faktura z KSeF bez zapisanego numeru: od 1.01.2027 odmowa.
+    lost = [titles.InvoiceRef("FV 9/10/2026", None, from_ksef=True)]
+    assert titles.ksef_title_problem(lost, date(2026, 12, 31)) is None
+    assert titles.ksef_title_problem(lost, date(2027, 1, 1)) == "no_ksef_number"
+    # PDF spoza KSeF nie ma numeru KSeF i przechodzi.
+    pdf = [titles.InvoiceRef("PDF 1/10/2026", None)]
+    assert titles.ksef_title_problem(pdf, date(2027, 1, 1)) is None
+    assert set(titles.KSEF_TITLE_LABELS) == {"no_ksef_number", "ksef_title_overflow"}
+
+
 def test_ksef_numbers_found_in_bank_titles():
     text = f"Zapłata fv 10/2026 {KSEF.lower()} oraz {KSEF}"
     assert titles.ksef_numbers_in(text) == [KSEF]

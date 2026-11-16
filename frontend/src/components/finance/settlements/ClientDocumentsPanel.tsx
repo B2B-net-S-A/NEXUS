@@ -15,6 +15,8 @@ import { copyTextToClipboard } from "@/lib/clipboard";
 import { fetchClientDocument, useClientDocuments, type ClientDocumentProject } from "@/lib/api/client-settlements";
 
 import { mdText, money, monthLabel } from "./format";
+import { ProtocolPanel } from "./ProtocolPanel";
+import { SignerSheetsPanel } from "./SignerSheetsPanel";
 
 function peopleText(p: ClientDocumentProject): string {
   const people = p.people === 1 ? "1 osoba" : p.people < 5 ? `${p.people} osoby` : `${p.people} osób`;
@@ -36,6 +38,9 @@ export function ClientDocumentsPanel({ clientId, month }: { clientId: number; mo
   }
   if (!query.isSuccess || !query.data.enabled) return null;
   const data = query.data;
+  // E6.1 protokół na cały miesiąc (PKO), E6.2 arkusze per podpisujący (Velo).
+  if (data.layout === "month") return <ProtocolPanel data={data} clientId={clientId} />;
+  if (data.layout === "signer") return <SignerSheetsPanel data={data} clientId={clientId} />;
 
   async function onDownload(project: string) {
     try {

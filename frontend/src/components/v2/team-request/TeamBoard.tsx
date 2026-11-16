@@ -39,6 +39,7 @@ import {
   formatThousands,
   hourlyValue,
   peopleLabel,
+  positionsLabel,
   teamHourlyRange,
   type SeatGroup,
 } from "./team-logic";
@@ -108,7 +109,7 @@ function PanelCard({ team }: { team: TeamDetail }) {
   const enable = async () => {
     const yes = await askConfirm({
       title: "Włączyć link zespołu?",
-      description: `Klient zobaczy ${openPositions} stanowisk i osoby z „CV wysłane” na każdym z nich. Włączą się też panele tych stanowisk, bo przez nie klient ogląda dowody z CV i prosi o rozmowy. Nic nie wysyła się samo: link przekazujesz Ty.`,
+      description: `Klient zobaczy ${positionsLabel(openPositions)} i osoby z „CV wysłane” na każdym z nich. Włączą się też panele tych stanowisk, bo przez nie klient ogląda dowody z CV i prosi o rozmowy. Nic nie wysyła się samo: link przekazujesz Ty.`,
       confirmLabel: "Włącz link",
     });
     if (yes) toggle.mutate({ enabled: true });
@@ -428,12 +429,12 @@ export function TeamBoard({ teamId }: { teamId: number }) {
     <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-3 md:px-2 md:pt-2">
       <PageHeader
         title={team.name}
-        description={`${team.client_name ?? "Klient"} · ${open.length} stanowisk, ${peopleLabel(seats)}. Każde stanowisko to zwykła rekrutacja z Championem i Tablicą.`}
+        description={`${team.client_name ?? "Klient"} · ${positionsLabel(open.length)}, ${peopleLabel(seats)}. Każde stanowisko to zwykła rekrutacja z Championem i Tablicą.`}
         breadcrumb={[{ label: "Rekrutacje", href: "/jobs" }, { label: "Zespoły" }, { label: team.name }]}
       />
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-        <Stat label="Miejsca w zespole" value={`${seats}`} sub={`${open.length} stanowisk`} />
+        <Stat label="Miejsca w zespole" value={`${seats}`} sub={positionsLabel(open.length)} />
         <Stat
           label="CV wysłane"
           value={`${sent}`}

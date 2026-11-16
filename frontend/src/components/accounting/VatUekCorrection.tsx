@@ -57,7 +57,7 @@ export function VatUekCorrection({ period, documents }: { period: VatUekPeriod; 
             </p>
           ) : null}
           {overview.data.problems.length ? (
-            <ul className="space-y-0.5 px-3.5 pb-1.5 text-[13px] text-destructive-text">
+            <ul className="space-y-0.5 px-3.5 pb-1.5 text-[13px] text-destructive">
               {overview.data.problems.map((item, index) => (
                 <li key={`${item.number}:${index}`}>
                   <span className="font-medium">{item.number}</span> — {item.detail}

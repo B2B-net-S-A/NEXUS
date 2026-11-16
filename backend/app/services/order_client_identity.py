@@ -97,8 +97,10 @@ _EU_VAT_COUNTRIES = frozenset(
     "AT BE BG CY CZ DE DK EE EL ES FI FR HR HU IE IT LT LU LV MT NL PT RO SE SI SK XI".split()
 )
 # Plus i gwiazdka są w numerze dozwolone przez schemat FA (``TNrVatUE``).
-_EU_VAT_ID_RE = re.compile(r"([A-Z]{2})[A-Z0-9+*]*\d[A-Z0-9+*]*")
-_EU_VAT_SEPARATORS_RE = re.compile(r"[\s.\-]")
+_FOREIGN_BUYER_ID_RE = re.compile(r"([A-Z]{2})[A-Z+*]*[0-9][A-Z0-9+*]*")
+_BUYER_ID_SEPARATORS_RE = re.compile(r"[\s.\-]")
+_BUYER_ID_LABEL_RE = re.compile(r"^(?:NIP|VAT)(?=[\s:.\-])")
+_NORWEGIAN_VAT_ID_RE = re.compile(r"NO[0-9]{9}MVA")
 
 
 def normalize_registry_id(value: str) -> str:
@@ -121,20 +123,36 @@ def normalize_registry_id(value: str) -> str:
     return digits
 
 
-def normalize_buyer_number(value: str) -> str:
-    """Numer nabywcy z faktury albo profilu: VAT UE w całości, reszta jak w rejestrze.
+def is_eu_buyer_number(number: str) -> bool:
+    return number[:2] in _EU_VAT_COUNTRIES
 
-    „FR 1A-123456789” → „FR1A123456789”, „ATU12345678” zostaje. VAT z literą to
-    nadal jeden numer jednej firmy, a ``normalize_registry_id`` kończy go na
-    pierwszej literze po cyfrach. Tamta funkcja zostaje dla poczty zamówień:
-    skan tekstu i tak znajduje tylko numery polskie i fińskie.
+
+def normalize_buyer_number(value: str, *, country: str | None = None) -> str:
+    """Klucz faktury i kartoteki zachowuje litery zagranicznych numerów.
+
+    Z osobnym krajem (``KodKraju``) przyjmujemy tylko cały poprawnie złożony
+    identyfikator. Starsze wpisy bez osobnego kraju zachowują normalizację NIP.
     """
-    raw = unicodedata.normalize("NFKC", value or "").upper()
-    compact = _EU_VAT_SEPARATORS_RE.sub("", raw)
-    m = _EU_VAT_ID_RE.fullmatch(compact)
-    if m and m.group(1) in _EU_VAT_COUNTRIES:
-        return compact
-    return normalize_registry_id(raw)
+    raw = unicodedata.normalize("NFKC", value or "").strip().upper()
+    compact = _BUYER_ID_SEPARATORS_RE.sub("", raw)
+    if country is not None:
+        country = country.strip().upper()
+        if country == "PL" or not re.fullmatch(r"[A-Z]{2}", country):
+            return ""
+        compact = country + compact.removeprefix(country)
+
+    match = _FOREIGN_BUYER_ID_RE.fullmatch(compact)
+    if (
+        not match
+        or match.group(1) == "PL"
+        or (country is None and _BUYER_ID_LABEL_RE.match(raw))
+    ):
+        return "" if country is not None else normalize_registry_id(raw)
+
+    # MVA oznacza rejestrację VAT, a zapisany klucz klienta to numer organizacji.
+    if _NORWEGIAN_VAT_ID_RE.fullmatch(compact):
+        return compact.removesuffix("MVA")
+    return compact
 
 
 def nip_checksum_valid(digits: str) -> bool:
@@ -170,7 +188,7 @@ def client_registry_number(value: str | None) -> str | None:
     if REGISTRY_KEY.fullmatch(number):
         return number
     raise ValueError(
-        "Wpisz NIP (10 cyfr) albo VAT UE z prefiksem kraju, np. FI12345678."
+        "Wpisz NIP (10 cyfr), VAT UE albo inny identyfikator z prefiksem kraju."
     )
 
 

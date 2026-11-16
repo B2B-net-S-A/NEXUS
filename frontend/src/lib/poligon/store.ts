@@ -7,7 +7,7 @@
 // Odczyty spoza rekrutacji ćwiczebnej (pasek górny, powiadomienia) idą do API
 // jak zwykle — wtedy `handle` zwraca `"network"`. Narzędzia rekrutera z ćwiczeń
 // z 16.11.2026 (telefon, terminy u klienta, CV z pliku, zapisane wyszukiwania,
-// listy, czat, asystent CV, Jarvis) są w `tools.ts`.
+// listy, czat, asystent CV, Jarvis) i terminy od klienta Delivery Leada są w `tools.ts`.
 
 import { createTools } from "./tools";
 
@@ -71,6 +71,8 @@ export type PoligonAction =
   | { type: "assign"; candidateId: number; jobId: number }
   | { type: "screening_call"; candidateId: number; start: string }
   | { type: "slot_choose"; candidateId: number; index: number }
+  /** Delivery Lead wpisał terminy od klienta (`POST /api/interview-cycle/slots`). */
+  | { type: "slot_request"; candidateId: number; starts: string[]; durationMinutes: number; replaced: boolean }
   | { type: "cv_upload"; candidateId: number }
   | { type: "saved_search"; notify: boolean; criteria: boolean; name: string }
   | { type: "pool_add"; candidateId: number; poolId: number }
@@ -365,6 +367,27 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     return true;
   }
 
+  /** Karta w kolumnie etapu `stage`, bez zdarzenia `move` (ruch serwera po zapisie, np. terminy od klienta). */
+  function relocate(candidateId: number, stage: string): KanbanItem | null {
+    const found = findItem(candidateId);
+    const target = kanban?.columns.find((c) => c.stage === stage);
+    if (!found || !target) return null;
+    if (found.column === target) return found.item;
+    found.column.items = found.column.items.filter((i) => i !== found.item);
+    found.column.count = found.column.items.length;
+    const moved: KanbanItem = {
+      ...found.item,
+      stage: target.stage,
+      stage_def_id: target.stage_def_id,
+      moved_at: new Date(now).toISOString(),
+      days_in_stage: 0,
+      process_state_version: Number(found.item.process_state_version ?? 0) + 1,
+    };
+    target.items = [moved, ...target.items];
+    target.count = target.items.length;
+    return moved;
+  }
+
   function assign(candidateId: number, jobId: number): PoligonResponse {
     if (!kanban || jobId !== meta.job_id || !addToNew(candidateId)) return { status: 404, data: { detail: MISSING_MESSAGE } };
     emit({ type: "assign", candidateId, jobId });
@@ -580,6 +603,7 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     emit,
     findItem,
     addToNew,
+    relocate,
     recorded: (method, path, query = []) => read(method, path, query, { quiet: true }),
     people,
     template,

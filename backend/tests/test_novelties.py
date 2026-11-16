@@ -40,6 +40,7 @@ from app.data.novelties import (
 )
 from app.models.novelty import NoveltyProgress
 from app.services.novelty_schema import TABLE_DDL
+from app.services.onboarding_day import POLIGON_ID_PREFIX
 
 _DB = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="wymaga PostgreSQL")
 BACKEND = Path(__file__).resolve().parent.parent
@@ -80,6 +81,13 @@ def test_registry_loads_and_every_entry_is_valid() -> None:
             assert not novelty.steps
         else:
             assert len(novelty.steps) >= 2
+
+
+def test_novelty_ids_do_not_use_the_poligon_prefix() -> None:
+    """Trasa zdarzeń kieruje `poligon-…` do ćwiczeń Poligonu, więc wpis Nowości
+    z takim id dostawał zawsze 404 i jego kropka nigdy nie gasła."""
+    clash = sorted(n for n in load_novelties() if n.startswith(POLIGON_ID_PREFIX))
+    assert not clash, clash
 
 
 @pytest.mark.parametrize(
@@ -771,7 +779,9 @@ def test_poligon_path_per_role() -> None:
         "poligon-dl-przeglad-otworz",
         "poligon-dl-wyslij",
         "poligon-dl-poprawki",
+        "poligon-dl-terminy-klienta",
     } <= dl
+    assert len(dl) == 17
     assert not {i for i in dl if i.startswith("poligon-screening-")}
     assert "poligon-tablica-biore" not in dl | tcm
     assert tcm < recruiter
@@ -909,8 +919,9 @@ def test_role_change_requires_only_the_new_roles_missing_exercises() -> None:
         "poligon-dl-przeglad-otworz",
         "poligon-dl-wyslij",
         "poligon-dl-poprawki",
+        "poligon-dl-terminy-klienta",
     ]
-    assert status["total"] - status["done"] == 3
+    assert status["total"] - status["done"] == 4
 
     # Powrót do rekrutera 25.11 → ćwiczenia już zaliczone, nic nie blokuje.
     back = _need(
@@ -933,7 +944,7 @@ def test_role_change_requires_only_the_new_roles_missing_exercises() -> None:
 
 def test_role_change_of_a_person_from_before_the_poligon() -> None:
     # Rekruter sprzed 15.11 (bez poligonu) → 20.11 DL: tylko ćwiczenia, których
-    # ścieżka rekrutera nie miała — przegląd DL-a.
+    # ścieżka rekrutera nie miała — przegląd DL-a i terminy od klienta.
     need = _need(
         {"delivery_lead"},
         _OCT,
@@ -943,6 +954,7 @@ def test_role_change_of_a_person_from_before_the_poligon() -> None:
         "poligon-dl-przeglad-otworz",
         "poligon-dl-wyslij",
         "poligon-dl-poprawki",
+        "poligon-dl-terminy-klienta",
     ]
     # Zdjęcie roli (admin) przy tej samej roli z poligonem — nic.
     assert (
@@ -1266,6 +1278,24 @@ def test_tool_exercises_of_16_11_are_credited_by_work() -> None:
         assert exercise in path, exercise
         assert exercise in credited_exercises({feature}, path), feature
         assert exercise not in credited_exercises({"biore"}, path), feature
+
+
+def test_client_slots_feature_credits_the_side_on_the_persons_path() -> None:
+    """Terminy u klienta: DL wpisuje, rekruter wybiera — praca zalicza ćwiczenie jego ścieżki."""
+    from app.services.poligon_luki import FEATURES, credited_exercises
+
+    plan = load_poligon()
+    recruiter = [e.id for e in plan.exercises_for(["recruiter"])]
+    dl = [e.id for e in plan.exercises_for(["delivery_lead"])]
+    rec_credit = credited_exercises({"terminy_klient"}, recruiter)
+    dl_credit = credited_exercises({"terminy_klient"}, dl)
+    assert "poligon-kalendarz-termin-klienta" in rec_credit
+    assert "poligon-dl-terminy-klienta" not in rec_credit
+    assert "poligon-dl-terminy-klienta" in dl_credit
+    assert "poligon-kalendarz-termin-klienta" not in dl_credit
+    # Sygnał liczy obie strony wniosku: rekrutera pary i osobę, która wpisała terminy.
+    sql = next(f.sql for f in FEATURES if f.key == "terminy_klient")
+    assert "recruiter_id" in sql and "created_by" in sql
 
 
 def test_every_luki_feature_has_a_signal_and_known_exercises() -> None:

@@ -22,6 +22,7 @@ import { PayrollMonthScreen } from "@/components/hr/payroll/PayrollMonthScreen";
 import { PayrollMonthsScreen } from "@/components/hr/payroll/PayrollMonthsScreen";
 import { hrKeys, type HrConfig } from "@/lib/api/hr";
 import { payrollKeys } from "@/lib/api/hr-payroll";
+import { payrollListKeys } from "@/lib/api/payroll-lists";
 
 import { HR_CAST, hrConfig } from "../hr-fixtures";
 import {
@@ -73,6 +74,8 @@ function prepare(params: URLSearchParams) {
     client.setQueryData(payrollKeys.months, monthsList(scene));
     // Zwroty z gwarancji premii DL: pusta lista, sekcja się nie pokazuje (bez zapytania).
     client.setQueryData(payrollKeys.clawbacks, []);
+    // Strażnik 1 stycznia (parametry list płac): bez luki — baner się nie pokazuje, bez zapytania.
+    client.setQueryData(payrollListKeys.parameters, { catalog: [], current_id: null, versions: [], next_year: null });
   }
   // Premia 200%: miesiąc harnessu poza programem — karta się nie pokazuje, bez żądań.
   client.setQueryData(payrollKeys.doubleBonus(scene.year, scene.month), {

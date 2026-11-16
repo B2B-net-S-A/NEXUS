@@ -11,7 +11,10 @@ Płace mogą pobrać plik Elixir-O albo CSV z zatwierdzonymi fakturami B2B:
   identyfikator zapytania zostaje w śladzie R-B). „NIE” albo brak odpowiedzi
   wykazu blokuje pozycję do decyzji Finansów — chyba że rachunek spoza listy
   uznały dwie osoby (``override_kind='white_list'``, R10),
-* rozliczenie w paczce, która czeka, nie trafia do kolejnej.
+* rozliczenie w paczce, która czeka, nie trafia do kolejnej,
+* od 1.01.2027 (data wykonania paczki) tytuł ma numer KSeF każdej faktury
+  (art. 108g VAT): więcej niż 4 numery KSeF albo faktura z KSeF bez numeru =
+  pozycja poza paczką z powodem (``titles.ksef_title_problem``).
 
 Paczka to wiersze ``payroll_payments`` (``kind='transfer_batch'``, wspólny
 ``batch_key``) z 4 cyframi i skrótem HMAC pełnego rachunku odbiorcy. Plik
@@ -51,7 +54,12 @@ from app.services.hr import settlements as settlement_service
 from app.services.hr.bank import elixir
 from app.services.hr.bank.finance import PayableRow, describe
 from app.services.hr.bank.settings import PaymentSettings, load_settings
-from app.services.hr.bank.titles import InvoiceRef, title_lines
+from app.services.hr.bank.titles import (
+    KSEF_TITLE_LABELS,
+    InvoiceRef,
+    ksef_title_problem,
+    title_lines,
+)
 from app.services.hr.payroll_errors import (
     PayrollConflict,
     PayrollError,
@@ -76,6 +84,7 @@ EXCLUDED_LABELS: dict[str, str] = {
     "not_payable": "Rozliczenie nie jest zatwierdzone do zapłaty.",
     "override_stale": "Rachunek zmienił się po uznaniu spoza białej listy — potrzebne "
     "ponowne uznanie przez dwie osoby.",
+    **KSEF_TITLE_LABELS,
 }
 
 
@@ -178,8 +187,13 @@ async def plan(
     settlement_ids: Optional[list[int]],
     today: date,
     actor_id: Optional[int],
+    pay_date: Optional[date] = None,
 ) -> list[BatchItem]:
-    """Które zatwierdzone rozliczenia wejdą do paczki i dlaczego pozostałe nie."""
+    """Które zatwierdzone rozliczenia wejdą do paczki i dlaczego pozostałe nie.
+
+    ``pay_date`` — data wykonania paczki (bez niej: dziś); od niej zależy
+    obowiązek numeru KSeF w tytule.
+    """
 
     query = select(PayrollSettlement).where(PayrollSettlement.status == "approved")
     if settlement_ids:
@@ -211,6 +225,8 @@ async def plan(
             reason = "currency"
         elif row.batch_key or (row.user_id, row.year, row.month) in waiting:
             reason = "in_batch"
+        else:
+            reason = ksef_title_problem(_refs(row), max(pay_date or today, today))
         if reason:
             items.append(BatchItem(row=row, included=False, reason=reason))
             continue
@@ -270,6 +286,12 @@ async def plan(
     return items
 
 
+def _refs(row: PayableRow) -> list[InvoiceRef]:
+    return [
+        InvoiceRef(i.invoice_number, i.ksef_number, i.from_ksef) for i in row.invoices
+    ]
+
+
 def item_payload(item: BatchItem) -> dict[str, Any]:
     row = item.row
     return {
@@ -310,7 +332,11 @@ async def create_batch(
         text("SELECT pg_advisory_xact_lock(hashtext('hr-transfer-batch'))")
     )
     items = await plan(
-        db, settlement_ids=settlement_ids, today=today, actor_id=actor_id
+        db,
+        settlement_ids=settlement_ids,
+        today=today,
+        actor_id=actor_id,
+        pay_date=when,
     )
     included = [item for item in items if item.included]
     if not included:
@@ -450,7 +476,15 @@ async def batch_file(db: AsyncSession, key: str) -> tuple[str, bytes, str]:
                 data={"settlement_id": settlement.id},
             )
         row = described[settlement.id]
-        refs = [InvoiceRef(i.invoice_number, i.ksef_number) for i in row.invoices]
+        refs = _refs(row)
+        problem = ksef_title_problem(refs, payment.booked_on)
+        if problem:
+            # Faktury rozliczenia zmieniły się po utworzeniu paczki.
+            raise PayrollConflict(
+                KSEF_TITLE_LABELS[problem] + " Anuluj paczkę i utwórz nową.",
+                code=problem,
+                data={"settlement_id": settlement.id},
+            )
         transfers.append(
             elixir.TransferRow(
                 recipient_name=(details.registry_name if details else None) or row.name,

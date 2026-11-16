@@ -21,6 +21,12 @@ from pathlib import Path
 
 from app.services.finance_ledger.archive import EXTENSIONS, trim_meta
 
+#: Paczka musi zmieścić się w ``MAX_REQUEST_BODY_MB`` (30 MB) — limit ciała
+#: żądania odrzuca większe 413, zanim import je przeczyta (16.11.2026: 60 MB = 413).
+DEFAULT_MAX_MB = 25
+#: Import przyjmuje do 5 000 plików w paczce (``archive.MAX_ENTRIES``).
+DEFAULT_MAX_FILES = 4000
+
 
 def _files(root: Path) -> dict[str, Path]:
     out: dict[str, Path] = {}
@@ -32,7 +38,9 @@ def _files(root: Path) -> dict[str, Path]:
     return out
 
 
-def pack(root: Path, out: Path, max_mb: int, max_files: int = 4000) -> list[Path]:
+def pack(
+    root: Path, out: Path, max_mb: int, max_files: int = DEFAULT_MAX_FILES
+) -> list[Path]:
     rows: list[dict] = []
     for name in sorted(glob.glob(str(root / "archiwum" / "metadane-*.json"))):
         rows.extend(json.loads(Path(name).read_text(encoding="utf-8")))
@@ -78,9 +86,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--src", default=os.path.expanduser("~/NEXUS-ebi24-export"))
     parser.add_argument("--out", required=True)
-    parser.add_argument("--max-mb", type=int, default=60)
-    # Import przyjmuje do 5 000 plików w paczce (archive.MAX_ENTRIES).
-    parser.add_argument("--max-files", type=int, default=4000)
+    parser.add_argument("--max-mb", type=int, default=DEFAULT_MAX_MB)
+    parser.add_argument("--max-files", type=int, default=DEFAULT_MAX_FILES)
     args = parser.parse_args()
     pack(Path(args.src), Path(args.out), args.max_mb, args.max_files)
 

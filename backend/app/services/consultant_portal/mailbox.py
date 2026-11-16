@@ -284,6 +284,10 @@ async def _ingest_message(
             skipped += 1
             continue
         created += 0 if stored.duplicate else 1
+    if created and contract is not None and kesu.parse_jira(subject, "") is None:
+        created += await _store_mail_body(
+            db, mailbox, message, contract, subject=subject, received=received, now=now
+        )
     return created, skipped
 
 
@@ -383,6 +387,53 @@ async def _store_jira_mail(
             sender_email=sender[:320] or None,
         )
     except PortalError:
+        return 0
+    return 0 if stored.duplicate else 1
+
+
+async def _store_mail_body(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    contract: Any,
+    *,
+    subject: str,
+    received: datetime,
+    now: datetime,
+) -> int:
+    """Klient z regułą ``proof.accept_has_hours`` (PKO, E6.1): akceptacja jest
+    w treści forwardu, nie w załączniku, więc zapisujemy też sam mail jako
+    ``.eml``. U pozostałych klientów treści maila nie zbieramy."""
+
+    fetch = getattr(mailbox, "mime", None)
+    if fetch is None:
+        return 0
+    year, month, guessed = period_for(subject, "", received.date())
+    from app.services.client_settlements import service as settlements
+
+    rules = await settlements.rules_for(db, contract.client_id, f"{year}-{month:02d}")
+    if rules["proof.accept_has_hours"]["level"] == "off":
+        return 0
+    try:
+        content = await fetch(str(message["id"]))
+        if not content:
+            return 0
+        stored = await documents.store(
+            db,
+            contract_id=contract.id,
+            kind="report",
+            year=year,
+            month=month,
+            content=content,
+            file_name=(subject.strip()[:120] or "akceptacja") + ".eml",
+            channel="mailbox",
+            now=now,
+            period_guessed=guessed,
+            graph_message_id=str(message["id"])[:512],
+            sender_email=_sender(message)[:320] or None,
+        )
+    except (PortalError, GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        logger.info("rozliczenia@: treść maila pominięta (%s)", type(exc).__name__)
         return 0
     return 0 if stored.duplicate else 1
 

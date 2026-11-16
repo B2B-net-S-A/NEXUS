@@ -477,7 +477,7 @@ function AccountBody({ data, onClose }: { data: SettlementAccount; onClose: () =
                   value={raw}
                   onChange={(event) => setRaw(event.target.value)}
                 />
-                {problem ? <span className="max-w-[220px] text-[12px] text-destructive-text">{problem}</span> : null}
+                {problem ? <span className="max-w-[220px] text-[12px] text-destructive">{problem}</span> : null}
               </label>
             ) : null}
             <Button
@@ -603,7 +603,7 @@ function ValuationCard({ year, month }: { year: number; month: number }) {
                       className={cn(
                         CALM_AMOUNT,
                         "py-1.5 pl-2 pr-3.5 text-right",
-                        item.diff < 0 ? "text-destructive-text" : item.diff > 0 ? "text-success-muted-foreground" : "",
+                        item.diff < 0 ? "text-destructive" : item.diff > 0 ? "text-success-muted-foreground" : "",
                       )}
                     >
                       {item.diff > 0 ? "+" : ""}
@@ -666,7 +666,7 @@ function ValuationCard({ year, month }: { year: number; month: number }) {
             </p>
           )}
           {changed.map((group) => (
-            <p key={group.key} className="text-[12px] text-destructive-text">
+            <p key={group.key} className="text-[12px] text-destructive">
               {group.valuation?.number} jest zatwierdzona, a dziś wychodzi inna — zrób jej storno i zaksięguj wycenę ponownie.
             </p>
           ))}

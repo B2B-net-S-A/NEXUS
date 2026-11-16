@@ -58,6 +58,9 @@ ALREADY_DECIDED = "Ten dokument ma już decyzję."
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 #: KEŚU z Jiry klienta (E6.3): rozszerzenie .xls, w środku XML Spreadsheet 2003.
 KESU_MIME = kesu.KESU_MIME
+#: Arkusz z makrami: tylko szablon klienta (PKO, roadmapa E6.1). Makr nie
+#: uruchamiamy nigdzie w NEXUS-ie, a plik pobiera się jako załącznik.
+XLSM_MIME = "application/vnd.ms-excel.sheet.macroEnabled.12"
 MSG_MIME = "application/vnd.ms-outlook"
 EML_MIME = "message/rfc822"
 #: Rozliczenia (roadmapa E2.0): RCP w Excelu i mail z akceptacją z Outlooka
@@ -65,6 +68,7 @@ EML_MIME = "message/rfc822"
 SETTLEMENT_EXTENSIONS: dict[str, str] = {
     XLSX_MIME: "xlsx",
     KESU_MIME: "xls",
+    XLSM_MIME: "xlsm",
     MSG_MIME: "msg",
     EML_MIME: "eml",
 }
@@ -72,17 +76,19 @@ _OLE_HEADER = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 _EML_HEADERS = (b"from:", b"subject:", b"mime-version:", b"message-id:", b"date:")
 
 
-def _is_xlsx(content: bytes) -> bool:
+def _spreadsheet(content: bytes) -> Optional[str]:
+    """XLSX albo XLSM (z makrami) po zawartości archiwum; inny ZIP = ``None``."""
+
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as archive:
             names = {entry.filename for entry in archive.infolist()}
     except (zipfile.BadZipFile, OSError):
-        return False
+        return None
+    if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
+        return None
     if any(name.lower().endswith("vbaproject.bin") for name in names):
-        raise documents_store.FileRejected(
-            "Arkusz z makrami nie jest przyjmowany — zapisz go jako zwykły XLSX albo PDF."
-        )
-    return "[Content_Types].xml" in names and "xl/workbook.xml" in names
+        return XLSM_MIME
+    return XLSX_MIME
 
 
 def _is_msg(content: bytes) -> bool:
@@ -105,8 +111,11 @@ def check_settlement_file(content: bytes) -> tuple[str, str]:
     """Typ i SHA-256 pliku rozliczenia: typy ``documents_store`` plus XLSX, MSG i EML."""
 
     if content and len(content) <= MAX_FILE_BYTES:
-        if content.startswith(b"PK\x03\x04") and _is_xlsx(content):
-            return XLSX_MIME, hashlib.sha256(content).hexdigest()
+        spreadsheet = (
+            _spreadsheet(content) if content.startswith(b"PK\x03\x04") else None
+        )
+        if spreadsheet is not None:
+            return spreadsheet, hashlib.sha256(content).hexdigest()
         if _is_msg(content):
             return MSG_MIME, hashlib.sha256(content).hexdigest()
         if kesu.is_kesu_file(content):
@@ -118,7 +127,7 @@ def check_settlement_file(content: bytes) -> tuple[str, str]:
     except documents_store.FileRejected as exc:
         if "Wgraj PDF" in str(exc):
             raise documents_store.FileRejected(
-                "Wgraj PDF, arkusz Excel (XLSX), mail z Outlooka (MSG, EML), plik Word (DOCX) "
+                "Wgraj PDF, arkusz Excel (XLSX, XLSM), mail z Outlooka (MSG, EML), plik Word (DOCX) "
                 "albo zdjęcie (JPG, PNG)."
             ) from None
         raise

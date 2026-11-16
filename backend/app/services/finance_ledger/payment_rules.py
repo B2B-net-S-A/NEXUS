@@ -7,7 +7,10 @@
   w złotych.
 * **Tytuł**: numer faktury i numer KSeF w osobnych liniach (Elixir-O: 4 × 35
   znaków; numer KSeF ma 35 znaków, więc nie jest cięty). Od 1.01.2027 numer
-  KSeF przy fakturze z KSeF jest obowiązkowy — brak blokuje wiersz. MPP:
+  KSeF przy fakturze z KSeF jest obowiązkowy (art. 108g VAT) — brak blokuje
+  wiersz. Decyduje data płatności (data wykonania paczki), nie dzień planu.
+  Jeden przelew płaci jedną fakturę, więc zbiorczy identyfikator KSeF nie jest
+  potrzebny. MPP:
   ``/VAT/{vat}/IDC/{NIP}/INV/{numer}/TXT/{tekst}`` (VAT z przecinkiem,
   w ``TXT`` numer KSeF, a bez niego numer faktury).
 * **Biała lista**: rachunek spoza wykazu (albo niesprawdzony) przy fakturze
@@ -36,14 +39,20 @@ from typing import Optional
 from app.services.client_invoicing.payments import mpp_vat
 from app.services.hr.bank.accounts import AccountError, normalize_nrb
 from app.services.hr.bank.parsed import StatementLine
-from app.services.hr.bank.titles import LINE_LENGTH, MAX_LINES, clean, ksef_numbers_in
+from app.services.hr.bank.titles import (
+    KSEF_TITLE_FROM,
+    KSEF_TITLE_LABELS,
+    LINE_LENGTH,
+    MAX_LINES,
+    clean,
+    ksef_numbers_in,
+)
 
 ZERO = Decimal("0.00")
 CENT = Decimal("0.01")
 MPP_THRESHOLD = Decimal("15000.00")
 WHITE_LIST_THRESHOLD = Decimal("15000.00")
 ART_105A_MONTHLY_NET = Decimal("50000.00")
-KSEF_TITLE_FROM = date(2027, 1, 1)
 
 #: Powody, dla których wiersz nie może wejść do paczki.
 BLOCK_LABELS: dict[str, str] = {
@@ -59,7 +68,7 @@ BLOCK_LABELS: dict[str, str] = {
     "domestic_account": "Przelew w złotych idzie na rachunek krajowy (26 cyfr).",
     "tax_office_manual": "„Zapłata na konto US” — rachunek urzędu wpisz ręcznie na karcie.",
     "no_invoice_number": "Brak numeru faktury do tytułu przelewu.",
-    "no_ksef_number": "Od 1.01.2027 tytuł przelewu faktury z KSeF musi mieć numer KSeF.",
+    "no_ksef_number": KSEF_TITLE_LABELS["no_ksef_number"],
     "mpp_currency": "Podzielona płatność (MPP) działa tylko w złotych.",
     "mpp_no_nip": "MPP wymaga NIP-u sprzedawcy.",
     "mpp_no_vat": "MPP wymaga kwoty VAT z faktury.",
@@ -210,13 +219,17 @@ def title_lines(
     from_ksef: bool,
     vat_amount: Optional[Decimal],
     seller_nip: Optional[str],
-    today: date,
+    pay_date: date,
 ) -> list[str]:
-    """Linie tytułu (Elixir-O: najwyżej 4 po 35 znaków) albo ``PaymentRuleError``."""
+    """Linie tytułu (Elixir-O: najwyżej 4 po 35 znaków) albo ``PaymentRuleError``.
+
+    ``pay_date`` — data płatności (wykonania przelewu): od niej zależy obowiązek
+    numeru KSeF, nie od dnia, w którym ktoś składa paczkę.
+    """
 
     number = clean(invoice_number or "")
     ksef = clean(ksef_number or "").upper() or None
-    if from_ksef and not ksef and today >= KSEF_TITLE_FROM:
+    if from_ksef and not ksef and pay_date >= KSEF_TITLE_FROM:
         raise PaymentRuleError("no_ksef_number")
     if mode == "mpp":
         if not seller_nip:

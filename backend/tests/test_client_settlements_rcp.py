@@ -331,9 +331,13 @@ def test_typy_plikow_rozliczen():
     assert documents.check_settlement_file(b"%PDF-1.7 test")[0] == "application/pdf"
 
 
-def test_arkusz_z_makrami_i_zly_typ_odrzucone():
-    with pytest.raises(documents_store.FileRejected):
-        documents.check_settlement_file(_xlsx_bytes(with_macro=True))
+def test_arkusz_z_makrami_przyjety_jako_xlsm_a_zly_typ_odrzucony():
+    """Time Sheet PKO to szablon .xlsm (E6.1): przyjmujemy go jako osobny typ,
+    czytamy same wartości, makr nie uruchamiamy."""
+
+    mime, _digest = documents.check_settlement_file(_xlsx_bytes(with_macro=True))
+    assert mime == documents.XLSM_MIME
+    assert documents.relative_path("7", "abc", mime).endswith(".xlsm")
     with pytest.raises(documents_store.FileRejected, match="XLSX"):
         documents.check_settlement_file(b"zwykly tekst bez naglowkow")
     ole_doc = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 200

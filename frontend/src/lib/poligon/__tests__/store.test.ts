@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import dataset from "../dataset.json";
 import poligonRegistry from "../../../../../backend/app/data/novelties/poligon.json";
-import { EXERCISES, POLIGON_BUDGET_MAX_HOURLY, POLIGON_CANDIDATE_HOURLY, exercisesFor, primaryRole } from "../exercises";
+import { EXERCISES, POLIGON_BUDGET_MAX_HOURLY, POLIGON_CANDIDATE_HOURLY, POLIGON_CLIENT_MAIL, exercisesFor, primaryRole } from "../exercises";
+import { SLOTS_MAIL_OTHER } from "../tools";
 import { poligonPath } from "../usePoligonPath";
 import { BLOCKED_WRITE_MESSAGE, POLIGON_PROGRESS, createPoligonStore, mentionsPoligon, resolveDates, type PoligonAction, type PoligonDataset } from "../store";
 
@@ -242,7 +243,7 @@ describe("poligon: ścieżka per rola", () => {
 
   it("Delivery Lead: wspólne moduły i przegląd DL, bez screeningu i „Biorę”", () => {
     const dl = ids(["delivery_lead"]);
-    expect(dl).toEqual(expect.arrayContaining(["lista-zakres", "tablica-przesun", "panel-odrzuc", "baza-przypisz", "dl-przeglad-otworz", "dl-wyslij", "dl-poprawki"]));
+    expect(dl).toEqual(expect.arrayContaining(["lista-zakres", "tablica-przesun", "panel-odrzuc", "baza-przypisz", "dl-przeglad-otworz", "dl-wyslij", "dl-poprawki", "dl-terminy-klienta"]));
     expect(dl).not.toContain("tablica-biore");
     expect(dl.filter((id) => id.startsWith("screening-"))).toEqual([]);
     expect(dl).not.toContain("rekomendacja-qc");
@@ -257,7 +258,7 @@ describe("poligon: ścieżka per rola", () => {
   it("rekruter ma 27 ćwiczeń (19 z 14.11 i 8 narzędzi z 16.11), osoba z dwiema rolami — sumę", () => {
     expect(ids(["recruiter"])).toHaveLength(27);
     expect(ids(["talent_community_manager"])).toHaveLength(13);
-    expect(ids(["delivery_lead"])).toHaveLength(16);
+    expect(ids(["delivery_lead"])).toHaveLength(17);
     expect(ids(["recruiter"]).some((id) => id.startsWith("dl-"))).toBe(false);
     const both = ids(["delivery_lead", "recruiter"]);
     expect(both).toEqual(EXERCISES.filter((e) => both.includes(e.id)).map((e) => e.id));
@@ -356,6 +357,108 @@ describe("poligon: przegląd Delivery Leada", () => {
   it("podgląd maila odrzucenia w przeglądzie to odczyt, nie zapis", () => {
     const { store } = setup();
     expect(store.handle({ method: "post", url: "/api/rejection-emails/preview", body: { candidate_ids: [first.candidate_id] } })).toMatchObject({ status: 200 });
+  });
+});
+
+describe("poligon: terminy od klienta Delivery Leada (16.11.2026)", () => {
+  const VIEWER = 4243;
+  const ctx = { firstNew: null, role: "delivery_lead" as const };
+  const judge = (action: PoligonAction) => EXERCISES.find((e) => e.id === "dl-terminy-klienta")!.judge!(action, ctx);
+  type Item = { candidate_id: number; stage: string; interview_badge?: { kind: string; label: string; slot_request?: { id: number; status: string; duration_minutes: number; slots: Array<{ start: string; end: string }> } } | null };
+  const items = (store: ReturnType<typeof createPoligonStore>) =>
+    (store.handle({ method: "get", url: `/api/pipeline/kanban/${JOB}` }) as { data: { columns: Array<{ items: Item[] }> } }).data.columns.flatMap((c) => c.items);
+  const weronika = DATA.meta.people.find((p) => p.name === "Weronika")!;
+  const slotPerson = DATA.meta.slot_candidate_id;
+  /** Jutro i pojutrze o 10:00 i 13:00 czasu lokalnego — w przyszłości względem zegara testu. */
+  const at = (days: number, hour: number) => {
+    const d = new Date(Date.now() + days * 86_400_000);
+    d.setHours(hour, 0, 0, 0);
+    return d.toISOString();
+  };
+  const send = (store: ReturnType<typeof createPoligonStore>, over: Record<string, unknown> = {}) =>
+    store.handle({
+      method: "post",
+      url: "/api/interview-cycle/slots",
+      body: { candidate_id: weronika.candidate_id, job_id: JOB, slots: [{ start: at(2, 13) }, { start: at(1, 10) }], duration_minutes: 45, respond_by: null, note: null, ...over },
+      viewerId: VIEWER,
+    });
+  /** Weronika po wysyłce do klienta („QC CV” → „CV wysłane”), jak w ścieżce DL-a. */
+  const sent = () => {
+    const ctx = setup();
+    ctx.store.handle({ method: "post", url: "/api/pipeline/move", body: { candidate_id: weronika.candidate_id, stage: "cv_sent", client_rate_value: 112 } });
+    return ctx;
+  };
+
+  it("terminy DL-a zostają w pamięci: karta jedzie na „Rozmowę u klienta” z odznaką wyboru dla rekrutera", () => {
+    const { store, actions } = sent();
+    const res = send(store);
+    expect(res).toMatchObject({ status: 201, data: { status: "awaiting_recruiter", duration_minutes: 45, created_by: VIEWER, moved_to_client_interview: true } });
+    const card = items(store).find((i) => i.candidate_id === weronika.candidate_id)!;
+    expect(card.stage).toBe("client_interview");
+    expect(card.interview_badge).toMatchObject({ kind: "choose_slot", label: "Wybierz termin · 2 propozycje" });
+    const slots = card.interview_badge!.slot_request!.slots;
+    // Terminy po kolei, koniec = początek + długość rozmowy.
+    expect(slots.map((s) => s.start)).toEqual([at(1, 10), at(2, 13)]);
+    expect(new Date(slots[0].end).getTime() - new Date(slots[0].start).getTime()).toBe(45 * 60_000);
+    expect(acted(actions)).toEqual({ type: "slot_request", candidateId: weronika.candidate_id, starts: [at(1, 10), at(2, 13)], durationMinutes: 45, replaced: false });
+    expect(judge(acted(actions)!)).toEqual({ done: true });
+    // Rekruter wybiera z tego wniosku jak z nagranego.
+    const id = card.interview_badge!.slot_request!.id;
+    expect(store.handle({ method: "post", url: `/api/interview-cycle/slots/${id}/choose`, body: { index: 0 } })).toMatchObject({ status: 200, data: { status: "awaiting_dl" } });
+  });
+
+  it("drugi wniosek bez zastąpienia dostaje 409 z otwartym wnioskiem, „Zastąp” podmienia terminy", () => {
+    const { store, actions } = sent();
+    const first = send(store, { duration_minutes: 60 }) as { data: { id: number } };
+    expect(judge(acted(actions)!)).toMatchObject({ done: false, feedback: expect.stringContaining("45 minutach") });
+    const again = send(store);
+    expect(again).toMatchObject({ status: 409, data: { detail: { code: "SLOTS_ALREADY_OPEN", open_request_id: first.data.id } } });
+    expect(send(store, { replaces_request_id: first.data.id })).toMatchObject({ status: 201, data: { moved_to_client_interview: false } });
+    expect(acted(actions)).toMatchObject({ type: "slot_request", replaced: true });
+    expect(judge(acted(actions)!)).toEqual({ done: true });
+    // Osoba z nagranym wnioskiem też ma otwarte terminy.
+    expect(store.handle({ method: "post", url: "/api/interview-cycle/slots", body: { candidate_id: slotPerson, job_id: JOB, slots: [{ start: at(1, 10) }], duration_minutes: 45 } })).toMatchObject({ status: 409 });
+  });
+
+  it("nie te godziny, przeszłość, zły etap i osoba spoza rekrutacji — bez zaliczenia albo z odmową", () => {
+    const { store, actions } = sent();
+    send(store, { slots: [{ start: at(1, 9) }, { start: at(2, 13) }] });
+    expect(judge(acted(actions)!)).toMatchObject({ done: false, feedback: expect.stringContaining("10:00") });
+    const fresh = sent().store;
+    expect(send(fresh, { slots: [{ start: new Date(Date.now() - 3_600_000).toISOString() }] })).toMatchObject({ status: 422 });
+    expect(send(fresh, { slots: [] })).toMatchObject({ status: 422 });
+    const qc = setup().store;
+    expect(send(qc)).toMatchObject({ status: 422, data: { detail: expect.stringContaining("CV wysłane") } });
+    expect(send(fresh, { candidate_id: 123 })).toMatchObject({ status: 422 });
+    expect(send(fresh, { job_id: 990002 })).toMatchObject({ status: 422 });
+  });
+
+  it("„Wklej maila od klienta” bez modelu: mail z ćwiczenia daje stały odczyt, inny tekst — jasną odmowę", () => {
+    const { store } = setup();
+    const read = store.handle({ method: "post", url: "/api/interview-cycle/slots/from-mail", body: { text: POLIGON_CLIENT_MAIL, mail_date: null } }) as {
+      status: number;
+      data: { status: string; duration_minutes: number; slots: Array<{ start: string; quote: string }> };
+    };
+    expect(read).toMatchObject({ status: 200, data: { status: "ok", duration_minutes: 45 } });
+    expect(read.data.slots.map((s) => new Date(s.start).getHours())).toEqual([10, 13]);
+    for (const slot of read.data.slots) {
+      expect(new Date(slot.start).getTime()).toBeGreaterThan(NOW);
+      expect([0, 6]).not.toContain(new Date(slot.start).getDay());
+      expect(POLIGON_CLIENT_MAIL).toContain(slot.quote);
+    }
+    expect(store.handle({ method: "post", url: "/api/interview-cycle/slots/from-mail", body: { text: "Pasuje nam piątek rano." } })).toEqual({
+      status: 200,
+      data: expect.objectContaining({ status: "empty", message: SLOTS_MAIL_OTHER, slots: [] }),
+    });
+  });
+
+  it("adresat terminów to rekruter poligonu, a odczyt nie jest brakiem w zestawie", () => {
+    const { store, actions } = setup();
+    expect(store.handle({ method: "get", url: `/api/interview-cycle/slots/recipient?candidate_id=${weronika.candidate_id}&job_id=${JOB}` })).toEqual({
+      status: 200,
+      data: { recruiter_name: DATA.meta.trainers.rec.name, substitute_name: null, until: null },
+    });
+    expect(actions.some((a) => a.type === "missing")).toBe(false);
   });
 });
 

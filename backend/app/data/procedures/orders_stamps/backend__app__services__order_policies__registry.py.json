@@ -1,4 +1,4 @@
 {
-  "sha256": "864986acd3d282e5c6d3ed04c64824665222d167ed8aa82dce6e42ae1b1f99a3",
+  "sha256": "19644a90f15e797b12ffd2d8d6119e145cd4c568c1db2e9ce3fc02db1cac18a1",
   "source": "backend/app/services/order_policies/registry.py"
 }

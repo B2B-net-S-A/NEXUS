@@ -4,8 +4,8 @@ Kwoty, numer, daty, korekta, pozycje i okres czyta ``services/hr/ksef/fa.py``
 (ten sam bezpieczny parser: bez DTD i encji, bez sieci, limit rozmiaru).
 Tu dochodzi to, czego faktura od osoby nie potrzebowała:
 
-* nabywca — ``Podmiot2/DaneIdentyfikacyjne/NIP`` (polski NIP) albo ``KodUE``
-  z ``NrVatUE`` (nabywca z UE, np. fiński bank) i ``Nazwa``,
+* nabywca — ``Podmiot2/DaneIdentyfikacyjne/NIP`` (polski NIP), ``KodUE``
+  z ``NrVatUE`` (VAT UE) lub ``KodKraju`` z ``NrID`` oraz ``Nazwa``,
 * termin płatności — najwcześniejszy ``Platnosc/TerminPlatnosci/Termin``,
 * „Zapłacono” w samej fakturze — ``Platnosc/Zaplacono`` = 1 z ``DataZaplaty``,
 * teksty, w których szukamy numeru zamówienia klienta:
@@ -36,8 +36,7 @@ FOREIGN_ID_MAX_LENGTH = 32
 class SalesInvoice:
     base: fa.ParsedInvoice
     buyer_name: Optional[str]
-    #: Pełny VAT UE nabywcy bez polskiego NIP-u, w postaci ``clients.nip``
-    #: („FI12345678”, „FR1A123456789”).
+    #: Zagraniczny identyfikator nabywcy w postaci klucza ``clients.nip``.
     buyer_foreign_id: Optional[str]
     due_date: Optional[date]
     paid_on: Optional[date]
@@ -71,11 +70,17 @@ def _foreign_id(buyer: Any) -> Optional[str]:
         return None
     country = " ".join((buyer.findtext("{*}KodUE") or "").split()).upper()
     number = " ".join((buyer.findtext("{*}NrVatUE") or "").split()).upper()
-    if not country or not number:
-        return None
-    if number.startswith(country):
-        number = number[len(country) :].strip()
-    return normalize_buyer_number(f"{country}{number}")[:FOREIGN_ID_MAX_LENGTH] or None
+    if country and number:
+        if number.startswith(country):
+            number = number[len(country) :].strip()
+        return (
+            normalize_buyer_number(f"{country}{number}")[:FOREIGN_ID_MAX_LENGTH] or None
+        )
+
+    other_country = buyer.findtext("{*}KodKraju") or ""
+    other_number = buyer.findtext("{*}NrID") or ""
+    key = normalize_buyer_number(other_number, country=other_country)
+    return key if key and len(key) <= FOREIGN_ID_MAX_LENGTH else None
 
 
 def parse_sales_invoice(xml: bytes) -> SalesInvoice:

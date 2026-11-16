@@ -299,7 +299,9 @@ POLICIES: tuple[OrderClientPolicy, ...] = (
         # 15.11.2026: wiersz niesie też kategorię i poziom z COA
         # (``client_category``) dla limitu z umowy ramowej; osoby i kwoty
         # bez zmian.
-        rule_version="2026-11-15",
+        # 16.11.2026: kategoria z grupy Business po nazwisku nie jest już
+        # brana za trzeci człon nazwy — wiersz nie idzie przez nią do sprawdzenia.
+        rule_version="2026-11-16",
     ),
     OrderClientPolicy(
         key="bank_pocztowy",

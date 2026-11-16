@@ -37,6 +37,8 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
   limit 282 600 zł, dobrowolna chorobowa do 23 550 zł, płaca minimalna 4806 zł
   i 31,40 zł/h, skala 12/32% z progiem 120 000 zł, kwota zmniejszająca 3600 zł,
   KUP 250/300 zł i 20%, limit ulg 85 528 zł, ryczałt do 200 zł 12%, PPK 2/1,5.
+  Brak wersji od 1 stycznia pilnuje strażnik (od 30 dni przed, szkic bez
+  zapisu): `straznik-parametrow-plac-na-nowy-rok.md`.
 - **Silnik** (`engine.py`, czyste funkcje) i **lista** (`lists.py`, `sources.py`)
   — reguły niżej. **Paski** PDF (`payslip_pdf.py`), **przelewy** (`transfers.py`).
 

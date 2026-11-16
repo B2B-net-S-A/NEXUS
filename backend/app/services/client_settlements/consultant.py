@@ -25,7 +25,15 @@ from app.services.client_settlements import settings as module_settings
 DEFAULT_PAYMENT_DAYS = 14
 #: Grupy kontroli, które konsultant może zobaczyć; „Zamówienie”, „Stawki”
 #: i „MD wdrożeniowe” zostają u Finansów.
-VISIBLE_GROUPS = ("RCP", "Time Sheet", "Pola i sumy", "Nadgodziny")
+VISIBLE_GROUPS = (
+    "RCP",
+    "Time Sheet",
+    "Pola i sumy",
+    "Nadgodziny",
+    # E6: akceptacja mailowa (PKO) i podpis arkusza zbiorczego (Velo).
+    "Akceptacja",
+    "Arkusz zbiorczy",
+)
 
 STATUS_LABELS = {
     "checking": "Sprawdzamy RCP",
@@ -84,7 +92,9 @@ async def payment_days(db: AsyncSession, client_id: Optional[int], month: str) -
     return days if 0 < days <= 120 else DEFAULT_PAYMENT_DAYS
 
 
-def _visible_checks(checks: list[Any]) -> list[dict[str, Optional[str]]]:
+def _visible_checks(
+    checks: list[Any], *, with_todo: bool = False
+) -> list[dict[str, Optional[str]]]:
     out: list[dict[str, Optional[str]]] = []
     for group in checks:
         if not isinstance(group, dict) or group.get("title") not in VISIBLE_GROUPS:
@@ -93,7 +103,13 @@ def _visible_checks(checks: list[Any]) -> list[dict[str, Optional[str]]]:
             title = str(check.get("title") or "")
             if "×" in title:  # mnożnik nadgodzin
                 continue
-            out.append({"state": check.get("state"), "title": title})
+            row: dict[str, Optional[str]] = {
+                "state": check.get("state"),
+                "title": title,
+            }
+            if with_todo:
+                row["todo"] = check.get("todo") or FIXABLE.get(title)
+            out.append(row)
     return out
 
 
@@ -124,11 +140,13 @@ async def view(
             "invoice": None,
         }
     checks = _visible_checks(s.checks or [])
-    todo = [
-        FIXABLE[c["title"]]
-        for c in checks
-        if c["state"] in ("fail", "warn") and c["title"] in FIXABLE
-    ]
+    todo = list(
+        dict.fromkeys(
+            c["todo"]
+            for c in _visible_checks(s.checks or [], with_todo=True)
+            if c["state"] in ("fail", "warn") and c["todo"]
+        )
+    )
     result: dict[str, Any] = {
         "status": s.status,
         "kind": service.ACTUAL,

@@ -275,7 +275,7 @@ function PositionsView() {
                     ) : row.excluded ? (
                       <span className="text-muted-foreground">poza sprawozdaniem — {row.excluded}</span>
                     ) : (
-                      <span className="text-destructive-text">bez pozycji</span>
+                      <span className="text-destructive">bez pozycji</span>
                     )}
                   </td>
                   <td className="px-3.5 py-1.5 align-top whitespace-nowrap">
@@ -378,7 +378,7 @@ export function ReportsView() {
               <SectionCard
                 title="Pasywa"
                 aside={
-                  <span className={data.balance.balanced ? "text-success" : "text-destructive-text"}>
+                  <span className={data.balance.balanced ? "text-success" : "text-destructive"}>
                     {data.balance.balanced ? "aktywa = pasywa" : "aktywa ≠ pasywa"}
                   </span>
                 }

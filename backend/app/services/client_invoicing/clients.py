@@ -1,8 +1,8 @@
 """NIP nabywcy → klient NEXUSA (``clients.nip``) i rodzina klienta po scaleniu.
 
 Klucz to polski NIP (10 cyfr) albo identyfikator obcy z prefiksem kraju
-(„FI12345678”, „FR1A123456789”): klient z UE ma go w tym samym polu, a faktura
-niesie go jako ``KodUE`` + ``NrVatUE``.
+(„FI12345678”, „NO123456785”): klient zagraniczny ma go w tym samym polu,
+a faktura niesie go jako ``KodUE`` + ``NrVatUE`` albo ``KodKraju`` + ``NrID``.
 
 Numer prowadzi do klienta KANONICZNEGO: scalenie duplikatu nie przepisuje
 danych, więc NIP bywa na scalonym wierszu (``merged_into_client_id``). Ten sam
