@@ -1,4 +1,4 @@
-"""Rabat roczny od obrotu klienta (spend discount) — warunki jako dane, stan narastająco.
+"""Rabat od obrotu rocznego klienta (spend discount) — warunki jako dane, pozycja na fakturze.
 
 Warunki leżą w ustawieniach wystawiania przy kliencie
 (``app_settings['client_invoice_issue'].clients[<id>].rebate``) i wpisują je
@@ -10,21 +10,25 @@ Finanse z umowy ramowej; w kodzie nie ma ani progów, ani stawek::
                             {"up_to": null, "rate": 3}]}],
      "exclude_words": ["podróż"]}
 
-* ``periods`` — od którego roku obowiązują jakie progi (aneks zmienia progi od
-  roku, w którym wszedł: decyzja Artura 16.11.2026, „cały rok wg aneksu”);
-* ``tiers`` — ``up_to`` to górna granica obrotu rocznego WŁĄCZNIE w walucie
-  progu, ``null`` = bez granicy (dokładnie jeden, ostatni); ``rate`` w procentach;
-* stawkę wybiera obrót całego roku i dotyczy ona CAŁEGO obrotu, nie tylko
-  nadwyżki (decyzja Artura 16.11.2026);
-* obrót = faktury sprzedaży z KSeF wystawione w roku kalendarzowym (po dacie
-  wystawienia) razem z korektami; faktura, której każda pozycja zawiera słowo
-  z ``exclude_words`` (podróże, refaktury), jest poza obrotem;
+Decyzje Artura 16.11.2026 (Nordea, druga odpowiedź tego dnia — zastępuje
+„korektę roczną” z pierwszej):
+
+* rabat jest POZYCJĄ na każdej fakturze miesięcznej (ujemna, nazwa zaczyna się
+  od ``REBATE_PREFIX``), po stawce progu, w którym jest narastający obrót roku
+  SPRZED miesiąca faktury;
+* stawka wyższego progu dotyczy tylko NADWYŻKI ponad próg; faktury za miesiąc,
+  w którym obrót przekroczył próg, idą jeszcze po niższej stawce, a różnicę od
+  części obrotu tego miesiąca ponad próg (np. 0,5%) rozlicza korekta
+  (``YearRebate.corrections``; do KSeF tylko po „tak” Artura);
+* obrót = usługi z faktur sprzedaży z KSeF za miesiące roku (okres usługi,
+  bez okresu — data wystawienia), razem z korektami, bez pozycji rabatu
+  i bez pozycji ze słowem z ``exclude_words`` (podróże, refaktury);
 * próg w innej walucie niż faktura: każda faktura po kursie średnim NBP
-  z ostatniego dnia z tabelą przed datą sprzedaży (decyzja Artura 16.11.2026);
-  brak kursu = faktura poza obrotem progu i ostrzeżenie, nigdy kurs 1:1;
-* rabat nie jest pozycją faktury: rozlicza go zbiorcza faktura korygująca za
-  rok, wystawiana do 31 stycznia następnego roku (umowa i decyzja Artura
-  16.11.2026). Ten moduł tylko liczy i pokazuje stan.
+  z ostatniej tabeli przed datą sprzedaży; brak kursu = faktura poza obrotem
+  progu i ostrzeżenie, nigdy kurs 1:1;
+* ``periods`` — od którego roku obowiązują jakie progi; ``tiers`` — ``up_to``
+  to górna granica obrotu rocznego WŁĄCZNIE w walucie progu, ``null`` = bez
+  granicy (dokładnie jeden, ostatni); ``rate`` w procentach.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Optional, Sequence
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_sales_invoice import ClientSalesInvoice
@@ -198,7 +202,7 @@ def tiers_for(terms: Terms, year: int) -> Optional[tuple[Tier, ...]]:
 
 
 def tier_for(turnover: Decimal, tiers: Sequence[Tier]) -> Tier:
-    """Próg dla obrotu rocznego; jego stawka dotyczy CAŁEGO obrotu."""
+    """Próg, w którym jest obrót (granica włącznie) — jego stawka idzie na fakturę."""
 
     for tier in tiers:
         if tier.up_to is None or turnover <= tier.up_to:
@@ -206,38 +210,90 @@ def tier_for(turnover: Decimal, tiers: Sequence[Tier]) -> Tier:
     return tiers[-1]
 
 
+def due(turnover: Decimal, tiers: Sequence[Tier]) -> Decimal:
+    """Rabat należny od obrotu w walucie progu: każda część po stawce swojego progu."""
+
+    total, lower = Decimal(0), Decimal(0)
+    for tier in tiers:
+        upper = turnover if tier.up_to is None else min(turnover, tier.up_to)
+        if upper > lower:
+            total += (upper - lower) * tier.rate / HUNDRED
+        if tier.up_to is None or turnover <= tier.up_to:
+            break
+        lower = tier.up_to
+    return total
+
+
 def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-def excluded(items: Sequence[dict[str, Any]], words: Sequence[str]) -> bool:
-    """Faktura poza obrotem: każda jej pozycja (stan po) zawiera słowo wyłączające."""
+REBATE_PREFIX = "Rabat od obrotu"
 
-    if not words:
-        return False
-    names = [
-        str(item.get("name") or "").lower()
-        for item in items or []
-        if not item.get("before_correction")
-    ]
-    return bool(names) and all(any(word in name for word in words) for name in names)
+
+def is_rebate_line(item: dict[str, Any]) -> bool:
+    return str(item.get("name") or "").strip().lower().startswith(REBATE_PREFIX.lower())
+
+
+def _outside(item: dict[str, Any], words: Sequence[str]) -> bool:
+    name = str(item.get("name") or "").lower()
+    return is_rebate_line(item) or any(word in name for word in words)
+
+
+def _item_net(item: dict[str, Any]) -> Decimal:
+    try:
+        return Decimal(str(item.get("net") or "0"))
+    except ArithmeticError:
+        return Decimal(0)
+
+
+def service_net(
+    net_amount: Decimal, items: Sequence[dict[str, Any]], words: Sequence[str]
+) -> tuple[Decimal, bool]:
+    """Obrót z faktury: netto bez pozycji rabatu i wyłączonych (korekta: różnica stanów).
+
+    Zwraca też, czy coś odjęto (podróże/refaktury), do licznika na karcie.
+    """
+
+    after = sum(
+        (
+            _item_net(i)
+            for i in items
+            if not i.get("before_correction") and _outside(i, words)
+        ),
+        Decimal(0),
+    )
+    before = sum(
+        (
+            _item_net(i)
+            for i in items
+            if i.get("before_correction") and _outside(i, words)
+        ),
+        Decimal(0),
+    )
+    touched = any(_outside(i, words) and not is_rebate_line(i) for i in items)
+    return net_amount - (after - before), touched
 
 
 @dataclass(frozen=True)
 class Entry:
-    """Jedna faktura w obrocie: waluta, netto (korekta = różnica) i dzień kursu."""
+    """Jedna faktura w obrocie: waluta, obrót usług (korekta = różnica), dzień kursu, miesiąc."""
 
     currency: str
     net: Decimal
     day: date
-    items: tuple[dict[str, Any], ...] = ()
+    month: int
+    excluded: bool = False
 
 
 @dataclass(frozen=True)
-class CurrencyTotal:
-    currency: str
-    net: Decimal
-    rebate: Decimal
+class Correction:
+    """Wyrównanie za miesiąc przekroczenia progu (stawka różnicy od części ponad próg)."""
+
+    month: int
+    rate_diff: Decimal
+    excess: Decimal
+    amounts: tuple[tuple[str, Decimal], ...]
 
 
 @dataclass(frozen=True)
@@ -246,19 +302,36 @@ class YearRebate:
     threshold_currency: str
     tiers: tuple[Tier, ...]
     turnover: Decimal
-    tier: Tier
-    next_tier: Optional[Tier]
-    totals: tuple[CurrencyTotal, ...]
+    month_turnover: dict[int, Decimal]
+    corrections: tuple[Correction, ...]
     invoices: int
     excluded: int
     missing_fx: int
-    settle_by: date
+
+    def turnover_before(self, month: int) -> Decimal:
+        return sum(
+            (net for m, net in self.month_turnover.items() if m < month), Decimal(0)
+        )
+
+    def rate_for(self, month: int) -> Tier:
+        """Stawka dla faktur za miesiąc: próg obrotu narastającego SPRZED tego miesiąca."""
+
+        return tier_for(self.turnover_before(month), self.tiers)
+
+    def next_tier(self, month: int) -> Optional[Tier]:
+        tier = self.rate_for(month)
+        index = self.tiers.index(tier)
+        return self.tiers[index + 1] if index + 1 < len(self.tiers) else None
+
+    def to_next(self) -> Optional[Decimal]:
+        tier = tier_for(self.turnover, self.tiers)
+        if tier.up_to is None:
+            return None
+        return max(tier.up_to - self.turnover, Decimal(0))
 
     @property
-    def to_next(self) -> Optional[Decimal]:
-        if self.tier.up_to is None:
-            return None
-        return max(self.tier.up_to - self.turnover, Decimal(0))
+    def due(self) -> Decimal:
+        return due(max(self.turnover, Decimal(0)), self.tiers)
 
 
 def summarize(
@@ -267,53 +340,68 @@ def summarize(
     entries: Sequence[Entry],
     rates: dict[date, dict[str, Optional[Decimal]]],
 ) -> Optional[YearRebate]:
-    """Stan rabatu za rok z listy faktur i kursów (``rates[dzień][waluta]`` → PLN)."""
+    """Stan roku z faktur i kursów (``rates[dzień][waluta]`` → PLN)."""
 
     tiers = tiers_for(terms, year)
     if tiers is None:
         return None
     target = terms.threshold_currency
-    turnover = Decimal(0)
-    by_currency: dict[str, Decimal] = {}
-    counted = skipped = missing = 0
+    months: dict[int, Decimal] = {}
+    month_currency: dict[int, dict[str, Decimal]] = {}
+    missing = skipped = 0
     for entry in entries:
-        if excluded(entry.items, terms.exclude_words):
-            skipped += 1
-            continue
-        counted += 1
+        skipped += int(entry.excluded)
         currency = entry.currency.upper()
-        by_currency[currency] = by_currency.get(currency, Decimal(0)) + entry.net
+        per = month_currency.setdefault(entry.month, {})
+        per[currency] = per.get(currency, Decimal(0)) + entry.net
         if currency == target:
-            turnover += entry.net
+            value = entry.net
+        else:
+            day_rates = rates.get(entry.day, {})
+            source, dest = day_rates.get(currency), day_rates.get(target)
+            if not source or not dest:
+                missing += 1
+                continue
+            value = entry.net * source / dest
+        months[entry.month] = months.get(entry.month, Decimal(0)) + value
+
+    corrections = []
+    running = Decimal(0)
+    for month in sorted(months):
+        month_net = months[month]
+        before, after = running, running + month_net
+        running = after
+        if month_net <= 0:
             continue
-        day_rates = rates.get(entry.day, {})
-        source, dest = day_rates.get(currency), day_rates.get(target)
-        if not source or not dest:
-            missing += 1
+        billed_rate = tier_for(before, tiers).rate
+        owed = due(after, tiers) - due(max(before, Decimal(0)), tiers)
+        extra = owed - month_net * billed_rate / HUNDRED
+        if extra <= Decimal("0.005"):
             continue
-        turnover += entry.net * source / dest
-    turnover = cents(turnover)
-    tier = tier_for(turnover, tiers)
-    index = tiers.index(tier)
+        share = extra / month_net
+        threshold = tier_for(before, tiers).up_to or Decimal(0)
+        corrections.append(
+            Correction(
+                month=month,
+                rate_diff=tier_for(after, tiers).rate - billed_rate,
+                excess=cents(after - threshold),
+                amounts=tuple(
+                    (currency, cents(net * share))
+                    for currency, net in sorted(month_currency[month].items())
+                    if net > 0
+                ),
+            )
+        )
     return YearRebate(
         year=year,
         threshold_currency=target,
         tiers=tiers,
-        turnover=turnover,
-        tier=tier,
-        next_tier=tiers[index + 1] if index + 1 < len(tiers) else None,
-        totals=tuple(
-            CurrencyTotal(
-                currency,
-                cents(net),
-                cents(net * tier.rate / HUNDRED) if net > 0 else Decimal("0.00"),
-            )
-            for currency, net in sorted(by_currency.items())
-        ),
-        invoices=counted,
+        turnover=cents(sum(months.values(), Decimal(0))),
+        month_turnover={m: cents(v) for m, v in sorted(months.items())},
+        corrections=tuple(corrections),
+        invoices=len(entries),
         excluded=skipped,
         missing_fx=missing,
-        settle_by=date(year + 1, 1, 31),
     )
 
 
@@ -331,10 +419,18 @@ async def year_rebate(
     terms: Terms,
     extra: Sequence[Entry] = (),
 ) -> Optional[YearRebate]:
-    """Stan rabatu klienta za rok: faktury z KSeF plus ``extra`` (np. szkic w NEXUSIE)."""
+    """Stan roku klienta: faktury z KSeF za miesiące roku plus ``extra`` (szkic w NEXUSIE)."""
 
     if tiers_for(terms, year) is None:
         return None
+    in_year = or_(
+        ClientSalesInvoice.period_year == year,
+        and_(
+            ClientSalesInvoice.period_year.is_(None),
+            ClientSalesInvoice.issue_date >= date(year, 1, 1),
+            ClientSalesInvoice.issue_date <= date(year, 12, 31),
+        ),
+    )
     rows = (
         await db.execute(
             select(
@@ -342,23 +438,25 @@ async def year_rebate(
                 ClientSalesInvoice.net_amount,
                 ClientSalesInvoice.sale_date,
                 ClientSalesInvoice.issue_date,
+                ClientSalesInvoice.period_month,
                 ClientSalesInvoice.items,
-            ).where(
-                ClientSalesInvoice.client_id == client_id,
-                ClientSalesInvoice.issue_date >= date(year, 1, 1),
-                ClientSalesInvoice.issue_date <= date(year, 12, 31),
-            )
+            ).where(ClientSalesInvoice.client_id == client_id, in_year)
         )
     ).all()
-    entries = [
-        Entry(
-            (row.currency or "PLN").upper(),
-            Decimal(row.net_amount),
-            rate_boundary(row.sale_date, row.issue_date),
-            tuple(row.items or ()),
+    entries = []
+    for row in rows:
+        net, touched = service_net(
+            Decimal(row.net_amount), list(row.items or ()), terms.exclude_words
         )
-        for row in rows
-    ]
+        entries.append(
+            Entry(
+                (row.currency or "PLN").upper(),
+                net,
+                rate_boundary(row.sale_date, row.issue_date),
+                row.period_month or row.issue_date.month,
+                touched,
+            )
+        )
     entries.extend(extra)
     wanted: dict[date, set[str]] = {}
     for entry in entries:
@@ -370,57 +468,105 @@ async def year_rebate(
     return summarize(year, terms, entries, rates)
 
 
+def _rate_text(value: Decimal) -> str:
+    return format(value.normalize(), "f")
+
+
+def rebate_lines(
+    lines: Sequence[dict[str, Any]], tier: Tier, year: int, words: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Pozycje rabatu dla usług faktury: jedna na stawkę VAT, ujemna, ilość 1.
+
+    Stare pozycje rabatu się pomija (przeliczenie po edycji zastępuje je nowymi).
+    """
+
+    bases: dict[str, Decimal] = {}
+    for line in lines:
+        if _outside(line, words) or not line.get("vat_rate"):
+            continue
+        try:
+            net = Decimal(str(line.get("quantity"))) * Decimal(
+                str(line.get("unit_price"))
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            continue
+        bases[line["vat_rate"]] = bases.get(line["vat_rate"], Decimal(0)) + net
+    out = []
+    for vat_rate, base in bases.items():
+        amount = cents(base * tier.rate / HUNDRED)
+        if amount <= 0:
+            continue
+        out.append(
+            {
+                "name": f"{REBATE_PREFIX} rocznego {_rate_text(tier.rate).replace('.', ',')}% "
+                f"(umowa ramowa, rok {year})",
+                "quantity": "1",
+                "unit": "usł.",
+                "unit_price": format(-amount, "f"),
+                "vat_rate": vat_rate,
+            }
+        )
+    return out
+
+
 def _amount(value: Optional[Decimal]) -> Optional[str]:
     return None if value is None else format(cents(value), "f")
 
 
-def _rate(value: Decimal) -> str:
-    return format(value.normalize(), "f")
-
-
 def payload(
-    status: YearRebate, *, invoice_net: Optional[Decimal], currency: str
+    status: YearRebate, *, month: int, on_invoice: Optional[Decimal], currency: str
 ) -> dict[str, Any]:
-    """Stan rabatu dla karty faktury: obrót, próg, stawka, kwoty, udział tej faktury."""
+    """Stan rabatu dla karty faktury za ``month``: stawka, licznik do progu, korekty."""
 
+    tier = status.rate_for(month)
+    upcoming = status.next_tier(month)
     return {
         "year": status.year,
+        "month": month,
         "threshold_currency": status.threshold_currency,
         "tiers": [
-            {"up_to": _amount(tier.up_to), "rate": _rate(tier.rate)}
-            for tier in status.tiers
+            {"up_to": _amount(t.up_to), "rate": _rate_text(t.rate)}
+            for t in status.tiers
         ],
         "turnover": _amount(status.turnover),
-        "rate": _rate(status.tier.rate),
-        "next_rate": _rate(status.next_tier.rate) if status.next_tier else None,
-        "to_next": _amount(status.to_next),
-        "totals": [
-            {
-                "currency": total.currency,
-                "net": _amount(total.net),
-                "rebate": _amount(total.rebate),
-            }
-            for total in status.totals
-        ],
-        "this_invoice": _amount(invoice_net * status.tier.rate / HUNDRED)
-        if invoice_net is not None
-        else None,
+        "turnover_before": _amount(status.turnover_before(month)),
+        "rate": _rate_text(tier.rate),
+        "next_rate": _rate_text(upcoming.rate) if upcoming else None,
+        "to_next": _amount(status.to_next()),
+        "due": _amount(status.due),
+        "on_invoice": _amount(on_invoice),
         "currency": currency,
+        "corrections": [
+            {
+                "month": c.month,
+                "rate_diff": _rate_text(c.rate_diff),
+                "excess": _amount(c.excess),
+                "amounts": [
+                    {"currency": cur, "amount": _amount(amount)}
+                    for cur, amount in c.amounts
+                ],
+            }
+            for c in status.corrections
+        ],
         "invoices": status.invoices,
         "excluded": status.excluded,
         "missing_fx": status.missing_fx,
-        "settle_by": status.settle_by.isoformat(),
     }
 
 
 __all__ = [
+    "REBATE_PREFIX",
     "Entry",
     "RebateTermsError",
     "Terms",
     "Tier",
     "YearRebate",
+    "due",
+    "is_rebate_line",
     "parse_terms",
     "payload",
+    "rebate_lines",
+    "service_net",
     "summarize",
     "tier_for",
     "tiers_for",

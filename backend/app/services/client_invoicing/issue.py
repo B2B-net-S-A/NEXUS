@@ -508,6 +508,7 @@ async def create_drafts(
     period = billing.month_key(year, month)
     first, last = month_range(year, month)
     created: list[ClientIssuedInvoice] = []
+    rebate_cache: dict[tuple[int, int], Optional[rebate.YearRebate]] = {}
     for key in wanted:
         row = rows[key]
         client = await db.get(Client, row.client_id)
@@ -548,6 +549,7 @@ async def create_drafts(
                 history=[],
                 created_by=actor_id,
             )
+            await apply_rebate(db, invoice, settings, cache=rebate_cache)
             recompute(invoice)
             await _refresh_fx(db, invoice)
             _note(invoice, "created", actor_id, source=key)
@@ -647,6 +649,10 @@ async def update(
         if not isinstance(lines, list) or len(lines) > MAX_LINES:
             raise IssueError("Pozycje: lista do 200 wierszy.", 422)
         invoice.lines = [clean_line(line) for line in lines if isinstance(line, dict)]
+        # Pozycja rabatu idzie za usługami: po zmianie pozycji przeliczamy jej kwotę.
+        # Usuniętej ręcznie (Finanse) nie dokładamy z powrotem.
+        if any(rebate.is_rebate_line(line) for line in invoice.lines):
+            await apply_rebate(db, invoice, await issue_settings.load(db))
     recompute(invoice)
     await _refresh_fx(db, invoice)
     _note(invoice, "edited", actor_id)
@@ -1284,42 +1290,94 @@ async def payload(
     return data
 
 
+def _rebate_period(invoice: ClientIssuedInvoice) -> tuple[int, int]:
+    if invoice.period_year and invoice.period_month:
+        return int(invoice.period_year), int(invoice.period_month)
+    day = invoice.sale_date or invoice.issue_date
+    return day.year, day.month
+
+
+async def apply_rebate(
+    db: AsyncSession,
+    invoice: ClientIssuedInvoice,
+    settings: dict[str, Any],
+    *,
+    cache: Optional[dict[tuple[int, int], Optional[rebate.YearRebate]]] = None,
+) -> None:
+    """Pozycja „Rabat od obrotu” na fakturze VAT klienta z rabatem (decyzja Artura 16.11.2026).
+
+    Stawka = próg obrotu narastającego roku SPRZED miesiąca faktury; poprzednie
+    pozycje rabatu zastępujemy. Bez warunków przy kliencie — nic się nie dzieje.
+    """
+
+    terms = issue_settings.client_rebate(settings, invoice.client_id)
+    if terms is None or invoice.client_id is None or invoice.invoice_type != "VAT":
+        return
+    year, month = _rebate_period(invoice)
+    key = (invoice.client_id, year)
+    if cache is not None and key in cache:
+        status = cache[key]
+    else:
+        status = await rebate.year_rebate(
+            db, client_id=invoice.client_id, year=year, terms=terms
+        )
+        if cache is not None:
+            cache[key] = status
+    if status is None:
+        return
+    services = [line for line in invoice.lines or [] if not rebate.is_rebate_line(line)]
+    extra = rebate.rebate_lines(
+        services, status.rate_for(month), year, terms.exclude_words
+    )
+    invoice.lines = services + [clean_line(line) for line in extra]
+
+
 async def _rebate(
     db: AsyncSession, invoice: ClientIssuedInvoice, settings: dict[str, Any]
 ) -> Optional[dict[str, Any]]:
-    """Rabat roczny klienta na karcie faktury — informacja, nie pozycja faktury.
+    """Stan rabatu od obrotu na karcie faktury: stawka, licznik do progu, korekty.
 
     Faktura przyjęta w KSeF jest już w ``client_sales_invoices``; szkic (i każda
-    nieprzyjęta) dolicza się do obrotu, żeby Finanse widziały stan „po tej”.
+    nieprzyjęta) dolicza się do obrotu swojego miesiąca.
     """
 
     terms = issue_settings.client_rebate(settings, invoice.client_id)
     if terms is None or invoice.client_id is None or invoice.status == "cancelled":
         return None
-    items = tuple({"name": line.get("name")} for line in invoice.lines or [])
+    year, month = _rebate_period(invoice)
+    lines = list(invoice.lines or [])
     own = None
     if invoice.status != "accepted" and invoice.net_amount is not None:
+        net, touched = rebate.service_net(
+            Decimal(invoice.net_amount), lines, terms.exclude_words
+        )
         own = rebate.Entry(
             (invoice.currency or "PLN").upper(),
-            Decimal(invoice.net_amount),
+            net,
             rebate.rate_boundary(invoice.sale_date, invoice.issue_date),
-            items,
+            month,
+            touched,
         )
     status = await rebate.year_rebate(
         db,
         client_id=invoice.client_id,
-        year=invoice.issue_date.year,
+        year=year,
         terms=terms,
         extra=(own,) if own is not None else (),
     )
     if status is None:
         return None
-    share = (
-        None
-        if invoice.net_amount is None or rebate.excluded(items, terms.exclude_words)
-        else Decimal(invoice.net_amount)
+    on_invoice = [
+        fa3_build.line_net(line) for line in lines if rebate.is_rebate_line(line)
+    ]
+    return rebate.payload(
+        status,
+        month=month,
+        on_invoice=-sum((n for n in on_invoice if n is not None), Decimal(0))
+        if on_invoice
+        else None,
+        currency=invoice.currency,
     )
-    return rebate.payload(status, invoice_net=share, currency=invoice.currency)
 
 
 async def listing(

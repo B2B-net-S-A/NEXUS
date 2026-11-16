@@ -1,57 +1,59 @@
-# Rabat roczny od obrotu klienta: dane przy kliencie, rozliczenie zbiorczą korektą (16.11.2026)
+# Rabat od obrotu rocznego klienta: pozycja na każdej fakturze, wyższa stawka od nadwyżki (16.11.2026)
 
-Zgłoszenie Artura 16.11.2026: faktury Nordei „nie uwzględniają rabatu”. Umowa ramowa Nordei (Appendix 6,
-w wersji pierwotnej i z aneksem obowiązującym od 01.03.2026) przewiduje rabat od rocznego obrotu za usługi,
-rozliczany raz w roku notą kredytową do 31 stycznia następnego roku. Aneks wprowadził dwa progi w EUR
-w miejsce jednej stawki. Kwoty, progi i stawki są w umowie i w ustawieniach. W repo ich nie ma,
-bo repo jest publiczne.
+Zgłoszenie Artura 16.11.2026: faktury Nordei nie uwzględniają rabatu 2,5%, a po przekroczeniu progu
+obrotu stawka rośnie do 3%. Umowa ramowa (Appendix 6, aneks od 01.03.2026) liczy rabat od rocznego
+obrotu za usługi (1.01–31.12) z progiem w EUR. Kwot, progów i stawek nie ma w repo, bo repo jest
+publiczne. Wpisują je Finanse w ustawieniach.
 
-## Decyzje Artura (16.11.2026, AskUserQuestion)
+## Decyzje Artura (16.11.2026)
 
-- **Forma: korekta roczna.** Faktury miesięczne zostają bez pozycji rabatu, tak jak w umowie. NEXUS liczy
-  stan rabatu narastająco i pokazuje go na karcie faktury. Rabat za rok rozlicza jedna zbiorcza faktura
-  korygująca (rabat posprzedażowy), wystawiona do 31.01 następnego roku. Ujemnej pozycji „Rabat”
-  na fakturach nie dodawaj, bo to inne rozliczenie niż w umowie i wymagałoby zgody klienta na piśmie.
-- **Stawka od całego obrotu.** Stawka progu, w który wpada obrót roku, dotyczy całego obrotu, a nie tylko
-  nadwyżki ponad próg. Obrót równy granicy progu zostaje w tym progu.
-- **Nowe progi obowiązują przez cały rok wejścia aneksu.** Rabat liczy się raz za rok, więc rozstrzyga
-  reguła obowiązująca na koniec roku. Dla 2026 progi z aneksu dotyczą obrotu od 1 stycznia, także
-  stycznia i lutego.
-- **Kurs NBP z każdej faktury.** Gdy próg jest w innej walucie niż faktura, każdą fakturę przelicza się
-  po średnim kursie NBP z ostatniej tabeli przed datą sprzedaży. Rabat liczy się w walucie faktur.
-  Brak kursu oznacza fakturę poza obrotem progu i ostrzeżenie na karcie. Nigdy nie licz kursu 1:1.
-- **Wystawione faktury bez rabatu zostają.** Nie koryguj każdej faktury osobno. Rozliczenie idzie jedną
-  zbiorczą korektą za rok. Wysyłka korekty do KSeF na produkcji wymaga osobnego „tak” Artura.
+Umowa przewiduje roczną notę do 31.01. Artur ustalił inną praktykę i ona obowiązuje. Pierwsza odpowiedź
+z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpiona drugą, opisaną niżej.
+
+- **Rabat to pozycja na każdej fakturze miesięcznej.** Ujemna pozycja „Rabat od obrotu rocznego X%”,
+  osobna dla każdej stawki VAT na fakturze.
+- **Stawka pochodzi z obrotu sprzed miesiąca faktury.** Faktury za miesiąc M mają stawkę progu, w którym
+  jest narastający obrót roku do końca miesiąca M−1. Faktury za miesiąc, w którym obrót przekroczył
+  próg, idą jeszcze po niższej stawce. Wyższa stawka obowiązuje od następnego miesiąca.
+- **Wyższa stawka dotyczy tylko nadwyżki ponad próg**, nie całego obrotu.
+- **Za miesiąc przekroczenia trzeba wystawić korektę.** Wynosi ona różnicę stawek (np. 0,5%) od części
+  obrotu tego miesiąca ponad próg. NEXUS pokazuje jej kwotę na karcie faktury. Do KSeF wysyłamy ją
+  tylko po „tak” Artura.
+- **Próg w EUR liczymy po kursie NBP z każdej faktury.** Bierzemy średni kurs z ostatniej tabeli przed
+  datą sprzedaży. Gdy kursu brak, faktura wypada z obrotu progu i karta ostrzega. Kursu 1:1 nie
+  stosujemy nigdy.
+- **Podróże i faktury nieusługowe nie wchodzą ani do obrotu, ani do bazy rabatu.**
 
 ## Jak to działa w kodzie
 
-- Warunki to dane w `app_settings['client_invoice_issue'].clients[<id>].rebate`. Wpisują je Finanse
-  w Ustawieniach wystawiania („Rabat roczny od obrotu” przy kliencie):
+- Warunki zapisane są w `app_settings['client_invoice_issue'].clients[<id>].rebate`. Finanse wpisują je
+  w Ustawieniach wystawiania, w sekcji „Rabat roczny od obrotu” przy kliencie:
   - waluta progu;
-  - okresy „od roku” z progami: górna granica włącznie, ostatni próg bez granicy, stawka w %;
-  - słowa wyłączające: faktura, której każda pozycja zawiera takie słowo (podróże, refaktury), jest poza
-    obrotem, bo umowa wyłącza koszty podróży i faktury nieusługowe.
+  - okresy „od roku” z progami (górna granica włącznie, ostatni próg bez granicy, stawka w %);
+  - słowa wyłączające: pozycja z takim słowem w nazwie wypada z obrotu i z bazy rabatu.
 
-  Zapis sprawdza warunki i odmawia z komunikatem. Złe dane w bazie przy odczycie odpadają z logiem, żeby
-  nie zatrzymać wystawiania. Kod: `services/client_invoicing/rebate.py`, `issue_settings.client_rebate`.
-- Obrót to faktury sprzedaży z KSeF (`client_sales_invoices`) klienta wystawione w roku kalendarzowym,
-  razem z korektami, czyli tak samo jak w raporcie „Rabat od obrotu rocznego” z katalogu raportów.
-  Szkic z NEXUSA (jeszcze nie w KSeF) dolicza się do stanu na swojej karcie.
-- Karta faktury (`GET /api/finance/issued-invoices/{id}` → `rebate`, ramka „Rabat roczny” na
-  `/finance/faktury/{id}`) pokazuje:
-  - obrót od 1 stycznia w walucie progu;
-  - bieżącą stawkę i brakującą kwotę do następnego progu;
-  - rabat narastająco w walucie faktur;
-  - udział tej faktury;
-  - termin korekty.
+  Zapis ze złymi warunkami kończy się odmową z komunikatem. Złe dane w bazie odpadają przy odczycie
+  z wpisem w logu.
+- Obrót to faktury sprzedaży z KSeF (`client_sales_invoices`) za miesiące roku. Miesiąc wyznacza okres
+  usługi, a gdy go brak, data wystawienia. Korekty wchodzą jako różnica stanów. Pozycje rabatu
+  (`REBATE_PREFIX`) i pozycje wyłączone nie są liczone.
+- `issue.apply_rebate` dokłada pozycję rabatu do szkiców z „Wystaw za miesiąc”. Po edycji pozycji
+  przelicza jej kwotę. Pozycji usuniętej ręcznie nie dokłada z powrotem. Rozpoznaje ją po nazwie
+  (`rebate.is_rebate_line`), więc nie zmieniaj początku nazwy „Rabat od obrotu”.
+- Karta faktury (`rebate` w `GET /api/finance/issued-invoices/{id}`, ramka „Rabat od obrotu”) pokazuje:
+  - stawkę;
+  - obrót do końca poprzedniego miesiąca;
+  - obrót z tą fakturą;
+  - licznik do progu;
+  - kwotę pozycji;
+  - korekty za miesiące przekroczenia.
 
-  Ramka nie zmienia pozycji, sum ani XML-a faktury.
-- Nowe progi od roku dodaje się przyciskiem „Nowe progi od roku (aneks)”. Starszy okres zostaje dla lat
-  wcześniejszych.
+  Brak pozycji u klienta z rabatem to ostrzeżenie.
+- Kod: `services/client_invoicing/rebate.py`, `issue.apply_rebate`, `issue_settings.client_rebate`.
 
 ## Czego jeszcze nie ma
 
-- Szkicu zbiorczej faktury korygującej za rok z listą faktur korygowanych w FA(3) (do 31.01.2027 za 2026).
-  To osobne zadanie. Do tego czasu kwotę bierze się z ramki na karcie albo z raportu w katalogu.
+- Szkicu faktury korygującej za miesiąc przekroczenia. Korekta obejmuje wiele faktur z tego miesiąca,
+  a NEXUS koryguje dziś pojedynczą fakturę wystawioną w NEXUSIE. Kwotę bierze się z karty.
 - Obrotu sprzed 4.08.2026: NEXUS czyta KSeF od tego dnia. Faktury ze stycznia–lipca 2026 trzeba
-  dograć z archiwum eBI24, zanim policzy się rabat za 2026.
+  dograć z archiwum eBI24, inaczej licznik do progu jest zaniżony.

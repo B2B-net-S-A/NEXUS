@@ -9,43 +9,45 @@ import type { InvoiceRebate, RebateTerms } from "@/lib/api/issued-invoices";
 
 const REBATE: InvoiceRebate = {
   year: 2026,
+  month: 10,
   threshold_currency: "EUR",
   tiers: [
     { up_to: "1000000.00", rate: "2.5" },
     { up_to: null, rate: "3" },
   ],
   turnover: "999000.00",
+  turnover_before: "990000.00",
   rate: "2.5",
   next_rate: "3",
   to_next: "1000.00",
-  totals: [{ currency: "PLN", net: "4000000.00", rebate: "100000.00" }],
-  this_invoice: "250.00",
+  due: "24975.00",
+  on_invoice: "250.00",
   currency: "PLN",
+  corrections: [],
   invoices: 120,
   excluded: 2,
   missing_fx: 0,
-  settle_by: "2027-01-31",
 };
 
-describe("rabat roczny na karcie faktury", () => {
-  it("opisuje progi od całego obrotu", () => {
-    expect(rebateTiersText(REBATE)).toMatch(/^do 1\s?000\s?000,00\sEUR 2,5%, powyżej 3%$/);
+describe("rabat od obrotu na karcie faktury", () => {
+  it("opisuje progi z nadwyżką", () => {
+    expect(rebateTiersText(REBATE)).toMatch(/^do 1\s?000\s?000,00\sEUR 2,5%, nadwyżka 3%$/);
     expect(rebateTiersText({ ...REBATE, tiers: [{ up_to: null, rate: "2.5" }] })).toBe("2,5%");
   });
 
-  it("pokazuje stan roku, udział faktury i termin korekty, bez pozycji na fakturze", () => {
+  it("pokazuje stawkę faktury, licznik do progu i kwotę pozycji rabatu", () => {
     render(<InvoiceRebateBox rebate={REBATE} />);
-    const box = screen.getByRole("region", { name: "Rabat roczny" });
-    expect(within(box).getByText("Rabat roczny 2026 · 2,5%")).toBeInTheDocument();
+    const box = screen.getByRole("region", { name: "Rabat od obrotu" });
+    expect(within(box).getByText("Rabat od obrotu 2026 · 2,5%")).toBeInTheDocument();
     expect(within(box).getByText("Do progu 3%")).toBeInTheDocument();
-    expect(within(box).getByText("Z tej faktury")).toBeInTheDocument();
-    expect(within(box).getByText("Rabat narastająco")).toBeInTheDocument();
-    expect(box).toHaveTextContent("zbiorcza korekta do 31.01.2027");
-    expect(box).toHaveTextContent("Poza obrotem (podróże, refaktury): 2 fakt.");
-    expect(within(box).queryByText(/Bez kursu NBP/)).toBeNull();
+    expect(within(box).getByText("Rabat na tej fakturze")).toBeInTheDocument();
+    expect(box).toHaveTextContent(/−250,00\szł/);
+    expect(box).toHaveTextContent("Poza obrotem pozycje podróży i refaktur z 2 fakt.");
+    expect(within(box).queryByText(/brak pozycji/)).toBeNull();
+    expect(within(box).queryByText(/Korekta za/)).toBeNull();
   });
 
-  it("po przekroczeniu progu nie pokazuje „do progu”, a brak kursu ostrzega", () => {
+  it("po przekroczeniu: korekta za miesiąc przekroczenia, brak pozycji ostrzega", () => {
     render(
       <InvoiceRebateBox
         rebate={{
@@ -54,20 +56,18 @@ describe("rabat roczny na karcie faktury", () => {
           next_rate: null,
           to_next: null,
           missing_fx: 3,
-          this_invoice: null,
-          totals: [
-            { currency: "EUR", net: "25000.00", rebate: "750.00" },
-            { currency: "PLN", net: "4000000.00", rebate: "120000.00" },
+          on_invoice: null,
+          corrections: [
+            { month: 9, rate_diff: "0.5", excess: "200000.00", amounts: [{ currency: "PLN", amount: "4250.00" }] },
           ],
         }}
       />,
     );
     expect(screen.queryByText(/Do progu/)).toBeNull();
-    expect(screen.queryByText("Z tej faktury")).toBeNull();
+    expect(screen.getByText("brak pozycji")).toBeInTheDocument();
+    expect(screen.getByText(/Faktura nie ma pozycji „Rabat od obrotu”/)).toBeInTheDocument();
+    expect(screen.getByText(/Korekta za Wrzesień 2026: 0,5% od/)).toHaveTextContent(/4\s?250,00\szł/);
     expect(screen.getByText(/Bez kursu NBP do progu: 3 fakt\./)).toBeInTheDocument();
-    // Dwie waluty faktur: osobny wiersz rabatu na walutę.
-    expect(screen.getByText("Rabat w EUR")).toBeInTheDocument();
-    expect(screen.getByText("Rabat w PLN")).toBeInTheDocument();
   });
 });
 

@@ -107,7 +107,7 @@ export interface IssuedInvoiceCard extends IssuedInvoiceRow {
   can_check: boolean;
   can_correct: boolean;
   history: { at: string; event: string; by: number | null }[];
-  /** Rabat roczny od obrotu (np. Nordea): stan roku po tej fakturze; nie jest pozycją faktury. */
+  /** Rabat od obrotu rocznego (np. Nordea): stawka tej faktury, licznik do progu, korekty. */
   rebate: InvoiceRebate | null;
 }
 
@@ -123,21 +123,36 @@ export interface RebateTerms {
   exclude_words: string[];
 }
 
+export interface RebateCorrection {
+  /** Miesiąc przekroczenia progu (1–12). */
+  month: number;
+  rate_diff: string;
+  /** Obrót roku ponad próg na koniec tego miesiąca (waluta progu). */
+  excess: string;
+  amounts: { currency: string; amount: string }[];
+}
+
 export interface InvoiceRebate {
   year: number;
+  month: number;
   threshold_currency: string;
   tiers: { up_to: string | null; rate: string }[];
+  /** Obrót roku razem z tą fakturą (waluta progu). */
   turnover: string;
+  /** Obrót do końca poprzedniego miesiąca — z niego bierze się stawka faktury. */
+  turnover_before: string;
   rate: string;
   next_rate: string | null;
   to_next: string | null;
-  totals: { currency: string; net: string; rebate: string }[];
-  this_invoice: string | null;
+  /** Rabat należny za rok (wyższa stawka tylko od nadwyżki), waluta progu. */
+  due: string;
+  /** Kwota pozycji „Rabat od obrotu” na tej fakturze; `null` = faktura nie ma takiej pozycji. */
+  on_invoice: string | null;
   currency: string;
+  corrections: RebateCorrection[];
   invoices: number;
   excluded: number;
   missing_fx: number;
-  settle_by: string;
 }
 
 export interface KsefIssueState {

@@ -47,10 +47,10 @@ function DecimalInput({
 }
 
 /**
- * Rabat roczny od obrotu z umowy ramowej (decyzje Artura 16.11.2026): progi
+ * Rabat od obrotu rocznego z umowy ramowej (decyzje Artura 16.11.2026): progi
  * i stawki jako dane przy kliencie, okres „od roku”, próg w walucie umowy.
- * Stawka progu dotyczy całego obrotu roku; rabat nie trafia na faktury —
- * rozlicza go zbiorcza korekta do 31 stycznia następnego roku.
+ * Rabat idzie pozycją na każdej fakturze po stawce z obrotu sprzed miesiąca;
+ * wyższa stawka tylko od nadwyżki ponad próg.
  */
 export function ClientRebateEditor({
   label,
@@ -104,9 +104,9 @@ export function ClientRebateEditor({
     <fieldset className="grid gap-2 rounded-lg border border-border/60 px-3 py-2 md:col-span-4">
       <legend className="px-1 text-xs font-semibold text-foreground">Rabat roczny od obrotu</legend>
       <p className="text-xs text-muted-foreground">
-        Obrót roku kalendarzowego z faktur w KSeF (z korektami). Stawka progu, w który wpada obrót,
-        dotyczy całego obrotu. Rabat nie jest pozycją faktury — rozlicza go zbiorcza korekta do 31
-        stycznia następnego roku.
+        Każda faktura z „Wystaw za miesiąc” dostaje pozycję „Rabat od obrotu” po stawce progu, w którym jest
+        obrót roku (z KSeF) do końca poprzedniego miesiąca. Wyższa stawka dotyczy tylko nadwyżki ponad próg —
+        za miesiąc przekroczenia karta faktury pokazuje kwotę korekty.
       </p>
       <div className="grid gap-2 md:grid-cols-[10rem_minmax(0,1fr)]">
         <label className="grid gap-1 text-xs text-muted-foreground">
