@@ -45,6 +45,13 @@ class _Session:
         return False
 
 
+@pytest.fixture(autouse=True)
+def job_access_granted(monkeypatch):
+    """Handlery wołane tu z atrapą użytkownika i sesji: bramka dostępu do
+    rekrutacji ma osobne testy (test_scoring_justification_job_access.py)."""
+    monkeypatch.setattr(candidate_scoring, "_authorized_job", AsyncMock())
+
+
 @pytest.fixture
 def own_session(monkeypatch):
     """Route ``display_fit``'s own session to a stub; returns a setter."""
