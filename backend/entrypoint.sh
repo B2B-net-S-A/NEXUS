@@ -11631,6 +11631,50 @@ asyncio.run(repair())
 PY
 
 
+# Umowy ramowe z duplikatów klientów (decyzja Artura 16.11.2026) — jednorazowo:
+# umowy z manifestu portfela leżały na scalonych albo zdublowanych rekordach,
+# więc karta klienta, Jarvis i katalog raportów ich nie widziały. Logika
+# i lista ID w `app/services/framework_contract_owner_repair.py`; marker
+# w `app_settings` + advisory lock, porażka nie zapisuje niczego. Plik
+# usuniętego duplikatu i jego wektory znikają dopiero po commicie. Log: ID.
+startup_phase "repair-framework-contract-owner"
+echo "Framework contracts: move contracts off duplicate clients (one-shot)..."
+run_unless_marked "0721_framework_contract_owner_repair" <<'PY' || echo "framework contract owner repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services import framework_contract_index, storage_service
+from app.services.framework_contract_owner_repair import (
+    run_framework_contract_owner_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_framework_contract_owner_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"framework contract owner repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"framework contract owner repair: {summarize_for_log(summary)}")
+    if summary is None:
+        return
+    # Obie funkcje są best-effort i same logują porażkę.
+    for path in summary["dropped_file_paths"]:
+        storage_service.delete_client_framework_contract(path)
+    for fc_id in summary["dropped_fc_ids"]:
+        await framework_contract_index.delete_contract_points(fc_id)
+
+asyncio.run(repair())
+PY
+
+
 
 
 
