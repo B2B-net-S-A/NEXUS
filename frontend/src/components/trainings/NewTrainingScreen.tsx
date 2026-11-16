@@ -262,6 +262,8 @@ export function NewTrainingScreen() {
           onDeliverablesChange={setDrafts}
           disabled={create.isPending}
           employee={source === "employee"}
+          teamsReady={me.data?.teams_ready === true}
+          roles={me.data?.mandatory_roles ?? []}
         />
       </Card>
       {problem ? (

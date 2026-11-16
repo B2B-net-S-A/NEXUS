@@ -121,6 +121,12 @@ export function TrainerApplications({ applications, onDownloadSample }: Applicat
                 <dd>{application.topics.join(", ")}</dd>
               </div>
             ) : null}
+            {application.wanted_topics?.length ? (
+              <div className="sm:col-span-2">
+                <dt className="text-xs text-muted-foreground">Zgłasza się na tematy „Szukamy trenerów”</dt>
+                <dd>{application.wanted_topics.join(", ")}</dd>
+              </div>
+            ) : null}
             {application.audience ? (
               <div>
                 <dt className="text-xs text-muted-foreground">Dla kogo</dt>

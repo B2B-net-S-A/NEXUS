@@ -183,6 +183,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.duty_search_judge: ("F48", "gpt-6-luna"),
     # F49 — 15.11.2026: obowiązki raportowe z umów ramowych klienta.
     AIFeatureKey.client_report_requirements: ("F49", "claude-sonnet-5"),
+    # F50 — 13.11.2026: rozdziały i podsumowanie nagrania szkolenia z transkryptu.
+    AIFeatureKey.training_transcript_summary: ("F50", "gpt-6-luna"),
 }
 
 

@@ -24,7 +24,9 @@ import {
   useTrainerApplications,
   useTrainingLibrary,
   useTrainingList,
+  useSaveTrainingTopic,
   useTrainingSettings,
+  useTrainingTopics,
   useTrainingsMe,
   type TrainingsMe,
 } from "@/lib/api/trainings";
@@ -33,6 +35,7 @@ import { resolveViewState } from "@/lib/view-state";
 import { hasRole, useAuthStore } from "@/store/auth";
 
 import { TrainingCalendar } from "./TrainingCalendar";
+import { TopicRequests } from "./TopicRequests";
 import { TrainingLibrary } from "./TrainingLibrary";
 import { warsawToday } from "./training-model";
 import { PendingSignatures, TrainerApplications, TrainingRegister } from "./TrainingRegister";
@@ -202,34 +205,58 @@ function OrganizeTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
+function TopicsSection() {
+  const topics = useTrainingTopics();
+  const save = useSaveTrainingTopic();
+  const run = useRunAction();
+  if (topics.isError) return <QueryStateNotice state="error" onRetry={() => topics.refetch()} />;
+  if (!topics.isSuccess) return null;
+  return (
+    <TopicRequests
+      topics={topics.data}
+      busy={save.isPending}
+      onSave={(id, input) =>
+        run(
+          () => save.mutateAsync({ id, input }),
+          id === null ? "Temat opublikowany w panelu konsultanta." : "Zapisano temat.",
+          "Nie udało się zapisać tematu.",
+        )
+      }
+    />
+  );
+}
+
 function ApplicationsTab() {
   const applications = useTrainerApplications();
   const run = useRunAction();
   return (
-    <QueryGate
-      query={applications}
-      isEmpty={(applications.data ?? []).length === 0}
-      empty={
-        <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          Nie ma zgłoszeń trenerów. Konsultant zgłasza się w panelu: „Zostań trenerem”.
-        </p>
-      }
-    >
-      <TrainerApplications
-        applications={applications.data ?? []}
-        onDownloadSample={(application) => {
-          void run(
-            () =>
-              downloadTrainingPath(
-                trainingPaths.sample(application.id),
-                application.sample_name ?? "probka",
-              ),
-            null,
-            "Nie udało się pobrać próbki.",
-          );
-        }}
-      />
-    </QueryGate>
+    <div className="space-y-4">
+      <TopicsSection />
+      <QueryGate
+        query={applications}
+        isEmpty={(applications.data ?? []).length === 0}
+        empty={
+          <p className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            Nie ma zgłoszeń trenerów. Konsultant zgłasza się w panelu: „Zostań trenerem”.
+          </p>
+        }
+      >
+        <TrainerApplications
+          applications={applications.data ?? []}
+          onDownloadSample={(application) => {
+            void run(
+              () =>
+                downloadTrainingPath(
+                  trainingPaths.sample(application.id),
+                  application.sample_name ?? "probka",
+                ),
+              null,
+              "Nie udało się pobrać próbki.",
+            );
+          }}
+        />
+      </QueryGate>
+    </div>
   );
 }
 

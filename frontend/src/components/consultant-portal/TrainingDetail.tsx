@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Download, FileText, Plus, Trash2, Upload, Video } from "lucide-react";
+import { ArrowLeft, CalendarCheck, Check, Download, FileText, Plus, Trash2, Upload, Video } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,6 +47,7 @@ import {
   missingFees,
   moneyLabel,
   parseAmount,
+  rehearsalWhen,
   shortDay,
   warsawToday,
 } from "./training-model";
@@ -813,6 +814,9 @@ function LeadCard({ training }: { training: PortalTraining }) {
   const { order } = training;
   const href = training.join_url ? safeExternalHref(training.join_url) : null;
   const hours = order.time_from && order.time_to ? `, ${order.time_from}–${order.time_to}` : "";
+  const rehearsal = training.rehearsal ?? null;
+  const rehearsalHref =
+    rehearsal?.status === "created" && rehearsal.join_url ? safeExternalHref(rehearsal.join_url) : null;
   return (
     <section className="rounded-xl border border-primary bg-primary/5 p-4">
       <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Szkolenie</p>
@@ -831,13 +835,27 @@ function LeadCard({ training }: { training: PortalTraining }) {
               <Video aria-hidden className="size-3.5" /> Dołącz jako prowadzący
             </a>
           </Button>
-          <span className="text-xs text-muted-foreground">Wejdź 15 minut wcześniej, żeby sprawdzić dźwięk i ekran.</span>
+          {rehearsalHref ? (
+            <Button asChild size="sm" variant="outline">
+              <a href={rehearsalHref} target="_blank" rel="noopener noreferrer" data-testid="trainer-rehearsal">
+                <CalendarCheck aria-hidden className="size-3.5" /> Próba techniczna: {rehearsalWhen(rehearsal?.start ?? null)}
+              </a>
+            </Button>
+          ) : (
+            <span className="text-xs text-muted-foreground">Wejdź 15 minut wcześniej, żeby sprawdzić dźwięk i ekran.</span>
+          )}
         </div>
       ) : (
         <p className="mt-2 text-sm text-muted-foreground">
           Link do spotkania pojawi się tutaj, gdy Talent Community założy spotkanie.
         </p>
       )}
+      {rehearsalHref ? (
+        <p className="mt-2 text-xs text-muted-foreground">
+          Próba trwa {rehearsal?.minutes ?? 15} minut i nie jest nagrywana: sprawdzisz dźwięk, kamerę i udostępnianie
+          ekranu. Zaproszenie przyszło też na Twój adres.
+        </p>
+      ) : null}
       <p className="mt-2 text-xs text-muted-foreground">Pliki z Załącznika nr 1 przekażesz po szkoleniu.</p>
     </section>
   );

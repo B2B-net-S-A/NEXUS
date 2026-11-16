@@ -2962,5 +2962,17 @@
     "where": "Ustawienia → Nowości — kto już umie → Poligon NEXUSA dla nowych osób",
     "href": "/settings/nowosci",
     "dot_anchor": "settings.nowosci.poligon-gate"
+  },
+  {
+    "id": "szkolenia-szukamy-trenerow-obowiazkowe",
+    "pr": 3402,
+    "title": "Szkolenia: „Szukamy trenerów” i szkolenie obowiązkowe dla roli",
+    "why": "Opublikuj temat, a konsultanci zgłoszą się na niego w swoim panelu. Szkolenie obowiązkowe dla roli zapisze i zaprosi każdą osobę z tej roli.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["admin", "talent_community_manager"] },
+    "where": "Menu → Firma → Szkolenia → Zgłoszenia trenerów → Szukamy trenerów",
+    "href": "/trainings",
+    "dot_anchor": "trainings.topics.publish"
   }
 ]

@@ -4187,6 +4187,7 @@ async def api_health_deep_check(request: Request):
         TrainingFeedback,
         TrainingFile,
         TrainingRegistration,
+        TrainingTopicRequest,
         TrainingTranscript,
     )
     from app.models.finance_archive import FinanceArchiveDocument
@@ -4858,6 +4859,8 @@ async def api_health_deep_check(request: Request):
         ("training_attendance", TrainingAttendance),
         ("training_transcripts", TrainingTranscript),
         ("training_feedback", TrainingFeedback),
+        # 0721: „Szukamy trenerów” (S4).
+        ("training_topic_requests", TrainingTopicRequest),
         # 0696: wystawianie faktur sprzedaży do KSeF — numeracja i faktury.
         ("client_invoice_series", ClientInvoiceSeries),
         ("client_issued_invoices", ClientIssuedInvoice),
