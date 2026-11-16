@@ -75,6 +75,18 @@ def _publish_url(job_id: int, portal: str = "pracuj_pl") -> str:
     return f"/api/jobs/{job_id}/portals/{portal}/publish"
 
 
+async def _publish_without_salary(api, headers, job_id: int):
+    """Domyślne ustawienia z rekrutacji (bez widełek) + powód (16.11.2026)."""
+    defaults = await api.get(
+        f"/api/jobs/{job_id}/portal-listing-defaults", headers=headers
+    )
+    assert defaults.status_code == 200, defaults.text
+    options = {**defaults.json(), "no_salary_reason": "Stawka zależy od profilu."}
+    return await api.post(
+        _publish_url(job_id), json={"options": options}, headers=headers
+    )
+
+
 async def _postings(job_id: int) -> list[JobPosting]:
     async with AsyncSessionLocal() as db:
         return list(
@@ -149,7 +161,7 @@ async def test_publish_queues_then_worker_fails_with_polish_reason(api, pracuj_r
     await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200
 
-    resp = await api.post(_publish_url(job_id), headers=headers)
+    resp = await _publish_without_salary(api, headers, job_id)
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "publishing"
 
@@ -174,7 +186,7 @@ async def test_unpublish_of_queued_posting_removes_it(api, pracuj_ready):
     _uid, headers, job_id = await _owner(api)
     await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200
-    assert (await api.post(_publish_url(job_id), headers=headers)).status_code == 200
+    assert (await _publish_without_salary(api, headers, job_id)).status_code == 200
 
     resp = await api.post(
         f"/api/jobs/{job_id}/portals/pracuj_pl/unpublish", headers=headers

@@ -19,6 +19,8 @@ i woła adapter. Żywe ogłoszenie dostaje ``pending_action``:
   aplikuje przez stronę kariery (``/r/<slug>``);
 * braki w ustawieniach ogłoszenia → 422 z listą (kredyt portalu jest płatny,
   więc nie wysyłamy czegoś, co portal i tak odrzuci);
+* ogłoszenie bez widełek i bez powodu → 422 ``salary_reason_required``
+  (publikacja i każda zmiana ustawień, ``salary_guard``, 16.11.2026);
 * żywa publikacja na tym portalu już jest → 409 (i częściowy UNIQUE w bazie).
 """
 
@@ -45,7 +47,7 @@ from app.models.job_ad_publication import JobAdPublication
 from app.models.job_posting import JobPosting, Portal, PostingStatus
 from app.models.job_public_profile import JobPublicProfile
 from app.services import job_portals
-from app.services.job_portals import jjit_payload
+from app.services.job_portals import jjit_payload, salary_guard
 from app.services.job_portals.base import (
     ADOPTED_EXISTING,
     JJIT_FAMILY,
@@ -299,7 +301,7 @@ def default_listing_options(job: Job) -> dict[str, Any]:
 
 
 def _checked_options(
-    portal: Portal, content: PostingContent, options: dict[str, Any]
+    portal: Portal, content: PostingContent, options: dict[str, Any], job: Job
 ) -> dict[str, Any]:
     adapter = job_portals.adapter_for(portal)
     problems = adapter.validate_options(dataclasses.replace(content, options=options))
@@ -309,6 +311,15 @@ def _checked_options(
             "listing_invalid",
             "Ogłoszenie ma braki — uzupełnij je przed publikacją.",
             problems,
+        )
+    if salary_guard.missing_reason(options):
+        from app.services.job_public_profile import public_params
+
+        form = salary_guard.contract_form(public_params(job).get("contract"))
+        raise PortalRequestError(
+            422,
+            "salary_reason_required",
+            salary_guard.missing_salary_message(form),
         )
     return options
 
@@ -359,7 +370,7 @@ async def request_publish(
         options if options is not None else default_listing_options(job)
     )
     built = await build_content(db, job, portal=portal, options=normalized)
-    _checked_options(portal, built.content, normalized)
+    _checked_options(portal, built.content, normalized, job)
     inherited_cleanup = await _cancel_stale_cleanup(db, job.id, portal)
     posting = JobPosting(
         job_id=job.id,
@@ -444,7 +455,7 @@ async def update_options(
         )
     normalized = jjit_payload.normalize_options(options)
     built = await build_content(db, job, portal=portal, options=normalized)
-    _checked_options(portal, built.content, normalized)
+    _checked_options(portal, built.content, normalized, job)
     posting.options = normalized
     if posting.status == PostingStatus.published:
         _queue(posting, ACTION_UPDATE)

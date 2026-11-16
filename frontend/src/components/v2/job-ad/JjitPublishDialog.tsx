@@ -5,9 +5,11 @@
  *
  * Treść to zakładka JustJoin.IT po kontroli. Okno pyta o to, czego w ogłoszeniu
  * nie ma: kategorię ze słownika portalu i ustawienia wypełnione z rekrutacji.
- * Widełki są opcjonalne i wpisuje je człowiek (25.09.2026). Samo zlecenie idzie
+ * Widełki wpisuje człowiek (25.09.2026); bez nich publikacja wymaga powodu
+ * w potwierdzeniu (16.11.2026, `lib/postingSalaryGuard.ts`). Samo zlecenie idzie
  * do kolejki, a portal woła worker. Reguły:
- * `docs/claude/rekrutacja-tworzenie/ogloszenie-justjoin-przez-api.md`.
+ * `docs/claude/rekrutacja-tworzenie/ogloszenie-justjoin-przez-api.md`,
+ * `docs/claude/rekrutacja-tworzenie/widelki-w-ogloszeniu-albo-powod.md`.
  */
 
 import { useMemo, useState } from "react";
@@ -17,6 +19,7 @@ import { Loader2 } from "lucide-react";
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { PortalListingForm } from "@/components/v2/recruitment/PortalListingForm";
 import { apiErrorMessage } from "@/lib/api-error";
 import { jobAdApi, jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
@@ -27,6 +30,7 @@ import {
   validateListingOptions,
   type PortalListingOptions,
 } from "@/lib/api/jobPortals";
+import { confirmSalaryOrReason } from "@/lib/postingSalaryGuard";
 
 export type JjitPublishApi = Pick<typeof jobAdApi, "publishJjit">;
 
@@ -105,6 +109,7 @@ function PublishForm({
 }) {
   const queryClient = useQueryClient();
   const { showError, showSuccess } = useToast();
+  const { askReason, confirmDialog } = useConfirmV2();
   const [options, setOptions] = useState<PortalListingOptions>(initial);
   const [serverProblems, setServerProblems] = useState<string[] | null>(null);
   const [touched, setTouched] = useState(false);
@@ -113,8 +118,8 @@ function PublishForm({
     [options],
   );
   const publish = useMutation({
-    mutationFn: () =>
-      api.publishJjit(jobId, { expected_updated_at: expectedUpdatedAt, options }),
+    mutationFn: (sent: PortalListingOptions) =>
+      api.publishJjit(jobId, { expected_updated_at: expectedUpdatedAt, options: sent }),
     onSuccess: (next) => {
       showSuccess("Ogłoszenie poszło do wysyłki na JustJoin.IT.");
       onPublished(next);
@@ -151,14 +156,17 @@ function PublishForm({
           type="button"
           loading={publish.isPending}
           data-testid="jjit-publish-confirm"
-          onClick={() => {
+          onClick={async () => {
             setTouched(true);
-            if (problems.length === 0) publish.mutate();
+            if (problems.length > 0) return;
+            const sent = await confirmSalaryOrReason(options, askReason);
+            if (sent) publish.mutate(sent);
           }}
         >
           Opublikuj
         </Button>
       </div>
+      {confirmDialog}
     </div>
   );
 }

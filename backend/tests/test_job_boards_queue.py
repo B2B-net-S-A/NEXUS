@@ -200,6 +200,63 @@ async def test_listing_defaults_come_from_the_job(api, rocket_ready):
     assert body["category"] is None and body["salary"] is None
 
 
+async def test_publish_without_salary_needs_a_reason(api, rocket_ready):
+    """16.11.2026: bez widełek i bez powodu — odmowa, nic nie idzie do kolejki."""
+    headers, job_id = await _ready_job(api)
+    bare = dict(OPTIONS, salary=None)
+    resp = await api.post(_url(job_id), json={"options": bare}, headers=headers)
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "salary_reason_required"
+    # Każda rekrutacja to dziś B2B: „zalecane”, zakres prawa nieprzesądzony.
+    assert "zalecane" in detail["message"]
+    assert "prawnikiem" in detail["message"]
+    assert await _posting(job_id) is None
+
+    resp = await api.post(
+        _url(job_id),
+        json={"options": dict(bare, no_salary_reason="  ok ")},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "salary_reason_required"
+
+    reason = "Klient ustala stawkę po rozmowie technicznej."
+    resp = await api.post(
+        _url(job_id),
+        json={"options": dict(bare, no_salary_reason=reason)},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["options"]["no_salary_reason"] == reason
+    assert (await _posting(job_id)).options["no_salary_reason"] == reason
+
+
+async def test_salary_drops_the_reason_and_edit_to_no_salary_needs_one(
+    api, rocket_ready
+):
+    headers, job_id = await _ready_job(api)
+    resp = await api.post(
+        _url(job_id),
+        json={"options": dict(OPTIONS, no_salary_reason="niepotrzebny")},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["options"]["no_salary_reason"] is None
+    await _process(job_id)
+
+    resp = await api.patch(
+        _url(job_id, "options"),
+        json={"options": dict(OPTIONS, salary=None)},
+        headers=headers,
+    )
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "salary_reason_required"
+    posting = await _posting(job_id)
+    assert posting.options["salary"] == {"from": 150.0, "to": 190.0, "unit": "hour"}
+    assert posting.pending_action is None
+
+
 async def test_publish_update_and_close_cycle(api, rocket_ready):
     headers, job_id = await _ready_job(api)
     resp = await api.post(_url(job_id), json={"options": OPTIONS}, headers=headers)
@@ -219,7 +276,9 @@ async def test_publish_update_and_close_cycle(api, rocket_ready):
         ("publish", external_ref_for(job_id, Portal.rocketjobs))
     ]
 
-    changed = dict(OPTIONS, salary=None)
+    changed = dict(
+        OPTIONS, salary=None, no_salary_reason="Widełki podajemy na rozmowie."
+    )
     resp = await api.patch(
         _url(job_id, "options"), json={"options": changed}, headers=headers
     )
