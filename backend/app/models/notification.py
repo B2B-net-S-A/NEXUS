@@ -472,7 +472,7 @@ class NotificationType(str, enum.Enum):
     # kategoria „Raporty dla klientów”, bez maila.
     # ``tasks/client_report_reminders.py``.
     client_report_due = "client_report_due"
-    # 0726 (16.11.2026): nowy wpis w KRS spółki (odpis pełny co noc) — do Rady
+    # 0727 (16.11.2026): nowy wpis w KRS spółki (odpis pełny co noc) — do Rady
     # nadzorczej i adminów; related_entity=(board_krs_snapshot, id). Sekcja
     # Insights (Rada ma tylko ją), kategoria „Systemowe”. ``tasks/board_krs.py``.
     board_krs_entry = "board_krs_entry"

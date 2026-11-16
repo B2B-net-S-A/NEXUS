@@ -213,7 +213,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0725 (16.11.2026): szkic uzasadnienia (EN) prośby o dopłatę za technologię
     # premium z umowy ramowej — DL poprawia i wysyła klientowi sam.
     premium_skill_justification = "premium_skill_justification"
-    # 0726 (16.11.2026): Rada — odczyt skanu uchwały albo protokołu (numer, data,
+    # 0727 (16.11.2026): Rada — odczyt skanu uchwały albo protokołu (numer, data,
     # organ, przedmiot) jako propozycja do zatwierdzenia przez admina.
     board_document_read = "board_document_read"
 
