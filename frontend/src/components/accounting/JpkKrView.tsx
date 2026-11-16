@@ -210,7 +210,7 @@ function CompareCard({ year }: CompareCardProps) {
         </Button>
       </div>
       {compare.isError ? (
-        <p className="px-3.5 py-3 text-[13px] text-destructive-text">
+        <p className="px-3.5 py-3 text-[13px] text-destructive">
           {apiErrorMessage(compare.error, "Nie udało się porównać pliku z Symfonii.")}
         </p>
       ) : compare.data ? (
@@ -258,7 +258,7 @@ export function JpkKrView({ year }: JpkKrViewProps) {
       <SectionCard
         title={`JPK_KR_PD za ${year}`}
         aside={
-          <span className={data.ready ? "text-success" : "text-destructive-text"}>
+          <span className={data.ready ? "text-success" : "text-destructive"}>
             {data.ready ? "plik się składa" : countPl(data.problems.length, "brak", "braki", "braków")}
           </span>
         }
@@ -294,7 +294,7 @@ export function JpkKrView({ year }: JpkKrViewProps) {
       <SectionCard
         title={`JPK_ST_KR za ${year} — ewidencja środków trwałych`}
         aside={
-          <span className={data.st.ready ? "text-success" : "text-destructive-text"}>
+          <span className={data.st.ready ? "text-success" : "text-destructive"}>
             {data.st.ready
               ? countPl(data.st.assets, "środek", "środki", "środków")
               : countPl(data.st.problems.length, "brak", "braki", "braków")}
