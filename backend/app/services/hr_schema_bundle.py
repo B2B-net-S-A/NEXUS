@@ -29,6 +29,7 @@ from app.services import client_invoice_series_ext_schema as client_invoice_seri
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import client_settlements_schema as client_settlements
+from app.services import client_settlement_extras_schema as settlement_extras
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
 from app.services import client_reports_schema as client_reports
@@ -155,6 +156,8 @@ MODULES = (
     finance_archive,
     # 0724: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
     order_revenue_steps,
+    # 0728: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
+    settlement_extras,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

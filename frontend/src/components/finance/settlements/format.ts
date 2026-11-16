@@ -27,6 +27,7 @@ export const CONTRACTOR_INVOICE: Record<ContractorInvoiceState, { label: string;
   in_ksef: { label: "W KSeF", tone: "success" },
   differs: { label: "Inna kwota", tone: "danger" },
   nip_check: { label: "NIP do zatwierdzenia", tone: "warning" },
+  extra_pending: { label: "Czeka na dodatek", tone: "warning" },
 };
 
 export const CLIENT_INVOICE: Record<ClientInvoiceState, { label: string; tone: StatusDotTone }> = {

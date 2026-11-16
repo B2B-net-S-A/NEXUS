@@ -9,10 +9,11 @@ o odświeżenie karty. Reguły: ``app/services/back_office/``.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Annotated, Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
@@ -26,6 +27,9 @@ from app.models.app_setting import AppSetting
 from app.models.back_office import BoCard, BoTeamMember
 from app.models.user import User
 from app.services.back_office import access, board, service, steps, sync
+from app.services.back_office import settlement_extras as card_extras
+from app.services.client_settlements import extras as settlement_extras
+from app.services.client_settlements import settings as settlements_module
 from app.services.back_office.sources import ADAPTERS
 from app.services.back_office_schema import BACK_OFFICE_SETTING, NOTE_MAX
 from app.services.hr import people
@@ -387,6 +391,88 @@ async def _save_setting(
             set_={"value": statement.excluded.value, "updated_by": actor.id},
         )
     )
+
+
+# ── Dodatek do rozliczenia z karty sprawy (13.11.2026) ──────────────────────
+
+
+class SettlementExtraBody(BaseModel):
+    contract_id: int = Field(ge=1)
+    month: str = Field(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")
+    kind: str = Field(max_length=20)
+    amount: Decimal = Field(gt=0, le=100000)
+    description: Optional[str] = Field(default=None, max_length=300)
+
+
+async def _settlements_open(db: AsyncSession, user: User) -> None:
+    """Dodatki żyją w rozliczeniach klientów: wyłączony moduł = 404."""
+
+    if not settlements_module.open_for(user, await settlements_module.is_enabled(db)):
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, settlements_module.MODULE_DISABLED_DETAIL
+        )
+
+
+@router.get("/settlement-extras/people")
+async def settlement_extra_people(
+    current_user: BackOfficeMember,
+    q: str = Query(..., min_length=2, max_length=80),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, Any]]:
+    """„Kto” dla karty bez kontraktu: osoby z kontraktem po nazwisku."""
+
+    await _settlements_open(db, current_user)
+    return await card_extras.people(db, q)
+
+
+@router.get("/cards/{card_id}/settlement-extras")
+async def card_settlement_extras(
+    card_id: int, current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    await _settlements_open(db, current_user)
+    card = await db.get(BoCard, card_id)
+    if card is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, CARD_NOT_FOUND_DETAIL)
+    viewer = await access.load_viewer(db, current_user)
+    return await card_extras.card_view(db, card, viewer)
+
+
+@router.post("/cards/{card_id}/settlement-extras", status_code=status.HTTP_201_CREATED)
+async def add_card_settlement_extra(
+    card_id: int,
+    body: SettlementExtraBody,
+    current_user: BackOfficeMember,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zgłoszenie dodatku z karty: kto, okres, kwota. Czeka na Finanse."""
+
+    await _settlements_open(db, current_user)
+    card = await db.get(BoCard, card_id)
+    if card is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, CARD_NOT_FOUND_DETAIL)
+    viewer = await access.load_viewer(db, current_user)
+    if not (viewer.owns(card.team) or card.assignee_user_id == current_user.id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Dodatek zgłasza zespół, do którego należy karta.",
+        )
+    try:
+        await card_extras.add(
+            db,
+            card,
+            contract_id=body.contract_id,
+            month=body.month,
+            kind=body.kind,
+            amount=body.amount,
+            description=body.description,
+            actor_id=current_user.id,
+            now=datetime.now(timezone.utc),
+        )
+        await db.commit()
+    except settlement_extras.ExtraError as exc:
+        await db.rollback()
+        raise HTTPException(exc.status, exc.message) from exc
+    return await card_extras.card_view(db, card, viewer)
 
 
 @router.get("/team")

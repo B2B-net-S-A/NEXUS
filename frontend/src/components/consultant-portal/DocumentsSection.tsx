@@ -17,6 +17,7 @@ import {
 } from "@/lib/api/consultant-portal";
 import { cn } from "@/lib/utils";
 
+import { ExtrasBlock } from "./ExtrasBlock";
 import { formatDay, monthActionLabel, monthLabel, saveBlob } from "./portal-model";
 
 function MonthRow({ row }: { row: PortalMonth }) {
@@ -103,6 +104,7 @@ function MonthRow({ row }: { row: PortalMonth }) {
         </ul>
       ) : null}
       {row.settlement ? <SettlementBlock settlement={row.settlement} /> : null}
+      {row.extras ? <ExtrasBlock year={row.year} month={row.month} extras={row.extras} /> : null}
       {message ? <p className="mt-1 text-xs text-muted-foreground">{message}</p> : null}
       {error ? (
         <p role="alert" className="mt-1 text-xs text-destructive">
@@ -173,11 +175,22 @@ function CopyFact({ label, value, copy }: { label: string; value: string; copy?:
   );
 }
 
+/** Zatwierdzony dodatek: osobna pozycja faktury (opis i netto do skopiowania). */
+function ExtraItem({ description, net }: { description: string; net: string }) {
+  return (
+    <>
+      <CopyFact label="Pozycja" value={description} />
+      <CopyFact label="Netto pozycji" value={pln(net)} copy={plainAmount(net)} />
+    </>
+  );
+}
+
 /** Po przyjęciu RCP: dane do faktury do skopiowania (E3.2), a gdy faktura już
  * jest w KSeF — jej stan i termin zapłaty (E4). */
 function InvoiceData({ invoice }: { invoice: PortalSettlementInvoice }) {
   if (invoice.ksef) {
     const differs = invoice.ksef.state === "differs";
+    const waiting = invoice.ksef.state === "extra_pending";
     return (
       <dl className="grid max-w-xl grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-md bg-card p-2">
         <dt className="text-muted-foreground">Faktura</dt>
@@ -188,6 +201,12 @@ function InvoiceData({ invoice }: { invoice: PortalSettlementInvoice }) {
           <>
             <dt className="text-muted-foreground">Z rozliczenia</dt>
             <dd className="font-semibold tabular-nums">{pln(invoice.amount_net)}</dd>
+          </>
+        ) : null}
+        {waiting ? (
+          <>
+            <dt className="text-muted-foreground">Dodatek</dt>
+            <dd>czeka na zatwierdzenie Finansów</dd>
           </>
         ) : null}
         {invoice.ksef.due_date && !differs ? (
@@ -214,8 +233,14 @@ function InvoiceData({ invoice }: { invoice: PortalSettlementInvoice }) {
           <>
             <CopyFact label="Pozycja" value={invoice.item.description} />
             <CopyFact label="Ilość" value={invoice.item.quantity} />
+            {invoice.extra_items?.length ? (
+              <CopyFact label="Netto pozycji" value={pln(invoice.item.net)} copy={plainAmount(invoice.item.net)} />
+            ) : null}
           </>
         ) : null}
+        {(invoice.extra_items ?? []).map((extra, index) => (
+          <ExtraItem key={`${extra.description}-${index}`} description={extra.description} net={extra.net} />
+        ))}
         <CopyFact label="Kwota netto" value={pln(invoice.amount_net)} copy={plainAmount(invoice.amount_net)} />
         <CopyFact label="Data sprzedaży" value={formatDay(invoice.sale_date)} />
         <dt className="text-muted-foreground">Termin płatności</dt>

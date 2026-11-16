@@ -33,6 +33,8 @@
  "routes": {
   "GET /api/back-office/board": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/back-office/cards/{card_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/back-office/cards/{card_id}/settlement-extras": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/back-office/settlement-extras/people": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/back-office/team": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/assign": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/dismiss": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
@@ -41,6 +43,7 @@
   "POST /api/back-office/cards/{card_id}/refresh": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/release": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/review": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/back-office/cards/{card_id}/settlement-extras": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/state": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/step-done": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/cards/{card_id}/take": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",

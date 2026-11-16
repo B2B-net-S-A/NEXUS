@@ -42,7 +42,11 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
     const needle = search.trim().toLowerCase();
     return (query.data?.rows ?? []).filter(
       (r) =>
-        matchesFilter(filter, r.status, r.contractor_invoice === "differs") &&
+        matchesFilter(
+          filter,
+          r.status,
+          r.contractor_invoice === "differs" || r.contractor_invoice === "extra_pending" || (r.extras_pending ?? 0) > 0,
+        ) &&
         (!needle || r.person.toLowerCase().includes(needle) || (r.order_number ?? "").toLowerCase().includes(needle)),
     );
   }, [query.data, filter, search]);
@@ -198,6 +202,11 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <StatusDot tone={CONTRACTOR_INVOICE[r.contractor_invoice].tone}>
                     {CONTRACTOR_INVOICE[r.contractor_invoice].label}
                   </StatusDot>
+                  {r.extras_pending ? (
+                    <span className="block text-[11px] text-warning-muted-foreground">
+                      {r.extras_pending === 1 ? "1 dodatek do zatwierdzenia" : `Dodatki do zatwierdzenia: ${r.extras_pending}`}
+                    </span>
+                  ) : null}
                 </td>
                 {showAmounts ? <td className="px-2 py-1.5 text-right tabular-nums">{pln(r.amount_cost)}</td> : null}
                 {showAmounts ? (

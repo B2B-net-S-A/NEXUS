@@ -282,3 +282,66 @@ export function useCancelBonuses() {
     onSettled: () => client.invalidateQueries(),
   });
 }
+
+// ── Dodatek do rozliczenia z karty sprawy (13.11.2026) ───────────────────────
+
+export interface BoExtraPerson {
+  contract_id: number;
+  person: string;
+  client: string | null;
+}
+
+export interface BoCardExtra {
+  id: number;
+  month: string;
+  kind: string;
+  kind_label: string;
+  /** `null` bez dostępu do kwot (wpisujący widzi swoje). */
+  amount: string | null;
+  description: string;
+  status: "pending" | "approved" | "rejected";
+  status_label: string;
+  decision_note: string | null;
+  reported_by: string | null;
+  person: string | null;
+}
+
+export interface BoCardExtras {
+  contract: BoExtraPerson | null;
+  kinds: { key: string; label: string }[];
+  items: BoCardExtra[];
+}
+
+export const boExtraKeys = {
+  card: (id: number) => ["back-office", "card", id, "settlement-extras"] as const,
+  people: (q: string) => ["back-office", "settlement-extras", "people", q] as const,
+};
+
+/** Dodatki zgłoszone z karty; 404 = moduł rozliczeń wyłączony (sekcja się chowa). */
+export function useCardSettlementExtras(cardId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: boExtraKeys.card(cardId),
+    enabled,
+    retry: false,
+    queryFn: async () => (await api.get<BoCardExtras>(`/api/back-office/cards/${cardId}/settlement-extras`)).data,
+  });
+}
+
+export function useExtraPeople(q: string) {
+  const query = q.trim();
+  return useQuery({
+    queryKey: boExtraKeys.people(query),
+    enabled: query.length >= 2,
+    queryFn: async () =>
+      (await api.get<BoExtraPerson[]>("/api/back-office/settlement-extras/people", { params: { q: query } })).data,
+  });
+}
+
+export function useAddCardSettlementExtra(cardId: number) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { contract_id: number; month: string; kind: string; amount: string; description: string | null }) =>
+      (await api.post<BoCardExtras>(`/api/back-office/cards/${cardId}/settlement-extras`, body)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.card(cardId) }),
+  });
+}

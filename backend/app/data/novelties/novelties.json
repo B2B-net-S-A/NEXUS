@@ -3019,5 +3019,18 @@
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
     "dot_anchor": "dashboard.team-table.fullscreen"
+  },
+  {
+    "id": "dodatki-do-rozliczenia-kontraktora",
+    "pr": 3371,
+    "title": "Dodatki do faktury kontraktora",
+    "why": "Polecenie, weryfikacja, szkolenie albo delegacja w miesiącu. Zgłasza back office, konsultant albo Finanse; zatwierdzony dodatek podnosi fakturę kontraktora, zaznaczony też fakturę klienta.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["finance", "admin"] },
+    "where": "Klienci → klient → Rozliczenia → osoba → Dodatki do faktury",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.settlement-extras.add"
   }
 ]
