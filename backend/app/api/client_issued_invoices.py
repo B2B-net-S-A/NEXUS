@@ -12,6 +12,8 @@ admin widzi ekrany zawsze (jak „Faktury do klientów”).
 * ``POST /{id}/send`` — wysyłka do KSeF (``KSEF_SALES_ISSUE_MODE``),
   ``POST /{id}/check`` — „Sprawdź status”,
 * ``POST /{id}/correction``, ``POST /advance`` — korekta i zaliczkowa,
+* ``GET /rebate-correction`` (+ ``/xml``) — szkic korekty zbiorczej rabatu od
+  obrotu za miesiąc przekroczenia progu (16.11.2026; bez zapisu i bez wysyłki),
 * ``GET /{id}/pdf``, ``/upo``, ``/xml`` — pliki,
 * E6 (15.11.2026): ``POST /manual`` — faktura z ręki (klient albo dowolny
   nabywca); ``GET/POST /templates``, ``PUT/DELETE /templates/{id}`` — szablony
@@ -51,6 +53,7 @@ from app.services.client_invoicing import (
     issue_settings,
     ksef_send,
     numbering,
+    rebate_correction,
     templates,
 )
 from app.services.client_invoicing import settings as module_settings
@@ -540,6 +543,66 @@ async def template_delete(
     await db.delete(template)
     await db.commit()
     return {"result": "deleted"}
+
+
+# ── Korekta rabatu od obrotu za miesiąc przekroczenia progu (szkic) ─────────
+
+
+async def _rebate_correction(
+    db: AsyncSession, client_id: int, year: int, month: int, currency: str
+) -> rebate_correction.Prepared:
+    with _http_errors():
+        return await rebate_correction.prepare(
+            db,
+            client_id=client_id,
+            year=year,
+            month=month,
+            currency=currency,
+            today=business_today(),
+        )
+
+
+@router.get("/rebate-correction")
+async def rebate_correction_draft(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    currency: Literal["PLN", "EUR", "USD"] = "PLN",
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Szkic korekty rabatu za <miesiąc>”: kwota, stawki VAT, faktury korygowane.
+
+    Nic nie zapisuje i nic nie wysyła — korekta idzie do KSeF dopiero po
+    „tak” Artura (decyzja 16.11.2026).
+    """
+
+    await _module_open(db, current_user)
+    prepared = await _rebate_correction(db, client_id, year, month, currency)
+    return rebate_correction.payload(prepared, client_id=client_id)
+
+
+@router.get("/rebate-correction/xml")
+async def rebate_correction_xml(
+    current_user: FinanceModuleUser,
+    client_id: int = Query(..., ge=1),
+    year: int = Query(..., ge=2020, le=2100),
+    month: int = Query(..., ge=1, le=12),
+    currency: Literal["PLN", "EUR", "USD"] = "PLN",
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await _module_open(db, current_user)
+    prepared = await _rebate_correction(db, client_id, year, month, currency)
+    if prepared.xml is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            prepared.xml_error or "Szkic korekty nie jest kompletny.",
+        )
+    return _file(
+        prepared.xml,
+        f"fa3-szkic-korekta-rabatu-{client_id}-{year}-{month:02d}-{currency}.xml",
+        "application/xml",
+    )
 
 
 @router.post("/{invoice_id}/template", status_code=status.HTTP_201_CREATED)

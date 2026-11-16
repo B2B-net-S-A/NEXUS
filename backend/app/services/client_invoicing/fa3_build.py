@@ -14,7 +14,9 @@ Co budujemy:
   ``OkresFa``, sumy ``P_13_x``/``P_14_x`` per stawka (``P_14_xW`` w złotych
   przy walucie obcej), ``P_15``, ``Adnotacje`` (odwrotne obciążenie przy
   ``np II``, zwolnienie z podstawą przy ``zw``), ``RodzajFaktury``
-  (``VAT``/``KOR``/``ZAL``), dane faktury korygowanej, ``FaWiersz`` (korekta:
+  (``VAT``/``KOR``/``ZAL``), dane faktury korygowanej (korekta zbiorcza opustu
+  za okres, art. 106j ust. 3: wiele ``DaneFaKorygowanej``, ``TypKorekty``
+  i ``OkresFaKorygowanej``), ``FaWiersz`` (korekta:
   wiersze „przed” z ``StanPrzed``), ``Platnosc`` (termin, przelew, rachunek),
   ``WarunkiTransakcji`` (numer zamówienia klienta), dla zaliczkowej
   ``Zamowienie`` z wierszami zamówienia.
@@ -44,6 +46,8 @@ ZERO = Decimal("0.00")
 #: Przelew (``FormaPlatnosci`` = 6).
 PAYMENT_TRANSFER = "6"
 MAX_LINES = 500
+#: ``DaneFaKorygowanej`` ma w schemacie FA(3) ``maxOccurs="50000"``.
+MAX_CORRECTED = 50000
 NAME_MAX = 512
 #: Kody krajów UE w ``KodUE`` (Grecja to ``EL``, Irlandia Płn. ``XI``).
 EU_CODES = frozenset(
@@ -282,6 +286,13 @@ class InvoiceDocument:
     notes: Optional[str] = None
     exemption_basis: Optional[str] = None
     corrected: Optional[CorrectedInvoice] = None
+    #: Korekta zbiorcza (art. 106j ust. 3): faktury z okresu zamiast ``corrected``.
+    corrected_list: tuple[CorrectedInvoice, ...] = ()
+    correction_reason: Optional[str] = None
+    #: ``TypKorekty``: 1 data faktury pierwotnej, 2 data korekty, 3 inna.
+    correction_type: Optional[str] = None
+    #: ``OkresFaKorygowanej`` — okres opustu w korekcie zbiorczej.
+    corrected_period: Optional[str] = None
     created_at: Optional[datetime] = None
 
 
@@ -327,8 +338,14 @@ def validate(doc: InvoiceDocument) -> None:
         raise InvoiceBuildError(
             "Pozycja zwolniona wymaga podstawy zwolnienia w ustawieniach wystawiania."
         )
-    if doc.invoice_type == "KOR" and doc.corrected is None:
+    if doc.invoice_type == "KOR" and doc.corrected is None and not doc.corrected_list:
         raise InvoiceBuildError("Korekta musi wskazywać fakturę korygowaną.")
+    if len(doc.corrected_list) > MAX_CORRECTED:
+        raise InvoiceBuildError(
+            f"Korekta wskazuje więcej niż {MAX_CORRECTED} faktur korygowanych."
+        )
+    if doc.correction_type not in (None, "1", "2", "3"):
+        raise InvoiceBuildError("Typ korekty: 1, 2 albo 3.")
     totals(doc.lines, doc.lines_before)
 
 
@@ -428,18 +445,23 @@ def _adnotacje(fa: etree._Element, doc: InvoiceDocument) -> None:
 
 
 def _correction(fa: etree._Element, doc: InvoiceDocument) -> None:
-    corrected = doc.corrected
-    assert corrected is not None
-    if _clean(corrected.reason, 256):
-        _sub(fa, "PrzyczynaKorekty", _clean(corrected.reason, 256))
-    data = _sub(fa, "DaneFaKorygowanej")
-    _sub(data, "DataWystFaKorygowanej", corrected.issue_date.isoformat())
-    _sub(data, "NrFaKorygowanej", corrected.number)
-    if corrected.ksef_number:
-        _sub(data, "NrKSeF", "1")
-        _sub(data, "NrKSeFFaKorygowanej", corrected.ksef_number)
-    else:
-        _sub(data, "NrKSeFN", "1")
+    refs = doc.corrected_list or ((doc.corrected,) if doc.corrected else ())
+    reason = doc.correction_reason or (doc.corrected.reason if doc.corrected else None)
+    if _clean(reason, 256):
+        _sub(fa, "PrzyczynaKorekty", _clean(reason, 256))
+    if doc.correction_type:
+        _sub(fa, "TypKorekty", doc.correction_type)
+    for corrected in refs:
+        data = _sub(fa, "DaneFaKorygowanej")
+        _sub(data, "DataWystFaKorygowanej", corrected.issue_date.isoformat())
+        _sub(data, "NrFaKorygowanej", _clean(corrected.number, 256))
+        if corrected.ksef_number:
+            _sub(data, "NrKSeF", "1")
+            _sub(data, "NrKSeFFaKorygowanej", corrected.ksef_number)
+        else:
+            _sub(data, "NrKSeFN", "1")
+    if _clean(doc.corrected_period, 256):
+        _sub(fa, "OkresFaKorygowanej", _clean(doc.corrected_period, 256))
 
 
 def _payment(fa: etree._Element, doc: InvoiceDocument) -> None:
@@ -550,6 +572,7 @@ __all__ = [
     "CorrectedInvoice",
     "InvoiceBuildError",
     "InvoiceDocument",
+    "MAX_CORRECTED",
     "Party",
     "Totals",
     "build_xml",
