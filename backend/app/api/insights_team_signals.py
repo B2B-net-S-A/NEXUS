@@ -6,10 +6,11 @@ bramka co ``/api/kpis/team/panel`` od 22.09.2026. Bez kwot.
 """
 
 import logging
-from datetime import date
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import AnalyticsCapability, require_capability
@@ -24,6 +25,7 @@ from app.services.section_permissions import (
     SectionAccess,
     section_access_for_user,
 )
+from app.services.added_to_jobs import LAST_DAYS, added_today_and_last_days
 from app.services.dl_send_queue import STALE_WORKDAYS
 from app.services.recruitment_activity import MILESTONE_STAGES, period_clients
 from app.services.team_filters import TeamRoleFilter, team_role_user_ids
@@ -46,6 +48,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 CACHE_TTL_SECONDS = 300
+# Dodania „dziś” — krótszy cache, żeby świeże dodanie było widać w kilka minut.
+ADDED_CACHE_TTL_SECONDS = 120
 
 TeamViewer = Annotated[
     User, Depends(require_capability(AnalyticsCapability.VIEW_TEAM_KPI))
@@ -121,6 +125,79 @@ async def insights_team_people(
             "clients": [client.model_dump() for client in clients],
         }
         await cache_set(cache_key, result, ttl_seconds=CACHE_TTL_SECONDS)
+        return result
+
+
+@router.get("/team/added-to-jobs")
+async def insights_team_added_to_jobs(
+    _: TeamViewer,
+    db: AsyncSession = Depends(get_db),
+    role: TeamRoleFilter = Query("all"),
+    client_id: int | None = Query(None, ge=1),
+):
+    """Kolumna „Dodali (dziś / 7 dni)” w tabeli zespołu na pulpicie.
+
+    Dodania do rekrutacji per osoba przez wszystkie rekrutacje (reguła
+    w ``services/added_to_jobs.py``). Okna są stałe — dziś i siedem dni
+    z dziś — niezależnie od okresu z paska. Wiersze tylko dla aktywnych osób
+    z rolą rekrutacyjną w wybranej grupie roli; reszta (konta
+    administracyjne, byli pracownicy, poza filtrem roli) to jedna liczba
+    ``rest``, automat „Nowi” i wpisy bez osoby — osobno.
+    """
+    today = business_today()
+    cache_key = f"insights:team:added-to-jobs:v1:{today}:{role}:{client_id or 'all'}"
+    async with cache_single_flight(cache_key, db=db):
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return cached
+        day, week = await added_today_and_last_days(
+            db, today=today, client_id=client_id
+        )
+        ids = sorted(set(week.by_user) | set(day.by_user))
+        outside = await outside_scope_user_ids(db, ids)
+        role_ids = await team_role_user_ids(db, role)
+        users = (
+            {
+                user.id: user
+                for user in (
+                    await db.scalars(select(User).where(User.id.in_(ids)))
+                ).all()
+            }
+            if ids
+            else {}
+        )
+        rows = []
+        rest = {"today": 0, "last_days": 0}
+        for uid in ids:
+            counts = {
+                "today": day.by_user.get(uid, 0),
+                "last_days": week.by_user.get(uid, 0),
+            }
+            user = users.get(uid)
+            if (
+                user is None
+                or not user.is_active
+                or uid in outside
+                or (role_ids is not None and uid not in role_ids)
+            ):
+                rest["today"] += counts["today"]
+                rest["last_days"] += counts["last_days"]
+                continue
+            rows.append({"user_id": uid, "name": user.name, **counts})
+        rows.sort(key=lambda r: (-r["last_days"], -r["today"], r["name"]))
+        result = {
+            "date_to": today.isoformat(),
+            "date_from": (today - timedelta(days=LAST_DAYS - 1)).isoformat(),
+            "days": LAST_DAYS,
+            "rows": rows,
+            "rest": rest,
+            "system": {"today": day.system, "last_days": week.system},
+            "unattributed": {
+                "today": day.unattributed,
+                "last_days": week.unattributed,
+            },
+        }
+        await cache_set(cache_key, result, ttl_seconds=ADDED_CACHE_TTL_SECONDS)
         return result
 
 

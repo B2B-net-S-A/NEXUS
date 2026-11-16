@@ -27,6 +27,7 @@ from app.services import client_invoice_issue_schema as client_invoice_issue
 from app.services import client_invoice_templates_schema as client_invoice_templates
 from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
 from app.services import finance_archive_schema as finance_archive
+from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import board_documents_schema as board_documents
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
@@ -153,6 +154,8 @@ MODULES = (
     payroll_k7b,
     # 0720: archiwum dokumentów z eBI24 w Finansach (E5, 16.11.2026).
     finance_archive,
+    # 0724: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
+    order_revenue_steps,
     # 0726: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
     board_documents,
 )

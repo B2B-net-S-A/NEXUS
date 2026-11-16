@@ -109,7 +109,38 @@ def plain(value: Decimal) -> str:
     return format(normalized, "f")
 
 
+def line_discount_pct(line: dict[str, Any]) -> Optional[Decimal]:
+    """Rabat % na pozycji (np. rabat od obrotu Nordei); ``None`` = bez rabatu."""
+
+    value = decimal_or_none(line.get("discount_pct"))
+    return value if value is not None and Decimal(0) < value < Decimal(100) else None
+
+
+def discounted_price(line: dict[str, Any]) -> Optional[Decimal]:
+    """Cena po rabacie zaokrąglona do grosza — jak w eBI24 (157,00 − 2,5% = 153,08)."""
+
+    price = decimal_or_none(line.get("unit_price"))
+    if price is None:
+        return None
+    discount = line_discount_pct(line)
+    if discount is None:
+        return price
+    return money(price * (Decimal(100) - discount) / Decimal(100))
+
+
 def line_net(line: dict[str, Any]) -> Optional[Decimal]:
+    """Wartość netto pozycji: ilość × cena (po rabacie, gdy pozycja ma rabat %)."""
+
+    quantity = decimal_or_none(line.get("quantity"))
+    price = discounted_price(line)
+    if quantity is None or price is None:
+        return None
+    return money(quantity * price)
+
+
+def line_gross_value(line: dict[str, Any]) -> Optional[Decimal]:
+    """Ilość × cena przed rabatem — podstawa rabatu i porównań z zamówieniem."""
+
     quantity = decimal_or_none(line.get("quantity"))
     price = decimal_or_none(line.get("unit_price"))
     if quantity is None or price is None:
@@ -353,7 +384,11 @@ def _line(
         _sub(row, "P_8A", _clean(line.get("unit"), 32))
     _sub(row, "P_8B", plain(decimal_or_none(line.get("quantity")) or ZERO))
     _sub(row, "P_9A", plain(decimal_or_none(line.get("unit_price")) or ZERO))
-    _sub(row, "P_11", _amount(line_net(line) or ZERO))
+    net = line_net(line) or ZERO
+    if line_discount_pct(line) is not None:
+        # P_10: opust na pozycji nieujęty w cenie jednostkowej (rabat od obrotu).
+        _sub(row, "P_10", _amount((line_gross_value(line) or ZERO) - net))
+    _sub(row, "P_11", _amount(net))
     _sub(row, "P_12", str(line.get("vat_rate")))
     if doc.currency != "PLN" and doc.fx_rate is not None:
         _sub(row, "KursWaluty", plain(doc.fx_rate))

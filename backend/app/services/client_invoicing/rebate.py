@@ -13,16 +13,16 @@ Finanse z umowy ramowej; w kodzie nie ma ani progów, ani stawek::
 Decyzje Artura 16.11.2026 (Nordea, druga odpowiedź tego dnia — zastępuje
 „korektę roczną” z pierwszej):
 
-* rabat jest POZYCJĄ na każdej fakturze miesięcznej (ujemna, nazwa zaczyna się
-  od ``REBATE_PREFIX``), po stawce progu, w którym jest narastający obrót roku
-  SPRZED miesiąca faktury;
+* rabat jest RABATEM % NA KAŻDYM WIERSZU usługi (cena przed rabatem, rabat,
+  wartość po rabacie — ``P_10`` w FA(3)), tak jak Nordea dostaje go z eBI24,
+  po stawce progu, w którym jest narastający obrót roku SPRZED miesiąca faktury;
 * stawka wyższego progu dotyczy tylko NADWYŻKI ponad próg; faktury za miesiąc,
   w którym obrót przekroczył próg, idą jeszcze po niższej stawce, a różnicę od
   części obrotu tego miesiąca ponad próg (np. 0,5%) rozlicza korekta
   (``YearRebate.corrections``; do KSeF tylko po „tak” Artura);
-* obrót = usługi z faktur sprzedaży z KSeF za miesiące roku (okres usługi,
-  bez okresu — data wystawienia), razem z korektami, bez pozycji rabatu
-  i bez pozycji ze słowem z ``exclude_words`` (podróże, refaktury);
+* obrót = usługi PRZED rabatem (ilość × cena) z faktur sprzedaży z KSeF za
+  miesiące roku (okres usługi, bez okresu — data wystawienia), razem
+  z korektami, bez pozycji ze słowem z ``exclude_words`` (podróże, refaktury);
 * próg w innej walucie niż faktura: każda faktura po kursie średnim NBP
   z ostatniej tabeli przed datą sprzedaży; brak kursu = faktura poza obrotem
   progu i ostrzeżenie, nigdy kurs 1:1;
@@ -228,61 +228,71 @@ def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 
 
-REBATE_PREFIX = "Rabat od obrotu"
-
-
-def is_rebate_line(item: dict[str, Any]) -> bool:
-    return str(item.get("name") or "").strip().lower().startswith(REBATE_PREFIX.lower())
-
-
-def _outside(item: dict[str, Any], words: Sequence[str]) -> bool:
+def _excluded(item: dict[str, Any], words: Sequence[str]) -> bool:
     name = str(item.get("name") or "").lower()
-    return is_rebate_line(item) or any(word in name for word in words)
+    return any(word in name for word in words)
 
 
-def _item_net(item: dict[str, Any]) -> Decimal:
+def _num(raw: Any) -> Optional[Decimal]:
+    if raw is None or raw == "":
+        return None
     try:
-        return Decimal(str(item.get("net") or "0"))
+        value = Decimal(str(raw).replace(",", "."))
     except ArithmeticError:
-        return Decimal(0)
+        return None
+    return value if value.is_finite() else None
 
 
-def service_net(
+def service_base(
     net_amount: Decimal, items: Sequence[dict[str, Any]], words: Sequence[str]
 ) -> tuple[Decimal, bool]:
-    """Obrót z faktury: netto bez pozycji rabatu i wyłączonych (korekta: różnica stanów).
+    """Obrót z faktury PRZED rabatem (decyzja Artura 16.11.2026), bez pozycji wyłączonych.
 
-    Zwraca też, czy coś odjęto (podróże/refaktury), do licznika na karcie.
+    Faktury z eBI24 mają rabat % na wierszu: cena jednostkowa (``P_9A``) jest
+    przed rabatem, a netto (``P_11``) po nim. Od netto faktury doliczamy więc
+    opust każdej pozycji (ilość × cena − netto) i odejmujemy pozycje wyłączone.
+    Pozycja bez ilości, ceny albo netto niczego nie zmienia. Korekta: stan przed
+    ze znakiem minus. Zwraca też, czy coś wyłączono.
     """
 
-    after = sum(
-        (
-            _item_net(i)
-            for i in items
-            if not i.get("before_correction") and _outside(i, words)
-        ),
-        Decimal(0),
-    )
-    before = sum(
-        (
-            _item_net(i)
-            for i in items
-            if i.get("before_correction") and _outside(i, words)
-        ),
-        Decimal(0),
-    )
-    touched = any(_outside(i, words) and not is_rebate_line(i) for i in items)
-    return net_amount - (after - before), touched
+    total = Decimal(net_amount)
+    touched = False
+    for item in items or ():
+        sign = -1 if item.get("before_correction") else 1
+        net = _num(item.get("net"))
+        if _excluded(item, words):
+            touched = True
+            if net is not None:
+                total -= sign * net
+            continue
+        quantity, price = _num(item.get("quantity")), _num(item.get("unit_price"))
+        if net is not None and quantity is not None and price is not None:
+            total += sign * (cents(quantity * price) - net)
+    return cents(total), touched
 
 
-def without_rebate(net_amount: Decimal, items: Sequence[dict[str, Any]]) -> Decimal:
-    """Netto faktury bez pozycji „Rabat od obrotu” — do porównań z zamówieniem.
+def pre_discount(net_amount: Decimal, items: Sequence[dict[str, Any]]) -> Decimal:
+    """Netto faktury przed rabatem % na wierszach — do porównań z zamówieniem.
 
-    Rabat obniża fakturę, nie zamówienie: bez tego każdy wiersz klienta
-    z rabatem w „Do faktury” pokazywałby różnicę o stawkę rabatu.
+    Rabat obniża fakturę, nie zamówienie: zamówienie ma cenę przed rabatem, więc
+    bez tego każdy wiersz klienta z rabatem w „Do faktury” miałby różnicę.
     """
 
-    return service_net(net_amount, items, ())[0]
+    return service_base(net_amount, items, ())[0]
+
+
+def with_discount(
+    lines: Sequence[dict[str, Any]], tier: Tier, words: Sequence[str]
+) -> list[dict[str, Any]]:
+    """Pozycje z rabatem % progu na usługach; pozycje wyłączone bez rabatu."""
+
+    out = []
+    for line in lines:
+        item = {k: v for k, v in line.items() if k != "discount_pct"}
+        if tier.rate > 0 and not _excluded(item, words):
+            item["discount_pct"] = format(tier.rate.normalize(), "f")
+        out.append(item)
+    return out
 
 
 @dataclass(frozen=True)
@@ -455,7 +465,7 @@ async def year_rebate(
     ).all()
     entries = []
     for row in rows:
-        net, touched = service_net(
+        net, touched = service_base(
             Decimal(row.net_amount), list(row.items or ()), terms.exclude_words
         )
         entries.append(
@@ -480,43 +490,6 @@ async def year_rebate(
 
 def _rate_text(value: Decimal) -> str:
     return format(value.normalize(), "f")
-
-
-def rebate_lines(
-    lines: Sequence[dict[str, Any]], tier: Tier, year: int, words: Sequence[str]
-) -> list[dict[str, Any]]:
-    """Pozycje rabatu dla usług faktury: jedna na stawkę VAT, ujemna, ilość 1.
-
-    Stare pozycje rabatu się pomija (przeliczenie po edycji zastępuje je nowymi).
-    """
-
-    bases: dict[str, Decimal] = {}
-    for line in lines:
-        if _outside(line, words) or not line.get("vat_rate"):
-            continue
-        try:
-            net = Decimal(str(line.get("quantity"))) * Decimal(
-                str(line.get("unit_price"))
-            )
-        except (ArithmeticError, TypeError, ValueError):
-            continue
-        bases[line["vat_rate"]] = bases.get(line["vat_rate"], Decimal(0)) + net
-    out = []
-    for vat_rate, base in bases.items():
-        amount = cents(base * tier.rate / HUNDRED)
-        if amount <= 0:
-            continue
-        out.append(
-            {
-                "name": f"{REBATE_PREFIX} rocznego {_rate_text(tier.rate).replace('.', ',')}% "
-                f"(umowa ramowa, rok {year})",
-                "quantity": "1",
-                "unit": "usł.",
-                "unit_price": format(-amount, "f"),
-                "vat_rate": vat_rate,
-            }
-        )
-    return out
 
 
 def _amount(value: Optional[Decimal]) -> Optional[str]:
@@ -565,22 +538,20 @@ def payload(
 
 
 __all__ = [
-    "REBATE_PREFIX",
     "Entry",
     "RebateTermsError",
     "Terms",
     "Tier",
     "YearRebate",
     "due",
-    "is_rebate_line",
     "parse_terms",
     "payload",
-    "rebate_lines",
-    "service_net",
+    "pre_discount",
+    "service_base",
     "summarize",
     "tier_for",
     "tiers_for",
     "to_json",
-    "without_rebate",
+    "with_discount",
     "year_rebate",
 ]

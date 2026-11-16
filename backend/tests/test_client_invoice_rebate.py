@@ -1,7 +1,7 @@
 """Rabat roczny od obrotu klienta (``client_invoicing/rebate.py``) — bez bazy.
 
-Decyzje Artura 16.11.2026: rabat jako pozycja na każdej fakturze po stawce
-progu obrotu SPRZED miesiąca faktury, wyższa stawka tylko od nadwyżki, za
+Decyzje Artura 16.11.2026: rabat % na każdym wierszu (jak w eBI24) po stawce
+progu obrotu SPRZED miesiąca faktury, obrót przed rabatem, wyższa stawka tylko od nadwyżki, za
 miesiąc przekroczenia korekta różnicy od części ponad próg, próg w innej
 walucie po kursie NBP z każdej faktury. Kwoty fikcyjne.
 """
@@ -263,54 +263,85 @@ def test_flat_rate_before_the_amendment_year():
     assert status.corrections == ()
 
 
-def test_service_net_drops_rebate_and_travel_lines():
+def test_turnover_is_before_discount_and_without_travel():
+    """Faktura z eBI24: cena 157,00, rabat 2,5% → 153,08, netto 80 × 153,08."""
+
     words = ("podróż",)
     items = [
-        {"name": "Usługi informatyczne — październik", "net": "1000.00"},
-        {"name": "Refaktura: podróż służbowa", "net": "300.00"},
         {
-            "name": "Rabat od obrotu rocznego 2,5% (umowa ramowa, rok 2026)",
-            "net": "-25.00",
+            "name": "Usługi informatyczne",
+            "quantity": "80",
+            "unit_price": "157",
+            "net": "12246.40",
+        },
+        {
+            "name": "Refaktura: podróż służbowa",
+            "quantity": "1",
+            "unit_price": "300",
+            "net": "300.00",
         },
     ]
-    net, touched = rebate.service_net(Decimal("1275.00"), items, words)
-    assert net == Decimal("1000.00") and touched is True
-    # Korekta: liczy się różnica stanów po i przed.
+    net, touched = rebate.service_base(Decimal("12546.40"), items, words)
+    assert net == Decimal("12560.00") and touched is True
+    # Korekta: stan po minus stan przed (przed rabatem).
     correction = [
-        {"name": "Usługi", "net": "900.00"},
-        {"name": "Rabat od obrotu rocznego 2,5%", "net": "-22.50"},
-        {"name": "Usługi", "net": "1000.00", "before_correction": True},
+        {"name": "Usługi", "quantity": "70", "unit_price": "157", "net": "10715.60"},
         {
-            "name": "Rabat od obrotu rocznego 2,5%",
-            "net": "-25.00",
+            "name": "Usługi",
+            "quantity": "80",
+            "unit_price": "157",
+            "net": "12246.40",
             "before_correction": True,
         },
     ]
-    net, touched = rebate.service_net(Decimal("-97.50"), correction, words)
-    assert net == Decimal("-100.00") and touched is False
+    net, touched = rebate.service_base(Decimal("-1530.80"), correction, words)
+    assert net == Decimal("-1570.00") and touched is False
+    # Bez pozycji — netto faktury.
+    assert rebate.service_base(Decimal("99.00"), [], words) == (Decimal("99.00"), False)
 
 
-def test_rebate_lines_one_per_vat_rate_without_travel():
+def test_discount_goes_on_service_lines_only():
     lines = [
-        {"name": "Usługi A", "quantity": "160", "unit_price": "100", "vat_rate": "23"},
-        {"name": "Usługi B", "quantity": "10", "unit_price": "50", "vat_rate": "np II"},
-        {"name": "Podróż", "quantity": "1", "unit_price": "999", "vat_rate": "23"},
         {
-            "name": "Rabat od obrotu rocznego 3% (stary)",
+            "name": "Usługi A",
+            "quantity": "80",
+            "unit_price": "157",
+            "vat_rate": "np II",
+        },
+        {
+            "name": "Podróż",
             "quantity": "1",
-            "unit_price": "-1",
+            "unit_price": "999",
             "vat_rate": "23",
+            "discount_pct": "3",
         },
     ]
-    tier = rebate.Tier(None, Decimal("2.5"))
-    out = rebate.rebate_lines(lines, tier, 2026, ("podróż",))
-    assert [(line["vat_rate"], line["unit_price"]) for line in out] == [
-        ("23", "-400.00"),
-        ("np II", "-12.50"),
-    ]
-    assert all(rebate.is_rebate_line(line) for line in out)
-    assert out[0]["name"] == "Rabat od obrotu rocznego 2,5% (umowa ramowa, rok 2026)"
-    assert rebate.rebate_lines(lines, rebate.Tier(None, Decimal(0)), 2026, ()) == []
+    out = rebate.with_discount(lines, rebate.Tier(None, Decimal("2.5")), ("podróż",))
+    assert out[0]["discount_pct"] == "2.5"
+    assert "discount_pct" not in out[1]
+    assert "discount_pct" not in lines[0]  # wejście bez zmian
+    zero = rebate.with_discount(out, rebate.Tier(None, Decimal(0)), ())
+    assert all("discount_pct" not in line for line in zero)
+
+
+def test_line_with_discount_matches_ebi24_rounding():
+    from app.services.client_invoicing import fa3_build
+
+    line = {
+        "name": "Usługi",
+        "quantity": "80",
+        "unit_price": "157",
+        "vat_rate": "23",
+        "discount_pct": "2.5",
+    }
+    assert fa3_build.discounted_price(line) == Decimal("153.08")
+    assert fa3_build.line_net(line) == Decimal("12246.40")
+    assert fa3_build.line_gross_value(line) == Decimal("12560.00")
+    plain = {**line}
+    plain.pop("discount_pct")
+    assert fa3_build.line_net(plain) == Decimal("12560.00")
+    # Rabat spoza (0, 100) nie działa.
+    assert fa3_build.line_discount_pct({**line, "discount_pct": "100"}) is None
 
 
 def test_corrections_reduce_turnover():
@@ -363,23 +394,22 @@ def test_payload_for_invoice_month():
     ]
 
 
-def test_order_comparison_ignores_rebate_lines():
-    """Rabat obniża fakturę, nie zamówienie: „Do faktury” porównuje netto bez rabatu."""
+def test_order_comparison_uses_value_before_discount():
+    """Rabat obniża fakturę, nie zamówienie: „Do faktury” porównuje kwotę przed rabatem."""
 
     from app.models.client_sales_invoice import ClientSalesInvoice
     from app.services.client_invoicing.ledger import Chain
 
     items = [
-        {"name": "Usługi informatyczne", "net": "26880.00"},
-        {
-            "name": "Rabat od obrotu rocznego 2,5% (umowa ramowa, rok 2026)",
-            "net": "-672.00",
-        },
+        {"name": "Usługi", "quantity": "80", "unit_price": "157", "net": "12246.40"}
     ]
-    assert rebate.without_rebate(Decimal("26208.00"), items) == Decimal("26880.00")
+    assert rebate.pre_discount(Decimal("12246.40"), items) == Decimal("12560.00")
     head = ClientSalesInvoice(
-        net_amount=Decimal("26208.00"), gross_amount=Decimal("26208.00"), items=items
+        net_amount=Decimal("12246.40"), gross_amount=Decimal("12246.40"), items=items
     )
     chain = Chain(head=head)
-    assert chain.net == Decimal("26208.00")  # do zapłaty i sumy — bez zmian
-    assert chain.order_net == Decimal("26880.00")
+    assert chain.net == Decimal("12246.40")  # do zapłaty i sumy — po rabacie
+    assert chain.order_net == Decimal("12560.00")
+    # Faktura bez rabatu: bez zmian.
+    same = [{"name": "Usługi", "quantity": "3", "unit_price": "33.33", "net": "99.99"}]
+    assert rebate.pre_discount(Decimal("99.99"), same) == Decimal("99.99")
