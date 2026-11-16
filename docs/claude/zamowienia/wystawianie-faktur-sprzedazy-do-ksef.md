@@ -66,8 +66,8 @@ trasy `api/client_issued_invoices.py` (`/api/finance/issued-invoices`), migracja
 ## Wysyłka do KSeF
 
 - `KSEF_SALES_ISSUE_MODE=off|test|prod` (domyślnie `off`: „Wyślij do KSeF” nieaktywny z wyjaśnieniem; szkice
-  działają). Kontekst `KSEF_CONTEXT_NIP`, osobny token `KSEF_SALES_ISSUE_TOKEN` z `InvoiceWrite` — token
-  odczytu `KSEF_TOKEN` go nie ma. Ustawiane wyłącznie workflow „Coolify set env”.
+  działają). Kontekst `KSEF_CONTEXT_NIP`. Token z `InvoiceWrite`: `KSEF_SALES_ISSUE_TOKEN`, a gdy pusty —
+  `KSEF_TOKEN`, który od 16.11.2026 ma pełne prawa (decyzja Artura). Ustawiane wyłącznie workflow „Coolify set env”.
 - Sesja interaktywna (`ksef_send.py`): AES-256-CBC, klucz szyfrowany RSA-OAEP kluczem MF
   `SymmetricKeyEncryption`, `POST /sessions/online`, faktura, status (ok. 14 s odpytywania), zamknięcie, UPO.
   Wynik przetwarzania: 200 = `accepted` (numer KSeF), inny kod 4xx/5xx = `rejected` (kod i opis).

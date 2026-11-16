@@ -1726,8 +1726,9 @@ class Settings(BaseSettings):
     # Wystawianie faktur sprzedaży z NEXUSA do KSeF (E4, `services/client_invoicing/
     # ksef_send.py`): off = „Wyślij do KSeF” nieaktywny (domyślnie), test = KSeF
     # testowy MF, prod = produkcja MF. Kontekst = KSEF_CONTEXT_NIP. Token z
-    # uprawnieniem „wystawianie faktur” (InvoiceWrite) — osobny od KSEF_TOKEN, który
-    # ma tylko odczyt. Sekret — tylko przez workflow „Coolify set env”.
+    # uprawnieniem „wystawianie faktur” (InvoiceWrite): KSEF_SALES_ISSUE_TOKEN, a gdy
+    # pusty — KSEF_TOKEN (od 16.11.2026 ma pełne prawa). Sekret — tylko przez
+    # workflow „Coolify set env”.
     KSEF_SALES_ISSUE_MODE: str = "off"
     KSEF_SALES_ISSUE_TOKEN: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):

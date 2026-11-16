@@ -295,3 +295,23 @@ def test_load_config_defaults_to_off(monkeypatch) -> None:
     assert ksef_send.load_config().mode == "off"
     monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_MODE", "prod")
     assert ksef_send.load_config().api_url == "https://api.ksef.mf.gov.pl/v2"
+
+
+def test_issue_falls_back_to_read_token_with_full_rights(monkeypatch) -> None:
+    """Decyzja Artura 16.11.2026: token w KSEF_TOKEN ma pełne prawa (też wystawianie).
+
+    Pusty KSEF_SALES_ISSUE_TOKEN = wysyłka bierze KSEF_TOKEN; osobny token
+    wystawiania (gdy jest) dalej wygrywa.
+    """
+
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_MODE", "prod")
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", "")
+    monkeypatch.setattr(settings, "KSEF_TOKEN", "token-odczytu-i-zapisu")
+    assert ksef_send.load_config().token == "token-odczytu-i-zapisu"
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", "  token-wystawiania  ")
+    assert ksef_send.load_config().token == "token-wystawiania"
+    monkeypatch.setattr(settings, "KSEF_SALES_ISSUE_TOKEN", "")
+    monkeypatch.setattr(settings, "KSEF_TOKEN", "")
+    assert ksef_send.load_config().token == ""
