@@ -4069,6 +4069,18 @@ END $$""",
     # Powiadomienie u zastępcy pamięta, za kogo przyszło (0675).
     "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS on_behalf_of_user_id "
     "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    # „Gdy Cię nie było” (0722): cichy wiersz zastępcy o jego własnym ruchu
+    # i sprawy z nieobecności oznaczone jako załatwione. Bez `quiet` każdy
+    # SELECT z notifications (dzwonek, outbox maili) pada na UndefinedColumn.
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS quiet "
+    "BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS handled_at TIMESTAMPTZ NULL",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS handled_by_user_id "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+    "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS away_dismissed_at "
+    "TIMESTAMPTZ NULL",
+    "CREATE INDEX IF NOT EXISTS ix_notif_on_behalf_created ON notifications "
+    "(on_behalf_of_user_id, created_at) WHERE on_behalf_of_user_id IS NOT NULL",
     # Tryb obróbki treści CV (migracja 0202_cv_content_mode). Pipeline zapisuje
     # content_mode przy KAŻDEJ generacji, więc bez tej kolumny INSERT do
     # cv_generated_documents => UndefinedColumn i generator CV pada w całości.
