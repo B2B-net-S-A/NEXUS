@@ -1,7 +1,7 @@
 """Szkolenia S4: rozdziały i podsumowanie AI, próba techniczna, obowiązkowe dla roli, tematy.
 
-Revision ID: 0698_trainings_s4
-Revises: 0697_training_teams
+Revision ID: 0721_trainings_s4
+Revises: 0720_finance_archive
 
 SQL i powody: ``app/services/trainings_schema.py`` (``S4_DDL``; to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``). Klucz AI F50
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services import trainings_schema as schema
 
-revision = "0698_trainings_s4"
-down_revision = "0697_training_teams"
+revision = "0721_trainings_s4"
+down_revision = "0720_finance_archive"
 branch_labels = None
 depends_on = None
 
@@ -38,7 +38,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0698 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0721 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

@@ -187,7 +187,7 @@ class OrderBody(BaseModel):
     deliverables: list[Deliverable] = Field(default_factory=list, max_length=4)
     knowledge_test: bool = False
     extra_terms: str = Field(default="", max_length=TEXT_MAX)
-    # 0698: próba techniczna z prowadzącym i „obowiązkowe dla roli”.
+    # 0721: próba techniczna z prowadzącym i „obowiązkowe dla roli”.
     rehearsal: bool = False
     mandatory_roles: list[str] = Field(default_factory=list, max_length=20)
 
@@ -298,7 +298,7 @@ async def me(current_user: Viewer, db: AsyncSession = Depends(get_db)) -> dict:
         "is_company_signer": await signing.is_company_signer(db, current_user),
         # 0697: spotkanie Teams zakłada NEXUS — formularz nie pyta wtedy o link.
         "teams_ready": teams.ready(),
-        # 0698: role do „obowiązkowe dla roli”.
+        # 0721: role do „obowiązkowe dla roli”.
         "mandatory_roles": list(core.MANDATORY_ROLES),
     }
 
@@ -491,7 +491,7 @@ async def application_sample(
     )
 
 
-# ── „Szukamy trenerów” (TCM, 0698) ──────────────────────────────────────────
+# ── „Szukamy trenerów” (TCM, 0721) ──────────────────────────────────────────
 
 
 class TopicBody(BaseModel):
@@ -639,7 +639,7 @@ async def _sync_teams(db: AsyncSession, training: Training) -> None:
 
     Graph trwa sekundy i bywa niedostępny, więc krok w NEXUSIE jest już zapisany;
     wynik spotkania ląduje w ``teams_status`` w osobnej transakcji. Zapisy
-    „obowiązkowe dla roli” (0698) powstają też bez Teams: dzwonki przypomnień
+    „obowiązkowe dla roli” (0721) powstają też bez Teams: dzwonki przypomnień
     działają bez Graph."""
 
     await core.enroll_mandatory(db, training, today=business_today())

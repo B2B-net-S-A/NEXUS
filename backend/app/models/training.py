@@ -209,7 +209,7 @@ class Training(Base):
     reminder_soon_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # 0698 (S4): próba techniczna z prowadzącym i „obowiązkowe dla roli”.
+    # 0721 (S4): próba techniczna z prowadzącym i „obowiązkowe dla roli”.
     rehearsal: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
@@ -316,7 +316,7 @@ class TrainingRegistration(Base):
     )
     invite_event_id: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     invite_status: Mapped[str] = _text(20)
-    # 0698: zapis z „obowiązkowe dla roli” — osoba nie wypisuje się sama.
+    # 0721: zapis z „obowiązkowe dla roli” — osoba nie wypisuje się sama.
     mandatory: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
@@ -356,7 +356,7 @@ class TrainingTranscript(Base):
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    # 0698: podsumowanie i rozdziały z modelu AI (dodatek, F49).
+    # 0721: podsumowanie i rozdziały z modelu AI (dodatek, F50).
     summary: Mapped[str] = mapped_column(
         Text, nullable=False, server_default="", default=""
     )
@@ -407,7 +407,7 @@ class TrainingFeedback(Base):
 
 
 class TrainingTopicRequest(Base):
-    """„Szukamy trenerów” (0698): temat, na który TCM szuka prowadzącego w panelu."""
+    """„Szukamy trenerów” (0721): temat, na który TCM szuka prowadzącego w panelu."""
 
     __tablename__ = "training_topic_requests"
     __table_args__ = (

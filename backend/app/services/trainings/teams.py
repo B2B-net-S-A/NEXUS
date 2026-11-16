@@ -41,7 +41,7 @@ from app.services.trainings_schema import REHEARSAL_MINUTES
 
 logger = logging.getLogger(__name__)
 
-#: Próba techniczna (0698): tyle dni roboczych przed szkoleniem, o tej samej godzinie.
+#: Próba techniczna (0721): tyle dni roboczych przed szkoleniem, o tej samej godzinie.
 REHEARSAL_BUSINESS_DAYS = 2
 REHEARSAL_NOTICE = (
     "Próba techniczna przed szkoleniem: sprawdzamy dźwięk, kamerę i udostępnianie "
@@ -226,7 +226,7 @@ def _clear_rehearsal(training: Training, status: str) -> None:
 async def sync_rehearsal(
     db: AsyncSession, training: Training, *, now: datetime
 ) -> None:
-    """Próba techniczna (0698): osobne 15-minutowe spotkanie z prowadzącym.
+    """Próba techniczna (0721): osobne 15-minutowe spotkanie z prowadzącym.
 
     Ta sama skrzynka szkolenia@, bez nagrywania i bez zapisanych. Zaznaczona
     w zamówieniu, przesuwa się z terminem, a odznaczona albo przy odwołaniu
@@ -460,7 +460,7 @@ async def invite(
     await db.flush()
 
 
-#: Zaproszeń w jednym żądaniu TCM: „obowiązkowe dla roli” (0698) to dziesiątki osób,
+#: Zaproszeń w jednym żądaniu TCM: „obowiązkowe dla roli” (0721) to dziesiątki osób,
 #: a każde zaproszenie to osobne wywołanie Graph. Resztę wysyła pętla ``trainings_teams``.
 INVITES_PER_REQUEST = 10
 

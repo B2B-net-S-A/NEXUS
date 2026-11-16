@@ -1,4 +1,4 @@
-"""„Szukamy trenerów” (0698): tematy, na które TCM szuka prowadzącego.
+"""„Szukamy trenerów” (0721): tematy, na które TCM szuka prowadzącego.
 
 Do S4 konsultant zgłaszał się na trenera w ciemno, nie wiedząc, na jakie tematy jest
 zapotrzebowanie. TCM publikuje temat w NEXUSIE, panel konsultanta pokazuje otwarte

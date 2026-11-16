@@ -11,7 +11,7 @@ po końcu spotkania i:
 2. zapisuje transkrypt VTT (wyszukiwanie w bibliotece),
 3. zastępuje obecność raportem z Graph (to samo dopasowanie co CSV),
 4. daje TCM dzwonek „Nagranie do zatwierdzenia”,
-5. po zatwierdzeniu importu prosi model o rozdziały i podsumowanie (0698,
+5. po zatwierdzeniu importu prosi model o rozdziały i podsumowanie (0721,
    ``ai_summary``); to dodatek, jego awaria niczego nie cofa.
 
 Nagranie wchodzi jako przyjęte i „dla uczestników”, ale ludzie zobaczą je dopiero
@@ -219,7 +219,7 @@ async def process(db: AsyncSession, training_id: int, *, now: datetime) -> str:
             await db.commit()
             return "failed"
         return "waiting"
-    # Po zatwierdzeniu nagrania: rozdziały i podsumowanie z modelu (0698, F50). To
+    # Po zatwierdzeniu nagrania: rozdziały i podsumowanie z modelu (0721, F50). To
     # dodatek, więc poza blokiem wyżej — jego awaria nie cofa importu.
     if has_transcript:
         try:

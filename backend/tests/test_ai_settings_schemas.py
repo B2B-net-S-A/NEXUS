@@ -131,7 +131,7 @@ class TestFeatureKeyEnum:
             "duty_search_judge",
             # 0712: katalog raportów klienta — obowiązki z umów ramowych.
             "client_report_requirements",
-            # 0698: rozdziały i podsumowanie nagrania szkolenia z transkryptu.
+            # 0721: rozdziały i podsumowanie nagrania szkolenia z transkryptu.
             "training_transcript_summary",
         }
 

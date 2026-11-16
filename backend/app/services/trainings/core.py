@@ -93,7 +93,7 @@ STATUS_LABELS: dict[str, str] = {
 #: myliło TCM na liście (analiza 13.11.2026), więc etykieta zależy od prowadzącego.
 EMPLOYEE_READY_LABEL = "Gotowe do szkolenia"
 
-#: „Obowiązkowe dla roli” (0698): role, które TCM może wskazać. ``user`` to wycofana
+#: „Obowiązkowe dla roli” (0721): role, które TCM może wskazać. ``user`` to wycofana
 #: rola przeglądająca, więc jej nie ma.
 MANDATORY_ROLES: tuple[str, ...] = tuple(
     role.value for role in UserRole if role is not UserRole.user
@@ -307,7 +307,7 @@ def _order(training: Training) -> dict[str, Any]:
 
 
 def _rehearsal(training: Training) -> Optional[dict[str, Any]]:
-    """Próba techniczna z prowadzącym (0698): termin i link, gdy spotkanie istnieje."""
+    """Próba techniczna z prowadzącym (0721): termin i link, gdy spotkanie istnieje."""
 
     if not training.rehearsal:
         return None
@@ -351,7 +351,7 @@ def _payment(training: Training) -> dict[str, Any]:
 def chapters(
     training: Training, ai: Optional[list[Any]] = None
 ) -> list[dict[str, Any]]:
-    """Rozdziały nagrania: z transkryptu (model AI, 0698), a bez nich z agendy.
+    """Rozdziały nagrania: z transkryptu (model AI, 0721), a bez nich z agendy.
 
     Rozdziały z AI mają prawdziwe sekundy z transkryptu, więc zastępują agendę
     tylko wtedy, gdy są. Z agendy początek modułu = suma minut poprzednich."""
@@ -1301,7 +1301,7 @@ async def register(
         query = query.where(TrainingRegistration.contract_id == contract_id)
     existing = await db.scalar(query)
     if join and existing is None and training.seat_limit:
-        # Obowiązkowi (0698) nie zajmują miejsc: limit dotyczy chętnych.
+        # Obowiązkowi (0721) nie zajmują miejsc: limit dotyczy chętnych.
         taken = await db.scalar(
             select(func.count())
             .select_from(TrainingRegistration)
@@ -1331,7 +1331,7 @@ async def register(
 
 
 async def enroll_mandatory(db: AsyncSession, training: Training, *, today: date) -> int:
-    """Zapis każdej aktywnej osoby w rolach „obowiązkowe dla roli” (0698).
+    """Zapis każdej aktywnej osoby w rolach „obowiązkowe dla roli” (0721).
 
     Woła się przy zapisie terminu (``_sync_teams``), więc nowa osoba w roli dochodzi
     przy kolejnej zmianie szkolenia albo ponowieniu spotkania. Obowiązkowy zapis nie

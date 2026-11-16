@@ -308,7 +308,7 @@ INDEX_DDL: tuple[str, ...] = (
     "ON training_attendance (training_id)",
 )
 
-#: 0698 (S4, 13.11.2026): rozdziały i podsumowanie z transkryptu przez model AI,
+#: 0721 (S4, 13.11.2026): rozdziały i podsumowanie z transkryptu przez model AI,
 #: próba techniczna z trenerem, „obowiązkowe dla roli” i tematy „Szukamy trenerów”.
 TOPIC_STATUSES: tuple[str, ...] = ("open", "closed")
 CK_TOPIC_STATUS = f"status IN ({quoted(TOPIC_STATUSES)})"
@@ -362,7 +362,7 @@ S4_INDEX_DDL: tuple[str, ...] = (
 )
 
 S4_TABLES: tuple[str, ...] = ("training_topic_requests",)
-#: Kolumny 0698 (downgrade je zdejmuje).
+#: Kolumny 0721 (downgrade je zdejmuje).
 S4_COLUMNS: dict[str, tuple[str, ...]] = {
     "trainings": (
         "rehearsal",

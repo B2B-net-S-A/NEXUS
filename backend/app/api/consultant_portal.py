@@ -666,7 +666,7 @@ class TrainerRequest(BaseModel):
     audience: str = Field(default="", max_length=TRAINER_SHORT_MAX)
     availability: str = Field(default="", max_length=TRAINER_SHORT_MAX)
     materials: str = Field(default="", max_length=MATERIAL_URL_MAX)
-    # 0698: formularz otwarty z „Zgłoś się na temat” w „Szukamy trenerów”.
+    # 0721: formularz otwarty z „Zgłoś się na temat” w „Szukamy trenerów”.
     topic_request_id: Optional[int] = None
 
 
@@ -711,7 +711,7 @@ async def trainer_topic(
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """„Zgłoś się na temat” (0698): temat z „Szukamy trenerów” do zgłoszenia trenera."""
+    """„Zgłoś się na temat” (0721): temat z „Szukamy trenerów” do zgłoszenia trenera."""
 
     try:
         application = await panel.save_trainer_topic(

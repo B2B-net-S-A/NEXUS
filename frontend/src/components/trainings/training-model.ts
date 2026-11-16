@@ -421,7 +421,7 @@ export function emptyOrder(): OrderInput {
   };
 }
 
-/** Etykiety ról w „Obowiązkowe dla roli” (0698); nieznana rola pokazuje się kluczem. */
+/** Etykiety ról w „Obowiązkowe dla roli” (0721); nieznana rola pokazuje się kluczem. */
 export const MANDATORY_ROLE_LABELS: Record<string, string> = {
   admin: "Administratorzy",
   head_of_recruitment: "Head of Recruitment",

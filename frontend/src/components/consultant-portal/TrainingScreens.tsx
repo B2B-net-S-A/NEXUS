@@ -252,7 +252,7 @@ export function LiveList({ rows }: { rows: LibraryLive[] }) {
   );
 }
 
-/** „Szukamy trenerów” (0698): tematy od Talent Community z „Zgłoś się na temat”. */
+/** „Szukamy trenerów” (0721): tematy od Talent Community z „Zgłoś się na temat”. */
 function WantedTopicRow({ topic, applied }: { topic: WantedTopic; applied: boolean }) {
   const client = useQueryClient();
   const [busy, setBusy] = useState(false);

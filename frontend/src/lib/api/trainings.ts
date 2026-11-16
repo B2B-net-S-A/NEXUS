@@ -38,7 +38,7 @@ export interface TrainingsMe {
   is_company_signer: boolean;
   /** 0697: spotkanie Teams zakłada NEXUS, więc formularz nie pyta o link. */
   teams_ready?: boolean;
-  /** 0698: role, które można wskazać w „Obowiązkowe dla roli”. */
+  /** 0721: role, które można wskazać w „Obowiązkowe dla roli”. */
   mandatory_roles?: string[];
 }
 
@@ -108,13 +108,13 @@ export interface TrainingOrder {
   knowledge_test: boolean;
   extra_terms: string;
   seat_limit?: number | null;
-  /** 0698: próba techniczna z prowadzącym (15 min, 2 dni robocze wcześniej). */
+  /** 0721: próba techniczna z prowadzącym (15 min, 2 dni robocze wcześniej). */
   rehearsal?: boolean;
-  /** 0698: role, w których każdy aktywny jest zapisany i zaproszony (tylko widok TCM). */
+  /** 0721: role, w których każdy aktywny jest zapisany i zaproszony (tylko widok TCM). */
   mandatory_roles?: string[];
 }
 
-/** Próba techniczna z prowadzącym (0698). `join_url` dopiero po założeniu spotkania. */
+/** Próba techniczna z prowadzącym (0721). `join_url` dopiero po założeniu spotkania. */
 export interface TrainingRehearsal {
   status: "created" | "failed" | "skipped" | "cancelled" | null;
   start: string | null;
@@ -146,7 +146,7 @@ export interface TrainingPayment {
 export interface TrainingChapter {
   title: string;
   start_minute: number;
-  /** 0698: sekunda startu; z transkryptu (AI) dokładna, z agendy = minuta × 60. */
+  /** 0721: sekunda startu; z transkryptu (AI) dokładna, z agendy = minuta × 60. */
   start_second?: number;
   source?: "transcript" | "agenda";
 }
@@ -177,7 +177,7 @@ export interface TrainingView {
   shared_registered_at?: string | null;
   feedback?: TrainingFeedbackSummary;
   transcript?: boolean;
-  /** 0698: podsumowanie nagrania z transkryptu (model AI, dodatek). */
+  /** 0721: podsumowanie nagrania z transkryptu (model AI, dodatek). */
   summary?: string | null;
   summary_status?: "done" | "failed" | "skipped" | null;
   published_at: string | null;
@@ -239,7 +239,7 @@ export interface LibraryRecording {
   /** „registered” = nagranie tylko dla zapisanych (przed zapłatą trenera B2B). */
   scope?: "library" | "registered";
   registered?: boolean;
-  /** 0698: podsumowanie z transkryptu (model AI). */
+  /** 0721: podsumowanie z transkryptu (model AI). */
   summary?: string | null;
   chapters: TrainingChapter[];
   files: LibraryFile[];
@@ -263,9 +263,9 @@ export interface LiveTraining {
   join_url: string | null;
   /** Spotkanie założył NEXUS: zapis wysyła zaproszenie do kalendarza. */
   invited?: boolean;
-  /** 0698: zapis z „Obowiązkowe dla roli” — bez „Wypisz się”. */
+  /** 0721: zapis z „Obowiązkowe dla roli” — bez „Wypisz się”. */
   mandatory?: boolean;
-  /** 0698: próba techniczna, tylko gdy prowadzę. */
+  /** 0721: próba techniczna, tylko gdy prowadzę. */
   rehearsal?: TrainingRehearsal | null;
 }
 
@@ -297,13 +297,13 @@ export interface TrainerApplication {
   availability: string;
   materials: string;
   sample_name: string | null;
-  /** 0698: tematy z „Szukamy trenerów”, na które się zgłosił. */
+  /** 0721: tematy z „Szukamy trenerów”, na które się zgłosił. */
   wanted_topics?: string[];
   case_id: number | null;
   sent_at: string;
 }
 
-/** „Szukamy trenerów” (0698): temat, na który TCM szuka prowadzącego. */
+/** „Szukamy trenerów” (0721): temat, na który TCM szuka prowadzącego. */
 export interface TrainingTopic {
   id: number;
   title: string;

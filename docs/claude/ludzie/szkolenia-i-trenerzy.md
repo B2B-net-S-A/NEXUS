@@ -123,7 +123,7 @@ Analiza i makiety: https://claude.ai/artifact/KhP85yuVMjTE1rPhnaJnRz. Kod:
   reprezentant o umowie, Finanse o fakturze, zapisani pracownicy przypomnienie dzień
   wcześniej od 9:00 i 15 min przed oraz o nagraniu. Bez kwot w treści.
 
-## S4: rozdziały AI, próba techniczna, obowiązkowe dla roli, „Szukamy trenerów” (0698)
+## S4: rozdziały AI, próba techniczna, obowiązkowe dla roli, „Szukamy trenerów” (0721)
 
 Kod: `services/trainings/ai_summary.py`, `topics.py`, `teams.sync_rehearsal`,
 `core.enroll_mandatory`. Makiety: sekcja 5 artefaktu

@@ -495,7 +495,7 @@ async def _trainer_row(
         "availability": application.availability,
         "materials": application.materials,
         "sample_name": application.sample_name,
-        # 0698: tematy z „Szukamy trenerów”, na które konsultant się zgłosił.
+        # 0721: tematy z „Szukamy trenerów”, na które konsultant się zgłosił.
         "topic_request_ids": [
             i for i in application.topic_request_ids or [] if isinstance(i, int)
         ],
@@ -635,7 +635,7 @@ async def save_trainer_application(
     application.availability = _clean(availability, TRAINER_SHORT_MAX)
     application.materials = _clean(materials, MATERIAL_URL_MAX)
     if topic_request_id is not None:
-        # Formularz otwarty z „Zgłoś się na temat” (0698).
+        # Formularz otwarty z „Zgłoś się na temat” (0721).
         try:
             await trainer_topics.toggle(db, application, topic_request_id, join=True)
         except TrainingError as exc:

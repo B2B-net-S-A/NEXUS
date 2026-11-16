@@ -1,4 +1,4 @@
-"""Rozdziały i podsumowanie nagrania szkolenia z transkryptu (0698, klucz AI F50).
+"""Rozdziały i podsumowanie nagrania szkolenia z transkryptu (0721, klucz AI F50).
 
 Do S4 rozdziały liczyły się z planu agendy (suma minut poprzednich modułów), więc
 skok do „modułu 3” trafiał obok, gdy trener się przeciągnął, a szkolenie pracownika

@@ -1,4 +1,4 @@
-"""Szkolenia S4 (0698): rozdziały i podsumowanie z AI, próba techniczna, obowiązkowe
+"""Szkolenia S4 (0721): rozdziały i podsumowanie z AI, próba techniczna, obowiązkowe
 dla roli, „Szukamy trenerów”.
 
 Graph i model są udawane — sprawdzamy, co NEXUS zleca i co zapisuje, gdy odpowiedź

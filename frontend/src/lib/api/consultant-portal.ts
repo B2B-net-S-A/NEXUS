@@ -106,13 +106,13 @@ export interface PortalTrainerInput {
   audience: string;
   availability: string;
   materials: string;
-  /** 0698: formularz otwarty z „Zgłoś się na temat”. */
+  /** 0721: formularz otwarty z „Zgłoś się na temat”. */
   topic_request_id?: number | null;
 }
 
 export interface PortalTrainerApplication extends PortalTrainerInput {
   sample_name: string | null;
-  /** 0698: tematy „Szukamy trenerów”, na które się zgłosiłem. */
+  /** 0721: tematy „Szukamy trenerów”, na które się zgłosiłem. */
   topic_request_ids?: number[];
   sent_at: string;
   waiting: { who: "nobody" | "us" | "other" | "done"; label: string };
@@ -226,7 +226,7 @@ export interface PortalTraining {
   /** Link do spotkania Teams dla prowadzącego; jest dopiero po podpisie umowy. */
   join_url?: string | null;
   registrations?: number;
-  /** 0698: próba techniczna z NEXUSEM (15 min, bez nagrywania), po podpisie umowy. */
+  /** 0721: próba techniczna z NEXUSEM (15 min, bez nagrywania), po podpisie umowy. */
   rehearsal?: {
     status: "created" | "failed" | "skipped" | "cancelled" | null;
     start: string | null;
@@ -255,7 +255,7 @@ export interface PortalTrainingRow {
 export interface TrainingChapter {
   title: string;
   start_minute: number;
-  /** 0698: sekunda startu; z transkryptu (AI) dokładna. */
+  /** 0721: sekunda startu; z transkryptu (AI) dokładna. */
   start_second?: number;
   source?: "transcript" | "agenda";
 }
@@ -279,7 +279,7 @@ export interface LibraryRecording {
   /** „registered” = nagranie tylko dla zapisanych (0697). */
   scope?: "library" | "registered";
   registered?: boolean;
-  /** 0698: podsumowanie z transkryptu (model AI). */
+  /** 0721: podsumowanie z transkryptu (model AI). */
   summary?: string | null;
   chapters: TrainingChapter[];
   files: LibraryFile[];
@@ -308,7 +308,7 @@ export interface PortalTranscriptSearch {
   hits: { second: number; text: string }[];
 }
 
-/** „Szukamy trenerów” (0698): temat, na który B2B Network szuka prowadzącego. */
+/** „Szukamy trenerów” (0721): temat, na który B2B Network szuka prowadzącego. */
 export interface WantedTopic {
   id: number;
   title: string;

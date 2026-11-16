@@ -34,7 +34,7 @@ interface TopicRequestsProps {
 }
 
 /**
- * „Szukamy trenerów” (0698): tematy, które konsultanci widzą w panelu i na które
+ * „Szukamy trenerów” (0721): tematy, które konsultanci widzą w panelu i na które
  * mogą się zgłosić. Zamknięty temat znika z panelu, zgłoszenia zostają.
  */
 export function TopicRequests({ topics, onSave, busy }: TopicRequestsProps) {

@@ -606,6 +606,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "fragmentu — to samo czytanie dokumentu co odczyt kosztu (F33), więc jego model. Rzadko "
         "(przycisk „Znajdź w umowach”). Dodatek: bez modelu DL dostaje fragmenty ze słowami "
         "kluczowymi i wpisuje raport sam; propozycja obowiązuje dopiero po potwierdzeniu DL-a.",
+    ),
     AIFeatureKey.training_transcript_summary: ModelChoice(
         default=GPT_LUNA,
         env_vars=("TRAINING_TRANSCRIPT_SUMMARY_MODEL",),

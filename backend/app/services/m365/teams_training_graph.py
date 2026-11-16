@@ -73,7 +73,7 @@ async def set_presenters(
 
 
 async def rehearsal_settings(user_id: str, meeting_id: str) -> None:
-    """Próba techniczna (0698): bez nagrywania, bez poczekalni, każdy prezentuje.
+    """Próba techniczna (0721): bez nagrywania, bez poczekalni, każdy prezentuje.
 
     Polityka nagrywania automatycznego skrzynki szkolenia@ obejmuje każde jej
     spotkanie, więc próbę trzeba wyłączyć wprost."""

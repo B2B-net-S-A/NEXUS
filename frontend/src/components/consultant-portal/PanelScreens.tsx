@@ -648,7 +648,7 @@ export function TrainerScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const application = saved.data?.application ?? null;
-  // 0698: „Zgłoś się na temat” z „Szukamy trenerów” otwiera formularz z `?temat=<id>`.
+  // 0721: „Zgłoś się na temat” z „Szukamy trenerów” otwiera formularz z `?temat=<id>`.
   const [topicId, setTopicId] = useState<number | null>(null);
   const trainings = usePortalQuery(portalKeys.trainings, portalApi.trainings, topicId !== null);
   const wanted = trainings.data?.wanted_topics?.find((item) => item.id === topicId) ?? null;

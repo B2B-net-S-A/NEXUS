@@ -110,7 +110,7 @@ interface OrderFieldsProps {
   employee?: boolean;
   /** 0697: spotkanie Teams zakłada NEXUS, więc pola z linkiem nie ma. */
   teamsReady?: boolean;
-  /** 0698: role do „Obowiązkowe dla roli” (z `/api/trainings/me`). */
+  /** 0721: role do „Obowiązkowe dla roli” (z `/api/trainings/me`). */
   roles?: readonly string[];
 }
 
@@ -121,7 +121,7 @@ interface MeetingOptionsProps {
   disabled?: boolean;
 }
 
-/** 0698: próba techniczna z prowadzącym i role, dla których szkolenie jest obowiązkowe. */
+/** 0721: próba techniczna z prowadzącym i role, dla których szkolenie jest obowiązkowe. */
 function MeetingOptions({ value, set, roles, disabled }: MeetingOptionsProps) {
   const chosen = value.mandatory_roles ?? [];
   const toggle = (role: string, on: boolean) =>

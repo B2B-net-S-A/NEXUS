@@ -166,7 +166,7 @@ export function stageOf(
 }
 
 /** „01:35” dla minuty nagrania (rozdziały z agendy). */
-/** „wt 18 lis, 15:00” z chwili startu próby technicznej (0698). */
+/** „wt 18 lis, 15:00” z chwili startu próby technicznej (0721). */
 export function rehearsalWhen(start: string | null): string | null {
   if (!start) return null;
   const date = new Date(start);
