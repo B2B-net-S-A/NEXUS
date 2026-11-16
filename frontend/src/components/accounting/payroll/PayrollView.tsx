@@ -5,6 +5,7 @@ import { useState } from "react";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 
 import { useAccounting } from "../AccountingShell";
+import { NextYearBanner } from "./NextYearNotice";
 import { PayrollFilesView } from "./PayrollFilesView";
 import { PayrollListView } from "./PayrollListView";
 import { PayrollParametersView } from "./PayrollParametersView";
@@ -27,10 +28,11 @@ export function readView(search: string): PayrollViewKey {
   return VIEWS.some((view) => view.value === value) ? (value as PayrollViewKey) : "list";
 }
 
-function writeView(view: PayrollViewKey) {
+function writeView(view: PayrollViewKey, extra: Record<string, string> = {}) {
   const params = new URLSearchParams(window.location.search);
   if (view === "list") params.delete("view");
   else params.set("view", view);
+  for (const [key, value] of Object.entries(extra)) params.set(key, value);
   const query = params.toString();
   window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
 }
@@ -68,10 +70,16 @@ export function PayrollView() {
     setView(next);
     writeView(next);
   };
+  // Strażnik 1 stycznia: „Parametry” czytają `?draft=next-year` przy wejściu i otwierają szkic.
+  const openNextYearDraft = () => {
+    writeView("parameters", { draft: "next-year" });
+    setView("parameters");
+  };
 
   return (
     <div className="space-y-3">
       <SegmentedRadio label="Widok listy płac" size="sm" value={view} onChange={choose} options={VIEWS} />
+      {view === "list" ? <NextYearBanner onOpen={openNextYearDraft} /> : null}
       {view === "list" ? <PayrollListView year={period.year} month={period.month} /> : null}
       {view === "salaries" ? <PayrollSalariesView year={period.year} month={period.month} /> : null}
       {view === "people" ? <PayrollPeopleView /> : null}

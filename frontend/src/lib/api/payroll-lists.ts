@@ -243,10 +243,37 @@ export interface PayrollCompany {
   missing: string[];
 }
 
+/** Wartość ogłoszona na nowy rok, wpisana do szkicu wersji (źródło dla ekranu). */
+export interface NextYearKnownValue {
+  key: string;
+  label: string;
+  unit: string;
+  value: string;
+  before: string;
+  source: string;
+  url: string;
+  published: string;
+}
+
+/**
+ * Strażnik 1 stycznia: brak wersji od 1 stycznia (od 30 dni przed). Szkic do
+ * formularza — serwer niczego tu nie zapisuje ani nie potwierdza.
+ */
+export interface NextYearGap {
+  year: number;
+  effective_from: string;
+  base_effective_from: string;
+  params: Record<string, string>;
+  known: NextYearKnownValue[];
+  unchanged_note: string;
+  note: string;
+}
+
 export interface ParametersOverview {
   catalog: ParamCatalogItem[];
   current_id: number | null;
   versions: ParamVersion[];
+  next_year?: NextYearGap | null;
   company?: PayrollCompany;
 }
 

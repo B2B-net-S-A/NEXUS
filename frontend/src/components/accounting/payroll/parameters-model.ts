@@ -3,7 +3,9 @@
  * polsku, grupy z katalogu, sprawdzenie nowej wersji jak na serwerze
  * (liczba, zakres, całkowita) i różnica do obowiązującej wersji.
  */
-import type { ParamCatalogItem, PayrollCompany } from "@/lib/api/payroll-lists";
+import type { NextYearGap, ParamCatalogItem, PayrollCompany } from "@/lib/api/payroll-lists";
+
+import { datePl } from "../ledger-model";
 
 import { zl } from "./payroll-model";
 
@@ -102,4 +104,44 @@ const COMPANY_MISSING: Record<string, string> = {
 /** „REGON, kod urzędu skarbowego” — czego brakuje w danych płatnika. */
 export function companyMissing(company: Pick<PayrollCompany, "missing">): string {
   return company.missing.map((code) => COMPANY_MISSING[code] ?? code).join(", ");
+}
+
+// ── Strażnik 1 stycznia ──────────────────────────────────────────────────────
+
+/** Adres szkicu nowej wersji z ekranów miesięcy (otwiera „Parametry” z formularzem). */
+export const NEXT_YEAR_DRAFT_HREF = "/accounting/payroll?view=parameters&draft=next-year";
+const DRAFT_PARAM = "draft";
+
+/** Czy adres prosi o otwarcie szkicu (`?draft=next-year`). */
+export function wantsNextYearDraft(search: string): boolean {
+  return new URLSearchParams(search).get(DRAFT_PARAM) === "next-year";
+}
+
+/** Adres bez `draft` — po otwarciu szkicu odświeżenie strony nie otwiera go drugi raz. */
+export function withoutDraftParam(search: string): string {
+  const params = new URLSearchParams(search);
+  params.delete(DRAFT_PARAM);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+/** „Brak parametrów płac od 01.01.2027”. */
+export function nextYearTitle(gap: Pick<NextYearGap, "effective_from">): string {
+  return `Brak parametrów płac od ${datePl(gap.effective_from)}`;
+}
+
+/** Jedno zdanie pod tytułem: co szkic ma z przepisów i że nic nie zapisze się samo. */
+export function nextYearSummary(gap: NextYearGap): string {
+  const known = gap.known.map(
+    (item) => `${item.label.split(" (")[0].toLowerCase()} ${paramText(item.value, item.unit)}`,
+  );
+  const head = known.length
+    ? `Szkic wersji ma ogłoszone wartości na ${gap.year}: ${known.join(", ")}; resztę przepisuje z wersji od ${datePl(gap.base_effective_from)}.`
+    : `Szkic wersji przepisuje wartości z wersji od ${datePl(gap.base_effective_from)}.`;
+  return `${head} Nic nie zapisze się samo — wersję zapisują i potwierdzają Płace.`;
+}
+
+/** Pola formularza ze szkicu („4950.00” → „4950”). */
+export function draftFields(catalog: readonly ParamCatalogItem[], gap: NextYearGap): Record<string, string> {
+  return Object.fromEntries(catalog.map((item) => [item.key, paramField(gap.params[item.key])]));
 }

@@ -725,3 +725,58 @@ async def test_deleted_candidate_keeps_pseudonymised_payroll_data(
         assert kept is not None and kept.candidate_id is None
         await db.delete(kept)
         await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_next_year_guard_drafts_but_never_saves(
+    client, world, monkeypatch
+) -> None:
+    """Strażnik 1 stycznia: szkic w odczycie, zapis tylko formularzem, bez potwierdzenia."""
+
+    from app.api import hr_payroll_lists as api_module
+
+    w = world
+    start = date(w.year + 1, 1, 1)
+    monkeypatch.setattr(api_module, "business_today", lambda: date(w.year, 11, 30))
+    early = await client.get(f"{BASE}/parameters", headers=headers(w.payroll1))
+    assert early.status_code == 200, early.text
+    assert early.json()["next_year"] is None
+
+    monkeypatch.setattr(api_module, "business_today", lambda: date(w.year, 12, 15))
+    try:
+        before = await client.get(f"{BASE}/parameters", headers=headers(w.payroll1))
+        guard = before.json()["next_year"]
+        assert guard["effective_from"] == start.isoformat()
+        assert guard["base_effective_from"] == f"{w.year}-01-01"
+        # Odczyt niczego nie dopisał ani nie potwierdził.
+        again = await client.get(f"{BASE}/parameters", headers=headers(w.payroll1))
+        assert again.json()["versions"] == before.json()["versions"]
+        assert not any(
+            v["effective_from"] == start.isoformat() for v in again.json()["versions"]
+        )
+
+        saved = await client.post(
+            f"{BASE}/parameters",
+            json={
+                "effective_from": guard["effective_from"],
+                "params": guard["params"],
+                "note": guard["note"],
+            },
+            headers=headers(w.payroll1),
+        )
+        assert saved.status_code == 201, saved.text
+        version = next(
+            v
+            for v in saved.json()["versions"]
+            if v["effective_from"] == start.isoformat()
+        )
+        assert version["status"] == "to_confirm"
+        assert saved.json()["next_year"] is None
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(PayrollParameterVersion).where(
+                    PayrollParameterVersion.effective_from == start
+                )
+            )
+            await db.commit()
