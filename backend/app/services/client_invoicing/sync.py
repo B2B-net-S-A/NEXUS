@@ -74,6 +74,11 @@ WINDOW = timedelta(days=99)
 MAX_WINDOWS = 4
 MAX_METADATA_REQUESTS = 6
 MAX_DOWNLOADS = 20
+#: Dodatkowy budżet pobrań na godzinę, dopóki trwają zaległe okna (``_backfill``).
+#: Limit KSeF na produkcji to 64 pobrania na godzinę, a pętla zakupów bierze z niego
+#: niewiele (faktury od zespołu), więc razem z ``MAX_DOWNLOADS`` zostaje margines.
+#: Po ``done`` w znaczniku wraca zwykłe ``MAX_DOWNLOADS``.
+BACKFILL_EXTRA_DOWNLOADS = 30
 MANUAL_COOLDOWN = timedelta(minutes=5)
 MAX_PENDING_ATTEMPTS = 24
 MAX_PROBLEMS = 20
@@ -541,6 +546,13 @@ async def _incremental(run: _Run, state: dict[str, Any]) -> None:
         state["cursors"] = cursors
 
 
+def _backfill_pending(state: dict[str, Any], key: str) -> bool:
+    """Zaległe okna jeszcze trwają (brak znacznika albo bez ``done``)."""
+
+    mark = (state.get("backfill") or {}).get(key)
+    return not (isinstance(mark, dict) and mark.get("done"))
+
+
 async def _backfill(run: _Run, state: dict[str, Any]) -> None:
     """Zaległe okna sprzedaży po 99 dni, od ``BACKFILL_FROM`` do pierwszego znacznika.
 
@@ -619,7 +631,8 @@ async def _execute(
         },
         problems=list(state.get("problems") or []),
         requests_left=MAX_METADATA_REQUESTS,
-        downloads_left=MAX_DOWNLOADS,
+        downloads_left=MAX_DOWNLOADS
+        + (BACKFILL_EXTRA_DOWNLOADS if _backfill_pending(state, key) else 0),
     )
     error: Optional[KsefApiError] = None
     partial = False

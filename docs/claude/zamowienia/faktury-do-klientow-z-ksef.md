@@ -139,3 +139,7 @@
   po dojściu `done`. Faktura, którą już mamy, nie jest pobierana drugi raz. Decyzja Artura 16.11 („cofnij sprzedaż
   wstecz”); skutek: stare faktury dopasowują się do zamówień, a „Nieznani nabywcy” rośnie o ok. 200/mies.
   Zakupy (koszty) cofa się ręcznie „Pobierz ponownie okres” w Płace → Faktury z KSeF (najwyżej 12 miesięcy).
+- **Budżet pobrań przy zaległych oknach (16.11.2026).** Dopóki w stanie nie ma `done` przy `backfill`, przebieg ma
+  `MAX_DOWNLOADS + BACKFILL_EXTRA_DOWNLOADS` (20 + 30 = 50) pobrań faktury; limit KSeF na produkcji to 64 na godzinę
+  i dzieli go pętla zakupów (do 40, zwykle kilka). Po `done` wraca 20. Przekroczenie limitu daje blokadę 429
+  (`blocked_until`), nie utratę danych.
