@@ -190,6 +190,19 @@ _JOB_THREADS_LIMIT = 30
 _TOPIC_READ_MAX_IDS = 100
 
 
+class JobThreadAwayCase(BaseModel):
+    """Zamknięcie z osobami w toku, które przyszło w zastępstwie (16.11.2026).
+
+    Zastępca oznacza je „Dałem znać” (``POST /notifications/while-away/{id}/
+    handled``); osoba po powrocie widzi ten sam stan w „Gdy Cię nie było”.
+    """
+
+    id: int
+    on_behalf_of_name: str
+    handled_at: Optional[str] = None
+    handled_by_name: Optional[str] = None
+
+
 class JobThreadResponse(BaseModel):
     """Jedna rekrutacja (albo pozycja bez rekrutacji) w okienku „Rekrutacje”."""
 
@@ -205,6 +218,7 @@ class JobThreadResponse(BaseModel):
     link: str
     # Wątek to sam wpis zbiorczy „stoją > 7 dni”: `stuck` albo `unstaffed`.
     digest: Optional[str] = None
+    away_case: Optional[JobThreadAwayCase] = None
 
 
 class JobThreadListResponse(BaseModel):
@@ -723,6 +737,7 @@ async def list_job_threads(
     titles = await chat_notifications.job_names(
         db, [row.job_id for row in grouped if row.job_id is not None]
     )
+    away_cases = await _job_thread_away_cases(db, current_user, since)
     items: List[JobThreadResponse] = []
     for row in grouped:
         latest = latest_rows.get(row.latest_id)
@@ -751,9 +766,44 @@ async def list_job_threads(
                 last_at=latest.created_at.isoformat() if latest.created_at else None,
                 link=link,
                 digest=digest,
+                away_case=(
+                    away_cases.get(row.job_id) if row.job_id is not None else None
+                ),
             )
         )
     return JobThreadListResponse(items=items, unread_jobs=unread_jobs)
+
+
+async def _job_thread_away_cases(
+    db: AsyncSession, current_user: User, since: datetime
+) -> dict[int, JobThreadAwayCase]:
+    """Zamknięcia w zastępstwie, które zastępca może oznaczyć „Dałem znać”."""
+    from app.services import while_away  # noqa: PLC0415
+
+    cases = await while_away.deputy_cases(
+        db,
+        current_user.id,
+        since=since,
+        visibility=_notification_visibility(current_user),
+    )
+    if not cases:
+        return {}
+    names = await while_away.user_names(
+        db,
+        [case.owner_id for case in cases.values()]
+        + [case.handled_by_id for case in cases.values() if case.handled_by_id],
+    )
+    return {
+        job_id: JobThreadAwayCase(
+            id=case.id,
+            on_behalf_of_name=names.get(case.owner_id, ""),
+            handled_at=case.handled_at.isoformat() if case.handled_at else None,
+            handled_by_name=(
+                names.get(case.handled_by_id) if case.handled_by_id else None
+            ),
+        )
+        for job_id, case in cases.items()
+    }
 
 
 # ── Okienko „Umowy”: umowy w podpisie z nowościami (26.10.2026) ──────────────
