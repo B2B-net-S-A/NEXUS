@@ -838,6 +838,8 @@ def test_every_document_kind_names_its_contract_permission() -> None:
         "annex_start_date": COE,
         "annex_subcontractor": COE,
         "annex_mandate": COE,
+        # Aneks z własną nazwą dopisuje wpis w „Aneksach” kontraktu.
+        "annex_custom": COE,
         # Aneks stawki ma własną bramkę kwot.
         "annex_rate_change": None,
         "termination_agreement": CS,
