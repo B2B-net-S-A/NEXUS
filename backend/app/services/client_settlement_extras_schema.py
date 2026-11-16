@@ -1,4 +1,4 @@
-"""Dodatki do rozliczenia kontraktora: SQL migracji ``0727_settlement_extra_sources``
+"""Dodatki do rozliczenia kontraktora: SQL migracji ``0728_settlement_extra_sources``
 i lustra entrypointu (przez ``app/services/hr_schema_bundle.py``).
 
 Potrzeba Finansów z 13.11.2026: kontraktor dolicza do faktury kwoty spoza
@@ -7,7 +7,7 @@ Dodatek to wiersz na (kontrakt, miesiąc) z rodzajem, kwotą netto, źródłem
 i stanem. Ta sama tabela trzyma koszty integracji BNP (rodzaj ``integration``,
 reguła ``cl.integration_costs``, zgoda DL-a) — jeden model kosztów dodatkowych.
 
-* ``client_settlement_extras`` (0691 + kolumny 0727) — ``status``: ``pending`` (zgłoszony),
+* ``client_settlement_extras`` (0691 + kolumny 0728) — ``status``: ``pending`` (zgłoszony),
   ``approved`` (zatwierdzony: liczy się do kwoty faktury kontraktora),
   ``rejected`` (odrzucony z powodem). ``source``: ``back_office`` (karta sprawy),
   ``finance`` (Finanse na karcie osoby), ``portal`` (konsultant w panelu).
