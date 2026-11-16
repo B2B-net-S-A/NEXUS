@@ -110,6 +110,8 @@ export interface EnovaComparison {
     different: number;
     only_nexus: number;
     only_enova: number;
+    /** Nieczytelne wiersze pliku — przy nich wynik nigdy nie jest „zgodne do grosza”. */
+    file_errors?: number;
     all_equal: boolean;
   };
   errors: { line: number; message: string }[];

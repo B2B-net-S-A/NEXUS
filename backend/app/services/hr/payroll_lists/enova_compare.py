@@ -49,6 +49,10 @@ FIELDS: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+#: Kwoty, bez których porównanie nie jest bramką „do grosza”.
+REQUIRED_FIELDS: tuple[str, ...] = ("gross", "emp_social", "health", "pit", "net")
+
+
 def name_key(name: str) -> frozenset[str]:
     return frozenset(
         identifiers.fold(token) for token in name.replace(",", " ").split() if token
@@ -141,6 +145,15 @@ def compare_rows(
     for item in totals.values():
         item["diff"] = item["nexus"] - item["enova"]
     equal = sum(1 for item in people if item["equal"])
+    problems = list(parsed.problems)
+    missing = [FIELDS[key][0] for key in REQUIRED_FIELDS if key not in fields]
+    if missing:
+        problems.append(
+            "W pliku brakuje kolumn: "
+            + ", ".join(missing)
+            + " — bez nich lista nie jest porównana do grosza."
+        )
+    clean = not parsed.errors and not problems
     return {
         "fields": [{"key": key, "label": FIELDS[key][0]} for key in fields],
         "people": people,
@@ -153,11 +166,15 @@ def compare_rows(
             "different": len(people) - equal,
             "only_nexus": len(only_nexus),
             "only_enova": len(only_enova),
-            "all_equal": equal == len(people) and not only_nexus and not only_enova,
+            "all_equal": clean
+            and equal == len(people)
+            and not only_nexus
+            and not only_enova,
+            "file_errors": len(parsed.errors),
         },
         "errors": parsed.errors[:50],
         "warnings": parsed.warnings[:50],
-        "problems": parsed.problems,
+        "problems": problems,
     }
 
 

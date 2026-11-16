@@ -389,3 +389,29 @@ async def test_compare_with_enova_person_by_person(client, k7b) -> None:
         headers=headers(w.recruiter),
     )
     assert refused.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_manual_amount_over_salary_keeps_sick_days_for_the_limit(
+    client, k7b
+) -> None:
+    w = k7b
+    await _person(client, w)
+    assert (await _salary(client, w, w.salaried)).status_code == 200
+    manual = await client.put(
+        f"{BASE}/months/{w.year}/10/inputs",
+        json={
+            "user_id": w.salaried.id,
+            "kind": "uop",
+            "gross": "9000",
+            "note": "z Enovy",
+        },
+        headers=headers(w.payroll1),
+    )
+    assert manual.status_code == 200, manual.text
+    payload = await _compute(client, w)
+    line = _line(payload, user_id=w.salaried.id)
+    assert line["source"] == "manual" and line["gross"] == "9000.00"
+    k7b_data = line["basis"]["k7b"]
+    assert k7b_data["replaced"] is True and k7b_data["sick"][0]["paid_days"] == 5
+    assert "salary_replaced" in {p["code"] for p in line["problems"]}

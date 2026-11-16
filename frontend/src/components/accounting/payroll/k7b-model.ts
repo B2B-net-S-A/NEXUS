@@ -181,6 +181,8 @@ export function comparisonSummary(result: EnovaComparison): string {
     summary.different ? `z różnicą: ${summary.different}` : null,
     summary.only_nexus ? `tylko w NEXUSIE: ${summary.only_nexus}` : null,
     summary.only_enova ? `tylko w Enovie: ${summary.only_enova}` : null,
+    summary.file_errors ? `nieczytelne wiersze pliku: ${summary.file_errors}` : null,
+    result.problems.length ? "plik niepełny — wynik nie jest porównaniem do grosza" : null,
   ].filter(Boolean);
   return `${parts.join(" · ")}.`;
 }

@@ -45,8 +45,14 @@ Księgowość → Lista płac → „Pensje i nieobecności”.
 - Urlop wypoczynkowy, na żądanie, okolicznościowy, art. 188, krwiodawstwo,
   szkoleniowy, odbiór dnia za święto: pensja bez zmian. Siła wyższa (art. 148¹):
   połowa. Rodzaj „inna” — pensja bez zmian i uwaga „sprawdź”.
-- FP: warunek płacy minimalnej sprawdza się na pensji za pełny miesiąc + zmienne
-  (podstawa „w przeliczeniu na okres miesiąca”).
+- FP: warunek płacy minimalnej sprawdza się na całej podstawie składek
+  (premie, zmienne, urlopowe, ekwiwalent) z pensją za pełny miesiąc zamiast
+  pomniejszonej — „w przeliczeniu na okres miesiąca”.
+- Kwota Płac zamiast pensji (K7a) wygrywa z brutto, ale NEXUS i tak liczy
+  miesiąc z pensji i zapisuje go w `basis.k7b` z `replaced` (problem
+  `salary_replaced`): dni L4 z tego miesiąca liczą się do limitu 33/14 dni,
+  a miesiąc wchodzi do historii podstaw. Gdy miesiąca nie da się policzyć —
+  problem blokujący `salary_replaced_unknown` (dni chorobowego w otwarciu roku).
 
 ## Wynagrodzenie chorobowe (art. 92 KP, ustawa z 25.06.1999)
 
@@ -83,9 +89,11 @@ Księgowość → Lista płac → „Pensje i nieobecności”.
   (pensja + średnia zmiennych z 3 miesięcy) / (współczynnik × etat) za dzień,
   / 8 za godzinę, × 8 h × dni. Współczynnik w parametrach (`leave_coefficient`,
   2026: 251 dni / 12 = 20,92 — `salary.leave_coefficient(rok)` liczy go z kalendarza).
-  Dni: urlop roku proporcjonalnie do miesięcy pracy u nas (miesiąc w górę, dzień
-  w górę, art. 155¹), + zaległy − wykorzystany przed NEXUSEM − płatne dni z modułu
-  urlopów; wykorzystane ponad wymiar = 0 i uwaga (nie potrąca się). Płace mogą
+  Dni: pula roku z modułu urlopów proporcjonalnie do miesięcy pracy w roku
+  odejścia (art. 155¹, miesiąc i dzień w górę) — dzielona przez miesiące, które
+  pula pokrywa (od startu w tym roku do grudnia), bo przy starcie w trakcie roku
+  Kadry wpisują ją już proporcjonalnie; + zaległy − wykorzystany przed NEXUSEM −
+  płatne dni z modułu urlopów; wykorzystane ponad wymiar = 0 i uwaga (nie potrąca się). Płace mogą
   wpisać dni same (`equivalent_days`).
 
 ## Parametry K7b
@@ -113,7 +121,9 @@ Księgowość → Lista płac → „Pensje i nieobecności”.
   w K3c) → różnice osoba po osobie i kwota po kwocie w groszach (brutto, składki
   pracownika, zdrowotna, PIT, PPK, do wypłaty; pracodawcy, gdy plik ma kolumny).
   Osoby po imieniu i nazwisku jako zbiór słów; kilka pozycji osoby w NEXUSIE
-  (UoP + zlecenie) sumuje się. Plik nie jest zapisywany; ślad
+  (UoP + zlecenie) sumuje się. „Zgodne do grosza” tylko bez nieczytelnych
+  wierszy pliku i z kolumnami brutto, składek pracownika, zdrowotnej, PIT i „Do
+  wypłaty” — inaczej problem pliku. Plik nie jest zapisywany; ślad
   `payroll_enova_compared` ma same liczby osób.
 - **Bloker wyłączenia Enovy:** Rozliczenia muszą dać eksporty list płac z Enovy
   za 2–3 kolejne miesiące (i otwarcie roku z dniami chorobowego) i porównanie

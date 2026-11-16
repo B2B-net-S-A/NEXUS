@@ -150,7 +150,8 @@ def _manual(source: Source, item: PayrollGrossInput) -> None:
         "entered_by": item.entered_by,
     }
     source.source = "manual"
-    source.uop = None
+    # ``uop`` zostaje: przy pensji wyliczenie NEXUSA i tak liczy dni L4 do limitu
+    # 33/14 dni i miesiąc historii podstaw (przegląd K7b 16.11.2026).
     source.gross = Decimal(item.gross)
     source.fund_basis = (
         Decimal(item.fund_basis) if item.fund_basis is not None else None
@@ -267,7 +268,7 @@ async def _team(
             _manual(source, item)
             source.problems = [code for code in source.problems if code != "currency"]
         if (
-            source.uop is None
+            source.source != "salary"
             and source.gross is not None
             and source.gross <= 0
             and not source.problems

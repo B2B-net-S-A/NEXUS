@@ -153,6 +153,18 @@ PROBLEMS: dict[str, tuple[str, bool]] = {
         "kartotekę albo wpisz kwotę brutto.",
         True,
     ),
+    "salary_replaced": (
+        "Kwota Rozliczeń zastąpiła pensję — dni L4 do limitu i miesiąc do podstaw "
+        "zapisują się z wyliczenia NEXUSA; jeśli kwota ma inne dni chorobowego, "
+        "popraw dni w otwarciu roku.",
+        False,
+    ),
+    "salary_replaced_unknown": (
+        "Kwota Rozliczeń zastąpiła pensję, a NEXUS nie policzył miesiąca — dni L4 "
+        "z tego miesiąca wpisz w otwarciu roku (dni chorobowego), a miesiąc "
+        "w historii podstaw.",
+        True,
+    ),
     "equivalent_overused": (
         "W roku odejścia wykorzystano więcej urlopu, niż przysługuje — ekwiwalentu "
         "nie ma; potrącenia za nadwyżkę nie robi się.",
@@ -428,6 +440,32 @@ def _salary_line(
             item.problems.append(code)
 
 
+def _salary_replaced(
+    item: sources.Source,
+    data: dict[str, Any],
+    birth_date: Optional[date],
+    params: params_rules.Params,
+) -> None:
+    """Kwota Płac zamiast pensji: brutto z kwoty, ale dni L4 i miesiąc podstaw
+    z wyliczenia NEXUSA (``basis.k7b`` z ``replaced``) — inaczej dni chorobowego
+    z tego miesiąca zniknęłyby z limitu 33/14 dni, a miesiąc z historii podstaw."""
+
+    assert item.uop is not None
+    month = uop.with_person(
+        item.uop,
+        birth_date=birth_date,
+        insured_since=_date_or_none(data.get("sickness_insured_since")),
+        waiting_exempt=bool(data.get("waiting_period_exempt")),
+    )
+    try:
+        pay = salary.month_pay(month, params)
+    except ValueError:
+        item.problems.append("salary_replaced_unknown")
+        return
+    item.basis = {**item.basis, "k7b": {**pay.to_json(), "replaced": True}}
+    item.problems.append("salary_replaced")
+
+
 def calculate(prepared: Prepared) -> list[Computed]:
     """Silnik po osobach: UoP przed zleceniem, stan roku i miesiąca z pozycji na pozycję.
 
@@ -471,6 +509,8 @@ def calculate(prepared: Prepared) -> list[Computed]:
         for item in items:
             if item.uop is not None and item.source == "salary":
                 _salary_line(item, data or {}, tax.birth_date, params)
+            elif item.uop is not None and item.source == "manual":
+                _salary_replaced(item, data or {}, tax.birth_date, params)
         fund_basis = sum(
             (
                 fund_equivalent(item, profile, first, last)

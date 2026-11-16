@@ -476,17 +476,27 @@ def unused_leave_days(
 ) -> tuple[Decimal, bool]:
     """Niewykorzystane dni w roku odejścia (art. 155¹: proporcjonalnie, w górę).
 
+    Pula roku z modułu urlopów obejmuje okres od początku roku albo od
+    zatrudnienia w tym roku — Kadry wpisują ją już proporcjonalnie przy starcie
+    w trakcie roku (``leave_policy.statutory_entitlement``). Dlatego w roku
+    odejścia dzielimy pulę przez miesiące, które ona pokrywa (od startu do
+    grudnia), nie przez 12: start 1.07 z pulą 13 dni i odejście 30.09 dają
+    13 × 3/6 = 6,5 → 7 dni (przegląd K7b 16.11.2026). Miesiąc i dzień w górę.
+
     Zwraca (dni, przekroczony) — ``True`` gdy wykorzystano więcej, niż przysługuje.
     """
 
     start = max(employed_from, date(year, 1, 1))
     end = min(employed_to, date(year, 12, 31))
+    covered = 12 - start.month + 1
     if end < start:
         months = 0
     else:
         months = (end.year - start.year) * 12 + end.month - start.month + 1
     proportional = (
-        Decimal(math.ceil(entitlement * months / 12)) if entitlement > 0 else ZERO
+        Decimal(math.ceil(entitlement * months / covered))
+        if entitlement > 0 and covered > 0
+        else ZERO
     )
     proportional = min(proportional, entitlement)
     left = proportional + carried_over - used_before - used_paid
@@ -745,7 +755,10 @@ def month_pay(data: MonthInput, params: Params) -> MonthPay:
         variable=variable,
         other=other,
         bonuses=bonuses,
-        fund_basis=salary + variable,
+        # Warunek FP „w przeliczeniu na okres miesiąca”: cała podstawa składek
+        # (premie, zmienne, urlopowe, ekwiwalent) z pensją za pełny miesiąc
+        # zamiast pomniejszonej za nieobecności (przegląd K7b 16.11.2026).
+        fund_basis=gross - sick_pay - salary_part + salary,
         nominal_hours=nominal,
         worked_hours=worked,
         paid_hours=paid,

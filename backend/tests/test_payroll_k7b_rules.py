@@ -569,6 +569,7 @@ def test_compare_matches_people_by_name_tokens_and_reports_grosze() -> None:
         "only_nexus": 1,
         "only_enova": 1,
         "all_equal": False,
+        "file_errors": 0,
     }
     assert result["only_enova"][0]["person"] == "Przykładowy Jan"
     off = ledger_post.row_of(
@@ -618,3 +619,70 @@ def test_nexus_lp_rows_give_the_same_decree_as_enova_file() -> None:
     assert [(row.side, row.account, row.amount) for row in ours] == [
         (row.side, row.account, row.amount) for row in theirs
     ]
+
+
+# ── Poprawki po przeglądzie K7b (16.11.2026) ───────────────────────────────
+
+
+def test_unused_leave_does_not_prorate_a_pool_already_prorated_at_start() -> None:
+    # Start 1.07, pula od Kadr 13 dni (26 × 6/12), odejście 30.09: 13 × 3/6 = 6,5 → 7.
+    days, over = salary.unused_leave_days(
+        entitlement=D("13"),
+        carried_over=D("0"),
+        used_before=D("0"),
+        used_paid=D("0"),
+        year=2026,
+        employed_from=date(2026, 7, 1),
+        employed_to=date(2026, 9, 30),
+    )
+    assert (days, over) == (D("7"), False)
+
+
+def test_labour_fund_condition_counts_bonuses_and_full_month_salary() -> None:
+    pay = salary.month_pay(
+        november(monthly_salary=D("2500"), fte=D("0.5"), bonuses=D("2500")), P
+    )
+    assert pay.gross == D("5000.00") and pay.fund_basis == D("5000.00")
+    title = engine.Title(
+        kind="uop",
+        gross=pay.gross,
+        work_start=date(2026, 11, 1),
+        work_end=date(2026, 11, 30),
+        pay_date=date(2026, 12, 10),
+        labour_fund_basis=pay.fund_basis,
+    )
+    result = engine.calculate(title, engine.PersonTax(), engine.YearToDate(), P)
+    assert result.labour_fund == D("122.50")
+    # L4 pół miesiąca: pensja pomniejszona, ale warunek FP na pensji za pełny miesiąc.
+    sick_half = salary.month_pay(
+        november(absences=(sick(date(2026, 11, 1), date(2026, 11, 15)),)), P
+    )
+    assert sick_half.fund_basis == D("8000.00")
+
+
+def test_compare_is_not_green_with_unreadable_rows_or_missing_columns() -> None:
+    from app.services.hr.payroll_lists import enova_compare, ledger_post
+    from app.services.ledger import payroll_lists as enova
+
+    broken = ENOVA_CSV.decode().replace("780,80;120,00", "780,80;xx").encode()
+    anna = ledger_post.row_of(_Line(1, "Anna Testowa", NEXUS_RESULT))
+    result = enova_compare.compare_rows([anna], enova.parse(broken))
+    assert result["summary"]["equal"] == 1 and result["summary"]["file_errors"] == 1
+    assert result["summary"]["all_equal"] is False
+    no_pit = "\r\n".join(
+        [
+            "Pracownik;Razem brutto;Emerytalne prac.;Rentowe prac.;Chorobowe;Zdrowotne;"
+            "PPK pracownika;Do wypłaty",
+            "Testowa Anna;10000,00;976,00;150,00;245,00;776,61;200,00;7652,39",
+        ]
+    ).encode()
+    result = enova_compare.compare_rows(
+        [
+            ledger_post.row_of(
+                _Line(1, "Anna Testowa", {**NEXUS_RESULT, "pit": "0", "net": "7652.39"})
+            )
+        ],
+        enova.parse(no_pit),
+    )
+    assert result["summary"]["all_equal"] is False
+    assert any("Zaliczka PIT" in text for text in result["problems"])

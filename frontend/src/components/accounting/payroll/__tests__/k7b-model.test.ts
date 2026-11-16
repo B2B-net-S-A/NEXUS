@@ -109,6 +109,13 @@ describe("porównanie z Enovą", () => {
         summary: { matched: 4, equal: 3, different: 1, only_nexus: 1, only_enova: 0, all_equal: false },
       }),
     ).toBe("zgodne: 3 z 4 · z różnicą: 1 · tylko w NEXUSIE: 1.");
+    expect(
+      comparisonSummary({
+        ...base,
+        problems: ["W pliku brakuje kolumn: Zaliczka PIT"],
+        summary: { matched: 4, equal: 4, different: 0, only_nexus: 0, only_enova: 0, file_errors: 1, all_equal: false },
+      }),
+    ).toBe("zgodne: 4 z 4 · nieczytelne wiersze pliku: 1 · plik niepełny — wynik nie jest porównaniem do grosza.");
   });
 
   it("różnica ze znakiem w złotych", () => {
