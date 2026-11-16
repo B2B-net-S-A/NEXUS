@@ -19,8 +19,9 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import func, literal, select, text
+from sqlalchemy import and_, func, literal, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.scheduling import business_today
 from app.models.activity import Activity
@@ -319,6 +320,39 @@ def load_client_portfolio_manifest(path: Path = MANIFEST_PATH) -> dict[str, Any]
     return manifest
 
 
+def _framework_contract_owner_matches() -> Any:
+    """Umowa z manifestu leży na kliencie wiersza importu albo została świadomie przeniesiona.
+
+    Wiersz importu zostaje na duplikacie (zasada scalania), a umowa idzie tam,
+    gdzie pracuje zespół: przy scaleniu na ``merged_into_client_id`` klienta
+    wiersza, a korektą 16.11.2026 na klientów z ``TICKET_MOVES``. Każde inne
+    przesunięcie nadal jest dryfem.
+    """
+
+    from app.services.framework_contract_owner_repair import (
+        reassigned_manifest_contracts,
+    )
+
+    matched_client = aliased(Client)
+    merged_target = (
+        select(matched_client.merged_into_client_id)
+        .where(matched_client.id == ClientImportRow.matched_client_id)
+        .scalar_subquery()
+    )
+    return or_(
+        ClientFrameworkContract.client_id == ClientImportRow.matched_client_id,
+        ClientFrameworkContract.client_id == merged_target,
+        *(
+            and_(
+                ClientFrameworkContract.id == fc_id,
+                ClientImportRow.matched_client_id == from_client_id,
+                ClientFrameworkContract.client_id == to_client_id,
+            )
+            for fc_id, from_client_id, to_client_id in reassigned_manifest_contracts()
+        ),
+    )
+
+
 async def get_client_portfolio_import_health(
     db: AsyncSession,
     *,
@@ -468,8 +502,7 @@ async def get_client_portfolio_import_health(
                 .where(
                     ClientImportRow.import_run_id == run.id,
                     ClientImportRow.sheet_name != "NEXUS-only",
-                    ClientFrameworkContract.client_id
-                    == ClientImportRow.matched_client_id,
+                    _framework_contract_owner_matches(),
                     ClientFrameworkContract.source_system == SOURCE_SYSTEM,
                     ClientFrameworkContract.source_key == ClientImportRow.source_key,
                     ClientFrameworkContract.import_run_id == run.id,

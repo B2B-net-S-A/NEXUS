@@ -1309,6 +1309,7 @@ async def _move_client_materials_on_merge(
     from sqlalchemy import update
 
     from app.models.client_contract_terms import ClientContractTerms
+    from app.models.client_framework_contract import ClientFrameworkContract
     from app.models.client_knowledge import ClientKnowledge
     from app.models.client_one_pager import ClientOnePager
     from app.models.client_playbook import ClientPlaybook
@@ -1346,6 +1347,28 @@ async def _move_client_materials_on_merge(
         await _repoint(ClientPlaybookEvent, "playbook_events")
     await _repoint(ClientOnboardingMaterial, "onboarding_materials")
     await _repoint(ClientSettlementRule, "settlement_rule")
+    # Umowy ramowe (z aneksami i fragmentami treści przez klucz obcy) czyta
+    # karta, Jarvis i katalog raportów po ``client_id`` celu — na duplikacie
+    # były niewidoczne (16.11.2026). Część umowy CeZ jest unikalna per klient:
+    # zajęta u celu zostaje na duplikacie zamiast wywrócić scalenie.
+    taken_parts = select(ClientFrameworkContract.project_part).where(
+        ClientFrameworkContract.client_id == target_id,
+        ClientFrameworkContract.project_part.is_not(None),
+    )
+    result = await db.execute(
+        update(ClientFrameworkContract)
+        .where(
+            ClientFrameworkContract.client_id == source_id,
+            or_(
+                ClientFrameworkContract.project_part.is_(None),
+                ClientFrameworkContract.project_part.not_in(taken_parts),
+            ),
+        )
+        .values(client_id=target_id)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount:
+        moved["framework_contracts"] = int(result.rowcount)
     await _repoint(Client, "merged_duplicates", Client.merged_into_client_id)
     return moved
 

@@ -65,12 +65,10 @@ from app.services.pipeline_eligibility import evaluate_candidates_for_job
 from app.services.hr.people import DIRECTORY_STATUSES
 from app.services.hr.program import program_enabled
 from app.services.advanced_candidate_search import _POLISH_FOLD_DST, _POLISH_FOLD_SRC
+from app.services.name_match_rank import candidate_name_rank, match_rank
 from app.services.polish_ilike import (
     contains_pattern,
-    escape_like,
-    fold_polish_query,
     folded_contains_pattern,
-    polish_folded,
     polish_folded_ilike,
 )
 from app.services.section_permissions import (
@@ -160,35 +158,6 @@ def _candidate_quick_match(q: str) -> list[Any]:
         # wyszukiwarki numeru nie zwraca.
         *([phone] if phone is not None else []),
     ]
-
-
-def _match_rank(q: str, *, exact: list[Any], prefix: list[Any]) -> Any:
-    """0 = całe pole równe frazie, 1 = pole zaczyna się od frazy, 2 = reszta.
-
-    Wyszukiwarka bierze po kilka trafień na kategorię, a bez ``ORDER BY``
-    przy częstym prefiksie wracało pięć dowolnych: „Kotow” dawało Kotowskich
-    i Kotowiczów, a osoby o nazwisku dokładnie „Kotow” nie było (staging,
-    14.11.2026). Pola porównujemy po foldzie polskich znaków, jak ``WHERE``;
-    ``ILIKE`` bez ``%`` to równość bez wielkości liter."""
-    folded = escape_like(fold_polish_query(" ".join(q.split())))
-    return case(
-        (or_(*(polish_folded(e).ilike(folded, escape="\\") for e in exact)), 0),
-        (or_(*(polish_folded(e).ilike(f"{folded}%", escape="\\") for e in prefix)), 1),
-        else_=2,
-    )
-
-
-def _candidate_rank(q: str) -> Any:
-    """Nazwisko, imię z nazwiskiem (obie kolejności) i e-mail przed prefiksem."""
-    first = func.coalesce(Candidate.name, "")
-    last = func.coalesce(Candidate.lastname, "")
-    first_last = first + " " + last
-    last_first = last + " " + first
-    return _match_rank(
-        q,
-        exact=[last, first_last, last_first, func.coalesce(Candidate.email, "")],
-        prefix=[last, first, first_last, last_first],
-    )
 
 
 def _hybrid_soft_ranks(body: CandidateSearchRequest) -> list[Any]:
@@ -1291,7 +1260,7 @@ async def unified_search(
                 )
             )
             .order_by(
-                _candidate_rank(q),
+                candidate_name_rank(q),
                 Candidate.updated_at.desc().nullslast(),
                 Candidate.id.desc(),
             )
@@ -1386,7 +1355,7 @@ async def global_search(
             )
             # Remis: ostatnio ruszane osoby wyżej, id dla stałej kolejności.
             .order_by(
-                _candidate_rank(q),
+                candidate_name_rank(q),
                 Candidate.updated_at.desc().nullslast(),
                 Candidate.id.desc(),
             )
@@ -1413,7 +1382,7 @@ async def global_search(
                 polish_folded_ilike(Job.title, q),
             )
             .order_by(
-                _match_rank(q, exact=[Job.title], prefix=[Job.title]),
+                match_rank(q, exact=[Job.title], prefix=[Job.title]),
                 Job.updated_at.desc().nullslast(),
                 Job.id.desc(),
             )
@@ -1496,7 +1465,7 @@ async def global_search(
                 )
             )
             .order_by(
-                _match_rank(
+                match_rank(
                     q,
                     exact=[Contact.name, func.coalesce(Contact.email, "")],
                     prefix=[Contact.name],
