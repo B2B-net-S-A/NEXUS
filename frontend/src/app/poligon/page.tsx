@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useStartStatus } from "@/lib/novelties/api";
 import { formatLukiDue } from "@/lib/novelties/logic";
+import { pluralPl } from "@/lib/plural-pl";
 import { enterPoligon } from "@/lib/poligon/mode";
 import { SERVER_PREFIX, nextExerciseId, readDone, resetProgress } from "@/lib/poligon/progress";
 import { usePoligonPath } from "@/lib/poligon/usePoligonPath";
@@ -87,7 +88,7 @@ export default function PoligonPage() {
                 <>
                   <b>
                     {locked ? "Termin minął: " : "Poligon dla Ciebie: "}
-                    {gaps.length} ćwiczeń, ok. {Math.max(10, gaps.length * 5)} min.
+                    {gaps.length} {pluralPl(gaps.length, "ćwiczenie", "ćwiczenia", "ćwiczeń")}, ok. {Math.max(10, gaps.length * 5)} min.
                   </b>{" "}
                   To, czego używasz na co dzień, zaliczyliśmy z Twojej pracy z ostatnich 60 dni (oznaczone „z pracy”).
                   Zostały funkcje, których jeszcze nie używasz.{" "}

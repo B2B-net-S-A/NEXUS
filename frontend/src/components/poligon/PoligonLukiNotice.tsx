@@ -9,6 +9,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useStartStatus } from "@/lib/novelties/api";
+import { pluralPl } from "@/lib/plural-pl";
 import { formatLukiDue, lukiLeft } from "@/lib/novelties/logic";
 import { useAuthStore } from "@/store/auth";
 
@@ -26,7 +27,7 @@ export function PoligonLukiNotice() {
     >
       <Target className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
       <span className="min-w-0 flex-1">
-        <b>Poligon: {left} ćwiczeń</b> z funkcji, których jeszcze nie używasz — do {formatLukiDue(poligon.luki.due)}.
+        <b>Poligon: {left} {pluralPl(left, "ćwiczenie", "ćwiczenia", "ćwiczeń")}</b> z funkcji, których jeszcze nie używasz — do {formatLukiDue(poligon.luki.due)}.
       </span>
       <Link href="/poligon" className="font-medium text-primary underline-offset-2 hover:underline">
         Przejdź na poligon
