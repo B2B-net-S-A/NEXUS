@@ -245,6 +245,8 @@ class _Db:
 
     async def scalar(self, statement):
         text = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        if "status = 'expired'" in text:  # wygasłe biegi: w tych testach ich nie ma
+            return 0 if "count(" in text else None
         for kind in ("winback", "discovery", "signals"):
             if f"'{kind}'" in text:
                 return self.last.get(kind)

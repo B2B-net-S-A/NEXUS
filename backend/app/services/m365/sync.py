@@ -112,6 +112,11 @@ OWA_READ_ITEM_URL = (
 # importem z Atlasa a pierwszą synchronizacją.
 SALES_CATCH_UP_KEY = "m365_sales_mail_catch_up"
 SALES_CATCH_UP_DAYS = 30
+# Spotkania handlowca zapisane w kalendarzu, zanim włączono transkrypty Teams
+# (16.11.2026), nie wrócą z delty, dopóki nikt ich w Outlooku nie zmieni —
+# raz na skrzynkę przechodzimy więc przez okno bieżących spotkań.
+SALES_TRANSCRIPT_BACKFILL_KEY = "m365_sales_transcript_backfill"
+SALES_TRANSCRIPT_BACKFILL_AHEAD_DAYS = 14
 
 
 @dataclass
@@ -260,6 +265,7 @@ async def _sync_connection_locked(
                 await _sync_messages(db, gc, conn, result, scope=scope)
                 await _sync_events(db, gc, conn, result, scope=scope)
                 if scope.sales:
+                    await _sales_transcript_backfill(db, gc, conn, scope)
                     await sales_transcripts.resolve_join_urls(db, gc, conn.user_id)
             if scope.sales:
                 await _sales_catch_up(db, conn)
@@ -1102,6 +1108,62 @@ async def _sales_catch_up(db: AsyncSession, conn: M365Connection) -> None:
         last_id = batch[-1].id
         await db.commit()
     await _append_connection_marker(db, SALES_CATCH_UP_KEY, conn)
+    await db.commit()
+
+
+async def _sales_transcript_backfill(
+    db: AsyncSession, gc: GraphClient, conn: M365Connection, scope: MailboxScope
+) -> None:
+    """Raz na skrzynkę: bieżące spotkania handlowca do kolejki transkryptów.
+
+    Nic nie robi z wyłączonymi transkryptami; marker dostaje dopiero udany
+    przebieg, więc błąd Graph powtórzy się przy następnej synchronizacji.
+    """
+    if not sales_transcripts.enabled():
+        return
+    row = await db.get(AppSetting, SALES_TRANSCRIPT_BACKFILL_KEY)
+    done = (row.value or {}).get("connection_ids") if row is not None else None
+    if conn.id in set(done or []):
+        return
+    now = datetime.now(timezone.utc)
+    params = {
+        "startDateTime": (
+            now - timedelta(hours=settings.TEAMS_PREP_FETCH_GIVE_UP_HOURS)
+        ).isoformat(),
+        "endDateTime": (
+            now + timedelta(days=SALES_TRANSCRIPT_BACKFILL_AHEAD_DAYS)
+        ).isoformat(),
+        "$select": EVENT_SELECT,
+    }
+    try:
+        async for page in gc.paginate("/me/calendarView", params=params):
+            for ev in page.get("value", []):
+                ical_uid = (ev.get("iCalUId") or "").strip()[:255]
+                if not ical_uid or ev.get("isCancelled") or ev.get("@removed"):
+                    continue
+                try:
+                    await _record_sales_meeting(
+                        db,
+                        conn,
+                        ev,
+                        ical_uid,
+                        private=is_private_marker(ev.get("sensitivity")),
+                        skip_candidates=scope.candidates,
+                    )
+                except Exception:  # noqa: BLE001 — jedno spotkanie nie zatrzymuje reszty
+                    logger.exception(
+                        "m365 conn %s: sales transcript backfill event failed", conn.id
+                    )
+            await db.commit()
+    except GraphRequestError as exc:
+        await db.rollback()
+        logger.warning(
+            "m365 conn %s: sales transcript backfill stopped, Graph %s",
+            conn.id,
+            exc.status,
+        )
+        return
+    await _append_connection_marker(db, SALES_TRANSCRIPT_BACKFILL_KEY, conn)
     await db.commit()
 
 
