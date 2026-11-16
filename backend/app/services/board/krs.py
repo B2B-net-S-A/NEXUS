@@ -74,7 +74,9 @@ def _active(items: Any) -> list[dict[str, Any]]:
 
     if not isinstance(items, list):
         return []
-    return [item for item in items if isinstance(item, dict) and "nrWpisuWykr" not in item]
+    return [
+        item for item in items if isinstance(item, dict) and "nrWpisuWykr" not in item
+    ]
 
 
 def _last_value(items: Any, key: str) -> Optional[str]:
@@ -111,8 +113,10 @@ def _member_active(member: Any) -> bool:
     if not isinstance(member, dict):
         return False
     for values in member.values():
-        if isinstance(values, list) and values and all(
-            isinstance(v, dict) and "nrWpisuWykr" in v for v in values
+        if (
+            isinstance(values, list)
+            and values
+            and all(isinstance(v, dict) and "nrWpisuWykr" in v for v in values)
         ):
             return False
     return True
@@ -200,7 +204,9 @@ def parse_odpis(payload: dict[str, Any]) -> KrsSummary:
     capital_rows = _active(capital.get("wysokoscKapitaluZakladowego"))
     if capital_rows:
         row = capital_rows[-1]
-        capital_value = f"{row.get('wartosc', '')} {row.get('waluta', '')}".strip() or None
+        capital_value = (
+            f"{row.get('wartosc', '')} {row.get('waluta', '')}".strip() or None
+        )
 
     filings: list[KrsFiling] = []
     wzmianki = d3.get("wzmiankiOZlozonychDokumentach") or {}
@@ -210,8 +216,12 @@ def parse_odpis(payload: dict[str, Any]) -> KrsSummary:
             if year is None:
                 continue
             entry_no = _entry_no(item)
-            filed_on = parse_pl_date(item.get("dataZlozenia")) or entry_days.get(entry_no or -1)
-            filings.append(KrsFiling(year=year, kind=kind, filed_on=filed_on, entry_no=entry_no))
+            filed_on = parse_pl_date(item.get("dataZlozenia")) or entry_days.get(
+                entry_no or -1
+            )
+            filings.append(
+                KrsFiling(year=year, kind=kind, filed_on=filed_on, entry_no=entry_no)
+            )
 
     statute: list[StatuteChange] = []
     umowa = d1.get("umowaStatut") or {}
@@ -220,7 +230,9 @@ def parse_odpis(payload: dict[str, Any]) -> KrsSummary:
         if not text:
             continue
         statute.append(
-            StatuteChange(entry_no=_entry_no(item), act_date=parse_pl_date(text), text=text)
+            StatuteChange(
+                entry_no=_entry_no(item), act_date=parse_pl_date(text), text=text
+            )
         )
 
     functions: list[str] = []
@@ -228,16 +240,23 @@ def parse_odpis(payload: dict[str, Any]) -> KrsSummary:
         for member in (organ or {}).get("sklad") or []:
             if not _member_active(member):
                 continue
-            functions.append(_last_value(member.get("funkcjaWOrganie"), "funkcjaWOrganie") or "CZŁONEK")
+            functions.append(
+                _last_value(member.get("funkcjaWOrganie"), "funkcjaWOrganie")
+                or "CZŁONEK"
+            )
     supervisory = 0
     for organ in d2.get("organNadzoru") or []:
-        supervisory += sum(1 for m in (organ or {}).get("sklad") or [] if _member_active(m))
+        supervisory += sum(
+            1 for m in (organ or {}).get("sklad") or [] if _member_active(m)
+        )
 
     return KrsSummary(
         krs=company_krs(),
         name=_last_value(subject.get("nazwa"), "nazwa"),
         capital=capital_value,
-        shares=_last_value(capital.get("lacznaLiczbaAkcjiUdzialow"), "lacznaLiczbaAkcjiUdzialow"),
+        shares=_last_value(
+            capital.get("lacznaLiczbaAkcjiUdzialow"), "lacznaLiczbaAkcjiUdzialow"
+        ),
         entries=entries,
         filings=filings,
         statute_changes=statute,

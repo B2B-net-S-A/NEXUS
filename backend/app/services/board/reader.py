@@ -86,9 +86,13 @@ def clean_fields(raw: dict[str, Any]) -> dict[str, Any]:
     return {
         "category": category if category in CATEGORIES else None,
         "organ": organ if organ in ORGANS else None,
-        "number": str(number).strip()[:_NUMBER_MAX] if isinstance(number, (str, int)) and str(number).strip() else None,
+        "number": str(number).strip()[:_NUMBER_MAX]
+        if isinstance(number, (str, int)) and str(number).strip()
+        else None,
         "doc_date": _iso_date(raw.get("doc_date")),
-        "subject": subject.strip()[:_SUBJECT_MAX] if isinstance(subject, str) and subject.strip() else None,
+        "subject": subject.strip()[:_SUBJECT_MAX]
+        if isinstance(subject, str) and subject.strip()
+        else None,
         "votes": clean_votes,
     }
 
@@ -112,7 +116,10 @@ def parse_reply(text: str) -> ReadResult:
 def _content_block(content: bytes, mime: str) -> dict[str, Any]:
     data = base64.b64encode(content).decode("ascii")
     kind = "document" if mime == "application/pdf" else "image"
-    return {"type": kind, "source": {"type": "base64", "media_type": mime, "data": data}}
+    return {
+        "type": kind,
+        "source": {"type": "base64", "media_type": mime, "data": data},
+    }
 
 
 def _call_model(content: bytes, mime: str) -> str:
@@ -127,7 +134,10 @@ def _call_model(content: bytes, mime: str) -> str:
         messages=[
             {
                 "role": "user",
-                "content": [_content_block(content, mime), {"type": "text", "text": PROMPT}],
+                "content": [
+                    _content_block(content, mime),
+                    {"type": "text", "text": PROMPT},
+                ],
             }
         ],
     )
