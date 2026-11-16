@@ -42,8 +42,15 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
 - Obrót to faktury sprzedaży z KSeF (`client_sales_invoices`) za miesiące roku. Miesiąc wyznacza okres
   usługi, a gdy go brak, data wystawienia. Liczy się netto faktury plus opust z każdego wiersza
   (ilość × cena − netto), bez pozycji wyłączonych (`rebate.service_base`). Korekty wchodzą jako różnica
-  stanów. W KSeF od 4.08.2026 rabat 2,5% na wierszach ma 1 114 z 1 128 faktur Nordei. 14 faktur go nie ma:
-  podróże, 5 faktur w EUR i wiersze „szt.”. Wyjaśnia to sesja z Finansami.
+  stanów. W KSeF od 4.08.2026 rabat 2,5% na wierszach ma 1 114 z 1 128 faktur Nordei. Pozostałe 14 jest
+  poprawnych bez rabatu (sprawdzone z archiwum eBI24, decyzja Artura 16.11.2026: bez korekt):
+  - 9 to w całości refaktury podróży (hotel, samolot, PKP, diety, transport, opłaty); wiersze „szt.” to
+    bilety i opłaty z tych faktur;
+  - 5 faktur w EUR to pentesty z osobnej umowy (rabat jest tylko w głównej umowie ramowej); w eBI24
+    pentesty też zawsze szły bez rabatu.
+- Słowa wyłączające muszą pasować do nazw pozycji klienta. U Nordei ogólne „podróż” niczego nie łapie.
+  Finanse wpisują nazwy z faktur (Hotel, PKP, Airplane, Transaction fee, Diems, Transport, Security Test),
+  inaczej podróże i pentesty wejdą do obrotu progu.
 - `issue.apply_rebate` wpisuje `discount_pct` na wiersze usług w szkicach z „Wystaw za miesiąc”.
   Finanse mogą go zmienić w polu „Rabat %” wiersza. Edycja nie nadpisuje go automatycznie.
 - Karta faktury (`rebate` w `GET /api/finance/issued-invoices/{id}`, ramka „Rabat od obrotu”) pokazuje:
