@@ -253,6 +253,17 @@ wtedy notka znika. Zamówienia z maila porównują stawkę z rekrutacją **tylko
 przy pierwszym zamówieniu osoby** u klienta — przedłużenie porównują
 z poprzednim zamówieniem tej osoby, więc rekrutacji sprzed lat nie poprawiasz.
 
+**Klient zmienia stawkę w trakcie zamówienia (aneks od jakiegoś dnia)** —
+wpisz to aneksem w kontrakcie: kontrakt → zakładka „Aneksy” → **„Zmień
+stawkę”**, data wejścia w życie i **„Nowa stawka klienta”**. Zanim zapiszesz,
+okno pokaże, które zamówienia się zmienią (np. „1615,050 → 1775,050 zł/MD
+od 01.11.2026”). Po zapisie wiersz osoby w zamówieniu pokazuje nową stawkę
+z dopiskiem „od …” i „wcześniej …”, a w Historii zamówienia jest wpis.
+Zużycie sprzed tego dnia zostaje po starej stawce. Zużycie MD liczy się
+miesiącami, więc aneks od połowy miesiąca wchodzi do rozliczenia od
+następnego miesiąca. Nie poprawiaj stawki przychodowej w zamówieniu ręcznie:
+przeliczyłoby to także miesiące sprzed aneksu.
+
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa
 > zapisana jako miesięczna daje kwotę 168 razy za dużą (miesiąc roboczy to
