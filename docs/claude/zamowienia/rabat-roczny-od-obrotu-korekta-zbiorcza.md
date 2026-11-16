@@ -49,6 +49,9 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
   - korekty za miesiące przekroczenia.
 
   Brak pozycji u klienta z rabatem to ostrzeżenie.
+- Porównanie faktury z zamówieniem („Do faktury”, `ledger.check`, dopasowanie po kwocie) idzie po
+  `Chain.order_net`, czyli netto bez pozycji rabatu. Rabat obniża fakturę, a nie zamówienie, więc bez tego
+  każdy wiersz klienta z rabatem pokazywałby różnicę. Do zapłaty i sumy liczą się z rabatem.
 - Kod: `services/client_invoicing/rebate.py`, `issue.apply_rebate`, `issue_settings.client_rebate`.
 
 ## Czego jeszcze nie ma

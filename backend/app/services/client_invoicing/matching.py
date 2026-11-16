@@ -45,7 +45,7 @@ from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
-from app.services.client_invoicing import billing, clients
+from app.services.client_invoicing import billing, clients, rebate
 from app.services.client_invoicing.billing import BillingLine, BillingRow, OrderRef
 
 MIN_NUMBER_LENGTH = 3
@@ -468,7 +468,7 @@ async def auto_match(
     )
     refs = await billing.order_refs(db, members)
     decision = decide(
-        net=invoice.net_amount,
+        net=rebate.without_rebate(Decimal(invoice.net_amount), invoice.items or []),
         currency=invoice.currency,
         texts=invoice_texts(invoice),
         rows=rows,

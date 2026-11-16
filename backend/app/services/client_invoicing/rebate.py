@@ -275,6 +275,16 @@ def service_net(
     return net_amount - (after - before), touched
 
 
+def without_rebate(net_amount: Decimal, items: Sequence[dict[str, Any]]) -> Decimal:
+    """Netto faktury bez pozycji „Rabat od obrotu” — do porównań z zamówieniem.
+
+    Rabat obniża fakturę, nie zamówienie: bez tego każdy wiersz klienta
+    z rabatem w „Do faktury” pokazywałby różnicę o stawkę rabatu.
+    """
+
+    return service_net(net_amount, items, ())[0]
+
+
 @dataclass(frozen=True)
 class Entry:
     """Jedna faktura w obrocie: waluta, obrót usług (korekta = różnica), dzień kursu, miesiąc."""
@@ -571,5 +581,6 @@ __all__ = [
     "tier_for",
     "tiers_for",
     "to_json",
+    "without_rebate",
     "year_rebate",
 ]

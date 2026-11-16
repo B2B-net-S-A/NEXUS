@@ -361,3 +361,25 @@ def test_payload_for_invoice_month():
         {"up_to": "1000.00", "rate": "2.5"},
         {"up_to": None, "rate": "3"},
     ]
+
+
+def test_order_comparison_ignores_rebate_lines():
+    """Rabat obniża fakturę, nie zamówienie: „Do faktury” porównuje netto bez rabatu."""
+
+    from app.models.client_sales_invoice import ClientSalesInvoice
+    from app.services.client_invoicing.ledger import Chain
+
+    items = [
+        {"name": "Usługi informatyczne", "net": "26880.00"},
+        {
+            "name": "Rabat od obrotu rocznego 2,5% (umowa ramowa, rok 2026)",
+            "net": "-672.00",
+        },
+    ]
+    assert rebate.without_rebate(Decimal("26208.00"), items) == Decimal("26880.00")
+    head = ClientSalesInvoice(
+        net_amount=Decimal("26208.00"), gross_amount=Decimal("26208.00"), items=items
+    )
+    chain = Chain(head=head)
+    assert chain.net == Decimal("26208.00")  # do zapłaty i sumy — bez zmian
+    assert chain.order_net == Decimal("26880.00")
