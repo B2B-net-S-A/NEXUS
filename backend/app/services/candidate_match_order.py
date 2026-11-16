@@ -213,19 +213,19 @@ def _qdrant_scores(vector: list[float], ids: list[int]) -> dict[int, float]:
         scores: dict[int, float] = {}
         if len(ids) > MAX_EXACT_IDS:
             allowed = set(ids)
-            hits = client.search(
+            hits = client.query_points(
                 collection_name=embeddings._collection(),
-                query_vector=vector,
+                query=vector,
                 limit=ANN_TOP,
                 with_payload=False,
                 with_vectors=False,
-            )
+            ).points
             return {int(h.id): float(h.score) for h in hits if int(h.id) in allowed}
         for start in range(0, len(ids), _CHUNK):
             chunk = ids[start : start + _CHUNK]
-            hits = client.search(
+            hits = client.query_points(
                 collection_name=embeddings._collection(),
-                query_vector=vector,
+                query=vector,
                 query_filter=Filter(must=[HasIdCondition(has_id=chunk)]),
                 search_params=SearchParams(
                     exact=True, quantization=QuantizationSearchParams(ignore=True)
@@ -233,7 +233,7 @@ def _qdrant_scores(vector: list[float], ids: list[int]) -> dict[int, float]:
                 limit=len(chunk),
                 with_payload=False,
                 with_vectors=False,
-            )
+            ).points
             scores.update({int(h.id): float(h.score) for h in hits})
         return scores
     finally:

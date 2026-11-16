@@ -43,6 +43,14 @@ _NO_MAIL = (
     "care_demand_signal",
     # Informacja o zapłacie — nikt na nią nie czeka (dymek i „Mój czas”).
     "hr_settlement_paid",
+    # Szkolenia (0697): dzwonek w NEXUSIE; przypomnienie niesie też zaproszenie
+    # w Outlooku, a trener dostaje maile z panelu (`trainings/notify.py`).
+    "training_quote",
+    "training_file",
+    "training_sign",
+    "training_invoice",
+    "training_reminder",
+    "training_recording",
 )
 
 

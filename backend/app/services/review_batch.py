@@ -372,11 +372,16 @@ async def pending_cards(
 
 
 async def absent_today(db: AsyncSession, user_ids: Iterable[int]) -> set[int]:
-    """Kto ma dziś zatwierdzoną nieobecność (urlop, L4). Tych kont porcja nie
-    dotyczy, a ich karty nie stoją przez cały urlop."""
+    """Kto ma dziś zatwierdzoną nieobecność (urlop, L4) albo dzień onboardingu
+    (Poligon NEXUSA, ``onboarding_day``). Tych kont porcja nie dotyczy, a ich
+    karty nie stoją przez cały urlop."""
     from app.services.hr.absence import absences_on
+    from app.services.onboarding_day import onboarding_days
 
-    return set(await absences_on(db, user_ids, business_today()))
+    ids = list(user_ids)
+    today = business_today()
+    absent = set(await absences_on(db, ids, today))
+    return absent | set(await onboarding_days(db, ids, today, today))
 
 
 async def recruiter_ids_for_jobs(

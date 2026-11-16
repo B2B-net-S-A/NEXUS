@@ -106,7 +106,105 @@ sieci Coolify ma własną usługę o nazwie `postgres` (kontener `coolify-db`). 
 
 - front (i później backend) stoi w osobnym destination `nexus-front`; Coolify przy jego
   założeniu tworzy sieć i podłącza do niej `coolify-proxy`,
-- compose dołącza `nexus-front` jako sieć zewnętrzną; parser dopisuje każdą sieć
-  z najwyższego poziomu do każdej usługi, co tu jest nieszkodliwe, bo w `nexus-front`
-  są tylko kontenery NEXUSA i proxy,
+- compose deklaruje `nexus-front` jako sieć zewnętrzną, a usługa `backend` dołącza do niej
+  **jawnie** (`networks: [nexus-front]`). Sama sieć z najwyższego poziomu nie wystarcza:
+  parser dopisuje ją do usług jako `null` (`parsers.php:1735`), a przy składaniu listy
+  sieci przepuszcza tylko napisy i tablice (`:1775`), więc po cichu ją gubi. 13.11.2026
+  front po przepięciu nie widział przez to `backend:8000` (logowanie Microsoft:
+  `backend_unreachable`),
 - `connect_to_docker_network` na aplikacji NEXUSA zostaje wyłączony.
+
+## Bramka przepięcia: ścieżka użytkownika przed ruchem (od 13.11.2026)
+
+13.11.2026 o 20:18 front przeszedł na `nexus-frontend`. Kontener był „running:healthy”,
+ale nie widział `backend:8000`. Przez ok. 50 min nowe logowania Microsoft kończyły się
+`backend_unreachable`, a strony kandydatów renderowane na serwerze (kariera, `/apply`,
+podpis B2B) nie działały. Zalogowani pracowali normalnie. Healthcheck kontenera (`wget /`)
+nie sprawdza drogi front → backend, a odbiór wdrożenia próbnego patrzył tylko na
+healthcheck. Wycofanie wymagało Deployu compose, więc trwało tyle samo co naprawa.
+
+Od tego dnia każde przepięcie ruchu na nową aplikację (front teraz, backend w B2) przechodzi
+trzy bramki, wszystkie w `.github/scripts/coolify_frontend_app.py` (`switch`)
+i `.github/scripts/front_path_check.py`:
+
+1. **Compose złożony przez Coolify, nie nasz plik.** `switch` czyta `docker_compose`
+   z API Coolify (to, co Coolify naprawdę uruchamia) i odmawia, gdy usługa z
+   `FRONT_UPSTREAMS` (`backend`) nie ma tam sieci `nexus-front`. Test na `docker-compose.yml`
+   13.11 przeszedł, a sieć zgubił dopiero parser.
+2. **Adres próbny przed domenami.** Nowy kontener dostaje najpierw tylko
+   `http://front-check.nexus.b2bnetwork.pl` (router HTTP Traefika, bez rekordu DNS i bez
+   certyfikatu). Workflow sprawdza go po IP serwera z nagłówkiem `Host`:
+   `/version.json` = SHA wdrożenia, callback logowania Microsoft = przekierowanie
+   z backendu (nie `backend_unreachable`), `/login` = 200. Usterka = koniec, domeny
+   zostają w compose, użytkownicy nic nie widzą.
+3. **Obserwacja po przepięciu i automatyczny powrót.** Przez 120 s co 5 s ta sama ścieżka
+   na domenie publicznej. Dwie rundy z usterką z rzędu = `stop` nowej aplikacji: ruch
+   wraca do starego kontenera, który ma jeszcze swoje etykiety, bo compose oddaje domeny
+   dopiero po obserwacji. Aplikacja wraca na adres próbny przez `set_domains`, bo etykiety
+   trzyma aplikacja: sam PATCH domen zostawiłby w nich routery prawdziwych domen. Ten sam
+   powrót następuje przy każdym przerwaniu po nadaniu domen (healthcheck, wyjątek, anulowanie).
+
+Do tego po każdym wdrożeniu frontu w Deploy (`wait`) ta sama ścieżka na domenie publicznej.
+Usterka = czerwony Deploy z poleceniem cofnięcia (`mode=deploy` z poprzednim SHA). Stary
+kontener już wtedy nie istnieje, więc bez automatu.
+
+**B2 (backend osobno) nie rusza bez tej bramki**, dostosowanej do backendu: przed domeną
+adres próbny backendu i `/api/health` z bazą i Qdrantem przez ten adres, potem obserwacja
+z powrotem do kontenera compose. Przy backendzie usterka sieci wyłącza całe API, nie
+tylko logowanie.
+
+Adres próbny nie jest domeną użytkowników: `real_domains` go pomija, więc `preflight`
+i `deploy_target` nie biorą aplikacji z samym adresem próbnym za przepiętą.
+
+## Etap B1: front jako aplikacja `nexus-frontend` — kolejność
+
+Wszystko przez workflow „Coolify frontend app” (`coolify-frontend-app.yml`, tylko z maina,
+konto `env -u GH_TOKEN gh`), każdy krok zmieniający produkcję w oknie wdrożeń.
+
+1. `mode=plan` — odczyt: identyfikatory, sieć `nexus-front`, zmienne, usługi compose z domeną.
+2. `mode=create` — destination `nexus-front` (sieć + `coolify-proxy`) i aplikacja bez domeny.
+3. `mode=deploy` — wdrożenie próbne; zielone = `finished`, SHA w `version.json` z logu builda,
+   kontener `running:healthy`.
+4. PR z `networks: nexus-front` w `docker-compose.yml` wchodzi dopiero po kroku 2 i musi być
+   wdrożony przed krokiem 5: od niego front widzi `backend`. Coolify zatrzymuje wszystkie
+   kontenery compose, zanim odkryje brak sieci zewnętrznej, więc Deploy ma bramkę
+   „Frontend app preflight” przed wyzwoleniem compose (brak sieci = czerwony bieg, produkcja
+   nietknięta). Ten sam PR dodaje do Deploy kroki frontu: po udanym compose wdrażają
+   `nexus-frontend` z tego samego commitu, ale tylko gdy aplikacja ma domeny (przed `switch`
+   pomijają). `switch` odmawia, gdy wdrożony compose nie ma sieci `nexus-front`.
+5. Po „przepnij” Artura: `mode=switch` — bramka (sekcja wyżej: compose złożony przez
+   Coolify, adres próbny, obserwacja), potem aplikacja dostaje domeny frontu i wdraża się
+   (rolling update), dopiero po obserwacji compose oddaje domeny frontu w Coolify. Do następnego
+   wdrożenia compose Traefik ma dla tych domen dwa zdrowe kontenery.
+   `switch` zapisuje też etykiety: te, które Coolify wygenerował z domen, plus middleware
+   `nexus-front-retry` (Traefik `retry`, 3 próby od 100 ms) na początku łańcucha każdego
+   routera, i wyłącza przepisywanie etykiet przez Coolify
+   (`is_container_label_readonly_enabled=false`), bo inaczej kolejny PATCH domen zgubiłby
+   retry. Logika etykiet jest wspólna dla frontu i backendu (B2): `.github/scripts/coolify_labels.py`.
+   Zmiana domen frontu = ponowne dołożenie retry (funkcja `set_domains`), nie edycja
+   w panelu. Do tego `rolling_update_drain_seconds=10` i `stop_grace_period=30`.
+
+   Dlaczego bez błędów przy podmianie: Coolify startuje nowy kontener, czeka na healthcheck
+   i 10 s na przejęcie ruchu (etykiety obu kontenerów są identyczne, więc Traefik ma jedną
+   pulę z dwoma serwerami), potem `docker stop`. Next standalone na SIGTERM przestaje
+   przyjmować połączenia i kończy żądania w toku (`server.close()` w
+   `next/dist/server/lib/start-server.js`; `node` jest PID 1, więc dostaje sygnał). Żądanie,
+   które Traefik wyśle w tej chwili do starego kontenera, dostaje odmowę połączenia
+   i `retry` ponawia je na nowym.
+6. PR usuwający usługę `frontend` z compose do kolejki (bramka Deploy wymaga od niego, żeby
+   front miał domeny, a compose ich nie miał — `FRONTEND_APP_REQUIRED=true`). Jego
+   wdrożenie zdejmuje stary kontener; od niego raport przerwy mierzy front jako
+   osobną aplikację (`--frontend-app true`). Odbiór: 0 próbek frontu bez 200 na kolejnych
+   wdrożeniach; każda zła próbka to ostrzeżenie w biegu Deploy.
+
+Sprawdzenie po 5 i 6: `curl -s https://nexus.b2bnetwork.pl/version.json` (SHA maina),
+kilka razy `curl -sI 'https://nexus.b2bnetwork.pl/auth/microsoft/callback?error=access_denied'`
+(302 z backendu, nie 5xx: front doszedł do `backend:8000`), logowanie i jedna strona SSR.
+
+**Wycofanie.**
+- Zły kod frontu: `mode=deploy` z `commit=<poprzedni SHA>` — rolling update, bez przerwy.
+- Zła aplikacja frontu przed krokiem 6: `mode=rollback` (domeny wracają do compose;
+  wczytany compose ma jeszcze usługę `frontend`), Deploy z `force_rebuild=true`, potem `mode=stop`.
+- Po kroku 6: revert PR-a z kroku 6 i Deploy (front dalej obsługuje `nexus-frontend`), potem
+  `mode=rollback`, Deploy z `force_rebuild=true` (stary front dostaje domeny), na końcu `mode=stop`.
+  Każdy Deploy compose to przerwa API, więc w oknie wdrożeń.

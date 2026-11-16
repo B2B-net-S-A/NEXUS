@@ -29,7 +29,9 @@ export type DlAlertType =
   // Konflikt kandydat↔klient właśnie wygasł — karta jednorazowa (bez powtórek),
   // link prowadzi do profilu kandydata.
   | "candidate_conflict_expired"
-  | "invoice_without_order_line";
+  | "invoice_without_order_line"
+  // Ponad limitem z umowy ramowej przed prolongatą (F3, 15.11.2026).
+  | "framework_over_limit";
 
 /** Sekcja panelu „Moi klienci" — wyznacza ją SERWER z typu alertu. */
 export type DlAlertSection = "ending" | "new_contractor" | "order_mail" | "decision";

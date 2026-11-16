@@ -18,7 +18,11 @@ from sqlalchemy import text
 
 from app.services.permission_schema import READY_SQL, apply_statements
 from app.services.signature_policy_bootstrap import POLICY_LOCK
-from app.services.startup_locks import BOOT_LOCK_TIMEOUT, is_lock_timeout
+from app.services.startup_locks import (
+    BOOT_LOCK_TIMEOUT,
+    is_lock_timeout,
+    record_skipped_ddl,
+)
 
 
 async def ensure_named_permissions(connection) -> None:
@@ -54,6 +58,7 @@ async def main(engine=None) -> None:
         except Exception as exc:
             if not is_lock_timeout(exc):
                 raise
+            record_skipped_ddl("named permissions", exc)
             print(
                 "Named permissions skipped after a lock timeout "
                 f"(the next start retries): {type(exc).__name__}"

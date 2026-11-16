@@ -34,7 +34,7 @@ from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.user import User, UserRole
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.job import Job, JobStatus
@@ -170,7 +170,7 @@ def _assert_salary_filter_access(
 
 
 @router.get("/jobs/{job_id}/recommendations")
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def recommend_candidates_for_job(
     request: Request,
     job_id: int,
@@ -614,7 +614,7 @@ async def _recommend_candidates_core(
 
 
 @router.get("/jobs/{job_id}/pipeline-scores")
-@limiter.limit("30/minute")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def pipeline_match_scores(
     request: Request,
     job_id: int,
@@ -662,7 +662,7 @@ def _derive_availability(candidate: Candidate, *, status_hidden: bool = False) -
     "/jobs/{job_id}/candidates-from-similar",
     response_model=CandidatesFromSimilarOut,
 )
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def candidates_from_similar_jobs(
     request: Request,
     job_id: int,
@@ -882,7 +882,7 @@ def _recommendation_rank_key(
 
 
 @router.get("/candidates/{candidate_id}/recommendations")
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def recommend_jobs_for_candidate(
     request: Request,
     candidate_id: int,
@@ -1155,7 +1155,7 @@ def _fallback_criteria_from_text(job: Job) -> dict:
     response_model=dict,
     dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=user_or_ip_key)
 async def refresh_job_criteria(
     request: Request,
     job_id: int,
@@ -1222,7 +1222,7 @@ async def refresh_job_criteria(
 
 
 @router.post("/jobs/{job_id}/generate-criteria-preview", response_model=dict)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=user_or_ip_key)
 async def generate_job_criteria_preview(
     request: Request,
     job_id: int,
@@ -1267,7 +1267,7 @@ async def generate_job_criteria_preview(
     "/jobs/{job_id}/recompute-scores",
     dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
-@limiter.limit("2/minute")
+@limiter.limit("2/minute", key_func=user_or_ip_key)
 async def recompute_scores(
     request: Request,
     job_id: int,

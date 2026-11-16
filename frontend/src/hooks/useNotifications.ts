@@ -82,6 +82,7 @@ import {
   type ChatBusEvent,
   type ChatNotifyEvent,
 } from "@/types/job-chat";
+import { isCookieSession } from "@/lib/session";
 
 /** Ruch zespołu na tablicy rekrutacji przychodzi jako `pipeline_changed`.
  *  Ruch zbiorczy potrafi wysłać serię zdarzeń tej samej rekrutacji w ciągu
@@ -269,7 +270,11 @@ export function useNotifications({
     let ws: WebSocket;
 
     try {
-      ws = new WebSocket(url, ["access_token", token]);
+      // Sesja w ciasteczku HttpOnly: przeglądarka dokleja je do handshake'u
+      // sama, a API sprawdza Origin (`backend/app/api/ws.py`).
+      ws = isCookieSession(token)
+        ? new WebSocket(url)
+        : new WebSocket(url, ["access_token", token]);
     } catch {
       // WebSocket not supported or URL invalid — fall back to polling
       startPolling();

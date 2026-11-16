@@ -25,10 +25,12 @@ Obie biblioteki dają zaszyte kolory; Tailwind Plus dodatkowo Tailwind v4 + wła
 | zielony status (`green-*`/`emerald-*`) | `bg-success-muted text-success-muted-foreground` |
 | bursztynowy status (`amber-*`) | `bg-warning-muted text-warning-muted-foreground` |
 | czerwony status (`red-*`/`rose-*`) | `bg-destructive-muted text-destructive-muted-foreground` |
+| czerwony napis (`text-red-600`, `dark:text-red-300`) | `text-destructive` (w trybie ciemnym sam jaśnieje) |
 | niebieski status informacyjny (`blue-*`/`sky-*`) | `bg-info-muted text-info-muted-foreground` |
 | LinkedIn `#0A66C2` | `text-brand-linkedin` / `bg-brand-linkedin` |
 
 - `--accent` to **subtelny neutral** (hover), **NIE** brand → emfaza zawsze przez `--primary`.
+- `text-destructive` ma własny token `--destructive-text` (13.11.2026): w trybie ciemnym `--destructive` to ciemna czerwień tła przycisku, a czerwony napis bierze jasną czerwień (≥ 4,5:1). Nie dopisuj `dark:text-red-*` i nie barw tekstu przez `hsl(var(--destructive))`; ramka w kolorze napisu to `border-current`.
 - Radius: używaj `rounded-lg/md/sm` (sterowane `--radius`) dla elementów reagujących na soft/kids.
 - Kids-mode hooki zostawiaj nietknięte: `.bg-card`, `role="progressbar"`, `role="dialog"`, `:has(table)`.
 

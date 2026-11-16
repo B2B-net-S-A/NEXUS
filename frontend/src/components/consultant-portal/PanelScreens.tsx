@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, FileText, Mail, Phone, Upload, Video } from "lucide-react";
 
@@ -19,7 +19,6 @@ import {
   type PortalMaterial,
   type PortalMe,
   type PortalProtocol,
-  type TrainerForm,
 } from "@/lib/api/consultant-portal";
 import { cn } from "@/lib/utils";
 
@@ -46,7 +45,7 @@ export function ScreenTitle({ title, lead }: { title: string; lead?: string }) {
   );
 }
 
-function Panel({
+export function Panel({
   title,
   action,
   children,
@@ -68,7 +67,7 @@ function Panel({
   );
 }
 
-function Fact({ label, value }: { label: string; value: ReactNode }) {
+export function Fact({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs text-muted-foreground">{label}</dt>
@@ -77,11 +76,11 @@ function Fact({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function Loading() {
+export function Loading() {
   return <p className="text-sm text-muted-foreground">Wczytujemy…</p>;
 }
 
-function Failure({ error, text }: { error: unknown; text: string }) {
+export function Failure({ error, text }: { error: unknown; text: string }) {
   return (
     <p role="alert" className="text-sm text-destructive">
       {apiErrorMessage(error, text)}
@@ -582,26 +581,70 @@ export function HelpScreen({ me }: { me: PortalMe }) {
   );
 }
 
-// ── Zostań trenerem ──────────────────────────────────────────────────────────
+// ── Zgłoszenie trenera ───────────────────────────────────────────────────────
 
-const TRAINER_TOPICS = ["AWS", "Azure", "Kubernetes", "Java", "Python", "Testy", "Bezpieczeństwo", "Scrum"];
-const TRAINER_FORMS: { value: TrainerForm; label: string }[] = [
-  { value: "online_or_onsite", label: "Online lub u klienta" },
-  { value: "online", label: "Tylko online" },
-  { value: "onsite", label: "Tylko u klienta" },
+const TRAINER_TOPICS = [
+  "AWS",
+  "Azure",
+  "Kubernetes",
+  "Java",
+  "Python",
+  "Testy",
+  "Bezpieczeństwo",
+  "Scrum",
+  "AI w pracy",
+  "DORA / NIS2",
 ];
+const SAMPLE_ACCEPT = ".pdf,.pptx,.docx";
+const SAMPLE_MAX_BYTES = 20 * 1024 * 1024;
+
+export const TRAINER_FLOW = [
+  "zgłoszenie",
+  "zamówienie od nas",
+  "Twoja wycena",
+  "umowa z podpisem kwalifikowanym",
+  "szkolenie",
+  "przekazanie plików",
+  "faktura (14 dni)",
+];
+
+function AgreementDataCard() {
+  return (
+    <Panel title="Dane do umowy szkoleniowej">
+      <dl className="space-y-2.5">
+        <Fact label="Firma" value="z Twojej umowy B2B" />
+        <Fact label="NIP, REGON, adres" value="z Twojej umowy B2B" />
+        <Fact label="Adres do kontaktu" value="ten, na który przyszedł link do panelu" />
+      </dl>
+      <p className="mt-3 text-xs text-muted-foreground">
+        Niczego nie przepisujesz. Coś się nie zgadza? Napisz w zakładce{" "}
+        <Link href="/konsultant/pomoc" className="text-primary underline-offset-2 hover:underline">
+          Pomoc
+        </Link>
+        . Tych danych nie zmienisz w panelu, tak jak danych do przelewu.
+      </p>
+      <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
+        <span className="font-medium text-foreground">Jak to działa: </span>
+        {TRAINER_FLOW.join(" → ")}.
+      </p>
+    </Panel>
+  );
+}
 
 export function TrainerScreen() {
   const client = useQueryClient();
   const saved = usePortalQuery(portalKeys.trainer, portalApi.trainer);
+  const sampleInput = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(false);
   const [topics, setTopics] = useState<string[]>([]);
   const [other, setOther] = useState("");
+  const [proposalTitle, setProposalTitle] = useState("");
+  const [proposalHours, setProposalHours] = useState("");
+  const [audience, setAudience] = useState("");
   const [experience, setExperience] = useState("");
-  const [form, setForm] = useState<TrainerForm>("online_or_onsite");
-  const [dayRate, setDayRate] = useState("");
   const [availability, setAvailability] = useState("");
   const [materials, setMaterials] = useState("");
+  const [sample, setSample] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const application = saved.data?.application ?? null;
@@ -609,9 +652,10 @@ export function TrainerScreen() {
   useEffect(() => {
     if (!application) return;
     setTopics(application.topics);
+    setProposalTitle(application.proposal_title);
+    setProposalHours(application.proposal_hours);
+    setAudience(application.audience);
     setExperience(application.experience);
-    setForm(application.form);
-    setDayRate(application.day_rate);
     setAvailability(application.availability);
     setMaterials(application.materials);
   }, [application]);
@@ -622,6 +666,19 @@ export function TrainerScreen() {
   const allTopics = extra && !topics.includes(extra) ? [...topics, extra] : topics;
   const ready = allTopics.length > 0 && experience.trim().length >= 3;
 
+  const pickSample = (file: File | undefined) => {
+    setError(null);
+    if (!file) return setSample(null);
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (!["pdf", "pptx", "docx"].includes(extension) || file.size > SAMPLE_MAX_BYTES) {
+      setSample(null);
+      if (sampleInput.current) sampleInput.current.value = "";
+      setError("Próbkę wgraj jako PDF, PPTX albo DOCX do 20 MB. Nagranie podaj jako link.");
+      return;
+    }
+    setSample(file);
+  };
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
@@ -630,19 +687,25 @@ export function TrainerScreen() {
       await portalApi.saveTrainer({
         topics: allTopics,
         experience: experience.trim(),
-        form,
-        day_rate: dayRate.trim(),
+        proposal_title: proposalTitle.trim(),
+        proposal_hours: proposalHours.trim(),
+        audience: audience.trim(),
         availability: availability.trim(),
         materials: materials.trim(),
       });
+      // Próbka dochodzi do zapisanego zgłoszenia: serwer przyjmuje ją dopiero po pierwszym wysłaniu.
+      if (sample) await portalApi.trainerSample(sample);
       await Promise.all([
         client.invalidateQueries({ queryKey: portalKeys.trainer }),
         client.invalidateQueries({ queryKey: portalKeys.cases }),
+        client.invalidateQueries({ queryKey: portalKeys.trainings }),
       ]);
       setOther("");
+      setSample(null);
       setEditing(false);
     } catch (failure) {
       setError(apiErrorMessage(failure, "Nie udało się wysłać zgłoszenia. Spróbuj ponownie."));
+      await client.invalidateQueries({ queryKey: portalKeys.trainer });
     } finally {
       setBusy(false);
     }
@@ -653,33 +716,46 @@ export function TrainerScreen() {
 
   if (application && !editing) {
     return (
-      <div className="min-w-0 space-y-4">
-        <ScreenTitle title="Dziękujemy za zgłoszenie" lead="Przejrzymy Twoją ofertę i odezwiemy się w tej sprawie." />
-        <Panel title="Stan zgłoszenia">
-          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Fact label="Wysłane" value={formatDay(application.sent_at)} />
-            <Fact label="Stan" value={application.waiting.label} />
-            <Fact label="Tematy" value={application.topics.join(", ")} />
-          </dl>
-          <Button size="sm" variant="outline" className="mt-3" onClick={() => setEditing(true)}>
-            Popraw zgłoszenie
-          </Button>
-        </Panel>
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="min-w-0 space-y-4">
+          <ScreenTitle
+            title="Dziękujemy za zgłoszenie"
+            lead="Przejrzymy Twoje zgłoszenie. Gdy będziemy mieli dla Ciebie szkolenie, zamówienie pojawi się w zakładce Szkolenia."
+          />
+          <Panel title="Stan zgłoszenia">
+            <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Fact label="Wysłane" value={formatDay(application.sent_at)} />
+              <Fact label="Kto się zajmuje" value={application.waiting.label} />
+              <Fact label="Tematy" value={application.topics.join(", ")} />
+              {application.proposal_title ? <Fact label="Propozycja szkolenia" value={application.proposal_title} /> : null}
+              <Fact label="Próbka" value={application.sample_name ?? "Bez pliku"} />
+            </dl>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
+                Popraw zgłoszenie
+              </Button>
+              <Button size="sm" variant="ghost" asChild>
+                <Link href="/konsultant/szkolenia">Przejdź do Szkoleń</Link>
+              </Button>
+            </div>
+          </Panel>
+        </div>
+        <AgreementDataCard />
       </div>
     );
   }
 
   return (
-    <div className="min-w-0 space-y-4">
-      <ScreenTitle
-        title="Chcesz zostać trenerem?"
-        lead="Opisz, czego możesz uczyć. Weźmiemy Twoją ofertę pod uwagę, gdy klient będzie szukał szkolenia."
-      />
-      <div className="max-w-3xl">
+    <div className="grid min-w-0 grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-4">
+        <ScreenTitle
+          title="Zostań trenerem"
+          lead="Szkolenia prowadzisz zdalnie dla konsultantów B2B Network. Na każde szkolenie dostaniesz od nas zamówienie z terminem i wycenisz je przed podpisaniem umowy."
+        />
         <Panel>
           <form className="space-y-4" onSubmit={submit}>
             <fieldset className="space-y-1.5">
-              <legend className="text-sm font-medium">Tematy szkoleń</legend>
+              <legend className="text-sm font-medium">Tematy, które możesz poprowadzić</legend>
               <div className="flex flex-wrap gap-1.5">
                 {[...new Set([...TRAINER_TOPICS, ...topics])].map((topic) => (
                   <button
@@ -703,6 +779,40 @@ export function TrainerScreen() {
                 onChange={(event) => setOther(event.target.value)}
               />
             </fieldset>
+            <FormField label="Propozycja pierwszego szkolenia" htmlFor="trainer-title">
+              <Input
+                id="trainer-title"
+                placeholder="np. Bezpieczne korzystanie z AI w projekcie klienta"
+                value={proposalTitle}
+                onChange={(event) => setProposalTitle(event.target.value)}
+              />
+            </FormField>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <FormField label="Ile godzin na żywo" htmlFor="trainer-hours">
+                <Input
+                  id="trainer-hours"
+                  placeholder="np. 3 h"
+                  value={proposalHours}
+                  onChange={(event) => setProposalHours(event.target.value)}
+                />
+              </FormField>
+              <FormField label="Dla kogo" htmlFor="trainer-audience">
+                <Input
+                  id="trainer-audience"
+                  placeholder="np. wszyscy konsultanci"
+                  value={audience}
+                  onChange={(event) => setAudience(event.target.value)}
+                />
+              </FormField>
+              <FormField label="Dostępność" htmlFor="trainer-availability">
+                <Input
+                  id="trainer-availability"
+                  placeholder="np. 2 popołudnia w miesiącu"
+                  value={availability}
+                  onChange={(event) => setAvailability(event.target.value)}
+                />
+              </FormField>
+            </div>
             <FormField label="Doświadczenie trenerskie" htmlFor="trainer-experience">
               <Textarea
                 id="trainer-experience"
@@ -712,52 +822,56 @@ export function TrainerScreen() {
                 onChange={(event) => setExperience(event.target.value)}
               />
             </FormField>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <FormField label="Forma" htmlFor="trainer-form">
-                <select
-                  id="trainer-form"
-                  className="h-9 w-full rounded-md border bg-card px-2 text-sm"
-                  value={form}
-                  onChange={(event) => setForm(event.target.value as TrainerForm)}
-                >
-                  {TRAINER_FORMS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </FormField>
-              <FormField label="Stawka za dzień netto" htmlFor="trainer-rate">
-                <Input id="trainer-rate" placeholder="np. 4 000 zł" value={dayRate} onChange={(event) => setDayRate(event.target.value)} />
-              </FormField>
-              <FormField label="Dostępność" htmlFor="trainer-availability">
-                <Input
-                  id="trainer-availability"
-                  placeholder="np. 2 dni w miesiącu"
-                  value={availability}
-                  onChange={(event) => setAvailability(event.target.value)}
-                />
-              </FormField>
-            </div>
-            <FormField label="Materiały lub program" htmlFor="trainer-materials">
+            <FormField label="Link do nagrania albo programu" htmlFor="trainer-materials">
               <Input
                 id="trainer-materials"
-                placeholder="Link albo krótki opis"
+                placeholder="np. nagranie z wcześniejszego szkolenia"
                 value={materials}
                 onChange={(event) => setMaterials(event.target.value)}
               />
             </FormField>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">Próbka: slajdy albo program wcześniejszego szkolenia</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => sampleInput.current?.click()}>
+                  <Upload aria-hidden className="size-3.5" /> {sample || application?.sample_name ? "Zmień plik" : "Dodaj plik"}
+                </Button>
+                <span className="min-w-0 break-all text-xs text-muted-foreground">
+                  {sample?.name ?? application?.sample_name ?? "PDF, PPTX albo DOCX do 20 MB. Nagranie podaj jako link."}
+                </span>
+              </div>
+              <input
+                ref={sampleInput}
+                type="file"
+                accept={SAMPLE_ACCEPT}
+                aria-label="Plik próbki"
+                className="sr-only"
+                tabIndex={-1}
+                onChange={(event) => pickSample(event.target.files?.[0])}
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Szkolenia są tylko zdalne. Cenę podasz przy konkretnym zamówieniu, w pozycjach z umowy.
+            </p>
             {error ? (
               <p role="alert" className="text-sm text-destructive">
                 {error}
               </p>
             ) : null}
-            <Button type="submit" disabled={busy || !ready}>
-              <Upload aria-hidden className="size-4" /> Wyślij zgłoszenie
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" disabled={busy || !ready}>
+                <Upload aria-hidden className="size-4" /> {busy ? "Wysyłamy…" : "Wyślij zgłoszenie"}
+              </Button>
+              {application ? (
+                <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+                  Wróć
+                </Button>
+              ) : null}
+            </div>
           </form>
         </Panel>
       </div>
+      <AgreementDataCard />
     </div>
   );
 }

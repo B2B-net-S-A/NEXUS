@@ -9,6 +9,8 @@ export interface WorkspaceMode<T extends string> {
   /** Licznik obok etykiety (np. dokumenty do sprawdzenia); 0/brak = bez plakietki. */
   count?: number;
   icon?: ReactNode;
+  /** Kotwica nowości (`data-tour`), gdy tryb jest nowością do zauważenia. */
+  tourId?: string;
 }
 
 /**
@@ -41,6 +43,7 @@ export function WorkspaceModeTabs<T extends string>({
             type="button"
             role="tab"
             aria-selected={active}
+            data-tour={mode.tourId}
             onClick={() => onChange(mode.value)}
             className={cn(
               "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] transition-colors pointer-coarse:min-h-10",

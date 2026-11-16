@@ -335,7 +335,8 @@ def test_question_webhook_sends_question_only_in_request() -> None:
     )
     assert body["request"] == {"question": "Kogo rekrutują w IT?"}
     assert "Kogo rekrutują" not in body["task"]
-    assert NIP not in str(body)
+    # NIP firmy idzie w firms (decyzja Artura 13.11.2026), w zleceniu jest tylko pytanie.
+    assert NIP not in str(body["request"])
     assert "requested_by" not in str(body) and "5" not in str(body["request"])
     assert set(body["report_format"]) == {"answer"}
 

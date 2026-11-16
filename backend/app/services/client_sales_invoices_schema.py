@@ -69,6 +69,9 @@ MATCH_METHODS: tuple[str, ...] = (
     "person",
     "correction",
     "manual",
+    # 0696: faktura wystawiona w NEXUSIE i przyjęta przez KSeF — powiązana
+    # z zamówieniem przy wysyłce, automat jej nie przepina.
+    "issued",
 )
 PAYMENT_KINDS: tuple[str, ...] = ("statement_line", "manual", "ebi24")
 PAYMENT_MATCH_STATUSES: tuple[str, ...] = ("matched", "unmatched", "ignored")
@@ -304,7 +307,8 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_sales_invoice_payments (match_status, booked_on)",
 )
 
-#: Metoda ``person`` (0630): osoba i stawka z pozycji faktury, decyzja Artura z 02.11.2026.
+#: Metoda ``person`` (0630): osoba i stawka z pozycji faktury, decyzja Artura z 02.11.2026;
+#: ``issued`` (0696): faktura wystawiona w NEXUSIE (E4).
 METHOD_CONSTRAINT_DDL: tuple[str, ...] = (
     "ALTER TABLE client_sales_invoices "
     "DROP CONSTRAINT IF EXISTS ck_client_sales_invoices_method",

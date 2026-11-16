@@ -58,7 +58,8 @@ from app.models.contract_equipment import (
     EquipmentReturnStatus,
 )
 from app.models.rate_benchmark import RateBenchmark, SeniorityLevel
-from app.models.rate_card import RateCard
+from app.models.rate_card import RateCard, RateCardAdder
+from app.models.contract_premium_skill import ContractPremiumSkillClaim
 from app.models.contract_amendment import ContractAmendment, ContractAmendmentType
 from app.models.contract_candidate_rate import ContractCandidateRate
 from app.models.contract_client_rate import ContractClientRate
@@ -122,14 +123,7 @@ from app.models.integration_run import (
     IntegrationRunEvent,
 )
 from app.models.traffit_integration import (
-    IntegrationLease,
     TraffitEntityLink,
-    TraffitFieldContract,
-    TraffitIntegrationControl,
-    TraffitOutboxEvent,
-    TraffitSyncConflict,
-    TraffitSyncRun,
-    TraffitSyncRunPhase,
     TraffitWebhookEvent,
 )
 from app.models.client_knowledge import ClientKnowledge
@@ -413,6 +407,8 @@ __all__ = [
     "RateBenchmark",
     "SeniorityLevel",
     "RateCard",
+    "RateCardAdder",
+    "ContractPremiumSkillClaim",
     "ContractAmendment",
     "ContractAmendmentType",
     "ContractCandidateRate",
@@ -461,14 +457,7 @@ __all__ = [
     "CandidateContactTraffitLedger",
     "TraffitSyncState",
     "TraffitEntityLink",
-    "TraffitFieldContract",
-    "TraffitOutboxEvent",
     "TraffitWebhookEvent",
-    "TraffitSyncConflict",
-    "TraffitSyncRun",
-    "TraffitSyncRunPhase",
-    "IntegrationLease",
-    "TraffitIntegrationControl",
     "ClientKnowledge",
     "ClientOnePager",
     "ClientContractTerms",
@@ -702,9 +691,7 @@ from app.models.dr_sales import (
 from app.models.dr_upload import DrUploadHistory  # noqa: F401
 from app.models.dr_user_seniority import DrUserSeniority  # noqa: F401
 from app.models.cortex import (  # noqa: F401
-    CortexExtractionRun,
     CortexSkillFact,
-    CortexUnmatchedObservation,
     CortexUnmatchedTerm,
 )
 
@@ -912,6 +899,9 @@ from app.models import hr_document as _hr_document_models  # noqa: F401,E402
 from app.models import hr_agreement as _hr_agreement_models  # noqa: F401,E402
 from app.models import hr_approval as _hr_approval_models  # noqa: F401,E402
 from app.models import client_sales_invoice as _client_sales_invoice_models  # noqa: F401,E402
+from app.models import client_einvoice as _client_einvoice_models  # noqa: F401,E402
+from app.models import client_issued_invoice as _client_issued_invoice_models  # noqa: F401,E402
+from app.models import finance_archive as _finance_archive_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
@@ -919,6 +909,15 @@ from app.models import consultant_portal as _consultant_portal_models  # noqa: F
 from app.models import consultant_panel as _consultant_panel_models  # noqa: F401,E402
 from app.models import client_settlement as _client_settlement_models  # noqa: F401,E402
 from app.models import client_time_report as _client_time_report_models  # noqa: F401,E402
+from app.models import client_report as _client_report_models  # noqa: F401,E402
+from app.models import training as _training_models  # noqa: F401,E402  (0694 szkolenia)
+from app.models import finance_ledger as _finance_ledger_models  # noqa: F401,E402  (0695 księgowość)
+from app.models import finance_payments as _finance_payments_models  # noqa: F401,E402  (0699 przelewy kosztów)
+from app.models import finance_posting as _finance_posting_models  # noqa: F401,E402  (0698 dekret i eksport)
+from app.models import ledger as _ledger_models  # noqa: F401,E402  (0700 księga NEXUSA)
+from app.models import ledger_assets as _ledger_assets_models  # noqa: F401,E402  (0703 środki trwałe)
+from app.models import hr_payroll_lists as _hr_payroll_lists_models  # noqa: F401,E402  (0704 płace K7a)
+from app.models import hr_payroll_k7b as _hr_payroll_k7b_models  # noqa: F401,E402  (0719 płace K7b)
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
@@ -934,3 +933,9 @@ from app.models import insight_decision as _insight_decision_models  # noqa: F40
 
 # 0639: panel klienta pod linkiem z CV.
 from app.models import client_panel as _client_panel_models  # noqa: F401,E402
+
+# 0711: zespół dla klienta (kilka rekrutacji, jeden link).
+from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E402
+
+# 0713: radar przepisów (dwa Grok Boty, bramka NEXUSA, zmiany w prawie).
+from app.models import law_radar as _law_radar_models  # noqa: F401,E402

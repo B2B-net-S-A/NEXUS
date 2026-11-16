@@ -123,6 +123,43 @@ export function withinAnchor(
 }
 
 /**
+ * Każde kliknięcie na stronie, z elementem, w który osoba naprawdę kliknęła.
+ * Wyzwalacze menu Radix (DropdownMenu, Select) otwierają się na `pointerdown`
+ * i ustawiają `body { pointer-events: none }`, więc `click` przychodzi wtedy
+ * na `<html>` (wspólny przodek). Gdy `click` trafił w przodka elementu
+ * z `pointerdown`, liczy się ten element. Bez tego „Zmień plik” w panelu
+ * osoby nie zaliczał kropki nikomu (14.11.2026: 23 widzących, 0 zaliczeń).
+ */
+export function onEveryClick(
+  doc: Document,
+  handler: (target: EventTarget | null) => void,
+): () => void {
+  let down: EventTarget | null = null;
+  const onDown = (event: Event) => {
+    down = event.target;
+  };
+  const onClick = (event: Event) => {
+    const target = event.target;
+    const pressed = down;
+    down = null;
+    handler(
+      pressed instanceof Node &&
+        target instanceof Node &&
+        target !== pressed &&
+        target.contains(pressed)
+        ? pressed
+        : target,
+    );
+  };
+  doc.addEventListener("pointerdown", onDown, true);
+  doc.addEventListener("click", onClick, true);
+  return () => {
+    doc.removeEventListener("pointerdown", onDown, true);
+    doc.removeEventListener("click", onClick, true);
+  };
+}
+
+/**
  * Co zapisać po kliknięciu poza przeklikaniem: drobiazg zalicza klik w jego
  * element, nowość „do przeklikania” i zmianę procesu — użycie w pracy.
  */
@@ -279,9 +316,67 @@ export interface StartStatus {
   enforced: boolean;
   /** Wyłącznik firmowy — widzi go panel „kto już umie”. */
   gate_on: boolean;
+  /** Wyłącznik blokady Poligonu nowych osób (osobny od Startu, 15.11.2026). */
+  poligon_gate_on?: boolean;
   done: number;
   total: number;
   items: StartItem[];
+  /** Dokąd prowadzi blokada: `/poligon`, dopóki nowa osoba nie skończy poligonu. */
+  redirect?: string;
+  /** Poligon NEXUSA osoby (`null`, gdy jej rola go nie ma). */
+  poligon?: PoligonStatus | null;
+}
+
+/** Postęp osoby na Poligonie NEXUSA (zaliczone ćwiczenia z id `poligon-…`). */
+export interface PoligonStatus {
+  open: boolean;
+  /** Poligon blokuje pracę, dopóki go nie przejdzie (nowa osoba). */
+  required: boolean;
+  /** Ćwiczenia, które liczy licznik i blokada: wymagane od osoby (od nadania
+   *  roli z poligonem, 15.11.2026), a gdy poligon nie jest wymagany — cała
+   *  ścieżka jej ról. Starszy serwer bez pola = cała ścieżka. */
+  exercise_ids?: string[];
+  done_ids: string[];
+  done: number;
+  total: number;
+  /** Poligon dla obecnych (16.11.2026): termin i ćwiczenia zaliczone z pracy. */
+  luki?: PoligonLuki | null;
+}
+
+/** Kampania „tylko luki”: do terminu poligon prosi, po terminie blokuje. */
+export interface PoligonLuki {
+  /** Termin (YYYY-MM-DD, kalendarz firmy). */
+  due: string;
+  /** Ćwiczenia zaliczone z pracy z ostatnich 60 dni. */
+  credited_ids: string[];
+}
+
+/** „Kto zna NEXUS” — rekruterzy × ważne funkcje z 60 dni pracy (HoR). */
+export interface LukiMatrix {
+  window_days: number;
+  features: Array<{ key: string; label: string; group: string; users: number }>;
+  people: Array<{
+    id: number;
+    name: string;
+    used: string[];
+    gaps: number;
+    poligon: { done: number; total: number } | null;
+  }>;
+  campaign: { due: string; started_at: string | null } | null;
+}
+
+/** Termin kampanii po polsku: „pt 21.11”. */
+export function formatLukiDue(due: string): string {
+  const [y, m, d] = due.split("-").map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  const names = ["nd", "pn", "wt", "śr", "cz", "pt", "sb"];
+  return `${names[day]} ${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}`;
+}
+
+/** Ile ćwiczeń z luk zostało osobie (bez kampanii albo po wszystkim: 0). */
+export function lukiLeft(poligon: PoligonStatus | null | undefined): number {
+  if (!poligon?.luki) return 0;
+  return Math.max(poligon.total - poligon.done, 0);
 }
 
 /** Ekran Startu. */
@@ -298,6 +393,8 @@ const START_FREE_PREFIXES = [
   "/login",
   "/onboarding",
   "/settings/nowosci",
+  // Poligon NEXUSA: mapa ćwiczeń (same ćwiczenia przepuszcza `useStartGate`).
+  "/poligon",
   // Sam odczyt liczb na telefonie; przeklikania Startu i tak robi się na laptopie.
   "/podglad",
 ];

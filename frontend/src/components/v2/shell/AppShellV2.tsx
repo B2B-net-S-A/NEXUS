@@ -9,12 +9,17 @@ import { useCapabilities } from "@/hooks/useCapability";
 import { useKeyboardShortcuts, ShortcutsModal } from "@/components/KeyboardShortcuts";
 import { useOnboardingGuard } from "@/hooks/useOnboardingGuard";
 import { SidebarV2 } from "./SidebarV2";
+import { AppearanceSync } from "./AppearanceSync";
+import { WorldGalleryHost } from "./WorldGallery";
 import { TopbarV2 } from "./TopbarV2";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NotificationsRealtime } from "./NotificationsRealtime";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
+import { PoligonBanner, PoligonLayer } from "@/components/poligon/PoligonLayer";
+import { PoligonLukiNotice } from "@/components/poligon/PoligonLukiNotice";
+import { isPoligonActive } from "@/lib/poligon/mode";
 import { useStartGate } from "@/components/novelties/useStartGate";
 import { PREVIEW_PATH } from "@/components/phone-preview/access";
 import { PhonePreviewRedirect } from "@/components/phone-preview/usePhonePreviewRedirect";
@@ -154,6 +159,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // Start w NEXUSIE (30.10.2026): bez przeklikania najważniejszych funkcji
   // roli tylko pulpit i `/start` — reszta przekierowuje na Start.
   const startBlocked = useStartGate();
+  // Poligon NEXUSA: tryb ćwiczeń na tej karcie (sessionStorage, czytany po hydracji).
+  const [poligon, setPoligon] = useState(false);
+  useEffect(() => setPoligon(isPoligonActive()), []);
 
   if (isLoginPage) return <>{children}</>;
   if (pathname === PREVIEW_PATH || pathname?.startsWith(`${PREVIEW_PATH}/`)) return <>{children}</>;
@@ -194,6 +202,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell-root relative flex h-dvh overflow-hidden bg-background text-foreground">
       <PhonePreviewRedirect />
+      <WorldGalleryHost />
+      {hydrated && hasOwnSession && <AppearanceSync />}
       {/* Skip link — pierwszy element w kolejności tabulacji; widoczny dopiero
           po sfokusowaniu. Pozwala ominąć sidebar i topbar klawiaturą. */}
       <a
@@ -238,6 +248,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
               dolnym rogu — ostatnie przyciski strony dają się wyprzewijać
               spod niej. */}
           <div className="p-4 pb-24 md:p-6 animate-fadeIn">
+            {poligon ? <PoligonBanner /> : <PoligonLukiNotice />}
             {startBlocked ? null : children}
           </div>
         </main>
@@ -264,7 +275,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       <KidsBackdrop />
       <JarvisRoot />
       {/* Kropki „Nowe”, przeklikanie i okno zmiany procesu. */}
-      <NoveltyLayer />
+      {poligon ? <PoligonLayer /> : <NoveltyLayer />}
     </div>
   );
 }

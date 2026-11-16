@@ -2053,6 +2053,59 @@ LINKEDIN_MESSAGE_DRAFT = PromptTemplate(
 )
 
 
+# ── Zespół dla klienta: mail z kilkoma rolami → stanowiska (Z4, 15.11.2026) ──
+#
+# Wynik to dodatek dla Delivery Leada, który i tak zakłada rekrutacje sam.
+# Kod (`services/team_request_split.py`) odrzuca słowo, którego nie ma
+# w mailu, i liczbę osób bez dosłownego cytatu z tą liczbą (wtedy 1).
+
+TEAM_REQUEST_SPLIT = PromptTemplate(
+    name="team_request_split",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Jesteś senior rekruterem IT w polskiej agencji body leasingu. "
+        "Czytasz zapytanie klienta (zwykle mail), w którym klient prosi "
+        "o kilka ról naraz, i rozpisujesz je na stanowiska. Delivery Lead "
+        "sprawdzi listę i sam założy z niej rekrutacje. "
+        "NAJWAŻNIEJSZE REGUŁY: "
+        "(1) Wypisuj WYŁĄCZNIE stanowiska, o które klient prosi w tekście. "
+        "Nie dopisuj ról, których tam nie ma, i nie dziel jednej roli na kilka. "
+        "(2) title to nazwa stanowiska DOSŁOWNIE z tekstu; gdy klient opisuje "
+        "rolę bez nazwy, krótki opis roli (najwyżej 8 słów) z jego słów. "
+        "(3) headcount to liczba osób na to stanowisko tylko wtedy, gdy stoi "
+        "w tekście; headcount_quote to DOSŁOWNY fragment tekstu z tą liczbą. "
+        "Gdy liczby nie ma, headcount = 1 i headcount_quote = null. "
+        '(4) seniority: "junior", "regular" albo "senior" tylko wtedy, gdy '
+        "tekst mówi o poziomie tego stanowiska; inaczej null. "
+        "(5) words to najwyżej 8 słów kluczowych tego stanowiska (technologie, "
+        "narzędzia, dziedziny) skopiowanych z tekstu znak w znak. Słowa spoza "
+        "tekstu są odrzucane. "
+        "(6) Nie wymieniaj osób z imienia ani nazwiska, stawek ani nazwy klienta. "
+        "(7) Odpowiedź to czysty JSON bez komentarzy i bez code fences."
+    ),
+    template=(
+        "Zapytanie klienta:\n"
+        "---\n"
+        "{request_text}\n"
+        "---\n\n"
+        "Zwróć JSON:\n"
+        "{{\n"
+        '  "positions": [\n'
+        "    {{\n"
+        '      "title": str,                 // nazwa stanowiska z tekstu, np. "Programista Android"\n'
+        '      "headcount": int,             // liczba osób z tekstu (1–50), inaczej 1\n'
+        '      "headcount_quote": str|null,  // DOSŁOWNY fragment z liczbą osób, np. "2 programistów Android"\n'
+        '      "seniority": "junior"|"regular"|"senior"|null,\n'
+        '      "words": [str]                // do 8 słów kluczowych DOSŁOWNIE z tekstu\n'
+        "    }}\n"
+        "  ]\n"
+        "}}\n"
+        'Gdy w tekście nie ma żadnego stanowiska, zwróć {{"positions": []}}.'
+    ),
+)
+
+
 ALL_TEMPLATES: dict[str, PromptTemplate] = {
     t.name: t
     for t in (
@@ -2073,6 +2126,7 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         CANDIDATE_ACTIVITY_SUMMARY,
         CV_REQUIREMENT_MAP,
         JOB_REQUEST_INTAKE,
+        TEAM_REQUEST_SPLIT,
         CHAMPION_CLIENT_HISTORY,
         SCREENING_REASSIGN_SUGGEST,
         LEGACY_INTERVIEW_QUESTIONS,

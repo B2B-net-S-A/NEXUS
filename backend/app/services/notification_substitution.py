@@ -57,6 +57,8 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.client_order_ending_30d,
         T.client_order_ending_7d,
         T.client_panel_request,
+        # 0708: termin raportu dla klienta nie czeka na powrót osoby.
+        T.client_report_due,
         T.consultant_in_other_recruitment,
         T.contract_activated,
         T.contract_ending,
@@ -129,6 +131,11 @@ CURRENT_WORK_TYPES: frozenset[T] = frozenset(
         T.start_documents_reminder,
         T.start_documents_returned,
         T.suggest_next_step,
+        # 0697: szkolenia — wycena, plik od trenera, umowa do podpisu, faktura.
+        T.training_file,
+        T.training_invoice,
+        T.training_quote,
+        T.training_sign,
     }
 )
 
@@ -192,6 +199,9 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.password_reset_requested,
         T.portal_low_rating,
         T.portal_monthly_review,
+        # 0697: przypomnienie o szkoleniu i nagranie dostępne / do zatwierdzenia.
+        T.training_recording,
+        T.training_reminder,
         T.powercalling_kpi,
         T.prep2_skip_threshold,
         T.recruitment_allocation_alert,

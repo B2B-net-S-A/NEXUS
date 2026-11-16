@@ -169,7 +169,8 @@ def test_webhook_body_v2_keeps_v1_fields_and_adds_task(monkeypatch) -> None:
         "briefings",
         "no_signal",
     }
-    assert "nip" not in str(body)
+    # NIP firmy idzie do bota od 13.11.2026 (decyzja Artura), osoby nie.
+    assert body["firms"][0]["nip"] == "123"
 
     monkeypatch.setitem(bot_tasks.REGISTRY, "enrich", FAKE)
     run, token = signals.new_run("enrich", [1], now=NOW, request={"limit": 3})

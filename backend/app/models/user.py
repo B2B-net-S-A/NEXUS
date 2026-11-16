@@ -207,6 +207,13 @@ class User(Base, TimestampMixin):
         JSONB, default=dict, server_default="{}", nullable=False
     )
 
+    # Świat wyglądu (0693): ``{"world": id, "world_before_season": id}`` —
+    # zapis z menu „Wygląd”, żeby świat szedł za osobą na każdy komputer.
+    # Walidowane w `/api/users/me/preferences` (`AppearancePrefs`).
+    appearance_prefs: Mapped[dict] = mapped_column(
+        JSONB, default=dict, server_default="{}", nullable=False
+    )
+
     # Wyciszone kategorie powiadomień (0349): ``{kategoria: ISO czasu
     # wyciszenia}``. Kategorie i reguły: ``services/notification_categories``;
     # stosuje je ``services/notification_access`` przy każdym odczycie

@@ -17,6 +17,7 @@ export interface BotListBrief {
   industries: string[];
   pkd: string[];
   regions: string[];
+  cities: string[];
   sizes: BotListSize[];
   triggers: string[];
   sources: BotListSource[];
@@ -24,6 +25,7 @@ export interface BotListBrief {
   per_caller: number;
   caller_ids: number[];
   auto_refill: boolean;
+  lookalike: boolean;
 }
 
 export interface BotListRate {
@@ -60,6 +62,19 @@ export const ROLE_OPTIONS: { value: BotListRole; label: string }[] = [
 ];
 
 export const SIZE_OPTIONS: BotListSize[] = ["1-49", "50-249", "250-999", "1000+"];
+
+export const SOURCE_OPTIONS: { value: BotListSource; label: string }[] = [
+  { value: "base", label: "Baza NEXUSA" },
+  { value: "rejestr", label: "rejestr.io" },
+  { value: "research", label: "Research" },
+];
+
+export const TRIGGER_OPTIONS: { value: string; label: string }[] = [
+  { value: "board_change", label: "zmiana w zarządzie" },
+  { value: "it_center", label: "nowe centrum IT" },
+  { value: "acquisition", label: "przejęcie" },
+  { value: "hiring", label: "rekrutacje IT" },
+];
 
 const key = (campaignId: number) => ["sales", "bot-lists", campaignId] as const;
 

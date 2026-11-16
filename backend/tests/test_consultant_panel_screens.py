@@ -251,8 +251,9 @@ async def test_finance_sets_the_template_and_consultant_reads_it(app_client) -> 
 TRAINER = {
     "topics": ["AWS", "Kubernetes"],
     "experience": "Prowadzę szkolenia od pięciu lat.",
-    "form": "online",
-    "day_rate": "4 000 zł",
+    "proposal_title": "Kubernetes w praktyce",
+    "proposal_hours": "3 h",
+    "audience": "Konsultanci DevOps",
     "availability": "2 dni w miesiącu",
     "materials": "",
 }
@@ -285,6 +286,89 @@ async def test_trainer_application_makes_one_case_and_can_be_corrected(
     assert read["application"]["topics"] == ["Azure"]
     listed = (await app_client.get(f"{BASE}/cases", headers=session)).json()
     assert [row["id"] for row in listed["items"]] == [cases[0].id]
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_trainer_status_names_the_assigned_owner(app_client) -> None:
+    """13.11.2026: sprawa z opiekunem pokazywała „Czeka na przydzielenie osoby”."""
+
+    person = await make_person()
+    session = await session_headers(app_client, person)
+    assert (
+        await app_client.put(f"{BASE}/trainer", headers=session, json=TRAINER)
+    ).status_code == 200
+    owner = await make_user(UserRole.talent_community_manager, name="Nadia")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(AdminCase)
+            .where(
+                AdminCase.contract_id == person.contract_id,
+                AdminCase.source == "portal",
+            )
+            .values(assignee_user_id=owner.id, status="in_progress")
+        )
+        await db.commit()
+    read = (await app_client.get(f"{BASE}/trainer", headers=session)).json()
+    assert read["application"]["waiting"]["who"] == "us"
+    assert owner.name in read["application"]["waiting"]["label"]
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_trainer_application_follows_the_training_agreement(app_client) -> None:
+    """Bez formy „u klienta” i stawki za dzień: szkolenia są zdalne, cena to wycena."""
+
+    person = await make_person()
+    session = await session_headers(app_client, person)
+    sent = await app_client.put(
+        f"{BASE}/trainer",
+        headers=session,
+        json={**TRAINER, "form": "onsite", "day_rate": "4 000 zł"},
+    )
+    assert sent.status_code == 200, sent.text
+    body = sent.json()["application"]
+    assert "day_rate" not in body and "form" not in body
+    assert body["proposal_title"] == "Kubernetes w praktyce"
+    async with AsyncSessionLocal() as db:
+        case = await db.scalar(
+            select(AdminCase).where(
+                AdminCase.contract_id == person.contract_id,
+                AdminCase.source == "portal",
+            )
+        )
+    assert "Stawka za dzień" not in case.description
+    assert "Kubernetes w praktyce" in case.description
+
+
+@pytest.mark.usefixtures("portal_all")
+async def test_trainer_sample_needs_an_application_and_a_real_file(app_client) -> None:
+    person = await make_person()
+    session = await session_headers(app_client, person)
+    early = await app_client.post(
+        f"{BASE}/trainer/sample",
+        headers=session,
+        files={"file": ("probka.pdf", PDF, "application/pdf")},
+    )
+    assert early.status_code == 409
+    await app_client.put(f"{BASE}/trainer", headers=session, json=TRAINER)
+    fake = await app_client.post(
+        f"{BASE}/trainer/sample",
+        headers=session,
+        files={"file": ("probka.pdf", b"nie pdf", "application/pdf")},
+    )
+    assert fake.status_code == 422
+    project = await app_client.post(
+        f"{BASE}/trainer/sample",
+        headers=session,
+        files={"file": ("project.drp", b"PK\x03\x04x", "application/octet-stream")},
+    )
+    assert project.status_code == 422
+    ok = await app_client.post(
+        f"{BASE}/trainer/sample",
+        headers=session,
+        files={"file": ("probka.pdf", PDF, "application/pdf")},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["application"]["sample_name"] == "probka.pdf"
 
 
 @pytest.mark.usefixtures("portal_all")

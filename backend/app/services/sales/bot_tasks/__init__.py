@@ -21,6 +21,7 @@ from app.models.sales import SalesSignalRun
 from app.services.sales.bot_tasks import (
     discovery,
     enrich,
+    lists,
     people,
     question,
     signals_briefing,
@@ -73,6 +74,7 @@ REGISTRY: dict[str, BotTask] = {
         people.PEOPLE,
         winback.WINBACK,
         discovery.DISCOVERY,
+        lists.LISTS,
     )
 }
 

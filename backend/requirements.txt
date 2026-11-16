@@ -17,21 +17,18 @@ email-validator==2.3.0
 python-jose[cryptography]==3.5.0
 bcrypt==5.0.0
 httpx==0.28.1
-# PIN AWARYJNY — NIE podnosić bez migracji API. qdrant-client 1.18.0 USUNĄŁ
-# `QdrantClient.search()` / `AsyncQdrantClient.search()` na rzecz
-# `query_points()` (zwraca obiekt z `.points`, nie listę). Podbicie w #961
-# przeszło CI i healthcheck, bo żadne z nich nie dotyka ścieżki wektorowej, a
-# wyjątek jest połykany do pustej listy — wyszukiwanie semantyczne i matching
-# zwracały „brak wyników" zamiast błędu, przy `status: healthy`.
-# Wołający (stan 11.09.2026): embedding_service.py (×4), pool_suggester.py,
-# historical_jobs_retrieval.py, cc_classifier.py, passage_index.py (×2) oraz
-# full_search_measurement._exact_search — pomiar kanonicznego dopasowania
-# (pełny przegląd, kolumna wyszukiwarki, pierścień „Dopasowanie”). Tam wyjątek
-# też jest połykany: każdy kandydat dostaje `unavailable`, czyli „ocena
-# niepełna” zamiast liczby — znowu bez błędu i przy `status: healthy`.
-# Migracja na query_points — osobny PR, razem z sondą `checks.qdrant`
-# w /api/health.
-qdrant-client==1.12.1
+# Wersja klienta = wersja serwera Qdranta z docker-compose.yml (v1.17.1, pin
+# z odczytu produkcji 12.08.2026). Klient i serwer mogą się różnić najwyżej
+# o jedną wersję minor, więc podbicie klienta idzie razem z obrazem serwera.
+# Historia: 28.07.2026 podbicie 1.12.1 → 1.18.0 (#961) usunęło
+# `QdrantClient.search()`, a wyjątek był połykany do pustej listy —
+# wyszukiwanie i matching zwracały „brak wyników” przy `status: healthy`.
+# Od 14.11.2026 cały kod woła `query_points()` (wynik w `.points`), a sonda
+# `checks.qdrant` w /api/health wykonuje to samo zapytanie, więc zmiana API
+# klienta zapala health na czerwono. Nowe wywołanie Qdranta: tylko
+# `query_points()`; `tests/test_qdrant_query_points_only.py` pilnuje, żeby
+# `search()` nie wróciło.
+qdrant-client==1.17.1
 # Adapter wektora zapytania (`services/query_adapter.py`). Wersja = ta, którą
 # qdrant-client i tak instaluje w obrazie (2.5.3 na produkcji 07.10.2026);
 # jawny pin, bo kod aplikacji importuje numpy wprost.
@@ -101,6 +98,8 @@ rapidfuzz==3.14.5
 # before upload. python-jose already pinned above (used by JWT auth + webhook
 # JWKS verification).
 weasyprint==70.0
+# E-faktury Peppol: reguły EN16931 i Peppol (Schematron → XSLT 2.0) — `app/services/peppol/validation.py`.
+saxonche==13.1.1
 # Kod QR na plakacie linku rekrutacji (services/career_poster.py). Czysty
 # Python, bez zależności; SVG jako data: URI, więc renderer PDF nic nie pobiera.
 segno==1.6.6

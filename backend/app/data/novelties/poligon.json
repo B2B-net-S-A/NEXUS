@@ -1,0 +1,363 @@
+{
+  "roles": [
+    "admin",
+    "head_of_recruitment",
+    "delivery_lead",
+    "talent_community_manager",
+    "recruiter"
+  ],
+  "required_roles": [
+    "recruiter",
+    "delivery_lead",
+    "talent_community_manager"
+  ],
+  "required_since": "2026-11-15",
+  "replaces": {
+    "recruiter": [
+      "start-lista-rekrutacji",
+      "start-tablica",
+      "start-panel-osoby",
+      "start-baza-kandydatow"
+    ],
+    "delivery_lead": [
+      "start-lista-rekrutacji",
+      "start-tablica",
+      "start-panel-osoby",
+      "start-baza-kandydatow"
+    ],
+    "talent_community_manager": [
+      "start-lista-rekrutacji",
+      "start-tablica",
+      "start-panel-osoby",
+      "start-baza-kandydatow"
+    ]
+  },
+  "exercises": [
+    {
+      "id": "poligon-lista-zakres",
+      "module": "Lista rekrutacji",
+      "title": "Przełącz „Moje / Wszystkie”",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-lista-filtry",
+      "module": "Lista rekrutacji",
+      "title": "Otwórz filtry",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-lista-otworz",
+      "module": "Lista rekrutacji",
+      "title": "Otwórz rekrutację ĆW-01",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-tablica-biore",
+      "module": "Tablica",
+      "title": "Weź osobę przyciskiem „Biorę”",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-tablica-przesun",
+      "module": "Tablica",
+      "title": "Przesuń osobę na „Screening”",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-tablica-zrodla",
+      "module": "Tablica",
+      "title": "Zajrzyj, skąd brać kandydatów",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-tablica-moi-ludzie",
+      "module": "Tablica",
+      "title": "Otwórz „Moi ludzie”",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-panel-notatka",
+      "module": "Panel osoby",
+      "title": "Dodaj notatkę po rozmowie",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-panel-wzmianka",
+      "module": "Panel osoby",
+      "title": "Oznacz kogoś z zespołu w notatce",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-panel-odrzuc",
+      "module": "Panel osoby",
+      "title": "Odrzuć osobę z właściwym powodem",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-screening-otworz",
+      "module": "Screening i weryfikacja",
+      "title": "Otwórz formularz screeningu",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-screening-bramka",
+      "module": "Screening i weryfikacja",
+      "title": "Spróbuj zweryfikować osobę bez screeningu",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-screening-zapisz",
+      "module": "Screening i weryfikacja",
+      "title": "Wypełnij i zapisz screening",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-screening-zweryfikuj",
+      "module": "Screening i weryfikacja",
+      "title": "Zweryfikuj osobę",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-rekomendacja-cv",
+      "module": "Rekomendacja do klienta",
+      "title": "Zajrzyj do CV dla klienta",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-rekomendacja-qc",
+      "module": "Rekomendacja do klienta",
+      "title": "Przekaż zweryfikowaną osobę do QC CV",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-dl-przeglad-otworz",
+      "module": "Przegląd Delivery Leada",
+      "title": "Otwórz przegląd osoby z „QC CV”",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    {
+      "id": "poligon-dl-wyslij",
+      "module": "Przegląd Delivery Leada",
+      "title": "Wyślij CV do klienta ze stawką w budżecie",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    {
+      "id": "poligon-dl-poprawki",
+      "module": "Przegląd Delivery Leada",
+      "title": "Oddaj CV rekruterowi do poprawy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    {
+      "id": "poligon-baza-szukaj",
+      "module": "Baza kandydatów",
+      "title": "Wyszukaj w bazie kandydatów",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-baza-profil",
+      "module": "Baza kandydatów",
+      "title": "Otwórz profil osoby",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-baza-przypisz",
+      "module": "Baza kandydatów",
+      "title": "Przypisz osobę do rekrutacji",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-baza-lista",
+      "module": "Baza kandydatów",
+      "title": "Dodaj osobę do swojej listy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-baza-zapisane-wyszukiwanie",
+      "module": "Baza kandydatów",
+      "title": "Zapisz wyszukiwanie z powiadomieniem",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zrodla-cv-z-pliku",
+      "module": "Źródła i kalendarz",
+      "title": "Dodaj osobę z pliku CV",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-kalendarz-telefon",
+      "module": "Źródła i kalendarz",
+      "title": "Umów telefon screeningowy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-kalendarz-termin-klienta",
+      "module": "Źródła i kalendarz",
+      "title": "Wybierz z kandydatem termin rozmowy u klienta",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zespol-czat",
+      "module": "Zespół i AI",
+      "title": "Napisz w czacie rekrutacji",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zespol-cv-ai",
+      "module": "Zespół i AI",
+      "title": "Popraw CV poleceniem AI",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zespol-jarvis",
+      "module": "Zespół i AI",
+      "title": "Zapytaj Jarvisa o osobę z Tablicy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    }
+  ]
+}

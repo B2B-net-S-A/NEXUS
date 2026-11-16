@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 import { useAbsences, useLeaveModuleOpen, type PersonAbsence } from "@/lib/api/hr-leave";
+import { useAssignedJobUsers } from "@/hooks/useAssignedJobUsers";
 import type { ChatUserMini } from "@/types/job-chat";
 
 export type MentionScope =
@@ -40,6 +41,12 @@ interface UseMentionableUsersOptions {
    * puste, a wzmianki działają jak dotąd.
    */
   withAbsences?: boolean;
+  /**
+   * Dociągnij osoby przypisane do rekrutacji (`@wszyscy`, 13.11.2026) —
+   * tylko dla `scope.kind === "job"`. Wynik w `assigned`; bez opcji, poza
+   * rekrutacją albo przy awarii zapytania — `undefined`.
+   */
+  withAssigned?: boolean;
 }
 
 const NO_ABSENCES: ReadonlyMap<number, PersonAbsence> = new Map();
@@ -61,6 +68,9 @@ export function useMentionableUsers(
   const key = scopeKey(scope);
   const includeInactive = Boolean(opts.includeInactive);
   const withAbsences = Boolean(opts.withAbsences);
+  const assigned = useAssignedJobUsers(
+    opts.withAssigned && scope.kind === "job" ? scope.jobId : null,
+  );
   const query = useQuery<ChatUserMini[]>({
     queryKey: ["mentionable-users", key, includeInactive],
     queryFn: async () => {
@@ -83,6 +93,7 @@ export function useMentionableUsers(
   return {
     ...query,
     absences: absences.isSuccess ? absences.byUser : NO_ABSENCES,
+    assigned: assigned.data,
   };
 }
 

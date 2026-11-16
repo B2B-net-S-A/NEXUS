@@ -32,6 +32,7 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db, release_idle_connection
 from app.core.rate_limit import client_ip_key, limiter, user_or_ip_key
+from app.core.session_cookie import request_bearer_token
 from app.core.scheduling import DEFAULT_TZ, business_today, local_now
 from app.core.tasks import spawn
 from app.models.ai_feature import AIFeatureKey
@@ -154,7 +155,10 @@ def _require_available(request: Request) -> None:
 
 
 def _identity(request: Request) -> CallerIdentity:
-    authorization = request.headers.get("authorization") or ""
+    # Sesja przeglądarki jedzie w ciasteczku HttpOnly — Jarvis podaje dalej
+    # to samo poświadczenie jako Bearer (wywołania API w imieniu pytającego).
+    token = request_bearer_token(request)
+    authorization = f"Bearer {token}" if token else ""
     return CallerIdentity(
         authorization=authorization,
         forwarded_for=client_ip_key(request),

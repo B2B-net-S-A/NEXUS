@@ -199,11 +199,11 @@ class _FakeQdrant:
             if pid in self.points
         ]
 
-    def search(
+    def query_points(
         self,
         *,
         collection_name,
-        query_vector,
+        query,
         query_filter,
         search_params,
         limit,
@@ -211,7 +211,9 @@ class _FakeQdrant:
         with_vectors,
     ):
         (condition,) = query_filter.must
-        self.calls.append(("search", tuple(condition.has_id), search_params, limit))
+        self.calls.append(
+            ("query_points", tuple(condition.has_id), search_params, limit)
+        )
         self.search_kwargs = {
             "exact": search_params.exact,
             "ignore_quantization": search_params.quantization.ignore,
@@ -219,13 +221,13 @@ class _FakeQdrant:
             "with_payload": list(with_payload),
             "with_vectors": with_vectors,
         }
-        query = _as_stored(list(query_vector))
+        stored_query = _as_stored(list(query))
         hits = []
         for pid in condition.has_id:
             if pid not in self.points:
                 continue
             stored, payload = self.points[pid]
-            if len(stored) != len(query):
+            if len(stored) != len(stored_query):
                 raise UnexpectedResponse(
                     status_code=400,
                     reason_phrase="Bad Request",
@@ -235,13 +237,13 @@ class _FakeQdrant:
             hits.append(
                 SimpleNamespace(
                     id=pid,
-                    score=_f32(math.fsum(q * s for q, s in zip(query, stored))),
+                    score=_f32(math.fsum(q * s for q, s in zip(stored_query, stored))),
                     payload={k: payload[k] for k in with_payload if k in payload},
                     vector=None,
                 )
             )
         hits.sort(key=lambda hit: -hit.score)
-        return hits[:limit]
+        return SimpleNamespace(points=hits[:limit])
 
     def close(self):
         pass
@@ -367,7 +369,7 @@ async def test_exact_search_matches_the_python_cosine_it_replaces(monkeypatch, d
     assert {new[i].status for i in (10, 11, 12, 13)} == {"stale"}
     assert {new[i].status for i in (20, 21)} == {"missing_index"}
     # One vector-free search for the batch; vectors only for the zero score.
-    assert [call[0] for call in fake.calls] == ["search", "retrieve"]
+    assert [call[0] for call in fake.calls] == ["query_points", "retrieve"]
     assert fake.calls[0][1] == tuple(c.id for c in candidates)
     assert fake.calls[1] == ("retrieve", (5,), True)
     assert fake.search_kwargs == {
@@ -392,7 +394,7 @@ async def test_orthogonal_vector_is_a_measured_zero_after_the_vector_recheck(
     _install(monkeypatch, fake, str)
     result = await measure.measure_candidates([1.0, 0.0], [SimpleNamespace(id=7)])
     assert result[7] == measure.VectorMeasurement(0.0, "measured")
-    assert [call[0] for call in fake.calls] == ["search", "retrieve"]
+    assert [call[0] for call in fake.calls] == ["query_points", "retrieve"]
 
 
 @pytest.mark.asyncio
@@ -431,7 +433,7 @@ async def test_search_server_error_is_unknown_not_a_fallback(monkeypatch):
             headers=httpx.Headers(),
         )
 
-    fake.search = broken_search
+    fake.query_points = broken_search
     _install(monkeypatch, fake, str)
     result = await measure.measure_candidates([1.0, 0.0], [SimpleNamespace(id=1)])
     assert result == {1: measure.VectorMeasurement(None, "unavailable")}

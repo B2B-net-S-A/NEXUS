@@ -681,7 +681,12 @@ def _validate_cv_file(upload: UploadFile, content: bytes) -> None:
     _, ext = os.path.splitext(filename)
     mime_ok = (upload.content_type or "") in _ALLOWED_CV_MIME
     ext_ok = ext in _ALLOWED_CV_EXT
-    if not (mime_ok or ext_ok):
+    # Pentest 13.11.2026: nazwa i MIME ustawia wysyłający, więc decyduje treść —
+    # ta sama reguła rozpoznania co w ekstraktorze tekstu CV.
+    from app.services.cv_text_extractor import sniff_extension_bytes
+
+    sniffed = sniff_extension_bytes(content)
+    if not (mime_ok or ext_ok) or sniffed not in _ALLOWED_CV_EXT:
         raise HTTPException(
             status_code=415,
             detail="Unsupported CV format. Use PDF, DOC, or DOCX.",

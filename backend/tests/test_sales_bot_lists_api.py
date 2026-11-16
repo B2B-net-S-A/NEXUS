@@ -199,3 +199,70 @@ async def test_brief_refusals(app_client, monkeypatch) -> None:
         f"{URL}/campaigns/{campaign}/build", headers=_headers(editor)
     )
     assert off.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_bot_report_lands_in_the_campaign_through_import_gates(
+    app_client, monkeypatch
+) -> None:
+    """L3: raport ``lists`` (rejestr.io) trafia do kampanii od razu, przez bramki importu."""
+
+    from tests.test_sales_signals_api import URL as RUNS
+    from tests.test_sales_signals_api import _run
+
+    monkeypatch.setattr(settings, "SALES_BOT_LISTS_ENABLED", True)
+    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
+    caller = await _user("sales_edit")
+    campaign = await _campaign("Rejestr")
+    brief = {
+        "sources": ["rejestr"],
+        "roles": ["manager"],
+        "per_caller": 3,
+        "caller_ids": [caller.id],
+    }
+    resp = await app_client.put(
+        f"{URL}/campaigns/{campaign}/brief", json=brief, headers=_headers(caller)
+    )
+    assert resp.status_code == 200, resp.text
+    tag = uuid.uuid4().hex[:8]
+    run_id, token = await _run([], kind="lists", request={"campaign_id": campaign})
+    src = "https://rejestr.example/firma"
+    report = {
+        "firms": [
+            {
+                "company": f"Rejestr A {tag}",
+                "phone": "22 123 45 67",
+                "phone_source": src,
+                "pkd": "64.19.Z",
+                "source": "rejestr",
+                "source_url": src,
+            },
+            {
+                "company": f"Rejestr B {tag}",
+                "phone": "22 765 43 21",
+                "source": "rejestr",
+                "source_url": src,
+            },
+        ]
+    }
+    sent = await app_client.post(
+        f"{RUNS}/{run_id}", json=report, headers={"X-Run-Token": token}
+    )
+    assert sent.status_code == 200, sent.text
+    async with AsyncSessionLocal() as db:
+        records = (
+            (
+                await db.execute(
+                    select(SalesCallRecord).where(
+                        SalesCallRecord.campaign_id == campaign
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    # Firma B nie ma telefonu ze źródłem: bramka „brak telefonu”.
+    assert len(records) == 1
+    assert records[0].contact_source == "Bot Listy · rejestr.io"
+    assert records[0].assigned_user_id == caller.id
+    assert "PKD 64.19.Z" in (records[0].note or "")

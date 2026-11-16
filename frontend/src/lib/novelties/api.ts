@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { Novelty, NoveltyEvent, StartStatus } from "./logic";
+import type { LukiMatrix, Novelty, NoveltyEvent, StartStatus } from "./logic";
 
 export const myNoveltiesKey = ["novelties", "mine"] as const;
 
@@ -122,4 +122,33 @@ export async function setStartGate(enforced: boolean): Promise<boolean> {
     enforced,
   });
   return resp.data.enforced;
+}
+
+/** Wyłącznik blokady Poligonu nowych osób (admin, HoR). Start zostaje, jak był. */
+export async function setPoligonGate(on: boolean): Promise<boolean> {
+  const resp = await api.put<{ poligon: boolean }>("/api/novelties/start/gate", {
+    poligon: on,
+  });
+  return resp.data.poligon;
+}
+
+export const lukiKey = ["novelties", "poligon-luki"] as const;
+
+/** „Kto zna NEXUS”: macierz rekruterzy × funkcje (admin, HoR). */
+export function usePoligonLuki(enabled = true) {
+  return useQuery({
+    queryKey: lukiKey,
+    queryFn: async () => (await api.get<LukiMatrix>("/api/novelties/poligon/luki")).data,
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** Wysyła poligon z lukami: zalicza ćwiczenia z pracy i ustawia termin. */
+export async function sendPoligonLuki(due?: string): Promise<{ due: string; people: number; credited: number }> {
+  const resp = await api.post<{ due: string; people: number; credited: number }>(
+    "/api/novelties/poligon/luki",
+    due ? { due } : {},
+  );
+  return resp.data;
 }

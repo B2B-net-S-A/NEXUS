@@ -17,7 +17,8 @@ przeglądarka pokazałaby „Network Error”).
 
 from __future__ import annotations
 
-from typing import Mapping, Optional
+import re
+from typing import Mapping, Optional, Sequence
 
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
@@ -67,13 +68,24 @@ class BodySizeLimitMiddleware:
         app: ASGIApp,
         max_bytes: int,
         path_limits: Optional[Mapping[str, int]] = None,
+        pattern_limits: Optional[Sequence[tuple[str, int]]] = None,
     ) -> None:
         self.app = app
         self.max_bytes = max_bytes
         self.path_limits = dict(path_limits or {})
+        # Trasy z identyfikatorem w ścieżce (np. nagranie szkolenia do 2 GB): pełne
+        # dopasowanie wzorca, żeby wyższy limit nie objął sąsiednich tras.
+        self.pattern_limits = [
+            (re.compile(pattern), limit) for pattern, limit in (pattern_limits or ())
+        ]
 
     def _limit_for(self, path: str) -> int:
-        return self.path_limits.get(path, self.max_bytes)
+        if path in self.path_limits:
+            return self.path_limits[path]
+        for pattern, limit in self.pattern_limits:
+            if pattern.fullmatch(path):
+                return limit
+        return self.max_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope.get("method") not in REQUEST_BODY_METHODS:

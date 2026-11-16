@@ -52,6 +52,7 @@ export const METHOD_LABELS: Record<string, string> = {
   person: "osoba i stawka z faktury",
   correction: "korekta faktury",
   manual: "przypisana ręcznie",
+  issued: "wystawiona w NEXUSIE",
 };
 
 /** Miesiąc, który zwykle się fakturuje: poprzedni względem dzisiejszego (czas firmy). */

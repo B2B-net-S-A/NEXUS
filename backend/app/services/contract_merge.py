@@ -227,6 +227,10 @@ _KNOWN_CONTRACT_FKS = {
     ("redeploy_queue_items", "contract_id"),
     # Karty technologiczne — historia rozmów u klienta, przenoszona w całości.
     ("tech_cards", "contract_id"),
+    # Wnioski o dopłatę za technologię premium (0716) — historia osoby,
+    # przenoszona w całości. Otwarty wniosek przegranego o technologię, o którą
+    # zachowany też ma otwarty, jest wcześniej zamykany (indeks częściowy).
+    ("contract_premium_skill_claims", "contract_id"),
     # Kolejka back office: ``source_key`` zostaje, więc karta duplikatu zamknie się
     # przy następnym przebiegu, a karta zachowanego kontraktu powstanie sama.
     ("bo_cards", "contract_id"),
@@ -255,6 +259,23 @@ _KNOWN_CONTRACT_FKS = {
     # Dodatki do rozliczenia (0691, E5.1; koszty integracji ze zgodą DL-a):
     # bez unikatu — idą za kontraktem w całości, limit roku liczy się na kandydata.
     ("client_settlement_extras", "contract_id"),
+    # Lista płac K7a (0704): pozycje list to migawka wypłaty (paski, KEDU i PIT-11
+    # liczą się z nich po osobie, nie po kontrakcie) — idą za kontraktem
+    # zachowanym. Dwie pozycje duplikatów na jednej liście (UNIQUE lista +
+    # kontrakt) rozstrzyga ``_resolve_child_duplicates``: pozycja przegranego
+    # zostaje na liście bez kontraktu, więc z zatwierdzonej listy nic nie znika.
+    # Kwota Rozliczeń ma UNIQUE (miesiąc, kontrakt): kwota wygrywa z „pominięte”
+    # (0 zł), remis → zachowany, jak w rozliczeniach klientów.
+    ("payroll_list_lines", "contract_id"),
+    ("payroll_gross_inputs", "contract_id"),
+    # Szkolenia (0694): trener, autor pliku i obecność idą za kontraktem; zapis na
+    # szkolenie ma unikat (szkolenie, kontrakt) — dubel rozstrzyga
+    # ``_resolve_child_duplicates`` (zostaje zapis zachowanego).
+    ("trainings", "trainer_contract_id"),
+    ("training_files", "uploaded_by_contract_id"),
+    ("training_registrations", "contract_id"),
+    ("training_attendance", "contract_id"),
+    ("training_feedback", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -358,6 +379,22 @@ _CONTRACT_LINEAGE_FIELDS = {
 # kontrakt zachowuje własny — schowana karta przegranego nie chowa karty osoby,
 # która po scaleniu ma zamówienia.
 _CONTRACT_PRESENTATION_FIELDS = {"orders_card_dismissed_at", "orders_card_dismissed_by"}
+# Kategoria z umowy ramowej i przyznana dopłata (0710) idą w parze z limitem
+# (`framework_rate`, cache wyżej) — zostają na kontrakcie zachowanym, nie
+# składamy ich z dwóch wierszy. Kategorię ocalałego odświeża „Przelicz
+# kategorie z COA” z jego zamówień.
+_CONTRACT_FRAMEWORK_CATEGORY_FIELDS = {
+    "client_rate_card_id",
+    "rate_card_source",
+    "rate_card_coa_label",
+    "framework_addon_technology",
+    "framework_addon_percent",
+    "framework_addon_confirmed_by",
+    "framework_addon_confirmed_on",
+    "framework_addon_evidence",
+    "framework_addon_set_by_id",
+    "framework_addon_set_at",
+}
 _CLASSIFIED_CONTRACT_FIELDS = (
     set(_MERGEABLE_FIELDS)
     | _CONTRACT_IDENTITY_FIELDS
@@ -367,6 +404,7 @@ _CLASSIFIED_CONTRACT_FIELDS = (
     | _CONTRACT_AUDIT_FIELDS
     | _CONTRACT_LINEAGE_FIELDS
     | _CONTRACT_PRESENTATION_FIELDS
+    | _CONTRACT_FRAMEWORK_CATEGORY_FIELDS
 )
 
 _STATUS_RANK = {
@@ -3210,7 +3248,15 @@ async def _resolve_child_duplicates(
       „Zamówień” przegranych znika — zostaje nazwa zachowanego albo domyślna.
       Folder przegranego o nazwie „Zamówień” zachowanego dostaje dopisek „(2)”,
     * ``cp_activations`` i ``cp_trainer_applications`` — jeden wiersz na kontrakt:
-      zostaje wiersz zachowanego (aktywacja: aktywna przed wyłączoną), reszta jest kasowana.
+      zostaje wiersz zachowanego (aktywacja: aktywna przed wyłączoną), reszta jest kasowana,
+    * ``training_registrations`` i ``training_feedback`` — jeden zapis i jedna ocena na
+      (szkolenie, kontrakt): zostaje wiersz zachowanego, a bez niego najstarszy,
+    * ``payroll_gross_inputs`` — jedna kwota Rozliczeń na (miesiąc, kontrakt): kwota
+      wygrywa z „pominięte” (0 zł), remis → zachowany; przegrana jest kasowana
+      (zatwierdzona lista trzyma brutto w swoich pozycjach),
+    * ``payroll_list_lines`` — jedna pozycja na (lista, kontrakt): zostaje pozycja
+      zachowanego, a bez niej najstarsza; pozostałe tracą tylko odnośnik do
+      kontraktu (osoba i kwoty zostają na liście).
     """
     present = {(str(fk["table_name"]), str(fk["column_name"])) for fk in catalog}
     every = [survivor_id, *loser_ids]
@@ -3355,6 +3401,46 @@ async def _resolve_child_duplicates(
             )
         out["cp_trainer_applications_duplicates_removed"] = len(losers)
 
+    if ("training_registrations", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, training_id, 'registered' AS status "
+            "FROM training_registrations WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["training_id"],
+            rank={"registered": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM training_registrations WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["training_registrations_duplicates_removed"] = len(losers)
+
+    if ("training_feedback", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, training_id, 'rated' AS status "
+            "FROM training_feedback WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["training_id"],
+            rank={"rated": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM training_feedback WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["training_feedback_duplicates_removed"] = len(losers)
+
     if ("client_settlements", "contract_id") in present:
         rows = await _child_rows(
             db,
@@ -3375,6 +3461,50 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["client_settlements_duplicates_removed"] = len(losers)
+
+    if ("payroll_gross_inputs", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, period_id, "
+            "CASE WHEN gross > 0 THEN 'amount' ELSE 'skipped' END AS status "
+            "FROM payroll_gross_inputs WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["period_id"],
+            rank={"amount": 0, "skipped": 1},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text("DELETE FROM payroll_gross_inputs WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["payroll_gross_inputs_duplicates_removed"] = len(losers)
+
+    if ("payroll_list_lines", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, list_id, 'line' AS status "
+            "FROM payroll_list_lines WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: row["list_id"],
+            rank={"line": 0},
+            survivor_id=survivor_id,
+        )
+        if losers:
+            await db.execute(
+                text(
+                    "UPDATE payroll_list_lines SET contract_id = NULL "
+                    "WHERE id = ANY(:ids)"
+                ),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["payroll_list_lines_detached"] = len(losers)
 
     if ("client_external_ids", "contract_id") in present:
         rows = await _child_rows(
@@ -3580,6 +3710,19 @@ async def _reparent_fks(
         moved["contract_termination_snapshots_superseded"] = int(
             superseded.rowcount or 0
         )
+    dropped = await db.execute(
+        text(
+            "UPDATE contract_premium_skill_claims AS loser "
+            "SET status = 'dropped', outcome_reason = 'Scalenie kontraktów: "
+            "otwarty wniosek o tę technologię ma kontrakt zachowany', updated_at = NOW() "
+            "WHERE loser.contract_id = ANY(:losers) AND loser.status IN ('approved', 'sent') "
+            "AND EXISTS (SELECT 1 FROM contract_premium_skill_claims AS kept "
+            "WHERE kept.contract_id = :survivor AND kept.status IN ('approved', 'sent') "
+            "AND lower(kept.technology) = lower(loser.technology))"
+        ),
+        {"survivor": survivor_id, "losers": list(loser_ids)},
+    )
+    moved["contract_premium_skill_claims_dropped"] = int(dropped.rowcount or 0)
     for fk in catalog:
         table, column = str(fk["table_name"]), str(fk["column_name"])
         if int(fk["column_count"]) != 1 or (table, column) not in _KNOWN_CONTRACT_FKS:

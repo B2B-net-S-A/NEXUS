@@ -45,6 +45,15 @@ export function seesToday(user: User | null | undefined): boolean {
   return seesRecruitment(user) && (hasOwnCandidates(user) || seesWholeTeam(user));
 }
 
+/**
+ * „Szukaj” i karta kontaktu (decyzja Artura 14.11.2026): ci, którzy dzwonią do
+ * kandydatów. Serwer i tak pilnuje odczytu kandydatów (`CandidatePIIAccess`);
+ * Rada i Finanse nie dostają zakładki, bo z telefonu kandydatów nie obsługują.
+ */
+export function seesSearch(user: User | null | undefined): boolean {
+  return Boolean(user) && hasSectionAccess(user, "sourcing") && (hasOwnCandidates(user) || seesWholeTeam(user));
+}
+
 /** Wszystkie otwarte dla tych, którzy nie mają własnych rekrutacji (admin, HoR, Finanse). */
 export function seesAllRecruitments(user: User | null | undefined): boolean {
   return seesWholeTeam(user) || !hasOwnCandidates(user);

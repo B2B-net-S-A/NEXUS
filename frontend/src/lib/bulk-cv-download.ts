@@ -42,6 +42,7 @@ export async function downloadBulkCvs(
   const { blob, includedCount, skippedCount } = await trackTransfer(async () => {
     const res = await fetch(`${apiBase}/api/candidates/bulk-cv-download`, {
       method: "POST",
+      credentials: "include",
       headers: getAuthenticatedRequestHeaders({
         "Content-Type": "application/json",
       }),

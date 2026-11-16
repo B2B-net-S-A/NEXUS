@@ -17,6 +17,13 @@ powiadomienia. Jedna reguła: `mentionable_users`.
 - `parse_mentions_global(db, content)` — notatki kandydata bez rekrutacji
 
 Wszystkie wracają posortowaną deduplikowaną listę user_id.
+
+`@wszyscy` (13.11.2026, zgłoszenie z czatu rekrutacji): w czacie i notatkach
+rekrutacji oznacza osoby przypisane do niej (`list_job_assigned_ids`) — bez
+adminów spoza zespołu, uczestników kategorii i poprzednich rekruterów, czyli
+nie cały „zespół” z nagłówka czatu. Lista liczona w chwili zapisu; każda
+osoba dostaje zwykłą wzmiankę. Poza rekrutacją (czat kandydata, notatka bez
+rekrutacji) to zwykły tekst.
 """
 
 import re
@@ -37,10 +44,26 @@ from app.services.section_permissions import (
 # (kropka, plus, myślnik).
 _EMAIL_RE = re.compile(r"@([A-Za-z0-9._+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
 
+# `@wszyscy` jako osobne słowo: nie część adresu (`biuro@wszyscy.pl`) ani
+# początek adresu (`@wszyscy@firma.pl`). Ten sam wzorzec co na froncie
+# (`renderMentions.tsx`).
+_EVERYONE_RE = re.compile(r"(?<![\w@.])@wszyscy(?![\w@.\-])", re.IGNORECASE)
+
+
+def has_everyone_mention(content: str) -> bool:
+    """Czy tekst ma `@wszyscy` — wszyscy przypisani do rekrutacji."""
+    return bool(_EVERYONE_RE.search(content or ""))
+
 
 def has_mention(content: str) -> bool:
     """Czy tekst ma składnię wzmianki — bez bazy, także dla adresu spoza zespołu."""
-    return bool(_EMAIL_RE.search(content or ""))
+    return bool(_EMAIL_RE.search(content or "")) or has_everyone_mention(content)
+
+
+async def _assigned_ids(db: AsyncSession, job_id: int) -> list[int]:
+    from app.services.job_membership import list_job_assigned_ids  # noqa: PLC0415
+
+    return await list_job_assigned_ids(db, job_id)
 
 
 async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int]:
@@ -92,18 +115,24 @@ async def mentionable_users(
 
 
 async def _mentioned_ids(
-    db: AsyncSession, content: str, section: ProductSection | None
+    db: AsyncSession,
+    content: str,
+    section: ProductSection | None,
+    *,
+    job_id: int | None = None,
 ) -> list[int]:
     candidate_ids = await _extract_candidate_user_ids(db, content)
+    if job_id is not None and has_everyone_mention(content):
+        candidate_ids |= set(await _assigned_ids(db, job_id))
     users = await mentionable_users(db, section=section, user_ids=candidate_ids)
     return sorted({user.id for user in users})
 
 
 async def parse_mentions(db: AsyncSession, content: str, job_id: int) -> list[int]:
     """Wzmianki w czacie i notatce rekrutacji — każda osoba z odczytem
-    rekrutacji, nie tylko jej zespół (`job_id` zostaje w sygnaturze dla
-    wołających; zakres nie zależy już od konkretnej rekrutacji)."""
-    return await _mentioned_ids(db, content, ProductSection.pipeline)
+    rekrutacji, nie tylko jej zespół. `job_id` wyznacza, kogo oznacza
+    `@wszyscy` (osoby przypisane do tej rekrutacji)."""
+    return await _mentioned_ids(db, content, ProductSection.pipeline, job_id=job_id)
 
 
 async def parse_mentions_candidate(
@@ -124,6 +153,8 @@ async def parse_mentions_global(db: AsyncSession, content: str) -> list[int]:
 
 
 __all__ = [
+    "has_everyone_mention",
+    "has_mention",
     "mentionable_users",
     "parse_mentions",
     "parse_mentions_candidate",

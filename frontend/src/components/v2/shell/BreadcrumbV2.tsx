@@ -14,16 +14,22 @@ export const SEGMENT_LABELS: Record<string, string> = {
   dzis: "Dziś",
   rekrutacje: "Rekrutacje",
   zespol: "Zespół",
+  szukaj: "Szukaj",
+  kandydat: "Kandydat",
   "talent-radar": "Talent Radar",
   "": "Dashboard",
   candidates: "Kandydaci",
   jobs: "Rekrutacje",
+  // Zespół dla klienta: kilka rekrutacji pod jednym zapytaniem (15.11.2026).
+  zespoly: "Zespoły",
   clients: "Klienci",
   contacts: "Kontakty",
   contracts: "Kontrakty",
   "client-contracts": "Umowy klientów",
   wypis: "Wypis",
   k: "Panel klienta",
+  // `/k/z/{token}` — panel klienta dla zespołu (15.11.2026).
+  z: "Zespół",
   t: "Wybór terminu",
   talents: "Talenty",
   analytics: "Analityka",
@@ -48,6 +54,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "my-time": "Moja współpraca",
   porcja: "Porcja dnia",
   start: "Start w NEXUSIE",
+  poligon: "Poligon NEXUSA",
   people: "Ludzie",
   equipment: "Sprzęt",
   hr: "Administracja współpracy",
@@ -60,6 +67,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   offboarding: "Odejście",
   care: "Opieka",
   "back-office": "Back office",
+  // Szkolenia (13.11.2026, zamiast Akademii Compassa).
+  trainings: "Szkolenia",
   protocol: "Protokół",
   konsultant: "Strefa konsultanta",
   wejscie: "Wejście",
@@ -70,7 +79,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   rozmowy: "Rozmowy",
   sprzet: "Sprzęt",
   pomoc: "Pomoc",
-  trener: "Zostań trenerem",
+  trener: "Zgłoszenie trenera",
+  szkolenia: "Szkolenia",
   settings: "Ustawienia",
   templates: "Szablony email",
   admin: "Admin",
@@ -113,6 +123,29 @@ export const SEGMENT_LABELS: Record<string, string> = {
   // 23.10.2026: /insights/autofill — „Jakość podpowiedzi systemu”.
   autofill: "Jakość podpowiedzi systemu",
   finance: "Finanse",
+  // 13.11.2026: /finance/costs/[id] — karta faktury kosztowej (księgowość E1).
+  costs: "Koszty",
+  // 13.11.2026: /accounting — Księgowość (księga NEXUSA, K1).
+  accounting: "Księgowość",
+  // 15.11.2026: /compliance — Przepisy (zmiany w prawie i terminy).
+  compliance: "Przepisy",
+  documents: "Dokumenty",
+  "trial-balance": "Obroty i salda",
+  chart: "Plan kont",
+  // 14.11.2026: /accounting/sources — faktury jako dokumenty księgi (K2).
+  sources: "Źródła",
+  // 14.11.2026: /accounting/automations — PK cykliczne i RMK (K3a).
+  automations: "Automaty",
+  // 14.11.2026: /accounting/symfonia — paczki dokumentów do Symfonii FK (K3b).
+  symfonia: "Do Symfonii",
+  // 14.11.2026: /accounting/assets — środki trwałe i WNiP (K6).
+  assets: "Środki trwałe",
+  // 14.11.2026: /accounting/bank — wyciągi bankowe i dokument WB (K4a).
+  bank: "Bank",
+  // 14.11.2026: /accounting/settlements — rozrachunki z rozliczaniem pozycji (K4b).
+  settlements: "Rozrachunki",
+  // 15.11.2026: /accounting/vat — rejestry VAT sprzedaży i zakupu (K5a).
+  vat: "VAT",
   help: "Pomoc",
   onboarding: "Wprowadzenie",
   upload: "Wgrywanie danych",
@@ -154,8 +187,19 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "seeking-contractors": "Dostępni kontraktorzy",
 };
 
+/**
+ * Nazwa zależna od całej ścieżki, gdy ten sam segment znaczy co innego w dwóch
+ * miejscach: `payroll` pod Ludźmi to „Rozliczenia”, a pod Księgowością
+ * zakładka „Lista płac” (UoP i zlecenia, K7a, 14.11.2026). `reports` to
+ * globalnie „Raporty”, a w Księgowości „Sprawozdania” (bilans i RZiS, K8a).
+ */
+const PATH_LABELS: Record<string, string> = {
+  "/accounting/payroll": "Lista płac",
+  "/accounting/reports": "Sprawozdania",
+};
+
 /** Segmenty bez własnej strony — okruszek jest tekstem, nie linkiem do 404. */
-const LINKLESS_SEGMENTS = new Set(["sourcing", "prep"]);
+const LINKLESS_SEGMENTS = new Set(["sourcing", "prep", "zespoly"]);
 
 const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   candidates: async (id) => {
@@ -169,6 +213,10 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
     const r = await api.get(`/api/clients/${id}`);
     return r.data.name ?? id;
   },
+  zespoly: async (id) => {
+    const r = await api.get(`/api/job-teams/${id}`);
+    return r.data.name ?? id;
+  },
   // Sprzedaż: /sales/companies/[id] i /sales/opportunities/[id].
   companies: async (id) => {
     const r = await api.get(`/api/sales/companies/${id}`);
@@ -177,6 +225,11 @@ const ENTITY_NAME_FETCHERS: Record<string, (id: string) => Promise<string>> = {
   opportunities: async (id) => {
     const r = await api.get(`/api/sales/opportunities/${id}`);
     return r.data.title ?? id;
+  },
+  // Finanse → Koszty → numer faktury kosztowej.
+  costs: async (id) => {
+    const r = await api.get(`/api/finance/costs/${id}`);
+    return r.data.invoice_number ?? id;
   },
 };
 
@@ -263,7 +316,7 @@ export function BreadcrumbV2({ className }: { className?: string }) {
       });
     } else if (!isNumeric(seg)) {
       const label =
-        SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
+        PATH_LABELS[path] ?? SEGMENT_LABELS[seg] ?? (seg.length > 14 ? seg.slice(0, 12) + "…" : seg);
       // „/dashboard" pod „Dashboard" nie powtarza tej samej nazwy dwa razy.
       if (i === 0 && seg === "dashboard") continue;
       crumbs.push({ label, href: path, linkless: LINKLESS_SEGMENTS.has(seg) });

@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # (domyślnie: testy, staging z gałęzi, wycofanie), `web` = samo HTTP,
     # `worker` = pętle. → docs/claude/podstawy/web-i-worker-osobno.md
     NEXUS_PROCESS_ROLE: str = "all"
+    # Rolling update (etap B2): tyle sekund po SIGTERM proces dalej obsługuje
+    # żądania z `/api/health/live` = 503, żeby Traefik zdjął go z routingu.
+    # 0 = zamknięcie od razu (compose). → app/core/shutdown_drain.py
+    NEXUS_SHUTDOWN_DRAIN_SECONDS: float = 0
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
@@ -1364,6 +1368,15 @@ class Settings(BaseSettings):
     GROK_BOT_PEOPLE_WEBHOOK_KEY: str = ""
     SALES_COGNISM_PEOPLE_ENABLED: bool = False
     SALES_COGNISM_PEOPLE_RESEARCH_SINCE: Optional[AwareDatetime] = None
+    # Radar przepisów (0713, ``app/services/law_radar``): Grok Zbieracz czyta źródła
+    # prawa, bramka NEXUSA sprawdza numery w API Sejmu, Grok Analityk opisuje zmiany.
+    # OFF: pętla stoi, ekran mówi „Radar wyłączony”; trasa raportu działa zawsze.
+    LAW_RADAR_ENABLED: bool = False
+    # Adresy webhooków dwóch rutyn i ich klucze (nagłówek ``Authorization: Bearer``).
+    GROK_BOT_LAW_COLLECT_WEBHOOK_URL: str = ""
+    GROK_BOT_LAW_COLLECT_WEBHOOK_KEY: str = ""
+    GROK_BOT_LAW_ANALYZE_WEBHOOK_URL: str = ""
+    GROK_BOT_LAW_ANALYZE_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
     # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):
@@ -1643,6 +1656,14 @@ class Settings(BaseSettings):
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
+    # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
+    # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.
+    TRAININGS_TEAMS_MAILBOX: str = ""
+    TRAININGS_TEAMS_ENABLED: bool = False
+    # Pętla nagrań szkoleń: po ilu minutach od końca pytać Graph i kiedy się poddać.
+    TRAININGS_RECORDING_DELAY_MINUTES: int = 20
+    TRAININGS_RECORDING_GIVE_UP_HOURS: int = 72
     # Wspólny numer back office'u pokazywany w panelu. Pusty = panel nie ma wiersza z numerem.
     CONSULTANT_PORTAL_SUPPORT_PHONE: str = ""
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
@@ -1702,6 +1723,14 @@ class Settings(BaseSettings):
     KSEF_CERTIFICATE_KEY_PASSWORD: str = ""
     # Katalog trybu simulate (`metadata.json` + pliki XML); pusty = `tests/data/ksef`.
     KSEF_SIMULATE_DIR: str = ""
+    # Wystawianie faktur sprzedaży z NEXUSA do KSeF (E4, `services/client_invoicing/
+    # ksef_send.py`): off = „Wyślij do KSeF” nieaktywny (domyślnie), test = KSeF
+    # testowy MF, prod = produkcja MF. Kontekst = KSEF_CONTEXT_NIP. Token z
+    # uprawnieniem „wystawianie faktur” (InvoiceWrite): KSEF_SALES_ISSUE_TOKEN, a gdy
+    # pusty — KSEF_TOKEN (od 16.11.2026 ma pełne prawa). Sekret — tylko przez
+    # workflow „Coolify set env”.
+    KSEF_SALES_ISSUE_MODE: str = "off"
+    KSEF_SALES_ISSUE_TOKEN: str = ""
     # Biała lista VAT (wykaz podatników, `app/services/hr/white_list.py`):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
     # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
@@ -1715,6 +1744,20 @@ class Settings(BaseSettings):
     EBI24_ACCOUNT_UUID: str = ""
     EBI24_COMMUNICATION_KEY: str = ""
     EBI24_SECRET_PHRASE: str = ""
+    # E-faktury Peppol (`app/services/peppol/`, plan Nordei N2): kanał doręczenia.
+    # off = nic nie wychodzi (domyślnie), simulate = pliki w PEPPOL_SIMULATE_DIR
+    # (staging, testy), visma_direct = kanał bezpośredni do Vismy Nordei (czeka
+    # na specyfikację od technika Vismy), recommand = dostawca Peppol z API
+    # (plan zapasowy; klucz i sekret konta). Klucz i sekret tylko przez workflow
+    # „Coolify set env”, nigdy w repo ani w logach. PEPPOL_SENDER_ID = nasz adres
+    # w sieci Peppol od dostawcy („9945:PL…”); pusty = 9945 i NIP sprzedawcy.
+    PEPPOL_PROVIDER: str = "off"
+    PEPPOL_API_URL: str = "https://app.recommand.eu"
+    PEPPOL_API_KEY: str = ""
+    PEPPOL_API_SECRET: str = ""
+    PEPPOL_COMPANY_ID: str = ""
+    PEPPOL_SENDER_ID: str = ""
+    PEPPOL_SIMULATE_DIR: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""

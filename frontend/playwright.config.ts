@@ -11,6 +11,7 @@ import path from "path";
  *   koncie z rolą `automation` (tylko odczyt). Wyklucza `@stack` i `@writes`, żeby
  *   nocny bieg nie tworzył rekordów biznesowych na produkcji.
  * - `preview-chromium`: publiczne harnessy `/preview/*`, bez logowania.
+ * - `poligon-chromium`: ścieżka Poligonu NEXUSA na podstawionym backendzie.
  *
  * `setup` loguje się raz przez UI i zapisuje stan przeglądarki (token żyje
  * w localStorage, nie w cookies). Wywołania API w scenariuszach NIE korzystają
@@ -50,7 +51,7 @@ export default defineConfig({
     {
       name: "ci-chromium",
       grep: /@stack/,
-      testIgnore: /(candidate-ux-preview|responsive-preview)\.spec\.ts/,
+      testIgnore: /(candidate-ux-preview|responsive-preview|poligon-walk)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
@@ -60,12 +61,22 @@ export default defineConfig({
     {
       name: "prod-smoke",
       grepInvert: /@stack|@writes/,
-      testIgnore: /(candidate-ux-preview|responsive-preview)\.spec\.ts/,
+      testIgnore: /(candidate-ux-preview|responsive-preview|poligon-walk)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         storageState: AUTH_STATE,
       },
       dependencies: ["setup"],
+    },
+    {
+      // Poligon NEXUSA: cała ścieżka onboardingu na podstawionym backendzie
+      // (bez bazy i logowania), w CI po buildzie frontendu w kolejce merge'ów.
+      name: "poligon-chromium",
+      testMatch: /poligon-walk\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        locale: "pl-PL",
+      },
     },
     {
       name: "preview-chromium",

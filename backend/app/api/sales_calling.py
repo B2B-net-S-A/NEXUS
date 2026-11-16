@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import business_today
 from app.models.sales import SalesCallCampaign
 from app.models.user import User
@@ -691,7 +691,7 @@ def _plan_rows(
 
 @router.post("/campaigns/{campaign_id}/import/preview", response_model=ImportPreviewOut)
 # Odczyt arkusza i dopasowanie firm kosztują procesor: limit chroni proces web.
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def preview_import(
     request: Request,  # wymagane przez slowapi
     campaign_id: int,
@@ -726,7 +726,7 @@ async def preview_import(
 
 
 @router.post("/campaigns/{campaign_id}/import", response_model=ImportResultOut)
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def import_list(
     request: Request,  # wymagane przez slowapi
     campaign_id: int,
@@ -975,7 +975,7 @@ def _assignees(raw: str, people: list[tuple[int, str]]) -> dict[str, int]:
 
 
 @router.post("/campaigns/{campaign_id}/excel/preview", response_model=ExcelPreviewOut)
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def preview_excel(
     request: Request,  # wymagane przez slowapi
     campaign_id: int,
@@ -1004,7 +1004,7 @@ async def preview_excel(
 
 
 @router.post("/campaigns/{campaign_id}/excel", response_model=ExcelResultOut)
-@limiter.limit("5/minute")
+@limiter.limit("5/minute", key_func=user_or_ip_key)
 async def transfer_excel(
     request: Request,  # wymagane przez slowapi
     campaign_id: int,

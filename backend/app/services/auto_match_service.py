@@ -683,16 +683,16 @@ async def scoped_similarity(
         if client is None:
             raise AutoMatchUnavailable("vector store unavailable")
         try:
-            return client.search(
+            return client.query_points(
                 collection_name=es._jobs_collection()
                 if jobs_collection
                 else es._collection(),
-                query_vector=vector,
+                query=vector,
                 query_filter=Filter(must=[HasIdCondition(has_id=ids)]),
                 limit=min(len(ids), _SCOPED_LIMIT),
                 with_payload=False,
                 with_vectors=False,
-            )
+            ).points
         finally:
             client.close()
 

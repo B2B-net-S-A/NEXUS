@@ -35,7 +35,7 @@ from app.api.integrations_companies import (
 from app.api.sales_companies import NOT_FOUND_DETAIL, CompanyRef
 from app.api.sales_gates import SalesEditUser, SalesViewUser
 from app.core.database import get_db
-from app.core.rate_limit import limiter
+from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.client import Client
 from app.models.sales import SalesCompany, SalesCompanyAlias
 from app.services import candidate_audit
@@ -139,7 +139,7 @@ async def _log_people_read(
 @router.get("/{company_id}/people", response_model=CompanyPeopleOut)
 # Skan kandydatów po JSONB — bramka uprawnienia nie ogranicza przepustowości,
 # jak przy trasie OAuth `/companies/people` (60/min).
-@limiter.limit("30/minute")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def company_people(
     request: Request,  # wymagane przez slowapi
     company_id: int,
@@ -174,7 +174,7 @@ async def company_people(
 @router.get("/{company_id}/people/group", response_model=list[GroupCompanyPeople])
 # Do 21 skanów (matka + do 20 spółek zależnych) — osobne zapytanie, żeby panel
 # firmy nie czekał na grupę i nie padał przez jedną wolną spółkę.
-@limiter.limit("10/minute")
+@limiter.limit("10/minute", key_func=user_or_ip_key)
 async def company_group_people(
     request: Request,  # wymagane przez slowapi
     company_id: int,
@@ -231,7 +231,7 @@ async def company_group_people(
 
 @router.post("/{company_id}/people/dates", response_model=dict[str, Any])
 # Bieg płaci za model AI — przycisk nie może iść w pętli.
-@limiter.limit("20/hour")
+@limiter.limit("20/hour", key_func=user_or_ip_key)
 async def fill_people_dates(
     request: Request,  # wymagane przez slowapi
     company_id: int,
@@ -418,7 +418,7 @@ async def _other_cards(
 
 @router.get("/{company_id}/people/aliases", response_model=CompanyAliasesOut)
 # Skan wpisów CV po marce, osobno od listy osób, żeby panel na niego nie czekał.
-@limiter.limit("30/minute")
+@limiter.limit("30/minute", key_func=user_or_ip_key)
 async def company_people_aliases(
     request: Request,  # wymagane przez slowapi
     company_id: int,
@@ -439,7 +439,7 @@ async def company_people_aliases(
 
 
 @router.post("/{company_id}/people/aliases", response_model=AliasDecisionOut)
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def decide_company_alias(
     request: Request,  # wymagane przez slowapi
     company_id: int,
@@ -500,7 +500,7 @@ async def decide_company_alias(
 @router.delete(
     "/{company_id}/people/aliases/{alias_id}", status_code=status.HTTP_204_NO_CONTENT
 )
-@limiter.limit("60/minute")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def undo_company_alias(
     request: Request,  # wymagane przez slowapi
     company_id: int,

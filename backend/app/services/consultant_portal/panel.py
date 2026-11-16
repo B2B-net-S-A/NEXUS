@@ -36,12 +36,12 @@ from app.models.equipment import (
     EquipmentModel,
     EquipmentProtocol,
 )
+from app.models.user import User
 from app.services.admin_cases import rules
 from app.services.admin_cases.hooks import _care_owner_id
 from app.services.admin_cases.service import AutomaticCase, open_automatic_case
 from app.services.consultant_panel_schema import (
     MATERIAL_URL_MAX,
-    TRAINER_FORMS,
     TRAINER_SHORT_MAX,
     TRAINER_TEXT_MAX,
 )
@@ -51,6 +51,9 @@ from app.services.consultant_portal.content import CASE_KEY_PREFIX, waiting_labe
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.equipment import protocols as equipment_protocols
 from app.services.hr import client_pack
+from app.services.trainings import samples as trainer_samples
+from app.services.trainings.errors import TrainingError
+from app.services.trainings_schema import TITLE_MAX as TRAINER_TITLE_MAX
 
 #: Nabywca na fakturze konsultanta, jak w umowie B2B.
 BUYER = {
@@ -69,11 +72,6 @@ PROTOCOL_LABELS = {
     "potwierdzony": "Potwierdzony",
 }
 TRAINER_TITLE = "Zgłoszenie: chcę zostać trenerem"
-TRAINER_FORM_LABELS = {
-    "online_or_onsite": "online lub u klienta",
-    "online": "tylko online",
-    "onsite": "tylko u klienta",
-}
 TRAINER_TOPICS_MAX = 20
 
 
@@ -482,15 +480,24 @@ async def _trainer_row(
     if application is None:
         return None
     case = await db.get(AdminCase, application.case_id) if application.case_id else None
+    owner = (
+        await db.scalar(select(User.name).where(User.id == case.assignee_user_id))
+        if case is not None and case.assignee_user_id
+        else None
+    )
     return {
         "topics": application.topics,
         "experience": application.experience,
-        "form": application.form,
-        "day_rate": application.day_rate,
+        "proposal_title": application.proposal_title,
+        "proposal_hours": application.proposal_hours,
+        "audience": application.audience,
         "availability": application.availability,
         "materials": application.materials,
+        "sample_name": application.sample_name,
         "sent_at": application.updated_at.isoformat(),
-        "waiting": waiting_label(case.status, None)
+        # Opiekun przypisany do sprawy to „Po naszej stronie”, nie „Czeka na
+        # przydzielenie osoby” (do 13.11.2026 szło tu zawsze ``None``).
+        "waiting": waiting_label(case.status, owner)
         if case
         else {"who": "nobody", "label": "Czeka na przydzielenie osoby"},
     }
@@ -511,10 +518,12 @@ def _trainer_description(application: CpTrainerApplication) -> str:
     return "\n".join(
         [
             f"Tematy: {', '.join(application.topics) or 'nie podano'}",
-            f"Forma: {TRAINER_FORM_LABELS[application.form]}",
-            f"Stawka za dzień: {application.day_rate or 'nie podano'}",
+            f"Propozycja szkolenia: {application.proposal_title or 'nie podano'}",
+            f"Czas na żywo: {application.proposal_hours or 'nie podano'}",
+            f"Dla kogo: {application.audience or 'nie podano'}",
             f"Dostępność: {application.availability or 'nie podano'}",
-            f"Materiały: {application.materials or 'nie podano'}",
+            f"Link do nagrania albo programu: {application.materials or 'nie podano'}",
+            f"Próbka: {application.sample_name or 'brak pliku'}",
             "",
             application.experience,
         ]
@@ -527,12 +536,16 @@ async def save_trainer_application(
     *,
     topics: list[str],
     experience: str,
-    form: str,
-    day_rate: str,
+    proposal_title: str,
+    proposal_hours: str,
+    audience: str,
     availability: str,
     materials: str,
 ) -> dict[str, Any]:
-    """Pierwsze wysłanie zakłada sprawę, a kolejne poprawiają to samo zgłoszenie."""
+    """Pierwsze wysłanie zakłada sprawę, a kolejne poprawiają to samo zgłoszenie.
+
+    Bez formy i stawki za dzień (13.11.2026): umowa szkoleniowa mówi „wyłącznie zdalnie”
+    (§ 3), a cenę trener podaje w wycenie konkretnego zamówienia (Zał. 1 pkt 6)."""
 
     clean_topics = [
         topic for topic in dict.fromkeys(_clean(value, 60) for value in topics) if topic
@@ -540,8 +553,6 @@ async def save_trainer_application(
     clean_experience = _clean(experience, TRAINER_TEXT_MAX)
     if not clean_topics or not clean_experience:
         raise PortalError("Podaj tematy szkoleń i swoje doświadczenie.")
-    if form not in TRAINER_FORMS:
-        raise PortalError("Wybierz formę szkoleń.")
     contract_id = context.consultant.contract_id
     application = await db.scalar(
         select(CpTrainerApplication)
@@ -553,8 +564,10 @@ async def save_trainer_application(
         db.add(application)
     application.topics = clean_topics
     application.experience = clean_experience
-    application.form = form
-    application.day_rate = _clean(day_rate, TRAINER_SHORT_MAX)
+    application.form = "online"
+    application.proposal_title = _clean(proposal_title, TRAINER_TITLE_MAX)
+    application.proposal_hours = _clean(proposal_hours, TRAINER_SHORT_MAX)
+    application.audience = _clean(audience, TRAINER_SHORT_MAX)
     application.availability = _clean(availability, TRAINER_SHORT_MAX)
     application.materials = _clean(materials, MATERIAL_URL_MAX)
     await db.flush()
@@ -577,6 +590,33 @@ async def save_trainer_application(
         application.case_id = case.id
     else:
         case.description = description
+    await db.flush()
+    await db.refresh(application)
+    return await _trainer_row(db, application) or {}
+
+
+async def save_trainer_sample(
+    db: AsyncSession, context: PortalContext, *, file_name: str, content: bytes
+) -> dict[str, Any]:
+    """Jeden plik próbki na zgłoszenie; nowy plik zastępuje poprzedni."""
+
+    application = await db.scalar(
+        select(CpTrainerApplication)
+        .where(CpTrainerApplication.contract_id.in_(context.consultant.contract_ids))
+        .with_for_update()
+    )
+    if application is None:
+        raise PortalError("Najpierw wyślij zgłoszenie, potem dodaj próbkę.", status=409)
+    try:
+        relative = trainer_samples.save(application.id, file_name, content)
+    except TrainingError as exc:
+        raise PortalError(exc.message, status=exc.status, code=exc.code) from exc
+    application.sample_path = relative
+    application.sample_name = _clean(file_name, 255) or "próbka"
+    application.sample_size = len(content)
+    case = await db.get(AdminCase, application.case_id) if application.case_id else None
+    if case is not None:
+        case.description = _trainer_description(application)
     await db.flush()
     await db.refresh(application)
     return await _trainer_row(db, application) or {}

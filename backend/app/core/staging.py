@@ -58,6 +58,8 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",
+        # Tylko UPDATE stanu wysyłek i synchronizacji w bazie, bez Graph.
+        "m365_interrupted_reset",
         "access_usage",
         "critical_stats_cache",
         "process_bus",
@@ -73,6 +75,8 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "cc_participants_sync",
         "competition_autofreeze",
         "dl_portal_expiry",
+        # Dzwonki w bazie kopii, bez maila (jak `dl_portal_expiry`).
+        "client_report_reminders",
         "index_outbox",
         "sales_archive_shadow",
     }
@@ -85,9 +89,13 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
     {
         # Webhook do bota researchu w USA: drugi bieg ze stagingu to koszt i dane poza UE.
         "sales_signals",
+        # Webhooki Grok Zbieracza i Analityka (radar przepisów) i API Sejmu.
+        "law_radar",
         "consultant_portal_transcripts",
         "consultant_portal_ratings",
         "consultant_portal_mailbox",
+        # 0697: Graph (nagrania szkoleń z OneDrive szkolenia@) i dzwonki do ludzi.
+        "trainings_teams",
         "cv_generation",
         "cv_approval",
         "cv_source_cleanup",

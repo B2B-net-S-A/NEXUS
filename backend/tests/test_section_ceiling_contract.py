@@ -101,6 +101,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     # ── Sesja i własne konto ────────────────────────────────────────────────
     "GET /api/auth/me": "profil zalogowanego — shell aplikacji potrzebuje go przed sekcjami",
     "POST /api/auth/change-password": "zmiana własnego hasła, niezależna od modułów",
+    "POST /api/auth/session": "przeniesienie własnej sesji do ciasteczka HttpOnly",
     "POST /api/users/me/onboarding": "obowiązkowy onboarding konta, poprzedza wejście do sekcji",
     "GET /api/users/me/onboarding/jobs": "lista rekrutacji w kroku onboardingu, poprzedza sekcje",
     "GET /api/users/me/preferences": "własne preferencje interfejsu, bez danych domenowych",
@@ -175,6 +176,25 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/novelties/start": "Start w NEXUSIE — własny postęp przy przeklikaniach swojej roli, bez danych domenowych; blokuje osobę na każdej sekcji (decyzja Artura 30.10.2026)",
     "GET /api/cv-generator/feedback/summary": "Ustawienia → „Jakość generatora CV” — zestawienie dla admina i HoR (bramka roli), poza sekcjami jak panel nowości",
     "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
+    "GET /api/novelties/poligon/luki": "„Kto zna NEXUS” — imiennie, których funkcji rekruter używał w 60 dni (liczba luk, postęp poligonu), bez danych domenowych; admin i HoR (decyzja Artura 16.11.2026)",
+    "POST /api/novelties/poligon/luki": "wysyłka poligonu z lukami — zalicza ćwiczenia z pracy i ustawia termin, bez danych domenowych; admin i HoR (decyzja Artura 16.11.2026)",
+    # ── Radar przepisów (15.11.2026): osobna oś od sekcji produktu ──────────
+    **{
+        route: (
+            "„Przepisy” dla zarządu, księgowości, płac, umów i rekrutacji naraz: "
+            "require_compliance_access (admin i HoR z roli, reszta z uprawnień "
+            "Moduł Finanse, Płace, Kadry albo Kontrakty — odbiera je admin w Osoby i role)"
+        )
+        for route in (
+            "GET /api/compliance/changes",
+            "GET /api/compliance/changes/{change_id}",
+            "PATCH /api/compliance/changes/{change_id}",
+            "POST /api/compliance/changes/{change_id}/tasks",
+            "PATCH /api/compliance/tasks/{task_id}",
+            "GET /api/compliance/summary",
+            "GET /api/compliance/runs",
+        )
+    },
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
     # ── Sondy integracji bez danych ─────────────────────────────────────────
     "GET /api/autenti/health": "stan konfiguracji integracji podpisów, bez danych domenowych",

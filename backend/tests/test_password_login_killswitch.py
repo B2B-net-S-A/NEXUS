@@ -8,6 +8,8 @@ na False w Coolify, nie usunięcie kodu.
 
 Te testy pilnują obu stron kontraktu:
   • wyłączona  → /login, /forgot-password, /reset-password zwracają 503,
+                 a przy niepustej liście break-glass adres spoza niej dostaje
+                 tę samą odpowiedź co adres z listy (pentest 13.11.2026),
   • włączona   → działają normalnie (żeby killswitch nie zepsuł CI ani
                  drogi awaryjnej, gdy Azure padnie).
 """
@@ -83,22 +85,87 @@ async def test_login_break_glass_is_case_insensitive(
     assert resp.status_code == 401
 
 
-async def test_login_non_break_glass_email_still_503_when_disabled(
+async def test_login_non_break_glass_email_looks_like_wrong_password(
     app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """Adres spoza listy dalej dostaje 503 — wyjątek jest wąski, nie globalny."""
+    """Pentest 13.11.2026: adres spoza listy dostawał 503, a adres z listy 401.
+
+    Ta różnica pozwalała anonimowi ustalić adres konta awaryjnego, więc przy
+    skonfigurowanej liście każdy adres dostaje tę samą odpowiedź co złe hasło.
+    Wyjątek dalej jest wąski: adres spoza listy nie zaloguje się nawet dobrym
+    hasłem (nie sprawdzamy go wcale).
+    """
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
+    on_list = await app_client.post(
+        "/api/auth/login", json={"email": "admin@x.com", "password": "cokolwiek"}
+    )
+    off_list = await app_client.post(
+        "/api/auth/login", json={"email": "other@x.com", "password": "cokolwiek"}
+    )
+    assert off_list.status_code == on_list.status_code == 401
+    assert off_list.json() == on_list.json()
+
+
+async def test_login_non_break_glass_existing_account_cannot_log_in(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Dobre hasło konta spoza listy przy wyłączonym logowaniu = 401, nie token."""
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
-        "/api/auth/login", json={"email": "other@x.com", "password": "cokolwiek"}
+        "/api/auth/login",
+        json={
+            "email": app_client.headers["X-Test-Admin-Email"],
+            "password": app_client.headers["X-Test-Admin-Password"],
+        },
     )
-    assert resp.status_code == 503
+    assert resp.status_code == 401
+    assert "access_token" not in resp.json()
+
+
+async def test_login_spends_bcrypt_for_unknown_and_off_list_addresses(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Pentest 13.11.2026: konto z hasłem odpowiadało w 181 ms, brak konta w 4 ms.
+
+    Każda odmowa liczy bcrypt (na atrapie, gdy nie ma prawdziwego hasha), żeby
+    czas odpowiedzi nie zdradzał, które adresy mają konto.
+    """
+    import app.api.auth as auth_module
+
+    calls: list[object] = []
+    real_verify = auth_module.verify_password
+
+    def spy(plain: str, hashed: object) -> bool:
+        calls.append(hashed)
+        return real_verify(plain, hashed)
+
+    monkeypatch.setattr(auth_module, "verify_password", spy)
+
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", True)
+    await app_client.post(
+        "/api/auth/login",
+        json={"email": "nie-ma-takiego@b2bnet.pl", "password": "zle"},
+    )
+    assert len(calls) == 1
+
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
+    await app_client.post(
+        "/api/auth/login", json={"email": "other@x.com", "password": "zle"}
+    )
+    assert len(calls) == 2
 
 
 async def test_login_empty_break_glass_list_blocks_everyone(
     app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
-    """Pusta lista (domyślnie) = zachowanie sprzed zmiany: wszyscy 503."""
+    """Pusta lista (domyślnie) = zachowanie sprzed zmiany: wszyscy 503.
+
+    Bez listy nie ma czego wyliczać — każdy adres dostaje to samo 503, a ekran
+    logowania pokazuje komunikat „Zaloguj się przez Microsoft”.
+    """
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "")
     resp = await app_client.post(
@@ -123,15 +190,45 @@ async def test_forgot_password_break_glass_bypasses_disabled_flag(
     assert resp.status_code == 200
 
 
-async def test_forgot_password_non_break_glass_still_503(
+async def test_forgot_password_non_break_glass_gets_generic_answer(
     app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
 ):
+    """Ta sama odpowiedź dla adresu z listy i spoza niej (pentest 13.11.2026).
+
+    Inaczej 503 vs 200 zdradza adres konta awaryjnego tak samo jak /login.
+    """
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
+    monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
+    on_list = await app_client.post(
+        "/api/auth/forgot-password", json={"email": "admin@x.com"}
+    )
+    off_list = await app_client.post(
+        "/api/auth/forgot-password", json={"email": "other@x.com"}
+    )
+    assert off_list.status_code == on_list.status_code == 200
+    assert off_list.json() == on_list.json()
+
+
+async def test_forgot_password_non_break_glass_sends_no_mail(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Konto spoza listy przy wyłączonym logowaniu nie dostaje linku resetowego."""
+    import app.api.auth as auth_module
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        auth_module,
+        "send_password_reset_email",
+        lambda **kw: sent.append(kw["to_email"]),
+    )
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_ENABLED", False)
     monkeypatch.setattr(settings, "PASSWORD_LOGIN_BREAK_GLASS_EMAILS", "admin@x.com")
     resp = await app_client.post(
-        "/api/auth/forgot-password", json={"email": "other@x.com"}
+        "/api/auth/forgot-password",
+        json={"email": app_client.headers["X-Test-Admin-Email"]},
     )
-    assert resp.status_code == 503
+    assert resp.status_code == 200
+    assert sent == []
 
 
 async def test_reset_password_break_glass_defers_gate(

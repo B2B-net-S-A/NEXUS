@@ -1,5 +1,5 @@
 # Sygnały i punkty do rozmowy z bota researchu (Grok Bot) — decyzje Artura 09.11.2026
-<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, tylko nazwy i domeny firm do bota, źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), zapis od razu bez potwierdzania (13.11), pole człowieka zostaje, historia karty bot-history, uzupełnianie kart enrich, Uzupełnij dane, apply_now, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
+<!-- indeks: Grok Bot, bieg i jednorazowy token, raport jako dane niezaufane, nazwy, domeny, NIP i KRS firm do bota (od 13.11), źródło leada research, klient NEXUSA do DL, punkty do rozmowy first_call/ongoing, pętla sales_signals, flaga SALES_SIGNALS_ENABLED, skrypt próbnego biegu, zadania bota, rejestr rodzajów bot_tasks, sales_bot_results, SALES_BOT_TASKS_ENABLED, polecenie v2, osoby decyzyjne od bota, punkty przy ofertach Do decyzji (bot_points, nic nowego), zapis od razu bez potwierdzania (13.11), pole człowieka zostaje, historia karty bot-history, uzupełnianie kart enrich, Uzupełnij dane, apply_now, konflikt domeny i NIP-u, noc 1–6, Zapytaj bota question, filtr danych osobowych pytania, wniosek bota, Warto wrócić winback przegrane szanse, Nowe centra IT discovery, Załóż konto w Fabrykach IT, Przejmij i zaplanuj, take-over leada, origin leada, haczyk przed telefonem call_hook, teczka przed spotkaniem meeting_prep, 16:00 na następny dzień roboczy -->
 
 Bot robi research firm (strony, prasa, komunikaty, serwis X) i odsyła wynik przez
 API. NEXUS decyduje, co z tego jest leadem, i pokazuje, kogo w firmie znamy.
@@ -54,10 +54,11 @@ https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
   Timeout webhooka zostawia bieg otwarty z tokenem (nie wiadomo, czy bot dostał
   zlecenie), błąd HTTP zamyka go jako `failed`. Nieudany przegląd w poniedziałek
   pętla ponawia po godzinie.
-- **Do bota idą tylko nazwy i domeny firm** (`webhook_body`), plus powody odrzuceń
-  wyłącznie z listy `REJECT_REASONS` (API przyjmuje dowolny tekst, a ten mógłby mieć
-  nazwisko albo telefon) i znane już linki. Żadnych osób, CV, kontaktów ani NIP-ów: komputery bota stoją
-  w USA, bez regionu UE.
+- **Do bota idą nazwy, domeny, NIP i KRS firm** (`webhook_body`; NIP i KRS od
+  decyzji Artura z 13.11.2026, bo rejestr.io bez numerów trafia w złą spółkę grupy),
+  plus powody odrzuceń wyłącznie z listy `REJECT_REASONS` (API przyjmuje dowolny
+  tekst, a ten mógłby mieć nazwisko albo telefon) i znane już linki. Żadnych osób,
+  CV ani kontaktów: komputery bota stoją w USA, bez regionu UE.
 - **Bot odsyła jeden raport** na `POST /api/integrations/sales-signals/runs/{id}`
   z nagłówkiem `X-Run-Token`. Token działa dla jednego biegu, raz, najwyżej 2 godziny.
   Brak biegu, zły, zużyty i wygasły token dają to samo 401. Sesja użytkownika go nie
@@ -164,7 +165,7 @@ więc kolejny rodzaj to nowy moduł bez migracji i bez zmiany rutyny bota.
   Treść czytana jako JSON, najwyżej 512 KB (413), sprawdzana modelem rodzaju (422,
   token zostaje ważny), potem `ingest` rodzaju i bieg `received`. Odpowiedź dla bota
   i logi to same liczby.
-- **Do bota dalej idą tylko nazwy i domeny firm** oraz pola, które rodzaj sam
+- **Do bota idą nazwy, domeny, NIP i KRS firm** (od 13.11.2026) oraz pola, które rodzaj sam
   wkłada do `request` (`sales_signal_runs.request`, model `request_model`; rodzaj bez
   modelu nie przyjmuje żadnych pól). Każde pole ma w module rodzaju uzasadnienie.
   Tekst pytania od handlowca (`question`) przed wysyłką przejdzie przez filtr danych

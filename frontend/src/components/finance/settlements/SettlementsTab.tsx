@@ -4,12 +4,14 @@
 // „RCP i faktury kontraktorów”, „Do faktury dla klienta”, „Plan miesiąca”
 // (estymacja) i „Reguły klienta”, karta osoby w miejscu listy. Klient z regułą
 // „Raport godzin od klienta (T4T)” ma też „Raport klienta (T4T)” i „Kartotekę”
-// (plan Nordei N1.5).
+// (plan Nordei N1.5), a klient z fakturami do odbiorcy w sieci Peppol —
+// „E-faktury (Peppol)” (plan Nordei N2).
 // Stan w adresie przez History API, jak reszta /finance.
 import { useEffect, useMemo, useState } from "react";
 
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { apiErrorMessage } from "@/lib/api-error";
+import { useEinvoiceClients } from "@/lib/api/client-einvoices";
 import { useSettlementClients } from "@/lib/api/client-settlements";
 import { useTimeReportClients } from "@/lib/api/client-time-reports";
 import { cn } from "@/lib/utils";
@@ -17,6 +19,7 @@ import { warsawToday } from "@/lib/warsaw-date";
 
 import { ClientInvoiceView } from "./ClientInvoiceView";
 import { ClientRulesEditor } from "./ClientRulesEditor";
+import { EinvoicesView } from "./EinvoicesView";
 import { EstimatesView } from "./EstimatesView";
 import { SettlementCard } from "./SettlementCard";
 import { SettlementMonthView } from "./SettlementMonthView";
@@ -28,8 +31,8 @@ import { defaultMonth, monthLabel, nextMonths, recentMonths } from "./format";
 /** Parametry adresu należące do tej zakładki (czyści je zmiana zakładki /finance). */
 export const SETTLEMENTS_URL_KEYS = ["stClient", "stMonth", "stSub", "stContract", "stVersion", "stPerson"] as const;
 
-type Sub = "month" | "t4t" | "ids" | "invoice" | "plan" | "rules";
-const SUBS: readonly Sub[] = ["month", "t4t", "ids", "invoice", "plan", "rules"];
+type Sub = "month" | "t4t" | "ids" | "invoice" | "einvoices" | "plan" | "rules";
+const SUBS: readonly Sub[] = ["month", "t4t", "ids", "invoice", "einvoices", "plan", "rules"];
 const T4T_SUBS: readonly Sub[] = ["t4t", "ids"];
 
 function readParam(key: (typeof SETTLEMENTS_URL_KEYS)[number]): string | null {
@@ -56,6 +59,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
   const [versionId, setVersionId] = useState<number | null>(null);
   const [personKey, setPersonKey] = useState<string | null>(null);
   const timeReportClients = useTimeReportClients(month);
+  const einvoiceClients = useEinvoiceClients();
 
   useEffect(() => {
     const c = Number(readParam("stClient"));
@@ -91,6 +95,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
   }
   const current = clients.data.find((c) => c.client_id === clientId);
   const hasTimeReport = timeReportClients.data?.client_ids.includes(clientId) ?? false;
+  const hasEinvoices = einvoiceClients.data?.client_ids.includes(clientId) ?? false;
   const visibleSub: Sub = T4T_SUBS.includes(sub) && !hasTimeReport ? "month" : sub;
 
   function pickClient(id: number) {
@@ -165,11 +170,13 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
               ["t4t", "Raport klienta (T4T)"],
               ["ids", "Kartoteka"],
               ["invoice", "Do faktury dla klienta"],
+              ["einvoices", "E-faktury (Peppol)"],
               ["plan", "Plan miesiąca"],
               ["rules", "Reguły klienta"],
             ] as const
           )
             .filter(([key]) => hasTimeReport || !T4T_SUBS.includes(key))
+            .filter(([key]) => key !== "einvoices" || hasEinvoices || sub === "einvoices")
             .map(([key, label]) => (
             <button
               key={key}
@@ -204,6 +211,8 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
         <ClientRulesEditor clientId={clientId} clients={clients.data} month={month} months={ruleMonths} canWrite={canWrite} />
       ) : visibleSub === "invoice" ? (
         <ClientInvoiceView clientId={clientId} month={month} />
+      ) : visibleSub === "einvoices" ? (
+        <EinvoicesView clientId={clientId} month={month} canWrite={canWrite} />
       ) : contractId != null ? (
         <SettlementCard
           contractId={contractId}

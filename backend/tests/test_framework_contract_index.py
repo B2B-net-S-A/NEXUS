@@ -70,9 +70,9 @@ class _FakeQdrant:
     def upsert(self, **kwargs):
         self.calls.append(("upsert", kwargs))
 
-    def search(self, **kwargs):
-        self.calls.append(("search", kwargs))
-        return [SimpleNamespace(id=hit) for hit in self.hits]
+    def query_points(self, **kwargs):
+        self.calls.append(("query_points", kwargs))
+        return SimpleNamespace(points=[SimpleNamespace(id=hit) for hit in self.hits])
 
     def names(self) -> list[str]:
         return [name for name, _kwargs in self.calls]
@@ -413,7 +413,9 @@ async def test_hybrid_search_uses_vector_hits_and_drops_orphans(pipeline):
 
         assert outcome.retrieval == fci.RETRIEVAL_HYBRID
         assert [(p.first_chunk, p.last_chunk) for p in outcome.passages] == [(2, 2)]
-        search_call = next(k for name, k in pipeline.qdrant.calls if name == "search")
+        search_call = next(
+            k for name, k in pipeline.qdrant.calls if name == "query_points"
+        )
         assert search_call["query_filter"].must[0].match.any == [fc_id]
     finally:
         await _cleanup(client_id)
@@ -631,9 +633,9 @@ def test_amendment_points_do_not_die_with_the_contract_points():
 
 def test_vector_search_covers_contracts_and_amendments():
     class _Client:
-        def search(self, **kwargs):
+        def query_points(self, **kwargs):
             self.filter = kwargs["query_filter"]
-            return []
+            return SimpleNamespace(points=[])
 
     client = _Client()
     fci.search_points(client, [0.1], [1], 5, [9])

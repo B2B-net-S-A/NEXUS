@@ -65,7 +65,7 @@ describe("BotListPanel", () => {
     expect(screen.getByRole("button", { name: /Zbuduj listę/ })).toBeDisabled();
     state = ok({
       ...base,
-      brief: { ...{ roles: ["manager"], industries: [], pkd: [], regions: [], sizes: [], triggers: [], sources: ["base"] }, include_unknown: true, per_caller: 20, caller_ids: [5], auto_refill: true },
+      brief: { ...{ roles: ["manager"], industries: [], pkd: [], regions: [], cities: [], sizes: [], triggers: [], sources: ["base"] }, include_unknown: true, per_caller: 20, caller_ids: [5], auto_refill: true, lookalike: false },
     });
     rerender(<BotListPanel campaign={campaign} onBack={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /Zbuduj listę/ }));
@@ -79,5 +79,27 @@ describe("BotListPanel", () => {
     state = { data: undefined, isSuccess: false, isError: true, error: new Error("x"), refetch };
     rerender(<BotListPanel campaign={campaign} onBack={() => {}} />);
     expect(screen.getByRole("alert")).toHaveTextContent("Nie udało się wczytać Bota Listy.");
+  });
+
+  it("rejestr.io odsłania PKD, województwa, wyzwalacze i podobne firmy", () => {
+    render(<BotListPanel campaign={campaign} onBack={() => {}} />);
+    expect(screen.queryByLabelText("Kody PKD (po przecinku)")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: "rejestr.io" }));
+    fireEvent.change(screen.getByLabelText("Kody PKD (po przecinku)"), { target: { value: "64, 62.01" } });
+    fireEvent.change(screen.getByLabelText("Województwa (po przecinku)"), { target: { value: "mazowieckie" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: "zmiana w zarządzie" }));
+    fireEvent.click(screen.getByRole("switch", { name: /podobnych/ }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Ewa Testowa" }));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz brief" }));
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sources: ["base", "rejestr"],
+        pkd: ["64", "62.01"],
+        regions: ["mazowieckie"],
+        triggers: ["board_change"],
+        lookalike: true,
+      }),
+      expect.anything(),
+    );
   });
 });

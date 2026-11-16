@@ -50,6 +50,7 @@ import {
  autofillReasonKeepsLabel,
  autofillReasonLabel,
  notLookingUntil,
+ otherNoteHasWords,
  templateReasonFor,
  type AutofillFeedbackChoice,
  type AutofillLearnedFrom,
@@ -438,7 +439,7 @@ export function RejectionV2({
  : hasReasons
  ? !chosenReason
  : !freeReason.trim()) ||
- (descriptionRequired && !notes.trim()) ||
+ (descriptionRequired && (autofillAsked ? !otherNoteHasWords(notes) : !notes.trim())) ||
  (offerResponseRequired && !offerResponse) ||
  (autofillAsked && autofillChoice == null) ||
  (emailAvailable && sendEmail && emailState.invalid);

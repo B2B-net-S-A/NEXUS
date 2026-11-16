@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { useAuthStore, type User } from "@/store/auth"
-import { MyWeekTile, workdaysSoFarThisWeek } from "../MyWeekTile"
+import { MyWeekTile } from "../MyWeekTile"
 
 const getMock = vi.fn()
 
@@ -34,6 +34,7 @@ function panel(partial: Record<string, unknown>) {
     cv_to_base: null,
     precision: { value_pct: null, verified: 0, sent: 0, target_pct: 75, window_days: 30 },
     target_verifications_daily: 4,
+    target_verifications_week_to_date: 12,
     target_placements_monthly: 1,
     target_precision_pct: 75,
     ...partial,
@@ -43,14 +44,6 @@ function panel(partial: Record<string, unknown>) {
 beforeEach(() => {
   getMock.mockReset()
   useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } as unknown as User, hydrated: true })
-})
-
-describe("workdaysSoFarThisWeek", () => {
-  it("liczy pn–pt do dziś, weekend = 5", () => {
-    expect(workdaysSoFarThisWeek(new Date("2026-10-05T10:00:00Z"))).toBe(1) // poniedziałek
-    expect(workdaysSoFarThisWeek(new Date("2026-10-07T10:00:00Z"))).toBe(3) // środa
-    expect(workdaysSoFarThisWeek(new Date("2026-10-04T10:00:00Z"))).toBe(5) // niedziela
-  })
 })
 
 describe("MyWeekTile", () => {
@@ -69,7 +62,7 @@ describe("MyWeekTile", () => {
 
   it("cel null = bez „/ cel”, cel liczbą = z celem", async () => {
     getMock.mockResolvedValue({
-      data: panel({ target_verifications_daily: null, target_placements_monthly: 2 }),
+      data: panel({ target_verifications_week_to_date: null, target_placements_monthly: 2 }),
     })
     renderTile()
     const rows = await screen.findAllByTestId("my-week-row")
@@ -81,5 +74,22 @@ describe("MyWeekTile", () => {
       "href",
       "/insights?tab=moj-miesiac",
     )
+  })
+
+  it("cel tygodnia bierze z backendu, nie liczy cel dnia × dni tygodnia", async () => {
+    // Backend zdjął z tygodnia urlop / dzień onboardingu: 4/dzień, ale cel 8.
+    getMock.mockResolvedValue({
+      data: panel({ target_verifications_daily: 4, target_verifications_week_to_date: 8 }),
+    })
+    renderTile()
+    const rows = await screen.findAllByTestId("my-week-row")
+    expect(rows[0]).toHaveTextContent("6 / 8")
+  })
+
+  it("cel tygodnia 0 (cały tydzień nieobecności) = bez „/ cel”", async () => {
+    getMock.mockResolvedValue({ data: panel({ target_verifications_week_to_date: 0 }) })
+    renderTile()
+    const rows = await screen.findAllByTestId("my-week-row")
+    expect(rows[0].textContent).not.toContain("/")
   })
 })

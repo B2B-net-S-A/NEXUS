@@ -39,6 +39,8 @@ import { screenFromLocation, suggestionsFor } from "@/lib/jarvis/context";
 import { JARVIS_OPEN_EVENT, type JarvisOpenDetail } from "@/lib/jarvis/events";
 import { applyStreamEvent, applyUndoOutcome, replaceAction, type JarvisTurnState } from "@/lib/jarvis/reducer";
 import { JarvisHttpError, streamJarvisChat } from "@/lib/jarvis/stream";
+import { poligonJarvisFetch } from "@/lib/poligon/jarvis";
+import { isPoligonActive } from "@/lib/poligon/mode";
 import type {
   JarvisAction,
   JarvisItem,
@@ -49,6 +51,8 @@ import type {
 } from "@/lib/jarvis/types";
 import { canShowUnsolicited, recordUnsolicited } from "@/lib/jarvis/bubble-budget";
 import { readStorage, storageKey, todayKey, writeStorage } from "@/lib/jarvis/storage";
+import { activeSeason, companyDate } from "@/lib/worlds/seasons";
+import { openWorldGallery } from "@/components/v2/shell/WorldGallery";
 import { trackJarvisUi } from "@/lib/jarvis/telemetry";
 import { explainerFor } from "@/lib/help/error-explainers";
 import { JARVIS_STUCK_EVENT, type JarvisStuckDetail } from "@/lib/help/refusal-tracker";
@@ -119,6 +123,7 @@ export function JarvisRoot() {
   const ownSession = useAuthStore((s) => !!s.token && !s.realUser);
   const kidsMode = useThemeStore((s) => s.kidsMode);
   const kidsSound = useThemeStore((s) => s.kidsSound);
+  const world = useThemeStore((s) => s.world);
   const kidsAutoTalk = useThemeStore((s) => s.kidsAutoTalk);
   const active = hydrated && ownSession && Boolean(user);
   const toast = useOptionalToast();
@@ -154,6 +159,8 @@ export function JarvisRoot() {
   const [search, setSearch] = useState("");
   // Dymek po trzeciej takiej samej odmowie serwera.
   const [stuck, setStuck] = useState<{ code: string; text: string } | null>(null);
+  // Jedno powitanie na sezon światów (Zima, Dzień Kobiet, Dzień Chłopaka).
+  const [seasonBubble, setSeasonBubble] = useState<string | null>(null);
   const loadedConversation = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -273,6 +280,9 @@ export function JarvisRoot() {
           { message: text, conversation_id: turn.conversationId, screen: turnScreen, web: webMode },
           {
             signal: controller.signal,
+            // Poligon: pytanie nie wychodzi do modelu ani do bazy — stała odpowiedź
+            // o osobie z Tablicy ćwiczebnej (`lib/poligon/jarvis.ts`).
+            fetchImpl: isPoligonActive() ? poligonJarvisFetch : undefined,
             onUnauthorized: triggerSessionExpiredRedirect,
             onEvent: (event) => {
               if (event.type === "conversation") loadedConversation.current = event.conversation_id;
@@ -512,6 +522,19 @@ export function JarvisRoot() {
   // panel pokazuje pytania, które ludzie zadawali na tym ekranie (`asked`).
   const screenKey = screen.key ?? null;
 
+  // Sezon światów: robot mówi o nim raz na sezon, w ramach wspólnego budżetu
+  // dymków (`docs/claude/ui/swiaty-wygladu.md`). Klik otwiera galerię światów.
+  useEffect(() => {
+    if (!active || !prefs.enabled || !user?.id) return;
+    const season = activeSeason(companyDate());
+    if (!season) return;
+    const key = storageKey(user.id, `season-greeting-${season.key}`);
+    if (readStorage(key) || modalOpen() || !canShowUnsolicited(user.id)) return;
+    recordUnsolicited(user.id);
+    writeStorage(key, "1");
+    setSeasonBubble(season.season.greeting);
+  }, [active, prefs.enabled, user?.id]);
+
   // Trzecia taka sama odmowa serwera w 2 min → wyjaśnienie po ludzku.
   useEffect(() => {
     if (!active || !available || !prefs.enabled) return;
@@ -581,7 +604,7 @@ export function JarvisRoot() {
       ? "Dzisiejszy limit wyszukiwań w internecie jest wyczerpany"
       : null;
   const mood = kids.mood ?? turn.mood;
-  const bubble = brief ?? stuck?.text ?? kids.bubble;
+  const bubble = brief ?? stuck?.text ?? seasonBubble ?? kids.bubble;
 
   return (
     <>
@@ -594,12 +617,18 @@ export function JarvisRoot() {
           minimized={prefs.minimized}
           open={open}
           bubble={bubble}
-          attention={Boolean(brief || stuck)}
+          attention={Boolean(brief || stuck || seasonBubble)}
+          outfit={kidsMode ? null : world}
           onToggle={() => setOpen((v) => !v)}
           onHide={hideMascot}
           onBubbleClick={() => {
             const wasBrief = Boolean(brief);
             const pendingStuck = !wasBrief ? stuck : null;
+            if (!wasBrief && !pendingStuck && seasonBubble) {
+              setSeasonBubble(null);
+              openWorldGallery();
+              return;
+            }
             setBrief(null);
             setStuck(null);
             kids.dismiss();
@@ -610,6 +639,7 @@ export function JarvisRoot() {
           onDismissBubble={() => {
             setBrief(null);
             setStuck(null);
+            setSeasonBubble(null);
             kids.dismiss();
           }}
         />

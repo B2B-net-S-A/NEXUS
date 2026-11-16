@@ -127,7 +127,7 @@ export async function fetchJobFileBlob(
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
   const res = await fetch(
     `${apiBase}${basePath(owner)}/${fileId}/content?disposition=${disposition}`,
-    { method: "GET", headers: getAuthenticatedRequestHeaders() },
+    { method: "GET", credentials: "include", headers: getAuthenticatedRequestHeaders() },
   );
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return await res.blob();

@@ -198,6 +198,10 @@ services:
       MULTI_CONSULTANT_ORDER_CLIENT_IDS:
       COST_ORDER_CLIENT_IDS:
       EXTENDED_ORDER_ALERT_CLIENT_IDS:
+      # Sprzedaż (karta firmy, zadania bota, rejestry MF i KRS), też z produkcji.
+      # Pętla `sales_signals` stoi na stagingu, więc zmieniają tylko trasy.
+      SALES_BOT_TASKS_ENABLED:
+      SALES_REGISTRY_ENABLED:
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:

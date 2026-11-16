@@ -14,6 +14,8 @@ import { useOwnerCandidates } from "@/lib/api/sales";
 import {
   ROLE_OPTIONS,
   SIZE_OPTIONS,
+  SOURCE_OPTIONS,
+  TRIGGER_OPTIONS,
   useBotList,
   useBuildList,
   useSaveBrief,
@@ -21,6 +23,7 @@ import {
   type BotListRate,
   type BotListRole,
   type BotListSize,
+  type BotListSource,
 } from "@/lib/api/sales-bot-lists";
 import type { CallCampaign } from "@/lib/api/sales-calling";
 import { formatIsoDatePl } from "@/lib/date-pl";
@@ -82,7 +85,10 @@ function BriefForm({ initial, onSave, saving }: { initial: BotListBrief; onSave:
   const owners = useOwnerCandidates();
   const [brief, setBrief] = useState<BotListBrief>(initial);
   const [industries, setIndustries] = useState(initial.industries.join(", "));
+  const [cities, setCities] = useState(initial.cities.join(", "));
   const [regions, setRegions] = useState(initial.regions.join(", "));
+  const [pkd, setPkd] = useState(initial.pkd.join(", "));
+  const external = brief.sources.some((source) => source !== "base");
   const set = (patch: Partial<BotListBrief>) => setBrief((current) => ({ ...current, ...patch }));
 
   return (
@@ -90,7 +96,13 @@ function BriefForm({ initial, onSave, saving }: { initial: BotListBrief; onSave:
       className="space-y-3"
       onSubmit={(event) => {
         event.preventDefault();
-        onSave({ ...brief, industries: words(industries), regions: words(regions) });
+        onSave({
+          ...brief,
+          industries: words(industries),
+          cities: words(cities),
+          regions: words(regions),
+          pkd: words(pkd),
+        });
       }}
     >
       <fieldset className="space-y-1">
@@ -114,10 +126,59 @@ function BriefForm({ initial, onSave, saving }: { initial: BotListBrief; onSave:
           <Input id="bot-list-industries" value={industries} placeholder="np. bank, finans, oprogramowanie" onChange={(e) => setIndustries(e.target.value)} />
         </div>
         <div className="space-y-1">
-          <Label htmlFor="bot-list-regions">Miasto siedziby (po przecinku)</Label>
-          <Input id="bot-list-regions" value={regions} placeholder="np. Warszawa, Kraków" onChange={(e) => setRegions(e.target.value)} />
+          <Label htmlFor="bot-list-cities">Miasto siedziby (po przecinku)</Label>
+          <Input id="bot-list-cities" value={cities} placeholder="np. Warszawa, Kraków" onChange={(e) => setCities(e.target.value)} />
         </div>
       </div>
+      <fieldset className="space-y-1">
+        <legend className="text-xs font-medium text-foreground">Skąd firmy</legend>
+        <div className="flex flex-wrap gap-3">
+          {SOURCE_OPTIONS.map((option) => (
+            <label key={option.value} className="flex items-center gap-1.5 text-sm">
+              <Checkbox
+                checked={brief.sources.includes(option.value)}
+                onCheckedChange={(on) => set({ sources: toggle<BotListSource>(brief.sources, option.value, on === true) })}
+              />
+              {option.label}
+            </label>
+          ))}
+        </div>
+        {external && (
+          <p className="text-[11px] text-muted-foreground">
+            Firmy z rejestr.io i researchu szuka Bot Listy w Groku; dochodzą do kolejki po kilku minutach.
+          </p>
+        )}
+      </fieldset>
+      {external && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="bot-list-pkd">Kody PKD (po przecinku)</Label>
+            <Input id="bot-list-pkd" value={pkd} placeholder="np. 64, 65, 62.01" onChange={(e) => setPkd(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="bot-list-regions">Województwa (po przecinku)</Label>
+            <Input id="bot-list-regions" value={regions} placeholder="np. mazowieckie, małopolskie" onChange={(e) => setRegions(e.target.value)} />
+          </div>
+          <fieldset className="space-y-1 sm:col-span-2">
+            <legend className="text-xs font-medium text-foreground">Wyzwalacz (firma idzie wyżej)</legend>
+            <div className="flex flex-wrap gap-3">
+              {TRIGGER_OPTIONS.map((option) => (
+                <label key={option.value} className="flex items-center gap-1.5 text-sm">
+                  <Checkbox
+                    checked={brief.triggers.includes(option.value)}
+                    onCheckedChange={(on) => set({ triggers: toggle(brief.triggers, option.value, on === true) })}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <Switch checked={brief.lookalike} onCheckedChange={(on) => set({ lookalike: on })} />
+            Szukaj firm podobnych do tych, z którymi umówiliśmy spotkanie
+          </label>
+        </div>
+      )}
       <fieldset className="space-y-1">
         <legend className="text-xs font-medium text-foreground">Wielkość firmy (osoby)</legend>
         <div className="flex flex-wrap gap-3">
@@ -170,7 +231,7 @@ function BriefForm({ initial, onSave, saving }: { initial: BotListBrief; onSave:
       </div>
       <p className="text-[11px] text-muted-foreground">
         Pomija zawsze: klientów NEXUSA, „Nie kontaktować”, firmy z otwartą szansą, dzwonione w ostatnich 6 miesiącach
-        i „Nie zainteresowany — nigdy”. Źródło na dziś: baza NEXUSA.
+        i „Nie zainteresowany — nigdy”.
       </p>
       <div className="flex justify-end">
         <Button type="submit" size="sm" variant="outline" loading={saving} disabled={brief.roles.length === 0 || brief.caller_ids.length === 0}>
@@ -186,12 +247,14 @@ const EMPTY: Omit<BotListBrief, "caller_ids"> = {
   industries: [],
   pkd: [],
   regions: [],
+  cities: [],
   sizes: [],
   triggers: [],
   sources: ["base"],
   include_unknown: true,
   per_caller: 40,
   auto_refill: true,
+  lookalike: false,
 };
 
 /**

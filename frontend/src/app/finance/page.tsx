@@ -36,6 +36,13 @@ import {
   ApprovedExpensesTab,
 } from "@/components/finance/ApprovedExpensesTab";
 import { useHrConfig } from "@/lib/api/hr";
+import { COSTS_URL_KEYS, CostsTab } from "@/components/finance/ledger/CostsTab";
+import { BookingTab } from "@/components/finance/ledger/BookingTab";
+import { ChartTab } from "@/components/finance/ledger/ChartTab";
+import { CounterpartiesTab } from "@/components/finance/ledger/CounterpartiesTab";
+import { PaymentsTab } from "@/components/finance/ledger/PaymentsTab";
+import { Ebi24ArchiveTab } from "@/components/finance/ledger/Ebi24ArchiveTab";
+import { useAccountingModule } from "@/lib/api/finance-ledger";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
 const VIEW_DESCRIPTION: Record<ViewMode, string> = {
@@ -48,12 +55,21 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   "order-pdfs":
     "PDF-y nowych zamówień, przedłużeń i aneksów według miesiąca rozpoczęcia i klienta",
   "sales-invoices":
-    "Faktury do klientów z KSeF dopasowane do zamówień, wpłaty z wyciągu i zaległości",
+    "Faktury do klientów: wystawianie do KSeF, dopasowanie do zamówień, wpłaty z wyciągu i zaległości",
   "rate-divergences":
     "Nocny raport: gdzie stawka z kontraktu różni się od stawki linii zamówienia MD",
   settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
+  costs:
+    "Faktury kosztowe z KSeF i PDF w jednej kolejce: przyjęcie, opis, weryfikacja, księgowanie",
+  counterparties: "Kartoteka kontrahentów z kontami Symfonii, import z eBI24",
+  payments:
+    "Paczki przelewów faktur kosztowych (Elixir-O, CSV, MPP) i zapłaty z wyciągu",
+  booking: "Dekrety faktur gotowych do księgowania za miesiąc i paczki eksportu do Symfonii FK",
+  accounts: "Plan kont Symfonii FK i reguły dekretu faktur kosztowych",
+  "ebi24-archive":
+    "Dokumenty z archiwum eBI24 (2021–2026): faktury sprzedaży i kosztowe z plikami",
 };
 
 /**
@@ -119,6 +135,8 @@ export default function FinancePage() {
     useHrConfig(hasModule).data?.open_modules?.approvals === true;
   // „Rozliczenia” (rozliczenia klientów, roadmapa E1) tylko przy włączonym module.
   const settlementsOpen = useSettlementsModule(hasModule).data?.open === true;
+  // „Koszty” i „Kontrahenci” (księgowość E0–E1) tylko przy włączonym module.
+  const accountingOpen = useAccountingModule(hasModule).data?.open === true;
   // Import MD: `orders_work`, nie zapis sekcji — sekcji Back office nie ma.
   const canImportMd = !impersonating && hasPermission(user, "orders_work");
   const fallbackView: ViewMode = hasModule ? "results" : "order-changes";
@@ -129,7 +147,14 @@ export default function FinancePage() {
     (view === "sales-invoices" && !invoicingOpen) ||
     (view === "rate-divergences" && !hasModule) ||
     (view === "approved-expenses" && !approvalsOpen) ||
-    (view === "settlements" && !settlementsOpen)
+    (view === "settlements" && !settlementsOpen) ||
+    ((view === "costs" ||
+      view === "counterparties" ||
+      view === "payments" ||
+      view === "booking" ||
+      view === "accounts" ||
+      view === "ebi24-archive") &&
+      !accountingOpen)
       ? fallbackView
       : view;
 
@@ -185,6 +210,9 @@ export default function FinancePage() {
     if (next !== "settlements") {
       SETTLEMENTS_URL_KEYS.forEach((key) => params.delete(key));
     }
+    if (next !== "costs") {
+      COSTS_URL_KEYS.forEach((key) => params.delete(key));
+    }
     const query = params.toString();
     window.history.replaceState(
       null,
@@ -232,6 +260,54 @@ export default function FinancePage() {
               onClick={() => changeView("settlements")}
             >
               Rozliczenia
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "costs"}
+              onClick={() => changeView("costs")}
+            >
+              Koszty
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "payments"}
+              onClick={() => changeView("payments")}
+            >
+              Przelewy
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "counterparties"}
+              onClick={() => changeView("counterparties")}
+            >
+              Kontrahenci
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "ebi24-archive"}
+              onClick={() => changeView("ebi24-archive")}
+            >
+              Archiwum eBI24
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "booking"}
+              onClick={() => changeView("booking")}
+            >
+              Księgowanie
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
+              active={visibleView === "accounts"}
+              onClick={() => changeView("accounts")}
+            >
+              Plan kont
             </ModeButton>
           ) : null}
           {hasModule && (
@@ -320,6 +396,18 @@ export default function FinancePage() {
           <RateDivergencesTab />
         ) : visibleView === "settlements" ? (
           <SettlementsTab canWrite={canWrite} />
+        ) : visibleView === "costs" ? (
+          <CostsTab canWrite={canWrite} />
+        ) : visibleView === "counterparties" ? (
+          <CounterpartiesTab canWrite={canWrite} />
+        ) : visibleView === "ebi24-archive" ? (
+          <Ebi24ArchiveTab />
+        ) : visibleView === "payments" ? (
+          <PaymentsTab canWrite={canWrite} />
+        ) : visibleView === "booking" ? (
+          <BookingTab canWrite={canWrite} />
+        ) : visibleView === "accounts" ? (
+          <ChartTab canWrite={canWrite} />
         ) : visibleView === "approved-expenses" ? (
           <div data-help="finance.approved-expenses">
             <ApprovedExpensesTab />

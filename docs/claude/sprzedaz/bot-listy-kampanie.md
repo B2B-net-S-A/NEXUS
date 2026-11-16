@@ -23,7 +23,8 @@ Import pliku zostaje bez zmian.
 
 - **Brief** w `sales_call_campaigns.bot_brief` (0690, lustro w `entrypoint.sh`,
   `sales_schema.BOT_LISTS_DDL`), model `bot_lists.Brief` (`extra="forbid"`): role,
-  słowa branży, miasta, wielkości (`1-49`…`1000+`), PKD i województwa (dla L3),
+  słowa branży, miasta siedziby (`cities`), wielkości (`1-49`…`1000+`), PKD i województwa
+  (dla L3),
   wyzwalacze, źródła, `include_unknown` (domyślnie tak: karty bez danych też wchodzą),
   paczka na osobę tygodniowo (1–200, domyślnie 40), osoby dzwoniące (aktywne konta),
   `auto_refill`.
@@ -58,16 +59,37 @@ Import pliku zostaje bez zmian.
 - Dzwonienie → Kampanie → „Bot Listy” przy kampanii (`calling/BotListPanel.tsx`):
   brief, „Zbuduj listę”, „Co działa”. Bot Listy jest też na ekranie Leady → Boty.
 
-## Dalej (L3–L4, osobne PR-y)
+## L3–L4: rejestr.io, research i podobne firmy (rodzaj biegu `lists`)
 
-- **L3 rejestr.io w Grok Bocie:** rodzaj biegu z segmentem (PKD, województwa,
-  wielkość, wyzwalacze); bot odsyła firmy z NIP-em, KRS, telefonem i e-mailem firmy
-  oraz zarządem z linkiem. Do bota mogą iść NIP i KRS firm (decyzja Artura 13.11.2026;
-  zmienia „tylko nazwy i domeny” z `sygnaly-grok-bot.md`), nadal bez danych osób.
-  Dostęp do rejestr.io w rutynie ustawia Artur (na swoje ryzyko); w NEXUSIE, kodzie
-  i dokumentacji nie ma haseł ani instrukcji logowania. Przy liczbach finansowych
-  podpis „Źródło: rejestr.io” (regulamin pkt 7.2).
-- **L4 podobne firmy:** segment z firm, z którymi było spotkanie.
+- **Kiedy:** „Zbuduj listę” i poniedziałkowa dosypka najpierw biorą bazę, a gdy brief
+  ma źródło `rejestr` albo `research` i paczka nie jest pełna, zlecają botowi brakujące
+  firmy (`bot_lists.start_external`, najwyżej 50, jeden bieg na kampanię na 2 godziny).
+  Tylko przy `SALES_BOT_TASKS_ENABLED` (jak inne zadania bota). Bot: Bot Listy, webhook
+  `GROK_BOT_LISTS_WEBHOOK_URL/_KEY`, bez własnego wspólny (`cztery-boty-sprzedazy.md`).
+- **Zlecenie** (`bot_tasks/lists.py`, `ListsRequest`, każde pole z uzasadnieniem
+  w module): numer kampanii (dla NEXUSA), PKD, województwa, wielkość, wyzwalacze,
+  stanowiska, liczba firm, NIP-y firm dzwonionych w ostatnich 6 miesiącach (do
+  pominięcia) i, przy „podobnych firmach” (L4, `lookalike`), do 10 firm z umówionym
+  spotkaniem w tej kampanii (nazwa, NIP, domena, branża, miasto). Bez danych osób.
+  **NIP i KRS firm mogą iść do bota** (decyzja Artura 13.11.2026; `signals.webhook_body`
+  dokłada je też w `firms` innych rodzajów).
+- **Raport** (`ListsReport`, `extra="forbid"`, do 50 firm): firma, NIP (zła suma = sam
+  numer odpada), KRS, domena, strona, miasto, PKD, liczba osób, telefon i e-mail firmy
+  **tylko z własnym źródłem** (bez źródła odpadają), osoba tylko z linkiem do
+  opublikowanego źródła (zarząd w KRS, strona firmy), wyzwalacz z adresem i datą,
+  `source` (`rejestr`/`research`) i `source_url`.
+- **Zapis od razu** (`ingest_firms`): wiersze listy przez te same bramki importu,
+  „Skąd kontakt” „Bot Listy · rejestr.io” albo „Bot Listy · research”, notatka z PKD,
+  miastem, wielkością i wyzwalaczem. Osoba spoza ról briefu (np. prezes przy roli
+  Manager) nie trafia do rekordu, zostaje telefon firmy. Podział do paczki osób jak w L1.
+- **rejestr.io:** dostęp w rutynie ustawia Artur, na swoje ryzyko (decyzja z 13.11.2026).
+  W NEXUSIE, kodzie, poleceniu i dokumentacji nie ma haseł ani instrukcji logowania.
+  Regulamin rejestr.io (3.11.2026) dopuszcza automatyzację przez API, MCP i eksport
+  (pkt 6.1); przy liczbach finansowych podpis „Źródło: rejestr.io” (pkt 7.2).
+- **Ekran:** w briefie „Skąd firmy” (Baza NEXUSA, rejestr.io, Research); przy źródłach
+  zewnętrznych pola PKD, województwa, wyzwalacze i „podobne firmy”. Miasta siedziby
+  (`cities`) filtrują bazę, województwa (`regions`) idą do bota.
 
 Testy: `backend/tests/test_sales_bot_lists_unit.py`, `test_sales_bot_lists_api.py`,
-`frontend/src/components/sales/__tests__/sales-bot-lists.test.tsx`.
+`frontend/src/components/sales/__tests__/sales-bot-lists.test.tsx`, a dla zmiany NIP-u
+`test_sales_signals_unit.py` (`test_webhook_body_carries_company_ids_but_no_people`).

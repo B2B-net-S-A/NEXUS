@@ -204,16 +204,14 @@ def test_sonda_wykonuje_prawdziwe_zapytanie() -> None:
 
     zrodlo = inspect.getsource(_probe_qdrant)
 
-    # Świadomie NIE zamrażamy nazwy metody: migracja siedmiu wywołań na
-    # `query_points()` jest zaplanowana i ten test nie może jej blokować.
-    # Zamrażamy to, co ma wartość — że sonda WYSYŁA wektor, zamiast pytać
-    # serwer, czy żyje.
-    wykonuje_zapytanie = "client.search(" in zrodlo or "client.query_points(" in zrodlo
-    assert wykonuje_zapytanie, (
-        "sonda Qdranta nie wywołuje już ani `search`, ani `query_points` — czyli "
-        "sprawdza tylko, czy serwer odpowiada. Awaria z 28.07 (metoda usunięta "
+    # Migracja na `query_points()` zakończona 14.11.2026: sonda woła tę samą
+    # metodę co cała aplikacja (strażnik `test_qdrant_query_points_only.py`).
+    # Zamrażamy też, że sonda WYSYŁA wektor, zamiast pytać serwer, czy żyje.
+    assert "client.query_points(" in zrodlo, (
+        "sonda Qdranta nie wywołuje już `query_points` — czyli nie sprawdza "
+        "metody, którą chodzi aplikacja. Awaria z 28.07 (metoda usunięta "
         "z biblioteki, serwer zdrowy) przeszłaby przez taką sondę niezauważona"
     )
-    assert "query_vector" in zrodlo or "query=" in zrodlo, (
+    assert "query=" in zrodlo, (
         "sonda nie przekazuje już wektora — to nie jest zapytanie, tylko atrapa"
     )

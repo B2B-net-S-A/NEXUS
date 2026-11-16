@@ -8,6 +8,7 @@
  * żeby widoczność pozycji dało się udowodnić testem bez montowania shellu.
  */
 import {
+  BookOpenCheck,
   Briefcase,
   Building2,
   Calendar,
@@ -15,6 +16,7 @@ import {
   FileSignature,
   FileText,
   GitBranch,
+  GraduationCap,
   Handshake,
   Heart,
   HelpCircle,
@@ -25,6 +27,7 @@ import {
   Lightbulb,
   PhoneCall,
   Radar,
+  Scale,
   Search,
   Settings,
   Star,
@@ -44,6 +47,7 @@ import {
   hasCapability,
   type Capability,
 } from "@/lib/capabilities";
+import { canOpenCompliance } from "@/lib/compliance-access";
 import { dashboardHref } from "@/lib/dashboard-presets";
 import { hasPermission, type Permission } from "@/lib/permissions";
 import {
@@ -75,7 +79,13 @@ export type NavFeatureFlag =
   | "hrPeople"
   | "hrEquipment"
   | "hrCare"
-  | "hrBackOffice";
+  | "hrBackOffice"
+  // Szkolenia (13.11.2026): biblioteka dla każdego zalogowanego, gdy program
+  // „Ludzie w NEXUSIE” jest włączony (`/api/trainings` wisi za `_HR_PROGRAM`).
+  | "hrTrainings"
+  // Księgowość (K1, 13.11.2026): pozycja tylko przy otwartym module księgi
+  // (`/api/accounting/config` → `open`; wyłączony moduł widzi admin).
+  | "accounting";
 
 export type NavSectionKey =
   | "sourcing"
@@ -99,7 +109,17 @@ export type NavVisibilityOptions = {
   /** Czy ta osoba należy do procesu rekrutacji własnej (po członkostwie, nie roli). */
   ownHiring?: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
-  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
+  hr?: {
+    myTime: boolean;
+    people: boolean;
+    equipment: boolean;
+    care: boolean;
+    backOffice?: boolean;
+    /** Program „Ludzie w NEXUSIE” włączony = „Szkolenia” dla każdego. */
+    trainings?: boolean;
+  };
+  /** Księgowość otwarta dla tej osoby (moduł włączony albo admin). */
+  accounting?: boolean;
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -135,6 +155,12 @@ export type NavEntry = {
    * Te wejścia nie mają listy ról: kto ma uprawnienie, ten widzi pozycję.
    */
   permission?: Permission;
+  /**
+   * Bramka „rola ALBO jedno z kilku uprawnień”, której nie da się zapisać
+   * parą `roles` + `permission` (te łączy „i”). Dziś tylko „Przepisy”:
+   * `compliance` = lustro `require_compliance_access` (`lib/compliance-access.ts`).
+   */
+  access?: "compliance";
   action?: ProductAction;
   /**
    * Capability z `lib/capabilities.ts`, której bramka (lista ról albo
@@ -587,6 +613,34 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Księgowość (K1, 13.11.2026): księga NEXUSA — dokumenty, obroty i salda,
+  // plan kont. Uprawnienie „Moduł Finanse” + otwarty moduł (flaga `accounting`).
+  {
+    id: "accounting",
+    href: "/accounting",
+    label: "Księgowość",
+    icon: BookOpenCheck,
+    section: "finance",
+    permission: "finance_module",
+    featureFlag: "accounting",
+    placement: "primary",
+    paletteKeywords: ["księga", "dziennik", "obroty", "salda", "plan kont", "pk", "symfonia"],
+    inPalette: true,
+  },
+  // Przepisy (15.11.2026): zmiany w prawie, terminy i co znaczą dla nas.
+  // Bez nowego uprawnienia: admin i HoR z roli albo jedno z czterech uprawnień
+  // (Moduł Finanse, Płace, Kadry, Kontrakty i zamówienia) — jak API.
+  {
+    id: "compliance",
+    href: "/compliance",
+    label: "Przepisy",
+    icon: Scale,
+    section: "finance",
+    access: "compliance",
+    placement: "primary",
+    paletteKeywords: ["prawo", "przepisy", "lex", "ustawa", "terminy", "cit", "ksef", "pip"],
+    inPalette: true,
+  },
   // Sprzedaż (Atlas → NEXUS, 26.10.2026): firmy, szanse, kontakty, zadania.
   // Bez sekcji produktu (jak „Ludzie”) — decyduje uprawnienie „Sprzedaż: podgląd”.
   {
@@ -654,6 +708,19 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     section: "system",
     featureFlag: "hrEquipment",
     placement: "primary",
+    inPalette: true,
+  },
+  // Szkolenia (13.11.2026, zamiast Akademii Compassa): biblioteka nagrań i zapisy
+  // dla każdego; zamówienia, umowy i publikacja dla TCM, Finansów i admina.
+  {
+    id: "trainings",
+    href: "/trainings",
+    label: "Szkolenia",
+    icon: GraduationCap,
+    section: "system",
+    featureFlag: "hrTrainings",
+    placement: "primary",
+    paletteKeywords: ["szkolenia", "nagrania", "webinar", "akademia", "trener", "materiały"],
     inPalette: true,
   },
   // Opieka nad konsultantami (moduł `care`): opiekunowie kontraktów (DL, TCM),
@@ -735,9 +802,10 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"],
+    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"],
   },
-  { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
+  // „Przepisy” (15.11.2026) w „Firmie”: widzi je też HoR, który nie ma „Klientów i umów”.
+  { key: "company", title: "Firma", ids: ["insights", "people", "equipment", "trainings", "compliance"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
@@ -770,6 +838,10 @@ function featureFlagOn(
       return (opts.hr?.care ?? false) && !opts.hr?.backOffice;
     case "hrBackOffice":
       return opts.hr?.backOffice ?? false;
+    case "hrTrainings":
+      return opts.hr?.trainings ?? false;
+    case "accounting":
+      return opts.accounting ?? false;
   }
 }
 
@@ -799,6 +871,7 @@ function isEntryVisible(
     (!productSection || hasSectionAccess(user, productSection)) &&
     (!entry.roles || hasRole(user, ...entry.roles)) &&
     (!entry.permission || hasPermission(user, entry.permission)) &&
+    (!entry.access || canOpenCompliance(user)) &&
     (!entry.action || hasActionAccess(user, entry.action)) &&
     featureFlagOn(entry.featureFlag, opts)
   );

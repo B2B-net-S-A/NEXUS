@@ -260,3 +260,191 @@ async def test_my_panel_targets_follow_workdays(local_source) -> None:
     assert away_panel.target_verifications_daily == 0
     assert away_panel.target_placements_monthly == 0
     assert full_panel.target_verifications_daily > 0
+
+
+# ── Dzień onboardingu (Poligon NEXUSA, decyzja Artura 14.11.2026) ───────────
+
+
+@pytest.fixture
+def poligon_for_everyone(monkeypatch):
+    """Rejestr poligonu wymagany od zawsze — konta testowe są świeże."""
+    from app.data.novelties import PoligonPlan, load_poligon
+    from app.services import onboarding_day
+
+    plan = PoligonPlan.model_validate(
+        {**load_poligon().model_dump(mode="json"), "required_since": "2000-01-01"}
+    )
+    monkeypatch.setattr(onboarding_day, "load_poligon", lambda: plan)
+    return plan
+
+
+async def _poligon_done(db, user: User, moment: datetime) -> None:
+    await db.execute(
+        text(
+            """
+            INSERT INTO novelty_progress (user_id, novelty_id, seen_count, completed_at, completed_via)
+            VALUES (:uid, 'poligon-lista-zakres', 0, :at, 'used')
+            """
+        ),
+        {"uid": user.id, "at": moment},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local", [True, False])
+async def test_onboarding_day_is_not_a_workday_under_any_source(
+    poligon_for_everyone, local: bool
+) -> None:
+    availability_local.reset_source_cache(local=local)
+    try:
+        async with AsyncSessionLocal() as db:
+            new = await _person(db, "onboarding")
+            other = await _person(db, "regular")
+            # Poligon liczy się od nadania roli — konto przed pierwszym ćwiczeniem.
+            new.created_at = datetime(2026, 10, 1, 9, 0, tzinfo=WARSAW)
+            await db.flush()
+            # Poligon zaczęty we wtorek 13.10 wieczorem, skończony w środę rano:
+            # liczy się tylko pierwszy dzień.
+            await _poligon_done(db, new, datetime(2026, 10, 13, 16, 0, tzinfo=WARSAW))
+            await _poligon_done_late(
+                db, new, datetime(2026, 10, 14, 9, 0, tzinfo=WARSAW)
+            )
+            days = await person_workdays.workdays_by_user(
+                db, [new.id, other.id], OCT_1, OCT_28
+            )
+            required = await competitions.required_verifications_by_user(
+                db, [new.id, other.id], year=2026, month=10, per_day=4, today=OCT_28
+            )
+            race = await race_workdays_to_date(
+                db,
+                [new.id, other.id],
+                month_start=OCT_1,
+                month_end=OCT_31,
+                today=OCT_28,
+                calendar_elapsed=20,
+            )
+            await db.rollback()
+    finally:
+        availability_local.reset_source_cache(local=False)
+    assert days == {new.id: 19.0, other.id: 20.0}
+    assert race[new.id][0] == 19.0 and race[other.id][0] == 20.0
+    if local:
+        assert required == {new.id: 76, other.id: 80}
+    else:
+        # Bez urlopów NEXUSA próg liczy się z kalendarza do dziś (`business_today`).
+        assert required[other.id] - required[new.id] == 4
+
+
+async def _poligon_done_late(db, user: User, moment: datetime) -> None:
+    await db.execute(
+        text(
+            """
+            INSERT INTO novelty_progress (user_id, novelty_id, seen_count, completed_at, completed_via)
+            VALUES (:uid, 'poligon-baza-przypisz', 0, :at, 'used')
+            """
+        ),
+        {"uid": user.id, "at": moment},
+    )
+
+
+@pytest.mark.asyncio
+async def test_onboarding_day_is_not_a_workday_before_the_poligon_start_date() -> None:
+    """Obecna osoba (konto sprzed `required_since`) nie dostaje wolnego dnia za zajrzenie na poligon."""
+    from app.data.novelties import load_poligon
+
+    async with AsyncSessionLocal() as db:
+        curious = await _person(db, "curious")
+        curious.created_at = datetime.combine(
+            load_poligon().required_since - timedelta(days=30),
+            datetime.min.time(),
+            tzinfo=WARSAW,
+        )
+        await db.flush()
+        await _poligon_done(db, curious, datetime(2026, 10, 13, 16, 0, tzinfo=WARSAW))
+        days = await person_workdays.workdays_by_user(db, [curious.id], OCT_1, OCT_28)
+        await db.rollback()
+    assert days == {curious.id: 20.0}
+
+
+@pytest.mark.asyncio
+async def test_onboarding_day_only_for_roles_that_must_pass_the_poligon(
+    poligon_for_everyone,
+) -> None:
+    """Nowy DL i TCM (od 15.11.2026) mają dzień onboardingu; nowy admin, który
+    zajrzał na poligon, nie — jego poligon nie blokuje."""
+    async with AsyncSessionLocal() as db:
+        dl = await _person(db, "onboarding-dl")
+        dl.role, dl.roles = UserRole.delivery_lead, [UserRole.delivery_lead.value]
+        tcm = await _person(db, "onboarding-tcm")
+        tcm.role = UserRole.talent_community_manager
+        tcm.roles = [UserRole.talent_community_manager.value]
+        admin = await _person(db, "onboarding-admin")
+        admin.role, admin.roles = UserRole.admin, [UserRole.admin.value]
+        for person in (dl, tcm, admin):
+            person.created_at = datetime(2026, 10, 1, 9, 0, tzinfo=WARSAW)
+        await db.flush()
+        for person in (dl, tcm, admin):
+            await _poligon_done(
+                db, person, datetime(2026, 10, 13, 16, 0, tzinfo=WARSAW)
+            )
+        days = await person_workdays.workdays_by_user(
+            db, [dl.id, tcm.id, admin.id], OCT_1, OCT_28
+        )
+        await db.rollback()
+    assert days == {dl.id: 19.0, tcm.id: 19.0, admin.id: 20.0}
+
+
+@pytest.mark.asyncio
+async def test_role_change_gives_a_second_onboarding_day(poligon_for_everyone) -> None:
+    """Rekruter (dzień 1: 13.10) dostaje 20.10 rolę Delivery Leada; pierwsze
+    ćwiczenie DL-a 21.10 to drugi dzień onboardingu (Artur, 15.11.2026)."""
+    async with AsyncSessionLocal() as db:
+        person = await _person(db, "role-change")
+        person.created_at = datetime(2026, 10, 1, 9, 0, tzinfo=WARSAW)
+        person.role, person.roles = (
+            UserRole.delivery_lead,
+            [UserRole.delivery_lead.value],
+        )
+        await db.flush()
+        await _poligon_done(db, person, datetime(2026, 10, 13, 16, 0, tzinfo=WARSAW))
+        await db.execute(
+            text(
+                """
+                INSERT INTO activities (entity_type, entity_id, action, details, created_at)
+                VALUES ('user', :uid, 'roles_changed',
+                        CAST(:details AS jsonb), :at)
+                """
+            ),
+            {
+                "uid": person.id,
+                "details": '{"from": ["recruiter"], "to": ["delivery_lead"]}',
+                "at": datetime(2026, 10, 20, 10, 0, tzinfo=WARSAW),
+            },
+        )
+        await db.execute(
+            text(
+                """
+                INSERT INTO novelty_progress (user_id, novelty_id, seen_count, completed_at, completed_via)
+                VALUES (:uid, 'poligon-dl-wyslij', 0, :at, 'used')
+                """
+            ),
+            {"uid": person.id, "at": datetime(2026, 10, 21, 11, 0, tzinfo=WARSAW)},
+        )
+        days = await person_workdays.workdays_by_user(db, [person.id], OCT_1, OCT_28)
+        await db.rollback()
+    assert days == {person.id: 18.0}
+
+
+@pytest.mark.asyncio
+async def test_onboarding_day_frees_the_person_from_todays_review_batch(
+    poligon_for_everyone,
+) -> None:
+    from app.services import review_batch
+
+    async with AsyncSessionLocal() as db:
+        new = await _person(db, "batch")
+        other = await _person(db, "batch-regular")
+        await _poligon_done(db, new, datetime.now(timezone.utc))
+        absent = await review_batch.absent_today(db, [new.id, other.id])
+        await db.rollback()
+    assert new.id in absent and other.id not in absent

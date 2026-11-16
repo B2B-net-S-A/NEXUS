@@ -14,6 +14,7 @@
  */
 
 import type { CSSProperties, ReactElement } from "react";
+import { JarvisOutfit, hasOutfit } from "./JarvisOutfit";
 import type { JarvisAccent, JarvisCharacterId, JarvisMood } from "@/lib/jarvis/types";
 
 export const JARVIS_CHARACTERS: ReadonlyArray<{
@@ -54,9 +55,11 @@ interface Props {
   size?: number;
   className?: string;
   title?: string;
+  /** Świat wyglądu — robot dostaje do niego strój (`JarvisOutfit`). */
+  outfit?: string | null;
 }
 
-export function JarvisCharacter({ id, accent = "primary", mood = "idle", size = 72, className, title }: Props) {
+export function JarvisCharacter({ id, accent = "primary", mood = "idle", size = 72, className, title, outfit }: Props) {
   const style = { "--jarvis-accent": accentColor(accent) } as CSSProperties;
   const Art = ART[id] ?? ART.robot;
   return (
@@ -76,6 +79,7 @@ export function JarvisCharacter({ id, accent = "primary", mood = "idle", size = 
         aria-label={title ?? JARVIS_CHARACTERS.find((c) => c.id === id)?.label ?? "Jarvis"}
       >
         <Art />
+        {outfit && hasOutfit(id, outfit) && <JarvisOutfit world={outfit} />}
       </svg>
     </span>
   );

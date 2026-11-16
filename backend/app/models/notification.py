@@ -420,6 +420,13 @@ class NotificationType(str, enum.Enum):
     back_office_assigned = "back_office_assigned"
     portal_low_rating = "portal_low_rating"
     portal_monthly_review = "portal_monthly_review"
+    # 0697: szkolenia — TCM, reprezentant, Finanse i uczestnicy (osobiste).
+    training_quote = "training_quote"
+    training_file = "training_file"
+    training_sign = "training_sign"
+    training_invoice = "training_invoice"
+    training_reminder = "training_reminder"
+    training_recording = "training_recording"
     equipment_task = "equipment_task"
     equipment_protocol_signed = "equipment_protocol_signed"
     # 0479: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.
@@ -458,6 +465,13 @@ class NotificationType(str, enum.Enum):
     # sprawdzenia” u Delivery Leada klienta. Sekcja Delivery, link
     # `/care?card=<klucz karty>`.
     care_demand_signal = "care_demand_signal"
+    # 0712: raport dla klienta z katalogu — termin za N dni roboczych albo
+    # termin minął bez zapisanej wysyłki (decyzja Artura 15.11.2026). Do osoby,
+    # która przygotowuje raport (``preparer_user_id`` albo Delivery Leadzi
+    # klienta); related_entity=(client_report_definition, id). Sekcja Delivery,
+    # kategoria „Raporty dla klientów”, bez maila.
+    # ``tasks/client_report_reminders.py``.
+    client_report_due = "client_report_due"
 
 
 class Notification(Base, TimestampMixin):

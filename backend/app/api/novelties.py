@@ -18,12 +18,12 @@ Moduł ma ``@limiter.limit``, więc bez ``from __future__ import annotations``
 (ciało żądania trafiłoby do query → 422).
 """
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,12 +36,32 @@ from app.data.novelties import (
     Novelty,
     in_audience,
     load_novelties,
+    load_poligon,
     load_start_tours,
 )
 from app.models.app_setting import AppSetting
 from app.models.novelty import NoveltyProgress
 from app.models.user import User
 from app.services.action_permissions import named_permissions_of
+from app.services.onboarding_day import (
+    POLIGON_ID_PREFIX,
+    PoligonRequirement,
+    poligon_exercises,
+    poligon_open,
+    poligon_replaces,
+    poligon_requirement,
+)
+from app.services.poligon_luki import (
+    FEATURES as LUKI_FEATURES,
+    LUKI_KEY,
+    campaign_entry,
+    credited_exercises,
+    default_due,
+    feature_usage,
+    load_campaign,
+    overdue,
+    targets as luki_targets,
+)
 from app.services.section_permissions import SectionAccess, section_access_for_user
 
 router = APIRouter()
@@ -66,11 +86,25 @@ class NoveltyEventIn(BaseModel):
 
 
 class StartGateIn(BaseModel):
-    enforced: bool
+    """Wyłączniki blokad: Startu (``enforced``) i Poligonu nowych osób (``poligon``)."""
+
+    enforced: Optional[bool] = None
+    poligon: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def _one_switch(self) -> "StartGateIn":
+        if self.enforced is None and self.poligon is None:
+            raise ValueError("Podaj enforced albo poligon.")
+        return self
 
 
 #: Wyłącznik blokady Startu w ``app_settings``. Brak wiersza = blokada włączona.
 START_GATE_KEY = "start_gate"
+#: Blokada Poligonu nowych osób. Wyłącznik ma admin i HoR w „Nowości — kto już
+#: umie” (Artur, 15.11.2026: na wypadek, gdyby ćwiczenie przestało się zaliczać);
+#: seed stacku E2E (`scripts/seed_e2e.py`) też ją wyłącza, bo scenariusze
+#: zakładają świeże konta rekruterów.
+POLIGON_GATE_KEY = "poligon_gate"
 
 
 class RemindIn(BaseModel):
@@ -277,6 +311,26 @@ def apply_event(
     row.updated_at = now
 
 
+def apply_poligon_event(row: NoveltyProgress, event: str, now: datetime) -> None:
+    """Ćwiczenie poligonu: pokazane albo zaliczone. Odkładać go nie można."""
+    if event == "seen":
+        row.first_seen_at = row.first_seen_at or now
+        row.seen_count = (row.seen_count or 0) + 1
+    elif event in _COMPLETING:
+        if row.completed_at is None:
+            row.completed_at = now
+            row.completed_via = "used"
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "postpone_not_allowed",
+                "message": "Ćwiczenia poligonu się nie odkłada.",
+            },
+        )
+    row.updated_at = now
+
+
 @router.post("/novelties/{novelty_id}/events", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("60/minute", key_func=user_or_ip_key)
 async def record_novelty_event(
@@ -288,7 +342,23 @@ async def record_novelty_event(
 ) -> None:
     """Kropka pokazana, karta odłożona, nowość przeklikana albo użyta.
 
-    Podgląd jako inna osoba tu nie dochodzi — ``deps.py`` odmawia w nim zapisów."""
+    Podgląd jako inna osoba tu nie dochodzi — ``deps.py`` odmawia w nim zapisów.
+    Ćwiczenie Poligonu (``poligon-…``) zapisuje się tym samym zdarzeniem."""
+    if novelty_id.startswith(POLIGON_ID_PREFIX):
+        plan = load_poligon()
+        # Ćwiczenie spoza ścieżki ról osoby nie istnieje dla niej (np. TCM
+        # i ćwiczenie przeglądu Delivery Leada).
+        if not poligon_open(current_user, plan) or novelty_id not in poligon_exercises(
+            current_user, plan
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Nie ma takiego ćwiczenia.",
+            )
+        row = await _locked_row(db, current_user.id, novelty_id)
+        apply_poligon_event(row, payload.event, datetime.now(timezone.utc))
+        await db.commit()
+        return
     novelty = _find(novelty_id)
     if novelty is None or not _audience_of(current_user, novelty):
         raise HTTPException(
@@ -431,11 +501,42 @@ async def remind_novelty(
     return {"reminded": int(result.rowcount or 0)}
 
 
-async def start_gate_on(db: AsyncSession) -> bool:
-    row = await db.get(AppSetting, START_GATE_KEY)
+async def start_gate_on(db: AsyncSession, key: str = START_GATE_KEY) -> bool:
+    row = await db.get(AppSetting, key)
     if row is None or not isinstance(row.value, dict):
         return True
     return bool(row.value.get("enforced", True))
+
+
+def poligon_status(
+    progress: dict[str, NoveltyProgress],
+    path_ids: list[str],
+    *,
+    open_: bool,
+    required: bool,
+    required_ids: Optional[list[str]] = None,
+) -> dict[str, Any]:
+    """Poligon osoby: zaliczone ćwiczenia jej ścieżki i czy blokuje resztę ekranów.
+
+    ``path_ids`` to ścieżka ról osoby (mapa), ``required_ids`` — ćwiczenia,
+    których poligon od niej wymaga (``PoligonRequirement``; domyślnie cała
+    ścieżka). Licznik ``done``/``total`` i blokada liczą wymagane: Delivery
+    Lead nie czeka na screening rekrutera, a po zmianie roli zostają tylko
+    niezaliczone ćwiczenia nowej roli."""
+    counted = list(path_ids if required_ids is None else required_ids)
+    done_ids = [
+        eid
+        for eid in path_ids
+        if eid in progress and progress[eid].completed_at is not None
+    ]
+    return {
+        "open": open_,
+        "required": required,
+        "exercise_ids": counted,
+        "done_ids": done_ids,
+        "done": sum(1 for eid in counted if eid in done_ids),
+        "total": len(counted),
+    }
 
 
 def start_status(
@@ -444,8 +545,14 @@ def start_status(
     *,
     gate_on: bool,
     impersonating: bool,
+    poligon: Optional[dict[str, Any]] = None,
+    poligon_gate_on: bool = True,
 ) -> dict[str, Any]:
-    """Start osoby: lista przeklikań i czy front ma ją zatrzymać."""
+    """Start osoby: lista przeklikań i czy front ma ją zatrzymać.
+
+    Osobie, której poligon jest wymagany, zastępuje on przeklikania
+    rekrutacji (``poligon.json`` → ``replaces``) i blokuje ekrany, dopóki
+    nie zaliczy wszystkich ćwiczeń — wtedy front prowadzi na ``/poligon``."""
     items = [
         {
             "id": t.id,
@@ -458,12 +565,24 @@ def start_status(
         for t in tours
     ]
     done = sum(1 for item in items if item["done"])
+    poligon_due = bool(
+        poligon_gate_on
+        and poligon
+        and poligon["required"]
+        and poligon["done"] < poligon["total"]
+    )
+    # Wyłącznik Startu (`gate_on`) dotyczy tylko przeklikań; poligon nowej
+    # osoby blokuje zawsze (Artur, 15.11.2026 — Start wyłączony od 30.10).
     return {
-        "enforced": gate_on and not impersonating and done < len(items),
+        "enforced": not impersonating
+        and (poligon_due or (gate_on and done < len(items))),
         "gate_on": gate_on,
+        "poligon_gate_on": poligon_gate_on,
         "done": done,
         "total": len(items),
         "items": items,
+        "redirect": "/poligon" if poligon_due else "/start",
+        "poligon": poligon,
     }
 
 
@@ -473,12 +592,53 @@ async def my_start(
 ) -> dict[str, Any]:
     """Podgląd jako inna osoba niczego nie blokuje — zapisy są wtedy zablokowane."""
     tours = [t for t in load_start_tours().values() if _audience_of(current_user, t)]
-    progress = await _progress_rows(db, current_user.id, [t.id for t in tours])
+    plan = load_poligon()
+    open_ = poligon_open(current_user, plan)
+    # Wymagany od nadania roli z poligonem (Artur, 15.11.2026) — z historii ról.
+    need = (
+        await poligon_requirement(db, current_user, plan)
+        if open_
+        else PoligonRequirement((), ())
+    )
+    required = need.required
+    poligon_ids = poligon_exercises(current_user, plan) if open_ else []
+    required_ids = list(need.exercise_ids) if required else None
+    # Poligon dla obecnych (Artur, 16.11.2026): do terminu prosi, po terminie
+    # blokuje jak u nowej osoby — cała ścieżka, część zaliczona z pracy.
+    luki = (
+        campaign_entry(await load_campaign(db), current_user.id)
+        if open_ and not required
+        else None
+    )
+    if luki:
+        required = overdue(luki["due"], business_today())
+        required_ids = poligon_ids
+    if required and need.required:
+        replaced = poligon_replaces(current_user, plan)
+        tours = [t for t in tours if t.id not in replaced]
+    progress = await _progress_rows(
+        db, current_user.id, [t.id for t in tours] + poligon_ids
+    )
     return start_status(
         tours,
         progress,
         gate_on=await start_gate_on(db),
         impersonating=_impersonating(request),
+        poligon=(
+            {
+                **poligon_status(
+                    progress,
+                    poligon_ids,
+                    open_=open_,
+                    required=required,
+                    required_ids=required_ids,
+                ),
+                "luki": luki,
+            }
+            if open_
+            else None
+        ),
+        poligon_gate_on=await start_gate_on(db, POLIGON_GATE_KEY),
     )
 
 
@@ -488,13 +648,155 @@ async def set_start_gate(
     current_user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
-    """Wyłącznik blokady Startu dla całej firmy (admin, HoR)."""
-    value = {"enforced": payload.enforced}
-    row = await db.get(AppSetting, START_GATE_KEY)
+    """Wyłączniki blokad dla całej firmy (admin, HoR): Startu i Poligonu nowych osób."""
+    for key, enforced in (
+        (START_GATE_KEY, payload.enforced),
+        (POLIGON_GATE_KEY, payload.poligon),
+    ):
+        if enforced is None:
+            continue
+        value = {"enforced": enforced}
+        row = await db.get(AppSetting, key)
+        if row is None:
+            db.add(AppSetting(key=key, value=value, updated_by=current_user.id))
+        else:
+            row.value = value
+            row.updated_by = current_user.id
+    await db.commit()
+    return {
+        "enforced": await start_gate_on(db),
+        "poligon": await start_gate_on(db, POLIGON_GATE_KEY),
+    }
+
+
+# ── Poligon dla obecnych: tylko luki (Artur, 16.11.2026) ─────────────────────
+
+
+class LukiIn(BaseModel):
+    """Start kampanii: termin (domyślnie za tydzień)."""
+
+    due: Optional[date] = None
+
+
+@router.get("/novelties/poligon/luki")
+async def poligon_luki_matrix(
+    current_user: HeadOfRecruitmentPlus, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """„Kto zna NEXUS”: rekruterzy × ważne funkcje z 60 dni pracy (admin, HoR)."""
+    plan = load_poligon()
+    people = await luki_targets(db)
+    usage = await feature_usage(db, [u.id for u in people], datetime.now(timezone.utc))
+    campaign = await load_campaign(db)
+    done_rows = (
+        await db.execute(
+            select(NoveltyProgress.user_id, NoveltyProgress.novelty_id).where(
+                NoveltyProgress.user_id.in_([u.id for u in people] or [0]),
+                NoveltyProgress.novelty_id.like(f"{POLIGON_ID_PREFIX}%"),
+                NoveltyProgress.completed_at.is_not(None),
+            )
+        )
+    ).all()
+    done_by: dict[int, set[str]] = {}
+    for uid, nid in done_rows:
+        done_by.setdefault(int(uid), set()).add(nid)
+    rows = []
+    for u in people:
+        used = usage.get(u.id, set())
+        entry = campaign_entry(campaign, u.id)
+        path = poligon_exercises(u, plan)
+        rows.append(
+            {
+                "id": u.id,
+                "name": u.name,
+                "used": sorted(used),
+                "gaps": sum(1 for f in LUKI_FEATURES if f.key not in used),
+                "poligon": (
+                    {
+                        "done": sum(1 for e in path if e in done_by.get(u.id, set())),
+                        "total": len(path),
+                    }
+                    if entry
+                    else None
+                ),
+            }
+        )
+    return {
+        "window_days": 60,
+        "features": [
+            {
+                "key": f.key,
+                "label": f.label,
+                "group": f.group,
+                "users": sum(1 for r in rows if f.key in r["used"]),
+            }
+            for f in LUKI_FEATURES
+        ],
+        "people": rows,
+        "campaign": (
+            {"due": campaign["due"], "started_at": campaign.get("started_at")}
+            if campaign
+            else None
+        ),
+    }
+
+
+@router.post("/novelties/poligon/luki")
+async def start_poligon_luki(
+    payload: LukiIn,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Wysyła poligon z lukami: zalicza z pracy, ustawia termin (admin, HoR)."""
+    today = business_today()
+    due = payload.due or default_due(today)
+    if due < today:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Termin nie może być w przeszłości.",
+        )
+    plan = load_poligon()
+    now = datetime.now(timezone.utc)
+    people = await luki_targets(db)
+    usage = await feature_usage(db, [u.id for u in people], now)
+    users: dict[str, dict[str, list[str]]] = {}
+    credited_total = 0
+    for u in people:
+        credited = credited_exercises(
+            usage.get(u.id, set()), poligon_exercises(u, plan)
+        )
+        users[str(u.id)] = {"credited": credited}
+        credited_total += len(credited)
+        for eid in credited:
+            await db.execute(
+                pg_insert(NoveltyProgress)
+                .values(
+                    user_id=u.id,
+                    novelty_id=eid,
+                    seen_count=0,
+                    completed_at=now,
+                    completed_via="used",
+                )
+                .on_conflict_do_update(
+                    index_elements=["user_id", "novelty_id"],
+                    set_={
+                        "completed_at": now,
+                        "completed_via": "used",
+                        "updated_at": now,
+                    },
+                    where=NoveltyProgress.completed_at.is_(None),
+                )
+            )
+    value = {
+        "due": due.isoformat(),
+        "started_at": now.isoformat(),
+        "started_by": current_user.id,
+        "users": users,
+    }
+    row = await db.get(AppSetting, LUKI_KEY)
     if row is None:
-        db.add(AppSetting(key=START_GATE_KEY, value=value, updated_by=current_user.id))
+        db.add(AppSetting(key=LUKI_KEY, value=value, updated_by=current_user.id))
     else:
         row.value = value
         row.updated_by = current_user.id
     await db.commit()
-    return value
+    return {"due": value["due"], "people": len(users), "credited": credited_total}

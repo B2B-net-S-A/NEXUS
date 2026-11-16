@@ -111,3 +111,107 @@ def test_refill_is_due_on_monday_from_seven() -> None:
     assert bot_lists.refill_due(datetime(2026, 11, 16, 7, 0))
     assert not bot_lists.refill_due(datetime(2026, 11, 16, 6, 59))
     assert not bot_lists.refill_due(datetime(2026, 11, 17, 9, 0))
+
+
+# ── L3–L4: rodzaj ``lists`` (rejestr.io, research, podobne firmy) ─────────
+
+from pydantic import ValidationError as _VE  # noqa: E402
+
+from app.services.sales.bot_tasks import lists as lists_task  # noqa: E402
+
+SRC = "https://rejestr.example/firma"
+
+
+def _firm(**over):
+    base = {"company": "Firma Testowa", "source": "rejestr", "source_url": SRC}
+    return {**base, **over}
+
+
+def test_lists_report_drops_bad_nip_and_refuses_unknown_fields() -> None:
+    report = lists_task.ListsReport.model_validate(
+        {"firms": [_firm(nip="1234567890"), _firm(nip="PL 123-456-32-18")]}
+    )
+    assert [f.nip for f in report.firms] == [None, "1234563218"]
+    with pytest.raises(_VE):
+        lists_task.ListsReport.model_validate({"firms": [_firm(ceo_mobile="600")]})
+    with pytest.raises(_VE):
+        lists_task.ListsReport.model_validate(
+            {"firms": [_firm(person={"full_name": "Jan Testowy"})]}
+        )
+    with pytest.raises(_VE):
+        lists_task.ListsReport.model_validate({"firms": [_firm(source="linkedin")]})
+
+
+def test_external_request_carries_segment_without_people() -> None:
+    brief = bot_lists.Brief.model_validate(
+        {
+            "caller_ids": [5],
+            "roles": ["manager", "board"],
+            "pkd": ["64"],
+            "regions": ["mazowieckie"],
+            "sizes": ["250-999"],
+            "sources": ["base", "rejestr"],
+        }
+    )
+    like = [{"name": "Firma Spotkanie", "nip": "1234563218"}]
+    request = bot_lists.external_request(7, brief, 120, exclude_nips=["1"], like=like)
+    assert request["count"] == 50 and request["sources"] == ["rejestr"]
+    assert request["roles"] == ["Manager / Lead", "Zarząd"]
+    assert request["like"] == []  # L4 tylko z ``lookalike``
+    lists_task.ListsRequest.model_validate(request)
+    brief = brief.model_copy(update={"lookalike": True})
+    request = bot_lists.external_request(7, brief, 5, exclude_nips=[], like=like)
+    assert request["like"] == like
+    lists_task.ListsRequest.model_validate(request)
+
+
+def test_firm_rows_keep_only_sourced_contacts_and_brief_roles() -> None:
+    brief = bot_lists.Brief.model_validate(
+        {"caller_ids": [5, 6], "roles": ["manager"], "sources": ["rejestr"]}
+    )
+    report = lists_task.ListsReport.model_validate(
+        {
+            "firms": [
+                _firm(
+                    company="A",
+                    phone="22 123 45 67",
+                    phone_source=SRC,
+                    person={
+                        "full_name": "Prezes A",
+                        "title": "Prezes Zarządu",
+                        "source_url": SRC,
+                    },
+                    pkd="62.01.Z",
+                    city="Warszawa",
+                    trigger={"text": "Nowy zarząd od 1.10", "url": SRC},
+                ),
+                _firm(company="B", phone="22 765 43 21"),
+                _firm(
+                    company="C",
+                    phone="22 111 22 33",
+                    phone_source=SRC,
+                    source="research",
+                    person={
+                        "full_name": "Kierownik C",
+                        "title": "IT Manager",
+                        "source_url": SRC,
+                    },
+                ),
+            ]
+        }
+    )
+    rows = bot_lists.firm_rows(
+        report.firms, brief, {5: "Ewa Testowa", 6: "Jan Testowy"}, {5: 2, 6: 1}
+    )
+    a, b = rows["rejestr"]
+    [c] = rows["research"]
+    assert (a.phone, a.person) == ("22 123 45 67", None)  # prezes poza briefem
+    assert b.phone is None  # telefon bez źródła odpada
+    assert (c.person, c.title) == ("Kierownik C", "IT Manager")
+    assert "PKD 62.01.Z" in a.note and "Nowy zarząd od 1.10" in a.note
+    assert sorted(r.caller for r in (a, b, c)) == [
+        "Ewa Testowa",
+        "Ewa Testowa",
+        "Jan Testowy",
+    ]
+    assert lists_task.LISTS.needs_firms is False

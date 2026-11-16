@@ -132,7 +132,7 @@ async def _notes_warnings_for(
 
 
 @router.get("/{candidate_id}/scoring/{job_id}", response_model=MatchJustificationOut)
-@limiter.limit("20/minute")
+@limiter.limit("20/minute", key_func=user_or_ip_key)
 async def get_scoring_justification(
     request: Request,
     candidate_id: int,

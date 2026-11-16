@@ -172,3 +172,68 @@ async def test_verify_rejects_jwt_without_kid(monkeypatch, keypair):
 
     with pytest.raises(AutentiWebhookError, match="kid"):
         await verify_jwt(token)
+
+
+@pytest.mark.asyncio
+async def test_verify_rejects_token_without_iat(monkeypatch, keypair):
+    """Pentest 13.11.2026: token bez ``iat`` omijał okno ochrony przed powtórką.
+
+    Podpisany raz webhook bez ``iat`` dawał się odtwarzać bez końca.
+    """
+    private_key, jwk = keypair
+    _patch_jwks(monkeypatch, {jwk["kid"]: jwk})
+
+    token = _sign(private_key, {"jti": "evt-no-iat"}, kid=jwk["kid"])
+
+    with pytest.raises(AutentiWebhookError, match="iat"):
+        await verify_jwt(token)
+
+
+class _CountingJwksClient:
+    """Atrapa ``httpx.AsyncClient`` licząca pobrania JWKS."""
+
+    calls = 0
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url):
+        type(self).calls += 1
+        return _JwksResponse()
+
+
+class _JwksResponse:
+    status_code = 200
+    text = ""
+
+    def json(self):
+        return {"keys": [{"kid": "known-key", "kty": "RSA", "n": "AQAB", "e": "AQAB"}]}
+
+
+@pytest.mark.asyncio
+async def test_unknown_kids_do_not_refetch_jwks_on_every_request(monkeypatch, keypair):
+    """Pentest 13.11.2026: każdy nieznany ``kid`` pobierał JWKS pod globalną
+    blokadą (timeout 10 s), więc seria anonimowych żądań z losowym ``kid``
+    zamieniała webhook w pętlę zapytań do Autenti i kolejkę na blokadzie.
+    Wymuszone odświeżenie idzie najwyżej raz na okno.
+    """
+    from app.services.autenti import webhook_verify
+
+    _CountingJwksClient.calls = 0
+    monkeypatch.setattr(webhook_verify.httpx, "AsyncClient", _CountingJwksClient)
+
+    private_key, _ = keypair
+    for n in range(5):
+        token = _sign(
+            private_key, {"iat": int(time.time()), "jti": f"e{n}"}, kid=f"bogus-{n}"
+        )
+        with pytest.raises(AutentiWebhookError, match="Unknown JWT kid"):
+            await verify_jwt(token)
+
+    assert _CountingJwksClient.calls == 1

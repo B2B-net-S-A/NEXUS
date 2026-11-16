@@ -752,8 +752,11 @@ z odnośnikiem `hr_documents.leave_request_id`.
 
 ## Rozliczenia zespołu — faktury z KSeF, przelewy, Symfonia (etap 4, R1–R12, 17.10.2026)
 
-Moduł `settlements` (domyślnie wyłączony). NEXUS nie liczy podatków ani składek —
-kwota oczekiwana to zamrożona linia płac; netto, PIT, ZUS i PPK liczy Symfonia.
+Moduł `settlements` (domyślnie wyłączony). Rozliczenia nie liczą podatków ani składek —
+kwota oczekiwana to zamrożona linia płac; netto, PIT, ZUS i PPK liczy program płacowy.
+Od K7a (14.11.2026) NEXUS liczy je sam na liście płac (Księgowość → Płace,
+`finanse-insights/ksiega-nexusa-k7a-place.md`), równolegle z Enovą do przełączenia;
+rozliczenia zleceń i UoP do tego czasu bez zmian.
 Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docstringu).
 
 - **Rozliczenie** (`payroll_settlements`) powstaje przy zamknięciu miesiąca z każdej linii
@@ -803,8 +806,17 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   Dzwonki rozliczeń idą bez numeru encji (dzienny odsiew powiadomień nie zna jej rodzaju).
 - **Dane do rozliczeń** (`employee_billing_details`): osoba (odczyt), Kadry, Płace, admin;
   przełożony i zespół — 404. Rachunek szyfrowany (`TokenCipher`), na zewnątrz tylko 4 cyfry;
-  NIP unikalny między osobami (409); identyfikator osoby w Symfonii zamiast PESEL-u (PESEL
-  odrzucany). Rachunek nigdy w logach, śladzie ani komunikatach błędów.
+  NIP unikalny między osobami (409). Rachunek nigdy w logach, śladzie ani komunikatach błędów.
+  W polu identyfikatora z Symfonii PESEL nadal jest odrzucany — dane do rozliczeń go nie
+  trzymają.
+- **PESEL w NEXUSIE — tylko w danych kadrowo-płacowych** (decyzja Artura 13.11.2026, plan
+  „Księgowość w NEXUSIE”, etap K7; zmienia regułę z 17.10.2026 „identyfikator osoby
+  w Symfonii zamiast PESEL-u”): PESEL i dane do ZUS/PIT (adres, urząd skarbowy, kod tytułu,
+  PIT-2, koszty, ulgi, PPK) leżą zaszyfrowane (`TokenCipher`) w `payroll_person_data`
+  (0704). Widzą je tylko Kadry, Płace i administrator; na ekranie PESEL jest maską (kropki
+  i 4 cyfry), bez daty urodzenia, gdy wynika z PESEL-u. Nigdy w logach, śladzie ani
+  komunikatach błędów — pełny numer trafia tylko do plików KEDU i PIT dla Płac.
+  Szczegóły: `finanse-insights/ksiega-nexusa-k7a-place.md`.
 - **KSeF** (`services/hr/ksef/*`, `KSEF_MODE=off|test|demo|prod`, lokalnie `simulate`):
   token KSeF spółki (`KSEF_TOKEN`, uprawnienie `InvoiceRead`) + `KSEF_CONTEXT_NIP`; brak =
   wyłączone. Pobieranie przyrostowe od znacznika HWM (`app_settings['hr_ksef_sync']` per

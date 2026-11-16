@@ -134,3 +134,23 @@ export function chooseCaretPlacement(
     offset: placement.side === "below" ? top + lineHeight : fieldHeight - top,
   };
 }
+
+const EVERYONE_WORDS = ["wszyscy", "zespol", "all", "everyone"];
+
+/**
+ * Czy pokazać pozycję „Wszyscy przypisani” (13.11.2026): samo „@” albo
+ * początek „wszyscy”, „zespół”, „all”, „everyone”.
+ */
+export function matchesEveryoneQuery(query: string): boolean {
+  const folded = foldMentionText(query.trim());
+  return !folded || EVERYONE_WORDS.some((word) => word.startsWith(folded));
+}
+
+/** „1 osoba”, „3 osoby”, „6 osób”, „12 osób”, „22 osoby”. */
+export function personCount(n: number): string {
+  if (n === 1) return "1 osoba";
+  const lastTwo = n % 100;
+  const last = n % 10;
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return `${n} osoby`;
+  return `${n} osób`;
+}

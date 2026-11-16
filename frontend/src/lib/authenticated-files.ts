@@ -16,6 +16,7 @@
  */
 
 import { messageFromApiResponse } from "./api-error";
+import { isPoligonActive } from "./poligon/mode";
 import { getAuthenticatedRequestHeaders } from "./session";
 import { trackTransfer } from "./transfers-in-flight";
 
@@ -62,6 +63,22 @@ async function responseError(res: Response): Promise<AuthenticatedFileError> {
 }
 
 /**
+ * Poligon NEXUSA: z przeglądarki wychodzi tylko zaliczone ćwiczenie, a ten
+ * moduł omija adapter axiosa (`lib/poligon/adapter.ts`). Plik generowany
+ * POST-em (podgląd szkicu CV) na poligonie się nie liczy — odmowa bez
+ * zapytania, jak każdy inny zapis rekrutacji ćwiczebnej.
+ */
+const POLIGON_FILE_MESSAGE = "Na poligonie podgląd tego pliku nie działa. W prawdziwej rekrutacji zobaczysz tu plik.";
+
+function poligonRefusal(): AuthenticatedFileError {
+  // `detail` — ekrany biorą komunikat z odpowiedzi (`apiErrorMessage`), więc
+  // podgląd CV mówi, że to poligon, zamiast „pobierz plik DOCX”.
+  return Object.assign(new Error(POLIGON_FILE_MESSAGE), {
+    response: { status: 409, data: { detail: POLIGON_FILE_MESSAGE } },
+  });
+}
+
+/**
  * Fetch a backend file as a Blob with the Bearer JWT attached.
  *
  * `path` is relative to the API base (e.g. `/api/emails/1/attachments/2/download`)
@@ -71,6 +88,7 @@ export async function fetchAuthenticatedBlob(path: string): Promise<Blob> {
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   return trackTransfer(async () => {
     const res = await fetch(url, {
+      credentials: "include",
       headers: getAuthenticatedRequestHeaders(),
     });
     if (!res.ok) throw await responseError(res);
@@ -91,10 +109,12 @@ export async function postAuthenticatedDownload(
   path: string,
   payload: unknown,
 ): Promise<AuthenticatedDownload> {
+  if (isPoligonActive()) throw poligonRefusal();
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   return trackTransfer(async () => {
     const res = await fetch(url, {
       method: "POST",
+      credentials: "include",
       headers: getAuthenticatedRequestHeaders({
         "Content-Type": "application/json",
       }),
@@ -116,6 +136,7 @@ export async function fetchAuthenticatedDownload(
   path: string,
   post?: { method: "POST"; body: unknown },
 ): Promise<AuthenticatedDownload> {
+  if (post && isPoligonActive()) throw poligonRefusal();
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   return trackTransfer(async () => {
     const res = await fetch(
@@ -123,10 +144,11 @@ export async function fetchAuthenticatedDownload(
       post
         ? {
             method: post.method,
+            credentials: "include",
             headers: getAuthenticatedRequestHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify(post.body),
           }
-        : { headers: getAuthenticatedRequestHeaders() },
+        : { credentials: "include", headers: getAuthenticatedRequestHeaders() },
     );
     if (!res.ok) throw await responseError(res);
     const disposition = res.headers.get("Content-Disposition") ?? "";

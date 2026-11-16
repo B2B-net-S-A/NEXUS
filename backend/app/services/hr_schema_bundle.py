@@ -22,15 +22,32 @@ from app.services import viewer_role_schema as viewer_role
 from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
+from app.services import client_einvoices_schema as client_einvoices
+from app.services import client_invoice_issue_schema as client_invoice_issue
+from app.services import client_invoice_templates_schema as client_invoice_templates
+from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
+from app.services import finance_archive_schema as finance_archive
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
+from app.services import client_reports_schema as client_reports
 from app.services import consultant_panel_schema as consultant_panel
 from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
 from app.services import equipment_extras_schema as equipment_extras
 from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
+from app.services import finance_ledger_schema as finance_ledger
+from app.services import finance_payments_schema as finance_payments
+from app.services import ledger_assets_schema as ledger_assets
+from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_bank_schema as ledger_bank
+from app.services import ledger_export_schema as ledger_export
+from app.services import ledger_fx_schema as ledger_fx
+from app.services import ledger_schema as ledger
+from app.services import ledger_settlement_schema as ledger_settlement
+from app.services import ledger_vat_schema as ledger_vat
+from app.services import finance_posting_schema as finance_posting
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
 from app.services import hr_agreements_schema as agreements
@@ -45,9 +62,13 @@ from app.services import hr_leave_cpro_schema as leave_cpro
 from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
+from app.services import hr_payroll_k7b_schema as payroll_k7b
+from app.services import hr_payroll_lists_schema as payroll_lists
 from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
+from app.services import trainings_schema as trainings
+from app.services.law_radar import schema as law_radar
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -89,6 +110,48 @@ MODULES = (
     client_settlements,
     # 0689: rozliczenia Nordei N1 — kartoteka i wersje raportu T4T (13.11.2026).
     client_time_reports,
+    # 0692: e-faktury Peppol do klientów (plan Nordei N2, 13.11.2026).
+    client_einvoices,
+    # 0694: szkolenia i trenerzy — zamówienie, wycena, umowa, pliki (13.11.2026).
+    trainings,
+    # 0695: księgowość w Finansach — kontrahenci i kolejka kosztów (E0, E1, 13.11.2026).
+    finance_ledger,
+    # 0696: wystawianie faktur sprzedaży do KSeF — szkice, numeracja (E4, 13.11.2026).
+    client_invoice_issue,
+    # 0699: przelewy i zapłaty faktur kosztowych (E3, 13.11.2026).
+    finance_payments,
+    # 0698: księgowość E2 — plan kont, reguły dekretu, dekret i paczki eksportu (13.11.2026).
+    finance_posting,
+    # 0700: księga NEXUSA K1 — lata, okresy, dokumenty, dziennik, trwałość zapisów (13.11.2026).
+    ledger,
+    # 0701: automaty księgi K3a — PK cykliczne i RMK (14.11.2026).
+    ledger_automation,
+    # 0702: paczki księgi do Symfonii FK K3b (14.11.2026).
+    ledger_export,
+    # 0703: środki trwałe i WNiP K6 — ewidencja i dokumenty środka (14.11.2026).
+    ledger_assets,
+    # 0704: płace liczone w NEXUSIE K7a — dane osoby, parametry, listy (14.11.2026).
+    payroll_lists,
+    # 0705: wyciągi bankowe w księdze K4a — jeden import wyciągu (14.11.2026).
+    ledger_bank,
+    # 0706: rozrachunki z rozliczaniem pozycji K4b (14.11.2026).
+    ledger_settlement,
+    # 0707: waluty w księdze K4c-1 — rachunki walutowe, kurs pozycji (15.11.2026).
+    ledger_fx,
+    # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
+    ledger_vat,
+    # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
+    client_invoice_templates,
+    # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
+    client_reports,
+    # 0713: radar przepisów — biegi botów, pozycje, zmiany w prawie (15.11.2026).
+    law_radar,
+    # 0718: serie faktur jak w eBI24 — BEN (refaktury benefitów) i KORUE (16.11.2026).
+    client_invoice_series_ext,
+    # 0719: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw (16.11.2026).
+    payroll_k7b,
+    # 0720: archiwum dokumentów z eBI24 w Finansach (E5, 16.11.2026).
+    finance_archive,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

@@ -18,7 +18,9 @@ co zostaje w procesie danej roli.
 - **Web** nie bierze blokady lidera. Stan pętli do `/api/health` i `/api/admin/snapshot`
   czyta z workera (`GET /api/health/background`, bufor 10 s). Worker nie odpowiada =
   `checks.background_tasks` zaczyna się od `unhealthy` i alarmuje `uptime-probe`.
-- **Pule:** web 40+10, worker 15+15, razem 80 przy `max_connections=100`.
+- **Pule:** web 40+10, worker 15+15. Przy rolling update (etap B2) żyją chwilę dwa procesy
+  tej samej roli: 2 × 50 + 30 = 130, dlatego `max_connections=150` (zapas 15 na zrzut i blokady,
+  pilnuje `tests/test_process_roles.py`).
 
 ## Co musi zostać w web
 
@@ -58,7 +60,9 @@ odpalił z `NoData`, choć worker co minutę logował `alarm: 0`. `http_outcome`
 - **`app/core/process_lock.py`:** blokada doradcza na czas biegu tam, gdzie trasa i pętla mogą
   ruszyć tę samą pracę (sync skrzynki M365, poczta zamówień, dokumenty kontraktów, wnioski z notatek).
   Nowy `asyncio.Lock` dzielony przez trasę i pętlę potrzebuje też jej.
-- **`reset_interrupted_m365_state`** biegnie przy starcie web i przy przejęciu pętli przez workera.
+- **`reset_interrupted_m365_state`** to pętla `m365_interrupted_reset` w workerze (co 5 min), nie krok
+  startu: przy rolling update start nie znaczy, że poprzednik nie żyje. `running` zeruje tylko bez
+  żywej blokady `m365_sync`, `pending` dopiero po 15 min (dłużej niż najdłuższa wysyłka).
 - Jednorazowe uzupełnienia z początku lifespanu wykonują się w obu procesach. Są idempotentne,
   a worker startuje po web, więc nie biegną równolegle.
 
@@ -77,3 +81,6 @@ odpalił z `NoData`, choć worker co minutę logował `alarm: 0`. `http_outcome`
 
 Staging: `worker` jest w `docker-compose.staging.yml`. Backend z gałęzi na własnej bazie
 potrzebuje `-e NEXUS_PROCESS_ROLE=all`, inaczej nie ma tam pętli.
+
+Rolling update obu aplikacji (etap B2), drenaż po SIGTERM i luka przy przejęciu pętli:
+`nakladanie-kontenerow-backendu.md`.

@@ -164,6 +164,11 @@ class ConsultantOrderRow:
     nazwiskiem. ``None`` = wiersz nie ma własnego okresu i obowiązuje okres
     dokumentu (``OrderExtraction.start_date``)."""
     end_date: Optional[str] = None
+    client_category: Optional[str] = None
+    """Kategoria kompetencji i poziom z wiersza zamówienia klienta z umową
+    ramową („IT Developer - Senior” w COA Nordei). Tylko informacja dla limitu
+    z umowy ramowej (``framework_category``): nie wpływa na osobę, kwotę
+    ani bramkę automatu."""
 
 
 @dataclass
