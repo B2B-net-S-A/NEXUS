@@ -75,3 +75,22 @@ class ContractAnnexDocument(BaseModel):
     cancelled_reason: Optional[str] = None
     created_at: Optional[datetime] = None
     created_by_name: Optional[str] = None
+
+
+class AnnexClientRateImpact(BaseModel):
+    """Zamówienie, które zmieni aneks stawki klienta (podgląd w oknie aneksu).
+
+    Kwoty w jednostce zamówienia; ``new_md_rate`` w PLN/MD, gdy zamówienie
+    jest w MD. ``first_month`` — pierwszy miesiąc rozliczany nową stawką."""
+
+    order_id: int
+    order_group_id: Optional[int] = None
+    order_number: Optional[str] = None
+    unit: str
+    currency: str
+    effective_from: date
+    first_month: date
+    old_rate: Optional[Decimal] = None
+    new_rate: Decimal
+    old_md_rate: Optional[Decimal] = None
+    new_md_rate: Optional[Decimal] = None
