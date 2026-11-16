@@ -155,9 +155,18 @@ def clean_line(raw: dict[str, Any]) -> dict[str, Any]:
         if str(raw.get("order_id") or "").isdigit()
         else None,
     }
+    discount = fa3_build.line_discount_pct(
+        {"discount_pct": decimal_or_none(raw.get("discount_pct"))}
+    )
+    if discount is not None:
+        line["discount_pct"] = fa3_build.plain(money_pct(discount))
     net = fa3_build.line_net(line)
     line["net"] = _amount(net)
     return line
+
+
+def money_pct(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"))
 
 
 def line_problems(lines: Sequence[dict[str, Any]]) -> list[str]:
@@ -649,10 +658,6 @@ async def update(
         if not isinstance(lines, list) or len(lines) > MAX_LINES:
             raise IssueError("Pozycje: lista do 200 wierszy.", 422)
         invoice.lines = [clean_line(line) for line in lines if isinstance(line, dict)]
-        # Pozycja rabatu idzie za usługami: po zmianie pozycji przeliczamy jej kwotę.
-        # Usuniętej ręcznie (Finanse) nie dokładamy z powrotem.
-        if any(rebate.is_rebate_line(line) for line in invoice.lines):
-            await apply_rebate(db, invoice, await issue_settings.load(db))
     recompute(invoice)
     await _refresh_fx(db, invoice)
     _note(invoice, "edited", actor_id)
@@ -1183,6 +1188,7 @@ def _line_payload(line: dict[str, Any]) -> dict[str, Any]:
         "vat_rate": line.get("vat_rate"),
         "net": line.get("net"),
         "order_id": line.get("order_id"),
+        "discount_pct": line.get("discount_pct"),
     }
 
 
@@ -1304,10 +1310,12 @@ async def apply_rebate(
     *,
     cache: Optional[dict[tuple[int, int], Optional[rebate.YearRebate]]] = None,
 ) -> None:
-    """Pozycja „Rabat od obrotu” na fakturze VAT klienta z rabatem (decyzja Artura 16.11.2026).
+    """Rabat % na pozycjach usług faktury VAT klienta z rabatem od obrotu.
 
-    Stawka = próg obrotu narastającego roku SPRZED miesiąca faktury; poprzednie
-    pozycje rabatu zastępujemy. Bez warunków przy kliencie — nic się nie dzieje.
+    Tak jak Nordea dostaje go dziś z eBI24 (decyzja Artura 16.11.2026): na każdym
+    wierszu cena przed rabatem, rabat % i wartość po rabacie (``P_10`` w XML-u).
+    Stawka = próg obrotu roku SPRZED miesiąca faktury. Pozycje wyłączone
+    (podróże, refaktury) bez rabatu. Bez warunków przy kliencie nic się nie dzieje.
     """
 
     terms = issue_settings.client_rebate(settings, invoice.client_id)
@@ -1325,11 +1333,12 @@ async def apply_rebate(
             cache[key] = status
     if status is None:
         return
-    services = [line for line in invoice.lines or [] if not rebate.is_rebate_line(line)]
-    extra = rebate.rebate_lines(
-        services, status.rate_for(month), year, terms.exclude_words
-    )
-    invoice.lines = services + [clean_line(line) for line in extra]
+    invoice.lines = [
+        clean_line(line)
+        for line in rebate.with_discount(
+            invoice.lines or [], status.rate_for(month), terms.exclude_words
+        )
+    ]
 
 
 async def _rebate(
@@ -1348,7 +1357,7 @@ async def _rebate(
     lines = list(invoice.lines or [])
     own = None
     if invoice.status != "accepted" and invoice.net_amount is not None:
-        net, touched = rebate.service_net(
+        net, touched = rebate.service_base(
             Decimal(invoice.net_amount), lines, terms.exclude_words
         )
         own = rebate.Entry(
@@ -1367,15 +1376,21 @@ async def _rebate(
     )
     if status is None:
         return None
-    on_invoice = [
-        fa3_build.line_net(line) for line in lines if rebate.is_rebate_line(line)
+    discounted = [
+        line for line in lines if fa3_build.line_discount_pct(line) is not None
     ]
+    on_invoice = sum(
+        (
+            (fa3_build.line_gross_value(line) or ZERO)
+            - (fa3_build.line_net(line) or ZERO)
+            for line in discounted
+        ),
+        Decimal(0),
+    )
     return rebate.payload(
         status,
         month=month,
-        on_invoice=-sum((n for n in on_invoice if n is not None), Decimal(0))
-        if on_invoice
-        else None,
+        on_invoice=on_invoice if discounted else None,
         currency=invoice.currency,
     )
 

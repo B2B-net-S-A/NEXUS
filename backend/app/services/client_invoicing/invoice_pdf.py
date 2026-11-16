@@ -65,6 +65,21 @@ def _rate_label(code: Optional[str]) -> str:
     return rate.label if rate else (code or "—")
 
 
+def _price_cell(line: dict[str, Any], currency: str) -> str:
+    """Cena netto; z rabatem %: cena przed, rabat i cena po rabacie (jak w eBI24)."""
+
+    price = escape(_money(line.get("unit_price"), currency))
+    discount = fa3_build.line_discount_pct(line)
+    if discount is None:
+        return price
+    after = fa3_build.discounted_price(line)
+    rate = fa3_build.plain(discount).replace(".", ",")
+    return (
+        f"{price}<br><span class='note'>rabat {escape(rate)}% → "
+        f"{escape(_money(str(after), currency))}</span>"
+    )
+
+
 def _rows(lines: list[dict[str, Any]], currency: str, start: int) -> str:
     out = []
     for index, line in enumerate(lines, start=start):
@@ -72,7 +87,7 @@ def _rows(lines: list[dict[str, Any]], currency: str, start: int) -> str:
             "<tr>"
             f"<td>{index}</td><td>{escape(line.get('name') or '')}</td>"
             f"<td class='num'>{escape(_qty(line.get('quantity')))} {escape(line.get('unit') or '')}</td>"
-            f"<td class='num'>{escape(_money(line.get('unit_price'), currency))}</td>"
+            f"<td class='num'>{_price_cell(line, currency)}</td>"
             f"<td class='num'>{escape(_rate_label(line.get('vat_rate')))}</td>"
             f"<td class='num'>{escape(_money(line.get('net'), currency))}</td>"
             "</tr>"

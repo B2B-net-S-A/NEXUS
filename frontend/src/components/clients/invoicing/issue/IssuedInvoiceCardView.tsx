@@ -120,6 +120,7 @@ function patchFrom(card: IssuedInvoiceCard, form: FormState): InvoicePatch {
       ...line,
       quantity: apiDecimal(line.quantity),
       unit_price: apiDecimal(line.unit_price),
+      discount_pct: apiDecimal(line.discount_pct ?? null),
     })),
   };
   if (card.invoice_type === "KOR")
@@ -830,13 +831,13 @@ function LinesEditor({
           return (
             <li
               key={index}
-              className="grid gap-2 rounded-md border border-border/60 p-2 md:grid-cols-[5rem_4.5rem_7rem_7rem_minmax(0,1fr)_2.25rem]"
+              className="grid gap-2 rounded-md border border-border/60 p-2 md:grid-cols-[5rem_4.5rem_7rem_4.5rem_7rem_minmax(0,1fr)_2.25rem]"
             >
               {/* Nazwa w osobnej linii: przy 1280 px w jednym rzędzie z liczbami
                   zostawało jej ok. 100 px i widać było tylko „Usługi”. */}
               <Input
                 aria-label={`Nazwa pozycji ${index + 1}`}
-                className="md:col-span-6"
+                className="md:col-span-7"
                 disabled={!editable}
                 value={line.name}
                 title={line.name}
@@ -864,6 +865,15 @@ function LinesEditor({
                 onChange={(e) =>
                   onChange(index, { unit_price: e.target.value })
                 }
+              />
+              <Input
+                aria-label={`Rabat % — pozycja ${index + 1}`}
+                title="Rabat % na pozycji (np. rabat od obrotu z umowy ramowej)"
+                inputMode="decimal"
+                disabled={!editable}
+                value={line.discount_pct ?? ""}
+                placeholder="rabat %"
+                onChange={(e) => onChange(index, { discount_pct: e.target.value || null })}
               />
               <select
                 aria-label={`Stawka VAT — pozycja ${index + 1}`}

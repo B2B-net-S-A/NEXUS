@@ -107,12 +107,22 @@ function toNumber(raw: string | null | undefined): number | null {
   return Number(value);
 }
 
-/** Podgląd wartości netto pozycji przy edycji (serwer liczy ostatecznie). */
-export function previewNet(line: Pick<IssueLine, "quantity" | "unit_price">): string | null {
+/**
+ * Podgląd wartości netto pozycji przy edycji (serwer liczy ostatecznie). Z rabatem %:
+ * cena po rabacie zaokrąglona do grosza × ilość — jak serwer i eBI24 (157 − 2,5% = 153,08).
+ */
+export function previewNet(
+  line: Pick<IssueLine, "quantity" | "unit_price"> & { discount_pct?: string | null },
+): string | null {
   const quantity = toNumber(line.quantity);
   const price = toNumber(line.unit_price);
   if (quantity == null || price == null) return null;
-  return (Math.round(quantity * price * 100) / 100).toFixed(2);
+  const discount = toNumber(line.discount_pct ?? null);
+  const unit =
+    discount != null && discount > 0 && discount < 100
+      ? Math.round(price * (100 - discount)) / 100
+      : price;
+  return (Math.round(quantity * unit * 100) / 100).toFixed(2);
 }
 
 /** Tekst dziesiętny z przecinkiem (pole formularza) → z kropką dla API. */

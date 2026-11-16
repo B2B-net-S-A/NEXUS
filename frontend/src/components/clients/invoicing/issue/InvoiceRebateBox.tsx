@@ -19,8 +19,9 @@ export function rebateTiersText(rebate: InvoiceRebate): string {
 }
 
 /**
- * Rabat od obrotu rocznego na karcie faktury (decyzje Artura 16.11.2026): pozycja
- * „Rabat od obrotu” po stawce progu z obrotu do końca poprzedniego miesiąca,
+ * Rabat od obrotu rocznego na karcie faktury (decyzje Artura 16.11.2026): rabat %
+ * na wierszach (jak w eBI24) po stawce progu z obrotu przed rabatem do końca
+ * poprzedniego miesiąca,
  * licznik do progu dla Finansów i korekta za miesiąc przekroczenia (różnica
  * stawek od części obrotu ponad próg).
  */
@@ -49,13 +50,13 @@ export function InvoiceRebateBox({ rebate }: { rebate: InvoiceRebate }) {
         <div className="flex justify-between gap-2 border-t border-border pt-1 font-semibold text-foreground">
           <dt>Rabat na tej fakturze</dt>
           <dd className="tabular-nums">
-            {rebate.on_invoice !== null ? `−${formatMoney(rebate.on_invoice, rebate.currency)}` : "brak pozycji"}
+            {rebate.on_invoice !== null ? `−${formatMoney(rebate.on_invoice, rebate.currency)}` : "brak rabatu"}
           </dd>
         </div>
       </dl>
       {rebate.on_invoice === null ? (
         <p className="mt-1 text-xs text-destructive">
-          Faktura nie ma pozycji „Rabat od obrotu” — klient ma rabat z umowy ramowej.
+          Żaden wiersz nie ma rabatu % — klient ma rabat od obrotu z umowy ramowej.
         </p>
       ) : null}
       {rebate.corrections.map((correction) => (
@@ -66,8 +67,8 @@ export function InvoiceRebateBox({ rebate }: { rebate: InvoiceRebate }) {
         </p>
       ))}
       <p className="mt-2 text-xs text-muted-foreground">
-        Progi: {rebateTiersText(rebate)}. Stawka z obrotu do końca poprzedniego miesiąca; wyższa stawka tylko od
-        nadwyżki ponad próg.
+        Progi: {rebateTiersText(rebate)}. Obrót przed rabatem; stawka z obrotu do końca poprzedniego miesiąca;
+        wyższa stawka tylko od nadwyżki ponad próg.
       </p>
       {rebate.excluded > 0 ? (
         <p className="mt-1 text-xs text-muted-foreground">
