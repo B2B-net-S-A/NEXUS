@@ -1,5 +1,5 @@
 /**
- * Księgowość → Sprawozdania (K8a): bilans, rachunek zysków i strat (wariant
+ * Księgowość → Sprawozdania (K8a, K8c): bilans, rachunek zysków i strat (wariant
  * porównawczy) i pozycje kont = znaczniki MF z JPK_KR_PD (`/api/accounting/reports/*`).
  * Pozycję konta zapisuje się w planie kont (`PATCH /chart/{id}`, pole `report_line`).
  */

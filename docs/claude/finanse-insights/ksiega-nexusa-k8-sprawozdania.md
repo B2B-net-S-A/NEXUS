@@ -18,8 +18,9 @@ Reguły K1 (`ksiega-nexusa-k1-fundament.md`) obowiązują dalej.
   z podatkiem 20% i terminem 20. dnia, kwoty roczne i XML CIT-8E(4) za 2026,
   CIT-8E(5) od 2027. Kwalifikację pozycji potwierdza doradca; NEXUS niczego nie
   podpisuje i nie wysyła.
-- **Kolejność: K8a → K8c → K8b → K8d.** Schematy MF w repo jak przy JPK_V7M
-  (XSD JPK_KR_PD(1) v1-1 pobrany 16.11.2026 do
+- **Kolejność: K8a → K8c → K8b → K8d.** K8c zrobione 16.11.2026 (sekcja
+  niżej). Schematy MF w repo jak przy JPK_V7M (XSD JPK_KR_PD(1) v1-1 pobrany
+  16.11.2026 do
   `backend/app/services/ledger/jpk_kr_schema/`; SFJINZ(2) pobiera K8b).
 - Warunek zatrudnienia estońskiego CIT (4 osoby na UoP w „Ludziach” 15.11) idzie
   pytaniem do Płac i doradcy (notatka Artura); NEXUS dostaje kontrolkę w K8d.
@@ -81,12 +82,90 @@ Reguły K1 (`ksiega-nexusa-k1-fundament.md`) obowiązują dalej.
 - Od K8a wszystkie moduły Księgowości są w `BUILT`; testy „moduł bez ekranów =
   409” udają etap bez ekranów przez `monkeypatch` na `BUILT`.
 
+## K8c — JPK_KR_PD(1) i JPK_ST_KR(1) za rok (`jpk_kr.py`, `jpk_st_kr.py`, `jpk_kr_compare.py`)
+
+- **Decyzje Artura z 16.11.2026** (nie pytać ponownie): pobrać z crd.gov.pl
+  importy XSD (StrukturyDanych, ElementarneTypyDanych, KodyKrajow v10-0E) i XSD
+  JPK_ST_KR(1) v1-0 z gov.pl do `jpk_kr_schema/` (adresy importów przepisane na
+  pliki obok, reszta bajt w bajt; kody urzędów v8-0E jak w JPK_V7M) — broszury
+  MF tylko do czytania, nie do repo. **JPK_ST_KR budujemy już teraz**, choć
+  rozporządzenie MF z 29.10.2026 (Dz.U. 2026 poz. 1444, od 3.11.2026, wg prasy)
+  zwalnia z jego przesyłania za lata 2026–2028. NEXUS niczego nie wysyła.
+- **Źródła zasad** (odczyt 16.11.2026): broszura JPK_KR_PD(1) z aktualizacją od
+  1.07.2026 (`wersjaSchemy` = 1-1), broszura JPK_ST_KR(1) i „Pytania
+  i odpowiedzi JPK_PD” na podatki.gov.pl — numery pytań niżej.
+- **Znaczniki**: para K8a `KOD_Wn/KOD_Ma` = `S_12_1`/`S_12_2` (MF: najwyżej dwa
+  znaczniki bilansu i RZiS, pyt. 23, 129). Oznacza się **oba warianty RZiS**
+  (pyt. 108, 128): konta 4 — porównawcze, konta 5 — kalkulacyjne (`RKBI_*`,
+  `RKD`, `RKE`), wpisuje je księgowa w „Pozycjach kont” (dla 5 reguły po numerze
+  nie ma). 490 i pozabilansowe 9 bez wpisu = „INNE” (pyt. 61, 143). Konto
+  nadrzędne = wspólny znacznik kont pod nim, inaczej „INNE” (pyt. 147).
+  `S_12_3` (PD) nie ma — CIT estoński (pyt. 114).
+- **ZOiS7**: konta z zapisem w roku (także samo BO) i każde konto nad nimi
+  (pyt. 44, 141, 142); `S_3` = konto o poziom wyżej, syntetyczne = samo
+  (pyt. 5, 13). Konto ostatecznego zapisu: saldo jednostronne. **Konto
+  nadrzędne: sumy kont pod nim pole po polu, także salda Wn i Ma osobno**
+  (rozrachunki: należność jednego kontrahenta nie znosi się ze zobowiązaniem
+  drugiego) — wybór 16.11 bez wskazówki MF; porównanie z Symfonią pokaże, czy
+  Symfonia liczy tak samo. Nazwa analityki słownika = kontrahent z kartoteki
+  (konto kosztowe/przychodowe), inaczej „nazwa konta nadrzędnego · segment”.
+- **Dziennik**: jeden dowód = jeden wpis (pyt. 95), `D_1` = numer pozycji
+  dziennika NEXUSA (ciągły w roku, także BO i storna), `D_2` = „Dziennik Księga
+  Główna” (pyt. 85), `D_5` = nazwa typu dokumentu, `D_8` = dzień zatwierdzenia
+  (Warszawa), `D_9` = autor dokumentu (inaczej zatwierdzający, inaczej „NEXUS”),
+  `D_11` = suma Wn dokumentu, `D_12` = numer KSeF z `meta.ksef_number`.
+  `KontoZapis`: numer kolejny w pliku, Wn albo Ma, `Z_5`/`Z_8` + waluta dla
+  pozycji walutowych. Storno czerwone = kwoty z minusem.
+- **Kontrahent** tylko z numerem podatkowym (NIP, VAT UE, inny — PESEL nie;
+  pyt. 111, 146): `T_1` = id kartoteki NEXUSA, `T_2` = kraj ISO także dla PL
+  (EL → GR, XI/UK → GB; kod spoza słownika = bez `T_2`), `T_3` = numer jak na
+  fakturze — VAT UE z prefiksem kraju (pyt. 104, aktualizacja 4.11.2026).
+  Lista płac (LP) nie ma `D_3` — pracownik nie jest kontrahentem (pyt. 123).
+- **Braki blokujące** (karta i 422 przy pobraniu): niezamknięte okresy roku,
+  brak zatwierdzonych dokumentów, konto bez znacznika (bez Płac lista schodzi do
+  konta syntetycznego dla kont z dokumentów płacowych — D2), spółka nie na CIT
+  estońskim (NEXUS nie liczy RPD ani znaczników PD), brak kodu urzędu (Płace →
+  Parametry) albo adresu siedziby i pierwszego roku ryczałtu (ustawienia
+  `app_settings['ledger'].jpk_kr`, zapisuje administrator: `PUT
+  /reports/jpk-kr/settings`), rok po 2050 (`etd:TData`). Ostrzeżenia: księgą
+  urzędową roku jest Symfonia; rok bez zamknięcia (przeksięgowanie wyniku
+  przyjdzie z K8b).
+- **Pobranie** (`GET /reports/jpk-kr/file?year=&kind=kr|st&correction=`): plik
+  liczony od nowa i sprawdzany schematem MF przy każdym pobraniu, bez zapisu
+  wersji (bez migracji). Korekta = cały plik od nowa z `CelZlozenia` 2
+  (pyt. 139). JPK_KR_PD (dokumenty płacowe) pobiera osoba z Płacami albo
+  administrator (403); JPK_ST_KR — każdy z modułem Sprawozdań.
+- **JPK_ST_KR** z ewidencji K6, wariant CIT estońskiego (pyt. 137): `E_9_1` X,
+  `E_10A` stawka podatkowa z K6, `E_10B` 0, `E_11` 0, `E_17` X, `E_19` 0; `E_12`
+  i `E_20` = wartość i umorzenie podatkowe na koniec roku przed ryczałtem dla
+  środków przyjętych wcześniej (stan z Symfonii późniejszy niż ten dzień = jego
+  umorzenie), 0 dla przyjętych w czasie ryczałtu. Strona rachunkowa z planu
+  bilansowego: `E_21` wartość na początek roku bez zmian z roku (pyt. 107),
+  `E_24` ulepszenia z roku, `E_26` odpisy roku, `E_27` umorzenie z rokiem
+  (pyt. 103), `E_25B` odpis jednorazowy roku. Środki na stanie w roku, bez
+  zbytych wcześniej (pyt. 49, 113). `E_5` = numer OT, środek ze stanem
+  z Symfonii = „stan z Symfonii ŚT” (ostrzeżenie); `E_2`/`E_3` = data przyjęcia
+  (K6 nie trzyma daty nabycia); `E_6` = F przy OT z faktury, inaczej I; zbycie
+  w roku: `E_28`–`E_30` (S sprzedaż, I likwidacja, numer LT/SP).
+- **Porównanie z Symfonią** (`POST /reports/jpk-kr/compare?year=`, rok w trybie
+  `symfonia` albo `parallel`, Płace albo admin): plik czytany bez sieci, encji
+  i DTD, do 100 MB, rok z nagłówka = rok porównania; różnice ZOiS po `S_1`
+  (kwoty `S_4`–`S_11`, znaczniki), konta tylko po jednej stronie, sumy `Ctrl`.
+  Pliku nie zapisujemy.
+- Ekran: Sprawozdania → „JPK_KR_PD za rok” (`JpkKrView.tsx`): braki, pobranie
+  z korektą, JPK_ST_KR, porównanie, dane podatnika (administrator). Wzorzec
+  bramek: `tests/data/authz_golden/ledger_reports.json`.
+- **Staging 16.11.2026**: na kopii produkcji Księgowość jest pusta (0 lat,
+  0 dokumentów, 12 kont planu) — prawdziwego pliku za 2026 jeszcze nie ma.
+  Ścieżkę sprawdzono na kopii rokiem testowym przez usługi K1 (pobranie 200,
+  plik i korekta przez XSD MF, porównanie z samym sobą = 0 różnic), potem
+  usuniętym.
+- Testy: `tests/test_ledger_jpk_kr_rules.py` (XSD obu plików, ZOiS, znaczniki,
+  kontrahenci, braki, ustawienia, porównanie, ST na estońskim), test bramek
+  i D2 w `test_ledger_db.py`, front `JpkKrView.test.tsx`.
+
 ## Dalej
 
-- **K8c** JPK_KR_PD(1) + JPK_ST_KR (K6): ZOiS ze znacznikami, dziennik, zapisy
-  kont, kontrahenci, RPD z zerami; w trybie roku „symfonia” porównanie z plikiem
-  z Symfonii. Znaczniki wariantu kalkulacyjnego dla kont 4/5 (S_12_2?) —
-  sprawdzić w broszurze MF przed kodem.
 - **K8b** zamknięcie roku (konta wynikowe → 860, BO następnego roku), przepływy
   (metoda pośrednia), zmiany w kapitale z podziałem na zysk sprzed i z okresu
   ryczałtu (znaczniki `BPAII_ES_*`, `BPAV_ES_*`), SFJINZ(2). Od biegłego:
