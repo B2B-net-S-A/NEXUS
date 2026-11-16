@@ -2950,5 +2950,17 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.premium-skills"
+  },
+  {
+    "id": "poligon-nowej-osoby",
+    "pr": 3444,
+    "title": "Nowa osoba pierwszego dnia przechodzi Poligon",
+    "why": "Nowy rekruter, Delivery Lead i TCM pierwszego dnia przechodzą Poligon NEXUSA (rekruter: 19 ćwiczeń). Do zaliczenia nie wejdą na inne ekrany, a ten dzień nie liczy się do ich statystyk.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["admin", "head_of_recruitment"] },
+    "where": "Ustawienia → Nowości — kto już umie → Poligon NEXUSA dla nowych osób",
+    "href": "/settings/nowosci",
+    "dot_anchor": "settings.nowosci.poligon-gate"
   }
 ]

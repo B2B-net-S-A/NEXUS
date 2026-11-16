@@ -186,6 +186,7 @@ function PoligonGateSwitch() {
         size="sm"
         variant={on ? "outline" : "primary"}
         disabled={saving}
+        data-tour="settings.nowosci.poligon-gate"
         onClick={() => void toggle()}
       >
         {on ? "Wyłącz blokadę" : "Włącz blokadę"}
