@@ -231,7 +231,9 @@ async def test_summary_sums_archive_and_is_board_only(app_client) -> None:
             )
         await db.commit()
 
-    assert (await app_client.get(f"{API}/summary", headers=_headers(finance))).status_code == 403
+    assert (
+        await app_client.get(f"{API}/summary", headers=_headers(finance))
+    ).status_code == 403
     resp = await app_client.get(f"{API}/summary", headers=_headers(board))
     assert resp.status_code == 200, resp.text
     body = resp.json()

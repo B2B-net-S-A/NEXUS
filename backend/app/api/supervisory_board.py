@@ -70,12 +70,16 @@ async def get_summary(
     data = await summary_service.company_summary(db, today)
     snapshot = await krs_service.latest_snapshot(db, krs_service.company_krs())
     missing = (
-        krs_service.missing_filings(krs_service.parse_odpis(snapshot.payload)) if snapshot else []
+        krs_service.missing_filings(krs_service.parse_odpis(snapshot.payload))
+        if snapshot
+        else []
     )
     data["krs_missing"] = [m for m in missing if m["year"] >= today.year - 4]
     data["documents_without_file"] = (
         await db.execute(
-            select(func.count()).select_from(BoardDocument).where(BoardDocument.file_path.is_(None))
+            select(func.count())
+            .select_from(BoardDocument)
+            .where(BoardDocument.file_path.is_(None))
         )
     ).scalar_one()
     return data

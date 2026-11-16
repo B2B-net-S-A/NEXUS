@@ -231,16 +231,22 @@ def test_bell_names_the_last_entry_and_hides_system_court() -> None:
 def test_cost_months_below_80_percent_of_median_are_incomplete() -> None:
     from app.services.board.summary import MonthRow, complete_cost_months
 
-    rows = [MonthRow(2026, m, 10.0, 9.0) for m in range(1, 10)] + [MonthRow(2026, 10, 12.0, 2.9)]
+    rows = [MonthRow(2026, m, 10.0, 9.0) for m in range(1, 10)] + [
+        MonthRow(2026, 10, 12.0, 2.9)
+    ]
     complete = complete_cost_months(rows)
     assert (2026, 9) in complete and (2026, 10) not in complete
 
 
-def test_year_over_year_compares_the_same_months_and_result_only_with_full_costs() -> None:
+def test_year_over_year_compares_the_same_months_and_result_only_with_full_costs() -> (
+    None
+):
     from app.services.board.summary import MonthRow, year_over_year
 
     previous = [MonthRow(2025, m, 10.0, 9.0) for m in range(1, 13)]
-    current = [MonthRow(2026, m, 11.0, 10.5) for m in range(1, 10)] + [MonthRow(2026, 10, 12.0, 1.0)]
+    current = [MonthRow(2026, m, 11.0, 10.5) for m in range(1, 10)] + [
+        MonthRow(2026, 10, 12.0, 1.0)
+    ]
     out = year_over_year(previous + current, 2026)
     assert out["sales_months"] == 10 and out["result_months"] == 9
     assert out["sales"] == round((9 * 11 + 12) / 1e6, 2)
