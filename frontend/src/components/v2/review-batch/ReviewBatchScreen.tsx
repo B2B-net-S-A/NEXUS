@@ -19,6 +19,7 @@ import {
   type ReviewBatchSource,
   type ReviewBatchStatus,
   type ReviewBatchLearnedRule,
+  type ReviewBatchRoleProfile,
   type ReviewBatchWhy,
 } from "@/lib/api/reviewBatch";
 
@@ -26,6 +27,7 @@ import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import { cn } from "@/lib/utils";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
+import { RoleProfileBlock } from "./ReviewBatchRoleProfile";
 
 // pdf.js i docx-preview nie mogą wejść do chunku ekranu; ten sam podgląd co w screeningu.
 const CandidatePreviewPane = dynamic(
@@ -291,11 +293,16 @@ function JobContext({
   title,
   why,
   rules,
+  profile,
+  compact = false,
 }: {
   jobId: number;
   title: string;
   why?: ReviewBatchWhy;
   rules?: readonly ReviewBatchLearnedRule[];
+  profile?: ReviewBatchRoleProfile;
+  /** Po pierwszej karcie tej rekrutacji: profil w jednej linii (1280 × 720). */
+  compact?: boolean;
 }) {
   const learned = learnedRulesLine(rules);
   const brief = usePlainBrief(jobId);
@@ -309,6 +316,7 @@ function JobContext({
       <div className="text-sm font-semibold leading-snug">{title}</div>
       {why ? <WhyLine why={why} /> : null}
       {oneLiner ? <p className="mt-1 text-xs leading-snug text-muted-foreground">{oneLiner}</p> : null}
+      {profile ? <RoleProfileBlock profile={profile} compact={compact} /> : null}
       {learned ? (
         <p className="mt-1 text-xs leading-snug text-primary" data-testid="review-learned-rules">
           {learned}
@@ -418,6 +426,9 @@ function BatchWorkspace({
   // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
+  // Rekrutacje, w których była już karta: profil „Kogo szukamy” zwija się do jednej linii.
+  const [seenJobs, setSeenJobs] = useState<ReadonlySet<number>>(() => new Set());
+  const nextProfile = next ? queue.data?.job_profiles?.[String(next.job_id)] : undefined;
   // Karty z rekrutacji, z których osobę zdjęto, idą na koniec, bez terminu.
   const allOpen = data.open_today_screenings ?? [];
   const parkedCount = allOpen.filter((item) => item.parked).length;
@@ -466,11 +477,17 @@ function BatchWorkspace({
                   title={next.job_title}
                   why={next.why}
                   rules={queue.data?.job_rules?.[String(next.job_id)]}
+                  profile={nextProfile}
+                  compact={seenJobs.has(next.job_id)}
                 />
                 <ReviewBatchCard
                   key={next.process_id}
                   item={next}
-                  onDecided={onDecided}
+                  profile={nextProfile}
+                  onDecided={() => {
+                    setSeenJobs((current) => new Set(current).add(next.job_id));
+                    onDecided();
+                  }}
                   hideJob
                   onPickRequirement={(text) => setSearchRequest({ text, nonce: Date.now() })}
                 />

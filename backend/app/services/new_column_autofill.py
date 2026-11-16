@@ -834,8 +834,9 @@ async def _by_rules(
 
 
 async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]:
-    """Tylko „brak przeciwwskazań”, bez off-limits u klienta i zgodnie z regułą
-    rekrutacji z powtarzanych braków (``job_learned_rules``)."""
+    """Tylko „brak przeciwwskazań”, bez off-limits u klienta, zgodnie z regułą
+    rekrutacji z powtarzanych braków (``job_learned_rules``) i bez ról
+    z „Nie proponujemy” (``job_role_profile``)."""
     from app.services import client_off_limits
     from app.services.candidate_job_eligibility import EligibilityReason
     from app.services.pipeline_eligibility import (
@@ -875,7 +876,16 @@ async def _allowed(db, job: Job, picks: list[Pick], now: datetime) -> list[Pick]
     passing = await keep_passing(
         db, job.id, [candidates[p.candidate_id] for p in allowed]
     )
-    return [p for p in allowed if p.candidate_id in passing]
+    # „Nie proponujemy” z profilu „Kogo szukamy” (16.11.2026): obecne
+    # stanowisko osoby z etykietą z listy nie wchodzi do „Nowych”.
+    from app.services.job_role_profile import keep_role_allowed
+
+    role_ok = await keep_role_allowed(
+        db,
+        job,
+        [candidates[p.candidate_id] for p in allowed if p.candidate_id in passing],
+    )
+    return [p for p in allowed if p.candidate_id in role_ok]
 
 
 def entry_meta(pick: Pick, candidate: Candidate) -> dict:

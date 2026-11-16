@@ -113,7 +113,19 @@ GAP_LABEL_MAX = 120
 # była 49×, z opisem 0×; 22 z 45 „Inne” to porządki tablicy albo sama kropka.
 CLEANUP_REASON = "cleanup"
 ROLE_REASON = "other_level_or_role"
-ROLE_KINDS = ("profession", "level", "specialty")
+# 16.11.2026 („Kogo szukamy”): 8 odpowiedzi na „Co nie gra z rolą?”. ``level``
+# zostaje ważne dla starych wpisów, ale nie ma go już na ekranie.
+ROLE_KINDS = (
+    "profession",
+    "specialty",
+    "technology",
+    "lead_not_ic",
+    "ic_not_lead",
+    "past_role",
+    "side_role",
+    "domain",
+    "level",
+)
 ROLE_WANTED_MAX = 120
 AVAILABILITY_KINDS = ("not_looking", "notice", "from_date")
 CLEANUP_KINDS = ("duplicate", "stale_process", "cv_broken")
@@ -124,14 +136,15 @@ _UNKNOWN_DETAIL = "Szczegół powodu nie pasuje do wybranego powodu."
 
 def clean_detail(reason: Optional[str], raw: Any) -> Optional[dict]:
     """Szczegół powodu z żądania albo ``None``. Klucze zależą od powodu:
-    „Inna rola” — ``role_kind`` i ``role_wanted``, „Nie szuka” —
+    „Inna rola” — ``role_kind``, ``role_wanted`` i ``person_role`` (z niego
+    uczy się „Nie proponujemy”, ``job_role_profile``), „Nie szuka” —
     ``availability``, „Porządki” — ``cleanup`` (wymagany). Inny klucz albo
     wartość spoza listy = 422."""
     raw = raw or {}
     if not isinstance(raw, dict):
         raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)
     allowed = {
-        ROLE_REASON: {"role_kind", "role_wanted"},
+        ROLE_REASON: {"role_kind", "role_wanted", "person_role"},
         NOT_LOOKING_REASON: {"availability"},
         CLEANUP_REASON: {"cleanup"},
     }.get(reason or "", set())
@@ -145,6 +158,9 @@ def clean_detail(reason: Optional[str], raw: Any) -> Optional[dict]:
     wanted = str(raw.get("role_wanted") or "").strip()[:ROLE_WANTED_MAX]
     if wanted:
         out["role_wanted"] = wanted
+    person = " ".join(str(raw.get("person_role") or "").split())[:ROLE_WANTED_MAX]
+    if person:
+        out["person_role"] = person
     if raw.get("availability") is not None:
         if raw["availability"] not in AVAILABILITY_KINDS:
             raise HTTPException(status_code=422, detail=_UNKNOWN_DETAIL)

@@ -746,6 +746,7 @@ from app.models.candidate_conversation_fact import (  # noqa: F401
     CandidateConversationFact,
 )
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
+from app.models.job_role_profile import JobRoleProfile  # noqa: F401
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
 from app.models.own_hiring import (  # noqa: F401
     OwnHiringApplication,

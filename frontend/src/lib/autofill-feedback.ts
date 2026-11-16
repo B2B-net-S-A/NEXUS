@@ -53,21 +53,54 @@ export const GAP_KIND_LABEL: Record<AutofillGapKind, string> = {
  * Szczegół powodu z porcji (16.11.2026, 0717; lustro `clean_detail` serwera).
  * 13.11 „Inna rola” była 49× bez słowa, a 22 z 45 „Inne” to porządki tablicy.
  */
-export type AutofillRoleKind = "profession" | "level" | "specialty";
+/**
+ * „Co nie gra z rolą?” (16.11.2026, profil „Kogo szukamy”): 8 odpowiedzi pod
+ * klawiszami 1–8. `level` zostaje dla starych wpisów, na ekranie go nie ma.
+ */
+export type AutofillRoleKind =
+  | "profession"
+  | "specialty"
+  | "technology"
+  | "lead_not_ic"
+  | "ic_not_lead"
+  | "past_role"
+  | "side_role"
+  | "domain"
+  | "level";
 export type AutofillAvailability = "not_looking" | "notice" | "from_date";
 export type AutofillCleanupKind = "duplicate" | "stale_process" | "cv_broken";
 export interface AutofillDetail {
   role_kind?: AutofillRoleKind;
   role_wanted?: string;
+  /** „Osoba to:” — z tego uczy się „Nie proponujemy” rekrutacji. */
+  person_role?: string;
   availability?: AutofillAvailability;
   cleanup?: AutofillCleanupKind;
 }
 
 export const ROLE_KIND_LABEL: Record<AutofillRoleKind, string> = {
   profession: "Inny zawód",
+  specialty: "Inna specjalizacja",
+  technology: "Inna technologia w tej roli",
+  lead_not_ic: "Lider zamiast wykonawcy",
+  ic_not_lead: "Wykonawca zamiast lidera",
+  past_role: "Robił to dawno, teraz co innego",
+  side_role: "Rola poboczna w CV",
+  domain: "Inna branża / domena",
   level: "Za wysoki poziom / za senior",
-  specialty: "Inna specjalizacja w tym zawodzie",
 };
+
+/** Odpowiedzi na ekranie, w kolejności klawiszy 1–8. */
+export const ROLE_KIND_CHOICES: AutofillRoleKind[] = [
+  "profession",
+  "specialty",
+  "technology",
+  "lead_not_ic",
+  "ic_not_lead",
+  "past_role",
+  "side_role",
+  "domain",
+];
 export const CLEANUP_KIND_LABEL: Record<AutofillCleanupKind, string> = {
   duplicate: "Duplikat",
   stale_process: "Nieaktualny proces / porządki",

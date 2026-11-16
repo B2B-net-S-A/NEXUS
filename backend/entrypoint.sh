@@ -1244,6 +1244,16 @@ except Exception as _autofill_feedback_err:  # noqa: BLE001
     print(f"autofill feedback DDL unavailable: {_autofill_feedback_err!r}")
     _AUTOFILL_FEEDBACK_DDL = []
 
+# Profil „Kogo szukamy” rekrutacji (migracja 0727) — JEDNO źródło z migracją
+# (`app/services/job_role_profile_schema.py`).
+try:
+    from app.services import job_role_profile_schema as _job_role_profile_schema
+
+    _JOB_ROLE_PROFILE_DDL = list(_job_role_profile_schema.TABLE_DDL)
+except Exception as _job_role_profile_err:  # noqa: BLE001
+    print(f"job role profile DDL unavailable: {_job_role_profile_err!r}")
+    _JOB_ROLE_PROFILE_DDL = []
+
 # Raporty „Jakość podpowiedzi systemu” (migracja 0518) — JEDNO źródło z migracją
 # (`app/services/autofill_quality_schema.py`).
 try:
@@ -1598,6 +1608,7 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_POOL_DDL,
     *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
+    *_JOB_ROLE_PROFILE_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
