@@ -59,7 +59,13 @@ INDEX_DDL: tuple[str, ...] = (
 CONSTRAINT_DDL: tuple[str, ...] = ()
 DATA_DDL: tuple[str, ...] = ()
 
-ALL_DDL: tuple[str, ...] = (*TABLE_DDL, *COLUMN_DDL, *INDEX_DDL, *CONSTRAINT_DDL, *DATA_DDL)
+ALL_DDL: tuple[str, ...] = (
+    *TABLE_DDL,
+    *COLUMN_DDL,
+    *INDEX_DDL,
+    *CONSTRAINT_DDL,
+    *DATA_DDL,
+)
 
 TABLES: tuple[str, ...] = ("board_budgets", "board_budget_lines")
 

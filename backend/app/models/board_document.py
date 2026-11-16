@@ -60,7 +60,9 @@ class BoardDocument(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     organ: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
-    number: Mapped[Optional[str]] = mapped_column(String(schema.NUMBER_MAX), nullable=True)
+    number: Mapped[Optional[str]] = mapped_column(
+        String(schema.NUMBER_MAX), nullable=True
+    )
     title: Mapped[str] = mapped_column(String(schema.TITLE_MAX), nullable=False)
     subject: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     doc_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
@@ -70,8 +72,12 @@ class BoardDocument(Base):
     krs_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     krs_entry_no: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     krs_entry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-    file_name: Mapped[Optional[str]] = mapped_column(String(schema.NAME_MAX), nullable=True)
-    file_path: Mapped[Optional[str]] = mapped_column(String(schema.NAME_MAX), nullable=True)
+    file_name: Mapped[Optional[str]] = mapped_column(
+        String(schema.NAME_MAX), nullable=True
+    )
+    file_path: Mapped[Optional[str]] = mapped_column(
+        String(schema.NAME_MAX), nullable=True
+    )
     content_type: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     file_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     file_sha256: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
@@ -155,7 +161,13 @@ class BoardBudgetLine(Base):
         CheckConstraint(budget_schema.CK_MONTH, name="ck_board_budget_lines_month"),
         CheckConstraint(budget_schema.CK_LINE, name="ck_board_budget_lines_line"),
         CheckConstraint(budget_schema.CK_AMOUNT, name="ck_board_budget_lines_amount"),
-        Index("uq_board_budget_lines_month_line", "budget_id", "month", "line", unique=True),
+        Index(
+            "uq_board_budget_lines_month_line",
+            "budget_id",
+            "month",
+            "line",
+            unique=True,
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

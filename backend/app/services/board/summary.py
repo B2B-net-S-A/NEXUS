@@ -62,7 +62,9 @@ def _complete(rows: list[MonthRow], attr: str, share: float) -> set[tuple[int, i
     ordered = sorted(rows, key=lambda r: (r.year, r.month))
     complete: set[tuple[int, int]] = set()
     for i, row in enumerate(ordered):
-        window = [getattr(r, attr) for r in ordered[max(0, i - 6) : i] if getattr(r, attr) > 0]
+        window = [
+            getattr(r, attr) for r in ordered[max(0, i - 6) : i] if getattr(r, attr) > 0
+        ]
         if not window or getattr(row, attr) >= share * median(window):
             complete.add((row.year, row.month))
     return complete
@@ -110,13 +112,21 @@ def year_over_year(rows: list[MonthRow], year: int) -> dict[str, Any]:
         "result_months": result_months,
     }
     if result_months:
-        cur_s, cur_c = total(current, result_months, "sales"), total(current, result_months, "costs")
-        prev_s, prev_c = total(previous, result_months, "sales"), total(previous, result_months, "costs")
+        cur_s, cur_c = (
+            total(current, result_months, "sales"),
+            total(current, result_months, "costs"),
+        )
+        prev_s, prev_c = (
+            total(previous, result_months, "sales"),
+            total(previous, result_months, "costs"),
+        )
         out.update(
             result=mln(cur_s - cur_c),
             result_pct=round(100 * (cur_s - cur_c) / cur_s, 1) if cur_s else None,
             result_previous=mln(prev_s - prev_c),
-            result_previous_pct=round(100 * (prev_s - prev_c) / prev_s, 1) if prev_s else None,
+            result_previous_pct=round(100 * (prev_s - prev_c) / prev_s, 1)
+            if prev_s
+            else None,
         )
     return out
 
@@ -136,10 +146,15 @@ async def month_rows(db: AsyncSession, first_year: int) -> list[MonthRow]:
         .group_by(year, month)
         .order_by(year, month)
     )
-    return [MonthRow(int(y), int(m), float(s or 0), float(c or 0)) for y, m, s, c in rows.all()]
+    return [
+        MonthRow(int(y), int(m), float(s or 0), float(c or 0))
+        for y, m, s, c in rows.all()
+    ]
 
 
-async def _top_clients(db: AsyncSession, start: date, end: date) -> list[dict[str, Any]]:
+async def _top_clients(
+    db: AsyncSession, start: date, end: date
+) -> list[dict[str, Any]]:
     net = _net_pln()
     window = and_(Doc.kind == "sale", Doc.issue_date >= start, Doc.issue_date <= end)
     total = (await db.execute(select(func.sum(net)).where(window))).scalar_one_or_none()
@@ -187,7 +202,11 @@ async def orders_ending(db: AsyncSession, today: date) -> dict[str, Any]:
         )
     ).all()
     rates = await rates_to_pln(db, {row[2] or "PLN" for row in contracts}, today)
-    per_unit = {RateUnit.hourly: HOURS_PER_MONTH, RateUnit.daily: DAYS_PER_MONTH, RateUnit.monthly: 1}
+    per_unit = {
+        RateUnit.hourly: HOURS_PER_MONTH,
+        RateUnit.daily: DAYS_PER_MONTH,
+        RateUnit.monthly: 1,
+    }
     active = ending = 0
     potential = ending_potential = 0.0
     no_rate = 0
@@ -271,8 +290,9 @@ async def company_summary(db: AsyncSession, today: date) -> dict[str, Any]:
         "ytd": ytd,
         "top_clients": {
             "year": last_full_year,
-            "items": await _top_clients(db, date(last_full_year, 1, 1), date(last_full_year, 12, 31)),
+            "items": await _top_clients(
+                db, date(last_full_year, 1, 1), date(last_full_year, 12, 31)
+            ),
         },
         "orders": await orders_ending(db, today),
     }
-

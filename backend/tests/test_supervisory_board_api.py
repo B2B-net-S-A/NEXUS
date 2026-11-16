@@ -52,17 +52,25 @@ async def test_refresh_stores_once_seeds_documents_and_bells_only_new_entries(
     assert first.status_code == 200, first.text
     body = first.json()
     assert body["changed"] is True and body["new_entries"] == 0
-    assert body["documents_created"] == len(krs_service.document_seeds(krs_service.parse_odpis(_odpis())))
+    assert body["documents_created"] == len(
+        krs_service.document_seeds(krs_service.parse_odpis(_odpis()))
+    )
     assert await _bells(board.id) == 0  # pierwszy odpis to stan zastany
 
-    again = (await app_client.post(f"{API}/krs/refresh", headers=_headers(admin))).json()
+    again = (
+        await app_client.post(f"{API}/krs/refresh", headers=_headers(admin))
+    ).json()
     assert again["changed"] is False and again["documents_created"] == 0
 
-    third = (await app_client.post(f"{API}/krs/refresh", headers=_headers(admin))).json()
+    third = (
+        await app_client.post(f"{API}/krs/refresh", headers=_headers(admin))
+    ).json()
     assert third["changed"] is True and third["new_entries"] == 1
     assert await _bells(board.id) == 1
 
-    view = (await app_client.get(f"{API}/krs", headers=_headers(board))).json()["snapshot"]
+    view = (await app_client.get(f"{API}/krs", headers=_headers(board))).json()[
+        "snapshot"
+    ]
     assert view["entries_count"] == 4
     assert view["management"]["functions"] == ["PREZES ZARZĄDU"]
     assert view["missing_filings"][0]["year"] == 2025
@@ -91,7 +99,9 @@ async def test_board_reads_admin_writes_others_are_denied(app_client) -> None:
     assert doc["has_file"] is True and doc["source"] == "upload"
 
     listed = await app_client.get(
-        f"{API}/documents", params={"category": "resolution_supervisory"}, headers=_headers(board)
+        f"{API}/documents",
+        params={"category": "resolution_supervisory"},
+        headers=_headers(board),
     )
     assert listed.status_code == 200
     assert [item["id"] for item in listed.json()["items"]] == [doc["id"]]
@@ -102,11 +112,15 @@ async def test_board_reads_admin_writes_others_are_denied(app_client) -> None:
         "without_file": 0,
     }
 
-    file_resp = await app_client.get(f"{API}/documents/{doc['id']}/file", headers=_headers(board))
+    file_resp = await app_client.get(
+        f"{API}/documents/{doc['id']}/file", headers=_headers(board)
+    )
     assert file_resp.status_code == 200 and file_resp.content.startswith(b"%PDF")
 
     for user in (finance, recruiter):
-        assert (await app_client.get(f"{API}/documents", headers=_headers(user))).status_code == 403
+        assert (
+            await app_client.get(f"{API}/documents", headers=_headers(user))
+        ).status_code == 403
     assert (
         await app_client.patch(
             f"{API}/documents/{doc['id']}", json={"title": "x"}, headers=_headers(board)
@@ -142,17 +156,23 @@ async def test_board_reads_admin_writes_others_are_denied(app_client) -> None:
     ).status_code == 204
 
 
-async def test_krs_row_cannot_be_deleted_but_takes_a_scan(app_client, monkeypatch) -> None:
+async def test_krs_row_cannot_be_deleted_but_takes_a_scan(
+    app_client, monkeypatch
+) -> None:
     admin = await _user(role="admin")
 
     async def fake_fetch(_krs: str) -> dict:
         return _odpis()
 
     monkeypatch.setattr(krs_service, "fetch_full_extract", fake_fetch)
-    assert (await app_client.post(f"{API}/krs/refresh", headers=_headers(admin))).status_code == 200
+    assert (
+        await app_client.post(f"{API}/krs/refresh", headers=_headers(admin))
+    ).status_code == 200
     async with AsyncSessionLocal() as db:
         row = (
-            await db.execute(select(BoardDocument).where(BoardDocument.krs_key == "approval:2025"))
+            await db.execute(
+                select(BoardDocument).where(BoardDocument.krs_key == "approval:2025")
+            )
         ).scalar_one()
     assert (
         await app_client.delete(f"{API}/documents/{row.id}", headers=_headers(admin))
@@ -211,7 +231,9 @@ async def test_summary_sums_archive_and_is_board_only(app_client) -> None:
             )
         await db.commit()
 
-    assert (await app_client.get(f"{API}/summary", headers=_headers(finance))).status_code == 403
+    assert (
+        await app_client.get(f"{API}/summary", headers=_headers(finance))
+    ).status_code == 403
     resp = await app_client.get(f"{API}/summary", headers=_headers(board))
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -235,26 +257,42 @@ async def test_budget_plan_admin_writes_board_reads(app_client) -> None:
         await db.execute(delete(BoardBudget))
         await db.commit()
 
-    body = {"status": "draft", "months": [{"month": 1, "sales": "9850000", "costs": "9000000"}]}
-    assert (await app_client.put(f"{API}/budget/{year}", json=body, headers=_headers(board))).status_code == 403
-    assert (await app_client.get(f"{API}/budget/{year}", headers=_headers(finance))).status_code == 403
-    saved = await app_client.put(f"{API}/budget/{year}", json=body, headers=_headers(admin))
+    body = {
+        "status": "draft",
+        "months": [{"month": 1, "sales": "9850000", "costs": "9000000"}],
+    }
+    assert (
+        await app_client.put(f"{API}/budget/{year}", json=body, headers=_headers(board))
+    ).status_code == 403
+    assert (
+        await app_client.get(f"{API}/budget/{year}", headers=_headers(finance))
+    ).status_code == 403
+    saved = await app_client.put(
+        f"{API}/budget/{year}", json=body, headers=_headers(admin)
+    )
     assert saved.status_code == 200, saved.text
     january = saved.json()["months"][0]
     assert january["plan_sales"] == 9.85 and january["plan_costs"] == 9.0
 
-    view = (await app_client.get(f"{API}/budget/{year}", headers=_headers(board))).json()
+    view = (
+        await app_client.get(f"{API}/budget/{year}", headers=_headers(board))
+    ).json()
     assert view["budget"]["status"] == "draft" and len(view["months"]) == 12
 
     cleared = await app_client.put(
         f"{API}/budget/{year}",
-        json={"status": "draft", "months": [{"month": 1, "sales": None, "costs": None}]},
+        json={
+            "status": "draft",
+            "months": [{"month": 1, "sales": None, "costs": None}],
+        },
         headers=_headers(admin),
     )
     assert cleared.json()["months"][0]["plan_sales"] is None
 
     assert (
-        await app_client.put(f"{API}/budget/{year + 5}", json=body, headers=_headers(admin))
+        await app_client.put(
+            f"{API}/budget/{year + 5}", json=body, headers=_headers(admin)
+        )
     ).status_code == 422
     assert (
         await app_client.put(

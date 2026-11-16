@@ -52,7 +52,9 @@ def month_bounds(year: int, month: int) -> tuple[date, date]:
     return start, end
 
 
-def potential(rates: list[ContractRate], year: int, month: int, *, renewed: bool) -> float:
+def potential(
+    rates: list[ContractRate], year: int, month: int, *, renewed: bool
+) -> float:
     """Potencjał sprzedaży miesiąca: każdy kontrakt × jego dni robocze w miesiącu."""
 
     start, end = month_bounds(year, month)
@@ -148,7 +150,9 @@ async def budget_view(db: AsyncSession, year: int, today: date) -> dict[str, Any
     last_sales = sales_complete[-1] if sales_complete else None
     rates = await contract_rates(db, today)
 
-    base_months = [m for m in sales_complete if m <= (today.year, today.month)][-REALIZATION_MONTHS:]
+    base_months = [m for m in sales_complete if m <= (today.year, today.month)][
+        -REALIZATION_MONTHS:
+    ]
     real = realization(sales, rates, base_months)
     share = cost_share(sales, costs, cost_complete)
 
@@ -158,7 +162,9 @@ async def budget_view(db: AsyncSession, year: int, today: date) -> dict[str, Any
     plan: dict[tuple[int, str], float] = {}
     if budget is not None:
         for line in (
-            await db.execute(select(BoardBudgetLine).where(BoardBudgetLine.budget_id == budget.id))
+            await db.execute(
+                select(BoardBudgetLine).where(BoardBudgetLine.budget_id == budget.id)
+            )
         ).scalars():
             plan[(line.month, line.line)] = float(line.amount)
 
@@ -179,8 +185,12 @@ async def budget_view(db: AsyncSession, year: int, today: date) -> dict[str, Any
             "business_days": len(business_days(*month_bounds(year, month))),
         }
         if not is_actual:
-            entry["potential"] = summary.mln(potential(rates, year, month, renewed=False))
-            entry["potential_renewed"] = summary.mln(potential(rates, year, month, renewed=True))
+            entry["potential"] = summary.mln(
+                potential(rates, year, month, renewed=False)
+            )
+            entry["potential_renewed"] = summary.mln(
+                potential(rates, year, month, renewed=True)
+            )
         months.append(entry)
 
     return {
