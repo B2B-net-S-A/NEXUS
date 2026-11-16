@@ -192,7 +192,6 @@ export function DockInterviewCycle({
           {canPickSlot ? (
             <button
               type="button"
-              data-tour="interview.slot.pick"
               onClick={() => setSlotMode("pick")}
               className="h-8 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
             >

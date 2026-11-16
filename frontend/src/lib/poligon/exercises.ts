@@ -472,10 +472,11 @@ export const EXERCISES: readonly Exercise[] = [
     module: "Baza kandydatów",
     title: () => "Dodaj osobę do swojej listy",
     task: () =>
-      "Laura nie pasuje do każdej rekrutacji, ale chcesz ją mieć pod ręką. Na jej profilu kliknij „Na listę”, wpisz nazwę nowej listy, np. „PM bankowość”, i kliknij „+”.",
+      "Laura nie pasuje do każdej rekrutacji, ale chcesz ją mieć pod ręką. Na jej profilu kliknij „Na listę” (w nagłówku, obok „Przypisz do rekrutacji”), wpisz nazwę nowej listy, np. „PM bankowość”, i kliknij „+”.",
     hint: "„Na listę” jest w nagłówku profilu, obok „Przypisz do rekrutacji”.",
     href: POLIGON_CANDIDATES_HREF,
-    anchor: "candidate.profile.lists",
+    // Przewodnik profilu ma komplet 6 kotwic — „Pokaż mi” wskazuje sąsiedni przycisk.
+    anchor: "candidate.profile.assign",
     judge: (a) => (a.type === "pool_add" ? { done: true } : null),
     tip: "Listy są Twoje („Tylko ja”). Znajdziesz je w „Moi ludzie” → „Listy” — przy nowym requeście zaczynasz od nich, nie od zera.",
   },
@@ -539,7 +540,7 @@ export const EXERCISES: readonly Exercise[] = [
       "Klient przysłał trzy terminy rozmowy dla Kamila Dębowskiego (kolumna „Rozmowa u klienta”, przewiń Tablicę w prawo). Kamil może w drugim. Otwórz jego panel, kliknij „Wybierz termin z kandydatem”, zaznacz drugi termin i wpisz go do kalendarza.",
     hint: "Przycisk jest w panelu osoby, w sekcji „Rozmowa u klienta”.",
     href: POLIGON_JOB_HREF,
-    anchor: "interview.slot.pick",
+    anchor: "jobs.person.dock",
     judge: (a) => {
       if (a.type !== "slot_choose") return null;
       if (a.index !== 1) {
@@ -562,7 +563,7 @@ export const EXERCISES: readonly Exercise[] = [
         : "Kliknij ikonę dymka w nagłówku rekrutacji i przejdź na „Czat zespołu”. Napisz do rekrutera: wpisz „@”, wybierz „Jakub Szkoleniowy” i napisz, czego potrzebujesz.",
     hint: "Ikona dymka („Historia i czat”) jest w nagłówku rekrutacji, po prawej.",
     href: POLIGON_JOB_HREF,
-    anchor: "jobs.header.chat",
+    anchor: "jobs.board.chat",
     judge: (a) => {
       if (a.type !== "chat") return null;
       if (!a.mentions.length) {

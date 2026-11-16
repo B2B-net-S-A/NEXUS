@@ -149,8 +149,11 @@ Artur 16.11.2026: „uczyć na poligonie”, także funkcji prawie nieużywanych
   przyjmuje tekstu spoza słownika), a plik do wgrania w
   `public/poligon/cv-cwiczebne-ewa-jesionowska.txt` (link w oknie ćwiczenia,
   pole `download`). Na poligonie każdy plik daje tę samą osobę.
-- **Nowe kotwice „Pokaż mi”:** `candidate.profile.lists` („Na listę”),
-  `interview.slot.pick`, `jobs.header.chat` (dymek „Historia i czat”).
+- **Kotwice „Pokaż mi”:** nowa jest tylko `jobs.board.chat` (dymek „Historia
+  i czat”, `data-help` w przewodniku `jobs.board`). `data-tour` musi należeć do
+  nowości z rejestru (`novelty-anchors.test.ts`), a przewodnik ma najwyżej
+  6 kotwic — `candidate.profile` i `jobs.person` mają komplet, więc lista
+  wskazuje sąsiedni „Przypisz do rekrutacji”, a termin u klienta cały panel osoby.
 - **Daty `@relt:<n>T<HH:MM>`** w zestawie = za `n` dni roboczych o pełnej
   godzinie UTC (terminy u klienta i podpowiedzi prepów), żeby okno nie
   pokazywało „13:27” ani soboty.

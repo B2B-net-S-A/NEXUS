@@ -106,7 +106,8 @@
       {"id": "jobs.board.sources", "label": "Kandydaci do dodania", "describe": "Źródła w nagłówku rekrutacji: nowi z ogłoszeń, moi ludzie i menu „Szukaj ▾” (podobne rekrutacje, propozycje z bazy, szukaj w bazie, „Kto już to robił”); „Dodaj” — po nazwisku albo z CV."},
       {"id": "jobs.board.team", "label": "Zespół", "describe": "Na końcu paska: „Zespół: …” prowadzi do zespołu, a „Utwórz zespół” łączy kilka stanowisk klienta w jeden link dla klienta."},
       {"id": "jobs.board.closed", "label": "Zamknięci", "describe": "Wąska kolumna po prawej: zrezygnowali i odrzuceni — przez nas, przez DL, przez klienta."},
-      {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead; u Nordei przed akceptacją do Cpro): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."}
+      {"id": "jobs.board.dl-compare", "label": "Porównaj kandydatów", "describe": "W nagłówku „QC CV” (Delivery Lead; u Nordei przed akceptacją do Cpro): osoby czekające na przegląd obok siebie — ocena, wymagania, koszt, start, ryzyka."},
+      {"id": "jobs.board.chat", "label": "Historia i czat", "describe": "Ikona dymka w nagłówku rekrutacji: historia ruchów i czat zespołu rekrutacji z „@”."}
     ],
     "help_slug": null,
     "sources": [

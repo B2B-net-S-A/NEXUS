@@ -244,7 +244,7 @@ async function personPanel(page: Page, w: Walk, mention: string) {
 
 /** Lista na profilu Laury (po przypisaniu) i zapisane wyszukiwanie z powiadomieniem. */
 async function listsAndSavedSearch(page: Page, w: Walk) {
-  await page.locator('[data-tour="candidate.profile.lists"]').first().click();
+  await page.getByRole("button", { name: /^Na listę|^Na listach/ }).first().click();
   await page.getByRole("textbox", { name: "Nazwa nowej listy" }).fill("PM bankowość");
   await page.getByRole("button", { name: "Utwórz listę i dodaj osobę" }).click();
   await w.done("baza-lista");
@@ -266,7 +266,7 @@ async function listsAndSavedSearch(page: Page, w: Walk) {
 /** Czat rekrutacji z „@” (rekruter oznacza DL-a, DL — rekrutera). */
 async function teamChat(page: Page, w: Walk, mention: string) {
   await w.board();
-  await page.locator('[data-tour="jobs.header.chat"]').first().click();
+  await page.locator('[data-help="jobs.board.chat"]').first().click();
   await page.getByRole("tab", { name: "Czat zespołu" }).click();
   const message = page.getByRole("textbox", { name: "Treść wiadomości chatu" });
   await message.click();
@@ -399,7 +399,7 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await next();
 
     await openCard("Kamil");
-    await page.locator('[data-tour="interview.slot.pick"]').click();
+    await page.getByRole("button", { name: "Wybierz termin z kandydatem" }).click();
     const pick = page.getByRole("dialog");
     await pick.getByRole("radio").nth(1).check();
     await pick.getByRole("button", { name: "Wpisz do kalendarza" }).click();
