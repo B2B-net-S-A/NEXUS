@@ -438,7 +438,7 @@ export interface BulkProposalsRequest {
   source?: BulkAddSource | null;
   /** Skąd osoba dodana ręcznie, gdy nie wynika to z `source` (porcja dnia, pomiar P4). */
   found_via?: "search" | "outside_base" | "proposals" | null;
-  /** „Pasuje też do”: rekrutacja, przy której padła podpowiedź (historia i dzwonek). */
+  /** „Pasuje też do”: rekrutacja, przy której padła podpowiedź (historia kandydata). */
   origin_job_id?: number | null;
   /**
    * „Podobni”: zdanie „dlaczego mimo to” dla osoby bez umiejętności krytycznej

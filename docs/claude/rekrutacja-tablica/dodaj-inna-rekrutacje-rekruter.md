@@ -34,10 +34,10 @@ https://claude.ai/artifact/P8kozdrrMZLEpkGtkktmvR.
   samo dodanie i komunikat „Dodano do „Nowych”: …”.
 - **Źródło `also_manual`** w `proposals/bulk` (i w telemetrii
   `PIPELINE_ADD_SOURCES`), żeby statystyka podpowiedzi nie liczyła ręcznych
-  wyborów. Wpis w historii i dzwonek do rekruterów rekrutacji B jak przy
-  `also_fits` (`record_also_fits_added(..., manual=True)`): akcja
-  `also_fits_added` z `via: "manual"`, w dzwonku „dodane ręcznie przy
-  rozmowie” zamiast „podpowiedź „Pasuje też do””.
+  wyborów. Wpis w historii jak przy `also_fits`
+  (`record_also_fits_added(..., manual=True)`): akcja `also_fits_added`
+  z `via: "manual"`. Dzwonka do rekruterów rekrutacji B nie ma od 16.11.2026
+  (`powiadomienia/bez-dzwonka-przy-dodaniu-do-cudzej-rekrutacji.md`).
 - **B — „Dodaj też do rekrutacji…” w menu „⋯” panelu osoby**
   (`PipelineCandidateDock`, na każdym etapie): otwiera to samo okno co
   „Przypisz do rekrutacji” na profilu (`QuickAssignV2`, zakładki „AI
