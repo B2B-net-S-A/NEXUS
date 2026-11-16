@@ -76,6 +76,9 @@ import {
   groupRequests,
   lastCvTitle,
   hasUrlFilters,
+  newProfilesByPerson,
+  newProfilesByPersonText,
+  newProfilesByPersonTitle,
   loadSummary,
   nextCategory,
   pendingProposalCount,
@@ -355,6 +358,7 @@ interface RowProps
 /** Audyt 08.11.2026: B4 (P1 bez CV) i B6 (nowe profile) nad kategorią na Daily. */
 function GroupCvSummary({ rows }: { rows: readonly BoardRequest[] }) {
   const { quietP1, p1, newProfiles, newProfilesCv } = groupCvSummary(rows)
+  const viewerId = useAuthStore((s) => s.user?.id ?? null)
   return (
     <span
       className="ml-auto text-xs text-muted-foreground"
@@ -368,6 +372,32 @@ function GroupCvSummary({ rows }: { rows: readonly BoardRequest[] }) {
       ) : null}
       {p1 > 0 && newProfiles > 0 ? " · " : null}
       {newProfiles > 0 ? `${newProfilesText(newProfiles, newProfilesCv)}` : null}
+      {newProfiles > 0 ? <NewProfilesSplit rows={rows} viewerId={viewerId} /> : null}
+    </span>
+  )
+}
+
+/** „Ty 12 · Michał 4” przy liczniku nowych profili (16.11.2026). */
+function NewProfilesSplit({
+  rows,
+  viewerId,
+  ownLine = false,
+}: {
+  rows: readonly BoardRequest[]
+  viewerId: number | null
+  /** W wąskiej kolumnie wiersza osobna linia — myślnik nie zostaje na końcu. */
+  ownLine?: boolean
+}) {
+  const people = newProfilesByPerson(rows, viewerId)
+  if (people.length === 0) return null
+  return (
+    <span
+      data-testid="new-profiles-by-person"
+      className={ownLine ? "block" : undefined}
+      title={newProfilesByPersonTitle(people)}
+    >
+      {ownLine ? null : " — "}
+      {newProfilesByPersonText(people)}
     </span>
   )
 }
@@ -395,6 +425,7 @@ function RequestRow({
   const overdue = isP0Overdue(request, clock)
   const people = sortByChannel(boardPeople(request))
   const channelNotes = boardChannelNotes(request)
+  const viewerId = useAuthStore((s) => s.user?.id ?? null)
   const busy = (person: BoardPerson) =>
     busyKeys?.has(boardPersonKey(request.job_id, person.user_id)) === true
   const categoryShort =
@@ -631,6 +662,7 @@ function RequestRow({
             title="Profile założone przez rekrutera pod tę rekrutację w ostatnich 7 dniach, bez portali i poleceń."
           >
             {newProfilesText(request.new_profiles_7d ?? 0, request.new_profiles_7d_cv ?? 0)}
+            <NewProfilesSplit rows={[request]} viewerId={viewerId} ownLine />
           </span>
         ) : null}
         {canStaff && !request.champion && (

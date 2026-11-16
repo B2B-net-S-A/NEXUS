@@ -63,6 +63,19 @@ od 12.10) to częściowo efekt doboru, a nie kanału. Liczby w wierszu Daily
 (`new_profiles_7d`, `new_profiles_7d_cv`), w `GET /api/jobs/{id}/new-profiles`
 dla okienka zespołu i w podsumowaniu nad kategorią.
 
+**Podział na osoby (16.11.2026, prośba z zespołu):** Daily pokazuje pod
+licznikiem w wierszu i po myślniku nad kategorią „Ty 5 · Imię 2”. Liczba idzie
+do osoby z pierwszego wpisu pary (`first_by`), tej samej, od której zależy, czy
+karta jest nowym profilem — więc suma osób równa się licznikowi, a karta bez
+osoby w pierwszym wpisie nie jest nowym profilem i nie trafia do nikogo.
+Backend zwraca `new_profiles_7d_by` (`user_id`, `name`, `added`, `reached_cv`);
+front (`newProfilesByPerson` w `lib/request-board.ts`) pisze zalogowanego jako
+„Ty”, resztę samym imieniem, a przy dwóch takich samych imionach „Imię N.”.
+Gdyby lista nie sumowała się do licznika (stara odpowiedź API), różnica stoi
+jako „bez osoby: N”, żeby nie zginęła z sumy. Dymek: osoba po osobie z liczbą
+„do CV”. To ta sama reguła osoby co „Kto ilu dodał” na Tablicy
+(`kto-ilu-dodal-w-zespole-rekrutacji.md`), ale tylko dla nowych profili z 7 dni.
+
 ## Ekrany
 
 - Okienko „Zespół rekrutacji” (`JobChannelBuckets` w `JobOwnershipPanel`):
