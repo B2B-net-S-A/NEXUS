@@ -24,3 +24,13 @@ describe("źródło wymogu", () => {
     expect(sourceText({ source_kind: "dl", source_ref: "  " })).toBe("od Delivery Leada");
   });
 });
+
+describe("podgląd tabeli raportu", () => {
+  it("liczby z groszami po polsku, pusta komórka jako kreska", async () => {
+    const { formatCell } = await import("../ReportDownloadDialog");
+    expect(formatCell(227)).toBe("227,00");
+    expect(formatCell(-1.3)).toBe("-1,30");
+    expect(formatCell(null)).toBe("—");
+    expect(formatCell("IT Developer - Senior")).toBe("IT Developer - Senior");
+  });
+});

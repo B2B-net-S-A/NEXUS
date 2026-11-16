@@ -55,7 +55,9 @@ from app.services.client_reports import catalog, schedule, suggest
 from app.services.dl_alerts import client_not_deleted_clause
 from app.services.client_reports.registry import (
     XLSX_MEDIA_TYPE,
+    Generator,
     ReportContext,
+    ReportData,
     all_generators,
     build_tabular_workbook,
     clean_params,
@@ -610,6 +612,22 @@ async def preview_report(
         ],
         "checks": list(data.checks),
         "sheets": [{"name": s.name, "rows": len(s.rows)} for s in data.sheets],
+        "table": _preview_table(generator, data),
+    }
+
+
+PREVIEW_ROWS = 8
+
+
+def _preview_table(generator: Generator, data: ReportData) -> Optional[dict[str, Any]]:
+    """Pierwsze wiersze arkusza wskazanego przez generator (``preview_sheet``)."""
+    sheet = next((s for s in data.sheets if s.name == generator.preview_sheet), None)
+    if sheet is None:
+        return None
+    return {
+        "headers": list(sheet.headers),
+        "rows": [list(row) for row in sheet.rows[:PREVIEW_ROWS]],
+        "more": max(len(sheet.rows) - PREVIEW_ROWS, 0),
     }
 
 

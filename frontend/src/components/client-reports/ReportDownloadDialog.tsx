@@ -26,6 +26,7 @@ import {
   markSent,
   shortDate,
   type ReportDefinition,
+  type ReportPreview,
   type ReportRun,
 } from "@/lib/api/client-reports";
 import { ReportStateDot } from "./ReportStateDot";
@@ -191,6 +192,7 @@ function DialogInner({
                       ))}
                     </tbody>
                   </table>
+                  {preview.data.table ? <PreviewTable table={preview.data.table} /> : null}
                   {preview.data.checks.map((check) => (
                     <p key={check} className="flex items-start gap-1.5 rounded-md bg-warning/10 px-2 py-1.5 text-xs text-foreground">
                       <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" aria-hidden="true" />
@@ -287,5 +289,55 @@ function DialogInner({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Komórka podglądu: liczby z groszami po polsku, puste jako „—”. */
+export function formatCell(value: string | number | null): string {
+  if (value === null || value === "") return "—";
+  if (typeof value === "number") {
+    return value.toLocaleString("pl-PL", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return value;
+}
+
+function PreviewTable({ table }: { table: NonNullable<ReportPreview["table"]> }) {
+  return (
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border text-left text-muted-foreground">
+            {table.headers.map((header, index) => (
+              <th key={header} className={`px-2 py-1.5 font-medium ${index > 1 ? "text-right" : ""}`}>
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {table.rows.map((row, rowIndex) => (
+            <tr key={rowIndex} className="border-b border-border/60 last:border-0">
+              {row.map((cell, index) => (
+                <td
+                  key={index}
+                  className={`px-2 py-1 ${index > 1 ? "text-right" : "max-w-[160px] truncate"} ${
+                    typeof cell === "number" && cell < 0 ? "text-destructive" : ""
+                  }`}
+                >
+                  {formatCell(cell)}
+                </td>
+              ))}
+            </tr>
+          ))}
+          {table.more > 0 ? (
+            <tr className="text-muted-foreground">
+              <td className="px-2 py-1" colSpan={table.headers.length}>
+                … i {table.more} kolejnych wierszy w pliku
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+    </div>
   );
 }
