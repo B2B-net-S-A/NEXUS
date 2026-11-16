@@ -25,6 +25,8 @@ AMENDMENT_ENUM_VALUES: tuple[str, ...] = (
     "party_data_change",
     "subcontractor_consent",
     "mandate_change",
+    # 0723: aneks z własną nazwą po podpisie.
+    "custom_change",
 )
 
 ENUM_DDL: list[str] = [
@@ -116,9 +118,14 @@ def type_check_ddl(types: tuple[str, ...] = B2B_DOCUMENT_TYPES) -> str:
     END $$"""
 
 
+#: Typy dokumentów sprzed 0723 — downgrade 0723 wraca do tej listy.
+TYPES_BEFORE_0722: tuple[str, ...] = tuple(
+    t for t in B2B_DOCUMENT_TYPES if t != "annex_custom"
+)
+
 #: Typy dokumentów sprzed 0503 — downgrade wraca do tej listy.
 TYPES_BEFORE_0503: tuple[str, ...] = tuple(
-    t for t in B2B_DOCUMENT_TYPES if not t.startswith("preliminary_participation_")
+    t for t in TYPES_BEFORE_0722 if not t.startswith("preliminary_participation_")
 )
 
 TYPE_CHECK_DDL: list[str] = [type_check_ddl()]

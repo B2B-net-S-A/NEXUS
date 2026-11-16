@@ -33,7 +33,12 @@ from tests.test_b2b_generated_contract_status import (
 
 def test_generator_types_accept_contracts_outside_nexus():
     keys = {k for k, t in TYPES.items() if t.allows_external}
-    assert keys == {"annex_party_data", "annex_start_date", "annex_rate_change"}
+    assert keys == {
+        "annex_party_data",
+        "annex_start_date",
+        "annex_rate_change",
+        "annex_custom",
+    }
     for key in keys:
         assert TYPES[key].languages == ("pl",)
         assert TYPES[key].uses_refs is False

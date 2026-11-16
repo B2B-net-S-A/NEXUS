@@ -1,5 +1,18 @@
 [
   {
+    "id": "aneks-inna-zmiana",
+    "pr": 3505,
+    "title": "Generator aneksów: aneks z własną nazwą",
+    "why": "Na zmianę spoza listy (np. zwolnienie z zakazu konkurencji): nazwij aneks, wpisz zmiany paragrafów albo wybierz gotową klauzulę. Kontraktu podpis sam nie zmienia.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["finance", "delivery_lead", "admin"] },
+    "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
+    "href": "/contracts/b2b-generator",
+    "section": "sourcing",
+    "dot_anchor": "b2b-generator.annex-custom"
+  },
+  {
     "id": "porcja-szczegol-powodu",
     "pr": 3470,
     "title": "Porcja dnia: dokładniejszy powód „Nie pasuje”",

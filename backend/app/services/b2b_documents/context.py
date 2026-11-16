@@ -280,6 +280,57 @@ def _annex_values(
     out["rate_lines"] = [_rate_phrase(i, bullet=True, currency=currency) for i in items]
 
 
+_POINT_LABELS = "abcdefghijklmnopqrstuvwxyz"
+
+
+def _annex_ref(paragraph: str, section: str) -> str:
+    paragraph = paragraph.lstrip("§").strip() or "…"
+    return f"§ {paragraph} ust. {section}" if section else f"§ {paragraph}"
+
+
+def annex_change_points(rows: Any) -> list[dict[str, Any]]:
+    """§ 1 aneksu z własną nazwą: punkty a), b)… z listy zmian.
+
+    Każdy punkt to ``lead`` (formułka albo pierwsza linia własnego tekstu)
+    i ``lines`` (cytowana nowa treść, linia po linii — DOCX nie łamie linii
+    w akapicie). Formułki są jedne dla wszystkich aneksów, żeby „otrzymuje
+    brzmienie” nie zależało od tego, kto pisze."""
+    points: list[dict[str, Any]] = []
+    if not isinstance(rows, list):
+        return points
+    for number, row in enumerate(r for r in rows if isinstance(r, dict)):
+        op = row.get("op")
+        paragraph = str(row.get("paragraph") or "").strip()
+        section = str(row.get("section") or "").strip()
+        lines = [
+            line.strip()
+            for line in str(row.get("text") or "").splitlines()
+            if line.strip()
+        ]
+        label = (
+            _POINT_LABELS[number] if number < len(_POINT_LABELS) else str(number + 1)
+        )
+        if op == "free":
+            lead, body = (lines[0], lines[1:]) if lines else ("…", [])
+        elif op == "delete":
+            lead, body = f"{_annex_ref(paragraph, section)} Umowy skreśla się.", []
+        else:
+            if op == "add":
+                lead = (
+                    f"w § {paragraph.lstrip('§').strip() or '…'} Umowy dodaje się "
+                    f"ust. {section or '…'} w brzmieniu:"
+                )
+            else:
+                lead = f"{_annex_ref(paragraph, section)} Umowy otrzymuje brzmienie:"
+            body = lines or ["…"]
+            body = [
+                ("„" if i == 0 else "") + line + ("”" if i == len(body) - 1 else "")
+                for i, line in enumerate(body)
+            ]
+        points.append({"label": label, "lead": lead, "lines": body})
+    return points
+
+
 def _start_phrases(
     values: dict[str, Any],
     base: BaseContractInfo,
@@ -358,6 +409,9 @@ def build_document_context(
     _annex_values(doc_type, values, effective_refs, doc_values, currency)
     if doc_type.key == "annex_start_date":
         _start_phrases(values, base, language, doc_values)
+    if doc_type.key == "annex_custom":
+        doc_values["change_points"] = annex_change_points(values.get("changes"))
+        doc_values["annex_title"] = str(values.get("annex_title") or "").strip() or "…"
     return {
         "language": language,
         "company": company_party(language),

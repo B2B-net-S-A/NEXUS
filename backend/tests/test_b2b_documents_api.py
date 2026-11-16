@@ -102,7 +102,8 @@ async def _create(app_client, headers, doc_type: str, parent_id: int | None, **v
 
 
 def test_every_type_declares_fields_and_languages():
-    assert len(TYPES) == 12
+    # 13 od 16.11.2026: aneks z własną nazwą (annex_custom).
+    assert len(TYPES) == 13
     for doc_type in TYPES.values():
         assert doc_type.languages
         assert any(f.key == "document_date" for f in doc_type.fields)

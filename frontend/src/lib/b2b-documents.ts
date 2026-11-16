@@ -16,6 +16,7 @@ import type {
   DocumentValues,
   RateItemValue,
 } from "@/lib/api/b2bDocuments";
+import { annexChangesProblems, cleanAnnexChanges } from "@/lib/annex-changes";
 import { messageFromApiResponse } from "@/lib/api-error";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
@@ -101,8 +102,9 @@ export function groupedFields(
   })).filter((g) => g.fields.length > 0);
 }
 
-function isEmpty(value: DocumentValue | undefined): boolean {
-  if (Array.isArray(value)) return cleanRateItems(value).length === 0;
+function isEmpty(value: DocumentValue | undefined, kind?: DocumentFieldDef["kind"]): boolean {
+  if (kind === "annex_changes") return cleanAnnexChanges(value).length === 0;
+  if (Array.isArray(value)) return cleanRateItems(value as RateItemValue[]).length === 0;
   return (
     value === undefined ||
     value === null ||
@@ -116,7 +118,7 @@ export function missingRequired(
   values: DocumentValues,
 ): string[] {
   return visibleFields(type, values)
-    .filter((f) => f.required && f.kind !== "bool" && isEmpty(values[f.key]))
+    .filter((f) => f.required && f.kind !== "bool" && isEmpty(values[f.key], f.kind))
     .map((f) => f.label);
 }
 
@@ -231,9 +233,15 @@ export function invalidListFields(
   type: DocumentTypeDef,
   values: DocumentValues,
 ): string[] {
-  return visibleFields(type, values)
-    .filter((f) => f.kind === "rate_items" && Array.isArray(values[f.key]))
-    .flatMap((f) => rateItemsProblems(values[f.key] as RateItemValue[]));
+  const fields = visibleFields(type, values);
+  return [
+    ...fields
+      .filter((f) => f.kind === "rate_items" && Array.isArray(values[f.key]))
+      .flatMap((f) => rateItemsProblems(values[f.key] as RateItemValue[])),
+    ...fields
+      .filter((f) => f.kind === "annex_changes")
+      .flatMap((f) => annexChangesProblems(values[f.key])),
+  ];
 }
 
 // ── Wariant Partnera (JDG / spółka) ─────────────────────────────────────────
@@ -322,9 +330,14 @@ export function cleanValues(
     }
     if (field.kind === "rate_items") {
       if (Array.isArray(raw)) {
-        const items = cleanRateItems(raw);
+        const items = cleanRateItems(raw as RateItemValue[]);
         if (items.length) out[field.key] = items;
       }
+      continue;
+    }
+    if (field.kind === "annex_changes") {
+      const rows = cleanAnnexChanges(raw);
+      if (rows.length) out[field.key] = rows;
       continue;
     }
     if (isEmpty(raw)) continue;
@@ -589,6 +602,7 @@ const ANNEX_TITLES: Record<string, string> = {
   annex_rate_change: "Zmiana stawki",
   annex_subcontractor: "Osoba skierowana",
   annex_mandate: "Aneks do umowy zlecenie",
+  annex_custom: "Inna zmiana",
 };
 
 /** Nazwa typu aneksu w rejestrze (bez przedrostka „Aneks —” z kreatora). */
@@ -602,6 +616,7 @@ const ANNEX_SHORT: Record<string, string> = {
   annex_rate_change: "stawka",
   annex_subcontractor: "osoba skierowana",
   annex_mandate: "zlecenie",
+  annex_custom: "inna zmiana",
 };
 
 /** Krótka nazwa do etykiety na wierszu umowy („Aneks: data startu · …”). */
@@ -702,6 +717,9 @@ export function annexChangeText(
   }
   if (change.kind === "delegate") {
     return change.name ? { before: null, after: change.name } : null;
+  }
+  if (change.kind === "custom") {
+    return change.title ? { before: null, after: change.title } : null;
   }
   const period = [change.period_from, change.period_to]
     .map((day) => (day ? formatIsoDatePl(day) : ""))

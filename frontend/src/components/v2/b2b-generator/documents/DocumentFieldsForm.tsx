@@ -24,6 +24,7 @@ import {
 } from "@/lib/b2b-documents";
 import { cn } from "@/lib/utils";
 
+import { AnnexChangesField } from "./AnnexChangesField";
 import { RateItemsField, RegistryLookupButton } from "./AnnexFieldControls";
 
 const SELECT_CLASS =
@@ -212,6 +213,8 @@ export interface DocumentFieldsFormProps {
   errorKeys?: ReadonlySet<string>;
   /** Notki serwera do pól (np. skąd wzięła się podpowiedziana data). */
   notes?: Readonly<Record<string, string>>;
+  /** Wartości `{klucz}` gotowych klauzul (paragraf zakazu, klient umowy). */
+  clauseVars?: Record<string, string | null | undefined>;
   disabled?: boolean;
   idPrefix?: string;
 }
@@ -222,6 +225,7 @@ export function DocumentFieldsForm({
   onChange,
   errorKeys,
   notes,
+  clauseVars,
   disabled,
   idPrefix = "b2b-doc",
 }: DocumentFieldsFormProps) {
@@ -253,6 +257,35 @@ export function DocumentFieldsForm({
                 field.kind === "textarea" ||
                 field.kind === "bool" ||
                 field.kind === "rate_items";
+              if (field.kind === "annex_changes") {
+                return (
+                  <div key={field.key} className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor={id} className="text-sm font-medium">
+                      {field.label}
+                      {field.required ? (
+                        <span className="ml-0.5 text-destructive" aria-hidden="true">
+                          *
+                        </span>
+                      ) : null}
+                    </Label>
+                    <AnnexChangesField
+                      id={id}
+                      value={raw}
+                      onChange={(rows) => onChange(field.key, rows)}
+                      clauses={type.clauses}
+                      clauseVars={clauseVars}
+                      onClauseTitle={(title) => {
+                        const current = values.annex_title;
+                        if (typeof current !== "string" || !current.trim()) {
+                          onChange("annex_title", title);
+                        }
+                      }}
+                      disabled={disabled}
+                      invalid={invalid}
+                    />
+                  </div>
+                );
+              }
               if (field.kind === "bool") {
                 return (
                   <div key={field.key} className="sm:col-span-2">

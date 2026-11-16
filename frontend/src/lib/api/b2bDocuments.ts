@@ -26,7 +26,9 @@ export type DocumentFieldKind =
   | "email"
   | "gender"
   /** Lista pozycji stawki aneksu (kwota, klient z NEXUSA, od, do). */
-  | "rate_items";
+  | "rate_items"
+  /** Lista zmian aneksu z własną nazwą (§, ustęp, co się dzieje, treść). */
+  | "annex_changes";
 export type DocumentFieldGroup = "base" | "document" | "partner" | "change";
 
 /** Pozycja stawki aneksu — kwota jak wpisał człowiek („135,50”). */
@@ -39,12 +41,31 @@ export interface RateItemValue {
   to?: string | null;
 }
 
+export type AnnexChangeOp = "replace" | "add" | "delete" | "free";
+
+/** Wiersz listy zmian aneksu z własną nazwą (`registry.annex_changes_problems`). */
+export interface AnnexChangeRow {
+  op: AnnexChangeOp;
+  paragraph: string;
+  section: string;
+  text: string;
+}
+
+/** Gotowa klauzula (`registry.AnnexClause`); `{klucz}` podstawia formularz. */
+export interface AnnexClauseDef {
+  key: string;
+  label: string;
+  title: string;
+  rows: { op: AnnexChangeOp; text: string; paragraph?: string; section?: string }[];
+}
+
 export type DocumentValue =
   | string
   | number
   | boolean
   | null
-  | RateItemValue[];
+  | RateItemValue[]
+  | AnnexChangeRow[];
 export type DocumentValues = Record<string, DocumentValue>;
 
 export interface DocumentFieldDef {
@@ -85,6 +106,8 @@ export interface DocumentTypeDef {
   default_validity_days?: number | null;
   /** W ilu dniach roboczych od akceptacji Klienta zawiera się umowę B2B. */
   b2b_term_business_days?: number | null;
+  /** Gotowe klauzule pola `annex_changes` (aneks z własną nazwą). */
+  clauses?: AnnexClauseDef[];
 }
 
 /** Umowy przedwstępne dozwolone w rekrutacji (po jej kliencie). */
@@ -190,6 +213,7 @@ export type AnnexChange =
   | { kind: "start_date"; before: string | null; after: string | null }
   | { kind: "party"; legal_name: string | null; nip: string | null }
   | { kind: "delegate"; name: string | null }
+  | { kind: "custom"; title: string | null; count: number }
   | {
       kind: "mandate";
       period_from: string | null;
