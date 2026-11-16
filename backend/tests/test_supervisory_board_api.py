@@ -170,3 +170,54 @@ async def test_krs_before_first_fetch_is_empty_not_error(app_client) -> None:
     board = await _user(role="board")
     resp = await app_client.get(f"{API}/krs", headers=_headers(board))
     assert resp.status_code == 200 and resp.json() == {"snapshot": None}
+
+
+async def test_summary_sums_archive_and_is_board_only(app_client) -> None:
+    from datetime import date
+    from decimal import Decimal
+    import uuid
+
+    from app.core.scheduling import business_today
+    from app.models.finance_archive import FinanceArchiveDocument
+
+    board = await _user(role="board")
+    finance = await _user("finance_module", role="finance")
+    year = business_today().year - 1
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(FinanceArchiveDocument))
+        for i, (kind, net, gross, gross_pln, currency, partner) in enumerate(
+            [
+                ("sale", "1000000.00", "1230000.00", "1230000.00", "PLN", "Klient A"),
+                ("sale", "200000.00", "200000.00", "850000.00", "EUR", "Klient B"),
+                ("cost", "800000.00", "984000.00", "984000.00", "PLN", "Dostawca"),
+            ]
+        ):
+            db.add(
+                FinanceArchiveDocument(
+                    source_id=f"{tag}-{i}",
+                    schema_name="t",
+                    kind=kind,
+                    issue_date=date(year, 3, 15),
+                    partner_name=partner,
+                    currency=currency,
+                    net_amount=Decimal(net),
+                    gross_amount=Decimal(gross),
+                    gross_pln=Decimal(gross_pln),
+                    file_type="pdf",
+                    file_path=f"x/{tag}-{i}.pdf",
+                    file_sha256="0" * 64,
+                )
+            )
+        await db.commit()
+
+    assert (await app_client.get(f"{API}/summary", headers=_headers(finance))).status_code == 403
+    resp = await app_client.get(f"{API}/summary", headers=_headers(board))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    row = next(y for y in body["years"] if y["year"] == year)
+    # 1 mln PLN + 200 tys. EUR × 4,25 = 1,85 mln sprzedaży, 0,8 mln kosztów.
+    assert row["sales"] == 1.85 and row["costs"] == 0.8 and row["result"] == 1.05
+    assert [c["name"] for c in body["top_clients"]["items"]] == ["Klient A", "Klient B"]
+    assert body["top_clients"]["items"][0]["share"] == 54.1
+    assert set(body["orders"]) >= {"active", "ending", "potential_month", "year_end"}

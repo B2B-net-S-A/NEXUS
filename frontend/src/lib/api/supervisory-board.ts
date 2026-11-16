@@ -233,3 +233,51 @@ export function useRefreshBoardKrs() {
 export function boardDocumentFilePath(id: number): string {
   return `${BASE}/documents/${id}/file`;
 }
+
+// ── Pulpit (R2) ──────────────────────────────────────────────────────────────
+
+export interface BoardYear {
+  year: number;
+  sales: number | null;
+  costs: number | null;
+  result: number | null;
+  result_pct: number | null;
+  complete: boolean;
+  /** Rok bieżący: wynik tylko z miesięcy z pełnymi kosztami (I–n). */
+  result_months?: number;
+}
+
+export interface BoardSummary {
+  source: { kind: "invoices"; first_date: string | null; last_date: string | null };
+  years: BoardYear[];
+  months: { year: number; month: number; sales: number | null; costs: number | null; costs_complete: boolean }[];
+  ytd: {
+    sales_months: number;
+    sales?: number | null;
+    sales_previous?: number | null;
+    result_months: number;
+    result?: number | null;
+    result_pct?: number | null;
+    result_previous?: number | null;
+    result_previous_pct?: number | null;
+  };
+  top_clients: { year: number; items: { name: string; sales: number | null; share: number }[] };
+  orders: {
+    active: number;
+    ending: number;
+    potential_month: number | null;
+    ending_potential_month: number | null;
+    without_rate: number;
+    year_end: string;
+  };
+  krs_missing: { year: number; missing: FilingKind[] }[];
+  documents_without_file: number;
+}
+
+export function useBoardSummary() {
+  return useQuery({
+    queryKey: ["supervisory-board", "summary"] as const,
+    queryFn: async () => (await api.get<BoardSummary>(`${BASE}/summary`)).data,
+    staleTime: 5 * 60 * 1000,
+  });
+}

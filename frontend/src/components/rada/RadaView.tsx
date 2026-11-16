@@ -2,19 +2,27 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FolderOpen } from "lucide-react";
+import { Building2, FolderOpen, LineChart } from "lucide-react";
 
 import { TabbedNav } from "@/components/ds";
+import { FirmaView } from "@/components/insights/views/FirmaView";
 import { DocumentsTab } from "./DocumentsTab";
+import { PulpitTab } from "./PulpitTab";
 
-// Zakładki dochodzą etapami (R2 Pulpit, R3 Budżet, R4 Analiza, R5 Posiedzenia).
-const TABS = [{ value: "dokumenty", label: "Dokumenty", icon: FolderOpen }];
+// Zakładki dochodzą etapami (R3 Budżet, R4 Analiza, R5 Posiedzenia).
+// „Firma” to ten sam widok co w Insights (decyzja Artura 16.11.2026: Rada
+// przejmuje go z Insights, które znika z jej menu).
+const TABS = [
+  { value: "pulpit", label: "Pulpit", icon: LineChart },
+  { value: "firma", label: "Firma", icon: Building2 },
+  { value: "dokumenty", label: "Dokumenty", icon: FolderOpen },
+];
 
 export function RadaView() {
   const router = useRouter();
   const params = useSearchParams();
   const requested = params.get("tab");
-  const tab = TABS.some((t) => t.value === requested) ? (requested as string) : "dokumenty";
+  const tab = TABS.some((t) => t.value === requested) ? (requested as string) : "pulpit";
   return (
     <div className="mx-auto w-full max-w-[1400px] px-4 py-4 sm:px-6">
       <header className="mb-3">
@@ -29,7 +37,11 @@ export function RadaView() {
         onValueChange={(v) => router.replace(`/rada?tab=${v}`)}
         ariaLabel="Sekcje Rady"
       >
-        <div className="pt-4">{tab === "dokumenty" ? <DocumentsTab /> : null}</div>
+        <div className="pt-4">
+          {tab === "pulpit" ? <PulpitTab /> : null}
+          {tab === "firma" ? <FirmaView /> : null}
+          {tab === "dokumenty" ? <DocumentsTab /> : null}
+        </div>
       </TabbedNav>
     </div>
   );

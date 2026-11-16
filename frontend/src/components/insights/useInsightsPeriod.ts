@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 import {
   readPeriodFromParams,
@@ -23,6 +23,7 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
 } {
   const { pushUrl } = useUrlWriter();
   const searchParams = useSearchParams();
+  const pathname = usePathname() ?? "/insights";
 
   const period = useMemo(
     () => readPeriodFromParams(searchParams, fallback),
@@ -32,9 +33,10 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
   const setPeriod = useCallback(
     (next: InsightsPeriodParams) => {
       const params = writePeriodToParams(searchParams, next);
-      pushUrl(`/insights?${params.toString()}`);
+      // Bieżąca ścieżka: ten sam widok Firma stoi też w „Radzie” (/rada?tab=firma).
+      pushUrl(`${pathname}?${params.toString()}`);
     },
-    [pushUrl, searchParams],
+    [pathname, pushUrl, searchParams],
   );
 
   return { period, setPeriod };
