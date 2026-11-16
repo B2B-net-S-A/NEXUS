@@ -343,13 +343,20 @@ async def prepare(
     )
     fx_rate, fx_date = await issue.fx_for(db, currency, month_range(year, month)[1])
     xml, error = None, None
-    if draft.problems:
-        error = " ".join(draft.problems)
+    buyer = issue._buyer_snapshot(client)
+    problems = list(draft.problems)
+    if not buyer["name"] or not buyer["address_l1"]:
+        problems.append(
+            "Klient nie ma nazwy albo adresu w kartotece — uzupełnij je, "
+            "żeby powstał XML korekty."
+        )
+    if problems:
+        error = " ".join(problems)
     else:
         doc = document(
             draft,
             settings=settings,
-            buyer=issue._buyer_snapshot(client),
+            buyer=buyer,
             today=today,
             fx_rate=fx_rate,
         )

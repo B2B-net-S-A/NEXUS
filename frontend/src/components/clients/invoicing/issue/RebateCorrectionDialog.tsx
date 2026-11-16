@@ -115,6 +115,10 @@ export function RebateCorrectionDialog({
               <dd className="tabular-nums">{formatMoney(draft.gross ?? `-${draft.amount}`, draft.currency)}</dd>
             </div>
           </dl>
+          <p className="text-xs text-muted-foreground">
+            Liczone z faktur przyjętych w KSeF. Szkice z NEXUSA, których jeszcze nie wysłano, nie wchodzą do korekty,
+            więc kwota może się różnić od tej na karcie szkicu.
+          </p>
           {draft.other_amounts.length > 0 ? (
             <p className="text-xs text-muted-foreground">
               Osobna korekta w innej walucie:{" "}

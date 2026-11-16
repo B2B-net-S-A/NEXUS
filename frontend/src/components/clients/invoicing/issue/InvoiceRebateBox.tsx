@@ -88,7 +88,7 @@ export function InvoiceRebateBox({
                     key={a.currency}
                     size="sm"
                     variant="outline"
-                    className="mt-1 mr-2"
+                    className="mt-1 h-auto w-full justify-start whitespace-normal py-1 text-left"
                     onClick={() =>
                       setDraft({ clientId, year: rebate.year, month: correction.month, currency: a.currency })
                     }

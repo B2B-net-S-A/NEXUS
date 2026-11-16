@@ -310,6 +310,42 @@ async def test_prepare_refuses_unknown_client():
     assert err.value.status_code == 404
 
 
+def _patch_prepare(monkeypatch):
+    status = _status((9, "900"), (10, "300"))
+    invoices = [_invoice("20/10/2026", _item("Usługi IT", "3", "100"))]
+
+    async def load(db):
+        return SETTINGS
+
+    async def year_rebate(db, **kwargs):
+        return status
+
+    async def month_invoices(db, **kwargs):
+        return invoices
+
+    async def fx_for(db, currency, delivery):
+        return None, None
+
+    monkeypatch.setattr(issue_settings, "load", load)
+    monkeypatch.setattr(issue_settings, "client_rebate", lambda data, cid: _terms())
+    monkeypatch.setattr(rebate, "year_rebate", year_rebate)
+    monkeypatch.setattr(rebate_correction, "_month_invoices", month_invoices)
+    monkeypatch.setattr(issue, "fx_for", fx_for)
+
+
+@pytest.mark.asyncio
+async def test_prepare_without_client_address_shows_amount_but_no_xml(monkeypatch):
+    _patch_prepare(monkeypatch)
+    client = _client()
+    client.address = ""
+    prepared = await rebate_correction.prepare(
+        _Db(client), client_id=11, year=2026, month=10, currency="PLN", today=DAY
+    )
+    assert prepared.xml is None
+    assert "adresu w kartotece" in prepared.xml_error
+    assert rebate_correction.payload(prepared, client_id=11)["amount"] == "1.00"
+
+
 @pytest.mark.asyncio
 async def test_prepare_builds_payload_and_schema_valid_xml(monkeypatch, schema):
     status = _status((9, "900"), (10, "300"))
