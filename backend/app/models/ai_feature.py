@@ -210,7 +210,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0712 (15.11.2026): katalog raportów klienta — obowiązki raportowe
     # odczytane z fragmentów umów ramowych jako propozycje dla DL-a.
     client_report_requirements = "client_report_requirements"
-    # 0721 (16.11.2026): szkic uzasadnienia (EN) prośby o dopłatę za technologię
+    # 0723 (16.11.2026): szkic uzasadnienia (EN) prośby o dopłatę za technologię
     # premium z umowy ramowej — DL poprawia i wysyła klientowi sam.
     premium_skill_justification = "premium_skill_justification"
 
