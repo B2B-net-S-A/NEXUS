@@ -144,7 +144,7 @@ MODULES = (
     client_reports,
     # 0713: radar przepisów — biegi botów, pozycje, zmiany w prawie (15.11.2026).
     law_radar,
-    # 0716: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw (16.11.2026).
+    # 0718: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw (16.11.2026).
     payroll_k7b,
 )
 

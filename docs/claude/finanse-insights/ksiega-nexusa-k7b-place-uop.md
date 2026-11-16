@@ -4,7 +4,7 @@ Druga część K7 planu „Księgowość w NEXUSIE” (https://claude.ai/artifac
 K7a (`ksiega-nexusa-k7a-place.md`) liczy brutto → netto z kwot; K7b liczy samo brutto
 osoby na umowie o pracę z pensją i dekretuje listę NEXUSA do księgi. Cel: wyłączyć
 Enovę 365 Kadry i Płace po 2–3 miesiącach list liczonych równolegle i zgodnych do
-grosza (decyzja Artura z 13.11.2026). Migracja `0716_payroll_salaries`
+grosza (decyzja Artura z 13.11.2026). Migracja `0718_payroll_salaries`
 (`hr_payroll_k7b_schema.py`, lustro przez `hr_schema_bundle`), kod
 `backend/app/services/hr/payroll_lists/` (`salary.py` czyste reguły, `uop.py` dane
 z bazy, `uop_admin.py` zapis, `ledger_post.py` LP, `enova_compare.py`), ekran

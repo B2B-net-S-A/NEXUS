@@ -4713,7 +4713,7 @@ async def api_health_deep_check(request: Request):
         ("payroll_list_lines", PayrollListLine),
         ("payroll_gross_inputs", PayrollGrossInput),
         ("payroll_year_openings", PayrollYearOpening),
-        # 0716: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw.
+        # 0718: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw.
         ("payroll_salaries", PayrollSalary),
         ("payroll_components", PayrollComponent),
         ("payroll_absence_marks", PayrollAbsenceMark),
