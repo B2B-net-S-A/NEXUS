@@ -735,3 +735,27 @@ def test_business_category_is_not_cut_as_a_third_name_word():
     text = ORDER.replace("Jan Testowy IT Operations - Senior", "Jan Testowy Business Analyst - Expert")
     (row,) = nordea.extract_rows(text)
     assert row.client_category == "Business Analyst - Expert"
+
+
+def test_business_category_after_the_name_does_not_make_the_row_uncertain():
+    # 16.11.2026: „Business” to początek kategorii Nordei, nie trzeci człon
+    # nazwiska — wiersz z grupy Business nie idzie przez to do weryfikacji.
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior Poland - 1 728 Hours 175,00 PLN",
+        "Jan Testowy Business Analyst - Expert Poland - 456 Hours 178,00 PLN",
+    )
+    (row,) = nordea.extract_rows(text)
+    assert (row.consultant_name, row.rate_client) == ("Jan Testowy", Decimal("178.00"))
+    assert not row.uncertain
+    assert row.uncertain_reason is None
+    assert row.client_category == "Business Analyst - Expert"
+
+
+def test_third_name_word_before_business_category_is_still_uncertain():
+    text = ORDER.replace(
+        "Jan Testowy IT Operations - Senior", "Jan Testowy Nowak Business Architect"
+    )
+    (row,) = nordea.extract_rows(text)
+    assert row.uncertain
+    assert "Nowak" in row.uncertain_reason
+    assert row.client_category == "Business Architect"
