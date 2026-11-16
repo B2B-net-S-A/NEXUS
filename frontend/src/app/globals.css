@@ -1564,6 +1564,10 @@ html[data-world="retro"] .bg-card:is(.rounded-lg, .rounded-xl, .rounded-2xl):whe
   box-shadow: 4px 4px 0 0 hsl(0 0% 7%);
 }
 html[data-world="retro"] kbd { background: hsl(var(--card)) !important; color: hsl(var(--foreground)) !important; }
+/* Szary chip (Badge neutral) ma tło --border: w Retro czarne jak tekst, w Blueprint
+   za jasne pod biały tekst — tło z --muted. */
+html[data-world="retro"] .bg-\[hsl\(var\(--border\)\)\].text-foreground,
+html[data-world="blueprint"] .bg-\[hsl\(var\(--border\)\)\].text-foreground { background-color: hsl(var(--muted)); }
 html[data-world="retro"] .rounded-xl,
 html[data-world="retro"] .rounded-2xl,
 html[data-world="retro"] .rounded-full:not(img):not([class*="h-2"]) { border-radius: 0; }
