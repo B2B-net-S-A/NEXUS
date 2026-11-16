@@ -236,7 +236,40 @@ export interface StaleJob {
   people: number;
 }
 
+/** Dodania do rekrutacji dziś i w ostatnich `days` dniach (z dziś). */
+export interface AddedCountsPair {
+  today: number;
+  last_days: number;
+}
+
+export interface TeamAddedRow extends AddedCountsPair {
+  user_id: number;
+  name: string;
+}
+
+/**
+ * „Kto ilu dodał” przez wszystkie rekrutacje (decyzja Artura 16.11.2026):
+ * para kandydat × rekrutacja liczona osobie z pierwszego wpisu etapu.
+ * Wiersze tylko dla aktywnych osób z rolą rekrutacyjną w grupie roli; `rest`
+ * to konta administracyjne, byli pracownicy i osoby poza filtrem roli.
+ */
+export interface TeamAddedResponse {
+  date_from: string;
+  date_to: string;
+  days: number;
+  rows: TeamAddedRow[];
+  rest: AddedCountsPair;
+  system: AddedCountsPair;
+  unattributed: AddedCountsPair;
+}
+
 export const insightsTeamSignalsApi = {
+  addedToJobs: (filters?: TeamFilterParams) =>
+    api
+      .get<TeamAddedResponse>("/api/insights/team/added-to-jobs", {
+        params: teamFilterQuery(filters),
+      })
+      .then((r) => r.data),
   people: (p: InsightsPeriodParams, filters?: TeamFilterParams) =>
     api
       .get<TeamPeopleResponse>("/api/insights/team/people", {
@@ -261,6 +294,8 @@ export const insightsTeamSignalsQueryKeys = {
     filters && (filters.role !== "all" || filters.clientId !== null)
       ? (["insights", "team", "people", p, filters.role, filters.clientId] as const)
       : (["insights", "team", "people", p] as const),
+  addedToJobs: (filters?: TeamFilterParams) =>
+    ["insights", "team", "added-to-jobs", filters?.role ?? "all", filters?.clientId ?? null] as const,
   attention: () => ["insights", "team", "attention"] as const,
   staleJobs: () => ["insights", "team", "stale-jobs"] as const,
 };

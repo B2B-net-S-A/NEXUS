@@ -2988,5 +2988,17 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "job.recruiter-team"
+  },
+  {
+    "id": "dodali-do-rekrutacji-zespol",
+    "pr": 3509,
+    "title": "Kto ilu dodał do rekrutacji — na pulpicie i w Raportach",
+    "why": "„Dodali dziś” i „Dodali 7 dni” w „Wynikach osób”: ile osób każdy dodał do rekrutacji, także już będących w bazie. To samo w Raportach → Aktywność zespołu, obok nowych profili.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "talent_community_manager"] },
+    "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.team-table.fullscreen"
   }
 ]

@@ -220,7 +220,13 @@ export interface TeamActivityEntry {
   rank: number;
   user_id: number;
   name: string;
+  /** Nowo utworzone profile (`user_activities.candidate_added`). */
   candidates_added: number;
+  /**
+   * Pary kandydat × rekrutacja dodane przez osobę (pierwszy wpis etapu, bez
+   * automatu „Nowi”) — 16.11.2026. Starszy backend: brak pola.
+   */
+  added_to_jobs?: number;
   screenings: number;
   interviews: number;
   placements: number;
@@ -236,7 +242,14 @@ export interface TeamActivityResponse {
   period: InsightsPeriod;
   limit: number;
   entries: TeamActivityEntry[];
-  totals: { users: number; actions: number };
+  totals: {
+    users: number;
+    actions: number;
+    /** Dodania silnika „Nowi” w oknie — nie należą do nikogo w rankingu. */
+    added_to_jobs_system?: number;
+    /** Stare wpisy etapu bez osoby. */
+    added_to_jobs_unattributed?: number;
+  };
   /** Konta spoza ról rekrutacyjnych — jeden wiersz pod rankingiem. */
   outside_scope?: {
     label: string;
