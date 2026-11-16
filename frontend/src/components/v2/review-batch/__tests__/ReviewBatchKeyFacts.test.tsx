@@ -57,6 +57,18 @@ describe("Kluczowe w tej rekrutacji", () => {
     expect(screen.queryByText("? bigquery")).not.toBeInTheDocument();
   });
 
+  it("polski z poziomem w profilu to „~ nie ojczysty”, nie zielony znak (16.11.2026)", () => {
+    render(
+      <ReviewBatchCard
+        item={{ ...base, key_facts: { ...base.key_facts!, polish: { state: "level", detail: "B2 w profilu" } } }}
+        onDecided={vi.fn()}
+      />,
+    );
+    const row = screen.getByTestId("review-key-polish");
+    expect(row).toHaveTextContent("~");
+    expect(row).toHaveTextContent("B2 w profilu · nie ojczysty");
+  });
+
   it("klik w pozycję zleca wyszukanie w CV", async () => {
     const onPick = vi.fn();
     render(<ReviewBatchCard item={base} onDecided={() => {}} onPickRequirement={onPick} />);

@@ -113,6 +113,11 @@ _RELATED: frozenset[frozenset[str]] = frozenset(
     }
 )
 
+# Pokrewne tylko w jedną stronę (16.11.2026): programista do rekrutacji DevOps
+# od 09.11 to 64 decyzje i 0 osób u klienta, a 16.11 w „DevOps Lead” 5 z 11
+# odrzuceń „Inna rola” to programiści Java. DevOps do programisty zostaje.
+_NOT_RELATED_THIS_WAY: frozenset[tuple[str, str]] = frozenset({("developer", "devops")})
+
 # Historia „mówi wyraźnie”: co najmniej tyle rekrutacji z rozpoznaną rolą
 # i taki udział jednej rodziny wśród nich.
 HISTORY_MIN_PROCESSES = 3
@@ -224,7 +229,10 @@ def role_mismatch(
     family = hist or cv_family
     if family is None or family == job_family:
         return None
-    if frozenset({family, job_family}) in _RELATED:
+    if (
+        frozenset({family, job_family}) in _RELATED
+        and (family, job_family) not in _NOT_RELATED_THIS_WAY
+    ):
         return None
     # Wyraźna historia dalej wygrywa z CV, także z tytułem nazywającym obie role.
     if (
@@ -314,3 +322,24 @@ async def mismatches_for_job(db, job, candidates: Sequence) -> dict[int, RoleMis
         if found is not None:
             out[candidate.id] = found
     return out
+
+
+# Lider a wykonawca (16.11.2026): od 09.11 w rekrutacjach na lidera 122 decyzje
+# o wykonawcach dały 0 osób u klienta (lider do lidera 4,7%), choć zespół dawał
+# im 57% „Pasuje”. Dlatego tylko kolejność, nie wycinanie.
+_LEADER = re.compile(
+    r"\blead|head of|manager|kierownik|\blider|\bcto\b|architect|architekt"
+    r"|principal|director|dyrektor",
+    re.IGNORECASE,
+)
+
+
+def is_leader_title(title: Optional[str]) -> bool:
+    return bool(title and _LEADER.search(title))
+
+
+def leader_gap(job_title: Optional[str], position: Optional[str]) -> bool:
+    """Rekrutacja na lidera, a osoba (znane stanowisko) jest wykonawcą."""
+    return (
+        bool(position) and is_leader_title(job_title) and not is_leader_title(position)
+    )

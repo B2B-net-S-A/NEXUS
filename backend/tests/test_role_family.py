@@ -128,6 +128,32 @@ def test_no_mark_for_the_same_related_or_unknown_role(job_family, position):
     assert rf.role_mismatch(job_family, position) is None
 
 
+def test_developer_on_a_devops_job_is_another_role():
+    # 16.11.2026: pokrewne tylko w stronę DevOps → programista.
+    found = rf.role_mismatch("devops", "Senior Java Developer")
+    assert found is not None and found.family == "developer"
+    assert rf.role_mismatch("developer", "Senior DevOps Engineer") is None
+
+
+@pytest.mark.parametrize(
+    "job_title,position,gap",
+    [
+        ("PL - DevOps Lead - MDM", "Java Developer", True),
+        ("Kierownik Projektu", "Project Manager", False),
+        ("Kierownik Projektu", "Analityk biznesowy", True),
+        (
+            "Test Automation Engineer",
+            "Test Lead",
+            False,
+        ),  # lider do wykonawcy: bez kary
+        ("Senior Test Lead", None, False),  # stanowisko nieznane
+        ("Data Analyst", "Data Analyst", False),
+    ],
+)
+def test_leader_gap(job_title, position, gap):
+    assert rf.leader_gap(job_title, position) is gap
+
+
 @pytest.mark.parametrize(
     "job_family,position",
     [

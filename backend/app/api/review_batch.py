@@ -30,7 +30,7 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.services import review_batch as svc
 from app.services import review_batch_streams, review_batch_team
 from app.services.request_work_state import IN_WORK_STATES
-from app.services.review_batch_order import OrderFacts
+from app.services.review_batch_order import OrderFacts, polish_penalty
 
 router = APIRouter(
     prefix="/api/review-batch",
@@ -81,6 +81,8 @@ def _order_note(card: svc.PendingCard) -> dict:
         "known": facts.known.as_dict() if facts.known is not None else None,
         "order_active": facts.bonus.active,
         "order_in_budget": facts.bonus.in_budget,
+        "order_polish_later": polish_penalty(facts.bonus.polish) > 0,
+        "order_leader_gap": facts.bonus.leader_gap,
     }
 
 

@@ -224,7 +224,13 @@ export function orderLine(item: ReviewBatchItem): string | null {
     item.order_active ? "aktywnie szuka" : null,
     item.order_in_budget ? "stawka w budżecie" : null,
   ].filter(Boolean);
-  return parts.length ? `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}` : null;
+  const later = [
+    item.order_polish_later ? "polski nie ojczysty" : null,
+    item.order_leader_gap ? "szukamy lidera" : null,
+  ].filter(Boolean);
+  const laterText = later.length ? ` · ${later.join(", ")} → dalej` : "";
+  if (!parts.length) return laterText ? `Kolejność: ${Math.round(item.score)}%${laterText}` : null;
+  return `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}${laterText}`;
 }
 
 function rateLine(item: ReviewBatchItem): string | null {

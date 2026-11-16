@@ -2355,6 +2355,11 @@ async def apply_move(
             gaps=data.autofill_gaps,
             detail=data.autofill_detail,
         )
+        # Reguła z braków działa od razu także na stojące karty (16.11.2026).
+        if data.autofill_gaps:
+            from app.services import autofill_withdraw
+
+            await autofill_withdraw.withdraw_failing_rules(db, job_id=job.id)
         if (
             data.autofill_whole_client
             and data.autofill_reason in autofill_feedback.CLIENT_WIDE_REASONS
@@ -3828,6 +3833,16 @@ async def build_kanban_view(
             if p.entry_source == candidate_claim.ENTRY_SYSTEM
         ],
     )
+    # Polski i lider/wykonawca w kolejności „Nowych” (16.11.2026) — jak w porcji.
+    board_signals = await review_batch_order.order_signals_for_ids(
+        db,
+        job,
+        [
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+    )
     has_system_cards = any(
         p.entry_source == candidate_claim.ENTRY_SYSTEM for p in v4_processes.values()
     )
@@ -4316,6 +4331,7 @@ async def build_kanban_view(
                     (v4.entry_meta or {}).get("rate_from_hourly"),
                     (v4.entry_meta or {}).get("rate_currency"),
                     board_budget_hourly,
+                    *board_signals.get(e.candidate_id, (None, False)),
                 ).points
                 review_owner = review_owner_by_candidate.get(e.candidate_id)
                 payload["entry_autofill"]["review_owner"] = (

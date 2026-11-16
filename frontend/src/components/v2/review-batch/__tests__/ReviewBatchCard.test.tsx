@@ -304,6 +304,13 @@ describe("rejectMissing", () => {
     );
     const known = { points: 8, client_points: 0, note_points: 8, verified_at_client: 0, last_note_days: 12 };
     expect(orderLine({ ...item, score: 70, known })).toBe("Kolejność: 70% + notatka 12 dni temu");
+    // 16.11.2026: polski nieojczysty i lider/wykonawca mówią, czemu karta jest dalej.
+    expect(orderLine({ ...item, score: 72, order_polish_later: true })).toBe(
+      "Kolejność: 72% · polski nie ojczysty → dalej",
+    );
+    expect(
+      orderLine({ ...item, score: 72, order_active: true, order_polish_later: true, order_leader_gap: true }),
+    ).toBe("Kolejność: 72% + aktywnie szuka · polski nie ojczysty, szukamy lidera → dalej");
   });
 
   it("mówi, czego brakuje", () => {
