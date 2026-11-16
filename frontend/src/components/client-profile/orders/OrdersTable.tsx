@@ -630,7 +630,7 @@ function OrdersTableRowView({
   const notes = [...(ended ? [] : lineNotes(line)), ...awaitingNotes(line)];
   const needsDecision = ended && requiresDecision(line);
   const decided = ended ? decisionLabel(line) : null;
-  // Aneks stawki klienta zmienił stawkę linii od jakiegoś dnia (0724).
+  // Aneks stawki klienta zmienił stawkę linii od jakiegoś dnia (`order_revenue_steps`).
   const revenueNote = lineRevenueStepNote(line, warsawToday());
   return (
     <tr
