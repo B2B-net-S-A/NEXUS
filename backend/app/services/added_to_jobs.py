@@ -29,11 +29,15 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Mapping
 
-from sqlalchemy import text
+from sqlalchemy import and_, case, exists, func, null, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.scheduling import local_day_start_utc
-from app.services.team_filters import client_job_filter
+from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage
+from app.models.recruitment_process import RecruitmentProcess
+from app.services.candidate_claim import ENTRY_SYSTEM
 
 __all__ = [
     "LAST_DAYS",
@@ -44,46 +48,6 @@ __all__ = [
 
 # „7 dni” = dziś i sześć dni wstecz, jak kolumna na Tablicy.
 LAST_DAYS = 7
-
-_SQL = f"""
-    WITH added AS (
-        SELECT cs.candidate_id, cs.job_id, cs.moved_by
-        FROM candidate_stages cs
-        WHERE cs.moved_at >= :since
-          AND cs.moved_at < :until
-          AND {client_job_filter("cs.job_id")}
-          AND NOT EXISTS (
-              SELECT 1
-              FROM candidate_stages earlier
-              WHERE earlier.candidate_id = cs.candidate_id
-                AND earlier.job_id = cs.job_id
-                AND (
-                    earlier.moved_at < cs.moved_at
-                    OR (earlier.moved_at = cs.moved_at AND earlier.id < cs.id)
-                )
-          )
-    ),
-    classified AS (
-        SELECT
-            CASE
-                WHEN a.moved_by IS NOT NULL THEN a.moved_by
-                WHEN rp.entry_source = 'system' THEN NULL
-                ELSE rp.opened_by_user_id
-            END AS user_id,
-            (a.moved_by IS NULL AND rp.entry_source = 'system') AS is_system
-        FROM added a
-        LEFT JOIN LATERAL (
-            SELECT p.entry_source, p.opened_by_user_id
-            FROM recruitment_processes p
-            WHERE p.candidate_id = a.candidate_id AND p.job_id = a.job_id
-            ORDER BY p.attempt_no DESC, p.id DESC
-            LIMIT 1
-        ) rp ON TRUE
-    )
-    SELECT user_id, COALESCE(is_system, FALSE) AS is_system, count(*) AS added
-    FROM classified
-    GROUP BY 1, 2
-"""
 
 
 @dataclass(frozen=True)
@@ -114,9 +78,58 @@ async def count_added_to_jobs(
     if since.tzinfo is None or until.tzinfo is None:
         # Naiwny czas Postgres wziąłby za UTC i przesunął granicę dnia.
         raise ValueError("count_added_to_jobs: okno wymaga datetime'ów tz-aware")
+    stage = aliased(CandidateStage)
+    earlier = aliased(CandidateStage)
+    # Pierwszy wpis pary = brak wcześniejszego wpisu tej pary (przy remisie
+    # czasu wcześniejszy jest mniejszy `id`).
+    added = select(stage.candidate_id, stage.job_id, stage.moved_by).where(
+        stage.moved_at >= since,
+        stage.moved_at < until,
+        ~exists().where(
+            earlier.candidate_id == stage.candidate_id,
+            earlier.job_id == stage.job_id,
+            or_(
+                earlier.moved_at < stage.moved_at,
+                and_(earlier.moved_at == stage.moved_at, earlier.id < stage.id),
+            ),
+        ),
+    )
+    if client_id is not None:
+        added = added.where(
+            stage.job_id.in_(select(Job.id).where(Job.client_id == client_id))
+        )
+    added = added.cte("added")
+    # Najnowszy proces pary — z niego Tablica bierze `entry_source`.
+    process = (
+        select(RecruitmentProcess.entry_source, RecruitmentProcess.opened_by_user_id)
+        .where(
+            RecruitmentProcess.candidate_id == added.c.candidate_id,
+            RecruitmentProcess.job_id == added.c.job_id,
+        )
+        .order_by(RecruitmentProcess.attempt_no.desc(), RecruitmentProcess.id.desc())
+        .limit(1)
+        .lateral("process")
+    )
+    from_automat = and_(
+        added.c.moved_by.is_(None), process.c.entry_source == ENTRY_SYSTEM
+    )
+    classified = (
+        select(
+            case(
+                (added.c.moved_by.is_not(None), added.c.moved_by),
+                (process.c.entry_source == ENTRY_SYSTEM, null()),
+                else_=process.c.opened_by_user_id,
+            ).label("user_id"),
+            func.coalesce(from_automat, False).label("is_system"),
+        )
+        .select_from(added.outerjoin(process, true()))
+        .subquery("classified")
+    )
     rows = (
         await db.execute(
-            text(_SQL), {"since": since, "until": until, "client_id": client_id}
+            select(classified.c.user_id, classified.c.is_system, func.count()).group_by(
+                classified.c.user_id, classified.c.is_system
+            )
         )
     ).all()
     by_user: dict[int, int] = {}
