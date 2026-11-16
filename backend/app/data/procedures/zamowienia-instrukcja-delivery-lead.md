@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 15.11.2026
+> **Zgodność z systemem sprawdzona:** 16.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -2157,7 +2157,8 @@ też **surowy tekst tabeli** z PDF-a, a system liczy w niej pozycje ze stawką:
 gdy jest ich więcej niż odczytanych osób (np. wiersz przełamany w PDF-ie na dwie
 linie), wpis czeka na Ciebie. Osoba, przed której kategorią stoi jeszcze jedno
 słowo pisane jak nazwisko („Jan Kowalski Nowak IT…"), też idzie do sprawdzenia —
-system nie zgaduje, czy nazwisko ma trzy człony.
+system nie zgaduje, czy nazwisko ma trzy człony. Kategoria z grupy Business
+(„Jan Kowalski Business Analyst – Expert…") nie jest takim słowem i wiersza nie wstrzymuje.
 
 **2. Import zamówień z CSV — nie dla Ciebie.** W zakładce „Zamówienia" jest
 zwijany panel **„Import zamówień Nordea z CSV"**, ale **widzi go wyłącznie
