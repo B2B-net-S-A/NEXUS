@@ -1,7 +1,7 @@
 """Klucz AI F50: szkic uzasadnienia dopłaty za technologię premium (EN).
 
-Revision ID: 0724_premium_justification_ai
-Revises: 0723_b2b_annex_custom
+Revision ID: 0725_premium_justification_ai
+Revises: 0724_order_revenue_steps
 
 Delivery Lead prosi klienta o dopłatę za technologię z umowy ramowej (F3/F4,
 Nordea pierwsza) i dziś pisze uzasadnienie po angielsku sam albo z szablonu.
@@ -12,8 +12,8 @@ jest zapisywany, DL go poprawia i kopiuje. Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0724_premium_justification_ai"
-down_revision = "0723_b2b_annex_custom"
+revision = "0725_premium_justification_ai"
+down_revision = "0724_order_revenue_steps"
 branch_labels = None
 depends_on = None
 
@@ -36,7 +36,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0724 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0725 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
