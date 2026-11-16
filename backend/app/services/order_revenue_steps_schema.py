@@ -1,6 +1,6 @@
-"""Kroki stawki przychodowej linii zamówienia: SQL migracji ``0721`` i lustra entrypointu.
+"""Kroki stawki przychodowej linii zamówienia: SQL migracji ``0724`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0721_order_revenue_steps.py``
+Jedno źródło instrukcji dla ``alembic/versions/0724_order_revenue_steps.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja jest idempotentna.
 

@@ -4866,7 +4866,7 @@ async def api_health_deep_check(request: Request):
         ("client_invoice_templates", ClientInvoiceTemplate),
         # 0720: archiwum dokumentów z eBI24 (E5).
         ("finance_archive_documents", FinanceArchiveDocument),
-        # 0721: kroki stawki przychodowej zamówienia (aneks stawki klienta).
+        # 0724: kroki stawki przychodowej zamówienia (aneks stawki klienta).
         ("client_order_revenue_steps", ClientOrderRevenueStep),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich

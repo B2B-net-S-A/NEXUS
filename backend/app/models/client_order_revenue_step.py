@@ -1,4 +1,4 @@
-"""Krok stawki przychodowej zamówienia od dnia (0721).
+"""Krok stawki przychodowej zamówienia od dnia (0724).
 
 CHECK-i i indeksy muszą być identyczne z
 ``app/services/order_revenue_steps_schema.py`` (raport ``compare_metadata``
