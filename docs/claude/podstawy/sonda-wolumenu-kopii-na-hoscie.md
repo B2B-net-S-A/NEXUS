@@ -1,5 +1,5 @@
 # Zajętość wolumenu kopii w `/api/health` zapisuje cron na hoście
-<!-- indeks: /etc/cron.d/nexus-backup-volume co 15 min, `backup-volume.json` w /var/lib/nexus-status, `backupVolumePercent` null od 23.09 do 16.11, PROD-01 z audytu 22.09, `/var/backups` symlink na sdb, disk-alert.yml próg 80%, retencja KEEP_PG=30 -->
+<!-- indeks: /etc/cron.d/nexus-backup-volume co 15 min, `backup-volume.json` w /var/lib/nexus-status, `backupVolumePercent` null od 23.09 do 16.11, PROD-01 z audytu 22.09, `/var/backups` symlink na sdb, disk-alert.yml próg 80%, retencja KEEP_PG=14 od 16.11 (było 30, zrzut 6 GB) -->
 
 Audyt 22.09.2026 (PROD-01) dodał do `/api/health` pola `backupVolumePercent`
 i `backupVolumeCheckedAt` (`backend/app/services/host_status.py`) oraz montowanie
@@ -40,7 +40,7 @@ Wolumen 197 GB (187 GiB dla `df` po rezerwie), 73%, 52 GiB wolne. Zawartość
 `/var/backups/nexus`: 30 zrzutów Postgresa 132 GB, 28 snapshotów Qdranta 10,7 GB (4 przebiegi
 po 7 kolekcji), zrzuty `coolify_db` 2,7 GB, `coolify_config` 25 MB.
 
-Retencja w `/root/nexus-backup.sh` liczy pliki, nie bajty: `KEEP_PG=30` (komentarz zakłada
+Retencja w `/root/nexus-backup.sh` liczy pliki, nie bajty: było `KEEP_PG=30` (komentarz zakładał
 ~265 MB na zrzut, dziś to ok. 6 GB), Qdrant `KEEP_QDRANT*4` plików, do tego `-mtime +30`.
 Zrzut rósł z 1,7 GB (18.10) przez 4,8 GB (01.11) do 6,0 GB (16.11). Każdej nocy nowy zrzut
 ~6 GB wypiera najstarszy, a najstarsze są małe, więc wolumen przybywa o kilka GB na dobę.
@@ -50,7 +50,13 @@ Symulacja na tych rozmiarach (wzrost zrzutu 0,04–0,08 GB/dobę): 80% ok. 21–
 Pełny wolumen = nieudany `pg_dump`, częściowy plik kasowany, a przy liczeniu `KEEP_PG`
 nic nie zwalnia miejsca, więc kolejne noce też bez zrzutu. Kopii poza serwerem nie ma
 (`/root/nexus-offsite-backup.sh` kończy się co noc „konto off-site nie zostało założone”),
-więc lokalne zrzuty to jedyna historia. Zmiana retencji jest decyzją Artura.
+więc lokalne zrzuty to jedyna historia.
+
+**Decyzja Artura z 16.11.2026: `KEEP_PG=14`.** Linia 17 `/root/nexus-backup.sh`, kopia
+sprzed zmiany `/root/nexus-backup.sh.bak-20261116-keep30`. Pierwszy bieg 17.11 o 06:30 UTC
+kasuje 16 najstarszych zrzutów (18.10–02.11, ok. 60 GB); wolumen powinien spaść do ok. 45%
+i ustalić się na ok. 50% (14 × 6 GB + reszta). Gdy zrzut dalej rośnie, ten stan rośnie
+z nim: o 1 GB na zrzut to ok. 7 pkt proc.
 
 ## Odczyt i cofnięcie
 

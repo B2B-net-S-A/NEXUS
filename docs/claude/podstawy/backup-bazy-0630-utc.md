@@ -34,9 +34,15 @@ Pomiar z 08.11 (1000 biegów Deploy z 07.10–08.11, bieg dłuższy niż 4 min, 
 startu backupu): przy 02:30 UTC 5 nałożeń, przy 06:30 UTC 3, wszystkie z 07.10 i 14.10,
 przed wprowadzeniem okna wdrożeń. Od zmiany czasu 25.10 przy 06:30 UTC zero.
 
+## Retencja od 16.11.2026
+
+`KEEP_PG=14` zamiast 30 (decyzja Artura), bo zrzut urósł do ok. 6 GB i 30 zrzutów zapełniało
+wolumen kopii ok. 6.12. Szczegóły i sonda zajętości: `sonda-wolumenu-kopii-na-hoscie.md`.
+
 ## Kopie przed zmianą
 
 Na hoście zostały `/root/nexus-backup.sh.bak-20261108` i
-`/root/scripts/crontab.backup-20261108-backup`.
+`/root/scripts/crontab.backup-20261108-backup`, a sprzed zmiany retencji
+`/root/nexus-backup.sh.bak-20261116-keep30`.
 
 Procedura odtworzenia i kopia poza serwerem: `docs/disaster-recovery.md`.
