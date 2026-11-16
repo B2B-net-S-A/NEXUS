@@ -247,6 +247,7 @@ async def test_waiting_for_download_budget_does_not_expire_the_queue(env, monkey
     """
 
     monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 0)
     monkeypatch.setattr(sync, "MAX_PENDING_ATTEMPTS", 2)
     for _ in range(6):
         await env.run()
@@ -466,3 +467,18 @@ async def test_backfill_keeps_its_place_when_the_budget_runs_out(env, monkeypatc
     env.clock.advance(hours=1)
     await env.run()
     assert (await _state())["backfill"][key]["done"] is True
+
+
+async def test_backfill_raises_the_download_budget_until_it_is_done(env, monkeypatch):
+    """Dopóki trwają zaległe okna, przebieg ma dodatkowy budżet pobrań; po ``done`` — zwykły."""
+
+    key = f"test:{fx.COMPANY_NIP}"
+    assert sync._backfill_pending({}, key) is True
+    assert sync._backfill_pending({"backfill": {key: {"cursor": "x"}}}, key) is True
+    assert sync._backfill_pending({"backfill": {key: {"done": True}}}, key) is False
+    # Budżet 1 + 3 dodatkowe: pierwszy przebieg pobiera 4 z 5 faktur, drugi resztę.
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 3)
+    first = await env.run()
+    assert first["status"] == "ok", first
+    assert first["saved"] == 4
