@@ -125,7 +125,11 @@ SPECS: dict[str, ParamSpec] = {
     ),
     # ── K7b: choroba i urlop (art. 92 KP, ustawa zasiłkowa, rozporządzenie urlopowe)
     "sick_pay_rate": _spec(
-        "Wynagrodzenie chorobowe — procent podstawy", "Choroba i urlop", "%", "50", "100"
+        "Wynagrodzenie chorobowe — procent podstawy",
+        "Choroba i urlop",
+        "%",
+        "50",
+        "100",
     ),
     "sick_pay_days_limit": _spec(
         "Wynagrodzenie chorobowe od pracodawcy — dni w roku",
@@ -152,7 +156,12 @@ SPECS: dict[str, ParamSpec] = {
         integer=True,
     ),
     "waiting_period_days": _spec(
-        "Okres wyczekiwania na chorobowe", "Choroba i urlop", "dni", "0", "180", integer=True
+        "Okres wyczekiwania na chorobowe",
+        "Choroba i urlop",
+        "dni",
+        "0",
+        "180",
+        integer=True,
     ),
     "benefit_payer": _spec(
         "Firma wypłaca zasiłki (1 = ponad 20 ubezpieczonych chorobowo na 30.11)",

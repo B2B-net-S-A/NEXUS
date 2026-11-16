@@ -53,7 +53,14 @@ from app.services.hr.payroll_errors import (
     PayrollForbidden,
     PayrollNotFound,
 )
-from app.services.hr.payroll_lists import engine, parameters, person_data, sources
+from app.services.hr.payroll_lists import (
+    engine,
+    parameters,
+    person_data,
+    salary,
+    sources,
+    uop,
+)
 from app.services.hr.payroll_lists import params as params_rules
 from app.services.hr.payroll_lists.engine import ZERO, Result, Title, YearToDate
 from app.services.hr.payroll_lists.person_data import Subject
@@ -125,6 +132,32 @@ PROBLEMS: dict[str, tuple[str, bool]] = {
         "Brakuje danych do KEDU i PIT-11 (adres, urząd, kod tytułu).",
         False,
     ),
+    # ── K7b: pensja UoP ──────────────────────────────────────────────────────
+    "z3_needed": (
+        "Dni zasiłku chorobowego z ZUS — wyślij Z-3 przez PUE ZUS (płaci ZUS, "
+        "firma do 20 ubezpieczonych).",
+        False,
+    ),
+    "benefit_payer_manual": (
+        "Firma jest płatnikiem zasiłków, a NEXUS ich nie liczy — wpisz kwotę brutto "
+        "z zasiłkiem.",
+        True,
+    ),
+    "salary_and_rate": (
+        "Osoba ma pensję i stawkę godzinową — lista liczy pensję, godziny × stawka "
+        "pominięte.",
+        False,
+    ),
+    "salary_invalid": (
+        "Nie da się policzyć pensji (pensja albo daty zatrudnienia) — sprawdź "
+        "kartotekę albo wpisz kwotę brutto.",
+        True,
+    ),
+    "equivalent_overused": (
+        "W roku odejścia wykorzystano więcej urlopu, niż przysługuje — ekwiwalentu "
+        "nie ma; potrącenia za nadwyżkę nie robi się.",
+        False,
+    ),
 }
 KINDS_LABEL = {"uop": "Umowa o pracę", "zlecenie": "Zlecenie", "dzielo": "Dzieło"}
 SOURCE_LABEL = {
@@ -132,6 +165,7 @@ SOURCE_LABEL = {
     "client_settlement": "rozliczenie klienta",
     "manual": "kwota wpisana przez Rozliczenia",
     "missing": "brak kwoty",
+    "salary": "pensja z kartoteki płac",
 }
 TOTAL_FIELDS: tuple[str, ...] = (
     "gross",
@@ -357,6 +391,43 @@ def fund_equivalent(
     return engine.money(gross * month_days / days)
 
 
+def _date_or_none(raw: Any) -> Optional[date]:
+    try:
+        return date.fromisoformat(str(raw)) if raw else None
+    except ValueError:
+        return None
+
+
+def _salary_line(
+    item: sources.Source,
+    data: dict[str, Any],
+    birth_date: Optional[date],
+    params: params_rules.Params,
+) -> None:
+    """K7b: brutto pozycji UoP z pensji — chorobowe, urlopowe, ekwiwalent."""
+
+    assert item.uop is not None
+    month = uop.with_person(
+        item.uop,
+        birth_date=birth_date,
+        insured_since=_date_or_none(data.get("sickness_insured_since")),
+        waiting_exempt=bool(data.get("waiting_period_exempt")),
+    )
+    try:
+        pay = salary.month_pay(month, params)
+    except ValueError:
+        item.problems.append("salary_invalid")
+        item.gross = None
+        return
+    item.gross = pay.gross
+    item.social_exempt = pay.sick_pay
+    item.fund_basis = pay.fund_basis
+    item.basis = {**item.basis, "k7b": pay.to_json()}
+    for code in [*pay.problems, *item.basis.get("k7b_notes", [])]:
+        if code in PROBLEMS and code not in item.problems:
+            item.problems.append(code)
+
+
 def calculate(prepared: Prepared) -> list[Computed]:
     """Silnik po osobach: UoP przed zleceniem, stan roku i miesiąca z pozycji na pozycję.
 
@@ -392,6 +463,14 @@ def calculate(prepared: Prepared) -> list[Computed]:
         tax = person_data.person_tax(data or {}, profile, youth_age=params.youth_age)
         flags = person_data.mandate_flags(data or {})
         has_uop = any(item.kind == "uop" for item in items)
+        state = prepared.ytd.get(key, YearToDate())
+        month = prepared.month.get(key, sources.MonthState())
+        reduction_used = month.reduction_used
+        kup_used = month.kup_used
+        ppk_taxable = prepared.ppk.get(key, ZERO)
+        for item in items:
+            if item.uop is not None and item.source == "salary":
+                _salary_line(item, data or {}, tax.birth_date, params)
         fund_basis = sum(
             (
                 fund_equivalent(item, profile, first, last)
@@ -400,11 +479,6 @@ def calculate(prepared: Prepared) -> list[Computed]:
             ),
             ZERO,
         )
-        state = prepared.ytd.get(key, YearToDate())
-        month = prepared.month.get(key, sources.MonthState())
-        reduction_used = month.reduction_used
-        kup_used = month.kup_used
-        ppk_taxable = prepared.ppk.get(key, ZERO)
         for item in items:
             problems = list(dict.fromkeys([*item.problems, *person_problems]))
             if has_uop and item.kind == "zlecenie":
@@ -426,6 +500,7 @@ def calculate(prepared: Prepared) -> list[Computed]:
                 labour_fund_basis=fund_basis,
                 reduction_used=reduction_used,
                 kup_used=kup_used,
+                social_exempt=item.social_exempt,
             )
             ppk_taxable = ZERO
             result = engine.calculate(title, tax, state, params)
@@ -793,6 +868,10 @@ async def cancel(
                 "się od tej.",
                 code="later_list_approved",
             )
+    # K7b: szkic LP z tej listy znika, zatwierdzony LP blokuje (najpierw storno).
+    from app.services.hr.payroll_lists import ledger_post
+
+    await ledger_post.on_cancel(db, actor=actor, lst=lst)
     previous = lst.status
     lst.status = "cancelled"
     lst.cancelled_by = actor.id
@@ -1098,6 +1177,10 @@ def line_payload(line: PayrollListLine) -> dict[str, Any]:
         "notes": notes,
         "problems": [problem_view(code) for code in line.problems or []],
         "payee_last4": line.payee_last4,
+        "k7b_notes": [
+            {"code": code, "label": salary.NOTE_LABELS.get(code, code)}
+            for code in ((line.basis or {}).get("k7b") or {}).get("notes", [])
+        ],
     }
 
 
@@ -1148,6 +1231,7 @@ async def list_payload(
         "cancelled_by": names.get(lst.cancelled_by) if lst.cancelled_by else None,
         "cancelled_at": lst.cancelled_at.isoformat() if lst.cancelled_at else None,
         "cancel_reason": lst.cancel_reason,
+        "ledger_document": await _ledger_status(db, lst),
         "transfers_created_at": lst.transfers_created_at.isoformat()
         if lst.transfers_created_at
         else None,
@@ -1160,9 +1244,19 @@ async def list_payload(
     }
 
 
+async def _ledger_status(
+    db: AsyncSession, lst: PayrollList
+) -> Optional[dict[str, Any]]:
+    from app.services.hr.payroll_lists import ledger_post
+
+    return await ledger_post.status_of(db, lst)
+
+
 async def month_payload(
     db: AsyncSession, *, viewer: User, year: int, month: int
 ) -> dict[str, Any]:
+    from app.services.hr.payroll_lists import uop_admin
+
     validate_period(year, month)
     period = await get_period(db, year, month)
     payout_day = (await bank_settings.load_settings(db)).payout_day
@@ -1216,6 +1310,10 @@ async def month_payload(
         "list": await list_payload(db, current, viewer=viewer) if current else None,
         "cancelled": history,
         "inputs": inputs,
+        "components": [
+            uop_admin.component_payload(item)
+            for item in await uop_admin.components(db, year, month)
+        ],
         "can_compute": bool(
             period is not None
             and period.status == "closed"

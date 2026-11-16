@@ -53,7 +53,9 @@ def november(**changes) -> MonthInput:
 
 
 def sick(start: date, end: date, rate: str = "80", key: str = "a", **kw) -> Absence:
-    return Absence(key=key, leave_type="sick_leave", start=start, end=end, sick_rate=rate, **kw)
+    return Absence(
+        key=key, leave_type="sick_leave", start=start, end=end, sick_rate=rate, **kw
+    )
 
 
 def leave(kind: str, days: list[date], key: str = "u") -> Absence:
@@ -71,10 +73,14 @@ def leave(kind: str, days: list[date], key: str = "u") -> Absence:
 
 def test_wymiar_counts_saturday_holidays_and_skips_sunday_ones() -> None:
     # Listopad 2026: 21 dni pon.–pt., 11.11 w środę; 1.11 w niedzielę nie obniża.
-    assert salary.nominal_hours(date(2026, 11, 1), date(2026, 11, 30), D("1")) == D("160")
+    assert salary.nominal_hours(date(2026, 11, 1), date(2026, 11, 30), D("1")) == D(
+        "160"
+    )
     # Sierpień 2026: 15.08 w sobotę obniża wymiar o 8 h (21 dni pon.–pt. → 20).
     assert salary.wymiar_days(date(2026, 8, 1), date(2026, 8, 31)) == 20
-    assert salary.nominal_hours(date(2026, 11, 1), date(2026, 11, 30), D("0.5")) == D("80")
+    assert salary.nominal_hours(date(2026, 11, 1), date(2026, 11, 30), D("0.5")) == D(
+        "80"
+    )
 
 
 def test_leave_coefficient_2026_matches_seed() -> None:
@@ -117,7 +123,9 @@ def test_unpaid_leave_cuts_hours_and_vacation_does_not() -> None:
 
 
 def test_sick_pay_80_percent_from_twelve_months() -> None:
-    pay = salary.month_pay(november(absences=(sick(date(2026, 11, 9), date(2026, 11, 13)),)), P)
+    pay = salary.month_pay(
+        november(absences=(sick(date(2026, 11, 9), date(2026, 11, 13)),)), P
+    )
     (part,) = pay.sick
     assert part.base == D("6903.20")  # 8000 − 13,71%
     assert part.daily == D("184.09")  # 6903,20 × 80% / 30
@@ -161,7 +169,9 @@ def test_waiting_period_exemption_from_person_or_absence() -> None:
     hired = date(2026, 11, 2)
     common = dict(employed_from=hired, hired_on=hired, insured_since=hired, history=())
     l4 = sick(date(2026, 11, 10), date(2026, 11, 11))
-    by_person = salary.month_pay(november(waiting_exempt=True, absences=(l4,), **common), P)
+    by_person = salary.month_pay(
+        november(waiting_exempt=True, absences=(l4,), **common), P
+    )
     by_mark = salary.month_pay(
         november(absences=(replace(l4, waiting_exempt=True),), **common), P
     )
@@ -187,7 +197,10 @@ def test_yearly_limit_then_zus_benefit_and_z3_problem() -> None:
 def test_benefit_payer_makes_zus_days_a_blocking_manual_case() -> None:
     payer = replace(P, benefit_payer=1)
     pay = salary.month_pay(
-        november(sick_days_used=((2026, 33),), absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),)),
+        november(
+            sick_days_used=((2026, 33),),
+            absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),),
+        ),
         payer,
     )
     assert pay.problems == ("benefit_payer_manual",)
@@ -195,7 +208,9 @@ def test_benefit_payer_makes_zus_days_a_blocking_manual_case() -> None:
 
 def test_fourteen_days_from_year_after_fiftieth_birthday() -> None:
     assert salary.sick_limit(date(1975, 6, 1), 2026, P) == 14
-    assert salary.sick_limit(date(1976, 6, 1), 2026, P) == 33  # 50 lat w 2026 — jeszcze 33
+    assert (
+        salary.sick_limit(date(1976, 6, 1), 2026, P) == 33
+    )  # 50 lat w 2026 — jeszcze 33
     assert salary.sick_limit(None, 2026, P) == 33
 
 
@@ -230,12 +245,21 @@ def test_sick_and_unpaid_leave_two_steps() -> None:
 def test_base_skips_months_below_half_and_supplements_partial() -> None:
     history = list(full_history(2026, 11))
     # Październik: przepracowane 60 z 160 h (mniej niż połowa) — wypada.
-    history[0] = replace(history[0], fixed_paid=D("3000"), paid_hours=D("60"), worked_hours=D("60"))
+    history[0] = replace(
+        history[0], fixed_paid=D("3000"), paid_hours=D("60"), worked_hours=D("60")
+    )
     # Wrzesień: 120 z 160 h — uzupełniony do pełnej pensji.
-    history[1] = replace(history[1], fixed_paid=D("6000"), paid_hours=D("120"), worked_hours=D("120"))
+    history[1] = replace(
+        history[1], fixed_paid=D("6000"), paid_hours=D("120"), worked_hours=D("120")
+    )
     base, notes = salary.sick_base(
-        history, year=2026, month=11, hired_on=date(2020, 1, 1),
-        monthly_salary=D("8000"), fte=D("1"), params=P,
+        history,
+        year=2026,
+        month=11,
+        hired_on=date(2020, 1, 1),
+        monthly_salary=D("8000"),
+        fte=D("1"),
+        params=P,
     )
     assert base == D("6903.20") and notes == []
 
@@ -246,8 +270,13 @@ def test_base_from_all_months_when_none_reaches_half() -> None:
         for row in full_history(2026, 11)
     ]
     base, notes = salary.sick_base(
-        history, year=2026, month=11, hired_on=date(2020, 1, 1),
-        monthly_salary=D("8000"), fte=D("1"), params=P,
+        history,
+        year=2026,
+        month=11,
+        hired_on=date(2020, 1, 1),
+        monthly_salary=D("8000"),
+        fte=D("1"),
+        params=P,
     )
     assert "sick_base_all_months" in notes
     assert base == D("6903.20")  # stałe uzupełnione do pełnego miesiąca
@@ -255,8 +284,13 @@ def test_base_from_all_months_when_none_reaches_half() -> None:
 
 def test_base_never_below_minimum_wage_after_contributions() -> None:
     base, notes = salary.sick_base(
-        full_history(2026, 11, amount="4000"), year=2026, month=11,
-        hired_on=date(2020, 1, 1), monthly_salary=D("4000"), fte=D("1"), params=P,
+        full_history(2026, 11, amount="4000"),
+        year=2026,
+        month=11,
+        hired_on=date(2020, 1, 1),
+        monthly_salary=D("4000"),
+        fte=D("1"),
+        params=P,
     )
     assert base == D("4806.00") - D("658.90")
     assert notes == ["sick_base_minimum"]
@@ -265,13 +299,23 @@ def test_base_never_below_minimum_wage_after_contributions() -> None:
 def test_base_only_from_full_months_after_hiring() -> None:
     history = full_history(2026, 11)  # 12 miesięcy po 8000, ale zatrudnienie od 15.09
     base, notes = salary.sick_base(
-        history, year=2026, month=11, hired_on=date(2026, 9, 15),
-        monthly_salary=D("9000"), fte=D("1"), params=P,
+        history,
+        year=2026,
+        month=11,
+        hired_on=date(2026, 9, 15),
+        monthly_salary=D("9000"),
+        fte=D("1"),
+        params=P,
     )
     assert base == D("6903.20") and notes == []  # tylko październik (pełny)
     base, notes = salary.sick_base(
-        (), year=2026, month=11, hired_on=date(2026, 11, 2),
-        monthly_salary=D("9000"), fte=D("1"), params=P,
+        (),
+        year=2026,
+        month=11,
+        hired_on=date(2026, 11, 2),
+        monthly_salary=D("9000"),
+        fte=D("1"),
+        params=P,
     )
     assert base == D("7766.10") and notes == ["sick_base_salary"]
 
@@ -279,26 +323,40 @@ def test_base_only_from_full_months_after_hiring() -> None:
 def test_base_reused_within_three_months() -> None:
     previous = salary.PreviousSick(last_day=date(2026, 9, 20), base=D("7000.00"))
     pay = salary.month_pay(
-        november(previous_sick=previous, absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),)), P
+        november(
+            previous_sick=previous,
+            absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),),
+        ),
+        P,
     )
     assert pay.sick[0].base == D("7000.00") and "sick_base_reused" in pay.notes
     far = salary.PreviousSick(last_day=date(2026, 8, 5), base=D("7000.00"))
     pay = salary.month_pay(
-        november(previous_sick=far, absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),)), P
+        november(
+            previous_sick=far, absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),)
+        ),
+        P,
     )
     assert pay.sick[0].base == D("6903.20")
 
 
 def test_sick_base_override_from_payroll_wins() -> None:
     pay = salary.month_pay(
-        november(sick_base_override=D("5000"), absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),)), P
+        november(
+            sick_base_override=D("5000"),
+            absences=(sick(date(2026, 11, 9), date(2026, 11, 9)),),
+        ),
+        P,
     )
     assert pay.sick[0].base == D("5000.00")
 
 
 def test_unknown_sick_rate_and_bad_input_refused() -> None:
     with pytest.raises(ValueError):
-        salary.month_pay(november(absences=(sick(date(2026, 11, 9), date(2026, 11, 9), rate="70"),)), P)
+        salary.month_pay(
+            november(absences=(sick(date(2026, 11, 9), date(2026, 11, 9), rate="70"),)),
+            P,
+        )
     with pytest.raises(ValueError):
         salary.month_pay(november(fte=D("0")), P)
     with pytest.raises(ValueError):
@@ -311,7 +369,9 @@ def test_unknown_sick_rate_and_bad_input_refused() -> None:
 def test_leave_pay_for_variable_components_from_three_months() -> None:
     history = tuple(replace(row, variable=D("1600")) for row in full_history(2026, 11))
     vacation = leave("vacation", [date(2026, 11, 2), date(2026, 11, 3)])
-    pay = salary.month_pay(november(history=history, absences=(vacation,), variable=D("1200")), P)
+    pay = salary.month_pay(
+        november(history=history, absences=(vacation,), variable=D("1200")), P
+    )
     assert pay.leave_variable == D("160.00")  # 4800 / 480 h × 16 h
     assert pay.gross == D("8000") + D("160.00") + D("1200")
     assert pay.basis.leave_variable == D("160.00")
@@ -332,10 +392,18 @@ def test_bonuses_and_other_stay_outside_bases() -> None:
 
 def test_equivalent_per_hour_rule() -> None:
     assert salary.equivalent_amount(
-        monthly_salary=D("6000"), variable_average=D("0"), fte=D("1"), days=D("10"), params=P
+        monthly_salary=D("6000"),
+        variable_average=D("0"),
+        fte=D("1"),
+        days=D("10"),
+        params=P,
     ) == D("2868.00")  # 6000/20,92 = 286,81; /8 = 35,85; × 80 h
     half = salary.equivalent_amount(
-        monthly_salary=D("3000"), variable_average=D("0"), fte=D("0.5"), days=D("10"), params=P
+        monthly_salary=D("3000"),
+        variable_average=D("0"),
+        fte=D("0.5"),
+        days=D("10"),
+        params=P,
     )
     assert half == D("2868.00")  # współczynnik 10,46
 
@@ -350,13 +418,23 @@ def test_equivalent_on_list_when_contract_ends() -> None:
 
 def test_unused_leave_proportional_in_year_of_leaving() -> None:
     days, over = salary.unused_leave_days(
-        entitlement=D("26"), carried_over=D("2"), used_before=D("0"), used_paid=D("10"),
-        year=2026, employed_from=date(2020, 1, 1), employed_to=date(2026, 6, 10),
+        entitlement=D("26"),
+        carried_over=D("2"),
+        used_before=D("0"),
+        used_paid=D("10"),
+        year=2026,
+        employed_from=date(2020, 1, 1),
+        employed_to=date(2026, 6, 10),
     )
     assert (days, over) == (D("5"), False)  # 26 × 6/12 = 13, + 2 − 10
     days, over = salary.unused_leave_days(
-        entitlement=D("20"), carried_over=D("0"), used_before=D("0"), used_paid=D("12"),
-        year=2026, employed_from=date(2026, 3, 15), employed_to=date(2026, 7, 2),
+        entitlement=D("20"),
+        carried_over=D("0"),
+        used_before=D("0"),
+        used_paid=D("12"),
+        year=2026,
+        employed_from=date(2026, 3, 15),
+        employed_to=date(2026, 7, 2),
     )
     assert (days, over) == (D("0"), True)  # 20 × 5/12 = 8,33 → 9 < 12
 
@@ -384,8 +462,12 @@ def test_engine_sick_pay_without_social_but_with_health_and_pit() -> None:
 
 def test_engine_whole_month_sick_pay_has_health_only() -> None:
     title = engine.Title(
-        kind="uop", gross=D("5522.70"), social_exempt=D("5522.70"),
-        work_start=date(2026, 11, 1), work_end=date(2026, 11, 30), pay_date=date(2026, 12, 10),
+        kind="uop",
+        gross=D("5522.70"),
+        social_exempt=D("5522.70"),
+        work_start=date(2026, 11, 1),
+        work_end=date(2026, 11, 30),
+        pay_date=date(2026, 12, 10),
     )
     result = engine.calculate(title, engine.PersonTax(), engine.YearToDate(), P)
     assert result.social_employee == 0 and result.employer_social == 0
@@ -394,16 +476,26 @@ def test_engine_whole_month_sick_pay_has_health_only() -> None:
 
 
 def test_engine_refuses_social_exempt_outside_uop_or_above_gross() -> None:
-    common = dict(work_start=date(2026, 11, 1), work_end=date(2026, 11, 30), pay_date=date(2026, 12, 10))
+    common = dict(
+        work_start=date(2026, 11, 1),
+        work_end=date(2026, 11, 30),
+        pay_date=date(2026, 12, 10),
+    )
     with pytest.raises(ValueError):
         engine.calculate(
-            engine.Title(kind="zlecenie", gross=D("100"), social_exempt=D("10"), **common),
-            engine.PersonTax(), engine.YearToDate(), P,
+            engine.Title(
+                kind="zlecenie", gross=D("100"), social_exempt=D("10"), **common
+            ),
+            engine.PersonTax(),
+            engine.YearToDate(),
+            P,
         )
     with pytest.raises(ValueError):
         engine.calculate(
             engine.Title(kind="uop", gross=D("100"), social_exempt=D("101"), **common),
-            engine.PersonTax(), engine.YearToDate(), P,
+            engine.PersonTax(),
+            engine.YearToDate(),
+            P,
         )
 
 
@@ -419,3 +511,110 @@ def test_versions_saved_before_k7b_parse_with_defaults() -> None:
         params.parse({**params.SEED_2026, "sick_pay_days_limit": "0"})
     with pytest.raises(params.ParamsError):
         params.parse({**params.SEED_2026, "benefit_payer": "2"})
+
+
+# ── Porównanie z Enovą i dekret LP (bez bazy) ───────────────────────────────
+
+ENOVA_CSV = "\r\n".join(
+    [
+        "Pracownik;Razem brutto;Emerytalne prac.;Rentowe prac.;Chorobowe;Zdrowotne;"
+        "Zaliczka podatku;PPK pracownika;Do wypłaty;Emerytalne pracodawca;Rentowe pracodawca;"
+        "Wypadkowe;FP;FGŚP;PPK pracodawcy",
+        "Testowa Anna;10000,00;976,00;150,00;245,00;776,61;588,00;200,00;7064,39;976,00;650,00;"
+        "167,00;245,00;10,00;150,00",
+        "Przykładowy Jan;8000,00;780,80;120,00;196,00;621,29;470,00;0;5811,91;780,80;520,00;"
+        "133,60;196,00;8,00;0",
+    ]
+).encode("utf-8")
+
+NEXUS_RESULT = {
+    "gross": "10000.00",
+    "pension_employee": "976.00",
+    "disability_employee": "150.00",
+    "sickness_employee": "245.00",
+    "health": "776.61",
+    "pit": "588.00",
+    "ppk_employee": "200.00",
+    "net": "7064.39",
+    "pension_employer": "976.00",
+    "disability_employer": "650.00",
+    "accident_employer": "167.00",
+    "labour_fund": "245.00",
+    "fgsp": "10.00",
+    "ppk_employer": "150.00",
+}
+
+
+class _Line:
+    def __init__(self, line_id: int, name: str, result: dict) -> None:
+        self.id = line_id
+        self.person_name = name
+        self.result = result
+
+
+def test_compare_matches_people_by_name_tokens_and_reports_grosze() -> None:
+    from app.services.hr.payroll_lists import enova_compare, ledger_post
+    from app.services.ledger import payroll_lists as enova
+
+    parsed = enova.parse(ENOVA_CSV)
+    anna = ledger_post.row_of(_Line(1, "Anna Testowa", NEXUS_RESULT))
+    other = ledger_post.row_of(
+        _Line(2, "Ktoś Spoza", {**NEXUS_RESULT, "pit": "589.00", "net": "7063.39"})
+    )
+    result = enova_compare.compare_rows([anna, other], parsed)
+    assert result["summary"] == {
+        "matched": 1,
+        "equal": 1,
+        "different": 0,
+        "only_nexus": 1,
+        "only_enova": 1,
+        "all_equal": False,
+    }
+    assert result["only_enova"][0]["person"] == "Przykładowy Jan"
+    off = ledger_post.row_of(
+        _Line(3, "Anna Testowa", {**NEXUS_RESULT, "pit": "589.00", "net": "7063.39"})
+    )
+    result = enova_compare.compare_rows([off], parsed)
+    person = result["people"][0]
+    assert person["equal"] is False
+    assert {f["key"]: f["diff"] for f in person["fields"] if f["diff"]} == {
+        "pit": 100,
+        "net": -100,
+    }
+
+
+def test_compare_sums_several_nexus_lines_of_one_person() -> None:
+    from app.services.hr.payroll_lists import enova_compare, ledger_post
+    from app.services.ledger import payroll_lists as enova
+
+    half = {key: str(D(value) / 2) for key, value in NEXUS_RESULT.items()}
+    parsed = enova.parse(ENOVA_CSV)
+    rows = [ledger_post.row_of(_Line(n, "Anna Testowa", half)) for n in (1, 2)]
+    person = enova_compare.compare_rows(rows, parsed)["people"][0]
+    assert person["nexus_lines"] == 2
+    assert person["fields"][0]["key"] == "gross" and person["fields"][0]["diff"] == 0
+
+
+def test_nexus_lp_rows_give_the_same_decree_as_enova_file() -> None:
+    from app.services.hr.payroll_lists import ledger_post
+    from app.services.ledger import payroll_lists as enova
+    from app.services.ledger.settings import PayrollAccounts
+
+    accounts = PayrollAccounts(
+        wages_account="404",
+        insurance_account="405",
+        settlement_account="231",
+        zus_account="229",
+        pit_account="225",
+        ppk_account="234",
+    )
+    nexus = ledger_post.row_of(_Line(1, "Anna Testowa", NEXUS_RESULT))
+    enova_rows = [
+        row for row in enova.parse(ENOVA_CSV).rows if row.person == "Testowa Anna"
+    ]
+    ours, problems = enova.decree([nexus], accounts)
+    theirs, _ = enova.decree(enova_rows, accounts)
+    assert not problems
+    assert [(row.side, row.account, row.amount) for row in ours] == [
+        (row.side, row.account, row.amount) for row in theirs
+    ]

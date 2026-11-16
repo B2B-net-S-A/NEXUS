@@ -74,6 +74,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   client_settlement: "rozliczenie klienta",
   manual: "kwota wpisana przez Rozliczenia",
   missing: "brak kwoty",
+  salary: "pensja z kartoteki płac",
 };
 
 /** Pola danych osoby potrzebne do KEDU i PIT-11 (`basis.missing_files`). */

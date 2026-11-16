@@ -19,6 +19,7 @@ import {
   type PayrollMonth,
   type PersonSubject,
 } from "@/lib/api/payroll-lists";
+import { usePostListToLedger } from "@/lib/api/payroll-k7b";
 import { apiErrorMessage } from "@/lib/api-error";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,8 @@ import { ComputeDialog } from "./ComputeDialog";
 import { FileProblemDialog } from "./FileProblemDialog";
 import { PayrollLinePanel } from "./PayrollLinePanel";
 import { PersonDataDialog } from "./PersonDataDialog";
+import { EnovaCompareDialog } from "./EnovaCompareDialog";
+import { ledgerAction } from "./k7b-model";
 import { TransfersDialog } from "./TransfersDialog";
 import {
   AMOUNT_COLUMNS,
@@ -109,6 +112,9 @@ function ListScreen({ data, list }: { data: PayrollMonth; list: PayrollList }) {
   const cancel = useCancelList();
   const [computing, setComputing] = useState(false);
   const [transfers, setTransfers] = useState(false);
+  const [comparing, setComparing] = useState(false);
+  const postLedger = usePostListToLedger();
+  const ledger = ledgerAction(list);
   const [lineId, setLineId] = useState<number | null>(null);
   const [person, setPerson] = useState<{ subject: PersonSubject; kind: string } | null>(null);
   const [problem, setProblem] = useState<FileProblem | null>(null);
@@ -234,6 +240,24 @@ function ListScreen({ data, list }: { data: PayrollMonth; list: PayrollList }) {
             <Action state={actions.transfers} onClick={() => setTransfers(true)}>
               Przelewy
             </Action>
+            <Action
+              state={ledger}
+              loading={postLedger.isPending}
+              onClick={() =>
+                postLedger.mutate(list.id, {
+                  onSuccess: (result) => showToast(`Zapisano ${result.document.number} w buforze księgi.`),
+                  onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zapisać LP."), "error"),
+                })
+              }
+            >
+              {ledger.label}
+            </Action>
+            <Action
+              state={{ enabled: list.status !== "cancelled", reason: "Lista jest anulowana." }}
+              onClick={() => setComparing(true)}
+            >
+              Porównaj z Enovą
+            </Action>
             {actions.approve.visible ? (
               <Action
                 primary
@@ -288,6 +312,7 @@ function ListScreen({ data, list }: { data: PayrollMonth; list: PayrollList }) {
       />
       <ComputeDialog month={data} open={computing} onOpenChange={setComputing} />
       <TransfersDialog list={list} open={transfers} onOpenChange={setTransfers} />
+      <EnovaCompareDialog list={list} open={comparing} onOpenChange={setComparing} />
       <FileProblemDialog problem={problem} onClose={() => setProblem(null)} />
       {confirmDialog}
     </div>

@@ -427,7 +427,9 @@ def sick_limit(birth_date: Optional[date], year: int, params: Params) -> int:
     return params.sick_pay_days_limit
 
 
-def _variable_hourly(history: Iterable[BasisMonth], year: int, month: int) -> Optional[Decimal]:
+def _variable_hourly(
+    history: Iterable[BasisMonth], year: int, month: int
+) -> Optional[Decimal]:
     rows = _window(history, year, month, 3)
     hours = sum((row.worked_hours for row in rows), ZERO)
     if hours <= 0:
@@ -483,7 +485,9 @@ def unused_leave_days(
         months = 0
     else:
         months = (end.year - start.year) * 12 + end.month - start.month + 1
-    proportional = Decimal(math.ceil(entitlement * months / 12)) if entitlement > 0 else ZERO
+    proportional = (
+        Decimal(math.ceil(entitlement * months / 12)) if entitlement > 0 else ZERO
+    )
     proportional = min(proportional, entitlement)
     left = proportional + carried_over - used_before - used_paid
     if left < 0:
@@ -514,9 +518,9 @@ def month_pay(data: MonthInput, params: Params) -> MonthPay:
     day_hours = HOURS_PER_DAY * fte
     salary = money(data.monthly_salary)
     nominal = nominal_hours(first, last, fte)
-    outside_hours = nominal_hours(first, emp_from - timedelta(days=1), fte) + nominal_hours(
-        emp_to + timedelta(days=1), last, fte
-    )
+    outside_hours = nominal_hours(
+        first, emp_from - timedelta(days=1), fte
+    ) + nominal_hours(emp_to + timedelta(days=1), last, fte)
 
     unpaid_hours = ZERO
     half_hours = ZERO
@@ -547,14 +551,18 @@ def month_pay(data: MonthInput, params: Params) -> MonthPay:
                     zus_days.append(day)
                 elif day < waiting_end and not exempt:
                     waiting_days.append(day)
-                elif used.get(day.year, 0) < sick_limit(data.birth_date, day.year, params):
+                elif used.get(day.year, 0) < sick_limit(
+                    data.birth_date, day.year, params
+                ):
                     paid_days.append(day)
                     used[day.year] = used.get(day.year, 0) + 1
                 else:
                     zus_days.append(day)
             thirtieth.update(paid_days)
             thirtieth.update(zus_days)
-            unpaid_hours += day_hours * sum(1 for day in waiting_days if is_wymiar_day(day))
+            unpaid_hours += day_hours * sum(
+                1 for day in waiting_days if is_wymiar_day(day)
+            )
             sick_hours += day_hours * sum(
                 1 for day in days if is_wymiar_day(day) and day not in waiting_days
             )
@@ -566,7 +574,9 @@ def month_pay(data: MonthInput, params: Params) -> MonthPay:
             base = ZERO
             daily = ZERO
             amount = ZERO
-            rate = Decimal("100") if absence.sick_rate == "100" else params.sick_pay_rate
+            rate = (
+                Decimal("100") if absence.sick_rate == "100" else params.sick_pay_rate
+            )
             if paid_days:
                 if data.sick_base_override is not None:
                     base = money(data.sick_base_override)
@@ -665,7 +675,12 @@ def month_pay(data: MonthInput, params: Params) -> MonthPay:
             continue
         hourly = _variable_hourly(data.history, absence.start.year, absence.start.month)
         if hourly is None:
-            if any(row.variable for row in _window(data.history, absence.start.year, absence.start.month, 3)):
+            if any(
+                row.variable
+                for row in _window(
+                    data.history, absence.start.year, absence.start.month, 3
+                )
+            ):
                 notes.append("leave_variable_no_hours")
             continue
         part = money(hourly * hours * share)
@@ -694,7 +709,15 @@ def month_pay(data: MonthInput, params: Params) -> MonthPay:
         problems.append("benefit_payer_manual")
     elif zus_total:
         problems.append("z3_needed")
-    gross = salary_part + sick_pay + leave_variable + equivalent + variable + other + bonuses
+    gross = (
+        salary_part
+        + sick_pay
+        + leave_variable
+        + equivalent
+        + variable
+        + other
+        + bonuses
+    )
     worked = max(
         ZERO,
         nominal - outside_hours - unpaid_hours - sick_hours - paid_leave_hours,

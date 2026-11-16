@@ -50,6 +50,8 @@ LINE_SOURCES: tuple[str, ...] = (
     "client_settlement",
     "manual",
     "missing",
+    # K7b (0716): pensja UoP z chorobowym, urlopowym i ekwiwalentem.
+    "salary",
 )
 NAME_MAX = 255
 NUMBER_MAX = 32

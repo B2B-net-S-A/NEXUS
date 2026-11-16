@@ -60,6 +60,7 @@ from app.services import hr_leave_cpro_schema as leave_cpro
 from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
+from app.services import hr_payroll_k7b_schema as payroll_k7b
 from app.services import hr_payroll_lists_schema as payroll_lists
 from app.services import hr_payroll_schema as payroll
 from app.services import hr_settlement_schema as settlement
@@ -143,6 +144,8 @@ MODULES = (
     client_reports,
     # 0713: radar przepisów — biegi botów, pozycje, zmiany w prawie (15.11.2026).
     law_radar,
+    # 0716: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw (16.11.2026).
+    payroll_k7b,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

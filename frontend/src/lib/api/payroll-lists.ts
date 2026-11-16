@@ -12,6 +12,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { downloadBlob, fetchAuthenticatedDownload } from "@/lib/authenticated-files";
 
+import type { PayrollComponentRow } from "./payroll-k7b";
+
 const BASE = "/api/hr/payroll-lists";
 
 export type PayrollKind = "uop" | "zlecenie" | "dzielo";
@@ -74,6 +76,8 @@ export interface PayrollLine {
   notes: { code: string; label: string }[];
   problems: PayrollProblem[];
   payee_last4: string | null;
+  /** K7b: uwagi do pozycji z pensji (chorobowe, urlopowe, ekwiwalent). */
+  k7b_notes?: { code: string; label: string }[];
 }
 
 export interface PayrollDeadlines {
@@ -131,6 +135,8 @@ export interface PayrollList {
   paid_by: string | null;
   can_approve: boolean;
   approve_refusal: string | null;
+  /** K7b: dokument LP z tej listy w księdze (szkic albo zatwierdzony). */
+  ledger_document?: { id: number; number: string; status: string } | null;
   lines: PayrollLine[];
 }
 
@@ -155,6 +161,8 @@ export interface PayrollMonth {
   default_pay_date: string;
   can_compute: boolean;
   inputs: GrossInput[];
+  /** K7b: składniki miesiąca wpisane przez Rozliczenia (zmienne, inne, podstawa L4, dni ekwiwalentu). */
+  components?: PayrollComponentRow[];
   cancelled: { id: number; number: string; cancelled_at: string | null; cancel_reason: string | null }[];
   list: PayrollList | null;
 }
@@ -331,6 +339,9 @@ export interface PersonData {
   ppk: PersonPpk | null;
   labour_fund_exempt_until: string | null;
   fgsp_exempt_until: string | null;
+  /** K7b: nieprzerwane ubezpieczenie chorobowe od (okres wyczekiwania). */
+  sickness_insured_since?: string | null;
+  waiting_period_exempt?: boolean;
   bank_account_last4: string | null;
   missing: string[];
   missing_labels: string[];
@@ -370,6 +381,8 @@ export interface PersonDataUpdate {
   ppk?: { participates: boolean; employee_rate?: string; employee_extra?: string; employer_extra?: string };
   labour_fund_exempt_until?: string | null;
   fgsp_exempt_until?: string | null;
+  sickness_insured_since?: string | null;
+  waiting_period_exempt?: boolean;
   bank_account?: string;
 }
 

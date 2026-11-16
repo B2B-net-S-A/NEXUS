@@ -152,14 +152,15 @@ i admin; przełączenie z Enovy po 2–3 miesiącach równoległych zgodnych do 
 - Pobrania mają ślad (`payroll_kedu_downloaded`, `payroll_registrations_downloaded`,
   `payroll_tax_form_downloaded`) bez numerów osób.
 
-## Czego jeszcze nie ma (K7b i dalej)
+## Czego jeszcze nie ma (po K7b)
 
-- Dekret listy płac do księgi (dokument LP z NEXUSA zamiast pliku Enovy z K3c).
-- Wynagrodzenie zasadnicze miesięczne UoP, chorobowe z podstawy 12 miesięcy,
-  urlop z wynagrodzeniem urlopowym — do tego czasu kwota Płac.
-- Ograniczenie składki zdrowotnej do zaliczki wg zasad z 2021 r., koszty 50%
-  (prawa autorskie), zbieg zlecenia z UoP u tego samego płatnika — do ręcznego
-  policzenia (problem blokujący na liście).
+- K7b (16.11.2026, `ksiega-nexusa-k7b-place-uop.md`) dołożył pensję UoP,
+  wynagrodzenie chorobowe, urlopowe za zmienne, ekwiwalent, dekret LP z listy
+  NEXUSA i porównanie z Enovą.
+- Zostaje: ograniczenie składki zdrowotnej do zaliczki wg zasad z 2021 r., koszty
+  50% (prawa autorskie), zbieg zlecenia z UoP u tego samego płatnika, nadgodziny
+  UoP (składnik Płac), zasiłki wypłacane przez płatnika — do ręcznego policzenia.
 - Wysyłka automatyczna KEDU i e-Deklaracji, powiadomienia o liście do zatwierdzenia.
 - **Bloker przełączenia:** porównanie z Enovą do grosza na każdej osobie wymaga
-  eksportu list płac z Enovy od Płac (2–3 miesiące równolegle).
+  eksportu list płac z Enovy od Płac (2–3 miesiące równolegle) — narzędzie jest
+  w K7b („Porównaj z Enovą”).

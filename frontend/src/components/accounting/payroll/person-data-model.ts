@@ -71,6 +71,9 @@ export interface PersonForm {
   ppk_employer_extra: string;
   labour_fund_exempt_until: string;
   fgsp_exempt_until: string;
+  /** K7b (UoP): nieprzerwane ubezpieczenie chorobowe od — okres wyczekiwania. */
+  sickness_insured_since: string;
+  waiting_period_exempt: boolean;
   /** Nowy rachunek do wypłaty (kontraktor) — pusty = bez zmiany. */
   bank_account: string;
 }
@@ -127,6 +130,8 @@ export function personForm(data: PersonData): PersonForm {
     ppk_employer_extra: rateField(data.ppk?.employer_extra, "0"),
     labour_fund_exempt_until: data.labour_fund_exempt_until ?? "",
     fgsp_exempt_until: data.fgsp_exempt_until ?? "",
+    sickness_insured_since: data.sickness_insured_since ?? "",
+    waiting_period_exempt: Boolean(data.waiting_period_exempt),
     bank_account: "",
   };
 }
@@ -231,8 +236,11 @@ export function personUpdate(data: PersonData, form: PersonForm): PersonDataUpda
     if (!same) body.ppk = { participates: true, ...rates };
   }
 
-  for (const key of ["labour_fund_exempt_until", "fgsp_exempt_until"] as const) {
+  for (const key of ["labour_fund_exempt_until", "fgsp_exempt_until", "sickness_insured_since"] as const) {
     if (form[key] !== (data[key] ?? "")) body[key] = form[key] || null;
+  }
+  if (form.waiting_period_exempt !== Boolean(data.waiting_period_exempt)) {
+    body.waiting_period_exempt = form.waiting_period_exempt;
   }
   const account = compact(form.bank_account);
   if (data.candidate_id != null && account) body.bank_account = account;

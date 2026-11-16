@@ -9,11 +9,13 @@ import { PayrollFilesView } from "./PayrollFilesView";
 import { PayrollListView } from "./PayrollListView";
 import { PayrollParametersView } from "./PayrollParametersView";
 import { PayrollPeopleView } from "./PayrollPeopleView";
+import { PayrollSalariesView } from "./PayrollSalariesView";
 
-export type PayrollViewKey = "list" | "people" | "parameters" | "files";
+export type PayrollViewKey = "list" | "salaries" | "people" | "parameters" | "files";
 
 const VIEWS: readonly { value: PayrollViewKey; label: string }[] = [
   { value: "list", label: "Lista płac" },
+  { value: "salaries", label: "Pensje i nieobecności" },
   { value: "people", label: "Dane osób" },
   { value: "parameters", label: "Parametry" },
   { value: "files", label: "Pliki ZUS i PIT" },
@@ -71,6 +73,7 @@ export function PayrollView() {
     <div className="space-y-3">
       <SegmentedRadio label="Widok listy płac" size="sm" value={view} onChange={choose} options={VIEWS} />
       {view === "list" ? <PayrollListView year={period.year} month={period.month} /> : null}
+      {view === "salaries" ? <PayrollSalariesView year={period.year} month={period.month} /> : null}
       {view === "people" ? <PayrollPeopleView /> : null}
       {view === "parameters" ? <PayrollParametersView today={config.today} /> : null}
       {view === "files" ? <PayrollFilesView year={period.year} month={period.month} today={config.today} /> : null}

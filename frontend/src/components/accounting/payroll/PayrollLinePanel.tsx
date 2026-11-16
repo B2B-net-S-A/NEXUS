@@ -40,6 +40,7 @@ import {
   quantity,
   zl,
 } from "./payroll-model";
+import { k7bRows } from "./k7b-model";
 
 const CONTROL = "h-8 w-full rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
 const SECTION_TITLE = "text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground";
@@ -117,6 +118,8 @@ function LineBody({
   const { showToast } = useToast();
   const [downloading, setDownloading] = useState(false);
   const sections = breakdown(line.result ?? {});
+  const salaryRows = k7bRows(line);
+  const notes = [...line.notes, ...(line.k7b_notes ?? [])];
   const withAmount = line.gross != null;
 
   const downloadSlip = async () => {
@@ -185,6 +188,23 @@ function LineBody({
           </dl>
         </section>
 
+        {salaryRows.length ? (
+          <section>
+            <h3 className={SECTION_TITLE}>Brutto z pensji</h3>
+            <dl className="mt-1 divide-y divide-border/60">
+              {salaryRows.map((row) => (
+                <div key={row.label} className="py-1">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-muted-foreground">{row.label}</dt>
+                    <dd className="shrink-0 tabular-nums">{row.value} zł</dd>
+                  </div>
+                  {row.detail ? <p className="text-[12px] text-muted-foreground">{row.detail}</p> : null}
+                </div>
+              ))}
+            </dl>
+          </section>
+        ) : null}
+
         {sections.length ? (
           <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
             {sections.map((section) => (
@@ -203,11 +223,11 @@ function LineBody({
           </div>
         ) : null}
 
-        {line.notes.length ? (
+        {notes.length ? (
           <section>
             <h3 className={SECTION_TITLE}>Uwagi do wyliczenia</h3>
             <ul className="mt-1 list-disc space-y-0.5 pl-4 text-muted-foreground">
-              {line.notes.map((note) => (
+              {notes.map((note) => (
                 <li key={note.code}>{note.label}</li>
               ))}
             </ul>

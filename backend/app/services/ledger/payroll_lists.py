@@ -64,6 +64,8 @@ from app.services.ledger.settings import PayrollAccounts
 from app.services.ledger_schema import MPK_MAX
 
 SOURCE_TYPE = "payroll_list"
+#: LP z listy policzonej w NEXUSIE (K7b) — jeden miesiąc ma jedno źródło LP.
+NEXUS_SOURCE_TYPE = "payroll_list_nexus"
 MAX_BYTES = 5 * 1024 * 1024
 HEADER_SCAN_ROWS = 15
 LIST_NAME_MAX = 40
@@ -196,6 +198,8 @@ class PayrollRow:
     line: int
     mpk: Optional[str]
     amounts: dict[str, int]
+    #: Tekst kolumny „Pracownik” (porównanie z listą NEXUSA, K7b) — nie trafia do LP.
+    person: Optional[str] = None
 
 
 @dataclass
@@ -396,10 +400,15 @@ def parse(content: bytes) -> ParsedList:
             parsed.errors.append({"line": offset, "message": " ".join(problems)})
             continue
         mpk = None
+        person = None
         for position, key in columns.items():
             if key == "mpk" and position < len(row):
                 mpk = row[position].strip().upper()[:MPK_MAX] or None
-        parsed.rows.append(PayrollRow(line=offset, mpk=mpk, amounts=amounts))
+            if key == "person" and position < len(row):
+                person = " ".join(row[position].split()) or None
+        parsed.rows.append(
+            PayrollRow(line=offset, mpk=mpk, amounts=amounts, person=person)
+        )
     if total is not None:
         line, filled = total
         for key, value in filled.items():
@@ -599,7 +608,33 @@ def spec_for(
     )
 
 
+async def live_lp_for_month(
+    db: AsyncSession, source_type: str, year: int, month: int
+) -> Optional[LedgerDocument]:
+    """Żywy (bez storna) dokument LP danego źródła za miesiąc."""
+
+    return await db.scalar(
+        select(LedgerDocument)
+        .where(
+            LedgerDocument.source_type == source_type,
+            LedgerDocument.source_id.like(f"{year}-{month:02d}:%"),
+            LedgerDocument.reversed_by_id.is_(None),
+        )
+        .order_by(LedgerDocument.id)
+        .limit(1)
+    )
+
+
 async def _save(db: AsyncSession, spec: DocumentSpec, viewer: Viewer) -> LedgerDocument:
+    year, month = (int(part) for part in spec.source_id.split(":", 1)[0].split("-"))
+    nexus = await live_lp_for_month(db, NEXUS_SOURCE_TYPE, year, month)
+    if nexus is not None:
+        raise LedgerError(
+            f"Za {month:02d}.{year} jest już LP z listy płac NEXUSA ("
+            f"{nexus.number or 'szkic'}) — jeden miesiąc ma jedno źródło LP. "
+            "Usuń szkic albo zrób storno, zanim wczytasz listę z Enovy.",
+            status=409,
+        )
     existing = await db.scalar(
         select(LedgerDocument).where(
             LedgerDocument.source_type == SOURCE_TYPE,
