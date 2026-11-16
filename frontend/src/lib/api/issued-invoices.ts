@@ -38,6 +38,8 @@ export interface IssueLine {
   vat_rate: string | null;
   net: string | null;
   order_id: number | null;
+  /** Rabat % na pozycji (rabat od obrotu, jak w eBI24): cena przed rabatem, netto po nim. */
+  discount_pct?: string | null;
 }
 
 export interface IssueBuyer {
@@ -137,7 +139,7 @@ export interface InvoiceRebate {
   month: number;
   threshold_currency: string;
   tiers: { up_to: string | null; rate: string }[];
-  /** Obrót roku razem z tą fakturą (waluta progu). */
+  /** Obrót roku przed rabatem razem z tą fakturą (waluta progu). */
   turnover: string;
   /** Obrót do końca poprzedniego miesiąca — z niego bierze się stawka faktury. */
   turnover_before: string;
@@ -146,7 +148,7 @@ export interface InvoiceRebate {
   to_next: string | null;
   /** Rabat należny za rok (wyższa stawka tylko od nadwyżki), waluta progu. */
   due: string;
-  /** Kwota pozycji „Rabat od obrotu” na tej fakturze; `null` = faktura nie ma takiej pozycji. */
+  /** Suma rabatu % z wierszy tej faktury; `null` = żaden wiersz nie ma rabatu. */
   on_invoice: string | null;
   currency: string;
   corrections: RebateCorrection[];

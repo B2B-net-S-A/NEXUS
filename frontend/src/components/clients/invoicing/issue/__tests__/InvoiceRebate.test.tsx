@@ -43,7 +43,7 @@ describe("rabat od obrotu na karcie faktury", () => {
     expect(within(box).getByText("Rabat na tej fakturze")).toBeInTheDocument();
     expect(box).toHaveTextContent(/−250,00\szł/);
     expect(box).toHaveTextContent("Poza obrotem pozycje podróży i refaktur z 2 fakt.");
-    expect(within(box).queryByText(/brak pozycji/)).toBeNull();
+    expect(within(box).queryByText(/brak rabatu/)).toBeNull();
     expect(within(box).queryByText(/Korekta za/)).toBeNull();
   });
 
@@ -64,8 +64,8 @@ describe("rabat od obrotu na karcie faktury", () => {
       />,
     );
     expect(screen.queryByText(/Do progu/)).toBeNull();
-    expect(screen.getByText("brak pozycji")).toBeInTheDocument();
-    expect(screen.getByText(/Faktura nie ma pozycji „Rabat od obrotu”/)).toBeInTheDocument();
+    expect(screen.getByText("brak rabatu")).toBeInTheDocument();
+    expect(screen.getByText(/Żaden wiersz nie ma rabatu %/)).toBeInTheDocument();
     expect(screen.getByText(/Korekta za Wrzesień 2026: 0,5% od/)).toHaveTextContent(/4\s?250,00\szł/);
     expect(screen.getByText(/Bez kursu NBP do progu: 3 fakt\./)).toBeInTheDocument();
   });
@@ -80,6 +80,15 @@ function Harness({ initial }: { initial?: RebateTerms }) {
     </>
   );
 }
+
+describe("podgląd netto pozycji z rabatem %", () => {
+  it("liczy jak serwer i eBI24: cena po rabacie do grosza × ilość", async () => {
+    const { previewNet } = await import("@/components/clients/invoicing/issue/issue-format");
+    expect(previewNet({ quantity: "80", unit_price: "157", discount_pct: "2.5" })).toBe("12246.40");
+    expect(previewNet({ quantity: "80", unit_price: "157" })).toBe("12560.00");
+    expect(previewNet({ quantity: "80", unit_price: "157", discount_pct: "100" })).toBe("12560.00");
+  });
+});
 
 describe("edycja rabatu przy kliencie", () => {
   it("dodaje rabat, próg i okres z aneksu jako dane", async () => {

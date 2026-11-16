@@ -1,4 +1,4 @@
-# Rabat od obrotu rocznego klienta: pozycja na każdej fakturze, wyższa stawka od nadwyżki (16.11.2026)
+# Rabat od obrotu rocznego klienta: rabat % na każdym wierszu, wyższa stawka od nadwyżki (16.11.2026)
 
 Zgłoszenie Artura 16.11.2026: faktury Nordei nie uwzględniają rabatu 2,5%, a po przekroczeniu progu
 obrotu stawka rośnie do 3%. Umowa ramowa (Appendix 6, aneks od 01.03.2026) liczy rabat od rocznego
@@ -10,8 +10,13 @@ publiczne. Wpisują je Finanse w ustawieniach.
 Umowa przewiduje roczną notę do 31.01. Artur ustalił inną praktykę i ona obowiązuje. Pierwsza odpowiedź
 z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpiona drugą, opisaną niżej.
 
-- **Rabat to pozycja na każdej fakturze miesięcznej.** Ujemna pozycja „Rabat od obrotu rocznego X%”,
-  osobna dla każdej stawki VAT na fakturze.
+- **Rabat to procent na każdym wierszu usługi, tak jak Nordea dostaje go z eBI24.** Wiersz ma cenę
+  przed rabatem, rabat % i wartość po rabacie. Przykład: 157,00 − 2,5% = 153,08, a 80 × 153,08 =
+  12 246,40. W FA(3): `P_9A` to cena przed rabatem, `P_10` to kwota opustu na wierszu, `P_11` to wartość
+  po rabacie. PDF pokazuje rabat i cenę po rabacie w kolumnie ceny.
+  Pierwsza wersja z PR #3498 dawała osobną ujemną pozycję. Zastąpiło ją ustalenie Artura z 16.11
+  na przykładzie faktury z eBI24.
+- **Obrót do progu liczymy przed rabatem** (ilość × cena), a nie po nim (decyzja Artura 16.11).
 - **Stawka pochodzi z obrotu sprzed miesiąca faktury.** Faktury za miesiąc M mają stawkę progu, w którym
   jest narastający obrót roku do końca miesiąca M−1. Faktury za miesiąc, w którym obrót przekroczył
   próg, idą jeszcze po niższej stawce. Wyższa stawka obowiązuje od następnego miesiąca.
@@ -35,23 +40,26 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
   Zapis ze złymi warunkami kończy się odmową z komunikatem. Złe dane w bazie odpadają przy odczycie
   z wpisem w logu.
 - Obrót to faktury sprzedaży z KSeF (`client_sales_invoices`) za miesiące roku. Miesiąc wyznacza okres
-  usługi, a gdy go brak, data wystawienia. Korekty wchodzą jako różnica stanów. Pozycje rabatu
-  (`REBATE_PREFIX`) i pozycje wyłączone nie są liczone.
-- `issue.apply_rebate` dokłada pozycję rabatu do szkiców z „Wystaw za miesiąc”. Po edycji pozycji
-  przelicza jej kwotę. Pozycji usuniętej ręcznie nie dokłada z powrotem. Rozpoznaje ją po nazwie
-  (`rebate.is_rebate_line`), więc nie zmieniaj początku nazwy „Rabat od obrotu”.
+  usługi, a gdy go brak, data wystawienia. Liczy się netto faktury plus opust z każdego wiersza
+  (ilość × cena − netto), bez pozycji wyłączonych (`rebate.service_base`). Korekty wchodzą jako różnica
+  stanów. W KSeF od 4.08.2026 rabat 2,5% na wierszach ma 1 114 z 1 128 faktur Nordei. 14 faktur go nie ma:
+  podróże, 5 faktur w EUR i wiersze „szt.”. Wyjaśnia to sesja z Finansami.
+- `issue.apply_rebate` wpisuje `discount_pct` na wiersze usług w szkicach z „Wystaw za miesiąc”.
+  Finanse mogą go zmienić w polu „Rabat %” wiersza. Edycja nie nadpisuje go automatycznie.
 - Karta faktury (`rebate` w `GET /api/finance/issued-invoices/{id}`, ramka „Rabat od obrotu”) pokazuje:
   - stawkę;
   - obrót do końca poprzedniego miesiąca;
   - obrót z tą fakturą;
   - licznik do progu;
-  - kwotę pozycji;
+  - sumę rabatu z wierszy;
   - korekty za miesiące przekroczenia.
 
-  Brak pozycji u klienta z rabatem to ostrzeżenie.
+  Gdy klient ma rabat, a żaden wiersz go nie ma, karta pokazuje ostrzeżenie.
 - Porównanie faktury z zamówieniem („Do faktury”, `ledger.check`, dopasowanie po kwocie) idzie po
-  `Chain.order_net`, czyli netto bez pozycji rabatu. Rabat obniża fakturę, a nie zamówienie, więc bez tego
-  każdy wiersz klienta z rabatem pokazywałby różnicę. Do zapłaty i sumy liczą się z rabatem.
+  `Chain.order_net`, czyli netto przed rabatem % na wierszach (`rebate.pre_discount`). Zamówienie ma cenę
+  przed rabatem, więc bez tego każdy wiersz klienta z rabatem pokazywałby różnicę 2,5%. Do zapłaty
+  i sumy liczą się z rabatem. U pozostałych klientów netto wiersza równa się ilości × cenie (576 wierszy,
+  22 klientów, odczyt 16.11), więc ich to nie zmienia.
 - Kod: `services/client_invoicing/rebate.py`, `issue.apply_rebate`, `issue_settings.client_rebate`.
 
 ## Czego jeszcze nie ma

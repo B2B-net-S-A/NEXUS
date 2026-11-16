@@ -409,3 +409,30 @@ def test_pdf_of_accepted_invoice_has_ksef_number_and_qr() -> None:
     assert "9876543210-20261130-E40000000001-1A" in html
     assert "data:image/svg+xml" in html
     assert "nr 113/11/2026" in html
+
+
+def test_line_discount_goes_to_p10_and_round_trips() -> None:
+    """Rabat % na wierszu (rabat od obrotu, jak w eBI24): P_9A przed rabatem,
+    P_10 = kwota opustu na wierszu, P_11 po rabacie (80 × 153,08)."""
+
+    line = {
+        **_line("Usługi informatyczne — październik 2026", "80", "157"),
+        "discount_pct": "2.5",
+    }
+    xml = fa3_build.build_xml(_doc(lines=[line]))
+    row = _fa(xml).find("{*}FaWiersz")
+    tags = [etree.QName(child).localname for child in row]
+    assert (
+        tags.index("P_9A")
+        < tags.index("P_10")
+        < tags.index("P_11")
+        < tags.index("P_12")
+    )
+    assert row.findtext("{*}P_9A") == "157"
+    assert row.findtext("{*}P_10") == "313.60"
+    assert row.findtext("{*}P_11") == "12246.40"
+    parsed = fa.parse_invoice(xml)
+    assert parsed.net_amount == Decimal("12246.40")
+    # Bez rabatu nie ma P_10.
+    plain = fa3_build.build_xml(_doc(lines=[_line("Usługi", "80", "157")]))
+    assert _fa(plain).find("{*}FaWiersz").find("{*}P_10") is None
