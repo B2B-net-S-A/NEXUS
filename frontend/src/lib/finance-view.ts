@@ -13,7 +13,8 @@ export type FinanceViewMode =
   | "counterparties"
   | "payments"
   | "booking"
-  | "accounts";
+  | "accounts"
+  | "ebi24-archive";
 
 const VIEW_MODES: readonly FinanceViewMode[] = [
   "results",
@@ -30,6 +31,7 @@ const VIEW_MODES: readonly FinanceViewMode[] = [
   "payments",
   "booking",
   "accounts",
+  "ebi24-archive",
 ];
 
 /** `?view=` → widok; nieznany albo brak = „Wyniki miesięczne” (FE-N09). */
