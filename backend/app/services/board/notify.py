@@ -16,7 +16,9 @@ LINK = "/rada?tab=dokumenty"
 async def recipient_ids(db: AsyncSession) -> list[int]:
     """Aktywni członkowie Rady i admini (rola główna albo dodatkowa)."""
 
-    users = await db.scalars(select(User).where(User.is_active.is_(True)).order_by(User.id))
+    users = await db.scalars(
+        select(User).where(User.is_active.is_(True)).order_by(User.id)
+    )
     return [
         user.id
         for user in users
@@ -36,7 +38,9 @@ def entry_message(entries: list[KrsEntry]) -> tuple[str, str]:
     return title, message
 
 
-async def notify_new_entries(db: AsyncSession, snapshot_id: int, entries: list[KrsEntry]) -> int:
+async def notify_new_entries(
+    db: AsyncSession, snapshot_id: int, entries: list[KrsEntry]
+) -> int:
     title, message = entry_message(entries)
     return await notify_each(
         db,

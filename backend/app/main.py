@@ -1601,7 +1601,9 @@ app.include_router(
 app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
 # Rada nadzorcza (R1, decyzje Artura 16.11.2026): dokumenty korporacyjne i odpis KRS.
 app.include_router(
-    supervisory_board_api.router, prefix="/api/supervisory-board", tags=["supervisory-board"]
+    supervisory_board_api.router,
+    prefix="/api/supervisory-board",
+    tags=["supervisory-board"],
 )
 app.include_router(
     client_framework_contracts.router,

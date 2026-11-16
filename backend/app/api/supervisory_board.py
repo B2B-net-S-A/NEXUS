@@ -157,7 +157,9 @@ async def refresh_krs(
         payload = await krs_service.fetch_full_extract(krs_service.company_krs())
     except Exception as exc:  # noqa: BLE001
         logger.warning("board: odpis KRS niedostępny (%s)", type(exc).__name__)
-        raise HTTPException(503, "API KRS nie odpowiada. Spróbuj za kilka minut.") from exc
+        raise HTTPException(
+            503, "API KRS nie odpowiada. Spróbuj za kilka minut."
+        ) from exc
     result = await krs_service.store_extract(db, payload)
     if result.new_entries:
         await notify_new_entries(db, result.snapshot_id, result.new_entries)
@@ -266,10 +268,14 @@ async def _read_upload(file: UploadFile) -> tuple[str, bytes, str]:
     name = (file.filename or "").strip()
     suffix = name[name.rfind(".") :].lower() if "." in name else ""
     if suffix not in UPLOAD_TYPES:
-        raise HTTPException(422, "Dozwolone pliki: PDF, zdjęcie (JPG, PNG, WEBP) albo Word.")
+        raise HTTPException(
+            422, "Dozwolone pliki: PDF, zdjęcie (JPG, PNG, WEBP) albo Word."
+        )
     content = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, f"Plik większy niż {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.")
+        raise HTTPException(
+            413, f"Plik większy niż {MAX_UPLOAD_BYTES // (1024 * 1024)} MB."
+        )
     if not content:
         raise HTTPException(422, "Plik jest pusty.")
     return name, content, UPLOAD_TYPES[suffix]
@@ -409,7 +415,8 @@ async def delete_document(
     doc = await _document(db, document_id)
     if doc.source == "krs":
         raise HTTPException(
-            409, "Wiersz z wzmianki KRS wraca co noc. Możesz podmienić albo poprawić jego plik."
+            409,
+            "Wiersz z wzmianki KRS wraca co noc. Możesz podmienić albo poprawić jego plik.",
         )
     path = doc.file_path
     await db.delete(doc)
@@ -439,15 +446,21 @@ async def read_document(
     mime = doc.content_type
     result = reader.ReadResult("failed")
     try:
-        async with ai_feature(db, AIFeatureKey.board_document_read, user_id=current_user.id):
+        async with ai_feature(
+            db, AIFeatureKey.board_document_read, user_id=current_user.id
+        ):
             await db.commit()  # połączenie wraca do puli na czas modelu
             result = await reader.read_document(content, mime)
     except Exception as exc:  # noqa: BLE001 — AI to dodatek, nigdy bramka
-        logger.warning("board: odczyt dokumentu %s nieudany (%s)", document_id, type(exc).__name__)
+        logger.warning(
+            "board: odczyt dokumentu %s nieudany (%s)", document_id, type(exc).__name__
+        )
         await db.rollback()
         result = reader.ReadResult("skipped")
     doc = await _document(db, document_id)
-    doc.extraction_status = result.status if result.status in schema.EXTRACTION_STATUSES else "failed"
+    doc.extraction_status = (
+        result.status if result.status in schema.EXTRACTION_STATUSES else "failed"
+    )
     doc.extraction = result.as_json()
     await db.commit()
     await db.refresh(doc)

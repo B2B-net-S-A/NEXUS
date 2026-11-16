@@ -20,11 +20,19 @@ def _odpis(*, entries: int = 3, with_audit_2025: bool = False) -> dict:
         for n in range(1, entries + 1)
     ]
     audit = [
-        {"pozycja": [{"zaOkresOdDo": "OD 01.01.2024 DO 31.12.2024", "nrWpisuWprow": "2"}]}
+        {
+            "pozycja": [
+                {"zaOkresOdDo": "OD 01.01.2024 DO 31.12.2024", "nrWpisuWprow": "2"}
+            ]
+        }
     ]
     if with_audit_2025:
         audit.append(
-            {"pozycja": [{"zaOkresOdDo": "OD 01.01.2025 DO 31.12.2025", "nrWpisuWprow": "3"}]}
+            {
+                "pozycja": [
+                    {"zaOkresOdDo": "OD 01.01.2025 DO 31.12.2025", "nrWpisuWprow": "3"}
+                ]
+            }
         )
     return {
         "odpis": {
@@ -40,10 +48,16 @@ def _odpis(*, entries: int = 3, with_audit_2025: bool = False) -> dict:
                     },
                     "kapital": {
                         "wysokoscKapitaluZakladowego": [
-                            {"wartosc": "100000,00", "waluta": "PLN", "nrWpisuWykr": "2"},
+                            {
+                                "wartosc": "100000,00",
+                                "waluta": "PLN",
+                                "nrWpisuWykr": "2",
+                            },
                             {"wartosc": "1360000,00", "waluta": "PLN"},
                         ],
-                        "lacznaLiczbaAkcjiUdzialow": [{"lacznaLiczbaAkcjiUdzialow": "2720000"}],
+                        "lacznaLiczbaAkcjiUdzialow": [
+                            {"lacznaLiczbaAkcjiUdzialow": "2720000"}
+                        ],
                     },
                     "umowaStatut": {
                         "informacjaOZawarciuZmianieUmowyStatutu": [
@@ -62,10 +76,17 @@ def _odpis(*, entries: int = 3, with_audit_2025: bool = False) -> dict:
                     "reprezentacja": [
                         {
                             "sklad": [
-                                {"funkcjaWOrganie": [{"funkcjaWOrganie": "PREZES ZARZĄDU"}]},
                                 {
                                     "funkcjaWOrganie": [
-                                        {"funkcjaWOrganie": "CZŁONEK ZARZĄDU", "nrWpisuWykr": "3"}
+                                        {"funkcjaWOrganie": "PREZES ZARZĄDU"}
+                                    ]
+                                },
+                                {
+                                    "funkcjaWOrganie": [
+                                        {
+                                            "funkcjaWOrganie": "CZŁONEK ZARZĄDU",
+                                            "nrWpisuWykr": "3",
+                                        }
                                     ],
                                     "nazwisko": [{"nazwisko": {}, "nrWpisuWykr": "3"}],
                                 },
@@ -73,7 +94,12 @@ def _odpis(*, entries: int = 3, with_audit_2025: bool = False) -> dict:
                         }
                     ],
                     "organNadzoru": [
-                        {"sklad": [{"nazwisko": [{"nazwisko": {}}]}, {"nazwisko": [{"nazwisko": {}}]}]}
+                        {
+                            "sklad": [
+                                {"nazwisko": [{"nazwisko": {}}]},
+                                {"nazwisko": [{"nazwisko": {}}]},
+                            ]
+                        }
                     ],
                 },
                 "dzial3": {
@@ -100,7 +126,14 @@ def _odpis(*, entries: int = 3, with_audit_2025: bool = False) -> dict:
                         ],
                         "wzmiankaOZlozeniuOpiniiBieglegoRewidentaSprawozdaniaZBadania": audit,
                         "wzmiankaOZlozeniuUchwalyPostanowieniaOZatwierdzeniuRocznegoSprawozdaniaFinansowego": [
-                            {"pozycja": [{"zaOkresOdDo": "OD 01.01.2025 DO 31.12.2025", "nrWpisuWprow": "3"}]}
+                            {
+                                "pozycja": [
+                                    {
+                                        "zaOkresOdDo": "OD 01.01.2025 DO 31.12.2025",
+                                        "nrWpisuWprow": "3",
+                                    }
+                                ]
+                            }
                         ],
                     }
                 },
@@ -126,7 +159,10 @@ def test_filing_year_is_the_end_of_the_period_and_missing_audit_is_reported() ->
     assert kinds_2025 == {"financial_statement", "approval"}
     missing = krs.missing_filings(summary)
     assert missing[0] == {"year": 2025, "missing": ["activity_report", "audit_opinion"]}
-    assert {m["year"] for m in krs.missing_filings(krs.parse_odpis(_odpis(with_audit_2025=True)))} == {
+    assert {
+        m["year"]
+        for m in krs.missing_filings(krs.parse_odpis(_odpis(with_audit_2025=True)))
+    } == {
         2024,
         2025,
     }
@@ -138,7 +174,9 @@ def test_seeds_are_stable_keys_with_category_and_organ() -> None:
     assert approval.category == "resolution_general" and approval.organ == "general"
     assert approval.doc_date is None and approval.entry_no == 3
     statement = seeds["financial_statement:2024"]
-    assert statement.category == "financial_statement" and statement.doc_date == date(2025, 7, 17)
+    assert statement.category == "financial_statement" and statement.doc_date == date(
+        2025, 7, 17
+    )
     assert seeds["statute:3"].category == "statute"
     assert len(seeds) == len(krs.document_seeds(krs.parse_odpis(_odpis())))
 
@@ -154,7 +192,9 @@ def test_sha_ignores_print_time_but_not_content() -> None:
 
 def test_broken_payload_gives_empty_summary_not_error() -> None:
     summary = krs.parse_odpis({"odpis": {"naglowekP": {"wpis": [{"numerWpisu": "x"}]}}})
-    assert summary.entries == [] and summary.filings == [] and summary.last_entry is None
+    assert (
+        summary.entries == [] and summary.filings == [] and summary.last_entry is None
+    )
     assert krs.parse_pl_date("31.02.2026") is None
 
 
