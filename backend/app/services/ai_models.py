@@ -72,6 +72,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F49 | client_report_requirements       | claude-sonnet-5 (z Haiku)|
 | F50 | premium_skill_justification      | claude-sonnet-5-5 (z Haiku)|
+| F51 | role_fit (test, bez migracji)    | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -617,6 +618,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "przeinaczone na 8 szkiców — Sonnet 5.5 1, Sol 0 (sztywny), Haiku 5.5 3, Sonnet 5 4; Luna "
         "6 krótsza niż 90 słów w 5 z 8. Koszt na wywołanie 0,0036 USD, mediana 2 s (Haiku 0,0002 "
         "USD). Dodatek: bez modelu DL ma szablon z F4 i komunikat; szkic nie jest zapisywany.",
+    ),
+    AIFeatureKey.role_fit: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("ROLE_FIT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F51 (16.11.2026, POZA badaniem 16.09). Ocena, czy ostatnie ~3 lata osoby "
+        "z porcji dnia to rola rekrutacji (tak / pokrewna / nie + zdanie). To samo zadanie co "
+        "przegląd zgłoszeń F27 i „Oceń z AI” F39 (związek doświadczenia z rolą), więc ich model: "
+        "najtańszy (0,10/0,50 USD za 1M) i szybki przy setkach wywołań dziennie. Na razie tylko "
+        "test na historii decyzji (`scripts/eval_role_fit.py`, raport w "
+        "`docs/claude/rekrutacja-tablica/porcja-ocena-roli-test.md`); porcja z tego nie korzysta.",
     ),
 }
 

@@ -185,6 +185,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.client_report_requirements: ("F49", "claude-sonnet-5"),
     # F50 — 16.11.2026: szkic uzasadnienia dopłaty za technologię premium (EN).
     AIFeatureKey.premium_skill_justification: ("F50", "claude-sonnet-5-5"),
+    # F51 — 16.11.2026: ocena roli osoby z porcji (test na historii), jak F27.
+    AIFeatureKey.role_fit: ("F51", "gpt-6-luna"),
 }
 
 
@@ -247,6 +249,7 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.application_screening,
         AIFeatureKey.recommendation_card_note_read,
         AIFeatureKey.screening_answer_phrasing,
+        AIFeatureKey.role_fit,
     ],
 )
 def test_non_anthropic_functions_fall_back_to_sonnet_5(monkeypatch, feature):

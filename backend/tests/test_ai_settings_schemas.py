@@ -133,6 +133,8 @@ class TestFeatureKeyEnum:
             "client_report_requirements",
             # 0725: szkic uzasadnienia dopłaty za technologię premium.
             "premium_skill_justification",
+            # 16.11.2026: ocena roli z porcji — tylko test na historii, bez migracji.
+            "role_fit",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
