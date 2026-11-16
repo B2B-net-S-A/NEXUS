@@ -1719,7 +1719,6 @@ PORTAL_MEETING_SUMMARY = PromptTemplate(
 )
 
 
-
 TRAINING_TRANSCRIPT_SUMMARY = PromptTemplate(
     name="training_transcript_summary",
     version=1,
