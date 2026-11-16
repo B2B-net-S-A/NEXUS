@@ -98,7 +98,7 @@ const SALARIES: SalariesOverview = {
 
 const ABSENCES: MonthAbsence[] = [
   {
-    id: "0f1e2d3c-0000-4000-8000-000000000001",
+    id: "l4-request-1",
     user_id: 21,
     person: "Anna Przykładowa",
     leave_type: "sick_leave",
@@ -111,7 +111,7 @@ const ABSENCES: MonthAbsence[] = [
     note: null,
   },
   {
-    id: "0f1e2d3c-0000-4000-8000-000000000002",
+    id: "unpaid-request-2",
     user_id: 21,
     person: "Anna Przykładowa",
     leave_type: "unpaid_leave",
@@ -209,7 +209,7 @@ describe("Pensje i nieobecności (K7b)", () => {
     await user.selectOptions(select, "100");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
     await waitFor(() =>
-      expect(put).toHaveBeenCalledWith("/api/hr/payroll-lists/absences/0f1e2d3c-0000-4000-8000-000000000001/mark", {
+      expect(put).toHaveBeenCalledWith("/api/hr/payroll-lists/absences/l4-request-1/mark", {
         sick_rate: "100",
         waiting_exempt: false,
         note: undefined,
