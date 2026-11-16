@@ -1,7 +1,7 @@
 """Aneks z własną nazwą w Generatorze aneksów (16.11.2026).
 
 Revision ID: 0722_b2b_annex_custom
-Revises: 0721_premium_justification_ai
+Revises: 0721_order_revenue_steps
 
 Typ ``annex_custom`` w CHECK ``ck_b2b_contract_documents_type`` i wartość
 ``custom_change`` w ``contractamendmenttype`` (wpis w zakładce „Aneksy”
@@ -21,7 +21,7 @@ from app.services.b2b_documents.schema_sql import (
 )
 
 revision = "0722_b2b_annex_custom"
-down_revision = "0721_premium_justification_ai"
+down_revision = "0721_order_revenue_steps"
 branch_labels = None
 depends_on = None
 
