@@ -103,6 +103,10 @@ export interface ReviewBatchItem {
   known?: KnownFacts | null
   order_active?: boolean
   order_in_budget?: boolean
+  /** Polski nieojczysty albo bez danych w rekrutacji wymagającej polskiego (16.11.2026). */
+  order_polish_later?: boolean
+  /** Rekrutacja na lidera, osoba wykonawca (16.11.2026). */
+  order_leader_gap?: boolean
   why?: ReviewBatchWhy
   /** „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski. */
   key_facts?: ReviewBatchKeyFacts | null

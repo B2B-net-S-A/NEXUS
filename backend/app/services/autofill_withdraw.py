@@ -74,6 +74,10 @@ BATCH_RESET_REASON = "autofill_withdrawn_batch_reset"
 # poszły 3 (0,1%), a osoba do 14 dni w bazie to 5,5% wysyłek wobec 1,5% starszych.
 FRESH_SEAT_REASON = "autofill_withdrawn_fresh_seat"
 FRESH_SEAT_AGE_DAYS = 7
+# Reguła z powtarzanych braków działa od razu (16.11.2026): do tego dnia filtrowała
+# tylko karty dokładane, a stojące w porcji zostawały — 23 odrzucenia 16.11 były
+# powtórką tego samego braku (DevOps Lead 17 × „brak IBM MDM” po trzecim).
+LEARNED_RULE_REASON = "autofill_withdrawn_learned_rule"
 # „Praca w tle” mówi, dlaczego system wycofał osoby (`details.why`).
 _WHY = {
     REMOVAL_REASON: "budget",
@@ -82,6 +86,7 @@ _WHY = {
     FAR_REMOVAL_REASON: "far",
     BATCH_RESET_REASON: "batch_reset",
     FRESH_SEAT_REASON: "fresh_seat",
+    LEARNED_RULE_REASON: "learned_rule",
 }
 ACTIVITY_ENTITY = "job_automation"
 ACTION = "autofill_withdrawn"
@@ -482,3 +487,29 @@ async def withdraw_elsewhere(
         if int(c) == candidate_id
     ]
     return await apply(db, pairs, reason=NOT_LOOKING_REMOVAL_REASON, check_budget=False)
+
+
+async def withdraw_failing_rules(db, *, job_id: int) -> list[tuple[int, int]]:
+    """Nietknięte karty od systemu tej rekrutacji, które nie spełniają reguły
+    z powtarzanych braków (``job_learned_rules``). Bez commitu — w transakcji
+    odrzucenia, które regułę utworzyło albo wzmocniło."""
+    from app.services.job_learned_rules import keep_passing
+
+    pairs = [
+        (int(c), int(j))
+        for c, j in (await db.execute(_untouched_pairs([job_id]))).all()
+    ]
+    if not pairs:
+        return []
+    people = list(
+        (
+            await db.scalars(
+                select(Candidate).where(Candidate.id.in_([c for c, _ in pairs]))
+            )
+        ).all()
+    )
+    passing = await keep_passing(db, job_id, people)
+    failing = [(c, j) for c, j in pairs if c not in passing]
+    if not failing:
+        return []
+    return await apply(db, failing, reason=LEARNED_RULE_REASON, check_budget=False)

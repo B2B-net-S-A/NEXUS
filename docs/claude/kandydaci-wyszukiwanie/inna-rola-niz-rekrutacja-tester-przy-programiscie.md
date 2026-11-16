@@ -24,7 +24,7 @@ Head of Recruitment w panelu, po pomiarze).
   okna. Historia w NEXUSIE (ostatnie 10 rekrutacji, bez unieważnionych i bez kart
   scrapera) wygrywa z CV, gdy jest wyraźna: ≥ 3 rozpoznane i ≥ 75% jednej rodziny.
 - **Nie oznaczamy** przy roli nieznanej po którejkolwiek stronie, tej samej
-  albo pokrewnej (programista ↔ DevOps / dane, analityk ↔ dane / PM). Lepiej brak
+  albo pokrewnej (DevOps → programista, programista ↔ dane, analityk ↔ dane / PM; programista do rekrutacji DevOps to od 16.11.2026 inna rola — `_NOT_RELATED_THIS_WAY`, `porcja-kolejnosc-polski-lider-regula-od-razu.md`). Lepiej brak
   znaku niż zły znak.
 - **Okno** (`AddCandidatesPanel`, pole `role_mismatch` z
   `GET /api/jobs/{id}/proposal-facts`): plakietka „Inna rola: tester” z powodem,
