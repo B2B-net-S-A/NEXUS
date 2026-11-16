@@ -1,5 +1,24 @@
 [
   {
+    "id": "doplata-uzasadnienie-z-modelu",
+    "pr": 3501,
+    "title": "Dopłata za technologię: „Zaproponuj uzasadnienie”",
+    "why": "W oknie „Uzasadnienie (EN)” model pisze szkic po angielsku z faktów NEXUSA i Twoich przykładów — bez nazwiska i stawek. Czytasz, poprawiasz i wysyłasz sam; bez modelu zostaje szablon.",
+    "tier": "dot",
+    "shipped_on": "2026-11-16",
+    "audience": {
+      "roles": [
+        "admin",
+        "delivery_lead",
+        "finance"
+      ]
+    },
+    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.premium-justification"
+  },
+  {
     "id": "porcja-szczegol-powodu",
     "pr": 3470,
     "title": "Porcja dnia: dokładniejszy powód „Nie pasuje”",

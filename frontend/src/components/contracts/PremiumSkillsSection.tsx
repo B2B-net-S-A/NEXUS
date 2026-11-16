@@ -112,7 +112,7 @@ export function PremiumSkillsSection({
                     )}
                     {open && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "justify", evidence: e, claim: open })}>
+                        <Button size="sm" variant="outline" data-tour="contracts.premium-justification" onClick={() => setDialog({ kind: "justify", evidence: e, claim: open })}>
                           Uzasadnienie (EN)
                         </Button>
                         <Button size="sm" onClick={() => setDialog({ kind: "grant", claim: open })}>
