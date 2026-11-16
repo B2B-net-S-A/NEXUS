@@ -41,6 +41,7 @@ import { BookingTab } from "@/components/finance/ledger/BookingTab";
 import { ChartTab } from "@/components/finance/ledger/ChartTab";
 import { CounterpartiesTab } from "@/components/finance/ledger/CounterpartiesTab";
 import { PaymentsTab } from "@/components/finance/ledger/PaymentsTab";
+import { Ebi24ArchiveTab } from "@/components/finance/ledger/Ebi24ArchiveTab";
 import { useAccountingModule } from "@/lib/api/finance-ledger";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
@@ -67,6 +68,8 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
     "Paczki przelewów faktur kosztowych (Elixir-O, CSV, MPP) i zapłaty z wyciągu",
   booking: "Dekrety faktur gotowych do księgowania za miesiąc i paczki eksportu do Symfonii FK",
   accounts: "Plan kont Symfonii FK i reguły dekretu faktur kosztowych",
+  "ebi24-archive":
+    "Dokumenty z archiwum eBI24 (2021–2026): faktury sprzedaży i kosztowe z plikami",
 };
 
 /**
@@ -149,7 +152,8 @@ export default function FinancePage() {
       view === "counterparties" ||
       view === "payments" ||
       view === "booking" ||
-      view === "accounts") &&
+      view === "accounts" ||
+      view === "ebi24-archive") &&
       !accountingOpen)
       ? fallbackView
       : view;
@@ -284,6 +288,14 @@ export default function FinancePage() {
           ) : null}
           {accountingOpen ? (
             <ModeButton
+              active={visibleView === "ebi24-archive"}
+              onClick={() => changeView("ebi24-archive")}
+            >
+              Archiwum eBI24
+            </ModeButton>
+          ) : null}
+          {accountingOpen ? (
+            <ModeButton
               active={visibleView === "booking"}
               onClick={() => changeView("booking")}
             >
@@ -388,6 +400,8 @@ export default function FinancePage() {
           <CostsTab canWrite={canWrite} />
         ) : visibleView === "counterparties" ? (
           <CounterpartiesTab canWrite={canWrite} />
+        ) : visibleView === "ebi24-archive" ? (
+          <Ebi24ArchiveTab />
         ) : visibleView === "payments" ? (
           <PaymentsTab canWrite={canWrite} />
         ) : visibleView === "booking" ? (

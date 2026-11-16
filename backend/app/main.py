@@ -256,6 +256,7 @@ from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
+from app.api import finance_archive as finance_archive_api
 from app.api import finance_payments as finance_payments_api
 from app.api import finance_posting as finance_posting_api
 from app.api import ledger as ledger_api
@@ -2337,6 +2338,13 @@ app.include_router(
     tags=["finance-ledger"],
     dependencies=_HR_PROGRAM,
 )
+# Archiwum dokumentów z eBI24 (E5, 0720): pliki i metadane po wyłączeniu eBI24.
+app.include_router(
+    finance_archive_api.router,
+    prefix="/api/finance/archive-ebi24",
+    tags=["finance-ledger"],
+    dependencies=_HR_PROGRAM,
+)
 # Księgowość E3 (0699): paczki przelewów faktur kosztowych i zapłaty z wyciągu.
 app.include_router(
     finance_payments_api.router,
@@ -4181,6 +4189,7 @@ async def api_health_deep_check(request: Request):
         TrainingRegistration,
         TrainingTranscript,
     )
+    from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4854,6 +4863,8 @@ async def api_health_deep_check(request: Request):
         ("client_issued_invoices", ClientIssuedInvoice),
         # 0709: szablony faktur „co miesiąc” i refaktury benefitów (E6).
         ("client_invoice_templates", ClientInvoiceTemplate),
+        # 0720: archiwum dokumentów z eBI24 (E5).
+        ("finance_archive_documents", FinanceArchiveDocument),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
         # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.

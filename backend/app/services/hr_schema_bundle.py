@@ -26,6 +26,7 @@ from app.services import client_einvoices_schema as client_einvoices
 from app.services import client_invoice_issue_schema as client_invoice_issue
 from app.services import client_invoice_templates_schema as client_invoice_templates
 from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
+from app.services import finance_archive_schema as finance_archive
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -149,6 +150,8 @@ MODULES = (
     client_invoice_series_ext,
     # 0719: płace K7b — pensje UoP, składniki, oznaczenia L4, historia podstaw (16.11.2026).
     payroll_k7b,
+    # 0720: archiwum dokumentów z eBI24 w Finansach (E5, 16.11.2026).
+    finance_archive,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
