@@ -71,6 +71,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F47 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
 | F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F49 | client_report_requirements       | claude-sonnet-5 (z Haiku)|
+| F51 | board_document_read              | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -605,6 +606,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "fragmentu — to samo czytanie dokumentu co odczyt kosztu (F33), więc jego model. Rzadko "
         "(przycisk „Znajdź w umowach”). Dodatek: bez modelu DL dostaje fragmenty ze słowami "
         "kluczowymi i wpisuje raport sam; propozycja obowiązuje dopiero po potwierdzeniu DL-a.",
+    ),
+    AIFeatureKey.board_document_read: ModelChoice(
+        default=SONNET_5,
+        env_vars=("BOARD_DOCUMENT_READ_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F51 (decyzja Artura 16.11.2026, POZA badaniem 16.09). Odczyt numeru, daty, "
+        "organu i przedmiotu ze skanu uchwały albo protokołu — to samo czytanie dokumentu co "
+        "odczyt kosztu (F33), więc jego model. Rzadko (wgranie dokumentu Rady). Dodatek: bez "
+        "modelu admin wpisuje pola sam; propozycja nie nadpisuje pól.",
     ),
 }
 

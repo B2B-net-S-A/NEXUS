@@ -254,6 +254,7 @@ from app.api import client_settlements as client_settlements_api
 from app.api import client_time_reports as client_time_reports_api
 from app.api import client_reports as client_reports_api
 from app.api import law_radar as law_radar_api
+from app.api import supervisory_board as supervisory_board_api
 from app.api import client_einvoices as client_einvoices_api
 from app.api import finance_ledger as finance_ledger_api
 from app.api import finance_archive as finance_archive_api
@@ -859,6 +860,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
+    from app.tasks.board_krs import board_krs_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
         integration_stale_alerts_loop,
@@ -1102,6 +1104,8 @@ async def lifespan(app: FastAPI):
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
             # wyłącznik LAW_RADAR_ENABLED przed pętlą.
             "law_radar": asyncio.create_task(law_radar_loop()),
+            # Rada: odpis pełny KRS spółki co noc (05:40); wyłącznik BOARD_KRS_ENABLED.
+            "board_krs": asyncio.create_task(board_krs_loop()),
             "insights_seniority_journal": asyncio.create_task(
                 insights_seniority_journal_loop()
             ),
@@ -1595,6 +1599,10 @@ app.include_router(
 )
 # Radar przepisów (0713, decyzje Artura 15.11.2026): ekran „Przepisy”.
 app.include_router(law_radar_api.router, prefix="/api/compliance", tags=["compliance"])
+# Rada nadzorcza (R1, decyzje Artura 16.11.2026): dokumenty korporacyjne i odpis KRS.
+app.include_router(
+    supervisory_board_api.router, prefix="/api/supervisory-board", tags=["supervisory-board"]
+)
 app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
@@ -4190,6 +4198,7 @@ async def api_health_deep_check(request: Request):
         TrainingTranscript,
     )
     from app.models.finance_archive import FinanceArchiveDocument
+    from app.models.board_document import BoardDocument, BoardKrsSnapshot
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4865,6 +4874,8 @@ async def api_health_deep_check(request: Request):
         ("client_invoice_templates", ClientInvoiceTemplate),
         # 0720: archiwum dokumentów z eBI24 (E5).
         ("finance_archive_documents", FinanceArchiveDocument),
+        ("board_documents", BoardDocument),
+        ("board_krs_snapshots", BoardKrsSnapshot),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
         # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.

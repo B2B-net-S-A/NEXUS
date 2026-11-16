@@ -385,6 +385,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_report_requirements'",
     # 0712: przypomnienie o terminie raportu dla klienta (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
+    # 0724: Rada — odczyt skanu dokumentu korporacyjnego i dzwonek o wpisie w KRS.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'board_document_read'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -8030,6 +8033,11 @@ _DATA_STATEMENTS = [
     "SELECT 'client_report_requirements', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'client_report_requirements')",
+    # 0724: seed klucza AI odczytu dokumentów Rady.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'board_document_read', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'board_document_read')",
     # 0637: seed klucza AI rozdzielania spraw back office'u.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'case_triage', TRUE, 0, now(), now() "

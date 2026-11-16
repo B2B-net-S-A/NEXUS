@@ -129,6 +129,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   accounting: "Księgowość",
   // 15.11.2026: /compliance — Przepisy (zmiany w prawie i terminy).
   compliance: "Przepisy",
+  rada: "Rada",
   documents: "Dokumenty",
   "trial-balance": "Obroty i salda",
   chart: "Plan kont",

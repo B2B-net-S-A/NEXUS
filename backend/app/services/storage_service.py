@@ -44,6 +44,8 @@ CLIENT_REPORTS_DIR = STORAGE_ROOT / "client_reports"
 START_DOCUMENTS_DIR = STORAGE_ROOT / "start_documents"
 # Sprzedaż (Atlas → NEXUS): pliki przy firmie sprzedaży albo szansie.
 SALES_FILES_DIR = STORAGE_ROOT / "sales_files"
+# Rada nadzorcza (R1): skany uchwał, protokołów, regulaminów i statutu.
+BOARD_DOCUMENTS_DIR = STORAGE_ROOT / "board_documents"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -657,3 +659,18 @@ def read_client_report_file(relative_path: str) -> bytes:
 
 def delete_client_report_file(relative_path: str) -> None:
     _delete_relative(relative_path, "client report file")
+
+
+def save_board_document_file(name: str, data: bytes) -> tuple[str, int]:
+    """Zapisz skan dokumentu Rady pod /board_documents/{uuid}-{name}."""
+    rel, size = _save_to(BOARD_DOCUMENTS_DIR, name, io.BytesIO(data))
+    logger.info("Saved board document file: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def read_board_document_file(relative_path: str) -> bytes:
+    return _resolve_under_root(relative_path).read_bytes()
+
+
+def delete_board_document_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "board document file")

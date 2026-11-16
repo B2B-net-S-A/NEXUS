@@ -16,18 +16,18 @@ const board = {
 };
 
 describe("menu Rady nadzorczej", () => {
-  it("menu boczne ma tylko Insights, Pomoc i Ustawienia konta", () => {
+  it("menu boczne ma Radę, Insights, Pomoc i Ustawienia konta (Rada od 16.11.2026)", () => {
     const ids = visibleNavSections(board, { contactQueueEnabled: true }).flatMap(
       (section) => section.items.map((entry) => entry.id),
     );
-    expect(ids).toEqual(["insights", "help", "settings"]);
+    expect(ids).toEqual(["rada", "insights", "help", "settings"]);
   });
 
   it("paleta dokłada listę umów przedwstępnych (decyzja Artura 23.10.2026)", () => {
     const ids = visibleNavEntries(board, { contactQueueEnabled: true }).map(
       (entry) => entry.id,
     );
-    expect([...ids].sort()).toEqual(["help", "insights", "pre-contracts", "settings"]);
+    expect([...ids].sort()).toEqual(["help", "insights", "pre-contracts", "rada", "settings"]);
   });
 
   it("kartoteka w „Ludziach” nie dokłada „Mój czas” ani „Ludzi”", () => {
@@ -41,8 +41,8 @@ describe("menu Rady nadzorczej", () => {
 });
 
 describe("lądowanie Rady nadzorczej", () => {
-  it("pulpit, strona główna i ekrany pracy prowadzą do kokpitu Firma", () => {
-    expect(BOARD_HOME).toBe("/insights?tab=firma");
+  it("pulpit, strona główna i ekrany pracy prowadzą do sekcji Rada (decyzja Artura 16.11.2026)", () => {
+    expect(BOARD_HOME).toBe("/rada");
     expect(postLoginDestination(board)).toBe(BOARD_HOME);
     expect(postLoginDestination(board, "/dashboard")).toBe(BOARD_HOME);
     expect(postLoginDestination(board, "/jobs/12")).toBe(BOARD_HOME);
@@ -63,6 +63,7 @@ describe("lądowanie Rady nadzorczej", () => {
 
 describe("trasy Rady nadzorczej", () => {
   it.each([
+    "/rada",
     "/insights",
     "/insights/x",
     "/profile",
@@ -83,6 +84,7 @@ describe("trasy Rady nadzorczej", () => {
     "/jobs/12",
     "/jobs/umowy-przedwstepne/12",
     "/insightsx",
+    "/radax",
     "/my-time",
   ])(
     "%s nie jest dozwolone",

@@ -8,7 +8,7 @@
 import { PRE_CONTRACTS_PATH } from "@/lib/pre-contract-access"
 
 /** Dom Rady nadzorczej: Insights → Firma. */
-export const BOARD_HOME = "/insights?tab=firma"
+export const BOARD_HOME = "/rada"
 
 /** Ekrany Rady: Insights, własne konto (hasło, powiadomienia), Pomoc i sama
  *  lista „Umowy przedwstępne” (decyzja Artura 23.10.2026 — panel osoby i reszta
@@ -18,6 +18,7 @@ export const BOARD_HOME = "/insights?tab=firma"
 export function isBoardAllowedPath(pathname: string): boolean {
   return (
     pathname === PRE_CONTRACTS_PATH ||
+    pathname === "/rada" ||
     pathname === "/insights" ||
     pathname.startsWith("/insights/") ||
     pathname === "/podglad" ||
