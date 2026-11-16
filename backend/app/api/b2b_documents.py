@@ -469,21 +469,19 @@ def _context(
 def _document_label(doc: B2BContractDocument, doc_type: DocumentType) -> str:
     number = (doc.render_payload or {}).get("base", {}).get("contract_number")
     when = doc.document_date.strftime("%d.%m.%Y")
+    label = effects.annex_display_label(
+        doc_type, (doc.render_payload or {}).get("values")
+    )
     if number:
-        return f"{doc_type.label} z dnia {when} do umowy {number}"
-    return f"{doc_type.label} z dnia {when}"
+        return f"{label} z dnia {when} do umowy {number}"
+    return f"{label} z dnia {when}"
 
 
 def _filename(doc_type: DocumentType, values: dict, doc_date: date | None) -> str:
     who = values.get("partner_name") or ""
     when = doc_date.isoformat() if doc_date else ""
     # Aneks z własną nazwą: „Aneks — zwolnienie z zakazu konkurencji …”.
-    title = str(values.get("annex_title") or "").strip()
-    label = (
-        f"Aneks — {title}"
-        if doc_type.key == "annex_custom" and title
-        else doc_type.label
-    )
+    label = effects.annex_display_label(doc_type, values)
     return _ascii_filename(f"{label} {who} {when}".strip()) + ".docx"
 
 

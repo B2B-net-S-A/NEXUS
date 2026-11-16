@@ -549,62 +549,66 @@ ANNEX_GENERATOR_TYPES: tuple[DocumentType, ...] = (
             ),
         ),
     ),
-    DocumentType(
-        key="annex_custom",
-        label="Aneks — inna zmiana",
-        family="annex",
-        languages=("pl",),
-        parent="b2b",
-        uses_refs=False,
-        allows_external=True,
-        description=(
-            "Zmiana, której nie ma na liście: sam nazywasz aneks, wybierasz "
-            "gotową klauzulę albo wpisujesz zmiany paragrafów."
-        ),
-        effect_label=(
-            "Kontrakt nie zmieni się sam — aneks pojawi się w zakładce "
-            "„Aneksy” kontraktu pod swoją nazwą."
-        ),
-        fields=(
-            *ANNEX_CONTRACT_FIELDS,
-            *ANNEX_DATE_FIELDS,
-            *ANNEX_PARTNER_FIELDS,
-            FieldDef(
-                "annex_title",
-                "Czego dotyczy aneks",
-                required=True,
-                help=(
-                    "Trafi do tytułu dokumentu („w sprawie: …”) i do rejestru "
-                    "aneksów, np. „zwolnienie z zakazu konkurencji”."
-                ),
-                group="change",
+)
+
+
+#: Aneks z własną nazwą (16.11.2026) — ostatni na liście typów, bo to wyjście
+#: dla zmian, których nie obsługuje żaden typ dedykowany.
+ANNEX_CUSTOM_TYPE = DocumentType(
+    key="annex_custom",
+    label="Aneks — inna zmiana",
+    family="annex",
+    languages=("pl",),
+    parent="b2b",
+    uses_refs=False,
+    allows_external=True,
+    description=(
+        "Zmiana, której nie ma na liście: sam nazywasz aneks, wybierasz "
+        "gotową klauzulę albo wpisujesz zmiany paragrafów."
+    ),
+    effect_label=(
+        "Kontrakt nie zmieni się sam — aneks pojawi się w zakładce "
+        "„Aneksy” kontraktu pod swoją nazwą."
+    ),
+    fields=(
+        *ANNEX_CONTRACT_FIELDS,
+        *ANNEX_DATE_FIELDS,
+        *ANNEX_PARTNER_FIELDS,
+        FieldDef(
+            "annex_title",
+            "Czego dotyczy aneks",
+            required=True,
+            help=(
+                "Trafi do tytułu dokumentu („w sprawie: …”) i do rejestru "
+                "aneksów, np. „zwolnienie z zakazu konkurencji”."
             ),
-            FieldDef(
-                "changes",
-                "Zmiany w umowie",
-                "annex_changes",
-                required=True,
-                group="change",
-            ),
+            group="change",
         ),
-        clauses=(
-            # Zdanie z porozumienia o rozwiązaniu umowy
-            # (``termination_agreement_pl``) — ta sama, przyjęta już treść.
-            AnnexClause(
-                key="non_compete_release",
-                label="Zwolnienie z zakazu konkurencji",
-                title="zwolnienie z zakazu konkurencji",
-                rows=(
-                    ClauseRow(
-                        op="free",
-                        text=(
-                            "B2B.net S.A. zwalnia Partnera z zakazu konkurencji "
-                            "określonego w {non_compete_paragraph} Umowy i zgadza "
-                            "się na bezpośrednie zatrudnienie Partnera lub "
-                            "świadczenie przez Partnera usług bezpośrednio na "
-                            "rzecz: {client_legal_name}, spółek macierzystych oraz "
-                            "innych podmiotów powiązanych."
-                        ),
+        FieldDef(
+            "changes",
+            "Zmiany w umowie",
+            "annex_changes",
+            required=True,
+            group="change",
+        ),
+    ),
+    clauses=(
+        # Zdanie z porozumienia o rozwiązaniu umowy
+        # (``termination_agreement_pl``) — ta sama, przyjęta już treść.
+        AnnexClause(
+            key="non_compete_release",
+            label="Zwolnienie z zakazu konkurencji",
+            title="zwolnienie z zakazu konkurencji",
+            rows=(
+                ClauseRow(
+                    op="free",
+                    text=(
+                        "B2B.net S.A. zwalnia Partnera z zakazu konkurencji "
+                        "określonego w {non_compete_paragraph} Umowy i zgadza "
+                        "się na bezpośrednie zatrudnienie Partnera lub "
+                        "świadczenie przez Partnera usług bezpośrednio na "
+                        "rzecz: {client_legal_name}, spółek macierzystych oraz "
+                        "innych podmiotów powiązanych."
                     ),
                 ),
             ),
@@ -819,6 +823,7 @@ TYPES: dict[str, DocumentType] = {
                 ),
             ),
         ),
+        ANNEX_CUSTOM_TYPE,
         DocumentType(
             key="termination_agreement",
             label="Porozumienie o rozwiązaniu umowy",

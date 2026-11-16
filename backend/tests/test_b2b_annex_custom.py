@@ -13,7 +13,7 @@ from app.api.b2b_documents import _filename
 from app.services.b2b_documents.annex_summary import annex_change
 from app.services.b2b_documents.constants import B2B_DOCUMENT_TYPES
 from app.services.b2b_documents.context import annex_change_points
-from app.services.b2b_documents.effects import annex_custom_title
+from app.services.b2b_documents.effects import annex_custom_title, annex_display_label
 from app.services.b2b_documents.registry import (
     MAX_ANNEX_CHANGES,
     annex_changes_problems,
@@ -167,6 +167,17 @@ def test_register_summary_carries_the_title():
 def test_title_falls_back_when_empty():
     assert annex_custom_title({"annex_title": "  "}) == "inna zmiana"
     assert annex_custom_title({"annex_title": "zmiana adresu"}) == "zmiana adresu"
+
+
+def test_display_label_names_the_annex_by_its_title():
+    custom = get_type("annex_custom")
+    assert (
+        annex_display_label(custom, {"annex_title": "zwolnienie z zakazu konkurencji"})
+        == "Aneks — zwolnienie z zakazu konkurencji"
+    )
+    assert annex_display_label(custom, {}) == "Aneks — inna zmiana"
+    start = get_type("annex_start_date")
+    assert annex_display_label(start, {"annex_title": "x"}) == start.label
 
 
 def test_file_name_uses_the_title():

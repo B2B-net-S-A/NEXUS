@@ -254,6 +254,18 @@ def annex_custom_title(values: dict[str, Any]) -> str:
     return str(values.get("annex_title") or "").strip() or "inna zmiana"
 
 
+def annex_display_label(doc_type: DocumentType, values: dict[str, Any] | None) -> str:
+    """Nazwa dokumentu dla ludzi (plik, dokumenty kontraktu, oś czasu).
+
+    Aneks z własną nazwą to „Aneks — zwolnienie z zakazu konkurencji”, nie
+    „Aneks — inna zmiana”; pozostałe typy — etykieta z rejestru."""
+    if doc_type.key == "annex_custom":
+        title = str((values or {}).get("annex_title") or "").strip()
+        if title:
+            return f"Aneks — {title}"
+    return doc_type.label
+
+
 def annex_effective_date(
     doc_type_key: str,
     values: dict[str, Any],
@@ -699,7 +711,8 @@ async def _store_docx_on_contract(
 ) -> ContractDocument:
     from app.services.storage_service import save_contract_document
 
-    filename = f"{doc_type.label} {doc.document_date.isoformat()}.docx"
+    label = annex_display_label(doc_type, (doc.render_payload or {}).get("values"))
+    filename = f"{label} {doc.document_date.isoformat()}.docx"
     # Stały klucz pliku: ponowienie po awarii między zapisem pliku a commitem
     # nadpisuje ten sam plik zamiast zostawiać sierotę w magazynie.
     path, size = save_contract_document(
