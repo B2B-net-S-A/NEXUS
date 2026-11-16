@@ -156,6 +156,11 @@ regexes = [
   # klucza, a reguła ``fireflies-api-key`` bierze je za klucz. Zakotwiczone,
   # dokładnie dwie wartości.
   '''^00000000-0000-4000-8000-00000000000[12]$''',
+  # Fikcyjne identyfikatory nieobecności w teście ekranu płac K7b (PR #3477).
+  # Test ma już tekstowe identyfikatory (9e2ebaa3c), ale wartości zostają
+  # w historii gałęzi, a skan PR-a obejmuje cały zakres commitów. Zakotwiczone,
+  # dokładnie dwie wartości.
+  '''^0f1e2d3c-0000-4000-8000-00000000000[12]$''',
 ]
 
 [[rules]]
