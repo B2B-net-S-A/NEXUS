@@ -131,7 +131,7 @@ class TestFeatureKeyEnum:
             "duty_search_judge",
             # 0712: katalog raportów klienta — obowiązki z umów ramowych.
             "client_report_requirements",
-            # 0723: szkic uzasadnienia dopłaty za technologię premium.
+            # 0724: szkic uzasadnienia dopłaty za technologię premium.
             "premium_skill_justification",
         }
 

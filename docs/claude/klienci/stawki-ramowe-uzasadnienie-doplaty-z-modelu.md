@@ -1,4 +1,4 @@
-# Stawki ramowe: uzasadnienie dopłaty premium z modelu (F5, 0723, 16.11.2026)
+# Stawki ramowe: uzasadnienie dopłaty premium z modelu (F5, 0724, 16.11.2026)
 <!-- indeks: „Zaproponuj uzasadnienie”, klucz AI `premium_skill_justification` (F50, Sonnet 5.5 z Haiku 5.5), szkic EN do wniosku o dopłatę za technologię, tylko fakty bez nazwiska/klienta/stawek, liczby spoza faktów = ostrzeżenie, brak modelu = szablon F4, szkic niezapisywany -->
 
 Decyzja Artura z 16.11.2026: zrobić opcjonalny etap F5 planu „Stawki ramowe
@@ -17,7 +17,7 @@ w `api/framework_rates.py`, okno `JustificationDialog` w
 
 - **Szkic, nie decyzja.** Model daje tekst do poprawienia; DL czyta, poprawia,
   kopiuje i wysyła sam ze swojej poczty. NEXUS szkicu nie zapisuje (brak kolumny
-  i tabeli, migracja 0723 dodaje tylko klucz AI). Nie dokładaj automatycznej
+  i tabeli, migracja 0724 dodaje tylko klucz AI). Nie dokładaj automatycznej
   wysyłki ani zapisu „zatwierdzonego” tekstu bez decyzji Artura.
 - **Wejście modelu to tylko fakty uzasadnienia:** technologia i procent dopłaty
   z cennika, kategoria i poziom, źródła dowodu NEXUSA (CV, oś czasu CV z miesiącami,
