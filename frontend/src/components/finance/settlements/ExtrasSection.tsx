@@ -50,7 +50,12 @@ export function ExtrasSection({ contractId, month, block, canWrite }: ExtrasSect
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold">Dodatki do faktury</h3>
         {canWrite && !adding ? (
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
+          <Button
+            size="sm"
+            variant="outline"
+            data-tour="clients.settlement-extras.add"
+            onClick={() => setAdding(true)}
+          >
             Dodaj dodatek
           </Button>
         ) : null}
