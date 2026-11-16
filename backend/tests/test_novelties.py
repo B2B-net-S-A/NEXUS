@@ -765,7 +765,8 @@ def test_poligon_path_per_role() -> None:
     recruiter = {e.id for e in plan.exercises_for(["recruiter"])}
     dl = {e.id for e in plan.exercises_for(["delivery_lead"])}
     tcm = {e.id for e in plan.exercises_for(["talent_community_manager"])}
-    assert len(recruiter) == 19
+    # 19 ćwiczeń z 14.11 i 8 narzędzi rekrutera z 16.11.2026.
+    assert len(recruiter) == 27
     assert {
         "poligon-dl-przeglad-otworz",
         "poligon-dl-wyslij",
@@ -773,7 +774,9 @@ def test_poligon_path_per_role() -> None:
     } <= dl
     assert not {i for i in dl if i.startswith("poligon-screening-")}
     assert "poligon-tablica-biore" not in dl | tcm
-    assert tcm < recruiter and tcm < dl
+    assert tcm < recruiter
+    # TCM poza wspólnymi modułami ćwiczy listy i zapisane wyszukiwania (16.11.2026).
+    assert tcm - dl == {"poligon-baza-lista", "poligon-baza-zapisane-wyszukiwanie"}
     assert {e.module for e in plan.exercises_for(["talent_community_manager"])} == {
         "Lista rekrutacji",
         "Tablica",
@@ -1243,6 +1246,26 @@ def test_luki_targets_recruiters_without_leader_roles() -> None:
     assert not is_target(person("head_of_recruitment", "recruiter"))
     assert not is_target(person("recruiter", active=False))
     assert not is_target(person("delivery_lead"))
+
+
+def test_tool_exercises_of_16_11_are_credited_by_work() -> None:
+    """Kto używa narzędzia z luk, ma jego ćwiczenie zaliczone z pracy (16.11.2026)."""
+    from app.services.poligon_luki import credited_exercises
+
+    path = [e.id for e in load_poligon().exercises_for(["recruiter"])]
+    for feature, exercise in {
+        "screening_kalendarz": "poligon-kalendarz-telefon",
+        "terminy_klient": "poligon-kalendarz-termin-klienta",
+        "cv_z_pliku": "poligon-zrodla-cv-z-pliku",
+        "zapisane_wyszukiwanie": "poligon-baza-zapisane-wyszukiwanie",
+        "pula": "poligon-baza-lista",
+        "czat": "poligon-zespol-czat",
+        "polecenie_ai_cv": "poligon-zespol-cv-ai",
+        "jarvis": "poligon-zespol-jarvis",
+    }.items():
+        assert exercise in path, exercise
+        assert exercise in credited_exercises({feature}, path), feature
+        assert exercise not in credited_exercises({"biore"}, path), feature
 
 
 def test_every_luki_feature_has_a_signal_and_known_exercises() -> None:

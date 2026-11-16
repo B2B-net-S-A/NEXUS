@@ -52,7 +52,7 @@ describe("zestaw Poligonu", () => {
     const people = new Set(meta.people.flatMap((p) => [p.name, p.lastname, `${p.name} ${p.lastname}`]));
     Object.values(meta.trainers).forEach((t) => people.add(t.name));
     const bad = all.filter(([k, v]) => {
-      if (!v || ENUM.test(v) || /^@reld?:-?[\d.]+$/.test(v) || /^\d+$/.test(v)) return false;
+      if (!v || ENUM.test(v) || /^@reld?:-?[\d.]+$/.test(v) || /^@relt:\d+T\d{2}:\d{2}$/.test(v) || /^\d+$/.test(v)) return false;
       if (people.has(v)) return false;
       if (SAFE.has(k) || FICTION_KEYS.has(k) || FIXED_TEXT.get(k) === v) return false;
       if (PERSON_KEY.test(k) && people.has(v)) return false;

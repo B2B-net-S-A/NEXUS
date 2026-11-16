@@ -79,9 +79,17 @@ PEOPLE = [
     ("Oskar", "Modrzewski"),
 ]
 
+# Osoby ćwiczeń z 16.11.2026 spoza bazy i Tablicy z nagrania: na karcie
+# „Rozmowa u klienta” czeka na wybór terminu (`SLOT_PERSON`), a osobę
+# z pliku CV NEXUS „odczytuje” dopiero w ćwiczeniu (`CV_PERSON`).
+SLOT_PERSON = ("Kamil", "Dębowski")
+CV_PERSON = ("Ewa", "Jesionowska")
+EXTRA_PEOPLE = [SLOT_PERSON, CV_PERSON]
+ALL_PEOPLE = PEOPLE + EXTRA_PEOPLE
+
 FICTIONAL_NAMES = (
-    {n for pair in PEOPLE for n in pair}
-    | {f"{a} {b}" for a, b in PEOPLE}
+    {n for pair in ALL_PEOPLE for n in pair}
+    | {f"{a} {b}" for a, b in ALL_PEOPLE}
     | {t[1] for t in TRAINERS.values()}
     | {JOB_TITLE, CLIENT_NAME, JOB_REFERENCE}
 )
@@ -108,6 +116,23 @@ DL_PHASES = {"dl-review", "dl-review-return", "dl-review-reject"}
 # Z Tablicy DL-a bierzemy tylko odczyty nagłówka, które widzi Delivery Lead
 # (gotowość do przekazania, „Klient milczy”, rekrutacja bez ruchu).
 DL_BOARD_PATHS = re.compile(r"^/api/(jobs/\d+/(readiness|idle)|client-wait/jobs/\d+)$")
+# Dogranie z 16.11.2026 (`rec4`: terminy u klienta, edytor CV, czat, zapisane
+# wyszukiwania, listy, CV z pliku): tylko dokłada adresy, których nie ma —
+# Tablica i panel osoby zostają z pierwszego nagrania.
+ADD_ONLY_PHASES = {
+    "login4",
+    "slot-board",
+    "slot-pick",
+    "cv-board",
+    "cv-dock",
+    "cv-editor",
+    "cv-editor-assistant",
+    "cv-editor-api",
+    "chat",
+    "saved-searches",
+    "profile-lists",
+    "add-from-cv",
+}
 
 # Kwoty w zestawie są wymyślone: repo jest publiczne, a stawki osób i marże
 # klientów to tajemnica firmy. Liczby pasują do treści ćwiczeń: kandydat
@@ -531,6 +556,134 @@ def with_qc_cards(data: dict) -> dict:
     return {**data, "columns": out}
 
 
+# „Rozmowa u klienta” (ćwiczenie „Wybierz termin z kandydatem”, 16.11.2026).
+# Kształt odznaki i podpowiedzi prepów pochodzi z nagrania (`slot-*`), treść
+# jest wymyślona: prawdziwe odpowiedzi mają nazwiska organizatorów prepów,
+# a godziny przesunięte o chwilę nagrania wyglądałyby jak „13:27”. Daty
+# `@relt:<dni>T<HH:MM>` = za tyle dni roboczych o pełnej godzinie (UTC).
+CLIENT_INTERVIEW_STAGE = "client_interview"
+SLOT_REQUEST_ID = 990701
+
+
+def slot_badge() -> dict:
+    slots = [("2T09:00", "2T10:00"), ("3T13:00", "3T14:00"), ("5T08:00", "5T09:00")]
+    respond_by = "@relt:1T15:00"
+    steps = ["slots", "choice", "prep", "prep2", "interview", "call", "debrief"]
+    return {
+        "kind": "choose_slot",
+        "label": "Wybierz termin · 3 propozycje",
+        "tone": "wait",
+        "at": respond_by,
+        "steps": [
+            {
+                "key": k,
+                "state": "done"
+                if k == "slots"
+                else "current"
+                if k == "choice"
+                else "todo",
+                "at": respond_by if k == "choice" else None,
+                "event_id": None,
+            }
+            for k in steps
+        ],
+        "interview_event_id": None,
+        "tentative_interview_at": f"@relt:{slots[0][0]}",
+        "late_prep_event_id": None,
+        "slot_request": {
+            "id": SLOT_REQUEST_ID,
+            "status": "awaiting_recruiter",
+            "expired": False,
+            "slots": [{"start": f"@relt:{a}", "end": f"@relt:{z}"} for a, z in slots],
+            "chosen_index": None,
+            "respond_by": respond_by,
+            "recruiter_id": TRAINERS["rec"][0],
+            "created_by": TRAINERS["dl"][0],
+            "duration_minutes": 60,
+            "note": None,
+            "event_id": None,
+        },
+        "preps": [],
+        "debrief": None,
+        "prep2_skip_status": "not_needed",
+        "prep2_skip": None,
+        "prep1_remaining": [],
+        "phase": "awaiting_recruiter_pick",
+        "interview_date": None,
+    }
+
+
+def prep_suggestions() -> dict:
+    """Podpowiedzi godzin prepów do okna wyboru terminu (prepy w Teams wyłączone)."""
+
+    def prep(no: int, organizer: str, times: list[str]) -> dict:
+        uid, name = TRAINERS[organizer]
+        return {
+            "prep_no": no,
+            "organizer": {"id": uid, "name": name},
+            "calendar": "off",
+            "scheduled_start": None,
+            "minutes": 45,
+            "options": [
+                {"start": f"@relt:{t}", "end": f"@relt:{t[:-2]}45"} for t in times
+            ],
+            "busy": [],
+        }
+
+    return {
+        "enabled": False,
+        "preps": [
+            prep(1, "dl", ["1T07:00", "1T08:00", "1T09:00"]),
+            prep(2, "rec", ["2T07:00", "1T15:00", "1T16:00"]),
+        ],
+    }
+
+
+def with_slot_card(data: dict) -> dict:
+    """Kolumna „Rozmowa u klienta”: jedna osoba czeka na wybór terminu z kandydatem."""
+    columns = data["columns"]
+    target = next(
+        (c for c in columns if c.get("stage") == CLIENT_INTERVIEW_STAGE), None
+    )
+    template = next(
+        (i for c in columns if c.get("stage") == QC_STAGE for i in c.get("items", [])),
+        None,
+    )
+    if target is None or template is None:
+        return data
+    i = len(PEOPLE) + EXTRA_PEOPLE.index(SLOT_PERSON)
+    first, last = SLOT_PERSON
+    card = {
+        **copy.deepcopy(template),
+        "id": FIRST_ENTRY + i,
+        "candidate_id": FIRST_CANDIDATE + i,
+        "name": first,
+        "lastname": last,
+        "stage": target["stage"],
+        "stage_def_id": target["stage_def_id"],
+        "interview_badge": slot_badge(),
+        "next_action_owner": "recruiter",
+        "followup": None,
+    }
+    out = [{**c, "items": [card], "count": 1} if c is target else c for c in columns]
+    return {**data, "columns": out}
+
+
+# Edytor CV (ćwiczenie „Popraw CV poleceniem AI”): CV firmowe osoby-szablonu
+# jest szkicem. Treść CV ćwiczebnego dokłada front (`lib/poligon/cv-fiction.ts`),
+# bo zestaw nie przyjmuje tekstu spoza słownika.
+BRANDED_DRAFT = {
+    "status": "draft",
+    "content_html": None,
+    "edit_revision": 3,
+    "version": 1,
+    "template": "standard",
+    "language": "pl",
+    "from_generator": True,
+    "source": "generator",
+}
+
+
 def shape_kanban(b: Builder, data: dict) -> dict:
     """Mała Tablica: kilka kart w pierwszych kolumnach, osoby ćwiczebne."""
     data = with_qc_cards(data)
@@ -548,6 +701,13 @@ def shape_kanban(b: Builder, data: dict) -> dict:
             items.append(item)
         columns.append({**col, "items": items, "count": len(items)})
     return {**data, "columns": columns}
+
+
+def add_slot_card(dataset: dict) -> None:
+    """Karta na „Rozmowie u klienta” po oczyszczeniu Tablicy (identyfikatory już poligonu)."""
+    key = f"GET /api/pipeline/kanban/{POLIGON_JOB}"
+    if isinstance(dataset.get(key), dict):
+        dataset[key] = with_slot_card(dataset[key])
 
 
 FICTION_SKILLS = [
@@ -726,7 +886,7 @@ def fix_counts(dataset: dict) -> None:
         per_stage[c.get("stage")] += len(c.get("items", []))
         per_def[c.get("stage_def_id")] += len(c.get("items", []))
     total = sum(per_stage.values())
-    ours = {FIRST_CANDIDATE + i for i in range(len(PEOPLE))}
+    ours = {FIRST_CANDIDATE + i for i in range(len(ALL_PEOPLE))}
     for key, value in dataset.items():
         if key == f"GET /api/jobs/{POLIGON_JOB}":
             for k in ("collaborators", "recruiters"):
@@ -941,6 +1101,9 @@ def main() -> None:
     ap.add_argument("--dl-client", type=int)
     ap.add_argument("--dl-candidate", type=int)
     ap.add_argument("--dl-stage", type=int)
+    # Edytor CV (faza `cv-editor-api`): etap osoby z CV firmowym — trafia pod osobę-szablon.
+    ap.add_argument("--cv-stage", type=int)
+    ap.add_argument("--cv-candidate", type=int)
     ap.add_argument("--captured-at", default=datetime.now(timezone.utc).isoformat())
     ap.add_argument("--report", action="store_true")
     args = ap.parse_args()
@@ -958,6 +1121,8 @@ def main() -> None:
             e["status"] != 200
             or not body_file.exists()
             or e["path"].startswith("/api/novelties/")
+            # Odznaka terminów i podpowiedzi prepów są wymyślone (`slot_badge`).
+            or e.get("phase", "").startswith("slot-")
             or (
                 dl_phase
                 and (
@@ -978,8 +1143,12 @@ def main() -> None:
             continue
         entries.append((e, body))
 
-    for _, body in entries:
-        b.learn_real_names(body)
+    # Dogranie (`ADD_ONLY_PHASES`) uczy filtr nazw tylko z odpowiedzi, które
+    # wchodzą do zestawu (niżej) — inaczej obce firmy i szkoły z całego
+    # dogrania zdejmowałyby słowa takie jak „Polish” z odpowiedzi nagrania.
+    for e, body in entries:
+        if e.get("phase") not in ADD_ONLY_PHASES:
+            b.learn_real_names(body)
     for e, body in entries:
         if e["path"] == f"/api/pipeline/kanban/{args.job}":
             for col in body["columns"]:
@@ -1026,6 +1195,9 @@ def main() -> None:
                 if isinstance(row.get("candidate_name"), str):
                     b.person_names[row["candidate_name"].strip()] = f"{first} {last}"
 
+    if args.cv_stage:
+        b.ids[args.cv_stage] = b.ids.get(template_stage, FIRST_ENTRY)
+        b.ids[args.cv_candidate] = b.ids[args.candidate]
     owned_markers = {
         str(args.job),
         str(args.candidate),
@@ -1034,6 +1206,8 @@ def main() -> None:
     }
     if args.dl_job:
         owned_markers |= {str(args.dl_job), str(args.dl_candidate), str(args.dl_stage)}
+    if args.cv_stage:
+        owned_markers |= {str(args.cv_stage), str(args.cv_candidate)}
     dataset: dict[str, object] = {}
     for e, body in entries:
         raw = e["path"] + e["query"] + (e.get("reqBody") or "")
@@ -1052,8 +1226,12 @@ def main() -> None:
         if not owned:
             continue
         key = f"{e['method']} {b.clean_url(e['path'], e['query'])}"
-        if e.get("phase", "").startswith("dl-") and key in dataset:
+        if (
+            e.get("phase", "").startswith("dl-") or e.get("phase") in ADD_ONLY_PHASES
+        ) and key in dataset:
             continue
+        if e.get("phase") in ADD_ONLY_PHASES:
+            b.learn_real_names(body)
         if re.match(rf"/api/candidates/{args.candidate}(/quick-view)?$", e["path"]):
             first, last = PEOPLE[b.ids[args.candidate] - FIRST_CANDIDATE]
             body = fictionalize_candidate(body, first, last)
@@ -1076,6 +1254,12 @@ def main() -> None:
     shape_my_people(dataset)
     for key in [k for k in dataset if k.startswith("GET /api/users/mentionable")]:
         dataset[key] = mentionable_users()
+    # Członkowie czatu rekrutacji = trenerzy poligonu (jak lista do „@”).
+    for key in [k for k in dataset if re.match(r"GET /api/jobs/\d+/chat/members", k)]:
+        dataset[key] = [
+            {"id": u["id"], "name": u["name"], "email": None, "role": u["role"]}
+            for u in mentionable_users()
+        ]
     dataset["GET /api/users/mentionable"] = mentionable_users()
     profile = dataset.get(f"GET /api/candidates/{tpl}")
     if recorded_list and isinstance(profile, dict):
@@ -1167,6 +1351,48 @@ def main() -> None:
         f"GET /api/candidate-search/jobs/{job}/latest-run", {"job_id": job, "run": None}
     )
     dataset.setdefault(f"GET /api/jobs/{job}/proposals/latest", {"@status": 404})
+    # „Historia i czat” (ćwiczenie czatu): zakładki „Praca w tle” i „Historia
+    # requestów”. Nagrana historia to prawdziwe rekrutacje innych klientów —
+    # na rekrutacji ćwiczebnej obie są puste (kształt z odpowiedzi stagingu).
+    dataset.setdefault(
+        f"GET /api/jobs/{job}/background-events?limit=30",
+        {"job_id": job, "items": [], "limit": 30},
+    )
+    dataset.setdefault(
+        f"GET /api/jobs/{job}/request-history?cross_client=false&include_open=true&top_k=15",
+        {
+            "closed": [],
+            "in_progress": [],
+            "skill_frequency": {
+                "n": 0,
+                "must": [],
+                "nice": [],
+                "consistent_must": [],
+                "consistent_nice": [],
+                "threshold": 0.6,
+            },
+            "meta": {
+                "sql_count": 0,
+                "voyage_count": 0,
+                "total": 0,
+                "skill_freq_sample": 0,
+            },
+        },
+    )
+    # Ćwiczenia z 16.11.2026: osoba czeka na wybór terminu u klienta, a CV
+    # firmowe osoby-szablonu jest szkicem do poprawy asystentem.
+    add_slot_card(dataset)
+    dataset[
+        f"GET /api/interview-cycle/preps/suggestions?candidate_id={tpl}&job_id={job}"
+        "&prep1_minutes=45&prep2_minutes=45"
+    ] = prep_suggestions()
+    tpl_entry = b.ids.get(template_stage, FIRST_ENTRY)
+    branded = f"GET /api/candidates/stages/{tpl_entry}/cv/branded"
+    if isinstance(dataset.get(branded), dict):
+        dataset[branded] = {**dataset[branded], **BRANDED_DRAFT}
+    dataset.setdefault(
+        f"GET /api/candidates/stages/{tpl_entry}/cv/branded/versions", {"versions": []}
+    )
     fix_counts(dataset)
     meta = {
         "job_id": POLIGON_JOB,
@@ -1176,6 +1402,13 @@ def main() -> None:
         "client_name": CLIENT_NAME,
         "template_candidate_id": b.ids[args.candidate],
         "template_entry_id": b.ids.get(template_stage, FIRST_ENTRY),
+        # Osoby ćwiczeń z 16.11.2026: czeka na termin u klienta / „odczytana” z pliku CV.
+        "slot_candidate_id": FIRST_CANDIDATE
+        + len(PEOPLE)
+        + EXTRA_PEOPLE.index(SLOT_PERSON),
+        "cv_candidate_id": FIRST_CANDIDATE
+        + len(PEOPLE)
+        + EXTRA_PEOPLE.index(CV_PERSON),
         "trainers": {k: {"id": v[0], "name": v[1]} for k, v in TRAINERS.items()},
         "people": [
             {
@@ -1184,7 +1417,7 @@ def main() -> None:
                 "name": first,
                 "lastname": last,
             }
-            for i, (first, last) in enumerate(PEOPLE)
+            for i, (first, last) in enumerate(ALL_PEOPLE)
         ],
     }
     OUT.parent.mkdir(parents=True, exist_ok=True)

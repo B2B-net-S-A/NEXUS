@@ -4,7 +4,9 @@ import SHELL from "./fixtures/poligon-shell.json";
 
 /**
  * Poligon NEXUSA — cała ścieżka onboardingu każdej roli bez backendu:
- * rekruter (19 ćwiczeń), Delivery Lead (15) i TCM (11, od 15.11.2026).
+ * rekruter (27 ćwiczeń), Delivery Lead (16) i TCM (13). Od 16.11.2026 ścieżki
+ * mają też narzędzia rekrutera (lista, zapisane wyszukiwanie, CV z pliku,
+ * telefon, termin u klienta, czat, asystent CV, Jarvis).
  *
  * Nowa osoba ma zablokowany NEXUS, dopóki nie zaliczy wszystkich ćwiczeń
  * (`docs/claude/ui/poligon-nexusa-onboarding.md`). Ćwiczenia idą na
@@ -240,6 +242,45 @@ async function personPanel(page: Page, w: Walk, mention: string) {
   await w.next();
 }
 
+/** Lista na profilu Laury (po przypisaniu) i zapisane wyszukiwanie z powiadomieniem. */
+async function listsAndSavedSearch(page: Page, w: Walk) {
+  await page.getByRole("button", { name: /^Na listę|^Na listach/ }).first().click();
+  await page.getByRole("textbox", { name: "Nazwa nowej listy" }).fill("PM bankowość");
+  await page.getByRole("button", { name: "Utwórz listę i dodaj osobę" }).click();
+  await w.done("baza-lista");
+  await page.keyboard.press("Escape");
+  await w.next();
+  await page.goto("/candidates");
+  const keyword = page.getByPlaceholder(/wpisz słowo/).first();
+  await keyword.fill("Scrum");
+  await keyword.press("Enter");
+  await page.getByRole("button", { name: /^Zapisane/ }).first().click();
+  const name = page.getByPlaceholder("Nazwa nowego zapisu…");
+  await name.fill("PM Scrum");
+  await name.press("Enter");
+  await w.done("baza-zapisane-wyszukiwanie");
+  await page.keyboard.press("Escape");
+  await w.next();
+}
+
+/** Czat rekrutacji z „@” (rekruter oznacza DL-a, DL — rekrutera). */
+async function teamChat(page: Page, w: Walk, mention: string) {
+  await w.board();
+  await page.locator('[data-help="jobs.board.chat"]').first().click();
+  await page.getByRole("tab", { name: "Czat zespołu" }).click();
+  const message = page.getByRole("textbox", { name: "Treść wiadomości chatu" });
+  await message.click();
+  await message.pressSequentially(`@${mention}`, { delay: 40 });
+  await expect(page.getByRole("option").first()).toBeVisible({ timeout: 10_000 });
+  await page.keyboard.press("Enter");
+  await message.pressSequentially(" czy budżet 115 zł/h jest sztywny?");
+  await message.press("Enter");
+  await w.done("zespol-czat");
+  // Wiadomość wraca na liście czatu (stan w pamięci poligonu, nie z serwera).
+  await expect(page.getByText(/budżet 115 zł\/h/).first()).toBeVisible();
+  await page.keyboard.press("Escape");
+}
+
 async function candidateBase(page: Page, w: Walk) {
   await page.goto("/candidates");
   const search = page.locator('input[placeholder*="Nazwisko"]').first();
@@ -262,8 +303,8 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
   test.setTimeout(6 * 60_000);
   test.use({ actionTimeout: 20_000 });
 
-  test("nowy rekruter przechodzi 19 ćwiczeń, a zestaw zna każdy odczyt", async ({ page, context, baseURL }) => {
-    const w = await onPoligon(page, context, baseURL, "recruiter", 19);
+  test("nowy rekruter przechodzi 27 ćwiczeń, a zestaw zna każdy odczyt", async ({ page, context, baseURL }) => {
+    const w = await onPoligon(page, context, baseURL, "recruiter", 27);
     const { done, next, board, openCard, moveNext } = w;
 
     await listExercises(page, w);
@@ -331,11 +372,68 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await next();
 
     await candidateBase(page, w);
+    await listsAndSavedSearch(page, w);
+
+    // Źródła i kalendarz: osoba z pliku CV, telefon screeningowy, termin u klienta.
+    await board();
+    await page.getByTestId("sources-add").click();
+    await page.getByTestId("sources-add-from-cv").click();
+    const upload = page.getByRole("dialog");
+    await upload.locator('input[type="file"]').setInputFiles({
+      name: "cv-cwiczebne.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("Ewa Jesionowska — Senior Project Manager, Scrum, Jira"),
+    });
+    await upload.getByRole("button", { name: /Parsuj CV/ }).click();
+    await expect(upload.getByText("Kandydat dodany")).toBeVisible();
+    await done("zrodla-cv-z-pliku");
+    await upload.getByRole("button", { name: "Zamknij" }).last().click();
+    await next();
+
+    await openCard("Bartosz");
+    await page.locator('[data-tour="screening-call.book"]').first().click();
+    const callForm = page.getByTestId("screening-call-form");
+    await callForm.getByRole("button").filter({ hasText: /\d{1,2}:00/ }).first().click();
+    await callForm.getByRole("button", { name: /^Umów$/ }).click();
+    await done("kalendarz-telefon");
+    await next();
+
+    await openCard("Kamil");
+    await page.getByRole("button", { name: "Wybierz termin z kandydatem" }).click();
+    const pick = page.getByRole("dialog");
+    await pick.getByRole("radio").nth(1).check();
+    await pick.getByRole("button", { name: "Wpisz do kalendarza" }).click();
+    await done("kalendarz-termin-klienta");
+    await next();
+
+    // Zespół i AI: czat, asystent CV i Jarvis — bez modelu i bez zapisu.
+    await teamChat(page, w, "Ann");
+    await next();
+    await openCard("Helena");
+    // Zakładka „CV” panelu osoby („Narzędzia osoby”), nie podglądu po lewej.
+    await page.getByRole("tablist", { name: "Narzędzia osoby" }).getByRole("tab", { name: "CV" }).click();
+    await page.getByRole("button", { name: "Otwórz i popraw" }).first().click();
+    await page.getByRole("button", { name: /Napisz, co zmienić w CV/ }).click();
+    const command = page.getByRole("textbox", { name: "Napisz, co zmienić" });
+    await command.fill("pogrub Scrum i Jira");
+    await command.press("Enter");
+    await done("zespol-cv-ai");
+    // Edytor CV zasłania okno ćwiczenia — zamykamy go (autozapis jest w pamięci).
+    await page.getByRole("dialog").getByRole("button", { name: "Zamknij" }).first().click();
+    await next();
+    await board();
+    await page.keyboard.press("ControlOrMeta+j");
+    const jarvis = page.locator("#jarvis-input");
+    await jarvis.fill("Co wiemy o Helenie Wrzosek?");
+    await jarvis.press("Enter");
+    await done("zespol-jarvis");
+    await expect(page.getByTestId("jarvis-panel").getByText(/Poligon: to odpowiedź ćwiczebna/)).toBeVisible();
+    await next();
     await w.finish();
   });
 
-  test("nowy Delivery Lead przechodzi 15 ćwiczeń z przeglądem i wysyłką do klienta", async ({ page, context, baseURL }) => {
-    const w = await onPoligon(page, context, baseURL, "delivery_lead", 15);
+  test("nowy Delivery Lead przechodzi 16 ćwiczeń z przeglądem, wysyłką do klienta i czatem", async ({ page, context, baseURL }) => {
+    const w = await onPoligon(page, context, baseURL, "delivery_lead", 16);
     const { done, next, board, card, openCard } = w;
 
     await listExercises(page, w);
@@ -370,16 +468,19 @@ test.describe("Poligon NEXUSA — onboarding dnia 1", () => {
     await next();
 
     await candidateBase(page, w);
+    await teamChat(page, w, "Jak");
+    await next();
     await w.finish();
   });
 
-  test("nowy TCM przechodzi 11 ćwiczeń wspólnych modułów", async ({ page, context, baseURL }) => {
-    const w = await onPoligon(page, context, baseURL, "talent_community_manager", 11);
+  test("nowy TCM przechodzi 13 ćwiczeń: wspólne moduły, lista i zapisane wyszukiwanie", async ({ page, context, baseURL }) => {
+    const w = await onPoligon(page, context, baseURL, "talent_community_manager", 13);
     await listExercises(page, w);
     await moveFirstCard(page, w);
     await sourcesBar(page, w);
     await personPanel(page, w, "Jak");
     await candidateBase(page, w);
+    await listsAndSavedSearch(page, w);
     await w.finish();
   });
 });

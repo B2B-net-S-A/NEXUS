@@ -4,7 +4,7 @@
 // strony i panel ćwiczenia w rogu. Ćwiczenie zalicza klik w kotwicę albo
 // zdarzenie z rekrutacji ćwiczebnej (`lib/poligon/store.ts`).
 
-import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Lightbulb, Target } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleAlert, Download, Lightbulb, Target } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -220,6 +220,16 @@ export function PoligonLayer() {
           <div className="space-y-2 px-4 py-3">
             <h2 className="text-[15px] font-semibold leading-snug">{exercise.title(CONTEXT)}</h2>
             <p className="text-muted-foreground">{exercise.task(CONTEXT)}</p>
+            {exercise.download ? (
+              <a
+                href={exercise.download.href}
+                download
+                className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                {exercise.download.label}
+              </a>
+            ) : null}
             {phase.feedback && (
               <p role="alert" className="flex items-start gap-2 rounded-lg bg-destructive-muted px-3 py-2 text-destructive-muted-foreground">
                 <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

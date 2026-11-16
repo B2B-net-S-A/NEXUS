@@ -218,7 +218,9 @@ describe("poligon: baza kandydatów", () => {
   it("lista bazy to osoby ćwiczebne, szukanie zawęża i zgłasza zdarzenie", () => {
     const { store, actions } = setup();
     const all = store.handle({ method: "get", url: "/api/candidates?page=1&page_size=50" }) as { data: { items: Array<{ id: number; name: string }>; total: number } };
-    expect(all.data.items.length).toBe(DATA.meta.people.length);
+    // Osoba z „Rozmowy u klienta” i osoba z pliku CV (ćwiczenia z 16.11.2026) nie są w bazie z nagrania.
+    const extras = new Set([DATA.meta.slot_candidate_id, DATA.meta.cv_candidate_id]);
+    expect(all.data.items.length).toBe(DATA.meta.people.filter((p) => !extras.has(p.candidate_id)).length);
     expect(all.data.items.every((c) => c.id >= 990_000)).toBe(true);
     const found = store.handle({ method: "get", url: `/api/candidates?q=${encodeURIComponent(first.lastname)}` }) as { data: { items: Array<{ id: number }> } };
     expect(found.data.items.map((c) => c.id)).toEqual([first.candidate_id]);
@@ -252,8 +254,10 @@ describe("poligon: ścieżka per rola", () => {
     expect(tcm.some((e) => e.id.startsWith("dl-") || e.id.startsWith("screening-"))).toBe(false);
   });
 
-  it("rekruter ma dawną ścieżkę 19 ćwiczeń, osoba z dwiema rolami — sumę", () => {
-    expect(ids(["recruiter"])).toHaveLength(19);
+  it("rekruter ma 27 ćwiczeń (19 z 14.11 i 8 narzędzi z 16.11), osoba z dwiema rolami — sumę", () => {
+    expect(ids(["recruiter"])).toHaveLength(27);
+    expect(ids(["talent_community_manager"])).toHaveLength(13);
+    expect(ids(["delivery_lead"])).toHaveLength(16);
     expect(ids(["recruiter"]).some((id) => id.startsWith("dl-"))).toBe(false);
     const both = ids(["delivery_lead", "recruiter"]);
     expect(both).toEqual(EXERCISES.filter((e) => both.includes(e.id)).map((e) => e.id));
@@ -382,6 +386,145 @@ describe("poligon: postęp i rejestr serwera", () => {
     const noExtras = { rejectionReasonId: null, rejectionReasonName: null, rejectionNote: "", fixFields: [], clientRate: null };
     expect(judge("rekomendacja-qc", { type: "move", candidateId: 1, fromStage: "verified", toStage: "cv_sent", ...noExtras })).toMatchObject({ done: false });
     expect(judge("rekomendacja-qc", { type: "move", candidateId: 1, fromStage: "verified", toStage: "interview", ...noExtras })).toEqual({ done: true });
+  });
+});
+
+describe("poligon: narzędzia rekrutera (16.11.2026)", () => {
+  const VIEWER = 4242;
+  const ctx = { firstNew: null, role: "recruiter" as const };
+  const judge = (id: string, action: PoligonAction) => EXERCISES.find((e) => e.id === id)!.judge!(action, ctx);
+  const template = DATA.meta.people.find((p) => p.candidate_id === DATA.meta.template_candidate_id)!;
+  const slotPerson = DATA.meta.people.find((p) => p.candidate_id === DATA.meta.slot_candidate_id)!;
+  const cvPerson = DATA.meta.people.find((p) => p.candidate_id === DATA.meta.cv_candidate_id)!;
+  type Item = { candidate_id: number; stage: string; booked_call?: { start_time: string } | null; interview_badge?: { slot_request?: { id: number; status: string; slots: Array<{ start: string }> } } };
+  const board = (store: ReturnType<typeof createPoligonStore>) =>
+    (store.handle({ method: "get", url: `/api/pipeline/kanban/${JOB}` }) as { data: { columns: Array<{ stage: string; items: Item[] }> } }).data;
+  const item = (store: ReturnType<typeof createPoligonStore>, cid: number) =>
+    board(store).columns.flatMap((c) => c.items).find((i) => i.candidate_id === cid);
+
+  it("żaden zapis narzędzi nie wychodzi z przeglądarki", () => {
+    const { store } = setup();
+    const writes: Array<[string, string]> = [
+      ["post", "/api/screening-calls"],
+      ["post", "/api/interview-cycle/slots/990701/choose"],
+      ["post", "/api/candidates/from-cv"],
+      ["post", `/api/jobs/${JOB}/proposals/bulk`],
+      ["post", "/api/saved-searches"],
+      ["post", "/api/talent-pools"],
+      ["post", `/api/jobs/${JOB}/chat/messages`],
+      ["put", `/api/jobs/${JOB}/chat/read`],
+      ["patch", `/api/candidates/stages/${DATA.meta.template_entry_id}/cv/branded`],
+      ["post", `/api/pipeline/stages/${DATA.meta.template_entry_id}/cv-ai/command`],
+      ["post", `/api/pipeline/stages/${DATA.meta.template_entry_id}/cv-ai/applied`],
+    ];
+    for (const [method, url] of writes) expect(store.handle({ method, url, body: {} })).not.toBe("network");
+  });
+
+  it("telefon screeningowy: karta pokazuje termin, poza „Nowymi” i „Screeningiem” odmowa", () => {
+    const { store, actions } = setup();
+    const start = "2026-11-21T08:00:00.000Z";
+    const res = store.handle({ method: "post", url: "/api/screening-calls", body: { candidate_id: first.candidate_id, job_id: JOB, start, note: null, client_request_id: "x".repeat(20) }, viewerId: VIEWER });
+    expect(res).toMatchObject({ status: 201, data: { start_time: start, outlook: "not_connected" } });
+    expect(item(store, first.candidate_id)?.booked_call).toMatchObject({ start_time: start });
+    expect(acted(actions)).toEqual({ type: "screening_call", candidateId: first.candidate_id, start });
+    expect(judge("kalendarz-telefon", acted(actions)!)).toEqual({ done: true });
+    expect(store.handle({ method: "post", url: "/api/screening-calls", body: { candidate_id: slotPerson.candidate_id, start } })).toMatchObject({ status: 409 });
+  });
+
+  it("termin u klienta: osoba czeka na wybór, terminy o pełnej godzinie w przyszłości, wybór idzie do DL-a", () => {
+    const { store, actions } = setup();
+    const card = item(store, slotPerson.candidate_id)!;
+    expect(card.stage).toBe("client_interview");
+    const request = card.interview_badge!.slot_request!;
+    expect(request.status).toBe("awaiting_recruiter");
+    for (const slot of request.slots) {
+      expect(new Date(slot.start).getTime()).toBeGreaterThan(NOW);
+      expect(new Date(slot.start).getUTCMinutes()).toBe(0);
+    }
+    const prep = store.handle({ method: "get", url: `/api/interview-cycle/preps/suggestions?candidate_id=${slotPerson.candidate_id}&job_id=${JOB}&interview_start=${encodeURIComponent(request.slots[1].start)}&prep1_minutes=45&prep2_minutes=45` });
+    expect(prep).toMatchObject({ status: 200, data: { enabled: false } });
+    expect(store.handle({ method: "post", url: `/api/interview-cycle/slots/${request.id}/choose`, body: { index: 1 } })).toMatchObject({ status: 200, data: { status: "awaiting_dl", chosen_index: 1 } });
+    expect(item(store, slotPerson.candidate_id)!.interview_badge!.slot_request!.status).toBe("awaiting_dl");
+    expect(store.handle({ method: "post", url: `/api/interview-cycle/slots/${request.id}/choose`, body: { index: 0 } })).toMatchObject({ status: 409 });
+    expect(actions.some((a) => a.type === "missing")).toBe(false);
+    expect(judge("kalendarz-termin-klienta", { type: "slot_choose", candidateId: slotPerson.candidate_id, index: 1 })).toEqual({ done: true });
+    expect(judge("kalendarz-termin-klienta", { type: "slot_choose", candidateId: slotPerson.candidate_id, index: 0 })).toMatchObject({ done: false });
+  });
+
+  it("osoba z pliku CV: NEXUS „odczytuje” osobę ćwiczebną, a dodanie stawia ją w „Nowych”", () => {
+    const { store, actions } = setup();
+    const res = store.handle({ method: "post", url: "/api/candidates/from-cv", body: {} }) as { status: number; data: { candidate: { id: number; name: string; lastname: string }; confidence: Record<string, number> } };
+    expect(res.status).toBe(201);
+    expect(res.data.candidate).toMatchObject({ id: cvPerson.candidate_id, name: cvPerson.name, lastname: cvPerson.lastname });
+    expect(Object.values(res.data.confidence).some((v) => v < 0.7)).toBe(true);
+    expect(judge("zrodla-cv-z-pliku", acted(actions)!)).toEqual({ done: true });
+    expect(store.stageOf(cvPerson.candidate_id)).toBeNull();
+    expect(store.handle({ method: "post", url: `/api/jobs/${JOB}/proposals/bulk`, body: { candidate_ids: [cvPerson.candidate_id] } })).toMatchObject({ status: 200, data: { total_added: 1 } });
+    expect(store.stageOf(cvPerson.candidate_id)).toBe("new");
+  });
+
+  it("zapisane wyszukiwanie: zapis należy do osoby, alert wymaga kryterium i parametrów API", () => {
+    const { store, actions } = setup();
+    expect(store.handle({ method: "get", url: "/api/saved-searches?entity=candidates" })).toEqual({ status: 200, data: [] });
+    const filters = { version: 2, qs: "kw=Scrum", api: { keywords: "Scrum", page: 1 } };
+    expect(store.handle({ method: "post", url: "/api/saved-searches", body: { name: "PM Scrum", entity: "candidates", filters, notify_new_matches: true }, viewerId: VIEWER })).toMatchObject({ status: 201, data: { user_id: VIEWER, notify_new_matches: true } });
+    expect((store.handle({ method: "get", url: "/api/saved-searches?entity=candidates" }) as { data: unknown[] }).data).toHaveLength(1);
+    expect(judge("baza-zapisane-wyszukiwanie", acted(actions)!)).toEqual({ done: true });
+    expect(judge("baza-zapisane-wyszukiwanie", { type: "saved_search", notify: false, criteria: true, name: "x" })).toMatchObject({ done: false });
+    expect(judge("baza-zapisane-wyszukiwanie", { type: "saved_search", notify: true, criteria: false, name: "x" })).toMatchObject({ done: false });
+    expect(store.handle({ method: "post", url: "/api/saved-searches", body: { name: "stary", filters: { qs: "" }, notify_new_matches: true } })).toMatchObject({ status: 400 });
+  });
+
+  it("lista: nowa lista jest „Tylko ja” zalogowanej osoby, a osoba na niej wraca w profilu", () => {
+    const { store, actions } = setup();
+    expect(store.handle({ method: "get", url: "/api/talent-pools" })).toEqual({ status: 200, data: [] });
+    const created = store.handle({ method: "post", url: "/api/talent-pools", body: { name: "PM bankowość", is_personal: true, team_visible: false }, viewerId: VIEWER }) as { data: { id: number; owner_id: number } };
+    expect(created.data.owner_id).toBe(VIEWER);
+    expect(store.handle({ method: "post", url: `/api/talent-pools/${created.data.id}/add`, body: { candidate_id: first.candidate_id } })).toMatchObject({ status: 201 });
+    expect(store.handle({ method: "get", url: `/api/talent-pools/for-candidate/${first.candidate_id}` })).toEqual({ status: 200, data: { pool_ids: [created.data.id] } });
+    expect(store.handle({ method: "post", url: `/api/talent-pools/${created.data.id}/add`, body: { candidate_id: first.candidate_id } })).toMatchObject({ status: 409 });
+    expect(judge("baza-lista", acted(actions)!)).toEqual({ done: true });
+  });
+
+  it("czat rekrutacji: wiadomość wraca na liście, „@” trenera to wzmianka", () => {
+    const { store, actions } = setup();
+    expect(store.handle({ method: "get", url: `/api/jobs/${JOB}/chat/messages?limit=50` })).toMatchObject({ status: 200, data: { items: [] } });
+    store.handle({ method: "post", url: `/api/jobs/${JOB}/chat/messages`, body: { content: "Bez oznaczenia", reply_to_message_id: null } });
+    expect(judge("zespol-czat", acted(actions)!)).toMatchObject({ done: false });
+    store.handle({ method: "post", url: `/api/jobs/${JOB}/chat/messages`, body: { content: "@anna.poligonowa czy budżet 115 zł/h jest sztywny?", reply_to_message_id: null } });
+    expect(acted(actions)).toMatchObject({ type: "chat", mentions: [DATA.meta.trainers.dl.id] });
+    expect(judge("zespol-czat", acted(actions)!)).toEqual({ done: true });
+    expect((store.handle({ method: "get", url: `/api/jobs/${JOB}/chat/messages?limit=5` }) as { data: { items: unknown[] } }).data.items).toHaveLength(2);
+  });
+
+  it("asystent CV: CV ćwiczebne osoby, stały plan bez modelu i autozapis w pamięci", () => {
+    const { store, actions } = setup();
+    const entry = DATA.meta.template_entry_id;
+    const cv = store.handle({ method: "get", url: `/api/candidates/stages/${entry}/cv/branded` }) as { data: { status: string; content_html: string; from_generator: boolean } };
+    expect(cv.data).toMatchObject({ status: "draft", from_generator: true });
+    expect(cv.data.content_html).toContain(`${template.name} ${template.lastname}`);
+    const other = store.handle({ method: "get", url: `/api/candidates/stages/${second.entry_id}/cv/branded` }) as { data: { content_html: string } };
+    expect(other.data.content_html).toContain(`${second.name} ${second.lastname}`);
+    const lines = [{ id: 1, kind: "text", text: "Metodyki: Scrum, SAFe" }, { id: 2, kind: "bullet", text: "Planowanie w Jira." }];
+    const plan = store.handle({ method: "post", url: `/api/pipeline/stages/${entry}/cv-ai/command`, body: { command: "pogrub Scrum i Jira", lines } });
+    expect(plan).toMatchObject({ status: 200, data: { status: "ok", operations: [{ type: "bold", terms: ["Scrum", "Jira"] }] } });
+    expect(store.handle({ method: "post", url: `/api/pipeline/stages/${entry}/cv-ai/command`, body: { command: "zrób ładniej", lines } })).toMatchObject({ data: { status: "empty" } });
+    expect(judge("zespol-cv-ai", acted(actions)!)).toMatchObject({ done: false });
+    store.handle({ method: "post", url: `/api/pipeline/stages/${entry}/cv-ai/applied`, body: { preset: null, operations: 1 } });
+    expect(judge("zespol-cv-ai", acted(actions)!)).toEqual({ done: true });
+    store.handle({ method: "patch", url: `/api/candidates/stages/${entry}/cv/branded`, body: { content_html: "<p><strong>Scrum</strong></p>", expected_revision: 3 } });
+    expect(store.handle({ method: "get", url: `/api/candidates/stages/${entry}/cv/branded` })).toMatchObject({ data: { content_html: "<p><strong>Scrum</strong></p>", edit_revision: 4 } });
+  });
+
+  it("Jarvis: dostępny na poligonie, odpowiada o osobie z Tablicy bez modelu", () => {
+    const { store, actions } = setup();
+    expect(store.handle({ method: "get", url: "/api/jarvis/status" })).toMatchObject({ status: 200, data: { available: true } });
+    const answer = store.jarvisAnswer("Co wiemy o Helenie Wrzosek?");
+    expect(answer).toContain(`${template.name} ${template.lastname}`);
+    expect(acted(actions)).toEqual({ type: "jarvis", message: "Co wiemy o Helenie Wrzosek?", candidateId: template.candidate_id });
+    expect(judge("zespol-jarvis", acted(actions)!)).toEqual({ done: true });
+    store.jarvisAnswer("Kto to jest Jan Kowalski?");
+    expect(judge("zespol-jarvis", acted(actions)!)).toMatchObject({ done: false });
   });
 });
 

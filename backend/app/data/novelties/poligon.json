@@ -275,6 +275,89 @@
         "talent_community_manager",
         "recruiter"
       ]
+    },
+    {
+      "id": "poligon-baza-lista",
+      "module": "Baza kandydatów",
+      "title": "Dodaj osobę do swojej listy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-baza-zapisane-wyszukiwanie",
+      "module": "Baza kandydatów",
+      "title": "Zapisz wyszukiwanie z powiadomieniem",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zrodla-cv-z-pliku",
+      "module": "Źródła i kalendarz",
+      "title": "Dodaj osobę z pliku CV",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-kalendarz-telefon",
+      "module": "Źródła i kalendarz",
+      "title": "Umów telefon screeningowy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-kalendarz-termin-klienta",
+      "module": "Źródła i kalendarz",
+      "title": "Wybierz z kandydatem termin rozmowy u klienta",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zespol-czat",
+      "module": "Zespół i AI",
+      "title": "Napisz w czacie rekrutacji",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zespol-cv-ai",
+      "module": "Zespół i AI",
+      "title": "Popraw CV poleceniem AI",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
+    },
+    {
+      "id": "poligon-zespol-jarvis",
+      "module": "Zespół i AI",
+      "title": "Zapytaj Jarvisa o osobę z Tablicy",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "recruiter"
+      ]
     }
   ]
 }

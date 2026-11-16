@@ -12,6 +12,9 @@ każdy, a luki są różne u każdej osoby (2–11 funkcji). Dlatego:
   ``novelty_progress`` z ``completed_via = 'used'`` („użyciem w pracy”, bez
   migracji). Lista zaliczonych z pracy leży w ustawieniu kampanii, żeby mapa
   mogła je oznaczyć „z pracy”.
+* **Ćwiczenia narzędzi** (16.11.2026): osiem funkcji z luk dostało ćwiczenia
+  (telefon screeningowy, termin u klienta, CV z pliku, zapisane wyszukiwanie,
+  lista, czat, asystent CV, Jarvis) — kto ich używa, ma je zaliczone z pracy.
 * **Termin**: do terminu poligon tylko prosi; po terminie blokuje jak u nowej
   osoby (ten sam wyłącznik ``poligon_gate``). Dzień ćwiczeń nie wypada ze
   statystyk — to kilkanaście–kilkadziesiąt minut, nie dzień.
@@ -167,7 +170,7 @@ FEATURES: tuple[Feature, ...] = (
         "cv_z_pliku",
         "Nowa osoba z pliku CV",
         "Kandydaci i źródła",
-        (),
+        ("poligon-zrodla-cv-z-pliku",),
         _act("created_from_cv"),
     ),
     Feature(
@@ -182,14 +185,14 @@ FEATURES: tuple[Feature, ...] = (
         "zapisane_wyszukiwanie",
         "Zapisane wyszukiwanie z alertem",
         "Kandydaci i źródła",
-        (),
+        ("poligon-baza-zapisane-wyszukiwanie",),
         "SELECT user_id FROM saved_searches WHERE user_id = ANY(:ids)",
     ),
     Feature(
         "pula",
         "Pula talentów",
         "Kandydaci i źródła",
-        (),
+        ("poligon-baza-lista",),
         "SELECT added_by FROM talent_pool_memberships "
         "WHERE added_by = ANY(:ids) AND added_at > :since "
         "AND coalesce(source_event, '') NOT LIKE '%auto%'",
@@ -198,14 +201,14 @@ FEATURES: tuple[Feature, ...] = (
         "screening_kalendarz",
         "Screening w kalendarzu",
         "Klient i kalendarz",
-        (),
+        ("poligon-kalendarz-telefon",),
         _act("screening_call_booked"),
     ),
     Feature(
         "terminy_klient",
         "Terminy rozmowy u klienta",
         "Klient i kalendarz",
-        (),
+        ("poligon-kalendarz-termin-klienta",),
         "SELECT coalesce(recruiter_id, created_by) FROM "
         "client_interview_slot_requests WHERE coalesce(recruiter_id, created_by) "
         "= ANY(:ids) AND created_at > :since",
@@ -231,18 +234,22 @@ FEATURES: tuple[Feature, ...] = (
         "czat",
         "Czat rekrutacji",
         "Zespół i AI",
-        (),
+        ("poligon-zespol-czat",),
         "SELECT author_id FROM job_chat_messages "
         "WHERE author_id = ANY(:ids) AND created_at > :since",
     ),
     Feature(
-        "polecenie_ai_cv", "Polecenie AI w CV", "Zespół i AI", (), _act("cv_command_ai")
+        "polecenie_ai_cv",
+        "Polecenie AI w CV",
+        "Zespół i AI",
+        ("poligon-zespol-cv-ai",),
+        _act("cv_command_ai"),
     ),
     Feature(
         "jarvis",
         "Jarvis",
         "Zespół i AI",
-        (),
+        ("poligon-zespol-jarvis",),
         "SELECT user_id FROM jarvis_conversations "
         "WHERE user_id = ANY(:ids) AND created_at > :since",
     ),

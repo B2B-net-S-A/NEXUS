@@ -6,6 +6,8 @@
  "client_name": "Bank Północny",
  "template_candidate_id": 990105,
  "template_entry_id": 990305,
+ "slot_candidate_id": 990115,
+ "cv_candidate_id": 990116,
  "trainers": {
   "dl": {
    "id": 990901,
@@ -100,6 +102,18 @@
    "entry_id": 990314,
    "name": "Oskar",
    "lastname": "Modrzewski"
+  },
+  {
+   "candidate_id": 990115,
+   "entry_id": 990315,
+   "name": "Kamil",
+   "lastname": "Dębowski"
+  },
+  {
+   "candidate_id": 990116,
+   "entry_id": 990316,
+   "name": "Ewa",
+   "lastname": "Jesionowska"
   }
  ]
 }

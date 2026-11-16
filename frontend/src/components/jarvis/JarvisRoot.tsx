@@ -39,6 +39,8 @@ import { screenFromLocation, suggestionsFor } from "@/lib/jarvis/context";
 import { JARVIS_OPEN_EVENT, type JarvisOpenDetail } from "@/lib/jarvis/events";
 import { applyStreamEvent, applyUndoOutcome, replaceAction, type JarvisTurnState } from "@/lib/jarvis/reducer";
 import { JarvisHttpError, streamJarvisChat } from "@/lib/jarvis/stream";
+import { poligonJarvisFetch } from "@/lib/poligon/jarvis";
+import { isPoligonActive } from "@/lib/poligon/mode";
 import type {
   JarvisAction,
   JarvisItem,
@@ -278,6 +280,9 @@ export function JarvisRoot() {
           { message: text, conversation_id: turn.conversationId, screen: turnScreen, web: webMode },
           {
             signal: controller.signal,
+            // Poligon: pytanie nie wychodzi do modelu ani do bazy — stała odpowiedź
+            // o osobie z Tablicy ćwiczebnej (`lib/poligon/jarvis.ts`).
+            fetchImpl: isPoligonActive() ? poligonJarvisFetch : undefined,
             onUnauthorized: triggerSessionExpiredRedirect,
             onEvent: (event) => {
               if (event.type === "conversation") loadedConversation.current = event.conversation_id;

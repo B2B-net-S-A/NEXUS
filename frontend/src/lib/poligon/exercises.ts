@@ -9,6 +9,11 @@
 // (rekruter: screening i przekazanie do QC; Delivery Lead: przegląd, kwoty
 // i wysyłka do klienta). Admin i Head of Recruitment widzą wszystkie ćwiczenia.
 //
+// Narzędzia rekrutera (16.11.2026, Artur: „uczyć na poligonie”, także funkcji
+// prawie nieużywanych): telefon screeningowy, termin u klienta, osoba z pliku
+// CV, zapisane wyszukiwanie, lista, czat, asystent CV i Jarvis. Obecnym zalicza
+// je praca z 60 dni (`backend/app/services/poligon_luki.py`).
+//
 // Id ćwiczeń (z przedrostkiem `poligon-`) i ich role są też w rejestrze serwera
 // `backend/app/data/novelties/poligon.json`; test pilnuje, że to te same listy.
 
@@ -43,6 +48,8 @@ export interface Exercise {
   judge?: (action: PoligonAction, ctx: ExerciseContext) => Verdict;
   /** Dobra praktyka pokazywana po zaliczeniu. */
   tip: string;
+  /** Plik do ćwiczenia (np. CV ćwiczebne do wgrania) — link w oknie ćwiczenia. */
+  download?: { href: string; label: string };
 }
 
 export const POLIGON_JOB_HREF = "/jobs/990001";
@@ -71,6 +78,9 @@ const EVERYONE: readonly PoligonRole[] = ["admin", "head_of_recruitment", "deliv
 const RECRUITER: readonly PoligonRole[] = ["admin", "head_of_recruitment", "recruiter"];
 const RECRUITER_AND_DL: readonly PoligonRole[] = ["admin", "head_of_recruitment", "delivery_lead", "recruiter"];
 const DELIVERY_LEAD: readonly PoligonRole[] = ["admin", "head_of_recruitment", "delivery_lead"];
+const RECRUITER_AND_TCM: readonly PoligonRole[] = ["admin", "head_of_recruitment", "talent_community_manager", "recruiter"];
+/** CV ćwiczebne do wgrania (`public/poligon/`) — na poligonie NEXUS i tak „odczyta” Ewę Jesionowską. */
+export const POLIGON_CV_FILE = "/poligon/cv-cwiczebne-ewa-jesionowska.txt";
 
 /** Rola, z której perspektywy mówią ćwiczenia: rekruter ma pierwszeństwo (DL z rolą rekrutera robi oba). */
 export function primaryRole(roles: readonly string[]): PoligonRole {
@@ -455,6 +465,151 @@ export const EXERCISES: readonly Exercise[] = [
     anchor: "candidate.profile.assign",
     judge: (a) => (a.type === "assign" ? { done: true } : null),
     tip: "Przypisuj od razu po decyzji, że dzwonisz — wtedy zespół widzi, że osoba jest już w procesie.",
+  },
+  {
+    id: "baza-lista",
+    roles: RECRUITER_AND_TCM,
+    module: "Baza kandydatów",
+    title: () => "Dodaj osobę do swojej listy",
+    task: () =>
+      "Laura nie pasuje do każdej rekrutacji, ale chcesz ją mieć pod ręką. Na jej profilu kliknij „Na listę” (w nagłówku, obok „Przypisz do rekrutacji”), wpisz nazwę nowej listy, np. „PM bankowość”, i kliknij „+”.",
+    hint: "„Na listę” jest w nagłówku profilu, obok „Przypisz do rekrutacji”.",
+    href: POLIGON_CANDIDATES_HREF,
+    // Przewodnik profilu ma komplet 6 kotwic — „Pokaż mi” wskazuje sąsiedni przycisk.
+    anchor: "candidate.profile.assign",
+    judge: (a) => (a.type === "pool_add" ? { done: true } : null),
+    tip: "Listy są Twoje („Tylko ja”). Znajdziesz je w „Moi ludzie” → „Listy” — przy nowym requeście zaczynasz od nich, nie od zera.",
+  },
+  {
+    id: "baza-zapisane-wyszukiwanie",
+    roles: RECRUITER_AND_TCM,
+    module: "Baza kandydatów",
+    title: () => "Zapisz wyszukiwanie z powiadomieniem",
+    task: () =>
+      "Na liście kandydatów zawęź wynik, np. wpisz w słowa kluczowe „Scrum”. Potem kliknij „Zapisane”, nadaj nazwę i zapisz z zaznaczonym „Powiadamiaj…”. NEXUS da znać, gdy do bazy trafi ktoś nowy, kto pasuje.",
+    hint: "„Zapisane” jest nad listą kandydatów, obok filtrów.",
+    href: POLIGON_CANDIDATES_HREF,
+    anchor: "candidates.list.saved",
+    judge: (a) => {
+      if (a.type !== "saved_search") return null;
+      if (!a.notify) {
+        return { done: false, feedback: "Zapisane, ale bez powiadomienia — NEXUS nie da znać o nowych osobach. Zapisz jeszcze raz z zaznaczonym „Powiadamiaj…” albo włącz dzwonek przy tym zapisie." };
+      }
+      if (!a.criteria) {
+        return { done: false, feedback: "Ten zapis nie ma żadnego kryterium, więc powiadomienie łapałoby każdą nową osobę w bazie. Wpisz słowo kluczowe albo ustaw filtr i zapisz jeszcze raz." };
+      }
+      return { done: true };
+    },
+    tip: "Zapisz wyszukiwanie przy każdym trudnym requeście: baza rośnie codziennie, a dzwonek powie Ci, gdy pojawi się ktoś nowy.",
+  },
+
+  // ── Źródła i kalendarz ──────────────────────────────────────────────
+  {
+    id: "zrodla-cv-z-pliku",
+    roles: RECRUITER,
+    module: "Źródła i kalendarz",
+    title: () => "Dodaj osobę z pliku CV",
+    task: () =>
+      "Ktoś przysłał CV mailem. W pasku źródeł kliknij „Dodaj” → „Dodaj z pliku CV” i wgraj plik (możesz pobrać CV ćwiczebne niżej). Sprawdź, co odczytał NEXUS: pola oznaczone do sprawdzenia popraw w profilu.",
+    hint: "„Dodaj” jest na końcu paska źródeł nad kolumnami.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.sources",
+    download: { href: POLIGON_CV_FILE, label: "Pobierz CV ćwiczebne" },
+    judge: (a) => (a.type === "cv_upload" ? { done: true } : null),
+    tip: "NEXUS odczytuje CV sam, ale e-mail, telefon i lata doświadczenia sprawdź wzrokiem — błąd w kontakcie to stracony kandydat.",
+  },
+  {
+    id: "kalendarz-telefon",
+    roles: RECRUITER,
+    module: "Źródła i kalendarz",
+    title: () => "Umów telefon screeningowy",
+    task: () =>
+      "Otwórz panel osoby z „Nowych” albo „Screeningu” i kliknij „Umów telefon”. Wybierz termin i kliknij „Umów” — telefon trafi do Twojego kalendarza, a karta pokaże, kiedy dzwonisz.",
+    hint: "„Umów telefon” jest w panelu osoby, obok „Nie odebrał”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "screening-call.book",
+    judge: (a) => (a.type === "screening_call" ? { done: true } : null),
+    tip: "Umówiony telefon to też „Biorę”: zespół widzi, że ta osoba jest Twoja, a NEXUS przypomni Ci 15 minut przed.",
+  },
+  {
+    id: "kalendarz-termin-klienta",
+    roles: RECRUITER,
+    module: "Źródła i kalendarz",
+    title: () => "Wybierz z kandydatem termin rozmowy u klienta",
+    task: () =>
+      "Klient przysłał trzy terminy rozmowy dla Kamila Dębowskiego (kolumna „Rozmowa u klienta”, przewiń Tablicę w prawo). Kamil może w drugim. Otwórz jego panel, kliknij „Wybierz termin z kandydatem”, zaznacz drugi termin i wpisz go do kalendarza.",
+    hint: "Przycisk jest w panelu osoby, w sekcji „Rozmowa u klienta”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.person.dock",
+    judge: (a) => {
+      if (a.type !== "slot_choose") return null;
+      if (a.index !== 1) {
+        return { done: false, feedback: "Wpisany termin to nie ten, który pasuje Kamilowi. W tym ćwiczeniu wybierz drugi z trzech terminów (na poligonie zaczniesz od nowa przyciskiem „Od nowa” na pasku)." };
+      }
+      return { done: true };
+    },
+    tip: "Termin wybierasz z kandydatem przez telefon, a Delivery Lead potwierdza go klientowi — dlatego karta czeka teraz na DL-a.",
+  },
+
+  // ── Zespół i AI ─────────────────────────────────────────────────────
+  {
+    id: "zespol-czat",
+    roles: RECRUITER_AND_DL,
+    module: "Zespół i AI",
+    title: () => "Napisz w czacie rekrutacji",
+    task: (ctx) =>
+      ctx.role === "recruiter"
+        ? "Kliknij ikonę dymka w nagłówku rekrutacji i przejdź na „Czat zespołu”. Napisz do Delivery Leada: wpisz „@”, wybierz „Anna Poligonowa” i zadaj pytanie o rekrutację."
+        : "Kliknij ikonę dymka w nagłówku rekrutacji i przejdź na „Czat zespołu”. Napisz do rekrutera: wpisz „@”, wybierz „Jakub Szkoleniowy” i napisz, czego potrzebujesz.",
+    hint: "Ikona dymka („Historia i czat”) jest w nagłówku rekrutacji, po prawej.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jobs.board.chat",
+    judge: (a) => {
+      if (a.type !== "chat") return null;
+      if (!a.mentions.length) {
+        return { done: false, feedback: "Wiadomość jest w czacie, ale nikt nie dostał powiadomienia. Wpisz „@” i wybierz osobę z listy." };
+      }
+      return { done: true };
+    },
+    tip: "Czat rekrutacji to sprawy całej rekrutacji (klient, budżet, priorytety). Pytanie o jedną osobę pisz w notatce na jej karcie — zostanie w jej historii.",
+  },
+  {
+    id: "zespol-cv-ai",
+    roles: RECRUITER,
+    module: "Zespół i AI",
+    title: () => "Popraw CV poleceniem AI",
+    task: () =>
+      "Otwórz panel Heleny Wrzosek ze „Screeningu”, zakładkę „CV”, i w karcie „CV do klienta” kliknij „Otwórz i popraw”. W asystencie po prawej napisz „pogrub Scrum i Jira” i wyślij.",
+    hint: "„Otwórz i popraw” jest w zakładce „CV” panelu osoby, w karcie „CV do klienta”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "person.cv.to-client-card",
+    judge: (a) => {
+      if (a.type === "cv_command" && a.operations === 0) {
+        return { done: false, feedback: "Asystent nic nie zmienił. Napisz konkretnie, co i gdzie — tu: „pogrub Scrum i Jira”." };
+      }
+      if (a.type === "cv_applied" && a.operations > 0) return { done: true };
+      return null;
+    },
+    tip: "Zmiana asystenta świeci w CV na zielono i cofniesz ją jednym kliknięciem. Nie dopisuj faktów, których kandydat nie potwierdził — asystent zapyta o źródło.",
+  },
+  {
+    id: "zespol-jarvis",
+    roles: RECRUITER,
+    module: "Zespół i AI",
+    title: () => "Zapytaj Jarvisa o osobę z Tablicy",
+    task: () =>
+      "Otwórz Jarvisa (⌘J na Macu, Ctrl+J na Windowsie albo postać w prawym dolnym rogu) i zapytaj o kogoś z Tablicy, np. „Co wiemy o Helenie Wrzosek?”.",
+    hint: "Jarvis otwiera się też z wyszukiwarki na górze: „Zapytaj Jarvisa”.",
+    href: POLIGON_JOB_HREF,
+    anchor: "jarvis.mascot.hide",
+    judge: (a) => {
+      if (a.type !== "jarvis") return null;
+      if (a.candidateId === null) {
+        return { done: false, feedback: "Jarvis nie znalazł tej osoby na Tablicy. Zapytaj o kogoś z kart, podając imię i nazwisko." };
+      }
+      return { done: true };
+    },
+    tip: "Pytaj Jarvisa jak kolegę z zespołu: „co wiemy o…”, „kto czeka najdłużej”, „napisz maila do…”. Odpowiedź sprawdzaj — to podpowiedź, nie wyrocznia.",
   },
 ];
 

@@ -5,7 +5,11 @@
 // Zapisy zmieniają tylko ten stan. Żaden zapis nie idzie do serwera: to, czego
 // poligon nie umie, kończy się odmową z komunikatem, nie prawdziwym zapisem.
 // Odczyty spoza rekrutacji ćwiczebnej (pasek górny, powiadomienia) idą do API
-// jak zwykle — wtedy `handle` zwraca `"network"`.
+// jak zwykle — wtedy `handle` zwraca `"network"`. Narzędzia rekrutera z ćwiczeń
+// z 16.11.2026 (telefon, terminy u klienta, CV z pliku, zapisane wyszukiwania,
+// listy, czat, asystent CV, Jarvis) są w `tools.ts`.
+
+import { createTools } from "./tools";
 
 export interface PoligonPerson {
   candidate_id: number;
@@ -17,9 +21,15 @@ export interface PoligonPerson {
 export interface PoligonDataset {
   meta: {
     job_id: number;
+    job_reference?: string;
     client_id: number;
+    client_name?: string;
     template_candidate_id: number;
     template_entry_id: number;
+    /** Osoba na „Rozmowie u klienta”, która czeka na wybór terminu z kandydatem. */
+    slot_candidate_id: number;
+    /** Osoba, którą NEXUS „odczytuje” z pliku CV w ćwiczeniu. */
+    cv_candidate_id: number;
     trainers: Record<string, { id: number; name: string }>;
     people: PoligonPerson[];
   };
@@ -32,6 +42,8 @@ export interface PoligonRequest {
   url: string;
   params?: Record<string, unknown> | null;
   body?: unknown;
+  /** Zalogowana osoba — jej są zapisane wyszukiwania i listy na poligonie. */
+  viewerId?: number | null;
 }
 
 export interface PoligonResponse {
@@ -57,6 +69,15 @@ export type PoligonAction =
   | { type: "note"; candidateId: number | null; content: string }
   | { type: "screening"; candidateId: number; sheetSaved: boolean; fields: Record<string, string> }
   | { type: "assign"; candidateId: number; jobId: number }
+  | { type: "screening_call"; candidateId: number; start: string }
+  | { type: "slot_choose"; candidateId: number; index: number }
+  | { type: "cv_upload"; candidateId: number }
+  | { type: "saved_search"; notify: boolean; criteria: boolean; name: string }
+  | { type: "pool_add"; candidateId: number; poolId: number }
+  | { type: "chat"; content: string; mentions: number[] }
+  | { type: "cv_command"; command: string; operations: number }
+  | { type: "cv_applied"; operations: number }
+  | { type: "jarvis"; message: string; candidateId: number | null }
   | { type: "view"; path: string; query: Record<string, string> }
   /** Serwer odmówiłby ruchu na „Zweryfikowany” — czego brakuje. */
   | { type: "gate"; candidateId: number; missing: string[] }
@@ -88,9 +109,24 @@ function clone<T>(value: T): T {
   return value === undefined ? value : (JSON.parse(JSON.stringify(value)) as T);
 }
 
-/** `@rel:-3.2` → data sprzed 3,2 dnia, `@reld:-3` → sam dzień. */
+/** Dzień za `workdays` dni robocze (pon.–pt.) od `now`, o godzinie `hh:mm` UTC. */
+function workdayAt(now: number, workdays: number, hh: number, mm: number): string {
+  const day = new Date(now);
+  for (let left = workdays; left > 0; ) {
+    day.setUTCDate(day.getUTCDate() + 1);
+    if (day.getUTCDay() !== 0 && day.getUTCDay() !== 6) left -= 1;
+  }
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), hh, mm)).toISOString();
+}
+
+/**
+ * `@rel:-3.2` → data sprzed 3,2 dnia, `@reld:-3` → sam dzień, `@relt:2T09:00` → za
+ * 2 dni robocze o 9:00 UTC (terminy u klienta i prepy: pełne godziny, bez weekendu).
+ */
 export function resolveDates(value: Json, now: number): Json {
   if (typeof value === "string") {
+    const at = /^@relt:(\d+)T(\d{2}):(\d{2})$/.exec(value);
+    if (at) return workdayAt(now, Number(at[1]), Number(at[2]), Number(at[3]));
     if (value.startsWith("@rel:")) return new Date(now + Number(value.slice(5)) * DAY_MS).toISOString();
     if (value.startsWith("@reld:")) return new Date(now + Number(value.slice(6)) * DAY_MS).toISOString().slice(0, 10);
     return value;
@@ -303,13 +339,13 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     };
   }
 
-  function assign(candidateId: number, jobId: number): PoligonResponse {
-    if (!kanban || jobId !== meta.job_id) return { status: 404, data: { detail: MISSING_MESSAGE } };
+  /** Osoba ćwiczebna ląduje w „Nowych” (przypisanie z bazy, osoba z pliku CV). */
+  function addToNew(candidateId: number): boolean {
     const person = people.get(candidateId);
-    const first = kanban.columns.find((c) => c.stage === "new" && c.stage_def_id !== undefined);
-    if (!person || !first) return { status: 404, data: { detail: MISSING_MESSAGE } };
+    const first = kanban?.columns.find((c) => c.stage === "new" && c.stage_def_id !== undefined);
+    if (!person || !first) return false;
     if (!findItem(candidateId)) {
-      const template = kanban.columns.flatMap((c) => c.items)[0];
+      const template = first.items[0] ?? kanban?.columns.flatMap((c) => c.items)[0];
       const item: KanbanItem = {
         ...clone(template),
         id: person.entry_id,
@@ -326,8 +362,13 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       first.items = [item, ...first.items];
       first.count = first.items.length;
     }
+    return true;
+  }
+
+  function assign(candidateId: number, jobId: number): PoligonResponse {
+    if (!kanban || jobId !== meta.job_id || !addToNew(candidateId)) return { status: 404, data: { detail: MISSING_MESSAGE } };
     emit({ type: "assign", candidateId, jobId });
-    return { status: 200, data: { ok: true, candidate_id: candidateId, job_id: jobId, stage: first.stage } };
+    return { status: 200, data: { ok: true, candidate_id: candidateId, job_id: jobId, stage: "new" } };
   }
 
   function move(body: Record<string, Json>): PoligonResponse {
@@ -471,8 +512,8 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       data = screeningForm(Number(query.find(([k]) => k === "candidate_id")?.[1]), data);
     }
     if (path === "/api/candidates" && data && typeof data === "object") {
-      // Szukanie w bazie poligonu: każde słowo z pól tekstowych zapytania
-      // musi pasować do imienia, nazwiska albo stanowiska osoby.
+      // Szukanie w bazie poligonu: słowo z pól tekstowych zapytania pasuje
+      // do imienia, nazwiska, stanowiska albo umiejętności osoby („Scrum”).
       const words = query
         .filter(([k]) => /^(q|q_.*|search|name|keywords?)$/.test(k))
         .flatMap(([, v]) => v.toLowerCase().split(/[\s,]+/))
@@ -480,7 +521,8 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
       const list = data as { items?: Array<Record<string, Json>>; total?: number };
       if (words.length && Array.isArray(list.items)) {
         list.items = list.items.filter((c) => {
-          const text = [c.name, c.lastname, c.current_position, c.role, c.ai_summary].map((x) => String(x ?? "").toLowerCase()).join(" ");
+          const skills = (Array.isArray(c.skills) ? c.skills : []).map((x) => (x && typeof x === "object" ? (x as { name?: unknown }).name : x));
+          const text = [c.name, c.lastname, c.current_position, c.role, c.ai_summary, ...skills].map((x) => String(x ?? "").toLowerCase()).join(" ");
           return words.some((w) => text.includes(w));
         });
         list.total = list.items.length;
@@ -532,10 +574,29 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     "/api/rejection-emails/preview",
   ]);
 
+  const tools = createTools({
+    meta,
+    now,
+    emit,
+    findItem,
+    addToNew,
+    recorded: (method, path, query = []) => read(method, path, query, { quiet: true }),
+    people,
+    template,
+  });
+
   function handle(req: PoligonRequest): PoligonResponse | "network" {
     const method = (req.method || "get").toUpperCase();
     const { path, query } = splitUrl(req);
     const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, Json>;
+    // Narzędzia z ćwiczeń z 16.11.2026: stan w pamięci karty, odczyty i zapisy.
+    const tool = tools.handle(method, path, body, req.viewerId ?? null);
+    if (tool) {
+      if (method === "GET") emit({ type: "view", path, query: Object.fromEntries(query) });
+      // Kopia, jak przy odczytach z zestawu: ekran nie może trzymać referencji
+      // do stanu poligonu (react-query uznałby zmienioną listę za tę samą).
+      return { status: tool.status, data: clone(tool.data) };
+    }
     const owned =
       OWNED_PATHS.has(path) || mentionsPoligon(`${path}?${new URLSearchParams(query).toString()}`) || mentionsPoligon(JSON.stringify(req.body ?? ""));
 
@@ -567,6 +628,8 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     stageOf(candidateId: number): string | null {
       return (findItem(candidateId)?.item.stage as string | undefined) ?? null;
     },
+    /** Jarvis na poligonie: stała odpowiedź o osobie z Tablicy, bez modelu (`lib/poligon/jarvis.ts`). */
+    jarvisAnswer: tools.jarvisAnswer,
     meta,
   };
 }
