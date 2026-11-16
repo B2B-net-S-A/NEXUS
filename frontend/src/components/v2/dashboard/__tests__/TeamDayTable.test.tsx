@@ -5,14 +5,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { RecruitmentActivityDashboard } from "@/components/v2/dashboard/RecruitmentActivityDashboard"
 import { TeamDayTable } from "@/components/v2/dashboard/TeamDayTable"
-import { insightsTeamSignalsApi, type TeamPeopleResponse, type TeamPeopleRow } from "@/lib/insights-team-api"
+import {
+  insightsTeamSignalsApi,
+  type TeamAddedResponse,
+  type TeamPeopleResponse,
+  type TeamPeopleRow,
+} from "@/lib/insights-team-api"
 import { getRecruitmentActivitySummary } from "@/lib/recruitment-activity-api"
 
 vi.mock("@/lib/insights-team-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/insights-team-api")>()
   return {
     ...actual,
-    insightsTeamSignalsApi: { ...actual.insightsTeamSignalsApi, people: vi.fn() },
+    insightsTeamSignalsApi: {
+      ...actual.insightsTeamSignalsApi,
+      people: vi.fn(),
+      addedToJobs: vi.fn(),
+    },
   }
 })
 
@@ -34,6 +43,20 @@ if (!Element.prototype.scrollIntoView) {
 }
 
 const people = vi.mocked(insightsTeamSignalsApi.people)
+const addedToJobs = vi.mocked(insightsTeamSignalsApi.addedToJobs)
+
+function added(extra: Partial<TeamAddedResponse> = {}): TeamAddedResponse {
+  return {
+    date_from: "2026-10-18",
+    date_to: "2026-10-24",
+    days: 7,
+    rows: [],
+    rest: { today: 0, last_days: 0 },
+    system: { today: 0, last_days: 0 },
+    unattributed: { today: 0, last_days: 0 },
+    ...extra,
+  }
+}
 const getSummary = vi.mocked(getRecruitmentActivitySummary)
 
 function row(
@@ -126,6 +149,13 @@ function renderTable(metrics = METRICS, range = RANGE) {
   )
 }
 
+async function waitForAdded(table: HTMLElement) {
+  await vi.waitFor(() => {
+    expect(within(table).queryAllByText("…")).toHaveLength(0)
+  })
+  return bodyRows(table)
+}
+
 function bodyRows(table: HTMLElement) {
   return within(table)
     .getAllByRole("row")
@@ -137,6 +167,8 @@ describe("TeamDayTable", () => {
   beforeEach(() => {
     people.mockReset()
     getSummary.mockReset()
+    addedToJobs.mockReset()
+    addedToJobs.mockResolvedValue(added())
   })
 
   it("asks once, for the selected period", async () => {
@@ -230,6 +262,57 @@ describe("TeamDayTable", () => {
     expect(await screen.findByText("Nikt z zespołu nie ma wyników w tym okresie.")).toBeInTheDocument()
   })
 
+  it("shows additions to recruitments today and in 7 days, one number per cell", async () => {
+    people.mockResolvedValue(PERIOD)
+    addedToJobs.mockResolvedValue(
+      added({
+        rows: [
+          { user_id: 1, name: "Anna Nowak", today: 2, last_days: 9 },
+          // Tylko dodawała — bez wyników w okresie, ale nie znika.
+          { user_id: 5, name: "Osoba Dodająca", today: 0, last_days: 4 },
+        ],
+        system: { today: 3, last_days: 40 },
+        unattributed: { today: 0, last_days: 0 },
+        rest: { today: 0, last_days: 1 },
+      }),
+    )
+    renderTable()
+    const table = await screen.findByTestId("team-day-table")
+    const headers = within(table)
+      .getAllByRole("columnheader")
+      .map((th) => th.textContent)
+    expect(headers.slice(-2)).toEqual(["Dodali dziś", "Dodali 7 dni"])
+    const rows = await waitForAdded(table)
+    const anna = within(rows.find((tr) => tr.textContent?.startsWith("Anna N."))!).getAllByRole("cell")
+    expect(anna.at(-2)).toHaveTextContent(/^2$/)
+    expect(anna.at(-1)).toHaveTextContent(/^9$/)
+    const bartek = within(rows[0]).getAllByRole("cell")
+    expect(bartek.at(-1)).toHaveTextContent(/^0$/)
+    const ewa = within(rows.at(-1)!).getAllByRole("cell")
+    expect(ewa[0]).toHaveTextContent("Osoba D.")
+    expect(ewa[1]).toHaveTextContent(/^0$/)
+    expect(ewa.at(-1)).toHaveTextContent(/^4$/)
+    expect(within(table).getByText("5 osób", { exact: false })).toBeInTheDocument()
+    // Automat i konta spoza wierszy: linijka pod tabelą, nie wiersz osoby.
+    expect(screen.getByTestId("team-day-table-added-outside").textContent).toBe(
+      "Dodali do rekrutacji poza wierszami osób — automat „Nowi”: 3 dziś, 40 w 7 dniach; " +
+        "konta administracyjne, byli pracownicy i osoby poza filtrem: 0 dziś, 1 w 7 dniach.",
+    )
+    expect(within(table).queryByText(/\//)).toBeNull()
+  })
+
+  it("shows a dash, not zero, when additions fail to load", async () => {
+    people.mockResolvedValue(PERIOD)
+    addedToJobs.mockRejectedValue(new Error("boom"))
+    renderTable()
+    const table = await screen.findByTestId("team-day-table")
+    await vi.waitFor(() => {
+      const cells = within(bodyRows(table)[0]).getAllByRole("cell")
+      expect(cells.at(-1)).toHaveTextContent("—")
+    })
+    expect(screen.queryByTestId("team-day-table-added-outside")).toBeNull()
+  })
+
   it("does not ask for a reversed period", async () => {
     renderTable(METRICS, { start: "2026-10-24", end: "2026-10-13" })
     expect(await screen.findByTestId("team-day-table-loading")).toBeInTheDocument()
@@ -252,6 +335,8 @@ describe("RecruitmentActivityDashboard team table", () => {
     people.mockReset()
     getSummary.mockReset()
     people.mockResolvedValue(PERIOD)
+    addedToJobs.mockReset()
+    addedToJobs.mockResolvedValue(added())
   })
 
   it("shows the table after picking the whole team", async () => {

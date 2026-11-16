@@ -19,6 +19,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   insightsTeamSignalsApi,
   insightsTeamSignalsQueryKeys,
+  type AddedCountsPair,
+  type TeamAddedResponse,
   type TeamPeopleResponse,
   type TeamPeopleRow,
 } from "@/lib/insights-team-api"
@@ -49,6 +51,15 @@ import { cn } from "@/lib/utils"
  * Na pulpicie (30.10.2026, Artur, makiety A + B) tabela nie ma własnego
  * okienka: kafelek rośnie z treścią, nagłówek kolumn przykleja się pod górnym
  * paskiem strony, a „Na cały ekran” otwiera ją w oknie na całą wysokość.
+ *
+ * Kolumny „Dodali dziś” i „Dodali 7 dni” (Artur, 16.11.2026): dodania do rekrutacji
+ * przez wszystkie rekrutacje, ta sama reguła co „Kto ilu dodał” na Tablicy
+ * (`/api/insights/team/added-to-jobs`, `services/added_to_jobs.py`). Okna są
+ * stałe — dziś i siedem dni z dziś — niezależnie od okresu z paska. Osoba, która
+ * tylko dodawała, dostaje wiersz z zerami w kolumnach okresu. Automat „Nowi”,
+ * wpisy bez osoby i konta spoza wierszy stoją w linijce pod tabelą. Dwie
+ * kolumny, nie „dziś / 7 dni” w jednej komórce — z tego samego powodu, dla
+ * którego 29.10.2026 zniknęło „dzień / miesiąc”.
  */
 type Counted = "verifications" | "recommendations" | "interviews" | "acceptances" | "placements"
 
@@ -66,6 +77,15 @@ const COLUMNS: {
 
 type Counts = Record<Counted, number>
 
+// Stałe okna, niezależne od paska okresu — opis w nagłówku kolumny.
+const ADDED_TITLE =
+  "Osoby dodane do rekrutacji (para kandydat × rekrutacja, liczona osobie z pierwszego wpisu etapu), " +
+  "także te, które już były w bazie. Bez automatu „Nowi”. Niezależnie od okresu z paska."
+const ADDED_COLUMNS: { key: keyof AddedCountsPair; label: string; title: string }[] = [
+  { key: "today", label: "Dodali dziś", title: `${ADDED_TITLE} Dziś.` },
+  { key: "last_days", label: "Dodali 7 dni", title: `${ADDED_TITLE} Dziś i sześć dni wstecz.` },
+]
+
 // Kreska nad przyklejonym „Pozostali” cieniem: obramowanie komórki przy
 // `border-collapse` nie jedzie razem z `sticky`.
 const STICKY_FOOT = "bg-card shadow-[inset_0_1px_0_var(--color-border)]"
@@ -74,6 +94,61 @@ const STICKY_HEAD = "bg-card shadow-[inset_0_-1px_0_var(--color-border)]"
 function num(row: Partial<Record<Counted, number>> | undefined, key: Counted): number {
   const value = row?.[key]
   return typeof value === "number" ? value : 0
+}
+
+/** Osoba bez wyników w okresie, która dodawała do rekrutacji. */
+function addedOnlyRow(row: { user_id: number; name: string }): TeamPeopleRow {
+  return {
+    user_id: row.user_id,
+    name: row.name,
+    role: "",
+    is_active: true,
+    verifications: 0,
+    recommendations: 0,
+    interviews: 0,
+    acceptances: 0,
+    placements: 0,
+    previous_placements: 0,
+    verifications_per_workday: null,
+    precision_pct: null,
+  }
+}
+
+function pairText(pair: AddedCountsPair): string {
+  return `${pair.today} dziś, ${pair.last_days} w 7 dniach`
+}
+
+/** „automat „Nowi” 3 dziś, 40 w 7 dniach; …” — części bez dodań pomijamy. */
+export function addedOutsideRows(data: TeamAddedResponse): string[] {
+  const parts: [string, AddedCountsPair][] = [
+    ["automat „Nowi”", data.system],
+    ["stare wpisy bez osoby", data.unattributed],
+    ["konta administracyjne, byli pracownicy i osoby poza filtrem", data.rest],
+  ]
+  return parts
+    .filter(([, pair]) => pair.today > 0 || pair.last_days > 0)
+    .map(([label, pair]) => `${label}: ${pairText(pair)}`)
+}
+
+function AddedCell({
+  value,
+  state,
+}: {
+  value: number | undefined
+  state: "pending" | "error" | "success"
+}) {
+  if (state !== "success") {
+    // Awaria to „—” z opisem, nie zero — zero znaczyłoby „nikogo nie dodał”.
+    return (
+      <td
+        className="py-1.5 pr-4 text-right text-muted-foreground"
+        title={state === "error" ? "Nie udało się pobrać dodań do rekrutacji" : undefined}
+      >
+        {state === "error" ? "—" : "…"}
+      </td>
+    )
+  }
+  return <Cell value={value ?? 0} />
 }
 
 function emptyCounts(): Counts {
@@ -174,6 +249,11 @@ export function TeamDayTable({
     enabled: range.start <= range.end,
     staleTime: 30_000,
   })
+  const added = useQuery({
+    queryKey: insightsTeamSignalsQueryKeys.addedToJobs(teamFilters),
+    queryFn: () => insightsTeamSignalsApi.addedToJobs(teamFilters),
+    staleTime: 60_000,
+  })
 
   if (query.isError) {
     return (
@@ -189,7 +269,19 @@ export function TeamDayTable({
     return <Skeleton className="h-64 w-full rounded-xl" data-testid="team-day-table-loading" />
   }
 
-  const rows = teamPeriodRows(query.data)
+  const periodRows = teamPeriodRows(query.data)
+  const periodIds = new Set(periodRows.map((row) => row.user_id))
+  const addedByUser = new Map(
+    (added.data?.rows ?? []).map((row) => [row.user_id, row] as const),
+  )
+  const rows = [
+    ...periodRows,
+    ...(added.data?.rows ?? [])
+      .filter((row) => !periodIds.has(row.user_id))
+      .map(addedOnlyRow),
+  ]
+  const addedState = added.isSuccess ? "success" : added.isError ? "error" : "pending"
+  const addedOutside = added.data ? addedOutsideRows(added.data) : []
   const roleFiltered = teamFilters !== undefined && teamFilters.role !== "all"
   const rest = restCounts(query.data, roleFiltered)
   const hasRest = COLUMNS.some((column) => rest[column.key] > 0)
@@ -224,7 +316,7 @@ export function TeamDayTable({
 
   // Ta sama tabela w kafelku i w oknie „Na cały ekran”.
   const table = (
-    <table className="w-full min-w-[760px] text-sm">
+    <table className="w-full min-w-[880px] text-sm">
       {/* Tło przyklejonych wierszy na komórkach, nie na thead/tfoot: motyw
           „Wyraźny” ramkuje każdy `.bg-card` poza `td`/`th`. */}
       <thead className="sticky top-0 z-10">
@@ -234,6 +326,15 @@ export function TeamDayTable({
             <th
               key={column.key}
               className={cn("py-2 pr-4 text-right font-semibold", STICKY_HEAD)}
+            >
+              {column.label}
+            </th>
+          ))}
+          {ADDED_COLUMNS.map((column) => (
+            <th
+              key={column.key}
+              className={cn("py-2 pr-4 text-right font-semibold", STICKY_HEAD)}
+              title={column.title}
             >
               {column.label}
             </th>
@@ -251,6 +352,13 @@ export function TeamDayTable({
                 key={column.key}
                 value={num(line, column.key)}
                 missing={missing.has(column.key)}
+              />
+            ))}
+            {ADDED_COLUMNS.map((column) => (
+              <AddedCell
+                key={column.key}
+                value={addedByUser.get(line.user_id)?.[column.key]}
+                state={addedState}
               />
             ))}
           </tr>
@@ -274,6 +382,7 @@ export function TeamDayTable({
                   className={STICKY_FOOT}
                 />
               ))}
+              <td className={STICKY_FOOT} colSpan={ADDED_COLUMNS.length} />
             </tr>
           ) : null}
           {hasRest ? (
@@ -292,6 +401,7 @@ export function TeamDayTable({
                 className={STICKY_FOOT}
               />
             ))}
+            <td className={STICKY_FOOT} colSpan={ADDED_COLUMNS.length} />
           </tr>
           ) : null}
         </tfoot>
@@ -338,12 +448,17 @@ export function TeamDayTable({
           {table}
         </div>
       )}
-      {mismatches.length > 0 || unattributed.length > 0 || compact ? (
+      {mismatches.length > 0 || unattributed.length > 0 || addedOutside.length > 0 || compact ? (
         <div className="space-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
           {unattributed.length > 0 ? (
             <p data-testid="team-day-table-unattributed">
               Do tego w okresie bez osoby z zasługą: {unattributed.join(", ")} — nie wchodzą
               do liczby nad tabelą.
+            </p>
+          ) : null}
+          {addedOutside.length > 0 ? (
+            <p data-testid="team-day-table-added-outside">
+              Dodali do rekrutacji poza wierszami osób — {addedOutside.join("; ")}.
             </p>
           ) : null}
           {mismatches.length > 0 ? (
