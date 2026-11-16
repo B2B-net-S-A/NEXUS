@@ -174,6 +174,7 @@ from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
 )
 from app.services.experience_end import sql_current_end_literals
+from app.services.name_match_rank import candidate_name_rank
 from app.services.polish_ilike import contains_pattern
 from app.services.candidate_search_predicates import (
     FILTER_DATE_MAX,
@@ -2074,6 +2075,11 @@ def _apply_requested_sort(
             # właściciela wpisanego adresu.
             ordering = [score.desc(), Candidate.created_at.desc(), Candidate.id.desc()]
             if filters.q:
+                # Paleta ⌘K bierze stąd kandydatów rekrutera: dokładne nazwisko
+                # albo imię z nazwiskiem przed prefiksem, prefiks przed resztą —
+                # jak `/api/search/global` (#3431). Samo podobieństwo dawało
+                # krótszy stóg wyżej: „Kotow” → Kotowska, Kot, Kot, potem Kotow.
+                ordering.insert(0, candidate_name_rank(filters.q))
                 exact_email = case(
                     (
                         func.lower(func.coalesce(Candidate.email, ""))
