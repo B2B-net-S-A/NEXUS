@@ -188,7 +188,7 @@ def client_registry_number(value: str | None) -> str | None:
     if REGISTRY_KEY.fullmatch(number):
         return number
     raise ValueError(
-        "Wpisz NIP (10 cyfr) albo identyfikator z prefiksem kraju, np. FI12345678."
+        "Wpisz NIP (10 cyfr), VAT UE albo inny identyfikator z prefiksem kraju."
     )
 
 

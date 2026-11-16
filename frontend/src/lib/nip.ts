@@ -26,5 +26,5 @@ export function nipProblem(value: string): string | null {
   const digitCount = number.replace(/\D/g, "").length;
   return FOREIGN_ID.test(number) && digitCount >= 5
     ? null
-    : "Wpisz NIP (10 cyfr) albo identyfikator z prefiksem kraju, np. FI12345678.";
+    : "Wpisz NIP (10 cyfr), VAT UE albo inny identyfikator z prefiksem kraju.";
 }
