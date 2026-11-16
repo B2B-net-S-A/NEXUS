@@ -40,6 +40,7 @@ from app.data.novelties import (
 )
 from app.models.novelty import NoveltyProgress
 from app.services.novelty_schema import TABLE_DDL
+from app.services.onboarding_day import POLIGON_ID_PREFIX
 
 _DB = pytest.mark.skipif(not os.environ.get("DATABASE_URL"), reason="wymaga PostgreSQL")
 BACKEND = Path(__file__).resolve().parent.parent
@@ -80,6 +81,13 @@ def test_registry_loads_and_every_entry_is_valid() -> None:
             assert not novelty.steps
         else:
             assert len(novelty.steps) >= 2
+
+
+def test_novelty_ids_do_not_use_the_poligon_prefix() -> None:
+    """Trasa zdarzeń kieruje `poligon-…` do ćwiczeń Poligonu, więc wpis Nowości
+    z takim id dostawał zawsze 404 i jego kropka nigdy nie gasła."""
+    clash = sorted(n for n in load_novelties() if n.startswith(POLIGON_ID_PREFIX))
+    assert not clash, clash
 
 
 @pytest.mark.parametrize(
