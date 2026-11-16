@@ -1244,7 +1244,7 @@ except Exception as _autofill_feedback_err:  # noqa: BLE001
     print(f"autofill feedback DDL unavailable: {_autofill_feedback_err!r}")
     _AUTOFILL_FEEDBACK_DDL = []
 
-# Profil „Kogo szukamy” rekrutacji (migracja 0727) — JEDNO źródło z migracją
+# Profil „Kogo szukamy” rekrutacji (migracja 0728) — JEDNO źródło z migracją
 # (`app/services/job_role_profile_schema.py`).
 try:
     from app.services import job_role_profile_schema as _job_role_profile_schema

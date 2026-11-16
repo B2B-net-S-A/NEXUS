@@ -1,4 +1,4 @@
-"""Profil „Kogo szukamy” rekrutacji (0727) — DDL w ``services/job_role_profile_schema.py``."""
+"""Profil „Kogo szukamy” rekrutacji (0728) — DDL w ``services/job_role_profile_schema.py``."""
 
 from datetime import datetime
 from typing import Optional

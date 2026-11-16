@@ -1,4 +1,4 @@
-"""DDL profilu „Kogo szukamy” rekrutacji — JEDNO źródło dla migracji 0727
+"""DDL profilu „Kogo szukamy” rekrutacji — JEDNO źródło dla migracji 0728
 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``job_role_profiles``: jeden wiersz na rekrutację, zapisany dopiero przy

@@ -5002,7 +5002,7 @@ async def api_health_deep_check(request: Request):
         ("job_autofill_pool", JobAutofillPool),
         ("autofill_feedback", AutofillFeedback),
         ("autofill_quality_reports", AutofillQualityReport),
-        # 0727: profil „Kogo szukamy” rekrutacji w porcji.
+        # 0728: profil „Kogo szukamy” rekrutacji w porcji.
         ("job_role_profiles", JobRoleProfile),
         # 0519: historia „Prowadzi”.
         ("candidate_job_owner_events", CandidateJobOwnerEvent),

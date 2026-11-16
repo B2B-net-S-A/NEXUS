@@ -1,5 +1,5 @@
 # Porcja dnia: profil „Kogo szukamy”, lista „Nie proponujemy” i bogatsze „Inna rola”
-<!-- indeks: `job_role_profiles` (0727), `services/job_role_profile.py`, `job_role_profile_schema.py`, `GET`/`PUT /api/review-batch/jobs/{job_id}/profile`, `job_profiles` w `/me/queue`, `keep_role_allowed` w `_allowed`, `EXCLUDE_MIN` = 3, `detail.person_role`, `role_kind` (technology / lead_not_ic / ic_not_lead / past_role / side_role / domain), `ROLE_KIND_CHOICES`, `rememberLine`, `RoleProfileBlock`, „Popraw” -->
+<!-- indeks: `job_role_profiles` (0728), `services/job_role_profile.py`, `job_role_profile_schema.py`, `GET`/`PUT /api/review-batch/jobs/{job_id}/profile`, `job_profiles` w `/me/queue`, `keep_role_allowed` w `_allowed`, `EXCLUDE_MIN` = 3, `detail.person_role`, `role_kind` (technology / lead_not_ic / ic_not_lead / past_role / side_role / domain), `ROLE_KIND_CHOICES`, `rememberLine`, `RoleProfileBlock`, „Popraw” -->
 
 Decyzja Artura z 16.11.2026 („rób wszystko teraz”, propozycje 1 i 3 z raportu
 o odrzuceniach „Inna rola”). Pomiar na 1 948 decyzjach porcji z produkcji
@@ -15,7 +15,7 @@ sprawdzone na tych danych: +0,5 pkt, więc nie dokładaj reguł regex z tytułó
 
 - **Pola:** rola, specjalizacja (opcjonalnie), główna technologia (opcjonalnie),
   poziom `wykonawca` / `lider` / `dowolny` i lista „Nie proponujemy”. Tabela
-  `job_role_profiles` (migracja 0727, lustro w `entrypoint.sh` z
+  `job_role_profiles` (migracja 0728, lustro w `entrypoint.sh` z
   `job_role_profile_schema.py`, sonda w `/api/health/deep`).
 - **Bez zapisu profil się liczy:** rola z tytułu (`family_of` → `LABELS`) albo
   pusta, poziom „lider”, gdy tytuł ma lead/head/manager/kierownik/architect,
