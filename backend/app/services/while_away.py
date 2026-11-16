@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, update
@@ -31,6 +31,7 @@ from app.core.scheduling import DEFAULT_TZ
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.notification_categories import CATEGORY_INFO, category_for
+from app.services.notification_topics import job_key_expression
 from app.services.workforce_availability import workforce_context
 
 logger = logging.getLogger(__name__)
@@ -179,6 +180,68 @@ async def user_names(db: AsyncSession, ids: Sequence[int]) -> dict[int, str]:
         return {}
     rows = await db.execute(select(User.id, User.name).where(User.id.in_(set(ids))))
     return {row.id: row.name for row in rows}
+
+
+@dataclass(frozen=True)
+class DeputyCase:
+    """Sprawa do załatwienia, która przyszła do zastępcy — po stronie zastępcy."""
+
+    id: int
+    job_id: int
+    owner_id: int
+    handled_at: Optional[datetime]
+    handled_by_id: Optional[int]
+
+
+async def deputy_cases(
+    db: AsyncSession, deputy_id: int, *, since: datetime, visibility: Any
+) -> dict[int, DeputyCase]:
+    """Sprawy z ``ACTION_TYPES`` u zastępcy, po jednej na rekrutację.
+
+    Zastępca oznacza „Dałem znać” w okienku „Rekrutacje” (16.11.2026), także
+    przy cichym wierszu, gdy sam zamknął rekrutację. To ten sam wiersz, który
+    osoba widzi po powrocie w „Gdy Cię nie było”, więc stan jest wspólny.
+    Kilka zamknięć tej samej rekrutacji: wygrywa najnowsze niezałatwione.
+    """
+    job_key = job_key_expression(Notification)
+    rows = (
+        await db.execute(
+            select(
+                Notification.id,
+                job_key.label("job_id"),
+                Notification.on_behalf_of_user_id,
+                Notification.handled_at,
+                Notification.handled_by_user_id,
+            )
+            .where(
+                Notification.user_id == deputy_id,
+                Notification.on_behalf_of_user_id.is_not(None),
+                Notification.notification_type.in_(sorted(ACTION_TYPES, key=str)),
+                Notification.created_at >= since,
+                visibility,
+            )
+            .order_by(Notification.created_at.asc(), Notification.id.asc())
+        )
+    ).all()
+    cases: dict[int, DeputyCase] = {}
+    for row in rows:
+        if row.job_id is None:
+            continue
+        current = cases.get(row.job_id)
+        if (
+            current is not None
+            and current.handled_at is None
+            and row.handled_at is not None
+        ):
+            continue
+        cases[row.job_id] = DeputyCase(
+            id=row.id,
+            job_id=row.job_id,
+            owner_id=row.on_behalf_of_user_id,
+            handled_at=row.handled_at,
+            handled_by_id=row.handled_by_user_id,
+        )
+    return cases
 
 
 async def mark_handled(
