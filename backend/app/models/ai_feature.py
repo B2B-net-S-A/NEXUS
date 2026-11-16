@@ -210,6 +210,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0712 (15.11.2026): katalog raportów klienta — obowiązki raportowe
     # odczytane z fragmentów umów ramowych jako propozycje dla DL-a.
     client_report_requirements = "client_report_requirements"
+    # 0725 (16.11.2026): szkic uzasadnienia (EN) prośby o dopłatę za technologię
+    # premium z umowy ramowej — DL poprawia i wysyła klientowi sam.
+    premium_skill_justification = "premium_skill_justification"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -264,6 +267,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.duty_search_plan: "„Kto już to robił” — rozbicie celu projektu na rzeczy do sprawdzenia w CV",
     AIFeatureKey.duty_search_judge: "„Kto już to robił” — ocena CV względem celu projektu z cytatem",
     AIFeatureKey.client_report_requirements: "Raporty dla klientów — obowiązki raportowe z umów ramowych",
+    AIFeatureKey.premium_skill_justification: "Umowa ramowa — szkic uzasadnienia dopłaty za technologię premium (EN)",
 }
 
 
@@ -497,6 +501,12 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.client_report_requirements: [
         "Do 40 fragmentów umowy ramowej i aneksów klienta ze słowami o raportach i rozliczeniu",
         "(bez danych kandydatów, kontraktów i stawek z NEXUSA; treść umów jak w Jarvisie)",
+    ],
+    AIFeatureKey.premium_skill_justification: [
+        "Technologia i procent dopłaty z umowy ramowej, kategoria i poziom z cennika",
+        "Źródła dowodu NEXUSA (CV, oś czasu CV z miesiącami, screening, karta techniczna projektu)",
+        "Inne technologie z karty technicznej projektu i przykłady wpisane przez Delivery Leada",
+        "(bez imienia i nazwiska, nazwy klienta, stawek, limitu i treści CV)",
     ],
 }
 

@@ -183,6 +183,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.duty_search_judge: ("F48", "gpt-6-luna"),
     # F49 — 15.11.2026: obowiązki raportowe z umów ramowych klienta.
     AIFeatureKey.client_report_requirements: ("F49", "claude-sonnet-5"),
+    # F50 — 16.11.2026: szkic uzasadnienia dopłaty za technologię premium (EN).
+    AIFeatureKey.premium_skill_justification: ("F50", "claude-sonnet-5-5"),
 }
 
 

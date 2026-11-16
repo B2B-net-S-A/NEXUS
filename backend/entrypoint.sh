@@ -383,6 +383,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_client_summary'",
     # 0712: katalog raportów klienta — obowiązki raportowe z umów ramowych.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_report_requirements'",
+    # 0725: szkic uzasadnienia dopłaty za technologię premium (EN).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'premium_skill_justification'",
     # 0712: przypomnienie o terminie raportu dla klienta (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_report_due'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
@@ -8030,6 +8032,11 @@ _DATA_STATEMENTS = [
     "SELECT 'client_report_requirements', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'client_report_requirements')",
+    # 0725: seed klucza AI szkicu uzasadnienia dopłaty za technologię premium.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'premium_skill_justification', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'premium_skill_justification')",
     # 0637: seed klucza AI rozdzielania spraw back office'u.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'case_triage', TRUE, 0, now(), now() "
