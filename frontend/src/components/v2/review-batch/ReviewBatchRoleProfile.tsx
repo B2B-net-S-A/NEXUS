@@ -77,6 +77,7 @@ export function RoleProfileBlock({
       onClick={() => setEditing(true)}
       className="shrink-0 text-xs text-primary hover:underline"
       data-testid="review-role-profile-edit"
+      data-tour="review-batch.role-profile"
     >
       Popraw
     </button>
