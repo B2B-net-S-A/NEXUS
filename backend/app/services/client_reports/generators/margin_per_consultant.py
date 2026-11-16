@@ -371,7 +371,7 @@ GENERATOR = register(
                 "Waluta progów",
                 "text",
                 "EUR",
-                "Obrót w innej walucie przeliczamy kursem NBP z dnia przed wystawieniem.",
+                "Obrót w innej walucie przeliczamy kursem NBP sprzed daty sprzedaży.",
             ),
             ParamField(
                 "tiers",

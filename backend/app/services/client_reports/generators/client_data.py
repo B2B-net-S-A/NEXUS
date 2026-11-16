@@ -231,6 +231,8 @@ class InvoiceRow:
     service_month: Optional[date]
     currency: Optional[str]
     net_amount: Decimal
+    #: Data sprzedaży z faktury — dzień kursu NBP przy przeliczaniu obrotu.
+    sale_date: Optional[date] = None
 
     @property
     def is_correction(self) -> bool:
@@ -244,7 +246,7 @@ _INVOICES_BY_ISSUE_SQL = text(
     SELECT invoice_number, invoice_type, invoice_kind, issue_date,
            coalesce(make_date(period_year, period_month, 1),
                     date_trunc('month', issue_date)::date) AS service_month,
-           upper(currency), coalesce(net_amount, 0)
+           upper(currency), coalesce(net_amount, 0), sale_date
       FROM client_sales_invoices
      WHERE client_id = :client_id
        AND issue_date BETWEEN :start AND :end
@@ -257,7 +259,7 @@ _INVOICES_BY_SERVICE_SQL = text(
     SELECT invoice_number, invoice_type, invoice_kind, issue_date,
            coalesce(make_date(period_year, period_month, 1),
                     date_trunc('month', issue_date)::date) AS service_month,
-           upper(currency), coalesce(net_amount, 0)
+           upper(currency), coalesce(net_amount, 0), sale_date
       FROM client_sales_invoices
      WHERE client_id = :client_id
        AND coalesce(make_date(period_year, period_month, 1),
@@ -283,7 +285,7 @@ async def sales_invoices(
     sql = _INVOICES_BY_SERVICE_SQL if by_service_month else _INVOICES_BY_ISSUE_SQL
     result = await db.execute(sql, {"client_id": client_id, "start": start, "end": end})
     return [
-        InvoiceRow(r[0], r[1], r[2], r[3], r[4], r[5], Decimal(r[6]))
+        InvoiceRow(r[0], r[1], r[2], r[3], r[4], r[5], Decimal(r[6]), r[7])
         for r in result.all()
     ]
 

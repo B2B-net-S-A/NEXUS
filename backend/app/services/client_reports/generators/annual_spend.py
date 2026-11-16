@@ -4,8 +4,9 @@ Obrót = suma netto faktur sprzedaży z KSeF wystawionych w okresie (po dacie
 wystawienia), razem z korektami (korekta niesie różnicę, także ujemną)
 i fakturami zaliczkowymi. Rabat liczy się od obrotu w walucie progów
 (parametr „Waluta progów”): faktury w innej walucie przeliczamy kursem średnim
-NBP z dnia poprzedzającego wystawienie (decyzja Artura 16.11.2026 — progi
-Nordei są w EUR, faktury w PLN). Faktura bez kursu w ``fx_rates`` wypada
+NBP z ostatniej tabeli przed datą sprzedaży, a bez daty sprzedaży — przed
+datą wystawienia (decyzja Artura 16.11.2026, ta sama co przy nocie rabatowej
+w ``client_invoicing``; progi Nordei są w EUR, faktury w PLN). Faktura bez kursu w ``fx_rates`` wypada
 z obrotu i trafia do kontroli.
 
 Progi: ``[{"up_to": 15000000, "rate": 2.5}, {"up_to": null, "rate": 3}]`` —
@@ -168,9 +169,15 @@ class ConvertedTurnover:
     missing: tuple[str, ...]
 
 
-def fx_day(issue_date: date) -> date:
-    """Kurs średni NBP z dnia poprzedzającego wystawienie faktury."""
-    return issue_date - timedelta(days=1)
+def fx_day(day: date) -> date:
+    """Granica kursu: ostatnia tabela NBP z dnia przed ``day``."""
+    return day - timedelta(days=1)
+
+
+def rate_day(invoice: InvoiceRow) -> Optional[date]:
+    """Dzień kursu faktury: przed datą sprzedaży, bez niej — przed wystawieniem."""
+    day = invoice.sale_date or invoice.issue_date
+    return fx_day(day) if day else None
 
 
 RatesByDate = Mapping[date, Mapping[str, Optional[Decimal]]]
@@ -189,9 +196,8 @@ def convert_turnover(
         if source == target:
             total += invoice.net_amount
             continue
-        snapshot = (
-            rates.get(fx_day(invoice.issue_date), {}) if invoice.issue_date else {}
-        )
+        day = rate_day(invoice)
+        snapshot = rates.get(day, {}) if day else {}
         source_rate, target_rate = snapshot.get(source), snapshot.get(target)
         if not source_rate or not target_rate:
             if source not in missing:
@@ -209,10 +215,9 @@ async def turnover_in(
     needed: dict[date, set[str]] = {}
     for invoice in invoices:
         source = (invoice.currency or "PLN").upper()
-        if source != target and invoice.issue_date is not None:
-            needed.setdefault(fx_day(invoice.issue_date), set()).update(
-                {source, target}
-            )
+        day = rate_day(invoice)
+        if source != target and day is not None:
+            needed.setdefault(day, set()).update({source, target})
     rates = await rates_to_pln_by_date(db, needed) if needed else {}
     return convert_turnover(invoices, target, rates)
 
@@ -222,7 +227,7 @@ def turnover_checks(converted: ConvertedTurnover) -> list[str]:
     if converted.converted:
         checks.append(
             f"{converted.converted} faktur w innej walucie przeliczono na {converted.currency} "
-            "kursem średnim NBP z dnia przed wystawieniem — sprawdź, czy umowa nie podaje innego kursu."
+            "kursem średnim NBP sprzed daty sprzedaży — sprawdź, czy umowa nie podaje innego kursu."
         )
     if converted.missing:
         checks.append(
@@ -327,8 +332,8 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
                 for t in turnovers
             ),
             widths=(10, 14, 14, 18),
-            note=f"Rabat liczony od obrotu w {currency} (inne waluty kursem NBP z dnia przed "
-            f"wystawieniem). {MANUAL_EXCLUSION_NOTE}",
+            note=f"Rabat liczony od obrotu w {currency} (inne waluty kursem NBP sprzed daty "
+            f"sprzedaży). {MANUAL_EXCLUSION_NOTE}",
         )
     ]
     if rebate:
@@ -386,7 +391,7 @@ GENERATOR = register(
                 "Waluta progów",
                 "text",
                 "PLN",
-                "Faktury w innej walucie przeliczamy kursem średnim NBP z dnia przed wystawieniem.",
+                "Faktury w innej walucie przeliczamy kursem średnim NBP sprzed daty sprzedaży.",
             ),
             ParamField(
                 "tiers",

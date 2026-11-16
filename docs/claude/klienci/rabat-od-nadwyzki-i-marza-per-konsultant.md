@@ -1,5 +1,5 @@
 # Rabat od obrotu Nordei progowo, od nadwyżki; marża per konsultant (16.11.2026)
-<!-- indeks: rabat Nordei = obrót roku do progu × niższa stawka + nadwyżka × wyższa (Appendix 6), „Progowo” domyślnie włączone w obu generatorach; inne waluty kursem NBP z dnia przed wystawieniem; marża per konsultant = generator margin_per_consultant, wzór Cost z modelu H1 -->
+<!-- indeks: rabat Nordei = obrót roku do progu × niższa stawka + nadwyżka × wyższa (Appendix 6), „Progowo” domyślnie włączone w obu generatorach; inne waluty kursem NBP z tabeli przed datą sprzedaży (jak nota rabatowa); marża per konsultant = generator margin_per_consultant, wzór Cost z modelu H1 -->
 
 Decyzja Artura z 16.11.2026 po lekturze umowy ramowej Nordei (Appendix 6
 „Charges” z 01.03.2026, sekcja o rabacie od obrotu; dokument jest w module
@@ -23,9 +23,11 @@ trybu „od całości” dla Nordei bez nowej decyzji.
   w ciągu roku idą bez rabatu (wystawianie faktur: osobna sprawa w
   `client_invoicing`).
 - **Progi w innej walucie niż faktury** (Nordea: progi w EUR, faktury w PLN):
-  obrót przeliczamy kursem średnim NBP z dnia poprzedzającego wystawienie
-  faktury (`annual_spend.convert_turnover`, kursy z `fx_rates`; decyzja Artura
-  16.11.2026). Faktura bez kursu wypada z obrotu i trafia do kontroli — nigdy
+  obrót przeliczamy per faktura kursem średnim NBP z ostatniej tabeli przed
+  datą sprzedaży, a bez daty sprzedaży — przed datą wystawienia
+  (`annual_spend.rate_day`, `convert_turnover`, kursy z `fx_rates`; decyzja
+  Artura 16.11.2026, ta sama co przy nocie rabatowej w `client_invoicing`,
+  żeby raport i nota dały tę samą kwotę). Umowa kursu nie podaje. Faktura bez kursu wypada z obrotu i trafia do kontroli — nigdy
   1:1. Podgląd mówi, ile faktur przeliczono.
 - **Obrót roku bywa niepełny:** pobieranie z KSeF cofało się 3 miesiące, więc
   faktury klienta mogą zaczynać się w połowie roku. Raport mówi to w kontroli

@@ -16,6 +16,7 @@ from app.services.client_reports.generators.annual_spend import (
     compute_rebate,
     convert_turnover,
     fx_day,
+    rate_day,
 )
 from app.services.client_reports.generators.client_data import InvoiceRow
 from app.services.client_reports.generators.margin_per_consultant import (
@@ -69,6 +70,39 @@ def test_margin_uses_effective_rate_of_excess_mode():
 
 def test_fx_day_is_day_before_issue():
     assert fx_day(date(2026, 8, 4)) == date(2026, 8, 3)
+
+
+def test_rate_day_is_day_before_sale_date_else_issue_date():
+    sold = InvoiceRow(
+        "FV/2",
+        "VAT",
+        None,
+        date(2026, 9, 3),
+        None,
+        "PLN",
+        Decimal(1),
+        date(2026, 8, 31),
+    )
+    assert rate_day(sold) == date(2026, 8, 30)
+    assert rate_day(invoice("1")) == date(2026, 8, 3)  # bez daty sprzedaży
+
+
+def test_conversion_uses_rate_before_sale_date():
+    sold = InvoiceRow(
+        "FV/2",
+        "VAT",
+        None,
+        date(2026, 9, 3),
+        None,
+        "PLN",
+        Decimal(430),
+        date(2026, 8, 31),
+    )
+    rates = {
+        date(2026, 8, 30): {"PLN": Decimal(1), "EUR": Decimal("4.30")},
+        date(2026, 9, 2): {"PLN": Decimal(1), "EUR": Decimal("4.00")},
+    }
+    assert convert_turnover([sold], "EUR", rates).amount == Decimal("100.00")
 
 
 def test_pln_invoices_converted_to_tier_currency_at_nbp_rate():
