@@ -1,4 +1,4 @@
-"""Płace K7b (0718) — pensje UoP, składniki miesiąca, oznaczenia L4, historia podstaw.
+"""Płace K7b (0719) — pensje UoP, składniki miesiąca, oznaczenia L4, historia podstaw.
 
 CHECK-i i indeksy jak w ``app/services/hr_payroll_k7b_schema.py`` (strażnik
 dryfu schematu porównuje model z bazą po migracji); opis tabel w docstringu

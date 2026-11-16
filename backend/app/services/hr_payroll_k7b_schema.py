@@ -1,4 +1,4 @@
-"""Płace K7b — SQL migracji ``0718_payroll_salaries`` i lustra entrypointu.
+"""Płace K7b — SQL migracji ``0719_payroll_salaries`` i lustra entrypointu.
 
 Jedno źródło DDL dla migracji i ``entrypoint.sh`` (przez ``hr_schema_bundle``);
 każda instrukcja idempotentna. Reguły: ``docs/claude/finanse-insights/ksiega-nexusa-k7b-place-uop.md``.
@@ -62,7 +62,7 @@ CK_BASIS_HOURS = (
 )
 CK_BASIS_SOURCE = f"source IN ({quoted(BASIS_SOURCES)})"
 
-#: Źródło pozycji listy rozszerzone o pensję (0718).
+#: Źródło pozycji listy rozszerzone o pensję (0719).
 CK_LINE_SOURCE = f"source IN ({quoted(LINE_SOURCES)})"
 
 TABLE_DDL: tuple[str, ...] = (

@@ -1,7 +1,7 @@
 """Płace K7b: pensje UoP, składniki miesiąca, oznaczenia L4, historia podstaw.
 
-Revision ID: 0718_payroll_salaries
-Revises: 0717_autofill_detail_cleanup
+Revision ID: 0719_payroll_salaries
+Revises: 0718_invoice_series_ebi24
 
 Tabele ``payroll_salaries``, ``payroll_components``, ``payroll_absence_marks``
 i ``payroll_basis_months`` oraz źródło pozycji listy ``salary``. DDL ma jedno
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import hr_payroll_k7b_schema as schema
 
-revision = "0718_payroll_salaries"
-down_revision = "0717_autofill_detail_cleanup"
+revision = "0719_payroll_salaries"
+down_revision = "0718_invoice_series_ebi24"
 branch_labels = None
 depends_on = None
 
