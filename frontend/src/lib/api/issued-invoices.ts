@@ -157,6 +157,43 @@ export interface InvoiceRebate {
   missing_fx: number;
 }
 
+/**
+ * Szkic korekty zbiorczej rabatu od obrotu za miesiąc przekroczenia progu
+ * (`GET /rebate-correction`). Nic nie zapisuje i nic nie wysyła do KSeF.
+ */
+export interface RebateCorrectionDraft {
+  client_id: number;
+  client_name: string | null;
+  year: number;
+  month: number;
+  currency: IssueCurrency;
+  threshold_currency: string;
+  rate_diff: string;
+  /** Obrót roku ponad próg na koniec miesiąca (waluta progu). */
+  excess: string;
+  /** Kwota opustu w walucie szkicu (dodatnia). */
+  amount: string;
+  lines: { name: string; vat_rate: string; vat_label: string; net: string }[];
+  net: string | null;
+  vat: string | null;
+  gross: string | null;
+  invoices: { number: string; issue_date: string; ksef_number: string | null; base: string }[];
+  invoice_count: number;
+  other_amounts: { currency: string; amount: string }[];
+  fx_rate: string | null;
+  fx_date: string | null;
+  xml_ready: boolean;
+  xml_error: string | null;
+  correction_type: string;
+}
+
+export interface RebateCorrectionQuery {
+  clientId: number;
+  year: number;
+  month: number;
+  currency: string;
+}
+
 export interface KsefIssueState {
   mode: "off" | "test" | "prod";
   mode_label: string;
@@ -273,12 +310,25 @@ export const issuedKeys = {
     ["issued-invoices", "templates", kind, period] as const,
   suggestions: (period: string) =>
     ["issued-invoices", "template-suggestions", period] as const,
+  rebateCorrection: (q: RebateCorrectionQuery) =>
+    ["issued-invoices", "rebate-correction", q.clientId, q.year, q.month, q.currency] as const,
 };
+
+function rebateCorrectionParams(q: RebateCorrectionQuery): string {
+  return new URLSearchParams({
+    client_id: String(q.clientId),
+    year: String(q.year),
+    month: String(q.month),
+    currency: q.currency,
+  }).toString();
+}
 
 export const issuedPaths = {
   pdf: (id: number) => `${BASE}/${id}/pdf`,
   upo: (id: number) => `${BASE}/${id}/upo`,
   xml: (id: number) => `${BASE}/${id}/xml`,
+  rebateCorrectionXml: (q: RebateCorrectionQuery) =>
+    `${BASE}/rebate-correction/xml?${rebateCorrectionParams(q)}`,
 };
 
 export async function downloadIssuedFile(
@@ -350,6 +400,18 @@ export function useIssuedCard(id: number) {
     queryFn: async () =>
       (await api.get<IssuedInvoiceCard>(`${BASE}/${id}`)).data,
     enabled: Number.isFinite(id) && id > 0,
+  });
+}
+
+export function useRebateCorrection(q: RebateCorrectionQuery) {
+  return useQuery({
+    queryKey: issuedKeys.rebateCorrection(q),
+    queryFn: async () =>
+      (
+        await api.get<RebateCorrectionDraft>(
+          `${BASE}/rebate-correction?${rebateCorrectionParams(q)}`,
+        )
+      ).data,
   });
 }
 

@@ -21,7 +21,11 @@ kolejnym powtórzeniem tego samego braku.
   reguły nie tworzy, bo nie wiemy, ile lat wystarczy.
 - **Gdzie działa:** `new_column_autofill._allowed` → `keep_passing`, czyli każde
   dokładanie kart do „Nowych” tej rekrutacji: poranna porcja, „Dodaj kolejnych”,
-  dopełnianie. Karty, które już stoją, zostają.
+  dopełnianie. Od 16.11.2026 także karty, które już stoją: odrzucenie z brakami
+  zdejmuje nietknięte karty od systemu tej rekrutacji bez dowodu
+  (`autofill_withdraw.withdraw_failing_rules`, powód
+  `autofill_withdrawn_learned_rule`), a plan dnia dopełnia porcję
+  (`porcja-kolejnosc-polski-lider-regula-od-razu.md`).
 - **Fraza spoza słownika** („produkty inwestycyjne”) nie ma osi technologii, więc
   przy poziomie „doświadczenie” nikt jej nie spełni i rekrutacja przestanie
   dostawać karty, dopóki reguła trwa. To świadome: zespół trzy razy powiedział,

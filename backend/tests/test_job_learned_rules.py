@@ -101,3 +101,55 @@ async def test_engine_follows_the_rule_from_three_rejections(monkeypatch):
     await _pool(job_id, {nothing: 95, mention_only: 90, experienced: 80})
 
     assert await _fill(job_id) == [experienced]
+
+
+async def test_rule_withdraws_waiting_cards_without_the_item_at_once(monkeypatch):
+    """16.11.2026: reguła działa od razu także na stojące, nietknięte karty."""
+    from sqlalchemy import select
+
+    from app.models.candidate_stage_removal import CandidateStageRemoval
+    from app.services import autofill_withdraw
+    from tests.test_autofill_withdraw import _system_cards
+
+    world = await _system_cards(monkeypatch, 2)
+    job_id = world["job_id"]
+    has_it, lacks_it = world["ids"]
+    rejected = await _people_for_rule()
+    tag = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        for cid in rejected:
+            db.add(
+                AutofillFeedback(
+                    job_id=job_id,
+                    candidate_id=cid,
+                    reason="missing_skill",
+                    learned_from="profile",
+                    bucket="search",
+                    gaps=_gap(f"Playwright{tag}"),
+                )
+            )
+        await db.execute(
+            update(Candidate)
+            .where(Candidate.id == has_it)
+            .values(raw_cv_text=f"Testy UI: Playwright{tag}, TypeScript")
+        )
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        withdrawn = await autofill_withdraw.withdraw_failing_rules(db, job_id=job_id)
+        await db.commit()
+    assert withdrawn == [(lacks_it, job_id)]
+    async with AsyncSessionLocal() as db:
+        reasons = (
+            await db.scalars(
+                select(CandidateStageRemoval.reason).where(
+                    CandidateStageRemoval.job_id == job_id
+                )
+            )
+        ).all()
+    assert reasons == [autofill_withdraw.LEARNED_RULE_REASON]
+
+
+async def _people_for_rule() -> list[int]:
+    from tests.test_autofill_feedback import _people
+
+    return await _people(3)

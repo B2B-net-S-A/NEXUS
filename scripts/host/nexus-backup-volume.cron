@@ -1,0 +1,5 @@
+# /etc/cron.d/nexus-backup-volume — źródło: scripts/host/nexus-backup-volume.cron w repo NEXUS.
+# Co 15 min zapisuje /var/lib/nexus-status/backup-volume.json dla /api/health.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/15 * * * * root /usr/local/sbin/nexus-backup-volume-status.sh 2>>/var/log/nexus-backup-volume.log

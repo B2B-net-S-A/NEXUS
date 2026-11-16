@@ -35,7 +35,9 @@ from __future__ import annotations
 from app.services import admin_cases_schema
 
 PORTAL_SETTING = "consultant_portal"
-STATES: tuple[str, ...] = ("off", "pilot", "all")
+#: ``internal`` („Tylko zespół”, decyzja Artura 16.11.2026): czytnik rozliczenia@ i ekrany
+#: zespołu działają, a panel i maile do konsultantów są zamknięte dla wszystkich.
+STATES: tuple[str, ...] = ("off", "internal", "pilot", "all")
 
 LINK_PURPOSES: tuple[str, ...] = ("login", "rating")
 #: Tematy portalu: FAQ, nowe zgłoszenie i rezerwacja rozmowy.

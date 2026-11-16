@@ -7,7 +7,39 @@ import type { SettlementMode } from "@/lib/api/consultant-portal";
 
 const BASE = "/api/consultant-panel";
 
-export type PanelState = "off" | "pilot" | "all";
+/** `internal` — „Tylko zespół”: czytnik rozliczenia@ i ekrany zespołu działają,
+ * panel i maile do konsultantów zamknięte (decyzja Artura 16.11.2026). */
+export type PanelState = "off" | "internal" | "pilot" | "all";
+
+/** Stan, w którym konsultant może wejść do panelu i dostać mail. */
+export function panelOpenForConsultants(state: PanelState): boolean {
+  return state === "pilot" || state === "all";
+}
+
+export const PANEL_STATE_OPTIONS: readonly { value: PanelState; label: string; confirm: string }[] = [
+  {
+    value: "off",
+    label: "Wyłączony",
+    confirm: "Czytnik rozliczenia@ stanie, sesje konsultantów zostaną zamknięte, maile do nich przestaną wychodzić.",
+  },
+  {
+    value: "internal",
+    label: "Tylko zespół",
+    confirm:
+      "Czytnik rozliczenia@ bierze pliki od wszystkich osób z kontraktem, a Finanse i back office widzą je w NEXUSIE. Konsultanci nie wejdą do panelu i nie dostaną żadnego maila.",
+  },
+  {
+    value: "pilot",
+    label: "Pilotaż",
+    confirm: "Wejdą tylko osoby z ręczną aktywacją; tylko ich maile czyta czytnik rozliczenia@.",
+  },
+  {
+    value: "all",
+    label: "Wszyscy",
+    confirm:
+      "Wejdą osoby z aktywacją, a czytnik rozliczenia@ bierze pliki od wszystkich. To wysyłka do ludzi spoza firmy: maile o przyjęciu i poprawkach dostaną osoby z aktywnym panelem.",
+  },
+];
 
 export interface PanelMaterial {
   id: number;

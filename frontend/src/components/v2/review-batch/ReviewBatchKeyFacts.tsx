@@ -19,7 +19,8 @@ const EVIDENCE: Record<KeyEvidence, { mark: string; tone: string; title: string 
 
 const POLISH: Record<ReviewBatchKeyFacts["polish"]["state"], { mark: string; tone: string }> = {
   native: { mark: "✓", tone: "bg-success/15 text-success" },
-  level: { mark: "✓", tone: "bg-success/15 text-success" },
+  // Poziom z profilu to nie ojczysty: 34% „Pasuje” wobec 61% (pomiar 16.11.2026).
+  level: { mark: "~", tone: "bg-warning/15 text-warning" },
   no: { mark: "✗", tone: "bg-destructive/15 text-destructive" },
   unknown: { mark: "?", tone: "bg-muted text-muted-foreground" },
 };
@@ -76,7 +77,7 @@ export function ReviewBatchKeyFactsBlock({
         <li className="flex items-center gap-2 px-0.5 text-sm" data-testid="review-key-polish">
           <span className={cn("w-6 shrink-0 rounded text-center text-xs font-bold", polish.tone)}>{polish.mark}</span>
           <span className="font-medium">Polski</span>
-          <span className="min-w-0 truncate text-xs text-muted-foreground">{facts.polish.detail}</span>
+          <span className="min-w-0 truncate text-xs text-muted-foreground">{facts.polish.state === "level" ? `${facts.polish.detail} · nie ojczysty` : facts.polish.detail}</span>
         </li>
       </ul>
       {restTotal > 0 ? (

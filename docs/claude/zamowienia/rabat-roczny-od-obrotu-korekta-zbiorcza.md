@@ -42,8 +42,15 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
 - Obrót to faktury sprzedaży z KSeF (`client_sales_invoices`) za miesiące roku. Miesiąc wyznacza okres
   usługi, a gdy go brak, data wystawienia. Liczy się netto faktury plus opust z każdego wiersza
   (ilość × cena − netto), bez pozycji wyłączonych (`rebate.service_base`). Korekty wchodzą jako różnica
-  stanów. W KSeF od 4.08.2026 rabat 2,5% na wierszach ma 1 114 z 1 128 faktur Nordei. 14 faktur go nie ma:
-  podróże, 5 faktur w EUR i wiersze „szt.”. Wyjaśnia to sesja z Finansami.
+  stanów. W KSeF od 4.08.2026 rabat 2,5% na wierszach ma 1 114 z 1 128 faktur Nordei. Pozostałe 14 jest
+  poprawnych bez rabatu (sprawdzone z archiwum eBI24, decyzja Artura 16.11.2026: bez korekt):
+  - 9 to w całości refaktury podróży (hotel, samolot, PKP, diety, transport, opłaty); wiersze „szt.” to
+    bilety i opłaty z tych faktur;
+  - 5 faktur w EUR to pentesty z osobnej umowy (rabat jest tylko w głównej umowie ramowej); w eBI24
+    pentesty też zawsze szły bez rabatu.
+- Słowa wyłączające muszą pasować do nazw pozycji klienta. U Nordei ogólne „podróż” niczego nie łapie.
+  Finanse wpisują nazwy z faktur (Hotel, PKP, Airplane, Transaction fee, Diems, Transport, Security Test),
+  inaczej podróże i pentesty wejdą do obrotu progu.
 - `issue.apply_rebate` wpisuje `discount_pct` na wiersze usług w szkicach z „Wystaw za miesiąc”.
   Finanse mogą go zmienić w polu „Rabat %” wiersza. Edycja nie nadpisuje go automatycznie.
 - Karta faktury (`rebate` w `GET /api/finance/issued-invoices/{id}`, ramka „Rabat od obrotu”) pokazuje:
@@ -62,9 +69,33 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
   22 klientów, odczyt 16.11), więc ich to nie zmienia.
 - Kod: `services/client_invoicing/rebate.py`, `issue.apply_rebate`, `issue_settings.client_rebate`.
 
+## Szkic korekty za miesiąc przekroczenia (16.11.2026)
+
+Przy korekcie na karcie faktury jest przycisk „Szkic korekty rabatu za <miesiąc>”
+(`GET /api/finance/issued-invoices/rebate-correction`, XML: `…/rebate-correction/xml`,
+kod: `services/client_invoicing/rebate_correction.py`). Szkic niczego nie zapisuje
+i NEXUS go nie wysyła. Do KSeF idzie dopiero po „tak” Artura.
+
+- Kwota to `YearRebate.corrections` z karty, czyli różnica stawek × nadwyżka w walucie progu.
+  Na walutę faktur przelicza ją ten sam udział, którego używa karta.
+- Forma w FA(3) to jedna korekta zbiorcza za miesiąc (art. 106j ust. 3):
+  - `RodzajFaktury` = `KOR`;
+  - `TypKorekty` = 2, bo to obniżka ceny po sprzedaży i skutek liczy się w dacie korekty;
+  - `DaneFaKorygowanej` dla każdej faktury pierwotnej z miesiąca w tej walucie, która ma obrót usług.
+    Wpisy mają numer KSeF, więc faktury z eBI24 też się liczą. Schemat pozwala na 50 000 wpisów;
+  - `OkresFaKorygowanej` = miesiąc;
+  - `FaWiersz` po jednym na stawkę VAT z nazwą usług objętych opustem, bo rabat nie obejmuje podróży.
+    Kwota dzieli się na stawki według obrotu usług przed rabatem.
+- Waluta inna niż PLN dostaje osobny szkic. Kurs NBP bierzemy z dnia roboczego przed końcem miesiąca
+  i księgowa go sprawdza.
+- Odmowa: klient bez warunków, rok poza warunkami, miesiąc bez przekroczenia, waluta bez faktur.
+  XML nie powstaje przy stawce VAT spoza FA(3) i przy braku danych sprzedawcy.
+- Testy: `tests/test_client_invoice_rebate_correction.py` sprawdzają XML schematem
+  z `tests/data/fa3_schema/` (kopia schematu MF z lokalnymi importami).
+
 ## Czego jeszcze nie ma
 
-- Szkicu faktury korygującej za miesiąc przekroczenia. Korekta obejmuje wiele faktur z tego miesiąca,
-  a NEXUS koryguje dziś pojedynczą fakturę wystawioną w NEXUSIE. Kwotę bierze się z karty.
+- Wystawienia korekty z numerem i wysyłki do KSeF. Tabela `client_issued_invoices` wymaga przy `KOR`
+  jednej faktury korygowanej (`corrects_id`). Korekta zbiorcza potrzebuje więc migracji, a wysyłka „tak” Artura.
 - Obrotu sprzed 4.08.2026: NEXUS czyta KSeF od tego dnia. Faktury ze stycznia–lipca 2026 trzeba
   dograć z archiwum eBI24, inaczej licznik do progu jest zaniżony.

@@ -23,6 +23,7 @@ import { EinvoicesView } from "./EinvoicesView";
 import { EstimatesView } from "./EstimatesView";
 import { SettlementCard } from "./SettlementCard";
 import { SettlementMonthView } from "./SettlementMonthView";
+import { SettlementsStartCard } from "./SettlementsStartCard";
 import { TimeReportIdsPanel } from "./TimeReportIdsPanel";
 import { TimeReportPersonCard } from "./TimeReportPersonCard";
 import { TimeReportView } from "./TimeReportView";
@@ -136,6 +137,7 @@ export function SettlementsTab({ canWrite }: { canWrite: boolean }) {
 
   return (
     <div className="space-y-3">
+      <SettlementsStartCard />
       <div className="flex flex-wrap items-center gap-2">
         <select
           aria-label="Klient"

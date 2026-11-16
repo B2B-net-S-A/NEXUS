@@ -405,3 +405,64 @@ async def test_correction_before_its_original_waits_and_then_follows_it(env):
     stored = await fx.invoice(fx.KSEF_CORRECTION)
     assert stored.corrects_invoice_id == original.id
     assert (stored.match_status, stored.match_method) == ("matched", "correction")
+
+
+async def test_backfill_walks_old_windows_up_to_the_first_cursor(env, monkeypatch):
+    """Zaległe okna idą od ``BACKFILL_FROM`` do dnia sprzed pierwszego znacznika."""
+
+    monkeypatch.setattr(sync, "BACKFILL_FROM", datetime(2026, 2, 1, tzinfo=sync._ZONE))
+    result = await env.run()
+    assert result["status"] == "ok", result
+    assert result["saved"] == 5
+    assert result["backfill_windows"] == 2
+    key = f"test:{fx.COMPANY_NIP}"
+    mark = (await _state())["backfill"][key]
+    assert mark["done"] is True
+    assert mark["to"] == sync.format_instant(sync.initial_cursor(env.clock()))
+    # Gotowe zaległe okna nie wracają w kolejnych przebiegach.
+    env.clock.advance(hours=1)
+    again = await env.run()
+    assert again.get("backfill_windows", 0) == 0
+
+
+async def test_backfill_saves_invoices_older_than_the_first_cursor(env, monkeypatch):
+    """Faktura z zaległego okna trafia do bazy i nie dubluje się z pętlą bieżącą."""
+
+    key = f"test:{fx.COMPANY_NIP}"
+    start = datetime(2026, 11, 1, tzinfo=sync._ZONE)
+    async with AsyncSessionLocal() as db:
+        await sync._save_state(
+            db,
+            {
+                "cursors": {key: sync.format_instant(env.clock())},
+                "backfill": {
+                    key: {
+                        "from": sync.format_instant(start),
+                        "to": sync.format_instant(start + timedelta(days=10)),
+                        "cursor": sync.format_instant(start),
+                    }
+                },
+            },
+        )
+        await db.commit()
+    result = await env.run()
+    assert result["status"] == "ok", result
+    assert result["saved"] == 5
+    assert result["backfill_windows"] == 1
+    assert (await _state())["backfill"][key]["done"] is True
+
+
+async def test_backfill_keeps_its_place_when_the_budget_runs_out(env, monkeypatch):
+    """Wyczerpany budżet zapytań: znacznik zaległych okien zostaje tam, gdzie doszedł."""
+
+    monkeypatch.setattr(sync, "BACKFILL_FROM", datetime(2026, 2, 1, tzinfo=sync._ZONE))
+    monkeypatch.setattr(sync, "MAX_METADATA_REQUESTS", 3)
+    first = await env.run()
+    assert first["status"] == "ok", first
+    key = f"test:{fx.COMPANY_NIP}"
+    mark = (await _state())["backfill"][key]
+    assert not mark.get("done")
+    assert mark["cursor"] != mark["from"]
+    env.clock.advance(hours=1)
+    await env.run()
+    assert (await _state())["backfill"][key]["done"] is True

@@ -295,6 +295,13 @@ wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
 - **Spotkanie cykliczne ma wspólną listę transkryptów**, więc do wystąpienia należą
   tylko te utworzone w jego czasie (`within_meeting`).
 - **Spotkanie odwołane albo oznaczone jako prywatne** zabiera też transkrypt.
+- **Spotkania zapisane przed włączeniem flagi** (decyzja Artura 16.11.2026: delta
+  nie zwraca niezmienionych wydarzeń, więc 15 spotkań z najbliższych dni nigdy
+  nie trafiłoby do kolejki): raz na skrzynkę z „Sprzedaż: podgląd”
+  `_sales_transcript_backfill` (`m365/sync.py`) czyta `/me/calendarView` od
+  `TEAMS_PREP_FETCH_GIVE_UP_HOURS` wstecz do 14 dni w przód i wkłada spotkania tą
+  samą ścieżką co delta (`_record_sales_meeting`). Marker w `app_settings`
+  (`m365_sales_transcript_backfill`) dostaje tylko udany przebieg.
 - **Podsumowanie (F40) jest dodatkiem:** lista czyta je z wiersza, awaria modelu
   zostawia sam transkrypt, najwyżej 3 próby na spotkanie.
 

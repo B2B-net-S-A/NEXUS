@@ -96,4 +96,10 @@ describe("Przepisy — model", () => {
       "pozycje w raporcie: 9 · bramka: zgodne z API Sejmu 5, bez numeru 3, odrzucone 1 · LEX pominięty",
     );
   });
+
+  it("linia Zbieracza pokazuje pominięty Gofin", () => {
+    expect(
+      runSummaryLine({ kind: "collect", summary: { items_in: 2, lex_skipped: true, gofin_skipped: true } }),
+    ).toBe("pozycje w raporcie: 2 · LEX pominięty · Gofin pominięty");
+  });
 });

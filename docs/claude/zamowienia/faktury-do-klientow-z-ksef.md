@@ -130,3 +130,12 @@
 - Faktura w PLN do zamówienia w EUR dalej czeka z `currency_differs`: równowartości w złotych nie porównujemy.
 - `currency_differs` jest w `RETRY_REASONS`: po poprawce waluty zamówienia faktura wraca do automatu bez ręcznego przypisania.
 - Zamówienie kosztowe zostaje w PLN: kwotę faktury ustalają Finanse, a budżet nie ma pola waluty.
+
+- **Zaległe okna sprzedaży (16.11.2026).** Pierwsze pobranie cofało się o 3 miesiące (`INITIAL_MONTHS_BACK`),
+  więc sprzedaż z KSeF zaczynała się 04.08.2026, choć KSeF działa od 02.2026. `_backfill` w
+  `client_invoicing/sync.py` idzie po bieżącej pętli i po XML-ach e-faktur (z resztki budżetu, więc nowe faktury
+  nie czekają): okna po 99 dni od `BACKFILL_FROM` (2025-01-01) do dnia sprzed pierwszego znacznika (`to` zapisane
+  raz w `app_settings['client_sales_ksef_sync'].backfill` per środowisko i NIP), znacznik rośnie okno po oknie,
+  po dojściu `done`. Faktura, którą już mamy, nie jest pobierana drugi raz. Decyzja Artura 16.11 („cofnij sprzedaż
+  wstecz”); skutek: stare faktury dopasowują się do zamówień, a „Nieznani nabywcy” rośnie o ok. 200/mies.
+  Zakupy (koszty) cofa się ręcznie „Pobierz ponownie okres” w Płace → Faktury z KSeF (najwyżej 12 miesięcy).

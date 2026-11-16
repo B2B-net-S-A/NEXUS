@@ -53,7 +53,10 @@ https://claude.ai/artifact/2Hxqi6uLTSE4AYp1GPqtpV.
   w `UPDATE`): błąd webhooka ani wygaśnięcie nie nadpiszą przyjętego raportu.
   Timeout webhooka zostawia bieg otwarty z tokenem (nie wiadomo, czy bot dostał
   zlecenie), błąd HTTP zamyka go jako `failed`. Nieudany przegląd w poniedziałek
-  pętla ponawia po godzinie.
+  pętla ponawia po godzinie. Wygasły bieg (bot nie odesłał raportu) też wraca do
+  kolejki, najwyżej `EXPIRED_RETRY_LIMIT` (3) razy na dobę na rodzaj
+  (`_last_start`, `pick_last_start`): 16.11.2026 poniedziałkowy `signals` wygasł
+  i przed zmianą następna próba wypadała dopiero za tydzień.
 - **Do bota idą nazwy, domeny, NIP i KRS firm** (`webhook_body`; NIP i KRS od
   decyzji Artura z 13.11.2026, bo rejestr.io bez numerów trafia w złą spółkę grupy),
   plus powody odrzuceń wyłącznie z listy `REJECT_REASONS` (API przyjmuje dowolny

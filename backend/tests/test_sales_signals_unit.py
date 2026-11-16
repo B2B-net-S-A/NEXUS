@@ -249,6 +249,8 @@ class _Db:
 
     async def scalar(self, statement):
         text = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        if "status = 'expired'" in text:  # wygasłe biegi: w tych testach ich nie ma
+            return 0 if "count(" in text else None
         return self.last["signals" if "'signals'" in text else "briefing"]
 
 
@@ -482,3 +484,20 @@ async def test_to_decide_firms_wait_for_monday_refresh(monkeypatch) -> None:
     db = _Db({"signals": now, "briefing": now - timedelta(hours=2)})
     await loop.tick(db, now=now, local=tuesday)
     assert started == []
+
+
+def test_expired_runs_retry_until_the_daily_limit() -> None:
+    now = datetime(2026, 11, 16, 12, 0, tzinfo=timezone.utc)
+    done = now - timedelta(days=7)
+    expired = now - timedelta(hours=3)
+
+    # Jeden i dwa wygasłe biegi nie blokują ponowienia: liczy się ostatni wykonany.
+    assert loop.pick_last_start(done, 1, expired) == done
+    assert loop.pick_last_start(done, loop.EXPIRED_RETRY_LIMIT - 1, expired) == done
+    # Po limicie pętla czeka do następnego terminu.
+    assert loop.pick_last_start(done, loop.EXPIRED_RETRY_LIMIT, expired) == expired
+    assert loop.pick_last_start(None, loop.EXPIRED_RETRY_LIMIT, expired) == expired
+    # Późniejszy wykonany bieg wygrywa z wygasłym; brak biegów to brak blokady.
+    later = now - timedelta(hours=1)
+    assert loop.pick_last_start(later, loop.EXPIRED_RETRY_LIMIT, expired) == later
+    assert loop.pick_last_start(None, 0, None) is None
