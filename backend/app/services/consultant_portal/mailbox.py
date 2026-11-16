@@ -48,8 +48,12 @@ INITIAL_LOOKBACK = timedelta(days=3)
 MAX_MESSAGES_PER_RUN = 200
 _MESSAGE_SELECT = "id,subject,from,receivedDateTime,hasAttachments"
 _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
+# Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
+# Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
 _REPORT = re.compile(
-    r"raport|timesheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora", re.IGNORECASE
+    r"raport|time[\s_-]*sheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora"
+    r"|rcp|arkusz|protok[oó][lł]",
+    re.IGNORECASE,
 )
 _INVOICE = re.compile(r"faktur|invoice|(?:^|[^a-z])fv(?:[^a-z]|$)", re.IGNORECASE)
 _PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)")

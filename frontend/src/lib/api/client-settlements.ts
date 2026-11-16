@@ -8,6 +8,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { PanelState } from "@/lib/api/consultant-panel";
+import type {
+  PortalMe,
+  PortalMonth,
+  PortalSettlement,
+  PortalTodoItem,
+} from "@/lib/api/consultant-portal";
 
 const BASE = "/api/finance/settlements";
 
@@ -230,8 +237,40 @@ export interface ClientRules {
   sections: SettlementRuleSection[];
 }
 
+/** Karta „Start rozliczeń” (admin): przełączniki i to, czego brakuje do startu. */
+export interface SettlementsStart {
+  module_enabled: boolean;
+  portal_state: PanelState;
+  back_office: boolean;
+  mailbox: {
+    configured: boolean;
+    last_run_at: string | null;
+    last_status: string | null;
+    last_error: string | null;
+  };
+  rule_clients: {
+    client_id: number;
+    name: string;
+    effective_from: string;
+    md_charged_on_accept: boolean;
+  }[];
+  active_panels: number;
+}
+
+/** Panel oczami konsultanta (tylko odczyt), te same dane co ekrany panelu. */
+export interface PanelPreview {
+  activated: boolean;
+  me: PortalMe;
+  todo: { items: PortalTodoItem[] };
+  settlement: PortalSettlement;
+  finance: { months: PortalMonth[] };
+}
+
 export const settlementKeys = {
   module: ["client-settlements", "module"] as const,
+  start: ["client-settlements", "start"] as const,
+  preview: (contractId: number) =>
+    ["client-settlements", "preview", contractId] as const,
   clients: ["client-settlements", "clients"] as const,
   month: (clientId: number, month: string) =>
     ["client-settlements", "month", clientId, month] as const,
@@ -262,6 +301,46 @@ export function useSettlementsModule(enabled = true) {
         .data,
     staleTime: 5 * 60 * 1000,
     enabled,
+  });
+}
+
+export function useSettlementsStart(enabled: boolean) {
+  return useQuery({
+    queryKey: settlementKeys.start,
+    queryFn: async () =>
+      (await api.get<SettlementsStart>(`${BASE}/start`)).data,
+    enabled,
+    retry: false,
+  });
+}
+
+export function useSetSettlementsModule() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (enabled: boolean) =>
+      (
+        await api.put<{ enabled: boolean; open: boolean }>(`${BASE}/module`, {
+          enabled,
+        })
+      ).data,
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: settlementKeys.module });
+      void client.invalidateQueries({ queryKey: settlementKeys.start });
+    },
+  });
+}
+
+export function usePanelPreview(contractId: number | null) {
+  return useQuery({
+    queryKey: settlementKeys.preview(contractId ?? 0),
+    queryFn: async () =>
+      (
+        await api.get<PanelPreview>(
+          `${BASE}/contract/${contractId}/panel-preview`,
+        )
+      ).data,
+    enabled: contractId != null,
+    retry: false,
   });
 }
 

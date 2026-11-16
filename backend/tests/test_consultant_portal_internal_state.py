@@ -34,3 +34,30 @@ def test_other_states_keep_their_meaning(value, reads, any_sender, is_on) -> Non
 
 def test_internal_is_a_known_state() -> None:
     assert "internal" in STATES
+
+
+@pytest.mark.parametrize(
+    ("subject", "file_name"),
+    [
+        ("RCP 10/2026", "RCP_10_2026.pdf"),
+        ("Rozliczenie", "rcp październik.xlsx"),
+        ("Time Sheet October", "Time Sheet_2026-10.xlsx"),
+        ("Bosch", "time-sheet 10.2026.xlsx"),
+        ("Podpisany arkusz", "arkusz_wrzesien.pdf"),
+        ("Protokół odbioru 10/2026", "protokol.pdf"),
+    ],
+)
+def test_reader_treats_work_proof_as_report(subject, file_name) -> None:
+    """Czytnik rozliczenia@ w „Tylko zespół” bierze maile od wszystkich: dowód pracy
+    nazwany „RCP”, „Time Sheet”, „arkusz” albo „protokół” to raport, nie faktura
+    (inaczej plik omija kontrole RCP)."""
+
+    from app.services.consultant_portal.mailbox import classify_kind
+
+    assert classify_kind(subject, file_name) == "report"
+
+
+def test_invoice_still_wins_over_report_words() -> None:
+    from app.services.consultant_portal.mailbox import classify_kind
+
+    assert classify_kind("RCP i faktura 10/2026", "FV_10_2026.pdf") == "invoice"
