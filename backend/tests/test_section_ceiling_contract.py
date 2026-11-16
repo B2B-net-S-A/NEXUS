@@ -134,6 +134,9 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "PUT /api/notifications/read-all": "oznaczenie własnych powiadomień jako przeczytane",
     "PATCH /api/notifications/{notification_id}/read": "oznaczenie własnego powiadomienia",
     "PUT /api/notifications/{notification_id}/read": "oznaczenie własnego powiadomienia",
+    "GET /api/notifications/while-away": "własne powiadomienia z czasu nieobecności (on_behalf_of = zalogowana osoba), te same wiersze co dzwonek zastępcy",
+    "POST /api/notifications/while-away/dismiss": "zamknięcie własnego podsumowania z nieobecności",
+    "POST /api/notifications/while-away/{notification_id}/handled": "oznaczenie sprawy z nieobecności przez osobę albo jej zastępcę (adresata wiersza)",
     # ── Dane referencyjne wspólne dla wszystkich sekcji ─────────────────────
     "GET /api/users": "katalog kont do pickerów i wzmianek we wszystkich sekcjach",
     "GET /api/users/mentionable": "lista osób do wzmianek @ w notatkach i czatach każdej sekcji",

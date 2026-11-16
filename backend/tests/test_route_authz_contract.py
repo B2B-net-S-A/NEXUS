@@ -283,6 +283,11 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/notifications/interviews"),
     ("GET", "/api/notifications/jobs"),
     ("GET", "/api/notifications/preferences"),
+    # „Gdy Cię nie było” (16.11.2026): własne wiersze z nieobecności
+    # (on_behalf_of = zalogowana osoba albo zastępca będący adresatem).
+    ("GET", "/api/notifications/while-away"),
+    ("POST", "/api/notifications/while-away/dismiss"),
+    ("POST", "/api/notifications/while-away/{notification_id}/handled"),
     # /api/pipeline/overview gained an OperationalUser gate (F-07) — no longer bare.
     ("GET", "/api/procedures"),
     ("GET", "/api/procedures/{id_or_slug}"),
