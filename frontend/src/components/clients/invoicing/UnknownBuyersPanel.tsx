@@ -30,13 +30,13 @@ import { formatIsoDatePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 
-import { totalsText } from "./invoicing-format";
+import { BUYER_NUMBER_LABELS, totalsText } from "./invoicing-format";
 
 const invoiceWord = (count: number) => countPl(count, "faktura", "faktury", "faktur");
 
 const numberLabel = (buyer: UnknownBuyer) =>
   buyer.number
-    ? `${buyer.kind === "vat_ue" ? "VAT UE" : "NIP"} ${buyer.number}`
+    ? `${BUYER_NUMBER_LABELS[buyer.kind ?? "nip"]} ${buyer.number}`
     : "bez numeru";
 
 const assignedMessage = (retried: number, matched: number) =>

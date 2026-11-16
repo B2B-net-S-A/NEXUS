@@ -1,7 +1,7 @@
 /** Powód odrzucenia numeru z formularza klienta albo `null`, gdy numer jest dobry. */
 const NIP_WEIGHTS = [6, 5, 7, 2, 3, 4, 5, 6, 7];
 // Te same kształty co `order_client_identity.client_registry_number` na backendzie.
-const EU_VAT = /^[A-Z]{2}[A-Z0-9+*]*$/;
+const FOREIGN_ID = /^[A-Z]{2}[A-Z0-9+*]*$/;
 
 function compact(value: string): string {
   return value.toUpperCase().replace(/[\s.\- ]/g, "");
@@ -24,7 +24,7 @@ export function nipProblem(value: string): string | null {
       : "Ten NIP ma niepoprawną sumę kontrolną.";
   }
   const digitCount = number.replace(/\D/g, "").length;
-  return EU_VAT.test(number) && digitCount >= 5
+  return FOREIGN_ID.test(number) && digitCount >= 5
     ? null
-    : "Wpisz NIP (10 cyfr) albo VAT UE z prefiksem kraju, np. FI12345678.";
+    : "Wpisz NIP (10 cyfr) albo identyfikator z prefiksem kraju, np. FI12345678.";
 }

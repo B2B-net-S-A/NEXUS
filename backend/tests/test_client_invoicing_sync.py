@@ -292,6 +292,43 @@ async def test_eu_vat_buyer_goes_to_client_with_that_id(env):
     assert stored.client_id == env.seed.other_client_id
 
 
+async def test_non_eu_buyer_is_linked_by_registry_number_and_imported_once(env):
+    registry_number = "NO123456785"
+    async with AsyncSessionLocal() as db:
+        other_bank_name = (await db.get(Client, env.seed.client_id)).name
+        client = await db.get(Client, env.seed.other_client_id)
+        client.nip = registry_number
+        await db.commit()
+
+    xml = env.fake.xml[fx.KSEF_UNKNOWN].decode("utf-8")
+    env.fake.xml[fx.KSEF_UNKNOWN] = xml.replace(
+        f"<NIP>{fx.UNKNOWN_NIP}</NIP><Nazwa>Firma Spoza Przykładowa</Nazwa>",
+        "<KodKraju>NO</KodKraju><NrID>NO 123 456 785 MVA</NrID>"
+        f"<Nazwa>{other_bank_name}</Nazwa>",
+    ).encode("utf-8")
+    try:
+        assert (await env.run())["status"] == "ok"
+        stored = await fx.invoice(fx.KSEF_UNKNOWN)
+        assert stored.buyer_name == other_bank_name
+        assert stored.buyer_nip is None
+        assert stored.buyer_foreign_id == registry_number
+        assert stored.client_id == env.seed.other_client_id
+        assert (stored.match_status, stored.match_reason) == ("unmatched", "no_orders")
+        assert await _links(stored.id) == []
+
+        env.clock.advance(hours=1)
+        replay = await env.run()
+        assert replay["status"] == "ok"
+        assert replay.get("saved", 0) == 0
+        assert (await fx.invoice(fx.KSEF_UNKNOWN)).id == stored.id
+        assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_UNKNOWN}") == 1
+    finally:
+        async with AsyncSessionLocal() as db:
+            client = await db.get(Client, env.seed.other_client_id)
+            client.nip = fx.OTHER_CLIENT_NIP
+            await db.commit()
+
+
 async def test_person_and_rate_link_invoice_with_real_hours(env):
     """Faktura z rzeczywistymi godzinami: osoba i stawka wiążą, kwota nie musi być równa."""
 
