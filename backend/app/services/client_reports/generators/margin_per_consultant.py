@@ -7,10 +7,11 @@ Wzór z modelu marży Nordei (raport H1 2026, sprawdzony co do złotówki na
   (domyślnie 648 zł ÷ 168 h);
 * ``Cost = ZAOKR(K + narzut + udział × MAX(0; D − K − narzut); 0)``, gdzie
   K = stawka konsultanta, D = stawka klienta, udział domyślnie 50%;
-* ``po rabacie E = D × (1 − rabat)``, rabat = stawka progu dla obrotu roku
-  od PEŁNEJ kwoty (po przekroczeniu progu wyższa stawka dotyczy całego
-  obrotu, polecenie Artura 16.11.2026) — obrót z faktur sprzedaży od
-  1 stycznia do końca okresu, inne waluty kursem NBP jak w „Rabacie od obrotu”;
+* ``po rabacie E = D × (1 − rabat)``, rabat = stawka efektywna roku: domyślnie
+  progowo, od nadwyżki (obrót do progu po niższej stawce, część ponad progiem
+  po wyższej — umowa ramowa Nordei, Appendix 6; decyzja Artura 16.11.2026);
+  obrót z faktur sprzedaży od 1 stycznia do końca okresu, inne waluty kursem
+  NBP jak w „Rabacie od obrotu”;
 * marża osoby ``(E − Cost) ÷ E``, portfela ``(ΣE − ΣCost) ÷ ΣE``, każda osoba
   raz (bez ważenia godzinami, jak w H1).
 
@@ -25,7 +26,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -137,6 +138,14 @@ def run_rate(amount: Decimal, covered_from: date, until: date) -> Optional[Decim
     return (amount * year_days / days).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def year_rebate_percent(
+    turnover: Decimal, tiers: Sequence[Mapping[str, Any]], *, marginal: bool
+) -> Decimal:
+    """Stawka rabatu roku w procentach (przy „Progowo” średnia ważona); 0 bez progów."""
+    rebate = compute_rebate(turnover, tiers, marginal=marginal)
+    return rebate.rate if rebate else Decimal(0)
+
+
 def pct_text(value: Optional[Decimal]) -> str:
     if value is None:
         return "—"
@@ -238,8 +247,8 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
     until = min(period.end, ctx.today)
     invoices = await sales_invoices(db, ctx.client_id, year_start, until)
     turnover = await turnover_in(db, invoices, currency)
-    rebate = compute_rebate(turnover.amount, tiers)  # pełna kwota, nigdy od nadwyżki
-    rebate_percent = rebate.rate if rebate else Decimal(0)
+    marginal = bool(param(ctx, GENERATOR, "marginal"))
+    rebate_percent = year_rebate_percent(turnover.amount, tiers, marginal=marginal)
 
     team = await roster(db, ctx.client_id, ctx.today)
     rows = margin_rows(team.people, rebate_percent, a)
@@ -257,7 +266,10 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
             f"Obrót {period.end.year} do {until:%d.%m} ({currency})",
             format_amount(turnover.amount),
         ),
-        SummaryLine("Rabat od pełnej kwoty obrotu", rate_text(rebate_percent)),
+        SummaryLine(
+            "Rabat roku" + (" (efektywny, od nadwyżki)" if marginal else ""),
+            rate_text(rebate_percent),
+        ),
         SummaryLine(
             "Koszty bezpośrednie / udział",
             f"{format_amount(a.overhead)} zł/h / {rate_text(a.share)}",
@@ -276,11 +288,15 @@ async def _load(db: AsyncSession, ctx: ReportContext) -> ReportData:
         )
         covered = max(first, year_start)
         projected = run_rate(turnover.amount, covered, until)
-        projected_rebate = compute_rebate(projected, tiers) if projected else None
-        if projected_rebate and projected_rebate.rate != rebate_percent:
+        projected_rate = (
+            year_rebate_percent(projected, tiers, marginal=marginal)
+            if projected
+            else None
+        )
+        if projected_rate is not None and projected_rate != rebate_percent:
             checks.append(
                 f"W tempie z faktur obrót roku wyniesie ok. {format_amount(projected)} {currency} — "
-                f"rabat {rate_text(projected_rebate.rate)} od całego obrotu."
+                f"rabat {'efektywny ' if marginal else ''}{rate_text(projected_rate)}."
             )
     no_role = sum(1 for r in rows if not r.role)
     if no_role:
@@ -362,7 +378,15 @@ GENERATOR = register(
                 "Progi rabatu",
                 "tiers",
                 None,
-                "Rabat od pełnej kwoty obrotu roku: po przekroczeniu progu jego stawka dotyczy całości.",
+                "Rabat od obrotu roku (1.01–31.12) netto, bez podróży i faktur nieusługowych.",
+            ),
+            ParamField(
+                "marginal",
+                "Progowo (każdy próg osobno)",
+                "bool",
+                True,
+                "Włączone (domyślnie, tak liczy Nordea): obrót do progu po niższej stawce, "
+                "nadwyżka po wyższej; w kolumnie po rabacie stawka efektywna roku.",
             ),
             ParamField("monthly_cost", "Koszty bezpośrednie (zł/mies.)", "number", 648),
             ParamField("hours", "Godziny w miesiącu", "number", 168),

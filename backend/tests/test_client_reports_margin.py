@@ -1,9 +1,10 @@
 """Rabat od pełnej kwoty, przeliczenie obrotu kursem NBP i marża per konsultant.
 
-Decyzje Artura 16.11.2026: rabat liczy się od pełnej kwoty obrotu (po
-przekroczeniu progu stawka wyższego progu dotyczy całego obrotu); faktury
-w innej walucie niż progi przeliczamy kursem średnim NBP z dnia przed
-wystawieniem. Wzór Cost z modelu marży Nordei (raport H1 2026).
+Decyzje Artura 16.11.2026: rabat Nordei liczy się progowo, od nadwyżki
+(umowa ramowa, Appendix 6: obrót roku do progu po niższej stawce, część
+powyżej progu po wyższej); faktury w innej walucie niż progi przeliczamy
+kursem średnim NBP z dnia przed wystawieniem. Wzór Cost z modelu marży
+Nordei (raport H1 2026).
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from app.services.client_reports.generators.margin_per_consultant import (
     margin_rows,
     portfolio_margin,
     run_rate,
+    year_rebate_percent,
 )
 from app.services.client_reports.registry import clean_params, get_generator
 
@@ -35,20 +37,31 @@ def invoice(amount: str, currency: str = "PLN", issued: date = date(2026, 8, 4))
     return InvoiceRow("FV/1", "VAT", None, issued, issued, currency, Decimal(amount))
 
 
-# ------------------------------------------------------ rabat od pełnej kwoty
+# ------------------------------------------------------- rabat od nadwyżki
 
 
-def test_turnover_just_above_threshold_takes_higher_rate_on_whole_turnover():
-    turnover = Decimal("15000000.01")
-    rebate = compute_rebate(turnover, TIERS)
-    assert rebate.rate == Decimal("3")
-    assert rebate.amount == Decimal("450000.00")  # 3% × cały obrót, nie 2,5% + 0,5%
-    assert len(rebate.bands) == 1 and rebate.bands[0].base == turnover
+def test_turnover_just_above_threshold_higher_rate_only_on_excess():
+    rebate = compute_rebate(Decimal("15000100"), TIERS, marginal=True)
+    # 15 mln × 2,5% + 100 × 3%, nie 3% od całości
+    assert rebate.amount == Decimal("375000.00") + Decimal("3.00")
+    assert [b.base for b in rebate.bands] == [Decimal(15_000_000), Decimal(100)]
 
 
-def test_rebate_param_defaults_to_full_amount():
-    spec = {p.key: p for p in get_generator("annual_spend").params}["marginal"]
-    assert spec.default is False
+def test_rebate_reports_default_to_excess_mode():
+    for key in ("annual_spend", "margin_per_consultant"):
+        spec = {p.key: p for p in get_generator(key).params}["marginal"]
+        assert spec.default is True, key
+
+
+def test_margin_uses_effective_rate_of_excess_mode():
+    rate = year_rebate_percent(Decimal(20_000_000), TIERS, marginal=True)
+    assert rate == Decimal("2.6250")  # (375 000 + 150 000) / 20 mln
+    assert year_rebate_percent(Decimal(20_000_000), TIERS, marginal=False) == Decimal(
+        "3"
+    )
+    assert year_rebate_percent(Decimal(1000), [], marginal=True) == 0
+    (row,) = margin_rows([person("A", "100", "200")], rate, H1)
+    assert row.after_rebate == Decimal("194.75")  # 200 × (1 − 2,625%)
 
 
 # ------------------------------------------------------- przeliczenie kursem
@@ -153,4 +166,3 @@ def test_margin_params_validated():
         {"tiers": TIERS, "currency": "EUR", "monthly_cost": 648, "hours": 168},
     )
     assert cleaned["monthly_cost"] == 648 and cleaned["currency"] == "EUR"
-    assert "marginal" not in {p.key for p in generator.params}

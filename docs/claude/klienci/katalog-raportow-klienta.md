@@ -19,7 +19,7 @@ sesji, nie w repo — ma nazwy i liczby). Decyzje Artura z 15.11.2026 niżej.
   „Stawki i kwoty: podgląd”) albo stawki do klienta (`needs_client_rate`),
   pola parametrów. Nowy klient z takim samym raportem = nowy wiersz, bez kodu.
   Marża per konsultant (Nordea Governance) to generator
-  `margin_per_consultant` — reguły w `rabat-od-pelnej-kwoty-i-marza-per-konsultant.md`.
+  `margin_per_consultant` — reguły w `rabat-od-nadwyzki-i-marza-per-konsultant.md`.
 - **Rozliczenia zostają w Rozliczeniach.** Karta czasu, KEŚU, timesheet
   i protokół jako podstawa faktury to rodzina „rozliczenie”: katalog pokazuje
   termin i prowadzi do `/finance?view=settlements`, nie liczy drugi raz.

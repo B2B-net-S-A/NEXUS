@@ -12,10 +12,10 @@ Progi: ``[{"up_to": 15000000, "rate": 2.5}, {"up_to": null, "rate": 3}]`` —
 ``up_to`` to górna granica włącznie, ``null`` = bez górnej granicy, ``rate``
 w procentach. Kolejność z formularza nie ma znaczenia (sortujemy po granicy).
 
-* bez „Progowo” (domyślnie): cały obrót po stawce progu, w który wpada —
-  po przekroczeniu progu stawka wyższego progu dotyczy CAŁEGO obrotu, nie
-  nadwyżki. Tak liczy się rabat Nordei (polecenie Artura 16.11.2026);
-* z „Progowo”: każda część obrotu po stawce swojego progu (dla umów, które
+* z „Progowo” (domyślnie): każda część obrotu po stawce swojego progu — obrót
+  do progu po niższej stawce, nadwyżka po wyższej. Tak liczy się rabat Nordei
+  (umowa ramowa, Appendix 6; decyzja Artura 16.11.2026 po lekturze umowy);
+* bez „Progowo”: cały obrót po stawce progu, w który wpada (dla umów, które
   wprost tak mówią).
 
 Obrót ponad najwyższą granicą, gdy żaden próg nie jest otwarty, liczy się po
@@ -399,9 +399,9 @@ GENERATOR = register(
                 "marginal",
                 "Progowo (każdy próg osobno)",
                 "bool",
-                False,
-                "Wyłączone (domyślnie, tak liczy Nordea): po przekroczeniu progu jego stawka "
-                "dotyczy całego obrotu. Włącz tylko, gdy umowa liczy rabat od nadwyżki.",
+                True,
+                "Włączone (domyślnie, tak liczy Nordea): obrót do progu po niższej stawce, "
+                "nadwyżka po wyższej. Wyłącz tylko, gdy umowa daje stawkę progu od całego obrotu.",
             ),
         ),
     )
