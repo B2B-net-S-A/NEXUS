@@ -79,6 +79,12 @@ MAX_PENDING_ATTEMPTS = 24
 MAX_PROBLEMS = 20
 #: Pierwszy przebieg: od 1. dnia trzeciego miesiąca wstecz (zaległe faktury).
 INITIAL_MONTHS_BACK = 3
+#: Zaległe okna sprzedaży (przed pierwszym znacznikiem): od tej daty do dnia
+#: sprzed pierwszego przebiegu. KSeF jest obowiązkowy od 1.02.2026, a pierwsze
+#: pobranie cofało się tylko o ``INITIAL_MONTHS_BACK`` miesięcy — wcześniejsze
+#: faktury (zapytanie o puste okno kosztuje jedno zapytanie o metadane) dociąga
+#: ``_backfill`` z resztki budżetu, za bieżącymi fakturami.
+BACKFILL_FROM = datetime(2025, 1, 1, tzinfo=ZoneInfo(DEFAULT_TZ))
 _ZONE = ZoneInfo(DEFAULT_TZ)
 
 DISABLED_DETAIL = "Pobieranie z KSeF jest wyłączone."
@@ -535,6 +541,56 @@ async def _incremental(run: _Run, state: dict[str, Any]) -> None:
         state["cursors"] = cursors
 
 
+async def _backfill(run: _Run, state: dict[str, Any]) -> None:
+    """Zaległe okna sprzedaży po 99 dni, od ``BACKFILL_FROM`` do pierwszego znacznika.
+
+    Idzie po bieżących fakturach i po XML-ach e-faktur, czyli z resztki budżetu,
+    więc nowe faktury nie czekają na zaległe. Własny znacznik (``backfill`` w stanie,
+    per środowisko i NIP) rośnie okno po oknie; granica „do” zapisuje się raz,
+    przy pierwszym przebiegu po wdrożeniu, jako dzień sprzed pierwszego znacznika
+    (``initial_cursor``), więc zaległe okna i ``_incremental`` nie zostawiają luki.
+    Faktura, którą już mamy, nie jest pobierana drugi raz (``_exists``).
+    """
+
+    marks: dict[str, Any] = dict(state.get("backfill") or {})
+    key = run.config.state_key
+    mark: dict[str, Any] = dict(marks.get(key) or {})
+    if mark.get("done"):
+        return
+    if not mark.get("to"):
+        mark = {
+            "from": format_instant(BACKFILL_FROM),
+            "to": format_instant(initial_cursor(run.now)),
+            "cursor": format_instant(BACKFILL_FROM),
+        }
+    stop = parse_instant(mark["to"])
+    cursor = parse_instant(mark.get("cursor")) or BACKFILL_FROM
+    try:
+        for _ in range(MAX_WINDOWS):
+            if stop is None or cursor >= stop:
+                mark["done"] = True
+                break
+            end = min(cursor + WINDOW, stop)
+            run.progress = None
+            await _window(
+                run, date_from=format_instant(cursor), date_to=format_instant(end)
+            )
+            cursor = end
+            mark["cursor"] = format_instant(cursor)
+            run.counts["backfill_windows"] += 1
+        else:
+            if stop is not None and cursor >= stop:
+                mark["done"] = True
+    except (_BudgetSpent, KsefApiError):
+        reached = parse_instant(run.progress)
+        if reached is not None and reached > cursor:
+            mark["cursor"] = format_instant(reached)
+        raise
+    finally:
+        marks[key] = mark
+        state["backfill"] = marks
+
+
 async def _execute(
     db: AsyncSession,
     config: KsefConfig,
@@ -572,6 +628,7 @@ async def _execute(
             await _retry_pending(run)
             await _incremental(run, state)
             await _einvoice_backfill(run)
+            await _backfill(run, state)
     except _BudgetSpent:
         partial = True
     except KsefApiError as exc:
