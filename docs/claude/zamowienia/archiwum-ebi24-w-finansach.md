@@ -12,7 +12,9 @@ pakowanie `scripts/pack_ebi24_archive.py`.
   dzieli przez 100.
 - **Rodzaj:** `INCOME*`, `EUROPEAN_INCOME*`, `VAT_EXPORT*`, `CORRECTION_NOTE` = sprzedaż; `COST*`, `OTHER_EXPENSE` = koszt.
 - **Import:** `POST /import` (tylko admin — jednorazowe przeniesienie) przyjmuje paczkę ZIP (`metadane.json` +
-  `pliki/<id>.<rozszerzenie>`, do 120 MB i 5 000 plików). Idempotentny po id eBI24 — paczkę można wgrać ponownie.
+  `pliki/<id>.<rozszerzenie>`, do 5 000 plików). Rozmiar paczki ogranicza limit ciała żądania
+  (`MAX_REQUEST_BODY_MB`, 30 MB) — skrypt pakuje domyślnie po 25 MB (97 paczek na całe archiwum). Limitu nie podnosimy
+  dla tej trasy: middleware działa przed sprawdzeniem uprawnień. Idempotentny po id eBI24 — paczkę można wgrać ponownie.
   Nazwy plików z paczki nie trafiają na dysk (tylko id eBI24 zgodne z wzorem 24 znaków hex).
 - **Podgląd:** faktura z eBI24 (JSON) otwiera się jako HTML złożony przez NEXUS (wszystko escapowane, CSP bez skryptów);
   PDF jako oryginał; HTML z obcego systemu wyłącznie do pobrania (nie otwieramy go w domenie NEXUSA).
