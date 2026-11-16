@@ -2160,6 +2160,13 @@ class Settings(BaseSettings):
     # „pojawił się następnego dnia" rano, a nie w środku dnia.
     ORDER_GAPS_RUN_HOUR_LOCAL: int = 0
     ORDER_GAPS_RUN_MINUTE_LOCAL: int = 30
+    # Rada (R1, 16.11.2026): odpis pełny KRS spółki co noc — zmiana treści
+    # zapisuje nowy odpis, wzmianki zakładają wiersze w dokumentach Rady,
+    # nowy wpis daje dzwonek Radzie i adminom. `false` → pętla nie startuje,
+    # ekran pokazuje ostatni zapisany odpis.
+    BOARD_KRS_ENABLED: bool = True
+    BOARD_KRS_RUN_HOUR_LOCAL: int = 5
+    BOARD_KRS_RUN_MINUTE_LOCAL: int = 40
 
     @property
     def multi_consultant_order_client_ids(self) -> frozenset[int]:

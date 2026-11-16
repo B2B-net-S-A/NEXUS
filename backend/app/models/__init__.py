@@ -903,6 +903,7 @@ from app.models import client_einvoice as _client_einvoice_models  # noqa: F401,
 from app.models import client_issued_invoice as _client_issued_invoice_models  # noqa: F401,E402
 from app.models import finance_archive as _finance_archive_models  # noqa: F401,E402
 from app.models import client_order_revenue_step as _client_order_revenue_step_models  # noqa: F401,E402
+from app.models import board_document as _board_document_models  # noqa: F401,E402
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402

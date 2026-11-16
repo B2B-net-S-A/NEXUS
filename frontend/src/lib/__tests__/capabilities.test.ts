@@ -1611,6 +1611,10 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
   // `ContactCaller`), nie wejściem nawigacyjnym do modułu — patrz komentarz
   // przy tym wpisie w middleware.ts.
   "/candidates/contact-queue",
+  // „Rada” (16.11.2026): Rada nadzorcza i admin z roli — to decyzja o tym,
+  // kto czyta dokumenty korporacyjne, nie uprawnienie do przyznania
+  // (Rada nie przyjmuje nadań). Bramka API: `supervisory_board.py`.
+  "/rada",
   // Generator umów B2B: drabinka akcji `b2b_contract_generator`, nie lista
   // ról — „Automatyzacje” (0446) mają w niej „none”, bo rejestr pokazuje
   // stawki konsultantów.

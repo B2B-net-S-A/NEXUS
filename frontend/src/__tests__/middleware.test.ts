@@ -1075,20 +1075,26 @@ describe("„Rada nadzorcza” (0490)", () => {
     "/my-time",
     "/people",
     "/settings/api-keys",
-  ])("%s prowadzi do kokpitu Firma", (path) => {
+  ])("%s prowadzi do sekcji Rada", (path) => {
     const res = middleware(request(path, validBoard))
     const location = new URL(res.headers.get("location") ?? "")
-    expect(location.pathname).toBe("/insights")
-    expect(location.searchParams.get("tab")).toBe("firma")
+    expect(location.pathname).toBe("/rada")
   })
 
-  it.each(["/insights", "/profile", "/settings", "/help"])(
+  it.each(["/rada", "/insights", "/profile", "/settings", "/help"])(
     "%s otwiera się bez przekierowania",
     (path) => {
       const res = middleware(request(path, validBoard))
       expect(res.headers.get("location")).toBeNull()
     },
   )
+
+  // Rada (R1, 16.11.2026): dokumenty korporacyjne tylko dla Rady i admina.
+  it("sekcja Rada: admin wchodzi, rekruter i pracownik nie", () => {
+    expect(destination("/rada", validAdmin)).toBe("pass")
+    expect(destination("/rada", validRecruiter)).not.toBe("pass")
+    expect(destination("/rada", validEmployee)).not.toBe("pass")
+  })
 
   // Decyzja Artura 23.10.2026: Rada otwiera samą listę umów przedwstępnych —
   // panel osoby i reszta rekrutacji zostają zamknięte.
@@ -1097,9 +1103,9 @@ describe("„Rada nadzorcza” (0490)", () => {
   })
 
   it.each(["/jobs/12", "/jobs/umowy-przedwstepne/12", "/jobs/strona-kariery"])(
-    "%s nadal prowadzi do kokpitu Firma",
+    "%s nadal prowadzi do sekcji Rada",
     (path) => {
-      expect(destination(path, validBoard)).toBe("/insights")
+      expect(destination(path, validBoard)).toBe("/rada")
     },
   )
 })

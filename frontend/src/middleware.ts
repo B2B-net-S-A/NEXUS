@@ -378,6 +378,14 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   { prefix: "/insights", roles: INSIGHTS_ROLES, section: "insights" },
+  // Rada (R1, 16.11.2026): dokumenty korporacyjne — Rada nadzorcza i admin
+  // (Zarząd); reszta z Insights tu nie wchodzi. Bramka API: `supervisory_board.py`.
+  {
+    prefix: "/rada",
+    roles: ["admin", "board"],
+    section: "insights",
+    enforceRoles: true,
+  },
   // Podgląd liczb na telefonie: te same bramki co Insights, reszta na trasach API.
   { prefix: "/podglad", roles: INSIGHTS_ROLES, section: "insights" },
   // `/profile`, `/settings` (i każda inna trasa bez wpisu) nie

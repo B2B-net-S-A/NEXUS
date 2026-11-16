@@ -147,6 +147,8 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.ai_spend_alert,
         T.announcement_important,
         T.autofill_quality_report,
+        # 0727: wpis w KRS spółki — informacja dla członka Rady, nie praca do przejęcia.
+        T.board_krs_entry,
         T.automation_failing,
         T.back_office_assigned,
         T.back_office_escalated,

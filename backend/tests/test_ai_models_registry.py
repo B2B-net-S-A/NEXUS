@@ -185,6 +185,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.client_report_requirements: ("F49", "claude-sonnet-5"),
     # F50 — 16.11.2026: szkic uzasadnienia dopłaty za technologię premium (EN).
     AIFeatureKey.premium_skill_justification: ("F50", "claude-sonnet-5-5"),
+    AIFeatureKey.board_document_read: ("F51", "claude-sonnet-5"),
 }
 
 

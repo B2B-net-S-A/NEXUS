@@ -111,7 +111,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"]],
       // „Szkolenia” (13.11.2026): każdy zalogowany przy włączonym programie „Ludzi”.
       // „Przepisy” (15.11.2026): w „Firmie”, bo widzi je też HoR bez „Klientów i umów”.
-      ["Firma", ["insights", "people", "equipment", "trainings", "compliance"]],
+      // „Rada” (16.11.2026): Rada nadzorcza i admin, przed Insights.
+      ["Firma", ["rada", "insights", "people", "equipment", "trainings", "compliance"]],
     ]);
   });
 
@@ -167,7 +168,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     expect(groupsOf("admin")).toEqual([
       full[0],
       ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/client-contracts", "/finance"]],
-      full[2],
+      ["Firma", ["/rada", "/insights", "/compliance"]],
     ]);
     for (const role of MENU_ROLES) {
       for (const group of visiblePrimaryGroups(userOf(role), opts)) {
@@ -214,6 +215,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/contracts",
       "/client-contracts",
       "/finance",
+      "/rada",
       "/insights",
       "/compliance",
     ]);
@@ -452,6 +454,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...SOURCING_OPERATIONAL,
       ...PIPELINE,
       ...DELIVERY,
+      // „Rada” (16.11.2026): Rada nadzorcza i admin.
+      "/rada",
       ...INSIGHTS,
       "/finance",
       "/compliance",

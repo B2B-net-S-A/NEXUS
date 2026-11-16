@@ -25,6 +25,7 @@ import {
   Laptop,
   Lock,
   Lightbulb,
+  Landmark,
   PhoneCall,
   Radar,
   Scale,
@@ -592,6 +593,17 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inPalette: true,
   },
   {
+    id: "rada",
+    href: "/rada",
+    label: "Rada",
+    icon: Landmark,
+    section: "insights",
+    // Rada (R1, 16.11.2026): dokumenty korporacyjne — Rada nadzorcza i admin.
+    roles: ["admin", "board"],
+    placement: "primary",
+    inPalette: true,
+  },
+  {
     id: "insights",
     href: "/insights",
     label: "Insights",
@@ -805,7 +817,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
     ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"],
   },
   // „Przepisy” (15.11.2026) w „Firmie”: widzi je też HoR, który nie ma „Klientów i umów”.
-  { key: "company", title: "Firma", ids: ["insights", "people", "equipment", "trainings", "compliance"] },
+  { key: "company", title: "Firma", ids: ["rada", "insights", "people", "equipment", "trainings", "compliance"] },
 ];
 
 /** Kolejność pozycji na szynie (id wpisów) — spłaszczone `NAV_PRIMARY_GROUPS`. */
@@ -848,6 +860,7 @@ function featureFlagOn(
 // „pre-contracts” (23.10.2026) jest tylko w palecie — menu boczne Rady dalej
 // ma Insights, Pomoc i Ustawienia.
 const BOARD_NAV_IDS: ReadonlySet<string> = new Set([
+  "rada",
   "insights",
   "help",
   "settings",
