@@ -137,7 +137,10 @@ def load_config() -> IssueConfig:
     return IssueConfig(
         mode=mode if mode in MODES else "off",
         context_nip=nip,
-        token=str(getattr(settings, "KSEF_SALES_ISSUE_TOKEN", "") or "").strip(),
+        # Osobny token wystawiania wygrywa; bez niego KSEF_TOKEN — od 16.11.2026
+        # ma pełne prawa (także InvoiceWrite), decyzja Artura.
+        token=str(getattr(settings, "KSEF_SALES_ISSUE_TOKEN", "") or "").strip()
+        or str(getattr(settings, "KSEF_TOKEN", "") or "").strip(),
     )
 
 
