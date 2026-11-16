@@ -46,7 +46,7 @@ def _net_pln():
     )
 
 
-def _mln(value: Optional[Decimal | float]) -> Optional[float]:
+def mln(value: Optional[Decimal | float]) -> Optional[float]:
     return None if value is None else round(float(value) / 1_000_000, 2)
 
 
@@ -68,6 +68,12 @@ def _complete(rows: list[MonthRow], attr: str, share: float) -> set[tuple[int, i
     return complete
 
 
+def complete_sales_months(rows: list[MonthRow]) -> set[tuple[int, int]]:
+    """Miesiące ze sprzedażą co najmniej połowy mediany 6 poprzednich."""
+
+    return _complete(rows, "sales", SALES_COMPLETE_SHARE)
+
+
 def complete_cost_months(rows: list[MonthRow]) -> set[tuple[int, int]]:
     """Miesiące, których koszty nie są wyraźnie niższe od mediany 6 poprzednich."""
 
@@ -83,7 +89,7 @@ def year_over_year(rows: list[MonthRow], year: int) -> dict[str, Any]:
 
     current = {r.month: r for r in rows if r.year == year}
     previous = {r.month: r for r in rows if r.year == year - 1}
-    sales_complete = [m for (y, m) in _complete(rows, "sales", SALES_COMPLETE_SHARE) if y == year]
+    sales_complete = [m for (y, m) in complete_sales_months(rows) if y == year]
     if not current or not sales_complete:
         return {"sales_months": 0, "result_months": 0}
     sales_months = max(sales_complete)
@@ -99,23 +105,23 @@ def year_over_year(rows: list[MonthRow], year: int) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         "sales_months": sales_months,
-        "sales": _mln(total(current, sales_months, "sales")),
-        "sales_previous": _mln(total(previous, sales_months, "sales")),
+        "sales": mln(total(current, sales_months, "sales")),
+        "sales_previous": mln(total(previous, sales_months, "sales")),
         "result_months": result_months,
     }
     if result_months:
         cur_s, cur_c = total(current, result_months, "sales"), total(current, result_months, "costs")
         prev_s, prev_c = total(previous, result_months, "sales"), total(previous, result_months, "costs")
         out.update(
-            result=_mln(cur_s - cur_c),
+            result=mln(cur_s - cur_c),
             result_pct=round(100 * (cur_s - cur_c) / cur_s, 1) if cur_s else None,
-            result_previous=_mln(prev_s - prev_c),
+            result_previous=mln(prev_s - prev_c),
             result_previous_pct=round(100 * (prev_s - prev_c) / prev_s, 1) if prev_s else None,
         )
     return out
 
 
-async def _month_rows(db: AsyncSession, first_year: int) -> list[MonthRow]:
+async def month_rows(db: AsyncSession, first_year: int) -> list[MonthRow]:
     net = _net_pln()
     year = extract("year", Doc.issue_date)
     month = extract("month", Doc.issue_date)
@@ -149,7 +155,7 @@ async def _top_clients(db: AsyncSession, start: date, end: date) -> list[dict[st
     return [
         {
             "name": name or "bez nazwy",
-            "sales": _mln(value),
+            "sales": mln(value),
             "share": round(100 * float(value or 0) / float(total), 1),
         }
         for name, value in rows.all()
@@ -200,8 +206,8 @@ async def orders_ending(db: AsyncSession, today: date) -> dict[str, Any]:
     return {
         "active": active,
         "ending": ending,
-        "potential_month": _mln(potential),
-        "ending_potential_month": _mln(ending_potential),
+        "potential_month": mln(potential),
+        "ending_potential_month": mln(ending_potential),
         "without_rate": no_rate,
         "year_end": year_end.isoformat(),
     }
@@ -209,7 +215,7 @@ async def orders_ending(db: AsyncSession, today: date) -> dict[str, Any]:
 
 async def company_summary(db: AsyncSession, today: date) -> dict[str, Any]:
     first_year = today.year - HISTORY_YEARS
-    rows = await _month_rows(db, first_year)
+    rows = await month_rows(db, first_year)
     coverage = (
         await db.execute(
             select(func.min(Doc.issue_date), func.max(Doc.issue_date)).where(
@@ -226,9 +232,9 @@ async def company_summary(db: AsyncSession, today: date) -> dict[str, Any]:
             continue
         entry: dict[str, Any] = {
             "year": year,
-            "sales": _mln(sales),
-            "costs": _mln(costs),
-            "result": _mln(sales - costs),
+            "sales": mln(sales),
+            "costs": mln(costs),
+            "result": mln(sales - costs),
             "result_pct": round(100 * (sales - costs) / sales, 1) if sales else None,
             "complete": year < today.year,
         }
@@ -246,8 +252,8 @@ async def company_summary(db: AsyncSession, today: date) -> dict[str, Any]:
         {
             "year": r.year,
             "month": r.month,
-            "sales": _mln(r.sales),
-            "costs": _mln(r.costs),
+            "sales": mln(r.sales),
+            "costs": mln(r.costs),
             "costs_complete": (r.year, r.month) in complete,
         }
         for r in rows
