@@ -625,3 +625,52 @@ async def test_bank_wykonal_z_wlasnym_rozliczeniem_potwierdza_inna_osoba(client,
     )
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["paid"] == 2
+
+
+@pytest.mark.asyncio
+async def test_od_2027_piec_numerow_ksef_nie_miesci_sie_w_tytule(client, env):
+    """Art. 108g VAT: każdy numer KSeF w tytule; decyduje data wykonania paczki.
+
+    Pięć faktur z KSeF w jednym rozliczeniu nie mieści się w 4 liniach
+    Elixir-O (zbiorczego identyfikatora NEXUS nie generuje): zapłata 4.01.2027
+    = odmowa z powodem, zapłata 30.12.2026 = jak dotąd.
+    """
+
+    from app.services.hr.bank import batches
+    from app.services.hr.payroll_errors import PayrollConflict
+
+    finance, made = await _people()
+    await _enable()
+    nip = fx.nip("123456321")
+    async with AsyncSessionLocal() as db:
+        row = await db.get(PayrollSettlement, made["listed"].id)
+        for n in range(1, 5):
+            await fx.invoice(
+                db,
+                row,
+                seller_nip=nip,
+                invoice_number=f"FV {n}/10/2026",
+                ksef_number=f"{nip}-20261105-0C91E4C2A7D{n}-1F",
+                net="10.00",
+                gross="12.30",
+            )
+        await db.commit()
+    picked = {
+        "settlement_ids": [made["listed"].id],
+        "actor_id": finance.id,
+        "today": date(2026, 12, 28),
+    }
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(PayrollConflict) as exc:
+            await batches.create_batch(db, execution_date=date(2027, 1, 4), **picked)
+        await db.rollback()
+    item = exc.value.data["items"][0]
+    assert item["reason"] == "ksef_title_overflow"
+    assert "identyfikator" in item["reason_label"]
+
+    async with AsyncSessionLocal() as db:
+        created = await batches.create_batch(
+            db, execution_date=date(2026, 12, 30), **picked
+        )
+        await db.rollback()
+    assert created["count"] == 1

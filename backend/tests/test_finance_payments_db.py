@@ -1209,3 +1209,51 @@ async def test_korekta_ujemna_pomniejsza_fakture_pierwotna(world, client) -> Non
         assert refused.status_code == 409
     finally:
         await _drop_contractor_invoices(world)
+
+
+async def test_numer_ksef_od_2027_liczy_sie_po_dacie_zaplaty_nie_paczki(
+    world, monkeypatch
+) -> None:
+    """Art. 108g VAT: decyduje data płatności (data wykonania paczki).
+
+    Paczka tworzona 28.12.2026 z datą wykonania 4.01.2027 dla faktury z KSeF
+    bez zapisanego numeru KSeF nie może przejść, a z datą 30.12.2026 przechodzi.
+    Brak numeru symulujemy na wierszu planu — każde źródło z KSeF ma go w bazie.
+    """
+
+    import dataclasses
+
+    entry = await _supplier_entry(
+        world, world["nips"]["b"], gross="500.00", account=_nrb(41)
+    )
+    world["listed"].add(_nrb(41))
+    original = service._rows
+
+    async def without_ksef(*args, **kwargs):
+        rows = await original(*args, **kwargs)
+        return [dataclasses.replace(row, ksef_number=None) for row in rows]
+
+    monkeypatch.setattr(service, "_rows", without_ksef)
+    batch = {
+        "entry_ids": [entry],
+        "acknowledged": [],
+        "fmt": "csv",
+        "today": date(2026, 12, 28),
+        "actor_id": world["accountant"].id,
+        "payroll": False,
+    }
+    async with AsyncSessionLocal() as db:
+        with pytest.raises(service.PaymentError) as exc:
+            await service.create_batch(db, execution_date=date(2027, 1, 4), **batch)
+        await db.rollback()
+    assert exc.value.code == "blocked"
+    blocked = exc.value.data["items"][0]
+    assert blocked["block"] == "no_ksef_number"
+    assert "numer KSeF" in blocked["block_label"]
+
+    async with AsyncSessionLocal() as db:
+        created = await service.create_batch(
+            db, execution_date=date(2026, 12, 30), **batch
+        )
+        await db.rollback()
+    assert created["count"] == 1

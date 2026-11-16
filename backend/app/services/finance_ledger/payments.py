@@ -839,8 +839,16 @@ async def plan(
     today: date,
     actor_id: Optional[int],
     payroll: bool,
+    pay_date: Optional[date] = None,
 ) -> list[PlanItem]:
-    """Faktury do zapłaty do daty (albo wskazane) z trybem, tytułem i białą listą."""
+    """Faktury do zapłaty do daty (albo wskazane) z trybem, tytułem i białą listą.
+
+    ``pay_date`` — data wykonania przelewu (paczka); bez niej plan liczy na dziś.
+    Od niej zależy obowiązek numeru KSeF w tytule (art. 108g VAT).
+    """
+
+    # Przelew nie wykona się wstecz: data sprzed dziś liczy się jak dziś.
+    paid_on = max(pay_date or today, today)
 
     if entry_ids is not None:
         rows = await _rows(
@@ -946,12 +954,12 @@ async def plan(
                 from_ksef=entry.from_ksef,
                 vat_amount=payable.vat,
                 seller_nip=entry.seller_nip,
-                today=today,
+                pay_date=paid_on,
             )
         except rules.PaymentRuleError as exc:
             item.block = exc.code
             continue
-        if entry.from_ksef and not row.ksef_number and today < rules.KSEF_TITLE_FROM:
+        if entry.from_ksef and not row.ksef_number and paid_on < rules.KSEF_TITLE_FROM:
             item.hints.append("ksef_from_2027")
         if mode.mode == "tax_office":
             item.white_list = {"state": "tax_office"}
@@ -1039,7 +1047,12 @@ async def create_batch(
     # Dwie paczki naraz nie wezmą tej samej faktury (drugi czeka i widzi „w paczce”).
     await payment_state.lock_batches(db)
     items = await plan(
-        db, entry_ids=wanted, today=today, actor_id=actor_id, payroll=payroll
+        db,
+        entry_ids=wanted,
+        today=today,
+        actor_id=actor_id,
+        payroll=payroll,
+        pay_date=when,
     )
     found = {item.entry_id for item in items}
     missing = [entry_id for entry_id in wanted if entry_id not in found]
