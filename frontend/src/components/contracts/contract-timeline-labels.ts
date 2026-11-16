@@ -147,7 +147,7 @@ const DETAIL_LABELS: Record<string, string> = {
   nip: "NIP",
   entity_type: "Forma działalności",
   delegate_name: "Osoba skierowana",
-  // Aneks z własną nazwą („Aneks — inna zmiana”, 0721).
+  // Aneks z własną nazwą („Aneks — inna zmiana”, 0723).
   annex_title: "Czego dotyczy",
   start_date_mode: "Tryb daty rozpoczęcia",
   period_from: "Okres zlecenia od",

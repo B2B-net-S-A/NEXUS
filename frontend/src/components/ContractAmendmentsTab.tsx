@@ -47,7 +47,7 @@ const TYPE_LABELS: Record<string, string> = {
   party_data_change: "Uzupełnienie danych firmy",
   subcontractor_consent: "Osoba skierowana",
   mandate_change: "Aneks do umowy zlecenie",
-  // Aneks z własną nazwą (0721) — nazwę niesie `new_values.annex_title` i powód.
+  // Aneks z własną nazwą (0723) — nazwę niesie `new_values.annex_title` i powód.
   custom_change: "Inna zmiana",
 };
 

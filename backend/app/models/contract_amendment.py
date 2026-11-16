@@ -22,7 +22,7 @@ class ContractAmendmentType(str, enum.Enum):
     party_data_change = "party_data_change"
     subcontractor_consent = "subcontractor_consent"
     mandate_change = "mandate_change"
-    # 0721 — aneks z własną nazwą (Generator aneksów, „inna zmiana”).
+    # 0723 — aneks z własną nazwą (Generator aneksów, „inna zmiana”).
     custom_change = "custom_change"
 
 
