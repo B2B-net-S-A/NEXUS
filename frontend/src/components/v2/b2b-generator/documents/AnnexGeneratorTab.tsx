@@ -23,6 +23,7 @@ import { DOCUMENTS_INTENT_KEYS, parseDocumentsIntent } from "@/lib/b2b-documents
 import { AnnexRegister } from "./AnnexRegister";
 import { BusinessDataAnnexQueue } from "./BusinessDataAnnexQueue";
 import { DocumentWizard } from "./DocumentWizard";
+import { withMockType } from "./annexCustomMockup";
 
 export interface AnnexWizardState {
   key: number;
@@ -126,7 +127,7 @@ export function AnnexGeneratorContent({
             <DocumentWizard
               key={wizard.key}
               mode="annexes"
-              typesData={types.data}
+              typesData={withMockType(types.data)}
               initialType={wizard.type}
               initialParentId={wizard.parentId}
               initialContractId={wizard.contractId}

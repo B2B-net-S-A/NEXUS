@@ -25,6 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { RateItemsField, RegistryLookupButton } from "./AnnexFieldControls";
+import { AnnexChangesField } from "./annexCustomMockup";
 
 const SELECT_CLASS =
   "flex h-9 w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:outline-hidden focus:ring-2 focus:ring-ring disabled:opacity-50";
@@ -253,6 +254,23 @@ export function DocumentFieldsForm({
                 field.kind === "textarea" ||
                 field.kind === "bool" ||
                 field.kind === "rate_items";
+              if (field.kind === "annex_changes") {
+                return (
+                  <div key={field.key} className="space-y-1.5 sm:col-span-2">
+                    <Label htmlFor={id} className="text-sm font-medium">
+                      {field.label}
+                    </Label>
+                    <AnnexChangesField
+                      id={id}
+                      value={raw}
+                      values={values}
+                      invalid={invalid}
+                      onChange={(value) => onChange(field.key, value)}
+                      onTitle={(title) => onChange("annex_title", title)}
+                    />
+                  </div>
+                );
+              }
               if (field.kind === "bool") {
                 return (
                   <div key={field.key} className="sm:col-span-2">

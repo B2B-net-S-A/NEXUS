@@ -327,6 +327,11 @@ export function cleanValues(
       }
       continue;
     }
+    if (field.kind === "annex_changes") {
+      // MAKIETA: lista zmian aneksu z własną nazwą.
+      if (Array.isArray(raw) && raw.length) out[field.key] = raw;
+      continue;
+    }
     if (isEmpty(raw)) continue;
     if (field.kind === "money") {
       const number = parseMoney(raw);

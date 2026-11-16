@@ -16,6 +16,13 @@ import { api } from "@/lib/api";
 
 export type DocumentFamily = "annex" | "termination" | "preliminary";
 export type DocumentParentKind = "b2b" | "mandate" | "none";
+import {
+  MOCK_HIDDEN_MISSING,
+  MOCK_TYPE_KEY,
+  backingType,
+  mockPreviewHtml,
+} from "@/components/v2/b2b-generator/documents/annexCustomMockup";
+
 export type DocumentFieldKind =
   | "text"
   | "textarea"
@@ -26,7 +33,8 @@ export type DocumentFieldKind =
   | "email"
   | "gender"
   /** Lista pozycji stawki aneksu (kwota, klient z NEXUSA, od, do). */
-  | "rate_items";
+  | "rate_items"
+  | "annex_changes";
 export type DocumentFieldGroup = "base" | "document" | "partner" | "change";
 
 /** Pozycja stawki aneksu — kwota jak wpisał człowiek („135,50”). */
@@ -404,7 +412,7 @@ export const b2bDocumentsApi = {
     api
       .get<DocumentPrefill>("/api/b2b-generator/documents/prefill", {
         params: {
-          document_type: params.documentType,
+          document_type: backingType(params.documentType),
           ...(params.parentGeneratedContractId
             ? { parent_generated_contract_id: params.parentGeneratedContractId }
             : {}),
@@ -413,7 +421,23 @@ export const b2bDocumentsApi = {
           ...(params.contractId ? { contract_id: params.contractId } : {}),
         },
       })
-      .then((r) => r.data),
+      .then((r) => r.data)
+      .then(async (data) => {
+        // MAKIETA: klient do gotowej klauzuli — z wyszukiwarki osoby (serwer
+        // w docelowej wersji weźmie go z kontraktu).
+        if (params.documentType !== MOCK_TYPE_KEY) return data;
+        const q = String(data.values?.contract_number ?? "");
+        const rows = q
+          ? await b2bDocumentsApi.subjects({ documentType: MOCK_TYPE_KEY, q })
+          : [];
+        const row = rows.find(
+          (r) => r.parent_generated_contract_id === params.parentGeneratedContractId,
+        );
+        return {
+          ...data,
+          values: { ...data.values, mock_client_name: row?.client_name ?? null },
+        };
+      }),
   /**
    * „Dla kogo jest aneks?” — umowy z rejestru i kontrakty bez umowy w jednym
    * wyniku. `contractId` = wejście z modułu Kontrakty (podmiot tego kontraktu).
@@ -426,14 +450,24 @@ export const b2bDocumentsApi = {
     api
       .get<DocumentSubject[]>("/api/b2b-generator/documents/subjects", {
         params: {
-          document_type: params.documentType,
+          document_type: backingType(params.documentType),
           ...(params.q?.trim() ? { q: params.q.trim() } : {}),
           ...(params.contractId ? { contract_id: params.contractId } : {}),
         },
       })
       .then((r) => r.data),
   preview: (body: DocumentRequestBody) =>
-    api
+    body.document_type === MOCK_TYPE_KEY
+      ? api
+          .post<{ html: string; missing: string[] }>(
+            "/api/b2b-generator/documents/preview",
+            { ...body, document_type: backingType(body.document_type) },
+          )
+          .then((r) => ({
+            html: mockPreviewHtml(r.data.html, body.values),
+            missing: r.data.missing.filter((m) => !MOCK_HIDDEN_MISSING.has(m)),
+          }))
+      : api
       .post<{ html: string; missing: string[] }>(
         "/api/b2b-generator/documents/preview",
         body,
