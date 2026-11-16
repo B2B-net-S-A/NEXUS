@@ -198,7 +198,7 @@ def row_status(
 
     if not attached:
         return ("sheet" if row.sheet_invoiced else "not_invoiced"), None, None
-    invoiced = money(sum((chain.net for chain, _ in attached), ZERO))
+    invoiced = money(sum((chain.order_net for chain, _ in attached), ZERO))
     checks = {result.status for _, result in attached}
     if row.budget is not None:
         return _budget_status(row.budget.available, attached, single, invoiced, checks)

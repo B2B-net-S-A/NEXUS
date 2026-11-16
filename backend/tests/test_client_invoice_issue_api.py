@@ -937,3 +937,132 @@ async def test_order_invoiced_outside_nexus_is_not_drafted_again(client, seed):
     )
     assert refused.status_code == 409, refused.text
     assert "77/10/2026" in refused.json()["detail"]
+
+
+# ── Rabat od obrotu rocznego (decyzje Artura 16.11.2026) ───────────────────
+
+
+def _sales(client_id: int, number: str, issued: date, net: str, *names: str):
+    return ClientSalesInvoice(
+        ksef_number=f"{fx.COMPANY_NIP}-{issued:%Y%m%d}-EB{number:0>10}-01",
+        xml_sha256="0" * 64,
+        client_id=client_id,
+        invoice_number=f"{number}/RB/{issued.year}",
+        issue_date=issued,
+        sale_date=issued,
+        period_year=issued.year,
+        period_month=issued.month,
+        period_source="invoice",
+        currency="PLN",
+        net_amount=Decimal(net),
+        vat_amount=Decimal("0.00"),
+        gross_amount=Decimal(net),
+        items=[{"name": name, "net": net} for name in names],
+        order_refs=[],
+        match_status="unmatched",
+        fetched_at=datetime.now(timezone.utc),
+    )
+
+
+async def test_draft_gets_rebate_line_at_rate_from_turnover_before_its_month(
+    client, seed
+):
+    """Szkic za październik dostaje pozycję „Rabat od obrotu” po 3%, bo obrót
+    do końca września przekroczył próg; wrzesień ma korektę 0,5% od nadwyżki.
+    Faktura z 2025 i refaktura podróży poza obrotem. Złe warunki = 422.
+    """
+
+    terms = {
+        "threshold_currency": "PLN",
+        "periods": [
+            {
+                "from_year": 2026,
+                "tiers": [{"up_to": 100000, "rate": 2.5}, {"up_to": None, "rate": 3}],
+            }
+        ],
+        "exclude_words": ["podróż"],
+    }
+    bad = await client.put(
+        f"{BASE}/settings",
+        json={
+            **SETTINGS,
+            "clients": {
+                str(seed.client_id): {
+                    "rebate": {**terms, "periods": [{"from_year": 2026, "tiers": []}]}
+                }
+            },
+        },
+        headers=_h(seed),
+    )
+    assert bad.status_code == 422
+    assert "progów" in bad.json()["detail"]
+
+    await _settings(client, seed, clients={str(seed.client_id): {"rebate": terms}})
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _sales(seed.client_id, "1", date(2026, 9, 30), "110000.00", "Usługi"),
+                _sales(seed.client_id, "2", date(2025, 12, 31), "500000.00", "Usługi"),
+                _sales(
+                    seed.client_id,
+                    "3",
+                    date(2026, 8, 31),
+                    "70000.00",
+                    "Podróż służbowa",
+                ),
+            ]
+        )
+        await db.commit()
+
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    services = [
+        row for row in card["lines"] if not row["name"].startswith("Rabat od obrotu")
+    ]
+    (line,) = [
+        row for row in card["lines"] if row["name"].startswith("Rabat od obrotu")
+    ]
+    base = sum(Decimal(row["net"]) for row in services)
+    assert line["name"] == "Rabat od obrotu rocznego 3% (umowa ramowa, rok 2026)"
+    assert Decimal(line["net"]) == -(base * 3 / 100).quantize(Decimal("0.01"))
+    assert Decimal(card["net"]) == base + Decimal(line["net"])
+
+    data = card["rebate"]
+    assert (data["year"], data["month"], data["rate"]) == (2026, 10, "3")
+    assert data["turnover_before"] == "110000.00"
+    assert Decimal(data["turnover"]) == Decimal("110000.00") + base
+    assert data["on_invoice"] == str(-Decimal(line["net"]))
+    assert data["excluded"] == 1
+    assert data["corrections"] == [
+        {
+            "month": 9,
+            "rate_diff": "0.5",
+            "excess": "10000.00",
+            "amounts": [{"currency": "PLN", "amount": "50.00"}],
+        }
+    ]
+
+    # Zmiana ilości przelicza pozycję rabatu (stawka zostaje).
+    edited = [dict(row) for row in services]
+    edited[0]["quantity"] = str(Decimal(edited[0]["quantity"]) * 2)
+    saved = await client.put(
+        f"{BASE}/{invoice_id}",
+        json={"lines": edited + [line]},
+        headers=_h(seed),
+    )
+    assert saved.status_code == 200, saved.text
+    again = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    new_base = sum(
+        Decimal(row["net"])
+        for row in again["lines"]
+        if not row["name"].startswith("Rabat od obrotu")
+    )
+    (new_line,) = [
+        row for row in again["lines"] if row["name"].startswith("Rabat od obrotu")
+    ]
+    assert Decimal(new_line["net"]) == -(new_base * 3 / 100).quantize(Decimal("0.01"))
+
+    # Klient bez warunków: karta bez rabatu.
+    await _settings(client, seed)
+    plain = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert plain["rebate"] is None
