@@ -740,6 +740,8 @@ function TypeStep({
                 key={t.key}
                 type="button"
                 aria-pressed={selected === t.key}
+                // Kropka Nowości „Aneks z własną nazwą” (16.11.2026).
+                data-tour={t.key === "annex_custom" ? "b2b-generator.annex-custom" : undefined}
                 onClick={() => onChoose(t)}
                 className={cn(
                   "flex h-full flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors hover:bg-muted",
