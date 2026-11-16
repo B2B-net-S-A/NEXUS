@@ -72,6 +72,8 @@ import {
 } from "@/components/v2/jobs/ManagedInNexusSwitch";
 import { CandidateSourcesStrip } from "@/components/v2/jobs/CandidateSourcesStrip";
 import { AddedByCompactFilter, AddedByFilterButton } from "@/components/v2/jobs/AddedByFilter";
+import { AddedToJobTable } from "@/components/v2/jobs/AddedToJobTable";
+import { addedToJobSummary } from "@/lib/board-added-summary";
 import { JobPriorityMenu } from "@/components/v2/jobs/JobPriorityMenu";
 import { JobP0Strip } from "@/components/v2/jobs/p0/JobP0Strip";
 import { JobHeadcountFact } from "@/components/v2/jobs/JobHeadcountFact";
@@ -659,6 +661,19 @@ export default function JobDetailPage() {
         : null,
     [kanban, authUser?.id, authUser?.name],
   );
+  // „Kto ilu dodał” w okienku „Zespół rekrutacji” (16.11.2026): dodania od
+  // otwarcia, z tych samych danych Tablicy; zera dla osób z zespołu.
+  const addedToJob = useMemo(() => {
+    if (!kanban) return null;
+    const columns = kanban.off_template?.items?.length
+      ? [...kanban.columns, { stage: null, items: kanban.off_template.items }]
+      : kanban.columns;
+    const team = workingRecruiters(recruitersOf(job)).map((p) => ({
+      user_id: p.user_id,
+      name: p.name,
+    }));
+    return addedToJobSummary(columns, team);
+  }, [kanban, job]);
 
   // Osoby już w rekrutacji (także odrzucone i „poza szablonem") — nie
   // pojawiają się w propozycjach. `undefined` dopóki tablica się nie wczyta:
@@ -898,6 +913,11 @@ export default function JobDetailPage() {
       canEdit={teamEditScope !== "none"}
       onOpenTeam={() => openChampion({ panelTab: "team" })}
       compact={compact}
+      addedToJob={
+        showBoard && addedToJob ? (
+          <AddedToJobTable summary={addedToJob} viewerId={authUser?.id ?? null} />
+        ) : undefined
+      }
     />
   );
   const kanbanQueryState = {

@@ -1560,6 +1560,14 @@
    "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy"
   },
   {
+   "id": "header.recruiter-added-to-job",
+   "area": "naglowek",
+   "opis": "„Kto ilu dodał” w okienku „Zespół rekrutacji”: dodania do rekrutacji per osoba od otwarcia (także odrzuceni), 7 dni, w toku, Zweryf.+, u klienta; zera dla zespołu, osobno automat „Nowi” (16.11.2026)",
+   "file": "components/v2/jobs/AddedToJobTable.tsx",
+   "marker": "added-to-job-table",
+   "v3_home": "nagłówek rekrutacji → fakt „Rekruter” → okienko „Zespół rekrutacji”, pod zespołem (tylko na Tablicy)"
+  },
+  {
    "id": "header.headcount",
    "area": "naglowek",
    "opis": "„Szukamy N osób ✎” za faktem „Rekruter”: liczba osób do zatrudnienia, zmiana w miejscu (to samo pole co Profil Championa › Zespół), bez pełnej edycji rekrutacji sam odczyt (07.11.2026)",
