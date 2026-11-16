@@ -10,8 +10,8 @@
  *
  * Rekrutacja, którą `joint-context` przyjąłby jako parę (`joinable`), wchodzi
  * do tej rozmowy („+ Dodaj i dołącz”); pozostała — i każda przy komplecie
- * rekrutacji w rozmowie — trafia tylko do „Nowych”. Rekruter tamtej
- * rekrutacji dostaje dzwonek. „Twój zespół” liczy serwer bez obejścia ról
+ * rekrutacji w rozmowie — trafia tylko do „Nowych” (bez dzwonka do rekrutera
+ * tamtej rekrutacji od 16.11.2026). „Twój zespół” liczy serwer bez obejścia ról
  * (`in_my_team`) — od #1742 rekruter przechodzi bramkę zespołu wszędzie.
  */
 
@@ -161,7 +161,7 @@ export function JointAddJob({
         </ul>
       )}
       <p className="text-[11px] text-muted-foreground">
-        Osoba trafia do „Nowych” tamtej rekrutacji z Twoją rezerwacją 12 h, a jej rekruter dostaje dzwonek.
+        Osoba trafia do „Nowych” tamtej rekrutacji z Twoją rezerwacją 12 h.
         „Dodaj i dołącz” bierze ją też do tej rozmowy.
       </p>
     </div>
