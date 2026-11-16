@@ -9,7 +9,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { gapRows, orderLine, ReviewBatchCard, rejectMissing } from "@/components/v2/review-batch/ReviewBatchCard";
+import {
+  gapRows,
+  orderLine,
+  rememberLine,
+  ReviewBatchCard,
+  rejectMissing,
+} from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 import { notLookingUntil } from "@/lib/autofill-feedback";
 
@@ -161,19 +167,79 @@ describe("ReviewBatchCard: szczegół powodu (runda 5)", () => {
     return (move.send.mock.calls[0] as unknown as [Record<string, unknown>])[0];
   }
 
-  it("„Inna rola” mówi, co nie pasuje, i kogo szukamy zamiast", async () => {
+  it("„Inna rola” mówi, co nie pasuje, kim jest osoba i kogo szukamy zamiast", async () => {
     const user = userEvent.setup();
     await openReason("7");
-    expect(screen.getByText("Oracle Database Administrator")).toBeInTheDocument();
+    expect(screen.getByLabelText("Osoba to:")).toHaveValue("Oracle Database Administrator");
     await user.click(screen.getByRole("button", { name: "Inny zawód" }));
-    await user.type(screen.getByLabelText("Kogo szukamy zamiast"), "analityk biznesowy");
+    await user.clear(screen.getByLabelText("Osoba to:"));
+    await user.type(screen.getByLabelText("Osoba to:"), "Oracle DBA");
+    await user.type(screen.getByLabelText("Szukamy:"), "analityk biznesowy");
     await user.click(screen.getByTestId("review-reject-confirm"));
     expect(await sent()).toMatchObject({
       autofill_reason: "other_level_or_role",
-      autofill_detail: { role_kind: "profession", role_wanted: "analityk biznesowy" },
+      autofill_detail: {
+        role_kind: "profession",
+        role_wanted: "analityk biznesowy",
+        person_role: "Oracle DBA",
+      },
       rejection_reason_id: "41",
-      notes: "Inny zawód, szukamy: analityk biznesowy",
+      notes: "Inny zawód, osoba: Oracle DBA, szukamy: analityk biznesowy",
     });
+  });
+
+  it("po 7 klawisze 1–8 wybierają, co nie gra z rolą, a Enter dalej odrzuca", async () => {
+    render(<ReviewBatchCard item={item} onDecided={() => {}} />);
+    fireEvent.keyDown(window, { key: "o" });
+    fireEvent.keyDown(window, { key: "7" });
+    fireEvent.keyDown(window, { key: "6" });
+    expect(screen.getByRole("button", { name: "Robił to dawno, teraz co innego" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.keyDown(window, { key: "4" });
+    expect(screen.getByRole("button", { name: "Lider zamiast wykonawcy" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(window, { key: "Enter" });
+    expect(await sent()).toMatchObject({
+      autofill_reason: "other_level_or_role",
+      autofill_detail: { role_kind: "lead_not_ic" },
+    });
+  });
+
+  it("Backspace po 7 wraca do wyboru powodu", () => {
+    render(<ReviewBatchCard item={item} onDecided={() => {}} />);
+    fireEvent.keyDown(window, { key: "o" });
+    fireEvent.keyDown(window, { key: "7" });
+    fireEvent.keyDown(window, { key: "Backspace" });
+    expect(screen.queryByTestId("review-reject-role")).not.toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "4" });
+    expect(screen.getByRole("radio", { name: /Za drogi/ })).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("„Szukamy:” podpowiada rolę z profilu, a linia mówi, kiedy silnik przestanie", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReviewBatchCard
+        item={{ ...item, position: "Data Engineer" }}
+        onDecided={() => {}}
+        profile={{
+          job_id: item.job_id,
+          role: "analityk",
+          specialty: null,
+          technology: null,
+          level: "dowolny",
+          saved: true,
+          excluded: [],
+          learning: [{ label: "data engineer", count: 2, dismissed: false }],
+          exclude_min: 3,
+        }}
+      />,
+    );
+    await user.keyboard("o7");
+    expect(screen.getByLabelText("Szukamy:")).toHaveValue("analityk");
+    expect(screen.getByTestId("review-reject-remember")).toHaveTextContent(
+      "Silnik zapamięta: „Data Engineer” po raz 3. Od teraz nie proponuje takich osób w tej rekrutacji.",
+    );
   });
 
   it("„Inna rola” bez kliknięcia dalej idzie jednym klawiszem, bez szczegółu", async () => {
@@ -328,5 +394,35 @@ describe("rejectMissing", () => {
     expect(gapRows({ missing_must: ["Kafka", "kafka "], matched_must: ["java", "KAFKA"] })).toEqual(["Kafka", "java"]);
     const many = Array.from({ length: 12 }, (_, i) => `s${i}`);
     expect(gapRows({ missing_must: many, matched_must: [] })).toHaveLength(8);
+  });
+});
+
+describe("rememberLine", () => {
+  const base = {
+    job_id: 1,
+    role: null,
+    specialty: null,
+    technology: null,
+    level: "dowolny" as const,
+    saved: false,
+    excluded: [],
+    learning: [],
+    exclude_min: 3,
+  };
+  it("pierwszy raz liczy od 1 i mówi o progu", () => {
+    expect(rememberLine("Tester", base)).toBe(
+      "Silnik zapamięta: „Tester” po raz 1. Od 3. razu przestaje proponować takie osoby w tej rekrutacji.",
+    );
+  });
+  it("etykieta już na liście i zdjęta z listy", () => {
+    expect(
+      rememberLine("scrum  master", { ...base, excluded: [{ label: "Scrum Master", count: 0, source: "manual" }] }),
+    ).toContain("już jest w „Nie proponujemy”");
+    expect(
+      rememberLine("DBA", { ...base, learning: [{ label: "dba", count: 4, dismissed: true }] }),
+    ).toContain("po raz 5. Ktoś zdjął to");
+  });
+  it("puste pole milczy", () => {
+    expect(rememberLine("  ", base)).toBeNull();
   });
 });

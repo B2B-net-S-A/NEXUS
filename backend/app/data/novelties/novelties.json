@@ -3019,5 +3019,19 @@
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
     "dot_anchor": "dashboard.team-table.fullscreen"
+  },
+  {
+    "id": "porcja-kogo-szukamy",
+    "pr": 3526,
+    "title": "Porcja dnia: „Kogo szukamy” i czego nie proponować",
+    "why": "Nad kartą: kogo szuka rekrutacja i jakich ról system w niej nie proponuje — „Popraw” zmienia to od razu. Przy „Inna rola” wybierasz, co nie gra (1–8).",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Kogo szukamy → Popraw",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.role-profile",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
   }
 ]

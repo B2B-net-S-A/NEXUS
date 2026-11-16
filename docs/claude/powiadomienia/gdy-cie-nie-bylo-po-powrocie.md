@@ -27,5 +27,13 @@ https://claude.ai/artifact/4cnT834R5R1mbkzWac5gvx
 - **„Załatwione”** może oznaczyć osoba albo jej zastępca — to jeden wiersz,
   więc oboje widzą ten sam stan i kandydat nie dostaje dwóch wiadomości.
   „Zamknij podsumowanie” ustawia `away_dismissed_at` tylko u tej osoby.
+- **Strona zastępcy (16.11.2026):** wątek okienka „Rekrutacje”
+  (`GET /api/notifications/jobs`) niesie `away_case` — najnowsze
+  niezałatwione zamknięcie z `ACTION_TYPES`, które przyszło do zastępcy
+  w zastępstwie, także ciche (`while_away.deputy_cases`). Pod wierszem
+  pasek „W zastępstwie za …” z przyciskiem „Dałem znać” (ta sama trasa
+  `…/while-away/{id}/handled`), po zapisie „Załatwione · <imię>”. Pasek
+  stoi pod wierszem, nie w nim, bo wiersz jest przyciskiem do rekrutacji.
+  Okno 7 dni okienka obowiązuje: później zostaje sekcja u osoby po powrocie.
 - Kolumny: `quiet`, `handled_at`, `handled_by_user_id`, `away_dismissed_at`
   (0722 + lustro w `entrypoint.sh`).

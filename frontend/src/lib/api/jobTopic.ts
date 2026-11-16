@@ -23,6 +23,18 @@ export interface JobThread {
   link: string;
   /** Wątek to sam wpis zbiorczy: „stoją > 7 dni” albo „bez pracującego rekrutera”. */
   digest?: "stuck" | "unstaffed" | null;
+  /** Zamknięcie z osobami w toku, które przyszło w zastępstwie — zastępca
+   *  oznacza „Dałem znać” (`POST /api/notifications/while-away/{id}/handled`). */
+  away_case?: JobThreadAwayCase | null;
+}
+
+/** Sprawa z nieobecności kolegi po stronie zastępcy (16.11.2026). Ten sam
+ *  wiersz osoba widzi po powrocie w „Gdy Cię nie było”, więc stan jest wspólny. */
+export interface JobThreadAwayCase {
+  id: number;
+  on_behalf_of_name: string;
+  handled_at: string | null;
+  handled_by_name: string | null;
 }
 
 export interface JobThreadList {
