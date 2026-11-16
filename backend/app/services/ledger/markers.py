@@ -27,7 +27,8 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping, Optional
-from xml.etree import ElementTree
+
+from lxml import etree
 
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger_schema import REPORT_LINE_MAX
@@ -88,7 +89,9 @@ class Marker:
 def dictionary() -> dict[str, Marker]:
     """Słownik MF w kolejności ze schematu (kolejność = układ załącznika 1)."""
 
-    root = ElementTree.parse(SCHEMA).getroot()
+    # Jak schemat JPK_V7M (`jpk.py`): bez encji i sieci, choć plik jest nasz.
+    parser = etree.XMLParser(resolve_entities=False, no_network=True)
+    root = etree.parse(str(SCHEMA), parser).getroot()
     for simple in root.iter(f"{_XSD}simpleType"):
         if simple.get("name") != DICTIONARY_TYPE:
             continue
