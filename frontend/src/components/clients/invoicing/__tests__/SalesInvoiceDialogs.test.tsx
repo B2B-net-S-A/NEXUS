@@ -137,12 +137,20 @@ describe("AssignInvoiceDialog", () => {
     expect(showToast).toHaveBeenCalledWith("Faktura przypisana", "success");
   });
 
-  it("names EU VAT on the button for a foreign buyer", async () => {
-    mockOptions(check({ kind: "vat_ue", number: "FI12345678" }));
-    const { dialog } = await openAndPick({ ...UNKNOWN, buyer_nip: null, buyer_foreign_id: "FI12345678" });
+  it.each([
+    { kind: "vat_ue", number: "FI12345678", label: "VAT UE" },
+    { kind: "foreign_id", number: "NO123456789", label: "ID zagraniczne" },
+  ] as const)("labels a foreign buyer number as $label", async ({ kind, number, label }) => {
+    mockOptions(check({ kind, number }));
+    const { dialog } = await openAndPick({
+      ...UNKNOWN,
+      buyer_nip: null,
+      buyer_foreign_id: number,
+      buyer_number_kind: kind,
+    });
 
-    expect(within(dialog).getByRole("button", { name: "Przypisz i dopisz VAT UE" })).toBeInTheDocument();
-    expect(within(dialog).getByText(/Nabywca Fikcyjny · VAT UE FI12345678/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: `Przypisz i dopisz ${label}` })).toBeInTheDocument();
+    expect(within(dialog).getByText(new RegExp(`Nabywca Fikcyjny · ${label} ${number}`))).toBeInTheDocument();
   });
 
   it("does not offer the number when the client already has another one", async () => {

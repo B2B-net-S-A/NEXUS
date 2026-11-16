@@ -51,6 +51,7 @@ import {
   canMarkPaid,
   checkText,
   defaultPeriod,
+  invoiceBuyerNumberText,
   paymentNote,
   paymentText,
   paymentTone,
@@ -501,7 +502,7 @@ function InvoiceTable({
             >
               <TableCell className="min-w-0">
                 <span className="block truncate">{buyerText(invoice)}</span>
-                <span className={CALM_SUBLINE}>{invoice.buyer_nip ? `NIP ${invoice.buyer_nip}` : invoice.buyer_foreign_id ? `VAT UE ${invoice.buyer_foreign_id}` : "bez NIP-u"}</span>
+                <span className={CALM_SUBLINE}>{invoiceBuyerNumberText(invoice) ?? "bez NIP-u"}</span>
               </TableCell>
               <TableCell className="min-w-0">
                 <span className="block truncate" title={invoice.ksef_number}>
