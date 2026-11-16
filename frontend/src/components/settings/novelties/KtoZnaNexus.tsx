@@ -25,7 +25,7 @@ export function KtoZnaNexus() {
   const query = usePoligonLuki();
   if (query.isError) {
     return (
-      <p role="alert" className="rounded-lg border border-border bg-card p-4 text-sm text-destructive-text">
+      <p role="alert" className="rounded-lg border border-border bg-card p-4 text-sm text-destructive">
         {apiErrorMessage(query.error, "Nie udało się wczytać, kto zna NEXUS.")}
       </p>
     );
@@ -147,7 +147,7 @@ export function KtoZnaNexusView({ data }: { data: LukiMatrix }) {
                 <td
                   className={cn(
                     "border-l border-border px-2 text-right tabular-nums",
-                    p.gaps >= 8 && "font-semibold text-destructive-text",
+                    p.gaps >= 8 && "font-semibold text-destructive",
                   )}
                 >
                   {p.gaps}

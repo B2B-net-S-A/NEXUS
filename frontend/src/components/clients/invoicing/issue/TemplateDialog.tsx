@@ -128,7 +128,7 @@ export function TemplateDialog({
       footer={
         <>
           {template ? (
-            <Button variant="ghost" className="mr-auto text-destructive-text" onClick={drop} disabled={remove.isPending}>
+            <Button variant="ghost" className="mr-auto text-destructive" onClick={drop} disabled={remove.isPending}>
               <Trash2 className="h-4 w-4" aria-hidden />
               Usuń
             </Button>
