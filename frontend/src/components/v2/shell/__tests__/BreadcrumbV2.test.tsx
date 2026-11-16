@@ -71,6 +71,12 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     expect(screen.getByText("Rozliczenia")).toBeInTheDocument();
   });
 
+  it("Księgowość → Sprawozdania, nie globalne „Raporty” (K8a)", () => {
+    renderAt("/accounting/reports");
+    expect(screen.getByText("Sprawozdania")).toBeInTheDocument();
+    expect(screen.queryByText("Raporty")).not.toBeInTheDocument();
+  });
+
   it("prep-kit kończy się nazwą strony, a nie pustym okruszkiem", () => {
     mocks.get.mockResolvedValue({ data: { title: "Rekrutacja testowa" } });
     renderAt("/jobs/123/prep/456");

@@ -92,9 +92,10 @@ MODULE_REPLACES: dict[str, str] = {
 }
 #: Moduły z gotowymi ekranami (kolejne etapy dopisują tu swój klucz).
 #: ``payroll`` — K7a (lista płac, parametry, dane osób; 14.11.2026);
-#: ``vat`` — K5a (rejestry VAT; 15.11.2026).
+#: ``vat`` — K5a (rejestry VAT; 15.11.2026); ``reports`` — K8a (bilans i RZiS;
+#: 16.11.2026).
 BUILT: frozenset[str] = frozenset(
-    {"ledger", "automations", "bank", "vat", "assets", "payroll"}
+    {"ledger", "automations", "bank", "vat", "assets", "payroll", "reports"}
 )
 MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
