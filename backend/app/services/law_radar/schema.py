@@ -27,7 +27,9 @@ from app.services.consultant_portal_schema import quoted
 
 RUN_KINDS: tuple[str, ...] = ("collect", "analyze")
 RUN_STATUSES: tuple[str, ...] = ("started", "received", "failed", "expired")
-#: Źródła Zbieracza; ``lex`` to konto księgowej (decyzja Artura 15.11.2026).
+#: Źródła Zbieracza; ``lex`` i ``gofin`` to konta księgowej (decyzje Artura
+#: 15.11 i 16.11.2026). Gofin ma klasę ``practice``: komentarz wydawnictwa,
+#: nigdy fakt urzędowy.
 SOURCES: tuple[str, ...] = (
     "sejm",
     "rcl",
@@ -41,6 +43,7 @@ SOURCES: tuple[str, ...] = (
     "advisor",
     "x",
     "lex",
+    "gofin",
     "other",
 )
 CLASSES: tuple[str, ...] = ("official", "lex", "practice")
@@ -241,7 +244,22 @@ INDEX_DDL: tuple[str, ...] = (
     "ON law_radar_items (gate, analyzed_at)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+#: 0726: źródło ``gofin`` (16.11.2026). Przebudowa tylko wtedy, gdy CHECK na
+#: działającej bazie nie zna jeszcze Gofina (entrypoint woła to przy każdym starcie).
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'ck_law_radar_items_source'
+          AND pg_get_constraintdef(oid) NOT LIKE '%gofin%'
+    ) THEN
+        ALTER TABLE law_radar_items DROP CONSTRAINT ck_law_radar_items_source;
+        ALTER TABLE law_radar_items ADD CONSTRAINT ck_law_radar_items_source
+            CHECK ({CK_ITEM_SOURCE});
+    END IF;
+END $$""",
+)
 
 DATA_DDL: tuple[str, ...] = ()
 

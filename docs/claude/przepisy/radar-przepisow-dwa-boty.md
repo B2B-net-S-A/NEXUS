@@ -1,5 +1,5 @@
 # Przepisy: radar zmian w prawie, dwa Grok Boty i bramka NEXUSA
-<!-- indeks: Przepisy, /compliance, radar przepisów, law_radar, Zbieracz law collect, Analityk law analyze, bramka API Sejmu ELI, sondy u nas, strażnicy, LEX kontem księgowej, LAW_RADAR_ENABLED, GROK_BOT_LAW_COLLECT_WEBHOOK, GROK_BOT_LAW_ANALYZE_WEBHOOK, bez maili -->
+<!-- indeks: Przepisy, /compliance, radar przepisów, law_radar, Zbieracz law collect, Analityk law analyze, bramka API Sejmu ELI, sondy u nas, strażnicy, LEX kontem księgowej, Gofin kontem księgowej, gofin_skipped, LAW_RADAR_ENABLED, GROK_BOT_LAW_COLLECT_WEBHOOK, GROK_BOT_LAW_ANALYZE_WEBHOOK, bez maili -->
 
 Decyzje Artura z 15.11.2026. Propozycja i makiety ze stagingu:
 https://claude.ai/artifact/KuKN54kXDHXNVqeHdrGyL4 (wersja 5 z diagramem przepływu).
@@ -44,6 +44,16 @@ NEXUSA ani do drugiego bota.
   kontem księgowej z Vault Grok Bota. Hasło wpisuje do Vault Artur albo
   księgowa, nigdy sesja Claude ani kod. Z LEX-u do NEXUSA trafia tylko tytuł,
   link i cytat do 500 znaków (źródło `lex`), bez kopiowania komentarzy.
+- **Gofin** (decyzja Artura z 16.11.2026, wbrew rekomendacji): Zbieracz loguje
+  się do Gofina (www.gofin.pl) kontem księgowej z Vault Grok Bota, tak jak do
+  LEX-u. Artur zna oba zakazy Gofina: regulamin serwisów (korzystanie „przez
+  udostępnianie Danych identyfikacyjnych” bez pisemnej zgody) i zastrzeżenie
+  eksploracji tekstów i danych (art. 26³ prawa autorskiego: bez zgody na
+  systematyczne pobieranie automatem, także stron darmowych). Do NEXUSA trafia
+  tylko tytuł, link i cytat do 500 znaków (źródło `gofin`, klasa `practice`:
+  komentarz wydawnictwa, nigdy fakt urzędowy). Gdy Gofin nie wpuści bota, raport
+  ma `gofin_skipped`, a linia biegu na ekranie mówi „Gofin pominięty”. Hasło
+  wpisuje do Vault Artur albo księgowa, nigdy sesja Claude, Codex ani kod.
 
 ## Dane
 
@@ -104,7 +114,7 @@ sprzedaży z numerem KSeF w ostatnim pełnym miesiącu),
 - **Klasa:** `lex` dla źródła `lex` (CHECK: `lex` ⇔ `lex`), `official` dla hosta
   z listy domen urzędowych albo `*.gov.pl`, inaczej `practice`. Źródła raportu:
   `sejm`, `rcl` (legislacja.gov.pl), `zus`, `mf`, `eureka`, `pip`, `uodo`, `nsa`,
-  `eurlex`, `advisor`, `x`, `lex`, `other`.
+  `eurlex`, `advisor`, `x`, `lex`, `gofin` (od 0726, 16.11.2026), `other`.
 - **Analityk** dostaje pozycje `verified` i `unverified` z ostatnich 14 dni, które
   nie przeszły jeszcze przez przyjęty raport Analityka (najwyżej 200), z polem
   `gate`. Zmiana bez choć jednej pozycji ze zlecenia odpada; pozycja trafia do
