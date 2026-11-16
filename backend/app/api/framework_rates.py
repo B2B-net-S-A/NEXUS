@@ -12,6 +12,7 @@ Bramki (decyzja Artura z 15.11.2026: kwoty widzi DL swojego klienta i Finanse):
   domyślnie nie ma „Stawki i kwoty: zmiana”.
 """
 
+import logging
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
@@ -38,6 +39,7 @@ from app.api.permission_access import ContractsOrdersOrAmountsEditUser, Delivery
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.models.ai_feature import AIFeatureKey
 from app.models.contract import Contract, RateUnit
 from app.models.rate_card import RateCard, RateCardAdder
 from app.models.user import User
@@ -69,6 +71,8 @@ from app.services.framework_terms_import import parse_terms_docx
 
 # Odczyt i praca DL — sekcja Delivery jak kontrakty; cennik zapisują Finanse
 # (bramka capability, bez sekcji Delivery).
+logger = logging.getLogger(__name__)
+
 router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 finance_router = APIRouter()
 
@@ -865,6 +869,114 @@ async def act_on_premium_skill_claim(
         raise HTTPException(422, detail=str(exc)) from exc
     await db.flush()
     return await _premium_out(db, contract)
+
+
+class JustificationDraftOut(BaseModel):
+    text: Optional[str] = None
+    model_used: bool = False
+    warnings: list[str] = Field(default_factory=list)
+    message: Optional[str] = None
+
+
+NO_MODEL_MESSAGE = (
+    "Model AI nie jest teraz dostępny — popraw szablon uzasadnienia albo napisz je sam."
+)
+MODEL_FAILED_MESSAGE = (
+    "Nie udało się przygotować szkicu — popraw szablon uzasadnienia albo napisz je sam."
+)
+
+
+@router.post(
+    "/contracts/{contract_id}/premium-skills/claims/{claim_id}/justification-draft",
+    response_model=JustificationDraftOut,
+)
+async def draft_premium_skill_justification(
+    contract_id: int,
+    claim_id: int,
+    current_user: ContractsOrdersOrAmountsEditUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Szkic uzasadnienia (EN) z modelu (F5). Nic nie zapisuje; bez modelu — komunikat."""
+    from starlette.concurrency import run_in_threadpool
+
+    from app.models.candidate import Candidate
+    from app.models.contract_premium_skill import ContractPremiumSkillClaim
+    from app.services import premium_skill_justification as justification
+    from app.services.ai_models import model_chain_for
+    from app.services.ai_quota import ai_feature
+    from app.services.llm_providers import api_key_configured
+    from app.services.premium_skill_schema import OPEN_STATUSES
+    from app.services.premium_skills import contract_evidence, person_skills
+
+    contract = await _contract(db, contract_id)
+    await _assert_client_finance(current_user, db, contract.client_id)
+    claim = await db.scalar(
+        select(ContractPremiumSkillClaim).where(
+            ContractPremiumSkillClaim.id == claim_id,
+            ContractPremiumSkillClaim.contract_id == contract_id,
+        )
+    )
+    if claim is None:
+        raise HTTPException(404, detail="Nie ma takiego wniosku.")
+    if claim.status not in OPEN_STATUSES:
+        raise HTTPException(422, detail="Ten wniosek jest już zamknięty.")
+
+    today = business_today()
+    terms = await load_terms(db, contract.client_id)
+    live = next(
+        (
+            e
+            for e in await contract_evidence(db, contract, terms, today)
+            if e.technology == claim.technology
+        ),
+        None,
+    )
+    saved = (claim.evidence or [{}])[0] if claim.evidence else {}
+    card = terms.card(contract.client_rate_card_id)
+    candidate = (
+        await db.get(Candidate, contract.candidate_id)
+        if contract.candidate_id
+        else None
+    )
+    facts = justification.build_facts(
+        technology=claim.technology,
+        percent=live.percent if live else str(saved.get("percent") or ""),
+        category=category_label(card.role, card.seniority) if card else None,
+        sources=live.sources if live else tuple(saved.get("sources") or ()),
+        project_stack=(await person_skills(db, contract)).tech_card,
+        dl_note=claim.dl_note,
+        person_names=[candidate.name or "", candidate.lastname or ""]
+        if candidate
+        else [],
+    )
+
+    chain = model_chain_for(AIFeatureKey.premium_skill_justification)
+    if not chain or not api_key_configured(chain[0]):
+        return JustificationDraftOut(message=NO_MODEL_MESSAGE)
+    prompt = justification.build_prompt(facts)
+    try:
+        async with ai_feature(
+            db, AIFeatureKey.premium_skill_justification, user_id=current_user.id
+        ):
+            await db.commit()  # połączenie wraca do puli na czas modelu
+            raw = await run_in_threadpool(justification.call_model, chain, prompt)
+    except Exception as exc:  # noqa: BLE001 — AI to dodatek, nigdy bramka
+        logger.warning(
+            "premium_skill_justification: model failed contract=%s claim=%s (%s)",
+            contract_id,
+            claim_id,
+            type(exc).__name__,
+        )
+        await db.rollback()
+        return JustificationDraftOut(message=MODEL_FAILED_MESSAGE)
+    text = justification.clean_draft(raw)
+    if text is None:
+        return JustificationDraftOut(message=MODEL_FAILED_MESSAGE)
+    return JustificationDraftOut(
+        text=text,
+        model_used=True,
+        warnings=justification.warnings_for(text, facts),
+    )
 
 
 class ProlongationOut(BaseModel):

@@ -7,6 +7,8 @@ import {
   insightsApi,
   insightsQueryKeys,
   type InsightsPeriodParams,
+  type TeamActivityEntry,
+  type TeamActivityResponse,
 } from "@/lib/insights-api";
 import { cn } from "@/lib/utils";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
@@ -20,8 +22,38 @@ interface Props {
   limit?: number;
 }
 
-const ACTIVITY_COLUMNS = [
-  { key: "candidates_added", label: "Kandydaci", heat: "bg-primary" },
+type CountKey = Extract<
+  keyof TeamActivityEntry,
+  | "candidates_added"
+  | "added_to_jobs"
+  | "screenings"
+  | "interviews"
+  | "placements"
+  | "calls"
+  | "link_candidates"
+>;
+
+const ACTIVITY_COLUMNS: readonly {
+  key: CountKey;
+  label: string;
+  heat: string;
+  title?: string;
+}[] = [
+  {
+    key: "candidates_added",
+    label: "Kandydaci",
+    heat: "bg-primary",
+    title: "Nowo utworzone profile kandydatów w bazie — nie dodania do rekrutacji.",
+  },
+  // 16.11.2026 (Artur): ta sama liczba co „Kto ilu dodał” na Tablicy i kolumna
+  // „Dodali” na pulpicie — pary kandydat × rekrutacja, także osoby już w bazie.
+  {
+    key: "added_to_jobs",
+    label: "Dodani do rekrutacji",
+    heat: "bg-primary",
+    title:
+      "Osoby dodane do rekrutacji (para kandydat × rekrutacja, liczona osobie z pierwszego wpisu etapu) — także te, które już były w bazie. Bez automatu „Nowi”.",
+  },
   { key: "screenings", label: "Screeningi", heat: "bg-indigo-500" },
   { key: "interviews", label: "Rozmowy u klienta", heat: "bg-purple-500" },
   { key: "placements", label: "Placementy", heat: "bg-green-500" },
@@ -29,7 +61,20 @@ const ACTIVITY_COLUMNS = [
   // Etap 4 linków (19.10.2026): osoby ze zgłoszeń przez linki tej osoby —
   // nowe i już w bazie. Poza kolumną „Razem”.
   { key: "link_candidates", label: "Z linków", heat: "bg-primary" },
-] as const;
+];
+
+/** „automat „Nowi” 12, bez osoby 3” — pusty napis, gdy obu nie ma. */
+function addedElsewhere(totals: TeamActivityResponse["totals"] | undefined): string {
+  if (!totals) return "";
+  const parts: string[] = [];
+  if (totals.added_to_jobs_system) {
+    parts.push(`automat „Nowi” ${count(totals.added_to_jobs_system)}`);
+  }
+  if (totals.added_to_jobs_unattributed) {
+    parts.push(`stare wpisy bez osoby ${count(totals.added_to_jobs_unattributed)}`);
+  }
+  return parts.join(", ");
+}
 
 /**
  * Imienny ranking aktywności zespołu — na `/api/insights/recruitment/team-activity`.
@@ -109,6 +154,7 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
                     <th
                       key={c.key}
                       className="text-right font-medium py-2 px-2"
+                      title={c.title}
                     >
                       {c.label}
                     </th>
@@ -186,6 +232,12 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
               Poza filtrem roli: {count(data.filtered_out.users)} osób —{" "}
               {count(data.filtered_out.actions)} akcji, w tym{" "}
               {count(data.filtered_out.placements)} placementów.
+            </p>
+          )}
+          {addedElsewhere(data?.totals) && (
+            <p className="mt-3 text-xs text-muted-foreground" data-testid="team-activity-added-elsewhere">
+              Dodani do rekrutacji poza rankingiem osób:{" "}
+              {addedElsewhere(data?.totals)}.
             </p>
           )}
           {data?.coverage?.note && (

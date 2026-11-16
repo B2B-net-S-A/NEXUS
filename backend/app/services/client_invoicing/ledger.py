@@ -64,12 +64,12 @@ class Chain:
 
     @property
     def order_net(self) -> Decimal:
-        """Netto bez pozycji rabatu od obrotu — to porównujemy z zamówieniem."""
+        """Netto przed rabatem % na wierszach — to porównujemy z zamówieniem."""
 
         return money(
             sum(
                 (
-                    rebate.without_rebate(Decimal(i.net_amount), i.items or [])
+                    rebate.pre_discount(Decimal(i.net_amount), i.items or [])
                     for i in self.invoices
                 ),
                 ZERO,

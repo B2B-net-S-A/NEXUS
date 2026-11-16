@@ -4198,6 +4198,7 @@ async def api_health_deep_check(request: Request):
         TrainingTranscript,
     )
     from app.models.finance_archive import FinanceArchiveDocument
+    from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.board_document import BoardDocument, BoardKrsSnapshot
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
@@ -4874,6 +4875,8 @@ async def api_health_deep_check(request: Request):
         ("client_invoice_templates", ClientInvoiceTemplate),
         # 0720: archiwum dokumentów z eBI24 (E5).
         ("finance_archive_documents", FinanceArchiveDocument),
+        # 0724: kroki stawki przychodowej zamówienia (aneks stawki klienta).
+        ("client_order_revenue_steps", ClientOrderRevenueStep),
         ("board_documents", BoardDocument),
         ("board_krs_snapshots", BoardKrsSnapshot),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL

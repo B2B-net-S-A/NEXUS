@@ -66,6 +66,7 @@ from app.services.insights_seniority_journal import (
     load_journal_status,
     load_open_regressions,
 )
+from app.services.added_to_jobs import count_added_to_jobs
 from app.services.insights_team_activity import compute_team_activity
 from app.services.section_permissions import (
     ProductSection,
@@ -1003,8 +1004,9 @@ async def insights_team_activity(
     # v2 (24.09.2026): konta administracyjne poza rankingiem osób.
     # v3 (runda 10): kolumny z prawdziwych źródeł.
     # v5 (10.11.2026): filtr roli (`services/team_filters.py`).
+    # v6 (16.11.2026): „Dodani do rekrutacji” (`services/added_to_jobs.py`).
     cache_key = (
-        f"insights:recruitment:team-activity:v5:{resolved.cache_suffix}:{limit}:{role}"
+        f"insights:recruitment:team-activity:v6:{resolved.cache_suffix}:{limit}:{role}"
     )
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
@@ -1040,6 +1042,9 @@ async def insights_team_activity(
         # a `_ratio` zamienia je na `None` — pasek bez skali to brak wartości,
         # nie zero aktywności.
         max_actions = max([r.total_actions for r in rows] + [0])
+        # Dodania par do rekrutacji w tym samym oknie — ta sama reguła co
+        # „Kto ilu dodał” na Tablicy i kolumna na pulpicie (16.11.2026).
+        added = await count_added_to_jobs(db, since=resolved.start, until=resolved.end)
 
         entries = [
             {
@@ -1047,6 +1052,7 @@ async def insights_team_activity(
                 "user_id": r.user_id,
                 "name": r.user_name,
                 "candidates_added": r.candidates_added,
+                "added_to_jobs": added.by_user.get(r.user_id, 0),
                 "screenings": r.screenings,
                 "interviews": r.interviews,
                 "placements": r.placements,
@@ -1068,6 +1074,10 @@ async def insights_team_activity(
                 # kafel liczony z innego zbioru niż lista pod nim nie daje się
                 # sprawdzić wzrokiem.
                 "actions": sum(e["total_actions"] for e in entries),
+                # Dodania bez osoby: silnik „Nowi” i stare wpisy bez autora.
+                # Nie należą do nikogo w rankingu, ale nie znikają bez śladu.
+                "added_to_jobs_system": added.system,
+                "added_to_jobs_unattributed": added.unattributed,
             },
             # Konta bez roli rekrutacyjnej (reguła Hall of Fame) — jeden wiersz
             # pod rankingiem, nie osoba w nim.
@@ -1092,8 +1102,11 @@ async def insights_team_activity(
                 # (opis w `services/insights_team_activity.py`).
                 "source": "mixed",
                 "note": (
-                    "Kandydaci, screeningi, telefony i kolumna „Razem” to "
-                    "czynności wykonane w NEXUSIE. Rozmowy u klienta "
+                    "Kandydaci (nowo utworzone profile), screeningi, telefony "
+                    "i kolumna „Razem” to czynności wykonane w NEXUSIE. "
+                    "„Dodani do rekrutacji” liczy pary kandydat × rekrutacja "
+                    "po osobie z pierwszego wpisu etapu, bez automatu „Nowi”. "
+                    "Rozmowy u klienta "
                     "i placementy liczą pierwsze wejście pary na etap, "
                     "przypisane osobie, która ją przesunęła — także ruchy "
                     "z importu Traffita, tak jak w tabeli „Performance per "

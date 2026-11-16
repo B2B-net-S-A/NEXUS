@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD",
+  "GET /api/insights/team/added-to-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD",
   "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD",
   "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDDDDDDDPPDD"
  }

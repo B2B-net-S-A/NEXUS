@@ -964,12 +964,13 @@ def _sales(client_id: int, number: str, issued: date, net: str, *names: str):
     )
 
 
-async def test_draft_gets_rebate_line_at_rate_from_turnover_before_its_month(
+async def test_draft_gets_line_discount_at_rate_from_turnover_before_its_month(
     client, seed
 ):
-    """Szkic za październik dostaje pozycję „Rabat od obrotu” po 3%, bo obrót
-    do końca września przekroczył próg; wrzesień ma korektę 0,5% od nadwyżki.
-    Faktura z 2025 i refaktura podróży poza obrotem. Złe warunki = 422.
+    """Szkic za październik ma rabat 3% na każdym wierszu usługi (jak w eBI24),
+    bo obrót przed rabatem do końca września przekroczył próg; wrzesień ma
+    korektę 0,5% od nadwyżki. Faktura z 2025 i refaktura podróży poza obrotem.
+    Złe warunki = 422; edycja pozycji zachowuje rabat.
     """
 
     terms = {
@@ -998,10 +999,15 @@ async def test_draft_gets_rebate_line_at_rate_from_turnover_before_its_month(
     assert "progów" in bad.json()["detail"]
 
     await _settings(client, seed, clients={str(seed.client_id): {"rebate": terms}})
+    september = _sales(seed.client_id, "1", date(2026, 9, 30), "107250.00", "Usługi")
+    # eBI24: cena przed rabatem na wierszu, netto po rabacie 2,5%.
+    september.items = [
+        {"name": "Usługi", "quantity": "1000", "unit_price": "110", "net": "107250.00"}
+    ]
     async with AsyncSessionLocal() as db:
         db.add_all(
             [
-                _sales(seed.client_id, "1", date(2026, 9, 30), "110000.00", "Usługi"),
+                september,
                 _sales(seed.client_id, "2", date(2025, 12, 31), "500000.00", "Usługi"),
                 _sales(
                     seed.client_id,
@@ -1016,22 +1022,28 @@ async def test_draft_gets_rebate_line_at_rate_from_turnover_before_its_month(
 
     invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
     card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
-    services = [
-        row for row in card["lines"] if not row["name"].startswith("Rabat od obrotu")
-    ]
-    (line,) = [
-        row for row in card["lines"] if row["name"].startswith("Rabat od obrotu")
-    ]
-    base = sum(Decimal(row["net"]) for row in services)
-    assert line["name"] == "Rabat od obrotu rocznego 3% (umowa ramowa, rok 2026)"
-    assert Decimal(line["net"]) == -(base * 3 / 100).quantize(Decimal("0.01"))
-    assert Decimal(card["net"]) == base + Decimal(line["net"])
+    assert card["lines"] and all(row["discount_pct"] == "3" for row in card["lines"])
+    gross = sum(
+        (Decimal(row["quantity"]) * Decimal(row["unit_price"])).quantize(
+            Decimal("0.01")
+        )
+        for row in card["lines"]
+    )
+    net = sum(
+        (
+            Decimal(row["quantity"])
+            * (Decimal(row["unit_price"]) * Decimal("0.97")).quantize(Decimal("0.01"))
+        ).quantize(Decimal("0.01"))
+        for row in card["lines"]
+    )
+    assert Decimal(card["net"]) == net < gross
 
     data = card["rebate"]
     assert (data["year"], data["month"], data["rate"]) == (2026, 10, "3")
+    # Obrót przed rabatem (1000 × 110), bez podróży i bez 2025.
     assert data["turnover_before"] == "110000.00"
-    assert Decimal(data["turnover"]) == Decimal("110000.00") + base
-    assert data["on_invoice"] == str(-Decimal(line["net"]))
+    assert Decimal(data["turnover"]) == Decimal("110000.00") + gross
+    assert data["on_invoice"] == str(gross - net)
     assert data["excluded"] == 1
     assert data["corrections"] == [
         {
@@ -1042,25 +1054,16 @@ async def test_draft_gets_rebate_line_at_rate_from_turnover_before_its_month(
         }
     ]
 
-    # Zmiana ilości przelicza pozycję rabatu (stawka zostaje).
-    edited = [dict(row) for row in services]
+    # Edycja ilości zachowuje rabat na wierszu i przelicza netto.
+    edited = [dict(row) for row in card["lines"]]
     edited[0]["quantity"] = str(Decimal(edited[0]["quantity"]) * 2)
     saved = await client.put(
-        f"{BASE}/{invoice_id}",
-        json={"lines": edited + [line]},
-        headers=_h(seed),
+        f"{BASE}/{invoice_id}", json={"lines": edited}, headers=_h(seed)
     )
     assert saved.status_code == 200, saved.text
     again = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
-    new_base = sum(
-        Decimal(row["net"])
-        for row in again["lines"]
-        if not row["name"].startswith("Rabat od obrotu")
-    )
-    (new_line,) = [
-        row for row in again["lines"] if row["name"].startswith("Rabat od obrotu")
-    ]
-    assert Decimal(new_line["net"]) == -(new_base * 3 / 100).quantize(Decimal("0.01"))
+    assert all(row["discount_pct"] == "3" for row in again["lines"])
+    assert Decimal(again["net"]) > Decimal(card["net"])
 
     # Klient bez warunków: karta bez rabatu.
     await _settings(client, seed)
