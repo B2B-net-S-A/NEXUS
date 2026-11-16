@@ -66,6 +66,7 @@ from app.services.client_settlements_schema import FIX_REASON_MAX
 from app.services.consultant_portal import documents as portal_documents
 from app.services.hr.payroll_periods import add_months
 from app.services.multi_consultant_orders import EVENT_MANUAL_EDIT, format_md
+from app.services.order_revenue_steps import priced_one
 from app.services.person_workdays import business_days
 
 logger = logging.getLogger(__name__)
@@ -173,7 +174,7 @@ async def _order_for(
     db: AsyncSession, contract_id: int, month: str
 ) -> Optional[ClientOrder]:
     first, last = month_bounds(month)
-    return await db.scalar(
+    order = await db.scalar(
         select(ClientOrder)
         .where(
             ClientOrder.contract_id == contract_id,
@@ -188,6 +189,9 @@ async def _order_for(
         )
         .limit(1)
     )
+    # Stawka przychodowa z pierwszego dnia miesiąca rozliczenia — aneks stawki
+    # klienta zmienia ją od swojego dnia (``services/order_revenue_steps.py``).
+    return await priced_one(db, order, first)
 
 
 async def _order_state(

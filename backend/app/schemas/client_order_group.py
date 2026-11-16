@@ -519,6 +519,15 @@ class LineConsumptionPoint(BaseModel):
     md: MdValue
 
 
+class OrderLineRevenueStepRead(BaseModel):
+    """Krok stawki przychodowej linii (aneks stawki klienta, 0721)."""
+
+    effective_from: date
+    first_month: date
+    """Pierwszy miesiąc liczony tą stawką (zużycie MD jest miesięczne)."""
+    md_rate_revenue: Optional[MoneyPLN] = None
+
+
 class OrderLineRead(BaseModel):
     source_rate_cost: Optional[MoneyPLN] = None
     source_rate_revenue: Optional[MoneyPLN] = None
@@ -545,6 +554,11 @@ class OrderLineRead(BaseModel):
     # Finansowe — zerowane dla ról bez VIEW_FINANCE.
     rate_cost: Optional[MoneyPLN] = None
     rate_revenue: Optional[MoneyPLN] = None
+    # Stawka przychodowa od dnia aneksu (0721). ``rate_revenue`` zostaje
+    # stawką ze startu linii; ``current_rate_revenue`` — obowiązująca dziś,
+    # ``None`` = bez kroków (jak ``rate_revenue``). Zerowane jak stawki.
+    current_rate_revenue: Optional[MoneyPLN] = None
+    revenue_steps: list[OrderLineRevenueStepRead] = []
     input_value: Optional[MdValue] = None
 
     input_mode: Optional[str] = None

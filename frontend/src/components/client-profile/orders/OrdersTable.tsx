@@ -20,7 +20,7 @@ import {
 import { hasScopedMd } from "@/lib/order-line-usage";
 import { formatDate, formatPLN } from "@/types/client-profile";
 import { rowActivationProps } from "@/hooks/useRowNavigation";
-import { warsawDateOf } from "@/lib/warsaw-date";
+import { warsawDateOf, warsawToday } from "@/lib/warsaw-date";
 import { awaitingMdNote } from "@/lib/order-consumption";
 
 import { ConsumptionButton } from "./ConsumptionButton";
@@ -30,7 +30,7 @@ import { MdScopeBars } from "./MdScopeBars";
 import { OrderTypeBadge, orderTypeLabel } from "./OrderTypeBadge";
 import { RateText } from "./RateTrio";
 import { CONTRACTOR_STATE_DOT, contractorRowSummary } from "./contractor-order-row";
-import { displayLineRate, orderLineAnchorId } from "./order-line-display";
+import { displayLineRate, lineRevenueStepNote, orderLineAnchorId } from "./order-line-display";
 import { executiveContractLabel, GROUP_STATUS_TONE, orderGroupAnchorId, periodLabel } from "./order-group-parts";
 import {
   buildSectionTiles,
@@ -630,6 +630,8 @@ function OrdersTableRowView({
   const notes = [...(ended ? [] : lineNotes(line)), ...awaitingNotes(line)];
   const needsDecision = ended && requiresDecision(line);
   const decided = ended ? decisionLabel(line) : null;
+  // Aneks stawki klienta zmienił stawkę linii od jakiegoś dnia (0721).
+  const revenueNote = lineRevenueStepNote(line, warsawToday());
   return (
     <tr
       {...activation}
@@ -671,6 +673,7 @@ function OrdersTableRowView({
       </td>
       <td className={cn(RATE_CELL, ended && "text-muted-foreground")}>
         <RateText label={displayLineRate(line, "revenue")} />
+        {revenueNote ? <span className={CALM_SUBLINE}>{revenueNote}</span> : null}
       </td>
       <td className={cn(CELL, "min-w-[10rem]")}>
         {ended ? (

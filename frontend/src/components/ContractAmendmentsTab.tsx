@@ -25,6 +25,7 @@ import { B2B_EXTENSION_HINT } from "@/lib/contract-end-date";
 import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import { warsawToday } from "@/lib/warsaw-date";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { AnnexClientRateImpact } from "@/components/contracts/AnnexClientRateImpact";
 import { resolveViewState } from "@/lib/view-state";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import {
@@ -465,6 +466,13 @@ export function ContractAmendmentsTab({
                 />
               </label>
             </div>
+          )}
+          {form.amendment_type === "rate_change" && canAmendRates && canViewFinance && (
+            <AnnexClientRateImpact
+              contractId={contractId}
+              effectiveDate={form.effective_date}
+              newRateClient={form.new_rate_client}
+            />
           )}
 
           {form.amendment_type === "scope_change" && (
