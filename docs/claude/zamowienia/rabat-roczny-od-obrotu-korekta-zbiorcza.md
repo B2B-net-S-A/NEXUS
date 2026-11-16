@@ -62,9 +62,33 @@ z tego dnia („korekta roczna”, „3% od całego obrotu”) została zastąpi
   22 klientów, odczyt 16.11), więc ich to nie zmienia.
 - Kod: `services/client_invoicing/rebate.py`, `issue.apply_rebate`, `issue_settings.client_rebate`.
 
+## Szkic korekty za miesiąc przekroczenia (16.11.2026)
+
+Przy korekcie na karcie faktury jest przycisk „Szkic korekty rabatu za <miesiąc>”
+(`GET /api/finance/issued-invoices/rebate-correction`, XML: `…/rebate-correction/xml`,
+kod: `services/client_invoicing/rebate_correction.py`). Szkic niczego nie zapisuje
+i NEXUS go nie wysyła. Do KSeF idzie dopiero po „tak” Artura.
+
+- Kwota to `YearRebate.corrections` z karty, czyli różnica stawek × nadwyżka w walucie progu.
+  Na walutę faktur przelicza ją ten sam udział, którego używa karta.
+- Forma w FA(3) to jedna korekta zbiorcza za miesiąc (art. 106j ust. 3):
+  - `RodzajFaktury` = `KOR`;
+  - `TypKorekty` = 2, bo to obniżka ceny po sprzedaży i skutek liczy się w dacie korekty;
+  - `DaneFaKorygowanej` dla każdej faktury pierwotnej z miesiąca w tej walucie, która ma obrót usług.
+    Wpisy mają numer KSeF, więc faktury z eBI24 też się liczą. Schemat pozwala na 50 000 wpisów;
+  - `OkresFaKorygowanej` = miesiąc;
+  - `FaWiersz` po jednym na stawkę VAT z nazwą usług objętych opustem, bo rabat nie obejmuje podróży.
+    Kwota dzieli się na stawki według obrotu usług przed rabatem.
+- Waluta inna niż PLN dostaje osobny szkic. Kurs NBP bierzemy z dnia roboczego przed końcem miesiąca
+  i księgowa go sprawdza.
+- Odmowa: klient bez warunków, rok poza warunkami, miesiąc bez przekroczenia, waluta bez faktur.
+  XML nie powstaje przy stawce VAT spoza FA(3) i przy braku danych sprzedawcy.
+- Testy: `tests/test_client_invoice_rebate_correction.py` sprawdzają XML schematem
+  z `tests/data/fa3_schema/` (kopia schematu MF z lokalnymi importami).
+
 ## Czego jeszcze nie ma
 
-- Szkicu faktury korygującej za miesiąc przekroczenia. Korekta obejmuje wiele faktur z tego miesiąca,
-  a NEXUS koryguje dziś pojedynczą fakturę wystawioną w NEXUSIE. Kwotę bierze się z karty.
+- Wystawienia korekty z numerem i wysyłki do KSeF. Tabela `client_issued_invoices` wymaga przy `KOR`
+  jednej faktury korygowanej (`corrects_id`). Korekta zbiorcza potrzebuje więc migracji, a wysyłka „tak” Artura.
 - Obrotu sprzed 4.08.2026: NEXUS czyta KSeF od tego dnia. Faktury ze stycznia–lipca 2026 trzeba
   dograć z archiwum eBI24, inaczej licznik do progu jest zaniżony.

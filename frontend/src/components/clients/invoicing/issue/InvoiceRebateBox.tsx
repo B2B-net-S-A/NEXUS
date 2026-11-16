@@ -1,6 +1,13 @@
-import type { InvoiceRebate } from "@/lib/api/issued-invoices";
+"use client";
+
+import { useState } from "react";
+
+import { Button } from "@/components/ui/button";
+import type { InvoiceRebate, RebateCorrectionQuery } from "@/lib/api/issued-invoices";
 import { monthTitlePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
+
+import { RebateCorrectionDialog } from "./RebateCorrectionDialog";
 
 function percent(rate: string): string {
   return `${rate.replace(".", ",")}%`;
@@ -25,8 +32,15 @@ export function rebateTiersText(rebate: InvoiceRebate): string {
  * licznik do progu dla Finansów i korekta za miesiąc przekroczenia (różnica
  * stawek od części obrotu ponad próg).
  */
-export function InvoiceRebateBox({ rebate }: { rebate: InvoiceRebate }) {
+export function InvoiceRebateBox({
+  rebate,
+  clientId = null,
+}: {
+  rebate: InvoiceRebate;
+  clientId?: number | null;
+}) {
   const thr = rebate.threshold_currency;
+  const [draft, setDraft] = useState<RebateCorrectionQuery | null>(null);
   return (
     <section className="rounded-lg border border-border bg-card px-4 py-3 text-sm" aria-label="Rabat od obrotu">
       <h3 className="mb-2 text-sm font-semibold text-foreground">
@@ -59,13 +73,35 @@ export function InvoiceRebateBox({ rebate }: { rebate: InvoiceRebate }) {
           Żaden wiersz nie ma rabatu % — klient ma rabat od obrotu z umowy ramowej.
         </p>
       ) : null}
-      {rebate.corrections.map((correction) => (
-        <p key={correction.month} className="mt-2 rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground">
-          Korekta za {monthTitlePl({ year: rebate.year, month: correction.month })}:{" "}
-          {percent(correction.rate_diff)} od {formatMoney(correction.excess, thr)} ponad próg ={" "}
-          {correction.amounts.map((a) => formatMoney(a.amount, a.currency)).join(" + ")}. Do KSeF po zgodzie.
-        </p>
-      ))}
+      {rebate.corrections.map((correction) => {
+        const label = monthTitlePl({ year: rebate.year, month: correction.month });
+        return (
+          <div key={correction.month} className="mt-2 rounded-md bg-muted/50 px-2 py-1 text-xs text-foreground">
+            <p>
+              Korekta za {label}: {percent(correction.rate_diff)} od {formatMoney(correction.excess, thr)} ponad
+              próg = {correction.amounts.map((a) => formatMoney(a.amount, a.currency)).join(" + ")}. Do KSeF po
+              zgodzie.
+            </p>
+            {clientId
+              ? correction.amounts.map((a) => (
+                  <Button
+                    key={a.currency}
+                    size="sm"
+                    variant="outline"
+                    className="mt-1 mr-2"
+                    onClick={() =>
+                      setDraft({ clientId, year: rebate.year, month: correction.month, currency: a.currency })
+                    }
+                  >
+                    Szkic korekty rabatu za {label.toLowerCase()}
+                    {correction.amounts.length > 1 ? ` (${a.currency})` : ""}
+                  </Button>
+                ))
+              : null}
+          </div>
+        );
+      })}
+      {draft ? <RebateCorrectionDialog query={draft} onClose={() => setDraft(null)} /> : null}
       <p className="mt-2 text-xs text-muted-foreground">
         Progi: {rebateTiersText(rebate)}. Obrót przed rabatem; stawka z obrotu do końca poprzedniego miesiąca;
         wyższa stawka tylko od nadwyżki ponad próg.
