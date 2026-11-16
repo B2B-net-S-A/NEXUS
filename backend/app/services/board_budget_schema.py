@@ -1,4 +1,4 @@
-"""Budżet Rady (R3): SQL migracji ``0727_board_budgets`` i lustra entrypointu.
+"""Budżet Rady (R3): SQL migracji ``0728_board_budgets`` i lustra entrypointu.
 
 * ``board_budgets`` — budżet roku: status (szkic / przyjęty), uchwała Rady,
   która go przyjęła (wiersz z ``board_documents``), notatka.

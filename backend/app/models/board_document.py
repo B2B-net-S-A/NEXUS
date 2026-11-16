@@ -1,4 +1,4 @@
-"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0726, R1) i budżet (0727, R3).
+"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) i budżet (0728, R3).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
@@ -121,7 +121,7 @@ class BoardKrsSnapshot(Base):
 
 
 class BoardBudget(Base):
-    """Budżet roku (0727, R3): status i uchwała Rady, która go przyjęła."""
+    """Budżet roku (0728, R3): status i uchwała Rady, która go przyjęła."""
 
     __tablename__ = "board_budgets"
     __table_args__ = (
