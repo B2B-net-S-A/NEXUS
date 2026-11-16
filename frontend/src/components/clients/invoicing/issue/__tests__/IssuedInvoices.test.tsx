@@ -153,6 +153,7 @@ const CARD: IssuedInvoiceCard = {
   can_check: false,
   can_correct: false,
   history: [],
+  rebate: null,
 };
 
 function wrap(node: React.ReactNode) {

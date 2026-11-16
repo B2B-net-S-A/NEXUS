@@ -12,6 +12,7 @@ wiersza, a JSON w ``app_settings`` takiej blokady nie daje.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -20,9 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
 from app.services.client_invoice_issue_schema import SERIES
+from app.services.client_invoicing import rebate
 from app.services.client_invoicing.fa3_build import VAT_RATES
 from app.services.client_sales_invoices_schema import CURRENCIES
 from app.services.order_client_identity import nip_checksum_valid
+
+logger = logging.getLogger(__name__)
 
 SETTING_KEY = "client_invoice_issue"
 #: Wzory jak w eBI24 (archiwum 2026): miesiąc bez zera, „/UE”, „/Benefit”, „/KORUE”.
@@ -110,6 +114,16 @@ def normalize(raw: object) -> dict[str, Any]:
             own = {k: v for k, v in own.items() if v["number"]}
             if own:
                 entry["accounts"] = own
+        # Rabat roczny od obrotu (decyzja Artura 16.11.2026: Nordea, progi z umowy
+        # ramowej jako dane). Zapis sprawdza warunki ostro (``save``); tu, przy
+        # odczycie, złe warunki odpadają z logiem, żeby nie zatrzymać wystawiania.
+        try:
+            terms = rebate.parse_terms(value.get("rebate"))
+        except rebate.RebateTermsError:
+            logger.warning("client_invoice_issue: złe warunki rabatu klienta %s", key)
+            terms = None
+        if terms is not None:
+            entry["rebate"] = rebate.to_json(terms)
         if entry:
             clients[str(int(key))] = entry
     return {
@@ -182,6 +196,31 @@ def seller_missing(data: dict[str, Any]) -> list[str]:
     return missing
 
 
+def _check_rebates(raw: dict[str, Any]) -> None:
+    overrides = raw.get("clients") if isinstance(raw.get("clients"), dict) else {}
+    for key, value in overrides.items():
+        if not isinstance(value, dict):
+            continue
+        try:
+            rebate.parse_terms(value.get("rebate"))
+        except rebate.RebateTermsError as exc:
+            raise IssueSettingsError(f"{exc} (klient {key})") from exc
+
+
+def client_rebate(
+    data: dict[str, Any], client_id: Optional[int]
+) -> Optional[rebate.Terms]:
+    """Warunki rabatu rocznego przy kliencie (``None`` = bez rabatu)."""
+
+    if client_id is None:
+        return None
+    raw = data["clients"].get(str(client_id), {}).get("rebate")
+    try:
+        return rebate.parse_terms(raw)
+    except rebate.RebateTermsError:
+        return None
+
+
 async def load(db: AsyncSession) -> dict[str, Any]:
     raw = await db.scalar(select(AppSetting.value).where(AppSetting.key == SETTING_KEY))
     return normalize(raw)
@@ -192,6 +231,7 @@ async def save(
 ) -> dict[str, Any]:
     """Zapis (bez commita); ``IssueSettingsError`` przy złych danych."""
 
+    _check_rebates(raw)
     value = normalize(raw)
     validate(value)
     statement = insert(AppSetting).values(
@@ -244,6 +284,7 @@ __all__ = [
     "IssueSettingsError",
     "account_for",
     "client_payment_days",
+    "client_rebate",
     "client_vat",
     "load",
     "normalize",

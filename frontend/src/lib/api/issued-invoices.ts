@@ -107,6 +107,37 @@ export interface IssuedInvoiceCard extends IssuedInvoiceRow {
   can_check: boolean;
   can_correct: boolean;
   history: { at: string; event: string; by: number | null }[];
+  /** Rabat roczny od obrotu (np. Nordea): stan roku po tej fakturze; nie jest pozycją faktury. */
+  rebate: InvoiceRebate | null;
+}
+
+export interface RebateTier {
+  /** Górna granica obrotu rocznego włącznie (waluta progu); `null` = bez granicy. */
+  up_to: number | null;
+  rate: number;
+}
+
+export interface RebateTerms {
+  threshold_currency: IssueCurrency;
+  periods: { from_year: number; tiers: RebateTier[] }[];
+  exclude_words: string[];
+}
+
+export interface InvoiceRebate {
+  year: number;
+  threshold_currency: string;
+  tiers: { up_to: string | null; rate: string }[];
+  turnover: string;
+  rate: string;
+  next_rate: string | null;
+  to_next: string | null;
+  totals: { currency: string; net: string; rebate: string }[];
+  this_invoice: string | null;
+  currency: string;
+  invoices: number;
+  excluded: number;
+  missing_fx: number;
+  settle_by: string;
 }
 
 export interface KsefIssueState {
@@ -172,6 +203,8 @@ export interface IssueSettings {
       vat_rate?: string;
       payment_days?: number;
       accounts?: Partial<Record<IssueCurrency, IssueAccount>>;
+      /** Rabat roczny od obrotu z umowy ramowej (progi i stawki jako dane). */
+      rebate?: RebateTerms;
     }
   >;
 }

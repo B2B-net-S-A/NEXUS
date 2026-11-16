@@ -42,6 +42,7 @@ import { formatDayMonthPl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
+import { InvoiceRebateBox } from "./InvoiceRebateBox";
 import {
   STATUS_TONE,
   apiDecimal,
@@ -714,6 +715,7 @@ function CardBody({
               </p>
             ) : null}
           </section>
+          {card.rebate ? <InvoiceRebateBox rebate={card.rebate} /> : null}
           {card.ksef_number ? (
             <section
               className="rounded-lg border border-border bg-card px-4 py-3 text-sm"

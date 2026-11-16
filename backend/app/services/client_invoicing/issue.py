@@ -49,6 +49,7 @@ from app.services.client_invoicing import (
     ksef_send,
     matching,
     numbering,
+    rebate,
 )
 from app.services.client_invoicing import sync as sales_sync
 from app.services.client_invoicing.export import month_label
@@ -1277,9 +1278,48 @@ async def payload(
             and invoice.invoice_type == "VAT"
             and invoice.invoice_type != "KOR",
             "history": list(invoice.history or [])[-20:],
+            "rebate": await _rebate(db, invoice, settings),
         }
     )
     return data
+
+
+async def _rebate(
+    db: AsyncSession, invoice: ClientIssuedInvoice, settings: dict[str, Any]
+) -> Optional[dict[str, Any]]:
+    """Rabat roczny klienta na karcie faktury — informacja, nie pozycja faktury.
+
+    Faktura przyjęta w KSeF jest już w ``client_sales_invoices``; szkic (i każda
+    nieprzyjęta) dolicza się do obrotu, żeby Finanse widziały stan „po tej”.
+    """
+
+    terms = issue_settings.client_rebate(settings, invoice.client_id)
+    if terms is None or invoice.client_id is None or invoice.status == "cancelled":
+        return None
+    items = tuple({"name": line.get("name")} for line in invoice.lines or [])
+    own = None
+    if invoice.status != "accepted" and invoice.net_amount is not None:
+        own = rebate.Entry(
+            (invoice.currency or "PLN").upper(),
+            Decimal(invoice.net_amount),
+            rebate.rate_boundary(invoice.sale_date, invoice.issue_date),
+            items,
+        )
+    status = await rebate.year_rebate(
+        db,
+        client_id=invoice.client_id,
+        year=invoice.issue_date.year,
+        terms=terms,
+        extra=(own,) if own is not None else (),
+    )
+    if status is None:
+        return None
+    share = (
+        None
+        if invoice.net_amount is None or rebate.excluded(items, terms.exclude_words)
+        else Decimal(invoice.net_amount)
+    )
+    return rebate.payload(status, invoice_net=share, currency=invoice.currency)
 
 
 async def listing(

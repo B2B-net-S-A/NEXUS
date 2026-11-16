@@ -937,3 +937,107 @@ async def test_order_invoiced_outside_nexus_is_not_drafted_again(client, seed):
     )
     assert refused.status_code == 409, refused.text
     assert "77/10/2026" in refused.json()["detail"]
+
+
+# ── Rabat roczny od obrotu (decyzja Artura 16.11.2026) ─────────────────────
+
+
+def _sales(client_id: int, number: str, issued: date, net: str, *names: str):
+    return ClientSalesInvoice(
+        ksef_number=f"{fx.COMPANY_NIP}-{issued:%Y%m%d}-EB{number:0>10}-01",
+        xml_sha256="0" * 64,
+        client_id=client_id,
+        invoice_number=f"{number}/RB/{issued.year}",
+        issue_date=issued,
+        sale_date=issued,
+        currency="PLN",
+        net_amount=Decimal(net),
+        vat_amount=Decimal("0.00"),
+        gross_amount=Decimal(net),
+        items=[{"name": name, "net": net} for name in names],
+        order_refs=[],
+        match_status="unmatched",
+        fetched_at=datetime.now(timezone.utc),
+    )
+
+
+async def test_invoice_card_shows_yearly_rebate_without_adding_a_line(client, seed):
+    """Rabat to informacja na karcie (stan roku + udział tej faktury), nie pozycja.
+
+    Obrót z KSeF tuż pod progiem, szkic przechodzi próg: stawka wyższego progu
+    od CAŁEGO obrotu roku. Faktura z innego roku i refaktura podróży poza obrotem.
+    """
+
+    terms = {
+        "threshold_currency": "PLN",
+        "periods": [
+            {
+                "from_year": 2026,
+                "tiers": [{"up_to": 100000, "rate": 2.5}, {"up_to": None, "rate": 3}],
+            }
+        ],
+        "exclude_words": ["podróż"],
+    }
+    bad = await client.put(
+        f"{BASE}/settings",
+        json={
+            **SETTINGS,
+            "clients": {
+                str(seed.client_id): {
+                    "rebate": {**terms, "periods": [{"from_year": 2026, "tiers": []}]}
+                }
+            },
+        },
+        headers=_h(seed),
+    )
+    assert bad.status_code == 422
+    assert "progów" in bad.json()["detail"]
+
+    await _settings(client, seed, clients={str(seed.client_id): {"rebate": terms}})
+    got = (await client.get(f"{BASE}/settings", headers=_h(seed))).json()
+    assert got["settings"]["clients"][str(seed.client_id)]["rebate"]["periods"][0][
+        "tiers"
+    ] == [{"up_to": 100000, "rate": 2.5}, {"up_to": None, "rate": 3}]
+
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _sales(seed.client_id, "1", date(2026, 9, 30), "99999.00", "Usługi"),
+                _sales(seed.client_id, "2", date(2025, 12, 31), "500000.00", "Usługi"),
+                _sales(
+                    seed.client_id,
+                    "3",
+                    date(2026, 9, 30),
+                    "70000.00",
+                    "Podróż służbowa",
+                ),
+            ]
+        )
+        await db.commit()
+
+    invoice_id = await _draft(client, seed, f"g{seed.groups['118']}")
+    card = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    net = Decimal(card["net"])
+    assert net > 1
+    assert all(Decimal(line["net"]) > 0 for line in card["lines"])
+    data = card["rebate"]
+    assert data["year"] == 2026
+    assert data["invoices"] == 2 and data["excluded"] == 1
+    assert Decimal(data["turnover"]) == Decimal("99999.00") + net
+    assert data["rate"] == "3"
+    assert data["totals"] == [
+        {
+            "currency": "PLN",
+            "net": str(Decimal("99999.00") + net),
+            "rebate": str(
+                ((Decimal("99999.00") + net) * 3 / 100).quantize(Decimal("0.01"))
+            ),
+        }
+    ]
+    assert data["this_invoice"] == str((net * 3 / 100).quantize(Decimal("0.01")))
+    assert data["settle_by"] == "2027-01-31"
+
+    # Klient bez warunków: karta bez rabatu.
+    await _settings(client, seed)
+    plain = (await client.get(f"{BASE}/{invoice_id}", headers=_h(seed))).json()
+    assert plain["rebate"] is None
