@@ -1,7 +1,7 @@
 """Dokumenty Rady nadzorczej i odpisy KRS spółki (R1).
 
-Revision ID: 0724_board_documents
-Revises: 0723_b2b_annex_custom
+Revision ID: 0725_board_documents
+Revises: 0724_order_revenue_steps
 
 Tabele ``board_documents`` (rejestr dokumentów korporacyjnych) i
 ``board_krs_snapshots`` (odpis pełny KRS co noc), wartość powiadomienia
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import board_documents_schema as schema
 
-revision = "0724_board_documents"
-down_revision = "0723_b2b_annex_custom"
+revision = "0725_board_documents"
+down_revision = "0724_order_revenue_steps"
 branch_labels = None
 depends_on = None
 
