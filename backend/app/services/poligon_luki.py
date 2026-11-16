@@ -208,10 +208,13 @@ FEATURES: tuple[Feature, ...] = (
         "terminy_klient",
         "Terminy rozmowy u klienta",
         "Klient i kalendarz",
-        ("poligon-kalendarz-termin-klienta",),
-        "SELECT coalesce(recruiter_id, created_by) FROM "
-        "client_interview_slot_requests WHERE coalesce(recruiter_id, created_by) "
-        "= ANY(:ids) AND created_at > :since",
+        # Funkcja ma dwie strony: DL wpisuje terminy (``created_by``), rekruter
+        # wybiera z kandydatem (``recruiter_id``). Użycie którejkolwiek zalicza
+        # ćwiczenie tej strony, która jest na ścieżce osoby (16.11.2026).
+        ("poligon-kalendarz-termin-klienta", "poligon-dl-terminy-klienta"),
+        "SELECT v.uid FROM client_interview_slot_requests r, "
+        "LATERAL (VALUES (r.recruiter_id), (r.created_by)) AS v(uid) "
+        "WHERE v.uid = ANY(:ids) AND r.created_at > :since",
     ),
     Feature(
         "dostepnosc",

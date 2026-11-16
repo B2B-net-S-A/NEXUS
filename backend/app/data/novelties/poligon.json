@@ -241,6 +241,16 @@
       ]
     },
     {
+      "id": "poligon-dl-terminy-klienta",
+      "module": "Przegląd Delivery Leada",
+      "title": "Wpisz terminy rozmowy od klienta",
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead"
+      ]
+    },
+    {
       "id": "poligon-baza-szukaj",
       "module": "Baza kandydatów",
       "title": "Wyszukaj w bazie kandydatów",

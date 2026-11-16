@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 16, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 17, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), terminy od klienta DL-a (wklejony mail bez modelu), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -133,10 +133,9 @@ Artur 16.11.2026: „uczyć na poligonie”, także funkcji prawie nieużywanych
   z `nexus_user`), czat, CV firmowe z autozapisem. Odpowiedź narzędzia to
   kopia stanu — ta sama tablica dwa razy daje w react-query „bez zmian”.
 - **„Terminy u klienta” rekrutera = wybór terminu.** Terminy wpisuje DL
-  (`POST /api/interview-cycle/slots` daje rekruterowi 403), a sygnał luki
-  liczy `recruiter_id` wniosku — rekruter używa funkcji, wybierając termin
-  z kandydatem. Ćwiczenie DL-a „Terminy od klienta” (wklej maila → odczyt
-  modelem) zostało poza zakresem: odczyt maila to wywołanie modelu.
+  (`POST /api/interview-cycle/slots` daje rekruterowi 403), a rekruter używa
+  funkcji, wybierając termin z kandydatem. Ćwiczenie DL-a jest w sekcji
+  „Terminy od klienta Delivery Leada” niżej.
 - **AI bez modelu.** Plan asystenta CV to stałe reguły („pogrub Scrum i Jira”,
   „+ Punkt do podsumowania”; inne polecenie = pusty plan z podpowiedzią).
   Jarvis (`lib/poligon/jarvis.ts`): rozmowa idzie natywnym `fetch` (SSE),
@@ -160,6 +159,46 @@ Artur 16.11.2026: „uczyć na poligonie”, także funkcji prawie nieużywanych
 - Nowa osoba, która zaliczyła 19 ćwiczeń przed wdrożeniem, po wdrożeniu ma
   8 nowych do zrobienia (blokada wraca do ich zaliczenia). 16.11.2026 rano
   w nocnej kopii nikt nie miał postępu `poligon-*`.
+
+## Terminy od klienta Delivery Leada (16.11.2026)
+
+Ćwiczenie `dl-terminy-klienta` (moduł „Przegląd Delivery Leada”, role DL,
+admin, HoR) idzie po wysyłce CV: Weronika Cisowska stoi w „CV wysłane”, DL
+otwiera jej panel → „Terminy od klienta” (`SlotRequestDialog`) i wpisuje
+terminy z maila klienta podanego w treści ćwiczenia
+(`POLIGON_CLIENT_MAIL` w `exercises.ts`).
+
+- **Zalicza** zdarzenie `slot_request`: wśród terminów są godziny z maila
+  (10:00 i 13:00 czasu przeglądarki) i czas rozmowy 45 min. Inne godziny albo
+  inna długość = informacja zwrotna; poprawka idzie przez „Zastąp otwarte
+  terminy” (409 `SLOTS_ALREADY_OPEN`, jak na serwerze).
+- **Stan w pamięci** (`tools.ts`): `POST /api/interview-cycle/slots` tworzy
+  wniosek `awaiting_recruiter` z rekruterem poligonu, przenosi kartę
+  z „CV wysłane” na „Rozmowę u klienta” (jak `create_slot_request_for_pair`)
+  i daje jej odznakę „Wybierz termin” ze wzoru nagranej odznaki Kamila.
+  Terminy wpisuje się tylko w „CV wysłane” i „Rozmowie u klienta” (tam jest
+  przycisk); inna kolumna, przeszłość, brak terminu = 422.
+  `GET …/slots/recipient` odpowiada „Jakub Szkoleniowy” bez zastępstwa.
+  Rekruter przycisku nie ma (`canAddClientSlots` = DL, HoR, admin), więc
+  poligon nie powtarza odmowy 403.
+- **„Wklej maila od klienta” bez modelu.** `…/slots/from-mail` na poligonie
+  nie woła modelu: mail z ćwiczenia (oba cytaty terminów w tekście) daje stały
+  odczyt — dwa najbliższe dni robocze o 10:00 i 13:00, 45 min, online. Inny
+  tekst dostaje `status: "empty"` z komunikatem, że poligon czyta tylko mail
+  z ćwiczenia i terminy można wpisać ręcznie.
+- **Przeładowanie strony** cofa wysyłkę, więc „CV wysłane” jest puste; treść
+  ćwiczenia każe wtedy wysłać Weronikę z „QC CV” jeszcze raz.
+- **Bez nagrania.** Odczytów okna nie dogrywano ze stagingu: panel osoby
+  w „CV wysłane” i „Rozmowie u klienta” podaje zestaw przez osobę-szablon,
+  a jedyny nowy odczyt (adresat terminów) to stała odpowiedź narzędzia
+  z trenerem poligonu. Nagranie miałoby tu prawdziwe nazwisko rekrutera.
+- **Z pracy** zalicza je funkcja `terminy_klient` w `poligon_luki.py`.
+  Sygnał liczy obie strony wniosku (`recruiter_id` i `created_by`), a
+  `credited_exercises` zalicza tylko ćwiczenie ze ścieżki osoby: rekruterowi
+  wybór terminu, DL-owi wpisanie terminów. Kampania luk obejmuje rekruterów,
+  więc DL-a z pracy liczy to tylko przy roli rekrutera.
+- Rekruter sprzed 15.11, który zostaje DL-em, ma do zrobienia cztery
+  ćwiczenia DL-a (przegląd, wysyłka, poprawki, terminy).
 
 ## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
 
@@ -189,13 +228,14 @@ role dostawały stary Start z przyciskami „Rozumiem”.
     - screening i weryfikacja;
     - CV dla klienta i przekazanie do QC CV;
     - narzędzia rekrutera (osiem ćwiczeń z sekcji wyżej);
-  - Delivery Lead (16 ćwiczeń, z czatem rekrutacji):
+  - Delivery Lead (17 ćwiczeń, z czatem rekrutacji):
     - CV dla klienta;
     - moduł „Przegląd Delivery Leada”:
       - otwarcie przeglądu osoby z „QC CV” (odczyt `/api/dl-review/context`);
       - wysyłka do klienta ze stawką (ocena kwot, niżej);
       - „Wróć do poprawy” z zaznaczonymi polami (`fix_fields`; bez pól nie
-        zalicza).
+        zalicza);
+      - terminy od klienta (od 16.11.2026, sekcja wyżej).
 
     Bez „Biorę” (DL bez roli rekrutera go nie ma) i bez screeningu: DL omija
     bramki pól (`dl-przesuwa-bez-blokad.md`);
@@ -322,7 +362,7 @@ role dostawały stary Start z przyciskami „Rozumiem”.
   przejrzyj `--report` i przejdź całą ścieżkę w przeglądarce.
 - **Test całej ścieżki w CI** (`frontend/e2e/poligon-walk.spec.ts`, projekt
   `poligon-chromium`, od 15.11.2026). W kolejce merge'ów po buildzie frontendu
-  przechodzi ścieżkę rekrutera (27 ćwiczeń), Delivery Leada (16) i TCM (13)
+  przechodzi ścieżkę rekrutera (27 ćwiczeń), Delivery Leada (17) i TCM (13)
   na podstawionym backendzie (bez bazy). Pada na każdy brak
   w zestawie, zapis poza postępem `poligon-*` i błąd strony, bo taki brak blokuje
   nową osobę na cały dzień. Odczyt, na który serwer odpowiada 404 (np.
