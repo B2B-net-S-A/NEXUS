@@ -72,6 +72,29 @@ def test_three_same_person_roles_make_an_exclusion():
     ]
 
 
+def test_learned_label_waits_when_someone_with_it_was_accepted():
+    # 16.11.2026: ten sam tytuł bywa przyjmowany i odrzucany („Test Automation
+    # Engineer” 5 × Pasuje i 1 × Inna rola w jednej rekrutacji).
+    learned = profiles.learned_from_details(
+        [
+            {"person_role": "Tester"},
+            {"person_role": "tester"},
+            {"person_role": "TESTER"},
+        ]
+    )
+    out = profiles.build_profile(
+        _job("Test Automation Engineer"), None, learned, ["Senior Tester .NET"]
+    )
+    assert out["excluded"] == []
+    assert out["learning"] == [
+        {"label": "Tester", "count": 3, "dismissed": False, "accepted": True}
+    ]
+    out = profiles.build_profile(
+        _job("Test Automation Engineer"), None, learned, ["QA Automation Engineer"]
+    )
+    assert out["excluded"] == [{"label": "Tester", "count": 3, "source": "rejections"}]
+
+
 def test_manual_entries_work_at_once_and_dismissed_stop():
     learned = profiles.learned_from_details([{"person_role": "DBA"}] * 4)
     row = SimpleNamespace(

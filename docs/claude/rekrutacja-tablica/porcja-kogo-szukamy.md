@@ -35,6 +35,11 @@ sprawdzone na tych danych: +0,5 pkt, więc nie dokładaj reguł regex z tytułó
 - **Z odrzuceń:** „Osoba to: X” przy „Inna rola” (`autofill_feedback.detail.person_role`)
   liczy się per rekrutacja; od `EXCLUDE_MIN` = 3 takich samych (bez wielkości
   liter i nadmiarowych spacji) etykieta wchodzi na listę ze źródłem „z odrzuceń”.
+- **Bezpiecznik:** etykieta z odrzuceń nie wchodzi na listę, gdy w tej
+  rekrutacji osoba z takim stanowiskiem przeszła dalej niż „Nowi”
+  (`_accepted_positions`); zostaje w „Uczy się” z `accepted: true`. Ten sam tytuł
+  bywa przyjmowany i odrzucany (Nordea 509921: „Test Automation Engineer”
+  5 × Pasuje i 1 × Inna rola). Wpis ręczny działa zawsze.
 - **Zdjęcie z listy** etykiety z odrzuceń zapisuje ją w `dismissed`: dalej się
   liczy, ale nie filtruje, dopóki ktoś jej nie doda z powrotem.
 - **Filtr:** `new_column_autofill._allowed` → `keep_role_allowed`, obok

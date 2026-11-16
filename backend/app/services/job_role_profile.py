@@ -12,7 +12,9 @@ poprawia sam, i lista ról, których w tej rekrutacji nie proponujemy.
   krytycznej profilu Championa.
 * „Nie proponujemy” = wpisy ręczne (działają od razu) i etykiety „Osoba to: X”
   z odrzuceń „Inna rola” (``autofill_feedback.detail.person_role``): od
-  ``EXCLUDE_MIN`` takich samych (casefold) w jednej rekrutacji.
+  ``EXCLUDE_MIN`` takich samych (casefold) w jednej rekrutacji — chyba że
+  w tej rekrutacji osoba z takim stanowiskiem przeszła dalej niż „Nowi”
+  (bezpiecznik: ten sam tytuł bywa przyjmowany i odrzucany).
 * Silnik „Nowych” (``new_column_autofill._allowed``) nie dokłada osoby, której
   obecne stanowisko (``role_family.current_position``) zawiera taką etykietę
   całymi słowami. Karty, które już stoją, zostają.
@@ -95,7 +97,12 @@ def learned_from_details(details: Iterable[Any]) -> dict[str, Learned]:
     return out
 
 
-def build_profile(job, row, learned: dict[str, Learned]) -> dict:
+def build_profile(
+    job,
+    row,
+    learned: dict[str, Learned],
+    accepted_positions: Sequence[Optional[str]] = (),
+) -> dict:
     """Profil do API i filtra: zapisany wiersz albo wartości domyślne, plus lista."""
     saved = row is not None
     base = (
@@ -125,14 +132,22 @@ def build_profile(job, row, learned: dict[str, Learned]) -> dict:
     for key, hit in sorted(learned.items(), key=lambda kv: (-kv[1].count, kv[0])):
         if key in seen:
             continue
-        if hit.count >= EXCLUDE_MIN and key not in dismissed:
+        accepted = hit.count >= EXCLUDE_MIN and any(
+            names_role(p, key) for p in accepted_positions
+        )
+        if hit.count >= EXCLUDE_MIN and key not in dismissed and not accepted:
             excluded.append(
                 {"label": hit.label, "count": hit.count, "source": "rejections"}
             )
         else:
-            learning.append(
-                {"label": hit.label, "count": hit.count, "dismissed": key in dismissed}
-            )
+            entry = {
+                "label": hit.label,
+                "count": hit.count,
+                "dismissed": key in dismissed,
+            }
+            if accepted:
+                entry["accepted"] = True
+            learning.append(entry)
     return {
         "job_id": job.id,
         **base,
@@ -180,10 +195,77 @@ async def profiles_for_jobs(db, jobs: Iterable[Any]) -> dict[int, dict]:
         ).all()
     }
     learned = await _learned_for_jobs(db, ids)
+    accepted = await _accepted_positions(
+        db,
+        [
+            job_id
+            for job_id, hits in learned.items()
+            if any(hit.count >= EXCLUDE_MIN for hit in hits.values())
+        ],
+    )
     return {
-        job_id: build_profile(job, rows.get(job_id), learned.get(job_id, {}))
+        job_id: build_profile(
+            job, rows.get(job_id), learned.get(job_id, {}), accepted.get(job_id, ())
+        )
         for job_id, job in by_id.items()
     }
+
+
+# Etapy „dalej niż Nowi”, czyli osoba, którą zespół w tej rekrutacji przyjął.
+_ACCEPTED_STAGES = (
+    "prep_call",
+    "screening",
+    "verified",
+    "interview",
+    "cv_sent",
+    "client_interview",
+    "acceptance",
+    "negotiation",
+    "onboarding",
+    "hired",
+)
+
+
+async def _accepted_positions(db, job_ids: Sequence[int]) -> dict[int, list[str]]:
+    """Obecne stanowiska osób, które w rekrutacji przeszły dalej niż „Nowi”."""
+    from app.models.candidate import Candidate
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.services.role_family import current_position
+
+    if not job_ids:
+        return {}
+    pairs = (
+        await db.execute(
+            select(CandidateStage.job_id, CandidateStage.candidate_id)
+            .where(
+                CandidateStage.job_id.in_(list(job_ids)),
+                CandidateStage.stage.in_([PipelineStage(v) for v in _ACCEPTED_STAGES]),
+            )
+            .distinct()
+        )
+    ).all()
+    if not pairs:
+        return {}
+    people = {
+        row.id: current_position(row)
+        for row in (
+            await db.execute(
+                select(
+                    Candidate.id,
+                    Candidate.cv_extracted_data,
+                    Candidate.linkedin_current_title,
+                    Candidate.linkedin_current_company,
+                    Candidate.experience,
+                ).where(Candidate.id.in_({c for _, c in pairs}))
+            )
+        ).all()
+    }
+    out: dict[int, list[str]] = {}
+    for job_id, candidate_id in pairs:
+        position = people.get(candidate_id)
+        if position:
+            out.setdefault(job_id, []).append(position)
+    return out
 
 
 def names_role(position: Optional[str], key: str) -> bool:
