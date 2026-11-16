@@ -106,6 +106,7 @@ from app.schemas.contract import (
 )
 from app.schemas.contract_amendment import (
     AmendmentDocument,
+    AnnexClientRateImpact,
     ContractAmendmentCreate,
     ContractAmendmentResponse,
     ContractAnnexDocument,
@@ -5929,6 +5930,38 @@ async def list_contract_amendments(
 
 
 @router.get(
+    "/{contract_id}/amendments/client-rate-impact",
+    response_model=List[AnnexClientRateImpact],
+)
+async def preview_annex_client_rate_impact(
+    contract_id: int,
+    current_user: DeliveryViewUser,
+    effective_date: date = Query(...),
+    new_rate_client: Decimal = Query(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Które zamówienia zmieni aneks stawki klienta i na ile (bez zapisu).
+
+    Okno „Zmień stawkę” pokazuje to przed zapisem. Bez prawa do kwot
+    kontraktu — pusta lista, jak przy innych odczytach kwot."""
+    from app.services.order_revenue_steps import apply_annex_client_rate
+
+    contract = await _assert_contract(db, contract_id, current_user)
+    if not await _can_read_contract_finance(contract, current_user, db):
+        return []
+    changes = await apply_annex_client_rate(
+        db,
+        contract,
+        rate=new_rate_client,
+        effective_from=effective_date,
+        amendment_id=None,
+        actor_id=current_user.id,
+        dry_run=True,
+    )
+    return [AnnexClientRateImpact(**change.__dict__) for change in changes]
+
+
+@router.get(
     "/{contract_id}/annex-documents",
     response_model=List[ContractAnnexDocument],
 )
@@ -6436,6 +6469,23 @@ async def apply_contract_amendment(
     )
     await db.flush()
     await db.refresh(amendment)
+    if (
+        data.amendment_type == ContractAmendmentType.rate_change
+        and data.new_rate_client is not None
+    ):
+        # Stawka klienta z aneksu wchodzi też do trwających zamówień od dnia
+        # aneksu (ticket Finansów 16.11.2026) — `services/order_revenue_steps.py`.
+        from app.services.order_revenue_steps import apply_annex_client_rate
+
+        await apply_annex_client_rate(
+            db,
+            contract,
+            rate=data.new_rate_client,
+            effective_from=data.effective_date,
+            amendment_id=amendment.id,
+            actor_id=current_user.id,
+        )
+        await db.flush()
     return await _amendment_to_response(
         db,
         amendment,

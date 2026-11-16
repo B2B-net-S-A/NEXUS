@@ -71,6 +71,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F47 | duty_search_plan                 | claude-sonnet-5 (z Haiku)|
 | F48 | duty_search_judge                | gpt-6-luna (z Sonnet 5)  |
 | F49 | client_report_requirements       | claude-sonnet-5 (z Haiku)|
+| F50 | premium_skill_justification      | claude-sonnet-5-5 (z Haiku)|
 | F51 | board_document_read              | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
@@ -606,6 +607,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "fragmentu — to samo czytanie dokumentu co odczyt kosztu (F33), więc jego model. Rzadko "
         "(przycisk „Znajdź w umowach”). Dodatek: bez modelu DL dostaje fragmenty ze słowami "
         "kluczowymi i wpisuje raport sam; propozycja obowiązuje dopiero po potwierdzeniu DL-a.",
+    ),
+    AIFeatureKey.premium_skill_justification: ModelChoice(
+        default=SONNET_55,
+        env_vars=("PREMIUM_SKILL_JUSTIFICATION_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F50 (16.11.2026, F5 z decyzji Artura, model z pomiaru, POZA badaniem 16.09). Szkic uzasadnienia "
+        "dopłaty za technologię premium (EN) dla klienta. Pomiar na stagingu 16.11 (8 kontraktów "
+        "Nordei, fakty bez nazwisk, fikcyjne przykłady DL-a, jeden prompt): zdania bez pokrycia albo "
+        "przeinaczone na 8 szkiców — Sonnet 5.5 1, Sol 0 (sztywny), Haiku 5.5 3, Sonnet 5 4; Luna "
+        "6 krótsza niż 90 słów w 5 z 8. Koszt na wywołanie 0,0036 USD, mediana 2 s (Haiku 0,0002 "
+        "USD). Dodatek: bez modelu DL ma szablon z F4 i komunikat; szkic nie jest zapisywany.",
     ),
     AIFeatureKey.board_document_read: ModelChoice(
         default=SONNET_5,

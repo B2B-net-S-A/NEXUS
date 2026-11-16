@@ -223,7 +223,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # 0712: link prowadzi do zakładki „Raporty” klienta (trasy katalogu za
     # bramką podglądu Delivery).
     NotificationType.client_report_due: ProductSection.delivery,
-    # 0724: wpis w KRS spółki — Rada nadzorcza i admini (Rada ma tylko Insights).
+    # 0726: wpis w KRS spółki — Rada nadzorcza i admini (Rada ma tylko Insights).
     NotificationType.board_krs_entry: ProductSection.insights,
 }
 

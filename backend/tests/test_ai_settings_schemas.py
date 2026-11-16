@@ -131,7 +131,9 @@ class TestFeatureKeyEnum:
             "duty_search_judge",
             # 0712: katalog raportów klienta — obowiązki z umów ramowych.
             "client_report_requirements",
-            # 0724: Rada — odczyt skanu uchwały i protokołu.
+            # 0725: szkic uzasadnienia dopłaty za technologię premium.
+            "premium_skill_justification",
+            # 0726: Rada — odczyt skanu uchwały i protokołu.
             "board_document_read",
         }
 

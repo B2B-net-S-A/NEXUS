@@ -307,6 +307,25 @@ export function useClaimAction(contractId: number) {
   );
 }
 
+/** F5: szkic uzasadnienia z modelu. Nic nie zapisuje; bez modelu `text` = null i `message`. */
+export interface JustificationDraft {
+  text: string | null;
+  model_used: boolean;
+  warnings: string[];
+  message: string | null;
+}
+
+export function useJustificationDraft(contractId: number) {
+  return useMutation({
+    mutationFn: async (claimId: number) =>
+      (
+        await api.post<JustificationDraft>(
+          `/api/contracts/${contractId}/premium-skills/claims/${claimId}/justification-draft`,
+        )
+      ).data,
+  });
+}
+
 export function useFrameworkProlongations(clientId: number, enabled: boolean) {
   return useQuery({
     queryKey: ["framework-prolongations", clientId] as const,

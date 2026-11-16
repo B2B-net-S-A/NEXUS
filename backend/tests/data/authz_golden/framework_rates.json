@@ -44,6 +44,7 @@
   "POST /api/clients/{client_id}/framework-terms/import": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/contracts/{contract_id}/premium-skills/claims": "PPDPDDDDPPPDDPDDDDPDDDDDDDPDP",
   "POST /api/contracts/{contract_id}/premium-skills/claims/{claim_id}/action": "PPDPDDDDPPPDDPDDDDPDDDDDDDPDP",
+  "POST /api/contracts/{contract_id}/premium-skills/claims/{claim_id}/justification-draft": "PPDPDDDDPPPDDPDDDDPDDDDDDDPDP",
   "PUT /api/contracts/{contract_id}/framework-category": "PPDPDDDDPPPDDPDDDDPDDDDDDDPDP"
  }
 }

@@ -1,4 +1,4 @@
-# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet (R1 0724, R2, R3 0725, 16.11.2026)
+# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet (R1 0726, R2, R3 0727, 16.11.2026)
 <!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5 -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
@@ -90,7 +90,7 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   roku, co najmniej 30% kontraktów kończących się do 31.12, klient powyżej 30%
   sprzedaży, brakujące wzmianki KRS, dokumenty bez skanu.
 
-## Budżet (R3, 0725)
+## Budżet (R3, 0727)
 
 - `board_budgets` (rok, szkic/przyjęty, uchwała Rady z dokumentów) i
   `board_budget_lines` (miesiąc × sprzedaż/koszty, PLN netto). Plan wpisuje

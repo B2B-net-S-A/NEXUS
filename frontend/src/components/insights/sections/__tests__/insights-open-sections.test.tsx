@@ -126,6 +126,51 @@ describe("InsightsTeamActivity", () => {
     expect(mocks.get).toHaveBeenCalledWith(TEAM_ACTIVITY, expect.anything());
   });
 
+  it("„Dodani do rekrutacji” stoi obok „Kandydatów” i nie miesza się z nimi", async () => {
+    respond({
+      [TEAM_ACTIVITY]: {
+        period: WINDOW,
+        limit: 20,
+        entries: [
+          {
+            rank: 1,
+            user_id: 7,
+            name: "Osoba testowa",
+            candidates_added: 2,
+            added_to_jobs: 17,
+            screenings: 0,
+            interviews: 0,
+            placements: 0,
+            calls: 0,
+            total_actions: 2,
+            share_pct: 100.0,
+          },
+        ],
+        totals: {
+          users: 1,
+          actions: 2,
+          added_to_jobs_system: 40,
+          added_to_jobs_unattributed: 3,
+        },
+        coverage: { source: "mixed", note: COVERAGE_NOTE },
+      },
+    });
+
+    renderSection(<InsightsTeamActivity period={PERIOD} />);
+
+    const row = (await screen.findByText("Osoba testowa")).closest("tr")!;
+    const headers = Array.from(document.querySelectorAll("thead th")).map(
+      (th) => th.textContent,
+    );
+    const addedAt = headers.indexOf("Dodani do rekrutacji");
+    expect(headers[addedAt - 1]).toBe("Kandydaci");
+    expect(row.querySelectorAll("td")[addedAt]?.textContent).toBe("17");
+    expect(row.querySelectorAll("td")[addedAt - 1]?.textContent).toBe("2");
+    expect(
+      screen.getByTestId("team-activity-added-elsewhere").textContent,
+    ).toMatch(/automat „Nowi” 40, stare wpisy bez osoby 3/);
+  });
+
   it("przy 403 mówi o uprawnieniach, a nie „nikt nic nie robił”", async () => {
     respond({ [TEAM_ACTIVITY]: httpError(403) });
 

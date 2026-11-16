@@ -16,6 +16,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   useClaimAction,
   useCreateClaim,
+  useJustificationDraft,
   usePremiumSkills,
   type PremiumClaim,
   type PremiumEvidence,
@@ -111,7 +112,7 @@ export function PremiumSkillsSection({
                     )}
                     {open && (
                       <>
-                        <Button size="sm" variant="outline" onClick={() => setDialog({ kind: "justify", evidence: e, claim: open })}>
+                        <Button size="sm" variant="outline" data-tour="contracts.premium-justification" onClick={() => setDialog({ kind: "justify", evidence: e, claim: open })}>
                           Uzasadnienie (EN)
                         </Button>
                         <Button size="sm" onClick={() => setDialog({ kind: "grant", claim: open })}>
@@ -137,6 +138,9 @@ export function PremiumSkillsSection({
       )}
       {dialog?.kind === "justify" && (
         <JustificationDialog
+          contractId={contractId}
+          claimId={dialog.claim.id}
+          canDraft={canEdit}
           text={justificationDraft({
             technology: dialog.evidence.technology,
             percent: dialog.evidence.percent,
@@ -296,9 +300,44 @@ function OutcomeDialog({
 }
 
 
-function JustificationDialog({ text, technology, onClose }: { text: string; technology: string; onClose: () => void }) {
+export function JustificationDialog({
+  contractId,
+  claimId,
+  canDraft,
+  text,
+  technology,
+  onClose,
+}: {
+  contractId: number;
+  claimId: number;
+  canDraft: boolean;
+  text: string;
+  technology: string;
+  onClose: () => void;
+}) {
   const { showSuccess } = useToast();
+  const draft = useJustificationDraft(contractId);
   const [value, setValue] = useState(text);
+  const [fromModel, setFromModel] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+
+  const propose = async () => {
+    setNotice(null);
+    setWarnings([]);
+    try {
+      const result = await draft.mutateAsync(claimId);
+      if (result.text) {
+        setValue(result.text);
+        setFromModel(true);
+        setWarnings(result.warnings);
+      } else {
+        setNotice(result.message ?? "Nie udało się przygotować szkicu — popraw szablon uzasadnienia albo napisz je sam.");
+      }
+    } catch (err) {
+      setNotice(apiErrorMessage(err, "Nie udało się przygotować szkicu — popraw szablon uzasadnienia albo napisz je sam."));
+    }
+  };
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(value);
@@ -313,13 +352,22 @@ function JustificationDialog({ text, technology, onClose }: { text: string; tech
       open
       onOpenChange={(next) => !next && onClose()}
       title={`Uzasadnienie dopłaty: ${technology}`}
-      description="Szkic z faktów NEXUSA i Twoich przykładów. Popraw przed wysłaniem — NEXUS nie dopisuje zdań bez dowodu."
+      description={
+        fromModel
+          ? "Szkic z modelu AI z faktów NEXUSA i Twoich przykładów. Przeczytaj i popraw przed wysłaniem — wysyłasz Ty."
+          : "Szkic z faktów NEXUSA i Twoich przykładów. Popraw przed wysłaniem — NEXUS nie dopisuje zdań bez dowodu."
+      }
       size="lg"
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             Zamknij
           </Button>
+          {canDraft && (
+            <Button variant="outline" onClick={() => void propose()} disabled={draft.isPending}>
+              {draft.isPending ? "Przygotowuję szkic…" : fromModel ? "Zaproponuj ponownie" : "Zaproponuj uzasadnienie"}
+            </Button>
+          )}
           <Button onClick={() => void copy()}>Kopiuj</Button>
         </>
       }
@@ -327,7 +375,17 @@ function JustificationDialog({ text, technology, onClose }: { text: string; tech
       <Label htmlFor="justification-text" className="sr-only">
         Uzasadnienie po angielsku
       </Label>
-      <Textarea id="justification-text" rows={9} value={value} onChange={(e) => setValue(e.target.value)} />
+      <Textarea id="justification-text" rows={14} value={value} onChange={(e) => setValue(e.target.value)} />
+      {notice && (
+        <p role="status" className="mt-2 text-sm text-muted-foreground">
+          {notice}
+        </p>
+      )}
+      {warnings.map((w) => (
+        <p key={w} role="alert" className="mt-2 text-sm text-warning">
+          {w}
+        </p>
+      ))}
     </AppModal>
   );
 }

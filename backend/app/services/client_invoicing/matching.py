@@ -468,7 +468,7 @@ async def auto_match(
     )
     refs = await billing.order_refs(db, members)
     decision = decide(
-        net=rebate.without_rebate(Decimal(invoice.net_amount), invoice.items or []),
+        net=rebate.pre_discount(Decimal(invoice.net_amount), invoice.items or []),
         currency=invoice.currency,
         texts=invoice_texts(invoice),
         rows=rows,

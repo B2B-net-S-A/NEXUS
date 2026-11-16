@@ -1,7 +1,7 @@
 """Budżet Rady nadzorczej: plan miesięczny sprzedaży i kosztów (R3).
 
-Revision ID: 0725_board_budgets
-Revises: 0724_board_documents
+Revision ID: 0727_board_budgets
+Revises: 0726_board_documents
 
 Tabele ``board_budgets`` i ``board_budget_lines``. DDL ma jedno źródło
 (``app/services/board_budget_schema.py``); entrypoint wykonuje je przy każdym
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services import board_budget_schema as schema
 
-revision = "0725_board_budgets"
-down_revision = "0724_board_documents"
+revision = "0727_board_budgets"
+down_revision = "0726_board_documents"
 branch_labels = None
 depends_on = None
 
