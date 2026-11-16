@@ -1,14 +1,14 @@
 """Aneks z własną nazwą w Generatorze aneksów (16.11.2026).
 
-Revision ID: 0722_b2b_annex_custom
-Revises: 0721_order_revenue_steps
+Revision ID: 0721_b2b_annex_custom
+Revises: 0720_finance_archive
 
 Typ ``annex_custom`` w CHECK ``ck_b2b_contract_documents_type`` i wartość
 ``custom_change`` w ``contractamendmenttype`` (wpis w zakładce „Aneksy”
 kontraktu po podpisie). DDL ma jedno źródło z siatką w ``entrypoint.sh``
 (``services/b2b_documents/schema_sql.py``).
 
-Downgrade wraca do listy typów sprzed 0722 jako ``NOT VALID`` (wydane aneksy
+Downgrade wraca do listy typów sprzed 0721 jako ``NOT VALID`` (wydane aneksy
 zostają w tabeli); wartość enuma zostaje, bo Postgres nie ma ``DROP VALUE``.
 """
 
@@ -20,8 +20,8 @@ from app.services.b2b_documents.schema_sql import (
     TYPES_BEFORE_0722,
 )
 
-revision = "0722_b2b_annex_custom"
-down_revision = "0721_order_revenue_steps"
+revision = "0721_b2b_annex_custom"
+down_revision = "0720_finance_archive"
 branch_labels = None
 depends_on = None
 

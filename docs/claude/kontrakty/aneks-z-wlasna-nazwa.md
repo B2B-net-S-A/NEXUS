@@ -3,7 +3,7 @@
 
 Zgłoszenie Finansów z 16.11.2026: aneks o zdjęciu zakazu konkurencji nie
 pasował do żadnego z pięciu typów. Artur wybrał wariant C z makiet na
-stagingu (lista zmian + gotowe klauzule). Migracja 0722 (CHECK typów
+stagingu (lista zmian + gotowe klauzule). Migracja 0721 (CHECK typów
 dokumentu i wartość `custom_change` w `contractamendmenttype`).
 
 - **Typ `annex_custom`** (`registry.py`) — rodzina `annex`, `allows_external`,
