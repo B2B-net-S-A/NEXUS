@@ -1,4 +1,4 @@
-# Sekcja „Rada”: dokumenty korporacyjne i odpis KRS (R1, 0727, 16.11.2026)
+# Sekcja „Rada”: dokumenty, odpis KRS, pulpit z faktur (R1 0727, R2, 16.11.2026)
 <!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5 -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
@@ -66,6 +66,29 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   to stan zastany.
 - Staging: pętla w `STAGING_BLOCKED_TASKS`; ręczne pobranie wymaga
   `STAGING_EXTRA_ALLOWED_HOSTS=api-krs.ms.gov.pl`.
+
+## Pulpit i Firma (R2)
+
+- Zakładki „Rady”: **Pulpit** (domyślna), **Firma** (ten sam `FirmaView` co
+  w Insights; okres zapisuje się w bieżącej ścieżce, nie w `/insights`),
+  **Dokumenty**. Insights zniknęło z menu Rady (`BOARD_NAV_IDS`); adresy
+  `/insights` zostają dla linków z maila i raportów.
+- `GET /summary` (`services/board/summary.py`): sprzedaż i koszty z archiwum
+  faktur eBI24 (netto w PLN = netto × brutto PLN / brutto, data wystawienia),
+  3 lata + rok bieżący, miesiące roku bieżącego i poprzedniego, pięciu
+  największych klientów ostatniego pełnego roku, aktywne kontrakty i te, których
+  umowa albo zamówienie kończy się do 31.12 (potencjał = stawka × 160 h po
+  kursie NBP), braki w KRS z ostatnich 4 lat, dokumenty bez skanu.
+- **„Wynik z faktur” to nie RZiS** (bez płac UoP, ZUS, amortyzacji) — ekran
+  mówi to wprost; po K8 zastąpi go księga. **Porównanie rok do roku** bierze
+  ten sam zakres miesięcy: sprzedaż do ostatniego miesiąca z co najmniej
+  połową mediany 6 poprzednich (ledwo zaczęty miesiąc nie wydłuża okresu),
+  wynik tylko do ostatniego miesiąca z pełnymi kosztami (≥ 80% mediany, od
+  stycznia bez przerwy) — faktury kosztowe spływają z opóźnieniem i bez tego
+  wynik bieżącego roku wychodził 14,5% zamiast 5,8%.
+- „Do uwagi Rady” (`attentionItems`): spadek wyniku o ponad 1 p.p. rok do
+  roku, co najmniej 30% kontraktów kończących się do 31.12, klient powyżej 30%
+  sprzedaży, brakujące wzmianki KRS, dokumenty bez skanu.
 
 ## Pilnują
 

@@ -16,18 +16,18 @@ const board = {
 };
 
 describe("menu Rady nadzorczej", () => {
-  it("menu boczne ma Radę, Insights, Pomoc i Ustawienia konta (Rada od 16.11.2026)", () => {
+  it("menu boczne ma Radę, Pomoc i Ustawienia konta (Insights przeszło do Rady 16.11.2026)", () => {
     const ids = visibleNavSections(board, { contactQueueEnabled: true }).flatMap(
       (section) => section.items.map((entry) => entry.id),
     );
-    expect(ids).toEqual(["rada", "insights", "help", "settings"]);
+    expect(ids).toEqual(["rada", "help", "settings"]);
   });
 
   it("paleta dokłada listę umów przedwstępnych (decyzja Artura 23.10.2026)", () => {
     const ids = visibleNavEntries(board, { contactQueueEnabled: true }).map(
       (entry) => entry.id,
     );
-    expect([...ids].sort()).toEqual(["help", "insights", "pre-contracts", "rada", "settings"]);
+    expect([...ids].sort()).toEqual(["help", "pre-contracts", "rada", "settings"]);
   });
 
   it("kartoteka w „Ludziach” nie dokłada „Mój czas” ani „Ludzi”", () => {

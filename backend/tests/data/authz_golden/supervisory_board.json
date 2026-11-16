@@ -35,6 +35,7 @@
   "GET /api/supervisory-board/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/documents/{document_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/krs": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/supervisory-board/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "PATCH /api/supervisory-board/documents/{document_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/documents/{document_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",

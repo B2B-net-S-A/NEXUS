@@ -859,9 +859,10 @@ function featureFlagOn(
 
 // „pre-contracts” (23.10.2026) jest tylko w palecie — menu boczne Rady dalej
 // ma Insights, Pomoc i Ustawienia.
+// Insights zniknęło z menu Rady 16.11.2026 (R2): Firma jest zakładką „Rady”;
+// adresy /insights zostają otwarte dla linków z maila i raportów.
 const BOARD_NAV_IDS: ReadonlySet<string> = new Set([
   "rada",
-  "insights",
   "help",
   "settings",
   "pre-contracts",

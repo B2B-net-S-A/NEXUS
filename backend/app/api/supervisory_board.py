@@ -25,6 +25,7 @@ from app.api.deps import AdminUser, require_roles
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
+from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from app.models.board_document import BoardDocument
 from app.models.user import User, UserRole
@@ -33,6 +34,7 @@ from app.services import board_documents_schema as schema
 from app.services.ai_quota import ai_feature
 from app.services.board import krs as krs_service
 from app.services.board import reader
+from app.services.board import summary as summary_service
 from app.services.board.notify import notify_new_entries
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,36 @@ UPLOAD_TYPES: dict[str, str] = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".doc": "application/msword",
 }
+
+
+# ── Pulpit (R2) ──────────────────────────────────────────────────────────────
+
+
+@router.get("/summary")
+async def get_summary(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Sprzedaż, koszty i wynik z faktur (3 lata + rok bieżący), koncentracja
+    klientów, zamówienia kończące się do końca roku, braki w KRS i skanach."""
+
+    today = business_today()
+    data = await summary_service.company_summary(db, today)
+    snapshot = await krs_service.latest_snapshot(db, krs_service.company_krs())
+    missing = (
+        krs_service.missing_filings(krs_service.parse_odpis(snapshot.payload))
+        if snapshot
+        else []
+    )
+    data["krs_missing"] = [m for m in missing if m["year"] >= today.year - 4]
+    data["documents_without_file"] = (
+        await db.execute(
+            select(func.count())
+            .select_from(BoardDocument)
+            .where(BoardDocument.file_path.is_(None))
+        )
+    ).scalar_one()
+    return data
 
 
 # ── KRS ──────────────────────────────────────────────────────────────────────
