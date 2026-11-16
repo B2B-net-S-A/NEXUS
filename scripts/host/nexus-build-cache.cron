@@ -1,0 +1,5 @@
+# /etc/cron.d/nexus-build-cache — źródło: scripts/host/nexus-build-cache.cron w repo NEXUS.
+# Co 15 min; skrypt sam nic nie robi poniżej 70% dysku.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+*/15 * * * * root /usr/local/sbin/nexus-build-cache-prune.sh
