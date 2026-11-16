@@ -75,6 +75,7 @@ import {
   formatYmd,
   peopleLabel,
   pickedOf,
+  positionsLabel,
   profileTiers,
   rateRange,
   selectionHourly,
@@ -1192,7 +1193,7 @@ export function ClientTeamPanelApp({
             <p className="text-xs text-muted-foreground">
               {[
                 view.team.client_name,
-                `${view.positions.length} stanowisk`,
+                positionsLabel(view.positions.length),
                 `${sent} kandydatów wysłanych`,
               ]
                 .filter(Boolean)

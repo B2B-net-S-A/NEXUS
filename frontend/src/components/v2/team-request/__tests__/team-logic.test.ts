@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   candidateHourly,
   peopleLabel,
+  positionsLabel,
   profileTiers,
   selectionHourly,
   startingPicks,
@@ -87,6 +88,18 @@ describe("drobiazgi", () => {
     expect(tiers.map((t) => [t.rate, t.count, t.availableNow])).toEqual([
       [130, 1, 0],
       [150, 1, 1],
+    ]);
+  });
+
+  it("odmiana „stanowisko”", () => {
+    expect([1, 2, 3, 5, 12, 22, 25].map(positionsLabel)).toEqual([
+      "1 stanowisko",
+      "2 stanowiska",
+      "3 stanowiska",
+      "5 stanowisk",
+      "12 stanowisk",
+      "22 stanowiska",
+      "25 stanowisk",
     ]);
   });
 

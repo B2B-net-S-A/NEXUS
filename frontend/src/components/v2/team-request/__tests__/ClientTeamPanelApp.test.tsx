@@ -35,6 +35,7 @@ describe("panel klienta dla zespołu", () => {
   it("pokazuje stanowiska, cenę od–do i skład startowy", async () => {
     renderTeam(transport());
     expect(await screen.findByText("Zespół testowy, 3 osoby")).toBeInTheDocument();
+    expect(screen.getByText(/· 2 stanowiska ·/)).toBeInTheDocument();
     const band = screen.getByTestId("team-price-band");
     // Od: 120 + 2×100 = 320 zł/h, do: 140 + 2×100 = 340 zł/h, razy 168 h.
     expect(within(band).getByText(/od 54 tys\. zł do 57 tys\. zł/)).toBeInTheDocument();

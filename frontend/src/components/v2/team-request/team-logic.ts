@@ -5,6 +5,7 @@
  * Cena zespołu to suma stawek do klienta, bez rabatu (decyzja 15.11.2026).
  */
 import type { PanelCandidate, PanelRate } from "@/lib/api/clientPanel";
+import { countPl } from "@/lib/plural-pl";
 
 /** Stanowisko widziane przez przeliczenia: klucz, liczba miejsc, kandydaci. */
 export interface SeatGroup<C> {
@@ -215,6 +216,11 @@ export function formatThousands(value: number): string {
 export function formatYmd(ymd: string): string {
   const [y, m, d] = ymd.split("-");
   return `${d}.${m}.${y}`;
+}
+
+/** „1 stanowisko”, „2 stanowiska”, „5 stanowisk” */
+export function positionsLabel(count: number): string {
+  return countPl(count, "stanowisko", "stanowiska", "stanowisk");
 }
 
 /** „1 osoba”, „2 osoby”, „5 osób” */
