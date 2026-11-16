@@ -10,6 +10,9 @@ import {
   filtersFromParams,
   filtersToParams,
   groupCvSummary,
+  newProfilesByPerson,
+  newProfilesByPersonText,
+  newProfilesByPersonTitle,
   groupRequests,
   hasActiveFilters,
   lastCvTitle,
@@ -501,6 +504,68 @@ describe("Daily: P1 bez CV i nowe profile (audyt 08.11.2026)", () => {
       req({ job_id: 5, priority_level: "p2", new_profiles_7d: 1, new_profiles_7d_cv: 1 }),
     ])
     expect(summary).toEqual({ quietP1: 1, p1: 2, newProfiles: 5, newProfilesCv: 3 })
+  })
+
+  it("nowe profile per osoba: suma kategorii, zalogowany to „Ty”, samo imię", () => {
+    const rows = [
+      req({
+        job_id: 1,
+        new_profiles_7d: 5,
+        new_profiles_7d_cv: 2,
+        new_profiles_7d_by: [
+          { user_id: 7, name: "Ala Przykładowa", added: 3, reached_cv: 1 },
+          { user_id: 9, name: "Jan Testowy", added: 2, reached_cv: 1 },
+        ],
+      }),
+      req({
+        job_id: 2,
+        new_profiles_7d: 2,
+        new_profiles_7d_by: [{ user_id: 9, name: "Jan Testowy", added: 2, reached_cv: 0 }],
+      }),
+    ]
+    const people = newProfilesByPerson(rows, 7)
+    expect(people).toEqual([
+      { key: "user:9", label: "Jan", added: 4, reachedCv: 1 },
+      { key: "user:7", label: "Ty", added: 3, reachedCv: 1 },
+    ])
+    expect(people.reduce((sum, p) => sum + p.added, 0)).toBe(groupCvSummary(rows).newProfiles)
+    expect(newProfilesByPersonText(people)).toBe("Jan 4 · Ty 3")
+    expect(newProfilesByPersonTitle(people)).toContain("Jan: 4, do CV: 1")
+  })
+
+  it("dwa takie same imiona dostają inicjał nazwiska, brak nazwy to „Bez nazwy”", () => {
+    const row = req({
+      job_id: 1,
+      new_profiles_7d: 4,
+      new_profiles_7d_by: [
+        { user_id: 1, name: "Ala Przykładowa", added: 2, reached_cv: 0 },
+        { user_id: 2, name: "Ala Zmyślona", added: 1, reached_cv: 0 },
+        { user_id: 3, name: null, added: 1, reached_cv: 0 },
+      ],
+    })
+    expect(newProfilesByPerson([row], null).map((p) => p.label)).toEqual([
+      "Ala P.",
+      "Ala Z.",
+      "Bez nazwy",
+    ])
+  })
+
+  it("reszta bez osoby nie trafia do nikogo i nie ginie z sumy", () => {
+    const rows = [
+      req({
+        job_id: 1,
+        new_profiles_7d: 3,
+        new_profiles_7d_cv: 2,
+        new_profiles_7d_by: [{ user_id: 7, name: "Ala Przykładowa", added: 2, reached_cv: 1 }],
+      }),
+      // Starsza odpowiedź API bez podziału.
+      req({ job_id: 2, new_profiles_7d: 1 }),
+    ]
+    expect(newProfilesByPerson(rows, null)).toEqual([
+      { key: "user:7", label: "Ala", added: 2, reachedCv: 1 },
+      { key: "none", label: "bez osoby", added: 2, reachedCv: 1 },
+    ])
+    expect(newProfilesByPerson([req({ job_id: 3 })], null)).toEqual([])
   })
 
   it("dymek mówi o dacie ostatniego CV albo o braku CV", () => {

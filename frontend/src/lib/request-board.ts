@@ -28,6 +28,7 @@ import {
 import { isP0Active } from "@/lib/job-p0"
 import { formatIsoDatePl } from "@/lib/date-pl"
 import { warsawDateOf } from "@/lib/warsaw-date"
+import { shortenPersonName } from "@/lib/job-header-subtitle"
 
 export type DueFilter = "late" | "week" | "two" | "none"
 export type SentFilter = "0" | "12" | "3" | "champ"
@@ -458,6 +459,81 @@ export function groupCvSummary(rows: readonly BoardRequest[]): {
     newProfiles: rows.reduce((sum, r) => sum + (r.new_profiles_7d ?? 0), 0),
     newProfilesCv: rows.reduce((sum, r) => sum + (r.new_profiles_7d_cv ?? 0), 0),
   }
+}
+
+export interface NewProfilesPerson {
+  /** `user:12` albo `none` (reszta sumy bez osoby na liście). */
+  key: string
+  /** „Ty”, samo imię, a przy dwóch takich samych imionach „Imię N.”. */
+  label: string
+  added: number
+  reachedCv: number
+}
+
+/**
+ * „Nowe profile w 7 dni” rozbite na osoby (prośba z zespołu, 16.11.2026) dla
+ * wierszy Daily — jednego requestu albo całej kategorii. Liczbę dostaje osoba
+ * z pierwszego wpisu pary (backend: `services/new_profiles.py`). Gdyby lista
+ * osób nie sumowała się do licznika, reszta idzie do „bez osoby”: nie trafia
+ * do nikogo i nie ginie z sumy.
+ */
+export function newProfilesByPerson(
+  rows: readonly BoardRequest[],
+  viewerId: number | null | undefined,
+): NewProfilesPerson[] {
+  const people = new Map<number, { name: string | null; added: number; reachedCv: number }>()
+  let total = 0
+  let totalCv = 0
+  for (const row of rows) {
+    total += row.new_profiles_7d ?? 0
+    totalCv += row.new_profiles_7d_cv ?? 0
+    for (const entry of row.new_profiles_7d_by ?? []) {
+      const found = people.get(entry.user_id) ?? { name: entry.name, added: 0, reachedCv: 0 }
+      found.added += entry.added
+      found.reachedCv += entry.reached_cv
+      people.set(entry.user_id, found)
+    }
+  }
+  const firstName = (name: string | null) => (name ?? "").trim().split(/\s+/)[0] ?? ""
+  const firstNames = new Map<string, number>()
+  for (const [userId, person] of people) {
+    if (userId === viewerId) continue
+    const first = firstName(person.name)
+    if (first) firstNames.set(first, (firstNames.get(first) ?? 0) + 1)
+  }
+  const label = (userId: number, name: string | null) => {
+    if (viewerId != null && userId === viewerId) return "Ty"
+    const first = firstName(name)
+    if (!first) return "Bez nazwy"
+    return (firstNames.get(first) ?? 0) > 1 ? (shortenPersonName(name) ?? first) : first
+  }
+  const result: NewProfilesPerson[] = Array.from(people, ([userId, person]) => ({
+    key: `user:${userId}`,
+    label: label(userId, person.name),
+    added: person.added,
+    reachedCv: person.reachedCv,
+  }))
+    .filter((p) => p.added > 0)
+    .sort((a, b) => b.added - a.added || a.label.localeCompare(b.label, "pl"))
+  const rest = total - result.reduce((sum, p) => sum + p.added, 0)
+  if (rest > 0) {
+    const restCv = Math.max(0, totalCv - result.reduce((sum, p) => sum + p.reachedCv, 0))
+    result.push({ key: "none", label: "bez osoby", added: rest, reachedCv: restCv })
+  }
+  return result
+}
+
+/** „Ty 12 · Michał 4” — dopisek przy liczniku nowych profili. */
+export function newProfilesByPersonText(people: readonly NewProfilesPerson[]): string {
+  return people.map((p) => `${p.label} ${p.added}`).join(" · ")
+}
+
+/** Dymek dopisku: osoba po osobie z liczbą, która doszła do CV. */
+export function newProfilesByPersonTitle(people: readonly NewProfilesPerson[]): string {
+  return [
+    "Kto dodał nowe profile w 7 dniach (pierwszy wpis karty):",
+    ...people.map((p) => `${p.label}: ${p.added}, do CV: ${p.reachedCv}`),
+  ].join("\n")
 }
 
 /** Dymek pigułki: data ostatniego CV albo informacja, że żadnego nie było. */

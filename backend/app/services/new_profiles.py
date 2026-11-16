@@ -13,6 +13,11 @@ przez rekrutera pod daną rekrutację da się policzyć. Definicja z pomiaru aud
 „Doszło do CV” = para ma etap „CV wysłane”, także gdy poszło dalej lub odpadła.
 Ostrożnie przy czytaniu: rekruter zakłada profil zwykle po dobrej rozmowie,
 więc część odsetka to efekt doboru, a nie kanału.
+
+Podział na osoby (16.11.2026, Daily): liczba idzie do osoby z pierwszego wiersza
+pary (``first_by``), tej samej, która decyduje, że karta w ogóle się liczy, więc
+suma osób równa się liczbie rekrutacji. Zasady:
+docs/claude/rekrutacja-tablica/kto-ilu-dodal-w-zespole-rekrutacji.md
 """
 
 from __future__ import annotations
@@ -47,10 +52,13 @@ _SQL = text(
         HAVING min(cs.moved_at) >= :since
     )
     SELECT pair.job_id,
+           pair.first_by,
+           u.name,
            count(*) AS added,
            count(*) FILTER (WHERE pair.reached_cv) AS reached_cv
     FROM pair
     JOIN candidates c ON c.id = pair.candidate_id
+    LEFT JOIN users u ON u.id = pair.first_by
     WHERE pair.first_by IS NOT NULL
       AND NOT pair.posting
       AND c.created_at >= pair.first_at - interval '1 day'
@@ -69,15 +77,25 @@ _SQL = text(
                 )
             )
       )
-    GROUP BY pair.job_id
+    GROUP BY pair.job_id, pair.first_by, u.name
     """
 )
+
+
+@dataclass(frozen=True)
+class NewProfilesBy:
+    user_id: int
+    name: str | None
+    added: int
+    reached_cv: int
 
 
 @dataclass(frozen=True)
 class NewProfiles:
     added: int = 0
     reached_cv: int = 0
+    # Od największej liczby; suma ``added`` równa się ``added`` rekrutacji.
+    by_user: tuple[NewProfilesBy, ...] = ()
 
 
 def window_start(today: date) -> datetime:
@@ -101,7 +119,25 @@ async def new_profiles_by_job(
             },
         )
     ).all()
+    people: dict[int, list[NewProfilesBy]] = {}
+    for job_id, user_id, name, added, reached_cv in rows:
+        people.setdefault(job_id, []).append(
+            NewProfilesBy(
+                user_id=int(user_id),
+                name=name,
+                added=int(added),
+                reached_cv=int(reached_cv),
+            )
+        )
     return {
-        job_id: NewProfiles(added=int(added), reached_cv=int(reached_cv))
-        for job_id, added, reached_cv in rows
+        job_id: NewProfiles(
+            added=sum(p.added for p in found),
+            reached_cv=sum(p.reached_cv for p in found),
+            by_user=tuple(
+                sorted(
+                    found, key=lambda p: (-p.added, (p.name or "").lower(), p.user_id)
+                )
+            ),
+        )
+        for job_id, found in people.items()
     }

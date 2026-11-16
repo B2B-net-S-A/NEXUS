@@ -101,6 +101,15 @@ class BoardUnassigned(BaseModel):
     cards: int
 
 
+class BoardNewProfilesBy(BaseModel):
+    """Nowe profile jednej osoby (pierwszy wpis pary), podział z 16.11.2026."""
+
+    user_id: int
+    name: Optional[str]
+    added: int
+    reached_cv: int
+
+
 class BoardRequest(BaseModel):
     job_id: int
     title: str
@@ -137,6 +146,8 @@ class BoardRequest(BaseModel):
     # Audyt 08.11.2026 (B6): nowe profile z ostatnich 7 dni i ile z nich do CV.
     new_profiles_7d: int = 0
     new_profiles_7d_cv: int = 0
+    # Ten sam licznik rozbity na osoby; suma ``added`` = ``new_profiles_7d``.
+    new_profiles_7d_by: list[BoardNewProfilesBy] = []
 
 
 class BoardGroup(BaseModel):
@@ -395,6 +406,17 @@ async def get_request_board(
             new_profiles_7d_cv=new_profiles[job.id].reached_cv
             if job.id in new_profiles
             else 0,
+            new_profiles_7d_by=[
+                BoardNewProfilesBy(
+                    user_id=p.user_id,
+                    name=p.name,
+                    added=p.added,
+                    reached_cv=p.reached_cv,
+                )
+                for p in (
+                    new_profiles[job.id].by_user if job.id in new_profiles else ()
+                )
+            ],
         )
         for job in jobs
     ]
