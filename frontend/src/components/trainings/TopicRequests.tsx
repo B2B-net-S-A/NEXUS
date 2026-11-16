@@ -149,6 +149,7 @@ export function TopicRequests({ topics, onSave, busy }: TopicRequestsProps) {
           <Button
             type="submit"
             size="sm"
+            data-tour="trainings.topics.publish"
             disabled={busy || draft.title.trim() === ""}
           >
             Opublikuj temat
