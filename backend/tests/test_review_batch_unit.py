@@ -474,3 +474,21 @@ async def test_settings_read_switch_and_pilot():
 async def test_old_settings_without_switch_keep_the_block_on():
     value = await rb.read_settings(_SettingsDb({"minimum": 50}))
     assert value.block_enabled is True and value.pilot_user_ids == ()
+
+
+def test_card_claimed_by_someone_else_is_not_in_owners_batch():
+    """16.11.2026: cudza aktywna blokada zdejmuje kartę z porcji właściciela
+    (odrzucenie dawało 423, a „Pomiń” nie ma). Własna blokada, wygasła albo
+    blokada nieaktywnego konta — karta zostaje."""
+
+    def card(claimed_by, until):
+        return rb.PendingCard(
+            1, 1, 1001, 7, 90, NOW, claimed_by=claimed_by, claimed_until=until
+        )
+
+    later = NOW + timedelta(hours=6)
+    assert rb.claimed_by_other(card(8, later), 7, NOW)
+    assert not rb.claimed_by_other(card(7, later), 7, NOW)
+    assert not rb.claimed_by_other(card(8, NOW - timedelta(minutes=1)), 7, NOW)
+    assert not rb.claimed_by_other(card(None, None), 7, NOW)
+    assert not rb.claimed_by_other(card(8, later), 7, NOW, inactive={8})
