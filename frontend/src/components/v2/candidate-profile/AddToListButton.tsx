@@ -73,7 +73,7 @@ export function AddToListButton({ candidateId }: AddToListButtonProps) {
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="outline" className="min-h-11 min-w-11">
+        <Button size="sm" variant="outline" className="min-h-11 min-w-11" data-tour="candidate.profile.lists">
           <ListPlus className="h-4 w-4" />
           {label}
         </Button>

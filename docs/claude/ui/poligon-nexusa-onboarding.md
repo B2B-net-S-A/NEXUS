@@ -1,5 +1,5 @@
 # Poligon NEXUSA — onboarding pierwszego dnia na rekrutacji ćwiczebnej
-<!-- indeks: `/poligon`, ścieżki per rola (rekruter 19, DL 15, TCM 11), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
+<!-- indeks: `/poligon`, ścieżki per rola (rekruter 27, DL 16, TCM 13), narzędzia rekrutera z 16.11 (telefon, termin u klienta, CV z pliku, zapisane wyszukiwanie, lista, czat, asystent CV, Jarvis bez modelu — `lib/poligon/tools.ts`), wymagany od nadania roli, blokada nowej osoby zamiast Startu, poligon dla obecnych „tylko luki” (`poligon_luki`, „Kto zna NEXUS”), dzień onboardingu poza statystykami (`onboarding_day`), tryb w przeglądarce (`lib/poligon/`), zapisy nie wychodzą do API poza postępem `poligon-*`, zestaw z `build_poligon_dataset.py`, strażnik `poligon-dataset.test.ts` -->
 
 Decyzje Artura z 14.11.2026 (makiety: https://claude.ai/artifact/FQGjXqm7T4Bpoi4fYCpmsk).
 Co miesiąc dochodzi 7–14 nowych kont i każdą osobę HoR szkolił osobno. Start
@@ -11,7 +11,8 @@ na wymyślonych danych.
 ## Ścieżka roli, cała pierwszego dnia
 
 - **Bez poziomów i egzaminów** (Artur, 14.11.2026, drugie podejście): wszystko
-  od razu w onboardingu. 19 ćwiczeń w 6 modułach (`lib/poligon/exercises.ts`):
+  od razu w onboardingu. 19 ćwiczeń w 6 modułach (`lib/poligon/exercises.ts`;
+  od 16.11.2026 27 w 8 modułach, sekcja „Narzędzia rekrutera”):
   lista rekrutacji, Tablica (Biorę, ruch, źródła, Moi ludzie), panel osoby
   (notatka, „@”, odrzucenie z powodem), screening i weryfikacja (formularz,
   bramka „Zweryfikowany”, zapis, weryfikacja), rekomendacja (CV dla klienta,
@@ -102,10 +103,60 @@ nie przechodzą całego poligonu, tylko luki, z terminem.
   kilkadziesiąt minut.
 - **„Kto zna NEXUS”** (`GET /api/novelties/poligon/luki`, admin i HoR) to macierz
   osoba × funkcja, z liczbą luk i postępem poligonu po wysłaniu.
-- Funkcje, których nie ma jeszcze na poligonie (screening w kalendarzu, terminy
-  u klienta, osoba z pliku CV, zapisane wyszukiwanie, pula talentów, czat,
-  polecenie AI w CV, Jarvis), macierz już liczy, ale nie mają ćwiczeń. Artur
-  16.11: uczyć ich na poligonie, także tych prawie nieużywanych.
+- Osiem funkcji z luk ma od 16.11.2026 ćwiczenia (sekcja niżej), a ich
+  `exercises` w `FEATURES` zaliczają je z pracy. Funkcje bez ćwiczenia
+  („Dlaczego ten kandydat”, zmiana stawki, dostępność i tryb pracy) macierz
+  liczy, ale z pracy nic nie zaliczają.
+
+## Narzędzia rekrutera na poligonie (16.11.2026)
+
+Artur 16.11.2026: „uczyć na poligonie”, także funkcji prawie nieużywanych
+(analiza 60 dni: zapisane wyszukiwania 0/16, listy 2/16, czat 7/16, Jarvis
+10/16). Osiem ćwiczeń, każde zalicza wykonanie na rekrutacji ćwiczebnej:
+
+| Ćwiczenie | Moduł | Role | Zalicza | Funkcja w `poligon_luki` |
+|---|---|---|---|---|
+| `baza-lista` — „Na listę” na profilu Laury | Baza kandydatów | rekruter, TCM | `pool_add` | `pula` |
+| `baza-zapisane-wyszukiwanie` | Baza kandydatów | rekruter, TCM | zapis z „Powiadamiaj…” i z kryterium | `zapisane_wyszukiwanie` |
+| `zrodla-cv-z-pliku` — „Dodaj” → „Dodaj z pliku CV” | Źródła i kalendarz | rekruter | `cv_upload` | `cv_z_pliku` |
+| `kalendarz-telefon` — „Umów telefon” | Źródła i kalendarz | rekruter | `screening_call` | `screening_kalendarz` |
+| `kalendarz-termin-klienta` — „Wybierz termin z kandydatem” | Źródła i kalendarz | rekruter | drugi z trzech terminów | `terminy_klient` |
+| `zespol-czat` — „Czat zespołu” z „@” | Zespół i AI | rekruter, DL | wiadomość ze wzmianką | `czat` |
+| `zespol-cv-ai` — „Otwórz i popraw”, polecenie w asystencie | Zespół i AI | rekruter | nałożona zmiana (`cv-ai/applied`) | `polecenie_ai_cv` |
+| `zespol-jarvis` — pytanie o osobę z Tablicy | Zespół i AI | rekruter | odpowiedź o osobie z Tablicy | `jarvis` |
+
+- **Stan w pamięci, nic do API** (`lib/poligon/tools.ts`, podpięte w `store.ts`):
+  telefon (`booked_call` na karcie), wybór terminu (odznaka „czeka na DL”,
+  prepy z okna też tylko w pamięci), osoba z pliku CV (stała osoba ćwiczebna
+  Ewa Jesionowska, „Pewność” odczytu z polami do sprawdzenia, potem „Nowi”),
+  zapisane wyszukiwania i listy należą do zalogowanej osoby (`viewerId`
+  z `nexus_user`), czat, CV firmowe z autozapisem. Odpowiedź narzędzia to
+  kopia stanu — ta sama tablica dwa razy daje w react-query „bez zmian”.
+- **„Terminy u klienta” rekrutera = wybór terminu.** Terminy wpisuje DL
+  (`POST /api/interview-cycle/slots` daje rekruterowi 403), a sygnał luki
+  liczy `recruiter_id` wniosku — rekruter używa funkcji, wybierając termin
+  z kandydatem. Ćwiczenie DL-a „Terminy od klienta” (wklej maila → odczyt
+  modelem) zostało poza zakresem: odczyt maila to wywołanie modelu.
+- **AI bez modelu.** Plan asystenta CV to stałe reguły („pogrub Scrum i Jira”,
+  „+ Punkt do podsumowania”; inne polecenie = pusty plan z podpowiedzią).
+  Jarvis (`lib/poligon/jarvis.ts`): rozmowa idzie natywnym `fetch` (SSE),
+  który omija adapter axiosa — do 16.11 pytanie z poligonu szło do modelu
+  i zakładało rozmowę w bazie. W trybie poligonu `JarvisRoot` dostaje
+  podstawiony `fetch` ze stałą odpowiedzią o osobie z Tablicy, a
+  `/api/jarvis/status` odpowiada poligon („dostępny”). Nowe wywołanie AI
+  natywnym `fetch` na ekranie z poligonu = taki sam podstawiony `fetch`.
+- **CV ćwiczebne** do edytora jest w `lib/poligon/cv-fiction.ts` (zestaw nie
+  przyjmuje tekstu spoza słownika), a plik do wgrania w
+  `public/poligon/cv-cwiczebne-ewa-jesionowska.txt` (link w oknie ćwiczenia,
+  pole `download`). Na poligonie każdy plik daje tę samą osobę.
+- **Nowe kotwice „Pokaż mi”:** `candidate.profile.lists` („Na listę”),
+  `interview.slot.pick`, `jobs.header.chat` (dymek „Historia i czat”).
+- **Daty `@relt:<n>T<HH:MM>`** w zestawie = za `n` dni roboczych o pełnej
+  godzinie UTC (terminy u klienta i podpowiedzi prepów), żeby okno nie
+  pokazywało „13:27” ani soboty.
+- Nowa osoba, która zaliczyła 19 ćwiczeń przed wdrożeniem, po wdrożeniu ma
+  8 nowych do zrobienia (blokada wraca do ich zaliczenia). 16.11.2026 rano
+  w nocnej kopii nikt nie miał postępu `poligon-*`.
 
 ## Ścieżka per rola: rekruter, Delivery Lead, TCM (15.11.2026)
 
@@ -130,11 +181,12 @@ role dostawały stary Start z przyciskami „Rozumiem”.
 
     To ćwiczeniowy odpowiednik czterech przeklikań Startu, które wszystkie trzy
     role miały w `start.json`;
-  - rekruter (19 ćwiczeń, bez zmian):
+  - rekruter (27 ćwiczeń, od 16.11.2026; wcześniej 19):
     - „Biorę” i „Moi ludzie”;
     - screening i weryfikacja;
     - CV dla klienta i przekazanie do QC CV;
-  - Delivery Lead (15 ćwiczeń):
+    - narzędzia rekrutera (osiem ćwiczeń z sekcji wyżej);
+  - Delivery Lead (16 ćwiczeń, z czatem rekrutacji):
     - CV dla klienta;
     - moduł „Przegląd Delivery Leada”:
       - otwarcie przeglądu osoby z „QC CV” (odczyt `/api/dl-review/context`);
@@ -144,7 +196,7 @@ role dostawały stary Start z przyciskami „Rozumiem”.
 
     Bez „Biorę” (DL bez roli rekrutera go nie ma) i bez screeningu: DL omija
     bramki pól (`dl-przesuwa-bez-blokad.md`);
-  - TCM (11 ćwiczeń): same wspólne moduły.
+  - TCM (13 ćwiczeń): wspólne moduły, lista i zapisane wyszukiwanie.
 
   DL z dodatkową rolą rekrutera przechodzi sumę ścieżek.
 - **Treść mówi z perspektywy roli** (`primaryRole`). Rekruter oznacza w notatce
@@ -217,6 +269,15 @@ role dostawały stary Start z przyciskami „Rozumiem”.
   - bazę kandydatów;
   - profil i okno przypisania.
 
+  Od 16.11.2026 nagranie dogrywa fazy z `ADD_ONLY_PHASES` (`rec4`: okno
+  wyboru terminu, odczyty edytora CV zapytaniami API, czat, zapisane
+  wyszukiwania, listy, CV z pliku). Dogranie tylko dokłada adresy, których
+  nie ma, i uczy filtr nazw wyłącznie z odpowiedzi, które wchodzą do zestawu.
+  Odczyty edytora nagrane na etapie innej osoby z CV firmowym (`--cv-stage`,
+  `--cv-candidate`) trafiają pod osobę-szablon. Odznaka „Wybierz termin”,
+  podpowiedzi prepów, „Praca w tle” i „Historia requestów” są wymyślone
+  (nagrane mają nazwiska organizatorów i prawdziwe rekrutacje).
+
   Od 15.11.2026 nagranie ma też fazy `dl-review*` z konta Delivery Leada:
   przegląd jednej osoby z „QC CV” innej rekrutacji (ten sam szablon etapów).
   Skrypt kładzie je pod osobę-szablon (`--dl-job`, `--dl-client`,
@@ -258,7 +319,7 @@ role dostawały stary Start z przyciskami „Rozumiem”.
   przejrzyj `--report` i przejdź całą ścieżkę w przeglądarce.
 - **Test całej ścieżki w CI** (`frontend/e2e/poligon-walk.spec.ts`, projekt
   `poligon-chromium`, od 15.11.2026). W kolejce merge'ów po buildzie frontendu
-  przechodzi ścieżkę rekrutera (19 ćwiczeń), Delivery Leada (15) i TCM (11)
+  przechodzi ścieżkę rekrutera (27 ćwiczeń), Delivery Leada (16) i TCM (13)
   na podstawionym backendzie (bez bazy). Pada na każdy brak
   w zestawie, zapis poza postępem `poligon-*` i błąd strony, bo taki brak blokuje
   nową osobę na cały dzień. Odczyt, na który serwer odpowiada 404 (np.

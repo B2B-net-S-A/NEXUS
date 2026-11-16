@@ -7,6 +7,8 @@
   "client_name": "Bank Północny",
   "template_candidate_id": 990105,
   "template_entry_id": 990305,
+  "slot_candidate_id": 990115,
+  "cv_candidate_id": 990116,
   "trainers": {
    "dl": {
     "id": 990901,
@@ -101,6 +103,18 @@
     "entry_id": 990314,
     "name": "Oskar",
     "lastname": "Modrzewski"
+   },
+   {
+    "candidate_id": 990115,
+    "entry_id": 990315,
+    "name": "Kamil",
+    "lastname": "Dębowski"
+   },
+   {
+    "candidate_id": 990116,
+    "entry_id": 990316,
+    "name": "Ewa",
+    "lastname": "Jesionowska"
    }
   ]
  },
@@ -344,12 +358,13 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 10,
+     "candidate_count": 11,
      "stage_breakdown": {
       "new": 4,
       "screening": 3,
       "verified": 1,
-      "interview": 2
+      "interview": 2,
+      "client_interview": 1
      },
      "stage_columns": [
       {
@@ -431,7 +446,7 @@
        "name": "Interview Klient",
        "order": 8,
        "terminal_type": null,
-       "count": 0
+       "count": 1
       },
       {
        "stage": "acceptance",
@@ -1607,7 +1622,7 @@
        ],
        "requirements_skipped": null,
        "requirements_skipped_by_name": null,
-       "candidate_added_at": "@rel:-201.184",
+       "candidate_added_at": "@rel:-201.183",
        "candidate_added_exact": true,
        "candidate_added_by_name": null,
        "warnings": [],
@@ -2028,7 +2043,7 @@
        ],
        "requirements_skipped": null,
        "requirements_skipped_by_name": null,
-       "candidate_added_at": "@rel:-593.893",
+       "candidate_added_at": "@rel:-593.892",
        "candidate_added_exact": true,
        "candidate_added_by_name": null,
        "warnings": [],
@@ -2099,11 +2114,11 @@
        "stage": "verified",
        "stage_def_id": 13,
        "rejection_reason_id": null,
-       "moved_at": "@rel:-2.045",
+       "moved_at": "@rel:-2.044",
        "moved_by": 256,
        "notes": null,
        "rating": null,
-       "created_at": "@rel:-2.045",
+       "created_at": "@rel:-2.044",
        "days_in_stage": 2,
        "name": "Jakub",
        "lastname": "Jaworek",
@@ -2112,7 +2127,7 @@
        "added_to_job_at": "@rel:-2.764",
        "verified_by_name": "Anna Poligonowa",
        "verified_by_id": 256,
-       "verified_at": "@rel:-2.045",
+       "verified_at": "@rel:-2.044",
        "rejection_reason_name": null,
        "closed_by_name": null,
        "scheduled_rejection_email_id": null,
@@ -2324,7 +2339,7 @@
        "minimum_missing": [],
        "requirements_skipped": null,
        "requirements_skipped_by_name": null,
-       "candidate_added_at": "@rel:-339.05",
+       "candidate_added_at": "@rel:-339.049",
        "candidate_added_exact": true,
        "candidate_added_by_name": null,
        "warnings": [],
@@ -2553,8 +2568,231 @@
     {
      "stage": "client_interview",
      "category": "external",
-     "count": 0,
-     "items": [],
+     "count": 1,
+     "items": [
+      {
+       "id": 990315,
+       "candidate_id": 990115,
+       "job_id": 990001,
+       "stage": "client_interview",
+       "stage_def_id": 6,
+       "rejection_reason_id": null,
+       "moved_at": "@rel:-1.89",
+       "moved_by": 90,
+       "notes": null,
+       "rating": null,
+       "created_at": "@rel:-1.89",
+       "days_in_stage": 1,
+       "name": "Kamil",
+       "lastname": "Dębowski",
+       "added_to_job_by_name": "Anna Poligonowa",
+       "added_to_job_by_id": 101,
+       "added_to_job_at": "@rel:-16.848",
+       "verified_by_name": "Anna Poligonowa",
+       "verified_by_id": 101,
+       "verified_at": "@rel:-2.001",
+       "rejection_reason_name": null,
+       "closed_by_name": null,
+       "scheduled_rejection_email_id": null,
+       "rejection_email_status": null,
+       "hm_veto": null,
+       "contact_case": null,
+       "process_state_version": 6,
+       "screening_done": true,
+       "screening_requirement": null,
+       "dl_send_counts": true,
+       "waiting_workdays": 0,
+       "client_silent_workdays": null,
+       "scorecard_done": false,
+       "auto_cv_ready": false,
+       "auto_cv_state": null,
+       "company_cv": true,
+       "client_form": null,
+       "qc": {
+        "status": "passed",
+        "blocking_failed": 0,
+        "ok_at": "@rel:-1.997",
+        "dismissed_blocking": 0,
+        "warnings_count": 0,
+        "manual_items": [],
+        "manual_checks": [],
+        "candidate_gaps": [],
+        "qc_state": {
+         "kind": "checked",
+         "n": 0,
+         "items": [],
+         "text": "QC: sprawdzone",
+         "tone": "ok",
+         "who": null,
+         "hint": "CV przeszło kontrolę przed wysłaniem."
+        }
+       },
+       "card": {
+        "status": "partial",
+        "missing": 2,
+        "answers": 0,
+        "rate_hourly": 105.0
+       },
+       "contact_attempts": 0,
+       "candidate_expected_rate_hourly": "105.00",
+       "candidate_rate_from_hourly": "100.00",
+       "recruiter_id": 101,
+       "recruiter_name": "Anna Poligonowa",
+       "owner_user_id": null,
+       "owner_name": null,
+       "owner_assigned_by_name": null,
+       "owner_assigned_at": null,
+       "owner_previous_name": null,
+       "care_user_id": null,
+       "care_user_name": null,
+       "care_departed_name": null,
+       "care_since": null,
+       "task_assignee_id": null,
+       "task_assignee_name": null,
+       "availability_status": "unknown",
+       "availability_date": "@reld:-194",
+       "minimum_missing": [],
+       "requirements_skipped": null,
+       "requirements_skipped_by_name": null,
+       "candidate_added_at": "@rel:-339.049",
+       "candidate_added_exact": true,
+       "candidate_added_by_name": null,
+       "warnings": [],
+       "next_action_owner": "recruiter",
+       "verification_status": "active",
+       "expected_rate_value": "105.00",
+       "expected_rate_unit": "hourly",
+       "expected_rate_currency": "PLN",
+       "budget_max_at_move": null,
+       "budget_exceeded": false,
+       "approved_by": null,
+       "approved_at": null,
+       "rejected_by": null,
+       "rejected_at": null,
+       "rejection_note": null,
+       "candidate_offer_response": null,
+       "ended_by": null,
+       "client_rate_value": null,
+       "client_rate_unit": null,
+       "client_rate_currency": null,
+       "entry_source": "proposal",
+       "entry_auto_match": null,
+       "entry_autofill": null,
+       "entry_ai_screening": null,
+       "entry_off_limits": null,
+       "entry_link_owner_id": null,
+       "entry_link_owner_name": null,
+       "entry_portal": null,
+       "reapplied_via_links": [],
+       "reassign_from_job_id": null,
+       "reassign_from_title": null,
+       "reassign_from_reference": null,
+       "is_champion": false,
+       "claim_user_id": null,
+       "claim_user_name": null,
+       "claim_until": null,
+       "booked_call": null,
+       "taken_by_user_id": null,
+       "taken_by_name": null,
+       "can_take": true,
+       "interview_badge": {
+        "kind": "choose_slot",
+        "label": "Wybierz termin · 3 propozycje",
+        "tone": "wait",
+        "at": "@relt:1T15:00",
+        "steps": [
+         {
+          "key": "slots",
+          "state": "done",
+          "at": null,
+          "event_id": null
+         },
+         {
+          "key": "choice",
+          "state": "current",
+          "at": "@relt:1T15:00",
+          "event_id": null
+         },
+         {
+          "key": "prep",
+          "state": "todo",
+          "at": null,
+          "event_id": null
+         },
+         {
+          "key": "prep2",
+          "state": "todo",
+          "at": null,
+          "event_id": null
+         },
+         {
+          "key": "interview",
+          "state": "todo",
+          "at": null,
+          "event_id": null
+         },
+         {
+          "key": "call",
+          "state": "todo",
+          "at": null,
+          "event_id": null
+         },
+         {
+          "key": "debrief",
+          "state": "todo",
+          "at": null,
+          "event_id": null
+         }
+        ],
+        "interview_event_id": null,
+        "tentative_interview_at": "@relt:2T09:00",
+        "late_prep_event_id": null,
+        "slot_request": {
+         "id": 990701,
+         "status": "awaiting_recruiter",
+         "expired": false,
+         "slots": [
+          {
+           "start": "@relt:2T09:00",
+           "end": "@relt:2T10:00"
+          },
+          {
+           "start": "@relt:3T13:00",
+           "end": "@relt:3T14:00"
+          },
+          {
+           "start": "@relt:5T08:00",
+           "end": "@relt:5T09:00"
+          }
+         ],
+         "chosen_index": null,
+         "respond_by": "@relt:1T15:00",
+         "recruiter_id": 990902,
+         "created_by": 990901,
+         "duration_minutes": 60,
+         "note": null,
+         "event_id": null
+        },
+        "preps": [],
+        "debrief": null,
+        "prep2_skip_status": "not_needed",
+        "prep2_skip": null,
+        "prep1_remaining": [],
+        "phase": "awaiting_recruiter_pick",
+        "interview_date": null
+       },
+       "followup": null,
+       "rate_change": null,
+       "order_status": null,
+       "missing_contract": false,
+       "agreement": null,
+       "client_acceptance": null,
+       "pre_contract": null,
+       "start_docs": null,
+       "employment_marker": null,
+       "other_open_jobs": []
+      }
+     ],
      "stage_def_id": 6,
      "name": "Interview Klient",
      "order": 8,
@@ -2719,9 +2957,6 @@
    "can_manage": false,
    "max_twins": 3,
    "twins": []
-  },
-  "GET /api/job-teams/by-job/990001": {
-   "team": null
   },
   "GET /api/jobs/990001/proposal-counts": {
    "job_id": 990001,
@@ -3854,11 +4089,12 @@
     990103,
     990101,
     990102,
+    990105,
     990108
    ],
    "scores": {
     "990110": 58.337297714193696,
-    "990105": 64.49232977731968,
+    "990105": 57.40685776723236,
     "990109": 64.65815733057076,
     "990106": 64.40347002034602,
     "990107": 65.00445575625116,
@@ -4124,11 +4360,11 @@
   "GET /api/notes?candidate_id=990105": {
    "items": [
     {
-     "id": 991399,
+     "id": 991398,
      "content": "Rozmowa telefoniczna: zainteresowana projektem, dostępna od przyszłego miesiąca.",
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991400,
+     "job_id": 991399,
      "author_id": 14,
      "created_at": "@rel:-114.063",
      "updated_at": "@rel:-113.722",
@@ -4149,11 +4385,11 @@
      "replies": []
     },
     {
-     "id": 991401,
+     "id": 991400,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991400,
+     "job_id": 991399,
      "author_id": 32,
      "created_at": "@rel:-114.15",
      "updated_at": "@rel:-113.722",
@@ -4174,13 +4410,13 @@
      "replies": []
     },
     {
-     "id": 991402,
+     "id": 991401,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991400,
+     "job_id": 991399,
      "author_id": 131,
-     "created_at": "@rel:-114.157",
+     "created_at": "@rel:-114.156",
      "updated_at": "@rel:-113.722",
      "parent_note_id": null,
      "pinned_at": null,
@@ -4199,14 +4435,14 @@
      "replies": []
     },
     {
-     "id": 991403,
+     "id": 991402,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991404,
+     "job_id": 991403,
      "author_id": 14,
-     "created_at": "@rel:-186.951",
-     "updated_at": "@rel:-186.433",
+     "created_at": "@rel:-186.95",
+     "updated_at": "@rel:-186.432",
      "parent_note_id": null,
      "pinned_at": null,
      "kind": "human",
@@ -4224,14 +4460,14 @@
      "replies": []
     },
     {
-     "id": 991405,
+     "id": 991404,
      "content": "Rozmowa telefoniczna: zainteresowana projektem, dostępna od przyszłego miesiąca.",
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991404,
+     "job_id": 991403,
      "author_id": 14,
      "created_at": "@rel:-186.952",
-     "updated_at": "@rel:-186.433",
+     "updated_at": "@rel:-186.432",
      "parent_note_id": null,
      "pinned_at": null,
      "kind": "dl_rate",
@@ -4249,14 +4485,14 @@
      "replies": []
     },
     {
-     "id": 991406,
+     "id": 991405,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991404,
+     "job_id": 991403,
      "author_id": 32,
      "created_at": "@rel:-187.063",
-     "updated_at": "@rel:-186.433",
+     "updated_at": "@rel:-186.432",
      "parent_note_id": null,
      "pinned_at": null,
      "kind": "dl_review",
@@ -4274,14 +4510,14 @@
      "replies": []
     },
     {
-     "id": 991407,
+     "id": 991406,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991404,
+     "job_id": 991403,
      "author_id": 118,
      "created_at": "@rel:-187.084",
-     "updated_at": "@rel:-186.433",
+     "updated_at": "@rel:-186.432",
      "parent_note_id": null,
      "pinned_at": null,
      "kind": "card",
@@ -4299,11 +4535,11 @@
      "replies": []
     },
     {
-     "id": 991408,
+     "id": 991407,
      "content": "Rozmowa telefoniczna: zainteresowana projektem, dostępna od przyszłego miesiąca.",
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 14,
      "created_at": "@rel:-264.911",
      "updated_at": "@rel:-193.314",
@@ -4324,11 +4560,11 @@
      "replies": []
     },
     {
-     "id": 991410,
+     "id": 991409,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 32,
      "created_at": "@rel:-267.977",
      "updated_at": "@rel:-193.314",
@@ -4349,11 +4585,11 @@
      "replies": []
     },
     {
-     "id": 991411,
+     "id": 991410,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 131,
      "created_at": "@rel:-267.978",
      "updated_at": "@rel:-193.314",
@@ -4374,11 +4610,11 @@
      "replies": []
     },
     {
-     "id": 991412,
+     "id": 991411,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 32,
      "created_at": "@rel:-267.981",
      "updated_at": "@rel:-193.314",
@@ -4399,11 +4635,11 @@
      "replies": []
     },
     {
-     "id": 991413,
+     "id": 991412,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 131,
      "created_at": "@rel:-267.984",
      "updated_at": "@rel:-193.314",
@@ -4424,11 +4660,11 @@
      "replies": []
     },
     {
-     "id": 991414,
+     "id": 991413,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 32,
      "created_at": "@rel:-268.006",
      "updated_at": "@rel:-193.314",
@@ -4449,11 +4685,11 @@
      "replies": []
     },
     {
-     "id": 991415,
+     "id": 991414,
      "content": null,
      "note_type": "general",
      "candidate_id": 990105,
-     "job_id": 991409,
+     "job_id": 991408,
      "author_id": 131,
      "created_at": "@rel:-268.019",
      "updated_at": "@rel:-193.314",
@@ -4664,7 +4900,7 @@
     ],
     "origin": "seed",
     "status": "ready",
-    "updated_at": "@rel:-0.492",
+    "updated_at": "@rel:-0.491",
     "assignment": "auto",
     "stats": {
      "jobs": 186,
@@ -4696,79 +4932,13 @@
   },
   "GET /api/jobs/990001/chat/members?assigned=true": [
    {
-    "id": 261,
+    "id": 990901,
     "name": "Anna Poligonowa",
     "email": null,
-    "role": "recruiter"
+    "role": "delivery_lead"
    },
    {
-    "id": 88,
-    "name": "Anna Poligonowa",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 152,
-    "name": "Jakub Szkoleniowy",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 14,
-    "name": "Anna Poligonowa",
-    "email": null,
-    "role": "Senior Project Manager"
-   },
-   {
-    "id": 264,
-    "name": "Anna Poligonowa",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 258,
-    "name": "Jakub Szkoleniowy",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 262,
-    "name": "Anna Poligonowa",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 26,
-    "name": "Jakub Szkoleniowy",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 101,
-    "name": "Anna Poligonowa",
-    "email": null,
-    "role": "Senior Project Manager"
-   },
-   {
-    "id": 119,
-    "name": "Jakub Szkoleniowy",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 154,
-    "name": "Anna Poligonowa",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 265,
-    "name": "Jakub Szkoleniowy",
-    "email": null,
-    "role": "recruiter"
-   },
-   {
-    "id": 226,
+    "id": 990902,
     "name": "Jakub Szkoleniowy",
     "email": null,
     "role": "recruiter"
@@ -4793,7 +4963,7 @@
    "rate_from_at": "@rel:-268.019",
    "rate_from_stale": false,
    "rate_latest_hourly": "105.00",
-   "rate_latest_at": "@rel:-114.157",
+   "rate_latest_at": "@rel:-114.156",
    "rate_observation_count": 4,
    "rate_from_source": "card",
    "rate_declared_from_hourly": null,
@@ -4830,20 +5000,27 @@
      "type": "traffit_source",
      "value": null,
      "domain": "linkedin.com",
-     "source_id": 991416
+     "source_id": 991415
     },
     {
      "url": null,
      "type": "traffit_source",
      "value": null,
      "domain": "Aktywny Search",
-     "source_id": 991417
+     "source_id": 991416
     },
     {
      "url": null,
      "type": "traffit_source",
      "value": null,
      "domain": "Dodany manualnie",
+     "source_id": 991417
+    },
+    {
+     "url": null,
+     "type": "traffit_source",
+     "value": null,
+     "domain": "Aktywny Search",
      "source_id": 991418
     },
     {
@@ -4852,13 +5029,6 @@
      "value": null,
      "domain": "Aktywny Search",
      "source_id": 991419
-    },
-    {
-     "url": null,
-     "type": "traffit_source",
-     "value": null,
-     "domain": "Aktywny Search",
-     "source_id": 991420
     }
    ],
    "skills": [
@@ -5601,7 +5771,7 @@
      ],
      "years_experience": 17,
      "extractor_version": "claude:cv_enrichment:v7",
-     "source_document_id": 991421,
+     "source_document_id": 991420,
      "current_role_started_at": "2024-11",
      "current_role_started_at_precision": "month"
     },
@@ -6652,26 +6822,26 @@
     "carried": {
      "location": {
       "raw": "z rozmowy telefonicznej",
-      "at": "@rel:-114.157",
-      "job_id": 991400,
+      "at": "@rel:-114.156",
+      "job_id": 991399,
       "job_title": "Senior Project Manager (bankowość)"
      },
      "work_mode": {
       "raw": "z rozmowy telefonicznej",
-      "at": "@rel:-114.157",
-      "job_id": 991400,
+      "at": "@rel:-114.156",
+      "job_id": 991399,
       "job_title": "Senior Project Manager (bankowość)"
      },
      "nationality": {
       "raw": "z rozmowy telefonicznej",
-      "at": "@rel:-114.157",
-      "job_id": 991400,
+      "at": "@rel:-114.156",
+      "job_id": 991399,
       "job_title": "Senior Project Manager (bankowość)"
      },
      "english": {
       "raw": "fluent",
-      "at": "@rel:-114.157",
-      "job_id": 991400,
+      "at": "@rel:-114.156",
+      "job_id": 991399,
       "job_title": "Senior Project Manager (bankowość)"
      }
     },
@@ -6869,7 +7039,7 @@
     "rate_from_at": "@rel:-268.019",
     "rate_from_stale": false,
     "rate_latest_hourly": "105.00",
-    "rate_latest_at": "@rel:-114.157",
+    "rate_latest_at": "@rel:-114.156",
     "rate_observation_count": 4,
     "rate_from_source": "card"
    },
@@ -6897,21 +7067,21 @@
    "current_recruitments_total": 0,
    "recent_notes": [
     {
-     "id": 991402,
+     "id": 991401,
      "content": null,
-     "created_at": "@rel:-114.157",
+     "created_at": "@rel:-114.156",
      "author_name": "Jakub Szkoleniowy",
      "pinned": false
     },
     {
-     "id": 991403,
+     "id": 991402,
      "content": null,
-     "created_at": "@rel:-186.951",
+     "created_at": "@rel:-186.95",
      "author_name": "Anna Poligonowa",
      "pinned": false
     },
     {
-     "id": 991407,
+     "id": 991406,
      "content": null,
      "created_at": "@rel:-187.084",
      "author_name": "Anna Poligonowa",
@@ -6946,7 +7116,7 @@
      "Sektory: bankowość, płatności",
      "Sektory: bankowość, płatności"
     ],
-    "source_document_id": 991421,
+    "source_document_id": 991420,
     "source_hash": "poligon",
     "extractor_version": "claude:cv_enrichment:v7",
     "generated_at": "@rel:-12.969"
@@ -6978,7 +7148,7 @@
        "notes": null
       },
       {
-       "stage_id": 991422,
+       "stage_id": 991421,
        "stage": "new",
        "stage_name": "Nowi / Analiza CV",
        "moved_at": "@rel:-2.069",
@@ -7002,7 +7172,7 @@
      "client_rate_note": null
     },
     {
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": "42439",
@@ -7010,7 +7180,7 @@
      "client_name": "Bank Północny",
      "stages": [
       {
-       "stage_id": 991423,
+       "stage_id": 991422,
        "stage": "cv_sent",
        "stage_name": "Wysłany do Klienta",
        "moved_at": "@rel:-114.03",
@@ -7018,7 +7188,7 @@
        "notes": null
       },
       {
-       "stage_id": 991424,
+       "stage_id": 991423,
        "stage": "screening",
        "stage_name": null,
        "moved_at": "@rel:-114.063",
@@ -7026,7 +7196,7 @@
        "notes": null
       },
       {
-       "stage_id": 991425,
+       "stage_id": 991424,
        "stage": "interview",
        "stage_name": "Przepuszczony przez DZ",
        "moved_at": "@rel:-114.15",
@@ -7034,7 +7204,7 @@
        "notes": null
       },
       {
-       "stage_id": 991426,
+       "stage_id": 991425,
        "stage": "verified",
        "stage_name": "Kandydat Zweryfikowany",
        "moved_at": "@rel:-114.156",
@@ -7042,7 +7212,7 @@
        "notes": null
       },
       {
-       "stage_id": 991427,
+       "stage_id": 991426,
        "stage": "screening",
        "stage_name": "Screening",
        "moved_at": "@rel:-115.001",
@@ -7050,7 +7220,7 @@
        "notes": null
       },
       {
-       "stage_id": 991428,
+       "stage_id": 991427,
        "stage": "new",
        "stage_name": "Nowy",
        "moved_at": "@rel:-115.895",
@@ -7062,7 +7232,7 @@
      "latest_stage_name": "Wysłany do Klienta",
      "entry_source": null,
      "entry_auto_match": null,
-     "latest_stage_id": 991423,
+     "latest_stage_id": 991422,
      "first_seen": "@rel:-115.895",
      "last_seen": "@rel:-114.03",
      "client_rate": null,
@@ -7073,14 +7243,14 @@
      "expected_rate_hint": {
       "amount_hourly": 105.0,
       "raw": "z rozmowy telefonicznej",
-      "at": "@rel:-114.157",
+      "at": "@rel:-114.156",
       "source": "card",
       "author_name": "Jakub Szkoleniowy"
      },
      "client_rate_note": null
     },
     {
-     "job_id": 991404,
+     "job_id": 991403,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": "41782",
@@ -7088,7 +7258,7 @@
      "client_name": "Bank Północny",
      "stages": [
       {
-       "stage_id": 991429,
+       "stage_id": 991428,
        "stage": "cv_sent",
        "stage_name": "Wysłany do Klienta",
        "moved_at": "@rel:-186.939",
@@ -7096,7 +7266,7 @@
        "notes": null
       },
       {
-       "stage_id": 991430,
+       "stage_id": 991429,
        "stage": "screening",
        "stage_name": null,
        "moved_at": "@rel:-186.952",
@@ -7104,7 +7274,7 @@
        "notes": null
       },
       {
-       "stage_id": 991431,
+       "stage_id": 991430,
        "stage": "interview",
        "stage_name": "Przepuszczony przez DZ",
        "moved_at": "@rel:-187.063",
@@ -7112,7 +7282,7 @@
        "notes": null
       },
       {
-       "stage_id": 991432,
+       "stage_id": 991431,
        "stage": "verified",
        "stage_name": "Kandydat Zweryfikowany",
        "moved_at": "@rel:-187.084",
@@ -7120,7 +7290,7 @@
        "notes": null
       },
       {
-       "stage_id": 991433,
+       "stage_id": 991432,
        "stage": "screening",
        "stage_name": "Screening",
        "moved_at": "@rel:-187.165",
@@ -7128,7 +7298,7 @@
        "notes": null
       },
       {
-       "stage_id": 991434,
+       "stage_id": 991433,
        "stage": "new",
        "stage_name": "Nowy",
        "moved_at": "@rel:-187.892",
@@ -7140,7 +7310,7 @@
      "latest_stage_name": "Wysłany do Klienta",
      "entry_source": null,
      "entry_auto_match": null,
-     "latest_stage_id": 991429,
+     "latest_stage_id": 991428,
      "first_seen": "@rel:-187.892",
      "last_seen": "@rel:-186.939",
      "client_rate": null,
@@ -7158,7 +7328,7 @@
      "client_rate_note": null
     },
     {
-     "job_id": 991435,
+     "job_id": 991434,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": null,
@@ -7166,7 +7336,7 @@
      "client_name": "Bank Północny",
      "stages": [
       {
-       "stage_id": 991436,
+       "stage_id": 991435,
        "stage": "rejected",
        "stage_name": "Odrzucony",
        "moved_at": "@rel:-258.104",
@@ -7174,10 +7344,10 @@
        "notes": null
       },
       {
-       "stage_id": 991437,
+       "stage_id": 991436,
        "stage": "new",
        "stage_name": "Nowy",
-       "moved_at": "@rel:-258.615",
+       "moved_at": "@rel:-258.614",
        "rating": null,
        "notes": null
       }
@@ -7186,8 +7356,8 @@
      "latest_stage_name": "Odrzucony",
      "entry_source": null,
      "entry_auto_match": null,
-     "latest_stage_id": 991436,
-     "first_seen": "@rel:-258.615",
+     "latest_stage_id": 991435,
+     "first_seen": "@rel:-258.614",
      "last_seen": "@rel:-258.104",
      "client_rate": null,
      "expected_rate": null,
@@ -7198,7 +7368,7 @@
      "client_rate_note": null
     },
     {
-     "job_id": 991409,
+     "job_id": 991408,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": "41179",
@@ -7206,7 +7376,7 @@
      "client_name": "Bank Północny",
      "stages": [
       {
-       "stage_id": 991438,
+       "stage_id": 991437,
        "stage": "cv_sent",
        "stage_name": "Wysłany do Klienta",
        "moved_at": "@rel:-264.908",
@@ -7214,7 +7384,7 @@
        "notes": null
       },
       {
-       "stage_id": 991439,
+       "stage_id": 991438,
        "stage": "screening",
        "stage_name": null,
        "moved_at": "@rel:-264.911",
@@ -7222,7 +7392,7 @@
        "notes": null
       },
       {
-       "stage_id": 991440,
+       "stage_id": 991439,
        "stage": "interview",
        "stage_name": "Przepuszczony przez DZ",
        "moved_at": "@rel:-267.977",
@@ -7230,7 +7400,7 @@
        "notes": null
       },
       {
-       "stage_id": 991441,
+       "stage_id": 991440,
        "stage": "verified",
        "stage_name": "Kandydat Zweryfikowany",
        "moved_at": "@rel:-268.019",
@@ -7238,7 +7408,7 @@
        "notes": null
       },
       {
-       "stage_id": 991442,
+       "stage_id": 991441,
        "stage": "screening",
        "stage_name": "Screening",
        "moved_at": "@rel:-268.924",
@@ -7246,7 +7416,7 @@
        "notes": null
       },
       {
-       "stage_id": 991443,
+       "stage_id": 991442,
        "stage": "new",
        "stage_name": "Nowy",
        "moved_at": "@rel:-270.068",
@@ -7258,7 +7428,7 @@
      "latest_stage_name": "Wysłany do Klienta",
      "entry_source": null,
      "entry_auto_match": null,
-     "latest_stage_id": 991438,
+     "latest_stage_id": 991437,
      "first_seen": "@rel:-270.068",
      "last_seen": "@rel:-264.908",
      "client_rate": null,
@@ -7276,7 +7446,7 @@
      "client_rate_note": null
     },
     {
-     "job_id": 991444,
+     "job_id": 991443,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": "41042",
@@ -7284,7 +7454,7 @@
      "client_name": "Bank Północny",
      "stages": [
       {
-       "stage_id": 991445,
+       "stage_id": 991444,
        "stage": "new",
        "stage_name": "Nowy",
        "moved_at": "@rel:-271.092",
@@ -7296,7 +7466,7 @@
      "latest_stage_name": "Nowy",
      "entry_source": null,
      "entry_auto_match": null,
-     "latest_stage_id": 991445,
+     "latest_stage_id": 991444,
      "first_seen": "@rel:-271.092",
      "last_seen": "@rel:-271.092",
      "client_rate": null,
@@ -7331,21 +7501,21 @@
     "source": "card",
     "stale": false,
     "key": "card:6904",
-    "job_id": 991409,
+    "job_id": 991408,
     "job_title": "Senior Project Manager (bankowość)",
     "client_name": "Bank Północny"
    },
    "latest_amount": "105.00",
-   "latest_at": "@rel:-114.157",
+   "latest_at": "@rel:-114.156",
    "count": 4,
    "observations": [
     {
      "key": "card:17360",
      "amount_hourly": "105.00",
      "raw": "z rozmowy telefonicznej",
-     "at": "@rel:-114.157",
+     "at": "@rel:-114.156",
      "source": "card",
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)",
      "client_name": "Bank Północny",
      "author_name": "Jakub Szkoleniowy",
@@ -7359,7 +7529,7 @@
      "raw": "z rozmowy telefonicznej",
      "at": "@rel:-187.084",
      "source": "card",
-     "job_id": 991404,
+     "job_id": 991403,
      "job_title": "Senior Project Manager (bankowość)",
      "client_name": "Bank Północny",
      "author_name": "Anna Poligonowa",
@@ -7387,7 +7557,7 @@
      "raw": "z rozmowy telefonicznej",
      "at": "@rel:-268.019",
      "source": "card",
-     "job_id": 991409,
+     "job_id": 991408,
      "job_title": "Senior Project Manager (bankowość)",
      "client_name": "Bank Północny",
      "author_name": "Jakub Szkoleniowy",
@@ -7409,19 +7579,19 @@
    "current_filename": null,
    "pattern_filename": null,
    "generated_document_id": null,
-   "from_generator": false,
-   "source": null,
+   "from_generator": true,
+   "source": "generator",
    "origin": null,
    "consent_required": false,
    "consent_attached": false,
    "consent_missing": false,
-   "edit_revision": 0,
+   "edit_revision": 3,
    "version": 1,
    "candidate_stage_id": 990305,
-   "status": "none",
+   "status": "draft",
    "content_html": null,
-   "template": null,
-   "language": null,
+   "template": "standard",
+   "language": "pl",
    "updated_at": null,
    "updated_by": null,
    "updated_by_name": null,
@@ -7478,7 +7648,7 @@
      "source_quote": null,
      "confidence": "medium",
      "source": {
-      "job_id": 991404,
+      "job_id": 991403,
       "job_title": "Senior Project Manager (bankowość)",
       "client_name": "Bank Północny",
       "date": "@reld:-187"
@@ -7492,7 +7662,7 @@
      "source_quote": null,
      "confidence": "medium",
      "source": {
-      "job_id": 991404,
+      "job_id": 991403,
       "job_title": "Senior Project Manager (bankowość)",
       "client_name": "Bank Północny",
       "date": "@reld:-187"
@@ -7503,7 +7673,7 @@
   },
   "GET /api/candidates/990105/documents?kind=cv": [
    {
-    "id": 991421,
+    "id": 991420,
     "filename": null,
     "content_type": "application/pdf",
     "size_bytes": 376738,
@@ -7519,7 +7689,7 @@
     "identity_doubt": false
    },
    {
-    "id": 991446,
+    "id": 991445,
     "filename": null,
     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "size_bytes": 186038,
@@ -7535,7 +7705,7 @@
     "identity_doubt": false
    },
    {
-    "id": 991447,
+    "id": 991446,
     "filename": null,
     "content_type": "application/pdf",
     "size_bytes": 295826,
@@ -7708,8 +7878,8 @@
     "can_schedule": true
    },
    {
-    "stage_id": 991423,
-    "job_id": 991400,
+    "stage_id": 991422,
+    "job_id": 991399,
     "job_title": "Senior Project Manager (bankowość)",
     "stage": "cv_sent",
     "has_champion": true,
@@ -7729,8 +7899,8 @@
     "can_schedule": true
    },
    {
-    "stage_id": 991429,
-    "job_id": 991404,
+    "stage_id": 991428,
+    "job_id": 991403,
     "job_title": "Senior Project Manager (bankowość)",
     "stage": "cv_sent",
     "has_champion": true,
@@ -7750,8 +7920,8 @@
     "can_schedule": true
    },
    {
-    "stage_id": 991436,
-    "job_id": 991435,
+    "stage_id": 991435,
+    "job_id": 991434,
     "job_title": "Senior Project Manager (bankowość)",
     "stage": "rejected",
     "has_champion": true,
@@ -7771,8 +7941,8 @@
     "can_schedule": true
    },
    {
-    "stage_id": 991438,
-    "job_id": 991409,
+    "stage_id": 991437,
+    "job_id": 991408,
     "job_title": "Senior Project Manager (bankowość)",
     "stage": "cv_sent",
     "has_champion": true,
@@ -7792,8 +7962,8 @@
     "can_schedule": true
    },
    {
-    "stage_id": 991445,
-    "job_id": 991444,
+    "stage_id": 991444,
+    "job_id": 991443,
     "job_title": "Senior Project Manager (bankowość)",
     "stage": "new",
     "has_champion": true,
@@ -7922,7 +8092,7 @@
      "source": "nexus"
     },
     {
-     "id": 991422,
+     "id": 991421,
      "candidate_id": 990105,
      "candidate_name": "Anna Poligonowa",
      "from_stage_name": null,
@@ -7979,7 +8149,7 @@
     },
     "shared": true,
     "description": "Prowadzenie programu migracji systemów płatności w banku: harmonogram, ryzyka, budżet i koordynacja czterech zespołów.",
-    "pinned_to_job_id": 991477,
+    "pinned_to_job_id": 991476,
     "notify_new_matches": false,
     "requires_reapproval": false,
     "unseen_count": 0,
@@ -8000,7 +8170,7 @@
   },
   "GET /api/candidates/990105/documents": [
    {
-    "id": 991421,
+    "id": 991420,
     "filename": null,
     "content_type": "application/pdf",
     "size_bytes": 376738,
@@ -8016,7 +8186,7 @@
     "identity_doubt": false
    },
    {
-    "id": 991446,
+    "id": 991445,
     "filename": null,
     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "size_bytes": 186038,
@@ -8032,7 +8202,7 @@
     "identity_doubt": false
    },
    {
-    "id": 991478,
+    "id": 991477,
     "filename": null,
     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "size_bytes": 183231,
@@ -8048,7 +8218,7 @@
     "identity_doubt": false
    },
    {
-    "id": 991479,
+    "id": 991478,
     "filename": null,
     "content_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "size_bytes": 184868,
@@ -8064,7 +8234,7 @@
     "identity_doubt": false
    },
    {
-    "id": 991447,
+    "id": 991446,
     "filename": null,
     "content_type": "application/pdf",
     "size_bytes": 295826,
@@ -8182,10 +8352,10 @@
      "raw": "z rozmowy telefonicznej",
      "value": 155.0,
      "level": null,
-     "at": "@rel:-114.157",
+     "at": "@rel:-114.156",
      "source": "note",
      "author_name": "Jakub Szkoleniowy",
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)"
     },
     {
@@ -8194,10 +8364,10 @@
      "raw": "z rozmowy telefonicznej",
      "value": null,
      "level": null,
-     "at": "@rel:-114.157",
+     "at": "@rel:-114.156",
      "source": "note",
      "author_name": "Jakub Szkoleniowy",
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)"
     },
     {
@@ -8206,10 +8376,10 @@
      "raw": "z rozmowy telefonicznej",
      "value": null,
      "level": null,
-     "at": "@rel:-114.157",
+     "at": "@rel:-114.156",
      "source": "note",
      "author_name": "Jakub Szkoleniowy",
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)"
     },
     {
@@ -8218,10 +8388,10 @@
      "raw": "fluent",
      "value": null,
      "level": null,
-     "at": "@rel:-114.157",
+     "at": "@rel:-114.156",
      "source": "note",
      "author_name": "Jakub Szkoleniowy",
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)"
     },
     {
@@ -8230,21 +8400,21 @@
      "raw": "z rozmowy telefonicznej",
      "value": null,
      "level": null,
-     "at": "@rel:-114.157",
+     "at": "@rel:-114.156",
      "source": "note",
      "author_name": "Jakub Szkoleniowy",
-     "job_id": 991400,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)"
     }
    ],
    "conversations": [
     {
-     "job_id": 991404,
+     "job_id": 991403,
      "job_title": "Senior Project Manager (bankowość)",
      "client_name": "Bank Północny",
      "answered_at": "@rel:-187.084",
      "author_name": "Anna Poligonowa",
-     "note_id": 991407,
+     "note_id": 991406,
      "from_traffit": false,
      "question_count": 4,
      "answers": [
@@ -8271,12 +8441,12 @@
      ]
     },
     {
-     "job_id": 991409,
+     "job_id": 991408,
      "job_title": "Senior Project Manager (bankowość)",
      "client_name": "Bank Północny",
      "answered_at": "@rel:-268.019",
      "author_name": "Jakub Szkoleniowy",
-     "note_id": 991415,
+     "note_id": 991414,
      "from_traffit": false,
      "question_count": 4,
      "answers": [
@@ -8305,8 +8475,8 @@
    ],
    "note_links": [
     {
-     "note_id": 991415,
-     "job_id": 991409,
+     "note_id": 991414,
+     "job_id": 991408,
      "job_title": "Senior Project Manager (bankowość)",
      "fields": [
       "rate",
@@ -8329,8 +8499,8 @@
      "answers": 4
     },
     {
-     "note_id": 991407,
-     "job_id": 991404,
+     "note_id": 991406,
+     "job_id": 991403,
      "job_title": "Senior Project Manager (bankowość)",
      "fields": [
       "rate",
@@ -8353,8 +8523,8 @@
      "answers": 4
     },
     {
-     "note_id": 991402,
-     "job_id": 991400,
+     "note_id": 991401,
+     "job_id": 991399,
      "job_title": "Senior Project Manager (bankowość)",
      "fields": [
       "rate",
@@ -8387,7 +8557,7 @@
    "version": 4,
    "languages": [
     {
-     "id": 991480,
+     "id": 991479,
      "language_code": "en",
      "language_name": null,
      "cefr_level": null,
@@ -8398,7 +8568,7 @@
      "version": 2
     },
     {
-     "id": 991481,
+     "id": 991480,
      "language_code": "de",
      "language_name": null,
      "cefr_level": null,
@@ -8409,7 +8579,7 @@
      "version": 2
     },
     {
-     "id": 991482,
+     "id": 991481,
      "language_code": "pl",
      "language_name": null,
      "cefr_level": null,
@@ -8420,7 +8590,7 @@
      "version": 2
     },
     {
-     "id": 991483,
+     "id": 991482,
      "language_code": "ru",
      "language_name": null,
      "cefr_level": null,
@@ -8719,7 +8889,7 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 10,
+     "candidate_count": 11,
      "request_stage": "searching",
      "priority_assignment": null,
      "priority_carry_over_count": 0,
@@ -8728,7 +8898,8 @@
       "new": 4,
       "screening": 3,
       "verified": 1,
-      "interview": 2
+      "interview": 2,
+      "client_interview": 1
      },
      "review_count": 4
     }
@@ -8918,7 +9089,7 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 10,
+     "candidate_count": 11,
      "request_stage": "searching",
      "priority_assignment": null,
      "priority_carry_over_count": 0,
@@ -8927,7 +9098,8 @@
       "new": 4,
       "screening": 3,
       "verified": 1,
-      "interview": 2
+      "interview": 2,
+      "client_interview": 1
      },
      "review_count": 4
     },
@@ -8948,7 +9120,7 @@
      "is_open": true,
      "external_source": "traffit",
      "managed_in_nexus": true,
-     "managed_in_nexus_at": "@rel:-34.163",
+     "managed_in_nexus_at": "@rel:-34.162",
      "managed_in_nexus_by": 82,
      "priority": "normal",
      "needs_sourcing": true,
@@ -9065,7 +9237,7 @@
      "criteria_generated_at": null,
      "pipeline_template_id": null,
      "competence_category_id": 5,
-     "opened_at": "@rel:-109.968",
+     "opened_at": "@rel:-109.967",
      "closed_at": null,
      "close_reason": null,
      "close_notes": null,
@@ -9139,11 +9311,11 @@
      "updated_at": "@rel:-2.885",
      "is_p0": true,
      "priority_level": "p1",
-     "opened_effective_at": "@rel:-109.968",
+     "opened_effective_at": "@rel:-109.967",
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 10,
+     "candidate_count": 11,
      "request_stage": "searching",
      "priority_assignment": null,
      "priority_carry_over_count": 0,
@@ -9152,7 +9324,8 @@
       "new": 4,
       "screening": 3,
       "verified": 1,
-      "interview": 2
+      "interview": 2,
+      "client_interview": 1
      },
      "review_count": 4
     }
@@ -9167,7 +9340,7 @@
    "matches": [
     {
      "job": {
-      "id": 991550,
+      "id": 991549,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9186,7 +9359,7 @@
      "total_score": 60.6,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991550,
+      "job_id": 991549,
       "total": 60.6,
       "semantic": {
        "points": 33.5,
@@ -9248,7 +9421,7 @@
     },
     {
      "job": {
-      "id": 991518,
+      "id": 991517,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9267,7 +9440,7 @@
      "total_score": 60.2,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991518,
+      "job_id": 991517,
       "total": 60.2,
       "semantic": {
        "points": 33.1,
@@ -9394,7 +9567,7 @@
     },
     {
      "job": {
-      "id": 991551,
+      "id": 991550,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9413,7 +9586,7 @@
      "total_score": 59.8,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991551,
+      "job_id": 991550,
       "total": 59.8,
       "semantic": {
        "points": 38.4,
@@ -9469,7 +9642,7 @@
     },
     {
      "job": {
-      "id": 991552,
+      "id": 991551,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9488,7 +9661,7 @@
      "total_score": 59.4,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991552,
+      "job_id": 991551,
       "total": 59.4,
       "semantic": {
        "points": 37.4,
@@ -9621,7 +9794,7 @@
     },
     {
      "job": {
-      "id": 991553,
+      "id": 991552,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9640,7 +9813,7 @@
      "total_score": 59.3,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991553,
+      "job_id": 991552,
       "total": 59.3,
       "semantic": {
        "points": 35.1,
@@ -9700,7 +9873,7 @@
     },
     {
      "job": {
-      "id": 991513,
+      "id": 991512,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": null,
@@ -9719,7 +9892,7 @@
      "total_score": 59.2,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991513,
+      "job_id": 991512,
       "total": 59.2,
       "semantic": {
        "points": 34.5,
@@ -9779,7 +9952,7 @@
     },
     {
      "job": {
-      "id": 991484,
+      "id": 991483,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9798,7 +9971,7 @@
      "total_score": 59.1,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991484,
+      "job_id": 991483,
       "total": 59.1,
       "semantic": {
        "points": 34.4,
@@ -9855,7 +10028,7 @@
     },
     {
      "job": {
-      "id": 991554,
+      "id": 991553,
       "title": "Senior Project Manager (bankowość)",
       "working_title": "Senior Project Manager (bankowość)",
       "client_reference": "ĆW-01",
@@ -9874,7 +10047,7 @@
      "total_score": 58.9,
      "breakdown": {
       "candidate_id": 990105,
-      "job_id": 991554,
+      "job_id": 991553,
       "total": 58.9,
       "semantic": {
        "points": 35.9,
@@ -10115,12 +10288,13 @@
      "has_budget_hourly": true,
      "effective_budget_hourly": null,
      "effective_budget_hourly_min": null,
-     "candidate_count": 10,
+     "candidate_count": 11,
      "stage_breakdown": {
       "new": 4,
       "screening": 3,
       "verified": 1,
-      "interview": 2
+      "interview": 2,
+      "client_interview": 1
      },
      "stage_columns": [
       {
@@ -10202,7 +10376,7 @@
        "name": "Interview Klient",
        "order": 8,
        "terminal_type": null,
-       "count": 0
+       "count": 1
       },
       {
        "stage": "acceptance",
@@ -10361,8 +10535,8 @@
      "require_recommendation_note": true,
      "requires_rodo_consent_block": false
     },
-    "package_id": 991598,
-    "id": 991599,
+    "package_id": 991597,
+    "id": 991598,
     "candidate_id": 990105,
     "job_id": 990001,
     "client_id": 990501,
@@ -10441,8 +10615,8 @@
      "require_recommendation_note": true,
      "requires_rodo_consent_block": false
     },
-    "package_id": 991598,
-    "id": 991598,
+    "package_id": 991597,
+    "id": 991597,
     "candidate_id": 990105,
     "job_id": 990001,
     "client_id": 990501,
@@ -10811,23 +10985,23 @@
      "moved_by_name": "Jakub Szkoleniowy"
     },
     {
-     "job_id": 991545,
+     "job_id": 991544,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": null,
      "client_name": "Bank Północny",
-     "stage_id": 991600,
+     "stage_id": 991599,
      "stage_name": "CV Wysłane",
      "moved_at": "@rel:-12.88",
      "moved_by_name": "Jakub Szkoleniowy"
     },
     {
-     "job_id": 991601,
+     "job_id": 991600,
      "job_title": "Senior Project Manager (bankowość)",
      "job_working_title": "Senior Project Manager (bankowość)",
      "job_client_reference": null,
      "client_name": "Bank Północny",
-     "stage_id": 991602,
+     "stage_id": 991601,
      "stage_name": "Nowy",
      "moved_at": "@rel:-48.102",
      "moved_by_name": "Anna Poligonowa"
@@ -10836,21 +11010,21 @@
    "current_recruitments_total": 3,
    "recent_notes": [
     {
-     "id": 991603,
+     "id": 991602,
      "content": null,
      "created_at": "@rel:-107.147",
      "author_name": "Jakub Szkoleniowy",
      "pinned": false
     },
     {
-     "id": 991604,
+     "id": 991603,
      "content": null,
-     "created_at": "@rel:-108.031",
+     "created_at": "@rel:-108.03",
      "author_name": "Jakub Szkoleniowy",
      "pinned": false
     },
     {
-     "id": 991605,
+     "id": 991604,
      "content": null,
      "created_at": "@rel:-108.849",
      "author_name": "Jakub Szkoleniowy",
@@ -10883,7 +11057,7 @@
      "Sektory: bankowość, płatności",
      "Sektory: bankowość, płatności"
     ],
-    "source_document_id": 991606,
+    "source_document_id": 991605,
     "source_hash": "poligon",
     "extractor_version": "claude:cv_enrichment:v9",
     "generated_at": "@rel:-1.858"
@@ -11113,13 +11287,13 @@
     null,
     null
    ],
-   "run_id": 991623,
+   "run_id": 991622,
    "computed_at": "@rel:-1.853",
    "cv": {
     "source": "branded_finalized",
     "editable": true,
     "stage_id": 990305,
-    "generated_document_id": 991598,
+    "generated_document_id": 991597,
     "document_id": null,
     "filename": null,
     "from_word_file": false,
@@ -13748,6 +13922,1608 @@
   "POST /api/my-people/matches/seen": {
    "updated": 0
   },
+  "GET /api/job-teams/by-job/990001": {
+   "team": null
+  },
+  "GET /api/pipeline/move-requirements?candidate_id=990105&job_id=990001&to_stage_def_id=6": {
+   "from_column": "cv_sent",
+   "to_column": "client_interview",
+   "skipped_columns": [],
+   "items": [
+    {
+     "key": "client_slot",
+     "label": "Termin od klienta",
+     "detail": "czekamy na terminy od klienta",
+     "status": "waiting",
+     "blocking": false,
+     "action": {
+      "kind": "request_slots",
+      "label": "Dodaj terminy od klienta",
+      "stage_id": 990305,
+      "event_id": null
+     },
+     "column": "client_interview"
+    }
+   ],
+   "primary": {
+    "kind": "move",
+    "label": "Przesuń na „Rozmowa u klienta”",
+    "target_stage_def_id": null
+   },
+   "owner_note": null
+  },
+  "GET /api/jobs/990001/chat/members": [
+   {
+    "id": 990901,
+    "name": "Anna Poligonowa",
+    "email": null,
+    "role": "delivery_lead"
+   },
+   {
+    "id": 990902,
+    "name": "Jakub Szkoleniowy",
+    "email": null,
+    "role": "recruiter"
+   }
+  ],
+  "GET /api/jobs/990001/chat/messages?limit=50": {
+   "items": [],
+   "has_more": false,
+   "next_before_id": null
+  },
+  "GET /api/jobs/990001/chat/pinned": [],
+  "PUT /api/jobs/990001/chat/read": {
+   "job_id": 990001,
+   "unread_count": 0,
+   "last_read_message_id": null,
+   "notifications_cleared": 0
+  },
+  "GET /api/pipeline/stages/990305/qc?transient=true": {
+   "stage_id": 990305,
+   "candidate_id": 990105,
+   "candidate_name": "Jakub Szkoleniowy",
+   "job_id": 990001,
+   "job_title": "Senior Project Manager (bankowość)",
+   "client_name": "Bank Północny",
+   "passed": true,
+   "blocking_failed": 0,
+   "warnings_count": 2,
+   "override": null,
+   "qc_state": {
+    "kind": "checked",
+    "n": 0,
+    "items": [],
+    "text": "QC: sprawdzone",
+    "tone": "ok",
+    "who": null,
+    "hint": "CV przeszło kontrolę przed wysłaniem."
+   },
+   "advisory": true,
+   "can_override": true,
+   "confirmations": [
+    {
+     "text": null,
+     "by_name": "Anna Poligonowa",
+     "at": "@rel:-2.91"
+    }
+   ],
+   "confirm_roles": [
+    null,
+    null,
+    null,
+    null,
+    null,
+    null
+   ],
+   "run_id": null,
+   "computed_at": "@rel:0.519",
+   "cv": {
+    "source": "branded_finalized",
+    "editable": true,
+    "stage_id": 992784,
+    "generated_document_id": 992785,
+    "document_id": null,
+    "filename": null,
+    "from_word_file": false,
+    "bold_known": true,
+    "updated_at": "@rel:-5.813",
+    "edit_revision": 33,
+    "blocks": [
+     {
+      "kind": "h",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": 1
+     },
+     {
+      "kind": "h",
+      "section": "why_points",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": 2
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "h",
+      "section": "education",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": 2
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "h",
+      "section": "skills",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": 2
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "h",
+      "section": "certifications",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": 2
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "h",
+      "section": "experience",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": 2
+     },
+     {
+      "kind": "p",
+      "section": "role",
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "employer",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "duties_label",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "role",
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "employer",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "duties_label",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": "and",
+        "b": false
+       },
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "role",
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "employer",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "duties_label",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "role",
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "employer",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "duties_label",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "role",
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "employer",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "duties_label",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "technologies",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "role",
+      "runs": [
+       {
+        "t": null,
+        "b": true
+       },
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "employer",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "duties_label",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "li",
+      "section": null,
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     },
+     {
+      "kind": "p",
+      "section": "rodo",
+      "runs": [
+       {
+        "t": null,
+        "b": false
+       }
+      ],
+      "level": null
+     }
+    ]
+   },
+   "original_cv": {
+    "source": "snapshot",
+    "filename": null,
+    "text": null,
+    "snapshot_at": "@rel:-2.857",
+    "newer_profile_cv": null
+   },
+   "client_request": {
+    "must": [
+     "requirements",
+     "strategy",
+     "business area",
+     "reporting",
+     "risk mgmt.",
+     "escalations",
+     "governance",
+     "data sourcing"
+    ],
+    "nice": [],
+    "critical": [],
+    "critical_source": "none"
+   },
+   "checks": [
+    {
+     "key": "cv_present",
+     "label": "CV firmowe jest przygotowane",
+     "severity": "blocking",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "critical_skills",
+     "label": "Umiejętności krytyczne są w CV i opisane w rolach",
+     "severity": "blocking",
+     "status": "skip",
+     "summary": "Rekrutacja nie ma umiejętności krytycznych",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "no_unsupported",
+     "label": "CV nie twierdzi niczego spoza oryginału",
+     "severity": "blocking",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "client_rules",
+     "label": "Reguły klienta (stawki, kontakt, zgoda RODO)",
+     "severity": "blocking",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "must_in_cv",
+     "label": "Pozostałe wymagania klienta są w CV",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "4/9",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "must_bolded",
+     "label": "Must-have są pogrubione",
+     "severity": "warning",
+     "status": "skip",
+     "summary": "Brak technologii z must-have w CV",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "must_in_roles",
+     "label": "Pozostałe wymagania opisane w rolach z oryginału",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "0 ról OK",
+     "items": [],
+     "roles": [
+      {
+       "requirement": "requirements",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "requirements",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "requirements",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "requirements",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "strategy",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "strategy",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "strategy",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "strategy",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "reporting",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "reporting",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "reporting",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "reporting",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "escalations",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "escalations",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "escalations",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "escalations",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "governance",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "governance",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "governance",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": "governance",
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      },
+      {
+       "requirement": null,
+       "role": "Senior Project Manager",
+       "state": "not_in_original",
+       "manual": null
+      }
+     ],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "years_header",
+     "label": "Lata doświadczenia zgodne z historią",
+     "severity": "warning",
+     "status": "fail",
+     "summary": "27 — do sprawdzenia",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "dates",
+     "label": "",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "6/6",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "nice_bolded",
+     "label": "Nice-to-have są pogrubione",
+     "severity": "warning",
+     "status": "skip",
+     "summary": "Brak technologii z nice-to-have w CV",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "spelling",
+     "label": "Pisownia technologii",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "title_matches_role",
+     "label": "Tytuł CV zgodny ze stanowiskiem",
+     "severity": "warning",
+     "status": "fail",
+     "summary": null,
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "bold_unsupported",
+     "label": "Pogrubienia mają pokrycie w oryginale",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "role_order",
+     "label": "Stanowiska od najnowszego",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "role_dates",
+     "label": "Daty stanowisk jak w oryginale",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "consent_matches",
+     "label": "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
+     "severity": "warning",
+     "status": "skip",
+     "summary": "Zrzut bez sprawdzenia AI",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": null,
+     "label": "Wymagania opisane w stanowiskach, nie tylko w podsumowaniu",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    },
+    {
+     "key": "role_employer",
+     "label": "Każde stanowisko ma nazwę firmy",
+     "severity": "warning",
+     "status": "pass",
+     "summary": "OK",
+     "items": [],
+     "roles": [],
+     "info": [],
+     "dismissed_items": [],
+     "muted": false
+    }
+   ]
+  },
+  "GET /api/candidates/stages/990305/cv/branded/issues": {
+   "generated_document_id": null,
+   "generator_warnings": [],
+   "content_review": {
+    "status": null,
+    "version": null,
+    "findings": []
+   },
+   "dismissed": []
+  },
+  "GET /api/candidates/stages/990305/cv/branded/versions": {
+   "versions": []
+  },
+  "GET /api/candidates/stages/990305/cv/ai-sources": {
+   "original_cv": {
+    "document_id": 992786,
+    "filename": null,
+    "uploaded_at": "@rel:-5.848"
+   },
+   "cv_files": [
+    {
+     "document_id": 992786,
+     "filename": null,
+     "uploaded_at": "@rel:-5.848",
+     "is_primary": true,
+     "outdated": false,
+     "stage_original": true
+    }
+   ],
+   "champion": true,
+   "answers": {
+    "count": 4,
+    "excluded": 0
+   },
+   "notes": {
+    "count": 1,
+    "excluded": 0
+   },
+   "transcripts": {
+    "count": 0,
+    "excluded": 0
+   },
+   "prep": {
+    "count": 0,
+    "excluded": 0
+   },
+   "rate_notes": {
+    "count": 0,
+    "excluded": 0
+   },
+   "defaults": {
+    "answers": true,
+    "notes": true,
+    "transcripts": false,
+    "prep": false
+   },
+   "last_used": null,
+   "last_source_cv": null
+  },
   "GET /api/users/mentionable": [
    {
     "id": 990901,
@@ -13800,7 +15576,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -13837,20 +15613,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -13859,13 +15642,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -14055,7 +15831,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -14092,20 +15868,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -14114,13 +15897,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -14310,7 +16086,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -14347,20 +16123,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -14369,13 +16152,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -14565,7 +16341,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -14602,20 +16378,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -14624,13 +16407,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -14820,7 +16596,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -14857,20 +16633,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -14879,13 +16662,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -15075,7 +16851,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -15112,20 +16888,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -15134,13 +16917,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -15330,7 +17106,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -15367,20 +17143,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -15389,13 +17172,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -15585,7 +17361,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -15622,20 +17398,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -15644,13 +17427,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -15840,7 +17616,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -15877,20 +17653,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -15899,13 +17682,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -16095,7 +17871,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -16132,20 +17908,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -16154,13 +17937,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -16350,7 +18126,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -16387,20 +18163,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -16409,13 +18192,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -16605,7 +18381,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -16642,20 +18418,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -16664,13 +18447,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -16860,7 +18636,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -16897,20 +18673,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -16919,13 +18702,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -17115,7 +18891,7 @@
      "rate_from_at": "@rel:-268.019",
      "rate_from_stale": false,
      "rate_latest_hourly": "105.00",
-     "rate_latest_at": "@rel:-114.157",
+     "rate_latest_at": "@rel:-114.156",
      "rate_observation_count": 4,
      "rate_from_source": "card",
      "rate_declared_from_hourly": null,
@@ -17152,20 +18928,27 @@
        "type": "traffit_source",
        "value": null,
        "domain": "linkedin.com",
-       "source_id": 991416
+       "source_id": 991415
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Aktywny Search",
-       "source_id": 991417
+       "source_id": 991416
       },
       {
        "url": null,
        "type": "traffit_source",
        "value": null,
        "domain": "Dodany manualnie",
+       "source_id": 991417
+      },
+      {
+       "url": null,
+       "type": "traffit_source",
+       "value": null,
+       "domain": "Aktywny Search",
        "source_id": 991418
       },
       {
@@ -17174,13 +18957,6 @@
        "value": null,
        "domain": "Aktywny Search",
        "source_id": 991419
-      },
-      {
-       "url": null,
-       "type": "traffit_source",
-       "value": null,
-       "domain": "Aktywny Search",
-       "source_id": 991420
       }
      ],
      "skills": [
@@ -17387,6 +19163,84 @@
   },
   "GET /api/jobs/990001/proposals/latest": {
    "@status": 404
+  },
+  "GET /api/jobs/990001/background-events?limit=30": {
+   "job_id": 990001,
+   "items": [],
+   "limit": 30
+  },
+  "GET /api/jobs/990001/request-history?cross_client=false&include_open=true&top_k=15": {
+   "closed": [],
+   "in_progress": [],
+   "skill_frequency": {
+    "n": 0,
+    "must": [],
+    "nice": [],
+    "consistent_must": [],
+    "consistent_nice": [],
+    "threshold": 0.6
+   },
+   "meta": {
+    "sql_count": 0,
+    "voyage_count": 0,
+    "total": 0,
+    "skill_freq_sample": 0
+   }
+  },
+  "GET /api/interview-cycle/preps/suggestions?candidate_id=990105&job_id=990001&prep1_minutes=45&prep2_minutes=45": {
+   "enabled": false,
+   "preps": [
+    {
+     "prep_no": 1,
+     "organizer": {
+      "id": 990901,
+      "name": "Anna Poligonowa"
+     },
+     "calendar": "off",
+     "scheduled_start": null,
+     "minutes": 45,
+     "options": [
+      {
+       "start": "@relt:1T07:00",
+       "end": "@relt:1T07:45"
+      },
+      {
+       "start": "@relt:1T08:00",
+       "end": "@relt:1T08:45"
+      },
+      {
+       "start": "@relt:1T09:00",
+       "end": "@relt:1T09:45"
+      }
+     ],
+     "busy": []
+    },
+    {
+     "prep_no": 2,
+     "organizer": {
+      "id": 990902,
+      "name": "Jakub Szkoleniowy"
+     },
+     "calendar": "off",
+     "scheduled_start": null,
+     "minutes": 45,
+     "options": [
+      {
+       "start": "@relt:2T07:00",
+       "end": "@relt:2T07:45"
+      },
+      {
+       "start": "@relt:1T15:00",
+       "end": "@relt:1T15:45"
+      },
+      {
+       "start": "@relt:1T16:00",
+       "end": "@relt:1T16:45"
+      }
+     ],
+     "busy": []
+    }
+   ]
   }
  }
 }

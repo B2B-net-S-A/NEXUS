@@ -56,6 +56,17 @@ function parseBody(data: unknown): unknown {
   }
 }
 
+/** Zalogowana osoba z `nexus_user` (`store/auth.ts`) — jej są zapisane wyszukiwania i listy na poligonie. */
+function viewerId(): number | null {
+  try {
+    const raw = window.localStorage.getItem("nexus_user");
+    const id = raw ? (JSON.parse(raw) as { id?: unknown }).id : null;
+    return typeof id === "number" ? id : null;
+  } catch {
+    return null;
+  }
+}
+
 export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestConfig) => {
   const store = await poligonStore();
   const result = store.handle({
@@ -63,6 +74,7 @@ export const poligonAdapter: AxiosAdapter = async (config: InternalAxiosRequestC
     url: config.url ?? "",
     params: config.params as Record<string, unknown> | undefined,
     body: parseBody(config.data),
+    viewerId: viewerId(),
   });
   if (result === "network") {
     return getAdapter(["xhr", "fetch"])(config);
