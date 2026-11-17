@@ -11,7 +11,7 @@ których już dzwoniły. Na kopii produkcji z 16.11 były dwa mechanizmy:
   kart z rekordami, więc bramka NIP też nie łapała.
 - **Firma już w CRM.** Rekord z Excela bez wyniku, a ofertę zapisano jako szansę na
   etapie Lead z formularza szansy (nie wynikiem na karcie). Kolejka pokazywała firmę dwa
-  razy: przez szansę i przez rekord „Nowy”. 31 takich rekordów.
+  razy: przez szansę i przez rekord „Nowy”. 30 takich rekordów (szanse z lejka Sprzedaż).
 
 Makiety i decyzje: https://claude.ai/artifact/MJQSHLtj6WJNywtMePX68R (prywatny artefakt).
 Artur wybrał wszystkie warianty, dopasowanie „numer, adres, osoba” i bieg na sucho przed
