@@ -39,7 +39,8 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
 * ``GET/POST /documents``, ``GET/PATCH/DELETE /documents/{id}``,
   ``POST /documents/approve``, ``POST /documents/{id}/reverse``,
 * ``GET /trial-balance``, ``GET /accounts/card``,
-* ``GET/POST /chart``, ``PATCH /chart/{id}``.
+* ``GET/POST /chart``, ``PATCH /chart/{id}``, ``POST /chart/import?save=``
+  (plan kont z XML „Model księgowy” Symfonii — dokłada brakujące konta).
 """
 
 from datetime import date, datetime, timezone
@@ -76,6 +77,7 @@ from app.services.ledger import (
     automations,
     bank,
     chart,
+    chart_import,
     closing,
     documents,
     engine,
@@ -1004,6 +1006,9 @@ async def import_opening(
     current_user: FinanceModuleUser,
     year: int = Query(ge=years.YEAR_MIN, le=years.YEAR_MAX),
     save: bool = Query(False),
+    basis: Optional[Literal["bo", "saldo"]] = Query(
+        None, description="Kolumny salda, gdy plik ma i BO, i saldo końcowe"
+    ),
     file: UploadFile = File(
         ..., description="Zestawienie sald z Symfonii FK (XLSX albo CSV)"
     ),
@@ -1013,7 +1018,7 @@ async def import_opening(
     _require_approver(viewer)
     content = await file.read(opening.MAX_BYTES + 1)
     try:
-        parsed = opening.parse(content)
+        parsed = opening.parse(content, basis=basis)
     except ImportFileError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     try:
@@ -1315,6 +1320,36 @@ async def create_account(
         raise _fail(exc) from exc
     await db.commit()
     return {"items": await chart.list_chart(db, include_payroll=viewer.payroll)}
+
+
+@router.post("/chart/import")
+async def import_chart(
+    current_user: FinanceModuleUser,
+    save: bool = Query(False),
+    file: UploadFile = File(
+        ..., description="Eksport „Model księgowy” z Symfonii FK (XML)"
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    _require_approver(viewer)
+    content = await file.read(chart_import.MAX_BYTES + 1)
+    try:
+        parsed = chart_import.parse(content)
+    except ImportFileError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    try:
+        summary = await chart_import.apply(
+            db, parsed, save=save, actor_id=current_user.id
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    if save:
+        await db.commit()
+    else:
+        await db.rollback()
+    return summary
 
 
 @router.patch("/chart/{account_id}")

@@ -90,6 +90,7 @@ function choice(overrides: Partial<ReadyCvChoice> = {}): ReadyCvChoice {
     isError: false,
     refetch: vi.fn(),
     choose: vi.fn(async () => undefined),
+    chooseWithConsent: vi.fn(async () => undefined),
     upload: vi.fn(async () => undefined),
     inspect: vi.fn(async () => true),
     busyKey: null,

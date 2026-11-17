@@ -73,15 +73,75 @@ def test_single_balance_column_with_sign():
 
 def test_closing_balance_columns_of_previous_year():
     parsed = opening.parse(
-        _csv("Konto\tNazwa\tSaldo końcowe Wn\tSaldo końcowe Ma\n131\tKasa\t20,00\t\n800\tKapitał\t\t20,00\n")
+        _csv(
+            "Konto\tNazwa\tSaldo końcowe Wn\tSaldo końcowe Ma\n131\tKasa\t20,00\t\n800\tKapitał\t\t20,00\n"
+        )
     )
     assert sum(row.amount for row in parsed.rows) == 0
 
 
-def test_both_opening_and_closing_columns_are_refused():
-    with pytest.raises(ImportFileError) as exc:
-        opening.parse(_csv("Konto;BO Wn;BO Ma;Saldo Wn;Saldo Ma\n131;1;;2;\n"))
-    assert "zostaw tylko" in str(exc.value)
+ZOIS = (
+    "Zestawienie obrotów i sald\n"
+    "Konto;Nazwa;BO Wn;BO Ma;Obroty Wn;Obroty Ma;Saldo Wn;Saldo Ma\n"
+    "010;Środki trwałe;1 000,00;;50,00;;1 050,00;\n"
+    "010-1;ŚT grunty;400,00;;50,00;;450,00;\n"
+    "010-2;ŚT budynki;600,00;;;;600,00;\n"
+    "201;Dostawcy;;300,00;;;;300,00\n"
+    "201-2;Dostawcy krajowi;;300,00;;;;300,00\n"
+    "201-2-7;Dostawca A;;100,00;;;;100,00\n"
+    "201-2-9;Dostawca B;;200,00;;;;200,00\n"
+    "800;Kapitał;;700,00;;;;750,00\n"
+    "Razem;;1 000,00;1 000,00;;;;\n"
+)
+
+
+def test_file_with_opening_and_closing_columns_opens_the_year_with_opening():
+    parsed = opening.parse(_csv(ZOIS))
+    assert (parsed.basis, parsed.both_bases) == ("bo", True)
+    assert {row.account: row.amount for row in parsed.rows} == {
+        "010-1": 40_000,
+        "010-2": 60_000,
+        "201-2-7": -10_000,
+        "201-2-9": -20_000,
+        "800": -70_000,
+    }
+    assert parsed.errors == []
+    assert sum(row.amount for row in parsed.rows) == 0
+    assert parsed.synthetic_skipped == 3  # 010, 201, 201-2
+
+
+def test_closing_balance_can_be_chosen_explicitly():
+    parsed = opening.parse(_csv(ZOIS), basis="saldo")
+    assert parsed.basis == "saldo"
+    amounts = {row.account: row.amount for row in parsed.rows}
+    assert amounts["010-1"] == 45_000 and amounts["800"] == -75_000
+
+
+def test_unknown_basis_is_refused():
+    with pytest.raises(ImportFileError):
+        opening.parse(_csv(ZOIS), basis="inne")
+
+
+def test_synthetic_row_that_analytics_do_not_explain_is_an_error():
+    parsed = opening.parse(
+        _csv(
+            "Konto;BO Wn;BO Ma\n"
+            "131;500,00;\n"
+            "131-1;200,00;\n"
+            "131-2;100,00;\n"
+            "800;;500,00\n"
+        )
+    )
+    assert [error["line"] for error in parsed.errors] == [2]
+    assert "131" in parsed.errors[0]["message"]
+
+
+def test_synthetic_row_without_amount_on_analytics_stays():
+    parsed = opening.parse(
+        _csv("Konto;BO Wn;BO Ma\n131;500,00;\n131-1;;\n800;;500,00\n")
+    )
+    assert {row.account for row in parsed.rows} == {"131", "800"}
+    assert parsed.synthetic_skipped == 0
 
 
 def test_missing_header_is_refused():

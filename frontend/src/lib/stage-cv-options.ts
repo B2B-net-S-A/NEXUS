@@ -30,6 +30,26 @@ export const CONSENT_AFTER_CHOICE_NOTE =
   "Klient wymaga zrzutu zgody kandydata — po wyborze dołącz go w karcie „CV do klienta”.";
 export const CONSENT_CARRIED_NOTE = "Zrzut zgody przejdzie razem z CV (ten sam klient).";
 
+/** Numer zapytania PKO BP z tytułu rekrutacji („ZOB 3097” → „ZOB-3097”); bez niego `null`. */
+export function zobReference(text: string | null | undefined): string | null {
+  const match = text?.match(/ZOB[-\s]?(\d{3,5})/i);
+  return match ? `ZOB-${match[1]}` : null;
+}
+
+/**
+ * „Użyj tego CV z nową zgodą” (17.11.2026, propozycja z zespołu, wariant A):
+ * zdanie w pasku gotowego CV u klienta ze zrzutem zgody. Treść zostaje, zgoda
+ * z tamtej rekrutacji nie przechodzi — u PKO BP niesie inny numer ZOB.
+ */
+export function consentSwapSentence(sourceTitle: string, jobTitle: string | null | undefined): string {
+  const from = zobReference(sourceTitle);
+  const to = zobReference(jobTitle);
+  return (
+    `Treść zostaje bez zmian. Zgoda ${from ? `z ${from}` : "z tamtej rekrutacji"} nie przechodzi — ` +
+    `wgraj zrzut zgody do ${to ?? "tej rekrutacji"}.`
+  );
+}
+
 export interface StageCvGeneratedSource {
   id: number;
   status: string;

@@ -62,6 +62,7 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     clean_skill_sections,
     keep_source_methodologies,
     screening_text_without_questions,
+    strip_source_mentions,
     strip_unsupported_terms,
 )
 from app.services.cv_generator_b2b.legacy_v7.champion import build_champion_section
@@ -435,6 +436,7 @@ def run_legacy_generation(
         requirements=requirements,
         language=language,
     )
+    question_notes = list(question_notes) + strip_source_mentions(candidate_data)
 
     role_title = (job_title or "").strip()
     explicit_position = (position_ref or "").strip()

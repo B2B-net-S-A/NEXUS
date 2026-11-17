@@ -59,6 +59,7 @@
   "POST /api/accounting/bank/import": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/bank/statements/{statement_id}/post": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/chart": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/accounting/chart/import": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/documents": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/documents/approve": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/accounting/documents/{doc_id}/reverse": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

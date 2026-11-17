@@ -106,6 +106,9 @@ export function useReadyCvChoice({
     choose: async (option: StageCvOption) => {
       if (await confirmReplace()) chooser.choose(option);
     },
+    chooseWithConsent: async (option: StageCvOption, consentToken: string) => {
+      if (await confirmReplace()) chooser.chooseWithConsent(option, consentToken);
+    },
     upload: async (file: File) => {
       if (await confirmReplace()) chooser.upload(file);
     },

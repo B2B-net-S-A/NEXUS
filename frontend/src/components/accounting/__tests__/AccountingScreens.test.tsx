@@ -35,6 +35,7 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { DocumentsView } from "@/components/accounting/DocumentsView";
 import { SettingsView } from "@/components/accounting/SettingsView";
+import { ChartView } from "@/components/accounting/ChartView";
 import { AutomationsView, monthLabel, templateLines } from "@/components/accounting/AutomationsView";
 import { SourcesView, syncMessage } from "@/components/accounting/SourcesView";
 import { ExportsView, defaultKinds, packedDocuments } from "@/components/accounting/ExportsView";
@@ -537,6 +538,116 @@ describe("Księgowość — bilans otwarcia z Symfonii", () => {
     renderWith(<SettingsView />);
     await screen.findByText("Nie jesteś na liście „Księgowi”");
     expect(screen.queryByLabelText("Plik zestawienia sald")).not.toBeInTheDocument();
+  });
+});
+
+describe("Księgowość — plan kont z Symfonii", () => {
+  const chartPreview = {
+    saved: false,
+    accounts_in_file: 914,
+    created: 903,
+    existing: 11,
+    blocked: 0,
+    filled: 2,
+    dictionaries: 17,
+    markers: 742,
+    markers_ignored: 21,
+    problems: ["Pozycji sprawozdania nie zapisano na 7 kontach (753, 756) — ustaw je w Planie kont."],
+    problems_total: 1,
+    notes: ["Konto 234: słownik „Pracownicy” zapisany jako słownik kontrahentów."],
+    preview: [
+      { number: "010", name: "Środki trwałe", account_type: "active", account_type_label: "bilansowe aktywne", dictionary: null, report_line: null },
+      { number: "200-1", name: "Odbiorcy", account_type: "mixed", account_type_label: "bilansowe aktywno-pasywne", dictionary: "counterparty", report_line: null },
+    ],
+  };
+
+  it("sprawdza plik XML, pokazuje problemy i dodaje konta dopiero po zapisie", async () => {
+    pathname = "/accounting/chart";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    post
+      .mockResolvedValueOnce({ data: chartPreview })
+      .mockResolvedValueOnce({ data: { ...chartPreview, saved: true } });
+    const user = userEvent.setup();
+    renderWith(<ChartView />);
+    await user.click(await screen.findByRole("button", { name: "Wczytaj plan z Symfonii" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Dodaj konta" })).toBeDisabled();
+    await user.upload(
+      within(dialog).getByLabelText("Plik planu kont z Symfonii"),
+      new File(["<DokumentXML/>"], "model.xml", { type: "text/xml" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(dialog).findByText(/do dodania: 903/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Pozycji sprawozdania nie zapisano na 7 kontach/)).toBeInTheDocument();
+    expect(within(dialog).getByText("200-1")).toBeInTheDocument();
+    const [url, body, options] = post.mock.calls[0];
+    expect(url).toBe("/api/accounting/chart/import");
+    expect(body).toBeInstanceOf(FormData);
+    expect(options).toMatchObject({ params: { save: false } });
+    await user.click(within(dialog).getByRole("button", { name: "Dodaj 903 kont" }));
+    expect(await within(dialog).findByText(/Plan kont jest zaktualizowany/)).toBeInTheDocument();
+    expect(post.mock.calls[1][2]).toMatchObject({ params: { save: true } });
+    expect(showToast).toHaveBeenCalledWith("Dodano 903 kont do planu.");
+    expect(within(dialog).getByRole("button", { name: "Dodaj konta" })).toBeDisabled();
+  });
+
+  it("plik, w którym wszystkie konta już są, nie pozwala zapisać", async () => {
+    pathname = "/accounting/chart";
+    route(config());
+    post.mockResolvedValueOnce({ data: { ...chartPreview, created: 0, existing: 914, preview: [], problems: [], problems_total: 0 } });
+    const user = userEvent.setup();
+    renderWith(<ChartView />);
+    await user.click(await screen.findByRole("button", { name: "Wczytaj plan z Symfonii" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.upload(within(dialog).getByLabelText("Plik planu kont z Symfonii"), new File(["<DokumentXML/>"], "model.xml"));
+    await user.click(within(dialog).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(dialog).findByText(/Wszystkie konta z pliku już są w planie/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Dodaj konta" })).toBeDisabled();
+  });
+
+  it("osoba spoza listy „Księgowi” nie widzi przycisku importu", async () => {
+    pathname = "/accounting/chart";
+    route(config({ me: { admin: false, approver: false, payroll: false } }));
+    renderWith(<ChartView />);
+    await screen.findByRole("button", { name: "Dodaj konto" });
+    expect(screen.queryByRole("button", { name: "Wczytaj plan z Symfonii" })).not.toBeInTheDocument();
+  });
+
+  it("bilans otwarcia z ZOiS: wybór kolumn BO albo salda i informacja o pominiętych syntetykach", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    const zois = {
+      year: 2026,
+      rows: 653,
+      skipped: 3,
+      errors: [],
+      debit_total: 3440016073,
+      credit_total: 3440016073,
+      balanced: true,
+      missing_accounts: [],
+      missing_total: 0,
+      counterparties_matched: 0,
+      problems: [] as string[],
+      preview: [],
+      saved: false,
+      document_id: null,
+      basis: "bo",
+      both_bases: true,
+      synthetic_skipped: 37,
+    };
+    post.mockResolvedValue({ data: zois });
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const input = await screen.findByLabelText("Plik zestawienia sald");
+    await user.upload(input, new File(["Konto;BO Wn"], "zois.xlsx"));
+    const card = input.closest("section")!;
+    expect(within(card).queryByLabelText("Kolumny salda z pliku")).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/pominięto wiersze syntetyczne: 37/)).toBeInTheDocument();
+    await user.selectOptions(within(card).getByLabelText("Kolumny salda z pliku"), "saldo");
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[1][2]).toMatchObject({ params: { year: 2026, save: false, basis: "saldo" } });
   });
 });
 

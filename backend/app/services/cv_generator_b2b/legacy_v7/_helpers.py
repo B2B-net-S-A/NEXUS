@@ -1214,6 +1214,135 @@ def _without_level_note(item: str) -> tuple[str, bool]:
     return ("; ".join(segments) or item), found
 
 
+# Źródło faktu i zastrzeżenie „bez doświadczenia komercyjnego” (zgłoszenie Artura
+# 17.11.2026: „Bazy danych (niekomercyjnie): MongoDB - znajomość potwierdzona
+# podczas screeningu, bez doświadczenia komercyjnego”). Klient nie ma wiedzieć,
+# skąd wzięliśmy fakt, a zastrzeżenie czyta jako „nie umie”. Kopia z 16.11: to samo
+# w zadaniach („per screening notes”), językach i punktach „Dlaczego”. Same słowa
+# „screening” (AML: „sanctions screening”) i „deklaracje” (podatkowe) to fakty.
+_SOURCE_NOTE_RE = re.compile(
+    r"\bpotwierdz\w*\s+(?:podczas|w\s+trakcie|na|w)\s+(?:rozmow\w*|screening\w*)"
+    r"|\b(?:według|wg|na\s+podstawie)\s+(?:notat\w*|screening\w*|rozmow\w*|kandydat\w*|cv)\b"
+    r"|\b(?:z|ze)\s+(?:notatek|screeningu)\b"
+    r"|\bniekomercyjn\w*"
+    r"|\bbez\s+(?:doświadczeni\w*\s+)?komercyjn\w*"
+    r"|\b(?:confirmed|stated|mentioned|declared|reported)\s+(?:during|in|at|by)\s+"
+    r"(?:the\s+)?(?:screening|interview|call|candidate|recruit\w*)"
+    r"|\b(?:per|according\s+to|from)\s+(?:the\s+)?(?:screening\s+)?"
+    r"(?:notes?|screening|interview|candidate|cv)\b"
+    r"|\bscreening\s+notes?\b"
+    r"|\bnon-commercial\b"
+    r"|\b(?:without|no)\s+commercial\s+(?:experience|use)\b",
+    re.IGNORECASE,
+)
+_CLAUSE_SEP_RE = re.compile(r"\s*(?:;|,|\s[-–—])\s+")
+_SOURCE_PAREN_RE = re.compile(r"\s*\(([^()]*)\)")
+
+
+def _without_source_note(text: str) -> str:
+    """Tekst bez wtrącenia o źródle faktu; pusty, gdy cały był takim wtrąceniem.
+
+    Nawias z wtrąceniem znika; inaczej zdanie kończy się na ostatnim separatorze
+    (średnik, przecinek, myślnik) przed wtrąceniem, bo to, co po nim, jest
+    zwykle dalszym ciągiem zastrzeżenia.
+    """
+    out = _SOURCE_PAREN_RE.sub(
+        lambda m: "" if _SOURCE_NOTE_RE.search(m.group(1)) else m.group(0), text
+    ).strip()
+    match = _SOURCE_NOTE_RE.search(out)
+    if not match:
+        return out
+    cuts = [m for m in _CLAUSE_SEP_RE.finditer(out) if m.end() <= match.start()]
+    cut = out[: cuts[-1].start()] if cuts else out[: match.start()]
+    cut = cut.rstrip(" ,;:-–—")
+    if cut and text.rstrip().endswith(".") and not cut.endswith("."):
+        cut += "."
+    return cut
+
+
+def strip_source_mentions(candidate_data: dict[str, Any]) -> list[str]:
+    """Usuń z CV wzmianki o źródle faktu i o braku doświadczenia komercyjnego.
+
+    Kategoria „Bazy danych (niekomercyjnie)” łączy się z „Bazy danych” (pozycje
+    na końcu). Zwraca uwagę WERYFIKUJ z tym, co zniknęło, żeby rekruter mógł
+    przywrócić fakt bez zastrzeżenia.
+    """
+    removed: list[str] = []
+
+    def clean(text: Any) -> str:
+        value = str(text)
+        cleaned = _without_source_note(value)
+        if cleaned != value.strip():
+            removed.append(value.strip())
+        return cleaned
+
+    points = candidate_data.get("why_points")
+    if isinstance(points, list):
+        candidate_data["why_points"] = [
+            c for c in (clean(p) if isinstance(p, str) else p for p in points) if c
+        ]
+    for job in candidate_data.get("experience") or []:
+        if isinstance(job, dict) and isinstance(job.get("responsibilities"), list):
+            job["responsibilities"] = [
+                c for c in map(clean, job["responsibilities"]) if c
+            ]
+    languages = candidate_data.get("languages")
+    if isinstance(languages, list):
+        kept_languages: list[str] = []
+        for line in languages:
+            value = str(line)
+            if not _SOURCE_NOTE_RE.search(value):
+                kept_languages.append(value)
+                continue
+            removed.append(value.strip())
+            for segment in value.split(";"):
+                match = _SOURCE_NOTE_RE.search(segment)
+                head = segment[: match.start()] if match else segment
+                head = head.strip().rstrip(" ,;:-–—")
+                if head:
+                    kept_languages.append(head)
+                    break
+        candidate_data["languages"] = kept_languages
+
+    skills: list[dict[str, Any]] = []
+    by_label: dict[str, dict[str, Any]] = {}
+    for cat in candidate_data.get("skills") or []:
+        if not isinstance(cat, dict):
+            continue
+        label = str(cat.get("label") or "")
+        clean_label = re.sub(r"\s+(?=:)", "", _without_source_note(label.rstrip(":")))
+        clean_label = f"{clean_label}:" if label.rstrip().endswith(":") else clean_label
+        if clean_label != label:
+            removed.append(label.strip())
+        items = [
+            c for c in map(clean, _split_skills(str(cat.get("content") or ""))) if c
+        ]
+        key = clean_label.rstrip(":").strip().casefold()
+        if key in by_label and clean_label != label:
+            target = by_label[key]
+            known = {i.casefold() for i in _split_skills(target["content"])}
+            extra = [i for i in items if i.casefold() not in known]
+            if extra:
+                target["content"] = ", ".join([target["content"], *extra])
+            continue
+        if not items:
+            continue
+        entry = {**cat, "label": clean_label, "content": ", ".join(items)}
+        by_label.setdefault(key, entry)
+        skills.append(entry)
+    if "skills" in candidate_data:
+        candidate_data["skills"] = skills
+
+    if not removed:
+        return []
+    shown = "; ".join(f"„{r[:120]}”" for r in removed[:3])
+    more = f" i {len(removed) - 3} więcej" if len(removed) > 3 else ""
+    return [
+        "WERYFIKUJ: usunięto z CV wzmianki o źródle faktu albo o braku doświadczenia "
+        f"komercyjnego: {shown}{more}. Klient nie widzi, skąd mamy fakt."
+    ]
+
+
 def strip_unsupported_terms(
     candidate_data: dict[str, Any],
     *,

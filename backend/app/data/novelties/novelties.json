@@ -3092,6 +3092,26 @@
     "dot_anchor": "cv-editor.tenure-split"
   },
   {
+    "id": "gotowe-cv-z-nowa-zgoda",
+    "pr": 3548,
+    "title": "Gotowe CV z nową zgodą RODO",
+    "why": "Gotowe CV z innej rekrutacji PKO BP użyjesz bez generowania nowego: wgraj w pasku zrzut zgody do tej rekrutacji i kliknij „Użyj tego CV z nową zgodą”. Treść zostaje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → CV do klienta → Ta osoba ma już gotowe CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.ready-cv-new-consent"
+  },
+  {
     "id": "profil-championa-co-sie-zmienilo",
     "pr": 3551,
     "title": "Co się zmieniło w Profilu Championa",
