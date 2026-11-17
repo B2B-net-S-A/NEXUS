@@ -16,12 +16,50 @@ import {
   type FinancePeriod,
   type FinanceResultsResponse,
 } from "@/lib/api/finance";
-import { FinanceImportPanel } from "@/components/finance/FinanceImportPanel";
+import { countPl } from "@/lib/plural-pl";
+import { FinanceImportPanel, MONTHS } from "@/components/finance/FinanceImportPanel";
 import {
   FinanceResultsTable,
   formatMoney,
   formatPct,
 } from "@/components/finance/FinanceResultsTable";
+
+interface MonthOption {
+  year: number;
+  month: number;
+  label: string;
+  period: FinancePeriod | null;
+}
+
+/**
+ * Pozycje selektora: 12 miesięcy wstecz od bieżącego plus każdy starszy
+ * miesiąc z importem, malejąco. Wcześniej lista miała wyłącznie miesiące
+ * z importem: na produkcji był tylko lipiec 2026 i Finanse czytały to jako
+ * „zakładka zatrzymała się na lipcu” (17.11.2026, wariant wybrany przez Artura).
+ */
+export function monthOptions(periods: FinancePeriod[], today: Date): MonthOption[] {
+  const byKey = new Map(periods.map((p) => [`${p.year}-${p.month}`, p]));
+  const keys = new Set<string>(byKey.keys());
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    keys.add(`${d.getFullYear()}-${d.getMonth() + 1}`);
+  }
+  return Array.from(keys)
+    .map((key) => {
+      const [year, month] = key.split("-").map(Number);
+      const period = byKey.get(key) ?? null;
+      const name = `${MONTHS[month - 1]} ${year}`;
+      return {
+        year,
+        month,
+        period,
+        label: period
+          ? `${name} · ${countPl(period.row_count, "wiersz", "wiersze", "wierszy")}`
+          : `${name} · brak pliku`,
+      };
+    })
+    .sort((a, b) => b.year - a.year || b.month - a.month);
+}
 
 export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
   const seesTotals = hasPermission(
@@ -48,6 +86,10 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
   const periods = useMemo(() => periodsQuery.data ?? [], [periodsQuery.data]);
   // Domyślnie najnowszy dostępny miesiąc (lista przychodzi posortowana malejąco).
   const active = selected ?? (periods[0] ? { year: periods[0].year, month: periods[0].month } : null);
+  const options = useMemo(() => monthOptions(periods, new Date()), [periods]);
+  const activeOption =
+    options.find((o) => o.year === active?.year && o.month === active?.month) ?? null;
+  const activeImported = activeOption?.period != null;
 
   const resultsQuery = useQuery<FinanceResultsResponse>({
     queryKey: [
@@ -68,7 +110,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
           direction,
         })
       ).data,
-    enabled: active != null,
+    enabled: active != null && activeImported,
   });
 
   function refreshAll() {
@@ -153,6 +195,9 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
         </div>
       ) : (
         <>
+          {/* Miesiąc bez pliku nie ma kafli: „—” wyglądałoby jak wgrany
+              miesiąc bez ani jednej złotówki. */}
+          {activeImported && (
           <div className="order-1 space-y-1.5">
             <div
               className={cn(
@@ -216,6 +261,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
               </p>
             )}
           </div>
+          )}
 
           <div className="order-3 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -233,8 +279,8 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
                 />
               </div>
 
-              {/* JEDEN selektor sterujący kaflami i tabelą; lista zawiera
-                  wyłącznie miesiące, które mają import. */}
+              {/* JEDEN selektor sterujący kaflami i tabelą; przy każdym
+                  miesiącu widać, czy ma wgrany plik (`monthOptions`). */}
               <select
                 aria-label="Miesiąc"
                 value={active ? `${active.year}-${active.month}` : ""}
@@ -244,14 +290,14 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
                 }}
                 className="h-8 rounded-md border border-border bg-background px-3 text-sm font-medium pointer-coarse:h-10"
               >
-                {periods.map((p) => (
-                  <option key={p.run_id} value={`${p.year}-${p.month}`}>
-                    {p.label}
+                {options.map((o) => (
+                  <option key={`${o.year}-${o.month}`} value={`${o.year}-${o.month}`}>
+                    {o.label}
                   </option>
                 ))}
               </select>
 
-              {canWrite && (
+              {canWrite && activeImported && (
                 <p className="min-w-0 basis-full text-xs leading-4 text-muted-foreground xl:flex-1 xl:basis-0">
                   Kliknij dwukrotnie komórkę, aby ją edytować.
                   {needsCompletion ? (
@@ -268,7 +314,12 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
               )}
             </div>
 
-            {resultsQuery.isError ? (
+            {!activeImported && activeOption ? (
+              <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                {`Nie wgrano pliku za ${MONTHS[activeOption.month - 1].toLowerCase()} ${activeOption.year}.`}
+                {canWrite && " Wgraj plik Excel powyżej."}
+              </div>
+            ) : resultsQuery.isError ? (
               <QueryStateNotice
                 state="error"
                 description="Nie udało się wczytać wyników za wybrany miesiąc."

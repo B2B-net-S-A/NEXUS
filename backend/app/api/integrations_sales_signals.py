@@ -16,11 +16,12 @@ ciało żądania lądowałoby jako parametr query (422).
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Optional, get_args
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ValidationError
+from pydantic_core import ErrorType
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -29,6 +30,7 @@ from app.core.tasks import spawn
 from app.models.sales import SalesSignalRun
 from app.services.sales import bot_tasks, signals
 from app.services.sales import registry_cards
+from app.services.sales.bot_tasks import people
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,12 @@ MAX_REPORT_BYTES = 512 * 1024
 TOO_LARGE_DETAIL = "Raport przekracza limit 512 KB."
 UNKNOWN_KIND_DETAIL = "Ten rodzaj biegu nie jest obsługiwany."
 INVALID_PEOPLE_REPORT_DETAIL = "Raport osób nie jest zgodny z formatem zlecenia."
+COGNISM_REPORT_FIELDS = (
+    people.CognismReport.model_fields.keys()
+    | people.CognismFirm.model_fields.keys()
+    | people.CognismPerson.model_fields.keys()
+)
+COGNISM_VALIDATION_CODES = frozenset(get_args(ErrorType))
 
 
 async def require_signal_run_token(
@@ -114,6 +122,34 @@ def parse_report(raw: bytes, model: type[BaseModel]) -> BaseModel:
         ) from None
 
 
+def _cognism_report_detail(exc: RequestValidationError) -> str:
+    """Wskaż miejsce błędu bez odsyłania wartości i nazw obcych pól."""
+
+    issues: list[str] = []
+    for error in exc.errors():
+        code = error["type"]
+        parts = () if code == "json_invalid" else error["loc"][1:]
+        path = "body"
+        if code == "extra_forbidden":
+            # Klucz spoza schematu również może zawierać dane kontaktowe.
+            parts = parts[:-1]
+        for part in parts:
+            if isinstance(part, int):
+                path += f"[{part}]"
+            else:
+                field = part if part in COGNISM_REPORT_FIELDS else "<field>"
+                path += f".{field}"
+        if code == "extra_forbidden":
+            path += ".<extra>"
+        issue = f"{path}: {code if code in COGNISM_VALIDATION_CODES else 'invalid'}"
+        if issue not in issues:
+            issues.append(issue)
+        if len(issues) == 5:
+            break
+    details = ", ".join(issues)
+    return f"{INVALID_PEOPLE_REPORT_DETAIL} {details}"
+
+
 @router.post("/runs/{run_id}")
 @limiter.limit("30/minute")
 async def receive_report(
@@ -130,9 +166,20 @@ async def receive_report(
             "sales_bot run=%s kind=%s refused: unknown kind", run.id, run.kind
         )
         raise HTTPException(status.HTTP_409_CONFLICT, detail=UNKNOWN_KIND_DETAIL)
+    raw = await read_limited(request)
     try:
-        report = parse_report(await read_limited(request), task.report_model)
-    except RequestValidationError:
+        report = parse_report(raw, task.report_model)
+    except RequestValidationError as exc:
+        if task is people.COGNISM:
+            detail = (
+                _cognism_report_detail(exc)
+                if raw.strip()
+                else f"{INVALID_PEOPLE_REPORT_DETAIL} body: missing"
+            )
+            logger.warning(
+                "sales_bot run=%s source=cognism report rejected: %s", run.id, detail
+            )
+            raise HTTPException(422, detail=detail) from None
         if run.kind == "people":
             # Szczegóły walidacji mogą zawierać nazwiska i dane kontaktowe.
             raise HTTPException(422, detail=INVALID_PEOPLE_REPORT_DETAIL) from None
