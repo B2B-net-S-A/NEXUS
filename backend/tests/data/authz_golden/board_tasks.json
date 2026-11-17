@@ -39,6 +39,7 @@
   "GET /api/board-tasks/departed-care": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/board-tasks/cpro/bot/{stage_id}/retry": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
