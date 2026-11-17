@@ -36,7 +36,7 @@ from app.services.candidate_terms_apply import TermsAnswer, apply_answer
 router = APIRouter()
 
 _NOT_FOUND = "Ten link jest nieprawidłowy. Sprawdź, czy skopiowałeś go w całości."
-_EXPIRED = "Ten link wygasł. Jeśli chcesz podać warunki, odpowiedz na maila od nas."
+_EXPIRED = "Ten link wygasł. Gdy znowu u nas zaaplikujesz, wyślemy nowy."
 
 
 class TermsRate(BaseModel):

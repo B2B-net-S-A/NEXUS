@@ -32,7 +32,6 @@ TABLE_DDL: list[str] = [
            skip_reason VARCHAR(40) NULL,
            missing JSONB NOT NULL DEFAULT '[]'::jsonb,
            token_sha256 VARCHAR(64) NULL,
-           recruiter_id INTEGER NULL REFERENCES users (id) ON DELETE SET NULL,
            applied_at TIMESTAMPTZ NOT NULL,
            queued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
            sent_at TIMESTAMPTZ NULL,

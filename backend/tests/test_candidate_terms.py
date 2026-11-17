@@ -128,7 +128,6 @@ def _mail(**kw):
         job_title="Junior IT Analyst – Data & Reporting (f/m/x)",
         link="https://nexus.example/warunki/abc",
         optout_link="https://nexus.example/warunki/abc/wypis",
-        recruiter_name="Anna Kowalska",
         rodo_url="https://nexus.example/kariera/rodo",
         logo_url="https://nexus.example/brand/mail/logo.png",
         logo_light_url="https://nexus.example/brand/mail/logo-light.png",
@@ -146,7 +145,7 @@ def test_mail_with_link_has_both_parts_and_questions():
     for part in (m.text_body, m.html_body):
         assert "https://nexus.example/warunki/abc" in part
         assert "Minimalna stawka na B2B" in part
-        assert "Anna Kowalska" in part
+        assert "nie odpowiadaj na nią" in part
         assert "/warunki/abc/wypis" in part
 
 
@@ -158,9 +157,8 @@ def test_thanks_only_mail_has_no_link_and_no_questions():
 
 
 def test_mail_escapes_title_and_name():
-    m = _mail(job_title="<script>x</script>", recruiter_name="<b>Zła</b>")
+    m = _mail(job_title="<script>x</script>")
     assert "<script>" not in m.html_body and "&lt;script&gt;" in m.html_body
-    assert "<b>Zła</b>" not in m.html_body
 
 
 def test_mail_without_title_is_generic():
@@ -169,10 +167,11 @@ def test_mail_without_title_is_generic():
     assert "stanowisko" not in m.text_body
 
 
-def test_mail_without_recruiter_does_not_promise_a_reply():
-    m = _mail(recruiter_name=None)
-    assert "Odpowiedz na tego maila" not in m.text_body
-    assert "Odpowiedz na tego maila" not in m.html_body
+def test_mail_never_invites_replies():
+    """Decyzja Artura 17.11.2026: kandydat wypełnia formularz, nie odpisuje."""
+    for m in (_mail(), _mail(link=None, optout_link=None)):
+        assert "Odpowiedz na tego maila" not in m.text_body + m.html_body
+        assert "nie odpowiadaj na nią" in m.text_body
 
 
 def test_ad_title_from_import_note():

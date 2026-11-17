@@ -34,9 +34,6 @@ class CandidateTermsRequest(Base):
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
     )
     token_sha256: Mapped[Optional[str]] = mapped_column(String(64))
-    recruiter_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
     applied_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )

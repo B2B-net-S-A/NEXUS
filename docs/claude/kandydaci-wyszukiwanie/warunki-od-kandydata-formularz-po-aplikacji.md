@@ -27,7 +27,8 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   świadomy wyjątek od jednej skrzynki z 09.11). Pusta zmienna przy Graph = mail
   do kandydata nie wychodzi; skrzynka zespołowa nie pisze do kandydatów.
   Bezpiecznik Graph jest osobny dla tej skrzynki (`mail_circuit.sender_scope`).
-  Odpowiedź idzie do rekrutera rekrutacji (Reply-To), bo MX domeny jest na home.pl.
+- **Bez Reply-To i bez zachęty do odpowiedzi** (decyzja Artura 17.11.2026: „nie chcemy,
+  żeby odpisywali na maile, tylko wypełniali formularz”). Stopka mówi „nie odpowiadaj”.
 - **Wysyłka:** pętla `candidate_terms_sender` co 5 min, 8:00–20:00 Warszawa,
   limit `CANDIDATE_TERMS_DAILY_LIMIT` (400). Zgłoszenia sprzed włączenia rodzaju
   odpadają (`before_enabled`), nie ma zaległości. Na stagingu pętla zablokowana

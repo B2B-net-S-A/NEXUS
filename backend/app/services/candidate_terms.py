@@ -190,7 +190,6 @@ def render_terms_email(
     job_title: Optional[str],
     link: Optional[str],
     optout_link: Optional[str],
-    recruiter_name: Optional[str],
     rodo_url: str,
     logo_url: str,
     logo_light_url: str,
@@ -200,20 +199,19 @@ def render_terms_email(
     Powitanie bez imienia (jak ``application_confirmation``): imię przychodzi
     z formularza albo portalu i bywa czymkolwiek. Wszystko, co pochodzi
     z bazy, przechodzi przez ``html.escape``.
+
+    Bez Reply-To i bez zachęty do odpowiedzi (decyzja Artura 17.11.2026):
+    kandydat ma wypełnić formularz, nie odpisywać na maila.
     """
     title = (job_title or "").strip() or None
     what = f"Twoje zgłoszenie na stanowisko „{title}”" if title else "Twoje zgłoszenie"
     subject = (
         f"Dziękujemy za zgłoszenie: {title}" if title else "Dziękujemy za zgłoszenie"
     )
-    who = (recruiter_name or "").strip()
-    # Bez rekrutera nie obiecujemy, że ktoś przeczyta odpowiedź (MX domeny
-    # jest na home.pl, a skrzynki kandydatów nikt jeszcze nie czyta).
-    reply_line = (
-        f"Masz pytanie o tę rekrutację? Odpowiedz na tego maila, trafi do: {who}."
-        if who
-        else ""
-    )
+    no_reply = (
+        "Wiadomość wysłana automatycznie, nie odpowiadaj na nią. "
+        + ("Swoje warunki podaj w formularzu." if link else "")
+    ).strip()
 
     text_lines = [
         "Dzień dobry,",
@@ -236,9 +234,9 @@ def render_terms_email(
             "has a language switch.",
             "",
         ]
-    if reply_line:
-        text_lines += [reply_line, ""]
     text_lines += [
+        no_reply,
+        "",
         _COMPANY,
         f"Informacje o przetwarzaniu danych: {rodo_url}",
     ]
@@ -278,12 +276,6 @@ def render_terms_email(
             f"Link działa {LINK_TTL_DAYS} dni i jest tylko dla Ciebie. Nie wymaga logowania. "
             "English version: use the language switch on the form.</p>"
         )
-    reply_html = (
-        "Masz pytanie o tę rekrutację? Odpowiedz na tego maila, trafi do: "
-        f"<b>{e(who)}</b>."
-        if who
-        else ""
-    )
     title_html = f"<b>„{e(title)}”</b>" if title else ""
     lead = (
         f"Twoje zgłoszenie na stanowisko {title_html} do nas dotarło, CV też."
@@ -319,16 +311,12 @@ def render_terms_email(
         f'<p style="margin:0 0 16px;{_F}font-size:16px;line-height:24px;color:#141414">'
         f"{lead} Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował.</p>"
         f"{ask}"
-        + (
-            f'<p style="margin:0;{_F}font-size:15px;line-height:22px;color:#141414">'
-            f"{reply_html}</p>"
-            if reply_html
-            else ""
-        )
-        + "</td></tr>"
+        "</td></tr>"
         '<tr><td bgcolor="#1A1816" style="background:#1A1816;padding:28px 32px">'
         f'<img src="{e(logo_light_url, quote=True)}" width="96" height="44" alt="B2B Network" '
         'style="display:block;border:0;margin:0 0 16px">'
+        f'<p style="margin:0 0 12px;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'
+        f"{e(no_reply)}</p>"
         f'<p style="margin:0 0 12px;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'
         f"{e(_COMPANY)}</p>"
         f'<p style="margin:0;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'

@@ -127,29 +127,6 @@ async def _facts(db: AsyncSession, candidate_id: int, now: datetime):
     return last_link, bool(opted_out), bool(live.get(candidate_id))
 
 
-async def _recruiter(db: AsyncSession, job_id: Optional[int]):
-    """``(user_id, imię i nazwisko, e-mail)`` prowadzącego albo ``None``."""
-    if job_id is None:
-        return None
-    from app.models.user import User
-    from app.services.job_team import recruiters_for_jobs
-
-    from app.models.job import Job
-
-    people = (await recruiters_for_jobs(db, [job_id])).get(job_id) or []
-    ids = [p.user_id for p in people if not p.proposed]
-    # Zespół uśpiony albo prowadzący zdjęty: odpowiedź i tak musi do kogoś
-    # trafić, więc prowadzący z rekrutacji, jeśli jego konto działa.
-    owner = await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
-    if owner is not None:
-        ids.append(owner)
-    for user_id in ids:
-        user = await db.get(User, user_id)
-        if user is not None and user.is_active and user.email:
-            return user.id, user.name or user.email, user.email
-    return None
-
-
 def _base() -> str:
     return (settings.PUBLIC_BASE_URL or "").rstrip("/")
 
@@ -189,7 +166,7 @@ async def expire_stale(db: AsyncSession, now: datetime) -> int:
     return int(result.rowcount or 0)
 
 
-def _deliver(message: rules.TermsEmail, *, to: str, reply_to: Optional[str], event_at):
+def _deliver(message: rules.TermsEmail, *, to: str, event_at):
     """Wątek wysyłki: polityka sprawdzana jeszcze raz tuż przed nadawcą."""
     from app.services.email import send_email
     from app.services.notification_delivery import guarded_send
@@ -202,7 +179,7 @@ def _deliver(message: rules.TermsEmail, *, to: str, reply_to: Optional[str], eve
         message.subject,
         message.text_body,
         message.html_body,
-        reply_to,
+        None,  # bez Reply-To: kandydat wypełnia formularz, nie odpisuje (17.11.2026)
         settings.CANDIDATE_MAIL_SENDER_UPN or None,
     )
 
@@ -233,7 +210,6 @@ async def send_one(
 
     from app.services.application_confirmation_email import public_job_title, rodo_url
 
-    recruiter = await _recruiter(db, row.job_id)
     raw = None
     if decision.action == rules.LINK:
         raw, row.token_sha256 = rules.new_token()
@@ -243,12 +219,10 @@ async def send_one(
         job_title=await public_job_title(db, row.job_id) or row.ad_title,
         link=f"{base}/warunki/{raw}" if raw else None,
         optout_link=f"{base}/warunki/{raw}?wypis=1" if raw else None,
-        recruiter_name=recruiter[1] if recruiter else None,
         rodo_url=rodo_url(),
         logo_url=f"{base}/brand/mail/b2bnetwork-264.png",
         logo_light_url=f"{base}/brand/mail/b2bnetwork-light-240.png",
     )
-    row.recruiter_id = recruiter[0] if recruiter else None
     row.action = decision.action
     # Przy samym podziękowaniu powód (wypis, link w 30 dniach, komplet) do liczenia.
     row.skip_reason = decision.reason if decision.action == rules.THANKS else None
@@ -261,7 +235,6 @@ async def send_one(
             _deliver,
             message,
             to=candidate.email,
-            reply_to=recruiter[2] if recruiter else None,
             event_at=row.queued_at,
         )
     except Exception as exc:  # noqa: BLE001
