@@ -113,6 +113,7 @@ import { BookedByMeSection, HandedToMeSection } from "../handoff/HandoffSections
 import {
   bookerStatus,
   bookingMailBody,
+  bookingMailSubject,
   briefLine,
   freeStarts,
   handoffWhen,
@@ -933,9 +934,13 @@ describe("mail do klienta po umówieniu (kolejka dzwonienia)", () => {
     fill("Dzień spotkania", "2026-11-12");
     fill("Godzina spotkania", "13:00");
 
-    expect(screen.getByLabelText("Tytuł maila")).toHaveProperty("value", "Potwierdzenie spotkania: 12.11, godz. 13:00");
+    // Pola formularza są w strefie przeglądarki, szablon w kalendarzu firmy: oczekiwane
+    // wartości z tej samej chwili, żeby test nie zależał od strefy maszyny (CI to UTC).
+    const start = termFromFields("2026-11-12", "13:00");
+    const subject = bookingMailSubject(start);
+    expect(screen.getByLabelText("Tytuł maila")).toHaveProperty("value", subject);
     const body = (screen.getByLabelText("Treść maila") as HTMLTextAreaElement).value;
-    expect(body).toContain("w czwartek 12.11.2026 o 13:00 (30 min) w sprawie: Automatyzacje.");
+    expect(body).toBe(bookingMailBody({ start, minutes: 30, service: "Automatyzacje", hostName: "Prowadzący Testowy" }));
     expect(body).toContain("Spotkanie poprowadzi Prowadzący Testowy (w kopii tej wiadomości).");
     expect(screen.getByText(/DW: Prowadzący Testowy <prowadzacy@nasza-firma.example>/)).toBeTruthy();
     expect(screen.getByText(/Od: dzwoniacy@nasza-firma.example/)).toBeTruthy();
@@ -945,7 +950,7 @@ describe("mail do klienta po umówieniu (kolejka dzwonienia)", () => {
     expect((screen.getByLabelText("Treść maila") as HTMLTextAreaElement).value).toContain("poprowadzi Druga Prowadząca");
     fill("Prowadzący", "2");
 
-    fireEvent.click(screen.getByRole("button", { name: "Umów czw 12.11 13:00 i wyślij mail" }));
+    fireEvent.click(screen.getByRole("button", { name: `Umów ${handoffWhen(start)} i wyślij mail` }));
     const payload = bookMeeting.mock.calls[0][0];
     expect(payload.invite_to).toBe("anna@firma-testowa.example");
     // Zaproszenie Teams prowadzącego ma własną podpowiedź, nie treść maila.
@@ -955,7 +960,7 @@ describe("mail do klienta po umówieniu (kolejka dzwonienia)", () => {
     expect(mail).toMatchObject({
       opportunity_id: 21,
       to: ["anna@firma-testowa.example"],
-      subject: "Potwierdzenie spotkania: 12.11, godz. 13:00",
+      subject,
       message: body.trim(),
       cc_host: true,
     });
@@ -1046,6 +1051,14 @@ describe("mail do klienta po umówieniu (kolejka dzwonienia)", () => {
     fireEvent.click(screen.getByLabelText("Wyślij mail po zapisie"));
     fireEvent.click(screen.getByRole("button", { name: "Zapisz bez terminu" }));
     expect(sendBookingMail).not.toHaveBeenCalled();
+  });
+
+  it("szablon czyta termin w kalendarzu firmy", () => {
+    const start = "2026-11-12T12:00:00Z"; // 13:00 w Warszawie
+    expect(bookingMailSubject(start)).toBe("Potwierdzenie spotkania: 12.11, godz. 13:00");
+    expect(bookingMailBody({ start, minutes: 45, service: "Automatyzacje", hostName: "Prowadzący Testowy" })).toContain(
+      "Potwierdzam nasze spotkanie w czwartek 12.11.2026 o 13:00 (45 min) w sprawie: Automatyzacje.",
+    );
   });
 
   it("treść bez terminu i bez prowadzącego mówi, co przyjdzie osobno", () => {
