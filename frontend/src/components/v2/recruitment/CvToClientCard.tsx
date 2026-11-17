@@ -330,7 +330,10 @@ function ReadyCvHint({
         </div>
       </div>
       {consent ? (
-        <div className="rounded-md border border-border bg-card p-2 text-foreground">
+        <div
+          data-tour="cv.ready-cv-new-consent"
+          className="rounded-md border border-border bg-card p-2 text-foreground"
+        >
           <ConsentScreenshotField
             context={{ candidateId: consent.candidateId, stageId: consent.stageId }}
             value={consentToken}
