@@ -3061,8 +3061,8 @@
   },
   {
     "id": "kontakty-klienta-szukaj",
-    "title": "Szukanie w kontaktach klienta",
-    "why": "W zakładce „Kontakty klienta” jest pole szukania: wpisz nazwisko, kawałek e-maila, numeru telefonu albo stanowiska. Polskie znaki są opcjonalne. Tabela mieści się teraz na ekranie laptopa.",
+    "title": "Szukanie i kopiowanie w kontaktach klienta",
+    "why": "W zakładce „Kontakty klienta” jest pole szukania: wpisz nazwisko, kawałek e-maila, numeru telefonu albo stanowiska. Polskie znaki są opcjonalne. Przy e-mailu i telefonie jest ikona „kopiuj”, jak w profilu kandydata. Tabela mieści się teraz na ekranie laptopa.",
     "tier": "dot",
     "shipped_on": "2026-11-17",
     "audience": { "permissions": ["delivery_view"] },
