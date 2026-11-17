@@ -50,6 +50,7 @@ import { useClearJobTopic } from "@/lib/api/jobTopic";
 import { shortlistApi } from "@/lib/candidate-search-api";
 import type { KanbanColumn } from "@/components/v2/pages/kanban-shared";
 import { ChampionProfileEditor } from "@/components/ChampionProfileEditor";
+import { ChampionChangeNoteHost } from "@/components/champion/ChampionChanges";
 import { ChampionWorkspace } from "@/components/champion/ChampionWorkspace";
 import {
   resolveChampionTab,
@@ -1519,6 +1520,9 @@ export default function JobDetailPage() {
             </div>
           ) : null}
 
+          {/* Okno „Na co klient kładzie nacisk?” po zapisie zmiany w profilu
+              rekrutacji w pracy — z szuflady bloku i z pełnego formularza. */}
+          <ChampionChangeNoteHost jobId={Number(id)} />
           {/* Edytor zostaje zamontowany po pierwszym wejściu — powrót do zakładek
               go tylko chowa, więc niezapisany szkic nie ginie. */}
           {renderChampionEditor ? (

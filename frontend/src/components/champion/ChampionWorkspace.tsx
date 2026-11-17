@@ -20,6 +20,12 @@
 import { useEffect, useState } from "react";
 
 import { ChampionBriefView, type ChampionBriefJob } from "@/components/champion/ChampionBriefView";
+import {
+  ChampionChangesCard,
+  ChampionChangesTimeline,
+  unseenRevisions,
+  useChampionChanges,
+} from "@/components/champion/ChampionChanges";
 import { ChampionClientTab } from "@/components/champion/ChampionClientTab";
 import { ChampionEditDrawer } from "@/components/champion/ChampionEditDrawer";
 import { ChampionTodoStrip, type ChampionTodoJob } from "@/components/champion/ChampionTodoStrip";
@@ -108,6 +114,9 @@ export function ChampionWorkspace({
   const editBlock = controlled ? (editBlockProp ?? null) : localEditBlock;
   const setEditBlock = controlled ? onEditBlockChange : setLocalEditBlock;
   const plainQuery = usePlainBrief(jobId);
+  const changesQuery = useChampionChanges(jobId);
+  const changesCount = changesQuery.data?.revisions.length ?? 0;
+  const unseenChanges = unseenRevisions(changesQuery.data).length;
   const glossaryCount = readyGlossaryCount(plainQuery.data?.glossary);
   const openBlock = (block: ChampionBlock) => {
     if (fullFormDirty) {
@@ -139,9 +148,22 @@ export function ChampionWorkspace({
           ariaLabel="Profil Championa"
           value={tab}
           onValueChange={(value) => onTabChange(value as ChampionTab)}
-          tabs={CHAMPION_TABS.map((t) =>
-            t.value === "tech" && glossaryCount > 0 ? { ...t, count: glossaryCount } : t,
-          )}
+          tabs={[
+            ...CHAMPION_TABS.map((t) =>
+              t.value === "tech" && glossaryCount > 0 ? { ...t, count: glossaryCount } : t,
+            ),
+            // „Zmiany” (17.11.2026): tylko gdy jest do czego wracać (albo ktoś
+            // wszedł z linku `?ptab=changes`); licznik = nowe dla tej osoby.
+            ...(changesCount > 0 || tab === "changes"
+              ? [
+                  {
+                    value: "changes" as ChampionTab,
+                    label: "Zmiany",
+                    ...(unseenChanges > 0 ? { count: unseenChanges } : {}),
+                  },
+                ]
+              : []),
+          ]}
           overflow="scroll"
         />
       </div>
@@ -160,6 +182,7 @@ export function ChampionWorkspace({
             onGoTeam={() => onTabChange("team")}
             onEditJob={onEditJob}
           />
+          <ChampionChangesCard jobId={jobId} onOpenChanges={() => onTabChange("changes")} />
           <ChampionBriefView
             jobId={jobId}
             job={job}
@@ -171,6 +194,12 @@ export function ChampionWorkspace({
             onEditClientReference={canEditJobContent ? onEditJob : undefined}
             onEditHeadcount={canEditJob ? () => onTabChange("team") : undefined}
           />
+        </div>
+      ) : null}
+
+      {tab === "changes" ? (
+        <div data-testid="champion-tab-changes">
+          <ChampionChangesTimeline jobId={jobId} />
         </div>
       ) : null}
 

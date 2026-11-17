@@ -2190,6 +2190,30 @@
    "v3_home": "Profil Championa → Brief (na górze)"
   },
   {
+   "id": "champion.changes-card",
+   "area": "zlecenie",
+   "opis": "Karta „Co się zmieniło od przekazania” nad Briefem: ostatnia nieprzeczytana zmiana profilu, zdanie DL „Na co klient kładzie nacisk”, „Przeczytane” per osoba zwija ją do jednej linii (17.11.2026)",
+   "file": "components/champion/ChampionChanges.tsx",
+   "marker": "champion-changes-card",
+   "v3_home": "Profil Championa → Brief (pod „Do dopięcia”)"
+  },
+  {
+   "id": "champion.changes-tab",
+   "area": "zlecenie",
+   "opis": "Zakładka „Zmiany”: każda zmiana Profilu Championa po przekazaniu do searchu, kto i kiedy, zdanie DL, lista zmian; licznik nowych dla osoby (17.11.2026)",
+   "file": "components/champion/ChampionChanges.tsx",
+   "marker": "champion-changes-timeline",
+   "v3_home": "Profil Championa → Zmiany (?ptab=changes)"
+  },
+  {
+   "id": "champion.change-note",
+   "area": "zlecenie",
+   "opis": "Okno po zapisie zmiany profilu rekrutacji w pracy: lista zmian i pole „Na co klient teraz kładzie nacisk?” dla rekruterów, można pominąć (17.11.2026)",
+   "file": "components/champion/ChampionChanges.tsx",
+   "marker": "champion-change-note-dialog",
+   "v3_home": "Profil Championa → zapis w szufladzie albo pełnym formularzu"
+  },
+  {
    "id": "champion.client-questions-all",
    "area": "zlecenie",
    "opis": "Pytania klienta: domyślnie zadane w tej rekrutacji, w zakładce wszystkie pytania klienta po rekrutacjach z wyszukiwarką i archiwum po roli",

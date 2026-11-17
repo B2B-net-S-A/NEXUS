@@ -748,6 +748,10 @@ from app.models.candidate_conversation_fact import (  # noqa: F401
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
 from app.models.job_role_profile import JobRoleProfile  # noqa: F401
 from app.models.candidate_terms_request import CandidateTermsRequest  # noqa: F401
+from app.models.champion_profile_revision import (  # noqa: F401
+    ChampionProfileChangeRead,
+    ChampionProfileRevision,
+)
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
 from app.models.own_hiring import (  # noqa: F401
     OwnHiringApplication,

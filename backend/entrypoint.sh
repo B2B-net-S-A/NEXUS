@@ -1267,6 +1267,16 @@ except Exception as _candidate_terms_err:  # noqa: BLE001
     print(f"candidate terms DDL unavailable: {_candidate_terms_err!r}")
     _CANDIDATE_TERMS_DDL = []
 
+# Wersje Profilu Championa i „Przeczytane” (migracja 0730) — JEDNO źródło
+# z migracją (`app/services/champion_profile_revisions_schema.py`).
+try:
+    from app.services import champion_profile_revisions_schema as _champion_revisions_schema
+
+    _CHAMPION_REVISIONS_DDL = list(_champion_revisions_schema.TABLE_DDL)
+except Exception as _champion_revisions_err:  # noqa: BLE001
+    print(f"champion revisions DDL unavailable: {_champion_revisions_err!r}")
+    _CHAMPION_REVISIONS_DDL = []
+
 # Raporty „Jakość podpowiedzi systemu” (migracja 0518) — JEDNO źródło z migracją
 # (`app/services/autofill_quality_schema.py`).
 try:
@@ -1623,6 +1633,7 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_FEEDBACK_DDL,
     *_JOB_ROLE_PROFILE_DDL,
     *_CANDIDATE_TERMS_DDL,
+    *_CHAMPION_REVISIONS_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,

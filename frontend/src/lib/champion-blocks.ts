@@ -14,8 +14,11 @@ import {
   type ChampionSectionId,
 } from "@/lib/champion-section-state";
 
-/** Podzakładki widoku (`?ptab=`). */
-export type ChampionTab = "brief" | "tech" | "client" | "team";
+/**
+ * Podzakładki widoku (`?ptab=`). „Zmiany” (17.11.2026) nie ma w `CHAMPION_TABS`:
+ * pokazuje ją `ChampionWorkspace`, gdy profil ma choć jedną zmianę po przekazaniu.
+ */
+export type ChampionTab = "brief" | "tech" | "client" | "team" | "changes";
 
 export const CHAMPION_TABS: readonly { value: ChampionTab; label: string }[] = [
   { value: "brief", label: "Brief" },
@@ -35,6 +38,7 @@ export function resolveChampionTab(raw: string | null | undefined): ChampionTab 
     case "tech":
     case "client":
     case "team":
+    case "changes":
       return raw;
     case "readiness":
       return "brief";
