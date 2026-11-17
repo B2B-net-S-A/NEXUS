@@ -20,6 +20,7 @@ import {
   CPRO_QUEUE_QUERY_KEY,
   CPRO_SENDER_QUERY_KEY,
   type BoardTaskRow,
+  type CproBotItem,
   type BoardTasksResponse,
   type CproQueueItem,
   type CproQueueResponse,
@@ -62,9 +63,23 @@ const item = (over: Partial<CproQueueItem>): CproQueueItem => ({
   ...over,
 });
 
+// Bot Cpro (17.11.2026): każdy stan bota w innym wierszu.
+const bot = (over: Partial<CproBotItem>): CproBotItem => ({
+  state: "ready",
+  blockers: [],
+  message: null,
+  offer_url: null,
+  cpro_status: null,
+  at: daysAgo(0),
+  moved: null,
+  data_from: [],
+  ...over,
+});
+
 const QUEUE: CproQueueResponse = {
   sender: SENDER,
   sent_today: 5,
+  bot: { configured: true, working: true, last_run_at: daysAgo(0), sent_today: 3, can_retry: true },
   jobs: [
     {
       job_id: 1,
@@ -72,11 +87,11 @@ const QUEUE: CproQueueResponse = {
       client_name: "Bank Północny",
       oldest_since: daysAgo(2),
       items: [
-        item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01", dl_note: "Dostępny od listopada, tylko zdalnie" }),
-        item({ stage_id: 12, candidate_id: 22, candidate_name: "Magdalena Testowa", since: daysAgo(1), client_rate_value: 149 }),
-        item({ stage_id: 13, candidate_id: 23, candidate_name: "Jan Wzorcowy", since: daysAgo(1), client_rate_value: 162, qc_status: "overridden" }),
+        item({ stage_id: 11, candidate_id: 21, candidate_name: "Robert Przykładowy", since: daysAgo(2), client_rate_value: 158, availability: "2026-11-01", dl_note: "Dostępny od listopada, tylko zdalnie", bot: bot({ state: "working" }) }),
+        item({ stage_id: 12, candidate_id: 22, candidate_name: "Magdalena Testowa", since: daysAgo(1), client_rate_value: 149, bot: bot({ state: "ready", data_from: ["40112"] }) }),
+        item({ stage_id: 13, candidate_id: 23, candidate_name: "Jan Wzorcowy", since: daysAgo(1), client_rate_value: 162, qc_status: "overridden", bot: bot({ state: "failed", message: "Request 40110 jest zamknięty w Cpro." }) }),
         // Karta sprzed 13.10.2026: do kolejki przesunął ją rekruter, bez stawki.
-        item({ stage_id: 14, candidate_id: 24, candidate_name: "Ewa Fikcyjna", since: daysAgo(0), client_rate_value: null, cv: { generated_document_id: null, document_id: 9 }, accepted: false, accepted_by_name: "Anna Rekruterska" }),
+        item({ stage_id: 14, candidate_id: 24, candidate_name: "Ewa Fikcyjna", since: daysAgo(0), client_rate_value: null, cv: { generated_document_id: null, document_id: 9 }, accepted: false, accepted_by_name: "Anna Rekruterska", bot: bot({ state: "blocked", blockers: ["Bez akceptacji Delivery Leada", "Brak stawki do Cpro", "Brak narodowości w Warunkach"] }) }),
       ],
     },
     {
@@ -85,8 +100,8 @@ const QUEUE: CproQueueResponse = {
       client_name: "Bank Północny",
       oldest_since: daysAgo(0),
       items: [
-        item({ stage_id: 15, candidate_id: 25, candidate_name: "Piotr Próbny", client_rate_value: 170, availability: "2026-10-15" }),
-        item({ stage_id: 16, candidate_id: 26, candidate_name: "Ola Przykład", client_rate_value: 165 }),
+        item({ stage_id: 15, candidate_id: 25, candidate_name: "Piotr Próbny", client_rate_value: 170, availability: "2026-10-15", bot: bot({ state: "submitted", moved: false, cpro_status: "SELECTION", offer_url: "https://example.com/oferta/1", message: "Karta była już przesunięta." }) }),
+        item({ stage_id: 16, candidate_id: 26, candidate_name: "Ola Przykład", client_rate_value: 165, bot: bot({ state: "draft", offer_url: "https://example.com/oferta/2" }) }),
       ],
     },
     {
@@ -94,7 +109,7 @@ const QUEUE: CproQueueResponse = {
       job_title: "Test Automation Engineer",
       client_name: "Bank Północny",
       oldest_since: daysAgo(0),
-      items: [item({ stage_id: 17, candidate_id: 27, candidate_name: "Tomasz Wzór", client_rate_value: 130, cv: null })],
+      items: [item({ stage_id: 17, candidate_id: 27, candidate_name: "Tomasz Wzór", client_rate_value: 130, cv: null, bot: bot({ state: "blocked", blockers: ["Brak zatwierdzonego CV firmowego"] }) })],
     },
   ],
 };

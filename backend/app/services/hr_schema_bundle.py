@@ -71,6 +71,7 @@ from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
+from app.services.cpro_bot import schema as cpro_bot
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -158,6 +159,8 @@ MODULES = (
     order_revenue_steps,
     # 0727: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
     board_documents,
+    # 0732: bot Cpro — biegi rutyny Grok Bota (17.11.2026).
+    cpro_bot,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
