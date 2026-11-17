@@ -2329,6 +2329,31 @@ export interface ContractTerminationReversalOrder {
   removes_decision_case: boolean;
 }
 
+/** „Wycofaj wypowiedzenie” (17.11.2026) — okno w zakładce Aneksy. */
+export interface ContractNoticeWithdrawalPreview {
+  contract_id: number;
+  contract_type: string;
+  status: string;
+  end_date: string | null;
+  notice: {
+    amendment_id: number;
+    effective_date: string;
+    notice_end: string;
+    end_before_notice: string | null;
+    reason: string | null;
+  };
+  earliest_end_date: string;
+  indefinite_allowed: boolean;
+  /** Plan przywrócenia zamówień, gdy zakończenie już je ruszyło. */
+  reversal: ContractTerminationReversalPlan | null;
+}
+
+export interface ContractNoticeWithdrawalRequest {
+  end_date: string | null;
+  note?: string | null;
+  document_id?: number | null;
+}
+
 export interface ContractTerminationReversalPlan {
   contract_id: number;
   source: "snapshot" | "history";
@@ -2348,6 +2373,7 @@ export interface ContractTerminationReversalPlan {
     order_id?: number;
     order_label?: string;
     decision?: string;
+    notice_amendment_id?: number | null;
   }[];
   md_imports: {
     import_id: number;
@@ -2423,6 +2449,13 @@ export const contractsApi = {
     api.post<ContractTerminationReversalPlan>(
       `/api/contracts/${id}/termination-reversal`,
     ),
+  // „Wycofaj wypowiedzenie” — konsultant wycofał wypowiedzenie (aneks).
+  noticeWithdrawalPreview: (id: number) =>
+    api.get<ContractNoticeWithdrawalPreview>(
+      `/api/contracts/${id}/notice-withdrawal`,
+    ),
+  withdrawNotice: (id: number, payload: ContractNoticeWithdrawalRequest) =>
+    api.post(`/api/contracts/${id}/notice-withdrawal`, payload),
   // „Powrót po przerwie" — nowy kontrakt (szkic) powiązany z tym.
   returnAfterBreak: (id: number, startDate: string) =>
     api.post<ContractReturnAfterBreakResult>(

@@ -56,6 +56,10 @@ class ContractAmendmentResponse(BaseModel):
     #: ``in_force`` albo ``signed_pending`` (dzień wejścia w życie nie nadszedł).
     state: str = "in_force"
     document: Optional[AmendmentDocument] = None
+    #: Aneks „Wcześniejsze zakończenie” wycofany wpisem „Wycofanie
+    #: wypowiedzenia” / do wycofania teraz (17.11.2026).
+    withdrawn: bool = False
+    withdrawable: bool = False
 
     model_config = {"from_attributes": True}
 

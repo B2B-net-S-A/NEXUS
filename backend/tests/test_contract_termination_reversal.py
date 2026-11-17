@@ -541,7 +541,7 @@ async def test_reversal_is_blocked_when_the_contract_end_date_has_passed(
     wczoraj (nocny cron jeszcze umowy nie domknął, gdy ktoś ją zakończył).
     Cel „Aktywny” z minioną datą cron zakończyłby najbliższej nocy — razem
     z przywróconymi zamówieniami i nowymi sprawami puli MD. Cofnięcie ma
-    odmówić z powodem, dopóki ktoś nie przedłuży umowy aneksem."""
+    odmówić z powodem; nową datę końca ustawia „Wycofaj wypowiedzenie”."""
     yesterday = business_today() - timedelta(days=1)
     seed = await _seed_active_md_consultant(
         contract_type="uzlecenie", contract_status="ending", contract_end_date=yesterday
@@ -558,7 +558,11 @@ async def test_reversal_is_blocked_when_the_contract_end_date_has_passed(
     assert body["contract"]["end_date_target"] == yesterday.isoformat()
     [blocker] = [b for b in body["blockers"] if b["code"] == "end_date_passed"]
     assert yesterday.strftime("%d.%m.%Y") in blocker["message"]
-    assert "aneksem" in blocker["message"]
+    # „Zakończ współpracę” skróciło umowę i zapisało aneks „Wcześniejsze
+    # zakończenie” — rada „przedłuż aneksem” prowadziła w pętlę (zgłoszenie
+    # Finansów 17.11.2026), więc blokada wskazuje „Wycofaj wypowiedzenie”.
+    assert "Wycofaj wypowiedzenie" in blocker["message"]
+    assert blocker["notice_amendment_id"] is not None
 
     resp = await app_client.post(
         f"/api/contracts/{seed['contract_id']}/termination-reversal",
