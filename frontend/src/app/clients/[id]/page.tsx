@@ -66,6 +66,7 @@ import {
   Search,
 } from "lucide-react";
 import { contactMatches } from "@/lib/client-contacts-search";
+import { CopyValueButton } from "@/components/clients/CopyValueButton";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -979,35 +980,41 @@ function ContactsTab({ clientId }: { clientId: number }) {
                     </TableCell>
                     <TableCell>
                       {contact.email ? (
-                        <a
-                          href={`mailto:${contact.email}`}
-                          title={contact.email}
-                          // Jedna linia z wielokropkiem — łamany w pół słowa adres
-                          // („…exampl / e”) trudniej przeczytać niż przycięty.
-                          className="block max-w-[14rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
-                        >
-                          {contact.email}
-                        </a>
+                        <div className="flex items-center gap-0.5">
+                          <a
+                            href={`mailto:${contact.email}`}
+                            title={contact.email}
+                            // Jedna linia z wielokropkiem — łamany w pół słowa adres
+                            // („…exampl / e”) trudniej przeczytać niż przycięty.
+                            className="block min-w-0 max-w-[12rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          >
+                            {contact.email}
+                          </a>
+                          <CopyValueButton value={contact.email} what="adres e-mail" />
+                        </div>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
                       )}
                     </TableCell>
                     <TableCell className="tabular-nums">
                       {contact.phone ? (
-                        <a
-                          href={`tel:${contact.phone}`}
-                          className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
-                        >
-                          {/* Dwa numery w jednym polu łamią się na „/”, nigdy w środku numeru. */}
-                          {formatPhone(contact.phone)
-                            .split(/\s*\/\s*/)
-                            .map((part, i) => (
-                              <Fragment key={i}>
-                                {i > 0 ? "\u00a0/ " : ""}
-                                <span className="whitespace-nowrap">{part}</span>
-                              </Fragment>
-                            ))}
-                        </a>
+                        <div className="flex items-center gap-0.5">
+                          <a
+                            href={`tel:${contact.phone}`}
+                            className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          >
+                            {/* Dwa numery w jednym polu łamią się na „/”, nigdy w środku numeru. */}
+                            {formatPhone(contact.phone)
+                              .split(/\s*\/\s*/)
+                              .map((part, i) => (
+                                <Fragment key={i}>
+                                  {i > 0 ? "\u00a0/ " : ""}
+                                  <span className="whitespace-nowrap">{part}</span>
+                                </Fragment>
+                              ))}
+                          </a>
+                          <CopyValueButton value={contact.phone} what="numer telefonu" />
+                        </div>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
                       )}
