@@ -144,6 +144,29 @@ class HistoryOut(BaseModel):
     at: datetime
 
 
+class EarlierCallOut(BaseModel):
+    """Wynik pod tym samym numerem, adresem albo osobą w innym rekordzie."""
+
+    record_id: int
+    company: Ref
+    person_name: Optional[str]
+    state: str
+    at: datetime
+    caller_name: Optional[str]
+    campaign_name: Optional[str]
+    label: str
+
+
+class CrmOpportunityOut(BaseModel):
+    """Otwarta szansa firmy założona po rekordzie z listy (firma już w CRM)."""
+
+    id: int
+    title: str
+    stage_name: str
+    owner_name: Optional[str]
+    created_at: datetime
+
+
 class CardOut(BaseModel):
     company: Ref
     domain: Optional[str]
@@ -159,6 +182,8 @@ class CardOut(BaseModel):
     client_refusal: Optional[str]
     can_save: bool
     history: list[HistoryOut]
+    earlier_calls: list[EarlierCallOut] = []
+    crm_opportunity: Optional[CrmOpportunityOut] = None
 
 
 class OutcomeOut(BaseModel):
@@ -288,6 +313,30 @@ def _card(card: calling.Card) -> CardOut:
             )
             for entry in card.history
         ],
+        earlier_calls=[
+            EarlierCallOut(
+                record_id=call.record_id,
+                company=Ref(id=call.company_id, name=call.company_name),
+                person_name=call.person_name,
+                state=call.state,
+                at=call.at,
+                caller_name=call.caller_name,
+                campaign_name=call.campaign_name,
+                label=call.label,
+            )
+            for call in card.earlier_calls
+        ],
+        crm_opportunity=(
+            CrmOpportunityOut(
+                id=card.crm_opportunity.id,
+                title=card.crm_opportunity.title,
+                stage_name=card.crm_opportunity.stage_name,
+                owner_name=card.crm_opportunity.owner_name,
+                created_at=card.crm_opportunity.created_at,
+            )
+            if card.crm_opportunity
+            else None
+        ),
     )
 
 

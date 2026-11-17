@@ -9,6 +9,7 @@ import type {
   DayCounts,
   ImportFate,
   ImportPreview,
+  ImportRow,
   QueueItem,
   QueueOutcome,
   QueueSection,
@@ -214,6 +215,7 @@ export const FATE_LABELS: Record<ImportFate, string> = {
   new_company: "Nowa firma",
   linked: "Połączono z kartą",
   already_in_campaign: "Już w kampanii",
+  already_called: "Już dzwoniono",
   other_caller: "Dzwoni ktoś inny",
   client: "Klient NEXUSA",
   do_not_contact: "Nie kontaktować",
@@ -224,6 +226,7 @@ export const FATE_TONES: Record<ImportFate, NonNullable<BadgeProps["variant"]>> 
   new_company: "neutral",
   linked: "success",
   already_in_campaign: "info",
+  already_called: "warning",
   other_caller: "warning",
   client: "danger",
   do_not_contact: "danger",
@@ -231,6 +234,7 @@ export const FATE_TONES: Record<ImportFate, NonNullable<BadgeProps["variant"]>> 
 };
 
 const SUMMARY_ORDER: ImportFate[] = [
+  "already_called",
   "already_in_campaign",
   "other_caller",
   "client",
@@ -242,6 +246,7 @@ export const SUMMARY_TEXT: Record<ImportFate, string> = {
   new_company: "nowe firmy",
   linked: "z istniejącą kartą firmy",
   already_in_campaign: "już w kampanii",
+  already_called: "już dzwoniono",
   other_caller: "dzwoni ktoś inny",
   client: "klienci NEXUSA",
   do_not_contact: "nie kontaktować",
@@ -260,6 +265,24 @@ export function importSummary(preview: Pick<ImportPreview, "addable" | "counts" 
   }
   if (preview.without_company > 0) parts.push(`${preview.without_company} bez nazwy firmy pominięto`);
   return parts.join(" · ");
+}
+
+/**
+ * Plik z oznaczeniami (17.11.2026): wiersze z podglądu z kolumną „W NEXUSIE”, żeby
+ * osoba przygotowująca listę wyczyściła ją w Excelu. Średnik i BOM, bo tak Excel
+ * w polskich ustawieniach otwiera CSV bez kreatora.
+ */
+export function markedListCsv(rows: ImportRow[]): string {
+  const cell = (value: string | null | undefined) => `"${(value ?? "").replace(/"/g, '""')}"`;
+  const lines = [
+    ["Wiersz", "Firma", "Osoba", "Stanowisko", "Telefon", "W NEXUSIE", "Szczegóły"].map(cell).join(";"),
+    ...rows.map((row) =>
+      [String(row.line), row.company, row.person, row.title, row.phone, FATE_LABELS[row.fate], row.detail]
+        .map(cell)
+        .join(";"),
+    ),
+  ];
+  return `\uFEFF${lines.join("\r\n")}`;
 }
 
 export const IMPORT_ACCEPT = ".csv,.xlsx";

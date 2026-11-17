@@ -191,6 +191,7 @@ async def test_offer_sent_writes_a_full_lead_once_per_record(app_client) -> None
         await _campaign(),
         company_id,
         contact_id=contact_id,
+        phone="600 100 200",
         person_name="Jan Testowy",
         person_title="CTO",
         email="jan@example.com",
@@ -276,7 +277,11 @@ async def test_card_edits_the_record_and_the_contact(app_client) -> None:
     company_id = await _company()
     contact_id = await _contact(company_id)
     record_id = await _record(
-        caller.id, await _campaign(), company_id, contact_id=contact_id
+        caller.id,
+        await _campaign(),
+        company_id,
+        contact_id=contact_id,
+        phone="600 100 200",
     )
     url = f"{URL}/records/{record_id}"
     assert (

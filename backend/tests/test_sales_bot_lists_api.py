@@ -25,21 +25,23 @@ async def _segment(tag: str) -> dict[str, int]:
     """Pięć firm z Managerem/Headem, jedna dzwoniona niedawno, jedna z samym prezesem."""
 
     ids: dict[str, int] = {}
+    # Numery tylko tego segmentu: numer z wynikiem w innym teście to „Już dzwoniono”.
+    base = f"5{uuid.uuid4().int % 10**5:05d}"
     for index in range(5):
         company = await _company(f"Segment {index}", industry=f"bankowość {tag}")
         await _contact(
             company,
             full_name=f"Osoba {index}",
             title="IT Manager" if index % 2 else "Head of IT",
-            phone=f"600 200 {300 + index}",
+            phone=f"{base}{300 + index}",
         )
         ids[f"ok{index}"] = company
     called = await _company("Dzwoniona", industry=f"bankowość {tag}")
-    await _contact(called, full_name="Osoba X", title="IT Manager", phone="600 200 399")
+    await _contact(called, full_name="Osoba X", title="IT Manager", phone=f"{base}399")
     ids["called"] = called
     board = await _company("Zarząd", industry=f"bankowość {tag}")
     await _contact(
-        board, full_name="Osoba Y", title="Prezes Zarządu", phone="600 200 398"
+        board, full_name="Osoba Y", title="Prezes Zarządu", phone=f"{base}398"
     )
     ids["board"] = board
     return ids
@@ -225,13 +227,16 @@ async def test_bot_report_lands_in_the_campaign_through_import_gates(
     )
     assert resp.status_code == 200, resp.text
     tag = uuid.uuid4().hex[:8]
+    # Numery tylko tego biegu: numer z wynikiem albo na liście z poprzedniego biegu
+    # to dla bramki importu powtórka (17.11.2026).
+    base = f"22 {uuid.uuid4().int % 10**5:05d}"
     run_id, token = await _run([], kind="lists", request={"campaign_id": campaign})
     src = "https://rejestr.example/firma"
     report = {
         "firms": [
             {
                 "company": f"Rejestr A {tag}",
-                "phone": "22 123 45 67",
+                "phone": f"{base}67",
                 "phone_source": src,
                 "pkd": "64.19.Z",
                 "source": "rejestr",
@@ -239,7 +244,7 @@ async def test_bot_report_lands_in_the_campaign_through_import_gates(
             },
             {
                 "company": f"Rejestr B {tag}",
-                "phone": "22 765 43 21",
+                "phone": f"{base}21",
                 "source": "rejestr",
                 "source_url": src,
             },
