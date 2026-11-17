@@ -6,6 +6,8 @@ Tu dochodzi to, czego faktura od osoby nie potrzebowała:
 
 * nabywca — ``Podmiot2/DaneIdentyfikacyjne/NIP`` (polski NIP), ``KodUE``
   z ``NrVatUE`` (VAT UE) lub ``KodKraju`` z ``NrID`` oraz ``Nazwa``,
+* adres nabywcy — ``Podmiot2/Adres`` (``KodKraju``, ``AdresL1``, ``AdresL2``),
+  dla kartoteki kontrahentów Symfonii (``finance_ledger.symfonia_partners``),
 * termin płatności — najwcześniejszy ``Platnosc/TerminPlatnosci/Termin``,
 * „Zapłacono” w samej fakturze — ``Platnosc/Zaplacono`` = 1 z ``DataZaplaty``,
 * teksty, w których szukamy numeru zamówienia klienta:
@@ -30,6 +32,14 @@ from app.services.order_client_identity import normalize_buyer_number
 MAX_REFS = 20
 REF_MAX_LENGTH = 300
 FOREIGN_ID_MAX_LENGTH = 32
+ADDRESS_LINE_MAX_LENGTH = 512
+
+
+@dataclass(frozen=True)
+class BuyerAddress:
+    country: Optional[str]
+    line1: Optional[str]
+    line2: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -43,6 +53,7 @@ class SalesInvoice:
     period: Optional[tuple[int, int]]
     period_source: Optional[str]
     order_refs: list[str] = field(default_factory=list)
+    buyer_address: Optional[BuyerAddress] = None
 
 
 def _texts(nodes: Any) -> list[str]:
@@ -81,6 +92,26 @@ def _foreign_id(buyer: Any) -> Optional[str]:
     other_number = buyer.findtext("{*}NrID") or ""
     key = normalize_buyer_number(other_number, country=other_country)
     return key if key and len(key) <= FOREIGN_ID_MAX_LENGTH else None
+
+
+def _one_line(raw: Optional[str], limit: int) -> Optional[str]:
+    value = " ".join((raw or "").split())[:limit]
+    return value or None
+
+
+def _address(node: Any) -> Optional[BuyerAddress]:
+    """``Podmiot2/Adres``; brak węzła albo pusty adres = ``None``."""
+
+    if node is None:
+        return None
+    country = _one_line(node.findtext("{*}KodKraju"), 2)
+    line1 = _one_line(node.findtext("{*}AdresL1"), ADDRESS_LINE_MAX_LENGTH)
+    line2 = _one_line(node.findtext("{*}AdresL2"), ADDRESS_LINE_MAX_LENGTH)
+    if not (line1 or line2):
+        return None
+    return BuyerAddress(
+        country=country.upper() if country else None, line1=line1, line2=line2
+    )
 
 
 def parse_sales_invoice(xml: bytes) -> SalesInvoice:
@@ -135,7 +166,8 @@ def parse_sales_invoice(xml: bytes) -> SalesInvoice:
         period=period,
         period_source=period_source,
         order_refs=refs,
+        buyer_address=_address(root.find("{*}Podmiot2/{*}Adres")),
     )
 
 
-__all__ = ["SalesInvoice", "parse_sales_invoice"]
+__all__ = ["BuyerAddress", "SalesInvoice", "parse_sales_invoice"]

@@ -3770,6 +3770,170 @@ async def update_champion_profile(
     )
 
 
+class ChampionChangesSeenIn(BaseModel):
+    revision_id: int = Field(ge=1)
+
+
+class ChampionChangeNoteIn(BaseModel):
+    note: str | None = None
+
+
+def _champion_revision_out(revision: Any, user_id: int) -> dict:
+    return {
+        "id": revision.id,
+        "created_at": revision.created_at.isoformat() if revision.created_at else None,
+        "author_id": revision.author_id,
+        "author_name": revision.author_name,
+        "note": revision.note,
+        "changes": list(revision.changes or []),
+        "mine": revision.author_id is not None and revision.author_id == user_id,
+    }
+
+
+@router.get("/{job_id}/champion-profile/changes")
+async def get_champion_profile_changes(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Wersje Profilu Championa po przekazaniu: karta „Co się zmieniło” i zakładka „Zmiany”.
+
+    ``last_seen_revision_id`` to ostatnia wersja, przy której ta osoba kliknęła
+    „Przeczytane” (reguła ``profil-championa-co-sie-zmienilo.md``).
+    """
+    from app.models.champion_profile_revision import (
+        ChampionProfileChangeRead,
+        ChampionProfileRevision,
+    )
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    revisions = (
+        await db.scalars(
+            select(ChampionProfileRevision)
+            .where(ChampionProfileRevision.job_id == job_id)
+            .order_by(ChampionProfileRevision.id.desc())
+            .limit(50)
+        )
+    ).all()
+    last_seen = await db.scalar(
+        select(ChampionProfileChangeRead.last_seen_revision_id).where(
+            ChampionProfileChangeRead.job_id == job_id,
+            ChampionProfileChangeRead.user_id == current_user.id,
+        )
+    )
+    return {
+        "job_id": job_id,
+        "revisions": [_champion_revision_out(r, current_user.id) for r in revisions],
+        "last_seen_revision_id": last_seen,
+    }
+
+
+@router.post("/{job_id}/champion-profile/changes/seen")
+async def mark_champion_profile_changes_seen(
+    job_id: int,
+    body: ChampionChangesSeenIn,
+    request: Request,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Przeczytane” na karcie zmian — per osoba, tylko do przodu."""
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.models.champion_profile_revision import (
+        ChampionProfileChangeRead,
+        ChampionProfileRevision,
+    )
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    belongs = await db.scalar(
+        select(ChampionProfileRevision.id).where(
+            ChampionProfileRevision.id == body.revision_id,
+            ChampionProfileRevision.job_id == job_id,
+        )
+    )
+    if belongs is None:
+        raise HTTPException(404, "Nie ma takiej zmiany w tej rekrutacji.")
+    # „Podgląd jako”: admin czyta cudzy ekran — stan „przeczytane” należy do
+    # podglądanej osoby (jak przy powiadomieniach w GET champion-profile).
+    if getattr(request.state, "impersonator_id", None) is not None:
+        return {"last_seen_revision_id": None, "preview": True}
+    stmt = pg_insert(ChampionProfileChangeRead).values(
+        job_id=job_id, user_id=current_user.id, last_seen_revision_id=body.revision_id
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["job_id", "user_id"],
+        set_={
+            "last_seen_revision_id": func.greatest(
+                ChampionProfileChangeRead.last_seen_revision_id,
+                stmt.excluded.last_seen_revision_id,
+            ),
+            "seen_at": func.now(),
+        },
+    )
+    await db.execute(stmt)
+    await db.commit()
+    last_seen = await db.scalar(
+        select(ChampionProfileChangeRead.last_seen_revision_id).where(
+            ChampionProfileChangeRead.job_id == job_id,
+            ChampionProfileChangeRead.user_id == current_user.id,
+        )
+    )
+    return {"last_seen_revision_id": last_seen}
+
+
+@router.patch("/{job_id}/champion-profile/changes/{revision_id}")
+async def set_champion_profile_change_note(
+    job_id: int,
+    revision_id: int,
+    body: ChampionChangeNoteIn,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Zdanie Delivery Leada „na co klient kładzie nacisk” przy swojej zmianie.
+
+    Okno po zapisie profilu (makiety runda 2, 17.11.2026). Zdanie dopisuje
+    autor zmiany albo admin — rekruter widzi je w karcie zmian jako słowa
+    osoby, która rozmawiała z klientem.
+    """
+    from app.models.champion_profile_revision import ChampionProfileRevision
+    from app.services.champion_profile_revisions_schema import NOTE_MAX_CHARS
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    revision = await db.scalar(
+        select(ChampionProfileRevision)
+        .where(
+            ChampionProfileRevision.id == revision_id,
+            ChampionProfileRevision.job_id == job_id,
+        )
+        .with_for_update()
+    )
+    if revision is None:
+        raise HTTPException(404, "Nie ma takiej zmiany w tej rekrutacji.")
+    if revision.author_id != current_user.id and not current_user.has_role(
+        UserRole.admin
+    ):
+        raise HTTPException(403, "Zdanie do zmiany dopisuje osoba, która ją zapisała.")
+    note = " ".join((body.note or "").split()) or None
+    if note is not None and len(note) > NOTE_MAX_CHARS:
+        raise HTTPException(
+            422, f"Zdanie dla rekruterów może mieć najwyżej {NOTE_MAX_CHARS} znaków."
+        )
+    revision.note = note
+    revision.note_updated_at = func.now()
+    await db.commit()
+    await db.refresh(revision)
+    return _champion_revision_out(revision, current_user.id)
+
+
 @router.post("/{job_id}/champion-profile/apply-import")
 async def apply_champion_import(
     job_id: int,
@@ -4031,6 +4195,8 @@ async def _save_champion_profile(
         **response_context(job),
         # Uwagi zapisu (np. krytyczne, które przestały być technologią).
         "notices": list(effects.results.get("notices") or []),
+        # Zmiana rekrutacji w pracy → okno „Na co klient kładzie nacisk?”.
+        "change_revision": effects.results.get("change_revision"),
     }
     await job_lifecycle.run_post_commit(effects)
     return response

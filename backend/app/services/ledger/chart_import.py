@@ -9,7 +9,9 @@ tylko elementy ``plankont`` i ``znacznik`` (znaczniki MF z JPK_KR_PD).
   ``010-3``). Węzeł, którego segment ``wartN`` jest zerem przy ``typN`` ≠ 0
   („Kontrahenci”, „Pracownicy”), nie jest kontem: to słownik analityki pod
   kontem z segmentów przed zerem (``200-2`` + zero → słownik kontrahentów na
-  ``200-2``), więc analityki ``200-2-NNN`` nie zakładamy po jednej.
+  ``200-2``), więc analityki ``200-2-NNN`` nie zakładamy po jednej. Słownika
+  „Pracownicy” nie przenosimy (numer pracownika = ID kontrahenta w NEXUSIE
+  dałby zły powiązany rozrachunek) — konta pracowników zakłada księgowa.
 * **Typ konta**: ``typ`` 1 = bilansowe, 2 = wynikowe, 0 = pozabilansowe. Dla
   bilansowych Symfonia nie podaje strony, więc aktywne/pasywne/aktywno-pasywne
   wynika z zespołu (0, 1, 3, 6 → aktywne; 8 → pasywne; 2 → aktywno-pasywne) —
@@ -63,9 +65,13 @@ BALANCE_TYPE_BY_CLASS = {
 #: ``typ`` konta w Symfonii: 1 bilansowe, 2 wynikowe, 0 pozabilansowe.
 SYMFONIA_RESULT = "2"
 SYMFONIA_OFF_BALANCE = "0"
-#: Nazwy węzłów słownikowych Symfonii → słownik NEXUSA. Pracownicy (234)
-#: nie mają osobnego słownika — idą pod kontrahentów, pozycje bez powiązania.
-DICTIONARY_BY_NAME = {"kontrahenci": "counterparty", "pracownicy": "counterparty"}
+#: Nazwy węzłów słownikowych Symfonii → słownik NEXUSA. „Pracownicy” (234,
+#: 249-3) celowo bez odpowiednika (decyzja Artura 17.11.2026): numer pracownika
+#: w Symfonii pokrywa się z ID kontrahenta, a słownik kontrahentów wiąże
+#: analitykę z kontrahentem po tym numerze (BO, rozrachunki). Konta pracowników
+#: księgowa zakłada ręcznie.
+DICTIONARY_BY_NAME = {"kontrahenci": "counterparty"}
+EMPLOYEE_DICTIONARY = "pracownicy"
 _NOT_XML = "".join(chr(c) for c in range(32) if c not in (9, 10, 13))
 
 
@@ -154,6 +160,7 @@ def parse(content: bytes) -> ParsedChart:
     parsed = ParsedChart()
     dictionary_of: dict[str, str] = {}
     dropped_dictionaries: list[str] = []
+    employee_dictionaries: list[str] = []
     for element in root.iter("plankont"):
         number, is_dictionary = _number(element)
         label = _text(element.get("nazwa"))
@@ -161,17 +168,13 @@ def parse(content: bytes) -> ParsedChart:
             parsed.problems.append("Konto bez numeru w pliku — pominięte.")
             continue
         if is_dictionary:
-            parent = number
             kind = DICTIONARY_BY_NAME.get(label.lower())
-            if kind is None:
+            if label.lower() == EMPLOYEE_DICTIONARY:
+                employee_dictionaries.append(number)
+            elif kind is None:
                 dropped_dictionaries.append(f"{number} „{label}”")
-                continue
-            dictionary_of[parent] = kind
-            if label.lower() == "pracownicy":
-                parsed.notes.append(
-                    f"Konto {parent}: słownik „Pracownicy” zapisany jako słownik "
-                    "kontrahentów — pozycje bez powiązania z kontrahentem."
-                )
+            else:
+                dictionary_of[number] = kind
             continue
         try:
             clean = clean_account(number, f"Konto {number}")
@@ -188,6 +191,14 @@ def parse(content: bytes) -> ParsedChart:
             number=clean,
             name=label[:ACCOUNT_NAME_MAX],
             account_type=_account_type(element.get("typ") or "", clean),
+        )
+    if employee_dictionaries:
+        accounts = ", ".join(employee_dictionaries)
+        parsed.problems.append(
+            f"Słownik „Pracownicy” (konta {accounts}) nie jest importowany — NEXUS "
+            "powiązałby pracownika z kontrahentem o tym samym numerze. Konta "
+            f"analityczne pracowników (np. {employee_dictionaries[0]}-N) załóż ręcznie w Planie kont "
+            "przed wczytaniem bilansu otwarcia."
         )
     if dropped_dictionaries:
         parsed.problems.append(

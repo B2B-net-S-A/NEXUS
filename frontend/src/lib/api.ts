@@ -5794,6 +5794,35 @@ export interface ChampionProfileResponse {
   profile_hash?: string;
   /** Tylko odpowiedź `PUT`: uwagi zapisu (np. krytyczna, która przestała być technologią). */
   notices?: string[];
+  /**
+   * Tylko odpowiedź `PUT` (17.11.2026): zmiana rekrutacji w pracy zostawiła
+   * wersję — edytor pyta autora o zdanie dla rekruterów.
+   */
+  change_revision?: { id: number; changes: ChampionChangeItem[] } | null;
+}
+
+/** Pozycja „Co się zmieniło” (`champion_profile_changes.describe_changes`). */
+export interface ChampionChangeItem {
+  kind: "added" | "removed" | "moved" | "set";
+  text: string;
+  detail: string;
+}
+
+export interface ChampionProfileRevision {
+  id: number;
+  created_at: string | null;
+  author_id: number | null;
+  author_name: string | null;
+  note: string | null;
+  changes: ChampionChangeItem[];
+  /** Zmiana zapisana przez czytającego — nie jest dla niego „nowa”. */
+  mine: boolean;
+}
+
+export interface ChampionChangesResponse {
+  job_id: number;
+  revisions: ChampionProfileRevision[];
+  last_seen_revision_id: number | null;
 }
 
 export interface ChampionVerificationRequest {
@@ -5821,6 +5850,18 @@ export interface ChampionConsultantSuggestion {
 }
 
 export const championApi = {
+  changes: (jobId: number) =>
+    api.get<ChampionChangesResponse>(`/api/jobs/${jobId}/champion-profile/changes`),
+  markChangesSeen: (jobId: number, revisionId: number) =>
+    api.post<{ last_seen_revision_id: number | null }>(
+      `/api/jobs/${jobId}/champion-profile/changes/seen`,
+      { revision_id: revisionId },
+    ),
+  setChangeNote: (jobId: number, revisionId: number, note: string | null) =>
+    api.patch<ChampionProfileRevision>(
+      `/api/jobs/${jobId}/champion-profile/changes/${revisionId}`,
+      { note },
+    ),
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
   // Ładunek bywa częściowy (serwer scala sekcje) i niesie `expected_profile_hash`.

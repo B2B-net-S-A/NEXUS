@@ -415,6 +415,13 @@ async def get_config(
     )
     payload = _config_payload(current_user, current, viewer, year_list)
     payload["open"] = open_
+    # Konta z Ustawień, na które moduły już nie zaksięgują (np. po imporcie
+    # planu kont z Symfonii) — karta na ekranie Ustawień.
+    payload["account_problems"] = (
+        ledger_settings.account_problems(current, await ledger_settings.load_plan(db))
+        if open_
+        else []
+    )
     return payload
 
 

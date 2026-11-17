@@ -215,7 +215,7 @@
     "title": "Profil Championa",
     "section": "pipeline",
     "roles": ["delivery_lead", "recruiter", "admin"],
-    "what": "Tu czytasz zlecenie w czterech zakładkach: Brief (wszystko przed telefonem), Technologie po ludzku, Klient i historia, Zespół i ogłoszenie. „Edytuj” przy bloku otwiera go z boku; cały formularz i pliki rekrutacji są w menu „⋯”.",
+    "what": "Tu czytasz zlecenie: Brief (wszystko przed telefonem), Technologie po ludzku, Klient i historia, Zespół i ogłoszenie, a po zmianach profilu też Zmiany. „Edytuj” przy bloku otwiera go z boku; cały formularz i pliki są w menu „⋯”.",
     "tasks": [
       {
         "q": "Jak szybko wypełnić profil z maila klienta?",

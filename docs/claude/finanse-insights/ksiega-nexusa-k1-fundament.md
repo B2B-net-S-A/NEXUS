@@ -88,6 +88,23 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
   nie przyjmuje zapisów.
 - Konta użytego w aktywnej regule dekretu E2 nie wyłącza się i nie zmienia mu
   się rodzaju (409).
+- **Konta modułów w Ustawieniach muszą przyjmować zapisy** (17.11.2026). Zapis
+  każdej grupy kont (sprzedaż, rozliczenie na „5”, płace, środki trwałe, VAT,
+  wyciągi i rachunki firmy) sprawdza `settings.account_problem` tą samą regułą
+  co `engine.resolve`: konto aktywne, bez kont pod sobą i bez słownika; inaczej
+  422 z numerem i podpowiedzią („Konto 229 ma konta analityczne — wybierz np.
+  229-1-1”). Wyjątek to pola z `COUNTERPARTY_FIELDS` — moduł księguje na nie
+  `konto-ID kontrahenta` (FVS i wyciąg: `sources.receivable_account`, zakup
+  zagraniczny: `foreign.py`), więc wymagają słownika „kontrahenci” (np. `200-1`
+  zamiast syntetycznego `200`). Nowe pole w Ustawieniach, które księguje
+  analitykę, dopisz do `COUNTERPARTY_FIELDS`, a nową grupę kont do
+  `ACCOUNT_GROUPS`. Samo sprawdzenie przy zapisie nie wystarcza, bo po imporcie
+  pełnego planu kont z Symfonii zapisane wcześniej (i domyślne: 200, 229, 231,
+  401, 761, 080) konta przestają być księgowalne bez zapisu w Ustawieniach —
+  dlatego `/api/accounting/config` zwraca `account_problems`, a Ustawienia
+  pokazują kartę „Konta do przestawienia” z polem, kontem, powodem i kartą,
+  na której się je zmienia. Puste pole nie trafia na tę listę (brak konta
+  zgłasza moduł przy pracy).
 
 ## Raporty
 
@@ -119,7 +136,11 @@ testy mają sfabrykowany XML i CSV (`test_ledger_chart_import_rules.py`,
   i `znacznik`. Numer = `syntet` do trzech cyfr + `wartN` do pary 0/0 (`10`, `wart1=3` →
   `010-3`); węzeł z segmentem `wart=0` („Kontrahenci”, „Pracownicy”) nie jest kontem,
   tylko ustawia słownik kontrahentów na koncie przed zerem (`200-2-0` → `200-2`).
-  „Pracownicy” (234) idą pod słownik kontrahentów, bo NEXUS nie ma osobnego.
+  Słownika „Pracownicy” (234, 249-3) import nie przenosi (decyzja Artura 17.11.2026):
+  słownik kontrahentów wiąże analitykę z kontrahentem po numerze ID Symfonii, a numery
+  pracowników i kontrahentów w Symfonii się pokrywają, więc dług pracownika trafiłby
+  w BO i rozrachunkach do obcego kontrahenta. Import to zgłasza; konta analityczne
+  pracowników (234-N) księgowa zakłada ręcznie przed bilansem otwarcia.
 - **Typ konta**: `typ` 1 bilansowe, 2 wynikowe, 0 pozabilansowe; strona bilansowych
   wynika z zespołu (0, 1, 3, 6 aktywne; 8 pasywne; 2 aktywno-pasywne) — to heurystyka,
   pojedyncze konta poprawia księgowa. Znacznik MF z `znacznik` → `report_line`; para

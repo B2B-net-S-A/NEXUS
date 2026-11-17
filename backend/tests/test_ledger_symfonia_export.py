@@ -493,7 +493,7 @@ def _party(id_type: str = "nip", country: str = "PL") -> FinanceCounterparty:
     return FinanceCounterparty(
         id=5,
         id_type=id_type,
-        id_value="1234567890",
+        id_value=f"{country}12345678" if id_type == "vat_eu" else "1234567890",
         name="Odbiorca",
         street="ul. Testowa 2",
         postal_code="00-950",
@@ -515,6 +515,7 @@ def _sales(**changes) -> SimpleNamespace:
         "currency": "PLN",
         "ksef_acquired_at": datetime(2026, 6, 8, 22, 30, tzinfo=timezone.utc),
         "corrected_invoice_number": None,
+        "items": [],
     }
     values.update(changes)
     return SimpleNamespace(**values)
@@ -535,12 +536,72 @@ def test_sales_invoice_picks_symbol_register_and_dates():
     assert (domestic.party_city, domestic.party_country) == ("Łódź", "PL")
 
     eu = exports.sales_invoice(
-        _sales(vat_amount=Decimal("0"), gross_amount=Decimal("1000.00")),
+        _sales(
+            vat_amount=Decimal("0"),
+            gross_amount=Decimal("1000.00"),
+            items=[_item("np II")],
+        ),
         _party("vat_eu", "FI"),
     )
     assert (eu.symbol, eu.vat_rate) == ("WDT", "-2")
     # Nabywca z UE z VAT na fakturze — szablon 4 tego nie opisuje.
-    assert exports.sales_invoice(_sales(), _party("vat_eu", "FI")).vat_rate is None
+    refused = exports.sales_invoice(_sales(), _party("vat_eu", "FI"))
+    assert isinstance(refused, str) and "np II" in refused
+
+
+def _item(rate: str, **extra) -> dict:
+    return {"name": "Usługa", "net": "100.00", "vat_rate": rate, **extra}
+
+
+@pytest.mark.parametrize(
+    ("items", "net", "vat", "rate"),
+    [
+        # Stawka z pozycji, nie z kwot: „zw” to -1 („Zwolnione”), nie 0%.
+        ([_item("zw")], "1000.00", "0", "-1"),
+        ([_item("8")], "1000.00", "80.00", "8"),
+        ([_item("0 KR")], "1000.00", "0", "0"),
+        # Wiersze „przed korektą” nie liczą się do stawek.
+        ([_item("8", before_correction=True), _item("23")], "100.00", "23.00", "23"),
+        # Bez stawek w pozycjach — z kwot (23, 8, 5).
+        ([], "1000.00", "230.00", "23"),
+        ([_item("")], "1000.00", "50.00", "5"),
+    ],
+)
+def test_sales_rate_comes_from_ksef_items(items, net, vat, rate):
+    invoice = _sales(
+        items=items,
+        net_amount=Decimal(net),
+        vat_amount=Decimal(vat),
+        gross_amount=Decimal(net) + Decimal(vat),
+    )
+    assert exports.sales_invoice(invoice, _party()).vat_rate == rate
+
+
+@pytest.mark.parametrize(
+    ("items", "vat", "party", "reason"),
+    [
+        # Stosunek VAT do netto dla 8% i „zw” wypada np. na 5% — nie zgadujemy.
+        ([_item("8"), _item("zw")], "40.00", "nip", "kilka stawek VAT (8, zw)"),
+        ([_item("23"), _item("8")], "31.00", "nip", "kilka stawek VAT (23, 8)"),
+        ([_item("oo")], "0", "nip", "„oo”"),
+        ([_item("np I")], "0", "nip", "„np I”"),
+        ([_item("0 WDT")], "0", "vat_eu", "„0 WDT”"),
+        ([_item("np II")], "0", "nip", "nabywcy bez VAT UE"),
+        ([], "0", "nip", "0%, „zw” czy „np”"),
+        ([], "0", "other", "spoza Polski i UE"),
+    ],
+)
+def test_sales_without_a_sample_rate_is_refused_with_the_reason(
+    items, vat, party, reason
+):
+    invoice = _sales(
+        items=items,
+        vat_amount=Decimal(vat),
+        gross_amount=Decimal("1000.00") + Decimal(vat),
+    )
+    refused = exports.sales_invoice(invoice, _party(party))
+    assert isinstance(refused, str), refused
+    assert reason in refused.replace(" na fakturze", "")
 
 
 def test_sales_correction_is_fks_and_negative_amounts_flag_the_sign():
@@ -566,6 +627,7 @@ def test_purchase_invoice_from_queue_row_and_decree():
             "doc_type": "FKZ",
             "positions": [
                 {"kind": "cost", "account": "402-1"},
+                {"kind": "vat", "account": "221"},
                 {"kind": "counterparty", "account": "201-2-9"},
             ],
         },
@@ -596,5 +658,143 @@ def test_purchase_invoice_from_queue_row_and_decree():
     assert exports.purchase_invoice(entry, no_amount, doc, None) == (
         "faktura bez kwoty brutto"
     )
-    plain = SimpleNamespace(due_date=None, decree={})
+    plain = SimpleNamespace(
+        due_date=None, decree={"positions": [{"kind": "vat", "account": "221"}]}
+    )
     assert exports.purchase_invoice(plain, row, doc, None).symbol == "FVZ"
+    # Zakup bez VAT: bez XML-a nie wiadomo, czy 0%, „zw” czy „np”.
+    no_vat = SimpleNamespace(
+        **{**row.__dict__, "vat_amount": Decimal("0"), "net_amount": Decimal("-123")}
+    )
+    assert exports.purchase_invoice(entry, no_vat, doc, None) == exports.NO_ZERO_KIND
+
+
+def test_purchase_correction_in_plus_keeps_sides_and_amount_to_pay():
+    invoice = _invoice(
+        symbol="FKZ",
+        purchase=True,
+        number="FK 4/2026",
+        net=Decimal("100.00"),
+        vat=Decimal("23.00"),
+        gross=Decimal("123.00"),
+        corrects_number="2/10/2026",
+        settlement_account="201-2-9",
+    )
+    lines = [
+        _line(invoice, doc_type="FVZ", account="402-1", debit=Decimal("100.00")),
+        _line(
+            invoice,
+            doc_type="FVZ",
+            line_no=2,
+            account="201-2-9",
+            debit=None,
+            credit=Decimal("123.00"),
+        ),
+    ]
+    text = _text(FORMAT.render(lines))
+    assert "\tdozaplaty =123.00\r\n\twdozaplaty =123.00\r\n" in text
+    assert "\t\tbrutto =123.00\r\n\t\tnetto =100.00\r\n" in text
+    assert "\t\tstrona =WN\r\n\t\tkonto =402-1\r\n\t\tkwota =100.00\r\n" in text
+    assert (
+        "\t\tstrona =MA\r\n\t\tkonto =201-2-9\r\n\t\tkwota =123.00\r\n"
+        "\t\tpozycja =0\r\n\t\tIdDlaRozliczen =1\r\n"
+    ) in text
+
+
+def test_storno_of_an_invoice_names_the_reversed_document():
+    storno = _line_with(
+        _sale_lines()[0], doc_type="ST", invoice=None, reverses="7/6/2026"
+    )
+    with pytest.raises(SymfoniaFormatError, match="storno dokumentu 7/6/2026"):
+        FORMAT.render([storno])
+
+
+def test_rate_from_amounts_needs_an_exact_match_not_a_tolerance():
+    # 1000 zł po 23% + 20 zł po 8%: 22,7% mieściło się w ±0,5 pp od 23%.
+    mixed = _sales(
+        net_amount=Decimal("1020.00"),
+        vat_amount=Decimal("231.60"),
+        gross_amount=Decimal("1251.60"),
+    )
+    refused = exports.sales_invoice(mixed, _party())
+    assert isinstance(refused, str) and "kilka stawek" in refused
+    # Grosz różnicy z zaokrąglenia przechodzi.
+    rounded = _sales(
+        net_amount=Decimal("100.01"),
+        vat_amount=Decimal("23.01"),
+        gross_amount=Decimal("123.02"),
+    )
+    assert exports.sales_invoice(rounded, _party()).vat_rate == "23"
+
+
+def _purchase(positions: list[dict], **row_changes):
+    entry = SimpleNamespace(
+        due_date=None, decree={"doc_type": "FKZ", "positions": positions}
+    )
+    row = SimpleNamespace(
+        **{
+            "gross_amount": Decimal("-123.00"),
+            "vat_amount": Decimal("-23.00"),
+            "net_amount": Decimal("-100.00"),
+            "issue_date": date(2026, 10, 2),
+            "invoice_number": "FK 1/2026",
+            "source_due": None,
+            "currency": "PLN",
+            **row_changes,
+        }
+    )
+    doc = SimpleNamespace(
+        op_date=date(2026, 10, 5), doc_date=date(2026, 10, 2), number="FK 1/2026"
+    )
+    return entry, row, doc
+
+
+def test_purchase_without_vat_deduction_is_refused():
+    # Reguła „bez odliczenia”: koszt brutto, bez pozycji VAT — a rejestr z próbki
+    # (ABC =1) to VAT do odliczenia.
+    entry, row, doc = _purchase(
+        [
+            {"kind": "cost", "account": "402", "deduction": "none"},
+            {"kind": "counterparty", "account": "202-2-5"},
+        ]
+    )
+    refused = exports.purchase_invoice(entry, row, doc, _party())
+    assert isinstance(refused, str) and "bez odliczenia" in refused
+    entry, mixed, doc = _purchase(
+        [{"kind": "vat", "account": "221"}],
+        net_amount=Decimal("-1020.00"),
+        vat_amount=Decimal("-231.60"),
+        gross_amount=Decimal("-1251.60"),
+    )
+    assert "kilka stawek" in exports.purchase_invoice(entry, mixed, doc, None)
+
+
+def _eu_sale() -> SimpleNamespace:
+    return _sales(
+        vat_amount=Decimal("0"),
+        gross_amount=Decimal("1000.00"),
+        items=[_item("np II")],
+    )
+
+
+def test_eu_buyer_country_comes_from_the_vat_prefix():
+    party = _party("vat_eu", "FI")
+    party.id_value, party.country = "FI12345678", None
+    assert exports.sales_invoice(_eu_sale(), party).party_country == "FI"
+    greek = _party("vat_eu", "GR")
+    greek.id_value = "EL123456789"
+    assert exports.sales_invoice(_eu_sale(), greek).party_country == "GR"
+    clash = _party("vat_eu", "DE")
+    clash.id_value = "FI12345678"
+    refused = exports.sales_invoice(_eu_sale(), clash)
+    assert isinstance(refused, str) and "(DE)" in refused and "(FI)" in refused
+    # NIP bez kraju w kartotece to Polska.
+    domestic = _party()
+    domestic.country = None
+    assert exports.sales_invoice(_sales(), domestic).party_country is None
+
+
+def test_eu_service_with_a_polish_counterparty_is_refused():
+    invoice = _invoice(symbol="WDT", vat_rate="-2", vat=Decimal("0"))
+    with pytest.raises(SymfoniaFormatError, match="kontrahentem z Polski"):
+        FORMAT.render(_sale_lines(invoice))
