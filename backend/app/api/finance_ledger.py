@@ -19,22 +19,35 @@ Kontrahenci (``counterparties.py``, ``counterparty_import.py``):
 
 * ``GET ?q=&role=`` — kartoteka z rolą wyliczaną z NEXUSA,
 * ``PATCH /{id}`` — konta Symfonii, ID partnera, e-mail,
-* ``POST /import?save=`` — plik z eBI24: podgląd (``save=false``) i zapis.
+* ``POST /import?save=`` — plik z eBI24 albo odesłany plik „czeka na Symfonię”:
+  podgląd (``save=false``) i zapis,
+* ``GET /pending`` — kontrahenci bez ID Symfonii (kartoteka, sprzedawcy
+  i nabywcy spoza niej) i ``GET /pending/file`` — ich plik CSV dla księgowej.
 """
 
 from datetime import date, datetime, timezone
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES
 from app.core.database import get_db
+from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
 from app.models.user import User
-from app.services.finance_ledger import costs, counterparties
+from app.services.finance_ledger import costs, counterparties, symfonia_partners
 from app.services.finance_ledger import counterparty_import as importer
 from app.services.finance_ledger import settings as module_settings
 from app.services.finance_ledger_schema import FLAGS, REASON_MAX
@@ -233,6 +246,40 @@ async def list_counterparties(
     await _open(db, current_user)
     return await counterparties.list_view(
         db, today=business_today(), q=q, role=role, limit=limit, offset=offset
+    )
+
+
+@counterparties_router.get("/pending")
+async def pending_counterparties(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Kontrahenci, którzy czekają na ID Symfonii (E0b)."""
+
+    await _open(db, current_user)
+    return await symfonia_partners.view(db, payroll=is_payroll(current_user))
+
+
+@counterparties_router.get("/pending/file")
+async def pending_counterparties_file(
+    current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> Response:
+    """CSV roboczy dla księgowej: tylko ci z poprawnym numerem i nazwą."""
+
+    await _open(db, current_user)
+    items = await symfonia_partners.pending(db, payroll=is_payroll(current_user))
+    content, count = symfonia_partners.render_csv(items)
+    if count == 0:
+        raise HTTPException(409, "Nikt nie czeka na założenie w Symfonii.")
+    name = f"kontrahenci-do-symfonii-{business_today().isoformat()}.csv"
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": content_disposition(name),
+            "X-Row-Count": str(count),
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Row-Count",
+            "Cache-Control": "no-store",
+        },
     )
 
 

@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.finance_ledger import FinanceCounterparty
 from app.models.hr_settlement import EmployeeBillingDetails
 from app.services.finance_ledger import counterparty_import as importer
-from app.services.finance_ledger import identifiers
+from app.services.finance_ledger import identifiers, symfonia_partners
 from app.services.finance_ledger_schema import LINK_COUNTERPARTIES
 from app.services.order_client_identity import normalize_buyer_number
 
@@ -204,11 +204,38 @@ async def update(
 # ── Import ───────────────────────────────────────────────────────────────────
 
 
+def _derive_accounts(
+    item: importer.ParsedRow, row: Optional[FinanceCounterparty]
+) -> None:
+    """Plik z samym ID Symfonii dostaje konta z ID i kraju (``200/201-2`` krajowi,
+    ``202/203-2`` zagraniczni), o ile ani plik, ani kartoteka ich nie mają.
+    Dekret kosztu czyta ``cost_account``, więc bez tego kontrahent założony
+    po ID zostawałby „bez konta rozrachunkowego”."""
+
+    partner = item.values.get("symfonia_partner_id")
+    if not partner or (row is not None and row.symfonia_partner_id == partner):
+        return
+    country = symfonia_partners.country_of(
+        item.id_type,
+        item.id_value,
+        item.values.get("country") or (row.country if row is not None else None),
+    )
+    accounts = symfonia_partners.derived_accounts(partner, country)
+    if accounts is None:
+        return
+    for key, value in zip(("cost_account", "revenue_account"), accounts):
+        if not item.values.get(key) and not (row is not None and getattr(row, key)):
+            item.values[key] = value
+
+
 @dataclass
 class ImportResult:
     created: int = 0
     changed: int = 0
     unchanged: int = 0
+    #: Nowi bez ID Symfonii i bez kont (plik z listy „czeka na Symfonię”
+    #: z niewypełnionym ID): nie zakładamy ich w kartotece, dalej czekają.
+    waiting: int = 0
     errors: list[dict[str, Any]] = field(default_factory=list)
     changes: list[dict[str, Any]] = field(default_factory=list)
     linked_entries: int = 0
@@ -220,6 +247,7 @@ class ImportResult:
             "created": self.created,
             "changed": self.changed,
             "unchanged": self.unchanged,
+            "waiting": self.waiting,
             "error_count": len(self.errors),
             "errors": self.errors[:ERROR_SAMPLE],
             "changes": self.changes[:ERROR_SAMPLE],
@@ -277,6 +305,15 @@ async def apply_import(
                     "message": f"ID Symfonii {symfonia} ma już inny kontrahent.",
                 }
             )
+            continue
+        _derive_accounts(item, row)
+        if (
+            row is None
+            and not symfonia
+            and not item.values.get("cost_account")
+            and not item.values.get("revenue_account")
+        ):
+            result.waiting += 1
             continue
         if row is None:
             twin = (

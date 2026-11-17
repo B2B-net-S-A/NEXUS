@@ -17,9 +17,19 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast }),
 }));
+const fetchDownload = vi.fn();
+const saveBlob = vi.fn();
+vi.mock("@/lib/authenticated-files", () => ({
+  fetchAuthenticatedDownload: (...a: unknown[]) => fetchDownload(...a),
+  downloadBlob: (...a: unknown[]) => saveBlob(...a),
+}));
 
 import { CounterpartiesTab } from "@/components/finance/ledger/CounterpartiesTab";
-import type { CounterpartyList, ImportSummary } from "@/lib/api/finance-ledger";
+import type {
+  CounterpartyList,
+  ImportSummary,
+  PendingCounterparties,
+} from "@/lib/api/finance-ledger";
 
 const LIST: CounterpartyList = {
   items: [
@@ -61,6 +71,52 @@ const PREVIEW: ImportSummary = {
   linked_entries: 0,
 };
 
+const PENDING: PendingCounterparties = {
+  items: [
+    {
+      key: "nip:5260300517",
+      name: "Nowy Dostawca Sp. z o.o.",
+      id_type: "nip",
+      id_type_label: "NIP",
+      id_value: "5260300517",
+      street: null,
+      postal_code: null,
+      city: null,
+      country: "PL",
+      sources: ["faktura kosztowa"],
+      counterparty_id: null,
+      receivable_prefix: "200-2",
+      payable_prefix: "201-2",
+      problems: [],
+      warnings: ["brak adresu"],
+      ready: true,
+    },
+    {
+      key: "nip:1234567890",
+      name: "Zły Numer SA",
+      id_type: "nip",
+      id_type_label: "NIP",
+      id_value: "1234567890",
+      street: "ul. Testowa 1",
+      postal_code: "00-001",
+      city: "Warszawa",
+      country: "PL",
+      sources: ["faktura sprzedaży"],
+      counterparty_id: null,
+      receivable_prefix: "200-2",
+      payable_prefix: "201-2",
+      problems: ["numer: NIP ma niepoprawną sumę kontrolną."],
+      warnings: [],
+      ready: false,
+    },
+  ],
+  total: 2,
+  ready: 1,
+  without_address: 1,
+  with_problems: 1,
+  registered: 2317,
+};
+
 function renderTab(canWrite = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -74,7 +130,11 @@ beforeEach(() => {
   get.mockReset();
   post.mockReset();
   showToast.mockReset();
-  get.mockResolvedValue({ data: LIST });
+  fetchDownload.mockReset();
+  saveBlob.mockReset();
+  get.mockImplementation(async (url: string) => ({
+    data: url.endsWith("/pending") ? PENDING : LIST,
+  }));
 });
 
 describe("CounterpartiesTab", () => {
@@ -108,5 +168,68 @@ describe("CounterpartiesTab", () => {
     renderTab(false);
     await screen.findByText("Jan Przykładowy IT");
     expect(screen.queryByRole("button", { name: "Edytuj konta" })).toBeNull();
+  });
+
+  it("lista „Czeka na Symfonię” pokazuje gotowych, problemy i pobiera plik", async () => {
+    fetchDownload.mockResolvedValue({ blob: new Blob(["x"]), filename: "kontrahenci-do-symfonii-2026-11-17.csv" });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByRole("tab", { name: /Czeka na Symfonię \(2\)/ }));
+
+    expect(await screen.findByText("Nowy Dostawca Sp. z o.o.")).toBeInTheDocument();
+    expect(screen.getByText("brak adresu")).toBeInTheDocument();
+    expect(screen.getByText(/numer: NIP ma niepoprawną sumę kontrolną/)).toBeInTheDocument();
+    expect(screen.getByText(/1 do poprawy — nie ma ich w pliku/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Pobierz plik dla księgowej" }));
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(1));
+    expect(fetchDownload).toHaveBeenCalledWith("/api/finance/counterparties/pending/file");
+    expect(saveBlob.mock.calls[0][1]).toBe("kontrahenci-do-symfonii-2026-11-17.csv");
+  });
+
+  it("przy pustej kartotece ostrzega, żeby najpierw wgrać plik z eBI24", async () => {
+    get.mockImplementation(async (url: string) => ({
+      data: url.endsWith("/pending") ? { ...PENDING, registered: 0 } : LIST,
+    }));
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByRole("tab", { name: /Czeka na Symfonię/ }));
+    expect(await screen.findByText(/Kartoteka nie ma jeszcze żadnego ID Symfonii/)).toBeInTheDocument();
+  });
+
+  it("pusta lista „czeka na Symfonię” to komunikat, nie błąd", async () => {
+    get.mockImplementation(async (url: string) => ({
+      data: url.endsWith("/pending")
+        ? { items: [], total: 0, ready: 0, without_address: 0, with_problems: 0, registered: 5 }
+        : LIST,
+    }));
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByRole("tab", { name: /Czeka na Symfonię/ }));
+    expect(await screen.findByText(/Nikt nie czeka na założenie w Symfonii/)).toBeInTheDocument();
+  });
+
+  it("awaria listy „czeka na Symfonię” nie wygląda jak pusta lista", async () => {
+    get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/pending")) throw new Error("boom");
+      return { data: LIST };
+    });
+    const user = userEvent.setup();
+    renderTab();
+    await user.click(await screen.findByRole("tab", { name: /Czeka na Symfonię/ }));
+    expect(await screen.findByRole("button", { name: /Spróbuj ponownie|Ponów/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Nikt nie czeka/)).toBeNull();
+  });
+
+  it("podgląd importu mówi, ilu dalej czeka bez ID Symfonii", async () => {
+    post.mockResolvedValueOnce({ data: { ...PREVIEW, waiting: 3 } });
+    const user = userEvent.setup();
+    renderTab();
+    await screen.findByText("Jan Przykładowy IT");
+    await user.upload(
+      screen.getByLabelText("Plik kontrahentów z eBI24"),
+      new File(["Nazwa;NIP\n"], "kartka.csv", { type: "text/csv" }),
+    );
+    expect(await screen.findByText(/3 dalej czeka \(bez ID Symfonii\)/)).toBeInTheDocument();
   });
 });
