@@ -3090,5 +3090,25 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "cv-editor.tenure-split"
+  },
+  {
+    "id": "profil-championa-co-sie-zmienilo",
+    "pr": 3551,
+    "title": "Co się zmieniło w Profilu Championa",
+    "why": "Gdy Delivery Lead zmieni profil rekrutacji, w której już szukasz, na górze Briefu zobaczysz, co się zmieniło i na co klient teraz kładzie nacisk. „Przeczytane” zwija kartę, a całą historię znajdziesz w zakładce „Zmiany”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.changes.seen"
   }
 ]

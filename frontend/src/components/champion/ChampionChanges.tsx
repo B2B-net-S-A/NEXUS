@@ -219,6 +219,7 @@ export function ChampionChangesCard({
             disabled={seen.isPending}
             className="rounded-lg border border-border bg-card px-2.5 py-1 text-[13px] font-medium text-foreground hover:bg-accent disabled:opacity-60"
             data-testid="champion-changes-seen"
+            data-tour="champion.changes.seen"
           >
             Przeczytane
           </button>
