@@ -83,6 +83,11 @@ class CVBrandedSelectDocument(BaseModel):
 class CVBrandedSelectStageCv(BaseModel):
     expected_revision: int = Field(ge=0)
     source_job_id: int = Field(ge=1)
+    # „Użyj tego CV z nową zgodą” (17.11.2026): zrzut zgody do TEJ rekrutacji
+    # zamiast tego, który jechałby z kopią (u PKO BP inny numer ZOB).
+    consent_screenshot_token: str | None = Field(
+        default=None, min_length=1, max_length=4096
+    )
 
 
 class CVBrandedConsentAttach(BaseModel):

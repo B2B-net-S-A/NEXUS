@@ -7204,9 +7204,16 @@ export const candidateStageCvApi = {
     sources: (stageId: number) =>
       api.get<{ items: StageCvSourceItem[] }>(`/api/candidates/stages/${stageId}/cv/branded/sources`),
     /** CV etapu z innej rekrutacji (z poprawkami rekrutera) → szkic tej. */
-    selectStageCv: (stageId: number, source_job_id: number, expected_revision: number) =>
+    selectStageCv: (
+      stageId: number,
+      source_job_id: number,
+      expected_revision: number,
+      /** Zrzut zgody do TEJ rekrutacji — zastępuje ten, który jechałby z kopią (17.11.2026). */
+      consent_screenshot_token?: string,
+    ) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-stage-cv`, {
         source_job_id, expected_revision,
+        ...(consent_screenshot_token ? { consent_screenshot_token } : {}),
       }),
     /** Plik Word z dysku → szkic (bez AI; plik nie trafia do plików kandydata). */
     uploadDocx: (stageId: number, file: File, expected_revision: number) => {
