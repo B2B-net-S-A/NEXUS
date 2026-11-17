@@ -426,6 +426,14 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
             continue
         tail = head[match.end() :]
         if _GENERIC_TENURE_TAIL_RE.fullmatch(tail):
+            if head != point:
+                # „3 lata w IT, w tym 3 lata jako Analyst”: model policzył obszar
+                # bez ról spoza niego (kelner, sklep). Suma wszystkich ról by je
+                # wliczyła; górną granicę i tak pilnuje `_apply_summary_standard`.
+                points[i] = _fix_role_subfigure(
+                    point, experience, total, figure, language
+                )
+                break
             months = total
         else:
             lead = _ROLE_TENURE_LEAD_RE.match(tail)
@@ -455,6 +463,43 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         break
 
 
+def _fix_role_subfigure(
+    point: str,
+    experience: list[dict[str, Any]],
+    total: int,
+    area_figure: float,
+    language: str,
+) -> str:
+    """Podnieś „w tym M lat jako X” do sumy dat ról X (prompt 14, 17.11.2026).
+
+    Pomiar na Solu: „Ponad 8 lat w IT, w tym ponad 1 rok jako DevOps…” przy
+    ponad 5 latach w rolach DevOps. Liczba tylko rośnie (niższa może być
+    prawdziwa), nigdy ponad całą karierę ani ponad liczbę obszaru.
+    """
+    split = _SUBFIGURE_SPLIT_RE.search(point)
+    if not split:
+        return point
+    sub = point[split.end() :]
+    match = _YEARS_PHRASE_RE.match(sub)
+    figure = _tenure_figure(match) if match else None
+    if figure is None:
+        return point
+    tail = sub[match.end() :]
+    if not _SCOPED_ROLE_CONNECTOR_RE.match(tail):
+        return point
+    scoped = _scoped_months(tail, experience, _company_keys(experience))
+    if not scoped:
+        return point
+    months = min(total, scoped, int(area_figure) * 12 + 11)
+    if months // 12 <= int(figure):
+        return point
+    return (
+        point[: split.end()]
+        + _tenure_text(months, language, at_start=False)
+        + point[split.end() + match.end() :]
+    )
+
+
 # Standard „Dlaczego nasz kandydat” (05.11.2026): 5 punktów, punkt 1 to lata.
 WHY_POINTS_STANDARD = 5
 _BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECASE)
@@ -463,10 +508,12 @@ _BELOW_FIGURE_RE = re.compile(r"niemal|prawie|blisko|nearly|almost", re.IGNORECA
 # Punkt, który ocenia dopasowanie zamiast podawać fakt. Podmiot musi być kandydatem
 # albo jego profilem: „Meeting SLA requirements” i „zgodnie z wymaganiami klientów”
 # w opisie zadania to fakty (1415 CV: 1 prawdziwe trafienie, reszta szerszego wzorca to fakty).
+# „Zgodne/zgodny z”, nie „zgodności”: od promptu 14 punkty zaczynają się od „Doświadczenie w…”,
+# a „Doświadczenie w zapewnianiu zgodności z wymaganiami DORA” to fakt (AML, compliance).
 _FIT_VERDICT_RE = re.compile(
     r"^\W*(?:(?:core|key|main)\s+)?(?:kandydat\w*|profil\w*|kompetencj\w*|umiejętnoś\w*|"
     r"doświadczeni\w*|candidate\w*|profile|skills?|competenc\w*|experience)\b.{0,25}?"
-    r"(?:spełnia\w*|odpowiada(?:ją)?\b|pasuj\w*|zgodn\w*|dopasowan\w*|"
+    r"(?:spełnia\w*|odpowiada(?:ją)?\b|pasuj\w*|zgodn[eya]\b|zgodnie\b|dopasowan\w*|"
     r"meets?\b|fulfil\w*|match(?:es)?\b|fits?\b|aligned\b).{0,25}?"
     r"(?:wymaga\w*|oczekiwa\w*|profil\w*|rol\w*|stanowisk\w*|"
     r"requirements?|expectations|role|position)",
@@ -480,7 +527,11 @@ _WHY_LABEL_RE = re.compile(r"^\s*([^:.;\d][^:.;]{0,48}?)\s*:\s+(?=\S)")
 
 
 def _drop_why_labels(points: list[Any]) -> list[Any]:
-    """Zdejmij etykietę z dwukropkiem z punktów 3–5; punkt 2 to „Specjalizacja: …”."""
+    """Zdejmij etykietę z dwukropkiem z punktów 3–5.
+
+    Punkt 2 (do 17.11.2026 „Specjalizacja: …”, od wersji 14 promptu zdanie
+    o głównych technologiach) zostaje bez zmian.
+    """
     out = list(points)
     for i in range(2, len(out)):
         point = out[i]

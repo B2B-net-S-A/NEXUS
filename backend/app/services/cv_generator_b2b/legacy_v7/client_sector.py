@@ -109,8 +109,11 @@ def apply_client_sector(
     if not sector or not entries or not points or not isinstance(points[0], str):
         return None
     first = points[0].rstrip()
-    if " w tym " in f" {first.casefold()} " or "including" in first.casefold():
-        return None
+    # Punkt 1 z własnym „w tym” („8 lat w IT, w tym 7 lat jako X”, prompt 14):
+    # branża idzie jako osobny fakt po średniku, nie drugie „w tym”.
+    has_subfigure = (
+        " w tym " in f" {first.casefold()} " or "including" in first.casefold()
+    )
 
     picked = {_clean(e.get("company")).casefold() for e in entries} - {""}
     roles = [
@@ -145,7 +148,7 @@ def apply_client_sector(
     # staż w branży dłuższy niż liczba z punktu 1 idzie jako osobny fakt.
     match = _YEARS_PHRASE_RE.search(first)
     figure = _tenure_figure(match) if match else None
-    nested = figure is not None and months // 12 <= figure
+    nested = not has_subfigure and figure is not None and months // 12 <= figure
     years = _tenure_text(months, language, at_start=False)
     if language == "en":
         lead = ", including " if nested else "; "

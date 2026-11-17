@@ -191,7 +191,8 @@ def test_frozen_v7_prompt_keeps_the_baseline_instructions():
     prompt = legacy_prompt("pl", False, "tailored")
     assert prompt.startswith("Jesteś ekspertem w analizie CV.")
     assert "Ponad N lat" in prompt
-    assert "do ~30 słów" in prompt
+    # Prompt 14 (17.11.2026): punkty 3–5 jako kompetencje, do ~35 słów.
+    assert "do ~35 słów" in prompt
     assert "<source_facts>" not in prompt
     assert legacy_prompt("en", False, "polished").startswith(
         "You are an expert in CV analysis."
