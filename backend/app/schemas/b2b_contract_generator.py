@@ -542,6 +542,10 @@ class B2BAgreementAdminDefaults(BaseModel):
     client_name: Optional[str] = None
     recruiter: Optional[B2BPlacementPerson] = None
     delivery_lead: Optional[B2BPlacementPerson] = None
+    # ``recruiter`` prowadzi, ale premii rekrutera nie dostanie nikt:
+    # ``departed`` (u klienta weryfikowała osoba, która odeszła) albo
+    # ``dl_verified`` (DL bez roli rekrutera sam zweryfikował).
+    recruiter_bonus_withheld: Optional[Literal["departed", "dl_verified"]] = None
     # Tytuł rekrutacji mówi o zastępstwie; ``replaced`` tylko przy jednym
     # pasującym kontraktorze u klienta.
     replacement_from_title: bool = False

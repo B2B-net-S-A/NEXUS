@@ -260,6 +260,92 @@ def test_ordinary_title_is_not_a_replacement() -> None:
     )
 
 
+class _FakeNames:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _FakeDb:
+    """Sesja tylko na imiona osób — reszta przychodzi z podmienionych reguł."""
+
+    def __init__(self, names: dict[int, str]):
+        self._names = names
+
+    async def execute(self, _stmt):
+        return _FakeNames(list(self._names.items()))
+
+
+async def _people_with(monkeypatch, *, verifiers, owners, closed, dl_id=7):
+    from app.services.hr.placement_bonuses import PlacementContext
+
+    context = PlacementContext(
+        jobs={20: dl_id},
+        client_leads={},
+        candidates={},
+        clients={},
+        verifiers=verifiers,
+        recruiter_roles=frozenset({5}),
+        closed_after_departure=frozenset(closed),
+    )
+
+    async def fake_load_context(_db, _contracts):
+        return context
+
+    async def fake_owner_ids(_db, _pairs):
+        return owners
+
+    monkeypatch.setattr(admin_details, "load_context", fake_load_context)
+    monkeypatch.setattr(admin_details, "owner_ids", fake_owner_ids)
+    job = type("J", (), {"id": 20, "client_id": 11})()
+    return await admin_details.placement_people(
+        _FakeDb({5: "Rekruterka", 7: "Delivery Lead"}), candidate_id=10, job=job
+    )
+
+
+async def test_owner_stays_when_the_departure_rule_withholds_the_bonus(monkeypatch):
+    """Zgłoszenie Olafa 17.11.2026: „Prowadzi” wskazywało rekruterkę, a kafelek
+    Generatora mówił „Nikt nie prowadzi”, bo osobę u tego klienta weryfikował
+    wcześniej ktoś, kto odszedł. Premii nie ma, prowadząca zostaje."""
+
+    people = await _people_with(
+        monkeypatch,
+        verifiers={(10, 20): 5},
+        owners={(10, 20): 5},
+        closed={(10, 20)},
+    )
+    assert people.recruiter is not None
+    assert people.recruiter.user_id == 5
+    assert people.recruiter.source == "pair_owner"
+    assert people.recruiter_bonus_withheld == "departed"
+    assert people.delivery_lead is not None and people.delivery_lead.user_id == 7
+
+
+async def test_dl_who_verified_alone_still_shows_as_owner(monkeypatch):
+    people = await _people_with(
+        monkeypatch, verifiers={(10, 20): 7}, owners={}, closed=set()
+    )
+    assert people.recruiter is not None and people.recruiter.user_id == 7
+    assert people.recruiter.source == "verifier"
+    assert people.recruiter_bonus_withheld == "dl_verified"
+
+
+async def test_ordinary_pair_has_the_bonus(monkeypatch):
+    people = await _people_with(
+        monkeypatch, verifiers={(10, 20): 5}, owners={}, closed=set()
+    )
+    assert people.recruiter is not None and people.recruiter.user_id == 5
+    assert people.recruiter_bonus_withheld is None
+
+
+async def test_nobody_verified_means_nobody_owns(monkeypatch):
+    people = await _people_with(monkeypatch, verifiers={}, owners={}, closed=set())
+    assert people.recruiter is None
+    assert people.recruiter_bonus_withheld is None
+
+
 # ── Ścieżka z bazą (CI) ──────────────────────────────────────────────────────
 
 
@@ -380,6 +466,74 @@ async def test_prefill_names_the_bonus_payees_and_the_replaced_person(
     assert admin["delivery_lead"]["source"] == "job"
     assert admin["replacement_from_title"] is True
     assert admin["replaced"]["contract_id"] == world["ended_id"]
+
+
+async def test_owner_after_a_departed_verifier_is_shown_and_stored(
+    app_client: AsyncClient, app_auth_headers: dict, people: dict
+):
+    """Para z „Prowadzi”, ale u klienta weryfikowała ją wcześniej osoba, która
+    odeszła: kafelek pokazuje prowadzącą, umowa zapisuje ją jako adresatkę
+    przypomnień, a premii rekrutera nie ma (decyzja Artura 06.11.2026)."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate_job_owner import CandidateJobOwner
+    from app.models.job import Job, JobStatus
+    from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+    from app.models.user import User
+    from tests.test_b2b_generator_rate_visibility import _seed_user
+
+    _h, departed_id = await _seed_user(app_client, "recruiter")
+    world = await _seed_world(verifier_id=people["recruiter_id"], dl_id=people["dl_id"])
+    async with AsyncSessionLocal() as db:
+        (await db.get(User, departed_id)).is_active = False
+        earlier = Job(
+            title=f"Wcześniejsza {world['unique']}",
+            status=JobStatus.closed,
+            client_id=world["client_id"],
+        )
+        db.add(earlier)
+        await db.flush()
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=world["candidate_id"],
+                    job_id=earlier.id,
+                    stage=PipelineStage.verified,
+                    moved_by=departed_id,
+                    moved_at=datetime.now(timezone.utc) - timedelta(days=60),
+                ),
+                CandidateJobOwner(
+                    candidate_id=world["candidate_id"],
+                    job_id=world["job_id"],
+                    owner_user_id=people["recruiter_id"],
+                    reason="Test przypisania osoby prowadzącej",
+                ),
+            ]
+        )
+        await db.commit()
+
+    resp = await app_client.get(
+        "/api/b2b-generator/prefill",
+        params={"candidate_id": world["candidate_id"], "job_id": world["job_id"]},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    admin = resp.json()["admin"]
+    assert admin["recruiter"]["user_id"] == people["recruiter_id"]
+    assert admin["recruiter"]["source"] == "pair_owner"
+    assert admin["recruiter_bonus_withheld"] == "departed"
+
+    render = await app_client.post(
+        "/api/b2b-generator/render?format=docx",
+        json=_render_body(world, is_replacement=False, fte="1"),
+        headers=app_auth_headers,
+    )
+    assert render.status_code == 200, render.text
+    async with AsyncSessionLocal() as db:
+        row = await db.get(
+            B2BGeneratedContract, int(render.headers["x-generated-contract-id"])
+        )
+        assert row.recruiter_user_id == people["recruiter_id"]
 
 
 async def test_replacement_options_put_people_who_left_first(

@@ -88,10 +88,18 @@ class PlacementPerson:
     source_label: str
 
 
+#: Dlaczego prowadzący nie dostanie premii rekrutera (reguły ``PlacementContext.people``).
+RECRUITER_BONUS_WITHHELD_DEPARTED = "departed"
+RECRUITER_BONUS_WITHHELD_DL = "dl_verified"
+
+
 @dataclass(frozen=True)
 class PlacementPeople:
+    #: Osoba prowadząca: „Prowadzi”, bez przypisania pierwszy weryfikujący.
     recruiter: Optional[PlacementPerson]
     delivery_lead: Optional[PlacementPerson]
+    #: Prowadzący jest, ale premii rekrutera nie dostanie nikt — powód albo None.
+    recruiter_bonus_withheld: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -116,21 +124,31 @@ class ReplacementSuggestion:
 async def placement_people(
     db: AsyncSession, *, candidate_id: int, job: Job
 ) -> PlacementPeople:
-    """Kto dostanie placement i premie za parę — przed powstaniem kontraktu.
+    """Kto prowadzi parę i kto dostanie premie — przed powstaniem kontraktu.
 
     Reguła żyje w ``placement_bonuses``; tu podajemy jej kontrakt-szkic
     (niezapisany), bo czyta z niego tylko kandydata, rekrutację i klienta.
+    Rekruter to zawsze prowadzący (przypomnienia o podpisie, dzwonek), także
+    gdy reguła premii nie daje mu premii (zgłoszenie Olafa 17.11.2026: osoba
+    weryfikowana u klienta przez kogoś, kto odszedł, i kafelek mówił „Nikt
+    nie prowadzi”, choć „Prowadzi” wskazywało rekruterkę). Brak premii idzie
+    osobno w ``recruiter_bonus_withheld``.
     """
 
     probe = Contract(candidate_id=candidate_id, job_id=job.id, client_id=job.client_id)
     context = await load_context(db, [probe])
-    dl_id, recruiter_id, dl_source = context.people(probe)
-    owners = await owner_ids(db, [(candidate_id, job.id)])
-    recruiter_source = (
-        "pair_owner"
-        if owners.get((candidate_id, job.id)) == recruiter_id
-        else "verifier"
-    )
+    pair = (candidate_id, job.id)
+    dl_id, payee_id, dl_source = context.people(probe)
+    recruiter_id = context.verifiers.get(pair)
+    withheld: Optional[str] = None
+    if recruiter_id is not None and payee_id is None:
+        withheld = (
+            RECRUITER_BONUS_WITHHELD_DEPARTED
+            if pair in context.closed_after_departure
+            else RECRUITER_BONUS_WITHHELD_DL
+        )
+    owners = await owner_ids(db, [pair])
+    recruiter_source = "pair_owner" if owners.get(pair) == recruiter_id else "verifier"
     wanted = [uid for uid in (recruiter_id, dl_id) if uid is not None]
     names: dict[int, str] = {}
     if wanted:
@@ -150,6 +168,7 @@ async def placement_people(
     return PlacementPeople(
         recruiter=person(recruiter_id, recruiter_source, RECRUITER_SOURCE_LABELS),
         delivery_lead=person(dl_id, dl_source, DL_SOURCE_LABELS),
+        recruiter_bonus_withheld=withheld,
     )
 
 
@@ -455,6 +474,7 @@ async def admin_defaults(db: AsyncSession, *, candidate_id: int, job: Job) -> di
         "client_name": (client.display_name or client.name) if client else None,
         "recruiter": _person_payload(people.recruiter),
         "delivery_lead": _person_payload(people.delivery_lead),
+        "recruiter_bonus_withheld": people.recruiter_bonus_withheld,
         "replacement_from_title": suggestion.from_title,
         "replaced": (
             replaceable_payload(suggestion.contract) if suggestion.contract else None

@@ -3727,8 +3727,15 @@ export interface B2BAgreementAdminDefaults {
   /** Klient rekrutacji — „Replacement za kogo” zaczyna od jego kontraktorów. */
   client_id: number | null;
   client_name: string | null;
+  /** Osoba prowadząca („Prowadzi”, bez przypisania pierwszy weryfikujący). */
   recruiter: B2BPlacementPerson | null;
   delivery_lead: B2BPlacementPerson | null;
+  /**
+   * Prowadzący jest, ale premii rekrutera nie dostanie nikt: `departed` —
+   * u klienta weryfikowała wcześniej osoba, która odeszła; `dl_verified` —
+   * zweryfikował DL bez roli rekrutera. Brak pola = premia jest.
+   */
+  recruiter_bonus_withheld?: "departed" | "dl_verified" | null;
   /** Tytuł rekrutacji mówi o zastępstwie. */
   replacement_from_title: boolean;
   /** Jedyny pasujący kontraktor u klienta — inaczej null. */
