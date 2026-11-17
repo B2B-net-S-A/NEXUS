@@ -245,7 +245,10 @@ async def test_start_run_stores_request_and_requester(monkeypatch) -> None:
             requested_by_user_id=user.id,
         )
         run_id = run.id
-    assert seen[0]["request"] == {"limit": 2} and seen[0]["task"] == "limit 2"
+    assert seen[0]["request"] == {"limit": 2}
+    task, _, delivery = seen[0]["task"].partition("\n\n")
+    assert task == "limit 2"
+    assert "callback_url" in delivery and "X-Run-Token" in delivery
     assert (seen[0]["rejected"], seen[0]["seen_urls"]) == ([], [])
     async with AsyncSessionLocal() as db:
         stored = await db.get(SalesSignalRun, run_id)
