@@ -912,6 +912,111 @@ async def test_chart_parent_and_rule_guard(client, world):
     assert renamed.status_code == 200
 
 
+def _symfonia_chart(syntet: int) -> bytes:
+    """Sfabrykowany „Model księgowy”: konto, jego analityka i słownik kontrahentów."""
+
+    def node(*segments, name, typ=1):
+        padded = list(segments) + [(0, 0)] * (5 - len(segments))
+        attrs = " ".join(
+            f'typ{i}="{k}" wart{i}="{v}"' for i, (k, v) in enumerate(padded, start=1)
+        )
+        return f'<plankont syntet="{syntet}" {attrs} nazwa="{name}" typ="{typ}"/>'
+
+    body = "".join(
+        [
+            node(name="Rozrachunki testowe"),
+            node((-1, 1), name="Odbiorcy testowi"),
+            node((-1, 1), (2, 0), name="Kontrahenci"),
+            node((-1, 2), name="Koszty testowe", typ=2),
+            f'<znacznik konto="{syntet}-2" znacznikJpk1="RPBIII" '
+            'znacznikJpk2="" znacznikJpkPd=""/>',
+        ]
+    )
+    return f"<DokumentXML>{body}</DokumentXML>".encode()
+
+
+async def test_chart_import_adds_missing_accounts_and_keeps_existing(client, world):
+    syntet = random.randint(60_000, 69_999)
+    existing_number = f"{syntet}-2"
+    async with AsyncSessionLocal() as db:
+        db.add(
+            FinanceAccount(number=existing_number, name="Nazwa księgowej", kind="cost")
+        )
+        await db.commit()
+    try:
+        content = _symfonia_chart(syntet)
+        files = {"file": ("model.xml", content, "application/xml")}
+        accountant = _headers(world["accountant"])
+        refused = await client.post(
+            f"{ACC}/chart/import", files=files, headers=_headers(world["finance"])
+        )
+        assert refused.status_code == 403
+
+        preview = await client.post(
+            f"{ACC}/chart/import", files=files, headers=accountant
+        )
+        assert preview.status_code == 200, preview.text
+        body = preview.json()
+        assert (body["saved"], body["created"], body["existing"]) == (False, 2, 1)
+        assert body["dictionaries"] == 1 and body["markers"] == 1
+        async with AsyncSessionLocal() as db:
+            assert (
+                await db.scalar(
+                    select(func.count())
+                    .select_from(FinanceAccount)
+                    .where(FinanceAccount.number.like(f"{syntet}%"))
+                )
+                == 1
+            )
+
+        saved = await client.post(
+            f"{ACC}/chart/import",
+            params={"save": True},
+            files=files,
+            headers=accountant,
+        )
+        assert saved.status_code == 200, saved.text
+        assert saved.json()["saved"] is True
+        async with AsyncSessionLocal() as db:
+            rows = {
+                row.number: row
+                for row in await db.scalars(
+                    select(FinanceAccount).where(
+                        FinanceAccount.number.like(f"{syntet}%")
+                    )
+                )
+            }
+        assert set(rows) == {str(syntet), f"{syntet}-1", existing_number}
+        assert rows[f"{syntet}-1"].parent_number == str(syntet)
+        assert rows[f"{syntet}-1"].dictionary == "counterparty"
+        assert rows[f"{syntet}-1"].account_type == "active"
+        # Istniejące konto: nazwa i rodzaj bez zmian, puste pola uzupełnione.
+        assert rows[existing_number].name == "Nazwa księgowej"
+        assert rows[existing_number].kind == "cost"
+        assert rows[existing_number].account_type == "result"
+        assert rows[existing_number].report_line == "RPBIII"
+
+        again = await client.post(
+            f"{ACC}/chart/import",
+            params={"save": True},
+            files=files,
+            headers=accountant,
+        )
+        assert again.json()["created"] == 0
+        bad = await client.post(
+            f"{ACC}/chart/import",
+            files={"file": ("x.xml", b"to nie xml", "application/xml")},
+            headers=accountant,
+        )
+        assert bad.status_code == 422
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FinanceAccount).where(FinanceAccount.number.like(f"{syntet}%"))
+            )
+            await db.commit()
+
+
 async def test_year_creation_and_mode_rights(client, world):
     target = world["year"] - 1
     refused = await client.post(

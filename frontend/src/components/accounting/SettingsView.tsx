@@ -532,15 +532,18 @@ function OpeningImportCard() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<OpeningPreview | null>(null);
   const [saving, setSaving] = useState(false);
+  const [basis, setBasis] = useState("bo");
+  const [bothBases, setBothBases] = useState(false);
 
   const send = (save: boolean) => {
     if (!file) return;
     setSaving(save);
     run.mutate(
-      { file, year, save },
+      { file, year, save, basis: bothBases ? basis : undefined },
       {
         onSuccess: (data) => {
           setResult(data);
+          setBothBases(data.both_bases === true);
           if (data.saved) showToast(`Zapisano bilans otwarcia ${year} w buforze.`);
         },
         onError: (error) => showToast(apiErrorMessage(error, "Nie udało się wczytać pliku."), "error"),
@@ -552,9 +555,11 @@ function OpeningImportCard() {
     <SectionCard title="Bilans otwarcia z Symfonii" aside="zestawienie sald → dokument BO w buforze">
       <div className="space-y-3 px-3.5 py-3 text-[13px]">
         <p className="text-muted-foreground">
-          Plik XLSX albo CSV z kolumną „Konto” i saldem: „BO Wn/Ma”, „Saldo Wn/Ma” albo „Wn/Ma”. Konta muszą być
-          w Planie kont; analityka kontrahentów dostaje kontrahenta po ID Symfonii. Najpierw sprawdzenie, potem zapis —
-          jeden BO na rok, ponowny import przebudowuje szkic.
+          Plik XLSX albo CSV z kolumną „Konto” i saldem: „BO Wn/Ma”, „Saldo Wn/Ma” albo „Wn/Ma”. Zestawienie obrotów
+          i sald z Symfonii (ZOiS) może mieć obie pary kolumn — rok otwierają wtedy kolumny BO, a wiersze syntetyczne
+          z analityką pod spodem są pomijane. Konta muszą być w Planie kont (plan wczytasz z XML Symfonii); analityka
+          kontrahentów dostaje kontrahenta po ID Symfonii. Najpierw sprawdzenie, potem zapis — jeden BO na rok, ponowny
+          import przebudowuje szkic.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -580,9 +585,24 @@ function OpeningImportCard() {
             className="max-w-[260px] text-[12px]"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
+              setBothBases(false);
               setResult(null);
             }}
           />
+          {bothBases ? (
+            <select
+              aria-label="Kolumny salda z pliku"
+              className={CONTROL}
+              value={basis}
+              onChange={(e) => {
+                setBasis(e.target.value);
+                setResult(null);
+              }}
+            >
+              <option value="bo">Bilans otwarcia (BO Wn/Ma)</option>
+              <option value="saldo">Saldo końcowe (Saldo Wn/Ma)</option>
+            </select>
+          ) : null}
           <Button size="sm" variant="outline" disabled={!file || !years.length} loading={run.isPending && !saving} onClick={() => send(false)}>
             Sprawdź plik
           </Button>
@@ -610,6 +630,7 @@ function OpeningSummary({ result }: { result: OpeningPreview }) {
           {result.balanced ? "Wn = Ma" : "Wn ≠ Ma"}
         </span>
         {result.counterparties_matched ? ` · kontrahenci rozpoznani: ${result.counterparties_matched}` : ""}
+        {result.synthetic_skipped ? ` · pominięto wiersze syntetyczne: ${result.synthetic_skipped} (kwoty niosą konta analityczne)` : ""}
       </p>
       {result.problems.length ? (
         <ul className="space-y-1">
