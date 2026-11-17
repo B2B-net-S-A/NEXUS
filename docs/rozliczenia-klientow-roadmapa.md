@@ -582,7 +582,7 @@ weryfikację techniczną, szkolenie albo delegację. Reguła:
 `docs/claude/finanse-insights/dodatki-do-rozliczenia-kontraktora.md`.
 
 - Dane: `client_settlement_extras` i `client_settlement_extra_documents`
-  (tabela z 0691, kolumny i dokumenty z 0732, lustro w `entrypoint.sh` przez `hr_schema_bundle`). Koszty
+  (tabela z 0691, kolumny i dokumenty z 0733, lustro w `entrypoint.sh` przez `hr_schema_bundle`). Koszty
   integracji BNP (`cl.integration_costs`) to ten sam model, rodzaj `integration`.
 - Zgłoszenie: z karty sprawy w back office (kto, okres, kwota), przez Finanse na
   karcie osoby, przez konsultanta w panelu (delegacja z dokumentami). Zgłoszony
