@@ -1,5 +1,17 @@
 [
   {
+    "id": "sprzedaz-dzwonienie-juz-dzwoniono",
+    "pr": 3539,
+    "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",
+    "why": "Numer, pod który już dzwoniono, dostaje przy imporcie „Już dzwoniono” z datą i wynikiem i nie wraca do kolejki. Listę z oznaczeniami pobierzesz do Excela.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Importuj listę",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.import"
+  },
+  {
     "id": "aneks-inna-zmiana",
     "pr": 3505,
     "title": "Generator aneksów: aneks z własną nazwą",
