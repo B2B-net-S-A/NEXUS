@@ -693,9 +693,7 @@ export function ContractAmendmentsTab({
                       </td>
                       <td className="py-2.5 pr-3">
                         {a.withdrawn ? (
-                          <StatusDot tone="neutral" note="wypowiedzenie wycofane">
-                            Wycofany
-                          </StatusDot>
+                          <StatusDot tone="neutral">Wycofany</StatusDot>
                         ) : (
                           <StatusDot
                             tone={state.tone}
@@ -883,7 +881,7 @@ function AmendmentValues({
   const rows = amendmentChangeRows(old, next);
   if (rows.length === 0) return null;
   return (
-    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+    <dl className="mt-2 grid grid-cols-[minmax(0,max-content)_minmax(7.5rem,1fr)] gap-x-3 gap-y-0.5 text-xs">
       {rows.map((row) => (
         <div key={row.key} className="contents">
           <dt className="text-muted-foreground">{row.label}</dt>
