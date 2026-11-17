@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Iterable, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -105,6 +105,9 @@ class AnalyzeReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     changes: list[ChangeReport] = Field(default_factory=list, max_length=MAX_CHANGES)
+    reviewed_item_ids: Optional[list[StrictInt]] = Field(
+        default=None, max_length=MAX_REQUEST_ITEMS
+    )
 
 
 # ── Zlecenie ────────────────────────────────────────────────────────────
@@ -330,6 +333,16 @@ def _request_ids(run: LawRadarRun) -> tuple[set[int], set[int]]:
     return items, changes
 
 
+def report_covers_request(run: LawRadarRun, report: AnalyzeReport) -> bool:
+    """Analityk potwierdza każdą pozycję, również przejrzaną bez nowej zmiany."""
+
+    reviewed = report.reviewed_item_ids
+    if reviewed is None:
+        return False
+    expected, _ = _request_ids(run)
+    return len(reviewed) == len(expected) and set(reviewed) == expected
+
+
 async def ingest(
     db: AsyncSession, run: LawRadarRun, report: AnalyzeReport, *, now: datetime
 ) -> dict[str, Any]:
@@ -440,6 +453,8 @@ async def ingest(
         },
         "change_ids": touched,
     }
+    if report.reviewed_item_ids is not None:
+        summary["items_reviewed"] = len(report.reviewed_item_ids)
     mark_received(run, summary, now)
     logger.info(
         "law_radar run=%s analyze received changes=%d created=%d updated=%d stage=%d "
