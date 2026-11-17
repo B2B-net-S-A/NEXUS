@@ -50,7 +50,13 @@ from app.services.candidate_audit import PROFILE_RATE_CHANGED
 
 #: Źródła zapisu profilu, które znaczą „to jest minimum kandydata”.
 MINIMUM_SOURCES = frozenset(
-    {"trainee_call", "manual_minimum", "stage_minimum", "rejection_minimum"}
+    {
+        "trainee_call",
+        "manual_minimum",
+        "stage_minimum",
+        "rejection_minimum",
+        "candidate_terms",
+    }
 )
 #: Zapisy profilu z odrzucenia „za drogo” — niosą rekrutację (26.10.2026).
 REJECTION_SOURCES = frozenset({"rejection", "rejection_minimum"})

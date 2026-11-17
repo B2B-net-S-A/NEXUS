@@ -325,6 +325,32 @@ def send_via_graph_app(
     text_body: str,
     html_body: Optional[str] = None,
     reply_to: Optional[str] = None,
+    sender_upn: Optional[str] = None,
+) -> bool:
+    """Wysyłka app-only. ``sender_upn`` = inna skrzynka niż zespołowa (maile do
+    kandydatów, 17.11.2026); ma własny stan bezpiecznika (``sender_scope``).
+    Ta sama rejestracja aplikacji musi mieć do niej ``Mail.Send`` w Exchange RBAC.
+    """
+    sender = sender_upn or settings.M365_MAIL_SENDER_UPN
+    with mail_circuit.sender_scope(sender_upn):
+        return _send_via_graph_app(
+            to=to,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            reply_to=reply_to,
+            sender=sender,
+        )
+
+
+def _send_via_graph_app(
+    *,
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: Optional[str],
+    reply_to: Optional[str],
+    sender: str,
 ) -> bool:
     """True means Graph accepted, not delivered. No raw Graph text is logged.
 
@@ -361,7 +387,7 @@ def send_via_graph_app(
     }
     if reply_to:
         payload["message"]["replyTo"] = [{"emailAddress": {"address": reply_to}}]
-    url = f"{_GRAPH_BASE}/users/{settings.M365_MAIL_SENDER_UPN}/sendMail"
+    url = f"{_GRAPH_BASE}/users/{sender}/sendMail"
     posted = False
     try:
         token = _acquire_token()

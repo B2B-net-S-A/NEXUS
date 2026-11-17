@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Sequence
+from typing import Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -274,13 +274,17 @@ async def update_candidate_profile_rate(
     candidate_id: int,
     amount: Decimal | None,
     expected_version: int,
-    actor_id: int,
+    actor_id: Optional[int],
     meaning: str = "expectation",
+    source: Optional[str] = None,
 ) -> Candidate:
     """Zapis stawki profilu przez człowieka.
 
     ``meaning="minimum"`` (0414): „to jego minimum” — starsze, niższe stawki
     przestają się liczyć do „Stawki od” (`candidate_rate_from`).
+    ``source`` (17.11.2026): ``candidate_terms`` = kandydat sam podał minimum
+    formularzem z maila (``actor_id`` = ``None``); historia stawek pokazuje to
+    jako „Od kandydata”, nie jako wpis ręczny.
     """
     candidate = await get_candidate_profile_rate(
         db,
@@ -294,7 +298,9 @@ async def update_candidate_profile_rate(
 
     is_minimum = meaning == "minimum" and amount is not None
     details = write_profile_rate(
-        candidate, amount, source="manual_minimum" if is_minimum else "manual"
+        candidate,
+        amount,
+        source=source or ("manual_minimum" if is_minimum else "manual"),
     )
     if is_minimum:
         details["rate_meaning"] = "minimum"

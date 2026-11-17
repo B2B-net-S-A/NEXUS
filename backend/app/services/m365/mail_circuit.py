@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from contextlib import contextmanager
 from functools import lru_cache
-from typing import Callable
+from typing import Callable, Iterator, Optional
 from uuid import uuid4
 
 from sqlalchemy import create_engine, text
@@ -19,12 +21,36 @@ from sqlalchemy.engine import make_url
 from app.core.config import settings
 
 
+_local = threading.local()
+
+
+def current_sender() -> str:
+    """Nadawca bieżącej wysyłki: zakres z :func:`sender_scope` albo zespołowy."""
+    return (getattr(_local, "sender", None) or settings.M365_MAIL_SENDER_UPN).lower()
+
+
+@contextmanager
+def sender_scope(sender_upn: Optional[str]) -> Iterator[None]:
+    """Wysyłka z innej skrzynki (maile do kandydatów, 17.11.2026) ma własny stan.
+
+    Bez tego zła konfiguracja ``kariera@`` otwierałaby bezpiecznik skrzynki
+    zespołowej i wstrzymywała powiadomienia zespołu. Zakres jest per wątek,
+    bo wysyłka Graph jest synchroniczna w jednym wątku.
+    """
+    previous = getattr(_local, "sender", None)
+    _local.sender = sender_upn or None
+    try:
+        yield
+    finally:
+        _local.sender = previous
+
+
 def circuit_key() -> str:
     scope = "|".join(
         (
             settings.M365_MAIL_TENANT_ID or settings.M365_TENANT_ID,
             settings.M365_APP_MAIL_CLIENT_ID or settings.M365_CLIENT_ID,
-            settings.M365_MAIL_SENDER_UPN.lower(),
+            current_sender(),
         )
     )
     return hashlib.sha256(scope.encode()).hexdigest()

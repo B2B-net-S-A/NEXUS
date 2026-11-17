@@ -1250,6 +1250,16 @@ class Settings(BaseSettings):
     # UPN/adres skrzynki, z której wychodzą maile systemowe
     # (prod: "nexus-powiadomienia@b2bnetwork.pl").
     M365_MAIL_SENDER_UPN: str = ""
+    # Skrzynka maili do kandydatów (podziękowanie i prośba o warunki, decyzja
+    # Artura 17.11.2026: osobny adres `kariera@b2bnetwork.pl`). Puste = maile
+    # do kandydatów nie wychodzą przez Graph (nadawca zespołowy nie pisze do
+    # kandydatów). Na stagingu SMTP → Mailpit, więc ta zmienna nie jest potrzebna.
+    CANDIDATE_MAIL_SENDER_UPN: str = ""
+    # Pętla wysyłki próśb o warunki (`tasks/candidate_terms_sender.py`) i jej
+    # dzienny limit. Mail i tak przechodzi przez politykę z Ustawień
+    # (rodzaj `candidate_terms`, domyślnie wyłączony).
+    CANDIDATE_TERMS_ENABLED: bool = True
+    CANDIDATE_TERMS_DAILY_LIMIT: int = 400
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
     M365_MAIL_TENANT_ID: str = ""

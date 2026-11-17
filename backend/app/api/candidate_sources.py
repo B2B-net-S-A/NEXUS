@@ -126,6 +126,18 @@ async def add_candidate_source(
         captured_at=payload.captured_at or datetime.now(timezone.utc),
     )
     db.add(row)
+    # 17.11.2026: aplikacja z ogłoszenia (np. import Pracuj.pl) → podziękowanie
+    # i prośba o warunki w kolejce; decyzja, co wysłać, zapada przy wysyłce.
+    from app.services.candidate_terms_queue import enqueue_from_source
+
+    await enqueue_from_source(
+        db,
+        candidate_id=candidate_id,
+        channel=payload.channel,
+        job_id=payload.job_id,
+        utm_source=payload.utm_source,
+        captured_at=row.captured_at,
+    )
     await db.commit()
     await db.refresh(row)
     return _serialize(row)
