@@ -80,10 +80,20 @@ z automatem (39 ze 110 wierszy zgodnych). Kod: `services/hr/double_bonus.py`,
 
 ## Domknięcie po rekruterze, który odszedł (06.11.2026)
 
-- Gdy osobę u tego klienta zweryfikował wcześniej rekruter z wyłączonym kontem,
+- Gdy osobę **w tej rekrutacji** zweryfikował wcześniej rekruter z wyłączonym kontem,
   premii rekrutera nie dostaje nikt, także rekruter, który ją domknął (przypadek
   z arkusza października, potwierdzone przez Płace i Artura). Taki placement nie liczy się rekruterowi
   do celu 200%. DL dostaje swoją premię DL.
+- **Liczy się rekrutacja kontraktu, nie klient** (doprecyzowanie Artura 17.11.2026).
+  Rekruter, który zweryfikował osobę pod tę rekrutację, dostaje premię, nawet gdy
+  u tego klienta w innej rekrutacji weryfikował ją wcześniej ktoś, kto odszedł.
+  Arkusz października tak płacił (6 premii przyznanych), a reguła z #3094 patrzyła
+  na cały klient i odebrała premię m.in. rekruterce, która sama zweryfikowała
+  kandydatkę pod nową rekrutację. Zakres klienta zostaje tylko dla DL-a z rolą
+  rekrutera, który sam zweryfikował (decyzja 02.11.2026, przypadek Błaszczyk,
+  utrzymana 17.11.2026): wtedy tylko premia DL
+  (`PlacementContext.closed_after_departure` = ta rekrutacja,
+  `departed_at_client` = cały klient, tylko dla DL-a).
 
 ## Kandydat wskazany przez klienta (06.11.2026)
 

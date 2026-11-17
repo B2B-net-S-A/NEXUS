@@ -471,13 +471,12 @@ async def test_prefill_names_the_bonus_payees_and_the_replaced_person(
 async def test_owner_after_a_departed_verifier_is_shown_and_stored(
     app_client: AsyncClient, app_auth_headers: dict, people: dict
 ):
-    """Para z „Prowadzi”, ale u klienta weryfikowała ją wcześniej osoba, która
-    odeszła: kafelek pokazuje prowadzącą, umowa zapisuje ją jako adresatkę
+    """Para z „Prowadzi”, ale w tej rekrutacji weryfikowała ją wcześniej osoba,
+    która odeszła: kafelek pokazuje prowadzącą, umowa zapisuje ją jako adresatkę
     przypomnień, a premii rekrutera nie ma (decyzja Artura 06.11.2026)."""
 
     from app.core.database import AsyncSessionLocal
     from app.models.candidate_job_owner import CandidateJobOwner
-    from app.models.job import Job, JobStatus
     from app.models.recruitment_pipeline import CandidateStage, PipelineStage
     from app.models.user import User
     from tests.test_b2b_generator_rate_visibility import _seed_user
@@ -486,18 +485,11 @@ async def test_owner_after_a_departed_verifier_is_shown_and_stored(
     world = await _seed_world(verifier_id=people["recruiter_id"], dl_id=people["dl_id"])
     async with AsyncSessionLocal() as db:
         (await db.get(User, departed_id)).is_active = False
-        earlier = Job(
-            title=f"Wcześniejsza {world['unique']}",
-            status=JobStatus.closed,
-            client_id=world["client_id"],
-        )
-        db.add(earlier)
-        await db.flush()
         db.add_all(
             [
                 CandidateStage(
                     candidate_id=world["candidate_id"],
-                    job_id=earlier.id,
+                    job_id=world["job_id"],
                     stage=PipelineStage.verified,
                     moved_by=departed_id,
                     moved_at=datetime.now(timezone.utc) - timedelta(days=60),

@@ -294,16 +294,74 @@ async def _verified_earlier_by_departed(world: dict) -> None:
         await db.commit()
 
 
+async def _verified_in_this_job_by_departed(world: dict) -> None:
+    """W tej rekrutacji osobę zweryfikował rekruter, który odszedł, a „Prowadzi”
+    przypisano potem rekruterowi, który ją domknął (przypadek z arkusza października)."""
+
+    from app.models.candidate_job_owner import CandidateJobOwner
+
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, world["contract"])
+        departed = User(
+            email=f"odszedl-tu-{world['contract']}@example.com",
+            name="Osoba Odeszła",
+            role=UserRole.recruiter,
+            roles=["recruiter"],
+            is_active=False,
+        )
+        db.add(departed)
+        await db.flush()
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=contract.candidate_id,
+                    job_id=contract.job_id,
+                    stage=PipelineStage.verified,
+                    moved_by=departed.id,
+                    moved_at=datetime(
+                        2026, 1, 5, 9, 0, tzinfo=ZoneInfo("Europe/Warsaw")
+                    ),
+                ),
+                CandidateJobOwner(
+                    candidate_id=contract.candidate_id,
+                    job_id=contract.job_id,
+                    owner_user_id=world["recruiter"],
+                    reason="Odejście z firmy — domyka rekruterka",
+                ),
+            ]
+        )
+        await db.commit()
+
+
 @pytest.mark.asyncio
 async def test_recruiter_closing_after_departed_recruiter_gets_no_bonus() -> None:
-    """Domknięcie po osobie, która odeszła = bez premii rekrutera (06.11.2026)."""
+    """Domknięcie po osobie, która odeszła, w tej rekrutacji = bez premii rekrutera
+    (06.11.2026)."""
+
+    world = await _placement(started_days_ago=40)
+    await _verified_in_this_job_by_departed(world)
+    await _reconcile(world["contract"])
+
+    found = await _bonuses(world["contract"])
+    assert "recruiter" not in found
+    assert found["dl"].status == "proposed"
+
+
+@pytest.mark.asyncio
+async def test_verifying_for_this_job_keeps_the_bonus_after_a_departed_elsewhere() -> (
+    None
+):
+    """Zweryfikowała osobę pod tę rekrutację, a wcześniej u tego klienta, w innej
+    rekrutacji, weryfikował ją ktoś, kto odszedł: premia rekrutera jest jej
+    (doprecyzowanie Artura 17.11.2026, arkusz października tak płacił)."""
 
     world = await _placement(started_days_ago=40)
     await _verified_earlier_by_departed(world)
     await _reconcile(world["contract"])
 
     found = await _bonuses(world["contract"])
-    assert "recruiter" not in found
+    assert found["recruiter"].recipient_user_id == world["recruiter"]
+    assert found["recruiter"].status == "proposed"
     assert found["dl"].status == "proposed"
 
 

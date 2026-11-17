@@ -264,6 +264,45 @@ def test_dl_with_recruiter_role_who_verified_gets_both_bonuses() -> None:
     assert context.people(_placement_contract()) == (7, 7, "job")
 
 
+def test_departed_verifier_elsewhere_at_the_client_keeps_recruiter_bonus() -> None:
+    # Doprecyzowanie Artura 17.11.2026: liczy się weryfikacja pod rekrutację
+    # kontraktu. Ktoś, kto odszedł, weryfikował tę osobę u klienta w innej
+    # rekrutacji — rekruterka, która zweryfikowała ją pod tę, dostaje premię.
+    context = _context(
+        jobs={10: 7},
+        verifiers={(1, 10): 42},
+        recruiter_roles=frozenset({42}),
+        departed_at_client=frozenset({(1, 10)}),
+    )
+    assert context.people(_placement_contract()) == (7, 42, "job")
+
+
+def test_departed_verifier_in_this_recruitment_takes_the_recruiter_bonus() -> None:
+    # Decyzja Artura 06.11.2026: domknięcie po osobie, która odeszła, w tej
+    # rekrutacji — premii rekrutera nie dostaje nikt.
+    context = _context(
+        jobs={10: 7},
+        verifiers={(1, 10): 42},
+        recruiter_roles=frozenset({42}),
+        closed_after_departure=frozenset({(1, 10)}),
+        departed_at_client=frozenset({(1, 10)}),
+    )
+    assert context.people(_placement_contract()) == (7, None, "job")
+
+
+def test_dl_with_recruiter_role_after_departed_at_the_client_gets_only_dl() -> None:
+    # Decyzja Artura 02.11.2026 (Błaszczyk), utrzymana 17.11.2026: DL z rolą
+    # rekrutera, który sam zweryfikował osobę po kimś, kto odszedł u tego
+    # klienta, także w innej rekrutacji — tylko premia DL.
+    context = _context(
+        jobs={10: 7},
+        verifiers={(1, 10): 7},
+        recruiter_roles=frozenset({7}),
+        departed_at_client=frozenset({(1, 10)}),
+    )
+    assert context.people(_placement_contract()) == (7, None, "job")
+
+
 def test_recruiter_role_of_someone_else_does_not_restore_dl_bonus() -> None:
     # Rola rekrutera liczy się u weryfikującego DL-a, nie u kogokolwiek.
     context = _context(
