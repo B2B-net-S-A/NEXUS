@@ -342,6 +342,11 @@ def _document(lines: list[ExportLine]) -> list[str]:
     head = lines[0]
     invoice = head.invoice
     if invoice is None:
+        if head.reverses:
+            raise SymfoniaFormatError(
+                f"storno dokumentu {head.reverses} — szablon 4 nie ma storna, "
+                "w Symfonii skoryguj albo usuń dokument ręcznie"
+            )
         raise SymfoniaFormatError(
             head.invoice_problem or "to nie faktura — szablon 4 przyjmuje tylko faktury"
         )
@@ -381,7 +386,8 @@ def _document(lines: list[ExportLine]) -> list[str]:
             _field("DataKor", _day(invoice.issue_date)),
             _field("DataObcyKor", _day(invoice.issue_date)),
         ]
-    to_pay = Decimal(0) if kind.correction else abs(invoice.gross)
+    # Próbka: korekta in minus ma do zapłaty 0,00; korekta in plus — dopłatę.
+    to_pay = Decimal(0) if invoice.negative else abs(invoice.gross)
     out += [
         _field("dozaplaty", _amount(to_pay)),
         _field("wdozaplaty", _amount(to_pay)),
@@ -401,6 +407,8 @@ def _document(lines: list[ExportLine]) -> list[str]:
         _field("dataSprzedazy", _day(invoice.sale_date)),
     ]
     country, country_name = _country(invoice)
+    if kind.eu_services and country == "PL":
+        raise SymfoniaFormatError("usługa dla UE z kontrahentem z Polski")
     out += [
         _field("kodKH", ""),
         _field("khid", ""),

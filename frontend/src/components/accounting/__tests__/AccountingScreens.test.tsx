@@ -895,6 +895,7 @@ function exportsMonth(overrides: Partial<ExportsOverview> = {}): ExportsOverview
     formats: [
       { key: "neutral_xlsx", label: "Arkusz XLSX (format neutralny)" },
       { key: "neutral_csv", label: "CSV ze średnikiem (format neutralny)" },
+      { key: "symfonia_fk_txt4", label: "Symfonia FK — import dokumentów (szablon 4)" },
     ],
     default_format: "neutral_xlsx",
     ...overrides,
@@ -940,6 +941,27 @@ describe("Księgowość — paczki do Symfonii (K3b)", () => {
     );
     await waitFor(() =>
       expect(download).toHaveBeenCalledWith("/api/accounting/exports/31/file", "symfonia-ksiega-2026-10-1.xlsx"),
+    );
+  });
+
+  it("szablon 4 Symfonii mówi, że przyjmuje tylko faktury, i idzie w żądaniu", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(config());
+    post.mockResolvedValue({ data: exportItem({ document_count: 1 }) });
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    await screen.findByText("PK 4/10/2026");
+    expect(screen.getByText(/Format neutralny: wiersz na pozycję dekretu/)).toBeInTheDocument();
+    expect(screen.queryByText(/dopiszemy po/)).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Format pliku"), "symfonia_fk_txt4");
+    expect(screen.getByText(/Szablon 4 Symfonii przyjmuje tylko faktury/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/Faktury kosztowe \(FVZ\)/));
+    await user.click(screen.getByRole("button", { name: "Pobierz paczkę (3)" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/accounting/exports",
+        expect.objectContaining({ file_format: "symfonia_fk_txt4" }),
+      ),
     );
   });
 
