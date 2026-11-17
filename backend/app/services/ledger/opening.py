@@ -12,6 +12,11 @@ rozmiaru po rozpakowaniu).
   Wiersz z obiema stronami liczy się per saldo (Wn − Ma). Wiersze bez konta,
   sumy („Razem”, „Suma”, „Ogółem”) i salda zerowe pomijamy; to samo konto
   dwa razy = jedna pozycja z sumą.
+* **Dwie pary kolumn** (zestawienie obrotów i sald z Symfonii ma i „BO Wn/Ma”,
+  i „Saldo Wn/Ma”): rok otwierają kolumny BO; ``basis=saldo`` bierze saldo
+  końcowe. **Wiersze syntetyczne** (``010``), pod którymi plik ma analitykę
+  z kwotą (``010-3``), pomijamy — inaczej bilans byłby podwojony; ich kwota
+  musi się równać sumie analityki (inaczej błąd wiersza).
 * **Konta** muszą być w planie kont NEXUSA (albo być analityką słownika);
   analityka kontrahentów (``201-2-1042``) dostaje kontrahenta po ID Symfonii.
   Brakujące konta to problem z listą — plan kont uzupełnia księgowa.
@@ -93,6 +98,12 @@ class ParsedOpening:
     rows: list[OpeningRow] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
     skipped: int = 0
+    #: Sposób odczytu salda (``bo`` / ``saldo`` / ``plain`` / ``balance``) i czy
+    #: plik miał obie pary kolumn (BO i saldo końcowe) — ekran pyta wtedy o wybór.
+    basis: str = ""
+    both_bases: bool = False
+    #: Wiersze syntetyczne pominięte, bo ich kwotę niosą konta analityczne.
+    synthetic_skipped: int = 0
 
 
 def _header_name(raw: str) -> Optional[str]:
@@ -117,8 +128,20 @@ def _header_name(raw: str) -> Optional[str]:
     return None
 
 
-def _header(rows: list[list[str]]) -> tuple[int, dict[int, str], str]:
-    """Wiersz nagłówka, kolumny i wybrany sposób odczytu salda (para albo saldo)."""
+BASIS_OPENING = "bo"
+BASIS_CLOSING = "saldo"
+BASES = (BASIS_OPENING, BASIS_CLOSING)
+
+
+def _header(
+    rows: list[list[str]], basis: Optional[str] = None
+) -> tuple[int, dict[int, str], str, bool]:
+    """Wiersz nagłówka, kolumny, sposób odczytu salda i czy plik miał obie pary.
+
+    Plik z kolumnami i „BO Wn/Ma”, i „Saldo Wn/Ma” (zestawienie obrotów i sald
+    ZOiS z Symfonii) otwiera rok kolumnami BO; ``basis="saldo"`` bierze saldo
+    końcowe (zestawienie za poprzedni rok).
+    """
 
     for index, row in enumerate(rows[:HEADER_SCAN_ROWS]):
         columns: dict[int, str] = {}
@@ -132,15 +155,16 @@ def _header(rows: list[list[str]]) -> tuple[int, dict[int, str], str]:
         complete = [
             pair for pair in PAIRS if {f"{pair}:debit", f"{pair}:credit"} <= names
         ]
-        if "bo" in complete and "saldo" in complete:
-            raise ImportFileError(
-                "W pliku są kolumny i bilansu otwarcia („BO Wn/Ma”), i salda końcowego "
-                "(„Saldo Wn/Ma”) — zostaw tylko te z saldem, które ma otworzyć rok."
-            )
+        if basis is not None and basis not in BASES:
+            raise ImportFileError("Nieznany sposób odczytu kolumn salda.")
+        if BASIS_OPENING in complete and BASIS_CLOSING in complete:
+            return index, columns, basis or BASIS_OPENING, True
+        if basis is not None and basis in complete:
+            return index, columns, basis, False
         if complete:
-            return index, columns, complete[0]
+            return index, columns, complete[0], False
         if "balance" in names:
-            return index, columns, "balance"
+            return index, columns, "balance", False
     raise ImportFileError(
         "Nie znaleziono wiersza nagłówka z kolumną „Konto” i saldem: „Wn” i „Ma” "
         "(np. „BO Wn”, „Saldo Ma”) albo jedną kolumną „Saldo”."
@@ -187,12 +211,46 @@ def _is_total(*texts: str) -> bool:
     )
 
 
-def parse(content: bytes) -> ParsedOpening:
+def _drop_synthetic(parsed: ParsedOpening, merged: dict[str, OpeningRow]) -> None:
+    """Zestawienie sald ma wiersz syntetyczny (``010``) i jego analitykę (``010-3``).
+
+    Liczone oba podwoiłyby bilans, więc zostają konta końcowe (bez potomków
+    z kwotą). Kwota syntetyki musi się zgadzać z sumą potomków — inaczej część
+    salda nie ma analityki i zapis ją zgubiłby, więc to błąd wiersza.
+    """
+
+    synthetic = {
+        "-".join(account.split("-")[:cut])
+        for account in merged
+        for cut in range(1, len(account.split("-")))
+    } & set(merged)
+    leaves = {number: row for number, row in merged.items() if number not in synthetic}
+    for account in sorted(synthetic):
+        row = merged.pop(account)
+        parsed.synthetic_skipped += 1
+        below = sum(
+            leaf.amount
+            for number, leaf in leaves.items()
+            if number.startswith(f"{account}-")
+        )
+        if below != row.amount:
+            parsed.errors.append(
+                {
+                    "line": row.line,
+                    "message": (
+                        f"Konto {account}: saldo syntetyczne nie zgadza się z sumą "
+                        "kont analitycznych pod nim."
+                    ),
+                }
+            )
+
+
+def parse(content: bytes, *, basis: Optional[str] = None) -> ParsedOpening:
     if len(content) > MAX_BYTES:
         raise ImportFileError("Plik jest za duży (najwyżej 5 MB).")
     rows = _sheet_rows(content)
-    header_index, columns, mode = _header(rows)
-    parsed = ParsedOpening()
+    header_index, columns, mode, both = _header(rows, basis)
+    parsed = ParsedOpening(basis=mode, both_bases=both)
     merged: dict[str, OpeningRow] = {}
     for offset, row in enumerate(rows[header_index + 1 :], start=header_index + 2):
         values = {
@@ -226,7 +284,9 @@ def parse(content: bytes) -> ParsedOpening:
             merged[account].amount += amount
         else:
             merged[account] = OpeningRow(offset, account, name, amount)
-    parsed.rows = [row for row in merged.values() if row.amount != 0]
+    merged = {number: row for number, row in merged.items() if row.amount != 0}
+    _drop_synthetic(parsed, merged)
+    parsed.rows = list(merged.values())
     if not parsed.rows and not parsed.errors:
         raise ImportFileError("Plik nie ma żadnego salda do bilansu otwarcia.")
     return parsed
@@ -325,6 +385,9 @@ async def build(
         "year": year,
         "rows": len(parsed.rows),
         "skipped": parsed.skipped,
+        "basis": parsed.basis,
+        "both_bases": parsed.both_bases,
+        "synthetic_skipped": parsed.synthetic_skipped,
         "errors": parsed.errors[:MISSING_SHOWN],
         "debit_total": debit,
         "credit_total": credit,

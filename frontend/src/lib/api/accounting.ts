@@ -303,6 +303,35 @@ export interface OpeningPreview {
   preview: { account: string; name: string; side: Side; amount: number }[];
   saved: boolean;
   document_id: number | null;
+  /** Kolumny użyte jako saldo: „bo” (bilans otwarcia) albo „saldo” (saldo końcowe). */
+  basis?: string;
+  /** Plik ma i BO, i saldo końcowe — ekran pozwala wybrać. */
+  both_bases?: boolean;
+  /** Wiersze syntetyczne pominięte, bo ich kwotę niosą konta analityczne. */
+  synthetic_skipped?: number;
+}
+
+export interface ChartImportPreview {
+  saved: boolean;
+  accounts_in_file: number;
+  created: number;
+  existing: number;
+  blocked: number;
+  filled: number;
+  dictionaries: number;
+  markers: number;
+  markers_ignored: number;
+  problems: string[];
+  problems_total: number;
+  notes: string[];
+  preview: {
+    number: string;
+    name: string;
+    account_type: string | null;
+    account_type_label: string | null;
+    dictionary: string | null;
+    report_line: string | null;
+  }[];
 }
 
 export type SourceKind = "costs" | "sales" | "allocation" | "recurring" | "prepayments" | "asset_docs" | "assets";
@@ -883,12 +912,31 @@ export function useRemoveAutomation() {
 export function useOpeningImport() {
   const invalidate = useInvalidateLedger();
   return useMutation({
-    mutationFn: async ({ file, year, save }: { file: File; year: number; save: boolean }) => {
+    mutationFn: async ({ file, year, save, basis }: { file: File; year: number; save: boolean; basis?: string }) => {
       const form = new FormData();
       form.append("file", file);
       return (
         await api.post<OpeningPreview>(`${BASE}/opening/import`, form, {
-          params: { year, save },
+          params: basis ? { year, save, basis } : { year, save },
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+    onSuccess: (data) => {
+      if (data.saved) invalidate();
+    },
+  });
+}
+
+export function useChartImport() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async ({ file, save }: { file: File; save: boolean }) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<ChartImportPreview>(`${BASE}/chart/import`, form, {
+          params: { save },
           headers: { "Content-Type": "multipart/form-data" },
         })
       ).data;
