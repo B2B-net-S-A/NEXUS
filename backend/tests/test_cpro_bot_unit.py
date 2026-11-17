@@ -238,6 +238,16 @@ def test_card_values_fall_back_to_the_freshest_other_card() -> None:
     assert used == ["42480", "42301"]
 
 
+def test_role_title_drops_client_prefix_and_request_number() -> None:
+    assert (
+        bot_items.role_title("Nordea: Senior IT Analyst for CBT unit (42930)")
+        == "Senior IT Analyst for CBT unit"
+    )
+    assert bot_items.role_title("PL_KYC_3 x IT Automation Tester Senior") == (
+        "PL_KYC_3 x IT Automation Tester Senior"
+    )
+
+
 def test_request_number_and_rate_text() -> None:
     assert bot_items.request_number("Request 42511 / KYC") == "42511"
     assert bot_items.request_number("ZOB") is None

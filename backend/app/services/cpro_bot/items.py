@@ -68,6 +68,17 @@ def request_number(client_reference: Optional[str]) -> Optional[str]:
     return match.group(1) if match else None
 
 
+_TITLE_CLIENT = re.compile(r"^\s*[^:]{2,30}:\s*")
+_TITLE_NUMBER = re.compile(r"\s*\(\s*\d{4,7}\s*\)\s*$")
+
+
+def role_title(job_title: str) -> str:
+    """Rola do pola „Title” imiennika: bez „Nordea: ” z przodu i numeru na końcu."""
+
+    title = _TITLE_NUMBER.sub("", _TITLE_CLIENT.sub("", job_title or "")).strip()
+    return (title or (job_title or "").strip())[:80]
+
+
 def rate_text(value: float) -> str:
     """Stawka do pola „Offered rate”: ``163`` albo ``163.5``."""
 
@@ -210,7 +221,7 @@ def build_payload(
             "first_name": first_name.strip(),
             "last_name": last_name.strip(),
             "citizenship": citizenship,
-            "profile_title": job_title[:80],
+            "profile_title": role_title(job_title),
             "profile_description": offer_text.motivation(points),
         },
         "offer": {
