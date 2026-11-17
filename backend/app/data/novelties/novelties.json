@@ -1,5 +1,17 @@
 [
   {
+    "id": "sprzedaz-dzwonienie-mail-po-umowieniu",
+    "pr": 3557,
+    "title": "Dzwonienie: mail do klienta po umówieniu spotkania",
+    "why": "Przy „Umówione spotkanie” wpisujesz adres, tytuł i treść, a „Umów … i wyślij mail” wysyła je z Twojego Outlooka do klienta, z kopią do prowadzącego. Mail zostaje w Wysłanych i na osi szansy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Umówione spotkanie",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.booking-mail"
+  },
+  {
     "id": "sprzedaz-dzwonienie-juz-dzwoniono",
     "pr": 3539,
     "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",

@@ -20,12 +20,14 @@ from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
 from app.core.scheduling import business_date
 from app.services.sales import (
+    booking_mail,
     company_dates,
     handoff,
     handoff_hosts,
     handoff_invite,
     handoff_state,
     handoff_views,
+    meeting_client_mail,
 )
 
 router = APIRouter()
@@ -88,9 +90,19 @@ class HandoffsOut(BaseModel):
     weeks: list[WeekOut]
 
 
+class HostOut(BaseModel):
+    id: int
+    name: str
+    #: Adres prowadzącego do kopii maila po umówieniu (17.11.2026).
+    email: Optional[str] = None
+
+
 class FormOut(BaseModel):
-    hosts: list[Ref]
+    hosts: list[HostOut]
     default_host_id: Optional[int]
+    #: Skrzynka osoby, która umawia: z niej wychodzi mail do klienta po umówieniu.
+    mailbox: Literal["ok", "missing", "no_send_scope"] = "missing"
+    mailbox_address: Optional[str] = None
 
 
 class BusySpan(BaseModel):
@@ -217,11 +229,15 @@ async def booking_form(
     """Komu można przekazać spotkanie i kto był prowadzącym ostatnio."""
 
     hosts = await handoff_hosts.sales_editors(db)
+    connection = await handoff_invite.own_connection(db, current_user.id)
+    mailbox = booking_mail.mailbox_state(connection)
     return FormOut(
-        hosts=[Ref(id=user.id, name=user.name) for user in hosts],
+        hosts=[HostOut(id=user.id, name=user.name, email=user.email) for user in hosts],
         default_host_id=await handoff_hosts.default_host_id(
             db, current_user.id, {user.id for user in hosts}
         ),
+        mailbox=mailbox,
+        mailbox_address=connection.mailbox_upn if mailbox == "ok" else None,
     )
 
 
@@ -457,3 +473,94 @@ async def send_invite(
     )
     await db.commit()
     return await _one(db, opportunity_id)
+
+
+class BookingMailOut(BaseModel):
+    sent_at: datetime
+    to: list[str]
+    cc: list[str]
+
+
+@router.post("/{opportunity_id}/booking-mail", response_model=BookingMailOut)
+async def send_booking_mail(
+    opportunity_id: int,
+    payload: booking_mail.BookingMailRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> BookingMailOut:
+    """Mail do klienta po umówieniu: ze skrzynki osoby, która umówiła, z kopią do prowadzącego."""
+
+    # Najpierw nadawca: odpowiedź o adresach nie może trafić do kogoś, kto nie wysyła.
+    opportunity = await handoff.lock(db, opportunity_id)
+    booking_mail.ensure_sender(
+        opportunity, current_user.id, admin=is_admin(current_user)
+    )
+    subject, message = payload.subject.strip(), payload.message.strip()
+    if not subject or not message:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Mail musi mieć tytuł i treść."
+        )
+    addresses = handoff_invite.clean_addresses(payload.to)
+    # Bez wymieniania adresów, żeby wpisywanie nie sprawdzało, kto jest w bazie.
+    if await handoff_invite.candidate_addresses(db, addresses):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=handoff_invite.CANDIDATE_DETAIL,
+        )
+    if await booking_mail.objected_addresses(db, addresses):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=booking_mail.OBJECTION_DETAIL
+        )
+    connection = await handoff_invite.own_connection(db, current_user.id)
+    mailbox = booking_mail.mailbox_state(connection)
+    if mailbox != "ok" or connection is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                booking_mail.NO_MAILBOX_DETAIL
+                if mailbox == "missing"
+                else booking_mail.NO_SCOPE_DETAIL
+            ),
+        )
+    host = (
+        await booking_mail.host_address(db, opportunity, current_user.id)
+        if payload.cc_host
+        else None
+    )
+    cc = [host] if host and host not in addresses else []
+    booking_mail.reserve(
+        opportunity, payload.request_id, now=datetime.now(timezone.utc)
+    )
+    await db.commit()  # klucz widzi drugie żądanie, zanim mail wyjdzie
+
+    try:
+        draft = await meeting_client_mail.deliver(
+            db, connection, subject=subject, body=message, to=addresses, cc=cc
+        )
+    except meeting_client_mail.Undelivered:
+        await db.rollback()
+        await booking_mail.release(db, opportunity_id, payload.request_id)
+        await db.commit()
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail=booking_mail.UNDELIVERED_DETAIL
+        )
+    except meeting_client_mail.Uncertain:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, detail=booking_mail.UNCERTAIN_DETAIL
+        )
+
+    now = datetime.now(timezone.utc)
+    opportunity = await handoff.lock(db, opportunity_id)
+    await booking_mail.record_sent(
+        db,
+        opportunity,
+        draft,
+        request_id=payload.request_id,
+        subject=subject,
+        body=message,
+        recipients=len(addresses) + len(cc),
+        user_id=current_user.id,
+        now=now,
+    )
+    await db.commit()
+    return BookingMailOut(sent_at=now, to=addresses, cc=cc)
