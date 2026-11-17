@@ -30,6 +30,15 @@ function bot(over: Partial<SalesBot>): SalesBot {
     received_7d: 2,
     failed_7d: 0,
     last_received_at: "2026-11-11T22:01:00Z",
+    last_run: {
+      id: 25,
+      kind: "signals",
+      status: "received",
+      started_at: "2026-11-11T22:00:00Z",
+      received_at: "2026-11-11T22:01:00Z",
+      outcome: "saved",
+      detail: "Zapisano leadów: 2.",
+    },
     ...over,
   };
 }
@@ -55,7 +64,8 @@ describe("BotsView", () => {
   it("pokazuje stan każdego bota, rutynę i liczby z 7 dni", () => {
     render(<BotsView />);
     const leads = within(screen.getByRole("generic", { name: "Bot Leady" }));
-    expect(leads.getByText("Działa")).toBeInTheDocument();
+    expect(leads.getByText("Zapisano wynik")).toBeInTheDocument();
+    expect(leads.getByText(/Ostatni bieg #25/)).toBeInTheDocument();
     expect(leads.getByText("Grok · wspólna rutyna")).toBeInTheDocument();
     expect(leads.getByText(/Ostatnie 7 dni/)).toHaveTextContent("2 biegów, 2 z raportem");
     expect(within(screen.getByRole("generic", { name: "Bot Research" })).getByText("Wstrzymany")).toBeInTheDocument();
@@ -65,6 +75,31 @@ describe("BotsView", () => {
       "2 bez raportu",
     );
     expect(screen.getByText(/bez „Przyjmij”/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["waiting", "Czeka na raport"],
+    ["failed", "Błąd uruchomienia"],
+    ["expired", "Brak raportu"],
+    ["partial", "Niepełny wynik"],
+    ["no_changes", "Raport bez zmian"],
+    ["received", "Raport odebrany"],
+  ] as const)("pokazuje wynik %s ostatniego biegu mimo wcześniejszych raportów", (outcome, label) => {
+    query = ok({ items: [bot({ last_run: { ...BOTS[0].last_run!, outcome } })], can_pause: false });
+    render(<BotsView />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByText("Działa")).not.toBeInTheDocument();
+    expect(screen.queryByText("Zapisano wynik")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [null, "Brak uruchomień"],
+    [undefined, "Brak danych o biegu"],
+  ] as const)("nie potwierdza działania bez danych ostatniego biegu: %s", (last_run, label) => {
+    query = ok({ items: [bot({ last_run })], can_pause: false });
+    render(<BotsView />);
+    expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.queryByText("Zapisano wynik")).not.toBeInTheDocument();
   });
 
   it("administrator wstrzymuje i wznawia bota", () => {
