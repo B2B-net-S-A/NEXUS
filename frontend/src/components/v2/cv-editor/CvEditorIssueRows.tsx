@@ -798,6 +798,8 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
           className={cn(SMALL, "h-auto min-h-7 whitespace-normal text-left")}
           disabled={busy}
           aria-label={`Wpisz w punkcie 1: ${proposalText}`}
+          // Kropka nowości „Lata w punkcie 1” (novelties.json).
+          data-tour="cv-editor.tenure-split"
           onClick={() => qc.apply({ action: "tenure_split" }, "Punkt 1: cały staż i staż na stanowisku. Ctrl+Z cofa.")}
         >
           {proposalText}
