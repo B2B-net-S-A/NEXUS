@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import axios from "axios";
+import Link from "next/link";
 
 import { B2BLogo } from "@/components/career/B2BLogo";
 import { careerDisplayFont } from "@/components/career/fonts";
@@ -465,7 +466,7 @@ export function TermsPage({ token, optOut }: TermsPageProps) {
           <span>
             B2B.NET S.A. · Al. Jerozolimskie 180, 02-486 Warszawa · KRS 0000387063 · NIP 5711707392
           </span>
-          <a href="/kariera/rodo">{t.privacy}</a>
+          <Link href="/kariera/rodo">{t.privacy}</Link>
         </div>
       </footer>
     </div>

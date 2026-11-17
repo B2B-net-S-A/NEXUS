@@ -4308,6 +4308,7 @@ async def api_health_deep_check(request: Request):
     from app.models.job_autofill_pool import JobAutofillPool
     from app.models.autofill_feedback import AutofillFeedback
     from app.models.job_role_profile import JobRoleProfile
+    from app.models.candidate_terms_request import CandidateTermsRequest
     from app.models.autofill_quality_report import AutofillQualityReport
     from app.models.candidate_job_owner import CandidateJobOwnerEvent
     from app.models.sales import (
@@ -5027,6 +5028,8 @@ async def api_health_deep_check(request: Request):
         ("autofill_quality_reports", AutofillQualityReport),
         # 0728: profil „Kogo szukamy” rekrutacji w porcji.
         ("job_role_profiles", JobRoleProfile),
+        # 0729: prośby o warunki kandydata po aplikacji.
+        ("candidate_terms_requests", CandidateTermsRequest),
         # 0519: historia „Prowadzi”.
         ("candidate_job_owner_events", CandidateJobOwnerEvent),
         # 0601–0683: Sprzedaż — lejki, kontakty, pliki, leady, historia szansy,
