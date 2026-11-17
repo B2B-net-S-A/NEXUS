@@ -22,6 +22,8 @@ class CandidateTermsRequest(Base):
     )
     # pracuj / jjit / career / manual — skąd przyszła aplikacja.
     source: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Tytuł ogłoszenia z portalu (z notatki źródła importu) — kandydat go widział.
+    ad_title: Mapped[Optional[str]] = mapped_column(String(200))
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="queued", server_default="queued"
     )

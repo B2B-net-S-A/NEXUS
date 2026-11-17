@@ -187,6 +187,7 @@ async def place_application(
         job_id=job.id,
         source="jjit" if portal == "justjoinit" else portal,
         applied_at=applied_at,
+        ad_title=ad_title,
     )
     if job.status != JobStatus.published:
         return PortalApplicationResult(outcome="job_not_open", job_id=job.id)

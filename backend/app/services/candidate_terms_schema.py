@@ -24,6 +24,7 @@ TABLE_DDL: list[str] = [
            candidate_id INTEGER NOT NULL REFERENCES candidates (id) ON DELETE CASCADE,
            job_id INTEGER NULL REFERENCES jobs (id) ON DELETE SET NULL,
            source VARCHAR(40) NOT NULL,
+           ad_title VARCHAR(200) NULL,
            status VARCHAR(16) NOT NULL DEFAULT 'queued'
                CONSTRAINT ck_candidate_terms_requests_status CHECK (status IN ({_in(STATUSES)})),
            action VARCHAR(16) NULL

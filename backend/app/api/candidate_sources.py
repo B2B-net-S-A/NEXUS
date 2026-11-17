@@ -137,6 +137,7 @@ async def add_candidate_source(
         job_id=payload.job_id,
         utm_source=payload.utm_source,
         captured_at=row.captured_at,
+        note=payload.note,
     )
     await db.commit()
     await db.refresh(row)

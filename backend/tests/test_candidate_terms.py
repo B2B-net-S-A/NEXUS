@@ -167,3 +167,24 @@ def test_mail_without_title_is_generic():
     m = _mail(job_title="  ")
     assert m.subject == "Dziękujemy za zgłoszenie"
     assert "stanowisko" not in m.text_body
+
+
+def test_mail_without_recruiter_does_not_promise_a_reply():
+    m = _mail(recruiter_name=None)
+    assert "Odpowiedz na tego maila" not in m.text_body
+    assert "Odpowiedz na tego maila" not in m.html_body
+
+
+def test_ad_title_from_import_note():
+    from app.services.candidate_terms_queue import ad_title_from_note
+
+    assert (
+        ad_title_from_note("Źródło: Pracuj.pl — oferta: Data Engineer")
+        == "Data Engineer"
+    )
+    assert (
+        ad_title_from_note("Aplikacja przez JustJoin.IT — ogłoszenie: QA (k/m)")
+        == "QA (k/m)"
+    )
+    assert ad_title_from_note("Aplikacja ręczna") is None
+    assert ad_title_from_note(None) is None

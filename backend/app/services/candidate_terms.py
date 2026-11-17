@@ -207,10 +207,12 @@ def render_terms_email(
         f"Dziękujemy za zgłoszenie: {title}" if title else "Dziękujemy za zgłoszenie"
     )
     who = (recruiter_name or "").strip()
+    # Bez rekrutera nie obiecujemy, że ktoś przeczyta odpowiedź (MX domeny
+    # jest na home.pl, a skrzynki kandydatów nikt jeszcze nie czyta).
     reply_line = (
         f"Masz pytanie o tę rekrutację? Odpowiedz na tego maila, trafi do: {who}."
         if who
-        else "Masz pytanie o tę rekrutację? Odpowiedz na tego maila."
+        else ""
     )
 
     text_lines = [
@@ -234,9 +236,9 @@ def render_terms_email(
             "has a language switch.",
             "",
         ]
+    if reply_line:
+        text_lines += [reply_line, ""]
     text_lines += [
-        reply_line,
-        "",
         _COMPANY,
         f"Informacje o przetwarzaniu danych: {rodo_url}",
     ]
@@ -280,7 +282,7 @@ def render_terms_email(
         "Masz pytanie o tę rekrutację? Odpowiedz na tego maila, trafi do: "
         f"<b>{e(who)}</b>."
         if who
-        else "Masz pytanie o tę rekrutację? Odpowiedz na tego maila."
+        else ""
     )
     title_html = f"<b>„{e(title)}”</b>" if title else ""
     lead = (
@@ -317,8 +319,13 @@ def render_terms_email(
         f'<p style="margin:0 0 16px;{_F}font-size:16px;line-height:24px;color:#141414">'
         f"{lead} Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował.</p>"
         f"{ask}"
-        f'<p style="margin:0;{_F}font-size:15px;line-height:22px;color:#141414">{reply_html}</p>'
-        "</td></tr>"
+        + (
+            f'<p style="margin:0;{_F}font-size:15px;line-height:22px;color:#141414">'
+            f"{reply_html}</p>"
+            if reply_html
+            else ""
+        )
+        + "</td></tr>"
         '<tr><td bgcolor="#1A1816" style="background:#1A1816;padding:28px 32px">'
         f'<img src="{e(logo_light_url, quote=True)}" width="96" height="44" alt="B2B Network" '
         'style="display:block;border:0;margin:0 0 16px">'

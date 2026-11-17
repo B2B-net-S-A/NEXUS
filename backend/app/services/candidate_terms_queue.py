@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -38,6 +39,7 @@ async def enqueue(
     job_id: Optional[int],
     source: str,
     applied_at: Optional[datetime] = None,
+    ad_title: Optional[str] = None,
 ) -> bool:
     """Dopisz zgłoszenie do kolejki. Nie rzuca.
 
@@ -59,6 +61,8 @@ async def enqueue(
             if recent is not None:
                 if recent.status == "queued" and recent.job_id is None and job_id:
                     recent.job_id = job_id
+                if recent.status == "queued" and not recent.ad_title and ad_title:
+                    recent.ad_title = ad_title[:200]
                 return False
             if job_id is not None:
                 same_job = await db.scalar(
@@ -76,6 +80,7 @@ async def enqueue(
                     candidate_id=candidate_id,
                     job_id=job_id,
                     source=source[:40],
+                    ad_title=(ad_title or "").strip()[:200] or None,
                     applied_at=applied_at or datetime.now(timezone.utc),
                 )
             )
@@ -235,7 +240,7 @@ async def send_one(
         row.expires_at = now + timedelta(days=rules.LINK_TTL_DAYS)
     base = _base()
     message = rules.render_terms_email(
-        job_title=await public_job_title(db, row.job_id),
+        job_title=await public_job_title(db, row.job_id) or row.ad_title,
         link=f"{base}/warunki/{raw}" if raw else None,
         optout_link=f"{base}/warunki/{raw}?wypis=1" if raw else None,
         recruiter_name=recruiter[1] if recruiter else None,
@@ -327,6 +332,15 @@ async def process_queue(db: AsyncSession, *, now: Optional[datetime] = None) -> 
 APPLICATION_CHANNELS = frozenset({"posting", "career_link_job", "career_link_general"})
 
 
+_AD_TITLE = re.compile(r"(?:oferta|ogłoszenie):\s*(.+)$", re.IGNORECASE)
+
+
+def ad_title_from_note(note: Optional[str]) -> Optional[str]:
+    """„Źródło: Pracuj.pl — oferta: Data Engineer” → „Data Engineer”."""
+    match = _AD_TITLE.search((note or "").strip())
+    return match.group(1).strip()[:200] if match else None
+
+
 def source_label(channel: str, utm_source: Optional[str]) -> str:
     if channel == "posting":
         return (utm_source or "portal").strip().lower()[:40] or "portal"
@@ -341,6 +355,7 @@ async def enqueue_from_source(
     job_id: Optional[int],
     utm_source: Optional[str],
     captured_at: Optional[datetime],
+    note: Optional[str] = None,
 ) -> bool:
     """Wpis źródła = aplikacja? To dopisz do kolejki. Wołane przy każdym zapisie źródła."""
     value = getattr(channel, "value", channel)
@@ -352,4 +367,5 @@ async def enqueue_from_source(
         job_id=job_id,
         source=source_label(str(value), utm_source),
         applied_at=captured_at,
+        ad_title=ad_title_from_note(note),
     )
