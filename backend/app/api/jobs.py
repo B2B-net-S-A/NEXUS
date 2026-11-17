@@ -3918,7 +3918,9 @@ async def set_champion_profile_change_note(
     )
     if revision is None:
         raise HTTPException(404, "Nie ma takiej zmiany w tej rekrutacji.")
-    if revision.author_id != current_user.id and current_user.role != UserRole.admin:
+    if revision.author_id != current_user.id and not current_user.has_role(
+        UserRole.admin
+    ):
         raise HTTPException(403, "Zdanie do zmiany dopisuje osoba, która ją zapisała.")
     note = " ".join((body.note or "").split()) or None
     if note is not None and len(note) > NOTE_MAX_CHARS:

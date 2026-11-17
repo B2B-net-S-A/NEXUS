@@ -3115,7 +3115,7 @@
     "id": "profil-championa-co-sie-zmienilo",
     "pr": 3551,
     "title": "Co się zmieniło w Profilu Championa",
-    "why": "Gdy Delivery Lead zmieni profil rekrutacji, w której już szukasz, na górze Briefu zobaczysz, co się zmieniło i na co klient teraz kładzie nacisk. „Przeczytane” zwija kartę, a całą historię znajdziesz w zakładce „Zmiany”.",
+    "why": "Gdy DL zmieni profil rekrutacji, w której szukasz, na górze Briefu zobaczysz, co się zmieniło i na co klient kładzie nacisk. Historia zostaje w zakładce „Zmiany”.",
     "tier": "dot",
     "shipped_on": "2026-11-17",
     "audience": {

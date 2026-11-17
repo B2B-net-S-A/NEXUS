@@ -197,15 +197,15 @@ async def _seed(status: JobStatus = JobStatus.published) -> tuple[int, int]:
             status=status,
             client_id=client.id,
             recruiter_id=recruiter.id,
+            # Kształt zapisu z edytora: wiersze razem z wyprowadzonymi listami
+            # (same wiersze schemat odrzuca jako niezgodne z `must`/`nice`).
             champion_profile={
                 "basics": {"role_name": "Analityk systemowy"},
-                "stack": {
-                    "rows": [
-                        {"level": "must", "words": ["UML"]},
-                        {"level": "must", "words": ["wzorce projektowe"]},
-                        {"level": "nice", "words": ["scrum"]},
-                    ]
-                },
+                **_rows(
+                    ("must", ["UML"]),
+                    ("must", ["wzorce projektowe"]),
+                    ("nice", ["scrum"]),
+                ),
                 "project": {"about": "Integracje systemów maklerskich."},
             },
         )
