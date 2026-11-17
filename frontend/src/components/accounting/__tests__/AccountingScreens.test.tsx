@@ -651,6 +651,53 @@ describe("Księgowość — plan kont z Symfonii", () => {
   });
 });
 
+describe("Księgowość — bilans otwarcia: kolumny salda przy zmianie pliku", () => {
+  const zoisPreview = (basis: string) => ({
+    year: 2026,
+    rows: 2,
+    skipped: 0,
+    errors: [],
+    debit_total: 1000,
+    credit_total: 1000,
+    balanced: true,
+    missing_accounts: [],
+    missing_total: 0,
+    counterparties_matched: 0,
+    problems: [] as string[],
+    preview: [],
+    saved: false,
+    document_id: null,
+    basis,
+    both_bases: true,
+    synthetic_skipped: 0,
+  });
+
+  it("nowy plik wraca do kolumn BO i zapis wysyła te kolumny, które pokazał podgląd", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    post.mockImplementation(async (_url: string, _body: unknown, options: { params: { basis?: string } }) => ({
+      data: zoisPreview(options.params.basis ?? "bo"),
+    }));
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const input = await screen.findByLabelText("Plik zestawienia sald");
+    const card = input.closest("section")!;
+    await user.upload(input, new File(["A"], "zois-a.xlsx"));
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    await user.selectOptions(await within(card).findByLabelText("Kolumny salda z pliku"), "saldo");
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/kolumny: Saldo Wn\/Ma/)).toBeInTheDocument();
+
+    await user.upload(input, new File(["B"], "zois-b.xlsx"));
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/kolumny: BO Wn\/Ma/)).toBeInTheDocument();
+    expect(within(card).getByLabelText("Kolumny salda z pliku")).toHaveValue("bo");
+    await user.click(within(card).getByRole("button", { name: "Zapisz jako BO" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(4));
+    expect(post.mock.calls[3][2].params.basis ?? "bo").toBe("bo");
+  });
+});
+
 describe("Księgowość — automaty (PK cykliczne i RMK)", () => {
   const automationsModule = {
     key: "automations" as const,
