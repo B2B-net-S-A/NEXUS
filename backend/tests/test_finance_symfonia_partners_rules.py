@@ -229,3 +229,12 @@ def test_import_bierze_kraj_z_prefiksu_vat_ue_gdy_brak_kolumny_kraju() -> None:
         "203-2-4001",
         "202-2-4001",
     )
+
+
+def test_druga_linia_adresu_faktury_to_kod_i_miasto() -> None:
+    split = sp.split_postal_city
+    assert split("00-001  Warszawa") == ("00-001", "Warszawa")
+    assert split("10115 Berlin") == ("10115", "Berlin")
+    assert split("Londyn") == (None, "Londyn")
+    assert split("  ") == (None, None)
+    assert split(None) == (None, None)
