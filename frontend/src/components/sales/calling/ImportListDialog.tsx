@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { apiErrorMessage } from "@/lib/api-error";
+import { downloadBlob } from "@/lib/authenticated-files";
 import { useOwnerCandidates } from "@/lib/api/sales";
 import {
   useCallCampaigns,
@@ -22,7 +23,7 @@ import { CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { useAuthStore } from "@/store/auth";
 
 import { SalesSelect } from "../SalesSelect";
-import { FATE_LABELS, FATE_TONES, fileProblem, IMPORT_ACCEPT, importSummary } from "./calling";
+import { FATE_LABELS, FATE_TONES, fileProblem, IMPORT_ACCEPT, importSummary, markedListCsv } from "./calling";
 
 const MIN_SOURCE_CHARS = 3;
 /** Więcej wierszy w tabeli spowalnia okno; filtr „do decyzji” pokazuje te ważne. */
@@ -39,9 +40,17 @@ interface PreviewProps {
 
 function Preview({ preview, campaignName, sourceMissing, importing, onImport, onBack }: PreviewProps) {
   const [onlyToDecide, setOnlyToDecide] = useState(false);
+  // Zgłoszenie dzwoniących 17.11.2026: numery, pod które już dzwoniono, osobno i z filtrem.
+  const [onlyCalled, setOnlyCalled] = useState(false);
+  const called = preview.counts.already_called ?? 0;
   const rows = useMemo(
-    () => (onlyToDecide ? preview.rows.filter((row) => row.to_decide) : preview.rows),
-    [onlyToDecide, preview.rows],
+    () =>
+      onlyCalled
+        ? preview.rows.filter((row) => row.fate === "already_called")
+        : onlyToDecide
+          ? preview.rows.filter((row) => row.to_decide)
+          : preview.rows,
+    [onlyCalled, onlyToDecide, preview.rows],
   );
   const shown = rows.slice(0, ROWS_SHOWN);
 
@@ -67,6 +76,19 @@ function Preview({ preview, campaignName, sourceMissing, importing, onImport, on
           </Button>
           <Button
             size="sm"
+            variant="outline"
+            className="h-8"
+            onClick={() =>
+              downloadBlob(
+                new Blob([markedListCsv(preview.rows)], { type: "text/csv;charset=utf-8" }),
+                "lista-sprawdzona.csv",
+              )
+            }
+          >
+            Pobierz plik z oznaczeniami
+          </Button>
+          <Button
+            size="sm"
             className="h-8"
             disabled={preview.addable === 0 || sourceMissing}
             title={sourceMissing ? "Wpisz, skąd masz kontakty z tej listy." : undefined}
@@ -77,14 +99,28 @@ function Preview({ preview, campaignName, sourceMissing, importing, onImport, on
           </Button>
         </div>
       </div>
+      {called > 0 && (
+        <p role="note" className="rounded-md border border-warning/25 bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground">
+          <span className="font-medium">Już dzwoniono: {called}</span> (ten sam numer, adres albo osoba w NEXUSIE). Te
+          wiersze nie trafią drugi raz do kolejki. Przy każdym jest data, osoba i wynik poprzedniej rozmowy.{" "}
+          <button
+            type="button"
+            className="font-medium underline underline-offset-2"
+            aria-pressed={onlyCalled}
+            onClick={() => setOnlyCalled((value) => !value)}
+          >
+            {onlyCalled ? "Pokaż wszystkie" : "Pokaż je"}
+          </button>
+        </p>
+      )}
       <div className="max-h-[46dvh] overflow-y-auto rounded-lg border border-border bg-card">
-        <Table>
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className={CALM_HEAD}>Firma z pliku</TableHead>
-              <TableHead className={CALM_HEAD}>Osoba (stanowisko)</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[23%]`}>Firma z pliku</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[24%]`}>Osoba (stanowisko)</TableHead>
               <TableHead className={CALM_HEAD}>Co NEXUS o niej wie</TableHead>
-              <TableHead className={`${CALM_HEAD} text-right`}>Co się stanie</TableHead>
+              <TableHead className={`${CALM_HEAD} w-[10.5rem] text-right`}>Co się stanie</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -96,13 +132,13 @@ function Preview({ preview, campaignName, sourceMissing, importing, onImport, on
                 </TableCell>
                 <TableCell className="py-1.5 text-sm text-muted-foreground">
                   {row.person ?? "—"}
-                  <span className={`${CALM_SUBLINE} whitespace-nowrap tabular-nums`}>
+                  <span className={`${CALM_SUBLINE} truncate tabular-nums`}>
                     {[row.title, row.phone].filter(Boolean).join(" · ") || "bez telefonu"}
                   </span>
                 </TableCell>
                 <TableCell className="py-1.5 text-sm text-muted-foreground">{row.detail}</TableCell>
                 <TableCell className="py-1.5 text-right">
-                  <Badge variant={FATE_TONES[row.fate]} size="md">
+                  <Badge variant={FATE_TONES[row.fate]} size="md" className="whitespace-nowrap">
                     {FATE_LABELS[row.fate]}
                   </Badge>
                 </TableCell>

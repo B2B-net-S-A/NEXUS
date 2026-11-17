@@ -85,6 +85,9 @@ pliku), `calling_import.py` (bramki), `backend/app/api/sales_calling.py`, front
   liczy plan jeszcze raz pod jedną blokadą importu (`pg_advisory_xact_lock`), więc drugi
   klik ani import tej samej listy do innej kampanii niczego nie dubluje.
   Pliku nie trzymamy na serwerze między krokami: przeglądarka wysyła go drugi raz.
+- **17.11.2026 doszła bramka „Już dzwoniono”** (numer, adres albo osoba z wynikiem
+  w dowolnym rekordzie), a kolejka pomija powtórki i firmy już w CRM:
+  `dzwonienie-powtorki-i-firmy-w-crm.md`.
 - **Bramki, pierwsza pasująca decyduje:** sprzeciw (firma, osoba, ten sam numer albo
   adres także przy innej firmie), klient NEXUSA albo nasza spółka (`client_gate`, sprawa
   dla Delivery Leada), już w kampanii (także powtórka w pliku i własna otwarta szansa),

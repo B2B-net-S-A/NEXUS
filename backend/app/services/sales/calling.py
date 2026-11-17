@@ -56,7 +56,7 @@ from app.models.sales import (
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.candidate_followups import add_business_days
-from app.services.sales import calling_crm, client_gate, history
+from app.services.sales import calling_crm, calling_repeats, client_gate, history
 from app.services.sales.calling_file import phone_digits, valid_email
 from app.services.sales.calls import DO_NOT_CONTACT, OBJECTION_DETAIL, OUTCOME_LABELS
 from app.services.sales.lifecycle import apply_stage
@@ -210,6 +210,10 @@ class Card:
     client_refusal: Optional[str]
     can_save: bool
     history: list[HistoryEntry]
+    #: Wyniki pod tym samym numerem, adresem albo osobą w innych rekordach (17.11.2026).
+    earlier_calls: tuple[calling_repeats.EarlierCall, ...] = ()
+    #: Rekord z listy, którego firmę prowadzi już otwarta szansa (17.11.2026).
+    crm_opportunity: Optional[calling_repeats.CrmOpportunity] = None
 
 
 @dataclass(frozen=True)
@@ -367,6 +371,8 @@ def _own_campaign_records(query: Any, user_id: Optional[int]) -> Any:
             SalesCallCampaign.archived_at.is_(None),
             SalesCompany.archived_at.is_(None),
             *_without_objection(),
+            # Powtórka z kolejnej listy i firma już w CRM nie wracają drugi raz (17.11.2026).
+            *calling_repeats.queue_conditions(),
         )
     )
 
@@ -1065,6 +1071,8 @@ async def _card(
     can_save: bool,
     opportunity_note: Optional[str] = None,
 ) -> Card:
+    earlier = await calling_repeats.earlier_calls(db, record) if record else []
+    crm = await calling_repeats.crm_opportunity(db, record) if record else None
     return Card(
         company_id=company.id,
         company_name=company.name,
@@ -1082,6 +1090,8 @@ async def _card(
         client_refusal=await _client_refusal(db, company),
         can_save=can_save,
         history=await _history(db, company.id),
+        earlier_calls=tuple(earlier),
+        crm_opportunity=crm,
     )
 
 
