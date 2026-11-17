@@ -47,7 +47,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import and_, delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_sales_invoice import (
@@ -55,10 +55,14 @@ from app.models.client_sales_invoice import (
     ClientSalesInvoicePayment,
 )
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
-from app.models.finance_payments import FinanceCostPaymentRecord
+from app.models.finance_payments import (
+    FinanceCostPaymentRecord,
+    FinancePaymentBatchItem,
+)
 from app.models.fx_rate import FxRate
 from app.models.hr_settlement import PayrollPayment, PayrollSettlement
 from app.models.ledger import LedgerBankLine, LedgerBankStatement, LedgerDocument
+from app.services.client_invoicing import ledger as client_ledger
 from app.services.client_invoicing import payments as client_payments
 from app.services.finance_ledger import identifiers
 from app.services.finance_ledger import payments as cost_payments
@@ -106,6 +110,21 @@ APPROVED_WB = (
     "storna dokumentu."
 )
 _SFP = re.compile(r"/SFP/([A-Z0-9-]+)")
+UNDO_WB = (
+    "Wyciąg ma dokument WB ({number}) — najpierw usuń szkic albo zrób storno, potem "
+    "usuń wyciąg."
+)
+UNDO_PAYROLL = (
+    "Z tego pliku są wypłaty dla zespołu (Płace) — tego importu Księga nie cofa."
+)
+UNDO_BATCH = (
+    "Faktura opłacona tym wyciągiem ma zamkniętą pozycję paczki przelewów — "
+    "cofnięcie wymaga decyzji Finansów, nie usunięcia wyciągu."
+)
+UNDO_EBI24 = (
+    "Zapłata z tego wyciągu zastąpiła zapłatę z eBI24 — cofnięcie wymaga decyzji "
+    "Finansów, nie usunięcia wyciągu."
+)
 
 
 def routing(number: str) -> str:
@@ -901,6 +920,139 @@ async def get_statement(
     if statement is None:
         raise LedgerError(NO_STATEMENT, status=404)
     return await statement_payload(db, statement, viewer, bank_settings)
+
+
+# ── Cofnięcie importu ────────────────────────────────────────────────────────
+
+
+async def delete_statement(
+    db: AsyncSession, statement_id: int, *, viewer: Viewer
+) -> dict[str, int]:
+    """Usuń wyciąg z liniami i zapłatami E3/E8 z tego pliku (bez commita).
+
+    Na wypadek złego dopasowania (17.11.2026: E8 wziął nogi VAT MPP za wpłaty
+    klientów) — po poprawce kodu plik wczytuje się od nowa. Tylko przed WB
+    i tylko gdy import nie zostawił skutków poza swoimi wierszami: wypłaty
+    R9, zamknięta pozycja paczki albo zastąpiona zapłata z eBI24 = odmowa,
+    bo ich stanu sprzed importu nie odtworzymy. Stan zapłaty faktur
+    kosztowych liczy się od nowa (``refresh`` E3).
+    """
+
+    statement = await db.get(LedgerBankStatement, statement_id, with_for_update=True)
+    if statement is None:
+        raise LedgerError(NO_STATEMENT, status=404)
+    sha = statement.sha256
+    # Ta sama blokada co import E3/R9/E8 — plik nie wchodzi w trakcie cofania.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": f"hr-statement:{sha}"},
+    )
+    doc = await db.scalar(
+        select(LedgerDocument)
+        .where(
+            LedgerDocument.source_type == SOURCE_TYPE,
+            LedgerDocument.source_id.in_(
+                [_source_id(statement.id, False), _source_id(statement.id, True)]
+            ),
+        )
+        .limit(1)
+    )
+    if doc is not None:
+        raise LedgerError(UNDO_WB.format(number=doc.number or doc.id), status=409)
+    team = await db.scalar(
+        select(func.count())
+        .select_from(PayrollPayment)
+        .where(PayrollPayment.statement_sha256 == sha)
+    )
+    if team:
+        raise LedgerError(UNDO_PAYROLL, status=409)
+    costs = list(
+        await db.scalars(
+            select(FinanceCostPaymentRecord).where(
+                FinanceCostPaymentRecord.kind == "statement_line",
+                FinanceCostPaymentRecord.statement_sha256 == sha,
+            )
+        )
+    )
+    entry_ids = sorted(
+        {row.entry_id for row in costs if row.match_status == MATCHED and row.entry_id}
+    )
+    if entry_ids and await db.scalar(
+        select(func.count())
+        .select_from(FinancePaymentBatchItem)
+        .where(
+            FinancePaymentBatchItem.entry_id.in_(entry_ids),
+            FinancePaymentBatchItem.status == "done",
+        )
+    ):
+        raise LedgerError(UNDO_BATCH, status=409)
+    sales = list(
+        await db.scalars(
+            select(ClientSalesInvoicePayment).where(
+                ClientSalesInvoicePayment.kind == "statement_line",
+                ClientSalesInvoicePayment.statement_sha256 == sha,
+            )
+        )
+    )
+    invoice_ids = {
+        row.invoice_id
+        for row in sales
+        if row.match_status == MATCHED and row.invoice_id
+    }
+    if invoice_ids:
+        heads = list(
+            await db.scalars(
+                select(ClientSalesInvoice).where(ClientSalesInvoice.id.in_(invoice_ids))
+            )
+        )
+        chained = {
+            invoice.id
+            for chain in await client_ledger.build_chains(db, heads)
+            for invoice in chain.invoices
+        } | invoice_ids
+        if await db.scalar(
+            select(func.count())
+            .select_from(ClientSalesInvoicePayment)
+            .where(
+                ClientSalesInvoicePayment.invoice_id.in_(chained),
+                ClientSalesInvoicePayment.kind == "ebi24",
+                ClientSalesInvoicePayment.reason == client_payments.EBI24_SUPERSEDED,
+            )
+        ):
+            raise LedgerError(UNDO_EBI24, status=409)
+    lines = await db.scalar(
+        select(func.count())
+        .select_from(LedgerBankLine)
+        .where(LedgerBankLine.statement_id == statement.id)
+    )
+    result = {
+        "lines": int(lines or 0),
+        "cost_records": len(costs),
+        "cost_matched": sum(1 for row in costs if row.match_status == MATCHED),
+        "sales_records": len(sales),
+        "sales_matched": sum(1 for row in sales if row.match_status == MATCHED),
+    }
+    if costs:
+        await db.execute(
+            delete(FinanceCostPaymentRecord).where(
+                FinanceCostPaymentRecord.id.in_([row.id for row in costs])
+            )
+        )
+    if sales:
+        await db.execute(
+            delete(ClientSalesInvoicePayment).where(
+                ClientSalesInvoicePayment.id.in_([row.id for row in sales])
+            )
+        )
+    await db.execute(
+        delete(LedgerBankLine).where(LedgerBankLine.statement_id == statement.id)
+    )
+    await db.execute(
+        delete(LedgerBankStatement).where(LedgerBankStatement.id == statement.id)
+    )
+    await db.flush()
+    await cost_payments.refresh(db, entry_ids, actor_id=viewer.user_id)
+    return result
 
 
 # ── Przypisanie i WB ─────────────────────────────────────────────────────────

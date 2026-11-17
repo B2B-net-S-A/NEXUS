@@ -33,6 +33,7 @@
  "routes": {
   "DELETE /api/accounting/automations/prepayments/{item_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "DELETE /api/accounting/automations/recurring/{template_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "DELETE /api/accounting/bank/statements/{statement_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "DELETE /api/accounting/documents/{doc_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/accounts/card": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/automations": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",

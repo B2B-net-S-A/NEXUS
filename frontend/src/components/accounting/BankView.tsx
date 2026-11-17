@@ -7,12 +7,14 @@ import { Pencil, X } from "lucide-react";
 import { QueryStateNotice, StatusDot } from "@/components/ds";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { useChart } from "@/lib/api/accounting";
 import {
   useAssignBankLine,
   useBank,
   useBankImport,
   useBankStatement,
+  useDeleteBankStatement,
   usePostBankStatement,
   type BankLine,
   type BankSettings,
@@ -27,6 +29,7 @@ import { SectionCard, useAccounting } from "./AccountingShell";
 import {
   canAssign,
   curAmount,
+  deleteMessage,
   lineTone,
   operationsLabel,
   postBlocker,
@@ -298,7 +301,10 @@ function CloseButton({ onClose }: { onClose: () => void }) {
 
 function StatementBody({ statement, onClose }: { statement: BankStatement; onClose: () => void }) {
   const { showToast } = useToast();
+  const { config } = useAccounting();
   const post = usePostBankStatement();
+  const remove = useDeleteBankStatement();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const chart = useChart();
   const [onlyOpen, setOnlyOpen] = useState(false);
   const [all, setAll] = useState(false);
@@ -323,6 +329,25 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
       onSuccess: (result) => showToast(postMessage(result)),
       onError: (error) => showToast(apiErrorMessage(error, "Nie udało się zaksięgować wyciągu."), "error"),
     });
+
+  const drop = async () => {
+    const ok = await askConfirm({
+      title: "Usunąć wyciąg?",
+      description:
+        "Znikną operacje wyciągu i zapłaty faktur dopasowane z tego pliku (Przelewy i Faktury do klientów). " +
+        "Plik można potem wczytać od nowa.",
+      confirmLabel: "Usuń wyciąg",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    remove.mutate(statement.id, {
+      onSuccess: (result) => {
+        showToast(deleteMessage(result));
+        onClose();
+      },
+      onError: (error) => showToast(apiErrorMessage(error, "Nie udało się usunąć wyciągu."), "error"),
+    });
+  };
 
   return (
     <SectionCard
@@ -353,6 +378,11 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
           <Button size="sm" disabled={blocker != null} title={blocker ?? undefined} loading={post.isPending} onClick={run}>
             Zaksięguj wyciąg
           </Button>
+          {config.me.admin && statement.documents.length === 0 ? (
+            <Button size="sm" variant="ghost" loading={remove.isPending} onClick={drop}>
+              Usuń wyciąg
+            </Button>
+          ) : null}
           {blocker ? <span className="max-w-[300px] text-[12px] text-warning-muted-foreground sm:text-right">{blocker}</span> : null}
           {statement.documents.length ? (
             <span className="text-[12px] text-muted-foreground">
@@ -435,6 +465,7 @@ function StatementBody({ statement, onClose }: { statement: BankStatement; onClo
           </button>
         </div>
       ) : null}
+      {confirmDialog}
     </SectionCard>
   );
 }
