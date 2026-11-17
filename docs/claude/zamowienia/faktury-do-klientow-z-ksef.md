@@ -143,11 +143,11 @@
   `MAX_DOWNLOADS + BACKFILL_EXTRA_DOWNLOADS` (20 + 30 = 50) pobrań faktury; limit KSeF na produkcji to 64 na godzinę
   i dzieli go pętla zakupów (do 40, zwykle kilka). Po `done` wraca 20. Przekroczenie limitu daje blokadę 429
   (`blocked_until`), nie utratę danych.
-- **Adres nabywcy z `Podmiot2/Adres` (0730, 17.11.2026).** Lista „Czeka na Symfonię” i plik dla księgowej potrzebują
+- **Adres nabywcy z `Podmiot2/Adres` (0731, 17.11.2026).** Lista „Czeka na Symfonię” i plik dla księgowej potrzebują
   adresu nabywcy, a `clients.address` miał go u 11 ze 170 klientów (staging 17.11: 206 z 208 nabywców bez adresu).
   `client_sales_invoices` ma `buyer_country`, `buyer_address_line1`, `buyer_address_line2` (`KodKraju`, `AdresL1`,
   `AdresL2`) i `buyer_address_read_at`; nowe faktury zapisują je przy pobraniu (`buyer_address.columns`). Faktury
-  sprzed 0730 (`buyer_address_read_at IS NULL`) doczytuje ta sama pętla (`buyer_address.py`): najpierw z XML-a, który
+  sprzed 0731 (`buyer_address_read_at IS NULL`) doczytuje ta sama pętla (`buyer_address.py`): najpierw z XML-a, który
   już jest w bazie (`client_issued_invoices.xml`, `client_sales_invoice_einvoices.fa_xml`), potem z KSeF z resztki
   budżetu pobrań, na samym końcu przebiegu — po bieżących fakturach, e-fakturach i zaległych oknach. Plik bierzemy
   tylko ze skrótem równym `xml_sha256`. `buyer_address_read_at` stawiamy też, gdy adresu w pliku nie ma, skrót się nie

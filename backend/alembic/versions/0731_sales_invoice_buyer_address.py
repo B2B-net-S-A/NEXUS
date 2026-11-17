@@ -1,7 +1,7 @@
 """Faktury sprzedażowe: adres nabywcy z ``Podmiot2/Adres`` dla kartoteki Symfonii.
 
-Revision ID: 0730_sales_invoice_buyer_address
-Revises: 0729_candidate_terms_requests
+Revision ID: 0731_sales_invoice_buyer_address
+Revises: 0730_champion_profile_revisions
 
 SQL ma jedno źródło (``app/services/client_sales_invoices_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``. Same dodania kolumn
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services import client_sales_invoices_schema as schema
 
-revision = "0730_sales_invoice_buyer_address"
-down_revision = "0729_candidate_terms_requests"
+revision = "0731_sales_invoice_buyer_address"
+down_revision = "0730_champion_profile_revisions"
 branch_labels = None
 depends_on = None
 

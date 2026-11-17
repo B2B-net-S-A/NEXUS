@@ -1,4 +1,4 @@
-"""Adres nabywcy z ``Podmiot2/Adres`` faktury sprzedażowej (0730) — bez bazy.
+"""Adres nabywcy z ``Podmiot2/Adres`` faktury sprzedażowej (0731) — bez bazy.
 
 XML-e są sfabrykowane z fikstury KSeF (``tests/data/ksef/sales``): fikcyjny
 nabywca i adres, bez danych prawdziwych firm (repo jest publiczne).

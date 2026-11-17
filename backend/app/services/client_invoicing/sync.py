@@ -450,7 +450,7 @@ async def _einvoice_backfill(run: _Run) -> None:
 
 
 async def _address_from_db(run: _Run) -> None:
-    """Adres nabywcy faktur sprzed 0730 z XML-a, który już jest w bazie."""
+    """Adres nabywcy faktur sprzed 0731 z XML-a, który już jest w bazie."""
 
     try:
         run.counts["buyer_address"] += await buyer_address.backfill_local(
@@ -464,7 +464,7 @@ async def _address_from_db(run: _Run) -> None:
 
 
 async def _address_from_ksef(run: _Run) -> None:
-    """Adres nabywcy faktur sprzed 0730 z KSeF — z resztki budżetu, na końcu."""
+    """Adres nabywcy faktur sprzed 0731 z KSeF — z resztki budżetu, na końcu."""
 
     if run.downloads_left <= 0:
         return
