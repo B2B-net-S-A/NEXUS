@@ -46,10 +46,13 @@ def _no_background_gate(monkeypatch):
 
 
 async def _run(
-    kind: str = "collect", request: dict | None = None, **over
+    kind: str = "collect", request: dict | None = None, *, schema_version: int = 1, **over
 ) -> tuple[int, str]:
     async with AsyncSessionLocal() as db:
         run, token = runs.new_run(kind, request or {}, now=datetime.now(timezone.utc))
+        # Existing fixtures represent callbacks already in flight before v2.
+        if schema_version == 1:
+            run.request = {k: v for k, v in run.request.items() if k != "_schema_version"}
         for key, value in over.items():
             setattr(run, key, value)
         db.add(run)
@@ -180,7 +183,7 @@ async def _close_open_analyze() -> None:
 
 
 @pytest.mark.asyncio
-async def test_gate_then_analyst_gets_only_items_that_passed(monkeypatch) -> None:
+async def test_gate_then_analyst_gets_only_items_that_passed(app_client, monkeypatch) -> None:
     monkeypatch.setattr(
         settings, "GROK_BOT_LAW_ANALYZE_WEBHOOK_URL", "https://bot.example/a"
     )
@@ -226,15 +229,158 @@ async def test_gate_then_analyst_gets_only_items_that_passed(monkeypatch) -> Non
     gates = {i.title.rsplit("-", 1)[-1]: i.gate for i in await _items(run_id)}
     assert gates == {"ok": "verified", "bad": "rejected", "none": "unverified"}
     assert result["analyze_run_id"] is not None and len(sent) == 1
-    titles = {item["title"] for item in sent[0]["request"]["items"]}
+    trigger = sent[0]
+    assert trigger["schema_version"] == 2
+    assert trigger["request_url"] == trigger["callback_url"]
+    assert trigger["request_url"].endswith(f"/runs/{result['analyze_run_id']}")
+    assert "request" not in trigger and "report_format" not in trigger
+    assert len(json.dumps(trigger, ensure_ascii=False).encode()) < 2048
+    fetched = await app_client.get(
+        f"{URL}/{result['analyze_run_id']}", headers={"X-Run-Token": trigger["token"]}
+    )
+    assert fetched.status_code == 200, fetched.text
+    request = fetched.json()["request"]
+    titles = {item["title"] for item in request["items"]}
     assert f"Ustawa {tag}-ok" in titles and f"Ustawa {tag}-none" in titles
     assert f"Ustawa {tag}-bad" not in titles
     verified = next(
-        i for i in sent[0]["request"]["items"] if i["title"] == f"Ustawa {tag}-ok"
+        i for i in request["items"] if i["title"] == f"Ustawa {tag}-ok"
     )
     assert verified["entry_into_force"] == "2027-01-01"
     assert sent[0]["callback_url"].endswith(f"/runs/{result['analyze_run_id']}")
     await _close_open_analyze()
+
+
+async def _analysis_items(count: int = 2) -> list[dict]:
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        rows = [
+            LawRadarItem(
+                fingerprint=uuid.uuid4().hex,
+                source="sejm",
+                klass="official",
+                gate="verified",
+                title=f"Ustawa testowa {tag} {index}",
+                url=f"https://sejm.gov.pl/{tag}/{index}",
+                published=date(2026, 11, 14),
+                quote="Zmiana obowiązków sprawozdawczych. " * 10,
+            )
+            for index in range(count)
+        ]
+        db.add_all(rows)
+        await db.commit()
+        return [{"id": row.id, "title": row.title, "quote": row.quote} for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_v2_get_returns_the_complete_stored_request_without_consuming_token(app_client):
+    items = await _analysis_items(25)
+    request = {
+        "items": items,
+        "topics": ["VAT", "Kadry i płace"],
+        "open_changes": [{"id": 123, "title": "Zmiana testowa", "legal_ref": "DU/2026/473"}],
+        "probes": [{"key": "test", "description": "Umowy B2B"}],
+        "roles": ["accounting", "payroll"],
+        "stages": ["sejm", "journal"],
+        "urgencies": ["now", "soon"],
+        "max_changes": 50,
+    }
+    assert len(json.dumps(request, ensure_ascii=False).encode()) > 10_000
+    run_id, token = await _run("analyze", request, schema_version=2)
+    headers = {"X-Run-Token": token}
+    for _ in range(2):
+        fetched = await app_client.get(f"{URL}/{run_id}", headers=headers)
+        assert fetched.status_code == 200, fetched.text
+        assert "no-store" in fetched.headers.get("cache-control", "")
+        body = fetched.json()
+        assert body["request"] == request  # includes the last item and trailing context
+        assert "_schema_version" not in body["request"]
+        assert "request.items" in body["task"]
+        assert "reviewed_item_ids" in body["report_format"]
+        assert token not in fetched.text
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(LawRadarRun, run_id)
+        assert stored.status == "started" and stored.received_at is None
+        assert stored.token_hash == runs.hash_token(token)
+        assert stored.request["_schema_version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_analysis_request_get_rejects_missing_wrong_expired_cross_run_and_cross_kind_tokens(app_client):
+    request = {"items": [], "open_changes": []}
+    run_id, token = await _run("analyze", request, schema_version=2)
+    other_id, _ = await _run("analyze", request, schema_version=2)
+    expired_id, expired_token = await _run(
+        "analyze", request, schema_version=2,
+        token_expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    collect_id, collect_token = await _run()
+    consumed_id, consumed_token = await _run(
+        "analyze", request, schema_version=2, status="received", token_hash=None,
+    )
+    cases = [
+        (run_id, {}),
+        (run_id, {"X-Run-Token": "wrong"}),
+        (other_id, {"X-Run-Token": token}),
+        (run_id + 100_000, {"X-Run-Token": token}),
+        (expired_id, {"X-Run-Token": expired_token}),
+        (collect_id, {"X-Run-Token": collect_token}),
+        (consumed_id, {"X-Run-Token": consumed_token}),
+    ]
+    for rid, auth in cases:
+        response = await app_client.get(f"{URL}/{rid}", headers=auth)
+        assert response.status_code == 401, (rid, response.text)
+        assert response.json()["detail"] == runs.INVALID_TOKEN_DETAIL
+
+
+@pytest.mark.asyncio
+async def test_v2_rejects_incomplete_review_without_writing_and_accepts_full_coverage_once(app_client):
+    items = await _analysis_items()
+    ids = [item["id"] for item in items]
+    run_id, token = await _run("analyze", {"items": items, "open_changes": []}, schema_version=2)
+    headers = {"X-Run-Token": token}
+    change = {
+        "title": f"Zmiana testowa {uuid.uuid4().hex[:8]}",
+        "summary": ["Opis zmiany."],
+        "roles": ["accounting"],
+        "urgency": "soon",
+        "stage": "sejm",
+        "item_ids": [ids[0]],
+    }
+    invalid_reports = [
+        {"changes": [change]},
+        {"changes": [change], "reviewed_item_ids": []},
+        {"changes": [change], "reviewed_item_ids": ids[:1]},
+        {"changes": [change], "reviewed_item_ids": [*ids, ids[0]]},
+        {"changes": [change], "reviewed_item_ids": [*ids, 999_999_999]},
+        {"changes": [change], "reviewed_item_ids": [str(cid) for cid in ids]},
+        {"changes": [change], "reviewed_item_ids": None},
+    ]
+    for payload in invalid_reports:
+        rejected = await app_client.post(f"{URL}/{run_id}", json=payload, headers=headers)
+        assert rejected.status_code == 422, rejected.text
+        async with AsyncSessionLocal() as db:
+            stored = await db.get(LawRadarRun, run_id)
+            assert stored.status == "started" and stored.received_at is None
+            assert stored.token_hash == runs.hash_token(token) and stored.report == {}
+            assert await db.scalar(select(LawChange.id).where(LawChange.title == change["title"])) is None
+            untouched = (await db.scalars(select(LawRadarItem).where(LawRadarItem.id.in_(ids)))).all()
+            assert all(item.analyzed_at is None and item.change_id is None and item.analyze_run_id is None for item in untouched)
+        # Validation failure must not consume the GET capability either.
+        assert (await app_client.get(f"{URL}/{run_id}", headers=headers)).status_code == 200
+
+    # Explicitly reviewed but irrelevant items may yield no changes. Order is immaterial.
+    accepted = await app_client.post(
+        f"{URL}/{run_id}", json={"changes": [], "reviewed_item_ids": list(reversed(ids))}, headers=headers
+    )
+    assert accepted.status_code == 200, accepted.text
+    async with AsyncSessionLocal() as db:
+        stored = await db.get(LawRadarRun, run_id)
+        reviewed = (await db.scalars(select(LawRadarItem).where(LawRadarItem.id.in_(ids)))).all()
+        assert stored.status == "received" and stored.token_hash is None
+        assert all(item.analyzed_at is not None and item.analyze_run_id == run_id for item in reviewed)
+    assert (await app_client.get(f"{URL}/{run_id}", headers=headers)).status_code == 401
+    assert (await app_client.post(f"{URL}/{run_id}", json={"changes": [], "reviewed_item_ids": ids}, headers=headers)).status_code == 401
 
 
 @pytest.mark.asyncio

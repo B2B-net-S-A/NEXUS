@@ -15,8 +15,10 @@ Auto Review, adres i klucz webhooka) jest ten sam co w Sprzedaży:
    tokenem (`token`, 2 godziny, raz).
 2. Zbieracz odsyła jeden `POST` z surowymi pozycjami. NEXUS sam sprawdza numery
    aktów i druków w API Sejmu (bramka).
-3. Zaraz potem NEXUS wywołuje webhook rutyny **Analityk** z pozycjami po bramce.
-   Analityk odsyła jeden `POST` ze zmianami w prawie.
+3. Zaraz potem NEXUS wywołuje webhook rutyny **Analityk** z adresem zlecenia.
+   Analityk pobiera pełne zlecenie przez `GET` z tokenem biegu, przegląda pozycje
+   po bramce i odsyła jeden `POST` ze zmianami w prawie oraz listą przejrzanych
+   identyfikatorów. NEXUS przyjmuje raport po potwierdzeniu całego zlecenia.
 4. NEXUS liczy sondy „u nas” i pokazuje zmiany na ekranie „Przepisy”. Maili nie ma.
 
 Boty nie znają się nawzajem i nie mają stałego klucza do NEXUSA.
@@ -169,9 +171,13 @@ zapisuj go w plikach, notatkach ani pamięci.
 ## 5. Polecenie rutyny Analityk (v1, treść do wklejenia)
 
 ```text
-Dostajesz w wejściu webhooka JSON z polami: run_id, kind ("analyze"), task,
-report_format, request (items, topics, open_changes, probes, roles, stages,
-urgencies, max_changes), callback_url, token, expires_at.
+Dostajesz w wejściu webhooka JSON z polami: schema_version, run_id,
+kind ("analyze"), task, request_url, callback_url, token, expires_at.
+
+Dla schema_version=2 pobierz zlecenie jednym GET na request_url z nagłówkiem
+X-Run-Token: {token}. W odpowiedzi 200 otrzymasz task, report_format oraz
+request (items, topics, open_changes, probes, roles, stages, urgencies,
+max_changes). W starszym schema_version=1 te trzy pola były w webhooku.
 
 Zrób dokładnie to, co mówi pole task, na pozycjach z request.items.
 Nie rób niczego, czego task nie mówi.
@@ -192,8 +198,10 @@ Na koniec wyślij JEDNO żądanie:
 POST {callback_url}
 Content-Type: application/json
 X-Run-Token: {token}
-z treścią w kształcie report_format: {"changes": [...]}, te same pola, bez
-dodatkowych pól i bez komentarzy. Gdy nic nie pasuje, wyślij {"changes": []}.
+z treścią w kształcie report_format. W schema_version=2 w reviewed_item_ids
+podaj id wszystkich przejrzanych pozycji, również tych bez zmiany. Jeśli
+nic nie pasuje, odeślij pustą listę changes wraz z reviewed_item_ids.
+Gdy zlecenie jest niedostępne lub niepełne, nie wysyłaj raportu.
 Nic więcej nie wysyłaj. Token jest jednorazowy i ważny do expires_at; nie
 zapisuj go w plikach, notatkach ani pamięci.
 ```
