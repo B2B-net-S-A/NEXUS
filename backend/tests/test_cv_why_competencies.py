@@ -137,3 +137,40 @@ def test_fit_verdict_is_still_removed():
     data = {"why_points": ["5 lat doświadczenia jako Analyst", "a", point, "c", "d"]}
     _helpers._apply_summary_standard(data, "pl")
     assert point not in data["why_points"]
+
+
+_DEVOPS = [
+    ("11.2023 – 11.2026", "DevOps Consultant", "Atos"),
+    ("12.2022 – 10.2023", "DevOps Developer", "Acme"),
+    ("09.2021 – 11.2022", "DevOps Consultant", "Beta"),
+    ("04.2021 – 08.2021", "DevOps Engineer", "Gamma"),
+    ("08.2019 – 03.2021", "Cloud Operations Engineer", "Delta"),
+    ("06.2018 – 07.2019", "Support Engineer", "Delta"),
+]
+
+
+def test_role_subfigure_too_low_is_raised_to_role_dates():
+    """Sol napisał „w tym ponad 1 rok jako DevOps” przy 5,5 roku w rolach DevOps."""
+    data = _data(
+        "Ponad 8 lat doświadczenia w IT, w tym ponad 1 rok jako DevOps", _DEVOPS
+    )
+    _helpers._fix_experience_years(data, "pl")
+    assert data["why_points"][0] == (
+        "Ponad 8 lat doświadczenia w IT, w tym ponad 5 lat jako DevOps"
+    )
+
+
+def test_role_subfigure_never_goes_above_the_area_figure():
+    data = _data("Ponad 3 lata doświadczenia w IT, w tym 1 rok jako DevOps", _DEVOPS)
+    _helpers._fix_experience_years(data, "pl")
+    assert data["why_points"][0] == (
+        "Ponad 3 lata doświadczenia w IT, w tym ponad 3 lata jako DevOps"
+    )
+
+
+def test_lower_role_subfigure_without_matching_role_stays():
+    data = _data("Ponad 8 lat doświadczenia w IT, w tym 2 lata jako Architekt", _DEVOPS)
+    _helpers._fix_experience_years(data, "pl")
+    assert data["why_points"][0] == (
+        "Ponad 8 lat doświadczenia w IT, w tym 2 lata jako Architekt"
+    )

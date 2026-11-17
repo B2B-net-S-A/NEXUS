@@ -50,6 +50,27 @@ i poziom języka w CEFR; reguła Nordei z numerem w tytule zostaje.
 - **„Dopasuj pod rekrutację”** w edytorze (`cv_command_ai.TAILOR_PRESET`) pisze
   punkty 3–5 w tej samej formie.
 
+## Pomiar na Solu przed wdrożeniem (17.11.2026)
+
+6 CV (Orlen ×2, PKO, Alior, Nordea ×2), po 2 biegi przed i po, tryb „tailored”, polityki
+centralne jak na produkcji. „Specjalizacja” 12/12 → 0/12; punkty 3–5 od czasownika
+w przeszłym 36/36 → 0/36; z firmą lub projektem 14/36 → 34/36; zawsze 5 punktów; mediana
+punktów 2–5 148 → 196 znaków (max 31 słów); kategoria AI w 7/12 CV; Blind CV 6 biegów
+bez nazwy firmy w punktach. Po pierwszym pomiarze dopisane:
+
+- **Stopień udziału zostaje** („uczestniczyła” nie staje się „projektowaniem”) — model
+  zdejmował osłabienie przy formie „Doświadczenie w…”.
+- **„w tym M lat jako X”**: M to suma wszystkich ról zawodu, jedno określenie, punkt 1 do
+  ~20 słów; `_fix_role_subfigure` podnosi zbyt niskie M do sumy dat pasujących ról (Sol
+  napisał „ponad 1 rok jako DevOps” przy ponad 5 latach), nigdy ponad liczbę obszaru.
+- **Poziom języka słownie w języku CV** („German basic” w polskim CV → „podstawowy”).
+- **Kategoria AI tylko z nazwanymi technologiami**, bez ogólników („artificial
+  intelligence” u Scrum Mastera po kursie wstępnym).
+
+Kontrola AI nie recenzuje `why_points` (`factual_verification.NARRATIVE_SECTIONS`, decyzja
+z audytu 22.09), więc dłuższe punkty z firmami nie są sprawdzane automatycznie — przy
+przeglądzie po tygodniu czytaj je z oryginałem.
+
 ## Czego tu nie ma
 
 - Uwagi w edytorze (skąd liczba lat, data końca przed startem, rola bez miesięcy
