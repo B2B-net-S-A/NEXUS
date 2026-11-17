@@ -95,3 +95,12 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   „B2B.net S.A.” tylko na ekranie; `jobs.description` zostaje jak w zapytaniu.
   Akapit zgody na karcie klienta PKO BP stoi w „Zasadach procesu” (znacznik
   `pko_playbook_consent_moved` w `entrypoint.sh`, seed poprawiony).
+- **Gotowe CV z innej rekrutacji z nową zgodą (zgłoszenie z zespołu i decyzja Artura
+  17.11.2026, wariant A z makiet).** Przy bliźniakach i kolejnych rekrutacjach PKO BP
+  rekruter generował drugie CV tylko dlatego, że zgoda ma numer ZOB, a kopia CV
+  w obrębie klienta zabierała zgodę ze starego ZOB. Pasek „Ta osoba ma już gotowe CV”
+  u klienta z wymogiem zgody, gdy najlepsze gotowe CV to CV etapu z innej rekrutacji,
+  ma pole zrzutu i „Użyj tego CV z nową zgodą”; `select-stage-cv` przyjmuje
+  `consent_screenshot_token` i dołącza zgodę (`attach_to_stage_copy`) w tej samej
+  transakcji co kopię. Zły zrzut = 422 i brak kopii, nie CV ze starą zgodą.
+  Okno „Użyj innego CV” i kopia bez tokenu działają jak dotąd.

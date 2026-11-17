@@ -147,11 +147,13 @@ export function useChooseStageCv({
     onChosen?.(response.data);
   };
   const mutation = useMutation({
-    mutationFn: (option: StageCvOption) =>
+    mutationFn: ({ option, consentToken }: { option: StageCvOption; consentToken?: string }) =>
       option.kind === "generated"
         ? candidateStageCvApi.branded.selectGenerated(targetStageId, option.id, revision)
         : option.kind === "stage"
-          ? candidateStageCvApi.branded.selectStageCv(targetStageId, option.id, revision)
+          ? consentToken
+            ? candidateStageCvApi.branded.selectStageCv(targetStageId, option.id, revision, consentToken)
+            : candidateStageCvApi.branded.selectStageCv(targetStageId, option.id, revision)
           : candidateStageCvApi.branded.selectDocument(targetStageId, option.id, revision),
     onSuccess,
     onError: (error) =>
@@ -169,10 +171,13 @@ export function useChooseStageCv({
       ),
   });
   return {
-    choose: (option: StageCvOption) => mutation.mutate(option),
+    choose: (option: StageCvOption) => mutation.mutate({ option }),
+    /** CV etapu z innej rekrutacji z nowym zrzutem zgody do tej (17.11.2026). */
+    chooseWithConsent: (option: StageCvOption, consentToken: string) =>
+      mutation.mutate({ option, consentToken }),
     /** Plik Word z dysku → szkic (bez zapisu w plikach kandydata). */
     upload: (file: File) => uploadMutation.mutate(file),
-    busyKey: mutation.isPending ? (mutation.variables?.key ?? null) : null,
+    busyKey: mutation.isPending ? (mutation.variables?.option.key ?? null) : null,
     uploading: uploadMutation.isPending,
   };
 }

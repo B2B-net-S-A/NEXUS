@@ -1344,7 +1344,7 @@
   {
    "id": "cv.to-client-ready-hint",
    "area": "cv",
-   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem",
+   "opis": "Pasek „Ta osoba ma już gotowe CV” — podpowiedź najlepszego gotowego CV, gdy CV jeszcze nie ma albo leży nieprzejrzane auto-CV; „Użyj tego CV” podmienia jednym kliknięciem; od 17.11.2026 u klienta ze zrzutem zgody (PKO BP) CV etapu z innej rekrutacji idzie z nową zgodą: pole zrzutu w pasku i „Użyj tego CV z nową zgodą”",
    "file": "components/v2/recruitment/CvToClientCard.tsx",
    "marker": "Ta osoba ma już gotowe CV",
    "v3_home": "panel → CV → karta „CV do klienta”"

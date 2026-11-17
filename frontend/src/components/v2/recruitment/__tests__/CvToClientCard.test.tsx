@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => ({
   restorePrevious: vi.fn(),
   discard: vi.fn(),
   selectStageCv: vi.fn(),
+  /** Klient rekrutacji wymaga zrzutu zgody (polityka albo reguła klienta). */
+  consentRequired: false,
   selectDocument: vi.fn(),
   sources: vi.fn(),
   otherDialogProps: null as null | Record<string, unknown>,
@@ -100,6 +102,7 @@ vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({
 }));
 vi.mock("@/components/v2/recruitment/ConsentRequestNotice", () => ({
   ConsentRequestNotice: (props: { moment: string }) => <div data-testid="consent-notice">{props.moment}</div>,
+  useClientConsentRequired: () => mocks.consentRequired,
 }));
 vi.mock("@/components/v2/recruitment/ConsentRequestButton", () => ({
   ConsentRequestButton: () => <button type="button">Poproś kandydata o zgodę</button>,
@@ -278,6 +281,7 @@ beforeEach(() => {
     return Promise.resolve({ data: { job_id: 42, items: events, limit: 30 } });
   });
   mocks.sources.mockResolvedValue({ data: { items: [] } });
+  mocks.consentRequired = false;
   mocks.brandedGet.mockResolvedValue({ data: { status: "none", edit_revision: 0, version: 0 } });
   mocks.originalGet.mockResolvedValue({
     data: { has_snapshot: true, original_cv_filename: "Jan_Kowalski_CV.pdf", original_snapshot_at: "2026-09-12T10:00:00Z" },
@@ -1271,6 +1275,59 @@ describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
     expect(screen.queryByText("Zastąpić CV do klienta?")).toBeNull();
     expect(await screen.findByTestId("cv-origin-badge")).toHaveTextContent("z rekrutacji ZOB-9000");
     expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
+  });
+
+  it("klient ze zrzutem zgody: CV z innej rekrutacji idzie z nową zgodą do tej (17.11.2026)", async () => {
+    // Reguła klienta, nie polityka centralna — tak jest dziś u PKO BP na stagingu.
+    mocks.consentRequired = true;
+    mocks.apiPost.mockImplementation(async (url: string) => {
+      if (url === "/api/cv-generator/consent-screenshot") {
+        return { data: { consent_token: "tok-zgoda-3110", filename: "zgoda.png", check: null } };
+      }
+      throw new Error(`unexpected POST ${url}`);
+    });
+    mocks.sources.mockResolvedValue({
+      data: {
+        items: [
+          { job_id: 300, stage_id: 31, job_title: "ZOB-3097 usługa projektowania UI/UX", reference_number: "PB/036/2026", status: "draft", version: 1, consent_carried: true },
+        ],
+      },
+    });
+    mocks.selectStageCv.mockResolvedValue({ data: COPY });
+    renderCard({ jobTitle: "ZOB-3110 usługa projektowania UI/UX" });
+
+    const hint = await screen.findByTestId("ready-cv-hint");
+    expect(hint).toHaveTextContent("Zgoda z ZOB-3097 nie przechodzi — wgraj zrzut zgody do ZOB-3110.");
+    // Zdanie „zrzut przejdzie razem z CV” byłoby nieprawdą: z kopią idzie nowa zgoda.
+    expect(hint).not.toHaveTextContent("przejdzie razem z CV");
+    expect(within(hint).queryByRole("button", { name: "Użyj tego CV" })).toBeNull();
+    const use = within(hint).getByRole("button", { name: "Użyj tego CV z nową zgodą" });
+    expect(use).toBeDisabled();
+
+    const input = within(hint).getByLabelText(/Zrzut zgody kandydata/);
+    await userEvent.upload(input, new File(["png"], "zgoda.png", { type: "image/png" }));
+    await waitFor(() => expect(use).toBeEnabled());
+    await userEvent.click(use);
+
+    await waitFor(() => expect(mocks.selectStageCv).toHaveBeenCalledWith(21, 300, 0, "tok-zgoda-3110"));
+    const [, form] = mocks.apiPost.mock.calls.find(([url]) => url === "/api/cv-generator/consent-screenshot")!;
+    // Pokwitowanie dla wiersza, na którym powstanie kopia — tak samo liczy je serwer.
+    expect((form as FormData).get("candidate_id")).toBe("121");
+    expect((form as FormData).get("stage_id")).toBe("21");
+  });
+
+  it("klient ze zrzutem zgody, ale najlepsze gotowe CV to plik Word: bez pola zgody w pasku", async () => {
+    // Reguła klienta, nie polityka centralna — tak jest dziś u PKO BP na stagingu.
+    mocks.consentRequired = true;
+    documents = [
+      { id: 9, filename: "CV_B2B_Jan_Kowalski.docx", document_kind: "cv", is_primary: false, uploaded_at: "2026-10-01T10:00:00Z", created_at: "2026-10-01T10:00:00Z" },
+    ];
+    renderCard();
+
+    const hint = await screen.findByTestId("ready-cv-hint");
+    expect(hint).toHaveTextContent("CV_B2B_Jan_Kowalski.docx");
+    expect(within(hint).getByRole("button", { name: "Użyj tego CV" })).toBeEnabled();
+    expect(within(hint).queryByTestId("consent-screenshot-field")).toBeNull();
   });
 
   it("auto-CV nieprzejrzane, a w profilu leży plik Word: podmiana po potwierdzeniu", async () => {
