@@ -63,7 +63,9 @@ import {
   AlertOctagon,
   Ellipsis,
   ChevronDown,
+  Search,
 } from "lucide-react";
+import { contactMatches } from "@/lib/client-contacts-search";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -710,6 +712,11 @@ function ContactsTab({ clientId }: { clientId: number }) {
     if (sa !== sb) return sa - sb;
     return a.name.localeCompare(b.name);
   });
+  const [contactQuery, setContactQuery] = useState("");
+  const isFiltering = contactQuery.trim() !== "";
+  const visibleContacts = isFiltering
+    ? contacts.filter((c) => contactMatches(c, contactQuery))
+    : contacts;
 
   const createMutation = useMutation({
     mutationFn: (data: object) => api.post(`/api/contacts`, { ...data, client_id: clientId }),
@@ -760,17 +767,51 @@ function ContactsTab({ clientId }: { clientId: number }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h2 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
           Osoby kontaktowe
           {contactsState === "ready" || contactsState === "empty" ? (
             <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold leading-[18px] text-muted-foreground tabular-nums">
-              {contacts.length}
+              {isFiltering ? `${visibleContacts.length} z ${contacts.length}` : contacts.length}
             </span>
           ) : null}
         </h2>
+        {contacts.length > 0 ? (
+          <div className="relative ml-3 w-full max-w-xs flex-1 sm:w-auto">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <input
+              type="search"
+              value={contactQuery}
+              onChange={(e) => setContactQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setContactQuery("");
+              }}
+              placeholder="Szukaj: osoba, e-mail, telefon, stanowisko"
+              aria-label="Szukaj w kontaktach klienta"
+              data-tour="clients.contacts.search"
+              className={cn(
+                "h-8 w-full appearance-none rounded-md border border-input bg-background pl-8 text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-hidden focus:ring-2 focus:ring-ring [&::-webkit-search-cancel-button]:hidden",
+                contactQuery ? "pr-8" : "pr-3",
+              )}
+            />
+            {contactQuery ? (
+              <button
+                type="button"
+                onClick={() => setContactQuery("")}
+                aria-label="Wyczyść wyszukiwanie"
+                className="hit-area absolute right-1.5 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+              >
+                <X aria-hidden className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {canCreateContact && (
           <Button
+            className="ml-auto"
             size="sm"
             variant="primary"
             onClick={() => { setOrgDraft(null); setShowAdd(true); setEditContact(null); }}
@@ -830,11 +871,18 @@ function ContactsTab({ clientId }: { clientId: number }) {
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak kontaktów dla tego klienta</p>
         </div>
-      ) : contacts.length === 0 ? null : (
+      ) : contacts.length === 0 ? null : visibleContacts.length === 0 ? (
+        <div className="py-10 text-center text-sm text-muted-foreground">
+          <p>Żaden kontakt nie pasuje do „{contactQuery.trim()}”.</p>
+          <Button className="mt-2" size="sm" variant="ghost" onClick={() => setContactQuery("")}>
+            Wyczyść wyszukiwanie
+          </Button>
+        </div>
+      ) : (
         <Table density="compact" className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className={CALM_HEAD}>Osoba</TableHead>
+              <TableHead className={cn(CALM_HEAD, "min-w-[15rem]")}>Osoba</TableHead>
               <TableHead className={CALM_HEAD}>E-mail</TableHead>
               <TableHead className={CALM_HEAD}>Telefon</TableHead>
               <TableHead className={CALM_HEAD}>Siła relacji</TableHead>
@@ -845,7 +893,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {contacts.map((contact) => {
+            {visibleContacts.map((contact) => {
               if (editContact?.id === contact.id) {
                 return (
                   <TableRow key={contact.id}>
@@ -917,7 +965,10 @@ function ContactsTab({ clientId }: { clientId: number }) {
                             )}
                           </div>
                           {contact.position || contact.department ? (
-                            <span className={CALM_SUBLINE}>
+                            <span
+                              className={cn(CALM_SUBLINE, "line-clamp-1")}
+                              title={[contact.position, contact.department].filter(Boolean).join(" · ")}
+                            >
                               {[contact.position, contact.department]
                                 .filter(Boolean)
                                 .join(" · ")}
@@ -933,7 +984,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                           title={contact.email}
                           // Jedna linia z wielokropkiem — łamany w pół słowa adres
                           // („…exampl / e”) trudniej przeczytać niż przycięty.
-                          className="block max-w-[19rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                          className="block max-w-[14rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                         >
                           {contact.email}
                         </a>
@@ -941,13 +992,21 @@ function ContactsTab({ clientId }: { clientId: number }) {
                         <span className={CALM_EMPTY}>—</span>
                       )}
                     </TableCell>
-                    <TableCell className="whitespace-nowrap tabular-nums">
+                    <TableCell className="tabular-nums">
                       {contact.phone ? (
                         <a
                           href={`tel:${contact.phone}`}
                           className="hover:underline pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                         >
-                          {formatPhone(contact.phone)}
+                          {/* Dwa numery w jednym polu łamią się na „/”, nigdy w środku numeru. */}
+                          {formatPhone(contact.phone)
+                            .split(/\s*\/\s*/)
+                            .map((part, i) => (
+                              <Fragment key={i}>
+                                {i > 0 ? "\u00a0/ " : ""}
+                                <span className="whitespace-nowrap">{part}</span>
+                              </Fragment>
+                            ))}
                         </a>
                       ) : (
                         <span className={CALM_EMPTY}>—</span>
@@ -986,7 +1045,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           <Button
-                            size="sm"
+                            size="icon-sm"
                             variant="outline"
                             onClick={() => setEditingKeyRelationship(contact)}
                             aria-label="Edytuj relację"
@@ -999,16 +1058,15 @@ function ContactsTab({ clientId }: { clientId: number }) {
                               )}
                               aria-hidden="true"
                             />
-                            Relacja
                           </Button>
                           <Button
-                            size="sm"
+                            size="icon-sm"
                             variant="outline"
                             onClick={() => openEdit(contact)}
                             aria-label="Edytuj kontakt"
+                            title="Edytuj kontakt"
                           >
                             <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                            Edytuj
                           </Button>
                           <DeleteButton
                             onConfirm={() => deleteMutation.mutate(contact.id)}
