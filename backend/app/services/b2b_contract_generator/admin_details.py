@@ -145,6 +145,7 @@ async def placement_people(
         withheld = (
             RECRUITER_BONUS_WITHHELD_DEPARTED
             if pair in context.closed_after_departure
+            or pair in context.departed_at_client
             else RECRUITER_BONUS_WITHHELD_DL
         )
     owners = await owner_ids(db, [pair])

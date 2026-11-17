@@ -29,8 +29,9 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   weryfikującym jest ten sam Delivery Lead bez roli rekrutera (22.10.2026:
   DL, który sam przeprowadził osobę, dostaje jedną premię, DL-a). DL, który
   ma też rolę rekrutera, dostaje obie (decyzja Artura 25.10.2026), chyba że
-  domyka po rekruterze, który odszedł: osobę zweryfikowała u tego klienta
-  osoba z wyłączonym kontem (decyzja Artura 02.11.2026).
+  domyka po rekruterze, który odszedł: osobę zweryfikowała w tej rekrutacji
+  osoba z wyłączonym kontem (decyzja Artura 02.11.2026, zakres rekrutacji
+  doprecyzowany 17.11.2026).
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
 przez automat, ale nie wiersze z arkusza: te zostają z oznaczeniem do sprawdzenia;
@@ -229,10 +230,13 @@ class PlacementContext:
     job_leads: dict[int, int] = field(default_factory=dict)
     #: weryfikujący z rolą rekrutera (główną albo dodatkową)
     recruiter_roles: frozenset[int] = frozenset()
-    #: (kandydat, rekrutacja) domknięte po rekruterze z wyłączonym kontem
+    #: (kandydat, rekrutacja) domknięte po rekruterze z wyłączonym kontem — w tej rekrutacji
     closed_after_departure: frozenset[tuple[int, int]] = frozenset()
     #: weryfikujący → rola główna (stała premia dla roli, np. TCM)
     verifier_roles: dict[int, str] = field(default_factory=dict)
+    #: (kandydat, rekrutacja), które u tego klienta weryfikowała osoba z wyłączonym
+    #: kontem w dowolnej rekrutacji — liczy się tylko dla DL-a (02.11.2026)
+    departed_at_client: frozenset[tuple[int, int]] = frozenset()
 
     def people(self, contract: Contract) -> tuple[Optional[int], Optional[int], str]:
         """(Delivery Lead, rekruter, skąd DL).
@@ -242,8 +246,10 @@ class PlacementContext:
         (decyzje Artura 18.10.2026). DL, który sam zweryfikował osobę, nie
         dostaje do premii DL-a premii rekrutera (decyzja Artura 22.10.2026) —
         chyba że ma też rolę rekrutera: wtedy dostaje obie (25.10.2026). Domknięcie
-        po rekruterze, który odszedł, nie daje premii rekrutera nikomu: DL-owi
-        (02.11.2026) ani rekruterowi, który domknął (06.11.2026).
+        po rekruterze, który odszedł, nie daje premii rekrutera nikomu: DL-owi,
+        gdy osobę u tego klienta weryfikował ktoś, kto odszedł (02.11.2026), ani
+        rekruterowi, gdy weryfikował ją ktoś, kto odszedł, w tej samej rekrutacji
+        (06.11.2026, zakres rekrutacji doprecyzowany 17.11.2026).
         """
 
         pair = (contract.candidate_id, contract.job_id)
@@ -254,6 +260,12 @@ class PlacementContext:
         )
         dl_id, source = self._delivery_lead(contract)
         if pair in self.closed_after_departure:
+            recruiter_id = None
+        elif (
+            dl_id is not None
+            and recruiter_id == dl_id
+            and pair in self.departed_at_client
+        ):
             recruiter_id = None
         elif (
             dl_id is not None
@@ -326,7 +338,7 @@ async def load_context(
             verifier_roles[user_id] = str(getattr(role, "value", role))
             if holds_recruiter_role(role, roles):
                 recruiter_roles.add(user_id)
-    closed_after_departure = await _closed_after_departure(
+    closed_after_departure, departed_at_client = await _closed_after_departure(
         db, contracts, verifiers, recruiter_roles
     )
     # DL klienta potrzebny tylko tam, gdzie rekrutacja go nie wskazuje.
@@ -379,6 +391,7 @@ async def load_context(
         frozenset(recruiter_roles),
         closed_after_departure,
         verifier_roles,
+        departed_at_client,
     )
 
 
@@ -387,26 +400,34 @@ async def _closed_after_departure(
     contracts: Sequence[Contract],
     verifiers: Mapping[tuple[int, int], int],
     recruiter_roles: set[int],
-) -> frozenset[tuple[int, int]]:
-    """Pary, które u tego klienta weryfikowała wcześniej osoba, która odeszła.
+) -> tuple[frozenset[tuple[int, int]], frozenset[tuple[int, int]]]:
+    """Pary weryfikowane przez osobę, która odeszła: (w tej rekrutacji, u klienta).
 
     Przekazanie z ``departure_care`` przypina parę do osoby, która odeszła, ale nie
-    obejmuje odejść sprzed 28.10.2026 ani nowej rekrutacji u tego samego klienta.
-    Ślad zostaje w etapach: kandydata zweryfikowała u klienta osoba z wyłączonym
-    kontem. Taka para nie daje premii rekrutera nikomu (``PlacementContext.people``,
-    decyzje Artura 02.11 i 06.11.2026).
+    obejmuje odejść sprzed 28.10.2026. Ślad zostaje w etapach: kandydata
+    zweryfikowała osoba z wyłączonym kontem, a domknął ktoś inny. Taka para nie
+    daje premii rekrutera nikomu (``PlacementContext.people``, decyzje Artura
+    02.11 i 06.11.2026).
+
+    Zakres (doprecyzowanie Artura 17.11.2026): rekruterowi premię zabiera tylko
+    weryfikacja przez osobę, która odeszła, w rekrutacji kontraktu. Kto
+    zweryfikował osobę pod tę rekrutację, dostaje premię, choć u tego klienta
+    weryfikował ją wcześniej ktoś, kto odszedł (arkusz października tak płacił).
+    Zakres klienta zostaje tylko dla DL-a z rolą rekrutera, który sam
+    zweryfikował (decyzja 02.11.2026, przypadek Błaszczyk).
     """
 
     wanted = [
         contract
         for contract in contracts
         if contract.client_id is not None
+        and contract.job_id is not None
         and verifiers.get((contract.candidate_id, contract.job_id)) in recruiter_roles
     ]
     if not wanted:
-        return frozenset()
+        return frozenset(), frozenset()
     rows = await db.execute(
-        select(CandidateStage.candidate_id, Job.client_id)
+        select(CandidateStage.candidate_id, CandidateStage.job_id, Job.client_id)
         .join(Job, Job.id == CandidateStage.job_id)
         .join(User, User.id == CandidateStage.moved_by)
         .where(
@@ -416,12 +437,20 @@ async def _closed_after_departure(
             User.is_active.is_(False),
         )
     )
-    departed = set(rows.all())
-    return frozenset(
+    found = rows.all()
+    in_job = {(candidate, job) for candidate, job, _client in found}
+    at_client = {(candidate, client) for candidate, _job, client in found}
+    same_job = frozenset(
         (contract.candidate_id, contract.job_id)
         for contract in wanted
-        if (contract.candidate_id, contract.client_id) in departed
+        if (contract.candidate_id, contract.job_id) in in_job
     )
+    client_wide = frozenset(
+        (contract.candidate_id, contract.job_id)
+        for contract in wanted
+        if (contract.candidate_id, contract.client_id) in at_client
+    )
+    return same_job, client_wide
 
 
 def holds_dl_role(role: object, roles: object) -> bool:
