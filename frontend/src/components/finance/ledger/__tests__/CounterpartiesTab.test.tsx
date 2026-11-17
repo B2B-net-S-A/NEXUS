@@ -220,16 +220,4 @@ describe("CounterpartiesTab", () => {
     expect(await screen.findByRole("button", { name: /Spróbuj ponownie|Ponów/i })).toBeInTheDocument();
     expect(screen.queryByText(/Nikt nie czeka/)).toBeNull();
   });
-
-  it("podgląd importu mówi, ilu dalej czeka bez ID Symfonii", async () => {
-    post.mockResolvedValueOnce({ data: { ...PREVIEW, waiting: 3 } });
-    const user = userEvent.setup();
-    renderTab();
-    await screen.findByText("Jan Przykładowy IT");
-    await user.upload(
-      screen.getByLabelText("Plik kontrahentów z eBI24"),
-      new File(["Nazwa;NIP\n"], "kartka.csv", { type: "text/csv" }),
-    );
-    expect(await screen.findByText(/3 dalej czeka \(bez ID Symfonii\)/)).toBeInTheDocument();
-  });
 });

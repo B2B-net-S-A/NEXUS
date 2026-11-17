@@ -233,9 +233,6 @@ class ImportResult:
     created: int = 0
     changed: int = 0
     unchanged: int = 0
-    #: Nowi bez ID Symfonii i bez kont (plik z listy „czeka na Symfonię”
-    #: z niewypełnionym ID): nie zakładamy ich w kartotece, dalej czekają.
-    waiting: int = 0
     errors: list[dict[str, Any]] = field(default_factory=list)
     changes: list[dict[str, Any]] = field(default_factory=list)
     linked_entries: int = 0
@@ -247,7 +244,6 @@ class ImportResult:
             "created": self.created,
             "changed": self.changed,
             "unchanged": self.unchanged,
-            "waiting": self.waiting,
             "error_count": len(self.errors),
             "errors": self.errors[:ERROR_SAMPLE],
             "changes": self.changes[:ERROR_SAMPLE],
@@ -307,14 +303,6 @@ async def apply_import(
             )
             continue
         _derive_accounts(item, row)
-        if (
-            row is None
-            and not symfonia
-            and not item.values.get("cost_account")
-            and not item.values.get("revenue_account")
-        ):
-            result.waiting += 1
-            continue
         if row is None:
             twin = (
                 None

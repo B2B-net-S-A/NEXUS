@@ -144,8 +144,6 @@ export interface ImportSummary {
   created: number;
   changed: number;
   unchanged: number;
-  /** Nowi bez ID Symfonii i bez kont: nie trafili do kartoteki, dalej czekają. */
-  waiting?: number;
   error_count: number;
   errors: { line: number; message: string }[];
   changes: { line: number; name: string; fields: string[] }[];
