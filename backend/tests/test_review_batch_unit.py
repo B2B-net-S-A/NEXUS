@@ -279,7 +279,7 @@ async def test_filtered_list_is_blocked(batch_on):
 
 async def test_queue_takes_whole_levels_p0_first(monkeypatch):
     """Najpierw cały P0, potem cały P1 Pilne, potem niżej (10.11.2026); w obrębie
-    poziomu rekrutacje na zmianę, w każdej od najlepszej osoby."""
+    poziomu rekrutacja po rekrutacji (17.11.2026), w każdej od najlepszej osoby."""
     cards = [
         _card(1, 10, 90),
         _card(2, 10, 80),
@@ -334,8 +334,64 @@ async def test_queue_takes_whole_levels_p0_first(monkeypatch):
             return SimpleNamespace(all=lambda: jobs)
 
     queue = await rb.review_queue(_JobsDb(), _user(), now=NOW)
-    # P0 (30), potem P1 Pilne (20 i 40 na zmianę), potem „Bez priorytetu” (10)
-    assert [c.process_id for c in queue] == [6, 4, 7, 5, 1, 2, 3]
+    # P0 (30), potem P1 Pilne (cała 20, bo ma więcej osób, potem 40),
+    # potem „Bez priorytetu” (10)
+    assert [c.process_id for c in queue] == [6, 4, 5, 7, 1, 2, 3]
+
+
+async def test_queue_goes_job_by_job_nearest_p0_deadline_first(monkeypatch):
+    """Zgłoszenie rekrutera 17.11.2026: kolejka nie skacze między rekrutacjami.
+    W poziomie najpierw najbliższy termin P0, potem rekrutacja z większą liczbą
+    osób; ``queue_runs`` mówi, ile osób z której rekrutacji idzie po kolei."""
+    cards = [
+        _card(1, 10, 90),
+        _card(2, 10, 80),
+        _card(3, 10, 70),
+        _card(4, 20, 60),
+        _card(5, 20, 50),
+        _card(6, 30, 95),
+        _card(7, 40, 85),
+        _card(8, 40, 75),
+    ]
+
+    async def _own(_db, _uid, *, now=None):
+        return cards
+
+    async def _column(_db, *, job_ids=None, owner_id=None):
+        return [c for c in cards if c.job_id in set(job_ids or [])]
+
+    async def _order(_db, _job_id, column, *, now):
+        return sorted(column, key=lambda c: (-c.score, c.candidate_id))
+
+    monkeypatch.setattr(rb, "_own_cards", _own)
+    monkeypatch.setattr(rb, "pending_cards", _column)
+    monkeypatch.setattr(rb, "_board_order", _order)
+
+    def _job(jid, priority, p0_hours=None):
+        return SimpleNamespace(
+            id=jid,
+            priority=priority,
+            p0_until=NOW + timedelta(hours=p0_hours) if p0_hours else None,
+            status=JobStatus.published,
+        )
+
+    jobs = [
+        _job(10, JobPriority.medium, p0_hours=48),
+        _job(20, JobPriority.medium, p0_hours=5),
+        _job(30, JobPriority.urgent),
+        _job(40, JobPriority.urgent),
+    ]
+
+    class _JobsDb:
+        async def scalars(self, _stmt):
+            return SimpleNamespace(all=lambda: jobs)
+
+    queue = await rb.review_queue(_JobsDb(), _user(), now=NOW, limit=None)
+    # P0: 20 (termin za 5 h) cała, potem 10; P1 Pilne: 40 (2 osoby), potem 30.
+    assert [c.process_id for c in queue] == [4, 5, 1, 2, 3, 7, 8, 6]
+    assert rb.queue_runs(queue) == [(20, 2), (10, 3), (40, 2), (30, 1)]
+    limited = await rb.review_queue(_JobsDb(), _user(), now=NOW, limit=3)
+    assert [c.process_id for c in limited] == [4, 5, 1]
 
 
 def _multi(role: UserRole, extra: list[str]):

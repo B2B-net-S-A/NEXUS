@@ -228,6 +228,13 @@ export interface ReviewBatchQueue {
   job_rules?: Record<string, ReviewBatchLearnedRule[]>
   /** Profil „Kogo szukamy”; klucz to id rekrutacji jako tekst. */
   job_profiles?: Record<string, ReviewBatchRoleProfile>
+  /** Ile osób z której rekrutacji idzie po kolei w całej kolejce (17.11.2026). */
+  runs?: ReviewBatchQueueRun[]
+}
+
+export interface ReviewBatchQueueRun {
+  job_id: number
+  count: number
 }
 
 export async function saveRoleProfile(

@@ -36,7 +36,7 @@ import random
 import re
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
@@ -1368,12 +1368,14 @@ async def assert_search_allowed(db: AsyncSession, user: User) -> None:
 
 
 async def review_queue(
-    db: AsyncSession, user: User, *, now: datetime, limit: int = 50
+    db: AsyncSession, user: User, *, now: datetime, limit: Optional[int] = 50
 ) -> list[PendingCard]:
     """Karty osoby w kolejności przeglądu: najpierw wszystkie P0, potem P1 Pilne
-    i niżej (10.11.2026); w obrębie poziomu rekrutacje na zmianę, w każdej
-    w kolejności kolumny „Nowi” na Tablicy (P7)."""
-    from app.services.review_batch_plan import tier_of
+    i niżej (10.11.2026). W obrębie poziomu rekrutacja po rekrutacji, nie na
+    zmianę (zgłoszenie rekrutera 17.11.2026): najpierw najbliższy termin P0,
+    potem rekrutacja z większą liczbą osób. W każdej rekrutacji kolejność
+    kolumny „Nowi” na Tablicy (P7)."""
+    from app.services.review_batch_plan import TIER_P0, tier_of
 
     cards = await _own_cards(db, user.id, now=now)
     if not cards:
@@ -1397,16 +1399,25 @@ async def review_queue(
             if card.process_id in mine
         ]
     tiers = {jid: tier_of(jobs[jid], now) if jid in jobs else 3 for jid in by_job}
-    queue: list[PendingCard] = []
-    for tier in sorted(set(tiers.values())):
-        job_order = sorted(jid for jid in by_job if tiers[jid] == tier)
-        depth = max(len(by_job[jid]) for jid in job_order)
-        for i in range(depth):
-            for jid in job_order:
-                items = by_job[jid]
-                if i < len(items):
-                    queue.append(items[i])
-    return queue[:limit]
+
+    def job_key(jid: int) -> tuple:
+        until = jobs[jid].p0_until if tiers[jid] == TIER_P0 else None
+        return (tiers[jid], until is None, until or now, -len(by_job[jid]), jid)
+
+    queue = [card for jid in sorted(by_job, key=job_key) for card in by_job[jid]]
+    return queue if limit is None else queue[:limit]
+
+
+def queue_runs(queue: Sequence[PendingCard]) -> list[tuple[int, int]]:
+    """Ile osób z której rekrutacji idzie po kolei: ``[(job_id, liczba), …]``.
+    Ekran pokazuje z tego „Rekrutacja 1 z 3 · tu jeszcze 4 · Potem: …”."""
+    runs: list[tuple[int, int]] = []
+    for card in queue:
+        if runs and runs[-1][0] == card.job_id:
+            runs[-1] = (card.job_id, runs[-1][1] + 1)
+        else:
+            runs.append((card.job_id, 1))
+    return runs
 
 
 # ── Czy zapytanie listy kandydatów to ręczne wyszukiwanie ──────────────────

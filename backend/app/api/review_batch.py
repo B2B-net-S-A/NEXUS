@@ -102,12 +102,15 @@ async def my_queue(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    """Osoby z porcji w kolejności przeglądu (rekrutacje na zmianę, w każdej
-    od najlepszej). Każdy wiersz niesie migawkę karty i id etapu do ruchu."""
+    """Osoby z porcji w kolejności przeglądu (rekrutacja po rekrutacji, w każdej
+    od najlepszej; 17.11.2026). Każdy wiersz niesie migawkę karty i id etapu
+    do ruchu, a ``runs`` mówi, ile osób z której rekrutacji idzie po kolei
+    w całej kolejce, nie tylko na tej stronie."""
     now = datetime.now(timezone.utc)
-    cards = await svc.review_queue(db, current_user, now=now, limit=limit)
+    whole = await svc.review_queue(db, current_user, now=now, limit=None)
+    cards = whole[:limit]
     if not cards:
-        return {"items": []}
+        return {"items": [], "runs": []}
     candidate_ids = {c.candidate_id for c in cards}
     job_ids = {c.job_id for c in cards}
     candidates = {
@@ -220,6 +223,10 @@ async def my_queue(
             for job_id, rules in learned.items()
         },
         "job_profiles": {str(job_id): profile for job_id, profile in profiles.items()},
+        "runs": [
+            {"job_id": job_id, "count": count}
+            for job_id, count in svc.queue_runs(whole)
+        ],
     }
 
 

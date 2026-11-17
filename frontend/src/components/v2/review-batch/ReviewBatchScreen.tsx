@@ -16,6 +16,7 @@ import {
   useReviewBatchQueue,
   useReviewBatchStatus,
   type ReviewBatchJob,
+  type ReviewBatchQueueRun,
   type ReviewBatchSource,
   type ReviewBatchStatus,
   type ReviewBatchLearnedRule,
@@ -170,6 +171,41 @@ function hasNoJobs(data: ReviewBatchStatus): boolean {
 }
 
 type BatchTab = "decide" | "close" | "jobs";
+
+/**
+ * „Ta rekrutacja: jeszcze 2 osoby · Potem: … (4) i 1 kolejna” nad kartą. Serwer
+ * podaje kolejkę rekrutacja po rekrutacji (zgłoszenie rekrutera 17.11.2026),
+ * a `runs` mówi, ile osób z której idzie po kolei w całej kolejce.
+ */
+function QueueRunLine({
+  runs,
+  jobId,
+  titles,
+}: {
+  runs: readonly ReviewBatchQueueRun[];
+  jobId: number;
+  titles: ReadonlyMap<number, string>;
+}) {
+  const index = runs.findIndex((run) => run.job_id === jobId);
+  const after = runs[index + 1];
+  if (index < 0 || !after) return null;
+  const left = runs[index].count;
+  const more = runs.length - index - 2;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs"
+      data-testid="review-queue-run"
+    >
+      <span className="font-semibold text-primary">
+        Ta rekrutacja: jeszcze {left} {pluralPl(left, "osoba", "osoby", "osób")}
+      </span>
+      <span className="min-w-0 basis-full truncate text-muted-foreground">
+        Potem: {titles.get(after.job_id) ?? "kolejna rekrutacja"} ({after.count})
+        {more > 0 ? ` i ${more} ${pluralPl(more, "kolejna", "kolejne", "kolejnych")}` : ""}
+      </span>
+    </div>
+  );
+}
 
 function progressHint(data: ReviewBatchStatus, open: number): string {
   const overdue = data.overdue_screenings ?? 0;
@@ -426,6 +462,10 @@ function BatchWorkspace({
   // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
+  const jobTitles = new Map<number, string>([
+    ...data.team_jobs.map((job): [number, string] => [job.job_id, job.title]),
+    ...(queue.data?.items ?? []).map((item): [number, string] => [item.job_id, item.job_title]),
+  ]);
   // Rekrutacje, w których była już karta: profil „Kogo szukamy” zwija się do jednej linii.
   const [seenJobs, setSeenJobs] = useState<ReadonlySet<number>>(() => new Set());
   const nextProfile = next ? queue.data?.job_profiles?.[String(next.job_id)] : undefined;
@@ -472,6 +512,7 @@ function BatchWorkspace({
           {tab === "decide" ? (
             next ? (
               <>
+                <QueueRunLine runs={queue.data?.runs ?? []} jobId={next.job_id} titles={jobTitles} />
                 <JobContext
                   jobId={next.job_id}
                   title={next.job_title}
