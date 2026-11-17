@@ -602,8 +602,15 @@ def webhook_body(
         "signal_types": list(SIGNAL_TYPES),
         "firms": firms,
         **feedback,
-        "task": task.task_text(
-            run, bot_tasks.TaskContext(firms=tuple(firms), request=request)
+        "task": (
+            task.task_text(
+                run, bot_tasks.TaskContext(firms=tuple(firms), request=request)
+            )
+            + "\n\nWyślij wynik jako niepuste JSON UTF-8 w treści jednego POST na "
+            "callback_url z Content-Type: application/json i X-Run-Token tego biegu. "
+            "Sprawdź JSON przed wysłaniem. Przekaż jego bajty bezpośrednio jako body; "
+            "nie twórz pliku raportu i nie wysyłaj próbnego POST. Uznaj raport za "
+            "przyjęty dopiero po odpowiedzi NEXUSA ze statusem received."
         ),
         "report_format": task.report_format(),
         "request": request,

@@ -276,7 +276,7 @@ def _patch(monkeypatch, started: list, *, flag: bool) -> None:
     monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", flag)
     monkeypatch.setattr(loop.signals, "expire_runs", zero)
     monkeypatch.setattr(loop.signals, "start_run", start)
-    monkeypatch.setattr(loop.targets, "pilot_company_ids", nothing)
+    monkeypatch.setattr(loop, "_weekly_signal_ids", nothing)
     monkeypatch.setattr(loop.targets, "winback_company_ids", winback_ids)
     monkeypatch.setattr(loop.targets, "recently_sent", no_ids)
     monkeypatch.setattr(loop.targets, "new_company_ids", nothing)
