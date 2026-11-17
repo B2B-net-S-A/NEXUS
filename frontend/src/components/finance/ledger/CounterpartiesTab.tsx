@@ -73,7 +73,6 @@ function ImportPreview({
         <b>{countPl(summary.created, "nowy", "nowe", "nowych")}</b>,{" "}
         <b>{countPl(summary.changed, "zmieniony", "zmienione", "zmienionych")}</b>,{" "}
         {summary.unchanged} bez zmian
-        {summary.waiting ? `, ${summary.waiting} dalej czeka (bez ID Symfonii)` : ""}
         {summary.error_count > 0 ? (
           <>
             , <b className="text-destructive">{countPl(summary.error_count, "błąd", "błędy", "błędów")}</b>

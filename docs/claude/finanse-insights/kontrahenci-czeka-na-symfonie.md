@@ -40,8 +40,9 @@ prefiksy kont odbiorcy i dostawcy, źródło w NEXUSIE.
 - Nagłówki są aliasami importu E0 (`counterparty_import.ALIASES`) — test
   `test_ta_sama_kartka_z_id_wraca_przez_import_e0` pilnuje, żeby zmiana nagłówka
   nie zerwała powrotu.
-- Nazwa, ulica i miasto zaczynające się od `=`, `+`, `-`, `@` dostają spację
-  z przodu (Excel nie wykona formuły; import ją zdejmuje).
+- Komórki przechodzą przez wspólne `safe_row` (`core/export_safety.py`):
+  tekst zaczynający się od `=`, `+`, `-`, `@` dostaje apostrof, a import E0
+  zdejmuje apostrof stojący przed takim znakiem, więc kartka wraca czysta.
 
 ## Powrót ID (import E0)
 
@@ -55,7 +56,9 @@ Księgowa odsyła ten sam plik z „ID Symfonii” przyciskiem „Wgraj plik z I
   Symfonii ma na trzecim poziomie kont 200/202 słownik „Kontrahenci”. Dekret
   kosztu czyta `cost_account`, więc bez tego kontrahent z samym ID zostawałby
   „bez konta rozrachunkowego”. ID niebędące liczbą — kont nie zgadujemy.
-- **Nowy wiersz bez ID i bez kont nie zakłada kontrahenta** (`waiting` w wyniku,
-  „N dalej czeka” w podglądzie). Bez tego odesłana w połowie kartka założyłaby
-  w kartotece kontrahentów, których w Symfonii nie ma.
+- Wiersz bez ID zachowuje się jak dotąd w imporcie E0: nowy kontrahent trafia do
+  kartoteki bez ID (strażnik bliźniaków z formularza zakupu zagranicznego działa
+  właśnie na takich wierszach) i dalej stoi na liście jako „kartoteka”, aż
+  przyjdzie ID. Nie przechwytuj takich wierszy przed `twin` — 17.11.2026 próba
+  „dalej czeka” wywróciła `test_foreign_purchase_books_import_of_services_into_both_registers`.
 - Reszta reguł importu E0 bez zmian (`ksiegowosc-koszty-i-kontrahenci.md`).

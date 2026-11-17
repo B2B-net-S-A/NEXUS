@@ -100,11 +100,11 @@ def test_csv_bom_srednik_tylko_gotowi_i_formula_nie_wykonuje_sie() -> None:
     assert content.startswith(b"\xef\xbb\xbf") and count == 2
     rows = _rows(content)
     assert tuple(rows[0]) == sp.CSV_COLUMNS
-    by_name = {row[0].strip(): row for row in rows[1:]}
-    assert set(by_name) == {"Firma Krajowa Sp. z o.o.", '=HYPERLINK("x")'}
-    # Spacja z przodu zatrzymuje formułę w Excelu; import ją zdejmuje.
+    by_name = {row[0]: row for row in rows[1:]}
+    assert set(by_name) == {"Firma Krajowa Sp. z o.o.", "'=HYPERLINK(\"x\")"}
+    # Wspólna ochrona eksportów (``safe_cell``): apostrof, Excel nie wykona formuły.
     formula = next(row for row in rows[1:] if "HYPERLINK" in row[0])
-    assert formula[0].startswith(" =")
+    assert formula[0] == "'=HYPERLINK(\"x\")"
     assert formula[2] == "VAT UE" and formula[3] == "DE"
     assert formula[8:10] == ["202-2", "203-2"]
     domestic_row = by_name["Firma Krajowa Sp. z o.o."]
@@ -229,3 +229,18 @@ def test_import_bierze_kraj_z_prefiksu_vat_ue_gdy_brak_kolumny_kraju() -> None:
         "203-2-4001",
         "202-2-4001",
     )
+
+
+def test_apostrof_ochrony_formuly_znika_przy_powrocie_kartki() -> None:
+    content, _ = sp.render_csv(
+        [sp._candidate("koszty", "DE123456789", "=Firma z formułą")]
+    )
+    rows = _rows(content)
+    assert rows[1][0] == "'=Firma z formułą"
+    rows[1][7] = "5001"
+    out = io.StringIO()
+    csv.writer(out, delimiter=";").writerows(rows)
+    parsed = importer.parse(out.getvalue().encode("utf-8-sig"))
+    assert parsed.rows[0].values["name"] == "=Firma z formułą"
+    # Apostrof w środku albo przed zwykłym tekstem zostaje.
+    assert importer._cell("'Firma") == "'Firma"

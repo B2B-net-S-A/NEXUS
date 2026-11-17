@@ -29,6 +29,7 @@ from typing import Any, Iterable, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.export_safety import safe_row
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
@@ -317,13 +318,6 @@ async def view(db: AsyncSession, *, payroll: bool) -> dict[str, Any]:
     }
 
 
-def _safe(value: str) -> str:
-    """Nazwa z KSeF zaczynająca się od ``=``, ``+``, ``-`` albo ``@`` to w Excelu
-    formuła; spacja z przodu robi z niej tekst, a import ją zdejmuje."""
-
-    return f" {value}" if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
-
-
 def render_csv(items: Iterable[Candidate]) -> tuple[bytes, int]:
     """Plik roboczy dla księgowej: tylko gotowi, bez problemów z numerem."""
 
@@ -336,19 +330,21 @@ def render_csv(items: Iterable[Candidate]) -> tuple[bytes, int]:
             continue
         receivable, payable = account_prefixes(item.country)
         writer.writerow(
-            [
-                _safe(item.name),
-                item.id_value or "",
-                identifiers.TYPE_LABELS.get(item.id_type or "", ""),
-                item.country or "",
-                _safe(item.street or ""),
-                item.postal_code or "",
-                _safe(item.city or ""),
-                "",
-                receivable,
-                payable,
-                ", ".join(SOURCE_LABELS[label] for label in item.sources),
-            ]
+            safe_row(
+                [
+                    item.name,
+                    item.id_value or "",
+                    identifiers.TYPE_LABELS.get(item.id_type or "", ""),
+                    item.country or "",
+                    item.street or "",
+                    item.postal_code or "",
+                    item.city or "",
+                    "",
+                    receivable,
+                    payable,
+                    ", ".join(SOURCE_LABELS[label] for label in item.sources),
+                ]
+            )
         )
         count += 1
     return b"\xef\xbb\xbf" + out.getvalue().encode("utf-8"), count

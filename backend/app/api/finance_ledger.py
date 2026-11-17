@@ -276,8 +276,6 @@ async def pending_counterparties_file(
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": content_disposition(name),
-            "X-Row-Count": str(count),
-            "Access-Control-Expose-Headers": "Content-Disposition, X-Row-Count",
             "Cache-Control": "no-store",
         },
     )
