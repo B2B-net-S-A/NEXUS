@@ -12,7 +12,9 @@
 // a „Do poprawy” ma same uwagi generatora), `clean` (CV bez uwag), `qcdown`
 // (QC nie odpowiada — panel nie udaje, że uwag nie ma), `aidown` (asystent
 // niedostępny — edytor działa dalej), `redakcja` (CV bez pogrubień z założenia:
-// QC „nie dotyczy”, a „Pogrub wymagania (1)” i tak pogrubia — 16.10.2026).
+// QC „nie dotyczy”, a „Pogrub wymagania (1)” i tak pogrubia — 16.10.2026),
+// `lata` (R2–R3, 17.11.2026: punkt 1 liczy tylko role Java Developer, rola
+// z samym rokiem, której oryginał ma miesiące, i rola z odwróconymi datami).
 //
 // Asystent (Edytor CV 3, PR 4) dostaje odpowiedzi z `command-fixture.ts`:
 // „dopisz terraform” pyta o źródło, „pogrub …” pogrubia, „stanowisko: X”
@@ -62,7 +64,13 @@ import { useAuthStore } from "@/store/auth";
 
 import { memoryCommandApi } from "./command-fixture";
 import { memoryHistoryApi } from "./history-fixture";
-import { GENERATOR_ONLY_WARNINGS, memoryIssuesApi, withoutBlocking, withoutIssues } from "./issues-fixture";
+import {
+  GENERATOR_ONLY_WARNINGS,
+  memoryIssuesApi,
+  withTenureExamples,
+  withoutBlocking,
+  withoutIssues,
+} from "./issues-fixture";
 
 const JOB_ID = 201;
 const CANDIDATE_ID = 101;
@@ -80,6 +88,7 @@ type HarnessState =
   | "qcdown"
   | "aidown"
   | "redakcja"
+  | "lata"
   | "handoff"
   | "handoff-blocking";
 const STATES: Record<HarnessState, string> = {
@@ -91,6 +100,7 @@ const STATES: Record<HarnessState, string> = {
   qcdown: "QC niedostępne",
   aidown: "AI niedostępne",
   redakcja: "CV z Redakcji (bez pogrubień)",
+  lata: "Lata w punkcie 1 i daty stanowisk",
   handoff: "Przekazanie do DL",
   "handoff-blocking": "Przekazanie mimo uwag",
 };
@@ -131,6 +141,9 @@ const CV_HTML =
   '<p data-cv-section="technologies">Technologie: Java 11, Spring Boot, JUnit, Jenkins</p>' +
   `<p data-cv-section="rodo" style="font-size: 8pt; line-height: 1.35">${RODO}</p>`;
 
+/** `?state=lata`: punkt 1 bez ról pokrewnych, rola z samym rokiem i rola z odwróconymi datami. */
+const TENURE_CV_HTML = withTenureExamples(CV_HTML);
+
 function brandedState(state: HarnessState): CVBrandedState {
   const finalized = state === "finalized";
   return {
@@ -148,7 +161,13 @@ function brandedState(state: HarnessState): CVBrandedState {
     candidate_stage_id: state === "nosources" ? null : STAGE_ID,
     status: finalized ? "finalized" : "draft",
     content_html:
-      state === "clean" ? withoutIssues(CV_HTML) : state === "handoff" ? withoutBlocking(CV_HTML) : CV_HTML,
+      state === "clean"
+        ? withoutIssues(CV_HTML)
+        : state === "handoff"
+          ? withoutBlocking(CV_HTML)
+          : state === "lata"
+            ? TENURE_CV_HTML
+            : CV_HTML,
     template: "standard",
     language: "pl",
     updated_at: "2026-10-12T12:32:00Z",

@@ -52,8 +52,13 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import cv_role_order, cv_source_dates
-from app.services.cv_rewrite_merge import restore_role_dates_html, roles_newest_first
+from app.services import cv_role_order, cv_source_dates, cv_tenure_checks
+from app.services.cv_rewrite_merge import (
+    replace_in_why_point,
+    restore_role_dates_html,
+    roles_newest_first,
+    swap_role_dates_html,
+)
 from app.services import dz_review as dz
 from app.services.recommendation_card_parser import (
     AI_HIDDEN_FIELDS,
@@ -154,6 +159,10 @@ WARNING_KEYS = (
     "consent_matches",
     "must_only_summary",
     "role_employer",
+    # R2–R3 (17.11.2026): lata w punkcie 1 i daty stanowisk (`cv_tenure_checks`).
+    "years_breakdown",
+    "role_dates_reversed",
+    "role_year_only",
 )
 
 # R4 (07.11.2026): uwagi, za które Delivery Lead najczęściej cofa kartę — okno
@@ -186,6 +195,9 @@ LABELS = {
     "consent_matches": "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
     "must_only_summary": "Wymagania opisane w stanowiskach, nie tylko w podsumowaniu",
     "role_employer": "Każde stanowisko ma nazwę firmy",
+    "years_breakdown": "Lata w punkcie 1 z dat stanowisk",
+    "role_dates_reversed": "Data końca stanowiska po dacie startu",
+    "role_year_only": "Miesiące w datach stanowisk jak w oryginale",
 }
 
 # Powody obejścia QC do wyboru (02.10.2026). Minimum 10 znaków wolnego tekstu
@@ -1746,6 +1758,206 @@ def _role_dates_check(blocks: list[Block], roles: list[CvRole], original: str) -
     return _check("role_dates", _status(items), summary, items)
 
 
+def _role_lines(
+    blocks: list[Block], roles: list[CvRole]
+) -> Optional[list[cv_tenure_checks.RoleLine]]:
+    """Stanowiska ze znacznikiem w CV z okresem z linii; ``None`` bez znaczników.
+
+    Nazwa to pogrubiona część linii (tak pisze generator), a bez pogrubienia
+    linia bez okresu. Bez znaczników stanowisk role są zgadywane po nazwach
+    firm — wtedy nie zgłaszamy nic, jak przy „Daty stanowisk jak w oryginale”.
+    """
+    if not roles or any(
+        not r.blocks or blocks[r.blocks[0]].section != "role" for r in roles
+    ):
+        return None
+    out: list[cv_tenure_checks.RoleLine] = []
+    for index, role in enumerate(roles):
+        head = blocks[role.blocks[0]]
+        bold = " ".join(run["t"] for run in head.runs if run.get("b")).strip()
+        rest = " ".join(run["t"] for run in head.runs if not run.get("b"))
+        period = cv_source_dates.line_period(rest) or cv_source_dates.line_period(
+            head.text
+        )
+        title = bold
+        if not title:
+            title = head.text
+            if period is not None:
+                title = head.text.replace(period.raw, " ")
+        title = " ".join(title.split()).strip(" |·,–—-")
+        out.append(cv_tenure_checks.RoleLine(index, title or head.text, period))
+    return out
+
+
+def _point_one(blocks: list[Block]) -> Optional[str]:
+    """Pierwszy punkt „Dlaczego nasz kandydat” (sekcja po znaczniku nagłówka)."""
+    for block, section in zip(blocks, _effective_sections(blocks)):
+        if section == "why_points" and block.kind != "h" and block.text:
+            return block.text
+    return None
+
+
+def tenure_breakdown(
+    blocks: list[Block], roles: list[CvRole], today: date
+) -> Optional[cv_tenure_checks.Tenure]:
+    lines = _role_lines(blocks, roles)
+    point = _point_one(blocks)
+    if not lines or point is None:
+        return None
+    return cv_tenure_checks.tenure(point, lines, today)
+
+
+def _tenure_view(found: cv_tenure_checks.Tenure) -> dict:
+    return {
+        "quote": found.quote,
+        "matched_months": found.matched_months,
+        "total_months": found.total_months,
+        "proposal": found.proposal,
+        "roles": [
+            {
+                "title": r.title,
+                "dates": r.dates,
+                "months": r.months,
+                "matched": r.matched,
+            }
+            for r in found.roles
+        ],
+    }
+
+
+def _years_breakdown_check(
+    blocks: list[Block], roles: list[CvRole], today: date
+) -> dict:
+    """„Lata w punkcie 1”: z czego wyszła liczba i propozycja przy roku różnicy."""
+    if _role_lines(blocks, roles) is None:
+        return _check("years_breakdown", "skip", "Nie rozpoznano stanowisk w CV")
+    found = tenure_breakdown(blocks, roles, today)
+    if found is None:
+        return _check(
+            "years_breakdown", "skip", "Punkt 1 bez liczby lat albo role bez dat"
+        )
+    total = cv_tenure_checks.months_text(found.total_months)
+    if found.matched_months is None:
+        detail = (
+            f"„{found.figure}” — żadna rola nie ma nazwy z punktu 1. "
+            f"Cały staż z dat ról: {total}"
+        )
+    else:
+        detail = (
+            f"„{found.figure}” — role z punktu 1: "
+            f"{cv_tenure_checks.months_text(found.matched_months)}, "
+            f"cały staż z dat ról: {total}"
+        )
+    detail = detail if detail.endswith(".") else f"{detail}."
+    # Klucz pominięcia („Zostaw”) stoi na liczbie z punktu 1, nie na zdaniu
+    # z miesiącami, które co miesiąc rosną.
+    entry = {
+        **_item(
+            detail=detail,
+            fix="tenure_split" if found.proposal else None,
+            term=found.figure,
+        ),
+        "proposal": found.proposal,
+        "tenure": _tenure_view(found),
+    }
+    if found.proposal:
+        return _check("years_breakdown", "fail", "Do decyzji", [entry])
+    # „W porządku” w panelu pokazuje samą sumę — rekruter widzi, skąd liczba.
+    summary = (
+        f"cały staż z dat ról: {total}"
+        if found.matched_months is None
+        else f"role z punktu 1: {cv_tenure_checks.months_text(found.matched_months)}"
+        f" · cały staż: {total}"
+    )
+    return _check("years_breakdown", "pass", summary, info=[entry])
+
+
+def _line_label(line: cv_tenure_checks.RoleLine, role: CvRole) -> str:
+    """„Tester · Gamma” — bez okresu, który właśnie jest uwagą."""
+    company = (role.role.company or "").strip()
+    return f"{line.title} · {company}" if company else line.title
+
+
+def tenure_split_html(html: str, *, today: Optional[date] = None) -> tuple[str, int]:
+    """Punkt 1 w formie „Ponad N lat w IT, w tym ponad M lat jako X” — z dat CV.
+
+    Serwer liczy propozycję sam z treści, jak uwaga QC, i podmienia tylko frazę
+    z liczbą lat w pierwszym punkcie. Fraza rozbita formatowaniem na kilka
+    węzłów zostaje do ręcznej poprawki (``(html, 0)``).
+    """
+    blocks = dz.html_blocks(html)
+    found = tenure_breakdown(blocks, cv_roles(blocks, []), today or business_today())
+    if found is None or not found.segment or not found.proposal:
+        return html, 0
+    return replace_in_why_point(html, found.segment, found.proposal)
+
+
+def _role_dates_reversed_check(blocks: list[Block], roles: list[CvRole]) -> dict:
+    lines = _role_lines(blocks, roles)
+    if lines is None:
+        return _check("role_dates_reversed", "skip", "Nie rozpoznano stanowisk w CV")
+    items = [
+        {
+            **_item(
+                role=_line_label(line, roles[line.index]),
+                detail=(
+                    f"„{line.period.raw}” — koniec przed startem. Staż w punkcie 1 "
+                    "liczy się bez tej roli."
+                ),
+                fix="swap_dates",
+                term=line.period.raw,
+                role_index=line.index,
+            ),
+            "proposal": cv_tenure_checks.swapped(line.period),
+        }
+        for line in lines
+        if line.period is not None and cv_source_dates.is_reversed(line.period)
+    ]
+    return _check(
+        "role_dates_reversed",
+        _status(items),
+        f"{len(items)} do poprawy" if items else "OK",
+        items,
+    )
+
+
+def _role_year_only_check(
+    blocks: list[Block], roles: list[CvRole], original: str
+) -> dict:
+    if not original.strip():
+        return _check("role_year_only", "skip", "Brak tekstu oryginalnego CV")
+    lines = _role_lines(blocks, roles)
+    if lines is None:
+        return _check("role_year_only", "skip", "Nie rozpoznano stanowisk w CV")
+    items: list[dict] = []
+    for line in lines:
+        role = roles[line.index]
+        employer = blocks[role.blocks[1]].text if len(role.blocks) > 1 else ""
+        found = cv_tenure_checks.year_only(
+            line.period,
+            original,
+            f"{line.title} {employer} {role.role.company or ''}",
+        )
+        if found is None:
+            continue
+        quotes = ", ".join(f"„{q}”" for q in found.original)
+        items.append(
+            _item(
+                role=_line_label(line, role),
+                detail=f"W CV: „{found.current}”. W oryginale: {quotes}.",
+                fix="show_original",
+                term=found.current,
+                role_index=line.index,
+            )
+        )
+    return _check(
+        "role_year_only",
+        _status(items),
+        f"{len(items)} do sprawdzenia" if items else "OK",
+        items,
+    )
+
+
 def _must_only_summary_check(
     data: QcInput,
     checks: list[dict],
@@ -2548,6 +2760,10 @@ def compute_checks(data: QcInput) -> list[dict]:
         )
     )
     checks.append(_role_employer_check(blocks, orig_roles, roles))
+    today = data.today or business_today()
+    checks.append(_years_breakdown_check(blocks, roles, today))
+    checks.append(_role_dates_reversed_check(blocks, roles))
+    checks.append(_role_year_only_check(blocks, roles, original))
     for check in checks:
         _assign_keys(check["key"], [*check["items"], *check["info"]])
     order = {key: n for n, key in enumerate((*BLOCKING_KEYS, *WARNING_KEYS))}
@@ -6736,6 +6952,13 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 BULK_ACTIONS = frozenset(
     {"bold_all", "spelling", "ai_fix", "years", "title", "languages_lines"}
 )
+# „Ponad N lat w IT, w tym…” i „Odwróć daty” (R2, 17.11.2026) zmieniają fakty
+# w CV, więc rekruter klika je pojedynczo — nie ma ich w „Popraw wszystkie”.
+TENURE_NOTHING = (
+    "Punkt 1 już się zgadza z datami stanowisk albo nie umiem go bezpiecznie "
+    "zmienić — popraw liczbę lat ręcznie."
+)
+SWAP_NOTHING = "To stanowisko nie ma już odwróconych dat."
 ROLE_DATES_NOTHING = "Daty stanowisk zgadzają się z oryginałem."
 ROLE_ORDER_NOTHING = "Stanowiska już są ułożone od najnowszego."
 ROLE_ORDER_UNKNOWN = (
@@ -6748,6 +6971,8 @@ _ACTIONS = BULK_ACTIONS | {
     "remove_term",
     "role_order",
     "restore_dates",
+    "tenure_split",
+    "swap_dates",
     "strip_client_rules",
     "remove_line",
 }
@@ -6869,6 +7094,15 @@ def transform_html(
                 )
                 changed, count = restored or (current, 0)
                 nothing = ROLE_DATES_NOTHING if restored else ROLE_ORDER_UNKNOWN
+                done = {"action": action}
+            elif action == "tenure_split":
+                changed, count = tenure_split_html(current, today=today)
+                nothing = TENURE_NOTHING
+                done = {"action": action}
+            elif action == "swap_dates":
+                swapped = swap_role_dates_html(current, payload.get("role_index"))
+                changed, count = swapped or (current, 0)
+                nothing = SWAP_NOTHING if swapped else ROLE_ORDER_UNKNOWN
                 done = {"action": action}
             elif action == "years":
                 # Ta sama historia co uwaga QC (`candidate.experience`), nie

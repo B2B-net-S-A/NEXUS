@@ -313,6 +313,71 @@ def _replace_in_text_nodes(element: HtmlElement, old: str, new: str) -> bool:
     return False
 
 
+def swap_role_dates_html(
+    markup: str, role_index: Optional[int] = None
+) -> Optional[tuple[str, int]]:
+    """„Odwróć daty” przy stanowisku z końcem przed startem (R2, 17.11.2026).
+
+    ``role_index`` wskazuje jedno stanowisko (bez niego wszystkie odwrócone).
+    Zwraca ``(treść, ile okresów zmieniono)``, przy zerze treść wejściową,
+    albo ``None``, gdy stanowisk nie da się tu bezpiecznie rozpoznać.
+    """
+    from app.services import cv_source_dates
+    from app.services.cv_tenure_checks import swapped
+
+    blocks = _blocks(markup)
+    spans = _role_spans(blocks)
+    if spans is None:
+        return None
+    count = 0
+    for index, (first, _end) in enumerate(spans):
+        if role_index is not None and index != role_index:
+            continue
+        head = blocks[first]
+        period = cv_source_dates.line_period(" ".join(head.text_content().split()))
+        if period is None or not cv_source_dates.is_reversed(period):
+            continue
+        if _replace_in_text_nodes(head, period.raw, swapped(period)):
+            count += 1
+    if not count:
+        return markup, 0
+    html = "".join(
+        lxml_html.tostring(block, encoding="unicode", with_tail=False)
+        for block in blocks
+    )
+    return html, count
+
+
+def replace_in_why_point(markup: str, old: str, new: str) -> tuple[str, int]:
+    """Podmień tekst w pierwszym punkcie „Dlaczego nasz kandydat”.
+
+    Sekcja zaczyna się nagłówkiem ze znacznikiem ``why_points``; punkt to
+    pierwszy ``li`` (albo akapit) po nim. Tekst musi stać w jednym węźle,
+    żeby pogrubienia zostały nietknięte — inaczej ``(treść, 0)``.
+    """
+    blocks = _blocks(markup)
+    started = False
+    for block in blocks:
+        if block.tag in ("h1", "h2", "h3"):
+            if started:
+                break
+            started = block.get("data-cv-section") == "why_points"
+            continue
+        if not started:
+            continue
+        point = next(iter(block.iter("li")), block)
+        if not _plain(point):
+            continue
+        if not _replace_in_text_nodes(point, old, new):
+            return markup, 0
+        html = "".join(
+            lxml_html.tostring(item, encoding="unicode", with_tail=False)
+            for item in blocks
+        )
+        return html, 1
+    return markup, 0
+
+
 def restore_role_dates_html(
     markup: str, source: str, role_index: Optional[int] = None
 ) -> Optional[tuple[str, int]]:

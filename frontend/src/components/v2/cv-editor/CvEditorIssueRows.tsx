@@ -35,6 +35,7 @@ import {
   consentTarget,
   itemQuickFix,
   itemSentence,
+  monthsText,
   yearsPreview,
   type IssueRow,
 } from "@/lib/cv-editor-issues";
@@ -84,6 +85,12 @@ export interface RowContext {
   reviewVersion: number | null;
   /** QC od nowa — po dołączeniu zrzutu zgody RODO, który nie zmienia treści CV. */
   refreshQc: () => void;
+  /**
+   * „Pokaż oryginał” przy roli z samym rokiem (R3, 17.11.2026) — ta sama
+   * kolumna co przycisk w nagłówku edytora. Bez niej (harness, wąski ekran)
+   * wiersz mówi tylko, co jest w oryginale.
+   */
+  showOriginal?: () => void;
 }
 
 const SMALL = "h-7 px-1.5 text-xs";
@@ -779,7 +786,67 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
   let sub: ReactNode = item.detail && name ? item.detail : check.label;
   let action: ReactNode = null;
   let extra: ReactNode = null;
-  if (item.fix === "restore_dates") {
+  if (item.fix === "tenure_split" && item.tenure && item.proposal) {
+    const proposalText = item.proposal;
+    title = <TenureTitle item={item} />;
+    sub = <TenureBreakdown tenure={item.tenure} />;
+    action = (
+      <>
+        <Button
+          size="sm"
+          variant="outline"
+          className={cn(SMALL, "h-auto min-h-7 whitespace-normal text-left")}
+          disabled={busy}
+          aria-label={`Wpisz w punkcie 1: ${proposalText}`}
+          onClick={() => qc.apply({ action: "tenure_split" }, "Punkt 1: cały staż i staż na stanowisku. Ctrl+Z cofa.")}
+        >
+          {proposalText}
+        </Button>
+        {item.key ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className={SMALL}
+            disabled={qc.dismissing}
+            onClick={() => qc.dismiss({ check_key: check.key, key: item.key ?? "", reason: "kept_years" })}
+          >
+            Zostaw {item.term}
+          </Button>
+        ) : null}
+      </>
+    );
+  } else if (item.fix === "swap_dates") {
+    title = (
+      <>
+        Rola kończy się przed startem: <del className="whitespace-nowrap">{item.term}</del>{" "}
+        {item.proposal ? (
+          <ins className="whitespace-nowrap rounded-sm bg-success-muted px-0.5 no-underline">{item.proposal}</ins>
+        ) : null}
+      </>
+    );
+    sub = `${item.role ? `${item.role} · ` : ""}Staż w punkcie 1 liczy się bez tej roli.`;
+    action = (
+      <Button
+        size="sm"
+        variant="outline"
+        className={SMALL}
+        disabled={busy}
+        aria-label={`Odwróć daty: ${item.proposal ?? ""}`}
+        onClick={() => qc.apply({ action: "swap_dates", role_index: item.role_index ?? undefined }, "Odwrócono daty stanowiska. Ctrl+Z cofa.")}
+      >
+        Odwróć
+      </Button>
+    );
+    extra = ctx.showOriginal ? <OriginalButton ctx={ctx} label="Sprawdź w oryginale" /> : null;
+  } else if (item.fix === "show_original") {
+    title = (
+      <>
+        Sam rok w datach: <span className="whitespace-nowrap">{item.term}</span>
+      </>
+    );
+    sub = [item.role, item.detail].filter(Boolean).join(" · ");
+    action = ctx.showOriginal ? <OriginalButton ctx={ctx} label="Pokaż oryginał" /> : null;
+  } else if (item.fix === "restore_dates") {
     title = "Daty stanowiska inne niż w oryginale";
     sub = item.detail;
     action = (
@@ -908,8 +975,8 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
       title={title}
       sub={sub}
       actions={action}
-      // Miniatura zrzutu obok tytułu ściska treść uwagi do wąskiej kolumny.
-      actionsBelow={item.fix === "replace_consent"}
+      // Miniatura zrzutu i długa propozycja lat ściskają treść do wąskiej kolumny.
+      actionsBelow={item.fix === "replace_consent" || item.fix === "tenure_split"}
       details={
         <>
           {item.fix === "ai" && item.detail ? <p className="text-muted-foreground">{item.detail}</p> : null}
@@ -918,13 +985,62 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
           <DetailActions>
             {extra}
             {fixes[0] ? null : <LocateButton target={target} ctx={ctx} />}
-            {item.fix === "role_order" ? null : <QcDismiss check={check} item={item} qc={qc} label={label} />}
+            {item.fix === "role_order" || item.fix === "tenure_split" ? null : (
+              <QcDismiss check={check} item={item} qc={qc} label={label} />
+            )}
           </DetailActions>
         </>
       }
       target={target}
       ctx={ctx}
     />
+  );
+}
+
+/** „Pokaż oryginał” — kolumna oryginału obok kartki (jak przycisk w nagłówku). */
+function OriginalButton({ ctx, label }: { ctx: RowContext; label: string }) {
+  return (
+    <Button size="sm" variant="outline" className={SMALL} onClick={() => ctx.showOriginal?.()}>
+      {label}
+    </Button>
+  );
+}
+
+/** „Lata w punkcie 1: Ponad 7 lat (tylko role Cloud Operations Engineer)”. */
+function TenureTitle({ item }: { item: QcItem }) {
+  const matched = (item.tenure?.roles ?? []).filter((role) => role.matched).map((role) => role.title);
+  const unique = matched.filter((title, i) => matched.indexOf(title) === i);
+  return (
+    <>
+      Lata w punkcie 1: {item.term}
+      {unique.length > 0 ? <span className="font-normal text-muted-foreground"> (tylko role {unique.join(", ")})</span> : null}
+    </>
+  );
+}
+
+/** Cały staż i daty każdej roli — rekruter widzi, skąd liczba, bez liczenia ręcznie. */
+function TenureBreakdown({ tenure }: { tenure: NonNullable<QcItem["tenure"]> }) {
+  return (
+    <span className="block space-y-1">
+      <span className="block">
+        Cały staż z dat ról: <span className="font-medium text-foreground">{monthsText(tenure.total_months)}</span>
+        {tenure.matched_months !== null ? <> · role z punktu 1: {monthsText(tenure.matched_months)}</> : null}
+      </span>
+      <ul className="space-y-0.5 tabular-nums">
+        {tenure.roles.map((role, i) => (
+          <li key={i} className={cn("flex items-baseline justify-between gap-2", role.matched && "text-foreground")}>
+            <span className="min-w-0">
+              {role.title}
+              {role.dates ? <span className="whitespace-nowrap"> {role.dates}</span> : null}
+            </span>{" "}
+            {/* Spacja dla czytnika ekranu: w układzie flex jej nie widać. */}
+            <span className="shrink-0 whitespace-nowrap">
+              {role.months === null ? (role.dates ? "odwrócone daty" : "bez dat") : monthsText(role.months)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </span>
   );
 }
 
