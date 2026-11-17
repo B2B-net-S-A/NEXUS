@@ -190,6 +190,33 @@ describe("AgreementAdminDetailsCard", () => {
     expect(screen.getByText("Brak osoby prowadzącej")).toBeInTheDocument();
   });
 
+  it("prowadząca po rekruterze, który odszedł: jest w polu, premii nie ma (17.11.2026)", async () => {
+    mocks.me = { id: 90 };
+    mocks.prefill.mockResolvedValue(
+      prefillWith({
+        recruiter: {
+          user_id: 85,
+          name: "Anna Przykładowa",
+          source: "pair_owner",
+          source_label: "prowadzi kandydata („Prowadzi”)",
+        },
+        recruiter_bonus_withheld: "departed",
+      }),
+    );
+    renderCard();
+    expect(
+      await screen.findByText(
+        /Tworzysz umowę za osobę prowadzącą: Anna Przykładowa\..*Premii rekrutera za ten placement nie będzie: .*rekruter, który odszedł/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Nikt nie prowadzi tej osoby/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("admin-payee-recruiter")).toHaveTextContent(
+      "Anna Przykładowa",
+    );
+  });
+
   it("zastępstwo z tytułu: Tak, osoba i gwarancja", async () => {
     mocks.prefill.mockResolvedValue(
       prefillWith({ replacement_from_title: true, replaced: REPLACED }),
