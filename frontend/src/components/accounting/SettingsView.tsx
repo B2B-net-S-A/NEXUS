@@ -332,7 +332,7 @@ function AccountsCard<T extends object>({
         ))}
         {config.me.admin ? (
           <div className="flex items-center justify-between gap-3 pt-1">
-            <span className="text-[12px] text-muted-foreground">Każde konto musi być w Planie kont.</span>
+            <span className="text-[12px] text-muted-foreground">Konto z Planu kont, bez kont analitycznych pod sobą.</span>
             <Button
               size="sm"
               disabled={!dirty || !complete}
