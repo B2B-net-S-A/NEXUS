@@ -152,7 +152,10 @@ class _Known:
     objected_phones: set[str] = field(default_factory=set)
     objected_emails: set[str] = field(default_factory=set)
     #: Rekordy pod numerami, adresami i osobami z pliku, od najświeższej zmiany.
-    calls: list[calling_repeats.EarlierCall] = field(default_factory=list)
+    #: Klucz („phone”/„email”/„contact”, wartość) → rekordy, od najświeższej zmiany.
+    calls: dict[tuple[str, Any], list[calling_repeats.EarlierCall]] = field(
+        default_factory=dict
+    )
 
 
 def row_note(row: ListRow) -> Optional[str]:
@@ -408,9 +411,12 @@ def _same_entry(row: ListRow, record: SalesCallRecord) -> bool:
 
 
 async def _calls(db: AsyncSession, rows: list[ListRow], known: _Known) -> None:
-    """Wcześniejsze rekordy po numerze, adresie i osobie: firma z innej karty też się liczy."""
+    """Wcześniejsze rekordy po numerze, adresie i osobie: firma z innej karty też się liczy.
 
-    known.calls = await calling_repeats.called_records(
+    Słowniki zamiast przeszukiwania listy: plik ma do 2000 wierszy, a rekordów bywa tyle samo.
+    """
+
+    found = await calling_repeats.called_records(
         db,
         phones={digits for row in rows if (digits := phone_digits(row.phone))},
         emails={email for row in rows if (email := valid_email(row.email))},
@@ -419,18 +425,14 @@ async def _calls(db: AsyncSession, rows: list[ListRow], known: _Known) -> None:
         },
         with_new=True,
     )
-
-
-def _same_person(
-    row: ListRow, contact: Optional[SalesContact], call: calling_repeats.EarlierCall
-) -> bool:
-    digits = phone_digits(row.phone)
-    email = valid_email(row.email)
-    return bool(
-        (digits and call.phone_key == digits)
-        or (email and call.email_key == email)
-        or (contact is not None and call.contact_id == contact.id)
-    )
+    for call in found:
+        keys = [("phone", call.phone_key)]
+        # „Zły numer” blokuje sam numer: ta osoba może wrócić z poprawnym numerem.
+        if call.state != calling_repeats.BAD_CONTACT:
+            keys += [("email", call.email_key), ("contact", call.contact_id)]
+        for key in keys:
+            if key[1] is not None:
+                known.calls.setdefault(key, []).append(call)
 
 
 def _earlier(
@@ -438,15 +440,19 @@ def _earlier(
 ) -> Optional[calling_repeats.EarlierCall]:
     """Najświeższy rekord tej osoby: z wynikiem (``called``) albo czekający jako „Nowy”."""
 
-    return next(
-        (
-            call
-            for call in known.calls
-            if (call.state != calling_repeats.NEW) == called
-            and _same_person(row, contact, call)
-        ),
-        None,
-    )
+    keys = [
+        ("phone", phone_digits(row.phone)),
+        ("email", valid_email(row.email)),
+        ("contact", contact.id if contact is not None else None),
+    ]
+    matches = [
+        call
+        for key in keys
+        if key[1] is not None
+        for call in known.calls.get(key, [])
+        if (call.state != calling_repeats.NEW) == called
+    ]
+    return max(matches, key=lambda call: (call.at, call.record_id), default=None)
 
 
 def _company_calls(company_id: Optional[int], known: _Known) -> Optional[str]:

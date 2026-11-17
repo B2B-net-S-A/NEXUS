@@ -107,7 +107,7 @@ async def test_same_email_with_a_new_number_is_already_called(app_client) -> Non
         company_id,
         phone=_phone(),
         email=email.upper(),
-        state="bad_contact",
+        state="offer_sent",
         last_outcome_at=datetime.now(timezone.utc),
     )
 
@@ -119,7 +119,7 @@ async def test_same_email_with_a_new_number_is_already_called(app_client) -> Non
     )
 
     assert fates[0][0] == "already_called"
-    assert "Zły numer" in fates[0][1]
+    assert "Oferta ogólna wysłana" in fates[0][1]
 
 
 @pytest.mark.asyncio
@@ -337,3 +337,88 @@ async def test_card_without_repeats_has_empty_fields(app_client) -> None:
     assert resp.status_code == 200, resp.text
     assert resp.json()["earlier_calls"] == []
     assert resp.json()["crm_opportunity"] is None
+
+
+@pytest.mark.asyncio
+async def test_bad_number_blocks_only_the_number_not_the_person(app_client) -> None:
+    """„Zły numer” zamyka rekord; ta sama osoba z nowym numerem wraca z kolejnej listy."""
+
+    caller = await _user("sales_edit")
+    tag = _tag()
+    email = f"ewa-{tag}@firma-{tag}.example"
+    company_id = await _named_company(f"Zły Numer {tag}")
+    contact_id = await _contact(company_id, full_name="Ewa Nowacka", email=email)
+    old_phone = _phone()
+    await _record(
+        caller.id,
+        await _campaign(),
+        company_id,
+        phone=old_phone,
+        email=email,
+        contact_id=contact_id,
+        state="bad_contact",
+        last_outcome_at=datetime.now(timezone.utc),
+    )
+    campaign_id = await _campaign()
+
+    _body, fates = await _fates(
+        app_client,
+        caller,
+        campaign_id,
+        _csv(
+            f"Zły Numer {tag};Ewa Nowacka;CFO;{_phone()};{email};",
+            f"Zły Numer {tag};Ktoś Inny;CTO;{old_phone};;",
+        ),
+    )
+    assert fates[0][0] == "linked"
+    assert fates[1][0] == "already_called"
+
+    fresh_id = await _record(
+        caller.id,
+        campaign_id,
+        company_id,
+        phone=_phone(),
+        email=email,
+        contact_id=contact_id,
+    )
+    assert fresh_id in _ids(await _queue(app_client, caller))
+
+
+@pytest.mark.asyncio
+async def test_opportunity_in_another_pipeline_does_not_hide_the_record(
+    app_client,
+) -> None:
+    """Szansa z lejka botów (np. fabryki IT) nie zdejmuje firmy z kolejki dzwonienia."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.sales import SalesOpportunity, SalesPipeline, SalesPipelineStage
+
+    caller = await _user("sales_edit")
+    company_id = await _named_company(f"Inny Lejek {_tag()}")
+    before = datetime.now(timezone.utc) - timedelta(days=5)
+    record_id = await _record(
+        caller.id, await _campaign(), company_id, phone=_phone(), created_at=before
+    )
+    async with AsyncSessionLocal() as db:
+        pipeline = SalesPipeline(key=f"test-{_tag()}", name="Lejek testowy")
+        db.add(pipeline)
+        await db.flush()
+        stage = SalesPipelineStage(pipeline_id=pipeline.id, key="new", name="Nowa")
+        db.add(stage)
+        await db.flush()
+        db.add(
+            SalesOpportunity(
+                company_id=company_id,
+                pipeline_id=pipeline.id,
+                stage_id=stage.id,
+                title="Szansa z innego lejka",
+                owner_user_id=caller.id,
+                created_by_user_id=caller.id,
+            )
+        )
+        await db.commit()
+
+    queue = await _queue(app_client, caller)
+    assert record_id in _ids(queue)
+    card = await app_client.get(f"{URL}/records/{record_id}", headers=_headers(caller))
+    assert card.json()["crm_opportunity"] is None

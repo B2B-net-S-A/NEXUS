@@ -49,9 +49,15 @@ warunki kolejki w `calling._own_campaign_records`, pola karty w `calling._card`.
   prowadzi się przez szansę. Szansa sprzed rekordu niczego nie zdejmuje.
 - **„Nowy” rekord pod numerem, adresem albo osobą z wynikiem w innym rekordzie** nie
   wchodzi do kolejki. Rekord z wynikiem wraca sam w swoim dniu.
+- **„Zły numer” blokuje sam numer**, nie osobę ani adres: ta osoba wraca z kolejnej listy
+  z nowym numerem (reguła „nowy numer przychodzi z importu”). Tak samo w imporcie.
+- Liczy się tylko **szansa z lejka Sprzedaż** (`DEFAULT_PIPELINE_KEY`): szansa z lejka
+  botów (fabryki IT, przetargi) nie zdejmuje firmy z kolejki.
+- Warunki to zbiory liczone raz na zapytanie (`NOT IN`), nie zależny `EXISTS` w `OR`:
+  ta wersja liczyła się osobno dla każdego „Nowego” rekordu, ok. 13 s na kolejkę.
 - Rekordy nie znikają z bazy ani z Tabeli; zmienia się tylko kolejka. Bieg na sucho:
   `python -m scripts.calling_repeats_report` (same liczby, `--ids` dokłada id).
-  Na stagingu 17.11: 388 powtórek i 31 rekordów firm w CRM. Kasowanie tych rekordów to
+  Na stagingu 17.11: 388 powtórek i 30 rekordów firm w CRM; zapytanie kolejki 0,06 s. Kasowanie tych rekordów to
   osobna decyzja Artura.
 
 ## Karta rozmowy

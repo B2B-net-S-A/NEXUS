@@ -147,7 +147,7 @@ export interface EarlierCall {
   at: string;
   caller_name: string | null;
   campaign_name: string | null;
-  /** „11.11 · Marcel Tarasewicz · Nie zainteresowany (Laura Miller)”. */
+  /** „11.11 · Osoba Dzwoniąca · Nie zainteresowany (Ewa Nowacka)”. */
   label: string;
 }
 

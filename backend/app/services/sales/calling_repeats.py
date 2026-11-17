@@ -31,6 +31,7 @@ from app.models.sales import (
     SalesCallRecord,
     SalesCompany,
     SalesOpportunity,
+    SalesPipeline,
     SalesPipelineStage,
 )
 from app.models.user import User
@@ -39,6 +40,10 @@ from app.services.sales.calling_file import MIN_PHONE_DIGITS, phone_digits, vali
 from app.services.sales.calls import OUTCOME_LABELS
 
 NEW = schema.CALL_RECORD_NEW
+#: „Zły numer / brak danych” blokuje sam numer: ta osoba może wrócić z nowym numerem.
+BAD_CONTACT = "bad_contact"
+#: Lejek kolejki dzwonienia: szansa z innego lejka (np. botów) nie zdejmuje rekordu.
+QUEUE_PIPELINE_KEY = schema.DEFAULT_PIPELINE_KEY
 EARLIER_LIMIT = 3
 
 
@@ -188,10 +193,14 @@ async def earlier_calls(db: AsyncSession, record: SalesCallRecord) -> list[Earli
 def _crm_after(record: Any, opportunity: Any) -> list[Any]:
     """Otwarta szansa firmy rekordu, założona po jego ostatnim wyniku albo imporcie."""
 
+    queue_pipeline = select(SalesPipeline.id).where(
+        SalesPipeline.key == QUEUE_PIPELINE_KEY
+    )
     return [
         opportunity.company_id == record.company_id,
         opportunity.status == "open",
         opportunity.archived_at.is_(None),
+        opportunity.pipeline_id.in_(queue_pipeline.scalar_subquery()),
         opportunity.created_at
         > func.coalesce(record.last_outcome_at, record.created_at),
     ]
@@ -234,24 +243,35 @@ def queue_conditions(record: Any = SalesCallRecord) -> list[Any]:
       rekordzie, to powtórka z kolejnej listy: tamten rekord wraca w swoim dniu.
     """
 
+    # Zbiory liczone raz na zapytanie (hashed subplan): zależny EXISTS w OR liczył się
+    # osobno dla każdego „Nowego” rekordu, ok. 13 s na kolejkę przy 700 rekordach.
     later = aliased(SalesOpportunity)
     other = aliased(SalesCallRecord)
+    called = other.state != NEW
+    person_called = and_(called, other.state != BAD_CONTACT)
     own_phone = phone_key(record.phone)
-    same_person = or_(
-        and_(
-            func.length(own_phone) >= MIN_PHONE_DIGITS,
-            phone_key(other.phone) == own_phone,
-        ),
-        and_(
-            record.email.is_not(None),
-            email_key(other.email) == email_key(record.email),
-        ),
-        and_(record.contact_id.is_not(None), other.contact_id == record.contact_id),
+    called_phones = select(phone_key(other.phone)).where(called)
+    called_emails = select(email_key(other.email)).where(
+        person_called, other.email.is_not(None)
     )
-    called_before = exists().where(
-        other.id != record.id, other.state != NEW, same_person
+    called_contacts = select(other.contact_id).where(
+        person_called, other.contact_id.is_not(None)
+    )
+    not_repeat = and_(
+        or_(
+            func.length(own_phone) < MIN_PHONE_DIGITS,
+            own_phone.not_in(called_phones),
+        ),
+        or_(
+            record.email.is_(None),
+            email_key(record.email).not_in(called_emails),
+        ),
+        or_(
+            record.contact_id.is_(None),
+            record.contact_id.not_in(called_contacts),
+        ),
     )
     return [
         ~exists().where(*_crm_after(record, later)),
-        or_(record.state != NEW, ~called_before),
+        or_(record.state != NEW, not_repeat),
     ]
