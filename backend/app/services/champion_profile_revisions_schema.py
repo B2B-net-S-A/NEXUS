@@ -1,4 +1,4 @@
-"""DDL wersji Profilu Championa — JEDNO źródło dla migracji 0730 i siatki
+"""DDL wersji Profilu Championa — JEDNO źródło dla migracji 0731 i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``champion_profile_revisions``: jeden wiersz na zapis zmieniający treść profilu

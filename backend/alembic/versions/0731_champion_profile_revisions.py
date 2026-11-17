@@ -1,7 +1,7 @@
 """Wersje Profilu Championa i „Przeczytane” per osoba.
 
-Revision ID: 0730_champion_profile_revisions
-Revises: 0729_candidate_terms_requests
+Revision ID: 0731_champion_profile_revisions
+Revises: 0730_sales_invoice_buyer_address
 
 Pomysł rekruterki 17.11.2026, decyzja Artura tego dnia (makiety runda 2):
 karta „Co się zmieniło od przekazania” w Briefie, zakładka „Zmiany” i zdanie
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import champion_profile_revisions_schema as schema
 
-revision = "0730_champion_profile_revisions"
-down_revision = "0729_candidate_terms_requests"
+revision = "0731_champion_profile_revisions"
+down_revision = "0730_sales_invoice_buyer_address"
 branch_labels = None
 depends_on = None
 

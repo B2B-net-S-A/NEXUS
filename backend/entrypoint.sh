@@ -1267,7 +1267,7 @@ except Exception as _candidate_terms_err:  # noqa: BLE001
     print(f"candidate terms DDL unavailable: {_candidate_terms_err!r}")
     _CANDIDATE_TERMS_DDL = []
 
-# Wersje Profilu Championa i „Przeczytane” (migracja 0730) — JEDNO źródło
+# Wersje Profilu Championa i „Przeczytane” (migracja 0731) — JEDNO źródło
 # z migracją (`app/services/champion_profile_revisions_schema.py`).
 try:
     from app.services import champion_profile_revisions_schema as _champion_revisions_schema

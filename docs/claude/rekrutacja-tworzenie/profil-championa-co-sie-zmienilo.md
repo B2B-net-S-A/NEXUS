@@ -1,4 +1,4 @@
-# „Co się zmieniło” w Profilu Championa: karta, zakładka „Zmiany” i zdanie DL (0730, 17.11.2026)
+# „Co się zmieniło” w Profilu Championa: karta, zakładka „Zmiany” i zdanie DL (0731, 17.11.2026)
 <!-- indeks: wersje profilu po przekazaniu (champion_profile_revisions), różnica po etykietach wierszy, „Przeczytane” per osoba, zakładka „Zmiany”, okno „Na co klient kładzie nacisk?” po zapisie -->
 
 Pomysł rekruterki 17.11.2026, decyzja Artura tego dnia po dwóch rundach makiet
@@ -13,7 +13,7 @@ profil zapisany co najmniej dwa razy.
   warunek co ochrona przed nowym brakiem w `save_champion_core`) i tylko gdy
   różnica ma coś do pokazania. Szkic, import dokumentu i zapis samych wymagań
   do wyszukiwania w bazie wersji nie robią. Historia zaczyna się od wdrożenia
-  0730; starsze zapisy nie mają treści, więc nie da się ich pokazać.
+  0731; starsze zapisy nie mają treści, więc nie da się ich pokazać.
 - **Różnicę liczy serwer przy zapisie** (`services/champion_profile_changes.py`,
   `describe_changes`) i zapisuje ją w wierszu razem z `before`/`after`
   (znormalizowane profile, do ponownego policzenia). Wiersze wymagań porównujemy

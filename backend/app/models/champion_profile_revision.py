@@ -1,4 +1,4 @@
-"""Wersje Profilu Championa (0730) — DDL w ``services/champion_profile_revisions_schema.py``."""
+"""Wersje Profilu Championa (0731) — DDL w ``services/champion_profile_revisions_schema.py``."""
 
 from datetime import datetime
 from typing import Optional

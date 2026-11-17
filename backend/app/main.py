@@ -5034,7 +5034,7 @@ async def api_health_deep_check(request: Request):
         ("job_role_profiles", JobRoleProfile),
         # 0729: prośby o warunki kandydata po aplikacji.
         ("candidate_terms_requests", CandidateTermsRequest),
-        # 0730: wersje Profilu Championa i „Przeczytane”.
+        # 0731: wersje Profilu Championa i „Przeczytane”.
         ("champion_profile_revisions", ChampionProfileRevision),
         ("champion_profile_change_reads", ChampionProfileChangeRead),
         # 0519: historia „Prowadzi”.
