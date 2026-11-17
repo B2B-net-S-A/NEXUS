@@ -119,7 +119,11 @@ testy mają sfabrykowany XML i CSV (`test_ledger_chart_import_rules.py`,
   i `znacznik`. Numer = `syntet` do trzech cyfr + `wartN` do pary 0/0 (`10`, `wart1=3` →
   `010-3`); węzeł z segmentem `wart=0` („Kontrahenci”, „Pracownicy”) nie jest kontem,
   tylko ustawia słownik kontrahentów na koncie przed zerem (`200-2-0` → `200-2`).
-  „Pracownicy” (234) idą pod słownik kontrahentów, bo NEXUS nie ma osobnego.
+  Słownika „Pracownicy” (234, 249-3) import nie przenosi (decyzja Artura 17.11.2026):
+  słownik kontrahentów wiąże analitykę z kontrahentem po numerze ID Symfonii, a numery
+  pracowników i kontrahentów w Symfonii się pokrywają, więc dług pracownika trafiłby
+  w BO i rozrachunkach do obcego kontrahenta. Import to zgłasza; konta analityczne
+  pracowników (234-N) księgowa zakłada ręcznie przed bilansem otwarcia.
 - **Typ konta**: `typ` 1 bilansowe, 2 wynikowe, 0 pozabilansowe; strona bilansowych
   wynika z zespołu (0, 1, 3, 6 aktywne; 8 pasywne; 2 aktywno-pasywne) — to heurystyka,
   pojedyncze konta poprawia księgowa. Znacznik MF z `znacznik` → `report_line`; para

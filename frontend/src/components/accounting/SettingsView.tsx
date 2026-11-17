@@ -544,6 +544,8 @@ function OpeningImportCard() {
         onSuccess: (data) => {
           setResult(data);
           setBothBases(data.both_bases === true);
+          // Wybór pokazuje kolumny, z których serwer policzył ten podgląd — zapis wyśle te same.
+          if (data.basis === "bo" || data.basis === "saldo") setBasis(data.basis);
           if (data.saved) showToast(`Zapisano bilans otwarcia ${year} w buforze.`);
         },
         onError: (error) => showToast(apiErrorMessage(error, "Nie udało się wczytać pliku."), "error"),
@@ -586,6 +588,7 @@ function OpeningImportCard() {
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
               setBothBases(false);
+              setBasis("bo");
               setResult(null);
             }}
           />
@@ -630,6 +633,7 @@ function OpeningSummary({ result }: { result: OpeningPreview }) {
           {result.balanced ? "Wn = Ma" : "Wn ≠ Ma"}
         </span>
         {result.counterparties_matched ? ` · kontrahenci rozpoznani: ${result.counterparties_matched}` : ""}
+        {result.both_bases ? ` · kolumny: ${result.basis === "saldo" ? "Saldo Wn/Ma (saldo końcowe)" : "BO Wn/Ma (bilans otwarcia)"}` : ""}
         {result.synthetic_skipped ? ` · pominięto wiersze syntetyczne: ${result.synthetic_skipped} (kwoty niosą konta analityczne)` : ""}
       </p>
       {result.problems.length ? (
