@@ -209,15 +209,16 @@ async def _sales_accounts(
     )
     out: dict[int, tuple[Optional[int], Optional[str]]] = {}
     for invoice in invoices:
-        key = sources.buyer_key(invoice)
         party = None
-        if key is not None:
+        for key in sources.buyer_keys(invoice):
             party = await db.scalar(
                 select(FinanceCounterparty).where(
                     FinanceCounterparty.id_type == key[0],
                     FinanceCounterparty.id_value == key[1],
                 )
             )
+            if party is not None:
+                break
         if party is None:
             out[invoice.id] = (None, None)
             continue
