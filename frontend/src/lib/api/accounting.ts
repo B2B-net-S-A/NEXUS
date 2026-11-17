@@ -84,6 +84,17 @@ export interface PayrollAccounts {
   deductions_account: string;
 }
 
+/** Zapisane konto modułu, na które nie da się księgować (np. po imporcie planu kont). */
+export interface AccountProblem {
+  group: "sales" | "allocation" | "payroll" | "assets" | "vat" | "bank";
+  /** Gdzie je zmienić, np. „Ustawienia → Konta faktur sprzedaży”. */
+  group_label: string;
+  field: string;
+  label: string;
+  account: string;
+  problem: string;
+}
+
 export interface LedgerConfig {
   open: boolean;
   modules: LedgerModule[];
@@ -97,6 +108,8 @@ export interface LedgerConfig {
   payroll_accounts?: PayrollAccounts;
   /** Rachunki firmy i konta reguł wyciągu (K4a); pełne numery widzi administrator. */
   bank_settings?: BankSettings;
+  /** Konta z Ustawień, na które moduły już nie zaksięgują — do przestawienia. */
+  account_problems?: AccountProblem[];
   years: LedgerYear[];
   today: string;
   doc_types: (Option & { manual: boolean })[];

@@ -356,6 +356,51 @@ describe("Księgowość — obszar i ustawienia", () => {
     expect(screen.getByRole("switch", { name: /Księga/ })).toBeDisabled();
     expect(get).not.toHaveBeenCalledWith("/api/accounting/config/candidates");
   });
+
+  it("konta, na które moduły już nie zaksięgują, są na liście z powodem i miejscem zmiany", async () => {
+    pathname = "/accounting/settings";
+    route(
+      config({
+        me: { admin: false, approver: true, payroll: false },
+        account_problems: [
+          {
+            group: "payroll",
+            group_label: "Ustawienia → Konta listy płac z Enovy",
+            field: "zus_account",
+            label: "Rozrachunki z ZUS",
+            account: "229",
+            problem: "konto 229 ma konta analityczne — wybierz np. 229-1-1.",
+          },
+          {
+            group: "assets",
+            group_label: "Środki trwałe → Konta środków trwałych",
+            field: "intake_account",
+            label: "Przyjęcie i ulepszenie — konto przeciwstawne",
+            account: "080",
+            problem: "konta 080 nie ma w planie kont.",
+          },
+        ],
+      }),
+    );
+    renderWith(<SettingsView />);
+    const card = (await screen.findByRole("heading", { name: "Konta do przestawienia · 2" })).closest("section")!;
+    const rows = within(card).getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("229")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("konto 229 ma konta analityczne — wybierz np. 229-1-1.")).toBeInTheDocument();
+    expect(within(rows[0]).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(rows[1]).getByRole("link", { name: "Środki trwałe → Konta środków trwałych" })).toHaveAttribute(
+      "href",
+      "/accounting/assets",
+    );
+  });
+
+  it("bez kont do przestawienia karty nie ma", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: false, payroll: false }, account_problems: [] }));
+    renderWith(<SettingsView />);
+    expect(await screen.findByText("Nie jesteś na liście „Księgowi”")).toBeInTheDocument();
+    expect(screen.queryByText(/Konta do przestawienia/)).not.toBeInTheDocument();
+  });
 });
 
 describe("Księgowość — źródła (K2)", () => {

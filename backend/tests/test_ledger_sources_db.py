@@ -697,12 +697,23 @@ async def test_sales_accounts_are_set_by_admin_from_the_plan(client, world, book
         headers=_headers(world["admin"]),
     )
     assert unknown.status_code == 422
+    # Rozrachunki z odbiorcami idą na konto-ID kontrahenta: konto bez słownika
+    # kontrahentów odpada przy zapisie, nie dopiero przy dekrecie FVS.
+    no_dictionary = await client.put(
+        f"{ACC}/config/sales",
+        json={**body, "receivable_account": acc["revenue"]},
+        headers=_headers(world["admin"]),
+    )
+    assert no_dictionary.status_code == 422
+    assert "nie prowadzi słownika kontrahentów" in no_dictionary.json()["detail"]
     saved = await client.put(
         f"{ACC}/config/sales", json=body, headers=_headers(world["admin"])
     )
     assert saved.status_code == 200, saved.text
     config = await client.get(f"{ACC}/config", headers=_headers(world["accountant"]))
     assert config.json()["sales_accounts"] == body
+    problems = config.json()["account_problems"]
+    assert not [item for item in problems if item["group"] == "sales"]
     assert config.json()["accountants"] is None
 
 
