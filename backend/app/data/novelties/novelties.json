@@ -3058,5 +3058,17 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contract.amendments.rate-change"
+  },
+  {
+    "id": "kontakty-klienta-szukaj",
+    "title": "Szukanie w kontaktach klienta",
+    "why": "W zakładce „Kontakty klienta” jest pole szukania: wpisz nazwisko, kawałek e-maila, numeru telefonu albo stanowiska. Polskie znaki są opcjonalne. Tabela mieści się teraz na ekranie laptopa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → klient → Kontakty klienta",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.contacts.search"
   }
 ]
