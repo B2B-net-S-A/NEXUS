@@ -485,11 +485,11 @@ async def test_backfill_raises_the_download_budget_until_it_is_done(env, monkeyp
     assert first["saved"] == 4
 
 
-# ── Adres nabywcy (0730) ─────────────────────────────────────────────────────
+# ── Adres nabywcy (0731) ─────────────────────────────────────────────────────
 
 
 async def _forget_address(ksef_number: str, **extra) -> int:
-    """Faktura jak sprzed 0730: bez adresu i bez znacznika odczytu."""
+    """Faktura jak sprzed 0731: bez adresu i bez znacznika odczytu."""
 
     async with AsyncSessionLocal() as db:
         row = await db.scalar(

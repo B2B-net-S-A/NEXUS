@@ -268,11 +268,11 @@ EBI24_DOCUMENT_ID_DDL = (
     "ALTER TABLE client_sales_invoice_payments "
     f"ADD COLUMN IF NOT EXISTS ebi24_document_id VARCHAR({EBI24_DOCUMENT_ID_MAX}) NULL"
 )
-#: Adres nabywcy z ``Podmiot2/Adres`` (0730) — kartoteka kontrahentów Symfonii
+#: Adres nabywcy z ``Podmiot2/Adres`` (0731) — kartoteka kontrahentów Symfonii
 #: (lista „Czeka na Symfonię”); 17.11.2026 na stagingu 206 z 208 nabywców nie
 #: miało adresu, bo ``clients.address`` jest wypełnione u 11 ze 170 klientów.
 #: ``buyer_address_read_at`` = XML faktury przeczytany pod kątem adresu (także
-#: gdy adresu w nim nie było); ``NULL`` = faktura sprzed 0730, do doczytania.
+#: gdy adresu w nim nie było); ``NULL`` = faktura sprzed 0731, do doczytania.
 BUYER_ADDRESS_DDL: tuple[str, ...] = (
     "ALTER TABLE client_sales_invoices "
     "ADD COLUMN IF NOT EXISTS buyer_country VARCHAR(2) NULL",

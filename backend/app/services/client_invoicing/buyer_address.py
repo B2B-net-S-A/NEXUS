@@ -1,10 +1,10 @@
-"""Adres nabywcy faktury sprzedażowej (``Podmiot2/Adres``, 0730).
+"""Adres nabywcy faktury sprzedażowej (``Podmiot2/Adres``, 0731).
 
 Adres trafia do kartoteki kontrahentów Symfonii (lista „Czeka na Symfonię”,
 ``finance_ledger.symfonia_partners``): bez niego księgowa szuka go ręcznie dla
 każdego nabywcy. XML-a faktury nie trzymamy (tylko ``xml_sha256``), więc nowe
 faktury zapisują adres przy pobraniu (``sync.store_invoice``), a faktury sprzed
-0730 doczytuje pętla KSeF:
+0731 doczytuje pętla KSeF:
 
 1. z XML-a, który już jest w bazie — faktura wystawiona w NEXUSIE
    (``client_issued_invoices.xml``) albo e-faktura Peppol
@@ -79,7 +79,7 @@ def _apply(invoice: ClientSalesInvoice, xml: Optional[bytes], now: datetime) -> 
 
 
 async def backfill_local(db: AsyncSession, now: datetime) -> int:
-    """Faktury sprzed 0730, których XML jest już w bazie; zwraca liczbę adresów."""
+    """Faktury sprzed 0731, których XML jest już w bazie; zwraca liczbę adresów."""
 
     rows = (
         await db.execute(
