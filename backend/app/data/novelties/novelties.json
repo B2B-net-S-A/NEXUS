@@ -3033,5 +3033,18 @@
     "section": "pipeline",
     "dot_anchor": "review-batch.role-profile",
     "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "aneks-stawki-zmienia-zamowienie",
+    "pr": 3504,
+    "title": "Aneks stawki klienta zmienia też zamówienie",
+    "why": "Nowa stawka klienta z aneksu wchodzi do trwającego zamówienia od dnia aneksu. Okno „Zmień stawkę” pokazuje to przed zapisem. Wcześniejsze miesiące zostają po starej stawce.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["amounts_edit"] },
+    "where": "Kontrakty → kontrakt → Aneksy → Zmień stawkę",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.amendments.rate-change"
   }
 ]
