@@ -970,6 +970,31 @@ async def save_champion_core(
     )
 
     editor_name = (current_user.name or "Ktoś").strip() or "Ktoś"
+    # „Co się zmieniło” (17.11.2026): rekrutacja w pracy zostawia wersję
+    # z różnicą po ludzku. Import dokumentu to nowy profil, nie zmiana.
+    if job.status == JobStatus.published and not imported:
+        from app.models.champion_profile_revision import ChampionProfileRevision
+        from app.services.champion_profile_changes import describe_changes
+
+        normalized_new = ChampionProfile.model_validate(new_profile).model_dump(
+            mode="json"
+        )
+        change_items = describe_changes(normalized_old, normalized_new)
+        if change_items:
+            revision = ChampionProfileRevision(
+                job_id=job_id,
+                author_id=None if is_service_account(current_user) else current_user.id,
+                author_name=editor_name[:200],
+                changes=change_items,
+                before=normalized_old,
+                after=normalized_new,
+            )
+            db.add(revision)
+            await db.flush()
+            effects.results["change_revision"] = {
+                "id": revision.id,
+                "changes": change_items,
+            }
     sections_pl = summarize_sections(fields_changed)
     title = "Profil Championa zaktualizowany"
     message_text = (

@@ -15,6 +15,7 @@ import {
 import type { ChampionTab } from "@/lib/champion-blocks";
 
 const plainBriefMock = vi.fn();
+const changesMock = vi.fn();
 vi.mock("@/lib/api/plainKnowledge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api/plainKnowledge")>();
   return { ...actual, usePlainBrief: () => plainBriefMock() };
@@ -62,6 +63,19 @@ vi.mock("@/components/champion/ChampionTodoStrip", () => ({
     </div>
   ),
 }));
+vi.mock("@/components/champion/ChampionChanges", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/champion/ChampionChanges")>();
+  return {
+    ...actual,
+    useChampionChanges: () => changesMock(),
+    ChampionChangesCard: ({ onOpenChanges }: { onOpenChanges: () => void }) => (
+      <button type="button" data-testid="changes-card" onClick={onOpenChanges}>
+        zmiany
+      </button>
+    ),
+    ChampionChangesTimeline: () => <div data-testid="changes-timeline" />,
+  };
+});
 vi.mock("@/components/champion/ChampionClientTab", () => ({
   ChampionClientTab: () => <div data-testid="client-tab" />,
 }));
@@ -104,6 +118,8 @@ function Harness(props: Partial<ChampionWorkspaceProps> & { initialTab?: Champio
 beforeEach(() => {
   plainBriefMock.mockReset();
   plainBriefMock.mockReturnValue({ data: undefined });
+  changesMock.mockReset();
+  changesMock.mockReturnValue({ data: undefined });
 });
 
 describe("ChampionWorkspace", () => {
@@ -121,6 +137,26 @@ describe("ChampionWorkspace", () => {
     await userEvent.click(screen.getByRole("tab", { name: "Zespół i ogłoszenie" }));
     expect(screen.getByTestId("team-tab")).toBeInTheDocument();
     expect(screen.getByTestId("announce")).toHaveAttribute("data-read-only", "false");
+  });
+
+  it("zakładka „Zmiany” tylko przy zmianach po przekazaniu, z licznikiem nowych", async () => {
+    changesMock.mockReturnValue({
+      data: {
+        job_id: 7,
+        last_seen_revision_id: 10,
+        revisions: [
+          { id: 12, mine: false, changes: [] },
+          { id: 11, mine: true, changes: [] },
+          { id: 10, mine: false, changes: [] },
+        ],
+      },
+    });
+    render(<Harness />);
+    const tab = screen.getByRole("tab", { name: /Zmiany/ });
+    expect(tab).toHaveTextContent("Zmiany1");
+    await userEvent.click(screen.getByTestId("changes-card"));
+    expect(screen.getByTestId("changes-timeline")).toBeInTheDocument();
+    expect(screen.queryByTestId("brief")).toBeNull();
   });
 
   it("licznik haseł słowniczka przy „Technologie po ludzku”", () => {

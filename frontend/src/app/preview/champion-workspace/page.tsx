@@ -21,6 +21,7 @@ import { AxiosError } from "axios";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
+import { changesQueryKey } from "@/components/champion/ChampionChanges";
 import { ChampionWorkspace, type ChampionWorkspaceJob } from "@/components/champion/ChampionWorkspace";
 import {
   api,
@@ -310,6 +311,30 @@ function seededClient(persona: Persona): QueryClient {
     defaultOptions: { queries: { retry: false, staleTime: Infinity, refetchOnWindowFocus: false } },
   });
   qc.setQueryData(["champion-profile", JOB_ID], PROFILE, SEED_FRESH);
+  // „Co się zmieniło” (17.11.2026): jedna zmiana DL-a — rekruter widzi kartę.
+  qc.setQueryData(
+    changesQueryKey(JOB_ID),
+    {
+      job_id: JOB_ID,
+      last_seen_revision_id: null,
+      revisions: [
+        {
+          id: 1,
+          created_at: new Date(Date.now() - 2 * 86_400_000).toISOString(),
+          author_id: null,
+          author_name: "Delivery Lead Przykładowy",
+          note: "Po rozmowie z hiring managerem: najważniejsze są integracje i SQL, Kafka już tylko jako plus.",
+          changes: [
+            { kind: "moved", text: "Kafka", detail: "„Musi mieć” → „Mile widziane”" },
+            { kind: "removed", text: "Scrum", detail: "usunięte z „Mile widziane”" },
+            { kind: "set", text: "Deadline na kandydatów", detail: "20.11, 10:00 (wcześniej brak)" },
+          ],
+          mine: persona === "dl",
+        },
+      ],
+    },
+    SEED_FRESH,
+  );
   qc.setQueryData(plainBriefQueryKey(JOB_ID), BRIEF, SEED_FRESH);
   qc.setQueryData(["client-cv-rule", CLIENT_ID], { is_active: true, cv_language: "pl" }, SEED_FRESH);
   // Rekrutacja przekazana (od 04.10.2026 każda nowa jest) — pasek pokazuje

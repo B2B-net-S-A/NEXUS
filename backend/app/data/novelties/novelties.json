@@ -3110,5 +3110,25 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "cv.ready-cv-new-consent"
+  },
+  {
+    "id": "profil-championa-co-sie-zmienilo",
+    "pr": 3551,
+    "title": "Co się zmieniło w Profilu Championa",
+    "why": "Gdy DL zmieni profil rekrutacji, w której szukasz, na górze Briefu zobaczysz, co się zmieniło i na co klient kładzie nacisk. Historia zostaje w zakładce „Zmiany”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.changes.seen"
   }
 ]
