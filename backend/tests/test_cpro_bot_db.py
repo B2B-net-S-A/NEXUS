@@ -23,6 +23,7 @@ from sqlalchemy import delete, select, update
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_date
+from app.models.activity import Activity
 from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cpro_bot import CproBotRun
 from app.models.cv_document_version import CvDocumentVersion
@@ -201,6 +202,7 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                 return httpx.Response(200)
 
             client = httpx.AsyncClient(transport=httpx.MockTransport(bot))
+            started = datetime.now(timezone.utc)
             async with AsyncSessionLocal() as db:
                 now = datetime.now(timezone.utc)
                 due = await flow.due_items(db, now=now, today=business_date(now))
@@ -250,6 +252,19 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
             assert cv.status_code == 200, cv.text
             assert cv.content == b"PK-docx-bytes"
             assert "B2B_KYC_Ewa.docx" in cv.headers["content-disposition"]
+            # Wydanie CV botowi zostawia ślad jak API v1: dziennik i audyt osoby.
+            async with AsyncSessionLocal() as db:
+                traces = (
+                    await db.scalars(
+                        select(Activity.action).where(
+                            Activity.action.in_(
+                                ("cv_file_downloaded", "cv_downloaded")
+                            ),
+                            Activity.created_at >= started,
+                        )
+                    )
+                ).all()
+            assert {"cv_file_downloaded", "cv_downloaded"} <= set(traces)
 
             report = await api_client.post(
                 f"/api/integrations/cpro-bot/runs/{run_id}",

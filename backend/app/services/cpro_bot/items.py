@@ -255,7 +255,15 @@ async def _finalized_cvs(
         return {}
     rows = (
         await db.execute(
-            select(CandidateStageCV, CvDocumentVersion)
+            select(
+                CandidateStageCV.candidate_id,
+                CandidateStageCV.job_id,
+                CandidateStageCV.candidate_stage_id,
+                CandidateStageCV.branded_docx_filename,
+                CvDocumentVersion.version,
+                CvDocumentVersion.docx_filename,
+                CvDocumentVersion.content_html,
+            )
             .join(
                 CvDocumentVersion,
                 (CvDocumentVersion.candidate_stage_cv_id == CandidateStageCV.id)
@@ -271,18 +279,18 @@ async def _finalized_cvs(
         )
     ).all()
     out: dict[tuple[int, int], CvFile] = {}
-    for csv, version in rows:
-        key = (csv.candidate_id, csv.job_id)
+    for row in rows:
+        key = (row.candidate_id, row.job_id)
         if key in out:
             continue
         out[key] = CvFile(
-            candidate_stage_id=csv.candidate_stage_id,
-            version=version.version,
+            candidate_stage_id=row.candidate_stage_id,
+            version=row.version,
             filename=offer_text.safe_filename(
-                version.docx_filename or csv.branded_docx_filename
+                row.docx_filename or row.branded_docx_filename
             ),
-            why_points=tuple(why_points_from_html(version.content_html)),
-            job_id=csv.job_id,
+            why_points=tuple(why_points_from_html(row.content_html)),
+            job_id=row.job_id,
         )
     return out
 

@@ -17,6 +17,7 @@ ciało żądania lądowałoby jako parametr query (422).
 """
 
 import logging
+from types import SimpleNamespace
 from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
@@ -28,6 +29,9 @@ from app.api.integrations_sales_signals import parse_report, read_limited
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.models.candidate_stage_cv import CandidateStageCV
+from app.services import candidate_audit
+from app.services.cv_approved_docx import without_empty_underline
+from app.services.cv_download_log import log_cv_download
 from app.models.cpro_bot import CproBotRun
 from app.services.cpro_bot import ingest, runs
 from app.services.sales.bot_tasks.base import numbers_only
@@ -36,6 +40,8 @@ from app.core.http_headers import content_disposition_attachment
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+AUDIT_ENDPOINT = "cpro_bot_cv"
 
 DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -93,7 +99,30 @@ async def download_cv(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Brak zatwierdzonego CV.")
     version = await approved_version_for_download(db, csv, csv.branded_version)
     filename = (item.get("offer") or {}).get("cv_file_name") or "CV.docx"
-    content, run_id = version.docx_content, run.id
+    # Ten sam plik co „Pobierz” na ekranie: wersje sprzed `approved-html-4`
+    # bez czyszczenia podkreśleń Cpro pokazuje z każdym zdaniem podkreślonym.
+    content, run_id = without_empty_underline(version.docx_content), run.id
+    # Ślad wydania CV jak w API v1: dziennik pobrań i audyt kandydata, dopiero
+    # przy oddanym pliku (odmowa zgody 409 nie jest pobraniem). To transfer do
+    # bota poza EOG — musi być widoczny w „kto dostał moje CV”.
+    await log_cv_download(
+        db,
+        intent="download",
+        surface=None,
+        entity_type="candidate_stage_cv",
+        entity_id=csv.id,
+        user=SimpleNamespace(id=None),
+        file_format="docx",
+        state="approved",
+        version=version.version,
+    )
+    candidate_audit.record_candidate_audit(
+        db,
+        action=candidate_audit.CV_DOWNLOADED,
+        user_id=None,
+        entity_id=csv.candidate_id,
+        details={"endpoint": AUDIT_ENDPOINT, "format": "docx", "run_id": run_id},
+    )
     # Bieg trzyma blokadę wiersza z poświadczenia; plik nie potrzebuje transakcji.
     await db.commit()
     logger.info("cpro_bot run=%s cv served", run_id)

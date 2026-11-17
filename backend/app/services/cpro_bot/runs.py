@@ -297,13 +297,18 @@ async def item_states(
 
 
 def due_for_bot(state: Optional[ItemState], *, now: datetime) -> bool:
-    """Czy pętla może dać kartę botowi (karta bez braków)."""
+    """Czy pętla może dać kartę botowi (karta bez braków).
+
+    Szkic z próby (bieg bez wysyłki) bot wyśle w następnym biegu. Szkic
+    z prawdziwego biegu (np. „Submit Offer” się nie udał) liczy się jak bieg,
+    który padł: najwyżej ``MAX_ATTEMPTS`` prób, co ``RETRY_AFTER`` — każda
+    próba to dane osoby jeszcze raz u bota.
+    """
 
     if state is None:
         return True
-    if state.state == "draft":
-        # Próba zostawiła szkic: bot wróci do niego i wyśle.
+    if state.state == "draft" and not state.submit:
         return True
-    if state.state == "retry":
+    if state.state in ("retry", "draft"):
         return state.attempts < MAX_ATTEMPTS and state.at <= now - RETRY_AFTER
     return False

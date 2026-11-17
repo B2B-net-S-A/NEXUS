@@ -58,7 +58,7 @@ export function cproBotText(bot: CproBotItem): { tone: Tone; text: string } {
           }
         : { tone: "success", text: `Bot wysłał ofertę do Cpro${bot.cpro_status ? ` (${bot.cpro_status})` : ""}.` };
     case "draft":
-      return { tone: "info", text: "Szkic oferty w Cpro z próby — bot wyśle go w następnym biegu." };
+      return { tone: "info", text: "Szkic oferty w Cpro — bot spróbuje go wysłać w następnym biegu." };
     case "skipped":
       return { tone: "warning", text: `Bot pominął: ${bot.message ?? "osoba ma już ofertę w Cpro"}` };
     case "failed":

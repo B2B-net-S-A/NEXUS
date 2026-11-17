@@ -362,7 +362,16 @@ def test_loop_never_resends_and_retries_at_most_three_times() -> None:
     assert runs.due_for_bot(None, now=later)
     for state in ("submitted", "failed", "skipped", "working"):
         assert not runs.due_for_bot(runs.ItemState(state, NOW, 1), now=later)
-    assert runs.due_for_bot(runs.ItemState("draft", NOW, 1), now=later)
+    assert runs.due_for_bot(runs.ItemState("draft", NOW, 1, submit=False), now=later)
+    # Szkic z prawdziwego biegu: jak bieg, który padł — limit i przerwa.
+    assert not runs.due_for_bot(
+        runs.ItemState("draft", NOW, 1, attempts=10, submit=True),
+        now=NOW + timedelta(minutes=5),
+    )
+    assert not runs.due_for_bot(
+        runs.ItemState("draft", later - timedelta(minutes=5), 1, submit=True), now=later
+    )
+    assert runs.due_for_bot(runs.ItemState("draft", NOW, 1, submit=True), now=later)
     assert runs.due_for_bot(runs.ItemState("retry", NOW, 1, attempts=2), now=later)
     assert not runs.due_for_bot(runs.ItemState("retry", NOW, 1, attempts=3), now=later)
     assert not runs.due_for_bot(
