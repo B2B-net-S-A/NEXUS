@@ -3070,5 +3070,25 @@
     "href": "/clients",
     "section": "delivery",
     "dot_anchor": "clients.contacts.search"
+  },
+  {
+    "id": "lata-w-punkcie-1-i-daty-stanowisk",
+    "pr": 3544,
+    "title": "Lata w punkcie 1 i daty stanowisk w „Do poprawy”",
+    "why": "Widzisz, z których ról wyszły lata w punkcie 1 i ile daje cały staż. Przy różnicy ponad roku wpiszesz „N lat w IT, w tym M jako X” albo zostawisz liczbę. Są też uwagi o datach ról.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.tenure-split"
   }
 ]

@@ -798,6 +798,17 @@ function CVBrandedEditContent({
     }
     setSourcesSide(!sourcesSide);
   };
+  // „Pokaż oryginał” z wiersza „Do poprawy” (rola z samym rokiem, R3 17.11.2026):
+  // ta sama kolumna co przycisk w nagłówku, a na wąskim ekranie zakładka źródeł.
+  const showOriginal = () => {
+    if (assistant.locked) return;
+    if (!sideBySide) {
+      setNarrowPane("sources");
+      return;
+    }
+    if (historyOpen) history.close();
+    setSourcesSide(true);
+  };
   // Bez liczby, dopóki QC się liczy; „?” gdy nie odpowiada — zero znaczy zero.
   const issuesLabel =
     issueCount.state === "ready"
@@ -1106,6 +1117,7 @@ function CVBrandedEditContent({
                       setNarrowPane("cv");
                     }}
                     onCount={setIssueCount}
+                    onShowOriginal={hasCv ? showOriginal : undefined}
                     api={issuesApi}
                     summary={assistantExpanded}
                     onShowList={() => setAssistantOpen(false)}

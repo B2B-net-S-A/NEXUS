@@ -147,6 +147,8 @@ export interface CvEditorIssuesProps {
   ensureDraft: () => Promise<boolean>;
   /** Pokazuje kartkę (wąski ekran, podgląd Word), zanim panel przewinie do miejsca. */
   onShowCv: () => void;
+  /** „Pokaż oryginał” z wiersza uwagi o datach (R3, 17.11.2026); bez niej przycisku nie ma. */
+  onShowOriginal?: () => void;
   onCount?: (count: CvIssueCount) => void;
   /** Harness: dane z pamięci zamiast sieci. */
   api?: CvEditorIssuesApi;
@@ -330,6 +332,7 @@ export function CvEditorIssues({
   readOnly,
   ensureDraft,
   onShowCv,
+  onShowOriginal,
   onCount,
   api = networkIssuesApi,
   ref,
@@ -773,6 +776,7 @@ export function CvEditorIssues({
     dismiss: issueDismiss,
     reviewVersion,
     refreshQc: () => void refetchQc(),
+    showOriginal: onShowOriginal,
   };
   const rowView = (row: IssueRow) => <IssueRowView key={row.id} row={row} ctx={rowCtx} />;
   // „Popraw wszystkie” stoi w nagłówku grupy, w której są poprawki z planu:

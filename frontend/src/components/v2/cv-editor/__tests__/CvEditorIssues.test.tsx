@@ -1323,3 +1323,128 @@ describe("„Szybkie poprawki” (E1, 07.11.2026)", () => {
     expect(screen.queryByRole("region", { name: "Szybkie poprawki" })).not.toBeInTheDocument();
   });
 });
+
+describe("lata w punkcie 1 i daty stanowisk (R2–R3, 17.11.2026)", () => {
+  const TENURE_CHECKS: QcCheck[] = [
+    check({
+      key: "years_breakdown",
+      label: "Lata w punkcie 1 z dat stanowisk",
+      items: [
+        {
+          key: "years_breakdown|ponad 7 lat|cv",
+          term: "Ponad 7 lat",
+          fix: "tenure_split",
+          detail: "„Ponad 7 lat” — role z punktu 1: 7 lat 4 mies., cały staż z dat ról: 8 lat 6 mies.",
+          proposal: "Ponad 8 lat w IT, w tym ponad 7 lat jako Cloud Operations Engineer",
+          tenure: {
+            quote: "Ponad 7 lat doświadczenia w rolach Cloud Operations Engineer",
+            matched_months: 88,
+            total_months: 102,
+            proposal: "Ponad 8 lat w IT, w tym ponad 7 lat jako Cloud Operations Engineer",
+            roles: [
+              { title: "Cloud Operations Engineer", dates: "08.2019 – obecnie", months: 88, matched: true },
+              { title: "Junior L2 Support", dates: "06.2018 – 07.2019", months: 14, matched: false },
+              { title: "Kelner", dates: null, months: null, matched: false },
+            ],
+          },
+        },
+      ],
+    }),
+    check({
+      key: "role_dates_reversed",
+      label: "Data końca stanowiska po dacie startu",
+      items: [
+        {
+          key: "role_dates_reversed|08.2021 – 09.2019|tester · gamma",
+          role: "Tester · Gamma",
+          term: "08.2021 – 09.2019",
+          proposal: "09.2019 – 08.2021",
+          fix: "swap_dates",
+          role_index: 2,
+          detail: "„08.2021 – 09.2019” — koniec przed startem.",
+        },
+      ],
+    }),
+    check({
+      key: "role_year_only",
+      label: "Miesiące w datach stanowisk jak w oryginale",
+      items: [
+        {
+          key: "role_year_only|2021 – 2024|senior developer · bank przykładowy",
+          role: "Senior Developer · Bank Przykładowy",
+          term: "2021 – 2024",
+          fix: "show_original",
+          role_index: 0,
+          detail: "W CV: „2021 – 2024”. W oryginale: „04.2021 – 09.2024”.",
+        },
+      ],
+    }),
+  ];
+
+  it("lata: skąd liczba, propozycja jednym kliknięciem i „Zostaw” jako decyzja rekrutera", async () => {
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: TENURE_CHECKS })) });
+    const { editor } = setup({ api });
+    const before = editor.getHTML();
+
+    const proposal = await screen.findByRole("button", {
+      name: "Wpisz w punkcie 1: Ponad 8 lat w IT, w tym ponad 7 lat jako Cloud Operations Engineer",
+    });
+    const row = proposal.closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Lata w punkcie 1: Ponad 7 lat (tylko role Cloud Operations Engineer)");
+    expect(row).toHaveTextContent("Cały staż z dat ról: 8 lat 6 mies. · role z punktu 1: 7 lat 4 mies.");
+    expect(within(row).getByText("Junior L2 Support").closest("li")).toHaveTextContent("Junior L2 Support 06.2018 – 07.2019 1 rok 2 mies.");
+    expect(within(row).getByText("Kelner").closest("li")).toHaveTextContent("Kelner bez dat");
+    // Zmiana faktu w CV — nie wchodzi do „Popraw wszystkie”.
+    expect(within(screen.getByRole("region", { name: "Do poprawy" })).queryByRole("button", { name: /Popraw wszystkie/ })).toBeNull();
+
+    await waitFor(() => expect(proposal).toBeEnabled());
+    fireEvent.click(proposal);
+    await waitFor(() =>
+      expect(api.transform).toHaveBeenLastCalledWith(STAGE, { content_html: before, actions: [{ action: "tenure_split" }], bulk: false }),
+    );
+
+    fireEvent.click(within(row).getByRole("button", { name: "Zostaw Ponad 7 lat" }));
+    await waitFor(() =>
+      expect(api.dismiss).toHaveBeenCalledWith(STAGE, { check_key: "years_breakdown", key: "years_breakdown|ponad 7 lat|cv", reason: "kept_years" }),
+    );
+    // „Zostaw” to wybór, nie „To nieprawda” — formularza pominięcia nie ma.
+    expand(row);
+    expect(within(row).queryByRole("button", { name: /To nieprawda/ })).toBeNull();
+  });
+
+  it("odwrócone daty: „Odwróć” wysyła numer stanowiska, „Sprawdź w oryginale” otwiera oryginał", async () => {
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: TENURE_CHECKS })) });
+    const showOriginal = vi.fn();
+    setup({ api, props: { onShowOriginal: showOriginal } });
+
+    const swap = await screen.findByRole("button", { name: "Odwróć daty: 09.2019 – 08.2021" });
+    const row = swap.closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Rola kończy się przed startem: 08.2021 – 09.2019 09.2019 – 08.2021");
+    expect(row).toHaveTextContent("Tester · Gamma · Staż w punkcie 1 liczy się bez tej roli.");
+    await waitFor(() => expect(swap).toBeEnabled());
+    fireEvent.click(swap);
+    await waitFor(() =>
+      expect(api.transform).toHaveBeenLastCalledWith(STAGE, expect.objectContaining({ actions: [{ action: "swap_dates", role_index: 2 }] })),
+    );
+    expand(row);
+    fireEvent.click(within(row).getByRole("button", { name: "Sprawdź w oryginale" }));
+    expect(showOriginal).toHaveBeenCalledTimes(1);
+  });
+
+  it("rola z samym rokiem: do decyzji z „Pokaż oryginał”, bez przycisku, gdy edytor nie ma oryginału", async () => {
+    const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: TENURE_CHECKS })) });
+    const showOriginal = vi.fn();
+    const { rerender } = setup({ api, props: { onShowOriginal: showOriginal } });
+
+    const decide = await screen.findByRole("region", { name: "Do decyzji · nie blokuje" });
+    const row = within(decide).getByText(/^Sam rok w datach:/).closest("li") as HTMLElement;
+    expect(row).toHaveTextContent("Sam rok w datach: 2021 – 2024");
+    expect(row).toHaveTextContent("Senior Developer · Bank Przykładowy · W CV: „2021 – 2024”. W oryginale: „04.2021 – 09.2024”.");
+    fireEvent.click(within(row).getByRole("button", { name: "Pokaż oryginał" }));
+    expect(showOriginal).toHaveBeenCalledTimes(1);
+
+    rerender({ onShowOriginal: undefined });
+    const again = screen.getByText(/^Sam rok w datach:/).closest("li") as HTMLElement;
+    expect(within(again).queryByRole("button", { name: "Pokaż oryginał" })).toBeNull();
+  });
+});
