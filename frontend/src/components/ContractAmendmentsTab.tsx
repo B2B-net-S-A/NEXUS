@@ -26,6 +26,7 @@ import { canAmendContractRates } from "@/lib/contract-rate-amendment";
 import { warsawToday } from "@/lib/warsaw-date";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { AnnexClientRateImpact } from "@/components/contracts/AnnexClientRateImpact";
+import { NoticeWithdrawalDialog } from "@/components/contracts/NoticeWithdrawalDialog";
 import { resolveViewState } from "@/lib/view-state";
 import { canViewClientFinance, useAuthStore } from "@/store/auth";
 import {
@@ -52,10 +53,26 @@ const TYPE_LABELS: Record<string, string> = {
   custom_change: "Inna zmiana",
 };
 
-/** Nazwa typu aneksu; typ, którego front jeszcze nie zna, nie zostaje pusty. */
-export function amendmentTypeLabel(type: string): string {
+/** Nazwa typu aneksu; typ, którego front jeszcze nie zna, nie zostaje pusty.
+ *  Wpis z własną nazwą (`custom_change`, np. „Wycofanie wypowiedzenia”)
+ *  pokazuje tę nazwę zamiast „Inna zmiana”. */
+export function amendmentTypeLabel(
+  type: string,
+  newValues?: Record<string, unknown> | null,
+): string {
+  const title = newValues?.annex_title;
+  if (type === "custom_change" && typeof title === "string" && title.trim()) {
+    return title.trim();
+  }
   return TYPE_LABELS[type] ?? "Aneks";
 }
+
+/** Pola techniczne wpisu, których tabela nie pokazuje jako zmiany. */
+const HIDDEN_CHANGE_KEYS = new Set(["annex_title", "withdrawn_amendment_id"]);
+
+/** Podpowiedź zamiast pętli „Przedłuż” ↔ „Cofnij zakończenie” (17.11.2026). */
+export const NOTICE_WITHDRAWAL_HINT =
+  "Konsultant wycofał wypowiedzenie? Użyj „Wycofaj wypowiedzenie” przy aneksie „Wcześniejsze zakończenie” w tabeli poniżej.";
 
 /** Typy, które zakłada formularz tej zakładki. */
 type ManualAmendmentType =
@@ -90,6 +107,10 @@ interface Amendment {
   b2b_document_id?: number | null;
   state?: AnnexState;
   document?: { id: number; filename: string; is_signed_scan: boolean } | null;
+  /** Wypowiedzenie wycofane wpisem „Wycofanie wypowiedzenia”. */
+  withdrawn?: boolean;
+  /** Wypowiedzenie, które da się wycofać teraz. */
+  withdrawable?: boolean;
 }
 
 /**
@@ -168,6 +189,7 @@ export function ContractAmendmentsTab({
   extensionLocked = false,
   onRequestTermination,
   personName = null,
+  canWithdrawNotice = false,
 }: {
   contractId: number;
   clientId: number;
@@ -181,6 +203,9 @@ export function ContractAmendmentsTab({
    *  zakończenie kontraktu ma jedno wejście, które zapisuje powód, datę końca
    *  projektu i rozwiązanie umowy. Bez callbacku przycisku nie ma. */
   onRequestTermination?: () => void;
+  /** „Wycofaj wypowiedzenie” — ta sama bramka co „Cofnij zakończenie”
+   *  (Admin, Finanse, TCM), niezależna od edycji kontraktu. */
+  canWithdrawNotice?: boolean;
 }) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -192,6 +217,7 @@ export function ContractAmendmentsTab({
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<FormState>(() => emptyAmendmentForm());
   const [error, setError] = useState("");
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
 
   const amendmentsQuery = useQuery<Amendment[]>({
     queryKey: ["contract-amendments", contractId],
@@ -307,6 +333,7 @@ export function ContractAmendmentsTab({
   );
 
   const hasRows = amendments.length > 0 || annexDocuments.length > 0;
+  const noticeToWithdraw = canWithdrawNotice && amendments.some((a) => a.withdrawable);
   const historyState = resolveViewState({
     isLoading: amendmentsQuery.isLoading || annexDocumentsQuery.isLoading,
     error: amendmentsQuery.error,
@@ -379,7 +406,7 @@ export function ContractAmendmentsTab({
             </Link>
             {extensionLocked && (
               <p className="basis-full text-xs text-muted-foreground">
-                {B2B_EXTENSION_HINT}
+                {noticeToWithdraw ? NOTICE_WITHDRAWAL_HINT : B2B_EXTENSION_HINT}
               </p>
             )}
         </div>
@@ -653,7 +680,7 @@ export function ContractAmendmentsTab({
                         {formatDate(a.effective_date)}
                       </td>
                       <td className="py-2.5 pr-3 font-medium text-foreground">
-                        {amendmentTypeLabel(a.amendment_type)}
+                        {amendmentTypeLabel(a.amendment_type, a.new_values)}
                       </td>
                       <td className="py-2.5 pr-3">
                         {/* Czytelna lista pól zamiast surowego JSON-a (audyt
@@ -665,16 +692,29 @@ export function ContractAmendmentsTab({
                         ) : null}
                       </td>
                       <td className="py-2.5 pr-3">
-                        <StatusDot
-                          tone={state.tone}
-                          note={
-                            a.state === "signed_pending"
-                              ? `wejdzie w życie ${formatDate(a.effective_date)}`
-                              : null
-                          }
-                        >
-                          {state.label}
-                        </StatusDot>
+                        {a.withdrawn ? (
+                          <StatusDot tone="neutral">Wycofany</StatusDot>
+                        ) : (
+                          <StatusDot
+                            tone={state.tone}
+                            note={
+                              a.state === "signed_pending"
+                                ? `wejdzie w życie ${formatDate(a.effective_date)}`
+                                : null
+                            }
+                          >
+                            {state.label}
+                          </StatusDot>
+                        )}
+                        {canWithdrawNotice && a.withdrawable ? (
+                          <button
+                            type="button"
+                            onClick={() => setWithdrawOpen(true)}
+                            className="mt-1 block rounded-md border border-primary/40 bg-primary/5 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/10"
+                          >
+                            Wycofaj wypowiedzenie
+                          </button>
+                        ) : null}
                       </td>
                       <td className="py-2.5 pr-3">
                         {fromGenerator ? "Generator aneksów" : "Ręcznie"}
@@ -737,6 +777,12 @@ export function ContractAmendmentsTab({
             </table>
           </div>
           ) : null}
+          {withdrawOpen && (
+            <NoticeWithdrawalDialog
+              contractId={contractId}
+              onClose={() => setWithdrawOpen(false)}
+            />
+          )}
           <p className="text-xs text-muted-foreground">
             Aneks z Generatora aneksów zmienia kontrakt dopiero po podpisie.
             Aneks dodany przyciskami powyżej działa od razu i nie ma dokumentu
@@ -812,12 +858,16 @@ export function amendmentChangeRows(
   old: Record<string, unknown> | null,
   next: Record<string, unknown> | null,
 ): { key: string; label: string; before: string; after: string }[] {
-  const keys = Object.keys(next ?? {});
+  const keys = Object.keys(next ?? {}).filter((key) => !HIDDEN_CHANGE_KEYS.has(key));
   return keys.map((key) => ({
     key,
     label: contractDetailLabel(key),
     before: contractDetailValue(key, old?.[key]),
-    after: contractDetailValue(key, next?.[key]),
+    // Zdjęta data końca = umowa bezterminowa, nie „—” (wycofane wypowiedzenie).
+    after:
+      key === "end_date" && next?.[key] === null
+        ? "bezterminowo"
+        : contractDetailValue(key, next?.[key]),
   }));
 }
 
@@ -831,7 +881,7 @@ function AmendmentValues({
   const rows = amendmentChangeRows(old, next);
   if (rows.length === 0) return null;
   return (
-    <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+    <dl className="mt-2 grid grid-cols-[minmax(0,max-content)_minmax(7.5rem,1fr)] gap-x-3 gap-y-0.5 text-xs">
       {rows.map((row) => (
         <div key={row.key} className="contents">
           <dt className="text-muted-foreground">{row.label}</dt>

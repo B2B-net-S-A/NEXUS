@@ -212,6 +212,13 @@
    "b_home": "Panel"
   },
   {
+   "id": "k.annex.notice-withdrawal",
+   "opis": "Wycofaj wypowiedzenie: przy aneksie „Wcześniejsze zakończenie” nowa data końca umowy, zakończony kontrakt wraca z zamówieniami (17.11.2026)",
+   "file": "components/ContractAmendmentsTab.tsx",
+   "marker": "Wycofaj wypowiedzenie",
+   "b_home": "Kontrakt: zakładka „Aneksy”"
+  },
+  {
    "id": "k.p.annex",
    "opis": "Aneksy",
    "file": "components/contracts/ContractSidePanel.tsx",

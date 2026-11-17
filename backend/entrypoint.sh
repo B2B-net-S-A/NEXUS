@@ -11582,6 +11582,43 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# „Wycofaj wypowiedzenie” ze zgłoszenia Finansów 17.11.2026 — jednorazowo:
+# konsultant wycofał wypowiedzenie (aneks „Wcześniejsze zakończenie”), a nocny
+# proces zakończył kontrakt i uciął przypisanie na zamówieniu. Decyzja Artura
+# 17.11: naprawić od razu. Ta sama operacja co przycisk w Aneksach; logika
+# w `app/services/contract_notice_withdrawal_repair.py`, przypięta do trójki
+# ID. Marker w `app_settings` + advisory lock; porażka nie zapisuje niczego —
+# następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-notice-withdrawal-2026-11"
+echo "Contracts: withdrawn notice from 17.11 ticket (one-shot)..."
+run_unless_marked "notice_withdrawal_ticket_2026_11_17" <<'PY' || echo "notice withdrawal repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_notice_withdrawal_repair import (
+    run_notice_withdrawal_repair,
+    summarize_for_log,
+)
+from app.services.order_write_errors import commit_order_write
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_notice_withdrawal_repair(db)
+            await commit_order_write(db)
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"notice withdrawal repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"notice withdrawal repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
