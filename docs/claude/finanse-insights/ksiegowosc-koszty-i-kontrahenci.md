@@ -178,7 +178,7 @@ Makiety M2 (sekcja dekretu) i M3 (eksport): ten sam artefakt co wyżej.
   Wpisu w paczce nie cofa się (najpierw
   „Anuluj paczkę”, wpisy wracają na listę jako „Gotowe”). „Oznacz jako
   zaksięgowane” przestawia wpisy paczki na `booked`.
-- **Format pliku**: formatu importu Symfonii FK nie znamy (czekamy na próbkę od
+- **Format pliku**: poza formatami neutralnymi jest też „Symfonia FK — import dokumentów (szablon 4)” w paczce K3b (`ksiega-nexusa-k3b-symfonia-szablon-4.md`); paczka E2 zostaje neutralna. Formatu importu Symfonii dla paczki E2 nie znamy (czekamy na próbkę od
   Finansów). Są dwa neutralne (`export_formats.py`): XLSX i CSV (średnik, BOM,
   przecinek dziesiętny), wiersz na pozycję dekretu: rejestr, typ, numer
   faktury, numer KSeF, daty wystawienia i wpływu, kontrahent, NIP, ID Symfonii,
