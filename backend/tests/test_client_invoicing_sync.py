@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
 from app.models.client import Client
+from app.models.client_einvoice import ClientSalesInvoiceEinvoice
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.models.contract import RateUnit
 from app.services.client_invoicing import sync
@@ -482,3 +483,116 @@ async def test_backfill_raises_the_download_budget_until_it_is_done(env, monkeyp
     first = await env.run()
     assert first["status"] == "ok", first
     assert first["saved"] == 4
+
+
+# ── Adres nabywcy (0730) ─────────────────────────────────────────────────────
+
+
+async def _forget_address(ksef_number: str, **extra) -> int:
+    """Faktura jak sprzed 0730: bez adresu i bez znacznika odczytu."""
+
+    async with AsyncSessionLocal() as db:
+        row = await db.scalar(
+            select(ClientSalesInvoice).where(
+                ClientSalesInvoice.ksef_number == ksef_number
+            )
+        )
+        row.buyer_country = None
+        row.buyer_address_line1 = None
+        row.buyer_address_line2 = None
+        row.buyer_address_read_at = None
+        for name, value in extra.items():
+            setattr(row, name, value)
+        await db.commit()
+        return row.id
+
+
+def _with_address(xml: bytes, address: str) -> bytes:
+    text = xml.decode("utf-8")
+    old = "<Adres><KodKraju>PL</KodKraju><AdresL1>ul. Przykładowa 5</AdresL1></Adres>"
+    assert text.count(old) == 1
+    return text.replace(old, address).encode("utf-8")
+
+
+async def test_buyer_address_is_saved_when_the_invoice_is_downloaded(env):
+    env.fake.xml[fx.KSEF_UNKNOWN] = _with_address(
+        env.fake.xml[fx.KSEF_UNKNOWN],
+        "<Adres><KodKraju>de</KodKraju><AdresL1> Beispielstraße  7 </AdresL1>"
+        "<AdresL2>10115 Berlin</AdresL2></Adres>",
+    )
+    result = await env.run()
+    assert result["status"] == "ok", result
+
+    first = await fx.invoice(fx.KSEF_118)
+    assert (first.buyer_country, first.buyer_address_line1) == (
+        "PL",
+        "ul. Przykładowa 5",
+    )
+    assert first.buyer_address_line2 is None
+    assert first.buyer_address_read_at == env.clock()
+    foreign = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert (
+        foreign.buyer_country,
+        foreign.buyer_address_line1,
+        foreign.buyer_address_line2,
+    ) == ("DE", "Beispielstraße 7", "10115 Berlin")
+
+
+async def test_invoice_without_buyer_address_is_marked_as_read(env):
+    env.fake.xml[fx.KSEF_UNKNOWN] = _with_address(env.fake.xml[fx.KSEF_UNKNOWN], "")
+    await env.run()
+    unknown = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert unknown.buyer_address_line1 is None
+    assert unknown.buyer_address_read_at is not None
+
+
+async def test_old_invoices_get_the_address_from_ksef_once(env):
+    await env.run()
+    old_id = await _forget_address(fx.KSEF_118)
+    # Plik pod numerem inny niż przy pobraniu — nie ta faktura, adresu nie bierzemy.
+    await _forget_address(fx.KSEF_121, xml_sha256="0" * 64)
+
+    env.clock.advance(hours=1)
+    result = await env.run()
+    assert result["status"] == "ok", result
+    assert result["buyer_address"] == 1
+
+    restored = await fx.invoice(fx.KSEF_118)
+    assert restored.id == old_id
+    assert (restored.buyer_country, restored.buyer_address_line1) == (
+        "PL",
+        "ul. Przykładowa 5",
+    )
+    other = await fx.invoice(fx.KSEF_121)
+    assert other.buyer_address_line1 is None
+    assert other.buyer_address_read_at is not None
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_118}") == 2
+
+    # Oba oznaczone — następny przebieg niczego nie pobiera drugi raz.
+    env.clock.advance(hours=1)
+    await env.run()
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_118}") == 2
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_121}") == 2
+
+
+async def test_old_invoice_takes_the_address_from_xml_already_in_the_database(env):
+    await env.run()
+    old_id = await _forget_address(fx.KSEF_124)
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ClientSalesInvoiceEinvoice(
+                invoice_id=old_id,
+                receiver_key="test",
+                status="skipped",
+                fa_xml=env.fake.xml[fx.KSEF_124].decode("utf-8"),
+            )
+        )
+        await db.commit()
+
+    env.clock.advance(hours=1)
+    result = await env.run()
+    assert result["buyer_address"] == 1
+    restored = await fx.invoice(fx.KSEF_124)
+    assert restored.buyer_address_line1 == "ul. Przykładowa 5"
+    # Bez drugiego pobrania z KSeF.
+    assert env.fake.count("GET", f"/invoices/ksef/{fx.KSEF_124}") == 1
