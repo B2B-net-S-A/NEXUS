@@ -152,7 +152,7 @@ async def get_terms_form(
     from app.services.application_confirmation_email import public_job_title
 
     return TermsView(
-        job_title=await public_job_title(db, row.job_id),
+        job_title=await public_job_title(db, row.job_id) or row.ad_title,
         expires_at=row.expires_at,
         answered_at=row.answered_at,
         answers=await _last_answers(db, row.candidate_id),
