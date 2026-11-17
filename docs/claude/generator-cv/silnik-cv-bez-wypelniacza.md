@@ -453,3 +453,24 @@ Krok `cv-service-title-repair` w `entrypoint.sh`, kod `services/cv_service_title
 - Ponad 40 CV krok niczego nie zmienia i nie stawia markera. Stare wartości są
   w `activities` (`branded_cv_service_title_repair`), paragon ma same liczby.
 - `cv_generated_documents` zostają historią generacji.
+
+## Bez dopisków o poziomie w umiejętnościach (17.11.2026, wariant A+B)
+
+Zgłoszenie z zespołu: „Cucumber (krótkie doświadczenie praktyczne)”, „Java
+(podstawy)”. Klient czyta to jako „nie umie”. Kopia produkcji z 16.11: 64 z 958
+CV z 30 dni, ok. 70% dopisków nie stało w CV kandydata. Makiety:
+https://claude.ai/artifact/LUCSApnhPsHE2WUJdgdGDk
+
+- Prompt (PL i EN) zakazuje dopisków stopnia w SKILLS; słabiej znana
+  umiejętność stoi bez dopisku na końcu kategorii, nawias tylko dla zakresu.
+- Strażnik `legacy_v7._helpers._without_level_note` w `strip_unsupported_terms`:
+  z nawiasu znika tylko część ze stopniem („Docker (basic, Docker Compose)” →
+  „Docker (Docker Compose)”, „basic DAX” → „DAX”, „SQL and Splunk basics” →
+  „SQL and Splunk”), tak samo ogon po myślniku, osobno w każdym członie po
+  średniku. Pozycja schodzi na koniec kategorii, chyba że jest wymaganiem
+  klienta (must-have zostaje na początku). Uwaga „WERYFIKUJ: zdjęto dopiski…”
+  pozwala rekruterowi dopisać poziom w edytorze, gdy klient go wymaga.
+- Zostają: lata („10+ lat”), „zaawansowana znajomość”, nazwy z tymi słowami
+  („Visual Basic”, „Identity Awareness”). „Brak doświadczenia” dalej usuwa całą
+  pozycję (`_NEGATED_SKILL_RE`). Przebieg po 36 017 pozycjach ze stagingu:
+  138 zmian, bez utraty technologii.

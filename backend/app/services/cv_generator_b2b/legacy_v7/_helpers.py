@@ -1078,6 +1078,91 @@ def _without_negated_note(item: str) -> str | None:
     return head.strip(" ,;-–—(") or None
 
 
+# Dopisek o stopniu znajomości („Cucumber (krótkie doświadczenie praktyczne)”,
+# „Java (podstawy)”, „Angular (basic)”). Zgłoszenie z zespołu 17.11.2026:
+# klient czyta to jako „nie umie”. Pomiar kopii produkcji z 16.11: 64 z 958 CV
+# z 30 dni, ok. 70% dopisków nie stoi w CV kandydata. Decyzja Artura (A+B):
+# dopisek znika, pozycja zostaje i schodzi na koniec kategorii.
+_LEVEL_NOTE_RE = re.compile(
+    r"\b(?:podstaw\w*|(?<!visual )basics?|beginner\w*|elementar\w*|krótk\w*"
+    r"|short|brief|ograniczon\w*|limited|teoretyczn\w*|theoretical\w*"
+    r"|familiar\w*|exposure|świadomoś\w*|niekomercyjn\w*"
+    r"|non-commercial|początkując\w*|w\s+trakcie\s+nauki|currently\s+learning"
+    r"|rozwijan\w*\s+samodzielnie|self-taught|smaller\s+changes"
+    r"|bez\s+(?:potwierdzon\w*\s+)?(?:użyci\w*|wykorzystani\w*)\s+komercyjn\w*"
+    r"|without\s+commercial\s+use|wskazan\w*\s+w\s+cv"
+    r"|listed\s+(?:in|on)\s+(?:the\s+)?cv)\b",
+    re.IGNORECASE,
+)
+_LEVEL_TAIL_RE = re.compile(r"\s+[-–—]\s+([^()\-–—]*)$")
+# „SQL and Splunk basics” → „SQL and Splunk”, „basic DAX” → „DAX”.
+_LEVEL_SUFFIX_RE = re.compile(r"^(.*\S)\s+(?:basics|podstawy)$", re.IGNORECASE)
+# Nazwa po stopniu zaczyna się wielką literą („basic level” to sam stopień).
+_LEVEL_PREFIX_RE = re.compile(r"^(?i:basic|podstawow\w*)\s+([A-Z].*)$")
+
+
+def _split_outside_brackets(text: str, separators: str) -> list[str]:
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for ch in text:
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth = max(0, depth - 1)
+        if ch in separators and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current).strip())
+    return parts
+
+
+def _without_level_phrase(text: str) -> str | None:
+    """Fraza bez stopnia znajomości; ``None``, gdy cała jest stopniem."""
+    tail = _LEVEL_TAIL_RE.search(text)
+    if tail and _LEVEL_NOTE_RE.search(tail.group(1)):
+        return text[: tail.start()].strip() or None
+    if not _LEVEL_NOTE_RE.search(text):
+        return text
+    for pattern in (_LEVEL_SUFFIX_RE, _LEVEL_PREFIX_RE):
+        match = pattern.match(text)
+        if match and not _LEVEL_NOTE_RE.search(match.group(1)):
+            return match.group(1)
+    return None
+
+
+def _without_level_note(item: str) -> tuple[str, bool]:
+    """Pozycja bez dopisku o stopniu znajomości i informacja, czy był.
+
+    Z nawiasu znikają tylko części ze stopniem, zakres zostaje:
+    „Docker (basic, Docker Compose)” → „Docker (Docker Compose)”. Pozycja
+    złożona ze średników traci dopisek tylko w swoim członie.
+    """
+    found = False
+
+    def clean_group(match: re.Match[str]) -> str:
+        nonlocal found
+        parts = [p for p in _split_outside_brackets(match.group(1), ",;") if p]
+        kept = [c for c in map(_without_level_phrase, parts) if c]
+        if kept == parts:
+            return match.group(0)
+        found = True
+        return f" ({', '.join(kept)})" if kept else ""
+
+    segments: list[str] = []
+    for segment in _split_outside_brackets(item, ";"):
+        cleaned = re.sub(r"\s*\(([^()]*)\)", clean_group, segment).strip()
+        tail = _LEVEL_TAIL_RE.search(cleaned)
+        if tail and _LEVEL_NOTE_RE.search(tail.group(1)) and tail.start() > 0:
+            found = True
+            cleaned = cleaned[: tail.start()].strip()
+        if cleaned:
+            segments.append(cleaned)
+    return ("; ".join(segments) or item), found
+
+
 def strip_unsupported_terms(
     candidate_data: dict[str, Any],
     *,
@@ -1111,6 +1196,7 @@ def strip_unsupported_terms(
     removed: list[str] = []
     doubtful: list[str] = []
     negated: list[str] = []
+    level_noted: list[str] = []
 
     def from_ad(term: str) -> bool:
         tokens = _term_tokens(term)
@@ -1129,15 +1215,33 @@ def strip_unsupported_terms(
         techs = job.get("technologies") or []
         job["technologies"] = [t for t in techs if not from_ad(str(t))]
 
+    required = _source_tokens("\n".join(requirements))
+
+    def is_required(term: str) -> bool:
+        tokens = _term_tokens(term)
+        return bool(tokens) and all(tok in required for tok in tokens)
+
     skills: list[dict[str, str]] = []
     for cat in candidate_data.get("skills") or []:
         kept: list[str] = []
+        weaker: list[str] = []
         for item in _split_skills(str(cat.get("content") or "")):
             cleaned = _without_negated_note(item)
             if cleaned is None:
                 negated.append(item)
-            elif not from_ad(cleaned):
-                kept.append(cleaned)
+                continue
+            cleaned, had_level = _without_level_note(cleaned)
+            if from_ad(cleaned):
+                continue
+            if had_level:
+                level_noted.append(item)
+                # Wymaganie klienta zostaje na swoim miejscu (must-have na
+                # początku kategorii), reszta za tym, co kandydat zna dobrze.
+                if not is_required(cleaned):
+                    weaker.append(cleaned)
+                    continue
+            kept.append(cleaned)
+        kept.extend(weaker)
         if kept:
             skills.append({**cat, "content": ", ".join(kept)})
     candidate_data["skills"] = skills
@@ -1172,6 +1276,17 @@ def strip_unsupported_terms(
             if language == "en"
             else f"{prefix}: usunięto umiejętności z dopiskiem o braku "
             f"doświadczenia: {names}"
+        )
+    if level_noted:
+        names = ", ".join(dict.fromkeys(level_noted))
+        notes.append(
+            f"{prefix}: removed level notes from skills (the skill stays, moved "
+            f"to the end of its category); add the level in the editor if the "
+            f"client asks for it: {names}"
+            if language == "en"
+            else f"{prefix}: zdjęto dopiski o poziomie znajomości (umiejętność "
+            f"została, na końcu kategorii); jeśli klient wymaga poziomu, dopisz "
+            f"go w edytorze: {names}"
         )
     return notes
 
