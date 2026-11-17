@@ -221,6 +221,7 @@ export function CounterpartiesTab({ canWrite = true }: { canWrite?: boolean }) {
             role="tab"
             aria-selected={view === "pending"}
             variant={view === "pending" ? "primary" : "outline"}
+            data-tour="finance.counterparties-pending"
             onClick={() => setView("pending")}
           >
             Czeka na Symfonię
