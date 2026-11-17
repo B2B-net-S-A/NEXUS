@@ -104,12 +104,15 @@ MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
 
 
-#: Konta sprzedaży: klucz → (domyślne konto, etykieta w komunikatach).
+#: Konta sprzedaży: klucz → (domyślne konto, etykieta w komunikatach). Puste
+#: konto przychodów = jak w Symfonii (``revenue.py``: konto z dekretu faktury
+#: w archiwum eBI24 albo z poprzedniej faktury nabywcy); wpisane — jedno konto.
 SALES_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "receivable_account": ("200", "Rozrachunki z odbiorcami"),
     "revenue_account": ("", "Przychody ze sprzedaży"),
     "vat_account": ("222", "VAT należny"),
 }
+SALES_OPTIONAL: frozenset[str] = frozenset({"revenue_account"})
 
 
 @dataclass(frozen=True)
@@ -179,12 +182,29 @@ class PayrollAccounts:
         ]
 
 
-#: Konta środków trwałych (K6): klucz → (domyślne konto, etykieta).
+#: Konta środków trwałych (K6): klucz → (domyślne konto, etykieta). Konto
+#: amortyzacji AM bierze z mapy umorzeń (``cost_map``); ``cost_account`` to konto
+#: dla umorzeń spoza mapy — puste = taki środek czeka w „Źródłach” z problemem.
 ASSETS_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
-    "cost_account": ("401", "Amortyzacja"),
+    "cost_account": ("", "Amortyzacja — umorzenia spoza mapy"),
     "intake_account": ("080", "Przyjęcie i ulepszenie — konto przeciwstawne"),
     "disposal_account": ("761", "Likwidacja i sprzedaż — wartość netto"),
 }
+ASSETS_OPTIONAL: frozenset[str] = frozenset({"cost_account"})
+#: Umorzenie środka → konto amortyzacji (jak w planie kont Symfonii: 070-x
+#: umorzenie grupy środków, 075/071 umorzenie WNiP → 400-x). Klucz pasuje też
+#: do kont pod nim (075 obejmuje 075-3).
+DEFAULT_COST_MAP: tuple[tuple[str, str], ...] = (
+    ("070-1", "400-2"),
+    ("070-2", "400-3"),
+    ("070-3", "400-4"),
+    ("070-4", "400-5"),
+    ("070-5", "400-6"),
+    ("070-6", "400-7"),
+    ("071", "400-1"),
+    ("075", "400-1"),
+)
+COST_MAP_MAX = 40
 
 
 @dataclass(frozen=True)
@@ -192,6 +212,19 @@ class AssetsAccounts:
     cost_account: str = ASSETS_ACCOUNT_FIELDS["cost_account"][0]
     intake_account: str = ASSETS_ACCOUNT_FIELDS["intake_account"][0]
     disposal_account: str = ASSETS_ACCOUNT_FIELDS["disposal_account"][0]
+    cost_map: tuple[tuple[str, str], ...] = DEFAULT_COST_MAP
+
+    def cost_for(self, depreciation_account: str) -> Optional[str]:
+        """Konto amortyzacji dla konta umorzenia: najdłuższy pasujący klucz mapy
+        (po segmentach numeru), inaczej ``cost_account``; ``None`` = brak."""
+
+        mapping = dict(self.cost_map)
+        parts = depreciation_account.split("-")
+        for cut in range(len(parts), 0, -1):
+            found = mapping.get("-".join(parts[:cut]))
+            if found:
+                return found
+        return self.cost_account or None
 
 
 #: Konta rejestrów VAT (K5a): klucz → (domyślne konto, etykieta). VAT należny
@@ -389,8 +422,28 @@ def _payroll(raw: object) -> PayrollAccounts:
     return PayrollAccounts(**_accounts(raw, PAYROLL_ACCOUNT_FIELDS))
 
 
+def _cost_map(raw: object) -> tuple[tuple[str, str], ...]:
+    """Zapisana mapa umorzeń; brak klucza = domyślna, zła para jest pomijana."""
+
+    if not isinstance(raw, list):
+        return DEFAULT_COST_MAP
+    pairs: list[tuple[str, str]] = []
+    for item in raw[:COST_MAP_MAX]:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            continue
+        try:
+            pairs.append((clean_account(item[0]), clean_account(item[1])))
+        except (LedgerError, TypeError, AttributeError):
+            continue
+    return tuple(pairs)
+
+
 def _assets(raw: object) -> AssetsAccounts:
-    return AssetsAccounts(**_accounts(raw, ASSETS_ACCOUNT_FIELDS))
+    data = raw if isinstance(raw, dict) else {}
+    return AssetsAccounts(
+        **_accounts(raw, ASSETS_ACCOUNT_FIELDS),
+        cost_map=_cost_map(data.get("cost_map")),
+    )
 
 
 def _vat(raw: object) -> VatAccounts:
@@ -524,7 +577,7 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         "payroll": {
             key: getattr(settings.payroll, key) for key in PAYROLL_ACCOUNT_FIELDS
         },
-        "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
+        "assets": assets_json(settings.assets),
         "vat": {key: getattr(settings.vat, key) for key in VAT_ACCOUNT_FIELDS},
         "jpk": {"email": settings.jpk.email, "phone": settings.jpk.phone},
         "jpk_kr": {
@@ -547,6 +600,13 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
             ],
             **{key: getattr(settings.bank, key) for key in BANK_ACCOUNT_FIELDS},
         },
+    }
+
+
+def assets_json(accounts: AssetsAccounts) -> dict[str, Any]:
+    return {
+        **{key: getattr(accounts, key) for key in ASSETS_ACCOUNT_FIELDS},
+        "cost_map": [list(pair) for pair in accounts.cost_map],
     }
 
 
@@ -778,6 +838,19 @@ def account_problems(
                         "problem": problem,
                     }
                 )
+    for source, target in settings.assets.cost_map:
+        problem = account_problem(target, plan)
+        if problem:
+            out.append(
+                {
+                    "group": "assets",
+                    "group_label": ACCOUNT_GROUPS["assets"][0],
+                    "field": f"cost_map.{source}",
+                    "label": f"Amortyzacja dla umorzenia {source}",
+                    "account": target,
+                    "problem": problem,
+                }
+            )
     for index, item in enumerate(settings.bank.accounts, start=1):
         problem = account_problem(item.account, plan)
         if problem:
@@ -825,9 +898,12 @@ async def _plan_accounts(
 async def set_sales_accounts(
     db: AsyncSession, values: dict[str, str], *, actor: User
 ) -> LedgerSettings:
-    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont."""
+    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont, konto
+    przychodów opcjonalne (puste = konto jak w Symfonii, ``revenue.py``)."""
 
-    cleaned = await _plan_accounts(db, values, SALES_ACCOUNT_FIELDS, group="sales")
+    cleaned = await _plan_accounts(
+        db, values, SALES_ACCOUNT_FIELDS, optional=SALES_OPTIONAL, group="sales"
+    )
     current = await load(db)
     settings = replace(current, sales=SalesAccounts(**cleaned))
     await _save(db, settings, actor=actor)
@@ -865,11 +941,45 @@ async def set_payroll_accounts(
 async def set_assets_accounts(
     db: AsyncSession, values: dict[str, str], *, actor: User
 ) -> LedgerSettings:
-    """Konta środków trwałych (bez commita, admin): każde z planu kont."""
+    """Konta środków trwałych (bez commita, admin): każde z planu kont, konto
+    dla umorzeń spoza mapy opcjonalne; mapa umorzeń — konto umorzenia z planu,
+    konto amortyzacji przyjmujące zapisy, bez powtórzeń."""
 
-    cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS, group="assets")
+    cleaned = await _plan_accounts(
+        db, values, ASSETS_ACCOUNT_FIELDS, optional=ASSETS_OPTIONAL, group="assets"
+    )
+    plan = await load_plan(db)
+    raw_map = values.get("cost_map")
+    if raw_map is None:
+        cost_map = (await load(db)).assets.cost_map
+    else:
+        if len(raw_map) > COST_MAP_MAX:
+            raise LedgerError(
+                f"Mapa umorzeń: najwyżej {COST_MAP_MAX} pozycji.", status=422
+            )
+        pairs: list[tuple[str, str]] = []
+        for pair in raw_map:
+            source = clean_account(pair[0], "Mapa umorzeń: konto umorzenia")
+            if source not in plan:
+                raise LedgerError(
+                    f"Mapa umorzeń: konta umorzenia {source} nie ma w planie kont.",
+                    status=422,
+                )
+            if any(source == known for known, _ in pairs):
+                raise LedgerError(
+                    f"Mapa umorzeń: konto umorzenia {source} jest wpisane dwa razy.",
+                    status=422,
+                )
+            target = clean_account(pair[1], f"Amortyzacja dla umorzenia {source}")
+            problem = account_problem(target, plan)
+            if problem:
+                raise LedgerError(
+                    f"Amortyzacja dla umorzenia {source}: {problem}", status=422
+                )
+            pairs.append((source, target))
+        cost_map = tuple(pairs)
     current = await load(db)
-    settings = replace(current, assets=AssetsAccounts(**cleaned))
+    settings = replace(current, assets=AssetsAccounts(**cleaned, cost_map=cost_map))
     await _save(db, settings, actor=actor)
     return settings
 

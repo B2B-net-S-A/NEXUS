@@ -125,7 +125,7 @@ function overview(overrides: Partial<AssetsOverview> = {}): AssetsOverview {
       },
     ],
     am: null,
-    accounts: { cost_account: "401", intake_account: "080", disposal_account: "761" },
+    accounts: { cost_account: "401", intake_account: "080", disposal_account: "761", cost_map: [] },
     allocation_complete: true,
     can_manage: true,
     can_configure: false,

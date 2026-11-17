@@ -641,6 +641,39 @@ async def test_assets_accounts_are_set_by_admin_from_the_plan(client, world):
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["cost_account"] == acc["cost"]
+    # Mapa umorzeń: konto umorzenia z planu, konto amortyzacji przyjmujące
+    # zapisy; konto dla umorzeń spoza mapy może zostać puste.
+    mapped = {
+        **body,
+        "cost_account": "",
+        "cost_map": [[acc["dep_fixed"], acc["cost"]], [acc["dep_intangible"], acc["cost"]]],
+    }
+    saved = await client.put(
+        f"{ACC}/assets/settings", json=mapped, headers=_headers(world["admin"])
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["cost_account"] == ""
+    assert saved.json()["cost_map"] == mapped["cost_map"]
+    for wrong, reason in (
+        ([[f"{world['prefix']}-079", acc["cost"]]], "nie ma w planie kont"),
+        ([[acc["dep_fixed"], f"{world['prefix']}-998"]], "nie ma w planie kont"),
+        (
+            [[acc["dep_fixed"], acc["cost"]], [acc["dep_fixed"], acc["cost"]]],
+            "dwa razy",
+        ),
+    ):
+        refused = await client.put(
+            f"{ACC}/assets/settings",
+            json={**mapped, "cost_map": wrong},
+            headers=_headers(world["admin"]),
+        )
+        assert refused.status_code == 422, wrong
+        assert reason in refused.json()["detail"]
+    # Bez pola mapy zapis nie rusza zapisanej mapy.
+    kept = await client.put(
+        f"{ACC}/assets/settings", json=body, headers=_headers(world["admin"])
+    )
+    assert kept.json()["cost_map"] == mapped["cost_map"]
 
 
 async def test_new_asset_needs_valid_mpk_kst_and_rate(client, world):

@@ -37,7 +37,8 @@ Migracja `0703_ledger_assets` (`ledger_assets_schema.py`, lustro przez
   / Ma wartość początkowa. Opis zapisu (`title`) jest zamrożony przy
   dokumencie, więc zmiana nazwy środka nie zmienia zatwierdzonego zapisu.
 - **AM miesiąca** (źródło `assets_month` / `RRRR-MM`): odpisy bilansowe
-  wszystkich środków — Wn 401 z MPK, Ma 070/071, i od razu podział na „5”
+  wszystkich środków — Wn konto amortyzacji z mapy umorzeń z MPK, Ma 070/075,
+  i od razu podział na „5”
   (Wn konta „5” z rozliczenia kosztów K2 według MPK, Ma 490). Rozliczenie
   kosztów K2 bierze tylko FVZ, więc AM dzieli się sam. `meta.assets` to
   rozbicie na środki `[id, kwota, MPK, konto umorzenia]`; odcisk danych
@@ -48,9 +49,17 @@ Migracja `0703_ledger_assets` (`ledger_assets_schema.py`, lustro przez
   w buforze, zatwierdza lista „Księgowi”. Oba źródła są też w „Źródłach”
   i na liście zamknięcia miesiąca (pozycja „Amortyzacja — Symfonia ŚT” znika
   z etapów w drodze, gdy moduł jest otwarty).
-- Konta modułu (`app_settings['ledger'].assets`: amortyzacja 401, przyjęcie
-  080, wartość netto zbycia 761) ustawia admin (`PUT /assets/settings`), każde
-  z planu kont. Bez kont „5” AM czeka w „Źródłach” z problemem.
+- Konta modułu (`app_settings['ledger'].assets`: mapa umorzeń `cost_map`,
+  konto dla umorzeń spoza mapy, przyjęcie 080, wartość netto zbycia 761)
+  ustawia admin (`PUT /assets/settings`), każde z planu kont. Bez kont „5” AM
+  czeka w „Źródłach” z problemem.
+- **Konto amortyzacji jak w Symfonii** (17.11.2026): umorzenie środka wyznacza
+  konto 400-x (`070-1→400-2`, `070-2→400-3`, `070-3→400-4`, `070-4→400-5`,
+  `070-5→400-6`, `070-6→400-7`, `071`/`075→400-1`; domyślna mapa
+  `DEFAULT_COST_MAP`, admin ją zmienia). Klucz pasuje też do kont pod nim, po
+  segmentach numeru. Konto „spoza mapy” jest opcjonalne. Puste oznacza, że
+  środek z nieznanym umorzeniem czeka z problemem, bo zgadywanie kosztu (dawne
+  401 = zużycie materiałów) psuło wynik.
 
 ## Zasady, których łatwo nie zauważyć
 

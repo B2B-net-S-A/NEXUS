@@ -35,6 +35,7 @@ from app.models.client_sales_invoice import (
     ClientSalesInvoice,
     ClientSalesInvoicePayment,
 )
+from app.models.finance_archive import FinanceArchiveDocument
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.finance_payments import FinanceCostPaymentRecord
 from app.models.hr_payroll import PayrollPeriod
@@ -62,7 +63,7 @@ from app.models.ledger import (
 from app.services.finance_ledger import costs as cost_queue
 from app.services.finance_ledger.posting import rate_day
 from app.services.ledger import settings as ledger_settings
-from app.services.ledger import sources
+from app.services.ledger import revenue, sources
 from app.services.ledger import years as ledger_years
 from tests.test_finance_ledger_db import (  # noqa: F401  (fixture ``world``)
     _entry,
@@ -638,7 +639,12 @@ async def test_correction_of_advance_waits_with_the_advance(client, world, books
             await db.commit()
 
 
-async def test_sales_wait_for_revenue_account(client, world, books):
+async def test_sales_without_revenue_account_wait_for_buyer_history(
+    client, world, books
+):
+    """Puste konto przychodów = jak w Symfonii; nabywca bez historii w archiwum
+    eBI24 i w księdze czeka w „Do sprawdzenia”, bez konta zapasowego."""
+
     await _set_ledger(
         {
             "modules": {"ledger": True},
@@ -648,8 +654,102 @@ async def test_sales_wait_for_revenue_account(client, world, books):
     )
     summary = await _summary(client, world, books)
     reasons = {item["problems"][0] for item in summary["sales"]["problems"]}
-    assert sources.NO_REVENUE_ACCOUNT in reasons
+    assert revenue.NO_HISTORY in reasons
     assert summary["sales"]["to_post"] == 0
+
+
+def _archive_sale(*, ksef: str | None, nip: str, day: date, account: str):
+    """Faktura sprzedaży z archiwum eBI24 z dekretem, który poszedł do Symfonii."""
+
+    key = uuid.uuid4().hex
+    return FinanceArchiveDocument(
+        source="ebi24",
+        source_id=f"test-{key[:24]}",
+        schema_name="INCOME_INVOICE",
+        kind="sale",
+        ksef_number=ksef,
+        issue_date=day,
+        file_type="ebi",
+        file_path=f"test/{key}.json",
+        file_sha256=hashlib.sha256(key.encode()).hexdigest(),
+        meta={
+            "_partner": {"officialId": f"PL{nip}", "officialIdType": "NIP"},
+            "externalData": {
+                "symfonia": {
+                    "registryCode": "Sprzedaż",
+                    "accountNumberNet": account,
+                    "accountNumberTax": "222",
+                }
+            },
+        },
+    )
+
+
+async def test_sales_revenue_follows_symfonia_decrees_from_ebi24_archive(
+    client, world, books
+):
+    acc, ids, year = books["acc"], books["sales"], books["year"]
+    nip = world["nips"]["client"]
+    await _set_ledger(
+        {
+            "modules": {"ledger": True},
+            "accountants": [world["accountant"].id],
+            "sales": {
+                "receivable_account": acc["receivable"],
+                "revenue_account": "",
+                "vat_account": acc["vat_out"],
+            },
+        }
+    )
+    async with AsyncSessionLocal() as db:
+        plain = await db.get(ClientSalesInvoice, ids["plain"])
+        await db.execute(
+            update(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id == ids["correction"])
+            .values(corrected_ksef_number=plain.ksef_number)
+        )
+        archived = [
+            # Dekret tej faktury w Symfonii — wygrywa z historią nabywcy.
+            _archive_sale(
+                ksef=plain.ksef_number,
+                nip=nip,
+                day=plain.issue_date,
+                account=acc["revenue"],
+            ),
+            # Wcześniejsza faktura nabywcy spoza NEXUSA (bez numeru KSeF).
+            _archive_sale(
+                ksef=None, nip=nip, day=date(year, 3, 1), account=acc["other_income"]
+            ),
+        ]
+        db.add_all(archived)
+        await db.commit()
+        archive_ids = [item.id for item in archived]
+    try:
+        synced = await _sync(client, world, books, "sales")
+        assert synced.status_code == 200, synced.text
+        plain_doc = await _document("client_sales_invoice", ids["plain"])
+        euro_doc = await _document("client_sales_invoice", ids["euro"])
+        correction_doc = await _document("client_sales_invoice", ids["correction"])
+        assert (plain_doc.meta["revenue_from"], (await _lines(plain_doc.id))[1][1]) == (
+            revenue.EBI24,
+            acc["revenue"],
+        )
+        # Faktura spoza archiwum: konto poprzedniej faktury nabywcy.
+        assert euro_doc.meta["revenue_from"] == revenue.PREVIOUS
+        assert (await _lines(euro_doc.id))[1][1] == acc["other_income"]
+        # Korekta: konto faktury korygowanej z archiwum, nie poprzedniej.
+        assert correction_doc.meta["revenue_from"] == revenue.ORIGINAL
+        assert (await _lines(correction_doc.id))[1][:2] == ("debit", acc["revenue"])
+        again = await _sync(client, world, books, "sales")
+        assert again.json()["created"] == 0, again.text
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FinanceArchiveDocument).where(
+                    FinanceArchiveDocument.id.in_(archive_ids)
+                )
+            )
+            await db.commit()
 
 
 async def test_sync_needs_open_period_of_existing_year(client, world, books):
@@ -715,6 +815,20 @@ async def test_sales_accounts_are_set_by_admin_from_the_plan(client, world, book
     problems = config.json()["account_problems"]
     assert not [item for item in problems if item["group"] == "sales"]
     assert config.json()["accountants"] is None
+    # Puste konto przychodów = konto jak w Symfonii; reszta pól dalej wymagana.
+    symfonia = await client.put(
+        f"{ACC}/config/sales",
+        json={**body, "revenue_account": ""},
+        headers=_headers(world["admin"]),
+    )
+    assert symfonia.status_code == 200, symfonia.text
+    assert symfonia.json()["sales"]["revenue_account"] == ""
+    no_vat = await client.put(
+        f"{ACC}/config/sales",
+        json={**body, "vat_account": ""},
+        headers=_headers(world["admin"]),
+    )
+    assert no_vat.status_code == 422
 
 
 # ── Rozliczenie kosztów na „5” ──────────────────────────────────────────────

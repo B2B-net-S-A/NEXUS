@@ -125,8 +125,11 @@ export function AssetsView() {
             : stats.month_amount
               ? `AM ${label} nie jest jeszcze naliczony`
               : `W ${label} nie ma odpisów`}
-          {" · "}amortyzacja {overview.accounts.cost_account}, przyjęcie {overview.accounts.intake_account}, zbycie{" "}
-          {overview.accounts.disposal_account}
+          {" · "}amortyzacja{" "}
+          {overview.accounts.cost_map.length
+            ? `wg umorzeń (${overview.accounts.cost_map.length})${overview.accounts.cost_account ? `, poza mapą ${overview.accounts.cost_account}` : ""}`
+            : overview.accounts.cost_account || "— nie ustawiono"}
+          , przyjęcie {overview.accounts.intake_account}, zbycie {overview.accounts.disposal_account}
         </span>
       </div>
       {!overview.allocation_complete ? (

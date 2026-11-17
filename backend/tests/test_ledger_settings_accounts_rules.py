@@ -107,11 +107,21 @@ def test_problems_list_defaults_after_full_plan_import():
         ("sales", "receivable_account"),
         ("payroll", "settlement_account"),
         ("payroll", "zus_account"),
-        ("assets", "cost_account"),
         ("assets", "intake_account"),
         ("assets", "disposal_account"),
         ("bank", "zus_account"),
+    } | {
+        ("assets", f"cost_map.{source}")
+        for source, _ in ledger_settings.DEFAULT_COST_MAP
     }
+    # Domyślna mapa umorzeń wskazuje 400-x, których w tym planie nie ma.
+    mapped = found[("assets", "cost_map.070-3")]
+    assert (mapped["account"], mapped["label"]) == (
+        "400-4",
+        "Amortyzacja dla umorzenia 070-3",
+    )
+    # Konto dla umorzeń spoza mapy jest domyślnie puste — nie jest problemem.
+    assert ("assets", "cost_account") not in found
     receivable = found[("sales", "receivable_account")]
     assert receivable["account"] == "200"
     assert receivable["group_label"] == "Ustawienia → Konta faktur sprzedaży"
@@ -129,6 +139,7 @@ def test_problems_list_is_empty_when_accounts_are_postable():
                 "cost_account": "490",
                 "intake_account": "130-1",
                 "disposal_account": "490",
+                "cost_map": [["229", "490"]],
             },
             "bank": {
                 "zus_account": "229-1-2",
@@ -150,6 +161,7 @@ def test_problems_list_covers_company_bank_accounts():
                 "cost_account": "490",
                 "intake_account": "130-1",
                 "disposal_account": "490",
+                "cost_map": [],
             },
             "bank": {
                 "zus_account": "229-2",
@@ -161,3 +173,37 @@ def test_problems_list_covers_company_bank_accounts():
     assert [(item["field"], item["label"], item["account"]) for item in problems] == [
         ("accounts.1", "Rachunek Główny", "130")
     ]
+
+
+def test_saved_cost_map_replaces_default_and_bad_pairs_are_dropped():
+    settings = ledger_settings.normalize(
+        {"assets": {"cost_map": [["070-3", "400-4"], ["07*0", "400"], "070", []]}}
+    )
+    assert settings.assets.cost_map == (("070-3", "400-4"),)
+    assert ledger_settings.normalize(None).assets.cost_map == (
+        ledger_settings.DEFAULT_COST_MAP
+    )
+    assert ledger_settings.to_json(settings)["assets"]["cost_map"] == [
+        ["070-3", "400-4"]
+    ]
+
+
+def test_cost_for_takes_longest_matching_depreciation_account():
+    accounts = ledger_settings.AssetsAccounts(
+        cost_map=(("070", "400-6"), ("070-3", "400-4"), ("075", "400-1"))
+    )
+    assert accounts.cost_for("070-3") == "400-4"
+    assert accounts.cost_for("070-3-1") == "400-4"
+    assert accounts.cost_for("070-5") == "400-6"
+    assert accounts.cost_for("075-3") == "400-1"
+    # 0750 to inne konto niż 075 — porównujemy segmenty numeru, nie tekst.
+    assert accounts.cost_for("0750") is None
+    fallback = ledger_settings.AssetsAccounts(cost_account="409-1", cost_map=())
+    assert fallback.cost_for("070-3") == "409-1"
+
+
+def test_revenue_account_may_stay_empty_but_not_others():
+    assert "revenue_account" in ledger_settings.SALES_OPTIONAL
+    assert ledger_settings.normalize({"sales": {"revenue_account": ""}}).sales == (
+        ledger_settings.SalesAccounts(revenue_account="")
+    )

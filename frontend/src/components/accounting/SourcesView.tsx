@@ -202,7 +202,7 @@ function SourceCard({
         {salesAccounts ? (
           <p className="text-[12px] leading-5 text-muted-foreground">
             Konta: rozrachunki {salesAccounts.receivable_account}-ID Symfonii (albo konto z kartoteki
-            kontrahenta) · przychód {salesAccounts.revenue_account || "— nie ustawiono"} · VAT{" "}
+            kontrahenta) · przychód {salesAccounts.revenue_account || "jak w Symfonii (dekret z eBI24 albo poprzednia faktura nabywcy)"} · VAT{" "}
             {salesAccounts.vat_account}
             {config.me.admin ? " · zmienisz je w Ustawieniach" : " · zmienia administrator"}
           </p>
