@@ -165,11 +165,15 @@ async def apply_answer(
         candidate.notice_period, candidate.notice_period_unit = 0, "days"
         saved.append("start")
     elif answer.start_kind == "date" and answer.start_date is not None:
+        # Odpowiedź o starcie zastępuje oba pola — stary okres wypowiedzenia
+        # obok nowej daty mówiłby co innego.
         candidate.availability_date = answer.start_date
+        candidate.notice_period, candidate.notice_period_unit = None, None
         saved.append("start")
     elif answer.start_kind == "notice" and answer.notice_value is not None:
         candidate.notice_period = answer.notice_value
         candidate.notice_period_unit = answer.notice_unit or "months"
+        candidate.availability_date = None
         saved.append("start")
 
     candidate_audit.record_candidate_audit(

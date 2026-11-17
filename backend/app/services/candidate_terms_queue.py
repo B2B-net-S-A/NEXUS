@@ -129,13 +129,19 @@ async def _recruiter(db: AsyncSession, job_id: Optional[int]):
     from app.models.user import User
     from app.services.job_team import recruiters_for_jobs
 
+    from app.models.job import Job
+
     people = (await recruiters_for_jobs(db, [job_id])).get(job_id) or []
-    for person in people:
-        if person.proposed:
-            continue
-        user = await db.get(User, person.user_id)
+    ids = [p.user_id for p in people if not p.proposed]
+    # Zespół uśpiony albo prowadzący zdjęty: odpowiedź i tak musi do kogoś
+    # trafić, więc prowadzący z rekrutacji, jeśli jego konto działa.
+    owner = await db.scalar(select(Job.recruiter_id).where(Job.id == job_id))
+    if owner is not None:
+        ids.append(owner)
+    for user_id in ids:
+        user = await db.get(User, user_id)
         if user is not None and user.is_active and user.email:
-            return user.id, person.name, user.email
+            return user.id, user.name or user.email, user.email
     return None
 
 
@@ -239,6 +245,8 @@ async def send_one(
     )
     row.recruiter_id = recruiter[0] if recruiter else None
     row.action = decision.action
+    # Przy samym podziękowaniu powód (wypis, link w 30 dniach, komplet) do liczenia.
+    row.skip_reason = decision.reason if decision.action == rules.THANKS else None
     # Rezerwacja przed wysyłką: drugi worker nie weźmie tego wiersza, a restart
     # w trakcie nie wyśle drugiego maila (niepewny wynik zostaje „sent”).
     row.status, row.sent_at = "sent", now
