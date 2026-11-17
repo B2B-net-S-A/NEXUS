@@ -463,6 +463,8 @@ const PUBLIC_PATHS = [
   // Rekrutacja własna: wybór terminu z linku w mailu.
   "/t/",
   "/engagement/",
+  // Warunki od kandydata (17.11.2026): link z maila po aplikacji, token w adresie.
+  "/warunki/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
   // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.
