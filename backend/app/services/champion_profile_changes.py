@@ -69,8 +69,18 @@ def _row_words(row: Any) -> list[str]:
     return [_clean(w) for w in row.get("words") or [] if _clean(w)]
 
 
+def _head(label: str) -> str:
+    """Pierwsza nazwa etykiety wiersza („Kafka lub RabbitMQ” → „Kafka”).
+
+    `stack.critical` i stare listy `must`/`nice` trzymają etykietę z
+    zamiennikami (`champion_requirement_rows.row_label`), a wiersz — słowa.
+    Kluczem jest głowa, jak w `_kept_critical`.
+    """
+    return _clean(label).split(" lub ")[0].strip()
+
+
 def _requirement_rows(stack: dict) -> dict[str, tuple[str, str, tuple[str, ...]]]:
-    """Wiersz → (etykieta, poziom, warianty) z kluczem po pierwszym słowie.
+    """Wiersz → (etykieta, poziom, warianty) z kluczem po pierwszej nazwie.
 
     Profil sprzed wierszy (02.10.2026) ma tylko listy ``must``/``nice``
     i ``critical`` — czytamy je w tym samym kształcie, żeby porównanie
@@ -79,29 +89,31 @@ def _requirement_rows(stack: dict) -> dict[str, tuple[str, str, tuple[str, ...]]
     out: dict[str, tuple[str, str, tuple[str, ...]]] = {}
     # Zapis trzyma wybór krytycznych w `stack.critical` (etykiety wierszy),
     # a wiersz może zostać na poziomie „musi mieć”.
-    critical = {_clean(name).casefold() for name in stack.get("critical") or []}
+    critical = {_head(name).casefold() for name in stack.get("critical") or []}
     rows = stack.get("rows")
     if isinstance(rows, list) and rows:
         for row in rows:
             words = _row_words(row)
             if not words:
                 continue
+            key = _head(words[0]).casefold()
             level = row.get("level") if row.get("level") in LEVEL_LABELS else "must"
-            if level == "must" and words[0].casefold() in critical:
+            if level == "must" and key in critical:
                 level = "critical"
-            out.setdefault(
-                words[0].casefold(),
-                (words[0], level, tuple(w.casefold() for w in words)),
-            )
+            out.setdefault(key, (words[0], level, tuple(w.casefold() for w in words)))
         return out
     for level in ("must", "nice"):
         for entry in stack.get(level) or []:
             name = _clean(entry.get("name") if isinstance(entry, dict) else entry)
             if not name:
                 continue
-            key = name.casefold()
+            head = _head(name)
+            key = head.casefold()
+            variants = tuple(
+                v.strip().casefold() for v in name.split(" lub ") if v.strip()
+            )
             effective = "critical" if level == "must" and key in critical else level
-            out.setdefault(key, (name, effective, (key,)))
+            out.setdefault(key, (head, effective, variants))
     return out
 
 

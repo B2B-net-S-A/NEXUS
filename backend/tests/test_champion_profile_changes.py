@@ -327,3 +327,40 @@ async def test_seen_rejects_revision_from_another_job(app_client, app_auth_heade
         headers=app_auth_headers,
     )
     assert wrong.status_code == 404
+
+
+def test_critical_row_with_alternatives_is_reported():
+    """`stack.critical` trzyma etykietę wiersza („Kafka lub RabbitMQ”), nie pierwsze słowo."""
+    old = {
+        "stack": {
+            "rows": [{"words": ["Kafka", "RabbitMQ"], "level": "must"}],
+            "critical": [],
+        }
+    }
+    new = {
+        "stack": {
+            "rows": [{"words": ["Kafka", "RabbitMQ"], "level": "must"}],
+            "critical": ["Kafka lub RabbitMQ"],
+        }
+    }
+    assert _kinds(describe_changes(old, new)) == [
+        ("moved", "Kafka", "„Musi mieć” → „Krytyczne”"),
+    ]
+
+
+def test_legacy_alternative_label_matches_row_head():
+    """Profil sprzed wierszy z etykietą „Kafka lub Docker” a ten sam wiersz po przejściu."""
+    old = {
+        "stack": {
+            "must": [{"name": "Kafka lub Docker"}],
+            "critical": ["Kafka lub Docker"],
+            "rows": None,
+        }
+    }
+    new = {
+        "stack": {
+            "rows": [{"words": ["Kafka", "Docker"], "level": "must"}],
+            "critical": ["Kafka lub Docker"],
+        }
+    }
+    assert describe_changes(old, new) == []
