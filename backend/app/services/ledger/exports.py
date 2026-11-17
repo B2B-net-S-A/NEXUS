@@ -218,20 +218,118 @@ async def _candidates(
 DEFAULT_PURCHASE_SYMBOL = "FVZ"
 
 
-def _address(party: Optional[FinanceCounterparty]) -> dict[str, Optional[str]]:
+def _iso_country(code: Optional[str]) -> Optional[str]:
+    value = (code or "").strip().upper() or None
+    # Grecja: prefiks VAT UE to EL, kod kraju ISO — GR.
+    return "GR" if value == "EL" else value
+
+
+def party_country(party: Optional[FinanceCounterparty]) -> tuple[Optional[str], str]:
+    """``(kod kraju, "")`` albo ``(None, powód)``.
+
+    Kraj w kartotece jest opcjonalny (kolumna pliku importu). Kontrahent z VAT UE
+    bez kraju dostałby w pliku Polskę, więc kraj bierzemy z prefiksu numeru,
+    a sprzeczność z kartoteką odrzucamy.
+    """
+
+    if party is None:
+        return None, ""
+    stored = _iso_country(party.country)
+    if party.id_type != "vat_eu":
+        return stored, ""
+    prefix = _iso_country((party.id_value or "")[:2])
+    if stored and stored != prefix:
+        return None, (
+            f"kraj kontrahenta w kartotece ({stored}) inny niż prefiks VAT UE ({prefix})"
+        )
+    return prefix, ""
+
+
+def _address(party: Optional[FinanceCounterparty], country: Optional[str]) -> dict:
     return {
         "party_street": party.street if party else None,
         "party_postal": party.postal_code if party else None,
         "party_city": party.city if party else None,
-        "party_country": party.country if party else None,
+        "party_country": country,
     }
+
+
+#: Stawka z pozycji faktury w KSeF (``P_12``) → stawka rejestru w Symfonii
+#: (``stawkivat`` z eksportu modelu księgowego: -1 „Zwolnione”, -2 „Nie podlega
+#: VAT”; „np II” = usługa dla podatnika z UE jak w próbce WDT). „oo”, „np I”,
+#: „0 WDT”, „0 EX” i stawki archiwalne nie mają próbki — faktura odpada.
+KSEF_RATES: dict[str, str] = {
+    "23": "23",
+    "8": "8",
+    "5": "5",
+    "0": "0",
+    "0 KR": "0",
+    "zw": "-1",
+    "np II": "-2",
+}
+NO_ZERO_KIND = "faktura bez VAT — z kwot nie wiadomo, czy to 0%, „zw” czy „np”"
+
+
+def _amount_rate(net: Decimal, vat: Decimal) -> str:
+    """Stawka z kwot (faktura bez stawek w pozycjach) albo powód odmowy."""
+
+    if vat == 0:
+        return NO_ZERO_KIND
+    # Zgodność co do grosza (±1 gr na zaokrąglenie): tolerancja procentowa
+    # przyjmowała fakturę 23% + 8% jako 23%. W przeglądzie 17.11.2026 VAT
+    # wszystkich 858 faktur z jedną stawką zgadzał się z netto × stawka co do grosza.
+    for rate in (23, 8, 5):
+        expected = posting.grosze(abs(net) * rate / 100)
+        if abs(expected - posting.grosze(abs(vat))) <= 1:
+            return str(rate)
+    return "VAT z kwot nie pasuje do 23, 8 ani 5% (kilka stawek?) — brak próbki"
+
+
+def sales_rate(invoice: ClientSalesInvoice, *, eu: bool) -> tuple[Optional[str], str]:
+    """``(stawka, "")`` albo ``(None, powód)``.
+
+    Stawka idzie z pozycji (``P_12``), nie z kwot: stosunek VAT do netto
+    faktury z pozycjami 8% i „zw” wypada np. na 5%, a „zw” na 0%.
+    """
+
+    codes = sorted(
+        {
+            str(item.get("vat_rate") or "").strip()
+            for item in invoice.items or []
+            if not item.get("before_correction")
+        }
+        - {""}
+    )
+    if len(codes) > 1:
+        return None, f"kilka stawek VAT na fakturze ({', '.join(codes)}) — brak próbki"
+    if codes:
+        rate = KSEF_RATES.get(codes[0])
+        if rate is None:
+            return None, f"stawka VAT „{codes[0]}” — brak próbki"
+    else:
+        found = _amount_rate(
+            Decimal(invoice.net_amount), Decimal(invoice.vat_amount or 0)
+        )
+        if found not in KSEF_RATES.values():
+            return None, found
+        rate = found
+    if eu and rate != "-2":
+        return None, (
+            "nabywca z UE bez stawki „np II” — szablon 4 zna tylko usługę dla UE"
+        )
+    if not eu and rate == "-2":
+        return None, "stawka „np II” u nabywcy bez VAT UE — brak próbki"
+    return rate, ""
 
 
 def sales_invoice(
     invoice: ClientSalesInvoice, party: Optional[FinanceCounterparty]
-) -> ExportInvoice:
-    """Dane FVS: nabywca z UE bez VAT = usługa poza krajem (WDT), korekta = FKS."""
+) -> ExportInvoice | str:
+    """Dane FVS albo powód: nabywca z VAT UE = usługa poza krajem (WDT),
+    korekta = FKS, nabywca spoza Polski i UE = brak próbki."""
 
+    if party is not None and party.id_type == "other":
+        return "nabywca spoza Polski i UE — brak próbki eksportu"
     eu = party is not None and party.id_type == "vat_eu"
     if invoice.invoice_kind == "correction":
         symbol = "FKS"
@@ -242,7 +340,12 @@ def sales_invoice(
         Decimal(invoice.vat_amount or 0),
         Decimal(invoice.gross_amount),
     )
-    rate = "-2" if eu and vat == 0 else None if eu else posting.vat_rate(net, vat)
+    rate, problem = sales_rate(invoice, eu=eu)
+    if rate is None:
+        return problem
+    country, problem = party_country(party)
+    if problem:
+        return problem
     sale_date = invoice.sale_date or invoice.issue_date
     return ExportInvoice(
         symbol=symbol,
@@ -265,7 +368,7 @@ def sales_invoice(
         ),
         negative=gross < 0,
         corrects_number=invoice.corrected_invoice_number,
-        **_address(party),
+        **_address(party, country),
     )
 
 
@@ -288,11 +391,22 @@ def purchase_invoice(
     gross = Decimal(row.gross_amount)
     vat = Decimal(row.vat_amount or 0)
     net = Decimal(row.net_amount) if row.net_amount is not None else gross - vat
+    rate = _amount_rate(net, vat)
+    if rate not in KSEF_RATES.values():
+        return rate
+    positions = decree.get("positions") or []
+    if not any(item.get("kind") == "vat" for item in positions):
+        # Reguła „bez odliczenia” księguje koszt brutto bez pozycji VAT, a rejestr
+        # z próbki (``ABC =1``) to VAT do odliczenia — pola na brak odliczenia nie znamy.
+        return "faktura bez odliczenia VAT (dekret bez pozycji VAT) — brak próbki"
+    country, problem = party_country(party)
+    if problem:
+        return problem
     issued = row.issue_date or doc.doc_date
     settlement = next(
         (
             str(item.get("account") or "")
-            for item in decree.get("positions") or []
+            for item in positions
             if item.get("kind") == "counterparty"
         ),
         None,
@@ -309,11 +423,11 @@ def purchase_invoice(
         net=net,
         vat=vat,
         gross=gross,
-        vat_rate=posting.vat_rate(net, vat),
+        vat_rate=rate,
         currency=str(row.currency or "PLN"),
         negative=gross < 0,
         settlement_account=settlement,
-        **_address(party),
+        **_address(party, country),
     )
 
 
