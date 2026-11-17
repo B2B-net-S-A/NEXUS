@@ -201,6 +201,24 @@ export function usePostBankStatement() {
   });
 }
 
+export interface BankDeleteResult {
+  lines: number;
+  cost_records: number;
+  cost_matched: number;
+  sales_records: number;
+  sales_matched: number;
+}
+
+/** Cofnięcie importu przed WB (administrator): znikają linie i zapłaty E3/E8 z pliku. */
+export function useDeleteBankStatement() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (statementId: number) =>
+      (await api.delete<BankDeleteResult>(`${BASE}/bank/statements/${statementId}`)).data,
+    onSettled: () => client.invalidateQueries({ queryKey: accountingKeys.all }),
+  });
+}
+
 export function useSetBankSettings() {
   const client = useQueryClient();
   return useMutation({

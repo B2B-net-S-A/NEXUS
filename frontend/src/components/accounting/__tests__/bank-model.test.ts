@@ -4,6 +4,7 @@ import {
   canAssign,
   companyAccountProblems,
   curAmount,
+  deleteMessage,
   groupNrb,
   lineLocked,
   lineTone,
@@ -124,6 +125,16 @@ describe("bank — księgowanie", () => {
     expect(readStatement("?statement=12&year=2026")).toBe(12);
     expect(readStatement("?statement=abc")).toBeNull();
     expect(readStatement("")).toBeNull();
+  });
+});
+
+describe("bank — usunięcie wyciągu", () => {
+  it("mówi, ile operacji i zapłat faktur zniknęło", () => {
+    const base = { lines: 1, cost_records: 0, cost_matched: 0, sales_records: 0, sales_matched: 0 };
+    expect(deleteMessage(base)).toBe("Usunięto wyciąg (1 operacja).");
+    expect(deleteMessage({ ...base, lines: 256, cost_records: 142, cost_matched: 46, sales_records: 58, sales_matched: 17 })).toBe(
+      "Usunięto wyciąg (256 operacji) i zapłaty faktur z tego pliku: 63.",
+    );
   });
 });
 

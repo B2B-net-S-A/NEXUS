@@ -37,7 +37,7 @@ from app.models.client_sales_invoice import (
 )
 from app.models.finance_archive import FinanceArchiveDocument
 from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
-from app.models.finance_payments import FinanceCostPaymentRecord
+from app.models.finance_payments import FinanceCostPayment, FinanceCostPaymentRecord
 from app.models.hr_payroll import PayrollPeriod
 from app.models.hr_settlement import (
     EmployeeBillingDetails,
@@ -61,6 +61,7 @@ from app.models.ledger import (
     LedgerYear,
 )
 from app.services.finance_ledger import costs as cost_queue
+from app.services.finance_ledger import payments as cost_payments
 from app.services.finance_ledger.posting import rate_day
 from app.services.ledger import settings as ledger_settings
 from app.services.ledger import revenue, sources
@@ -1915,6 +1916,113 @@ async def test_bank_statement_is_classified_posted_once_and_deduplicated(client,
     assert [line["kind"] for line in second.json()["lines"]] == ["duplicate", "fee"]
     items = {item["key"]: item for item in (await _closing(client, world, books))["items"]}
     assert (items["bank"]["state"], items["bank"]["detail"]) == ("todo", "wyciągi bez WB: 1")
+
+
+async def test_admin_deletes_statement_with_its_e3_e8_matches(client, world, books):
+    """Cofnięcie importu wyciągu (17.11.2026: E8 wziął nogi VAT MPP za wpłaty
+    klientów): znika wyciąg, jego linie i zapłaty E3/E8 z tego pliku, stan
+    zapłaty faktury kosztowej liczy się od nowa; z WB — odmowa."""
+
+    year, acc = books["year"], books["acc"]
+    await _set_ledger(_bank_settings(world, books))
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _statement(
+        year,
+        ("D", "300,00", "Faktura spoza NEXUSA", OTHER_ACCOUNT, f"U{marker}"),
+        ("C", "250,00", "Wpłata bez faktury", OTHER_ACCOUNT, f"C{marker}"),
+    )
+    imported = await _bank_import(client, world, content)
+    assert imported.status_code == 201, imported.text
+    data = imported.json()
+    sha = hashlib.sha256(content).hexdigest()
+    entry_id = books["expense"]
+    async with AsyncSessionLocal() as db:
+        # Zapłaty z tego pliku tak, jak zapisują je E3 i E8 przy imporcie.
+        db.add(
+            FinanceCostPaymentRecord(
+                kind="statement_line",
+                entry_id=entry_id,
+                match_status="matched",
+                amount=Decimal("300.00"),
+                currency="PLN",
+                booked_on=date(year, 3, 20),
+                statement_sha256=sha,
+                statement_format="mt940",
+                statement_line_ref=f"1:U{marker}",
+            )
+        )
+        db.add(
+            ClientSalesInvoicePayment(
+                kind="statement_line",
+                match_status="unmatched",
+                amount=Decimal("250.00"),
+                currency="PLN",
+                booked_on=date(year, 3, 20),
+                statement_sha256=sha,
+                statement_format="mt940",
+                statement_line_ref=f"2:C{marker}",
+            )
+        )
+        await db.flush()
+        await cost_payments.refresh(db, [entry_id], actor_id=None)
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        paid = await db.get(FinanceCostPayment, entry_id)
+        assert paid is not None and paid.paid_amount > 0
+
+    url = f"{ACC}/bank/statements/{data['id']}"
+    refused = await client.delete(url, headers=_headers(world["accountant"]))
+    assert refused.status_code == 403
+    deleted = await client.delete(url, headers=_headers(world["admin"]))
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {
+        "lines": 2,
+        "cost_records": 1,
+        "cost_matched": 1,
+        "sales_records": 1,
+        "sales_matched": 0,
+    }
+    async with AsyncSessionLocal() as db:
+        assert await db.get(LedgerBankStatement, data["id"]) is None
+        left = await db.scalar(
+            select(func.count())
+            .select_from(LedgerBankLine)
+            .where(LedgerBankLine.statement_id == data["id"])
+        )
+        assert left == 0
+        for model in (FinanceCostPaymentRecord, ClientSalesInvoicePayment):
+            count = await db.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.statement_sha256 == sha)
+            )
+            assert count == 0
+        paid = await db.get(FinanceCostPayment, entry_id)
+        assert (paid.state, paid.paid_amount, paid.paid_on) == (
+            "unpaid",
+            Decimal("0.00"),
+            None,
+        )
+    gone = await client.delete(url, headers=_headers(world["admin"]))
+    assert gone.status_code == 404
+    # Ten sam plik wchodzi od nowa (nowy wyciąg, bez „already_imported”).
+    again = await _bank_import(client, world, content)
+    assert again.status_code == 201 and again.json()["already_imported"] is False
+    # Wyciąg z WB w buforze — najpierw dokument, potem wyciąg.
+    headers = _headers(world["accountant"])
+    for line in again.json()["lines"]:
+        assigned = await client.patch(
+            f"{ACC}/bank/lines/{line['id']}", json={"account": acc["cost"]}, headers=headers
+        )
+        assert assigned.status_code == 200, assigned.text
+    posted = await client.post(
+        f"{ACC}/bank/statements/{again.json()['id']}/post", headers=headers
+    )
+    assert posted.status_code == 200, posted.text
+    blocked = await client.delete(
+        f"{ACC}/bank/statements/{again.json()['id']}", headers=_headers(world["admin"])
+    )
+    assert blocked.status_code == 409 and "WB" in blocked.json()["detail"]
 
 
 async def test_bank_hides_team_payments_without_payroll(client, world, books):
