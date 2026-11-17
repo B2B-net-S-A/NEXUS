@@ -512,6 +512,23 @@ def test_number_inside_a_longer_number_from_the_title_gives_way():
     assert domestic.invoice_id == 1
 
 
+def test_vat_leg_of_our_own_supplier_payment_is_not_a_customer_payment():
+    # Santander: płacąc dostawcy w MPP, bank przenosi VAT z naszego rachunku
+    # VAT na główny („UZNANIE VAT (SP)”). /IDC/ to NIP sprzedawcy — dostawcy,
+    # nie nasz — więc to nie wpłata za naszą fakturę o tym samym numerze
+    # (wyciąg 12.11.2026: 13 takich uznań przypiętych do faktur sprzedaży).
+    ours = _open(1, "1/11/2026", "48302.10", "1234563218-20261105-0A1B2C3D4E5F-AB")
+    leg = _credit("3643.20", "/VAT/3643,20/IDC/1111111111/INV/1/11/2026/TXT/1/11/2026")
+    decision = decide_credit(leg, [ours])
+    assert (decision.invoice_id, decision.related) == (None, False)
+    # Wpłata klienta w MPP ma w /IDC/ nasz NIP — dopasowanie bez zmian.
+    paid = decide_credit(
+        _credit("39271.63", "/VAT/9030,47/IDC/1234563218/INV/1/11/2026/TXT/1/11/2026"),
+        [ours],
+    )
+    assert (paid.invoice_id, paid.amount) == (1, Decimal("48302.10"))
+
+
 def test_split_payment_counts_vat_paid_to_the_vat_account():
     assert mpp_vat("/VAT/5157,75/IDC/1111111111/INV/FS 10/124/2026/TXT/X") == Decimal(
         "5157.75"

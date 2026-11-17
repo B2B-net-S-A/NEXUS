@@ -80,6 +80,7 @@ REASON_LABELS: dict[str, str] = {
 
 _MPP_VAT = re.compile(r"/VAT/\s*(\d+(?:[.,]\d{1,2})?)\s*/", re.IGNORECASE)
 _MPP_INV = re.compile(r"/INV/\s*([^/]+?)\s*(?:/|$)", re.IGNORECASE)
+_MPP_IDC = re.compile(r"/IDC/\s*(\d{10})\s*/", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -253,6 +254,23 @@ def _settle(
     )
 
 
+def _foreign_seller(title: str, invoices: Sequence[OpenInvoice]) -> bool:
+    """Uznanie MPP z NIP-em sprzedawcy (/IDC/) spoza naszych faktur.
+
+    Numer KSeF faktury zaczyna się NIP-em sprzedawcy, czyli naszym. Inny NIP
+    w /IDC/ to noga VAT naszej zapłaty dla dostawcy (Santander przenosi VAT
+    z rachunku VAT na główny: „UZNANIE VAT (SP)”), nie wpłata klienta —
+    12.11.2026 takie uznania opłacały faktury sprzedaży o tym samym numerze.
+    Bez faktur z KSeF nie rozstrzygamy.
+    """
+
+    found = _MPP_IDC.search(title)
+    if found is None:
+        return False
+    prefixes = {k.split("-", 1)[0] for i in invoices for k in i.ksef_numbers}
+    return bool(prefixes) and found.group(1) not in prefixes
+
+
 def decide_credit(
     line: StatementLine, invoices: Sequence[OpenInvoice]
 ) -> CreditDecision:
@@ -260,6 +278,8 @@ def decide_credit(
 
     amount = money(line.amount)
     title = line.title or ""
+    if _foreign_seller(title, invoices):
+        return CreditDecision(None, False, "unrelated")
     numbers = set(ksef_numbers_in(title))
     if numbers:
         by_ksef = [i for i in invoices if numbers & set(i.ksef_numbers)]
