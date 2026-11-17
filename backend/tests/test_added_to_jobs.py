@@ -27,7 +27,7 @@ from httpx import AsyncClient
 
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
+from app.core.scheduling import business_today, local_day_start_utc
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -216,9 +216,15 @@ async def test_dashboard_route_for_head_and_delivery_lead_refuses_recruiter(
 ) -> None:
     person, _, _ = await _user()
     client_id, job_id = await _job()
+    # Tuż po północy w Warszawie „5 minut temu” to wczoraj — kolejka merge'ów
+    # biegnie nocą (17.11.2026 o 00:00:03 test padł na `today == 0`).
     now = datetime.now(timezone.utc)
-    await _pair(job_id, (now - timedelta(minutes=5), person))
-    await _pair(job_id, (now - timedelta(minutes=5), None), entry_source="system")
+    when = max(
+        now - timedelta(minutes=5),
+        local_day_start_utc(business_today()) + timedelta(seconds=1),
+    )
+    await _pair(job_id, (when, person))
+    await _pair(job_id, (when, None), entry_source="system")
     await cache_invalidate("insights:team:added-to-jobs:")
 
     for role in (UserRole.head_of_recruitment, UserRole.delivery_lead):
