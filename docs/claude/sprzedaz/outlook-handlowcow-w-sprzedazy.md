@@ -26,8 +26,11 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
   subskrypcje Graph i ich odnawianie, wysyłka podsumowania spotkania do klienta
   (`services/sales/meeting_client_mail.py`, od 09.11.2026) oraz zaproszenie na
   przekazane spotkanie (`services/sales/handoff_invite.py`, decyzja Artura
-  z 10.11.2026). Obie wysyłki idą ze skrzynki osoby, która klika, i odrzucają adresy
-  z bazy kandydatów przed wywołaniem Graph. Nie dokładaj go nigdzie indziej.
+  z 10.11.2026) i mail do klienta po umówieniu spotkania z kolejki dzwonienia
+  (`services/sales/booking_mail.py` przez `meeting_client_mail.deliver`, 17.11.2026,
+  `dzwonienie-mail-po-umowieniu-spotkania.md`). Wszystkie wysyłki idą ze skrzynki
+  osoby, która klika, i odrzucają adresy z bazy kandydatów przed wywołaniem Graph.
+  Nie dokładaj go nigdzie indziej.
 
 ## Dopasowanie do firmy (`services/sales/outlook_activities.py`)
 

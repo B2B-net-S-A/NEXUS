@@ -26,20 +26,21 @@ const opportunities = vi.fn();
 const companyCard = vi.fn();
 const inviteDraft = vi.fn();
 const sendInvite = vi.fn();
+const sendBookingMail = vi.fn();
+const handoffForm = vi.fn();
+const defaultForm = {
+  hosts: [
+    { id: 2, name: "Prowadzący Testowy" },
+    { id: 4, name: "Druga Prowadząca" },
+  ],
+  default_host_id: 2,
+};
 
 const mutation = (mutate: ReturnType<typeof vi.fn>) => ({ mutate, isPending: false });
 
 vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales-handoffs")>()),
-  useHandoffForm: () => ({
-    data: {
-      hosts: [
-        { id: 2, name: "Prowadzący Testowy" },
-        { id: 4, name: "Druga Prowadząca" },
-      ],
-      default_host_id: 2,
-    },
-  }),
+  useHandoffForm: () => ({ data: handoffForm() }),
   useBookMeeting: () => mutation(bookMeeting),
   useGiveVerdict: () => ({ mutateAsync: giveVerdict, isPending: false }),
   useSetHandoffTerm: () => ({ mutateAsync: setTerm, isPending: false }),
@@ -48,6 +49,7 @@ vi.mock("@/lib/api/sales-handoffs", async (original) => ({
   useHostBusy: (hostId: number | null, day: string | null) => hostBusy(hostId, day),
   useInviteDraft: (opportunityId: number) => inviteDraft(opportunityId),
   useSendInvite: () => ({ mutateAsync: sendInvite, isPending: false }),
+  useSendBookingMail: () => ({ mutateAsync: sendBookingMail, isPending: false }),
 }));
 vi.mock("@/lib/api/sales", async (original) => ({
   ...(await original<typeof import("@/lib/api/sales")>()),
@@ -110,6 +112,7 @@ import { HandoffCard } from "../handoff/HandoffCard";
 import { BookedByMeSection, HandedToMeSection } from "../handoff/HandoffSections";
 import {
   bookerStatus,
+  bookingMailBody,
   briefLine,
   freeStarts,
   handoffWhen,
@@ -176,6 +179,8 @@ beforeEach(() => {
   setTerm.mockResolvedValue({});
   confirmTerm.mockResolvedValue({});
   sendInvite.mockResolvedValue({});
+  sendBookingMail.mockResolvedValue({});
+  handoffForm.mockReturnValue(defaultForm);
 });
 
 describe("podpisy przekazania", () => {
@@ -889,5 +894,164 @@ describe("opiekun w oknie „Edytuj firmę”", () => {
       owner_user_id: 14,
       tags: ["ważne", "kontakt", "nowy"],
     });
+  });
+});
+
+describe("mail do klienta po umówieniu (kolejka dzwonienia)", () => {
+  const fill = (label: string, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const mailbox = {
+    ...defaultForm,
+    hosts: [
+      { id: 2, name: "Prowadzący Testowy", email: "prowadzacy@nasza-firma.example" },
+      { id: 4, name: "Druga Prowadząca", email: "druga@nasza-firma.example" },
+    ],
+    mailbox: "ok" as const,
+    mailbox_address: "dzwoniacy@nasza-firma.example",
+  };
+  const booked = () =>
+    bookMeeting.mockImplementation((_payload: unknown, options: { onSuccess: (saved: Handoff) => void }) =>
+      options.onSuccess(handoff({ meeting_at: termFromFields("2026-11-12", "13:00") })),
+    );
+  const form = (onSaved = vi.fn()) =>
+    render(
+      <BookMeetingForm
+        company={{ id: 7, name: "Firma Testowa" }}
+        contactId={5}
+        service="Automatyzacje"
+        invite={{ email: "anna@firma-testowa.example" }}
+        onSaved={onSaved}
+        onCancel={vi.fn()}
+      />,
+    );
+
+  it("szablon idzie za terminem i prowadzącym, a zapis wysyła mail z kopią do prowadzącego", async () => {
+    handoffForm.mockReturnValue(mailbox);
+    booked();
+    const onSaved = vi.fn();
+    form(onSaved);
+    fill("Dzień spotkania", "2026-11-12");
+    fill("Godzina spotkania", "13:00");
+
+    expect(screen.getByLabelText("Tytuł maila")).toHaveProperty("value", "Potwierdzenie spotkania: 12.11, godz. 13:00");
+    const body = (screen.getByLabelText("Treść maila") as HTMLTextAreaElement).value;
+    expect(body).toContain("w czwartek 12.11.2026 o 13:00 (30 min) w sprawie: Automatyzacje.");
+    expect(body).toContain("Spotkanie poprowadzi Prowadzący Testowy (w kopii tej wiadomości).");
+    expect(screen.getByText(/DW: Prowadzący Testowy <prowadzacy@nasza-firma.example>/)).toBeTruthy();
+    expect(screen.getByText(/Od: dzwoniacy@nasza-firma.example/)).toBeTruthy();
+
+    // Inny prowadzący zmienia treść, dopóki dzwoniący jej nie poprawił.
+    fill("Prowadzący", "4");
+    expect((screen.getByLabelText("Treść maila") as HTMLTextAreaElement).value).toContain("poprowadzi Druga Prowadząca");
+    fill("Prowadzący", "2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Umów czw 12.11 13:00 i wyślij mail" }));
+    const payload = bookMeeting.mock.calls[0][0];
+    expect(payload.invite_to).toBe("anna@firma-testowa.example");
+    // Zaproszenie Teams prowadzącego ma własną podpowiedź, nie treść maila.
+    expect(payload.invite_message).toContain("przesyłam zaproszenie na spotkanie w sprawie: Automatyzacje.");
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    const mail = sendBookingMail.mock.calls[0][0];
+    expect(mail).toMatchObject({
+      opportunity_id: 21,
+      to: ["anna@firma-testowa.example"],
+      subject: "Potwierdzenie spotkania: 12.11, godz. 13:00",
+      message: body.trim(),
+      cc_host: true,
+    });
+    expect(typeof mail.request_id).toBe("string");
+    expect(showSuccess.mock.calls[0][0]).toContain("Mail wyszedł do klienta, kopia do prowadzącego.");
+  });
+
+  it("poprawiony tytuł i treść zostają po zmianie terminu", () => {
+    handoffForm.mockReturnValue(mailbox);
+    form();
+    fill("Tytuł maila", "Nasze spotkanie");
+    fill("Treść maila", "Własna treść");
+    fill("Dzień spotkania", "2026-11-13");
+    fill("Godzina spotkania", "09:00");
+    expect(screen.getByLabelText("Tytuł maila")).toHaveProperty("value", "Nasze spotkanie");
+    expect(screen.getByLabelText("Treść maila")).toHaveProperty("value", "Własna treść");
+  });
+
+  it("mail, który nie wyszedł, zostawia zapisane spotkanie z ponowieniem albo zamknięciem bez maila", async () => {
+    handoffForm.mockReturnValue(mailbox);
+    booked();
+    sendBookingMail.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: { status: 502, data: { detail: "Outlook nie przyjął maila. Nic nie wyszło, spróbuj ponownie." } },
+    });
+    const onSaved = vi.fn();
+    const onBooked = vi.fn();
+    render(
+      <BookMeetingForm
+        company={{ id: 7, name: "Firma Testowa" }}
+        invite={{ email: "anna@firma-testowa.example" }}
+        onBooked={onBooked}
+        onSaved={onSaved}
+        onCancel={vi.fn()}
+      />,
+    );
+    fill("Dzień spotkania", "2026-11-12");
+    fill("Godzina spotkania", "13:00");
+    fireEvent.click(screen.getByRole("button", { name: /i wyślij mail/ }));
+    // Okno wie o zapisie od razu: zamknięcie w trakcie wysyłki nie zgubi wyniku rozmowy.
+    expect(onBooked).toHaveBeenCalledTimes(1);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Spotkanie zapisane: Firma Testowa");
+    expect(alert.textContent).toContain("Mail do klienta nie wyszedł.");
+    expect(onSaved).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Wyślij ponownie" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(bookMeeting).toHaveBeenCalledTimes(1);
+    const [first, second] = sendBookingMail.mock.calls.map(([input]) => input.request_id);
+    // Nowy klucz: pierwsza próba na pewno nic nie wysłała.
+    expect(second).not.toBe(first);
+  });
+
+  it("„Zamknij bez maila” kończy umawianie bez drugiej próby", async () => {
+    handoffForm.mockReturnValue(mailbox);
+    booked();
+    sendBookingMail.mockRejectedValueOnce(new Error("boom"));
+    const onSaved = vi.fn();
+    form(onSaved);
+    fireEvent.click(screen.getByRole("button", { name: /i wyślij mail/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Zamknij bez maila" }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(sendBookingMail).toHaveBeenCalledTimes(1);
+  });
+
+  it("bez podłączonej skrzynki spotkanie zapisuje się bez maila", () => {
+    handoffForm.mockReturnValue({ ...mailbox, mailbox: "missing", mailbox_address: null });
+    booked();
+    const onSaved = vi.fn();
+    form(onSaved);
+    expect(screen.getByText(/nie jest podłączona w Sprzedaży: spotkanie się zapisze, mail nie wyjdzie/)).toBeTruthy();
+    expect(screen.getByLabelText("Wyślij mail po zapisie")).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz bez terminu" }));
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(sendBookingMail).not.toHaveBeenCalled();
+  });
+
+  it("bez adresu klienta albo po odznaczeniu mail nie wychodzi", () => {
+    handoffForm.mockReturnValue(mailbox);
+    booked();
+    form();
+    fill("Adres e-mail klienta", "");
+    expect(screen.getByText("Wpisz adres klienta: bez niego mail nie wyjdzie.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /i wyślij mail/ })).toBeNull();
+    fill("Adres e-mail klienta", "anna@firma-testowa.example");
+    fireEvent.click(screen.getByLabelText("Wyślij mail po zapisie"));
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz bez terminu" }));
+    expect(sendBookingMail).not.toHaveBeenCalled();
+  });
+
+  it("treść bez terminu i bez prowadzącego mówi, co przyjdzie osobno", () => {
+    const body = bookingMailBody({ start: null, minutes: 30, service: "", hostName: "" });
+    expect(body).toContain("Potwierdzam, że umówiliśmy spotkanie. Termin prześlemy w osobnej wiadomości.");
+    expect(body).toContain("Zaproszenie w Teams przyjdzie osobno.");
+    expect(body).not.toContain("poprowadzi");
   });
 });
