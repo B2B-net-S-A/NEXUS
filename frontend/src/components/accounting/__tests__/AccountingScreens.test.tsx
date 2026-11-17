@@ -554,7 +554,7 @@ describe("Księgowość — plan kont z Symfonii", () => {
     markers_ignored: 21,
     problems: ["Pozycji sprawozdania nie zapisano na 7 kontach (753, 756) — ustaw je w Planie kont."],
     problems_total: 1,
-    notes: ["Konto 234: słownik „Pracownicy” zapisany jako słownik kontrahentów."],
+    notes: ["Nazwy 8 istniejących kont różnią się od Symfonii — zostały bez zmian."],
     preview: [
       { number: "010", name: "Środki trwałe", account_type: "active", account_type_label: "bilansowe aktywne", dictionary: null, report_line: null },
       { number: "200-1", name: "Odbiorcy", account_type: "mixed", account_type_label: "bilansowe aktywno-pasywne", dictionary: "counterparty", report_line: null },
