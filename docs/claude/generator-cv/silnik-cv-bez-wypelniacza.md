@@ -336,7 +336,8 @@ https://claude.ai/artifact/P6xe6hTbFptKcPsUNk7VAD. Zastępuje limit „3–5 pun
 z sekcji z 02.11. Pomiar na kopii produkcji: 1. punkt od lat w 95% CV do 01.11, w 84% od 03.11
 (43 CV), a 171 z 481 CV etapu miało tę sekcję poprawioną ręcznie.
 
-- **Układ (`legacy_v7/prompts.py`, wersja 12):** punkt 1 lata doświadczenia na stanowisku,
+- **Układ (`legacy_v7/prompts.py`, wersja 12; od wersji 14 punkty 2–5 inaczej, zob.
+  `dlaczego-kompetencje-zamiast-osiagniec.md`):** punkt 1 lata doświadczenia na stanowisku,
   punkt 2 specjalizacja w technologiach, punkty 3–5 po jednym must-have z Championa. Bez
   Championa albo przy mniej niż trzech potwierdzonych must-have punkty 3–5 opisują
   doświadczenie najważniejsze dla roli.
@@ -388,6 +389,8 @@ Makiety: https://claude.ai/artifact/E3xpCnq7o7PqG8TRHJdMzW
 - **Punkty 3–5 to zdania od czasownika** (prompt), a etykietę „X: …” do 5 słów zdejmuje
   `_drop_why_labels`. Na Solu etykiety miało 44 z 54 punktów, po zmianie 0. Przykład w schemacie
   z 05.11 („[must-have]: co robił”) sam ją podsuwał. Punkt 2 „Specjalizacja: …” zostaje.
+  Od 17.11.2026 (prompt 14) punkty 2–5 to kompetencje bez „Specjalizacji”:
+  `dlaczego-kompetencje-zamiast-osiagniec.md`.
 - **Umiejętności to umiejętności** (prompt reguły 4a i 4b): bez trybu pracy, cech osobistych,
   prawa jazdy i języków obcych; metodyka to sposób pracy zespołu, wzorce projektowe to praktyka.
   `clean_skill_sections` usuwa pozycje z zamkniętej listy i kategorie miękkie, a język obcy

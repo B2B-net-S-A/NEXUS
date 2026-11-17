@@ -115,7 +115,9 @@ PIPELINE_ID = "legacy_v7"
 # 11 (04.11.2026): why_points bez numeracji, kategorie umiejętności bez „must-have”.
 # 12 (05.11.2026): standard 5 punktów why_points: lata, specjalizacja, 3 × must-have.
 # 13 (06.11.2026): punkty 3–5 jako zdania, umiejętności bez trybu pracy i języków, stałe kategorie.
-PROMPT_VERSION = 13
+# 14 (17.11.2026): punkty 2–5 jako kompetencje bez „Specjalizacji”, lata „w IT, w tym jako X”,
+#     miesiące dat ze źródła, kategoria AI, poziom języka w CEFR, gdy źródło go podaje.
+PROMPT_VERSION = 14
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
