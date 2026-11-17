@@ -344,6 +344,7 @@ export function ContractAmendmentsTab({
                   setForm(emptyAmendmentForm("rate_change"));
                   setShowForm(true);
                 }}
+                data-tour="contract.amendments.rate-change"
                 className="flex items-center gap-2 bg-primary hover:bg-primary/90 text-white px-3 py-2 rounded-lg text-sm font-medium"
               >
                 <Banknote className="w-4 h-4" /> Zmień stawkę
