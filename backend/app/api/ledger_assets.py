@@ -25,7 +25,7 @@ albo admin (403); konta modułu — tylko admin (403). Naliczenie miesiąca
 
 from datetime import date
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel, Field
@@ -138,9 +138,18 @@ class SyncBody(BaseModel):
 
 
 class AssetsAccountsBody(BaseModel):
-    cost_account: str = Field(max_length=ACCOUNT_FIELD)
+    cost_account: str = Field(default="", max_length=ACCOUNT_FIELD)
     intake_account: str = Field(max_length=ACCOUNT_FIELD)
     disposal_account: str = Field(max_length=ACCOUNT_FIELD)
+    #: Umorzenie → konto amortyzacji; brak pola = mapa zostaje bez zmian.
+    cost_map: Optional[
+        list[
+            tuple[
+                Annotated[str, Field(max_length=ACCOUNT_FIELD)],
+                Annotated[str, Field(max_length=ACCOUNT_FIELD)],
+            ]
+        ]
+    ] = Field(default=None, max_length=ledger_settings.COST_MAP_MAX)
 
 
 def _fail(exc: LedgerError) -> HTTPException:
