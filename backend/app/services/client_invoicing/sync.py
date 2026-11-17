@@ -47,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import DEFAULT_TZ
 from app.models.app_setting import AppSetting
 from app.models.client_sales_invoice import ClientSalesInvoice
-from app.services.client_invoicing import clients, fa_sales, matching
+from app.services.client_invoicing import buyer_address, clients, fa_sales, matching
 from app.services.client_invoicing import settings as module_settings
 from app.services.hr import job_runs
 from app.services.hr.ksef import fa, numbers
@@ -274,6 +274,7 @@ async def store_invoice(
         buyer_nip=buyer_nip if buyer_nip and len(buyer_nip) == 10 else None,
         buyer_foreign_id=sales.buyer_foreign_id,
         buyer_name=sales.buyer_name,
+        **buyer_address.columns(sales, now),
         client_id=original.client_id if original is not None else None,
         invoice_number=parsed.invoice_number,
         invoice_type=parsed.invoice_type[:16],
@@ -445,6 +446,41 @@ async def _einvoice_backfill(run: _Run) -> None:
         return
     run.downloads_left -= attempted
     run.counts["einvoice_xml"] += loaded
+    await run.db.commit()
+
+
+async def _address_from_db(run: _Run) -> None:
+    """Adres nabywcy faktur sprzed 0730 z XML-a, który już jest w bazie."""
+
+    try:
+        run.counts["buyer_address"] += await buyer_address.backfill_local(
+            run.db, run.now
+        )
+    except Exception:  # noqa: BLE001 — doczytanie ponowi następny przebieg
+        await run.db.rollback()
+        logger.exception("[client-invoicing] adres nabywcy z bazy nieudany")
+        return
+    await run.db.commit()
+
+
+async def _address_from_ksef(run: _Run) -> None:
+    """Adres nabywcy faktur sprzed 0730 z KSeF — z resztki budżetu, na końcu."""
+
+    if run.downloads_left <= 0:
+        return
+    try:
+        attempted, filled = await buyer_address.backfill_ksef(
+            run.db, run.source, run.downloads_left, run.now
+        )
+    except KsefApiError:
+        await run.db.commit()
+        raise
+    except Exception:  # noqa: BLE001 — doczytanie ponowi następny przebieg
+        await run.db.rollback()
+        logger.exception("[client-invoicing] adres nabywcy z KSeF nieudany")
+        return
+    run.downloads_left -= attempted
+    run.counts["buyer_address"] += filled
     await run.db.commit()
 
 
@@ -641,7 +677,9 @@ async def _execute(
             await _retry_pending(run)
             await _incremental(run, state)
             await _einvoice_backfill(run)
+            await _address_from_db(run)
             await _backfill(run, state)
+            await _address_from_ksef(run)
     except _BudgetSpent:
         partial = True
     except KsefApiError as exc:
