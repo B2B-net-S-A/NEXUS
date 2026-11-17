@@ -271,3 +271,78 @@ async def test_bot_report_lands_in_the_campaign_through_import_gates(
     assert records[0].contact_source == "Bot Listy · rejestr.io"
     assert records[0].assigned_user_id == caller.id
     assert "PKD 64.19.Z" in (records[0].note or "")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("requested", "expected"), [(2, 2), (10, 3)])
+async def test_external_report_caps_successful_additions_and_caller_batches(
+    app_client, monkeypatch, requested, expected
+) -> None:
+    from app.models.sales import SalesSignalRun
+    from tests.test_sales_signals_api import URL as RUNS
+    from tests.test_sales_signals_api import _run
+
+    monkeypatch.setattr(settings, "SALES_BOT_LISTS_ENABLED", True)
+    monkeypatch.setattr(settings, "SALES_BOT_TASKS_ENABLED", True)
+    first, second = await _user("sales_edit"), await _user("sales_edit")
+    campaign = await _campaign("Ograniczony raport")
+    brief = {
+        "sources": ["rejestr", "research"],
+        "per_caller": 2,
+        "caller_ids": [first.id, second.id],
+    }
+    saved = await app_client.put(
+        f"{URL}/campaigns/{campaign}/brief", json=brief, headers=_headers(first)
+    )
+    assert saved.status_code == 200, saved.text
+    existing = await _company("Istniejący rekord")
+    await _record(first.id, campaign, existing)
+    tag = uuid.uuid4().hex[:8]
+    base = f"5{uuid.uuid4().int % 10**5:05d}"
+    src = "https://rejestr.example/firma"
+
+    def firm(index, source="rejestr", *, with_phone=True):
+        return {
+            "company": f"Limit {tag} {index}",
+            "phone": f"{base}{300 + index}" if with_phone else None,
+            "phone_source": src if with_phone else None,
+            "source": source,
+            "source_url": src,
+        }
+
+    run_id, token = await _run(
+        [], kind="lists", request={"campaign_id": campaign, "count": requested}
+    )
+    # Większa odpowiedź, odpad przed pierwszym zapisem i powtórka między zapisami.
+    sent = await app_client.post(
+        f"{RUNS}/{run_id}",
+        json={
+            "firms": [
+                firm(0, with_phone=False),
+                firm(1),
+                firm(1),
+                firm(2, "research"),
+                firm(3),
+                firm(4, "research"),
+            ]
+        },
+        headers={"X-Run-Token": token},
+    )
+    assert sent.status_code == 200, sent.text
+    async with AsyncSessionLocal() as db:
+        records = (
+            await db.scalars(
+                select(SalesCallRecord).where(SalesCallRecord.campaign_id == campaign)
+            )
+        ).all()
+        run = await db.get(SalesSignalRun, run_id)
+        assert run.status == "received"
+        assert run.report["added"] == expected
+        assert run.report["skipped"]["no_phone"] == 1
+    assert len(records) == expected + 1
+    assert sum(r.assigned_user_id == first.id for r in records) == 2
+    assert sum(r.assigned_user_id == second.id for r in records) == expected - 1
+    assert {r.contact_source for r in records if r.company_id != existing} == {
+        "Bot Listy · rejestr.io",
+        "Bot Listy · research",
+    }

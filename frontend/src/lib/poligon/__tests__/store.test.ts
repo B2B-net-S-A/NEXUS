@@ -600,6 +600,20 @@ describe("poligon: narzędzia rekrutera (16.11.2026)", () => {
     expect((store.handle({ method: "get", url: `/api/jobs/${JOB}/chat/messages?limit=5` }) as { data: { items: unknown[] } }).data.items).toHaveLength(2);
   });
 
+  it("odczyt czatu jest migawką: wysyłka nie mutuje wiadomości wcześniej oddanych do cache", () => {
+    const { store } = setup();
+    const read = () => store.handle({ method: "get", url: `/api/jobs/${JOB}/chat/messages?limit=50` }) as { data: { items: { content: string }[] } };
+    const empty = read();
+    store.handle({ method: "post", url: `/api/jobs/${JOB}/chat/messages`, body: { content: "Pierwsza wiadomość" } });
+    const first = read();
+    expect(empty.data.items).toHaveLength(0);
+    expect(first.data.items.map((m) => m.content)).toEqual(["Pierwsza wiadomość"]);
+
+    store.handle({ method: "post", url: `/api/jobs/${JOB}/chat/messages`, body: { content: "Druga wiadomość" } });
+    expect(first.data.items.map((m) => m.content)).toEqual(["Pierwsza wiadomość"]);
+    expect(read().data.items.map((m) => m.content)).toEqual(["Druga wiadomość", "Pierwsza wiadomość"]);
+  });
+
   it("asystent CV: CV ćwiczebne osoby, stały plan bez modelu i autozapis w pamięci", () => {
     const { store, actions } = setup();
     const entry = DATA.meta.template_entry_id;

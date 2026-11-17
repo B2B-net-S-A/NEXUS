@@ -107,7 +107,9 @@ def test_collect_task_tells_the_bot_about_lex_and_since() -> None:
     request = collect.build_request(date(2026, 11, 12))
     text = collect.task_text(request)
     assert "od 2026-11-12" in text
-    assert "zaloguj się do LEX (sip.lex.pl) loginem zapisanym w Vault" in text
+    assert "sip.lex.pl" in text
+    assert "borg.wolterskluwer.pl" in text
+    assert "logowanie.gofin.pl" in text
     assert "Nigdy nie zgaduj numerów" in text
     # Format przechodzi własny model: bot dostaje przykład, który NEXUS przyjmie.
     collect.CollectReport.model_validate(collect.report_format())

@@ -68,8 +68,9 @@ def _signals_text(run: SalesSignalRun, ctx: TaskContext) -> str:
         "i tematy podobne do rejected. Typ sygnału tylko z signal_types. Siła: strong "
         "tylko gdy źródło wprost mówi o potrzebie ludzi do projektu IT, medium gdy to "
         "rozsądny wniosek, weak gdy to tylko temat do wzmianki. Najwyżej "
-        f"{signals.MAX_SIGNALS} sygnałów. Firmy bez sygnału wpisz do no_signal, "
-        "briefings zostaw puste."
+        f"{signals.MAX_SIGNALS} sygnałów. Każdą sprawdzoną firmę uwzględnij w signals "
+        "albo, jeśli nie ma sygnału, w no_signal. W checked_firms podaj liczbę firm "
+        "faktycznie sprawdzonych. Briefings zostaw puste."
     )
 
 

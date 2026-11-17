@@ -15,7 +15,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
@@ -24,7 +24,7 @@ from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.sales import SalesSignalRun
 from app.models.user import User
-from app.services.sales import bot_tasks, bots, signals
+from app.services.sales import bot_health, bot_tasks, bots, signals
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,16 @@ router = APIRouter()
 WINDOW = timedelta(days=7)
 ADMIN_DETAIL = "Boty wstrzymuje i wznawia administrator."
 UNKNOWN_DETAIL = "Nie ma takiego bota."
+
+
+class BotRunOut(BaseModel):
+    id: int
+    kind: str
+    status: str
+    started_at: datetime
+    received_at: Optional[datetime] = None
+    outcome: bot_health.Outcome
+    detail: str
 
 
 class BotOut(BaseModel):
@@ -48,6 +58,8 @@ class BotOut(BaseModel):
     received_7d: int
     failed_7d: int
     last_received_at: Optional[datetime] = None
+    #: All-time latest attempt, independent of the seven-day summary window.
+    last_run: Optional[BotRunOut] = None
 
 
 class BotsOut(BaseModel):
@@ -80,8 +92,79 @@ def _webhook(bot: str) -> str:
     return "shared" if all(bots.webhook(bot)) else "none"
 
 
+def _run_out(run: SalesSignalRun, *, now: datetime) -> BotRunOut:
+    outcome: bot_health.Outcome
+    if run.status == "received":
+        outcome, detail = bot_health.received_outcome(
+            run.kind, (run.request or {}).get("source"), run.report or {}
+        )
+    elif run.status == "failed":
+        outcome, detail = (
+            "failed",
+            "Nie udało się uruchomić rutyny. Raport nie został odebrany.",
+        )
+    elif run.status == "expired" or (
+        run.status == "started"
+        and run.token_expires_at is not None
+        and run.token_expires_at <= now
+    ):
+        outcome, detail = (
+            "expired",
+            "Minął czas na raport. Ten bieg nie dostarczył danych.",
+        )
+    else:
+        outcome, detail = (
+            "waiting",
+            "Zlecenie wysłane; NEXUS czeka na raport i zapis danych.",
+        )
+    return BotRunOut(
+        id=run.id,
+        kind=run.kind,
+        status=run.status,
+        started_at=run.started_at,
+        received_at=run.received_at,
+        outcome=outcome,
+        detail=detail,
+    )
+
+
+async def _latest_runs(db: AsyncSession, *, now: datetime) -> dict[str, BotRunOut]:
+    # DISTINCT ON returns only six rows, including bots last invoked before the
+    # stats window. Split people by source before choosing the latest attempt.
+    bot_key = case(
+        (
+            and_(
+                SalesSignalRun.kind == "people",
+                SalesSignalRun.request["source"].astext == "cognism",
+            ),
+            bots.COGNISM,
+        ),
+        *(
+            (SalesSignalRun.kind == kind, owner)
+            for kind, owner in bots.KIND_BOT.items()
+        ),
+    )
+    rows = (
+        await db.execute(
+            select(SalesSignalRun)
+            .where(SalesSignalRun.kind.in_(bots.KIND_BOT))
+            .distinct(bot_key)
+            .order_by(
+                bot_key, SalesSignalRun.started_at.desc(), SalesSignalRun.id.desc()
+            )
+        )
+    ).scalars()
+    latest: dict[str, BotRunOut] = {}
+    for run in rows:
+        owner = bots.bot_for(run.kind, run.request)
+        if owner is not None:
+            latest[owner] = _run_out(run, now=now)
+    return latest
+
+
 async def _state(db: AsyncSession, *, can_pause: bool) -> BotsOut:
-    since = datetime.now(timezone.utc) - WINDOW
+    now = datetime.now(timezone.utc)
+    since = now - WINDOW
     rows = await db.execute(
         select(
             SalesSignalRun.kind,
@@ -108,6 +191,7 @@ async def _state(db: AsyncSession, *, can_pause: bool) -> BotsOut:
                 item["last"] = last
         elif run_status in ("failed", "expired"):
             item["failed"] += count
+    latest = await _latest_runs(db, now=now)
     paused = await bots.paused_bots(db)
     return BotsOut(
         can_pause=can_pause,
@@ -123,6 +207,7 @@ async def _state(db: AsyncSession, *, can_pause: bool) -> BotsOut:
                 received_7d=stats[bot]["received"],
                 failed_7d=stats[bot]["failed"],
                 last_received_at=stats[bot]["last"],
+                last_run=latest.get(bot),
             )
             for bot in bots.BOTS
         ],

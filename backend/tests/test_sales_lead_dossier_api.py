@@ -123,6 +123,35 @@ async def test_new_lead_orders_three_runs_once_per_company(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_dossier_retries_expired_briefing_but_stops_after_three_attempts(
+    monkeypatch,
+) -> None:
+    calls: list = []
+    _capture(monkeypatch, calls)
+    company = await _company(f"Teczka {uuid.uuid4().hex[:8]}", domain="teczka.example")
+    now = _later()
+    await _lead(company, at=now)
+
+    async with AsyncSessionLocal() as db:
+        for attempt in range(lead_dossier.MAX_ATTEMPTS):
+            run, _token = signals.new_run(
+                "briefing",
+                [company],
+                now=now - timedelta(hours=3 * (attempt + 1)),
+                modes={company: "first_call"},
+            )
+            run.status = "expired"
+            db.add(run)
+            await db.commit()
+            blocked = await lead_dossier.recently_ordered(db, "briefing", now=now)
+            assert (company in blocked) == (attempt == 2)
+            if attempt == 0:
+                assert company not in await lead_dossier.targets.recently_sent(
+                    db, now=now
+                )
+
+
+@pytest.mark.asyncio
 async def test_people_and_points_wait_for_company_data_without_domain(
     monkeypatch,
 ) -> None:
