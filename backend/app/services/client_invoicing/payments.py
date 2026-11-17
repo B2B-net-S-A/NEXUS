@@ -193,16 +193,41 @@ def _number_pattern(number: str) -> Optional[re.Pattern[str]]:
     return re.compile(r"(?<![0-9A-Za-z])" + body + r"(?![0-9A-Za-z])", re.IGNORECASE)
 
 
-def _number_in_title(
+def _numbers_in_title(
     invoice: OpenInvoice, title: str, mpp_number: Optional[str]
-) -> bool:
+) -> list[str]:
+    found = []
     for number in invoice.invoice_numbers:
-        if mpp_number and " ".join(number.split()).lower() == mpp_number.lower():
-            return True
+        plain = " ".join(number.split()).lower()
+        if mpp_number and plain == mpp_number.lower():
+            found.append(plain)
+            continue
         pattern = _number_pattern(number)
         if pattern is not None and pattern.search(title or ""):
-            return True
-    return False
+            found.append(plain)
+    return found
+
+
+def _by_number(
+    invoices: Sequence[OpenInvoice], title: str, mpp_number: Optional[str]
+) -> list[OpenInvoice]:
+    """Faktury z numerem w tytule; numer zawarty w dłuższym, który też jest
+    w tytule („2/10/2026” w „2/10/2026/UE”), ustępuje dłuższemu."""
+
+    hits = [
+        (invoice, numbers)
+        for invoice in invoices
+        if (numbers := _numbers_in_title(invoice, title, mpp_number))
+    ]
+    matched = {number for _invoice, numbers in hits for number in numbers}
+    return [
+        invoice
+        for invoice, numbers in hits
+        if not all(
+            any(mine != other and mine in other for other in matched)
+            for mine in numbers
+        )
+    ]
 
 
 def _settle(
@@ -250,7 +275,7 @@ def decide_credit(
 
     mpp = _MPP_INV.search(title)
     mpp_number = " ".join(mpp.group(1).split()) if mpp else None
-    by_number = [i for i in invoices if _number_in_title(i, title, mpp_number)]
+    by_number = _by_number(invoices, title, mpp_number)
     same = [i for i in by_number if i.currency == line.currency]
     if len(same) == 1:
         return _settle(same[0], amount, title, "invoice_number")

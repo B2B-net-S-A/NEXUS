@@ -500,6 +500,18 @@ def test_invoice_number_in_title_is_matched_as_a_whole_word():
     assert spaced.invoice_id == 1
 
 
+def test_number_inside_a_longer_number_from_the_title_gives_way():
+    # „2/10/2026” krajowej faktury siedzi w „2/10/2026/UE” — wpłata za UE.
+    invoices = [_open(1, "2/10/2026", "8265.60"), _open(2, "2/10/2026/UE", "31449.60")]
+    decision = decide_credit(
+        _credit("31449.60", "REF: 1 /INNE PROW./PLN0,00 2/10/2026/UE 225789781"),
+        invoices,
+    )
+    assert (decision.invoice_id, decision.reason) == (2, "invoice_number")
+    domestic = decide_credit(_credit("8265.60", "Zapłata 2/10/2026"), invoices)
+    assert domestic.invoice_id == 1
+
+
 def test_split_payment_counts_vat_paid_to_the_vat_account():
     assert mpp_vat("/VAT/5157,75/IDC/1111111111/INV/FS 10/124/2026/TXT/X") == Decimal(
         "5157.75"

@@ -1879,6 +1879,8 @@ async def _candidates(db: AsyncSession) -> list[rules.CostCandidate]:
                 accounts=frozenset(known),
                 batch_amount=Decimal(active[0].amount) if active else None,
                 batch_account=active[0].account if active else None,
+                seller_nip=row.entry.seller_nip,
+                seller_name=row.seller_name,
             )
         )
     return result

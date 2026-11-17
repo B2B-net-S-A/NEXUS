@@ -4,7 +4,8 @@ Czytamy pola: ``:25:`` (rachunek), ``:60F:`` (waluta), ``:61:`` (operacja:
 data waluty, znak C/D/RC/RD, kwota, referencje) i ``:86:`` (opis operacji).
 Opis w polskich bankach ma podpola ``~NN`` (albo ``^NN``, ``<NN``, ``>NN``,
 ``?NN``): 20–26 i 60–63 to tytuł (pocięty na kawałki stałej długości, więc
-sklejamy je bez spacji), 27–28 i 32–33 nazwa kontrahenta, 30 + 31 numer banku
+każdą grupę sklejamy bez spacji, a grupy oddziela spacja — w 63 Santander
+podaje numer operacji), 27–28 i 32–33 nazwa kontrahenta, 30 + 31 numer banku
 i rachunek, 38 IBAN. Opis bez podpól = cały tekst jest tytułem, a rachunek
 szukamy jako 26 cyfr (z ``PL`` albo bez).
 
@@ -46,7 +47,10 @@ _LINE_61 = re.compile(
 )
 _SUBFIELD = re.compile(r"[~^<>?](\d{2})")
 _ACCOUNT_IN_TEXT = re.compile(r"(?:PL)?(\d{2}(?:\s?\d{4}){6})")
-_TITLE_FIELDS = ("20", "21", "22", "23", "24", "25", "26", "60", "61", "62", "63")
+_TITLE_GROUPS = (
+    ("20", "21", "22", "23", "24", "25", "26"),
+    ("60", "61", "62", "63"),
+)
 _NAME_FIELDS = ("32", "33", "27", "28")
 #: Za duży plik to nie wyciąg miesiąca dla Płac.
 MAX_LINES = 20_000
@@ -137,7 +141,19 @@ def _details(text: str) -> tuple[str, str, Optional[str]]:
         flat = " ".join(part.strip() for part in text.splitlines())
         # Rachunek odczytany przed maskowaniem; tytuł bez pełnych numerów.
         return mask_accounts(flat.strip()), "", _account_from_text(flat)
-    title = "".join(fields.get(key, "") for key in _TITLE_FIELDS).strip()
+    # Kawałki 20–26 i 60–63 sklejamy bez spacji (pocięte w pół słowa), ale obie
+    # grupy oddziela spacja: Santander wpisuje w 63 swój numer operacji,
+    # a doklejony wprost do tytułu psuł numer faktury („1/10/2026” +
+    # „823973257”) — wyciąg 12.11.2026, 96 operacji bez pary. Tytuł przelewu
+    # (4 × 35 znaków) mieści się w 20–25, więc spacja nie tnie jego słów.
+    title = " ".join(
+        part
+        for part in (
+            "".join(fields.get(key, "") for key in group).strip()
+            for group in _TITLE_GROUPS
+        )
+        if part
+    )
     name = " ".join(
         fields[key].strip() for key in _NAME_FIELDS if fields.get(key, "").strip()
     )
