@@ -71,8 +71,12 @@ def send_email(
     text_body: str,
     html_body: Optional[str] = None,
     reply_to: Optional[str] = None,
+    sender_upn: Optional[str] = None,
 ) -> bool:
     """Wyślij email. Zwraca True gdy kanał potwierdził, False gdy no-op lub błąd.
+
+    ``sender_upn`` — inna skrzynka Graph niż zespołowa (maile do kandydatów);
+    kanał SMTP (staging → Mailpit) wysyła zawsze z ``SMTP_FROM_EMAIL``.
 
     ``reply_to`` — adres, na który pójdzie odpowiedź (zgody: skrzynka, którą
     czyta NEXUS, ``services/hr/approvals/mail_reader.py``).
@@ -91,6 +95,7 @@ def send_email(
             text_body=text_body,
             html_body=html_body,
             reply_to=reply_to,
+            sender_upn=sender_upn,
         )
 
     if not settings.SMTP_ENABLED:

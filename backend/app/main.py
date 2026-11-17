@@ -188,6 +188,7 @@ from app.api import contacts
 from app.api import prep_kit
 from app.api import talent_pools
 from app.api import public_engagement
+from app.api import public_candidate_terms
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
@@ -879,6 +880,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
+    from app.tasks.candidate_terms_sender import candidate_terms_sender_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
@@ -1089,6 +1091,11 @@ async def lifespan(app: FastAPI):
             "daily_digest_email": asyncio.create_task(daily_digest_email_loop()),
             "notification_email_outbox": asyncio.create_task(
                 notification_email_outbox_loop()
+            ),
+            # 17.11.2026: podziękowanie i prośba o warunki do kandydatów po
+            # aplikacji z ogłoszenia; rodzaj `candidate_terms` włącza admin.
+            "candidate_terms_sender": asyncio.create_task(
+                candidate_terms_sender_loop()
             ),
             # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
             # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
@@ -1558,6 +1565,9 @@ app.include_router(
     tags=["candidate-activity-summary"],
 )
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
+app.include_router(
+    public_candidate_terms.router, prefix="/api", tags=["public-candidate-terms"]
+)
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Static `/directory` must be registered before `clients`' catch-all
 # `/{client_id}` route.
@@ -4298,6 +4308,7 @@ async def api_health_deep_check(request: Request):
     from app.models.job_autofill_pool import JobAutofillPool
     from app.models.autofill_feedback import AutofillFeedback
     from app.models.job_role_profile import JobRoleProfile
+    from app.models.candidate_terms_request import CandidateTermsRequest
     from app.models.autofill_quality_report import AutofillQualityReport
     from app.models.candidate_job_owner import CandidateJobOwnerEvent
     from app.models.sales import (
@@ -5017,6 +5028,8 @@ async def api_health_deep_check(request: Request):
         ("autofill_quality_reports", AutofillQualityReport),
         # 0728: profil „Kogo szukamy” rekrutacji w porcji.
         ("job_role_profiles", JobRoleProfile),
+        # 0729: prośby o warunki kandydata po aplikacji.
+        ("candidate_terms_requests", CandidateTermsRequest),
         # 0519: historia „Prowadzi”.
         ("candidate_job_owner_events", CandidateJobOwnerEvent),
         # 0601–0683: Sprzedaż — lejki, kontakty, pliki, leady, historia szansy,

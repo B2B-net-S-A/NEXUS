@@ -1257,6 +1257,16 @@ except Exception as _job_role_profile_err:  # noqa: BLE001
     print(f"job role profile DDL unavailable: {_job_role_profile_err!r}")
     _JOB_ROLE_PROFILE_DDL = []
 
+# Prośby o warunki kandydata (migracja 0729) — JEDNO źródło z migracją
+# (`app/services/candidate_terms_schema.py`).
+try:
+    from app.services import candidate_terms_schema as _candidate_terms_schema
+
+    _CANDIDATE_TERMS_DDL = list(_candidate_terms_schema.TABLE_DDL)
+except Exception as _candidate_terms_err:  # noqa: BLE001
+    print(f"candidate terms DDL unavailable: {_candidate_terms_err!r}")
+    _CANDIDATE_TERMS_DDL = []
+
 # Raporty „Jakość podpowiedzi systemu” (migracja 0518) — JEDNO źródło z migracją
 # (`app/services/autofill_quality_schema.py`).
 try:
@@ -1612,6 +1622,7 @@ _COLUMN_STATEMENTS = [
     *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
     *_JOB_ROLE_PROFILE_DDL,
+    *_CANDIDATE_TERMS_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,

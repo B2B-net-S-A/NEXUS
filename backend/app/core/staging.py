@@ -145,6 +145,7 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "kpi_email_reports",
         "daily_digest_email",
         "notification_email_outbox",
+        "candidate_terms_sender",
         "dl_alerts",
         "integration_stale_alerts",
         "integration_webhooks",
