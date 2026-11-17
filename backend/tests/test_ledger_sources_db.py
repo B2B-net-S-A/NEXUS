@@ -1375,6 +1375,53 @@ async def test_export_packs_each_approved_document_once(client, world, books):
     assert numbers[rent_id] in csv_file.content.decode("utf-8-sig")
 
 
+async def test_symfonia_template_4_takes_invoices_and_refuses_what_has_no_sample(
+    client, world, books
+):
+    ids = books["sales"]
+    synced = await _sync(client, world, books, "sales")
+    assert synced.status_code == 200, synced.text
+    year, partner = books["year"], books["partner"]["c"]
+    plain = await _document("client_sales_invoice", ids["plain"])
+    await _approve_ids(client, world, [plain.id])
+    created = await _export(
+        client, world, books, ["sales"], file_format="symfonia_fk_txt4"
+    )
+    assert created.status_code == 201, created.text
+    package = created.json()
+    assert package["file_name"].endswith(".txt") and package["document_count"] == 1
+    file = await client.get(
+        f"{ACC}/exports/{package['id']}/file", headers=_headers(world["accountant"])
+    )
+    assert file.status_code == 200
+    assert file.headers["content-type"].startswith("text/plain")
+    assert hashlib.sha256(file.content).hexdigest() == package["file_sha256"]
+    text = file.content.decode("cp1250")
+    assert text.startswith("INFO{\r\n") and text.endswith("}\r\n")
+    for expected in (
+        "\tkod =FS 1/03\r\n",
+        "\tsymbol FK =FVS\r\n",
+        f"\tkhnip ={world['nips']['client']}\r\n",
+        f"\t\tfk_ident ={partner}\r\n",
+        f"\t\tokres ={year}-03-31\r\n",
+        f"\t\tkonto ={books['acc']['receivable']}-{partner}\r\n",
+    ):
+        assert expected in text, expected
+    # Korekta (FKS) i faktura w EUR nie mają próbki — paczka nie powstaje.
+    others = [
+        (await _document("client_sales_invoice", ids[key])).id
+        for key in ("euro", "correction")
+    ]
+    await _approve_ids(client, world, others)
+    refused = await _export(
+        client, world, books, ["sales"], file_format="symfonia_fk_txt4"
+    )
+    assert refused.status_code == 422, refused.text
+    assert "FS 2/03" in refused.text and "FK 1/03" in refused.text
+    after = await _exports(client, world, books)
+    assert [item["number"] for item in after["exports"]] == [package["number"]]
+
+
 async def test_payroll_documents_go_in_a_separate_package(client, world, books):
     settings = _ledger_settings(world, books, allocation=False)
     settings["accountants"] = [world["accountant"].id, world["module_only"].id]

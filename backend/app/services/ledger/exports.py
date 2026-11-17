@@ -29,13 +29,16 @@ import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.models.finance_ledger import FinanceCounterparty
+from app.core.scheduling import business_date
+from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.ledger import (
     LedgerDocument,
     LedgerExport,
@@ -45,13 +48,16 @@ from app.models.ledger import (
     LedgerYear,
 )
 from app.models.user import User
+from app.services.finance_ledger import costs, posting
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import engine, opening, payroll_lists, sources
 from app.services.ledger.documents import Viewer
 from app.services.ledger.export_file import (
     DEFAULT_FORMAT,
     FORMATS,
+    ExportInvoice,
     ExportLine,
+    SymfoniaFormatError,
     money,
 )
 
@@ -206,6 +212,151 @@ async def _candidates(
     return out
 
 
+# ── Dane faktury dla szablonu 4 Symfonii ─────────────────────────────────────
+
+#: Typ dokumentu Symfonii dla faktury kosztowej bez typu w regule dekretu.
+DEFAULT_PURCHASE_SYMBOL = "FVZ"
+
+
+def _address(party: Optional[FinanceCounterparty]) -> dict[str, Optional[str]]:
+    return {
+        "party_street": party.street if party else None,
+        "party_postal": party.postal_code if party else None,
+        "party_city": party.city if party else None,
+        "party_country": party.country if party else None,
+    }
+
+
+def sales_invoice(
+    invoice: ClientSalesInvoice, party: Optional[FinanceCounterparty]
+) -> ExportInvoice:
+    """Dane FVS: nabywca z UE bez VAT = usługa poza krajem (WDT), korekta = FKS."""
+
+    eu = party is not None and party.id_type == "vat_eu"
+    if invoice.invoice_kind == "correction":
+        symbol = "FKS"
+    else:
+        symbol = "WDT" if eu else "FVS"
+    net, vat, gross = (
+        Decimal(invoice.net_amount),
+        Decimal(invoice.vat_amount or 0),
+        Decimal(invoice.gross_amount),
+    )
+    rate = "-2" if eu and vat == 0 else None if eu else posting.vat_rate(net, vat)
+    sale_date = invoice.sale_date or invoice.issue_date
+    return ExportInvoice(
+        symbol=symbol,
+        purchase=False,
+        number=invoice.invoice_number,
+        issue_date=invoice.issue_date,
+        sale_date=sale_date,
+        register_date=invoice.issue_date,
+        period_date=sale_date,
+        due_date=invoice.due_date or invoice.issue_date,
+        net=net,
+        vat=vat,
+        gross=gross,
+        vat_rate=rate,
+        currency=invoice.currency,
+        ksef_date=(
+            business_date(invoice.ksef_acquired_at)
+            if invoice.ksef_acquired_at
+            else None
+        ),
+        negative=gross < 0,
+        corrects_number=invoice.corrected_invoice_number,
+        **_address(party),
+    )
+
+
+def purchase_invoice(
+    entry: FinanceCostEntry,
+    row: Any,
+    doc: LedgerDocument,
+    party: Optional[FinanceCounterparty],
+) -> ExportInvoice | str:
+    """Dane faktury kosztowej z wiersza kolejki E2 albo powód, że się nie da.
+
+    Faktury kosztowej NEXUS nie czyta z XML-a, więc nie zna daty sprzedaży
+    (bierzemy datę wystawienia), numeru faktury korygowanej ani rachunku
+    sprzedawcy.
+    """
+
+    if row.gross_amount is None:
+        return "faktura bez kwoty brutto"
+    decree = entry.decree or {}
+    gross = Decimal(row.gross_amount)
+    vat = Decimal(row.vat_amount or 0)
+    net = Decimal(row.net_amount) if row.net_amount is not None else gross - vat
+    issued = row.issue_date or doc.doc_date
+    settlement = next(
+        (
+            str(item.get("account") or "")
+            for item in decree.get("positions") or []
+            if item.get("kind") == "counterparty"
+        ),
+        None,
+    )
+    return ExportInvoice(
+        symbol=str(decree.get("doc_type") or DEFAULT_PURCHASE_SYMBOL),
+        purchase=True,
+        number=row.invoice_number or doc.number,
+        issue_date=issued,
+        sale_date=issued,
+        register_date=doc.op_date,
+        period_date=doc.op_date,
+        due_date=entry.due_date or row.source_due or issued,
+        net=net,
+        vat=vat,
+        gross=gross,
+        vat_rate=posting.vat_rate(net, vat),
+        currency=str(row.currency or "PLN"),
+        negative=gross < 0,
+        settlement_account=settlement,
+        **_address(party),
+    )
+
+
+async def _invoices(
+    db: AsyncSession,
+    docs: list[LedgerDocument],
+    parties: dict[int, FinanceCounterparty],
+) -> dict[int, ExportInvoice | str]:
+    """Dane faktur dokumentów ze źródeł sprzedaż / koszty (klucz: id dokumentu)."""
+
+    sale_type = sources.SOURCE_TYPES[sources.SALES]
+    cost_type = sources.SOURCE_TYPES[sources.COSTS]
+
+    def source_ids(source_type: str) -> dict[int, LedgerDocument]:
+        return {
+            int(doc.source_id): doc
+            for doc in docs
+            if doc.source_type == source_type and (doc.source_id or "").isdigit()
+        }
+
+    out: dict[int, ExportInvoice | str] = {}
+    sales = source_ids(sale_type)
+    if sales:
+        rows = await db.scalars(
+            select(ClientSalesInvoice).where(ClientSalesInvoice.id.in_(sales))
+        )
+        for invoice in rows:
+            doc = sales[invoice.id]
+            out[doc.id] = sales_invoice(invoice, parties.get(doc.counterparty_id or 0))
+    entries = source_ids(cost_type)
+    if entries:
+        rows = await db.execute(
+            costs._select(costs._sources()).where(FinanceCostEntry.id.in_(entries))
+        )
+        for row in rows.all():
+            entry: FinanceCostEntry = row.FinanceCostEntry
+            doc = entries[entry.id]
+            out[doc.id] = purchase_invoice(
+                entry, row, doc, parties.get(doc.counterparty_id or 0)
+            )
+    return out
+
+
 async def export_lines(
     db: AsyncSession, docs: list[LedgerDocument]
 ) -> list[ExportLine]:
@@ -240,8 +391,11 @@ async def export_lines(
             )
         )
         originals = {row.id: row.number for row in rows.all()}
+    invoices = await _invoices(db, docs, parties)
     out: list[ExportLine] = []
     for doc in docs:
+        found = invoices.get(doc.id)
+        invoice = found if isinstance(found, ExportInvoice) else None
         for line in by_doc[doc.id]:
             party = parties.get(line.counterparty_id or doc.counterparty_id or 0)
             tax_id = (
@@ -273,6 +427,8 @@ async def export_lines(
                     fx_date=line.fx_date or doc.fx_date,
                     reverses=originals.get(doc.reverses_id or 0),
                     ksef_number=(doc.meta or {}).get("ksef_number"),
+                    invoice=invoice,
+                    invoice_problem=found if isinstance(found, str) else None,
                 )
             )
     return out
@@ -507,7 +663,10 @@ async def create(
             "w zaznaczonych rodzajach.",
             status=409,
         )
-    content = fmt.render(await export_lines(db, picked))
+    try:
+        content = fmt.render(await export_lines(db, picked))
+    except SymfoniaFormatError as exc:
+        raise LedgerError(str(exc), status=422) from exc
     sequence = (
         await db.scalar(
             select(func.count())
