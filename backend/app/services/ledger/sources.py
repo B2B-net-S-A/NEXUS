@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -356,6 +357,33 @@ def buyer_key(invoice: ClientSalesInvoice) -> Optional[tuple[str, str]]:
     return None
 
 
+def buyer_keys(invoice: ClientSalesInvoice) -> tuple[tuple[str, str], ...]:
+    """Klucze nabywcy w kartotece, po kolei: ``buyer_key``, a dla VAT UE też „inny”.
+
+    eBI24 trzyma zagraniczne numery jako OTHER, więc kartoteka z jego importu
+    ma ``FI28583949`` jako „inny”, a nie VAT UE (17.11.2026: tak zablokowało
+    się 290 faktur sprzedaży z października).
+    """
+
+    key = buyer_key(invoice)
+    if key is None:
+        return ()
+    if key[0] == "vat_eu":
+        return (key, ("other", key[1]))
+    return (key,)
+
+
+def find_buyer(
+    counterparties: Mapping[tuple[str, str], FinanceCounterparty],
+    invoice: ClientSalesInvoice,
+) -> Optional[FinanceCounterparty]:
+    for key in buyer_keys(invoice):
+        found = counterparties.get(key)
+        if found is not None:
+            return found
+    return None
+
+
 def receivable_account(
     counterparty: FinanceCounterparty, default_account: str
 ) -> Optional[str]:
@@ -468,7 +496,7 @@ def sales_spec(
     if invoice.invoice_type in ADVANCE_TYPES:
         return ADVANCE
     key = buyer_key(invoice)
-    counterparty = ctx.counterparties.get(key) if key else None
+    counterparty = find_buyer(ctx.counterparties, invoice)
     if counterparty is None:
         return NO_BUYER
     receivable = receivable_account(counterparty, settings.sales.receivable_account)
@@ -560,7 +588,7 @@ def revenue_account(
 async def _sales_context(
     db: AsyncSession, invoices: list[ClientSalesInvoice], settings: LedgerSettings
 ) -> _SalesContext:
-    keys = {key for key in (buyer_key(invoice) for invoice in invoices) if key}
+    keys = {key for invoice in invoices for key in buyer_keys(invoice)}
     counterparties: dict[tuple[str, str], FinanceCounterparty] = {}
     if keys:
         rows = await db.scalars(

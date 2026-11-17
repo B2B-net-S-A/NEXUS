@@ -30,6 +30,8 @@ z Symfonią miesiąc do miesiąca.
   E1 (import z eBI24 — odpowiednik „konta kosztowego”, którego E2 używa jako
   konta rozrachunkowego dostawcy), inaczej konto z Ustawień + `-` + ID Symfonii
   kontrahenta. Nabywcy szukamy po NIP-ie albo VAT UE (`identifiers.normalize`).
+  VAT UE szukamy też jako „inny”, bo eBI24 eksportuje zagraniczne numery jako
+  OTHER (`sources.buyer_keys`, 17.11.2026: bez tego stało 290 FVS z października).
   Nabywca spoza kartoteki = problem: kontrahentów nie zakładamy z faktur,
   przychodzą importem z eBI24 (zasada E1).
 - **Konta faktur sprzedaży** (`app_settings['ledger'].sales`: rozrachunki,
