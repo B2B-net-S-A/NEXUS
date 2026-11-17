@@ -108,7 +108,7 @@ class ClientSalesInvoice(Base, TimestampMixin):
     # Zagraniczny identyfikator nabywcy w postaci klucza ``clients.nip`` (0630).
     buyer_foreign_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     buyer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    # Adres nabywcy z ``Podmiot2/Adres`` (0731); ``buyer_address_read_at`` NULL =
+    # Adres nabywcy z ``Podmiot2/Adres`` (0730); ``buyer_address_read_at`` NULL =
     # XML faktury jeszcze nie przeczytany pod kątem adresu (doczytuje pętla KSeF).
     buyer_country: Mapped[Optional[str]] = mapped_column(String(2), nullable=True)
     buyer_address_line1: Mapped[Optional[str]] = mapped_column(

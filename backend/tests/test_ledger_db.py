@@ -1017,6 +1017,78 @@ async def test_chart_import_adds_missing_accounts_and_keeps_existing(client, wor
             await db.commit()
 
 
+async def test_chart_import_keeps_rule_account_postable(client, world):
+    """Konto z aktywnej reguły dekretu E2 nie dostaje analityki ani słownika z pliku."""
+
+    syntet = random.randint(70_000, 79_999)
+    rule_account = f"{syntet}-2"
+
+    def node(*segments, name, typ=2):
+        padded = list(segments) + [(0, 0)] * (5 - len(segments))
+        attrs = " ".join(
+            f'typ{i}="{k}" wart{i}="{v}"' for i, (k, v) in enumerate(padded, start=1)
+        )
+        return f'<plankont syntet="{syntet}" {attrs} nazwa="{name}" typ="{typ}"/>'
+
+    content = (
+        "<DokumentXML>"
+        + node(name="Koszty testowe")
+        + node((-1, 2), name="Usługi testowe")
+        + node((-1, 2), (-1, 1), name="Usługi testowe — analityka")
+        + node((-1, 2), (2, 0), name="Kontrahenci")
+        + "</DokumentXML>"
+    ).encode()
+    async with AsyncSessionLocal() as db:
+        db.add(FinanceAccount(number=rule_account, name="Usługi", kind="cost"))
+        db.add(
+            FinancePostingRule(
+                category="office",
+                counterparty_id=world["counterparty"].id,
+                cost_account=rule_account,
+                vat_account=world["acc"]["vat"],
+                deduction="full",
+                register="purchase",
+                doc_type="FVZ",
+                service_label="Usługi",
+                description_template="{usługa}",
+                active=True,
+            )
+        )
+        await db.commit()
+    try:
+        saved = await client.post(
+            f"{ACC}/chart/import",
+            params={"save": True},
+            files={"file": ("model.xml", content, "application/xml")},
+            headers=_headers(world["accountant"]),
+        )
+        assert saved.status_code == 200, saved.text
+        body = saved.json()
+        assert (body["created"], body["blocked"]) == (1, 1)
+        assert any(f"{rule_account}-1" in problem for problem in body["problems"])
+        assert any("Słownik analityki" in problem for problem in body["problems"])
+        chart = {
+            row["number"]: row
+            for row in (
+                await client.get(f"{ACC}/chart", headers=_headers(world["finance"]))
+            ).json()["items"]
+        }
+        assert f"{rule_account}-1" not in chart
+        assert chart[rule_account]["dictionary"] is None
+        assert chart[rule_account]["postable"] is True
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(FinancePostingRule).where(
+                    FinancePostingRule.cost_account == rule_account
+                )
+            )
+            await db.execute(
+                delete(FinanceAccount).where(FinanceAccount.number.like(f"{syntet}%"))
+            )
+            await db.commit()
+
+
 async def test_year_creation_and_mode_rights(client, world):
     target = world["year"] - 1
     refused = await client.post(

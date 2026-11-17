@@ -86,10 +86,14 @@ def test_dictionary_node_marks_parent_and_is_not_an_account():
     assert {n: a.dictionary for n, a in parsed.accounts.items()} == {
         "201-2": "counterparty",
         "208": "counterparty",
-        "234": "counterparty",
+        # „Pracownicy” to nie kontrahenci: numer pracownika w Symfonii pokrywa się
+        # z ID kontrahenta, więc BO dałby długowi pracownika cudzego kontrahenta.
+        "234": None,
     }
-    assert parsed.dictionaries == 3
-    assert any("Pracownicy" in note for note in parsed.notes)
+    assert parsed.dictionaries == 2
+    assert any(
+        "Pracownicy" in problem and "234" in problem for problem in parsed.problems
+    )
 
 
 def test_unknown_dictionary_is_reported_not_guessed():

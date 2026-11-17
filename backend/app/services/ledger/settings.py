@@ -43,6 +43,7 @@ Podział AM na „5” bierze konta z ``allocation``.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional
 
@@ -60,6 +61,8 @@ from app.services.finance_ledger.costs import LedgerError
 from app.services.finance_ledger.posting import clean_account
 from app.services.hr.bank import accounts as bank_accounts
 from app.services.hr.program import program_enabled
+from app.services.ledger import engine
+from app.services.ledger.engine import PlanAccount
 
 SETTING_KEY = "ledger"
 #: Moduły Księgowości w kolejności zakładek i etap planu, który je buduje.
@@ -638,28 +641,183 @@ async def set_accountants(
     return settings
 
 
+#: Pola, na które moduł księguje analitykę słownika kontrahentów (``konto-ID``):
+#: FVS i wyciąg — ``200-<ID kontrahenta z Symfonii>`` (``sources.receivable_account``),
+#: zakup zagraniczny — ``202-1-NNN`` (``foreign.py``). Reszta pól księguje wprost
+#: na wskazane konto, więc musi ono przyjmować zapisy (``engine.resolve``).
+COUNTERPARTY_FIELDS: frozenset[tuple[str, str]] = frozenset(
+    {("sales", "receivable_account"), ("vat", "foreign_account")}
+)
+#: Grupy kont: klucz → (karta, na której się je zmienia — jak na ekranie, pola).
+ACCOUNT_GROUPS: dict[str, tuple[str, dict[str, tuple[str, str]]]] = {
+    "sales": ("Ustawienia → Konta faktur sprzedaży", SALES_ACCOUNT_FIELDS),
+    "allocation": (
+        "Ustawienia → Konta rozliczenia kosztów na „5”",
+        ALLOCATION_ACCOUNT_FIELDS,
+    ),
+    "payroll": ("Ustawienia → Konta listy płac z Enovy", PAYROLL_ACCOUNT_FIELDS),
+    "assets": ("Środki trwałe → Konta środków trwałych", ASSETS_ACCOUNT_FIELDS),
+    "vat": ("VAT → Konta VAT", VAT_ACCOUNT_FIELDS),
+    "bank": ("Ustawienia → Rachunki firmy i konta wyciągów", BANK_ACCOUNT_FIELDS),
+}
+
+
+def _number_key(number: str) -> tuple[tuple[int, str], ...]:
+    return tuple(
+        (int(part), "") if part.isdigit() else (0, part) for part in number.split("-")
+    )
+
+
+def _example(
+    prefix: str, plan: dict[str, PlanAccount], accept: Callable[[PlanAccount], bool]
+) -> Optional[str]:
+    """Pierwsze (wg numeru) konto pod ``prefix``, które spełnia ``accept``."""
+
+    found = sorted(
+        (
+            item.number
+            for item in plan.values()
+            if item.number.startswith(prefix + "-") and item.active and accept(item)
+        ),
+        key=_number_key,
+    )
+    return found[0] if found else None
+
+
+def _postable(item: PlanAccount) -> bool:
+    return not item.has_children and not item.dictionary
+
+
+def _counterparty(item: PlanAccount) -> bool:
+    return item.dictionary == "counterparty"
+
+
+def account_problem(
+    number: str, plan: dict[str, PlanAccount], *, counterparty: bool = False
+) -> Optional[str]:
+    """Czy moduł zaksięguje na konto z Ustawień; ``None`` = tak, inaczej powód.
+
+    ``counterparty`` — pole księguje analitykę ``konto-ID``: konto musi być
+    aktywne i prowadzić słownik kontrahentów. Inne pole — konto bez kont pod
+    sobą i bez słownika (analityka słownika ``201-2-NNN`` też przechodzi, jak
+    w ``engine.resolve``)."""
+
+    exact = plan.get(number)
+    if counterparty:
+        if exact is None:
+            return f"konta {number} nie ma w planie kont."
+        if not exact.active:
+            return f"konto {number} jest wyłączone w planie kont."
+        if _counterparty(exact):
+            return None
+        hint = _example(number, plan, _counterparty)
+        tip = (
+            f"wybierz np. {hint}"
+            if hint
+            else "ustaw na nim słownik analityki „kontrahenci” w planie kont"
+        )
+        return (
+            f"konto {number} nie prowadzi słownika kontrahentów, a moduł księguje "
+            f"na {number}-ID kontrahenta — {tip}."
+        )
+    if exact is not None and exact.active and exact.dictionary:
+        label = engine.DICTIONARY_LABELS.get(exact.dictionary, exact.dictionary)
+        return (
+            f"konto {number} prowadzi analitykę ({label}), a moduł księguje na "
+            "jedno konto — wybierz konto bez słownika."
+        )
+    if exact is not None and exact.active and exact.has_children:
+        hint = _example(number, plan, _postable)
+        tip = f" — wybierz np. {hint}" if hint else " — wybierz konto analityczne"
+        return f"konto {number} ma konta analityczne{tip}."
+    resolved, problem = engine.resolve(number, plan)
+    if resolved is not None:
+        return None
+    text = problem or f"Konta {number} nie ma w planie kont."
+    return text[:1].lower() + text[1:]
+
+
+async def load_plan(db: AsyncSession) -> dict[str, PlanAccount]:
+    rows = await db.execute(
+        select(
+            FinanceAccount.number,
+            FinanceAccount.name,
+            FinanceAccount.kind,
+            FinanceAccount.active,
+            FinanceAccount.dictionary,
+        )
+    )
+    return engine.plan_from_rows(rows.all())
+
+
+def account_problems(
+    settings: LedgerSettings, plan: dict[str, PlanAccount]
+) -> list[dict[str, str]]:
+    """Zapisane konta modułów, na które nie da się już księgować (np. po
+    imporcie pełnego planu kont z Symfonii) — lista do karty w Ustawieniach.
+    Puste pola pomija: brak konta to osobny komunikat modułu."""
+
+    out: list[dict[str, str]] = []
+    for group, (title, fields) in ACCOUNT_GROUPS.items():
+        values = getattr(settings, group)
+        for key, (_, label) in fields.items():
+            number = getattr(values, key)
+            if not number:
+                continue
+            problem = account_problem(
+                number, plan, counterparty=(group, key) in COUNTERPARTY_FIELDS
+            )
+            if problem:
+                out.append(
+                    {
+                        "group": group,
+                        "group_label": title,
+                        "field": key,
+                        "label": label,
+                        "account": number,
+                        "problem": problem,
+                    }
+                )
+    for index, item in enumerate(settings.bank.accounts, start=1):
+        problem = account_problem(item.account, plan)
+        if problem:
+            out.append(
+                {
+                    "group": "bank",
+                    "group_label": ACCOUNT_GROUPS["bank"][0],
+                    "field": f"accounts.{index}",
+                    "label": f"Rachunek {item.name or index}",
+                    "account": item.account,
+                    "problem": problem,
+                }
+            )
+    return out
+
+
 async def _plan_accounts(
     db: AsyncSession,
     values: dict[str, str],
     fields: dict[str, tuple[str, str]],
     optional: frozenset[str] = frozenset(),
+    *,
+    group: str = "",
 ) -> dict[str, str]:
-    """Każde konto z formularza musi być aktywne w planie kont (puste — tylko opcjonalne)."""
+    """Każde konto z formularza musi przyjmować zapisy modułu (puste — tylko
+    opcjonalne): aktywne, bez kont pod sobą i bez słownika, a pole z
+    ``COUNTERPARTY_FIELDS`` — ze słownikiem kontrahentów."""
 
+    plan = await load_plan(db)
     cleaned: dict[str, str] = {}
     for key, (_, label) in fields.items():
         if key in optional and not (values.get(key) or "").strip():
             cleaned[key] = ""
             continue
         number = clean_account(values.get(key), label)
-        account = await db.scalar(
-            select(FinanceAccount).where(FinanceAccount.number == number)
+        problem = account_problem(
+            number, plan, counterparty=(group, key) in COUNTERPARTY_FIELDS
         )
-        if account is None or not account.active:
-            raise LedgerError(
-                f"{label}: konta {number} nie ma w planie kont albo jest wyłączone.",
-                status=422,
-            )
+        if problem:
+            raise LedgerError(f"{label}: {problem}", status=422)
         cleaned[key] = number
     return cleaned
 
@@ -669,7 +827,7 @@ async def set_sales_accounts(
 ) -> LedgerSettings:
     """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont."""
 
-    cleaned = await _plan_accounts(db, values, SALES_ACCOUNT_FIELDS)
+    cleaned = await _plan_accounts(db, values, SALES_ACCOUNT_FIELDS, group="sales")
     current = await load(db)
     settings = replace(current, sales=SalesAccounts(**cleaned))
     await _save(db, settings, actor=actor)
@@ -681,7 +839,9 @@ async def set_allocation_accounts(
 ) -> LedgerSettings:
     """Konta rozliczenia kosztów na „5” (bez commita, admin): każde z planu kont."""
 
-    cleaned = await _plan_accounts(db, values, ALLOCATION_ACCOUNT_FIELDS)
+    cleaned = await _plan_accounts(
+        db, values, ALLOCATION_ACCOUNT_FIELDS, group="allocation"
+    )
     current = await load(db)
     settings = replace(current, allocation=AllocationAccounts(**cleaned))
     await _save(db, settings, actor=actor)
@@ -694,7 +854,7 @@ async def set_payroll_accounts(
     """Konta listy płac (bez commita, admin): wymagane z planu kont, PPK i potrącenia opcjonalnie."""
 
     cleaned = await _plan_accounts(
-        db, values, PAYROLL_ACCOUNT_FIELDS, optional=PAYROLL_OPTIONAL
+        db, values, PAYROLL_ACCOUNT_FIELDS, optional=PAYROLL_OPTIONAL, group="payroll"
     )
     current = await load(db)
     settings = replace(current, payroll=PayrollAccounts(**cleaned))
@@ -707,7 +867,7 @@ async def set_assets_accounts(
 ) -> LedgerSettings:
     """Konta środków trwałych (bez commita, admin): każde z planu kont."""
 
-    cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS)
+    cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS, group="assets")
     current = await load(db)
     settings = replace(current, assets=AssetsAccounts(**cleaned))
     await _save(db, settings, actor=actor)
@@ -729,22 +889,8 @@ async def set_vat_accounts(
         for key in VAT_ACCOUNT_FIELDS
     }
     cleaned = await _plan_accounts(
-        db, merged, VAT_ACCOUNT_FIELDS, optional=VAT_OPTIONAL
+        db, merged, VAT_ACCOUNT_FIELDS, optional=VAT_OPTIONAL, group="vat"
     )
-    if cleaned["foreign_account"]:
-        dictionary = await db.scalar(
-            select(FinanceAccount.dictionary).where(
-                FinanceAccount.number == cleaned["foreign_account"]
-            )
-        )
-        if dictionary != "counterparty":
-            raise LedgerError(
-                f"{VAT_ACCOUNT_FIELDS['foreign_account'][1]}: konto "
-                f"{cleaned['foreign_account']} musi mieć w planie kont słownik "
-                "analityki „kontrahenci” (dostawca dostaje konto "
-                f"{cleaned['foreign_account']}-NNN).",
-                status=422,
-            )
     settings = replace(current, vat=VatAccounts(**cleaned))
     await _save(db, settings, actor=actor)
     return settings
@@ -886,7 +1032,11 @@ async def set_bank_settings(
             )
         accounts.append(CompanyAccount(number, cleaned["account"], name, currency))
     fields = await _plan_accounts(
-        db, values, BANK_ACCOUNT_FIELDS, optional=frozenset(BANK_ACCOUNT_FIELDS)
+        db,
+        values,
+        BANK_ACCOUNT_FIELDS,
+        optional=frozenset(BANK_ACCOUNT_FIELDS),
+        group="bank",
     )
     current = await load(db)
     settings = replace(current, bank=BankSettings(accounts=tuple(accounts), **fields))
