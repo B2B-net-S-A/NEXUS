@@ -350,7 +350,7 @@ async def delete_report(
     try:
         storage_service.delete_board_document_file(path)
     except OSError:
-        logger.warning("board report file not removed: %s", path)
+        logger.warning("board report file not removed: report_id=%s", report_id)
     return Response(status_code=204)
 
 

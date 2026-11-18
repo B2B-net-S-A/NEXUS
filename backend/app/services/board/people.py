@@ -162,7 +162,7 @@ async def placements(
         await db.execute(
             text(
                 """
-                SELECT fm.first_reached_at::date AS day,
+                SELECT (fm.first_reached_at AT TIME ZONE 'Europe/Warsaw')::date AS day,
                        COALESCE(NULLIF(btrim(c.display_name), ''), c.name) AS client
                 FROM analytics_kpi_milestones fm
                 LEFT JOIN jobs j ON j.id = fm.job_id
