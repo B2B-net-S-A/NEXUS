@@ -16,7 +16,6 @@ i tabele, które czytano kilka razy, czyta się raz.
 
 from __future__ import annotations
 
-import re
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -55,11 +54,10 @@ def _capture_sql():
         event.remove(engine.sync_engine, "before_cursor_execute", _on)
 
 
-def _selects_from(statements: list[str], table: str) -> list[str]:
-    pattern = re.compile(rf"\b(?:FROM|JOIN)\s+{table}\b", re.IGNORECASE)
-    return [
-        s for s in statements if s.upper().startswith("SELECT") and pattern.search(s)
-    ]
+def _reads_of(statements: list[str], table: str) -> list[str]:
+    """Samodzielne odczyty tabeli (``SELECT <tabela>.…``) — bez zapytań, które
+    tylko dołączają ją JOIN-em (opieka po odejściu, zegary klienta, terminarz)."""
+    return [s for s in statements if s.startswith(f"SELECT {table}.")]
 
 
 async def _seed_board(per_stage: int) -> int:
@@ -182,8 +180,8 @@ async def test_kanban_reads_shared_lookups_once():
         s for s in statements if s.startswith("SELECT users.id, users.name FROM users")
     ]
     assert len(names) <= 1, names
-    assert len(_selects_from(statements, "pipeline_stage_defs")) == 1
-    assert len(_selects_from(statements, "pipeline_templates")) <= 1
+    assert len(_reads_of(statements, "pipeline_stage_defs")) == 1
+    assert len(_reads_of(statements, "pipeline_templates")) <= 1
     family = [
         s for s in statements if "clients.merged_into_client_id FROM clients" in s
     ]
