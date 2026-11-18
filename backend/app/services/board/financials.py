@@ -166,15 +166,22 @@ async def import_xml(
     year = parsed.year
     now = datetime.now(timezone.utc)
 
-    doc = (
-        await db.execute(
-            select(BoardDocument).where(
-                BoardDocument.krs_key == f"financial_statement:{year}"
+    # Ten sam dokument przy ponownym imporcie: najpierw ten z wiersza roku,
+    # potem wiersz wzmianki KRS bez PDF-u; dopiero gdy obu brak — nowy.
+    doc = None
+    existing = await _statement(db, year)
+    if existing is not None and existing.document_id and existing.source == "xml":
+        doc = await db.get(BoardDocument, existing.document_id)
+    if doc is None:
+        doc = (
+            await db.execute(
+                select(BoardDocument).where(
+                    BoardDocument.krs_key == f"financial_statement:{year}"
+                )
             )
-        )
-    ).scalar_one_or_none()
-    if doc is not None and doc.file_path and doc.content_type != "application/xml":
-        doc = None  # przy wzmiance jest już PDF — XML idzie jako osobny dokument
+        ).scalar_one_or_none()
+        if doc is not None and doc.file_path and doc.content_type != "application/xml":
+            doc = None  # przy wzmiance jest już PDF — XML idzie jako osobny dokument
     if doc is None:
         doc = BoardDocument(
             category="financial_statement",

@@ -18,7 +18,8 @@ np. ``assets:B.III.1.c`` (środki pieniężne) albo ``income:A`` (przychody).
   pozycji z numeracją A / I / 1 / a) — ta sama ścieżka.
 
 Plik z obcej strony nie jest wykonywany: dokument z DTD albo encjami
-odrzucamy przed parsowaniem (XXE, „billion laughs”).
+odrzuca sam parser (XXE, „billion laughs”). Schemat „w tysiącach” mnożymy
+przez 1000; jednostki małe i mikro (inny układ pozycji) odrzucamy.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import base64
 import binascii
 import re
 import xml.etree.ElementTree as ET
+from xml.parsers import expat
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Iterable, Optional
@@ -250,23 +252,38 @@ def element_path(name: str, section: Optional[str]) -> Optional[str]:
     return f"{section}:" + ".".join(_segments(name))
 
 
-def _reject_entities(content: bytes) -> None:
-    head = content[:200_000].upper()
-    if b"<!DOCTYPE" in head or b"<!ENTITY" in head:
-        raise StatementError("Plik z deklaracją DTD albo encjami nie jest przyjmowany.")
+def _refuse(*_args: Any) -> None:
+    raise StatementError("Plik z deklaracją DTD albo encjami nie jest przyjmowany.")
+
+
+def _parse(content: bytes) -> ET.Element:
+    """Najpierw przebieg samym expatem, który odmawia przy DOCTYPE i deklaracji
+    encji (zanim cokolwiek się rozwinie), potem ElementTree. Podgląd bajtów
+    nie wystarczał: komentarz przed DOCTYPE albo UTF-16 go omijały."""
+
+    guard = expat.ParserCreate()
+    guard.StartDoctypeDeclHandler = _refuse
+    guard.EntityDeclHandler = _refuse
+    guard.UnparsedEntityDeclHandler = _refuse
+    guard.ExternalEntityRefHandler = _refuse
+    try:
+        guard.Parse(content, True)
+        return ET.fromstring(content)
+    except (expat.ExpatError, ET.ParseError) as exc:
+        raise StatementError("To nie jest poprawny plik XML.") from exc
 
 
 def _root(content: bytes, depth: int = 0) -> ET.Element:
-    _reject_entities(content)
-    try:
-        root = ET.fromstring(content)
-    except ET.ParseError as exc:
-        raise StatementError("To nie jest poprawny plik XML.") from exc
-    if _local(root.tag).startswith("Jednostka"):
-        return root
+    root = _parse(content)
     for element in root.iter():
-        if _local(element.tag).startswith("Jednostka"):
+        name = _local(element.tag)
+        if name.startswith("JednostkaInna"):
             return element
+        if name.startswith("Jednostka") and name != "JednostkaNazwa":
+            # Jednostka mała / mikro mają inny układ pozycji (zał. 4 i 5 UoR).
+            raise StatementError(
+                f"Obsługujemy sprawozdania w układzie „JednostkaInna”, a plik ma „{name}”."
+            )
     # Plik podpisany (XAdES) z treścią w base64 w elemencie ``Object``.
     if depth == 0:
         for element in root.iter():
@@ -318,7 +335,13 @@ def parse_xml(content: bytes) -> ParsedStatement:
     walk(root, None, False)
     if not raw:
         raise StatementError("W pliku nie ma kwot bilansu ani RZiS.")
-    return ParsedStatement(period_start, period_end, _local(root.tag), raw)
+    schema_name = _local(root.tag)
+    if "WTysiacach" in schema_name:
+        raw = {
+            path: tuple(None if v is None else round(v * 1000, 2) for v in pair)
+            for path, pair in raw.items()
+        }
+    return ParsedStatement(period_start, period_end, schema_name, raw)
 
 
 def _resolve(values: dict[str, Optional[float]], expression: str) -> Optional[float]:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from app.core.database import AsyncSessionLocal
 from app.models.board_document import BoardDocument, BoardFinancialStatement
@@ -178,6 +178,33 @@ def test_parse_xml_rejects_entities_and_foreign_files(content: bytes) -> None:
         parser.parse_xml(content)
 
 
+def test_parse_xml_rejects_doctype_hidden_by_padding_or_utf16() -> None:
+    entity = (
+        '<!DOCTYPE JednostkaInna [<!ENTITY e "999">]>'
+        "<JednostkaInna><Naglowek><OkresDo>2025-12-31</OkresDo></Naglowek>"
+        "<Bilans><Aktywa><KwotaA>&e;</KwotaA><KwotaB>1</KwotaB></Aktywa></Bilans>"
+        "</JednostkaInna>"
+    )
+    padded = ('<?xml version="1.0"?><!--' + "x" * 300_000 + "-->" + entity).encode()
+    utf16 = ('<?xml version="1.0" encoding="UTF-16"?>' + entity).encode("utf-16")
+    for content in (padded, utf16):
+        with pytest.raises(parser.StatementError):
+            parser.parse_xml(content)
+
+
+def test_parse_xml_scales_statement_in_thousands() -> None:
+    content = sample_xml().replace(b"JednostkaInna", b"JednostkaInnaWTysiacach")
+    parsed = parser.parse_xml(content)
+    assert parsed.amounts(0)["revenue"] == 120_000_000_000
+    assert parsed.schema_name == "JednostkaInnaWTysiacach"
+
+
+def test_parse_xml_rejects_small_entity_layouts() -> None:
+    content = sample_xml().replace(b"JednostkaInna", b"JednostkaMala")
+    with pytest.raises(parser.StatementError, match="JednostkaInna"):
+        parser.parse_xml(content)
+
+
 def test_clean_manual_rejects_unknown_fields_and_huge_amounts() -> None:
     assert parser.clean_manual({"revenue": "1000.5"})["revenue"] == 1000.5
     with pytest.raises(parser.StatementError):
@@ -337,6 +364,33 @@ async def test_import_xml_fills_year_and_previous_year(
     years = {row["year"]: row for row in view["years"]}
     assert years[2024]["source"] == "manual"
     assert years[2024]["amounts"]["revenue"] == 99_000_000
+
+
+async def test_reimport_reuses_the_same_document(app_client, _clean_statements) -> None:
+    admin = await _user(role="admin")
+    ids = set()
+    for _ in range(2):
+        response = await app_client.post(
+            f"{API}/statements/import",
+            headers=_headers(admin),
+            files={"file": ("sf2025.xml", sample_xml(), "application/xml")},
+        )
+        assert response.status_code == 200, response.text
+        ids.add(response.json()["document_id"])
+    assert len(ids) == 1
+    async with AsyncSessionLocal() as db:
+        docs = (
+            (
+                await db.execute(
+                    select(BoardDocument).where(
+                        BoardDocument.category == "financial_statement"
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(docs) == 1
 
 
 async def test_statements_board_reads_admin_writes_others_denied(

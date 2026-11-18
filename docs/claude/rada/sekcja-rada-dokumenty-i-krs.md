@@ -120,8 +120,11 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
 - **Pozycja = ścieżka z załącznika nr 1 UoR** (`assets:B.III.1.c`,
   `income:B.I`). Parser nie zna całego schematu MF: zbiera każdy element
   z `KwotaA`/`KwotaB` pod `Bilans`, `RZiSPor`, `RZiSKalk`, `PrzeplywyPosr`.
-  Plik z DTD/encjami odrzucany przed parsowaniem; XAdES z treścią w base64
-  rozpakowany. **Parser nie był jeszcze sprawdzony na prawdziwym pliku
+  DOCTYPE i deklaracje encji odrzuca przebieg samym expatem przed
+  ElementTree (podgląd bajtów omijał komentarz-dopełnienie i UTF-16);
+  XAdES z treścią w base64 rozpakowany. `JednostkaInnaWTysiacach` × 1000;
+  jednostki małe i mikro (inny układ, zał. 4 i 5 UoR) odrzucone. Ponowny
+  import tego samego roku podmienia plik w tym samym dokumencie. **Parser nie był jeszcze sprawdzony na prawdziwym pliku
   spółki** — przy pierwszym imporcie porównaj „pozycje w pliku” i KPI z PDF.
 - Import (`POST /statements/import`, admin, XML/XADES do 10 MB) zapisuje
   plik jako dokument „Sprawozdania finansowe” (przy wzmiance KRS za ten rok,
