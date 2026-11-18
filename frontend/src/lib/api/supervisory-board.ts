@@ -335,3 +335,117 @@ export function useSaveBoardBudget(year: number) {
     onSuccess: invalidate,
   });
 }
+
+// ── Analiza finansowa (R4) ───────────────────────────────────────────────────
+
+export type StatementSource = "xml" | "xml_prev" | "manual" | "ledger";
+
+export type StatementAmounts = Record<string, number | null>;
+
+export interface StatementMetrics {
+  ebitda: number | null;
+  financial_debt: number | null;
+  net_debt: number | null;
+  current_ratio: number | null;
+  quick_ratio: number | null;
+  cash_ratio: number | null;
+  debt_ratio: number | null;
+  equity_ratio: number | null;
+  net_debt_ebitda: number | null;
+  dso: number | null;
+  dpo: number | null;
+  ebitda_margin: number | null;
+  net_margin: number | null;
+  roe: number | null;
+  roa: number | null;
+}
+
+export interface StatementYear {
+  year: number;
+  source: StatementSource;
+  source_label: string;
+  period_start: string | null;
+  period_end: string | null;
+  document_id: number | null;
+  schema_name: string | null;
+  note: string | null;
+  amounts: StatementAmounts;
+  raw_count: number;
+  /** Rok z księgi w trakcie: liczba miesięcy od stycznia. */
+  partial_months: number | null;
+  updated_at: string | null;
+  metrics: StatementMetrics;
+  growth: { revenue: number | null; ebitda: number | null; net_profit: number | null };
+}
+
+export interface RatioNorm {
+  label: string;
+  formula: string;
+  good: [number, number];
+}
+
+export interface AnalysisView {
+  fields: { key: string; label: string; group: "income" | "assets" | "liabilities" }[];
+  norms: Record<string, RatioNorm>;
+  defaults: {
+    debt_to_ebitda: number;
+    factoring_share: number;
+    financial_multiple: number;
+    financial_range: [number, number];
+    strategic_multiple: number;
+    strategic_range: [number, number];
+  };
+  years: StatementYear[];
+  expected_years: number[];
+}
+
+export interface StatementImportResult {
+  year: number;
+  fields_found: number;
+  fields_total: number;
+  raw_count: number;
+  previous_year_filled: boolean;
+  document_id: number;
+}
+
+export function useBoardAnalysis() {
+  return useQuery({
+    queryKey: [...boardKeys.all, "analysis"] as const,
+    queryFn: async () => (await api.get<AnalysisView>(`${BASE}/analysis`)).data,
+  });
+}
+
+export function useSaveBoardStatement() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ year, amounts, note }: { year: number; amounts: StatementAmounts; note: string | null }) =>
+      (await api.put<AnalysisView>(`${BASE}/statements/${year}`, { amounts, note })).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBoardStatement() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (year: number) => {
+      await api.delete(`${BASE}/statements/${year}`);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useImportBoardStatement() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.set("file", file);
+      return (
+        await api.post<StatementImportResult>(`${BASE}/statements/import`, form, {
+          headers: { "Content-Type": "multipart/form-data" },
+        })
+      ).data;
+    },
+    onSuccess: invalidate,
+  });
+}

@@ -37,6 +37,8 @@ from app.services.ai_quota import ai_feature
 from app.services.board import krs as krs_service
 from app.services.board import reader
 from app.services.board import budget as budget_service
+from app.services.board import financials
+from app.services.board.statements import StatementError
 from app.services.board import summary as summary_service
 from app.services import board_budget_schema as budget_schema
 from app.services.board.notify import notify_new_entries
@@ -185,6 +187,87 @@ async def put_budget(
                 row.amount = amount
     await db.commit()
     return await budget_service.budget_view(db, year, business_today())
+
+
+# ── Analiza finansowa (R4) ───────────────────────────────────────────────────
+
+MAX_XML_BYTES = 10 * 1024 * 1024
+XML_SUFFIXES = (".xml", ".xades")
+
+
+def _statement_year(year: int) -> int:
+    if not 2000 <= year <= business_today().year:
+        raise HTTPException(
+            422, "Sprawozdanie dotyczy roku zakończonego albo bieżącego."
+        )
+    return year
+
+
+@router.get("/analysis")
+async def get_analysis(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Sprawozdania roczne (XML, wpis ręczny, księga), wskaźniki, kredyt, wycena."""
+
+    return await financials.analysis_view(db, business_today())
+
+
+class StatementPut(BaseModel):
+    amounts: dict[str, Optional[float]] = Field(default_factory=dict)
+    note: Optional[str] = Field(None, max_length=4000)
+
+
+@router.put("/statements/{year}")
+async def put_statement(
+    year: int,
+    body: StatementPut,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Wpis ręczny roku z papierowego sprawozdania (admin), PLN."""
+
+    try:
+        await financials.save_manual(
+            db, _statement_year(year), body.amounts, body.note, current_user.id
+        )
+    except StatementError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return await financials.analysis_view(db, business_today())
+
+
+@router.delete("/statements/{year}", status_code=204)
+async def delete_statement(
+    year: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    if not await financials.delete_statement(db, year):
+        raise HTTPException(404, "Nie ma sprawozdania za ten rok.")
+    return Response(status_code=204)
+
+
+@router.post("/statements/import")
+async def import_statement(
+    current_user: AdminUser,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Plik e-Sprawozdania z eKRS (XML albo podpisany XAdES), admin."""
+
+    name = (file.filename or "").strip()
+    if not name.lower().endswith(XML_SUFFIXES):
+        raise HTTPException(422, "Wgraj plik e-Sprawozdania: XML albo XADES z eKRS.")
+    content = await file.read(MAX_XML_BYTES + 1)
+    if len(content) > MAX_XML_BYTES:
+        raise HTTPException(413, "Plik większy niż 10 MB.")
+    if not content:
+        raise HTTPException(422, "Plik jest pusty.")
+    try:
+        result = await financials.import_xml(db, name, content, current_user.id)
+    except StatementError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return result
 
 
 # ── KRS ──────────────────────────────────────────────────────────────────────
