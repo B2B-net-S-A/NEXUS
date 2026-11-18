@@ -376,6 +376,31 @@ SECTIONS: tuple[Section, ...] = (
                 (ParamField("email", "adres"),),
                 "Dokument z podpisami, dowody pracy i akceptacje w jednym mailu.",
             ),
+            Rule(
+                "cl.client_acceptance",
+                "Klient akceptuje dowody pracy mailem po zbiorczej wysyłce",
+                "off",
+                "E6.5",
+                {"email": "", "subject": "KCP B2Bnetwork {miesiac} {rok}"},
+                (
+                    ParamField("email", "adres klienta"),
+                    ParamField("subject", "temat", "{miesiac} {rok}"),
+                ),
+                "Bank Pocztowy: KCP zbieramy i wysyłamy paczką; odpowiedź z domeny adresu "
+                "w wątku paczki akceptuje wysłane osoby poza wymienionymi jako brakujące. "
+                "Z „Faktura do klienta po podpisanym dokumencie” faktura osoby czeka na "
+                "jej akceptację.",
+            ),
+            Rule(
+                "cl.item_name",
+                "Opis pozycji faktury do klienta według wzoru",
+                "off",
+                "E6.5",
+                {"template": ""},
+                (ParamField("template", "wzór", "{zamowienie}, {osoba}"),),
+                "Wygrywa z nazwą z poprzedniej faktury. Pola: {zamowienie} — numer "
+                "zamówienia, {osoba} — imię i nazwisko.",
+            ),
         ),
     ),
     Section(

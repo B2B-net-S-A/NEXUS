@@ -60,7 +60,7 @@ export default async function B2BSignPage({ params }: PageProps) {
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-10 md:px-6 md:py-16">
-      <p className="mb-6 text-sm font-semibold text-foreground">B2B Network · podpis umowy</p>
+      <p className="mb-6 text-sm font-semibold text-foreground">B2Bnetwork · podpis umowy</p>
       <div className="mb-2 flex items-center gap-3">
         <FileSignature className="h-7 w-7 text-primary" aria-hidden />
         <h1 className="text-2xl font-semibold">

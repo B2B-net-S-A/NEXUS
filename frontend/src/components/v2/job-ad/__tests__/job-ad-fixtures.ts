@@ -114,6 +114,8 @@ export function adState(
             auto_count: 1,
             fixed_count: 1,
           }),
+          list("tech_required", "Technologie wymagane", ["Java", "Kafka"]),
+          list("tech_optional", "Technologie mile widziane", ["Kubernetes"]),
           list("process", "Etapy rekrutacji", ["Rozmowa z rekruterem"], {
             kind: "ordered" as const,
             fixed_count: 1,

@@ -37,6 +37,7 @@
   "DELETE /api/jobs/{job_id}/owner": "PDPPDDDDPPPPDDDDPDDDDDDDDDDDD",
   "DELETE /api/jobs/{job_id}/previous-recruiters/{user_id}": "PDPPDDDDPPPPDDDDPDDDDDDDDDDDD",
   "GET /api/jobs": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/client-process": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/hiring-manager-options": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "GET /api/jobs/quick-counts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
   "GET /api/jobs/train-names": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
@@ -83,6 +84,7 @@
   "PUT /api/jobs/{job_id}/champion-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/channel-plan": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/channels/{user_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/client-process": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
   "PUT /api/jobs/{job_id}/hiring-manager": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

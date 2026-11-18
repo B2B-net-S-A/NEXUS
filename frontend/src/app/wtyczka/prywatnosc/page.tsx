@@ -19,7 +19,7 @@ export default function ExtensionPrivacyPage() {
             Rozszerzenie „NEXUS — LinkedIn” · aktualizacja: 28 października 2026
           </p>
           <p>
-            Wtyczka pomaga uprawnionym osobom z zespołu B2B Network sprawdzać
+            Wtyczka pomaga uprawnionym osobom z zespołu B2Bnetwork sprawdzać
             profile w NEXUSIE i prowadzić rekrutacje. Ta strona opisuje dane
             przetwarzane przy korzystaniu z rozszerzenia.
           </p>
@@ -28,7 +28,7 @@ export default function ExtensionPrivacyPage() {
         <section aria-labelledby="privacy-controller" className="space-y-3">
           <h2 id="privacy-controller" className="text-xl font-semibold">1. Administrator i kontakt</h2>
           <p>
-            Administratorem danych w procesach rekrutacyjnych B2B Network jest
+            Administratorem danych w procesach rekrutacyjnych B2Bnetwork jest
             B2B.net S.A., Aleje Jerozolimskie 180, 02-486 Warszawa.
             W sprawach danych osobowych można napisać do Inspektora Ochrony
             Danych: <a className="text-primary underline underline-offset-4" href="mailto:IOD@b2bnetwork.pl">IOD@b2bnetwork.pl</a>.
@@ -36,7 +36,7 @@ export default function ExtensionPrivacyPage() {
           <p>
             Informacje o zasadach przetwarzania danych w organizacji zawiera też{" "}
             <a className="text-primary underline underline-offset-4" href="https://b2bnetwork.pl/polityka-prywatnosci/">
-              polityka prywatności B2B Network
+              polityka prywatności B2Bnetwork
             </a>.
           </p>
         </section>

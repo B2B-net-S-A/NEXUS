@@ -44,6 +44,9 @@ LIST_LIMITS = {
 }
 # Warunki z rekrutacji (do 5) i stały blok firmy (do `OFFER_MAX_ITEMS`).
 OFFER_HIDDEN_MAX = 20
+# Własne etapy rekrutacji w ogłoszeniu — tyle, ile stały blok firmy
+# (`fixed_blocks.PROCESS_MAX_ITEMS`).
+PROCESS_MAX = 6
 # Warunki wpisane w rekrutacji wolnym tekstem; rekruter może je poprawić.
 TERM_FIELDS = ("start", "duration", "language")
 
@@ -206,6 +209,11 @@ def clean_content(value: Any, *, title: str) -> dict[str, Any]:
     hidden = clean_list(data.get("offer_hidden"), OFFER_HIDDEN_MAX)
     if hidden:
         content["offer_hidden"] = hidden
+    # Własne etapy rekrutacji zamiast stałego bloku firmy (zgłoszenie
+    # 18.11.2026). Klucz tylko przy wpisanych — jak wyżej, przez odcisk treści.
+    process = clean_list(data.get("process"), PROCESS_MAX)
+    if process:
+        content["process"] = process
     return content
 
 

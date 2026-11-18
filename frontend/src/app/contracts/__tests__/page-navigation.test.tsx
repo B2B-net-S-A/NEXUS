@@ -10,9 +10,10 @@ import {
 } from "@/__tests__/fixtures/permission-snapshot";
 
 const mockReplace = vi.fn();
+const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(window.location.search),
-  useRouter: () => ({ replace: mockReplace, push: vi.fn() }),
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
 }));
 
 vi.mock("@/components/v2/pages/ContractsListV2", () => ({
@@ -29,7 +30,13 @@ vi.mock("@/components/v2/pages/ContractsListV2", () => ({
 }));
 
 vi.mock("@/components/contracts/ContractsClientPicker", () => ({
-  ContractsClientPicker: () => <div>Wybór klienta</div>,
+  ContractsClientPicker: (props: {
+    onChange: (client: { id: number; name: string } | null) => void;
+  }) => (
+    <button type="button" onClick={() => props.onChange({ id: 12, name: "Bank Przykładowy" })}>
+      Wybierz klienta
+    </button>
+  ),
 }));
 
 vi.mock("@/components/order-mail/OrderMailQueue", () => ({
@@ -45,14 +52,6 @@ vi.mock("@/components/order-mail/useOrderMailPendingCount", () => ({
   useOrderMailPendingCount: () => 3,
 }));
 
-vi.mock("@/components/contracts/ClientContractRegister", () => ({
-  ClientContractRegister: (props: { toolbarLead?: React.ReactNode }) => (
-    <div>
-      {props.toolbarLead}
-      Rejestr klienta
-    </div>
-  ),
-}));
 
 const ADMIN = {
   id: 1,
@@ -75,6 +74,7 @@ function signIn(overrides: Partial<User> = {}) {
 describe("ContractsPage — jedna lista (18.11.2026)", () => {
   beforeEach(() => {
     mockReplace.mockReset();
+    mockPush.mockReset();
     window.history.replaceState({}, "", "/contracts");
     signIn();
   });
@@ -138,6 +138,22 @@ describe("ContractsPage — jedna lista (18.11.2026)", () => {
       expect(screen.queryByText("Globalny rejestr")).toBeNull();
     },
   );
+
+  it("wybór klienta otwiera jego zakładkę „Konsultanci” (18.11.2026)", async () => {
+    render(<ContractsPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Wybierz klienta" }));
+    expect(mockPush).toHaveBeenCalledWith("/clients/12?tab=konsultanci");
+    expect(screen.getByText("Globalny rejestr")).toBeInTheDocument();
+  });
+
+  it("dawny rejestr klienta pod ?client= prowadzi do zakładki „Konsultanci”", async () => {
+    window.history.replaceState({}, "", "/contracts?client=12&clientName=Bank&register_page=2");
+    render(<ContractsPage />);
+
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/clients/12?tab=konsultanci"));
+    expect(screen.queryByText("Globalny rejestr")).toBeNull();
+  });
 
   it("bez podglądu skrzynki zamówień nie ma przycisku", async () => {
     signIn({

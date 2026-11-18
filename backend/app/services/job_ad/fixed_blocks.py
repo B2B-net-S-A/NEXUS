@@ -103,7 +103,7 @@ DEFAULTS = FixedBlocks(
             "Rozmowa z klientem",
         ),
         about=(
-            "B2B Network łączy specjalistów IT z projektami, które do nich "
+            "B2Bnetwork łączy specjalistów IT z projektami, które do nich "
             "pasują. To Ty wybierasz projekt, my zapewniamy stabilne warunki "
             "i wsparcie."
         ),
@@ -120,7 +120,7 @@ DEFAULTS = FixedBlocks(
             "Interview with the client",
         ),
         about=(
-            "B2B Network connects IT specialists with projects that suit them. "
+            "B2Bnetwork connects IT specialists with projects that suit them. "
             "You choose the project, we provide stable terms and support."
         ),
     ),

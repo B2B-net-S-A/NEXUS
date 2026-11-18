@@ -10,10 +10,10 @@ describe("grupy sekcji profilu klienta (18.11.2026)", () => {
     expect(new Set(grouped).size).toBe(grouped.length);
   });
 
-  it("kolejność grup: Przegląd · Zamówienia · Umowy · Rozliczenia · Współpraca · Ludzie · Rekrutacje · Sprzedaż", () => {
+  it("kolejność grup: Przegląd · Konsultanci · Umowy · Rozliczenia · Współpraca · Ludzie · Rekrutacje · Sprzedaż", () => {
     expect(CLIENT_TAB_GROUPS.map((group) => group.label)).toEqual([
       "Przegląd",
-      "Zamówienia",
+      "Konsultanci",
       "Umowy",
       "Rozliczenia",
       "Współpraca",
@@ -23,6 +23,14 @@ describe("grupy sekcji profilu klienta (18.11.2026)", () => {
     ]);
     // Raporty wynikają z umowy — stoją przy niej, nie pod „Więcej”.
     expect(CLIENT_TAB_GROUPS.find((group) => group.key === "umowy")?.tabs).toContain("raporty");
+  });
+
+  it("Konsultanci (18.11.2026): lista osób, a obok zamówienia i importy MD pod dawnymi kluczami", () => {
+    expect(CLIENT_TAB_GROUPS.find((group) => group.key === "konsultanci")?.tabs).toEqual([
+      "konsultanci",
+      "zamowienia",
+      "importy-md",
+    ]);
   });
 
   it("każda podzakładka ma nazwę", () => {

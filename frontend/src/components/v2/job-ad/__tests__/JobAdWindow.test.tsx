@@ -277,6 +277,52 @@ describe("JobAdWindow — poprawki i ponowne przygotowanie", () => {
     ).toBeInTheDocument();
   });
 
+  it("„Etapy rekrutacji” poprawia się w ogłoszeniu — zgłoszenie 18.11.2026", async () => {
+    const api = setup(adState());
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: Etapy rekrutacji" }));
+    const box = screen.getByRole("textbox", { name: "Treść: Etapy rekrutacji" });
+    // Stały blok trafia do pola w całości: własna lista go zastępuje.
+    expect(box).toHaveValue("Rozmowa z rekruterem");
+    fireEvent.change(box, { target: { value: "Rozmowa z rekruterem\nRozmowa z klientem" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect(api.save.mock.calls[0][1].content.process).toEqual([
+      "Rozmowa z rekruterem",
+      "Rozmowa z klientem",
+    ]);
+  });
+
+  it("„Technologie wymagane” poprawia się na karcie Pracuj.pl i zapisuje do listy technologii", async () => {
+    const api = setup(adState());
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: Technologie wymagane" }));
+    const box = screen.getByRole("textbox", { name: "Treść: Technologie wymagane" });
+    expect(box).toHaveValue("Java\nKafka");
+    fireEvent.change(box, { target: { value: "Java\nSpring Boot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect(api.save.mock.calls[0][1].tech).toEqual([
+      { name: "Java", level: "critical" },
+      { name: "Spring Boot", level: "must" },
+      { name: "Kubernetes", level: "nice" },
+    ]);
+    expect(api.save.mock.calls[0][1].content).toEqual(CONTENT);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("textbox", { name: "Treść: Technologie wymagane" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("każde pole karty Pracuj.pl ma „Edytuj”", async () => {
+    setup(adState());
+    await screen.findByRole("button", { name: "Edytuj: Tytuł stanowiska" });
+    for (const field of adState().rendered!.pracuj.fields) {
+      expect(screen.getByRole("button", { name: `Edytuj: ${field.label}` })).toBeInTheDocument();
+    }
+  });
+
   it("„To oferujemy” w edycji pokazuje całą listę, wycina wklejone kopie i ukrywa punkt", async () => {
     // Zgłoszenie 28.10.2026: „Edytuj” dawało puste pole, a wklejona lista
     // kończyła się błędem „List should have at most 6 items”.

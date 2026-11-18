@@ -49,7 +49,32 @@ async def cache_set(
     """
     ttl = ttl_seconds + (random.uniform(0.0, jitter_seconds) if jitter_seconds else 0.0)
     async with _lock:
-        _cache[key] = (value, time.monotonic() + ttl)
+        now = time.monotonic()
+        _cache[key] = (value, now + ttl)
+        _sweep_expired(now)
+
+
+# Wygasły wpis znikał tylko przy odczycie tego samego klucza, więc klucze
+# z id osoby albo rekrutacji, o które nikt już nie pyta, żyły do restartu
+# i każda pełna zbiórka GC przechodziła je od nowa. Raz na minutę przy zapisie.
+SWEEP_INTERVAL_SECONDS = 60.0
+_next_sweep_at = 0.0
+
+
+def _sweep_expired(now: float) -> None:
+    """Usuń wygasłe wpisy, najwyżej raz na ``SWEEP_INTERVAL_SECONDS``; wołać pod ``_lock``."""
+    global _next_sweep_at
+    if now < _next_sweep_at:
+        return
+    _next_sweep_at = now + SWEEP_INTERVAL_SECONDS
+    expired = [key for key, (_, expires_at) in _cache.items() if now > expires_at]
+    for key in expired:
+        del _cache[key]
+
+
+def entry_count() -> int:
+    """Liczba wpisów w cache (do `runtime_metrics`), bez blokady — tylko odczyt."""
+    return len(_cache)
 
 
 # ── Single-flight ────────────────────────────────────────────────────────────

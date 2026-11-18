@@ -330,7 +330,7 @@ function PackageSteps({
         </ul>
         <p className="flex items-center gap-1 text-xs text-muted-foreground">
           <CheckCircle2 className="h-3 w-3" aria-hidden /> Sprawdzenie podpisu może potrwać do
-          pół minuty na plik. Umowa trafi do B2B Network po ostatnim podpisanym pliku.
+          pół minuty na plik. Umowa trafi do B2Bnetwork po ostatnim podpisanym pliku.
         </p>
       </li>
     </ol>
@@ -379,7 +379,7 @@ export default function B2BSignForm({
           description={
             signedPdfUntil
               ? "Oba podpisy kwalifikowane sprawdzone. Pobierz swoją kopię, wysłaliśmy ją też mailem."
-              : "Kopię podpisaną przez obie strony dostaniesz od osoby z B2B Network."
+              : "Kopię podpisaną przez obie strony dostaniesz od osoby z B2Bnetwork."
           }
         />
         {signedPdfUntil ? (
@@ -407,8 +407,8 @@ export default function B2BSignForm({
         title="Dziękujemy, podpis przyjęty"
         description={
           packageView.documents.length
-            ? "Wszystkie podpisy kwalifikowane sprawdzone. Umowa trafia do podpisu B2B Network."
-            : "Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2B Network."
+            ? "Wszystkie podpisy kwalifikowane sprawdzone. Umowa trafia do podpisu B2Bnetwork."
+            : "Podpis kwalifikowany sprawdzony. Umowa trafia do podpisu B2Bnetwork."
         }
       />
     );
@@ -448,7 +448,7 @@ export default function B2BSignForm({
           <Alert
             variant="success"
             title="Prośba wysłana"
-            description={`Osoba z B2B Network, która wysłała umowę, dostała Twoją prośbę ${requestedOn}. Nowy link przyjdzie mailem.`}
+            description={`Osoba z B2Bnetwork, która wysłała umowę, dostała Twoją prośbę ${requestedOn}. Nowy link przyjdzie mailem.`}
           />
         ) : (
           <Button type="button" variant="primary" disabled={busy} onClick={() => void askForLink()}>
@@ -469,7 +469,7 @@ export default function B2BSignForm({
       <Alert
         variant="warning"
         title="Ta umowa nie czeka już na podpis"
-        description="Link wygasł albo wysyłka została wycofana. Skontaktuj się z osobą z B2B Network."
+        description="Link wygasł albo wysyłka została wycofana. Skontaktuj się z osobą z B2Bnetwork."
       />
     );
   }

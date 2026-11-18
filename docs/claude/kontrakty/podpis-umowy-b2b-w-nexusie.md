@@ -22,7 +22,7 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   (`_render_generated_row_docx` → `cv_pdf_preview.pdf_from_docx`), zamrożony przy
   wysyłce odciskiem. Każde wgranie musi zaczynać się bajtami poprzedniej wersji
   (`verdict.builds_on`) — podpis PAdES dopisuje się na końcu pliku.
-- **Kolejność stała: kontraktor → reprezentant B2B Network.** Kontraktor
+- **Kolejność stała: kontraktor → reprezentant B2Bnetwork.** Kontraktor
   podpisuje z linku (`/sign/b2b/{token}`, API `/api/public/b2b-sign/{token}`,
   token w bazie tylko jako SHA-256), bez konta. Plik za firmę wgrywa osoba
   wskazana przy wysyłce (z listy `company_signer_ids`), a w pliku wystarczy
@@ -117,7 +117,7 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   przypomnienie po 1 dniu i dalej co 3 dni, zawsze w dzień roboczy
   8:00–18:00 (`company_reminder_due`) — dzwonek i mail. Mail idzie ze
   skrzynki nadawcy (`mail.company_signer_message`); bez niej zostaje dzwonek
-  i pas „Czeka na Twój podpis za B2B Network” na pulpicie.
+  i pas „Czeka na Twój podpis za B2Bnetwork” na pulpicie.
 - **Kontraktor dostaje swój egzemplarz** (26.10.2026; wcześniej nie dostawał
   nic, a link gasł po podpisie firmy): po podpisie obu stron mail ze
   skrzynki nadawcy z PDF-em w załączniku (`_send_contractor_copy`,
@@ -130,7 +130,7 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   wybrał wariant „przycisk i kroki”): treści buduje tylko `mail.py`
   (`contractor_sign_message`, `contractor_reminder_message`,
   `company_signer_message`, `contractor_copy_message`). Bez „Pozdrawiamy,
-  B2B Network”, bo pod treścią NEXUS dokleja stopkę Outlooka nadawcy z jej
+  B2Bnetwork”, bo pod treścią NEXUS dokleja stopkę Outlooka nadawcy z jej
   własnym „Pozdrawiam”, i wtedy wychodziły dwa pożegnania. Powitanie
   „Dzień dobry,” bez imienia, bo imienia nie odmieniamy, a do reprezentanta
   „Cześć,”. Bez „podpisał(a)”: zdanie zaczyna się od umowy. Akcja to
@@ -183,7 +183,7 @@ startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
   nazwiskiem w certyfikacie (`judge(required_signers=[kontraktor])`); te same
   bramki co umowa: plik zaczyna się bajtami wydanego PDF-a, limit nieudanych
   prób linku, walidacja bez blokady, zapis pod blokadą wiersza, wniosku
-  i dokumentu. Reprezentant B2B Network podpisuje nadal tylko umowę.
+  i dokumentu. Reprezentant B2Bnetwork podpisuje nadal tylko umowę.
 - **Umowa idzie do reprezentanta po ostatnim podpisanym pliku**
   (`service.finish_contractor_if_complete`), niezależnie od kolejności. Do tego
   czasu wniosek zostaje `sent` (plakietki „U kontraktora”, przypomnienia
@@ -234,7 +234,7 @@ startu” (`dokumenty-do-startu.md`), zamiast dostawać NDA osobnym mailem.
   się od `expires_at`, zanim zamiatacz zmieni stan). Wycofana wysyłka wraca do
   zwykłej plakietki. Panel osoby mówi, u kogo jest umowa, zamiast „Przesuń na
   „Zatrudniony”…” pokazuje blokadę, a zakładka „Umowa” tłumaczy brak „Popraw”.
-- **„Czeka na Twój podpis za B2B Network” to pas nad pulpitem**
+- **„Czeka na Twój podpis za B2Bnetwork” to pas nad pulpitem**
   (`EsignCompanyBand`), nie kafelek — jak „Do wysłania do klienta”: widać go
   tylko, gdy coś czeka na tę osobę (`/esign/mine`, teraz z numerem umowy
   i klientem). Lista „Umowy B2B czekają na podpis” dostaje znacznik

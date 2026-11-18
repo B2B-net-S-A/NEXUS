@@ -502,7 +502,7 @@ export function SigningGuide() {
           Podpisz plik kwalifikowanym podpisem elektronicznym w formacie PAdES (podpis w samym PDF), np. w mObywatelu,
           SimplySign albo Szafirze.
         </li>
-        <li>Wgraj podpisany PDF tutaj. Potem podpisuje B2B Network i dostaniesz komplet.</li>
+        <li>Wgraj podpisany PDF tutaj. Potem podpisuje B2Bnetwork i dostaniesz komplet.</li>
       </ol>
       <p className="mt-3 text-xs text-muted-foreground">
         Skan odręcznego podpisu ani zgoda w mailu się nie liczą: umowę zawieramy w formie elektronicznej z podpisem
@@ -524,7 +524,7 @@ export function AgreementStep({ training }: { training: PortalTraining }) {
     if (!file.name.toLowerCase().endsWith(".pdf")) return setError("Wgraj podpisaną umowę jako PDF.");
     const yes = await askConfirm({
       title: "Wysłać podpisaną umowę?",
-      description: `${file.name}. Sprawdzimy podpis kwalifikowany, a potem umowę podpisze B2B Network.`,
+      description: `${file.name}. Sprawdzimy podpis kwalifikowany, a potem umowę podpisze B2Bnetwork.`,
       confirmLabel: "Wyślij",
       cancelLabel: "Wróć",
     });
@@ -564,7 +564,7 @@ export function AgreementStep({ training }: { training: PortalTraining }) {
             <div className="space-y-3 text-sm">
               <p>
                 Twój podpis mamy{agreement.trainer_signed_at ? ` od ${shortDay(agreement.trainer_signed_at)}` : ""}. Umowa
-                czeka na podpis B2B Network, potem dostaniesz komplet.
+                czeka na podpis B2Bnetwork, potem dostaniesz komplet.
               </p>
               <Button size="sm" variant="outline" onClick={() => download("trainer")}>
                 <Download aria-hidden className="size-3.5" /> Pobierz podpisaną przez Ciebie
@@ -633,7 +633,7 @@ function SignedAgreementCard({ training }: { training: PortalTraining }) {
         <ErrorLine text={error} />
       </div>
       <p className="mt-3 border-t pt-3 text-xs text-muted-foreground">
-        Prawa do materiałów przechodzą na B2B Network z chwilą zapłaty (§ 8 ust. 3). Do tego czasu materiały służą tylko
+        Prawa do materiałów przechodzą na B2Bnetwork z chwilą zapłaty (§ 8 ust. 3). Do tego czasu materiały służą tylko
         temu szkoleniu.
       </p>
     </Panel>

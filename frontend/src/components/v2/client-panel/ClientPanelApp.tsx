@@ -57,15 +57,15 @@ const STALE_HEADING = "Ten link jest nieaktualny, napisz do opiekuna procesu";
 const FAILURE_COPY: Record<PanelFailureKind, { heading: string; body: string }> = {
   gone: {
     heading: STALE_HEADING,
-    body: "Opiekun procesu to osoba z B2B Network, która przesłała Ci CV. Prześle aktualny link.",
+    body: "Opiekun procesu to osoba z B2Bnetwork, która przesłała Ci CV. Prześle aktualny link.",
   },
   expired: {
     heading: STALE_HEADING,
-    body: "Minął termin ważności linku. Opiekun procesu, czyli osoba z B2B Network, która przesłała Ci CV, może go przedłużyć.",
+    body: "Minął termin ważności linku. Opiekun procesu, czyli osoba z B2Bnetwork, która przesłała Ci CV, może go przedłużyć.",
   },
   closed: {
     heading: STALE_HEADING,
-    body: "Ta rekrutacja jest już zakończona. Opiekun procesu, czyli osoba z B2B Network, która przesłała Ci CV, powie, co dalej.",
+    body: "Ta rekrutacja jest już zakończona. Opiekun procesu, czyli osoba z B2Bnetwork, która przesłała Ci CV, powie, co dalej.",
   },
   failed: {
     heading: "Nie udało się otworzyć panelu",
@@ -107,7 +107,7 @@ function PanelTopBar({ view }: { view: PanelView }) {
       >
         B2B
       </span>
-      <span className="text-sm font-semibold">B2B Network</span>
+      <span className="text-sm font-semibold">B2Bnetwork</span>
       {view.job.client_name ? (
         <span className="text-sm text-muted-foreground">kandydaci dla {view.job.client_name}</span>
       ) : null}

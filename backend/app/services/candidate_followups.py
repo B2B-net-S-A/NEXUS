@@ -41,7 +41,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, select, text
@@ -371,8 +371,36 @@ def _stage_column(
     return column, stage_def.name
 
 
+#: „Nie podano” dla ``default_template_id`` (``None`` to prawdziwa wartość:
+#: baza bez domyślnego szablonu).
+_UNSET: Any = object()
+
+
+def board_waiting_ids(catalog, *, template_id, stages: Iterable[Any]) -> list[int]:
+    """Kandydaci Tablicy, których najnowszy etap stoi w kolumnie „czeka na
+    klienta” — tylko oni mogą mieć na tej Tablicy odznakę follow-upu.
+
+    ``stages`` to najnowsze wiersze etapu par tej rekrutacji (``candidate_id``,
+    ``stage_def_id``, ``stage``) — te same, które ``_WAITING_SQL`` bierze jako
+    ``latest``; ``template_id`` to szablon rekrutacji albo domyślny (jak
+    ``COALESCE`` w zapytaniu). Ta sama reguła kolumny (``_stage_column``).
+    """
+
+    return [
+        s.candidate_id
+        for s in stages
+        if _stage_column(catalog, template_id, s.stage_def_id, _value(s.stage))[0]
+        in WAITING_COLUMNS
+    ]
+
+
 async def _waiting_processes(
-    db: AsyncSession, *, now: datetime, candidate_ids: Optional[list[int]]
+    db: AsyncSession,
+    *,
+    now: datetime,
+    candidate_ids: Optional[list[int]],
+    catalog=None,
+    default_template_id: Optional[int] = _UNSET,
 ) -> dict[int, list[WaitingProcess]]:
     from app.services.board_tasks import _catalog  # noqa: PLC0415 — cykl importu
 
@@ -386,8 +414,12 @@ async def _waiting_processes(
             return {}
         candidate_filter = "AND cs.candidate_id = ANY(:candidate_ids)"
         params["candidate_ids"] = list(candidate_ids)
-    params["default_template_id"] = await db.scalar(
-        select(PipelineTemplate.id).where(PipelineTemplate.is_default.is_(True))
+    params["default_template_id"] = (
+        await db.scalar(
+            select(PipelineTemplate.id).where(PipelineTemplate.is_default.is_(True))
+        )
+        if default_template_id is _UNSET
+        else default_template_id
     )
     rows = (
         await db.execute(
@@ -396,7 +428,7 @@ async def _waiting_processes(
     ).all()
     if not rows:
         return {}
-    catalog = await _catalog(db)
+    catalog = catalog or await _catalog(db)
 
     pairs: list[tuple] = []
     for r in rows:
@@ -635,8 +667,14 @@ async def load_followups(
     *,
     now: Optional[datetime] = None,
     candidate_ids: Optional[Iterable[int]] = None,
+    catalog=None,
+    default_template_id: Optional[int] = _UNSET,
 ) -> dict[int, Followup]:
-    """Follow-upy wszystkich (albo wskazanych) kandydatów czekających na klienta."""
+    """Follow-upy wszystkich (albo wskazanych) kandydatów czekających na klienta.
+
+    ``catalog`` (``board_tasks._catalog``) i ``default_template_id`` podaje
+    Tablica, która ma je już wczytane — bez nich funkcja czyta je sama.
+    """
 
     if not settings.CANDIDATE_FOLLOWUP_ENABLED:
         return {}
@@ -644,7 +682,13 @@ async def load_followups(
 
     now = now or datetime.now(timezone.utc)
     ids = sorted(set(candidate_ids)) if candidate_ids is not None else None
-    waiting = await _waiting_processes(db, now=now, candidate_ids=ids)
+    waiting = await _waiting_processes(
+        db,
+        now=now,
+        candidate_ids=ids,
+        catalog=catalog,
+        default_template_id=default_template_id,
+    )
     if not waiting:
         return {}
     cand_ids = sorted(waiting)
@@ -705,6 +749,8 @@ async def load_followups_safely(
     *,
     now: Optional[datetime] = None,
     candidate_ids: Optional[Iterable[int]] = None,
+    catalog=None,
+    default_template_id: Optional[int] = _UNSET,
 ) -> dict[int, Followup]:
     """``load_followups`` dla pulpitu i Tablicy: awaria = pusta lista + log.
 
@@ -715,7 +761,13 @@ async def load_followups_safely(
 
     try:
         async with db.begin_nested():
-            return await load_followups(db, now=now, candidate_ids=candidate_ids)
+            return await load_followups(
+                db,
+                now=now,
+                candidate_ids=candidate_ids,
+                catalog=catalog,
+                default_template_id=default_template_id,
+            )
     except Exception:  # noqa: BLE001
         logger.exception("candidate_followups: nie udało się policzyć follow-upów")
         return {}

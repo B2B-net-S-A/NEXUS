@@ -293,4 +293,4 @@ def test_inmail_fallback_has_signature() -> None:
         SimpleNamespace(name="Anna Przykładowa"),
         "inmail",
     )
-    assert text.endswith("Anna, B2B Network")
+    assert text.endswith("Anna, B2Bnetwork")

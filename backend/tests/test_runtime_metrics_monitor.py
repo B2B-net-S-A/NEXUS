@@ -195,6 +195,7 @@ async def test_loop_logs_cpu_and_rss_with_existing_fields(monkeypatch, caplog) -
     assert lines[0].cpu_pct is None
     assert isinstance(lines[1].cpu_pct, float)
     assert [r.rss_mb for r in lines] == [1234.5, 1234.5]
+    assert {"gc_frozen", "alloc_blocks", "cache_entries"} <= set(vars(lines[1]))
     assert lines[1].pool_probe_checkout_ms == 1.5
 
 
@@ -231,8 +232,79 @@ def test_freeze_startup_heap_collects_first_and_then_freezes(monkeypatch) -> Non
     calls: list[str] = []
     monkeypatch.setattr(monitor.gc, "collect", lambda: calls.append("collect") or 0)
     monkeypatch.setattr(monitor.gc, "freeze", lambda: calls.append("freeze"))
+    monkeypatch.setattr(
+        monitor.gc, "set_threshold", lambda *args: calls.append(f"threshold{args}")
+    )
+    monkeypatch.setattr(monitor.settings, "GC_THRESHOLDS", "50000,20,100")
     monitor.freeze_startup_heap()
-    assert calls == ["collect", "freeze"]
+    # Progi po zamrożeniu: sterta startu nie liczy się już do pełnej zbiórki.
+    assert calls == ["collect", "freeze", "threshold(50000, 20, 100)"]
+
+
+def test_default_gc_thresholds_keep_young_request_objects_out_of_full_collection() -> (
+    None
+):
+    # Domyślne (700, 10, 10) dawały 9–10 pełnych zbiórek na minutę (18.11.2026).
+    assert monitor.parse_gc_thresholds(monitor.settings.GC_THRESHOLDS) == (
+        50000,
+        20,
+        10,
+    )
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "  ", "700,10", "a,b,c", "700,10,10,5", "0,10,10", "-1,10,10"],
+)
+def test_bad_gc_thresholds_are_rejected(raw) -> None:
+    assert monitor.parse_gc_thresholds(raw) is None
+
+
+def test_parse_gc_thresholds_tolerates_spaces() -> None:
+    assert monitor.parse_gc_thresholds(" 1000 , 10, 10 ") == (1000, 10, 10)
+
+
+def test_apply_gc_thresholds_keeps_python_defaults_on_empty_or_bad_value(
+    monkeypatch, caplog
+) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(monitor.gc, "set_threshold", lambda *a: calls.append(a))
+    monkeypatch.setattr(monitor.gc, "get_threshold", lambda: (700, 10, 10))
+    assert monitor.apply_gc_thresholds("") == (700, 10, 10)
+    with caplog.at_level("WARNING", logger=monitor.logger.name):
+        assert monitor.apply_gc_thresholds("dużo") == (700, 10, 10)
+    assert calls == []
+    assert [r.getMessage() for r in caplog.records] == [
+        "GC_THRESHOLDS pominięte: zły zapis"
+    ]
+
+
+def test_apply_gc_thresholds_sets_parsed_values(monkeypatch) -> None:
+    calls: list[tuple] = []
+    monkeypatch.setattr(monitor.gc, "set_threshold", lambda *a: calls.append(a))
+    assert monitor.apply_gc_thresholds("50000,20,100") == (50000, 20, 100)
+    assert calls == [(50000, 20, 100)]
+
+
+def test_heap_snapshot_reports_frozen_blocks_and_cache_entries(monkeypatch) -> None:
+    from app.core import cache as response_cache
+
+    monkeypatch.setattr(monitor.gc, "get_freeze_count", lambda: 1_580_891)
+    monkeypatch.setattr(response_cache, "_cache", {"a": (1, 0.0), "b": (2, 0.0)})
+    snapshot = monitor.heap_snapshot()
+    assert snapshot["gc_frozen"] == 1_580_891
+    assert snapshot["cache_entries"] == 2
+    assert snapshot["alloc_blocks"] > 0
+
+
+def test_heap_snapshot_failure_gives_none(monkeypatch) -> None:
+    def boom() -> int:
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(monitor.gc, "get_freeze_count", boom)
+    snapshot = monitor.heap_snapshot()
+    assert snapshot["gc_frozen"] is None
+    assert snapshot["cache_entries"] is not None
 
 
 def test_lifespan_freezes_heap_before_background_tasks() -> None:

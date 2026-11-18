@@ -386,6 +386,36 @@ def test_list_unsubscribe_sends_mime_with_text_part_and_one_click(monkeypatch):
     assert msg.get_body(("html",)).get_content().strip() == "<p>Bogaty ąę</p>"
 
 
+def test_long_list_unsubscribe_stays_plain_ascii_in_raw_mime(monkeypatch):
+    """T3 18.11.2026: adres wypisu z prawdziwym tokenem ma ponad 78 znaków,
+    a ``policy.SMTP`` kodował go wtedy jako ``=?utf-8?q?...?=``. Gmail nie
+    rozpoznaje takiego nagłówka jako wypisu, więc w surowym MIME musi stać
+    dosłowny ``<https://...>``."""
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+    captured = {}
+
+    def _fake_post(url, json=None, headers=None, timeout=None, content=None):
+        captured.update(content=content)
+        return _FakeResp(202)
+
+    monkeypatch.setattr(app_mail.httpx, "post", _fake_post)
+    url = (
+        "https://api.nexus.example.com/api/public/candidate-terms/"
+        + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6"
+        + "/opt-out"
+    )
+    assert app_mail.send_via_graph_app(
+        to="k@example.com", subject="Dziękujemy za zgłoszenie", text_body="t",
+        html_body="<p>h</p>", sender_upn="kariera@example.com", list_unsubscribe=url,
+    )
+    import base64
+
+    raw = base64.b64decode(captured["content"])
+    assert f"\r\nList-Unsubscribe: <{url}>\r\n".encode() in raw
+    assert b"\r\nList-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n" in raw
+
+
 def test_mime_retry_after_401_resends_the_same_body(monkeypatch):
     _configure(monkeypatch)
     monkeypatch.setattr(app_mail, "_acquire_token", lambda: "old")

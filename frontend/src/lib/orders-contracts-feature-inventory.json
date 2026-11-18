@@ -164,10 +164,10 @@
   },
   {
    "id": "k.client-register",
-   "opis": "Rejestr klienta: Nr projektu, Pula godzin, Prolongata",
-   "file": "components/contracts/ClientContractRegister.tsx",
-   "marker": "Prolongata",
-   "b_home": "Tabela + panel"
+   "opis": "Rejestr klienta (dawniej Kontrakty › wybór klienta) w zakładce „Konsultanci” klienta (18.11.2026): nr i nazwa projektu, prolongata w wierszu, Nowy kontrakt, edycja pól rejestru (także pula godzin), eksport. Filtry okresu i podkategorii zniknęły razem z trybem rejestru (wariant B); wybór klienta w Kontraktach otwiera tę zakładkę",
+   "file": "components/client-profile/ClientConsultantsTab.tsx",
+   "marker": "ProlongationSelect",
+   "b_home": "Klient › Konsultanci"
   },
   {
    "id": "k.operations",

@@ -5,6 +5,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query"
 
 import api from "@/lib/api"
 import { pluralPl } from "@/lib/plural-pl"
+import { REVIEW_BATCH_STATUS_POLL_MS } from "@/lib/polling"
 import { hasSectionAccess } from "@/lib/section-access"
 import type { KnownFacts } from "@/lib/new-column-queue"
 import { useAuthStore } from "@/store/auth"
@@ -169,7 +170,7 @@ export function useReviewBatchStatus(options: { enabled?: boolean } = {}) {
     queryFn: async () => (await api.get<ReviewBatchStatus>("/api/review-batch/me")).data,
     enabled: readsJobs && (options.enabled ?? true),
     staleTime: 30_000,
-    refetchInterval: 120_000,
+    refetchInterval: REVIEW_BATCH_STATUS_POLL_MS,
     retry: false,
   })
 }

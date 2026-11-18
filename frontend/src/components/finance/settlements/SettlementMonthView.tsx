@@ -20,8 +20,22 @@ import {
 } from "@/lib/api/client-settlements";
 import { cn } from "@/lib/utils";
 
+import { ClientAcceptancePanel } from "./ClientAcceptancePanel";
 import { ClientDocumentsPanel } from "./ClientDocumentsPanel";
-import { CLIENT_INVOICE, CONTRACTOR_INVOICE, FILTERS, KESU, STATUS, matchesFilter, mdText, monthLabel, pctText, pln } from "./format";
+import {
+  CLIENT_ACCEPTANCE,
+  CLIENT_INVOICE,
+  CONTRACTOR_INVOICE,
+  FILTERS,
+  KESU,
+  STATUS,
+  matchesFilter,
+  mdText,
+  monthLabel,
+  pctText,
+  pln,
+  shortDay,
+} from "./format";
 
 interface SettlementMonthViewProps {
   clientId: number;
@@ -73,6 +87,7 @@ export function SettlementMonthView({ clientId, month, canWrite, onOpen }: Settl
   return (
     <div className="space-y-2.5">
       {confirmDialog}
+      <ClientAcceptancePanel clientId={clientId} month={month} canWrite={canWrite} />
       <ClientDocumentsPanel clientId={clientId} month={month} />
       <KesuSummaryBar rows={data.rows} />
       <div className="flex flex-wrap items-center gap-1">
@@ -174,6 +189,7 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
                   <StatusDot tone={STATUS[r.status].tone} note={r.issues ?? undefined}>
                     {STATUS[r.status].label}
                   </StatusDot>
+                  <AcceptanceDot row={r} />
                   {r.kesu ? (
                     <span className="mt-0.5 block">
                       <StatusDot tone={KESU[r.kesu.state].tone}>KEŚU: {KESU[r.kesu.state].label.toLowerCase()}</StatusDot>
@@ -218,6 +234,22 @@ function MonthTable({ rows, showAmounts, onOpen }: MonthTableProps) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/** Drugi stan w kolumnie RCP: KCP u klienta (E6.5, `cl.client_acceptance`). */
+function AcceptanceDot({ row }: { row: SettlementRow }) {
+  const acceptance = row.client_acceptance;
+  const look = acceptance ? CLIENT_ACCEPTANCE[acceptance.state] : null;
+  if (!acceptance || !look) return null;
+  const day = shortDay(acceptance.state === "accepted" ? acceptance.accepted_at : acceptance.sent_at);
+  return (
+    <span className="mt-0.5 block">
+      <StatusDot tone={look.tone} note={acceptance.reply ?? undefined}>
+        {look.label}
+        {day ? ` ${day}` : ""}
+      </StatusDot>
+    </span>
   );
 }
 

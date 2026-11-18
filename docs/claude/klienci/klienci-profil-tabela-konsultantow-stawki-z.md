@@ -1,6 +1,10 @@
 # Klienci → Profil: tabela konsultantów + stawki z harmonogramu
 
-Sekcja „Konsultanci" (`app/clients/[id]/ProfileTab.tsx`) renderuje **tabelę**
+Od 18.11.2026 lista żyje w zakładce „Konsultanci” (`ClientConsultantsTab`,
+`klienci/zakladka-konsultanci-u-klienta.md`): Obecni / Planowani / Szkice mają
+tabelę roboczą (umowa, bieżące zamówienie, „Stawka [godz.]” przychodowa
+z kosztową w podpisie, „Marża [mc]”, „Wymaga uwagi”), a Zakończeni — tabelę
+archiwum opisaną niżej. Przegląd ma tylko kartę z liczbami. Tabela archiwum
 (`components/client-profile/ConsultantsTable.tsx`), nie karty. Kolumny: `Konsultant`
 (nazwisko / tag CC / **rekrutacja**) · `Start date` · `Stawka kosztowa [godz.]` ·
 `Stawka przychodowa [godz.]` · `Marża [mc]` (+ `End date` tylko w Archiwum, + `Akcje` w obu).

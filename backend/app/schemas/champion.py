@@ -788,6 +788,57 @@ def migrate_legacy_champion_shape(data: Any) -> Any:
     return out
 
 
+# ── Proces u klienta (18.11.2026) ────────────────────────────────────────────
+#
+# Etapy po wysłaniu CV (rozmowa zdalna, zadanie, test…) i deklarowany termin
+# decyzji. Nie jest sekcją: zapisuje go osobna trasa
+# (`PUT /api/jobs/{id}/client-process`) ze stemplem autora, a zwykły PUT
+# profilu go nie rusza. Nie jest też wymaganiem roli — klucz jest poza
+# odciskiem rankingu i kontraktem wymagań (`champion_view`).
+
+ClientProcessStepKind = Literal[
+    "tech_interview",
+    "manager_interview",
+    "client_interview",
+    "home_task",
+    "online_test",
+    "onsite_meeting",
+]
+ClientProcessStepFormat = Literal["remote", "onsite"]
+CLIENT_PROCESS_MAX_STEPS = 6
+
+
+class ClientProcessStep(BaseModel):
+    kind: ClientProcessStepKind
+    format: ClientProcessStepFormat = "remote"
+    # „60 min”, „ok. 3 h, 2 dni na oddanie” — wolny tekst, krótki.
+    duration: str = Field(default="", max_length=80)
+
+    @field_validator("duration", mode="before")
+    @classmethod
+    def _strip(cls, value: Any) -> Any:
+        return (
+            value.strip()
+            if isinstance(value, str)
+            else ("" if value is None else value)
+        )
+
+
+class ClientProcessIn(BaseModel):
+    """To, co wpisuje człowiek: etapy i termin decyzji. Pusta lista = brak procesu."""
+
+    steps: List[ClientProcessStep] = Field(
+        default_factory=list, max_length=CLIENT_PROCESS_MAX_STEPS
+    )
+    decision_workdays: Optional[int] = Field(default=None, ge=1, le=60)
+
+
+class ChampionClientProcess(ClientProcessIn):
+    set_by_id: Optional[int] = None
+    set_by_name: Optional[str] = None
+    set_at: Optional[datetime] = None
+
+
 class ChampionProfile(BaseModel):
     """The Champion Profile.
 
@@ -828,6 +879,8 @@ class ChampionProfile(BaseModel):
     # Dane historyczne panelu usuniętego 25.09.2026 — patrz komentarz wyżej.
     recommended_searches: List[dict[str, Any]] = Field(default_factory=list)
     client_history: ClientHistorySummary = ClientHistorySummary()
+    # Proces u klienta (18.11.2026) — patrz `ChampionClientProcess`.
+    client_process: Optional[ChampionClientProcess] = None
 
     # Ingest provenance (`_source` / `_parsed_at` / `_parser`). Carried opaquely:
     # nothing reads these by name, but they identify which parser version
@@ -861,6 +914,10 @@ class ChampionProfile(BaseModel):
         data = super().model_dump(*args, **kwargs)
         for key, value in (self.provenance or {}).items():
             data.setdefault(key, value)
+        # Brak procesu = brak klucza: profile sprzed 18.11.2026 zachowują
+        # odcisk i skrót (`profile_hash`) po zapisie, który procesu nie dotyka.
+        if data.get("client_process") is None:
+            data.pop("client_process", None)
         return data
 
     def is_screening_ready(self) -> bool:

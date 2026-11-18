@@ -110,7 +110,7 @@ export function GrafitJob({ data, base, host, formPreview }: CareerJobLayoutProp
     <div className={styles.root}>
       <header className={styles.bar}>
         <div className={styles.barInner}>
-          <a href={homeHref} className={styles.logoLink} aria-label="B2B Network — wszystkie rekrutacje">
+          <a href={homeHref} className={styles.logoLink} aria-label="B2Bnetwork — wszystkie rekrutacje">
             <B2BLogo variant="onDark" height={30} />
           </a>
           <nav className={styles.barNav} aria-label="Nawigacja">
@@ -129,7 +129,7 @@ export function GrafitJob({ data, base, host, formPreview }: CareerJobLayoutProp
           <div className={styles.glow} aria-hidden="true" />
           <BrandArc />
           <div className={styles.heroInner}>
-            <p className={styles.kicker}>Rekrutacja IT w B2B Network</p>
+            <p className={styles.kicker}>Rekrutacja IT w B2Bnetwork</p>
             <h1 className={styles.title}>
               {titleHead}
               <span className={styles.titleTail}>{titleTail}</span>
@@ -245,7 +245,7 @@ export function GrafitJob({ data, base, host, formPreview }: CareerJobLayoutProp
                 Dołącz CV — imię i kontakt przeczytamy z pliku. Nie musisz spełniać wszystkich wymagań — jeśli
                 projekt Cię ciekawi, wyślij zgłoszenie.
               </p>
-              <p className={styles.applyWho}>Zgłoszenie czyta {job.recruiterFirstName} z B2B Network.</p>
+              <p className={styles.applyWho}>Zgłoszenie czyta {job.recruiterFirstName} z B2Bnetwork.</p>
 
               {job.steps.length > 0 && (
                 <section className={styles.process} aria-label="Proces rekrutacji">

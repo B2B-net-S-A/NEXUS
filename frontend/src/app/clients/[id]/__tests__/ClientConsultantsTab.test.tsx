@@ -73,8 +73,13 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { ProfileTab } from "@/app/clients/[id]/ProfileTab";
+import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
 import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
 import { useAuthStore, type User } from "@/store/auth";
+import {
+  permissionSnapshot,
+  sectionSnapshot,
+} from "@/__tests__/fixtures/permission-snapshot";
 
 const PROFILE: ClientProfileResponse = {
   summary: {
@@ -218,7 +223,7 @@ function renderTab(clientId = 42, profile: ClientProfileResponse = PROFILE) {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <ProfileTab clientId={clientId} />
+      <ClientConsultantsTab clientId={clientId} clientName="Klient testowy" />
     </QueryClientProvider>,
   );
 }
@@ -253,7 +258,7 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
 
     // Dowód, że profil się wyrenderował.
     expect(
-      await screen.findByRole("tab", { name: /Obecni konsultanci/ }),
+      await screen.findByRole("tab", { name: /^Obecni/ }),
     ).toBeInTheDocument();
 
     expect(screen.queryByText("Przegrane rekrutacje")).not.toBeInTheDocument();
@@ -329,14 +334,19 @@ describe("ProfileTab — tabela konsultantów", () => {
     const headers = Array.from(document.querySelectorAll("th")).map((th) =>
       (th.textContent ?? "").trim(),
     );
+    // Zakładka „Konsultanci” (18.11.2026): umowa i bieżące zamówienie
+    // w jednym wierszu, stawka przychodowa z kosztową w podpisie.
     expect(headers).toEqual([
       "Konsultant",
-      "Start date",
-      "Stawka kosztowa [godz.]",
-      "Stawka przychodowa [godz.]",
+      "Umowa",
+      "Bieżące zamówienie",
+      "Stawka [godz.]",
       "Marża [mc]",
       "Akcje",
     ]);
+    // Znaczniki stoją pod bieżącym zamówieniem, nie w osobnej kolumnie
+    // (1280 px: osobna kolumna wypychała akcje poza ekran).
+    expect(headers).not.toContain("Wymaga uwagi");
     // Ta sekcja pokazuje TYLKO aktualnie przypisanych konsultantów, więc data
     // zakończenia nie ma tu prawa istnieć — oni jeszcze nie zakończyli.
     expect(headers).not.toContain("End date");
@@ -351,7 +361,10 @@ describe("ProfileTab — tabela konsultantów", () => {
     const cells = Array.from(row?.querySelectorAll("td") ?? []).map((td) =>
       (td.textContent ?? "").replace(/\s/g, " ").trim(),
     );
-    expect(cells.slice(2, 5)).toEqual(["125,00 zł", "167,50 zł", "6000,00 zł"]);
+    // Stawka przychodowa, a kosztowa w podpisie pod nią (osobny wiersz).
+    expect(cells[3]).toContain("167,50 zł");
+    expect(cells[3]).toContain("koszt 125,00 zł");
+    expect(cells[4]).toBe("6000,00 zł");
     // Kwoty miesięczne stawek NIE trafiają już do tabeli.
     expect(screen.queryByText("12 000,00 zł")).toBeNull();
     expect(screen.queryByText("18 000,00 zł")).toBeNull();
@@ -379,6 +392,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     const cells = Array.from(row?.querySelectorAll("td") ?? []).map((td) =>
       (td.textContent ?? "").trim(),
     );
+    // Bez zamówienia, stawki i marży — trzy przygaszone kreski.
     expect(cells.slice(2, 5)).toEqual(["—", "—", "—"]);
   });
 
@@ -393,7 +407,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     // Wiersz z rekrutacją własną kontraktu — bez znacznika.
     expect(screen.queryByText("· z zamówienia")).toBeNull();
 
-    await user.click(screen.getByRole("tab", { name: /Archiwum konsultantów/ }));
+    await user.click(screen.getByRole("tab", { name: /^Zakończeni/ }));
     expect(await screen.findByText("Data Engineer")).toBeInTheDocument();
     expect(screen.getByText("· z zamówienia")).toBeInTheDocument();
   });
@@ -403,7 +417,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     renderTab();
     await screen.findByText("Tomasz Sadowski");
 
-    await user.click(screen.getByRole("tab", { name: /Archiwum konsultantów/ }));
+    await user.click(screen.getByRole("tab", { name: /^Zakończeni/ }));
     await screen.findByText("Marek Archiwalny");
 
     const headers = Array.from(document.querySelectorAll("th")).map((th) =>
@@ -431,13 +445,13 @@ describe("ProfileTab — tabela konsultantów", () => {
 
     // Obecni: osoby z kontraktem, który JUŻ obowiązuje — bez przyszłego startu.
     expect(screen.queryByText("Piotr Planowany")).toBeNull();
-    expect(screen.getByRole("tab", { name: /Obecni konsultanci/ })).toHaveTextContent("2");
-    const plannedTab = screen.getByRole("tab", { name: /Planowani konsultanci/ });
+    expect(screen.getByRole("tab", { name: /^Obecni/ })).toHaveTextContent("2");
+    const plannedTab = screen.getByRole("tab", { name: /^Planowani/ });
     expect(plannedTab).toHaveTextContent("1");
 
     await user.click(plannedTab);
     expect(await screen.findByText("Piotr Planowany")).toBeInTheDocument();
-    expect(screen.getByText("19.10.2099")).toBeInTheDocument();
+    expect(screen.getByText(/19\.10\.2099/)).toBeInTheDocument();
     expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
     expect(screen.getByText(/nie wchodzą do „Obecnych”/i)).toBeInTheDocument();
   });
@@ -447,11 +461,11 @@ describe("ProfileTab — tabela konsultantów", () => {
     // czytnik ekranu nie wiedział, że to jeden wybór z dwóch.
     renderTab();
     const current = await screen.findByRole("tab", {
-      name: /Obecni konsultanci/,
+      name: /^Obecni/,
     });
     expect(current).toHaveAttribute("aria-selected", "true");
     expect(
-      screen.getByRole("tab", { name: /Archiwum konsultantów/ }),
+      screen.getByRole("tab", { name: /^Zakończeni/ }),
     ).toHaveAttribute("aria-selected", "false");
   });
 });
@@ -552,7 +566,7 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
   it("sekcja „Struktura umów” stoi NAD konsultantami i pokazuje chipy umów", async () => {
     renderEzdrowie();
     const heading = await screen.findByRole("heading", { name: "Struktura umów" });
-    const consultants = screen.getByRole("tab", { name: /Obecni konsultanci/ });
+    const consultants = screen.getByRole("tab", { name: /^Obecni/ });
     expect(heading.compareDocumentPosition(consultants) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // Nagłówek części z numerem umowy ramowej sprzed myślnika (struktura
@@ -589,7 +603,7 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
     await user.click(within(filter).getByRole("button", { name: "CeZ/145/2025/UW-1" }));
     expect(screen.getByText("Tomasz Sadowski")).toBeInTheDocument();
     expect(screen.queryByText("Anna Bez Rekrutacji", { selector: "a" })).toBeNull();
-    expect(screen.getByRole("tab", { name: /Obecni konsultanci/ })).toHaveTextContent("1");
+    expect(screen.getByRole("tab", { name: /^Obecni/ })).toHaveTextContent("1");
 
     await user.click(within(filter).getByRole("button", { name: "Nieprzypisani (1)" }));
     expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
@@ -699,7 +713,7 @@ describe("ProfileTab — audyt 24.09.2026", () => {
       historical: { ...PROFILE.historical, placements_total: 250 },
     });
     await screen.findByText("Tomasz Sadowski");
-    const archiveTab = screen.getByRole("tab", { name: /Archiwum konsultantów/ });
+    const archiveTab = screen.getByRole("tab", { name: /^Zakończeni/ });
     expect(archiveTab).toHaveTextContent("250");
     await user.click(archiveTab);
     expect(
@@ -739,5 +753,143 @@ describe("ProfileTab — audyt 24.09.2026", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText("Spróbuj ponownie")).toBeInTheDocument();
+  });
+});
+
+// ── Zakładka „Konsultanci” (decyzja Artura 18.11.2026) ───────────────────────
+// Umowa i bieżące zamówienie w jednym wierszu, „Wymaga uwagi” liczy serwer,
+// kolumny dawnego rejestru klienta tylko u klienta, który je wypełnia.
+
+const WITH_STATE: ClientProfileResponse = {
+  ...PROFILE,
+  active_consultants: PROFILE.active_consultants.map((row, index) =>
+    index === 0
+      ? {
+          ...row,
+          order_start_date: "2026-09-01",
+          order_end_date: "2026-11-30",
+          order_ending_on: "2026-11-30",
+          attention: ["order_ending"],
+          project_code: "ZAM-77",
+          project_name: "Platforma płatności",
+          prolongation_status: "yes",
+        }
+      : { ...row, attention: ["no_current_order"] },
+  ),
+  pending_consultants: [
+    {
+      ...PROFILE.active_consultants[0],
+      contract_id: 777,
+      candidate: { ...PROFILE.active_consultants[0].candidate, id: 77, name: "Szymon Szkicowy" },
+      contract_status: "draft",
+      attention: [],
+    },
+  ],
+};
+
+describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
+  it("„Wymaga uwagi” zbiera osoby ze znacznikami serwera i mówi dlaczego", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderTab(42, WITH_STATE);
+    await screen.findByText("Tomasz Sadowski");
+
+    const attentionTab = screen.getByRole("tab", { name: /^Wymaga uwagi/ });
+    expect(attentionTab).toHaveTextContent("2");
+    await user.click(attentionTab);
+
+    expect(
+      await screen.findByText("Bez kontynuacji po 30.11.2026"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Brak zamówienia")).toBeInTheDocument();
+    // Bieżące zamówienie stoi w swojej kolumnie.
+    expect(screen.getByText("do 30.11.2026")).toBeInTheDocument();
+  });
+
+  it("kolumny Projekt i Prolongata pojawiają się tylko u klienta, który je wypełnia", async () => {
+    renderTab(42, WITH_STATE);
+    await screen.findByText("Tomasz Sadowski");
+    const headers = Array.from(document.querySelectorAll("th")).map((th) =>
+      (th.textContent ?? "").trim(),
+    );
+    expect(headers).toContain("Projekt");
+    expect(headers).toContain("Prolongata");
+    expect(screen.getByText("ZAM-77")).toBeInTheDocument();
+    expect(screen.getByText("Platforma płatności")).toBeInTheDocument();
+  });
+
+  it("„Szkice” są osobną podzakładką tylko wtedy, gdy szkic istnieje", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderTab(42, WITH_STATE);
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.queryByText("Szymon Szkicowy")).toBeNull();
+
+    await user.click(screen.getByRole("tab", { name: /^Szkice/ }));
+    expect(await screen.findByText("Szymon Szkicowy")).toBeInTheDocument();
+  });
+
+  it("bez szkiców nie ma podzakładki „Szkice”, a bez pól rejestru — ich kolumn", async () => {
+    renderTab();
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.queryByRole("tab", { name: /^Szkice/ })).toBeNull();
+    const headers = Array.from(document.querySelectorAll("th")).map((th) =>
+      (th.textContent ?? "").trim(),
+    );
+    expect(headers).not.toContain("Projekt");
+    expect(headers).not.toContain("Prolongata");
+  });
+
+  it("admin dostaje akcje dawnego rejestru: Nowy kontrakt i edycję pól rejestru", async () => {
+    renderTab(42, WITH_STATE);
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.getByRole("button", { name: /Nowy kontrakt/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edytuj pola rejestru: Tomasz Sadowski" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Otwórz kontrakt: Tomasz Sadowski" })).toHaveAttribute(
+      "href",
+      "/contracts/529",
+    );
+  });
+
+  it("bez „Kontrakty i zamówienia: edycja” nie ma akcji rejestru, a prolongata jest do odczytu", async () => {
+    useAuthStore.setState({
+      user: {
+        ...ADMIN_USER,
+        role: "recruiter",
+        roles: ["recruiter"],
+        effective_action_access: permissionSnapshot("delivery_view"),
+        effective_section_access: sectionSnapshot(["delivery_view"]),
+      } as unknown as User,
+      hydrated: true,
+    });
+    renderTab(42, WITH_STATE);
+    await screen.findByText("Tomasz Sadowski");
+    expect(screen.queryByRole("button", { name: /Nowy kontrakt/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Edytuj pola rejestru/ })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Prolongata" })).toBeNull();
+    expect(screen.getByText("Tak")).toBeInTheDocument();
+  });
+});
+
+describe("ProfileTab — karta „Konsultanci” w Przeglądzie", () => {
+  it("pokazuje liczby i osoby wymagające uwagi, a przycisk prowadzi do zakładki", async () => {
+    const user = userEvent.setup({ delay: null });
+    const onOpen = vi.fn();
+    mocks.apiGet.mockResolvedValue({ data: WITH_STATE });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProfileTab clientId={42} onOpenConsultants={onOpen} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Konsultanci")).toBeInTheDocument();
+    expect(screen.getByText(/zamówienie bez kontynuacji po 30\.11\.2026/)).toBeInTheDocument();
+    expect(screen.getByText(/brak zamówienia/)).toBeInTheDocument();
+    // Pełnej tabeli w Przeglądzie już nie ma.
+    expect(document.querySelector("table")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Wszyscy konsultanci/ }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });

@@ -687,6 +687,43 @@ async def test_parse_cv_bills_the_requesting_user(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("release", [True, False])
+async def test_parse_cv_returns_connection_for_the_model_call_only_on_request(
+    monkeypatch, release
+):
+    """18.11.2026: odczyt modelem trwa p50 16,5 s; ścieżki wgrania CV oddają
+    połączenie sesji do puli po zapytaniach kwoty, przed odpowiedzią modelu.
+    Domyślnie nie (sesja z blokadą transakcji w narzędziu CLI by ją zgubiła)."""
+    from contextlib import asynccontextmanager
+
+    from app.core import database
+    from app.services import ai_quota
+
+    events: list[str] = []
+
+    @asynccontextmanager
+    async def _feature(db, feature, *, user_id=None, units=1):  # noqa: ANN001
+        events.append("quota")
+        yield
+
+    async def _release(db):  # noqa: ANN001
+        events.append("release")
+        return True
+
+    async def _claude(_text, *, model=None):  # noqa: ANN001
+        events.append("model")
+        return {"companies": ["X"]}
+
+    monkeypatch.setattr(ai_quota, "ai_feature", _feature)
+    monkeypatch.setattr(database, "release_idle_connection", _release)
+    monkeypatch.setattr(cvp, "_parse_with_claude", _claude)
+
+    await cvp.parse_cv("cv text", db=object(), release_db_during_model=release)
+
+    assert events == (["quota", "release", "model"] if release else ["quota", "model"])
+
+
+@pytest.mark.asyncio
 async def test_anthropic_call_caches_the_instructions_but_not_the_cv(monkeypatch):
     """Instrukcje są stałe, a CV inne przy każdym wywołaniu. Znacznik musi stać
     między nimi, bo znacznik za CV płaci za zapis, którego nikt nie odczyta."""

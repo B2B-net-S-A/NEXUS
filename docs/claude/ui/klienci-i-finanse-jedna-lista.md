@@ -29,8 +29,9 @@ osobnymi zakładkami modułu.
 ## Profil klienta: osiem grup
 
 - Grupy i podzakładki (`lib/client-tab-groups.ts`, test pilnuje, że każdy klucz
-  `?tab=` ma dokładnie jedną grupę): Przegląd · Zamówienia (zamówienia, importy
-  MD) · Umowy (umowy i aneksy, stawki i cennik, raporty dla klienta) ·
+  `?tab=` ma dokładnie jedną grupę): Przegląd · Konsultanci (konsultanci,
+  zamówienia, importy MD — od 18.11.2026, `klienci/zakladka-konsultanci-u-klienta.md`)
+  · Umowy (umowy i aneksy, stawki i cennik, raporty dla klienta) ·
   Rozliczenia (faktury i rozliczenie, analityka) · Współpraca (zasady, wejście
   u klienta, Delivery Lead) · Ludzie (kontakty i relacje, ludzie i technologie)
   · Rekrutacje (projekty, materiały dla rekruterów, konflikty) · Sprzedaż.

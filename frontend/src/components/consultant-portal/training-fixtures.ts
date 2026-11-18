@@ -13,7 +13,7 @@ const STATUS_LABELS: Record<TrainingStatus, string> = {
   quoted: "Wycena do decyzji",
   returned: "Wycena odesłana do poprawy",
   accepted: "Umowa do podpisu trenera",
-  trainer_signed: "Umowa czeka na podpis B2B Network",
+  trainer_signed: "Umowa czeka na podpis B2Bnetwork",
   signed: "Umowa podpisana",
   cancelled: "Anulowane",
 };

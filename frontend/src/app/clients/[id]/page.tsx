@@ -112,6 +112,7 @@ import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
+import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
 import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
 import { ClientOverviewCards } from "@/components/client-profile/ClientOverviewCards";
 import { SectionNav } from "@/components/ds/SectionNav";
@@ -1367,6 +1368,9 @@ export default function ClientDetailPage() {
   const hasFrameworkTerms = canViewDeliveryLegal && (frameworkTerms.data?.cards.length ?? 0) > 0;
   const allTabs: { key: ClientTab; label: string }[] = [
     { key: "profil", label: "Profil" },
+    // Kto u klienta pracuje (18.11.2026): umowa + bieżące zamówienie w jednym
+    // wierszu; dawniej sekcja w Profilu i rejestr klienta w Kontraktach.
+    { key: "konsultanci", label: "Konsultanci" },
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
     { key: "zasady", label: "Zasady współpracy" },
@@ -1539,7 +1543,10 @@ export default function ClientDetailPage() {
             // Od `xl` dwie kolumny: konsultanci po lewej, po prawej rozwinięte
             // karty (informacje, materiały, konflikty). Węziej — karty pod tabelą.
             <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
-              <ProfileTab clientId={Number(id)} />
+              <ProfileTab
+                clientId={Number(id)}
+                onOpenConsultants={() => selectTab("konsultanci")}
+              />
 
               <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Najważniejsze o kliencie">
                 <ClientOverviewCards
@@ -1597,6 +1604,12 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
+          {activeTab === "konsultanci" && (
+            <ClientConsultantsTab
+              clientId={Number(id)}
+              clientName={client?.display_name || client?.name || ""}
+            />
+          )}
           {activeTab === "materialy" && (
             <MaterialsTab
               clientId={Number(id)}

@@ -130,7 +130,10 @@ def send(envs, gmail, opener=urllib.request.urlopen):
     sent = []
     for index, to in enumerate(recipients(gmail)):
         label = "work" if index == 0 else "gmail"
-        raw = base64.b64encode(mime_message(to, rules).as_bytes(policy=SMTP))
+        # max_line_length jak w app_mail._mime_body: bez kodowania adresu wypisu
+        raw = base64.b64encode(
+            mime_message(to, rules).as_bytes(policy=SMTP.clone(max_line_length=998))
+        )
         request = urllib.request.Request(
             "https://graph.microsoft.com/v1.0/users/" + SENDER + "/sendMail",
             data=raw,

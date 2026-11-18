@@ -1200,7 +1200,7 @@ def test_history_lists_the_sending_signatures_and_how_it_ended():
         "Wysłana do podpisu w NEXUSIE",
         "Przypomnienie do kontraktora",
         "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
-        "Podpis za B2B Network — umowa podpisana przez obie strony",
+        "Podpis za B2Bnetwork — umowa podpisana przez obie strony",
         "Wysłana do podpisu w NEXUSIE",
         "Link do podpisu wygasł",
     ]
@@ -1284,7 +1284,7 @@ def test_reminder_after_the_contractor_signed_goes_to_the_company_signer():
     assert labels == [
         "Wysłana do podpisu w NEXUSIE",
         "Kontraktor podpisał — podpis kwalifikowany sprawdzony",
-        "Przypomnienie do podpisu za B2B Network",
+        "Przypomnienie do podpisu za B2Bnetwork",
     ]
 
 

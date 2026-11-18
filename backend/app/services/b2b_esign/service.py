@@ -50,27 +50,27 @@ EXPIRED_LINK_DAYS = 30
 # Prośba kontraktora o nowy link: jeden dzwonek na dobę, nie seria kliknięć.
 RENEWAL_REQUEST_EVERY = timedelta(hours=24)
 
-MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2B Network."
+MSG_LINK = "Link jest nieprawidłowy albo wygasł. Poproś o nowy osobę z B2Bnetwork."
 MSG_ALREADY_SIGNED = (
-    "Ta umowa jest już przez Ciebie podpisana. Czekamy na podpis B2B Network."
+    "Ta umowa jest już przez Ciebie podpisana. Czekamy na podpis B2Bnetwork."
 )
 MSG_CONTRACT_DONE_DOCS_LEFT = (
     "Umowa jest już przez Ciebie podpisana. Podpisz pozostałe dokumenty z listy."
 )
-MSG_CLOSED = "Ta umowa nie czeka już na podpis. Skontaktuj się z osobą z B2B Network."
+MSG_CLOSED = "Ta umowa nie czeka już na podpis. Skontaktuj się z osobą z B2Bnetwork."
 MSG_RACE = "Stan umowy zmienił się w trakcie sprawdzania podpisu. Odśwież stronę."
 MSG_OPEN_EXISTS = (
     "Ta umowa jest już wysłana do podpisu w NEXUSIE. Wycofaj tamtą wysyłkę, "
     "zanim wyślesz ponownie."
 )
 MSG_NOT_SENDABLE = "Do podpisu wysyła się umowę w trakcie, jeszcze niepodpisaną."
-MSG_NOT_COMPANY_SIGNER = "Za B2B Network podpisuje osoba wskazana przy wysyłce."
+MSG_NOT_COMPANY_SIGNER = "Za B2Bnetwork podpisuje osoba wskazana przy wysyłce."
 MSG_WAITS_FOR_CONTRACTOR = (
     "Najpierw podpisuje kontraktor — umowa jeszcze na niego czeka."
 )
 MSG_TOO_BIG = "Plik jest za duży, może mieć najwyżej 20 MB."
 MSG_TOO_MANY_ATTEMPTS = (
-    "Za dużo nieudanych prób z tego linku. Poproś osobę z B2B Network o nowy link."
+    "Za dużo nieudanych prób z tego linku. Poproś osobę z B2Bnetwork o nowy link."
 )
 MSG_NAME_MISSING = (
     "W umowie brakuje imienia i nazwiska osoby podpisującej — popraw umowę "
@@ -85,7 +85,7 @@ MSG_EXTEND_EXPIRED = "Termin już minął. Wyślij kontraktorowi nowy link."
 MSG_RELINK_LIVE = "Link jeszcze działa. Przedłuż termin zamiast wysyłać nowy link."
 MSG_ALREADY_HANDLER = "Już obsługujesz tę wysyłkę."
 MSG_NO_SIGNER = (
-    "W ustawieniach nie ma osoby podpisującej za B2B Network. Poproś admina "
+    "W ustawieniach nie ma osoby podpisującej za B2Bnetwork. Poproś admina "
     "o wpis w Ustawienia → Integracje."
 )
 MSG_PAYLOAD_CHANGED = (

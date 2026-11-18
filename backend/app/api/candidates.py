@@ -7648,7 +7648,9 @@ async def _enrich_candidate_from_document_task(
             # Background task bez bramki to dokładnie przypadek z docstringa
             # `_assert_declared`. `db=` włącza kwotę na PŁATNYM kroku wewnątrz
             # parsera — wyczerpana gasi tylko Claude'a, fallbacki zostają.
-            parsed = await parse_cv(raw_text, db=db, user_id=actor_user_id)
+            parsed = await parse_cv(
+                raw_text, db=db, user_id=actor_user_id, release_db_during_model=True
+            )
             # Runda 9 (R9-N8-4): odczyt modelu trwa, a rekruter w tym czasie
             # edytuje profil — zapis idzie na świeżo odczytanym, zablokowanym
             # wierszu, nie na kopii sprzed wywołania modelu.
@@ -8164,7 +8166,9 @@ async def _read_cv_for_new_candidate(
                     content, safe_name=safe_name, client_filename=client_filename
                 )
                 await _free_sieve(raw_text)
-                parsed = await parse_cv(raw_text, db=db, user_id=user_id)
+                parsed = await parse_cv(
+                    raw_text, db=db, user_id=user_id, release_db_during_model=True
+                )
                 if remember:
                     preview_cache.set(sha256, parsed=parsed, raw_text=raw_text)
                 return raw_text, parsed

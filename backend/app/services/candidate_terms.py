@@ -309,7 +309,7 @@ def render_terms_email(
         'style="padding:24px 12px"><table role="presentation" width="600" cellpadding="0" '
         'cellspacing="0" border="0" style="width:100%;max-width:600px">'
         f'<tr><td style="padding:8px 8px 24px"><img src="{e(logo_url, quote=True)}" '
-        'width="132" height="61" alt="B2B Network" style="display:block;border:0"></td></tr>'
+        'width="132" height="61" alt="B2Bnetwork" style="display:block;border:0"></td></tr>'
         '<tr><td bgcolor="#FFFFFF" style="background:#FFFFFF;padding:36px 32px 32px;'
         'border-top:4px solid #E73748">'
         f'<h1 style="margin:0 0 20px;{_F}font-size:28px;line-height:32px;font-weight:800;'
@@ -321,7 +321,7 @@ def render_terms_email(
         f"{ask}"
         "</td></tr>"
         '<tr><td bgcolor="#1A1816" style="background:#1A1816;padding:28px 32px">'
-        f'<img src="{e(logo_light_url, quote=True)}" width="96" height="44" alt="B2B Network" '
+        f'<img src="{e(logo_light_url, quote=True)}" width="96" height="44" alt="B2Bnetwork" '
         'style="display:block;border:0;margin:0 0 16px">'
         f'<p style="margin:0 0 12px;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'
         f"{e(no_reply)}</p>"

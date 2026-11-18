@@ -319,6 +319,7 @@ _CONTENT_INPUTS = [
     {"requirements": [f"Kubernetes, pytania: {_SENTINEL}"]},
     {"nice_to_have": [_SENTINEL]},
     {"offer": [_SENTINEL]},
+    {"process": [_SENTINEL]},
 ]
 
 

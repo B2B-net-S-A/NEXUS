@@ -50,6 +50,7 @@ def test_no_second_sign_off_above_the_outlook_signature(message):
     _subject, body = message
     assert "Pozdrawiamy" not in body
     assert "B2B Network</p>" not in body
+    assert "B2Bnetwork</p>" not in body
 
 
 def test_contractor_mail_greets_without_full_name_and_shows_button_and_deadline():

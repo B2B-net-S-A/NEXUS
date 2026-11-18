@@ -1576,6 +1576,14 @@
    "v3_home": "nagłówek rekrutacji → linia faktów, po „Rekruter” (też Profil Championa › Zespół)"
   },
   {
+   "id": "header.client-process",
+   "area": "naglowek",
+   "opis": "Fakt „Proces u klienta” („2 etapy · ~4 tyg.”): etapy po wysłaniu CV i obiecany termin decyzji, czas zmierzony u klienta (mediany z ruchów kart), zdanie „Powiedz kandydatowi”; zapis i zmiana w okienku dla osób edytujących Championa (18.11.2026)",
+   "file": "components/v2/jobs/JobClientProcessFact.tsx",
+   "marker": "job-header-fact-process",
+   "v3_home": "nagłówek rekrutacji → linia faktów, po Trybie pracy (też /jobs/new → Warunki)"
+  },
+  {
    "id": "header.collapse",
    "area": "naglowek",
    "opis": "„Zwiń nagłówek”: zostaje linia tytułu z priorytetem, statusem i awatarami rekruterów; pamiętane per osoba, domyślnie rozwinięty (14.10.2026)",

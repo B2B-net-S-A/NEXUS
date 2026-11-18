@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling"
 import { useAuthStore, type User } from "@/store/auth"
 
 import { TodayCycleTile } from "../TodayCycleTile"
@@ -96,5 +97,53 @@ describe("TodayCycleTile", () => {
     const urgentLink = screen.getByText("Zadzwoń teraz").closest("a")
     expect(urgentLink).toHaveAttribute("href", "/calendar?cycle=11-22")
     expect(getMock).toHaveBeenCalledWith("/api/interview-cycle", { params: { scope: "jobs" } })
+  })
+
+  describe("odpytywanie (18.11.2026: bez stałej minuty)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"] })
+    })
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it("bez granic w danych: siatka bezpieczeństwa z lib/polling, nie co minutę", async () => {
+      getMock.mockResolvedValue({ data: overview({}) })
+      renderTile()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(getMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(WS_BACKED_SAFETY_POLL_MS - 60_000)
+      expect(getMock).toHaveBeenCalledTimes(2)
+    })
+
+    it("koniec rozmowy za 2 min: dociąga tuż po nim („Zadzwoń teraz” nie czeka 5 min)", async () => {
+      const now = Date.now()
+      getMock.mockResolvedValue({
+        data: overview({
+          call_window_minutes: 30,
+          agenda: [
+            {
+              ...pair,
+              kind: "interview",
+              start: new Date(now - 58 * 60_000).toISOString(),
+              end: new Date(now + 2 * 60_000).toISOString(),
+              event_id: 1,
+              slot_request_id: null,
+              online_meeting_url: null,
+              done: false,
+            },
+          ],
+        }),
+      })
+      renderTile()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(getMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(2 * 60_000 - 5_000)
+      expect(getMock).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(getMock).toHaveBeenCalledTimes(2)
+    })
   })
 })
