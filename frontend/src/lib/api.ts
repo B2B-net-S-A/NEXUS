@@ -3953,12 +3953,12 @@ export const b2bGeneratorApi = {
         { params: { format: "html" } },
       )
       .then((r) => r.data),
-  renderHtml: (body: B2BRenderPayload) =>
+  renderHtml: (body: B2BRenderPayload, generatedId?: number) =>
     api
       .post<{ html: string; contract_number: string | null }>(
         "/api/b2b-generator/render",
         body,
-        { params: { format: "html" } },
+        { params: { format: "html", preview_generated_id: generatedId } },
       )
       .then((r) => r.data),
   companyLookup: (params: { nip?: string; krs?: string }) =>

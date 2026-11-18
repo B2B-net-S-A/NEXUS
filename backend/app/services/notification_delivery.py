@@ -319,7 +319,7 @@ CATALOG = (
         "zgłoszona nieobecność (na B2B i zleceniu: zgłoszona przerwa i kolizja "
         "zgłoszona przez koordynatora), zastępstwo, raport godzin wysłany do "
         "akceptacji, zaakceptowany, zwrócony albo niewysłany w terminie, przekazana praca, zadania wejścia "
-        "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
+        "i odejścia, sprawa wsparcie@, zadania sprzętu, podpisany protokół "
         "i konsultant przekazany z opieki do front office, zgoda na wydatek albo premię "
         "poza umową do decyzji i decyzja o niej.",
         recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (koordynator "

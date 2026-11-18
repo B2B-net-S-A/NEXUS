@@ -95,7 +95,7 @@ def test_screen_shows_nineteen_permissions_in_five_groups() -> None:
         "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
         "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
         "Sprzęt: ewidencja, wydania, zwroty i protokoły",
-        "Sprawy: skrzynka administracja@",
+        "Sprawy: skrzynka wsparcie@",
         "Sprzedaż: podgląd firm, szans i kontaktów",
         "Sprzedaż: prowadzenie szans i kartoteki firm",
         "Raporty godzin: akceptacja całej firmy",

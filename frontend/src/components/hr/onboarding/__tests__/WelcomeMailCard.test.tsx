@@ -69,7 +69,7 @@ describe("sendBlocker", () => {
     expect(sendBlocker(mailState())).toBeNull();
     expect(sendBlocker(mailState({ enabled: false }))).toMatch(/włącza ją administrator/);
     expect(sendBlocker(mailState({ enabled: false, can_toggle: true }))).toMatch(/przełącznikiem/);
-    expect(sendBlocker(mailState({ mailbox_ready: false }))).toMatch(/administracja@/);
+    expect(sendBlocker(mailState({ mailbox_ready: false }))).toMatch(/wsparcie@/);
     expect(sendBlocker(mailState({ transport_ready: false }))).toMatch(/Microsoft 365/);
     expect(sendBlocker(mailState({ is_sender: false }))).toMatch(/opiekun konsultanta/);
     expect(

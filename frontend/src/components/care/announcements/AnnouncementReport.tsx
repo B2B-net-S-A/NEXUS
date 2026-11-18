@@ -107,7 +107,7 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
   const runApprove = async () => {
     const confirmed = await askConfirm({
       title: `Zatwierdzić komunikat do ${plural(announcement.recipient_count, "osoby", "osób", "osób")}?`,
-      description: `Kolejka zacznie wysyłać z administracja@ (${settings.rate_per_minute} maili na minutę). Każdy dostanie osobny mail.`,
+      description: `Kolejka zacznie wysyłać ze skrzynki ${settings.sender ?? "wsparcie@"} (${settings.rate_per_minute} maili na minutę). Każdy dostanie osobny mail.`,
       confirmLabel: "Zatwierdź i wyślij",
     });
     if (!confirmed) return;
@@ -163,7 +163,7 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
   const sending = announcement.send_started_at
     ? `${formatDateTimePl(announcement.send_started_at)}${
         announcement.send_finished_at ? `–${formatDateTimePl(announcement.send_finished_at).slice(11)}` : " · trwa"
-      } z ${settings.sender ?? "administracja@"}`
+      } ze skrzynki ${settings.sender ?? "wsparcie@"}`
     : announcement.status === "queued"
       ? "w kolejce"
       : "—";
@@ -229,7 +229,7 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
             <dt className="text-muted-foreground">Odpowiedzi</dt>
             <dd>
               {announcement.replies.reply
-                ? `${plural(announcement.replies.reply, "sprawa", "sprawy", "spraw")} w administracja@`
+                ? `${plural(announcement.replies.reply, "sprawa", "sprawy", "spraw")} w skrzynce wsparcie@`
                 : "0"}
             </dd>
           </>
@@ -239,7 +239,7 @@ export function AnnouncementReport({ announcement, settings, onEdit }: Announcem
       {uncertain.length ? (
         <div className="space-y-1 text-sm">
           <p id={`announcement-${announcement.id}-uncertain`} className="font-medium">
-            Sprawdź ręcznie w skrzynce administracja@
+            Sprawdź ręcznie w skrzynce wsparcie@
           </p>
           <ul
             aria-labelledby={`announcement-${announcement.id}-uncertain`}

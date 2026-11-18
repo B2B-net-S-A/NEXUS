@@ -333,7 +333,7 @@ async def test_missing_mailbox_or_email_blocks_sending(
     no_box = await app_client.post(
         _url(no_email), json={"subject": "T", "body": "B"}, headers=headers(dl)
     )
-    assert no_box.status_code == 409 and "administracja@" in no_box.json()["detail"]
+    assert no_box.status_code == 409 and "wsparcie@" in no_box.json()["detail"]
     monkeypatch.setattr(settings, "ADMIN_CASES_MAILBOX", MAILBOX)
     state = (await app_client.get(_url(no_email), headers=headers(dl))).json()
     assert state["can_send"] is False

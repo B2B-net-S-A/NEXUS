@@ -418,6 +418,7 @@ describe("GeneratorForm — podgląd", () => {
     expect(
       await screen.findByText("Podgląd (bez numeru w rejestrze)"),
     ).toBeInTheDocument();
+    expect(mocks.renderHtml).toHaveBeenCalledWith(expect.any(Object), undefined);
     expect(screen.getByTitle("Podgląd umowy")).toHaveAttribute("sandbox", "");
     expect(
       screen.getByRole("button", { name: /Drukuj podgląd/ }),
@@ -616,6 +617,15 @@ describe("GeneratorForm — „Popraw umowę” (`?edit=`)", () => {
     );
     // Rejestr NIP-u nie nadpisuje wczytanych danych dzisiejszym stanem.
     expect(mocks.companyLookup).not.toHaveBeenCalled();
+
+    mocks.renderHtml.mockResolvedValue({ html: "<p>Umowa</p>" });
+    await user.click(screen.getByRole("button", { name: /Podgląd/ }));
+    await waitFor(() =>
+      expect(mocks.renderHtml).toHaveBeenCalledWith(
+        expect.objectContaining({ contract_number: "1490/2026" }),
+        90,
+      ),
+    );
 
     await user.click(
       screen.getAllByRole("button", { name: "Popraw i pobierz ponownie" })[0],

@@ -1,4 +1,4 @@
-"""Sprawy administracja@ — kanban, wiadomości, komentarze.
+"""Sprawy wsparcie@ — kanban, wiadomości, komentarze.
 
 Prefiks ``/api/cases`` (wpięty w ``app/main.py``). Każda trasa ma nazwaną bramkę
 ``require_hr_*`` (``app/api/hr_gates.py`` albo własną w tym module) i sprawdza
@@ -33,8 +33,7 @@ from app.services.permission_denial import permission_denied
 router = APIRouter()
 
 NO_ACCESS_DETAIL = (
-    "Sprawy administracja@ widzą osoby z uprawnieniem „Sprawy” "
-    "i osoby przypisane do sprawy."
+    "Sprawy wsparcie@ widzą osoby z uprawnieniem „Sprawy” i osoby przypisane do sprawy."
 )
 CASE_FORBIDDEN_DETAIL = "Ta sprawa nie jest przypisana do Ciebie."
 CASE_NOT_FOUND_DETAIL = "Nie ma takiej sprawy."

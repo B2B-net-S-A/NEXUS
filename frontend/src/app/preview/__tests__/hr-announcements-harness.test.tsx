@@ -57,7 +57,7 @@ describe("/preview/hr-announcements", () => {
     expect(within(card).getByText(/symulacja, nic nie wyszło/)).toBeInTheDocument();
     expect(within(card).getByText(/opiekun dostał powiadomienie: popraw e-mail/)).toBeInTheDocument();
     expect(within(card).getByText("5 · nie dostali")).toBeInTheDocument();
-    expect(within(card).getByText("23 sprawy w administracja@")).toBeInTheDocument();
+    expect(within(card).getByText("23 sprawy w skrzynce wsparcie@")).toBeInTheDocument();
     expect(within(card).getByText(/NEXUS nie śledzi otwarć maili/)).toBeInTheDocument();
 
     await user.click(within(card).getByRole("button", { name: "Pokaż listę" }));

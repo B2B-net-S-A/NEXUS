@@ -129,6 +129,10 @@ from app.schemas.contract_onboarding import (
     OnboardingItemUpdate,
 )
 from app.services import contract_document_folders, storage_service
+from app.services.b2b_contract_generator.notices import (
+    LEGACY_NOTICES_EMAIL,
+    contract_notices_email,
+)
 from app.services.b2b_contract_end_date import (
     B2B_END_DATE_MESSAGE,
     B2B_END_DATE_REASON,
@@ -5015,16 +5019,38 @@ async def _list_templates_for_contract_type(
     return list(res.scalars().all())
 
 
-def _render_draft_body(template: ContractTemplate, contract: Contract) -> str:
+def _render_draft_body(
+    template: ContractTemplate,
+    contract: Contract,
+    *,
+    b2b_notices_email: str | None = None,
+) -> str:
     """Render Jinja template against contract context. Returns raw HTML body
     (no <html> wrap — that's added by the printable endpoint)."""
     try:
-        return render_contract_template(
-            template.content_jinja,
-            _contract_vars(contract, language=template.language),
-        )
+        context = _contract_vars(contract, language=template.language)
+        if b2b_notices_email is not None:
+            context["b2b_notices_email"] = b2b_notices_email
+        return render_contract_template(template.content_jinja, context)
     except TemplateError as exc:
         raise HTTPException(status_code=422, detail=f"Template render error: {exc}")
+
+
+async def _render_saved_contract_draft(
+    db: AsyncSession, template: ContractTemplate, contract: Contract
+) -> str:
+    if (
+        template.contract_type == "b2b"
+        and "b2b_notices_email" in template.content_jinja
+    ):
+        notices_email = await contract_notices_email(
+            db,
+            contract.id,
+            number=contract.b2b_detail.contract_number if contract.b2b_detail else None,
+            default=LEGACY_NOTICES_EMAIL,
+        )
+        return _render_draft_body(template, contract, b2b_notices_email=notices_email)
+    return _render_draft_body(template, contract)
 
 
 # Draft/contract HTML is authored by contract editors (non-admin users) and served
@@ -5125,7 +5151,7 @@ async def get_contract_draft(
         default = next((t for t in available if t.is_default), None)
         if default is not None:
             rendered_from_default = True
-            rendered = _render_draft_body(default, contract)
+            rendered = await _render_saved_contract_draft(db, default, contract)
             # Szkic zapisuje wyłącznie osoba, która może edytować kontrakty —
             # czytelnik (sam podgląd kwot) dostaje podgląd bez zapisu.
             # Runda 9 (R9-N1-2): „podgląd jako” jest tylko do odczytu — admin
@@ -5207,7 +5233,9 @@ async def update_contract_draft(
         )
         if not tpl:
             raise HTTPException(status_code=404, detail="Template not found")
-        contract.draft_content_html = _render_draft_body(tpl, contract)
+        contract.draft_content_html = await _render_saved_contract_draft(
+            db, tpl, contract
+        )
         contract.draft_template_id = tpl.id
         action = "draft_template_changed"
         details = {"template_id": tpl.id, "template_name": tpl.name}
@@ -5272,7 +5300,7 @@ async def render_draft_for_print(
             (template for template in available if template.is_default), None
         )
         if default is not None:
-            body = _render_draft_body(default, contract)
+            body = await _render_saved_contract_draft(db, default, contract)
     if not body:
         raise HTTPException(
             status_code=404,
