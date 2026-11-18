@@ -103,3 +103,34 @@ async def test_cache_set_jitter_extends_ttl_within_bounds(monkeypatch):
     await cache_set("sf:jitter", 1, ttl_seconds=10, jitter_seconds=5)
     _value, expires_at = cache_mod._cache["sf:jitter"]
     assert 14.9 <= expires_at - base <= 15.2
+
+
+@pytest.mark.asyncio
+async def test_cache_set_sweeps_expired_keys_nobody_reads_again(monkeypatch) -> None:
+    # Do 18.11.2026 wygasły klucz znikał tylko przy odczycie tego samego klucza.
+    now = [1000.0]
+    monkeypatch.setattr(cache_mod.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(cache_mod, "_cache", {})
+    monkeypatch.setattr(cache_mod, "_next_sweep_at", 0.0)
+    await cache_set("old:user:1", "a", ttl_seconds=10)
+    await cache_set("live:user:2", "b", ttl_seconds=600)
+    now[0] += 61  # stary wygasł, minęła minuta od sprzątania
+    await cache_set("new:user:3", "c", ttl_seconds=10)
+    assert set(cache_mod._cache) == {"live:user:2", "new:user:3"}
+    assert cache_mod.entry_count() == 2
+
+
+@pytest.mark.asyncio
+async def test_cache_sweep_runs_at_most_once_a_minute(monkeypatch) -> None:
+    now = [1000.0]
+    monkeypatch.setattr(cache_mod.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(cache_mod, "_cache", {})
+    monkeypatch.setattr(cache_mod, "_next_sweep_at", 0.0)
+    await cache_set("first", 1, ttl_seconds=60)  # sprzątanie teraz, następne za 60 s
+    await cache_set("short", 1, ttl_seconds=1)
+    now[0] += 5
+    await cache_set("other", 2, ttl_seconds=60)
+    # „short” wygasł, ale do następnego sprzątania zostaje; odczyt i tak go nie odda.
+    assert "short" in cache_mod._cache
+    assert await cache_get("short") is None
+    assert "short" not in cache_mod._cache
