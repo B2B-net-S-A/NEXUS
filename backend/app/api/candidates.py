@@ -3687,7 +3687,8 @@ async def list_candidates(
             payload = payload.model_copy(
                 update={
                     "recent_facts": [
-                        RecentFact(**fact) for fact in recent_facts_by_id.get(cand.id, [])
+                        RecentFact(**fact)
+                        for fact in recent_facts_by_id.get(cand.id, [])
                     ]
                 }
             )
