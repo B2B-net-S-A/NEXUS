@@ -154,7 +154,7 @@ class OutputTests(unittest.TestCase):
         self.assertFalse([c for c in calls if c[0] != "GET"], "plan tylko czyta")
 
 
-def deploy_api(deployment, app_status="running:healthy"):
+def deploy_api(deployment, app_status="running:healthy", fqdn=""):
     def request(method, path, payload=None):
         if path == "applications":
             return [{"name": frontend_app.APP_NAME, "uuid": "x"}]
@@ -163,7 +163,7 @@ def deploy_api(deployment, app_status="running:healthy"):
         if path == "deployments/d":
             return deployment
         if path == "applications/x":
-            return {"status": app_status}
+            return {"status": app_status, "fqdn": fqdn}
         raise AssertionError(path)
 
     return request
@@ -171,6 +171,11 @@ def deploy_api(deployment, app_status="running:healthy"):
 
 SHA = "a" * 40
 BUILD_LOG = '[{"output": "version.json → /app/public/version.json (sha=' + SHA + ')"}, {"output": "' + SECRET + '"}]'
+# Ponowienie Deploy tego samego SHA: Coolify (force=false) bierze obraz z serwera, bez budowy.
+REUSED_LOG = (
+    '[{"output": "No configuration changed & image found (x:' + SHA + ') with the same Git Commit SHA.'
+    ' Build step skipped."}, {"output": "' + SECRET + '"}]'
+)
 
 
 class DeployTests(unittest.TestCase):
@@ -223,6 +228,38 @@ class DeployTests(unittest.TestCase):
         logs = BUILD_LOG.replace(SHA, "unknown")
         with self.assertRaises(ValueError):
             self.run_deploy(deploy_api({"status": "finished", "commit": SHA, "logs": logs}))
+
+    def run_reused(self, served):
+        """Bieg bez budowy; `served` = SHA w /version.json działającego frontu."""
+        get, seen = user_path(sha=served)
+        request = deploy_api({"status": "finished", "commit": SHA, "logs": REUSED_LOG}, fqdn="https://app.example.pl")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            frontend_app.deploy(request, SHA, poll_seconds=0, health_polls=2, get=get)
+        return out.getvalue(), seen
+
+    def test_same_sha_rerun_without_build_passes_when_container_serves_it(self):
+        # 16.11.2026, bieg 43968908046: front running:healthy z tym SHA, a Deploy czerwony.
+        out, seen = self.run_reused(SHA)
+        self.assertIn("brak budowy", out)
+        self.assertIn("działającego frontu: SHA wdrożenia", out)
+        self.assertIn(("https://app.example.pl/version.json", None), seen)
+        self.assertNotIn(SECRET, out)
+
+    def test_rerun_without_build_is_an_error_when_container_has_other_sha(self):
+        with self.assertRaises(ValueError) as caught:
+            self.run_reused("b" * 40)
+        self.assertIn("nie ma SHA wdrożenia", str(caught.exception))
+
+    def test_rerun_without_build_is_an_error_when_version_is_unreadable(self):
+        for served in ("unknown", ""):
+            with self.subTest(served=served), self.assertRaises(ValueError):
+                self.run_reused(served)
+
+    def test_rerun_without_build_and_without_domain_is_an_error(self):
+        request = deploy_api({"status": "finished", "commit": SHA, "logs": REUSED_LOG}, fqdn="http://" + "front-check.nexus.b2bnetwork.pl")
+        with self.assertRaises(ValueError):
+            self.run_deploy(request)
 
     def test_missing_logs_are_reported_not_assumed(self):
         out = self.run_deploy(deploy_api({"status": "finished", "commit": SHA}))
