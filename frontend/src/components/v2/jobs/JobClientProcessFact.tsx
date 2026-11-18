@@ -21,6 +21,7 @@ import {
   FORMAT_LABEL,
   STEP_LABEL,
   candidateSentence,
+  daysLabel,
   decisionSlowerThanDeclared,
   processFactLabel,
   toInput,
@@ -92,7 +93,7 @@ export function JobClientProcessFact({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[440px] p-0" data-testid="client-process-popover">
+      <PopoverContent align="start" className="w-[480px] p-0" data-testid="client-process-popover">
         {draft ? (
           <EditMode
             jobId={jobId}
@@ -236,15 +237,15 @@ function MeasuredBlock({
       <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 text-xs">
         {first != null ? (
           <span>
-            CV → rozmowa <b>{first} dni</b>
+            CV → rozmowa <b>{daysLabel(first)}</b>
           </span>
         ) : null}
         {second != null ? (
           <span>
-            rozmowa → decyzja <b>{second} dni</b>
+            rozmowa → decyzja <b>{daysLabel(second)}</b>
           </span>
         ) : null}
-        <span className="font-semibold">razem ~{measured.cv_to_decision_days} dni</span>
+        <span className="font-semibold">razem ~{daysLabel(measured.cv_to_decision_days)}</span>
       </div>
       {decisionSlowerThanDeclared(process, measured) ? (
         <p className="mt-2 text-xs text-warning">

@@ -156,6 +156,12 @@ export function parseWorkdays(text: string): number | null | "invalid" {
   return value >= 1 && value <= 60 ? value : "invalid";
 }
 
+/** „< 1 dnia”, „1 dzień”, „12 dni” — mediana bywa zerem, gdy karty przesuwano razem. */
+export function daysLabel(days: number): string {
+  if (days < 1) return "< 1 dnia";
+  return days === 1 ? "1 dzień" : `${days} dni`;
+}
+
 function etapy(count: number): string {
   if (count === 1) return "1 etap";
   if (count >= 2 && count <= 4) return `${count} etapy`;

@@ -81,7 +81,7 @@ export function ClientProcessEditor({ value, onChange, idPrefix }: ClientProcess
               <span className="w-4 shrink-0 text-xs text-muted-foreground">{index + 1}.</span>
               <select
                 aria-label={`Etap ${index + 1}: rodzaj`}
-                className={cn(FIELD_CLASS, "w-[150px] shrink-0")}
+                className={cn(FIELD_CLASS, "w-[178px] shrink-0")}
                 value={step.kind}
                 onChange={(e) => update(index, { kind: e.target.value as ProcessStepKind })}
               >

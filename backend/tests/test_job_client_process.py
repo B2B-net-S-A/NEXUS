@@ -42,9 +42,8 @@ def _pair(interview_day: int | None, decision_day: int | None) -> StagePair:
         client_interview=T0 + timedelta(days=interview_day)
         if interview_day is not None
         else None,
-        decision=T0 + timedelta(days=decision_day)
-        if decision_day is not None
-        else None,
+        acceptance=None,
+        hired=T0 + timedelta(days=decision_day) if decision_day is not None else None,
     )
 
 
@@ -74,14 +73,40 @@ def test_summary_ignores_backward_moves_and_missing_cv():
     backward = StagePair(
         cv_sent=T0,
         client_interview=T0 - timedelta(days=3),
-        decision=T0 - timedelta(days=1),
+        acceptance=None,
+        hired=T0 - timedelta(days=1),
     )
     no_cv = StagePair(
-        cv_sent=None, client_interview=T0, decision=T0 + timedelta(days=2)
+        cv_sent=None,
+        client_interview=T0,
+        acceptance=None,
+        hired=T0 + timedelta(days=2),
     )
     out = summarize([*good, backward, no_cv])
     assert out["decisions"] == MIN_DECISIONS
     assert out["cv_to_interview_days"] == 7
+
+
+def test_acceptance_before_client_interview_is_not_a_decision():
+    # KIR na stagingu 18.11.2026: „Akceptacja” kilka godzin po wysłaniu CV,
+    # rozmowa u klienta 16 dni później — mediana „decyzji” wychodziła 0 dni.
+    early = StagePair(
+        cv_sent=T0,
+        client_interview=T0 + timedelta(days=16),
+        acceptance=T0 + timedelta(hours=3),
+        hired=T0 + timedelta(days=20),
+    )
+    out = summarize([early] * MIN_DECISIONS)
+    assert out["cv_to_decision_days"] == 20
+    assert out["interview_to_decision_days"] == 4
+    # Akceptacja PO rozmowie jest decyzją, nawet gdy zatrudnienie przyszło później.
+    late = StagePair(
+        cv_sent=T0,
+        client_interview=T0 + timedelta(days=7),
+        acceptance=T0 + timedelta(days=10),
+        hired=T0 + timedelta(days=30),
+    )
+    assert summarize([late] * MIN_DECISIONS)["cv_to_decision_days"] == 10
 
 
 def test_summary_without_interview_still_counts_decision():

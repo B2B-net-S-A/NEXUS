@@ -28,10 +28,14 @@ o terminie decyzji i kolejnym etapie.
   i odcisk co przed zmianą; zmiana procesu nie unieważnia pełnego przeglądu
   bazy (409).
 - **Czas zmierzony** (`services/job_client_process.py`): pierwsze wejścia
-  osoby w rekrutacji w „CV wysłane”, „Rozmowa u klienta” i decyzję
-  („Akceptacja” albo „Zatrudniony”), u klienta, z 18 miesięcy, w dniach
-  kalendarzowych; mediana dopiero od 5 decyzji, inaczej `measured: null`.
-  Karta cofnięta wstecz nie daje ujemnego czasu. Tygodnie w nagłówku liczą
+  osoby w rekrutacji w „CV wysłane”, „Rozmowa u klienta”, „Akceptacja”
+  i „Zatrudniony”, u klienta, z 18 miesięcy, w dniach kalendarzowych;
+  mediana dopiero od 5 decyzji, inaczej `measured: null`. Decyzja to
+  pierwsza „Akceptacja” albo „Zatrudniony” PO rozmowie u klienta (bez
+  rozmowy: po wysłaniu CV) — w KIR „Akceptacja” stała kilka godzin po
+  wysłaniu CV, przed rozmową, i mediana decyzji wychodziła 0 dni. Karta
+  cofnięta wstecz nie daje ujemnego czasu; mediana 0 dni to na ekranie
+  „< 1 dnia”. Tygodnie w nagłówku liczą
   się tylko z czasu zmierzonego, nigdy z deklaracji.
 - **Podpowiedź:** `GET /api/jobs/client-process?client_id=&job_id=` zwraca
   `suggested` = proces najnowszej INNEJ rekrutacji klienta, która go ma

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PROCESS_PRESETS,
   candidateSentence,
+  daysLabel,
   decisionSlowerThanDeclared,
   matchingPreset,
   parseWorkdays,
@@ -82,6 +83,14 @@ describe("decisionSlowerThanDeclared", () => {
     expect(decisionSlowerThanDeclared({ ...TWO, decision_workdays: null }, MEASURED)).toBe(false);
     expect(decisionSlowerThanDeclared(TWO, { ...MEASURED, interview_to_decision_days: null })).toBe(false);
     expect(decisionSlowerThanDeclared(TWO, null)).toBe(false);
+  });
+});
+
+describe("daysLabel", () => {
+  it("zero to „< 1 dnia”, nie „0 dni”", () => {
+    expect(daysLabel(0)).toBe("< 1 dnia");
+    expect(daysLabel(1)).toBe("1 dzień");
+    expect(daysLabel(12)).toBe("12 dni");
   });
 });
 

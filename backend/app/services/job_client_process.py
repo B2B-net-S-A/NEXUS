@@ -37,7 +37,23 @@ class StagePair:
 
     cv_sent: Optional[datetime]
     client_interview: Optional[datetime]
-    decision: Optional[datetime]
+    acceptance: Optional[datetime]
+    hired: Optional[datetime]
+
+    def decision(self) -> Optional[datetime]:
+        """Decyzja klienta: „Akceptacja” albo „Zatrudniony” po ostatnim kroku przed nią.
+
+        Gdy była rozmowa u klienta, liczy się dopiero ruch PO niej — na
+        stagingu (KIR, 18.11.2026) „Akceptacja” stała kilka godzin po wysłaniu
+        CV, a rozmowa 16 dni później, więc mediana decyzji wychodziła 0 dni.
+        """
+        after = self.client_interview or self.cv_sent
+        if after is None:
+            return None
+        moves = [
+            m for m in (self.acceptance, self.hired) if m is not None and m > after
+        ]
+        return min(moves) if moves else None
 
 
 def _days(start: datetime, end: datetime) -> float:
@@ -49,8 +65,7 @@ def summarize(
 ) -> Optional[dict]:
     """Mediany w dniach kalendarzowych albo ``None`` poniżej progu decyzji.
 
-    Decyzja = pierwsze wejście w „Akceptacja” albo „Zatrudniony”, ale tylko
-    po wysłaniu CV (karta przeniesiona wstecz nie daje ujemnego czasu).
+    Ruchy wstecz (rozmowa albo decyzja przed wysłaniem CV) się nie liczą.
     """
     to_interview: list[float] = []
     to_decision_from_interview: list[float] = []
@@ -58,14 +73,18 @@ def summarize(
     for pair in pairs:
         if pair.cv_sent is None:
             continue
-        if pair.client_interview and pair.client_interview > pair.cv_sent:
-            to_interview.append(_days(pair.cv_sent, pair.client_interview))
-            if pair.decision and pair.decision > pair.client_interview:
-                to_decision_from_interview.append(
-                    _days(pair.client_interview, pair.decision)
-                )
-        if pair.decision and pair.decision > pair.cv_sent:
-            to_decision.append(_days(pair.cv_sent, pair.decision))
+        interview = pair.client_interview
+        if interview is not None and interview <= pair.cv_sent:
+            interview = None
+        decision = StagePair(
+            pair.cv_sent, interview, pair.acceptance, pair.hired
+        ).decision()
+        if interview is not None:
+            to_interview.append(_days(pair.cv_sent, interview))
+            if decision is not None:
+                to_decision_from_interview.append(_days(interview, decision))
+        if decision is not None:
+            to_decision.append(_days(pair.cv_sent, decision))
     if len(to_decision) < MIN_DECISIONS:
         return None
 
@@ -90,11 +109,8 @@ async def measured_for_client(db: AsyncSession, client_id: int) -> Optional[dict
         select(
             first(PipelineStage.cv_sent),
             first(PipelineStage.client_interview),
-            func.min(CandidateStage.moved_at).filter(
-                CandidateStage.stage.in_(
-                    (PipelineStage.acceptance, PipelineStage.hired)
-                )
-            ),
+            first(PipelineStage.acceptance),
+            first(PipelineStage.hired),
         )
         .join(Job, Job.id == CandidateStage.job_id)
         .where(Job.client_id == client_id, CandidateStage.moved_at >= since)
