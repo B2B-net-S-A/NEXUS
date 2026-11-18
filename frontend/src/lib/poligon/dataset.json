@@ -19169,6 +19169,11 @@
    "items": [],
    "limit": 30
   },
+  "GET /api/jobs/client-process?client_id=990501&job_id=990001": {
+   "client_id": 990501,
+   "suggested": null,
+   "measured": null
+  },
   "GET /api/jobs/990001/request-history?cross_client=false&include_open=true&top_k=15": {
    "closed": [],
    "in_progress": [],
