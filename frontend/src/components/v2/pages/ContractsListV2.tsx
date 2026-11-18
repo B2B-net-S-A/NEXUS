@@ -21,6 +21,7 @@ import {
 import api, { contractorsApi, type ContractorListItem } from"@/lib/api";
 import { DraftCompletionModal } from "@/components/v2/modals/DraftCompletionModal";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { CONTRACT_FIELD_LABELS } from "@/lib/api-error";
 import { contractRateUnitSuffix } from"@/lib/rate-unit";
 import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
@@ -295,7 +296,7 @@ const FINANCE_COMPLETION_FIELDS = new Set(["rate_candidate", "rate_client"]);
 
 type DraftRowAction =
  | { kind: "activate" }
- | { kind: "complete"; missing: number }
+ | { kind: "complete"; fields: string[] }
  | { kind: "waits-for-rates" };
 
 /**
@@ -311,20 +312,30 @@ export function draftRowAction(
  const visible = missingFields.filter(
  (field) => access.canSeeRates || !FINANCE_COMPLETION_FIELDS.has(field),
  );
- if (visible.length > 0) return { kind: "complete", missing: visible.length };
+ if (visible.length > 0) return { kind: "complete", fields: visible };
  const waitsForRates =
  !access.canEditRates &&
  missingFields.some((field) => FINANCE_COMPLETION_FIELDS.has(field));
  return waitsForRates
  ? { kind: "waits-for-rates" }
- : { kind: "complete", missing: missingFields.length };
+ : { kind: "complete", fields: [...missingFields] };
+}
+
+/** Polska liczba mnoga: 1 / 2–4 (bez 12–14) / reszta. */
+function pluralPl(n: number, one: string, few: string, many: string): string {
+ const m10 = n % 10;
+ const m100 = n % 100;
+ if (n === 1) return one;
+ return m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14) ? few : many;
 }
 
 export function missingCountLabel(n: number): string {
- const m10 = n % 10;
- const m100 = n % 100;
- const few = m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14);
- return `${n} ${n === 1 ? "brak" : few ? "braki" : "braków"}`;
+ return `${n} ${pluralPl(n, "brak", "braki", "braków")}`;
+}
+
+/** Podpowiedź z nazwami brakujących pól (te same etykiety co formularz kontraktu). */
+function missingFieldsHint(fields: readonly string[]): string {
+ return `Brakuje: ${fields.map((field) => CONTRACT_FIELD_LABELS[field] ?? field).join(", ")}`;
 }
 
 /** Wiersz rejestru jako wejście okna „Uzupełnij szkic” (to samo co w panelu). */
@@ -1407,20 +1418,15 @@ export function ContractsListV2({
  </div>
  <div className="ml-auto flex flex-wrap items-center gap-2">
  {incompleteDrafts > 0 && activeQuickFilter !== "pending" ? (
- <div
- role="status"
- className="flex h-8 items-center gap-2 rounded-md border border-warning/25 bg-warning-muted px-2 text-xs text-warning-muted-foreground"
+ <button
+ type="button"
+ onClick={() => selectQuickFilter("pending")}
+ title="Pokaż szkice do uzupełnienia"
+ className="flex h-8 items-center gap-1.5 rounded-md border border-warning/25 bg-warning-muted px-2 text-xs font-semibold text-warning-muted-foreground hover:border-warning/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10"
  >
  <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
- <span className="font-semibold">
- {incompleteDrafts === 1
- ? "1 szkic czeka na uzupełnienie"
- : `${incompleteDrafts} szkice czekają na uzupełnienie`}
- </span>
- <Button size="sm" variant="outline" className="h-6 px-2" onClick={() => selectQuickFilter("pending")}>
- Pokaż
- </Button>
- </div>
+ {`${incompleteDrafts} ${pluralPl(incompleteDrafts, "szkic", "szkice", "szkiców")} z brakami`}
+ </button>
  ) : null}
  {trailingActions}
  </div>
@@ -2073,10 +2079,10 @@ export function ContractsListV2({
  jednej umowy — w grupie brak jest w panelu umowy. */}
  {draftAction?.kind === "waits-for-rates" ? (
  <span
- className="mt-1 block whitespace-nowrap text-[11px] font-medium text-warning-muted-foreground"
+ className="mt-1 block text-[11px] font-medium leading-tight text-warning-muted-foreground"
  title={`Stawki uzupełnia osoba z uprawnieniem „${permissionLabel("amounts_edit")}”`}
  >
- Czeka na uzupełnienie stawek
+ Czeka na stawki
  </span>
  ) : draftAction && canCompleteDrafts ? (
  <button
@@ -2085,17 +2091,36 @@ export function ContractsListV2({
  e.stopPropagation();
  setDraftToComplete(draftFromRow(c));
  }}
+ // Kolumna Status ma przy 1280 px ok. 80 px treści: w komórce sama
+ // liczba, pełna nazwa i nazwy pól w etykiecie i podpowiedzi.
+ aria-label={
+ draftAction.kind === "activate"
+ ? "Aktywuj"
+ : `Uzupełnij · ${missingCountLabel(draftAction.fields.length)}`
+ }
+ title={
+ draftAction.kind === "activate"
+ ? "Szkic ma komplet danych do aktywacji"
+ : missingFieldsHint(draftAction.fields)
+ }
  className="mt-1 block whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
  >
  {draftAction.kind === "activate"
  ? "Aktywuj"
- : `Uzupełnij · ${missingCountLabel(draftAction.missing)}`}
+ : `Uzupełnij · ${draftAction.fields.length}`}
  </button>
  ) : draftAction ? (
- <span className="mt-1 block whitespace-nowrap text-[11px] text-muted-foreground">
+ <span
+ className="mt-1 block whitespace-nowrap text-[11px] text-muted-foreground"
+ title={
+ draftAction.kind === "activate"
+ ? "Szkic ma komplet danych — aktywuje osoba z edycją kontraktów"
+ : missingFieldsHint(draftAction.fields)
+ }
+ >
  {draftAction.kind === "activate"
- ? "gotowy do aktywacji"
- : missingCountLabel(draftAction.missing)}
+ ? "gotowy"
+ : missingCountLabel(draftAction.fields.length)}
  </span>
  ) : null}
  {/* Zgłoszenie zespołu 29.10.2026: rozwiązanie umowy podpisane

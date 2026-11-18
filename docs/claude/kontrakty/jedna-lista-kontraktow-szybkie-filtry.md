@@ -1,6 +1,6 @@
 # Kontrakty: jedna lista z szybkimi filtrami (18.11.2026)
 
-<!-- indeks: `/contracts` bez trybów, pigułki, `bucket=ending`, `ending_bucket_clause`, „Uzupełnij · N braki” w wierszu, `contracts-quick-counts` -->
+<!-- indeks: `/contracts` bez trybów, pigułki, `bucket=ending`, `ending_bucket_clause`, „Uzupełnij · N” w wierszu, `contracts-quick-counts` -->
 
 Decyzja Artura z 18.11.2026 po makietach na stagingu. Tryby „Obsługa kontraktorów”
 i „Rejestr kontraktów” pokazywały te same umowy w dwóch cięciach i liczyły
@@ -23,13 +23,18 @@ to jedna lista `ContractsListV2` z rzędem pigułek nad paskiem filtrów.
   (`legacyOperationsTarget`) na ten sam zbiór listy, bez nowego wpisu w historii.
 - **Szkic w wierszu:** serwer dokłada `missing_fields` (bramka aktywacji,
   `validate_ready_for_activation`) tylko szkicom i umowom do podpisu. Osoba z
-  „Kontrakty i zamówienia: edycja” widzi „Uzupełnij · N braki” albo „Aktywuj”,
-  które otwierają `DraftCompletionModal`, nie panel. Braki liczą się bez stawek,
-  których konto nie widzi, a szkic z samymi brakami stawek u osoby bez „Stawki
-  i kwoty: zmiana” pokazuje „Czeka na uzupełnienie stawek” (`draftRowAction`,
+  „Kontrakty i zamówienia: edycja” widzi „Uzupełnij · N” albo „Aktywuj”, które
+  otwierają `DraftCompletionModal`, nie panel; podgląd bez edycji widzi „N braki”
+  albo „gotowy”. Kolumna Status ma przy 1280 px ok. 80 px treści, więc pełna
+  nazwa („Uzupełnij · 2 braki”) i nazwy pól są w etykiecie i podpowiedzi. Braki
+  liczą się bez stawek, których konto nie widzi, a szkic z samymi brakami stawek
+  u osoby bez „Stawki i kwoty: zmiana” pokazuje „Czeka na stawki” (`draftRowAction`,
   jak w dawnej „Obsłudze”). Wiersz kilku umów osoby nie ma przycisku, brak jest
   w panelu umowy. „Zakończ projekt” z dawnej „Obsługi” to „Zakończ współpracę”
   w panelu.
+- **Ostrzeżenie „N szkice z brakami”** (`drafts_incomplete` z `/api/contractors/stats`)
+  to jeden przycisk, który włącza pigułkę „Do uzupełnienia”; krótki, żeby rząd
+  pigułek z „Zamówieniami z maila” mieścił się w jednej linii przy 1280 px.
 - **„Zamówienia z maila”** to przycisk z licznikiem „do weryfikacji” w rzędzie
   pigułek; otwiera kolejkę pod `?view=order-mail` (linki z powiadomień), powrót
   „Wróć do listy kontraktów”.

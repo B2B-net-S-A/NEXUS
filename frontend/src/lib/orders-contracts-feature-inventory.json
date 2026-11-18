@@ -171,9 +171,9 @@
   },
   {
    "id": "k.operations",
-   "opis": "Dawna „Obsługa kontraktorów” (18.11.2026): szkic w wierszu listy — „Uzupełnij · N braki” / „Aktywuj”, „Czeka na uzupełnienie stawek”, ostrzeżenie „N szkice czekają na uzupełnienie”; „Zakończ projekt” = „Zakończ współpracę” w panelu (k.p.terminate)",
+   "opis": "Dawna „Obsługa kontraktorów” (18.11.2026): szkic w wierszu listy — „Uzupełnij · N” / „Aktywuj” (podgląd: „N braki” / „gotowy”), „Czeka na stawki”, ostrzeżenie „N szkice z brakami”; „Zakończ projekt” = „Zakończ współpracę” w panelu (k.p.terminate)",
    "file": "components/v2/pages/ContractsListV2.tsx",
-   "marker": "Czeka na uzupełnienie stawek",
+   "marker": "Czeka na stawki",
    "b_home": "Tabela, kolumna Status + panel"
   },
   {

@@ -234,11 +234,10 @@ describe("ContractsListV2 — jedna lista z szybkimi filtrami (18.11.2026)", () 
   it("ostrzeżenie o szkicach prowadzi do „Do uzupełnienia”", async () => {
     renderList();
 
-    const warning = await screen.findByText("2 szkice czekają na uzupełnienie");
-    fireEvent.click(within(warning.closest("[role=status]") as HTMLElement).getByRole("button", { name: "Pokaż" }));
+    fireEvent.click(await screen.findByRole("button", { name: "2 szkice z brakami" }));
 
     await waitFor(() => expect(pill("Do uzupełnienia")).toHaveAttribute("aria-pressed", "true"));
-    expect(screen.queryByText("2 szkice czekają na uzupełnienie")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "2 szkice z brakami" })).not.toBeInTheDocument();
     expect(await screen.findByText("Ewa Szkicowa")).toBeInTheDocument();
   });
 
@@ -247,6 +246,12 @@ describe("ContractsListV2 — jedna lista z szybkimi filtrami (18.11.2026)", () 
     renderList();
 
     const fill = await screen.findByRole("button", { name: "Uzupełnij · 2 braki" });
+    // W komórce sama liczba (kolumna Status przy 1280 px), nazwy pól w podpowiedzi.
+    expect(fill).toHaveTextContent(/^Uzupełnij · 2$/);
+    expect(fill).toHaveAttribute(
+      "title",
+      "Brakuje: Data rozpoczęcia, Stawka przychodowa (klienta)",
+    );
     expect(screen.getByRole("button", { name: "Uzupełnij · 1 brak" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Aktywuj" })).toBeInTheDocument();
 
@@ -277,9 +282,9 @@ describe("ContractsListV2 — jedna lista z szybkimi filtrami (18.11.2026)", () 
     expect(screen.queryByRole("button", { name: /^Uzupełnij/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Aktywuj" })).not.toBeInTheDocument();
     // Stawek ta osoba nie widzi — nie liczą się do braków (jak w dawnej „Obsłudze”).
-    expect(screen.getByText("1 brak")).toBeInTheDocument();
-    expect(screen.getByText("gotowy do aktywacji")).toBeInTheDocument();
-    expect(screen.getByText("Czeka na uzupełnienie stawek")).toBeInTheDocument();
+    expect(screen.getByText("1 brak")).toHaveAttribute("title", "Brakuje: Data rozpoczęcia");
+    expect(screen.getByText("gotowy")).toBeInTheDocument();
+    expect(screen.getByText("Czeka na stawki")).toBeInTheDocument();
   });
 
   it("bez podglądu kwot szkic z samymi brakami stawek czeka na osobę od stawek", async () => {
@@ -295,7 +300,7 @@ describe("ContractsListV2 — jedna lista z szybkimi filtrami (18.11.2026)", () 
     expect(screen.getByRole("button", { name: "Uzupełnij · 1 brak" })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Uzupełnij/ })).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Aktywuj" })).toBeInTheDocument();
-    expect(screen.getByText("Czeka na uzupełnienie stawek")).toHaveAttribute(
+    expect(screen.getByText("Czeka na stawki")).toHaveAttribute(
       "title",
       expect.stringContaining("Stawki uzupełnia osoba z uprawnieniem"),
     );
@@ -311,8 +316,14 @@ describe("draftRowAction — stan szkicu w wierszu", () => {
   });
 
   it("liczy braki widoczne dla konta", () => {
-    expect(draftRowAction(["start_date", "rate_client"], all)).toEqual({ kind: "complete", missing: 2 });
-    expect(draftRowAction(["start_date", "rate_client"], none)).toEqual({ kind: "complete", missing: 1 });
+    expect(draftRowAction(["start_date", "rate_client"], all)).toEqual({
+      kind: "complete",
+      fields: ["start_date", "rate_client"],
+    });
+    expect(draftRowAction(["start_date", "rate_client"], none)).toEqual({
+      kind: "complete",
+      fields: ["start_date"],
+    });
   });
 
   it("same stawki bez prawa do ich zmiany czekają na osobę od stawek", () => {
@@ -320,7 +331,7 @@ describe("draftRowAction — stan szkicu w wierszu", () => {
     // Kto stawki widzi, ten je uzupełnia (okno pokaże pola).
     expect(draftRowAction(["rate_client"], { canSeeRates: true, canEditRates: false })).toEqual({
       kind: "complete",
-      missing: 1,
+      fields: ["rate_client"],
     });
   });
 
