@@ -1872,11 +1872,27 @@ def _statement(year: int, *operations: tuple[str, str, str, str, str], day: str 
 
     yy = f"{year % 100:02d}"
     body = f":20:K4\r\n:25:/PL{COMPANY}\r\n:60F:C{yy}0301PLN100000,00\r\n"
+    balance = Decimal("100000.00")
     for direction, amount, title, account, ref in operations:
         body += f":61:{yy}03{day}03{day}{direction}{amount}NTRFNONREF//{ref}\r\n"
         body += f":86:020~00TR~20{title}~32Kontrahent Testowy"
         body += (f"~38PL{account}" if account else "") + "\r\n"
-    return (body + f":62F:C{yy}03{day}PLN0,00\r\n-").encode()
+        balance += _signed(direction, amount)
+    return (body + f":62F:{_mt940_balance(yy, '03' + day, 'PLN', balance)}\r\n-").encode()
+
+
+def _signed(direction: str, amount: str) -> Decimal:
+    """Kwota operacji MT940 ze znakiem (``D``/``RC`` obciąża rachunek)."""
+
+    value = Decimal(amount.replace(",", "."))
+    return -value if direction in ("D", "RC") else value
+
+
+def _mt940_balance(yy: str, mmdd: str, currency: str, balance: Decimal) -> str:
+    """Saldo końcowe zgodne z operacjami — Księga odrzuca plik z innym saldem."""
+
+    mark = "D" if balance < 0 else "C"
+    return f"{mark}{yy}{mmdd}{currency}{abs(balance):.2f}".replace(".", ",")
 
 
 def _bank_settings(world, books) -> dict:
@@ -2270,10 +2286,12 @@ def _mt940_blocks(year: int, *blocks) -> bytes:
     out = ""
     for account, currency, ops in blocks:
         out += f":20:R{uuid.uuid4().hex[:6]}\r\n:25:/PL{account}\r\n:60F:C{yy}0301{currency}100000,00\r\n"
+        balance = Decimal("100000.00")
         for mmdd, sign, amount, title, party, ref in ops:
             out += f":61:{yy}{mmdd}{mmdd}{sign}{amount}NTRFNONREF//{ref}\r\n"
             out += f":86:~00TR~20{title}~32Kontrahent Testowy" + (f"~38PL{party}" if party else "") + "\r\n"
-        out += f":62F:C{yy}0430{currency}0,00\r\n-\r\n"
+            balance += _signed(sign, amount)
+        out += f":62F:{_mt940_balance(yy, '0430', currency, balance)}\r\n-\r\n"
     return out.encode()
 
 

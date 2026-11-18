@@ -229,7 +229,7 @@ export function FinanceSalesInvoicesTab({
           <input
             ref={fileInput}
             type="file"
-            accept=".sta,.txt,.mt940,.xml"
+            accept=".sta,.txt,.mt940,.emt,.xml"
             className="sr-only"
             aria-label="Wyciąg MT940 albo CAMT.053"
             onChange={(event) => onStatement(event.target.files?.[0])}

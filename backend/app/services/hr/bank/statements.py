@@ -331,7 +331,7 @@ def parse_file(raw: bytes) -> ParsedStatement:
     if mt940.looks_like(mt940.decode(raw)):
         return mt940.parse(raw)
     raise StatementError(
-        "Nie rozpoznaję formatu — wgraj wyciąg MT940 (.sta, .txt) albo CAMT.053 (.xml)."
+        "Nie rozpoznaję formatu — wgraj wyciąg MT940 (.sta, .txt, .eMT) albo CAMT.053 (.xml)."
     )
 
 
