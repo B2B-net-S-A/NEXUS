@@ -317,7 +317,23 @@ async def test_after_opt_out_next_application_gets_thanks_only(
         )
         await _send_queue()
         token = _token((await _mails_for(outbox, cid))[0][2])
-        await app_client.post(f"/api/public/candidate-terms/{token}/opt-out")
+        opt_out_url = f"/api/public/candidate-terms/{token}/opt-out"
+        # A link preview must not unsubscribe the candidate.
+        assert (await app_client.get(opt_out_url)).status_code == 405
+        assert (await _rows(cid))[0].opted_out_at is None
+
+        # Mail clients submit the RFC 8058 field without a login or cookies.
+        result = await app_client.post(
+            opt_out_url, data={"List-Unsubscribe": "One-Click"}
+        )
+        assert result.status_code == 200 and result.json()["opted_out"]
+        first_opt_out = (await _rows(cid))[0].opted_out_at
+        assert first_opt_out is not None
+        retry = await app_client.post(
+            opt_out_url, files={"List-Unsubscribe": (None, "One-Click")}
+        )
+        assert retry.status_code == 200 and retry.json()["opted_out"]
+        assert (await _rows(cid))[0].opted_out_at == first_opt_out
         async with AsyncSessionLocal() as db:  # poprzednia aplikacja sprzed doby
             await db.execute(
                 update(CandidateTermsRequest)
