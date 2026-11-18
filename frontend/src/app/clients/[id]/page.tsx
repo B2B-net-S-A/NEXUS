@@ -883,7 +883,11 @@ function ContactsTab({ clientId }: { clientId: number }) {
         <Table density="compact" className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className={cn(CALM_HEAD, "min-w-[15rem]")}>Osoba</TableHead>
+              {/* 12rem, nie 15rem: od ikon „kopiuj” przy e-mailu i telefonie
+                  (#3541) tabela przy 1280 × 720 miała 972 px w karcie 956 px
+                  i ucinała „Usuń”. Razem z e-mailem 11rem najwęższa treść ma
+                  908 px — zapas na pasek przewijania w Windows. */}
+              <TableHead className={cn(CALM_HEAD, "min-w-[12rem]")}>Osoba</TableHead>
               <TableHead className={CALM_HEAD}>E-mail</TableHead>
               <TableHead className={CALM_HEAD}>Telefon</TableHead>
               <TableHead className={CALM_HEAD}>Siła relacji</TableHead>
@@ -986,7 +990,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                             title={contact.email}
                             // Jedna linia z wielokropkiem — łamany w pół słowa adres
                             // („…exampl / e”) trudniej przeczytać niż przycięty.
-                            className="block min-w-0 max-w-[12rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                            className="block min-w-0 max-w-[11rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                           >
                             {contact.email}
                           </a>
