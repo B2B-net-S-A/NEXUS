@@ -48,6 +48,14 @@ function mailboxCheck(start: SettlementsStart): Check {
       text: "Czytnik rozliczenia@ działa",
     };
   }
+  if (box.last_status === "error" && box.last_error === "shared_without_route") {
+    return {
+      key: "mailbox",
+      tone: "danger",
+      text: "Skrzynka rozliczeń jest wspólna ze sprawami, a brak adresu rozliczeń",
+      note: "zmienna adresów rozliczeń (E8)",
+    };
+  }
   if (box.last_status === "error") {
     return {
       key: "mailbox",

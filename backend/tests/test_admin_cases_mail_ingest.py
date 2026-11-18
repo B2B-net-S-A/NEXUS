@@ -52,6 +52,7 @@ class FakeMailbox:
         sender: str = "klient@example.com",
         attachments: list[dict[str, Any]] | None = None,
         headers: list[dict[str, str]] | None = None,
+        to: list[str] | None = None,
     ) -> dict[str, Any]:
         marker = uuid.uuid4().hex
         received = datetime.now(timezone.utc) - timedelta(hours=hours_ago)
@@ -63,6 +64,7 @@ class FakeMailbox:
             "from": {"emailAddress": {"address": sender, "name": "Anna Przykładowa"}},
             "receivedDateTime": received.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "hasAttachments": bool(attachments),
+            "toRecipients": [{"emailAddress": {"address": a}} for a in to or []],
             "body": {"contentType": "html", "content": f"<p>{subject}</p>"},
             "internetMessageHeaders": [
                 *(headers or []),
@@ -239,6 +241,68 @@ async def test_second_run_duplicates_nothing(mailbox_on) -> None:
             )
         )
     assert count == 2
+
+
+_PDF = [{"name": "rcp.pdf", "contentType": "application/pdf", "size": 10}]
+
+
+@pytest.mark.asyncio
+async def test_shared_support_mailbox_leaves_settlement_mail_to_settlements(
+    mailbox_on, monkeypatch
+) -> None:
+    """E8: wsparcie@ czytają oba czytniki — raport na rozliczenia@ nie jest sprawą."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX", mailbox_on.upper()
+    )
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "Rozliczenia@example.com"
+    )
+    fake = FakeMailbox()
+    report = fake.add(
+        subject="RCP 10/2026",
+        hours_ago=3,
+        attachments=_PDF,
+        to=["rozliczenia@example.com"],
+    )
+    question = fake.add(
+        subject="Pytanie o fakturę", hours_ago=2, to=["rozliczenia@example.com"]
+    )
+    leave = fake.add(subject="Wniosek", hours_ago=1, attachments=_PDF, to=[mailbox_on])
+
+    result = await _run(fake)
+
+    assert result["routed_settlements"] == 1
+    cases = await _cases_for(fake)
+    assert report["id"] not in cases
+    assert question["id"] in cases and leave["id"] in cases
+
+
+@pytest.mark.asyncio
+async def test_separate_settlements_mailbox_changes_nothing(
+    mailbox_on, monkeypatch
+) -> None:
+    """Osobna skrzynka rozliczeń: czytnik spraw bierze wszystko, jak przed E8."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX", "rozliczenia@example.com"
+    )
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "rozliczenia@example.com"
+    )
+    fake = FakeMailbox()
+    report = fake.add(
+        subject="RCP 10/2026",
+        hours_ago=1,
+        attachments=_PDF,
+        to=["rozliczenia@example.com"],
+    )
+
+    await _run(fake)
+
+    assert report["id"] in await _cases_for(fake)
 
 
 @pytest.mark.asyncio

@@ -356,3 +356,97 @@ async def test_person_with_two_live_contracts_waits_for_assignment() -> None:
     )
     assert (await _read(reader))["created"] == 1
     assert [row.contract_id for row in await _documents()] == [None]
+
+
+# ── Jedna skrzynka wsparcie@ (E8, 18.11.2026) ────────────────────────────────
+
+
+def _to(message: dict, *addresses: str) -> dict:
+    return {
+        **message,
+        "toRecipients": [{"emailAddress": {"address": a}} for a in addresses],
+    }
+
+
+@pytest.fixture
+def shared_support_mailbox(monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX", "wsparcie@example.com"
+    )
+    monkeypatch.setattr(settings, "ADMIN_CASES_M365_MAILBOX", "Wsparcie@Example.com")
+    return settings
+
+
+@pytest.mark.usefixtures("internal")
+async def test_shared_mailbox_reads_only_mail_to_settlements_address(
+    shared_support_mailbox, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        shared_support_mailbox,
+        "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES",
+        "rozliczenia@example.com",
+    )
+    person = await make_person(activated=False)
+    report = _to(_message("m1", person.email), "Rozliczenia@example.com")
+    leave = _to(_message("m2", person.email), "wsparcie@example.com")
+    reader = FakeMailbox(
+        [report, leave],
+        {
+            "m1": [_attachment("rcp.pdf", PDF)],
+            "m2": [_attachment("l4.pdf", PDF + b" inny")],
+        },
+    )
+    result = await _read(reader)
+    assert result["status"] == "ok"
+    assert result["created"] == 1
+    assert [row.graph_message_id for row in await _documents()] == ["m1"]
+
+
+@pytest.mark.usefixtures("internal")
+async def test_shared_mailbox_without_settlements_address_reads_nothing(
+    shared_support_mailbox, monkeypatch
+) -> None:
+    monkeypatch.setattr(
+        shared_support_mailbox, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", ""
+    )
+    person = await make_person(activated=False)
+    reader = FakeMailbox(
+        [_to(_message("m1", person.email), "rozliczenia@example.com")],
+        {"m1": [_attachment("rcp.pdf", PDF)]},
+    )
+    result = await _read(reader)
+    assert result == {"status": "error", "reason": "shared_without_route"}
+    assert await _documents() == []
+    async with AsyncSessionLocal() as db:
+        state = await db.get(CpMailboxState, 1)
+    assert (state.last_status, state.last_error) == ("error", "shared_without_route")
+
+
+@pytest.mark.usefixtures("internal")
+async def test_settlements_address_narrows_reader_before_cases_mailbox_moves(
+    shared_support_mailbox, monkeypatch
+) -> None:
+    """wsparcie@ ustawiona dla rozliczeń, skrzynka spraw jeszcze stara: tylko maile rozliczeń."""
+    monkeypatch.setattr(
+        shared_support_mailbox, "ADMIN_CASES_M365_MAILBOX", "stara@example.com"
+    )
+    monkeypatch.setattr(
+        shared_support_mailbox,
+        "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES",
+        "rozliczenia@example.com",
+    )
+    person = await make_person(activated=False)
+    reader = FakeMailbox(
+        [
+            _to(_message("m1", person.email), "rozliczenia@example.com"),
+            _to(_message("m2", person.email), "wsparcie@example.com"),
+        ],
+        {
+            "m1": [_attachment("rcp.pdf", PDF)],
+            "m2": [_attachment("l4.pdf", PDF + b" inny")],
+        },
+    )
+    assert (await _read(reader))["created"] == 1
+    assert [row.graph_message_id for row in await _documents()] == ["m1"]

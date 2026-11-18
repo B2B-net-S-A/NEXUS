@@ -590,6 +590,13 @@ i `CONSULTANT_PORTAL_MAILBOX` (wsparcie@: nadawca linków i organizator rozmów)
 - E8.3 Wygaszenie: szablony umów B2B (`templates/contract/umowa_b2b_pl.html:125`,
   `umowa_b2b_en.html:126`) i treści w panelu, mailach i przewodnikach wskazują
   wsparcie@; autoodpowiedź na starych adresach; wyłączenie po okresie przejścia.
+- Jak zrobione (18.11, E8.2): zamiast jednego czytnika zostają oba, ale na wspólnej
+  skrzynce rozdziela je jedna funkcja (`app/services/support_mail_route.py`): mail
+  z załącznikiem i z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do”/„DW” bierze
+  czytnik rozliczeń, każdy inny czytnik spraw (wynik `routed_settlements`). Wspólna skrzynka
+  bez adresów zatrzymuje czytnik rozliczeń (`shared_without_route`). Każdy czytnik zachowuje
+  własny znacznik i całą dotychczasową logikę. Zmienne i kolejność startu:
+  `docs/claude/ludzie/jedna-skrzynka-wsparcie.md`, sekcja „Router E8”.
 - **Meta:** mail wysłany na każdy stary adres ląduje jako jedna sprawa albo jeden
   dokument w NEXUS-ie; brak wzmianek o starych adresach w szablonach i ekranach.
 
@@ -663,4 +670,4 @@ Dwa źródła, oba z danymi tylko poza repo:
 | E5 | gotowe (10.11), marża dla DL-a, koszty integracji i „Wyślij plan” 13.11 | 13.11: 6 testów na bazie (limit roku, drugi koszt ponad limit, koniec roku, obniżony limit przy zgodzie, odmowa bez zgody DL-a, marża DL-a przez API i 403 dla obcego DL-a), wzorzec authz z 6 trasami; staging na kopii z 09.11 (13.11, 1280 × 720): Finanse wpisują 1 500 zł osobie BNP za październik („czeka”), drugi koszt 600 zł odmówiony („zostało 500 zł z 2 000 zł”), DL BNP widzi marżę w zł i % i daje zgodę → marża tej osoby z 8,8% na 5,2%, na liście Finansów „w tym −1 500 zł integracja”; konsultant w trwającym listopadzie z planem widzi „Wyślij plan”. Wcześniej: kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
 | E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE; staging z kopii 10.11 (12.11): listopad 6 osób z syntetycznych Time Sheet, MD × stawka klienta w EUR równe kwocie z bloku ESP za październik (próbka), SDC bez autora i nazwisk, plan grudnia jednej osoby 16 MD → faktura z planu; druga osoba „Brak MD”, bo nowa linia zamówienia jest w szkicu (dane, nie kod) |
 | E7 | 16.11: najpierw „Tylko zespół” (`internal`): włącznik modułu, karta „Start rozliczeń”, czytnik bez aktywacji, podgląd panelu w kodzie; czeka wdrożenie, M365 Mail.Read na rozliczenia@ i włączenie przez admina. Wpuszczenie konsultantów (decyzja 12.11: wszyscy od listopada) po testach zespołu | testy `test_consultant_portal_internal*.py`, `start-and-preview.test.tsx` |
-| E8 | do zrobienia (E8.1 po instrukcji z osobnej sesji) | — |
+| E8 | 18.11: E8.2 router w kodzie (decyzja Artura „od razu jedna skrzynka”, M365 i home.pl robi Codex: przekierowania z kopią na home.pl, MX bez zmian); E8.1 w toku po stronie M365, E8.3 do zrobienia | `support_mail_route.py`; 9 testów bez bazy (adresy, wspólna skrzynka, załącznik, DW, ukryta kopia), testy obu czytników na bazie: raport na rozliczenia@ = dokument bez sprawy, pytanie bez załącznika = sprawa, wspólna skrzynka bez adresów = `shared_without_route` |

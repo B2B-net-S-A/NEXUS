@@ -59,6 +59,16 @@ describe("Karta „Start rozliczeń”", () => {
     expect(checks.mailbox.text).toContain("http_403");
   });
 
+  it("wspólna skrzynka bez adresu rozliczeń to brak konfiguracji, nie brak dostępu", () => {
+    const checks = byKey({
+      ...start,
+      mailbox: { configured: true, last_run_at: null, last_status: "error", last_error: "shared_without_route" },
+    });
+    expect(checks.mailbox).toMatchObject({ tone: "danger" });
+    expect(checks.mailbox.text).toContain("brak adresu rozliczeń");
+    expect(checks.mailbox.note).not.toContain("Mail.Read");
+  });
+
   it("panel dla konsultantów i wyłączony moduł to stany do poprawy", () => {
     const checks = byKey({ ...start, module_enabled: false, back_office: false, portal_state: "pilot", active_panels: 3 });
     expect(checks.module.tone).toBe("danger");

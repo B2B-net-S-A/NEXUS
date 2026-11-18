@@ -14,6 +14,9 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
   daje kartę do ręcznego przypisania.
 * Znacznik idzie z zakładką 2 h, a duplikaty zamyka unikat na (wiadomość, plik).
   Do logu trafia klasa błędu, nigdy adres ani temat.
+* Jedna skrzynka wsparcie@ (E8): przy ustawionych adresach rozliczeń bierzemy tylko maile
+  z załącznikiem na te adresy (``support_mail_route``), resztę czytnik spraw. Wspólna skrzynka
+  ze sprawami bez adresów rozliczeń = stan ``error``/``shared_without_route`` i nic nie czytamy.
 """
 
 from __future__ import annotations
@@ -35,6 +38,8 @@ from app.models.client_settlement import ClientSettlement
 from app.models.consultant_portal import CpMailboxState
 from app.models.contract import Contract
 from app.models.user import User
+from app.services import support_mail_route
+from app.services.admin_cases.mailbox import m365_mailbox as cases_mailbox
 from app.services.client_settlements import kesu
 from app.services.consultant_portal import documents, identity, portal_settings
 from app.services.consultant_portal.auth import PortalError
@@ -46,7 +51,10 @@ logger = logging.getLogger(__name__)
 OVERLAP = timedelta(hours=2)
 INITIAL_LOOKBACK = timedelta(days=3)
 MAX_MESSAGES_PER_RUN = 200
-_MESSAGE_SELECT = "id,subject,from,receivedDateTime,hasAttachments"
+_MESSAGE_SELECT = (
+    "id,subject,from,receivedDateTime,hasAttachments,"
+    + support_mail_route.RECIPIENT_FIELDS
+)
 _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
 # Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
 # Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
@@ -458,6 +466,14 @@ async def run_once(
     if mailbox is None and upn is None:
         await _write_state(db, now=moment, status="disabled", error="no_mailbox")
         return {"status": "disabled", "reason": "no_mailbox"}
+    route = support_mail_route.shared_route(upn, cases_mailbox())
+    if route is not None and not route:
+        # Bez adresów rozliczeń każdy mail z wsparcie@ byłby i sprawą, i dokumentem.
+        await _write_state(db, now=moment, status="error", error="shared_without_route")
+        return {"status": "error", "reason": "shared_without_route"}
+    # Adresy rozliczeń zawężają czytnik zawsze, także gdy skrzynka spraw jest jeszcze inna:
+    # skrzynka wsparcie@ ustawiona przed zmienną spraw nie zrobi z każdego maila dokumentu.
+    only_to = support_mail_route.settlements_addresses() or None
     reader: SettlementsMailbox = mailbox or GraphSettlementsMailbox(upn or "")
     current = await _state(db)
     seen = current.last_seen_received_at if current else None
@@ -475,6 +491,12 @@ async def run_once(
     created = skipped = failed = 0
     newest = seen
     for message in messages:
+        if only_to and not support_mail_route.is_settlements_mail(message, only_to):
+            # Sprawa dla czytnika spraw: znacznik idzie dalej, nic nie zapisujemy.
+            received = _parse_time(message.get("receivedDateTime"))
+            if received and (newest is None or received > newest):
+                newest = received
+            continue
         try:
             async with db.begin_nested():
                 made, ignored = await _ingest_message(

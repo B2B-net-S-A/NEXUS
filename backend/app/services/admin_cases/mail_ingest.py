@@ -42,7 +42,10 @@ Reguły:
 * **mail od konsultanta** (nadawca = e-mail z kontraktu) z dokładnie jednym
   aktywnym kontraktem — nowa sprawa dostaje ``contract_id``
   (``admin_cases/contract_links.link_new_mail_case``); kilka kontraktów
-  i mail z firmy klienta to tylko propozycje przy odczycie.
+  i mail z firmy klienta to tylko propozycje przy odczycie,
+* **jedna skrzynka wsparcie@ (E8)**: gdy ta skrzynka jest też skrzynką czytnika rozliczeń
+  (``CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX``), mail z załącznikiem na adres rozliczeń
+  zostawiamy rozliczeniom (``support_mail_route``): wynik ``routed_settlements``, bez sprawy.
 
 Klient Graph jest wstrzykiwany (``AdminMailbox``); testy podają fałszywą
 skrzynkę. Prawdziwa skrzynka idzie przez rejestrację HR (``acquire_hr_token``)
@@ -65,8 +68,10 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.models.admin_case import AdminCase, AdminCaseMessage, AdminMailIngestState
 from app.models.hr_ops import HrJobRun
+from app.services import support_mail_route
 from app.services.admin_cases import rules
 from app.services.admin_cases.service import (
     AutomaticCase,
@@ -97,7 +102,8 @@ RESUME_KEY = "resume_from"
 
 _MESSAGE_SELECT = (
     "id,internetMessageId,conversationId,subject,from,sender,receivedDateTime,"
-    "hasAttachments,body,uniqueBody,internetMessageHeaders"
+    "hasAttachments,body,uniqueBody,internetMessageHeaders,"
+    + support_mail_route.RECIPIENT_FIELDS
 )
 _MESSAGE_ID = re.compile(r"<[^<>\s]+>")
 
@@ -336,6 +342,11 @@ async def _ingest_message(
     graph_id = _nul_free(msg.get("id"), 512)
     if not graph_id:
         return "skipped"
+    route = support_mail_route.shared_route(
+        settings.CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX, upn
+    )
+    if route and support_mail_route.is_settlements_mail(msg, route):
+        return "routed_settlements"
     known = await db.scalar(
         select(AdminCaseMessage.id).where(AdminCaseMessage.graph_message_id == graph_id)
     )
