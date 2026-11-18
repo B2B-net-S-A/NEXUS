@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable, Literal, Optional, Sequence
+from typing import Any, Collection, Iterable, Literal, Mapping, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, true
@@ -1164,11 +1164,17 @@ async def load_snapshots(
     window_start: datetime,
     window_end: datetime,
     now: Optional[datetime] = None,
+    latest_stages: Optional[Mapping[tuple[int, int], tuple[Any, Any]]] = None,
+    closed_job_ids: Optional[Collection[int]] = None,
 ) -> dict[tuple[int, int], PairSnapshot]:
     """Migawki par — stała liczba zapytań niezależnie od liczby par.
 
     ``now`` rozstrzyga, która runda rozmów jest bieżąca (``pick_current_round``)
     — wołający podaje ten sam zegar, którym liczy kroki i zadania.
+
+    Tablica zna już najnowszy etap każdej pary (``latest_stages``:
+    ``{(kandydat, rekrutacja): (etap, moved_at)}``, wszystkie pary rekrutacji)
+    i zamknięte rekrutacje (``closed_job_ids``) — wtedy dwa zapytania odpadają.
     """
     keys = sorted(set(pairs))[:MAX_PAIRS]
     snaps = {k: PairSnapshot(candidate_id=k[0], job_id=k[1]) for k in keys}
@@ -1409,9 +1415,15 @@ async def load_snapshots(
                 )
             )
         )
-    closed_jobs = set(
-        await db.scalars(
-            select(Job.id).where(Job.id.in_(job_ids), Job.status == JobStatus.closed)
+    closed_jobs = (
+        set(closed_job_ids) & set(job_ids)
+        if closed_job_ids is not None
+        else set(
+            await db.scalars(
+                select(Job.id).where(
+                    Job.id.in_(job_ids), Job.status == JobStatus.closed
+                )
+            )
         )
     )
     for snap in snaps.values():
@@ -1449,7 +1461,15 @@ async def load_snapshots(
             CandidateStage.id.desc(),
         )
     )
-    for cid, jid, stage, moved_at in (await db.execute(latest)).all():
+    latest_rows = (
+        [
+            (cid, jid, stage, moved_at)
+            for (cid, jid), (stage, moved_at) in latest_stages.items()
+        ]
+        if latest_stages is not None
+        else (await db.execute(latest)).all()
+    )
+    for cid, jid, stage, moved_at in latest_rows:
         snap = snaps.get((cid, jid))
         if snap is not None:
             snap.latest_stage = stage.value if hasattr(stage, "value") else str(stage)
@@ -2071,13 +2091,16 @@ async def interview_badges_for_job(
     job_id: int,
     candidate_ids: Iterable[int],
     now: Optional[datetime] = None,
+    latest_stages: Optional[Mapping[tuple[int, int], tuple[Any, Any]]] = None,
+    job_closed: Optional[bool] = None,
 ) -> dict[int, dict]:
     """Odznaki terminarza dla kart jednej rekrutacji: ``{candidate_id: badge}``.
 
     Kandydaci bez niczego w cyklu (brak wniosku o terminy, prepu i rozmowy)
     nie mają wpisu. Stała liczba zapytań: jedno wyszukanie kandydatów
     z czymkolwiek w cyklu + migawki (``load_snapshots``) po najwyżej
-    ``MAX_PAIRS`` par na paczkę.
+    ``MAX_PAIRS`` par na paczkę. ``latest_stages`` i ``job_closed`` podaje
+    Tablica, która je zna (``load_snapshots`` ich wtedy nie czyta).
     """
     from sqlalchemy import union
 
@@ -2119,6 +2142,10 @@ async def interview_badges_for_job(
             window_start=window_start,
             window_end=window_end,
             now=now,
+            latest_stages=latest_stages,
+            closed_job_ids=(
+                None if job_closed is None else ({job_id} if job_closed else set())
+            ),
         )
         for (cid, _jid), snap in snaps.items():
             badge = compute_badge(snap, now, call_window_minutes=call_window)

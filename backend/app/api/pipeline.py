@@ -3451,28 +3451,6 @@ async def _viewer_owns_dl_review(
     )
 
 
-async def _job_stages_generating_auto_cv(db: AsyncSession, job_id: int) -> set[int]:
-    """Wiersze etapu rekrutacji, dla których automat auto-CV właśnie generuje
-    dokument (``origin="auto"``, ``status="processing"``) — jedno zapytanie.
-
-    Zadanie przerwane utratą wykonawcy `recovery_loop` przestawia na
-    ``failed``, więc „w przygotowaniu” nie wisi bez końca.
-    """
-    from app.models.cv_generated_document import CvGeneratedDocument
-
-    rows = await db.scalars(
-        select(CvGeneratedDocument.stage_id)
-        .where(
-            CvGeneratedDocument.job_id == job_id,
-            CvGeneratedDocument.stage_id.is_not(None),
-            CvGeneratedDocument.origin == "auto",
-            CvGeneratedDocument.status == "processing",
-        )
-        .distinct()
-    )
-    return {int(stage_id) for stage_id in rows.all()}
-
-
 async def _enters_acceptance_from_before_contract(
     db: AsyncSession, previous: Optional[CandidateStage]
 ) -> bool:
@@ -3689,13 +3667,10 @@ async def build_kanban_view(
             if creator is not None
         }
     )
+    # Nazwiska wszystkich osób z kart (dodający, właściciele, ruch mimo braków,
+    # dzwoniący z follow-upu) — jedno zapytanie niżej, gdy znane są wszystkie id.
+    name_user_ids: set[int] = set(added_by_user_ids)
     user_name_by_id: dict[int, Optional[str]] = {}
-    if added_by_user_ids:
-        urows = await db.execute(
-            select(User.id, User.name).where(User.id.in_(added_by_user_ids))
-        )
-        for uid, uname in urows.all():
-            user_name_by_id[uid] = uname
 
     # Standing rejections by this job's hiring manager, one batched query for
     # the whole board (none at all when the job has no manager set). Lets the
@@ -3860,7 +3835,13 @@ async def build_kanban_view(
     from app.services.interview_cycle import interview_badges_for_job
 
     interview_badges = await interview_badges_for_job(
-        db, job_id=job_id, candidate_ids=candidate_ids, now=board_now
+        db,
+        job_id=job_id,
+        candidate_ids=candidate_ids,
+        now=board_now,
+        # Najnowszy etap pary i stan rekrutacji Tablica już ma.
+        latest_stages={(cid, job_id): (s.stage, s.moved_at) for cid, s in seen.items()},
+        job_closed=job.status == JobStatus.closed,
     )
     # „Zatrudniony” na Tablicy to też Onboarding (`job_similarity.HIRED_STAGES`).
     from app.services.job_similarity import HIRED_STAGES  # noqa: PLC0415
@@ -3873,7 +3854,17 @@ async def build_kanban_view(
     )
     # 17.10.2026: „Zatrudniony” bez umowy w Kontraktach — „Pracuje u nas”
     # liczy się wyłącznie z umowy, więc karta mówi, czego brakuje.
+    from app.services.employment_marker import job_client_family
     from app.services.hire_contract_reminder import missing_contract_ids
+
+    # Rodzina klienta rekrutacji: raz na Tablicę i tylko, gdy ktoś jej potrzebuje
+    # (zatrudniony bez umowy, znacznik „Pracuje u nas”).
+    family_memo: dict[str, Optional[set[int]]] = {}
+
+    async def board_client_family() -> Optional[set[int]]:
+        if "family" not in family_memo:
+            family_memo["family"] = await job_client_family(db, job.client_id)
+        return family_memo["family"]
 
     missing_contracts = (
         await missing_contract_ids(
@@ -3885,6 +3876,7 @@ async def build_kanban_view(
                 if s.stage in HIRED_STAGES
             ],
             now=board_now,
+            family_loader=board_client_family,
         )
         if hired_ids
         else set()
@@ -3898,7 +3890,11 @@ async def build_kanban_view(
     # Znacznik „Pracuje u nas” — jedno zapytanie o źródła na tablicę.
     employment_markers = (
         await load_employment_markers(
-            db, candidate_ids, today=business_today(), job_client_id=job.client_id
+            db,
+            candidate_ids,
+            today=business_today(),
+            job_client_id=job.client_id,
+            family_loader=board_client_family,
         )
         if with_employment
         else {}
@@ -3969,23 +3965,16 @@ async def build_kanban_view(
             rid: rejection_reason_labels.rejection_reason_label(rname)
             for rid, rname in rrows.all()
         }
-    missing_owner_names = owner_ids - set(user_name_by_id)
-    if missing_owner_names:
-        orows = await db.execute(
-            select(User.id, User.name).where(User.id.in_(missing_owner_names))
-        )
-        for uid, uname in orows.all():
-            user_name_by_id[uid] = uname
+    name_user_ids |= owner_ids
 
     # Auto-CV gotowe w tle i czekające na przegląd (21.09.2026) — JEDNO
     # zapytanie na tablicę; flaga dotyczy wiersza etapu, na którym je zakolejkowano.
-    from app.services.cv_auto_review import job_stages_with_ready_auto_cv
-
-    auto_cv_stage_ids = await job_stages_with_ready_auto_cv(db, job_id)
     # Droga rekrutera do DL (14.10.2026): automat właśnie generuje CV dla
-    # wiersza etapu — karta mówi „CV w przygotowaniu…”. Też jedno zapytanie.
-    generating_stage_ids = (
-        await _job_stages_generating_auto_cv(db, job_id) if with_cv_state else set()
+    # wiersza etapu — karta mówi „CV w przygotowaniu…”. To samo zapytanie.
+    from app.services.cv_auto_review import job_stages_auto_cv
+
+    auto_cv_stage_ids, generating_stage_ids = await job_stages_auto_cv(
+        db, job_id, with_processing=with_cv_state
     )
     # Rekrutacja v5 (0361): stan QC CV każdej karty — jedno zapytanie hurtowe
     # (najnowszy przebieg pary; obejście DL/admina = `overridden`).
@@ -4002,15 +3991,9 @@ async def build_kanban_view(
         candidate_ids=candidate_ids,
         since={cid: attempt_started(p) for cid, p in v4_processes.items()},
     )
-    missing_skip_names = {
+    name_user_ids |= {
         uid for _keys, uid in skipped_by_candidate.values() if uid is not None
-    } - set(user_name_by_id)
-    if missing_skip_names:
-        srows = await db.execute(
-            select(User.id, User.name).where(User.id.in_(missing_skip_names))
-        )
-        for uid, uname in srows.all():
-            user_name_by_id[uid] = uname
+    }
     # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”)
     # i liczba prób kontaktu — po jednym zapytaniu na tablicę.
     from sqlalchemy import func, or_
@@ -4096,18 +4079,64 @@ async def build_kanban_view(
     # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
     # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
     from app.services import candidate_followups
+    from app.services.request_work_state import FINISHED as _WORK_FINISHED
 
+    # Szablon Tablicy i katalog etapów — raz na żądanie: kolumny niżej i reguła
+    # follow-upu („czeka na klienta”) czytają te same definicje etapów.
+    template_id = job.pipeline_template_id or await _default_template_id(db)
+    stage_catalog = (
+        await board_tasks_svc._catalog(db) if template_id is not None else None
+    )
+    # Odznaka follow-upu stoi tylko przy procesie TEJ rekrutacji, który czeka na
+    # klienta: rekrutacja opublikowana, nie „Zakończona”, karta w kolumnie
+    # „czeka na klienta” (`_WAITING_SQL`). Reszty Tablicy nie liczymy — wynik
+    # dla tych osób (wszystkie ich procesy) jest ten sam co przy całej liście.
+    followup_ids: list[int] = []
+    if (
+        with_followups
+        and job.status == JobStatus.published
+        and job.work_state != _WORK_FINISHED
+    ):
+        followup_ids = (
+            candidate_followups.board_waiting_ids(
+                stage_catalog, template_id=template_id, stages=seen.values()
+            )
+            if stage_catalog is not None
+            else candidate_ids
+        )
     followups = (
         await candidate_followups.load_followups_safely(
-            db, now=board_now, candidate_ids=candidate_ids
+            db,
+            now=board_now,
+            candidate_ids=followup_ids,
+            catalog=stage_catalog,
+            # Rekrutacja bez własnego szablonu rysuje domyślny — to ten sam id.
+            **(
+                {"default_template_id": template_id}
+                if job.pipeline_template_id is None
+                else {}
+            ),
         )
-        if with_followups
+        if followup_ids
         else {}
     )
     followup_today = candidate_followups.local_date(board_now)
-    followup_names = await candidate_followups.user_names(
-        db, (f.caller_id for f in followups.values())
-    )
+    caller_ids = {f.caller_id for f in followups.values() if f.caller_id}
+    followup_names: dict[int, Optional[str]] = {}
+    if name_user_ids or caller_ids:
+        for uid, uname in (
+            await db.execute(
+                select(User.id, User.name).where(
+                    User.id.in_(name_user_ids | caller_ids)
+                )
+            )
+        ).all():
+            # Dwie mapy jak przed scaleniem zapytań: nazwisko dzwoniącego nie
+            # trafia do pól karty, które go wcześniej nie miały.
+            if uid in name_user_ids:
+                user_name_by_id[uid] = uname
+            if uid in caller_ids:
+                followup_names[uid] = uname
 
     def _followup_badge(candidate_id: int) -> Optional[dict]:
         f = followups.get(candidate_id)
@@ -4438,21 +4467,12 @@ async def build_kanban_view(
             )
         return payload
 
-    # Resolve target template
-    template_id = job.pipeline_template_id or await _default_template_id(db)
-
+    # Szablon Tablicy (`template_id`) i katalog etapów wczytane wyżej.
     if template_id is not None:
         # Template-driven columns
-        stage_defs = (
-            (
-                await db.execute(
-                    select(PipelineStageDef)
-                    .where(PipelineStageDef.template_id == template_id)
-                    .order_by(PipelineStageDef.order)
-                )
-            )
-            .scalars()
-            .all()
+        stage_defs = sorted(
+            stage_catalog.defs_by_template.get(template_id, []),
+            key=lambda sd: (sd.order, sd.id),
         )
 
         template_def_ids = {sd.id for sd in stage_defs}
@@ -4461,20 +4481,11 @@ async def build_kanban_view(
             for e in seen.values()
             if e.stage_def_id is not None and e.stage_def_id not in template_def_ids
         }
-        foreign_defs = (
-            {
-                sd.id: sd
-                for sd in (
-                    await db.execute(
-                        select(PipelineStageDef).where(
-                            PipelineStageDef.id.in_(foreign_ids)
-                        )
-                    )
-                ).scalars()
-            }
-            if foreign_ids
-            else {}
-        )
+        foreign_defs = {
+            fid: stage_catalog.defs[fid]
+            for fid in sorted(foreign_ids)
+            if fid in stage_catalog.defs
+        }
         column_by_def_id.update(
             {
                 sd.id: board_column_for(
