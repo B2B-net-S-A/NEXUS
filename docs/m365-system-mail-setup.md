@@ -19,6 +19,18 @@ Coolify przez `app-mail-config-audit` ([bieg 36048980367](https://github.com/B2B
 pokazał `M365_APP_MAIL_ENABLED=true` i nadawcę
 `artur.twardowski@b2bnetwork.pl`. To nie jest docelowa skrzynka systemowa.
 
+## Skrzynka kandydatów kariera@ (18.11.2026)
+
+Udostępniona skrzynka `kariera@b2bnetwork.pl` („B2B Network Kariera”, bez licencji)
+dostała `Application Mail.Send` przez członkostwo w grupie `NEXUS-SystemMail-Scope`
+(obok `nexus-powiadomienia@`). Tę samą aplikację „NEXUS System Mail” wybiera
+`CANDIDATE_MAIL_SENDER_UPN=kariera@b2bnetwork.pl` (Coolify, 18.11). Próbny mail:
+Coolify Ops → `candidate-terms-mail-probe` (tylko z `main`, tylko z kariera@,
+adresaci stali). Domena: SPF z `spf.protection.outlook.com`, DKIM w M365
+„Valid/Enabled”, DMARC `p=none`; b2bnetwork.pl jest w M365 „Internal Relay”
+(MX na home.pl), więc mail na kariera@ z zewnątrz tam nie dojdzie — i nie ma
+dochodzić, kandydat odpowiada formularzem.
+
 ## Konfiguracja docelowa
 
 1. Zarejestruj osobną aplikację „NEXUS System Mail” w Entra. **Nie nadawaj**

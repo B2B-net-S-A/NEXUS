@@ -166,8 +166,12 @@ async def expire_stale(db: AsyncSession, now: datetime) -> int:
     return int(result.rowcount or 0)
 
 
-def _deliver(message: rules.TermsEmail, *, to: str, event_at):
-    """Wątek wysyłki: polityka sprawdzana jeszcze raz tuż przed nadawcą."""
+def _deliver(message: rules.TermsEmail, *, to: str, event_at, unsubscribe=None):
+    """Wątek wysyłki: polityka sprawdzana jeszcze raz tuż przed nadawcą.
+
+    ``unsubscribe`` = wypis jednym kliknięciem w nagłówku (Gmail/Yahoo dla
+    nadawców masowych); w Graph przełącza wysyłkę na MIME z częścią tekstową.
+    """
     from app.services.email import send_email
     from app.services.notification_delivery import guarded_send
 
@@ -181,6 +185,7 @@ def _deliver(message: rules.TermsEmail, *, to: str, event_at):
         message.html_body,
         None,  # bez Reply-To: kandydat wypełnia formularz, nie odpisuje (17.11.2026)
         settings.CANDIDATE_MAIL_SENDER_UPN or None,
+        list_unsubscribe=unsubscribe,
     )
 
 
@@ -236,6 +241,9 @@ async def send_one(
             message,
             to=candidate.email,
             event_at=row.queued_at,
+            unsubscribe=rules.one_click_unsubscribe_url(
+                settings.PUBLIC_API_BASE_URL, raw
+            ),
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("[candidate-terms] send failed: %s", type(exc).__name__)

@@ -59,7 +59,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, linkedin-extension-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-ab-query-adapter, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing, atlas-import]
+        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, candidate-terms-mail-probe, release-config-audit, linkedin-extension-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-ab-query-adapter, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing, atlas-import]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -257,6 +257,31 @@ jobs:
           MAIL_SEND_PROBE: ${{ inputs.action == 'app-mail-send-probe' && '1' || '0' }}
         run: python3 .github/scripts/app_mail_config_audit.py
 
+  candidate-terms-mail-probe:
+    name: T3 — one candidate terms mail from kariera@ to the owner
+    # 18.11.2026: próbny mail z szablonu kandydata (MIME, List-Unsubscribe) na
+    # skrzynkę firmową Artura i jego Gmail z sekretu. Bez ponowień, bez adresów w logu.
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' && inputs.action == 'candidate-terms-mail-probe' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            .github/scripts
+            backend/app/services/candidate_terms.py
+          sparse-checkout-cone-mode: false
+      - name: Verify probe tests
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_candidate_terms_mail_probe.py
+      - name: Send one candidate terms mail to the owner
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          PROBE_GMAIL: ${{ secrets.T3_PROBE_GMAIL }}
+        run: python3 .github/scripts/candidate_terms_mail_probe.py
+
   release-config-audit:
     name: Read release build configuration without secrets
     # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
@@ -311,7 +336,7 @@ jobs:
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
     # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
-    if: ${{ github.ref == 'refs/heads/main' && (inputs.action != 'linkedin-extension-audit' && inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-')) }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action != 'linkedin-extension-audit' && inputs.action != 'release-config-audit' && inputs.action != 'candidate-terms-mail-probe' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
