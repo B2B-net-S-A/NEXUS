@@ -3138,6 +3138,7 @@
   },
   {
     "id": "klient-konsultanci",
+    "pr": 3584,
     "title": "Klient: zakładka Konsultanci",
     "why": "Kto u klienta pracuje, na jakiej umowie i do kiedy ma zamówienie — w jednym wierszu. „Wymaga uwagi” pokazuje brak zamówienia, koniec bez kontynuacji i wypowiedzenie.",
     "tier": "dot",
