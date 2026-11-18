@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Building2, CalendarDays, FolderOpen, Gauge, Landmark, LineChart } from "lucide-react";
+import { Building2, CalendarDays, FolderOpen, Gauge, Gavel, Landmark, LineChart } from "lucide-react";
 
 import { TabbedNav } from "@/components/ds";
 import { FirmaView } from "@/components/insights/views/FirmaView";
@@ -11,6 +11,7 @@ import { BudgetTab } from "./BudgetTab";
 import { DocumentsTab } from "./DocumentsTab";
 import { MeetingsTab } from "./MeetingsTab";
 import { PulpitTab } from "./PulpitTab";
+import { VotesTab } from "./VotesTab";
 
 // „Firma” to ten sam widok co w Insights (decyzja Artura 16.11.2026: Rada
 // przejmuje go z Insights, które znika z jej menu).
@@ -19,6 +20,7 @@ const TABS = [
   { value: "budzet", label: "Budżet", icon: Landmark },
   { value: "analiza", label: "Analiza", icon: Gauge },
   { value: "posiedzenia", label: "Posiedzenia", icon: CalendarDays },
+  { value: "uchwaly", label: "Uchwały", icon: Gavel },
   { value: "firma", label: "Firma", icon: Building2 },
   { value: "dokumenty", label: "Dokumenty", icon: FolderOpen },
 ];
@@ -47,6 +49,7 @@ export function RadaView() {
           {tab === "budzet" ? <BudgetTab /> : null}
           {tab === "analiza" ? <AnalysisTab /> : null}
           {tab === "posiedzenia" ? <MeetingsTab /> : null}
+          {tab === "uchwaly" ? <VotesTab /> : null}
           {tab === "firma" ? <FirmaView /> : null}
           {tab === "dokumenty" ? <DocumentsTab /> : null}
         </div>

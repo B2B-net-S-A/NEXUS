@@ -480,6 +480,10 @@ class NotificationType(str, enum.Enum):
     # i adminów; related_entity=(board_meeting, id). Sekcja Insights,
     # kategoria „Systemowe”. ``services/board/meetings.py``.
     board_meeting_pack = "board_meeting_pack"
+    # 0736 (18.11.2026): uchwała Rady w trybie pisemnym — projekt do głosu
+    # (do członków Rady) i wynik (Rada i admini); related_entity=(board_vote, id).
+    # Sekcja Insights, kategoria „Systemowe”. ``services/board/votes.py``.
+    board_vote = "board_vote"
 
 
 class Notification(Base, TimestampMixin):

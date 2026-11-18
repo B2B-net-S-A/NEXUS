@@ -1621,6 +1621,11 @@ app.include_router(
     tags=["supervisory-board"],
 )
 app.include_router(
+    supervisory_board_api.ballot_router,
+    prefix="/api/supervisory-board",
+    tags=["supervisory-board"],
+)
+app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
     tags=["client-framework-contracts"],
@@ -4229,6 +4234,8 @@ async def api_health_deep_check(request: Request):
         BoardDocument,
         BoardFinancialStatement,
         BoardMeeting,
+        BoardVote,
+        BoardVoteBallot,
         BoardKrsSnapshot,
     )
     from app.models.client_issued_invoice import (
@@ -4922,6 +4929,8 @@ async def api_health_deep_check(request: Request):
         ("board_budget_lines", BoardBudgetLine),
         ("board_financial_statements", BoardFinancialStatement),
         ("board_meetings", BoardMeeting),
+        ("board_votes", BoardVote),
+        ("board_vote_ballots", BoardVoteBallot),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
         # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.

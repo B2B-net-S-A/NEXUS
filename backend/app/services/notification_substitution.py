@@ -151,6 +151,8 @@ PERSONAL_TYPES: frozenset[T] = frozenset(
         T.board_krs_entry,
         # 0735: pakiet na posiedzenie Rady — informacja dla członka Rady.
         T.board_meeting_pack,
+        # 0736: głos w uchwale Rady oddaje tylko członek Rady, nie zastępca.
+        T.board_vote,
         T.automation_failing,
         T.back_office_assigned,
         T.back_office_escalated,

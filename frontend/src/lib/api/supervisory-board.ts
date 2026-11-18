@@ -585,3 +585,99 @@ export function useFreezeMeetingPack() {
     onSuccess: invalidate,
   });
 }
+
+// ── Uchwały w trybie pisemnym (R6) ───────────────────────────────────────────
+
+export type VoteChoice = "for" | "against" | "abstain";
+export type VoteStatus = "open" | "closed" | "withdrawn";
+
+export const VOTE_CHOICE_LABELS: Record<VoteChoice, string> = {
+  for: "Za",
+  against: "Przeciw",
+  abstain: "Wstrzymuję się",
+};
+
+export interface VoteTally {
+  members: number;
+  voted: number;
+  for: number;
+  against: number;
+  abstain: number;
+  quorum: number;
+  quorum_met: boolean;
+  tie_broken_by_chair: boolean;
+  passed: boolean;
+}
+
+export interface BoardVote {
+  id: number;
+  number: string | null;
+  title: string;
+  draft: string;
+  document_id: number | null;
+  meeting_id: number | null;
+  deadline: string;
+  status: VoteStatus;
+  accepting: boolean;
+  chair_user_id: number | null;
+  members: { id: number; name: string; choice: VoteChoice | null }[];
+  tally: VoteTally;
+  result: VoteTally | null;
+  resolution_document_id: number | null;
+  my_choice: VoteChoice | null;
+  can_vote: boolean;
+  /** Po terminie albo gdy zagłosowali wszyscy ze składu. */
+  closable: boolean;
+  created_at: string | null;
+  closed_at: string | null;
+}
+
+export interface VotesResponse {
+  items: BoardVote[];
+  board: { id: number; name: string }[];
+  excluded_matters: string[];
+}
+
+export interface VoteCreateBody {
+  number: string | null;
+  title: string;
+  draft: string;
+  document_id: number | null;
+  meeting_id: number | null;
+  deadline: string;
+  chair_user_id: number | null;
+  not_excluded_matter: boolean;
+}
+
+export function useBoardVotes() {
+  return useQuery({
+    queryKey: [...boardKeys.all, "votes"] as const,
+    queryFn: async () => (await api.get<VotesResponse>(`${BASE}/votes`)).data,
+  });
+}
+
+export function useCreateBoardVote() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (body: VoteCreateBody) => (await api.post<BoardVote>(`${BASE}/votes`, body)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useCastBoardBallot() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ id, choice }: { id: number; choice: VoteChoice }) =>
+      (await api.post<BoardVote>(`${BASE}/votes/${id}/ballot`, { choice })).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useCloseBoardVote() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ id, action }: { id: number; action: "close" | "withdraw" }) =>
+      (await api.post<BoardVote>(`${BASE}/votes/${id}/${action}`)).data,
+    onSuccess: invalidate,
+  });
+}
