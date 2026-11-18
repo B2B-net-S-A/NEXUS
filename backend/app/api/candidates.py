@@ -3617,7 +3617,7 @@ async def list_candidates(
         recent_facts_by_id = await recent_facts.page_rows(
             db,
             [c.id for c in items],
-            visibility_clause=note_rate_visibility_clause(current_user),
+            viewer=current_user,
         )
     last_rejection_by_id: dict[int, dict] = {}
     if include_last_rejection and items:

@@ -32,7 +32,13 @@ from typing import Any, Optional, Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import (
+    hidden_send_note_ids,
+    note_rate_visibility_clause,
+    visible_note_content,
+)
 from app.models.note import Note
+from app.models.user import User
 from app.services import candidate_last_rejection as last_rejection
 from app.services import note_kinds
 
@@ -131,9 +137,15 @@ async def page_rows(
     db: AsyncSession,
     candidate_ids: Sequence[int],
     *,
-    visibility_clause,
+    viewer: Optional[User],
 ) -> dict[int, list[dict[str, Any]]]:
-    """„Ostatnio z osobą” dla osób ze strony — dwa zapytania na stronę."""
+    """„Ostatnio z osobą” dla osób ze strony — dwa zapytania na stronę.
+
+    Treść notatki przechodzi przez tę samą zasłonę co „Ostatnia rozmowa”:
+    wpis ze stawką do klienta odpada w zapytaniu, a notatka Delivery Leada
+    z wysyłki („Wysłany 150/100-110”, decyzja C, 14.10.2026) dostaje zdanie
+    zastępcze — data zostaje, cena dla klienta nie.
+    """
     if not candidate_ids:
         return {}
     rank = (
@@ -145,13 +157,21 @@ async def page_rows(
         .label("rank")
     )
     ranked = (
-        select(Note.candidate_id, Note.created_at, Note.kind, Note.content, rank)
+        select(
+            Note.id,
+            Note.candidate_id,
+            Note.created_at,
+            Note.kind,
+            Note.author_id,
+            Note.content,
+            rank,
+        )
         .where(
             Note.candidate_id.in_(list(candidate_ids)),
             Note.parent_note_id.is_(None),
             Note.source_deleted_at.is_(None),
             note_kinds.talks_clause(),
-            visibility_clause,
+            note_rate_visibility_clause(viewer),
         )
         .subquery()
     )
@@ -159,9 +179,11 @@ async def page_rows(
     rows = (
         await db.execute(select(ranked).where(ranked.c.rank <= FACTS_PER_CANDIDATE + 1))
     ).all()
+    send_ids = await hidden_send_note_ids(db, viewer, [row.id for row in rows])
     notes: dict[int, list[Fact]] = {}
     for row in rows:
-        fact = note_fact(row.created_at, row.kind, row.content)
+        content = visible_note_content(viewer, row, send_note=row.id in send_ids)
+        fact = note_fact(row.created_at, row.kind, content)
         if fact is not None:
             notes.setdefault(row.candidate_id, []).append(fact)
     rejections = await last_rejection.page_rows(db, candidate_ids)
