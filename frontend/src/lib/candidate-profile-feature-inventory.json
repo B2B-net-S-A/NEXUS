@@ -24,9 +24,9 @@
   },
   {
    "id": "c.status",
-   "opis": "„Szuka aktywnie / Otwarty na oferty / Nie szuka” zamiast statusu Aktywny/Pasywny (D4, 13.10.2026); przy żywej umowie ukryte — zostaje „Pracuje u nas” (D3, 15.10.2026)",
+   "opis": "„Szuka aktywnie / Otwarty na oferty / Nie szuka” zamiast statusu Aktywny/Pasywny (D4, 13.10.2026); przy żywej umowie ukryte — zostaje „Pracuje u nas” (D3, 15.10.2026); klik w pigułkę zmienia status (18.11.2026, AvailabilityStatusPicker)",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",
-   "marker": "<AvailabilityPill",
+   "marker": "<AvailabilityStatusPicker",
    "home": "Pasek osoby"
   },
   {

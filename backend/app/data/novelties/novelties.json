@@ -1,5 +1,18 @@
 [
   {
+    "id": "kandydaci-ostatnio-z-osoba",
+    "pr": 3575,
+    "title": "„Ostatnio z osobą” i „Szuka aktywnie” jednym kliknięciem",
+    "why": "Pod osobą na liście widać dwie ostatnie informacje, najnowszą pierwszą, z datą. Status nieaktualny? Kliknij „Szuka aktywnie” przy nazwisku i wybierz właściwy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Kandydaci → lista → „Szuka aktywnie” przy nazwisku",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.availability-status"
+  },
+  {
     "id": "sprzedaz-dzwonienie-mail-po-umowieniu",
     "pr": 3557,
     "title": "Dzwonienie: mail do klienta po umówieniu spotkania",
