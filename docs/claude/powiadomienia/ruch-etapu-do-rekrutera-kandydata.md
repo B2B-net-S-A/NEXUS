@@ -1,5 +1,5 @@
-# Ruch etapu idzie do rekrutera kandydata, prowadzący dostaje tylko ważne etapy (10.11.2026)
-<!-- indeks: reguła „rekruter rekrutacji” (job_recruiter), job_recruiter_ids, LEAD_STAGE_CODES, users.stage_moves_all_led_jobs (0680), „Kandydata prowadzi …”, bez „w ofercie (#id)” -->
+# Ruch etapu idzie do rekrutera kandydata, prowadzący dostaje tylko swoich ludzi (10.11 i 18.11.2026)
+<!-- indeks: reguła „rekruter rekrutacji” (job_recruiter), job_recruiter_ids, move_recruiter_id, default_recruiter_ids(job_fallback=False), bez LEAD_STAGE_CODES, users.stage_moves_all_led_jobs (0680), „Kandydata prowadzi …”, „CV wysłane stoi” do rekrutera kandydata, bez „w ofercie (#id)” -->
 
 Zgłoszenie z 10.11.2026: prowadzący rekrutację 43209 dostał w okienku
 „Rekrutacje” „Kandydat … → Odrzucony” o kandydacie innej rekruterki i nie mógł
@@ -9,23 +9,46 @@ o cudzym kandydacie, 20 osób, 63 ze 136 rekrutacji; 78% z nich to Screening
 i Odrzucony, a Interview Klient i Zatrudniony razem 14. Makiety i decyzja
 Artura (R1 + R2 + R3): https://claude.ai/artifact/6wfDBoKrmLMA46c1JHQPnG
 
+Drugie zgłoszenie 18.11.2026 (ten sam rekruter, ta sama rekrutacja): po
+poprawce dalej 808 z 1 320 dzwonków ruchu z 11–18.11 (61%, 17 osób) szło do
+prowadzącego o cudzym kandydacie. 766 z nich to kandydaci w „Nowych” bez
+rekrutera: łańcuch „rekruter kandydata” kończył się na prowadzącym, więc
+odrzucenie przez kolegę wyglądało jak ruch własnego kandydata. Decyzja Artura:
+„nawet jak ktoś prowadzi rekrutację, to chce tylko info o swoich ludziach”,
+wariant A (wybór w „Moje konto” zostaje). Makiety:
+https://claude.ai/artifact/BtbntEV8kg9WFBHekc3iU7
+
+- **Rekruter kandydata przy ruchu** (`stage_handoff_recipients.move_recruiter_id`):
+  „Prowadzi” → właściciel procesu → weryfikator → osoba, która przesunęła
+  kartę → prowadzący rekrutację (to ostatnie tylko przy ruchu bez osoby,
+  np. z automatu). Pierwsze trzy ogniwa daje
+  `interview_slots.default_recruiter_ids(..., job_fallback=False)`.
+  Pozostałe miejsca (`pair_recruiter_id`: rozmowy, stawki, QC) zostają przy
+  pełnym łańcuchu z prowadzącym na końcu.
 - **Reguła „rekruter rekrutacji” wskazuje rekrutera kandydata**
   (`stage_notification_resolver.job_recruiter_ids`). Prowadzący
-  (`working_owner_id`) dostaje ruch cudzego kandydata tylko na etapach
-  z `LEAD_STAGE_CODES` (Interview Klient, Akceptacja, Zatrudniony) albo gdy
-  wybrał to sam. Własny kandydat i kandydat bez rekrutera — prowadzący, jak dotąd.
-  Nie dopisuj prowadzącego z powrotem „dla pewności”: on widzi te ruchy na Tablicy.
+  (`working_owner_id`) dostaje ruch cudzego kandydata tylko wtedy, gdy wybrał
+  to sam. Od 18.11.2026 nie ma wyjątku dla Interview Klient, Akceptacji
+  i Zatrudnionego (`LEAD_STAGE_CODES` usunięte). Nie dopisuj prowadzącego
+  z powrotem „dla pewności”: on widzi te ruchy na Tablicy.
+- **„CV wysłane stoi ponad 7 dni”** (`check_stage_stuck_7d`, pojedynczy
+  dzwonek) idzie do rekrutera kandydata, a bez aktywnego — do prowadzącego.
+  Tygodniowy skrót „N osób stoi” na rekrutację zostaje u prowadzącego.
 - **Bez zmian:** przekazania z przepływu (QC, Cpro, „CV wysłane”, etapy-odznaki),
   zastępstwa (`notification_route`), reguły z rolą, `specific_user`, DL rekrutacji
-  i override'y klienta. Zmiana dotyczy wyłącznie typu odbiorcy `job_recruiter`.
+  i override'y klienta.
 - **Wybór konta:** `users.stage_moves_all_led_jobs` (0680 + lustro w
   `entrypoint.sh`), `PATCH /api/users/me/preferences`. W „Moje konto” pod
   włączoną kategorią „Ruchy w rekrutacjach” są dwie opcje: „Tylko moi
-  kandydaci” (domyślnie) i „Wszyscy kandydaci w rekrutacjach, które prowadzę”.
-  Przy wyłączonej kategorii wyboru nie ma, bo nic nie przychodzi.
+  kandydaci” (domyślnie; przypisani, zweryfikowani albo przesunięci przez
+  Ciebie, także w prowadzonych rekrutacjach) i „Wszyscy kandydaci
+  w rekrutacjach, które prowadzę”. Przy wyłączonej kategorii wyboru nie ma,
+  bo nic nie przychodzi. 18.11.2026 drugą opcję miało włączone 0 osób.
 - **Treść dzwonka:** odbiorca, który nie jest rekruterem kandydata, czyta
-  najpierw „Kandydata prowadzi …” (pierwsze słowa widoczne w okienku). Zwykły
+  najpierw „Kandydata prowadzi …” (pierwsze słowa widoczne w okienku); emiter
+  liczy rekrutera tym samym `move_recruiter_id` co odbiorców. Zwykły
   ruch mówi „w rekrutacji „…””, nigdy „w ofercie '…' (#id)” — wewnętrzne id
   nie wychodzi w treści. Po skrócie nazwiska („Julia S.”) bez drugiej kropki.
-- Testy: `tests/test_stage_moves_candidate_recruiter.py`, front
+- Testy: `tests/test_stage_moves_candidate_recruiter.py`,
+  `tests/test_notification_triggers.py` (`test_cv_sent_reminder_*`), front
   `NotificationPreferencesPanel.test.tsx`.
