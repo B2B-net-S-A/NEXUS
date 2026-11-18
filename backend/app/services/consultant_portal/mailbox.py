@@ -233,10 +233,13 @@ async def _ingest_message(
 ) -> tuple[int, int]:
     """(nowe, pominięte). Reguła pilotażu przed odczytem załączników."""
 
-    if not message.get("hasAttachments"):
-        return 0, 0
     sender = _sender(message)
     subject = str(message.get("subject") or "")
+    reply = await _store_client_reply(db, mailbox, message, subject=subject, now=now)
+    if reply is not None:
+        return reply, 0
+    if not message.get("hasAttachments"):
+        return 0, 0
     by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
     contract = by_subject or await identity.resolve_sender(
         db, sender, settings=state, today=today
@@ -401,6 +404,56 @@ async def _store_jira_mail(
             sender_email=sender[:320] or None,
         )
     except PortalError:
+        return 0
+    return 0 if stored.duplicate else 1
+
+
+async def _store_client_reply(
+    db: AsyncSession,
+    mailbox: SettlementsMailbox,
+    message: dict[str, Any],
+    *,
+    subject: str,
+    now: datetime,
+) -> Optional[int]:
+    """Odpowiedź klienta na paczkę KCP (E6.5, Bank Pocztowy): nadawca z domeny
+    adresu z reguły ``cl.client_acceptance``. Zapisujemy cały mail bez kontraktu
+    tylko wtedy, gdy akceptuje; zapis sam zaznacza akceptację osób. ``None`` —
+    to nie mail od takiego klienta (zwykła ścieżka)."""
+
+    from app.services.client_settlements import client_acceptance
+
+    sender = _sender(message)
+    received = _parse_time(message.get("receivedDateTime")) or now
+    year, month, guessed = period_for(subject, "", received.date())
+    if not await client_acceptance.is_client_domain(db, sender, f"{year}-{month:02d}"):
+        return None
+    fetch = getattr(mailbox, "mime", None)
+    if fetch is None:
+        return 0
+    try:
+        content = await fetch(str(message["id"]))
+        reply = client_acceptance.read_reply(content or b"", "message/rfc822")
+        if not content or reply is None or not reply.accepted:
+            return 0
+        stored = await documents.store(
+            db,
+            contract_id=None,
+            kind="report",
+            year=year,
+            month=month,
+            content=content,
+            file_name=(subject.strip()[:120] or "odpowiedz klienta") + ".eml",
+            channel="mailbox",
+            now=now,
+            period_guessed=guessed,
+            graph_message_id=str(message["id"])[:512],
+            sender_email=sender[:320] or None,
+        )
+    except (PortalError, GraphRequestError, AppOnlyTokenUnavailable) as exc:
+        logger.info(
+            "rozliczenia@: odpowiedź klienta pominięta (%s)", type(exc).__name__
+        )
         return 0
     return 0 if stored.duplicate else 1
 
