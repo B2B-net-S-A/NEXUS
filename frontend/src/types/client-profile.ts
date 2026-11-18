@@ -124,7 +124,26 @@ export interface ActiveConsultantItem {
   /** Umowa wykonawcza e-Zdrowia z bieżącego zamówienia — null u innych
       klientów i u konsultanta jeszcze nieprzypisanego (do przeglądu). */
   executive_contract?: ExecutiveContractBrief | null;
+  /** Zakładka „Konsultanci” (18.11.2026): zamówienie obowiązujące dziś,
+      a bez niego najnowsze; znaczniki z `services/consultant_order_state.py`. */
+  order_start_date?: string | null;
+  order_end_date?: string | null;
+  /** `draft` = zamówienie w szkicu — pokrywa dzień, ale jest do uzupełnienia. */
+  order_status?: string | null;
+  /** Koniec zamówienia okresowego bez kontynuacji w oknie 30 dni. */
+  order_ending_on?: string | null;
+  attention?: ConsultantAttention[];
+  /** Pola dawnego rejestru klienta w module Kontrakty. */
+  project_code?: string | null;
+  project_name?: string | null;
+  prolongation_status?: string | null;
+  hours_pool_total?: number | null;
+  hours_pool_consumed?: number | null;
 }
+
+/** `notice` = umowa wypowiedziana, `no_current_order` = brak zamówienia na
+    dziś, `order_ending` = zamówienie okresowe kończy się bez kontynuacji. */
+export type ConsultantAttention = "notice" | "no_current_order" | "order_ending";
 
 export interface HistoricalPlacementItem {
   contract_id: number;
@@ -150,6 +169,9 @@ export interface HistoricalPlacementItem {
   hourly_rate_client?: number | null;
   hourly_rate_candidate?: number | null;
   total_revenue: number | null;
+  /** Nr i nazwa projektu dawnego rejestru klienta (18.11.2026). */
+  project_code?: string | null;
+  project_name?: string | null;
 }
 
 export interface LostJobItem {
@@ -165,6 +187,8 @@ export interface ClientProfileResponse {
   summary: ClientProfileSummary;
   open_jobs: OpenJobItem[];
   active_consultants: ActiveConsultantItem[];
+  /** Szkice i umowy do podpisu (zakładka „Konsultanci”, 18.11.2026). */
+  pending_consultants?: ActiveConsultantItem[];
   /** Kontrakty aktywne statusem, które jeszcze nie obowiązują (przyszły start
    *  umowy, a przy jej braku — start bieżącego zamówienia) — poza „Obecnymi"
    *  i „Aktywnym MRR" (UAT B46; brak jakiejkolwiek daty = obecny). */

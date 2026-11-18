@@ -8,7 +8,6 @@ import {
   ContractsClientPicker,
   type ClientRef,
 } from "@/components/contracts/ContractsClientPicker";
-import { ClientContractRegister } from "@/components/contracts/ClientContractRegister";
 import { OrderMailQueue } from "@/components/order-mail/OrderMailQueue";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
 import { Button } from "@/components/ui/button";
@@ -29,6 +28,10 @@ type ViewMode = ContractsView;
  *
  * Dawne `?view=operations&tab=…` (i `/contractors`) prowadzą na listę
  * z odpowiadającym filtrem.
+ *
+ * Kontrakty jednego klienta (18.11.2026, wariant B „Konsultanci”) są w profilu
+ * klienta: wybór klienta otwiera jego zakładkę „Konsultanci”, a dawny rejestr
+ * klienta pod `?client=` przekierowuje tam samo.
  */
 
 export default function ContractsPage() {
@@ -50,33 +53,27 @@ function ContractsPageWithNavigationState() {
   return <ContractsWorkspace navigationSearch={searchParams.toString()} />;
 }
 
-function selectionFromSearch(search: string): {
-  view: ViewMode;
-  client: ClientRef | null;
-} {
-  const params = new URLSearchParams(search);
-  const resolved = resolveContractsView(params.get("view"));
+function viewFromSearch(search: string): ViewMode {
+  const resolved = resolveContractsView(new URLSearchParams(search).get("view"));
   // „Obsługa kontraktorów” nie jest już osobnym widokiem — to filtr listy.
-  const view: ViewMode = resolved === "operations" ? "register" : resolved;
-  if (view !== "register") {
-    return { view, client: null };
-  }
-  const clientId = Number(params.get("client"));
-  return {
-    view: "register",
-    client:
-      Number.isInteger(clientId) && clientId > 0
-        ? {
-            id: clientId,
-            name: params.get("clientName") ?? `#${clientId}`,
-          }
-        : null,
-  };
+  return resolved === "operations" ? "register" : resolved;
 }
 
-/** Dawny adres „Obsługi kontraktorów” → ten sam zbiór na liście. */
-function legacyOperationsTarget(search: string): string | null {
+/** Zakładka „Konsultanci” klienta — tam są jego kontrakty od 18.11.2026. */
+function clientConsultantsHref(clientId: number): string {
+  return `/clients/${clientId}?tab=konsultanci`;
+}
+
+/**
+ * Dawne adresy → nowe miejsce: „Obsługa kontraktorów” na ten sam zbiór listy,
+ * rejestr klienta (`?client=`) na zakładkę „Konsultanci” tego klienta.
+ */
+function legacyTarget(search: string): string | null {
   const params = new URLSearchParams(search);
+  const clientId = Number(params.get("client"));
+  if (params.get("view") !== "order-mail" && Number.isInteger(clientId) && clientId > 0) {
+    return clientConsultantsHref(clientId);
+  }
   if (params.get("view") !== "operations") return null;
   const tab = params.get("tab");
   // „Kończący się” = ten sam zbiór co filtr „Kończące się” (`?ending=30`
@@ -93,12 +90,8 @@ function ContractsWorkspace({
 }: {
   navigationSearch: string;
 }) {
-  const initialSelection = selectionFromSearch(navigationSearch);
   const [mounted, setMounted] = useState(false);
-  const [view, setView] = useState<ViewMode>(initialSelection.view);
-  const [client, setClient] = useState<ClientRef | null>(
-    initialSelection.client,
-  );
+  const [view, setView] = useState<ViewMode>(() => viewFromSearch(navigationSearch));
   const [appliedNavigationSearch, setAppliedNavigationSearch] =
     useState(navigationSearch);
   const canSeeOrderMail = useCapability("nav.order_mail");
@@ -107,33 +100,28 @@ function ContractsWorkspace({
   useEffect(() => {
     setMounted(true);
   }, []);
-  // Dawny adres „Obsługi kontraktorów”: najpierw podmiana adresu routerem
-  // (lista czyta filtry z adresu i z `navigationSearch`), dopiero potem lista.
+  // Dawny adres („Obsługa kontraktorów”, rejestr klienta): najpierw podmiana
+  // adresu routerem (lista czyta filtry z adresu i z `navigationSearch`),
+  // dopiero potem lista.
   const router = useRouter();
-  const legacyTarget = legacyOperationsTarget(`?${navigationSearch}`);
+  const redirectTarget = legacyTarget(`?${navigationSearch}`);
   useEffect(() => {
-    if (legacyTarget) router.replace(legacyTarget);
-  }, [legacyTarget, router]);
+    if (redirectTarget) router.replace(redirectTarget);
+  }, [redirectTarget, router]);
 
   // Next can retain this page instance for same-route sidebar navigation.
   // Reconcile the workspace selection during render so an external queryless
   // `/contracts` immediately unmounts the old client/operations view before a
   // child can canonicalise its stale URL back into history.
   if (appliedNavigationSearch !== navigationSearch) {
-    const nextSelection = selectionFromSearch(navigationSearch);
     setAppliedNavigationSearch(navigationSearch);
-    setView(nextSelection.view);
-    setClient(nextSelection.client);
+    setView(viewFromSearch(navigationSearch));
   }
 
   const showOrderMail = view === "order-mail" && canSeeOrderMail;
 
   const changeView = (next: ViewMode) => {
     setView(next);
-    if (next !== "register") {
-      // Client scope is a register-only concept.
-      setClient(null);
-    }
     // A mode switch is a fresh entry into the target view. Build the URL from
     // scratch so global `page`/filters, operations tab/page and client-register
     // filters can never be interpreted by another view.
@@ -145,28 +133,10 @@ function ContractsWorkspace({
     );
   };
 
+  // Wybór klienta otwiera jego zakładkę „Konsultanci” (18.11.2026) — lista
+  // tutaj zostaje przekrojem przez wszystkich klientów.
   const handleClientChange = (next: ClientRef | null) => {
-    setClient(next);
-    const params = new URLSearchParams(window.location.search);
-    if (next) {
-      if (client?.id !== next.id) {
-        // Podkategorie należą do konkretnego klienta; nie wolno przenosić ich
-        // do kolejnego rejestru. Pozostałe filtry są klient-niezależne.
-        params.delete("register_subcategory");
-        params.delete("register_page");
-      }
-      params.set("client", String(next.id));
-      params.set("clientName", next.name);
-    } else {
-      params.delete("client");
-      params.delete("clientName");
-    }
-    const qs = params.toString();
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `/contracts${qs ? `?${qs}` : ""}`,
-    );
+    if (next) router.push(clientConsultantsHref(next.id));
   };
 
   // „Zamówienia z maila” w rzędzie szybkich filtrów zamiast trzeciej zakładki.
@@ -195,12 +165,12 @@ function ContractsWorkspace({
   const clientPicker = (
     <ContractsClientPicker
       compact
-      value={client}
+      value={null}
       onChange={handleClientChange}
     />
   );
 
-  if (!mounted || legacyTarget) {
+  if (!mounted || redirectTarget) {
     return (
       <div className="p-8 text-sm text-muted-foreground">Ładowanie kontraktów…</div>
     );
@@ -214,22 +184,7 @@ function ContractsWorkspace({
       {showOrderMail ? (
         <OrderMailQueue modeTabs={backToList} />
       ) : null}
-      {showOrderMail ? null : client ? (
-        <Suspense
-          fallback={
-            <div className="p-8 text-sm text-muted-foreground">
-              Ładowanie rejestru klienta…
-            </div>
-          }
-        >
-          <ClientContractRegister
-            clientId={client.id}
-            clientName={client.name}
-            navigationSearch={navigationSearch}
-            toolbarLead={clientPicker}
-          />
-        </Suspense>
-      ) : (
+      {showOrderMail ? null : (
         <Suspense
           fallback={
             <div className="p-8 text-sm text-muted-foreground">

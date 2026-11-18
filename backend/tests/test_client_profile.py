@@ -1236,3 +1236,88 @@ async def test_order_without_a_rate_falls_back_to_the_contract(
     row = await _profile_row(app_client, app_auth_headers, client_id, contract_id)
     assert row["hourly_rate_candidate"] == 125.0
     assert row["hourly_rate_client"] == 167.5
+
+
+# ── Zakładka „Konsultanci” (18.11.2026): zamówienie, znaczniki, szkice ──────
+
+
+async def test_profile_rows_carry_order_state_and_pending_drafts(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Obecna umowa bez zamówienia dostaje `no_current_order`, umowa z zamówieniem
+    kończącym się w 30 dni bez kontynuacji — `order_ending`, a szkic trafia do
+    `pending_consultants`, nie do obecnych ani do liczników."""
+    import uuid
+    from datetime import timedelta
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.client import Client
+    from app.models.client_order import ClientOrder, ClientOrderStatus
+    from app.models.contract import Contract, ContractStatus, ContractType
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Konsultanci-{uuid.uuid4().hex[:6]}")
+        people = [
+            Candidate(
+                name=f"Osoba{i}",
+                lastname=f"K-{uuid.uuid4().hex[:6]}",
+                email=f"kons-{uuid.uuid4().hex[:8]}@example.com",
+            )
+            for i in range(3)
+        ]
+        db.add_all([client, *people])
+        await db.commit()
+        for row in (client, *people):
+            await db.refresh(row)
+
+        def contract(person: Candidate, status: ContractStatus) -> Contract:
+            return Contract(
+                candidate_id=person.id,
+                client_id=client.id,
+                status=status,
+                contract_type=ContractType.b2b,
+                start_date=today - timedelta(days=60),
+                project_code="ZAM-7" if status == ContractStatus.active else None,
+                currency="PLN",
+            )
+
+        without_order = contract(people[0], ContractStatus.active)
+        with_ending_order = contract(people[1], ContractStatus.active)
+        draft = contract(people[2], ContractStatus.draft)
+        db.add_all([without_order, with_ending_order, draft])
+        await db.commit()
+        await db.refresh(with_ending_order)
+        db.add(
+            ClientOrder(
+                client_id=client.id,
+                contract_id=with_ending_order.id,
+                title="Zamówienie okresowe",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=30),
+                end_date=today + timedelta(days=10),
+            )
+        )
+        await db.commit()
+        ids = {
+            "without_order": without_order.id,
+            "ending": with_ending_order.id,
+            "draft": draft.id,
+        }
+
+    resp = await app_client.get(
+        f"/api/clients/{client.id}/profile", headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    active = {row["contract_id"]: row for row in body["active_consultants"]}
+    assert active[ids["without_order"]]["attention"] == ["no_current_order"]
+    assert active[ids["without_order"]]["project_code"] == "ZAM-7"
+    ending = active[ids["ending"]]
+    assert ending["attention"] == ["order_ending"]
+    assert ending["order_ending_on"] == (today + timedelta(days=10)).isoformat()
+    assert ending["order_end_date"] == (today + timedelta(days=10)).isoformat()
+    assert ids["draft"] not in active
+    assert [row["contract_id"] for row in body["pending_consultants"]] == [ids["draft"]]
+    assert body["summary"]["active_contracts"] == 2

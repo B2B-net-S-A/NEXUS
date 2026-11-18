@@ -54,11 +54,11 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_today
-from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order import ClientOrder
 from app.models.contract import Contract
 from app.services.client_identity import client_display_name
 from app.services.contract_service import CONTRACTOR_STATUSES
-from app.services.order_excel_export import is_current_order_period
+from app.services.consultant_order_state import lacks_current_order
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -73,35 +73,9 @@ _EXPORT_STATUSES = CONTRACTOR_STATUSES
 
 _MAX_PAGE_SIZE = 500
 
-# Zamówienie zakończone albo anulowane nie „obowiązuje dziś" niezależnie od dat.
-# Lustro reguły z frontu (`isCurrentOrder`, `lib/client-order-list.ts`) — SZKIC
-# celowo LICZY SIĘ jako pokrycie: to zaślepka zakładana hookiem zatrudnienia,
-# więc osoba ze szkicem jest obsadzona, tylko zamówienie nie jest uzupełnione.
-_DEAD_ORDER_STATUSES = (ClientOrderStatus.completed, ClientOrderStatus.cancelled)
-
-
-def _lacks_current_order(contract: Contract, today) -> bool:
-    """Czy kontraktor jest „bez projektu" — czyli na ławce.
-
-    To NIE jest to samo co ``b2b_generated_contracts.contract_status =
-    'suspended'``. Tamten sygnał jest deklaracją człowieka i jest precyzyjny,
-    ale ślepy na kontraktorów, których umowy nie generowano w NEXUSIE. Ta
-    reguła jest wyprowadzana z zamówień i obejmuje wszystkich, którzy mają
-    kontrakt — dlatego jest sygnałem podstawowym, a `suspended` potwierdzającym.
-    """
-    for order in contract.client_orders or ():
-        if order.status in _DEAD_ORDER_STATUSES:
-            continue
-        # Runda 9 (R9-N9-8): linia zamówienia MD/kosztowego zwykle nie niesie
-        # własnych dat — okres ma grupa (lustro `order_excel_export`). Bez tego
-        # konsultant z linią bez dat wychodził „bez projektu” nawet przy
-        # zamówieniu zakończonym rok temu albo zaczynającym się za pół roku.
-        group = order.order_group if order.order_group_id is not None else None
-        start = order.start_date or (group.start_date if group else None)
-        end = order.end_date or (group.end_date if group else None)
-        if is_current_order_period(start, end, today):
-            return False
-    return True
+# Reguła „bez bieżącego zamówienia” mieszka w serwisie od 18.11.2026 — czyta ją
+# też zakładka „Konsultanci” w profilu klienta (jedna definicja, nie dwie).
+_lacks_current_order = lacks_current_order
 
 
 def _service_rate_limit() -> str:
