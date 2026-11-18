@@ -17,7 +17,12 @@ Archiwum eBI24 ma przy każdej fakturze dekret, który poszedł do Symfonii
    z zatwierdzonej FVS w księdze NEXUSA (pomiar na fakturach 2026: 99,3%
    zgodności dla powiązanych z zamówieniem, 95,3% dla pozostałych; zmianę
    rodzaju księgowa poprawia w szkicu przed zatwierdzeniem);
-4. bez historii — problem „Do sprawdzenia”, bez cichego konta zapasowego.
+4. bez historii — konto wskazane dla nabywcy przez księgową na problemie
+   w „Źródłach” (``app_settings['ledger'].revenue_accounts``, decyzja Artura
+   z 18.11.2026: historia ma pierwszeństwo, więc po pierwszej zatwierdzonej
+   FVS regułę przejmuje krok 3);
+5. bez historii i bez wskazania — problem „Do sprawdzenia”, bez cichego konta
+   zapasowego.
 
 Konto przychodów w Ustawieniach (``sales.revenue_account``) zostaje jako tryb
 jednego konta: wpisane — każda FVS idzie na nie; puste — reguła wyżej.
@@ -38,12 +43,14 @@ from app.models.finance_archive import FinanceArchiveDocument
 from app.models.finance_ledger import FinanceCounterparty
 from app.models.ledger import LedgerDocument, LedgerLine
 
+CHOSEN = "chosen"
 DOCUMENT = "document"
 EBI24 = "ebi24"
 ORIGINAL = "original"
 PREVIOUS = "previous"
 SETTINGS = "settings"
 SOURCE_LABELS: dict[str, str] = {
+    CHOSEN: "wskazane dla nabywcy bez historii",
     DOCUMENT: "z dokumentu tej faktury w księdze",
     EBI24: "z dekretu tej faktury w Symfonii (archiwum eBI24)",
     ORIGINAL: "z faktury korygowanej",
@@ -54,7 +61,7 @@ SALES_SOURCE = "client_sales_invoice"
 NO_HISTORY = (
     "Nabywca nie ma wcześniejszej faktury w Symfonii (archiwum eBI24) ani "
     "zatwierdzonej FVS w księdze, więc konta przychodu (701-<nr klienta>-<rodzaj>) "
-    "nie da się dobrać — zaksięguj tę fakturę ręcznie."
+    "nie da się dobrać — wskaż konto przychodu dla tego nabywcy."
 )
 _NOT_ID = re.compile(r"[^A-Z0-9]")
 
@@ -91,9 +98,14 @@ class RevenueHistory:
 
 
 def pick(
-    invoice: Any, history: RevenueHistory, buyer: Optional[str]
+    invoice: Any,
+    history: RevenueHistory,
+    buyer: Optional[str],
+    chosen: Optional[str] = None,
 ) -> tuple[Optional[str], str]:
-    """(konto, skąd) albo (``None``, problem) — kolejność z opisu modułu."""
+    """(konto, skąd) albo (``None``, problem) — kolejność z opisu modułu.
+
+    ``chosen`` — konto wskazane dla nabywcy; liczy się dopiero bez historii."""
 
     own = str(invoice.id)
     if own in history.current:
@@ -117,6 +129,8 @@ def pick(
     if earlier:
         last = max(earlier, key=lambda item: (item.day, item.rank, item.seq))
         return last.account, PREVIOUS
+    if chosen:
+        return chosen, CHOSEN
     return None, NO_HISTORY
 
 

@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
 import { BankSettingsCard } from "./BankSettingsCard";
+import { RevenueChoicesCard } from "./RevenueChoice";
 import { MONTHS_PL, gr } from "./ledger-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
@@ -92,6 +93,7 @@ export function SettingsView() {
       <div className="space-y-3.5">
         <Accountants />
         <SalesAccountsCard />
+        <RevenueChoicesCard />
         <AllocationAccountsCard />
         <PayrollAccountsCard />
       </div>
@@ -259,7 +261,7 @@ const SALES_FIELDS: AccountField<SalesAccounts>[] = [
   {
     key: "revenue_account",
     label: "Przychody ze sprzedaży",
-    hint: "puste = jak w Symfonii: konto z dekretu faktury w eBI24 albo poprzedniej faktury nabywcy; wpisane = jedno konto dla wszystkich",
+    hint: "puste = jak w Symfonii: konto z dekretu faktury w eBI24 albo poprzedniej faktury nabywcy, bez historii — konto wskazane w Źródłach; wpisane = jedno konto dla wszystkich",
     placeholder: "puste",
     optional: true,
   },
