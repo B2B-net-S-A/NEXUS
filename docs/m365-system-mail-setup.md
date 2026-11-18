@@ -31,9 +31,9 @@ adresaci stali). Domena: SPF z `spf.protection.outlook.com`, DKIM w M365
 (MX na home.pl), więc mail na kariera@ z zewnątrz tam nie dojdzie — i nie ma
 dochodzić, kandydat odpowiada formularzem.
 
-T3b (18.11.2026, po #3585): wiadomości dotarły do Odebranych, a SPF/DKIM/DMARC
-miały PASS. `List-Unsubscribe` dotarł jako ASCII, lecz `List-Unsubscribe-Post`
-nie dotarł; podpis DKIM nie obejmował żadnego z tych dwóch nagłówków. To nie
+T3b (18.11.2026, po #3585): obie wiadomości dotarły do Odebranych. Gmail
+potwierdził SPF, DKIM i DMARC. W obu kopiach `List-Unsubscribe` dotarł jako
+ASCII, a `List-Unsubscribe-Post` zniknął. Podpis DKIM w Gmailu pomijał oba pola. To nie
 potwierdza wypisu jednym kliknięciem: [RFC 8058 §4](https://www.rfc-editor.org/rfc/rfc8058.html#section-4)
 wymaga objęcia obu nagłówków ważnym podpisem DKIM.
 
