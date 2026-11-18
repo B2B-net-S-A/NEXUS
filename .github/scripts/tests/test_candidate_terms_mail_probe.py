@@ -60,6 +60,13 @@ class CandidateTermsProbeTests(unittest.TestCase):
         self.assertIn("Senior Java Developer", msg.get_body(("plain",)).get_content())
         self.assertIn("<", msg.get_body(("html",)).get_content())
 
+    def test_list_unsubscribe_is_plain_ascii_in_raw_mime(self):
+        # T3 18.11.2026: przy foldowaniu do 78 znaków nagłówek wyszedł jako =?utf-8?q?
+        _, calls = self._run()
+        raw = base64.b64decode([c for c in calls if "sendMail" in c.full_url][0].data)
+        self.assertIn(b"\r\nList-Unsubscribe: <https://api.nexus.dynaminds.pl/", raw)
+        self.assertNotIn(b"=?utf-8?q?=3Chttps", raw)
+
     def test_output_has_no_addresses_or_secret(self):
         result, _ = self._run()
         text = json.dumps(result)
