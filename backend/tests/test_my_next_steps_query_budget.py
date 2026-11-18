@@ -219,3 +219,80 @@ async def test_each_board_is_the_single_board_view(app_client: AsyncClient):
         job_id: cards[0]["contact_attempts"] for job_id, cards in shared_cards.items()
     }
     assert attempts == {job_ids[0]: 1, job_ids[1]: 0, job_ids[2]: 0}
+
+
+@pytest.mark.asyncio
+async def test_batches_give_the_same_boards(
+    app_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Suma kart ponad próg (`KANBAN_BATCH_MAX_CARDS`, limit parametrów asyncpg)
+    dzieli tablice na porcje — odpowiedź ta sama co jedną porcją."""
+    from app.api import pipeline as pipeline_api
+
+    headers, uid = await _seed_user()
+    await _seed_boards(uid, 4)
+    whole, whole_n = await _call(app_client, headers)
+    # 6 kart na tablicę: próg 12 = dwie tablice w porcji.
+    monkeypatch.setattr(pipeline_api, "KANBAN_BATCH_MAX_CARDS", 12)
+    split, split_n = await _call(app_client, headers)
+
+    def _stable(body: dict) -> dict:
+        for entry in body["jobs"]:
+            for col in entry["view"]["columns"]:
+                for item in col["items"]:
+                    item.pop("days_in_stage", None)
+        return body
+
+    assert _stable(split) == _stable(whole)
+    assert split_n > whole_n
+
+
+@pytest.mark.asyncio
+async def test_delivery_lead_activity_read_once(app_client: AsyncClient):
+    """Delivery Lead z rekrutacjami innych DL-ów: aktywność każdego z nich
+    nie jest osobnym zapytaniem na tablicę."""
+    from app.models.job import Job
+
+    async def _dl_with_boards(count: int) -> dict:
+        tag = uuid.uuid4().hex[:8]
+        async with AsyncSessionLocal() as db:
+            viewer = User(
+                email=f"mns-dl-{tag}@example.com",
+                password_hash=hash_password(f"T3st_{tag}!Dl"),
+                name=f"MNS DL {tag}",
+                role=UserRole.delivery_lead,
+                is_active=True,
+            )
+            others = [
+                User(
+                    email=f"mns-dl-other-{tag}-{i}@example.com",
+                    password_hash=hash_password(f"T3st_{tag}!Other{i}"),
+                    name=f"MNS DL other {tag} {i}",
+                    role=UserRole.delivery_lead,
+                    is_active=i % 2 == 0,
+                )
+                for i in range(count)
+            ]
+            db.add_all([viewer, *others])
+            await db.commit()
+            viewer_id = viewer.id
+            other_ids = [o.id for o in others]
+        job_ids, _ = await _seed_boards(viewer_id, count)
+        async with AsyncSessionLocal() as db:
+            for job_id, dl_id in zip(job_ids, other_ids):
+                job = await db.get(Job, job_id)
+                job.delivery_lead_id = dl_id
+            await db.commit()
+        return {
+            "Authorization": f"Bearer {create_access_token(viewer_id, 'delivery_lead')}"
+        }
+
+    small = await _dl_with_boards(2)
+    big = await _dl_with_boards(5)
+    await _call(app_client, small)
+    small_body, small_n = await _call(app_client, small)
+    big_body, big_n = await _call(app_client, big)
+
+    assert len(small_body["jobs"]) == 2
+    assert len(big_body["jobs"]) == 5
+    assert big_n == small_n, (small_n, big_n)

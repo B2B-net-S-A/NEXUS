@@ -69,12 +69,15 @@ drugi bieg.
 
 | Konto | Tablic | Zapytania przed | Zapytania po | Czas przed → po | Odpowiedź | JSON |
 |---|---|---|---|---|---|---|
-| 14 | 25 | 1287 | **71** | 2,9 s → 1,2 s | 6,6 MB | identyczny |
-| 86 | 25 | 1170 | **73** | 2,3 s → 0,6 s | 5,4 MB | identyczny |
-| 27 | 25 | 1314 | **94** | 2,7 s → 1,0 s | 8,2 MB | identyczny |
-| 101 | 22 | 1080 | **81** | 2,2 s → 0,8 s | 6,0 MB | identyczny |
-| 30 | 17 | 831 | **68** | 1,4 s → 0,4 s | 3,6 MB | identyczny |
-| 91 | 15 | 763 | **83** | 1,2 s → 0,4 s | 3,5 MB | identyczny |
+| 14 | 25 | 1297 | **77** | 3,2 s → 1,0 s | 7,2 MB | identyczny |
+| 86 | 25 | 1175 | **74** | 2,1 s → 0,8 s | 5,4 MB | identyczny |
+| 27 | 25 | 1308 | **101** | 2,3 s → 0,8–1,1 s | 8,3 MB | identyczny |
+| 101 | 21 | 989 | **80** | 1,7 s → 1,0 s | 5,7 MB | identyczny |
+| 30 | 17 | 830 | **69** | 1,3 s → 0,6 s | 3,7 MB | identyczny |
+| 91 | 13 | 612 | **81** | 1,2 s → 0,3 s | 2,5 MB | identyczny |
+
+Bieg z 19.11 po odświeżeniu stagingu (nowa kopia produkcji); pierwszy bieg
+tej samej nocy na poprzedniej kopii dał 763–1314 → 68–94, też bajt w bajt.
 
 „Identyczny” = bajt w bajt (`cmp`), także pola liczone z zegara, bo oba biegi
 szły minutę po sobie. Pojedyncza Tablica (`/kanban/{job_id}`) idzie tą samą
@@ -100,6 +103,14 @@ Testy: `backend/tests/test_my_next_steps_query_budget.py` (ta sama liczba
 zapytań dla 2 i 6 tablic; każda tablica = `build_kanban_view` tej rekrutacji,
 osoba na trzech tablicach nie przecieka między nimi) i testy wariantów
 `*_for_jobs`. Bramka odczytu (`ensure_job_read_access`) zostaje per rekrutacja.
+
+Po przeglądzie: tablice ładują się w porcjach do `KANBAN_BATCH_MAX_CARDS`
+(12 000 kart), bo zapytania hurtowe wiążą sumę kandydatów, a asyncpg przyjmuje
+najwyżej 32 767 parametrów (Tablica 3413 ma 14 679 kart). Zwykle to jedna
+porcja i jedno zapytanie więcej (liczba kart na tablicę). Delivery Lead
+patrzący na rekrutacje innych DL-ów: ich aktywność jednym zapytaniem, nie raz
+na tablicę. Zegary klienta przy awarii znikają z całej porcji (wcześniej
+z jednej tablicy) — ścieżka błędu z logiem, Tablica dalej się wyświetla.
 
 ## Czego pierwszy PR nie robił
 

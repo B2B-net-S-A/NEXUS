@@ -3637,21 +3637,63 @@ async def build_kanban_views(
     """
     if not jobs:
         return []
-    boards = await _load_kanban_boards(
-        db,
-        jobs,
-        viewer=viewer,
-        with_followups=with_followups,
-        with_employment=with_employment,
-        with_start_docs=with_start_docs,
-        with_cv_state=with_cv_state,
-        with_other_jobs=with_other_jobs,
-        dl_review_memo=dl_review_memo,
+    views: dict[int, KanbanView] = {}
+    for part in await _kanban_batches(db, jobs):
+        boards = await _load_kanban_boards(
+            db,
+            part,
+            viewer=viewer,
+            with_followups=with_followups,
+            with_employment=with_employment,
+            with_start_docs=with_start_docs,
+            with_cv_state=with_cv_state,
+            with_other_jobs=with_other_jobs,
+            dl_review_memo=dl_review_memo,
+        )
+        for job in part:
+            views[job.id] = await _render_kanban_board(
+                db, job, boards[job.id], viewer=viewer
+            )
+    return [views[job.id] for job in jobs]
+
+
+#: Najwięcej kart w jednej porcji tablic ładowanych razem. Zapytania hurtowe
+#: wiążą sumę kandydatów tablic (w UNION nawet dwa razy), a asyncpg przyjmuje
+#: najwyżej 32 767 parametrów; Tablica 3413 miała 14 679 kart. Tablica większa
+#: od progu idzie sama — jak przed 19.11.2026.
+KANBAN_BATCH_MAX_CARDS = 12_000
+
+
+async def _kanban_batches(db: AsyncSession, jobs: Sequence[Job]) -> list[list[Job]]:
+    """Porcje rekrutacji do :func:`_load_kanban_boards` — zwykle jedna."""
+    if len(jobs) < 2:
+        return [list(jobs)]
+    from sqlalchemy import distinct, func  # noqa: PLC0415
+
+    cards = dict(
+        (
+            await db.execute(
+                select(
+                    CandidateStage.job_id,
+                    func.count(distinct(CandidateStage.candidate_id)),
+                )
+                .where(CandidateStage.job_id.in_([job.id for job in jobs]))
+                .group_by(CandidateStage.job_id)
+            )
+        ).all()
     )
-    return [
-        await _render_kanban_board(db, job, boards[job.id], viewer=viewer)
-        for job in jobs
-    ]
+    batches: list[list[Job]] = []
+    current: list[Job] = []
+    current_cards = 0
+    for job in jobs:
+        size = int(cards.get(job.id, 0))
+        if current and current_cards + size > KANBAN_BATCH_MAX_CARDS:
+            batches.append(current)
+            current, current_cards = [], 0
+        current.append(job)
+        current_cards += size
+    batches.append(current)
+    return batches
 
 
 def _board_stage_rows(all_stages: Sequence[CandidateStage]) -> SimpleNamespace:
@@ -3785,6 +3827,27 @@ async def _load_kanban_boards(
     b: dict[int, SimpleNamespace] = {
         jid: _board_stage_rows(rows_by_job[jid]) for jid in job_ids
     }
+    # „Czyj przegląd” (Delivery Lead): aktywność DL-ów wpisanych w rekrutacjach
+    # jednym zapytaniem, zanim pamięć żądania zapyta o każdego osobno.
+    dl_review_memo = {} if dl_review_memo is None else dl_review_memo
+    if viewer is not None and viewer.has_role(UserRole.delivery_lead):
+        other_dls = {
+            job.delivery_lead_id
+            for job in jobs
+            if job.delivery_lead_id is not None
+            and job.delivery_lead_id != viewer.id
+            and ("active", job.delivery_lead_id) not in dl_review_memo
+        }
+        if other_dls:
+            active = dict(
+                (
+                    await db.execute(
+                        select(User.id, User.is_active).where(User.id.in_(other_dls))
+                    )
+                ).all()
+            )
+            for uid in other_dls:
+                dl_review_memo[("active", uid)] = bool(active.get(uid))
     for jid, board in b.items():
         board.candidate_ids = list(board.seen.keys())
         board.show_client_rate = user_can_view_client_rate(viewer)
