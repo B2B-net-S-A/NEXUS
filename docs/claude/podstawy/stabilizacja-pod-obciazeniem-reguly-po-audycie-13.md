@@ -83,6 +83,12 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   domyślnych bez porównania `gc_gen2_count` i `rss_mb`. Wygasłe wpisy `app.core.cache`
   sprząta `cache_set` raz na minutę; `gc_frozen`, `alloc_blocks` i `cache_entries`
   w `runtime_metrics` mówią, czy rośnie sterta, czy ruch.
+- **`re.compile` w pętli po tysiącach rekordów to minuta CPU** (19.11.2026):
+  pamięć podręczna `re` trzyma 512 wzorców, więc wzorzec budowany dla każdej
+  pary (operacja wyciągu × faktura) kompilował się za każdym razem, ok. 0,2 ms.
+  Import wyciągu: 66,6 s i `cpu_pct` 87% przy 1057 zapytaniach, które same
+  kosztowały ok. 1,5 s. Najpierw tani warunek konieczny (podciąg), wzorce
+  w `lru_cache`. → `finanse-insights/ksiega-nexusa-k4-bank.md`
 - **`pipeline_scores_stages` w logu** podaje czasy etapów `pipeline-scores`.
   Trasa miała 04.11 p50 5,5–10,5 s przy spokojnym kanbanie, a przyczyna nie
   była wtedy ustalona.

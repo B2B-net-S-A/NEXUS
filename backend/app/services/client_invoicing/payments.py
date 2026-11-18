@@ -47,7 +47,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_sales_invoice import (
@@ -64,8 +64,9 @@ from app.services.client_sales_invoices_schema import (
     REASON_MAX_LENGTH,
     TITLE_MAX_LENGTH,
 )
+from app.services.hr.bank import duplicates
 from app.services.hr.bank.parsed import ParsedStatement, StatementLine
-from app.services.hr.bank.titles import ksef_numbers_in
+from app.services.hr.bank.titles import ksef_numbers_in, number_in_title
 
 logger = logging.getLogger(__name__)
 
@@ -186,14 +187,6 @@ def mpp_vat(title: str) -> Optional[Decimal]:
         return None
 
 
-def _number_pattern(number: str) -> Optional[re.Pattern[str]]:
-    parts = number.split()
-    if not parts:
-        return None
-    body = r"\s*".join(re.escape(part) for part in parts)
-    return re.compile(r"(?<![0-9A-Za-z])" + body + r"(?![0-9A-Za-z])", re.IGNORECASE)
-
-
 def _numbers_in_title(
     invoice: OpenInvoice, title: str, mpp_number: Optional[str]
 ) -> list[str]:
@@ -203,8 +196,7 @@ def _numbers_in_title(
         if mpp_number and plain == mpp_number.lower():
             found.append(plain)
             continue
-        pattern = _number_pattern(number)
-        if pattern is not None and pattern.search(title or ""):
+        if number_in_title(number, title or ""):
             found.append(plain)
     return found
 
@@ -324,25 +316,6 @@ def decide_credit(
 # ── Import ───────────────────────────────────────────────────────────────────
 
 
-async def _seen_elsewhere(db: AsyncSession, line: StatementLine, sha: str) -> bool:
-    if not line.bank_ref:
-        return False
-    found = await db.scalar(
-        select(func.count())
-        .select_from(ClientSalesInvoicePayment)
-        .where(
-            ClientSalesInvoicePayment.kind == "statement_line",
-            ClientSalesInvoicePayment.statement_sha256 != sha,
-            ClientSalesInvoicePayment.statement_line_ref.endswith(
-                f":{line.bank_ref[:48]}", autoescape=True
-            ),
-            ClientSalesInvoicePayment.amount == money(line.amount),
-            ClientSalesInvoicePayment.booked_on == line.booked_on,
-        )
-    )
-    return bool(found)
-
-
 async def _all_chains(db: AsyncSession) -> list[Chain]:
     return await ledger.build_chains(
         db, list(await db.scalars(select(ClientSalesInvoice)))
@@ -393,6 +366,9 @@ async def import_credits(
     )
     chains = {chain.head.id: chain for chain in await _all_chains(db)}
     invoices = {head: open_invoice(chain) for head, chain in chains.items()}
+    seen = await duplicates.seen_elsewhere(
+        db, ClientSalesInvoicePayment, credits, sha, money=money
+    )
     for line in credits:
         if line.line_ref in known_refs:
             result.known += 1
@@ -414,7 +390,7 @@ async def import_credits(
             statement_line_ref=line.line_ref,
             created_by=actor_id,
         )
-        if await _seen_elsewhere(db, line, sha):
+        if line.line_ref in seen:
             payment.match_status = "ignored"
             payment.reason = DUPLICATE_REASON
             db.add(payment)
@@ -433,7 +409,6 @@ async def import_credits(
         if decision.reason.endswith("_mpp"):
             payment.reason = "Podzielona płatność: VAT na rachunku VAT."
         db.add(payment)
-        await db.flush()
         chain = chains[decision.invoice_id]
         supersede_ebi24(chain)
         chain.payments.append(payment)

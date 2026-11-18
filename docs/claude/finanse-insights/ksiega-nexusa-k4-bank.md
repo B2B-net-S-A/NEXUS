@@ -110,6 +110,31 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   WB pamięta w `meta.bank_lines`, która jego pozycja jest którą operacją
   wyciągu (poza odciskiem dokumentu).
 
+## Koszt importu (19.11.2026)
+
+18.11.2026 18:42 jeden import trwał 66,6 s przy 1057 zapytaniach, a jedyny
+proces web stał (`loop_lag_ms_p99` 1111 ms, `/api/health` 12,8 s). Zasady:
+
+- **Numer faktury w tytule tylko przez `hr.bank.titles.number_in_title`.**
+  Wzorzec kompilowany dla każdej pary operacja × faktura (E3 `decide_debit`,
+  E8 `decide_credit`) kosztował ok. 0,2 ms, bo przy tysiącach faktur pamięć
+  podręczna `re` (512 wzorców) nic nie trzyma: 100 obciążeń × 3000 faktur =
+  63,9 s, po zmianie 0,4 s. Helper najpierw sprawdza ciągi cyfr numeru
+  w tytule, a wzorce trzyma w `lru_cache`.
+- **Na operację nie ma zapytań w E3, E8 ani w Księdze.** Duplikat z innego
+  pliku sprawdza jedno zapytanie (`hr.bank.duplicates.seen_elsewhere`), E3
+  zamyka pozycje paczek i liczy `refresh` raz po wszystkich operacjach (kolejne
+  operacje biorą stan faktury z pamięci), kontrahentów faktur sprzedaży Księga
+  czyta jednym zapytaniem. R9 płaci osobno tylko za każde opłacone rozliczenie
+  (`mark_paid`: blokada, status, ślad HR, powiadomienie osoby — ok. 17 zapytań,
+  jak „Opłacono” na karcie).
+- Księga parsuje plik raz, w `asyncio.to_thread`, i podaje E3 i R9 `parsed`
+  oraz `team` (rachunki osób i rozliczenia), które ma już z tego żądania.
+  Stare ekrany importu wołają te funkcje bez nich i liczą je same.
+- Sufit pilnuje `tests/test_ledger_bank_import_query_budget.py` (dwie długości
+  wyciągu, osoba z Płacami i bez), a wynik dopasowania numeru
+  `tests/test_bank_title_number_match.py`.
+
 ## Testy
 
 `tests/test_ledger_bank_rules.py` (reguły bez bazy), sekcja K4a

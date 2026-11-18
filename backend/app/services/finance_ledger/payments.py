@@ -74,9 +74,9 @@ from app.services.finance_payments_schema import (
     TITLE_MAX,
 )
 from app.services.hr import white_list
-from app.services.hr.bank import elixir, statements
+from app.services.hr.bank import duplicates, elixir, statements
 from app.services.hr.bank.accounts import grouped_iban
-from app.services.hr.bank.parsed import StatementLine
+from app.services.hr.bank.parsed import ParsedStatement
 
 logger = logging.getLogger(__name__)
 _ZONE = ZoneInfo(DEFAULT_TZ)
@@ -1908,29 +1908,25 @@ async def _candidates(db: AsyncSession) -> list[rules.CostCandidate]:
     return result
 
 
-async def _seen_elsewhere(db: AsyncSession, line: StatementLine, sha: str) -> bool:
-    if not line.bank_ref:
-        return False
-    found = await db.scalar(
-        select(func.count())
-        .select_from(FinanceCostPaymentRecord)
-        .where(
-            FinanceCostPaymentRecord.kind == "statement_line",
-            FinanceCostPaymentRecord.statement_sha256 != sha,
-            FinanceCostPaymentRecord.statement_line_ref.endswith(
-                f":{line.bank_ref[:48]}", autoescape=True
-            ),
-            FinanceCostPaymentRecord.amount == rules.money(line.amount),
-            FinanceCostPaymentRecord.booked_on == line.booked_on,
-        )
-    )
-    return bool(found)
+async def import_debits(
+    db: AsyncSession,
+    raw: bytes,
+    *,
+    actor_id: int,
+    parsed: Optional[ParsedStatement] = None,
+    team: Optional[tuple[dict[str, set[int]], list[statements.Candidate]]] = None,
+) -> DebitResult:
+    """Obciążenia z wyciągu → zapłaty faktur kosztowych (bez commita).
 
+    ``parsed`` i ``team`` (rachunki osób z zespołu i ich rozliczenia) podaje
+    Księga, która ma je już z tego samego żądania — bez drugiego parsowania
+    pliku i odszyfrowania rachunków. Liczba zapytań nie zależy od liczby
+    operacji: duplikaty sprawdza jedno zapytanie, a stan zapłaty i pozycje
+    paczek dopasowanych faktur liczą się raz, po wszystkich operacjach.
+    """
 
-async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> DebitResult:
-    """Obciążenia z wyciągu → zapłaty faktur kosztowych (bez commita)."""
-
-    parsed = statements.parse_file(raw)
+    if parsed is None:
+        parsed = statements.parse_file(raw)
     sha = hashlib.sha256(raw).hexdigest()
     # Ta sama blokada co import Płac i Faktur do klientów (ten sam plik naraz).
     await db.execute(
@@ -1958,9 +1954,19 @@ async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> Debit
             )
         )
     )
-    team_accounts, _unreadable = await statements.account_owners(db)
-    team = await statements.load_candidates(db)
+    if team is None:
+        team_accounts, _unreadable = await statements.account_owners(db)
+        team = (team_accounts, await statements.load_candidates(db))
+    team_accounts, people = team
     candidates = {c.entry_id: c for c in await _candidates(db)}
+    seen = await duplicates.seen_elsewhere(
+        db,
+        FinanceCostPaymentRecord,
+        (line for line in parsed.lines if line.direction == "debit"),
+        sha,
+        money=rules.money,
+    )
+    paid: list[int] = []
     for line in parsed.lines:
         if line.direction != "debit":
             result.skipped += 1
@@ -1972,7 +1978,7 @@ async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> Debit
         # Obciążenie, które dotyczy osoby z zespołu, zostaje ścieżce Płac.
         if (
             line.line_ref in payroll_refs
-            or statements.decide(line, team, team_accounts).related
+            or statements.decide(line, people, team_accounts).related
         ):
             result.team += 1
             continue
@@ -1993,7 +1999,7 @@ async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> Debit
             statement_line_ref=line.line_ref,
             created_by=actor_id,
         )
-        if await _seen_elsewhere(db, line, sha):
+        if line.line_ref in seen:
             record.match_status = "ignored"
             record.reason = DUPLICATE_REASON
             db.add(record)
@@ -2014,9 +2020,7 @@ async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> Debit
         elif decision.partial:
             record.reason = "Zapłata częściowa."
         db.add(record)
-        await db.flush()
-        await _close_items(db, [decision.entry_id])
-        await refresh(db, [decision.entry_id], actor_id=actor_id)
+        paid.append(decision.entry_id)
         found = candidates[decision.entry_id]
         candidates[decision.entry_id] = replace(
             found,
@@ -2029,6 +2033,11 @@ async def import_debits(db: AsyncSession, raw: bytes, *, actor_id: int) -> Debit
         else:
             result.matched += 1
     await db.flush()
+    if paid:
+        # Kolejne operacje biorą stan faktury z ``candidates`` (w pamięci),
+        # więc stan zapłaty i pozycje paczek liczą się raz, na końcu.
+        await _close_items(db, paid)
+        await refresh(db, paid, actor_id=actor_id)
     logger.info("[finance-payments] wyciąg %s: %s", sha[:12], result.as_dict())
     return result
 

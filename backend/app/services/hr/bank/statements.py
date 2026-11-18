@@ -68,7 +68,7 @@ from app.models.user import User
 from app.services.client_invoicing import payments as client_payments
 from app.services.hr import audit, billing_details
 from app.services.hr import settlements as settlement_service
-from app.services.hr.bank import camt053, mt940
+from app.services.hr.bank import camt053, duplicates, mt940
 from app.services.hr.bank.finance import PayableInvoice, invoice_gross, matched_invoices
 from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
 from app.services.hr.bank.titles import ksef_numbers_in
@@ -388,25 +388,6 @@ async def load_candidates(
     return candidates
 
 
-async def _seen_elsewhere(db: AsyncSession, line: StatementLine, sha: str) -> bool:
-    if not line.bank_ref:
-        return False
-    found = await db.scalar(
-        select(func.count())
-        .select_from(PayrollPayment)
-        .where(
-            PayrollPayment.kind == "statement_line",
-            PayrollPayment.statement_sha256 != sha,
-            PayrollPayment.statement_line_ref.endswith(
-                f":{line.bank_ref[:48]}", autoescape=True
-            ),
-            PayrollPayment.amount == money(line.amount),
-            PayrollPayment.booked_on == line.booked_on,
-        )
-    )
-    return bool(found)
-
-
 # ── Import ────────────────────────────────────────────────────────────────────
 
 
@@ -434,11 +415,23 @@ async def _import_credits(
 
 
 async def import_statement(
-    db: AsyncSession, raw: bytes, *, actor_id: int, match_credits: bool
+    db: AsyncSession,
+    raw: bytes,
+    *,
+    actor_id: int,
+    match_credits: bool,
+    parsed: Optional[ParsedStatement] = None,
+    team: Optional[tuple[dict[str, set[int]], list[Candidate]]] = None,
 ) -> ImportResult:
-    """Wyciąg Płac; ``match_credits`` — importujący ma moduł Finanse (uznania klientów)."""
+    """Wyciąg Płac; ``match_credits`` — importujący ma moduł Finanse (uznania klientów).
 
-    parsed = parse_file(raw)
+    ``parsed`` i ``team`` (rachunki osób, ich rozliczenia) podaje Księga, która
+    ma je już z tego samego żądania. Duplikaty sprawdza jedno zapytanie; na
+    operację zostaje tylko zapłata dopasowanego rozliczenia (``mark_paid``).
+    """
+
+    if parsed is None:
+        parsed = parse_file(raw)
     sha = hashlib.sha256(raw).hexdigest()
     result = ImportResult(format=parsed.format, sha256=sha)
     # Dwa równoległe importy tego samego pliku: drugi czeka i widzi „już był”.
@@ -462,9 +455,13 @@ async def import_statement(
         result.already_imported = True
         return result
 
-    accounts, unreadable = await account_owners(db)
+    if team is None:
+        accounts, unreadable = await account_owners(db)
+        candidates = await load_candidates(db)
+    else:
+        # Księga odmawia importu przy nieczytelnych rachunkach (D2), więc tu są.
+        (accounts, candidates), unreadable = team, False
     result.accounts_unreadable = unreadable
-    candidates = await load_candidates(db)
     by_id = {c.settlement_id: c for c in candidates}
     names = {
         int(uid): str(name)
@@ -481,6 +478,17 @@ async def import_statement(
         for user_id in users:
             own_accounts[user_id].add(account)
 
+    seen = await duplicates.seen_elsewhere(
+        db,
+        PayrollPayment,
+        (
+            line
+            for line in parsed.lines
+            if line.direction == "debit" and line.currency in CURRENCIES
+        ),
+        sha,
+        money=money,
+    )
     for line in parsed.lines:
         if line.direction != "debit" or line.currency not in CURRENCIES:
             # Uznania i waluty spoza rozliczeń nie dotyczą wypłat dla zespołu.
@@ -503,7 +511,7 @@ async def import_statement(
             statement_line_ref=line.line_ref,
             created_by=actor_id,
         )
-        if await _seen_elsewhere(db, line, sha):
+        if line.line_ref in seen:
             payment.match_status = "ignored"
             payment.reason = DUPLICATE_REASON
             db.add(payment)
