@@ -75,29 +75,62 @@ def _net_pln():
 _SALE_DATE_SHAPE = r"^(19|20)[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
 
 
-def period_date():
+def period_date(raw: Any, issue: Any):
     """Dzień, do którego miesiąca należy faktura: data sprzedaży z eBI24
-    w oknie wokół wystawienia, w przeciwnym razie data wystawienia.
+    (``raw``, tekst) w oknie wokół wystawienia (``issue``), w przeciwnym
+    razie data wystawienia.
 
     Data z eBI24 przychodzi bez walidacji („0000-00-00”, „2026-02-30”), a jedno
     rzutowanie złej wartości wywraca całe zapytanie. Dlatego nie ma tu
     ``CAST(... AS date)``: dzień = ``make_date(rok, miesiąc, 1) + (dzień − 1)``
     (nigdy nie rzuca dla miesiąca 1–12), a 30 lutego wychodzi jako 2 marca
-    i odpada na porównaniu miesiąca. CASE gwarantuje kolejność warunków."""
+    i odpada na porównaniu miesiąca. CASE gwarantuje kolejność warunków.
 
-    raw = Doc.meta["transactionDate"].astext
+    ``raw`` to kolumna z :func:`invoices`, nie ``Doc.meta[...]``: wyrażenie
+    odwołuje się do niej kilkanaście razy, a każde ``meta->>…`` rozpakowuje
+    cały JSONB (pulpit Rady 18.11.2026: 9–11 s)."""
+
     year = cast(func.substr(raw, 1, 4), Integer)
     month = cast(func.substr(raw, 6, 2), Integer)
     day = cast(func.substr(raw, 9, 2), Integer)
     sold = type_coerce(func.make_date(year, month, 1) + (day - 1), Date)
     before, after = SALE_DATE_WINDOW
     return case(
-        (Doc.issue_date.is_(None), None),
-        (or_(raw.is_(None), ~raw.op("~")(_SALE_DATE_SHAPE)), Doc.issue_date),
-        (extract("month", sold) != month, Doc.issue_date),
-        (sold.between(Doc.issue_date - before, Doc.issue_date + after), sold),
-        else_=Doc.issue_date,
+        (issue.is_(None), None),
+        (or_(raw.is_(None), ~raw.op("~")(_SALE_DATE_SHAPE)), issue),
+        (extract("month", sold) != month, issue),
+        (sold.between(issue - before, issue + after), sold),
+        else_=issue,
     )
+
+
+def invoices(*where: Any):
+    """Faktury z datą sprzedaży wyjętą z ``meta`` raz na wiersz.
+
+    CTE jest ``MATERIALIZED``, bo inaczej Postgres wkleja wyrażenie z powrotem
+    do zapytania i ``meta->>'transactionDate'`` znów liczy się wiele razy.
+    Kolumny: ``kind``, ``partner``, ``net``, ``contractor``, ``day``."""
+
+    rows = (
+        select(
+            Doc.kind.label("kind"),
+            Doc.partner_name.label("partner"),
+            _net_pln().label("net"),
+            is_contractor_cost().label("contractor"),
+            Doc.issue_date.label("issue"),
+            Doc.meta["transactionDate"].astext.label("raw"),
+        )
+        .where(*where)
+        .cte("invoice_rows")
+        .prefix_with("MATERIALIZED")
+    )
+    return select(
+        rows.c.kind,
+        rows.c.partner,
+        rows.c.net,
+        rows.c.contractor,
+        period_date(rows.c.raw, rows.c.issue).label("day"),
+    ).subquery("invoices")
 
 
 def is_contractor_cost():
@@ -195,24 +228,22 @@ def year_over_year(rows: list[MonthRow], year: int) -> dict[str, Any]:
 
 
 async def month_rows(db: AsyncSession, first_year: int) -> list[MonthRow]:
-    net = _net_pln()
-    day = period_date()
-    year = extract("year", day)
-    month = extract("month", day)
+    # Faktura z początku stycznia może mieć sprzedaż z grudnia.
+    inv = invoices(
+        Doc.kind.in_(("sale", "cost")),
+        Doc.issue_date >= date(first_year, 1, 1) - SALE_DATE_WINDOW[1],
+    )
+    year = extract("year", inv.c.day)
+    month = extract("month", inv.c.day)
     rows = await db.execute(
         select(
             year.label("y"),
             month.label("m"),
-            func.coalesce(func.sum(case((Doc.kind == "sale", net))), 0),
-            func.coalesce(func.sum(case((Doc.kind == "cost", net))), 0),
-            func.coalesce(func.sum(case((is_contractor_cost(), net))), 0),
+            func.coalesce(func.sum(case((inv.c.kind == "sale", inv.c.net))), 0),
+            func.coalesce(func.sum(case((inv.c.kind == "cost", inv.c.net))), 0),
+            func.coalesce(func.sum(case((inv.c.contractor, inv.c.net))), 0),
         )
-        .where(
-            Doc.kind.in_(("sale", "cost")),
-            # Faktura z początku stycznia może mieć sprzedaż z grudnia.
-            Doc.issue_date >= date(first_year, 1, 1) - SALE_DATE_WINDOW[1],
-            day >= date(first_year, 1, 1),
-        )
+        .where(inv.c.day >= date(first_year, 1, 1))
         .group_by(year, month)
         .order_by(year, month)
     )
@@ -267,26 +298,29 @@ async def budget_sales(
 
 
 async def top_clients(db: AsyncSession, start: date, end: date) -> list[dict[str, Any]]:
-    net = _net_pln()
-    day = period_date()
-    window = and_(Doc.kind == "sale", day >= start, day <= end)
-    total = (await db.execute(select(func.sum(net)).where(window))).scalar_one_or_none()
+    before, after = SALE_DATE_WINDOW
+    inv = invoices(
+        Doc.kind == "sale",
+        Doc.issue_date.between(start - after, end + before),
+    )
+    rows = (
+        await db.execute(
+            select(inv.c.partner, func.sum(inv.c.net))
+            .where(inv.c.day.between(start, end))
+            .group_by(inv.c.partner)
+        )
+    ).all()
+    total = sum(float(value or 0) for _, value in rows)
     if not total:
         return []
-    rows = await db.execute(
-        select(Doc.partner_name, func.sum(net).label("v"))
-        .where(window)
-        .group_by(Doc.partner_name)
-        .order_by(func.sum(net).desc().nulls_last())
-        .limit(TOP_CLIENTS)
-    )
+    top = sorted(rows, key=lambda row: float(row[1] or 0), reverse=True)[:TOP_CLIENTS]
     return [
         {
             "name": name or "bez nazwy",
             "sales": mln(value),
-            "share": round(100 * float(value or 0) / float(total), 1),
+            "share": round(100 * float(value or 0) / total, 1),
         }
-        for name, value in rows.all()
+        for name, value in top
     ]
 
 
