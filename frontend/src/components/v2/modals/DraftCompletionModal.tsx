@@ -240,7 +240,7 @@ export function DraftCompletionModal({
  <DialogDescription>
  {needsRatesFromFinance
  ? `Uzupełnij dane operacyjne. Stawki wpisuje osoba z uprawnieniem „${permissionLabel("amounts_edit")}” — po ich uzupełnieniu kontrakt aktywuje się automatycznie.`
- : "Wypełnij wymagane pola. Po zapisaniu kontrakt aktywuje się automatycznie i trafia do zakładki „Aktywni”."}
+ : "Wypełnij wymagane pola. Po zapisaniu kontrakt aktywuje się automatycznie i trafia do „Aktywnych”."}
  </DialogDescription>
  </DialogHeader>
 

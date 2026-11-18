@@ -166,7 +166,9 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
         getMock.mock.calls.some((c) => c[0] === "/api/contracts"),
       ).toBe(true),
     );
-    const call = getMock.mock.calls.find((c) => c[0] === "/api/contracts");
+    const call = getMock.mock.calls.find(
+      (c) => c[0] === "/api/contracts" && c[1]?.params?.page_size !== 1,
+    );
     expect(call?.[1]).toMatchObject({
       params: expect.objectContaining({
         group_by_candidate: true,
@@ -659,7 +661,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     await screen.findByText("Paweł Makietowy");
 
     const lastParams = () =>
-      (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
+      (getMock.mock.calls.filter(([url, config]) => url === "/api/contracts" && config?.params?.page_size !== 1).at(-1)?.[1] as {
         params: Record<string, unknown>;
       }).params;
     expect(lastParams().sort_by).toBeUndefined();
@@ -688,7 +690,7 @@ describe("ContractsListV2 — grupowanie per osoba + kolumny stawek", () => {
     window.history.replaceState({}, "", `/contracts?${query}`);
     renderList(query);
     await screen.findByText("Paweł Makietowy");
-    const params = (getMock.mock.calls.filter(([url]) => url === "/api/contracts").at(-1)?.[1] as {
+    const params = (getMock.mock.calls.filter(([url, config]) => url === "/api/contracts" && config?.params?.page_size !== 1).at(-1)?.[1] as {
       params: Record<string, unknown>;
     }).params;
     expect(params).toMatchObject({

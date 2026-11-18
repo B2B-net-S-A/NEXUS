@@ -4,11 +4,11 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 /**
- * The contractor roster is now the "Obsługa kontraktorów" mode inside the
- * unified /contracts workspace. This route is kept as a redirect so old
- * links, bookmarks and the historical `/contractors?tab=` deep-links keep
- * working — the `tab` (draft/active/ending) is preserved and consumed by
- * ContractorsListV2 on the target page.
+ * Dawna lista kontraktorów. Od 18.11.2026 to szybki filtr jednej listy
+ * `/contracts`; trasa zostaje jako przekierowanie, żeby stare linki i zakładki
+ * (`/contractors?tab=`) działały. `tab` (draft/active/ending) idzie dalej jako
+ * `?view=operations&tab=…`, a strona `/contracts` zamienia go na ten sam
+ * zbiór listy (`legacyOperationsTarget`).
  *
  * Reads window.location.search (not useSearchParams) to avoid the Next 15
  * streaming-SSR Suspense boundary requirement.

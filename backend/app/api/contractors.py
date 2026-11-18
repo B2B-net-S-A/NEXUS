@@ -29,7 +29,7 @@ The "incomplete drafts" subcount drives the dashboard widget
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, case, func, not_, or_, select
+from sqlalchemy import and_, case, func, not_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -50,8 +50,8 @@ from app.schemas.contract import (
 from app.services.contract_service import (
     CONTRACTOR_STATUSES,
     PENDING_CONTRACT_STATUSES,
-    ending_soon_clause,
-    is_ending_soon,
+    ending_bucket_clause,
+    in_ending_bucket,
     live_not_ending_clause,
     validate_ready_for_activation,
 )
@@ -155,9 +155,10 @@ def _to_item(contract: Contract) -> ContractorListItem:
 
 # Zakładka „Kończący się” = zapisany status ``ending`` ∪ okno 30 dni; „Aktywni”
 # = reszta żywych. Dwie kopie (SQL i Python) tej samej reguły — liczniki
-# zakładek muszą równać się liczbie wierszy (audyt 24.09, S6).
+# zakładek muszą równać się liczbie wierszy (audyt 24.09, S6). Od 18.11.2026
+# reguła mieszka w ``contract_service`` i czyta ją też lista kontraktów.
 def _ending_bucket_clause():
-    return or_(Contract.status == ContractStatus.ending, ending_soon_clause())
+    return ending_bucket_clause()
 
 
 def _active_bucket_clause():
@@ -168,7 +169,7 @@ def _active_bucket_clause():
 
 
 def _in_ending_bucket(contract: Contract) -> bool:
-    return contract.status == ContractStatus.ending or is_ending_soon(contract)
+    return in_ending_bucket(contract)
 
 
 @router.get("", response_model=ContractorList)

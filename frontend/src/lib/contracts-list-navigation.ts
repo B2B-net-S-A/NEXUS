@@ -101,6 +101,7 @@ const CONTRACT_SORT_KEY_SET: ReadonlySet<string> = new Set(CONTRACT_SORT_KEYS);
 
 const CONTRACT_STATUS_VALUES = new Set<ContractStatusValue>([
   "draft",
+  "ready_for_signature",
   "active",
   "ending",
   "ended",

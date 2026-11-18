@@ -52,8 +52,7 @@ export function ContractStatusControl({
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
       queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
       queryClient.invalidateQueries({ queryKey: ["client-register"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
-      queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
       queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
       onError("");
     },

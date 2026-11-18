@@ -1,9 +1,10 @@
 # Kontrakty i Zamówienia: lista z panelem (wersja B, 29.09.2026)
 
 Zgłoszenie Anny („wszystko jest gigantyczne"), makieta B wybrana przez zespół:
-https://claude.ai/artifact/4kiwKRJxukyHVYmWdydUoS. `/contracts` (rejestr, „Obsługa
-kontraktorów", rejestr klienta) i zakładka „Zamówienia" klienta to zwarta tabela;
-klik w wiersz otwiera panel szczegółów po prawej. **Okna z formularzami i backend
+https://claude.ai/artifact/4kiwKRJxukyHVYmWdydUoS. `/contracts` (lista kontraktów,
+rejestr klienta) i zakładka „Zamówienia" klienta to zwarta tabela; klik w wiersz
+otwiera panel szczegółów po prawej. Od 18.11.2026 „Obsługa kontraktorów” to szybki
+filtr jednej listy → `jedna-lista-kontraktow-szybkie-filtry.md`. **Okna z formularzami i backend
 się nie zmieniły** — panel otwiera TE SAME okna co dawne karty.
 
 - **Klocki:** `ds/ListDetailLayout` (≥ 1600 px panel obok tabeli, 768–1599 px

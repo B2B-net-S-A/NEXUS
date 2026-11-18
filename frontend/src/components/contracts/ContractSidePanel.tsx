@@ -137,8 +137,6 @@ export interface ContractSidePanelProps {
   source?: "contracts" | "contractors" | "client-register";
   /** Klik w chip innego klienta tej osoby — przełącza panel na tamten kontrakt. */
   onSelectContract?: (contractId: number) => void;
-  /** Wiersz „Obsługi kontraktorów” — okno uzupełnienia draftu dostaje prawdziwe braki. */
-  contractorItem?: ContractorListItem | null;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -240,7 +238,6 @@ export function ContractSidePanel({
   returnTarget,
   source = "contracts",
   onSelectContract,
-  contractorItem,
 }: ContractSidePanelProps) {
   const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
@@ -313,8 +310,7 @@ export function ContractSidePanel({
     queryClient.invalidateQueries({ queryKey: ["contracts"] });
     queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
     queryClient.invalidateQueries({ queryKey: ["client-register"] });
-    queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
-    queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
     queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
     queryClient.invalidateQueries({ queryKey: ["contract-activities", contractId] });
   };
@@ -966,7 +962,7 @@ export function ContractSidePanel({
       )}
       {dialog === "complete-draft" && access.canEditContract && (
         <DraftCompletionModal
-          contractor={contractorItem ?? contractorItemFromDetail(contract)}
+          contractor={contractorItemFromDetail(contract)}
           open
           onOpenChange={(open) => {
             if (!open) setDialog(null);

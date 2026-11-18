@@ -485,9 +485,15 @@ async def nbp_rates(
     return {day: Decimal(found[rate]) for day, rate in wanted.items()}
 
 
+def _money(amount: Decimal) -> str:
+    """Kwota do komunikatu: ``-1 234,50``."""
+
+    return f"{amount:,.2f}".replace(",", " ").replace(".", ",")
+
+
 def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> None:
-    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, jedna waluta,
-    jeden miesiąc."""
+    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, saldo zgodne
+    z operacjami, jedna waluta, jeden miesiąc."""
 
     if not lines:
         raise LedgerError("Wyciąg nie ma żadnej operacji.", status=422)
@@ -495,6 +501,17 @@ def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> No
         raise LedgerError(
             "Plik ma wyciągi kilku rachunków — wgraj każdy rachunek osobnym plikiem "
             "(WB księguje jeden rachunek).",
+            status=422,
+        )
+    gap = next((item for item in parsed.balances if not item.ok), None)
+    if gap is not None:
+        # Ucięty albo uszkodzony plik wszedłby po cichu z częścią operacji.
+        part = f" (wyciąg {gap.statement} w pliku)" if len(parsed.balances) > 1 else ""
+        raise LedgerError(
+            f"Saldo wyciągu się nie zgadza{part}: otwarcie {_money(gap.opening)} "
+            f"i operacje {_money(gap.movement)} dają {_money(gap.expected)}, a bank "
+            f"podaje saldo końcowe {_money(gap.closing)}. Plik jest niepełny albo "
+            "uszkodzony — pobierz go z banku jeszcze raz.",
             status=422,
         )
     file_currency(parsed, lines)

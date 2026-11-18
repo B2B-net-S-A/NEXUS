@@ -224,7 +224,7 @@ function ImportCard({ settings, onImported }: { settings: BankSettings; onImport
             <input
               key={inputKey}
               type="file"
-              accept=".sta,.txt,.940,.mt940,.xml"
+              accept=".sta,.txt,.940,.mt940,.emt,.xml"
               aria-label="Plik wyciągu"
               className="block w-full max-w-full text-[12px]"
               onChange={(event) => setFile(event.target.files?.[0] ?? null)}
