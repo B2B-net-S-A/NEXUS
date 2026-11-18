@@ -1409,7 +1409,11 @@ export default function ClientDetailPage() {
 
   return (
     <div className="space-y-3">
-      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-hidden">
+      {/* `overflow-clip`, nie `overflow-hidden`: hidden robi z karty kontener
+          przewijania i wyłącza `sticky` panelu szczegółów w Zamówieniach
+          (≥ 1600 px panel stał na górze listy, tysiące px nad klikniętym
+          wierszem). Clip przycina rogi tak samo, ale nie łapie sticky. */}
+      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-clip">
         {/* Nagłówek w jednej linii (wersja B, 29.09.2026): nazwa, status,
             Delivery Lead i menu. Do 09.2026 karta miała ~130 px (ikona 56 px,
             tytuł 24 px, osobne rzędy WWW i NDA), więc zamówienia zaczynały się
