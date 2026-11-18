@@ -30,7 +30,7 @@
     <AcctSvcrRef>BR2611160103</AcctSvcrRef>
     <NtryDtls><TxDtls>
      <RltdPties><Dbtr><Pty><Nm>Bank Testowy S.A.</Nm></Pty></Dbtr></RltdPties>
-     <RmtInf><Ustrd>/VAT/5157,75/IDC/1111111111/INV/FS 10/124/2026/TXT/ZAPLATA</Ustrd></RmtInf>
+     <RmtInf><Ustrd>/VAT/5157,75/IDC/9876543210/INV/FS 10/124/2026/TXT/ZAPLATA</Ustrd></RmtInf>
     </TxDtls></NtryDtls>
    </Ntry>
    <Ntry>

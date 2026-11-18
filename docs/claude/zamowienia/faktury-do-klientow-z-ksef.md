@@ -31,6 +31,11 @@
   faktur klientów tylko, gdy importujący ma moduł Finanse (`match_credits`, sprawdzane na trasie);
   bez niego uznania są tylko policzone (`restricted: true`, bez liczników dopasowań — nie zdradzają,
   czy numer faktury istnieje) i czekają na ten sam plik wgrany przez Finanse.
+- Uznanie MPP z NIP-em w `/IDC/`, którym nie zaczyna się numer KSeF żadnej naszej faktury, to nie
+  wpłata klienta, tylko noga VAT naszej zapłaty dla dostawcy (Santander: „UZNANIE VAT (SP)” z rachunku
+  VAT na główny) — E8 je pomija (`_foreign_seller`). 12.11.2026 takie uznania opłacały faktury
+  sprzedaży o tym samym numerze („1/11/2026”). Numer zawarty w dłuższym numerze z tytułu
+  („2/10/2026” w „2/10/2026/UE”) ustępuje dłuższemu.
 - Kwoty widzą Finanse i Delivery Lead u swojego klienta (`can_read_client_finance`); rekruter nie.
   Moduł `app_settings['client_invoicing']` domyślnie wyłączony; zakładka „Faktury” u klienta
   i „Faktury do klientów” w Finansach.

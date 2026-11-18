@@ -229,3 +229,70 @@ def test_sales_spec_records_where_the_revenue_account_came_from():
         _settings(),
     )
     assert no_history == revenue.NO_HISTORY
+
+
+# ── Konto wskazane dla nabywcy bez historii (decyzja Artura 18.11.2026) ──────
+
+
+def test_chosen_account_fills_in_only_when_the_buyer_has_no_history():
+    assert revenue.pick(_invoice(), _history(), "1111111111", "760-5") == (
+        "760-5",
+        revenue.CHOSEN,
+    )
+    # Historia wygrywa: poprzednia faktura nabywcy, dekret i faktura korygowana.
+    assert revenue.pick(_invoice(), _history(), BUYER, "760-5") == (
+        "701-91-3",
+        revenue.PREVIOUS,
+    )
+    archived = _history(by_ksef={"KSEF-1": "701-91-1"})
+    assert revenue.pick(_invoice(ksef_number="KSEF-1"), archived, None, "760-5") == (
+        "701-91-1",
+        revenue.EBI24,
+    )
+    assert revenue.pick(_invoice(), _history(), None, "") == (None, revenue.NO_HISTORY)
+
+
+def _chosen(counterparty_id: int, account: str) -> LedgerSettings:
+    return replace(
+        _settings(),
+        revenue_accounts={
+            counterparty_id: ledger_settings.RevenueChoice(account=account, by=7)
+        },
+    )
+
+
+def test_chosen_account_goes_through_the_plan_check():
+    key = ("nip", "1111111111")
+    assert sources.revenue_account(
+        _invoice(), _ctx(_history()), _chosen(3, "701-91-1"), key, counterparty_id=3
+    ) == ("701-91-1", revenue.CHOSEN)
+    # Wskazanie innego nabywcy nie przechodzi na tego.
+    assert sources.revenue_account(
+        _invoice(), _ctx(_history()), _chosen(4, "701-91-1"), key, counterparty_id=3
+    ) == (None, revenue.NO_HISTORY)
+    account, problem = sources.revenue_account(
+        _invoice(), _ctx(_history()), _chosen(3, "701-91"), key, counterparty_id=3
+    )
+    assert account is None
+    assert problem.startswith("Konto przychodu 701-91 (wskazane dla nabywcy")
+    assert sources.needs_revenue_choice(problem)
+    assert sources.needs_revenue_choice(revenue.NO_HISTORY)
+    assert not sources.needs_revenue_choice(sources.NO_BUYER)
+
+
+def test_revenue_choices_survive_the_settings_round_trip():
+    raw = {
+        "revenue_accounts": {
+            "3": {"account": "760-5", "by": 7, "at": "2026-11-18T10:00:00+00:00"},
+            "4": {"account": "zła wartość!"},
+            "x": {"account": "701-91-1"},
+            "5": "701-91-1",
+        }
+    }
+    loaded = ledger_settings.normalize(raw)
+    assert loaded.revenue_accounts == {
+        3: ledger_settings.RevenueChoice(
+            account="760-5", by=7, at="2026-11-18T10:00:00+00:00"
+        )
+    }
+    assert ledger_settings.normalize(ledger_settings.to_json(loaded)) == loaded
