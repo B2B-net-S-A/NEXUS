@@ -284,3 +284,91 @@ def test_realization_is_invoices_over_potential() -> None:
     cap = potential(rates, 2026, 10, renewed=True)
     assert realization({(2026, 10): cap * 0.8}, rates, [(2026, 10)]) == 0.8
     assert realization({}, rates, [(2026, 10)]) is None
+
+
+# ── R7: pulpit — zdolność kredytowa, wycena, symulacja roku ─────────────────
+
+
+def _base(year: int = 2025) -> dict:
+    return {
+        "year": year,
+        "source_label": "e-Sprawozdanie z eKRS",
+        "partial_months": None,
+        "amounts": {"revenue": 120e6, "cash": 4e6, "trade_receivables": 20e6},
+        "metrics": {"ebitda": 10e6, "financial_debt": 6e6},
+    }
+
+
+def test_current_ebitda_moves_with_invoice_profit_and_newer_cash_wins() -> None:
+    from app.services.board.outlook import current_figures
+
+    cash = {"as_of": date(2026, 10, 31), "amount": 9e6, "note": None}
+    out = current_figures(_base(), profit_now=14e6, profit_base=12e6, cash=cash)
+    assert out["ebitda"] == 12e6 and out["ebitda_shift"] == 2e6
+    # Dług 6 mln − gotówka z wpisu 9 mln (nowsza niż 31.12.2025) = −3 mln.
+    assert out["net_debt"] == -3e6 and out["cash_source"] == "entry"
+    assert out["credit"]["max_net_debt"] == 36e6 and out["credit"]["headroom"] == 39e6
+    assert out["valuation"]["financial"]["equity"] == 6 * 12e6 + 3e6
+    assert out["valuation"]["strategic"]["multiple"] == 8.0
+
+
+def test_current_figures_fall_back_to_statement_cash_and_no_shift() -> None:
+    from app.services.board.outlook import base_year, current_figures
+
+    old_cash = {"as_of": date(2025, 6, 30), "amount": 1e6, "note": None}
+    out = current_figures(_base(), profit_now=None, profit_base=12e6, cash=old_cash)
+    assert out["ebitda"] == 10e6 and out["cash_source"] == "statement"
+    assert out["net_debt"] == 2e6
+    assert (
+        current_figures(None, profit_now=1, profit_base=1, cash=None)["ebitda"] is None
+    )
+    ledger = {**_base(2026), "partial_months": 9}
+    assert base_year([_base(2024), _base(2025), ledger])["year"] == 2025
+    assert base_year([{**_base(), "metrics": {"ebitda": None}}]) is None
+
+
+def test_year_end_adds_forecast_scenarios_to_actual_months() -> None:
+    from app.services.board.outlook import year_end
+
+    months = [
+        {
+            "kind": "actual",
+            "sales": 10.0,
+            "plan_sales": 9.0,
+            "potential": None,
+            "potential_renewed": None,
+        }
+        for _ in range(10)
+    ] + [
+        {
+            "kind": "forecast",
+            "sales": None,
+            "plan_sales": 9.0,
+            "potential": 8.0,
+            "potential_renewed": 12.0,
+        }
+        for _ in range(2)
+    ]
+    out = year_end({"months": months, "realization": 0.9, "cost_share": 0.85})
+    assert out["actual_sales"] == 100.0 and out["actual_months"] == 10
+    assert out["sales_low"] == 114.4 and out["sales_high"] == 121.6
+    assert out["profit_low"] == round(114.4 * 0.15, 2) and out["profit_pct"] == 15.0
+    assert out["plan_sales"] == 108.0
+    unsure = year_end({"months": months, "realization": None, "cost_share": None})
+    assert unsure["sales_low"] is None and unsure["reason"]
+
+
+def test_exit_description_drops_consultant_name_in_any_case() -> None:
+    from types import SimpleNamespace
+
+    from app.services.board.people import without_name
+
+    person = SimpleNamespace(name="Michał", lastname="Dyzma")
+    text = (
+        "We need to let go Michał Dyzma; Michała nie przedłużamy, pan Dyzmy nie było."
+    )
+    assert without_name(text, person) == (
+        "We need to let go [konsultant]; [konsultant] nie przedłużamy, pan [konsultant] nie było."
+    )
+    assert without_name("Klient — No budget", person) == "Klient — No budget"
+    assert without_name("Michał", None) == "Michał"

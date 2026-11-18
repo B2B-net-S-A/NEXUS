@@ -32,6 +32,7 @@ import {
   useRefreshBoardKrs,
   useUpdateBoardDocument,
   type BoardDocument,
+  type DocumentPeriod,
   type BoardDocumentCategory,
   type BoardOrgan,
   type DocumentFields,
@@ -61,7 +62,10 @@ export function DocumentsTab() {
   const isAdmin = hasRole(user, "admin");
   const [category, setCategory] = React.useState<BoardDocumentCategory | null>(null);
   const [editing, setEditing] = React.useState<BoardDocument | "new" | null>(null);
-  const docs = useBoardDocuments(category);
+  // Uwaga Rady z 18.11.2026: filtr roku i miesiąca powstania dokumentu
+  // („czerwiec 2026 — wszystkie protokoły i uchwały z tego miesiąca”).
+  const [period, setPeriod] = React.useState<DocumentPeriod>({ year: null, month: null });
+  const docs = useBoardDocuments(category, period);
   const counts = new Map((docs.data?.categories ?? []).map((c) => [c.key, c]));
   const total = (docs.data?.categories ?? []).reduce((s, c) => s + c.total, 0);
   const state = resolveViewState({
@@ -99,7 +103,15 @@ export function DocumentsTab() {
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-sm font-semibold text-foreground">
               {category ? CATEGORY_LABELS[category] : "Wszystkie dokumenty"}
+              {period.year ? (
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  · {period.month ? `${MONTH_NAMES[period.month - 1]} ` : ""}
+                  {period.year}
+                </span>
+              ) : null}
             </h2>
+            <PeriodFilter years={docs.data?.years ?? []} value={period} onChange={setPeriod} />
             {isAdmin ? (
               <Button size="sm" onClick={() => setEditing("new")}>
                 <Plus className="mr-1 h-3.5 w-3.5" />
@@ -113,7 +125,9 @@ export function DocumentsTab() {
             <p className="py-6 text-center text-sm text-muted-foreground">Wczytuję dokumenty…</p>
           ) : state === "empty" ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              {isAdmin
+              {period.year
+                ? "Brak dokumentów z tego okresu. Dokument bez daty liczy się według daty wpisu w KRS."
+                : isAdmin
                 ? "Brak dokumentów tego rodzaju. Dodaj skan z segregatora — model zaproponuje numer, datę i przedmiot."
                 : "Zarząd nie dodał jeszcze dokumentów tego rodzaju."}
             </p>
@@ -129,6 +143,70 @@ export function DocumentsTab() {
           onClose={() => setEditing(null)}
         />
       ) : null}
+    </div>
+  );
+}
+
+const MONTH_NAMES = [
+  "styczeń",
+  "luty",
+  "marzec",
+  "kwiecień",
+  "maj",
+  "czerwiec",
+  "lipiec",
+  "sierpień",
+  "wrzesień",
+  "październik",
+  "listopad",
+  "grudzień",
+];
+const ALL = "all";
+
+function PeriodFilter({
+  years,
+  value,
+  onChange,
+}: {
+  years: number[];
+  value: DocumentPeriod;
+  onChange: (value: DocumentPeriod) => void;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <Select
+        value={value.year ? String(value.year) : ALL}
+        onValueChange={(v) => onChange(v === ALL ? { year: null, month: null } : { year: Number(v), month: value.month })}
+      >
+        <SelectTrigger className="h-8 w-[120px]" aria-label="Rok dokumentu">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Wszystkie lata</SelectItem>
+          {years.map((y) => (
+            <SelectItem key={y} value={String(y)}>
+              {y}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select
+        value={value.month ? String(value.month) : ALL}
+        disabled={!value.year}
+        onValueChange={(v) => onChange({ year: value.year, month: v === ALL ? null : Number(v) })}
+      >
+        <SelectTrigger className="h-8 w-[140px]" aria-label="Miesiąc dokumentu">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>Cały rok</SelectItem>
+          {MONTH_NAMES.map((name, i) => (
+            <SelectItem key={name} value={String(i + 1)}>
+              {name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

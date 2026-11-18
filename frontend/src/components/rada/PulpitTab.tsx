@@ -4,9 +4,12 @@ import * as React from "react";
 import { AlertTriangle, Info } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { cn, formatDate } from "@/lib/utils";
 import { useBoardSummary, type BoardSummary, type FilingKind } from "@/lib/api/supervisory-board";
 import { resolveViewState, isBlockingViewState } from "@/lib/view-state";
+import { FinancePanel } from "./PulpitFinance";
+import { monthTable, selectableYears, type MonthCell, type MonthTableRow } from "./pulpit-months";
 
 const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII"];
 const FILING_LABELS: Record<FilingKind, string> = {
@@ -51,7 +54,7 @@ export function attentionItems(data: BoardSummary, year: number): Attention[] {
   ) {
     items.push({
       tone: "bad",
-      title: `Wynik z faktur niższy niż rok wcześniej (${range(ytd.result_months)})`,
+      title: `Zysk brutto niższy niż rok wcześniej (${range(ytd.result_months)})`,
       text: `${pct(ytd.result_pct)} sprzedaży wobec ${pct(ytd.result_previous_pct)} w ${year - 1}. Do potwierdzenia z RZiS: faktury kosztowe mogą zawierać refaktury.`,
     });
   }
@@ -114,11 +117,15 @@ export function PulpitTab() {
       ) : (
         <Kpis data={data} year={year} />
       )}
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+      {/* Uwagi Rady z 18.11.2026: obok wyniku finanse spółki (gotówka,
+          zdolność kredytowa, wycena, symulacja roku, raporty), „Do uwagi
+          Rady” na sam dół. */}
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         {state === "empty" ? <div /> : <YearsPanel data={data} />}
-        <AttentionPanel items={attentionItems(data, year)} />
+        <FinancePanel />
       </div>
       {state === "empty" ? null : <MonthsPanel data={data} year={year} />}
+      <AttentionPanel items={attentionItems(data, year)} />
     </div>
   );
 }
@@ -147,7 +154,7 @@ function Kpis({ data, year }: { data: BoardSummary; year: number }) {
         }
       />
       <Figure
-        label={`Wynik z faktur ${range(ytd.result_months)}`}
+        label={`Zysk brutto ${range(ytd.result_months)}`}
         value={mln(ytd.result)}
         tone={ytd.result_pct != null && ytd.result_previous_pct != null && ytd.result_pct < ytd.result_previous_pct ? "bad" : "neutral"}
         sub={`${pct(ytd.result_pct)} sprzedaży · rok wcześniej ${pct(ytd.result_previous_pct)}`}
@@ -155,7 +162,7 @@ function Kpis({ data, year }: { data: BoardSummary; year: number }) {
       <Figure
         label={`Sprzedaż ${year - 1}`}
         value={mln(lastYear?.sales)}
-        sub={`wynik z faktur ${mln(lastYear?.result)} (${pct(lastYear?.result_pct)})`}
+        sub={`zysk brutto ${mln(lastYear?.result)} (${pct(lastYear?.result_pct)})`}
       />
       <Figure
         label="Aktywne kontrakty"
@@ -214,10 +221,10 @@ function YearsPanel({ data }: { data: BoardSummary }) {
   return (
     <section className="min-w-0 rounded-lg border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Sprzedaż, koszty i wynik z faktur</h2>
+        <h2 className="text-sm font-semibold text-foreground">Sprzedaż, koszty i zysk brutto</h2>
         <span className="text-[11px] text-muted-foreground">mln zł netto</span>
       </div>
-      <div className="flex h-[120px] items-end gap-3">
+      <div className="flex h-[96px] items-end gap-3">
         {data.years.map((y) => (
           <div key={y.year} className={cn("flex h-full min-w-0 flex-1 flex-col justify-end", !y.complete && "opacity-60")}>
             <div className="flex h-full items-end justify-center gap-1">
@@ -227,29 +234,42 @@ function YearsPanel({ data }: { data: BoardSummary }) {
           </div>
         ))}
       </div>
-      <table className="mt-2 w-full text-[12px]">
-        <thead>
-          <tr className="text-[11px] text-muted-foreground">
-            <th className="py-1 text-left font-medium" />
-            {data.years.map((y) => (
-              <th key={y.year} className="py-1 text-right font-medium tabular-nums">
-                {y.year}
-                {y.complete ? "" : " (do dziś)"}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border tabular-nums">
-          <Row label="Sprzedaż" values={data.years.map((y) => mln(y.sales))} />
-          <Row label="Koszty z faktur" values={data.years.map((y) => mln(y.costs))} />
-          <Row label="Wynik z faktur" values={data.years.map((y) => mln(y.result))} strong />
-          <Row label="% sprzedaży" values={data.years.map((y) => pct(y.result_pct))} />
-        </tbody>
-      </table>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full min-w-[420px] border-collapse text-[12px]">
+          <thead>
+            <tr className="text-[11px] text-muted-foreground">
+              <th className="py-1 text-left font-medium" />
+              {data.years.map((y) => (
+                <th key={y.year} className="py-1 pl-2 text-right font-medium tabular-nums">
+                  {y.year}
+                  {y.complete ? "" : ` (${range(y.result_months ?? 0)})`}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border tabular-nums">
+            <Row label="Sprzedaż" values={data.years.map((y) => mln(y.sales))} />
+            <Row label="Koszty kontraktorów" values={data.years.map((y) => mln(y.contractors))} />
+            <Row
+              label="Marża na kontraktorach"
+              values={data.years.map((y) => mln(y.contractor_margin))}
+              subs={data.years.map((y) => pct(y.contractor_margin_pct))}
+            />
+            <Row label="Koszty biurowe" values={data.years.map((y) => mln(y.office))} />
+            <Row
+              label="Zysk brutto"
+              values={data.years.map((y) => mln(y.result))}
+              subs={data.years.map((y) => pct(y.result_pct))}
+              strong
+            />
+          </tbody>
+        </table>
+      </div>
       <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
-        Faktury z archiwum eBI24 wg daty wystawienia
-        {data.source.last_date ? `, do ${formatDate(data.source.last_date)}` : ""}. „Wynik z faktur” to sprzedaż minus faktury kosztowe, bez płac
-        UoP, ZUS i amortyzacji — nie zastępuje RZiS.
+        Faktury z archiwum eBI24 według daty sprzedaży
+        {data.source.last_date ? `, do ${formatDate(data.source.last_date)}` : ""}. Koszty kontraktorów = folder
+        „Kontraktorzy”, koszty biurowe = pozostałe faktury kosztowe. Zysk brutto nie obejmuje płac UoP, ZUS
+        i amortyzacji — nie zastępuje RZiS.
         {currentResult(data)}
       </p>
     </section>
@@ -259,16 +279,27 @@ function YearsPanel({ data }: { data: BoardSummary }) {
 function currentResult(data: BoardSummary): string {
   const current = data.years.find((y) => !y.complete);
   if (!current?.result_months) return "";
-  return ` Wynik ${current.year} liczony za ${range(current.result_months)} — koszty kolejnych miesięcy jeszcze spływają.`;
+  return ` Rok ${current.year} liczony za ${range(current.result_months)} — koszty kolejnych miesięcy jeszcze spływają.`;
 }
 
-function Row({ label, values, strong }: { label: string; values: string[]; strong?: boolean }) {
+function Row({
+  label,
+  values,
+  subs,
+  strong,
+}: {
+  label: string;
+  values: string[];
+  subs?: string[];
+  strong?: boolean;
+}) {
   return (
     <tr>
-      <td className={cn("py-1.5 text-left", strong && "font-semibold")}>{label}</td>
+      <td className={cn("py-1.5 pr-2 text-left", strong && "font-semibold")}>{label}</td>
       {values.map((v, i) => (
-        <td key={i} className={cn("py-1.5 text-right", strong && "font-semibold")}>
+        <td key={i} className={cn("py-1.5 pl-2 text-right", strong && "font-semibold")}>
           {v}
+          {subs ? <div className="text-[11px] font-normal text-muted-foreground">{subs[i]}</div> : null}
         </td>
       ))}
     </tr>
@@ -307,53 +338,104 @@ function AttentionPanel({ items }: { items: Attention[] }) {
   );
 }
 
+function fmt(value: number | null | undefined, signed = false): string {
+  if (value === null || value === undefined) return "—";
+  const text = value.toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  return signed && value > 0 ? `+${text}` : text;
+}
+
+function DeltaCell({ cell }: { cell: MonthCell }) {
+  if (cell.value === null) return <span className="text-muted-foreground">—</span>;
+  const tone = cell.value > 0 ? "text-success-muted-foreground" : cell.value < 0 ? "text-destructive" : "text-foreground";
+  return (
+    <>
+      <div className={tone}>{fmt(cell.value, true)}</div>
+      <div className="text-[11px] text-muted-foreground">
+        {cell.pct === null || cell.pct === undefined ? "" : `${cell.pct > 0 ? "+" : ""}${pct(cell.pct)}`}
+      </div>
+    </>
+  );
+}
+
+function MonthRowView({ row }: { row: MonthTableRow }) {
+  const cellClass = "border border-border px-1.5 py-1.5 text-right align-top";
+  return (
+    <tr className={cn(row.kind === "budget" && "bg-muted/40", row.key === "current" && "font-semibold")}>
+      <th
+        scope="row"
+        className="sticky left-0 z-10 border border-border bg-card px-2 py-1.5 text-left text-[12px] font-medium"
+      >
+        {row.label}
+      </th>
+      {row.cells.map((cell, i) => (
+        <td key={i} className={cellClass}>
+          {row.kind === "delta" ? (
+            <DeltaCell cell={cell} />
+          ) : (
+            <span className={cn(cell.value === null && "text-muted-foreground", cell.partial && "italic text-muted-foreground")}>
+              {fmt(cell.value)}
+            </span>
+          )}
+        </td>
+      ))}
+      <td className={cn(cellClass, "bg-muted/30 font-semibold")}>
+        {row.kind === "delta" ? <DeltaCell cell={row.total} /> : fmt(row.total.value)}
+      </td>
+    </tr>
+  );
+}
+
+/** „Razem I–IX”: suma tylko miesięcy z kompletem faktur roku pokazanego. */
+function totalLabel(rows: MonthTableRow[]): string {
+  const current = rows.find((r) => r.key === "current");
+  const done = current ? current.cells.filter((c) => c.value !== null && !c.partial).length : 0;
+  return done === 0 || done === 12 ? "Razem" : `Razem ${range(done)}`;
+}
+
 function MonthsPanel({ data, year }: { data: BoardSummary; year: number }) {
-  const byKey = new Map(data.months.map((m) => [`${m.year}-${m.month}`, m]));
-  const rows = [year - 1, year];
+  const years = selectableYears(data, year);
+  const [shown, setShown] = React.useState(year);
+  const rows = monthTable(data, shown);
+  const hasBudget = Boolean(data.budgets[String(shown)]);
   return (
     <section className="min-w-0 rounded-lg border border-border bg-card p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Miesiące — sprzedaż / koszty z faktur</h2>
-        <span className="text-[11px] text-muted-foreground">mln zł netto · kursywa = koszty jeszcze spływają</span>
+        <h2 className="text-sm font-semibold text-foreground">Miesiące — sprzedaż, budżet i odchylenia</h2>
+        {years.length > 1 ? (
+          <SegmentedRadio<string>
+            label="Rok"
+            size="sm"
+            value={String(shown)}
+            onChange={(v) => setShown(Number(v))}
+            options={years.map((y) => ({ value: String(y), label: String(y) }))}
+          />
+        ) : null}
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12px] tabular-nums">
+        <table className="w-full min-w-[860px] border-collapse text-[12px] tabular-nums">
           <thead>
             <tr className="text-[11px] text-muted-foreground">
-              <th className="py-1 text-left font-medium" />
+              <th className="sticky left-0 z-10 border border-border bg-card px-2 py-1 text-left font-medium">mln zł netto</th>
               {ROMAN.map((m) => (
-                <th key={m} className="py-1 text-right font-medium">
+                <th key={m} className="border border-border px-1.5 py-1 text-right font-medium">
                   {m}
                 </th>
               ))}
+              <th className="border border-border bg-muted/30 px-1.5 py-1 text-right font-medium">{totalLabel(rows)}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((y) => (
-              <tr key={y}>
-                <td className="py-1.5 pr-2 text-left font-medium">{y}</td>
-                {ROMAN.map((_, i) => {
-                  const m = byKey.get(`${y}-${i + 1}`);
-                  return (
-                    <td key={i} className="py-1.5 text-right">
-                      {m ? (
-                        <>
-                          <div>{(m.sales ?? 0).toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</div>
-                          <div className={cn("text-muted-foreground", !m.costs_complete && "italic")}>
-                            {(m.costs ?? 0).toLocaleString("pl-PL", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
-                          </div>
-                        </>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
+          <tbody>
+            {rows.map((row) => (
+              <MonthRowView key={row.key} row={row} />
             ))}
           </tbody>
         </table>
       </div>
+      <p className="mt-2 text-[11px] leading-snug text-muted-foreground">
+        Sprzedaż według daty sprzedaży z faktur. Kursywa = miesiąc bez kompletu faktur (bieżący i świeżo zamknięty);
+        odchylenia i „Razem” liczą tylko miesiące z kompletem.
+        {hasBudget ? "" : ` Budżetu na ${shown} nie wpisano — Zarząd wpisuje plan w zakładce Budżet.`}
+      </p>
     </section>
   );
 }

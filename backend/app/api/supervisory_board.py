@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -35,11 +35,14 @@ from decimal import Decimal
 from app.models.board_document import (
     BoardBudget,
     BoardBudgetLine,
+    BoardCashPosition,
     BoardDocument,
+    BoardReport,
     BoardMeeting,
     BoardVote,
     BoardVoteBallot,
 )
+from app.models.finance_archive import FinanceArchiveDocument
 from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services import board_documents_schema as schema
@@ -54,6 +57,12 @@ from app.services import board_votes_schema as votes_schema
 from app.services import board_meetings_schema as meetings_schema
 from app.services.board.statements import StatementError
 from app.services.board import summary as summary_service
+from app.services.board import outlook as outlook_service
+from app.services.board import people as people_service
+from app.services.board import reports as reports_service
+from app.services import board_reports_schema as reports_schema
+from app.analytics.periods import PeriodError, resolve_period
+from app.services.insights_team_signals import previous_matching_window
 from app.services import board_budget_schema as budget_schema
 from app.services.board.notify import notify_new_entries
 from app.services.section_permissions import ProductSection
@@ -110,6 +119,274 @@ async def get_summary(
         )
     ).scalar_one()
     return data
+
+
+# ── Pulpit: gotówka, zdolność kredytowa, wycena, symulacja roku (R7) ────────
+
+
+@router.get("/outlook")
+async def get_outlook(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Kafle pulpitu: gotówka, zdolność kredytowa, wycena, symulacja roku."""
+
+    return await outlook_service.outlook(db, business_today())
+
+
+def cash_view(row: BoardCashPosition) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "as_of": row.as_of.isoformat(),
+        "amount": float(row.amount),
+        "note": row.note,
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+@router.get("/cash")
+async def list_cash(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    rows = (
+        await db.execute(
+            select(BoardCashPosition).order_by(BoardCashPosition.as_of.desc()).limit(24)
+        )
+    ).scalars()
+    return {"items": [cash_view(row) for row in rows]}
+
+
+class CashBody(BaseModel):
+    as_of: date
+    amount: Decimal = Field(ge=Decimal("-1000000000"), le=Decimal("10000000000"))
+    note: Optional[str] = Field(default=None, max_length=reports_schema.NOTE_MAX)
+
+
+@router.put("/cash")
+async def put_cash(
+    body: CashBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Stan gotówki na dzień — jeden wpis na dzień, ponowny zapis go poprawia."""
+
+    if body.as_of > business_today():
+        raise HTTPException(422, "Stan gotówki podaje się na dzień, który minął.")
+    row = (
+        await db.execute(
+            select(BoardCashPosition).where(BoardCashPosition.as_of == body.as_of)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = BoardCashPosition(as_of=body.as_of)
+        db.add(row)
+    row.amount = body.amount
+    row.note = (body.note or "").strip() or None
+    row.updated_by = current_user.id
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    return cash_view(row)
+
+
+@router.delete("/cash/{cash_id}", status_code=204)
+async def delete_cash(
+    cash_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(BoardCashPosition, cash_id)
+    if row is None:
+        raise HTTPException(404, "Nie ma takiego wpisu.")
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=204)
+
+
+# ── Raporty PDF i archiwum (R7) ──────────────────────────────────────────────
+
+
+def report_view(row: BoardReport) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "year": row.year,
+        "month": row.month,
+        "title": reports_service.title(row.kind, row.year, row.month),
+        "file_name": reports_service.file_name(row.kind, row.year, row.month),
+        "file_size": row.file_size,
+        "created_at": _iso(row.created_at),
+    }
+
+
+@router.get("/reports")
+async def list_reports(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Archiwum zapisanych raportów i okresy, za które raport można pobrać."""
+
+    today = business_today()
+    rows = (
+        await db.execute(
+            select(BoardReport).order_by(
+                BoardReport.created_at.desc(), BoardReport.id.desc()
+            )
+        )
+    ).scalars()
+    first = (
+        await db.execute(select(func.min(FinanceArchiveDocument.issue_date)))
+    ).scalar_one_or_none()
+    first_year = max(first.year if first else today.year, today.year - 4)
+    return {
+        "items": [report_view(row) for row in rows],
+        "years": list(range(today.year, first_year - 1, -1)),
+        "today": today.isoformat(),
+    }
+
+
+async def _render(
+    db: AsyncSession, kind: str, year: int, month: Optional[int]
+) -> bytes:
+    try:
+        html = await reports_service.render_html(
+            db, kind, year, month, business_today(), datetime.now(timezone.utc)
+        )
+    except reports_service.ReportError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return reports_service.render_pdf(html)
+
+
+def _pdf(content: bytes, name: str) -> Response:
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition(name, disposition="inline"),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/reports/render")
+async def render_report(
+    current_user: BoardViewer,
+    kind: str = Query(..., pattern="^(monthly|annual|budget)$"),
+    year: int = Query(..., ge=2000, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Raport z bieżących danych (PDF)."""
+
+    content = await _render(db, kind, year, month)
+    return _pdf(content, reports_service.file_name(kind, year, month))
+
+
+class ReportBody(BaseModel):
+    kind: str = Field(pattern="^(monthly|annual|budget)$")
+    year: int = Field(ge=2000, le=2100)
+    month: Optional[int] = Field(default=None, ge=1, le=12)
+
+
+@router.post("/reports", status_code=201)
+async def archive_report(
+    body: ReportBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zapisz raport z bieżących danych w archiwum Rady."""
+
+    content = await _render(db, body.kind, body.year, body.month)
+    name = reports_service.file_name(body.kind, body.year, body.month)
+    path, size = storage_service.save_board_document_file(name, content)
+    row = BoardReport(
+        kind=body.kind,
+        year=body.year,
+        month=body.month,
+        file_path=path,
+        file_size=size,
+        created_by=current_user.id,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        storage_service.delete_board_document_file(path)
+        raise
+    await db.refresh(row)
+    return report_view(row)
+
+
+@router.get("/reports/{report_id}/file")
+async def download_report(
+    report_id: int,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(BoardReport, report_id)
+    if row is None:
+        raise HTTPException(404, "Nie ma takiego raportu.")
+    try:
+        content = storage_service.read_board_document_file(row.file_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Pliku nie ma w magazynie.") from exc
+    return _pdf(content, reports_service.file_name(row.kind, row.year, row.month))
+
+
+@router.delete("/reports/{report_id}", status_code=204)
+async def delete_report(
+    report_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(BoardReport, report_id)
+    if row is None:
+        raise HTTPException(404, "Nie ma takiego raportu.")
+    path = row.file_path
+    await db.delete(row)
+    await db.commit()
+    try:
+        storage_service.delete_board_document_file(path)
+    except OSError:
+        logger.warning("board report file not removed: %s", path)
+    return Response(status_code=204)
+
+
+# ── Firma: placementy, kontraktorzy, zejścia (R7) ────────────────────────────
+
+
+@router.get("/people")
+async def get_people(
+    current_user: BoardViewer,
+    period: str = Query("quarter", pattern="^(month|quarter|year|custom)$"),
+    offset: int = Query(0, ge=-40, le=0),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Placementy, kontraktorzy na projektach i zejścia z powodami w okresie."""
+
+    try:
+        resolved = resolve_period(
+            period, offset=offset, date_from=date_from, date_to=date_to
+        )
+    except PeriodError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    today = business_today()
+    now = datetime.now(timezone.utc)
+    first = resolved.start.date()
+    last = min((resolved.end - timedelta(days=1)).date(), today)
+    prev_start, prev_end = previous_matching_window(resolved, now)
+    data = await people_service.people_view(
+        db,
+        window=(first, last),
+        previous=(prev_start.date(), (prev_end - timedelta(days=1)).date()),
+        bounds=(resolved.start, min(resolved.end, now)),
+        previous_bounds=(prev_start, prev_end),
+    )
+    return {"period": resolved.as_payload(), **data}
 
 
 # ── Budżet (R3) ──────────────────────────────────────────────────────────────
@@ -861,24 +1138,52 @@ def document_view(doc: BoardDocument) -> dict[str, Any]:
 async def list_documents(
     current_user: BoardViewer,
     category: Optional[str] = Query(None),
+    year: Optional[int] = Query(None, ge=1990, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    """Dokumenty z filtrem rodzaju oraz roku i miesiąca powstania dokumentu
+    (data dokumentu, a bez niej data wpisu w KRS) — R7, uwaga Rady 18.11.2026:
+    „dokumenty z czerwca 2026 — wszystkie protokoły i uchwały z tego miesiąca”."""
+
     if category is not None and category not in schema.CATEGORIES:
         raise HTTPException(422, "Nieznany rodzaj dokumentu.")
+    if month is not None and year is None:
+        raise HTTPException(422, "Miesiąc wybiera się razem z rokiem.")
+    day = func.coalesce(BoardDocument.doc_date, BoardDocument.krs_entry_date)
+    period = []
+    if year is not None:
+        period.append(func.extract("year", day) == year)
+    if month is not None:
+        period.append(func.extract("month", day) == month)
     counts_rows = await db.execute(
         select(
             BoardDocument.category,
             func.count(),
             func.count().filter(BoardDocument.file_path.is_(None)),
-        ).group_by(BoardDocument.category)
+        )
+        .where(*period)
+        .group_by(BoardDocument.category)
     )
     counts = {
         row[0]: {"total": row[1], "without_file": row[2]} for row in counts_rows.all()
     }
-    query = select(BoardDocument).order_by(
-        BoardDocument.doc_date.desc().nulls_last(),
-        BoardDocument.krs_entry_date.desc().nulls_last(),
-        BoardDocument.id.desc(),
+    years = (
+        await db.execute(
+            select(func.extract("year", day).label("y"))
+            .where(day.is_not(None))
+            .group_by("y")
+            .order_by(func.extract("year", day).desc())
+        )
+    ).scalars()
+    query = (
+        select(BoardDocument)
+        .where(*period)
+        .order_by(
+            BoardDocument.doc_date.desc().nulls_last(),
+            BoardDocument.krs_entry_date.desc().nulls_last(),
+            BoardDocument.id.desc(),
+        )
     )
     if category is not None:
         query = query.where(BoardDocument.category == category)
@@ -888,6 +1193,7 @@ async def list_documents(
             {"key": key, **counts.get(key, {"total": 0, "without_file": 0})}
             for key in schema.CATEGORIES
         ],
+        "years": [int(y) for y in years],
         "items": [document_view(doc) for doc in docs],
     }
 

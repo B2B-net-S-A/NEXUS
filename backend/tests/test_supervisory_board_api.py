@@ -308,3 +308,82 @@ async def test_budget_plan_admin_writes_board_reads(app_client) -> None:
             headers=_headers(admin),
         )
     ).status_code == 422
+
+
+async def test_summary_months_by_sale_date_and_contractor_costs_split(
+    app_client,
+) -> None:
+    """Faktura za kwiecień wystawiona 7 maja liczy się w kwietniu (data
+    sprzedaży z eBI24), a koszty dzielą się na kontraktorów i biuro po folderze."""
+    from datetime import date
+    from decimal import Decimal
+    import uuid
+
+    from app.core.scheduling import business_today
+    from app.models.board_document import BoardBudget, BoardBudgetLine
+    from app.models.finance_archive import FinanceArchiveDocument
+
+    board = await _user(role="board")
+    year = business_today().year - 1
+    tag = uuid.uuid4().hex[:8]
+    rows = [
+        # kind, issued, transactionDate, net, folder
+        ("sale", date(year, 5, 7), f"{year}-04-30T00:00:00.000", "1000000.00", None),
+        ("sale", date(year, 5, 8), "zła data", "500000.00", None),
+        # Data sprzedaży sprzed ponad kwartału (korekta starej faktury) — data wystawienia.
+        ("sale", date(year, 6, 2), f"{year - 1}-01-31T00:00:00.000", "-10000.00", None),
+        (
+            "cost",
+            date(year, 5, 9),
+            f"{year}-04-30T00:00:00.000",
+            "700000.00",
+            "Kontraktorzy/2025",
+        ),
+        ("cost", date(year, 4, 20), None, "100000.00", "BIURO"),
+        ("cost", date(year, 4, 22), None, "50000.00", "Zakupy pozostałe"),
+    ]
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(FinanceArchiveDocument))
+        await db.execute(delete(BoardBudget))
+        for i, (kind, issued, sold, net, folder) in enumerate(rows):
+            db.add(
+                FinanceArchiveDocument(
+                    source_id=f"{tag}-{i}",
+                    schema_name="t",
+                    kind=kind,
+                    issue_date=issued,
+                    currency="PLN",
+                    net_amount=Decimal(net),
+                    gross_amount=Decimal(net),
+                    gross_pln=Decimal(net),
+                    folder=folder,
+                    meta={"transactionDate": sold} if sold else {},
+                    file_type="pdf",
+                    file_path=f"x/{tag}-{i}.pdf",
+                    file_sha256="0" * 64,
+                )
+            )
+        budget = BoardBudget(year=year + 1, status="adopted")
+        db.add(budget)
+        await db.flush()
+        db.add(
+            BoardBudgetLine(
+                budget_id=budget.id, month=1, line="sales", amount=Decimal("2500000")
+            )
+        )
+        await db.commit()
+
+    body = (await app_client.get(f"{API}/summary", headers=_headers(board))).json()
+    months = {(m["year"], m["month"]): m for m in body["months"]}
+    assert months[(year, 4)]["sales"] == 1.0
+    assert months[(year, 5)]["sales"] == 0.5
+    assert months[(year, 6)]["sales"] == -0.01
+    assert (
+        months[(year, 4)]["contractors"] == 0.7 and months[(year, 4)]["costs"] == 0.85
+    )
+    row = next(y for y in body["years"] if y["year"] == year)
+    assert row["contractors"] == 0.7 and row["office"] == 0.15
+    assert row["contractor_margin"] == 0.79 and row["contractor_margin_pct"] == 53.0
+    assert row["result"] == 0.64 and row["result_pct"] == 43.0
+    assert body["budgets"][str(year + 1)][0] == 2.5
+    assert body["budgets"][str(year + 1)][1] is None
