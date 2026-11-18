@@ -39,7 +39,11 @@ export type ClientTab =
   | "raporty"
   // Stawki z umowy ramowej (F2, 15.11.2026): kto w limicie, kto ponad, raport
   // kwartalny. Widoczna u klienta z cennikiem umowy ramowej.
-  | "stawki-ramowe";
+  | "stawki-ramowe"
+  // Makieta 18.11.2026: karty z prawej kolumny Profilu jako podzakładki
+  // grupy „Rekrutacje” — materiały dla rekruterów i konflikty z kandydatami.
+  | "materialy"
+  | "konflikty";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
@@ -57,6 +61,8 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "sprzedaz",
   "raporty",
   "stawki-ramowe",
+  "materialy",
+  "konflikty",
 ] as const;
 
 /**

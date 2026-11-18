@@ -27,7 +27,6 @@ const PAGE = path.resolve(
 
 const HEAVY_CHILDREN = [
   "CooperationStatsSection",
-  "MaterialsTab",
   "RateCardsTab",
   "KnowledgeTab",
 ];
@@ -62,6 +61,15 @@ describe("profil klienta — zwinięte sekcje montują się leniwie", () => {
     // wrapper jest kosmetyką, a zapytania lecą tak samo jak przed zmianą.
     expect(source).toContain("if (e.currentTarget.open) setMounted(true);");
     expect(source).toContain("{mounted ? children : null}");
+  });
+
+  it("MaterialsTab montuje się tylko na własnej podzakładce (grupa „Rekrutacje”, 18.11.2026)", () => {
+    // Do 18.11.2026 materiały były zwiniętą kartą Profilu (LazyDetails). Teraz
+    // mają podzakładkę: treść zakładki renderuje się tylko, gdy jest wybrana.
+    const source = stripComments(readPage());
+    const usages = source.match(/<MaterialsTab\s/g) ?? [];
+    expect(usages).toHaveLength(1);
+    expect(source).toMatch(/\{activeTab === "materialy" && \(\s*<MaterialsTab\s/);
   });
 
   it.each(HEAVY_CHILDREN)("%s siedzi wewnątrz LazyDetails", (child) => {

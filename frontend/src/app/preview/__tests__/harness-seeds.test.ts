@@ -934,16 +934,20 @@ function missingLiteralKeys(harness: string, components: string[]): string[] {
   return missing;
 }
 
-describe("/preview/clients-list zasiewa listę klientów i kluczowe relacje", () => {
+describe("/preview/clients-list zasiewa listę klientów i kolumnę „Wymaga uwagi”", () => {
   const harness = flat("app/preview/clients-list/page.tsx");
 
   it("nie zostawia stałego klucza bez zasiewu", () => {
     expect(
       missingLiteralKeys(harness, [
         "components/v2/pages/ClientsListV2.tsx",
-        "components/clients/KeyRelationshipsPanel.tsx",
+        "components/clients/ClientAttention.tsx",
       ]),
     ).toEqual([]);
+  });
+
+  it("zasiewa kalendarz raportów miesiąca kluczem z `useClientAttention`", () => {
+    expect(harness).toContain('qc.setQueryData(["client-reports-calendar", warsawToday().slice(0, 7), false]');
   });
 
   it("zasiewa pierwszą stronę każdej zakładki portfela i odcina sieć", () => {

@@ -106,9 +106,10 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
       // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
-      // „Umowy klientów” (04.11.2026): tylko z uprawnienia, domyślnie admin.
-      // „Księgowość” (13.11.2026): przy otwartym module księgi, za Finansami.
-      ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"]],
+      // „Umowy klientów” (04.11.2026): tylko z uprawnienia, domyślnie admin;
+      // od 18.11.2026 na szynie tylko u osoby bez „Klientów” (umowy są pod klientem).
+      // „Księgowość” (13.11.2026) od 18.11.2026 nie stoi na szynie: Księga to grupa Finansów.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"]],
       // „Szkolenia” (13.11.2026): każdy zalogowany przy włączonym programie „Ludzi”.
       // „Przepisy” (15.11.2026): w „Firmie”, bo widzi je też HoR bez „Klientów i umów”.
       // „Rada” (16.11.2026): Rada nadzorcza i admin, przed Insights.
@@ -165,9 +166,10 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     ];
     expect(groupsOf("finance")).toEqual(full);
     // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
+    // „Umowy klientów” admin ma pod klientem (18.11.2026), nie na szynie.
     expect(groupsOf("admin")).toEqual([
       full[0],
-      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/client-contracts", "/finance"]],
+      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/finance"]],
       ["Firma", ["/rada", "/insights", "/compliance"]],
     ]);
     for (const role of MENU_ROLES) {
@@ -213,7 +215,6 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/sales",
       "/clients",
       "/contracts",
-      "/client-contracts",
       "/finance",
       "/rada",
       "/insights",
@@ -324,6 +325,28 @@ describe("rejestr nawigacji ↔ rejestr capability", () => {
   });
 });
 
+describe("„Umowy klientów” w menu tylko u osoby bez Klientów (18.11.2026)", () => {
+  const opts = { contactQueueEnabled: false };
+  const palette = (user: Parameters<typeof visibleNavHrefs>[0]) =>
+    visiblePaletteEntries(user, opts, (capability) => hasCapability(user, capability)).map(
+      (entry) => entry.href,
+    );
+
+  it("osoba z samym „Umowy klientów: lista i pliki” ma swoją pozycję w menu i palecie", () => {
+    const office = accessSnapshot("employee", { grant: ["client_contracts_view"] });
+    expect(visibleNavHrefs(office, opts)).toContain("/client-contracts");
+    expect(visibleNavHrefs(office, opts)).not.toContain("/clients");
+    expect(palette(office)).toContain("/client-contracts");
+  });
+
+  it("admin ma umowy pod klientem — bez osobnej pozycji w menu i palecie", () => {
+    const admin = accessSnapshot("admin");
+    expect(visibleNavHrefs(admin, opts)).toContain("/clients");
+    expect(visibleNavHrefs(admin, opts)).not.toContain("/client-contracts");
+    expect(palette(admin)).not.toContain("/client-contracts");
+  });
+});
+
 describe("menu idzie za uprawnieniem, nie za rolą", () => {
   const opts = { contactQueueEnabled: false };
   const hrefs = (user: Parameters<typeof visibleNavHrefs>[0]) =>
@@ -338,14 +361,10 @@ describe("menu idzie za uprawnieniem, nie za rolą", () => {
     expect(hrefs(viewer)).toEqual(expect.arrayContaining(["/clients", "/contracts"]));
     expect(hrefs(viewer)).not.toContain("/finance");
     expect(paletteIds(viewer)).toEqual(
-      expect.arrayContaining([
-        "clients",
-        "my-clients",
-        "order-mail",
-        "my-relationships",
-        "contracts",
-      ]),
+      expect.arrayContaining(["clients", "my-clients", "order-mail", "contracts"]),
     );
+    // „Kluczowe relacje” od 18.11.2026 nie mają osobnego widoku (są pod klientem).
+    expect(paletteIds(viewer)).not.toContain("my-relationships");
     expect(
       visiblePrimaryGroups(viewer, opts).map((group) => group.title),
     ).toEqual(["Praca", "Klienci i umowy", "Firma"]);
@@ -461,8 +480,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       "/compliance",
       // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
       "/sales",
-      // Umowy klientów (04.11.2026): bez sekcji produktu, uprawnienie admina.
-      "/client-contracts",
+      // Umowy klientów (04.11.2026) od 18.11.2026 nie stoją w menu u osoby
+      // z „Klientami” — umowy są pod klientem (`MENU_SHADOWED_BY`).
       ...SYSTEM,
     ],
     finance: [

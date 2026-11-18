@@ -1,11 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 
 import {
-  CLIENT_MORE_TABS,
   LEGACY_CLIENT_TABS,
   positiveIntParam,
   useClientTab,
@@ -58,11 +57,8 @@ import {
   Crown,
   Pencil,
   DollarSign,
-  FolderOpen,
   Trash2,
-  AlertOctagon,
   Ellipsis,
-  ChevronDown,
   Search,
 } from "lucide-react";
 import { contactMatches } from "@/lib/client-contacts-search";
@@ -117,6 +113,9 @@ import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTa
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
 import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
+import { ClientOverviewCards } from "@/components/client-profile/ClientOverviewCards";
+import { SectionNav } from "@/components/ds/SectionNav";
+import { clientSectionGroups } from "@/lib/client-tab-groups";
 import {
   canEditClientLegalDocuments,
   canManageClientDelivery,
@@ -125,7 +124,7 @@ import { TAC_UI_ENABLED } from "@/lib/tac-ui";
 import {
   RELATIONSHIP_STRENGTH_COLORS,
   RELATIONSHIP_STRENGTH_LABELS,
-} from "@/components/clients/KeyRelationshipsPanel";
+} from "@/components/clients/relationship-strength";
 import Link from "next/link";
 import { useTabsStore } from "@/store/tabs";
 import { canViewClientFinance, hasAnalyticsCapability, useAuthStore } from "@/store/auth";
@@ -1324,24 +1323,6 @@ export default function ClientDetailPage() {
     return leads.length > 1 ? `${head.name} +${leads.length - 1}` : head.name;
   })();
 
-  // Pasek 8 zakładek jest na telefonie szerszy niż ekran. Wejście z
-  // powiadomienia (`?tab=zamowienia`) albo klik w częściowo widoczną zakładkę
-  // przewija go do aktywnej — inaczej wybrana zakładka bywa poza kadrem.
-  // Przewijamy WYŁĄCZNIE pasek w poziomie (nie `scrollIntoView`), żeby zmiana
-  // zakładki z wnętrza treści nie podrywała całej strony do góry.
-  const activeTabRef = useRef<HTMLButtonElement | null>(null);
-  useEffect(() => {
-    const tab = activeTabRef.current;
-    const strip = tab?.parentElement;
-    if (!tab || !strip) return;
-    const tabBox = tab.getBoundingClientRect();
-    const stripBox = strip.getBoundingClientRect();
-    if (tabBox.left < stripBox.left) {
-      strip.scrollLeft -= stripBox.left - tabBox.left;
-    } else if (tabBox.right > stripBox.right) {
-      strip.scrollLeft += tabBox.right - stripBox.right;
-    }
-  }, [activeTab, client]);
 
   useEffect(() => {
     if (client && Number(id) === client.id) {
@@ -1406,21 +1387,21 @@ export default function ClientDetailPage() {
     { key: "faktury", label: "Faktury" },
     { key: "analityka", label: "Analityka" },
     { key: "sprzedaz", label: "Sprzedaż" },
+    { key: "materialy", label: "Materiały dla rekruterów" },
+    { key: "konflikty", label: "Konflikty z kandydatami" },
   ];
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
-      (hasFrameworkTerms || tab.key !== "stawki-ramowe") &&
+      (canViewDeliveryLegal || tab.key !== "stawki-ramowe") &&
       (careOpen || tab.key !== "ludzie") &&
       (startDocsOpen || packOpen || tab.key !== "wejscie") &&
       (invoicingOpen || tab.key !== "faktury") &&
       (canViewSales || tab.key !== "sprzedaz"),
   );
-  const moreTabs = TABS.filter((tab) => CLIENT_MORE_TABS.includes(tab.key));
-  // Zakładka wybrana z „Więcej” stoi w pasku, dopóki jest aktywna.
-  const stripTabs = TABS.filter(
-    (tab) => !CLIENT_MORE_TABS.includes(tab.key) || tab.key === activeTab,
-  );
+  // Makieta 18.11.2026: zakładki w ośmiu grupach (`lib/client-tab-groups.ts`)
+  // zamiast paska z „Więcej”; klucze `?tab=` bez zmian.
+  const sectionGroups = clientSectionGroups(TABS.map((tab) => tab.key));
 
   return (
     <div className="space-y-3">
@@ -1531,65 +1512,16 @@ export default function ClientDetailPage() {
           </div>
         </div>
 
-        {/* Tabs — horizontal scroll z visible scrollbar (macOS hide by default
-            ukrywa scrollbar i user nie wie że można scrollować). Mniejszy
-            padding px-3 (vs 4) + krótsze labele mieszczą wszystkie 12 tabów. */}
-        <div className="flex min-w-0 items-stretch border-t border-border pr-3 sm:pr-5">
-          <div
-            role="tablist"
-            aria-label="Sekcje klienta"
-            className="flex min-w-0 gap-0.5 overflow-x-auto whitespace-nowrap px-3 pt-0 sm:px-5"
-            style={{ scrollbarWidth: "thin" }}
-          >
-            {stripTabs.map((tab) => (
-              <button
-                key={tab.key}
-                type="button"
-                role="tab"
-                id={`client-tab-${tab.key}`}
-                aria-selected={activeTab === tab.key}
-                aria-controls="client-tab-panel"
-                ref={activeTab === tab.key ? activeTabRef : undefined}
-                onClick={() => selectTab(tab.key)}
-                className={cn(
-                  "shrink-0 border-b-2 px-3 py-2 text-[13px] transition-colors pointer-coarse:min-h-10",
-                  activeTab === tab.key
-                    ? "border-primary font-semibold text-foreground"
-                    : "border-transparent font-medium text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          {/* „Więcej” poza listą zakładek — to przycisk menu, nie zakładka;
-              Radix daje strzałki, Enter i Escape z klawiatury. */}
-          {moreTabs.length ? (
-            <DropdownMenu modal={false}>
-              <DropdownMenuTrigger asChild>
-                <button
-                  type="button"
-                  aria-label="Więcej sekcji klienta"
-                  className="flex shrink-0 items-center gap-1 border-b-2 border-transparent px-3 py-2 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground pointer-coarse:min-h-10"
-                >
-                  Więcej
-                  <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-48">
-                {moreTabs.map((tab) => (
-                  <DropdownMenuItem
-                    key={tab.key}
-                    onSelect={() => selectTab(tab.key)}
-                    aria-current={activeTab === tab.key ? "page" : undefined}
-                    className={cn(activeTab === tab.key && "font-semibold")}
-                  >
-                    {tab.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
+        {/* Sekcje klienta w grupach (makieta 18.11.2026): grupa z podkreśleniem,
+            pod nią podzakładki aktywnej grupy. Nic nie chowa się pod „Więcej”. */}
+        <div className="border-t border-border pb-1" data-tour="client.sections">
+          <SectionNav
+            label="Sekcje klienta"
+            groups={sectionGroups}
+            activeItem={activeTab}
+            onSelect={(key) => selectTab(key as ClientTab)}
+            insetClassName="px-3 sm:px-5"
+          />
         </div>
 
         {/* Tab content — po konsolidacji 12→6 tabów reszta sekcji wbudowana
@@ -1609,7 +1541,13 @@ export default function ClientDetailPage() {
             <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
               <ProfileTab clientId={Number(id)} />
 
-              <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Informacje o kliencie">
+              <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Najważniejsze o kliencie">
+                <ClientOverviewCards
+                  clientId={Number(id)}
+                  showContracts={canViewDeliveryLegal}
+                  showInvoicing={invoicingOpen}
+                  onOpen={selectTab}
+                />
                 {equipmentOpen ? (
                   <ClientEquipmentProviderField
                     clientId={Number(id)}
@@ -1619,7 +1557,7 @@ export default function ClientDetailPage() {
                 <LazyDetails
                   defaultOpen
                   icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
-                  title="Informacje + statystyki współpracy"
+                  title="Statystyki współpracy i notatki"
                   contentClassName="space-y-4 border-t border-border p-4"
                 >
                   <CooperationStatsSection clientId={Number(id)} />
@@ -1633,27 +1571,6 @@ export default function ClientDetailPage() {
                       <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
                     )}
                   </div>
-                </LazyDetails>
-
-                <LazyDetails
-                  defaultOpen
-                  icon={<FolderOpen className="w-4 h-4 text-muted-foreground" />}
-                  title="Materiały sprzedażowe"
-                >
-                  <MaterialsTab
-                    clientId={Number(id)}
-                    readOnly={!canEditDelivery}
-                    showContractTerms={canViewDeliveryLegal}
-                    contractTermsReadOnly={!canEditDeliveryLegal}
-                  />
-                </LazyDetails>
-
-                <LazyDetails
-                  defaultOpen
-                  icon={<AlertOctagon className="w-4 h-4 text-muted-foreground" />}
-                  title="Konflikty z kandydatami"
-                >
-                  <ClientConflictsSection clientId={Number(id)} />
                 </LazyDetails>
               </aside>
             </div>
@@ -1680,40 +1597,25 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
+          {activeTab === "materialy" && (
+            <MaterialsTab
+              clientId={Number(id)}
+              readOnly={!canEditDelivery}
+              showContractTerms={canViewDeliveryLegal}
+              contractTermsReadOnly={!canEditDeliveryLegal}
+            />
+          )}
+          {activeTab === "konflikty" && <ClientConflictsSection clientId={Number(id)} />}
           {activeTab === "raporty" && <ClientReportsTab clientId={Number(id)} />}
 
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
 
           {canViewDeliveryLegal && activeTab === "umowy-ramowe" && (
-            <div className="space-y-4">
-              <FrameworkContractsTab
-                clientId={Number(id)}
-                focusContractId={focusFrameworkId}
-                onFocusHandled={clearFocusParams}
-              />
-
-              <LazyDetails
-                defaultOpen
-                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
-                title="Cennik (rate cards)"
-              >
-                <RateCardsTab clientId={Number(id)} />
-              </LazyDetails>
-
-              {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
-                  Czyta też DL swojego klienta (bramka kwot z portfela). */}
-              <LazyDetails
-                defaultOpen
-                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
-                title="Umowa ramowa: kategorie i dopłaty"
-              >
-                <FrameworkTermsPanel
-                  clientId={Number(id)}
-                  canImport={hasAnalyticsCapability(user, "manage_finance")}
-                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
-                />
-              </LazyDetails>
-            </div>
+            <FrameworkContractsTab
+              clientId={Number(id)}
+              focusContractId={focusFrameworkId}
+              onFocusHandled={clearFocusParams}
+            />
           )}
 
           {/* Jeden rejestr dla wszystkich klientów: tabela zamówień okresowych,
@@ -1750,12 +1652,38 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
-          {hasFrameworkTerms && activeTab === "stawki-ramowe" && (
-            <FrameworkRatesTab
-              clientId={Number(id)}
-              canImport={hasAnalyticsCapability(user, "manage_finance")}
-              canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
-            />
+          {/* Makieta 18.11.2026: „Stawki i cennik” — wszystko o kwotach z umowy
+              w jednym miejscu (dotąd cennik i dopłaty stały pod umowami). */}
+          {canViewDeliveryLegal && activeTab === "stawki-ramowe" && (
+            <div className="space-y-4">
+              {hasFrameworkTerms ? (
+                <FrameworkRatesTab
+                  clientId={Number(id)}
+                  canImport={hasAnalyticsCapability(user, "manage_finance")}
+                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                />
+              ) : null}
+              {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
+                  Czyta też DL swojego klienta (bramka kwot z portfela). */}
+              <LazyDetails
+                defaultOpen
+                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                title="Umowa ramowa: kategorie i dopłaty"
+              >
+                <FrameworkTermsPanel
+                  clientId={Number(id)}
+                  canImport={hasAnalyticsCapability(user, "manage_finance")}
+                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                />
+              </LazyDetails>
+              <LazyDetails
+                defaultOpen
+                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                title="Cennik (rate cards)"
+              >
+                <RateCardsTab clientId={Number(id)} />
+              </LazyDetails>
+            </div>
           )}
           {canViewSales && activeTab === "sprzedaz" && <ClientSalesTab clientId={Number(id)} />}
           {careOpen && activeTab === "ludzie" && (

@@ -339,3 +339,78 @@ def test_open_circuit_marks_mail_as_deferred(monkeypatch):
     )
     assert app_mail.last_delivery_deferred()
     assert not app_mail.last_delivery_uncertain()
+
+
+def _mime_from(captured):
+    import base64
+    from email import message_from_bytes, policy
+
+    return message_from_bytes(base64.b64decode(captured["content"]), policy=policy.default)
+
+
+def test_list_unsubscribe_sends_mime_with_text_part_and_one_click(monkeypatch):
+    """Maile do kandydatów (17.11.2026): Graph JSON nie przyjmuje nagłówka
+    List-Unsubscribe (tylko ``x-*``), więc idzie MIME z częścią tekstową."""
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "tok")
+    captured = {}
+
+    def _fake_post(url, json=None, headers=None, timeout=None, content=None):
+        captured.update(url=url, json=json, headers=headers, content=content)
+        return _FakeResp(202)
+
+    monkeypatch.setattr(app_mail.httpx, "post", _fake_post)
+    ok = app_mail.send_via_graph_app(
+        to="kandydat@example.com",
+        subject="Dziękujemy za zgłoszenie",
+        text_body="Zwykły tekst ąę",
+        html_body="<p>Bogaty ąę</p>",
+        sender_upn="kariera@example.com",
+        list_unsubscribe="https://api.example.com/api/public/candidate-terms/abc/opt-out",
+    )
+    assert ok is True
+    assert captured["url"].endswith("/users/kariera@example.com/sendMail")
+    assert captured["json"] is None
+    assert captured["headers"]["Content-Type"] == "text/plain"
+    msg = _mime_from(captured)
+    assert msg["From"] == "kariera@example.com"
+    assert msg["To"] == "kandydat@example.com"
+    assert msg["Subject"] == "Dziękujemy za zgłoszenie"
+    assert msg["Reply-To"] is None
+    assert msg["List-Unsubscribe"] == (
+        "<https://api.example.com/api/public/candidate-terms/abc/opt-out>"
+    )
+    assert msg["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+    assert msg.get_content_type() == "multipart/alternative"
+    assert msg.get_body(("plain",)).get_content().strip() == "Zwykły tekst ąę"
+    assert msg.get_body(("html",)).get_content().strip() == "<p>Bogaty ąę</p>"
+
+
+def test_mime_retry_after_401_resends_the_same_body(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(app_mail, "_acquire_token", lambda: "old")
+    monkeypatch.setattr(app_mail, "acquire_mail_token", lambda force_refresh=False: "new")
+    bodies = []
+
+    def _fake_post(url, json=None, headers=None, timeout=None, content=None):
+        bodies.append(content)
+        return _FakeResp(401 if len(bodies) == 1 else 202)
+
+    monkeypatch.setattr(app_mail.httpx, "post", _fake_post)
+    assert app_mail.send_via_graph_app(
+        to="k@example.com", subject="s", text_body="t", html_body="<p>h</p>",
+        list_unsubscribe="https://api.example.com/u",
+    )
+    assert len(bodies) == 2 and bodies[0] == bodies[1] and bodies[0]
+
+
+def test_smtp_message_carries_list_unsubscribe(monkeypatch):
+    monkeypatch.setattr(settings, "SMTP_FROM_EMAIL", "nexus@example.com")
+    msg = email_mod._build_message(
+        "k@example.com", "s", "t", "<p>h</p>", None,
+        list_unsubscribe="https://api.example.com/u",
+    )
+    assert msg["List-Unsubscribe"] == "<https://api.example.com/u>"
+    assert msg["List-Unsubscribe-Post"] == "List-Unsubscribe=One-Click"
+    plain = email_mod._build_message("k@example.com", "s", "t")
+    assert plain["List-Unsubscribe"] is None
