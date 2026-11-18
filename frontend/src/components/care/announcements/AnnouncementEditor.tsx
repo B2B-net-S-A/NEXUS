@@ -168,7 +168,7 @@ export function AnnouncementEditor({
           }
         : {
             title: `Wysłać komunikat do ${plural(willReceive, "osoby", "osób", "osób")}?`,
-            description: `Każdy dostanie osobny mail z administracja@. Kolejka wysyła ${settings.rate_per_minute} maili na minutę — ok. ${minutes} min.`,
+            description: `Każdy dostanie osobny mail ze skrzynki ${settings.sender ?? "wsparcie@"}. Kolejka wysyła ${settings.rate_per_minute} maili na minutę — ok. ${minutes} min.`,
             confirmLabel: "Wyślij",
           },
     );
@@ -298,7 +298,7 @@ export function AnnouncementEditor({
           </FormField>
           <FormField label="Od">
             <p className="rounded-md border border-border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground">
-              {settings.sender ?? "administracja@"} · odpowiedzi trafią do Spraw
+              {settings.sender ?? "wsparcie@"} · odpowiedzi trafią do Spraw
             </p>
           </FormField>
           <FormField
@@ -429,7 +429,7 @@ export function AnnouncementEditor({
             </p>
             {!transportReady ? (
               <p className="mt-2 text-xs text-destructive">
-                Wysyłka maili z administracja@ nie jest jeszcze skonfigurowana — próba nie wyjdzie.
+                Wysyłka maili ze skrzynki wsparcie@ nie jest jeszcze skonfigurowana — próba nie wyjdzie.
               </p>
             ) : null}
             {blocker && formValid ? (

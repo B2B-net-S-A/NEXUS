@@ -162,7 +162,7 @@ function SecretWarning({ secret }: { secret: M365Secret }) {
         {secret.days_left === 0
           ? `Sekret aplikacji wygasa dziś (${day}).`
           : `Sekret aplikacji wygasł ${day}.`}{" "}
-        Autoodpowiedzi, kopie poczty i czytnik administracja@ przestają działać — potrzebny
+        Autoodpowiedzi, kopie poczty i czytnik wsparcie@ przestają działać — potrzebny
         nowy sekret.
       </p>
     );
@@ -172,7 +172,7 @@ function SecretWarning({ secret }: { secret: M365Secret }) {
     return (
       <p role="status" className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
         Sekret aplikacji wygasa {when} ({day}). Po tym terminie staną autoodpowiedzi,
-        kopie poczty i czytnik administracja@ — admin ustawia nowy sekret i datę przez
+        kopie poczty i czytnik wsparcie@ — admin ustawia nowy sekret i datę przez
         „Coolify set env”.
       </p>
     );

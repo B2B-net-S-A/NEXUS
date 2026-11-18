@@ -47,7 +47,7 @@ describe("/preview/hr-cases", () => {
     render(<HrCasesPreviewPage />);
 
     expect(await screen.findByRole("heading", { name: "Opieka nad konsultantami" })).toBeInTheDocument();
-    expect(screen.getByText("Sprawy administracja@ na jednej tablicy.")).toBeInTheDocument();
+    expect(screen.getByText("Sprawy wsparcie@ na jednej tablicy.")).toBeInTheDocument();
     // Stary link do „Konsultantów” i tak ląduje w „Do zrobienia”.
     expect(screen.getByRole("tab", { name: "Do zrobienia", selected: true })).toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: "Konsultanci" })).toBeNull();

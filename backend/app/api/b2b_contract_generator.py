@@ -14,7 +14,7 @@ import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from collections.abc import Callable
-from typing import Any, Optional, get_args
+from typing import Annotated, Any, Optional, get_args
 
 from fastapi import (
     APIRouter,
@@ -147,6 +147,13 @@ from app.services.job_fill import suggest_closing_when_fully_staffed
 from app.services.pipeline_auto_move import run_after_commit
 from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.b2b_agreement_prefill import build_prefill
+from app.services.b2b_documents.company_party import NOTICES_EMAIL
+from app.services.b2b_contract_generator.notices import (
+    LEGACY_NOTICES_EMAIL,
+    NOTICES_SNAPSHOT_FIELD,
+    contract_notices_email,
+    issued_notices_email,
+)
 from app.models.notification import NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.services.notification_triggers import emit
@@ -224,6 +231,7 @@ _DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.do
 # to metadane wydania dokumentu, a nie pole formularza — `B2BRenderRequest`
 # ignoruje nieznane klucze, więc odtworzenie payloadu go po prostu pomija.
 _CLAUSE_SNAPSHOT_FIELD = "_clause_override"
+
 
 # Wiersz z rejestru Excela działu (0363) — treść prowadzi dział w pliku, więc
 # NEXUS jej nie poprawia, nie usuwa i nie potwierdza podpisu (ponowny import
@@ -1971,6 +1979,12 @@ async def generate(
     detail = await db.scalar(
         select(B2BContractDetail).where(B2BContractDetail.contract_id == contract.id)
     )
+    notices_email = await contract_notices_email(
+        db,
+        contract.id,
+        number=detail.contract_number if detail else None,
+        default=NOTICES_EMAIL,
+    )
     if detail is None:
         detail = B2BContractDetail(contract_id=contract.id)
         db.add(detail)
@@ -1988,7 +2002,7 @@ async def generate(
     # 4. Render draftu HTML z szablonu B2B (eager-load relacji incl. b2b_detail).
     contract = await _load_contract_with_relations(db, contract.id, current_user)
     contract.draft_content_html = await run_in_threadpool(
-        _render_draft_body, tpl, contract
+        _render_draft_body, tpl, contract, b2b_notices_email=notices_email
     )
     contract.draft_template_id = tpl.id
     contract.draft_updated_at = datetime.now(timezone.utc)
@@ -2000,7 +2014,11 @@ async def generate(
             entity_id=contract.id,
             action="b2b_generated",
             user_id=current_user.id,
-            details={"role": role.slug, "language": lang},
+            details={
+                "role": role.slug,
+                "language": lang,
+                NOTICES_SNAPSHOT_FIELD: notices_email,
+            },
         )
     )
     await db.commit()
@@ -2075,7 +2093,15 @@ async def download_docx(
     )
     detail_lang = contract.b2b_detail.language if contract.b2b_detail else "pl"
     lang = normalize_language(language or detail_lang)
-    data = await run_in_threadpool(render_contract_docx, contract, language=lang)
+    notices_email = await contract_notices_email(
+        db,
+        contract.id,
+        number=contract.b2b_detail.contract_number if contract.b2b_detail else None,
+        default=LEGACY_NOTICES_EMAIL,
+    )
+    data = await run_in_threadpool(
+        render_contract_docx, contract, language=lang, notices_email=notices_email
+    )
 
     number = contract.b2b_detail.contract_number if contract.b2b_detail else None
     person = contract.candidate
@@ -2415,6 +2441,7 @@ async def render_standalone(
     current_user: B2BGeneratorAccess,
     db: AsyncSession = Depends(get_db),
     fmt: str = Query("docx", alias="format", pattern="^(docx|html)$"),
+    preview_generated_id: Annotated[int | None, Query(gt=0)] = None,
 ):
     """Generuje umowę wprost z pól formularza (tryb ręczny / standalone).
 
@@ -2446,8 +2473,24 @@ async def render_standalone(
         write=True,
     )
     context = build_render_context(payload, role)
+    context["b2b_notices_email"] = NOTICES_EMAIL
 
     if fmt == "html":
+        if preview_generated_id is not None:
+            row = await _load_generated_for_download(
+                db, current_user, preview_generated_id
+            )
+            if (
+                mandate.is_mandate(row)
+                or not row.render_payload
+                or (payload.candidate_id, payload.job_id)
+                != (row.candidate_id, row.job_id)
+                or (payload.contract_number or "").strip() != row.contract_number
+            ):
+                raise HTTPException(
+                    status_code=422, detail="Podgląd wymaga danych tej samej umowy B2B."
+                )
+            context["b2b_notices_email"] = issued_notices_email(row.render_payload)
         tpl = await _b2b_template_for(db, lang)
         try:
             html = await run_in_threadpool(
@@ -2608,6 +2651,7 @@ async def render_standalone(
         # rejestr od nowa i wydaje inną umowę niż podpisana.
         render_payload={
             **payload.model_dump(mode="json"),
+            NOTICES_SNAPSHOT_FIELD: context["b2b_notices_email"],
             _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
         },
     )
@@ -3375,24 +3419,9 @@ async def generated_contract_status_history(
     return sorted(items, key=lambda item: item.created_at or "")
 
 
-@router.get("/generated/{generated_id}/docx")
-async def download_generated_contract(
-    generated_id: int,
-    current_user: B2BGeneratorAccess,
-    db: AsyncSession = Depends(get_db),
-):
-    """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
-
-    Render bierze pola formularza z `render_payload` ORAZ przypięty tam snapshot
-    rejestru klauzul, więc treść nie zmienia się przy kolejnych edycjach rejestru
-    (numer umowy bierzemy z wiersza logu, nie z payloadu).
-
-    UWAGA — to nie jest dowód tego, co strony podpisały. Wiersze wydane przed
-    wprowadzeniem snapshotu (`_clause_override`) rozstrzygają rejestr po nazwie
-    Klienta, czyli mogą wyjść z inną treścią niż wersja dostarczona; rozjazd
-    treści klauzul pod tym samym kluczem też jest tylko logowany, nie blokowany.
-    Autorytatywny jest podpisany dokument, nie ten plik. Wiersze bez payloadu →
-    422 z prośbą o ponowne wygenerowanie."""
+async def _load_generated_for_download(
+    db: AsyncSession, current_user: User, generated_id: int
+) -> B2BGeneratedContract:
     _require_contract_generation(current_user)
     row = await db.get(B2BGeneratedContract, generated_id)
     if not row:
@@ -3411,6 +3440,28 @@ async def download_generated_contract(
         job_id=row.job_id,
     )
     _reject_excel_row(row)
+    return row
+
+
+@router.get("/generated/{generated_id}/docx")
+async def download_generated_contract(
+    generated_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+):
+    """Pobierz ponownie DOCX wygenerowanej umowy — odtworzony z zapisanego payloadu.
+
+    Render bierze pola formularza z `render_payload` ORAZ przypięty tam snapshot
+    rejestru klauzul, więc treść nie zmienia się przy kolejnych edycjach rejestru
+    (numer umowy bierzemy z wiersza logu, nie z payloadu).
+
+    UWAGA — to nie jest dowód tego, co strony podpisały. Wiersze wydane przed
+    wprowadzeniem snapshotu (`_clause_override`) rozstrzygają rejestr po nazwie
+    Klienta, czyli mogą wyjść z inną treścią niż wersja dostarczona; rozjazd
+    treści klauzul pod tym samym kluczem też jest tylko logowany, nie blokowany.
+    Autorytatywny jest podpisany dokument, nie ten plik. Wiersze bez payloadu →
+    422 z prośbą o ponowne wygenerowanie."""
+    row = await _load_generated_for_download(db, current_user, generated_id)
     data = await _render_generated_row_docx(db, row)
     return _docx_response(
         data,
@@ -3449,6 +3500,7 @@ async def _render_generated_row_docx(
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
+    context["b2b_notices_email"] = issued_notices_email(row.render_payload)
     return await _render_docx_or_500(context, lang, _pinned_clause_key(row, lang))
 
 
@@ -3784,7 +3836,7 @@ async def generated_contract_form(
     form = {
         key: value
         for key, value in row.render_payload.items()
-        if key != _CLAUSE_SNAPSHOT_FIELD
+        if key not in {_CLAUSE_SNAPSHOT_FIELD, NOTICES_SNAPSHOT_FIELD}
     }
     form["contract_number"] = row.contract_number
     replaced = None
@@ -3834,6 +3886,7 @@ async def rerender_generated_contract(
     _tidy_partner_addresses(payload)
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
+    context["b2b_notices_email"] = issued_notices_email(row.render_payload)
     override_key, override_ops = resolve_override(payload.client_name, lang)
     data = await _render_docx_or_500(context, lang, override_key)
 
@@ -3864,6 +3917,7 @@ async def rerender_generated_contract(
     row.render_payload = {
         **payload.model_dump(mode="json"),
         "contract_number": row.contract_number,
+        NOTICES_SNAPSHOT_FIELD: context["b2b_notices_email"],
         _CLAUSE_SNAPSHOT_FIELD: _clause_snapshot(override_key, override_ops),
     }
     db.add(

@@ -238,7 +238,7 @@ PERMISSIONS: tuple[Permission, ...] = (
     ),
     Permission(
         CASES,
-        "Sprawy: skrzynka administracja@",
+        "Sprawy: skrzynka wsparcie@",
         "people",
         holders=(Holder("talent_community_manager"),),
     ),

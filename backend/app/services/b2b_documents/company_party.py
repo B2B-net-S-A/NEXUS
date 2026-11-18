@@ -9,6 +9,8 @@ poprawienia kilkunastu plików — tu jest jedna stała, którą czyta każdy sz
 
 from __future__ import annotations
 
+NOTICES_EMAIL = "wsparcie@b2bnetwork.pl"
+
 COMPANY_PL: dict[str, str] = {
     "name": "B2B.net S.A.",
     "short": "B2BNET",
@@ -24,7 +26,7 @@ COMPANY_PL: dict[str, str] = {
     "representative": "Pana Artura Twardowskiego – Prezesa Zarządu",
     "representative_nom": "Artur Twardowski – Prezes Zarządu",
     "signatory_title": "Prezes Zarządu",
-    "notices_email": "administracja@b2bnetwork.pl",
+    "notices_email": NOTICES_EMAIL,
     "place": "Warszawa",
 }
 

@@ -669,6 +669,15 @@ def doc_to_html(doc: _DocType) -> str:
 
 def build(lang: str, src: Path, rules) -> None:
     doc = docx.Document(str(src))
+    for para in doc.paragraphs:
+        if "B2BNET: administracja@b2bnetwork.pl" not in para.text:
+            continue
+        for run in para.runs:
+            if "administracja@b2bnetwork.pl" in run.text:
+                run.text = run.text.replace(
+                    "administracja@b2bnetwork.pl",
+                    "{{ b2b_notices_email | default('wsparcie@b2bnetwork.pl') }}",
+                )
     hits = apply_rules(doc, rules)
     patch_appendix_table(doc, lang)
     unbold_partner(doc)

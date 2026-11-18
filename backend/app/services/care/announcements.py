@@ -87,7 +87,7 @@ SENDING_OFF = (
     "Wysyłka komunikatów do konsultantów jest wyłączona. Włącza ją administrator "
     "w ustawieniach komunikatów."
 )
-NO_TRANSPORT = "Wysyłka maili z administracja@ nie jest jeszcze skonfigurowana."
+NO_TRANSPORT = "Wysyłka maili z wsparcie@ nie jest jeszcze skonfigurowana."
 NOT_FOUND = "Nie ma takiego komunikatu."
 UNTESTED = (
     "Najpierw wyślij komunikat próbnie do siebie — próba jest potrzebna po każdej "

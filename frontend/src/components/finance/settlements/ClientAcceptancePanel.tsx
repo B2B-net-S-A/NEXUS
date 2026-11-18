@@ -139,7 +139,8 @@ export function ClientAcceptancePanel({ clientId, month, canWrite }: ClientAccep
           </h2>
           <p className="text-xs text-muted-foreground">
             KCP zbieramy i wysyłamy paczką{data.email ? <> na {data.email}</> : null}. Kontraktora rozliczamy bez czekania na
-            klienta, fakturę do klienta wystawiamy po akceptacji. Odpowiedź klienta na rozliczenia@ NEXUS odczytuje sam.
+            klienta, fakturę do klienta wystawiamy po akceptacji. Odpowiedź z załącznikiem wysłaną na rozliczenia@b2bnetwork.pl
+            NEXUS odczytuje automatycznie. Odpowiedź bez załącznika można wgrać jako plik .eml lub .msg.
           </p>
         </div>
         {canWrite ? (

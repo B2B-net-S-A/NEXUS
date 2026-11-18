@@ -51,7 +51,7 @@ function SendingNotice({ list }: { list: AnnouncementList }) {
         ? {
             title: "Włączyć wysyłkę komunikatów do konsultantów?",
             description:
-              "To maile do ludzi spoza firmy. Zatwierdzone komunikaty zaczną wychodzić z administracja@ w kolejce.",
+              `To maile do ludzi spoza firmy. Zatwierdzone komunikaty zaczną wychodzić ze skrzynki ${settings.sender ?? "wsparcie@"} w kolejce.`,
             confirmLabel: "Włącz wysyłkę",
           }
         : {
@@ -77,7 +77,7 @@ function SendingNotice({ list }: { list: AnnouncementList }) {
   }
   if (settings.transport === "simulate") lines.push("Tryb symulacji — maile nie wychodzą z NEXUSA.");
   if (settings.transport === "off" || settings.transport === "unconfigured") {
-    lines.push("Wysyłka maili z administracja@ nie jest jeszcze skonfigurowana.");
+    lines.push("Wysyłka maili ze skrzynki wsparcie@ nie jest jeszcze skonfigurowana.");
   }
   if (!lines.length && !me.is_admin) return null;
   return (
@@ -232,7 +232,7 @@ export function AnnouncementsTab() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          Maile z administracja@ do grup konsultantów — osobny do każdego, odpowiedzi trafiają do Spraw.
+          Maile ze skrzynki {data.settings.sender ?? "wsparcie@"} do grup konsultantów — osobny do każdego, odpowiedzi trafiają do Spraw.
           {pendingForMe
             ? ` Czeka na Ciebie: ${plural(pendingForMe, "komunikat", "komunikaty", "komunikatów")}.`
             : ""}
