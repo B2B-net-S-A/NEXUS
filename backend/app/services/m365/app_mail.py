@@ -440,7 +440,10 @@ def _send_via_graph_app(
             return httpx.post(
                 url,
                 content=mime,
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "text/plain",
+                },
                 timeout=15.0,
             )
 
