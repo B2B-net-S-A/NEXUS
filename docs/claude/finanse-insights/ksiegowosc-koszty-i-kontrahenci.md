@@ -280,12 +280,17 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
 - **Wyciąg** (Finanse → Przelewy → „Wgraj wyciąg”, MT940/CAMT.053 przez
   `statements.parse_file`, ta sama blokada pliku co Płace i faktury do
   klientów): tylko obciążenia. Dopasowanie: numer KSeF w tytule; potem numer
-  faktury całym słowem albo `/INV/` (numery powtarzają się u dostawców —
-  rozstrzyga rachunek odbiorcy, bez niego kwota równa pozostałej); potem
+  faktury całym słowem albo `/INV/` (numer zawarty w dłuższym numerze, który
+  też jest w tytule, ustępuje: „1/10/2026” w „FV/1/10/2026”; numery powtarzają
+  się u dostawców — rozstrzyga rachunek odbiorcy, potem NIP sprzedawcy z pola
+  `/IDC/` przelewu MPP, a w zwykłym przelewie co najmniej dwa słowa nazwy
+  sprzedawcy w nazwie odbiorcy; bez nich kwota równa pozostałej); potem
   pozycja aktywnej paczki (ten sam rachunek i kwota). Kwota równa pozostałej =
   zapłacona (MPP: kwota + VAT z `/VAT/` w tytule); mniejsza przy wskazanej
   fakturze = częściowa (po samym numerze faktury tylko z potwierdzonym
-  rachunkiem); większa, faktura zapłacona, kilka pasujących = „do sprawdzenia”
+  rachunkiem albo NIP-em z `/IDC/` — np. potrącenie z faktury; sama nazwa
+  odbiorcy tylko zawęża do „kwota inna”); większa, faktura zapłacona, kilka
+  pasujących = „do sprawdzenia”
   z podpowiedziami („Przypisz” / „Pomiń” z powodem). Ten sam plik drugi raz nic
   nie dopisuje; ta sama operacja z innego pliku = pominięta z powodem.
 - **Ręczne „Opłacono”** na karcie: kwota (domyślnie całość pozostałej, nie

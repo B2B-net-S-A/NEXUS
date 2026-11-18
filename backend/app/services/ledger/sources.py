@@ -143,6 +143,8 @@ class Candidate:
     skipped: bool = False
     #: Rozliczenie kosztów: kwoty MPK do podglądu (kod, nazwa, grosze).
     details: list[dict[str, Any]] = field(default_factory=list)
+    #: Sprzedaż bez konta przychodu: nabywca, dla którego księgowa wskaże konto.
+    revenue_buyer: Optional[dict[str, Any]] = None
 
 
 def fingerprint(spec: DocumentSpec) -> str:
@@ -502,7 +504,9 @@ def sales_spec(
     receivable = receivable_account(counterparty, settings.sales.receivable_account)
     if receivable is None:
         return NO_RECEIVABLE
-    revenue_to, revenue_from = revenue_account(invoice, ctx, settings, key)
+    revenue_to, revenue_from = revenue_account(
+        invoice, ctx, settings, key, counterparty_id=counterparty.id
+    )
     if revenue_to is None:
         return revenue_from
     rate, fx_date, fx_source = invoice_rate(invoice, ctx)
@@ -563,15 +567,28 @@ def revenue_account(
     ctx: _SalesContext,
     settings: LedgerSettings,
     key: Optional[tuple[str, str]],
+    *,
+    counterparty_id: Optional[int] = None,
 ) -> tuple[Optional[str], str]:
     """Konto przychodu FVS → (konto, skąd) albo (``None``, problem).
 
     Konto z Ustawień = tryb jednego konta; puste — jak w Symfonii
-    (``revenue.pick``), a konto spoza planu to problem, nie konto zapasowe."""
+    (``revenue.pick``, z kontem wskazanym dla nabywcy bez historii), a konto
+    spoza planu to problem, nie konto zapasowe."""
 
     if settings.sales.revenue_account:
         return settings.sales.revenue_account, revenue.SETTINGS
-    account, found = revenue.pick(invoice, ctx.revenue, key[1] if key else None)
+    choice = (
+        settings.revenue_accounts.get(counterparty_id)
+        if counterparty_id is not None
+        else None
+    )
+    account, found = revenue.pick(
+        invoice,
+        ctx.revenue,
+        key[1] if key else None,
+        choice.account if choice else None,
+    )
     if account is None or ctx.plan is None:
         return account, found
     resolved, problem = engine.resolve(account, ctx.plan)
@@ -582,6 +599,15 @@ def revenue_account(
         f"Konto przychodu {account} ({revenue.SOURCE_LABELS[found]}) nie przyjmuje "
         f"zapisów: {why[:1].lower() + why[1:]}. Popraw plan kont albo zaksięguj "
         "fakturę ręcznie."
+    )
+
+
+def needs_revenue_choice(problem: str) -> bool:
+    """Problem, który usuwa wskazanie konta przychodu nabywcy w „Źródłach”."""
+
+    chosen = f"({revenue.SOURCE_LABELS[revenue.CHOSEN]})"
+    return problem == revenue.NO_HISTORY or (
+        problem.startswith("Konto przychodu ") and chosen in problem
     )
 
 
@@ -699,6 +725,14 @@ async def _sales_candidates(
         spec = sales_spec(invoice, ctx, settings)
         if isinstance(spec, str):
             candidate.problems.append(spec)
+            party = find_buyer(ctx.counterparties, invoice)
+            if party is not None and needs_revenue_choice(spec):
+                choice = settings.revenue_accounts.get(party.id)
+                candidate.revenue_buyer = {
+                    "counterparty_id": party.id,
+                    "name": party.name,
+                    "account": choice.account if choice else None,
+                }
         elif spec is None:
             candidate.skipped = True
         else:
@@ -898,9 +932,17 @@ async def _live_documents(
 
 
 def _problem(
-    candidate_label: str, source_id: str, problems: list[str]
+    candidate_label: str,
+    source_id: str,
+    problems: list[str],
+    revenue_buyer: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    return {"source_id": source_id, "label": candidate_label, "problems": problems}
+    return {
+        "source_id": source_id,
+        "label": candidate_label,
+        "problems": problems,
+        "revenue_buyer": revenue_buyer,
+    }
 
 
 def _storno_hint(doc: LedgerDocument, reason: str) -> str:
@@ -965,7 +1007,12 @@ async def month_summary(
                 continue
             if candidate.spec is None:
                 problems.append(
-                    _problem(candidate.label, candidate.source_id, candidate.problems)
+                    _problem(
+                        candidate.label,
+                        candidate.source_id,
+                        candidate.problems,
+                        candidate.revenue_buyer,
+                    )
                 )
                 continue
             if doc is None:
@@ -1094,7 +1141,12 @@ async def sync_month(
                     )
             else:
                 problems.append(
-                    _problem(candidate.label, candidate.source_id, candidate.problems)
+                    _problem(
+                        candidate.label,
+                        candidate.source_id,
+                        candidate.problems,
+                        candidate.revenue_buyer,
+                    )
                 )
             continue
         mark = fingerprint(spec)
