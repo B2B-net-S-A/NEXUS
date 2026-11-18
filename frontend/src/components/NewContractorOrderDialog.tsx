@@ -56,6 +56,8 @@ interface NewContractorOrderDialogProps {
   /** Numer zamówienia przeniesiony z okna „Nowe zamówienie" przy zmianie typu. */
   initialOrderNumber?: string;
   allowedOrderTypes?: readonly OrderType[];
+  /** Typ najczęstszy u klienta — podpowiedź przy przełączniku typu. */
+  usualOrderType?: OrderType;
   canManageFinance?: boolean;
   /**
    * Jednostka stawki proponowana domyślnie (najczęstsza u tego klienta —
@@ -106,6 +108,7 @@ export function NewContractorOrderDialog({
   orderType = "periodic",
   onOrderTypeChange,
   allowedOrderTypes,
+  usualOrderType,
   initialFile = null,
   initialOrderNumber = "",
   initialDraft = null,
@@ -543,6 +546,7 @@ export function NewContractorOrderDialog({
                 })
               }
               allowedTypes={allowedOrderTypes}
+              usualType={usualOrderType}
             />
           ) : null}
 

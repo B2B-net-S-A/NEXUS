@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 16.11.2026
+> **Zgodność z systemem sprawdzona:** 18.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -189,6 +189,14 @@ zastąpić prawdziwym numerem z dokumentu klienta. Szkic znajdziesz pod filtrem
 
 Kliknij wiersz tej osoby, w panelu wybierz **Uzupełnij zamówienie** i wypełnij
 dane z dokumentu od klienta.
+
+Szkic dostaje typ, w którym klient zwykle się rozlicza (u BNP — **MD**). Przy
+wyborze typu ten typ ma dopisek **„zwykle u klienta”**, a gdy wybierzesz inny,
+pod przełącznikiem pojawi się ostrzeżenie. Zamówienie **okresowe nie ma budżetu
+MD** i nie zbiera zużycia z importów MD. Jeżeli szkic jest okresowy, a
+**Zczytaj dane z dokumentu** znajdzie w PDF-ie liczbę MD, okno samo zmieni typ
+na **MD**: wpisze budżet z dokumentu i przeliczy stawki na MD (1 MD = 8 h).
+Przycisk **„Cofnij — zostaw okresowe”** przywraca stan sprzed odczytu.
 
 Po każdym zatrudnieniu — z podpisu umowy i z ręcznego przestawienia na
 „zatrudniony" — dostajesz w panelu **„Moi klienci"** kartę „Nowy kontraktor —
