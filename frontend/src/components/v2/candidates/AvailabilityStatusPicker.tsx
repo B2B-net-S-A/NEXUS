@@ -78,6 +78,7 @@ export function AvailabilityStatusPicker({
           type="button"
           onClick={stop}
           aria-label="Czy szuka pracy — zmień"
+          data-tour={appearance === "text" ? "candidates.availability-status" : undefined}
           className="inline-flex min-w-0 shrink-0 items-center rounded-full hover:underline focus-visible:outline-2 focus-visible:outline-ring"
         >
           {current === "unknown" ? (
