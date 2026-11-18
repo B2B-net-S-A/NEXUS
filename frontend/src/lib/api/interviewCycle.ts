@@ -7,6 +7,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import type {
   CycleOverview,
   CycleScope,
@@ -29,8 +30,49 @@ export interface SlotConfirmResult {
   superseded_outlook?: SupersededOutlook | null;
 }
 
-/** Agenda odświeża się co minutę — odliczanie „zadzwoń teraz” musi żyć. */
-export const CYCLE_REFETCH_MS = 60_000;
+/** Wydarzenie bez końca serwer liczy jako godzinne (`_interview_end`). */
+const CYCLE_DEFAULT_EVENT_MS = 60 * 60_000;
+/** Kwadrans przed startem prep/rozmowa wchodzi do „Teraz” w okienku paska. */
+const CYCLE_STARTING_SOON_MS = 15 * 60_000;
+/** Dolny próg: granica sprzed chwili nie może zapętlić odpytywania. */
+const CYCLE_MIN_REFETCH_MS = 5_000;
+/** Serwer liczy `call_now` od końca rozmowy — chwilę po granicy, nie przed nią. */
+const CYCLE_BOUNDARY_SLACK_MS = 1_000;
+
+/**
+ * Kiedy dociągnąć przegląd cyklu (18.11.2026). Do 18.11 klucz odpytywał się
+ * co minutę (`CYCLE_REFETCH_MS`) na każdej karcie z pulpitem albo ekranem
+ * „Rozmowy u klienta” — największa pozycja ruchu tła pulpitu. Zadania
+ * „Zadzwoń teraz” i „Debrief po terminie” serwer liczy z zegara, więc
+ * zamiast stałej minuty budzimy się tuż po najbliższej granicy z danych
+ * (start, koniec, kwadrans przed startem, koniec okna telefonu, termin
+ * zadania), a bez granic — siatka bezpieczeństwa z `lib/polling.ts`. Zmiany
+ * stanu cyklu i tak przynosi gniazdo (`useNotifications`).
+ */
+export function cycleRefetchDelayMs(
+  overview: CycleOverview | null | undefined,
+  nowMs: number,
+): number {
+  let next: number | null = null;
+  const consider = (ms: number) => {
+    if (Number.isFinite(ms) && ms > nowMs && (next == null || ms < next)) next = ms;
+  };
+  const callWindowMs = (overview?.call_window_minutes ?? 0) * 60_000;
+  for (const entry of overview?.agenda ?? []) {
+    const start = new Date(entry.start).getTime();
+    const end = entry.end ? new Date(entry.end).getTime() : start + CYCLE_DEFAULT_EVENT_MS;
+    consider(start - CYCLE_STARTING_SOON_MS);
+    consider(start);
+    consider(end);
+    consider(end + callWindowMs);
+  }
+  for (const todo of overview?.todos ?? []) {
+    if (todo.due) consider(new Date(todo.due).getTime());
+  }
+  if (next == null) return WS_BACKED_SAFETY_POLL_MS;
+  const delay = (next as number) - nowMs + CYCLE_BOUNDARY_SLACK_MS;
+  return Math.min(Math.max(delay, CYCLE_MIN_REFETCH_MS), WS_BACKED_SAFETY_POLL_MS);
+}
 
 export const interviewCycleQueryKey = (scope: CycleScope) =>
   ["interview-cycle", scope] as const;
@@ -212,7 +254,8 @@ export function useInterviewCycle(
     enabled = true,
     // Okienko „Rozmowy” w pasku stoi na każdej stronie: odświeża je gniazdo,
     // a odpytywanie jest tylko siatką bezpieczeństwa (`lib/polling.ts`).
-    refetchInterval = CYCLE_REFETCH_MS,
+    // Bez podanej liczby — najbliższa granica z danych (`cycleRefetchDelayMs`).
+    refetchInterval,
     staleTime = 30_000,
   }: { enabled?: boolean; refetchInterval?: number; staleTime?: number } = {},
 ) {
@@ -220,7 +263,8 @@ export function useInterviewCycle(
     queryKey: interviewCycleQueryKey(scope),
     queryFn: () => interviewCycleApi.overview(scope),
     enabled,
-    refetchInterval,
+    refetchInterval:
+      refetchInterval ?? ((query) => cycleRefetchDelayMs(query.state.data, Date.now())),
     staleTime,
   });
 }
