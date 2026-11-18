@@ -1084,10 +1084,24 @@ async def create_batch(
     chosen = fmt or ("elixir" if currency == "PLN" else "csv")
     if chosen == "elixir" and currency != "PLN":
         raise PaymentError("Elixir to przelewy krajowe w złotych — wybierz CSV.", 422)
-    if chosen == "elixir" and not (await load_settings(db))["sender_account"]:
+    sender_account = (await load_settings(db))["sender_account"]
+    if chosen == "elixir" and not sender_account:
         raise PaymentError(
             "Ustaw rachunek nadawcy (Przelewy → Rachunek nadawcy), żeby utworzyć plik Elixir.",
             code="no_sender",
+        )
+    if (
+        chosen == "elixir"
+        and elixir.uses_santander_layout(sender_account or "")
+        and any(item.mode == "mpp" for item in items)
+    ):
+        # Układu MPP w pliku eBI24 dla Santandera nie znamy (próbka 17.11.2026
+        # to zwykły przelew) — lepiej odmówić niż wysłać MPP jako zwykły.
+        raise PaymentError(
+            "Przelewów MPP nie zapiszemy jeszcze w pliku dla Santandera (czekamy na "
+            "próbkę MPP z eBI24) — zapłać je w eBI24 albo w banku, a tu zaznacz "
+            "zwykłe przelewy.",
+            code="santander_mpp",
         )
     batch = FinancePaymentBatch(
         currency=currency, format=chosen, execution_date=when, created_by=actor_id
@@ -1432,9 +1446,17 @@ async def _render(
         )
         for item, _entry in rows
     ]
+    if not elixir.uses_santander_layout(sender.account):
+        content = elixir.render_elixir(transfers, sender)
+    else:
+        # Santander: układ pliku z eBI24 (17 pól), MPP bez próbki zablokowane.
+        try:
+            content = elixir.render_santander(transfers, sender)
+        except elixir.SantanderLayoutError as exc:
+            raise PaymentError(str(exc), code="santander_mpp") from exc
     return (
         f"przelewy-kosztow-{stamp}-{batch.id}.pli",
-        elixir.render_elixir(transfers, sender),
+        content,
         "text/plain; charset=windows-1250",
     )
 
