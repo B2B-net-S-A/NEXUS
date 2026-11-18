@@ -31,6 +31,9 @@ admin (403). Dokumenty płacowe (D2) — tylko Płace i admin (404 dla reszty).
   ``POST /exports/{id}/book`` i ``/cancel`` (K3b) — paczka zatwierdzonych
   dokumentów do Symfonii FK; paczkę, „zaksięgowaną” i anulowanie robi lista
   „Księgowi” albo admin, paczkę płacową tylko Płace i admin (D2),
+* ``GET /sources/revenue-accounts``, ``PUT /sources/revenue-accounts/{id}``
+  (18.11.2026, lista „Księgowi” albo admin) — konto przychodu wskazane dla
+  nabywcy bez historii w Symfonii i w księdze,
 * ``GET /sources``, ``POST /sources/sync`` (K2) — faktury kosztowe z dekretem
   E2 i faktury sprzedaży z KSeF jako dokumenty FVZ / FVS w buforze, PK
   rozliczenia kosztów na „5” z MPK; przy otwartym module ``assets`` także
@@ -54,6 +57,7 @@ from fastapi import (
     Depends,
     File,
     HTTPException,
+    Path,
     Query,
     Response,
     UploadFile,
@@ -120,6 +124,7 @@ router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 AMOUNT_MAX = Decimal("1000000000000")
 ADMIN_ONLY = "To ustawienie zmienia tylko administrator."
+COUNTERPARTY_ID_MAX = 2**31 - 1
 
 
 class LineBody(BaseModel):
@@ -236,6 +241,11 @@ class PrepaymentBody(BaseModel):
     total_amount: Decimal = Field(max_digits=15, decimal_places=2, gt=0)
     start_month: date
     months: int = Field(ge=1, le=MONTHS_MAX)
+
+
+class RevenueChoiceBody(BaseModel):
+    #: Puste = zdejmij wskazanie.
+    account: str = Field(default="", max_length=64)
 
 
 class SourcesSyncBody(BaseModel):
@@ -540,6 +550,44 @@ async def get_sources(
         )
     except LedgerError as exc:
         raise _fail(exc) from exc
+
+
+@router.get("/sources/revenue-accounts")
+async def get_revenue_choices(
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    current, _ = await _context(db, current_user)
+    return {"items": await ledger_settings.revenue_choices(db, current)}
+
+
+@router.put("/sources/revenue-accounts/{counterparty_id}")
+async def set_revenue_choice(
+    body: RevenueChoiceBody,
+    current_user: FinanceModuleUser,
+    counterparty_id: int = Path(ge=1, le=COUNTERPARTY_ID_MAX),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    _, viewer = await _context(db, current_user)
+    if not viewer.approver:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Konto przychodu nabywcy wskazuje osoba z listy „Księgowi” "
+            "albo administrator.",
+        )
+    try:
+        current = await ledger_settings.set_revenue_choice(
+            db, counterparty_id, body.account, actor=current_user
+        )
+    except LedgerError as exc:
+        await db.rollback()
+        raise _fail(exc) from exc
+    await db.commit()
+    choice = current.revenue_accounts.get(counterparty_id)
+    return {
+        "counterparty_id": counterparty_id,
+        "account": choice.account if choice else None,
+    }
 
 
 @router.post("/sources/sync")

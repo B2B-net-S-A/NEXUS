@@ -659,6 +659,85 @@ async def test_sales_without_revenue_account_wait_for_buyer_history(
     assert summary["sales"]["to_post"] == 0
 
 
+async def test_accountant_chooses_revenue_account_for_buyer_without_history(
+    client, world, books
+):
+    """Nabywca bez historii: księgowa wskazuje konto na problemie w „Źródłach”,
+    a następne „Zaksięguj miesiąc” robi FVS na to konto (decyzja 18.11.2026)."""
+
+    acc, buyer = books["acc"], books["buyer"]
+    await _set_ledger(
+        {
+            "modules": {"ledger": True},
+            "accountants": [world["accountant"].id],
+            "sales": {
+                "receivable_account": acc["receivable"],
+                "vat_account": acc["vat_out"],
+            },
+        }
+    )
+    summary = await _summary(client, world, books)
+    waiting = [
+        item
+        for item in summary["sales"]["problems"]
+        if item["problems"][0] == revenue.NO_HISTORY
+    ]
+    assert waiting
+    assert waiting[0]["revenue_buyer"] == {
+        "counterparty_id": buyer.id,
+        "name": "Klient Testowy",
+        "account": None,
+    }
+    url = f"{ACC}/sources/revenue-accounts/{buyer.id}"
+    denied = await client.put(
+        url, json={"account": acc["other_income"]}, headers=_headers(world["module_only"])
+    )
+    assert denied.status_code == 403
+    for wrong in (acc["receivable"], "999-999"):
+        refused = await client.put(
+            url, json={"account": wrong}, headers=_headers(world["accountant"])
+        )
+        assert refused.status_code == 422, refused.text
+    missing = await client.put(
+        f"{ACC}/sources/revenue-accounts/{2**31 - 1}",
+        json={"account": acc["other_income"]},
+        headers=_headers(world["accountant"]),
+    )
+    assert missing.status_code == 404
+    chosen = await client.put(
+        url, json={"account": acc["other_income"]}, headers=_headers(world["accountant"])
+    )
+    assert chosen.status_code == 200, chosen.text
+    listed = await client.get(
+        f"{ACC}/sources/revenue-accounts", headers=_headers(world["module_only"])
+    )
+    assert [
+        (item["counterparty_id"], item["account"], item["problem"], bool(item["by"]))
+        for item in listed.json()["items"]
+    ] == [(buyer.id, acc["other_income"], None, True)]
+
+    synced = await _sync(client, world, books, "sales")
+    assert synced.status_code == 200, synced.text
+    doc = await _document("client_sales_invoice", books["sales"]["plain"])
+    assert doc.meta["revenue_from"] == revenue.CHOSEN
+    assert (await _lines(doc.id))[1][1] == acc["other_income"]
+    after = await _summary(client, world, books)
+    assert not [
+        item
+        for item in after["sales"]["problems"]
+        if (item.get("revenue_buyer") or {}).get("counterparty_id") == buyer.id
+    ]
+
+    removed = await client.put(
+        url, json={"account": ""}, headers=_headers(world["accountant"])
+    )
+    assert removed.status_code == 200 and removed.json()["account"] is None
+    listed = await client.get(
+        f"{ACC}/sources/revenue-accounts", headers=_headers(world["admin"])
+    )
+    assert listed.json()["items"] == []
+
+
 def _archive_sale(*, ksef: str | None, nip: str, day: date, account: str):
     """Faktura sprzedaży z archiwum eBI24 z dekretem, który poszedł do Symfonii."""
 

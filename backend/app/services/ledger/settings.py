@@ -38,6 +38,12 @@ amortyzacji (401) w dokumencie AM, konto przeciwstawne przyjęcia i ulepszenia
 (080 — zakup z faktury idzie na 080, OT przenosi go na 010) i konto pozostałych
 kosztów operacyjnych na wartość netto likwidowanego albo sprzedanego środka.
 Podział AM na „5” bierze konta z ``allocation``.
+
+Konta przychodu nabywców bez historii (``revenue_accounts``, 18.11.2026)
+wskazuje księgowa na problemie w „Źródłach”: kontrahent → konto przychodu,
+którego reguła ``revenue.pick`` używa, gdy nabywca nie ma ani dekretu
+w archiwum eBI24, ani zatwierdzonej FVS. To nie jest ``revenue_account``
+kontrahenta z kartoteki — tamto to konto rozrachunkowe z eBI24.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -266,6 +273,19 @@ MARKERS: tuple[str, ...] = tuple(f"GTU_{n:02d}" for n in range(1, 14)) + ("TP",)
 MARKED_MAX = 500
 
 
+#: Konta przychodu wskazane dla nabywców bez historii (K2, 18.11.2026).
+REVENUE_CHOICES_MAX = 2000
+
+
+@dataclass(frozen=True)
+class RevenueChoice:
+    """Konto przychodu nabywcy bez historii: kto i kiedy je wskazał."""
+
+    account: str
+    by: Optional[int] = None
+    at: str = ""
+
+
 #: Kontakt w JPK_V7M (Podmiot1): e-mail obowiązkowy, telefon opcjonalny (K5b).
 JPK_EMAIL_MAX = 255
 JPK_PHONE_MAX = 16
@@ -393,6 +413,8 @@ class LedgerSettings:
     jpk_kr: JpkKrSettings = field(default_factory=JpkKrSettings)
     #: Kontrahent (``finance_counterparties.id``) → znaczniki z ``MARKERS``.
     vat_markers: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    #: Kontrahent → konto przychodu wskazane, gdy nabywca nie ma historii.
+    revenue_accounts: dict[int, RevenueChoice] = field(default_factory=dict)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -460,6 +482,28 @@ def _markers(raw: object) -> dict[int, tuple[str, ...]]:
         if items and int(key) > 0:
             found[int(key)] = items
     return dict(sorted(found.items())[:MARKED_MAX])
+
+
+def _revenue_choices(raw: object) -> dict[int, RevenueChoice]:
+    data = raw if isinstance(raw, dict) else {}
+    found: dict[int, RevenueChoice] = {}
+    for key, value in data.items():
+        if not (isinstance(key, str) and key.isdigit() and int(key) > 0):
+            continue
+        if not isinstance(value, dict) or not isinstance(value.get("account"), str):
+            continue
+        try:
+            account = clean_account(value["account"], "Konto przychodu")
+        except LedgerError:
+            continue
+        by = value.get("by")
+        at = value.get("at")
+        found[int(key)] = RevenueChoice(
+            account=account,
+            by=by if isinstance(by, int) and not isinstance(by, bool) else None,
+            at=at if isinstance(at, str) else "",
+        )
+    return dict(sorted(found.items())[:REVENUE_CHOICES_MAX])
 
 
 def _jpk(raw: object) -> JpkContact:
@@ -559,6 +603,7 @@ def normalize(raw: object) -> LedgerSettings:
         jpk=_jpk(data.get("jpk")),
         jpk_kr=_jpk_kr(data.get("jpk_kr")),
         vat_markers=_markers(data.get("vat_markers")),
+        revenue_accounts=_revenue_choices(data.get("revenue_accounts")),
     )
 
 
@@ -587,6 +632,10 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         },
         "vat_markers": {
             str(key): list(value) for key, value in sorted(settings.vat_markers.items())
+        },
+        "revenue_accounts": {
+            str(key): {"account": value.account, "by": value.by, "at": value.at}
+            for key, value in sorted(settings.revenue_accounts.items())
         },
         "bank": {
             "accounts": [
@@ -1040,6 +1089,86 @@ async def set_vat_markers(
     settings = replace(current, vat_markers=dict(sorted(updated.items())))
     await _save(db, settings, actor=actor)
     return settings
+
+
+async def set_revenue_choice(
+    db: AsyncSession,
+    counterparty_id: int,
+    account: str,
+    *,
+    actor: User,
+) -> LedgerSettings:
+    """Konto przychodu nabywcy bez historii (bez commita; lista „Księgowi”
+    albo admin — sprawdza trasa). Puste konto zdejmuje wskazanie."""
+
+    exists = await db.scalar(
+        select(FinanceCounterparty.id).where(FinanceCounterparty.id == counterparty_id)
+    )
+    if exists is None:
+        raise LedgerError("Nie ma takiego kontrahenta w kartotece.", status=404)
+    current = await load(db)
+    updated = dict(current.revenue_accounts)
+    if account.strip():
+        number = clean_account(account, "Konto przychodu")
+        problem = account_problem(number, await load_plan(db))
+        if problem:
+            raise LedgerError(f"Konto przychodu: {problem}", status=422)
+        updated[counterparty_id] = RevenueChoice(
+            account=number,
+            by=actor.id,
+            at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    else:
+        updated.pop(counterparty_id, None)
+    if len(updated) > REVENUE_CHOICES_MAX:
+        raise LedgerError(
+            f"Wskazanych kont przychodu może być najwyżej {REVENUE_CHOICES_MAX}.",
+            status=422,
+        )
+    settings = replace(current, revenue_accounts=dict(sorted(updated.items())))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def revenue_choices(
+    db: AsyncSession, settings: LedgerSettings
+) -> list[dict[str, Any]]:
+    """Wskazane konta przychodu z nazwą nabywcy i osoby, która wskazała."""
+
+    ids = list(settings.revenue_accounts)
+    if not ids:
+        return []
+    parties = {
+        row.id: row
+        for row in await db.scalars(
+            select(FinanceCounterparty).where(FinanceCounterparty.id.in_(ids))
+        )
+    }
+    people_ids = {value.by for value in settings.revenue_accounts.values() if value.by}
+    people: dict[int, str] = {}
+    if people_ids:
+        rows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(people_ids))
+        )
+        people = {row_id: name or "" for row_id, name in rows.all()}
+    plan = await load_plan(db)
+    out = []
+    for counterparty_id, choice in settings.revenue_accounts.items():
+        party = parties.get(counterparty_id)
+        out.append(
+            {
+                "counterparty_id": counterparty_id,
+                "name": party.name if party else None,
+                "id_type": party.id_type if party else None,
+                "id_value": party.id_value if party else None,
+                "account": choice.account,
+                "problem": account_problem(choice.account, plan),
+                "by": people.get(choice.by) if choice.by else None,
+                "at": choice.at or None,
+            }
+        )
+    out.sort(key=lambda item: (item["name"] or "").lower())
+    return out
 
 
 async def set_jpk_contact(
