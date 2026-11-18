@@ -335,3 +335,106 @@ async def test_contractor_scope_is_the_dl_portfolio_or_the_whole_organization():
     )
     rendered = str(nothing.compile(compile_kwargs={"literal_binds": True}))
     assert "contracts.client_id IN (-1)" in rendered
+
+
+# ── Jedna reguła „Kończące się” (decyzja Artura 18.11.2026) ──────────────────
+#
+# Lista kontraktów, pigułka i dawna „Obsługa kontraktorów” liczą ten sam zbiór:
+# zapisany status ``ending`` (wypowiedziane) ∪ żywa umowa z końcem w 30 dni.
+# Do 18.11 rejestr liczył po samym statusie, a baner po samej dacie końca.
+
+from app.services.contract_service import (  # noqa: E402
+    ending_bucket_clause,
+    in_ending_bucket,
+)
+
+
+def test_ending_bucket_is_notice_or_live_end_within_window():
+    # Wypowiedziana zostaje w zbiorze, choć do końca daleko albo daty brak.
+    assert in_ending_bucket(_c(ContractStatus.ending, 120)) is True
+    assert in_ending_bucket(_c(ContractStatus.ending, None)) is True
+    # Żywa z końcem w oknie — zanim nocny cron przestawi status.
+    assert in_ending_bucket(_c(ContractStatus.active, 12)) is True
+    # Żywa poza oknem, szkic i zakończona — nie.
+    assert (
+        in_ending_bucket(_c(ContractStatus.active, ENDING_SOON_WINDOW_DAYS + 1))
+        is False
+    )
+    assert in_ending_bucket(_c(ContractStatus.draft, 5)) is False
+    assert in_ending_bucket(_c(ContractStatus.ended, 5)) is False
+
+
+def test_ending_bucket_clause_is_status_or_the_date_window():
+    rendered = str(
+        select(Contract.id)
+        .where(ending_bucket_clause(business_today()))
+        .compile(compile_kwargs={"literal_binds": True})
+    )
+    assert "contracts.status = 'ending' OR" in rendered
+    assert "contracts.end_date >=" in rendered and "contracts.end_date <=" in rendered
+
+
+@pytest.mark.asyncio
+async def test_list_bucket_ending_matches_the_rule(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """GET /api/contracts?bucket=ending: wypowiedziana z odległym końcem i żywa
+    z końcem w 30 dni — bez żywej poza oknem i bez szkicu. Łączy się ze `status`."""
+    notice = await _seed_contract(status="ending", days_to_end=75)
+    near = await _seed_contract(status="active", days_to_end=12)
+    far = await _seed_contract(status="active", days_to_end=75)
+    draft = await _seed_contract(status="draft", days_to_end=12)
+    try:
+        r = await app_client.get(
+            "/api/contracts?bucket=ending&page_size=100", headers=app_auth_headers
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert {notice[0], near[0]} <= ids
+        assert far[0] not in ids
+        assert draft[0] not in ids
+
+        r = await app_client.get(
+            "/api/contracts?bucket=ending&status=active&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        ids = {item["id"] for item in r.json()["items"]}
+        assert near[0] in ids
+        assert notice[0] not in ids
+
+        # Baner po samej dacie już nie istnieje w liście, ale trasa zostaje
+        # (Jarvis i dashboard) i nie wywraca się na nowym polu odpowiedzi.
+        r = await app_client.get("/api/contracts/expiring", headers=app_auth_headers)
+        assert r.status_code == 200, r.text
+        assert near[0] in {item["id"] for item in r.json()}
+    finally:
+        await _cleanup([notice, near, far, draft])
+
+
+@pytest.mark.asyncio
+async def test_list_rows_carry_missing_fields_only_for_pending(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Wiersz szkicu niesie braki bramki aktywacji (przycisk „Uzupełnij · N braki”
+    w wierszu), aktywna umowa — pustą listę."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract as ContractModel
+
+    draft = await _seed_contract(status="draft", days_to_end=40)
+    active = await _seed_contract(status="active", days_to_end=40)
+    async with AsyncSessionLocal() as db:
+        row = await db.get(ContractModel, draft[0])
+        row.start_date = None
+        await db.commit()
+    try:
+        r = await app_client.get(
+            "/api/contracts?status=draft&status=active&page_size=100",
+            headers=app_auth_headers,
+        )
+        assert r.status_code == 200, r.text
+        rows = {item["id"]: item for item in r.json()["items"]}
+        assert rows[draft[0]]["missing_fields"] == ["start_date"]
+        assert rows[active[0]]["missing_fields"] == []
+    finally:
+        await _cleanup([draft, active])

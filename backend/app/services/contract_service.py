@@ -187,6 +187,22 @@ CONTRACTOR_STATUSES: tuple[ContractStatus, ...] = (
 _PLACED_STATUSES: tuple[ContractStatus, ...] = (*_LIVE_STATUSES, ContractStatus.ended)
 
 
+# --- Zbiór „Kończące się” — jedna reguła dla listy kontraktów i „Obsługi” ---
+#
+# 18.11.2026 (decyzja Artura): lista kontraktów ma jedną definicję „kończących
+# się”: zapisany status ``ending`` (wypowiedziane, przestawione nocą) ∪ żywa
+# umowa z końcem w oknie 30 dni. Do tego dnia „Obsługa kontraktorów” liczyła
+# tak (8), rejestr po samym statusie (7), a baner po samej dacie (6).
+def ending_bucket_clause(today: Optional[date] = None):
+    """SQL: status ``ending`` albo żywa umowa z końcem w oknie (`ending_soon_clause`)."""
+    return or_(Contract.status == ContractStatus.ending, ending_soon_clause(today))
+
+
+def in_ending_bucket(contract: Contract, today: Optional[date] = None) -> bool:
+    """Python: lustro :func:`ending_bucket_clause` (statystyki bez SQL)."""
+    return contract.status == ContractStatus.ending or is_ending_soon(contract, today)
+
+
 def pending_contract_engaged_clause():
     """SQL: szkic / umowa do podpisu, za którą stoi REALNA obsada.
 

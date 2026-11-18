@@ -56,7 +56,8 @@ export function invalidateAfterDocumentChange(
   // Aneks widać w kontrakcie od wygenerowania, a skan trafia do jego Dokumentów.
   queryClient.invalidateQueries({ queryKey: ["contract-annex-documents"] });
   queryClient.invalidateQueries({ queryKey: ["contract-documents"] });
-  queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+  queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+  queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
   queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
 }
 

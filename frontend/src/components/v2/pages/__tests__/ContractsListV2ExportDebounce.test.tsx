@@ -30,7 +30,9 @@ function renderList() {
 }
 
 function listCalls() {
-  return getMock.mock.calls.filter((c) => c[0] === "/api/contracts");
+  return getMock.mock.calls.filter(
+    (c) => c[0] === "/api/contracts" && c[1]?.params?.page_size !== 1,
+  );
 }
 
 /**
