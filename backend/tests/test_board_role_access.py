@@ -9,7 +9,8 @@ bramek ``tests/data/authz_golden/`` (kolumna persony ``board``):
   „Pracownik” (własne konto, powiadomienia, pomoc) — nic biznesowego,
 * każda trasa ponad „Pracownika” to odczyt (GET) albo nazwany niżej
   odczyt metodą POST — poza umowami przedwstępnymi, które Rada prowadzi jak
-  rekruter (decyzja Artura 22.10.2026),
+  rekruter (decyzja Artura 22.10.2026), i głosem w uchwale Rady w trybie
+  pisemnym (R6, 18.11.2026),
 * kandydaci, rekrutacje, klienci, kontrakty, zamówienia, moduł Finanse,
   płace i Generator umów B2B są zamknięte.
 
@@ -39,6 +40,11 @@ EMPLOYEE = "employee"
 # Metoda zapisu, ale bez zmiany danych: kreator metryk pulpitu liczy wartość
 # na żądanie (kwoty tylko z „Stawki i kwoty: podgląd”, którego Rada nie ma).
 READ_LIKE_POSTS = frozenset({"POST /api/dashboard-metrics/evaluate"})
+
+# Głos członka Rady w uchwale pisemnej (R6, § 25 ust. 4 statutu, decyzja
+# Artura 18.11.2026). Trasa przepuszcza tylko członka ze składu uchwały
+# (``tests/test_supervisory_board_votes.py``); niczego poza głosem nie zmienia.
+BOARD_OWN_WRITES = frozenset({"POST /api/supervisory-board/votes/{vote_id}/ballot"})
 
 # Umowy przedwstępne: odczyt, pliki i akcje jak rekruter (decyzja Artura
 # 22.10.2026, audyt F54) — jedyny moduł z zapisem i danymi kandydatów.
@@ -108,6 +114,7 @@ def test_board_adds_only_reads_to_what_an_employee_can_do() -> None:
         for route in beyond_employee
         if not route.startswith("GET ")
         and route not in READ_LIKE_POSTS
+        and route not in BOARD_OWN_WRITES
         and route not in pre_contracts
     ]
     assert writes == []
@@ -125,7 +132,7 @@ def test_board_works_on_pre_contracts_like_a_recruiter() -> None:
 
 def test_listed_exceptions_still_exist() -> None:
     matrix = _matrix()
-    for route in (*READ_LIKE_POSTS, *REQUIRED_READS):
+    for route in (*READ_LIKE_POSTS, *BOARD_OWN_WRITES, *REQUIRED_READS):
         assert route in matrix, f"{route} zniknęła z wzorca — popraw listę"
 
 
