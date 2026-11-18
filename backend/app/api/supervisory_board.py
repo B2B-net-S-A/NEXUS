@@ -29,7 +29,12 @@ from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from decimal import Decimal
 
-from app.models.board_document import BoardBudget, BoardBudgetLine, BoardDocument
+from app.models.board_document import (
+    BoardBudget,
+    BoardBudgetLine,
+    BoardDocument,
+    BoardMeeting,
+)
 from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services import board_documents_schema as schema
@@ -38,6 +43,8 @@ from app.services.board import krs as krs_service
 from app.services.board import reader
 from app.services.board import budget as budget_service
 from app.services.board import financials
+from app.services.board import meetings as meetings_service
+from app.services import board_meetings_schema as meetings_schema
 from app.services.board.statements import StatementError
 from app.services.board import summary as summary_service
 from app.services import board_budget_schema as budget_schema
@@ -268,6 +275,182 @@ async def import_statement(
     except StatementError as exc:
         raise HTTPException(422, str(exc)) from exc
     return result
+
+
+# ── Posiedzenia (R5) ─────────────────────────────────────────────────────────
+
+
+def meeting_view(meeting: BoardMeeting, *, with_pack: bool = False) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": meeting.id,
+        "held_on": meeting.held_on.isoformat(),
+        "kind": meeting.kind,
+        "status": meeting.status,
+        "title": meeting.title,
+        "place": meeting.place,
+        "agenda": meeting.agenda or [],
+        "note": meeting.note,
+        "minutes_document_id": meeting.minutes_document_id,
+        "pack_frozen_at": _iso(meeting.pack_frozen_at),
+        "has_pack": meeting.pack is not None,
+    }
+    if with_pack:
+        out["pack"] = meeting.pack
+    return out
+
+
+async def _meeting(db: AsyncSession, meeting_id: int) -> BoardMeeting:
+    meeting = await db.get(BoardMeeting, meeting_id)
+    if meeting is None:
+        raise HTTPException(404, "Nie ma takiego posiedzenia.")
+    return meeting
+
+
+@router.get("/meetings")
+async def list_meetings(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Posiedzenia (najnowsze pierwsze) i obowiązki korporacyjne roku."""
+
+    rows = (
+        await db.execute(
+            select(BoardMeeting).order_by(BoardMeeting.held_on.desc(), BoardMeeting.id)
+        )
+    ).scalars()
+    return {
+        "items": [meeting_view(meeting) for meeting in rows],
+        "obligations": await meetings_service.obligations_view(db, business_today()),
+    }
+
+
+@router.get("/meetings/{meeting_id}")
+async def get_meeting(
+    meeting_id: int,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return meeting_view(await _meeting(db, meeting_id), with_pack=True)
+
+
+class AgendaItem(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    document_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+class MeetingBody(BaseModel):
+    held_on: date
+    kind: str = "meeting"
+    status: str = "planned"
+    title: str = Field(..., min_length=1, max_length=meetings_schema.TITLE_MAX)
+    place: Optional[str] = Field(None, max_length=meetings_schema.PLACE_MAX)
+    agenda: list[AgendaItem] = Field(
+        default_factory=list, max_length=meetings_schema.AGENDA_MAX
+    )
+    note: Optional[str] = Field(None, max_length=4000)
+    minutes_document_id: Optional[int] = None
+
+
+async def _apply_meeting(
+    db: AsyncSession, meeting: BoardMeeting, body: MeetingBody, user_id: int
+) -> None:
+    if body.kind not in meetings_schema.KINDS:
+        raise HTTPException(422, "Tryb: posiedzenie, zdalnie albo pisemnie.")
+    if body.status not in meetings_schema.STATUSES:
+        raise HTTPException(422, "Status: zaplanowane, odbyte albo odwołane.")
+    referenced = {doc_id for item in body.agenda for doc_id in item.document_ids}
+    if body.minutes_document_id is not None:
+        referenced.add(body.minutes_document_id)
+    if referenced:
+        found = set(
+            (
+                await db.execute(
+                    select(BoardDocument.id).where(BoardDocument.id.in_(referenced))
+                )
+            ).scalars()
+        )
+        if found != referenced:
+            raise HTTPException(422, "Porządek obrad wskazuje dokument, którego nie ma.")
+    meeting.held_on = body.held_on
+    meeting.kind = body.kind
+    meeting.status = body.status
+    meeting.title = body.title.strip()
+    meeting.place = (body.place or "").strip() or None
+    meeting.agenda = [
+        {"title": item.title.strip(), "document_ids": item.document_ids}
+        for item in body.agenda
+    ]
+    meeting.note = (body.note or "").strip() or None
+    meeting.minutes_document_id = body.minutes_document_id
+    meeting.updated_by = user_id
+    meeting.updated_at = datetime.now(timezone.utc)
+
+
+@router.post("/meetings", status_code=201)
+async def create_meeting(
+    body: MeetingBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    meeting = BoardMeeting(created_by=current_user.id)
+    await _apply_meeting(db, meeting, body, current_user.id)
+    db.add(meeting)
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting_view(meeting)
+
+
+@router.put("/meetings/{meeting_id}")
+async def update_meeting(
+    meeting_id: int,
+    body: MeetingBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    meeting = await _meeting(db, meeting_id)
+    await _apply_meeting(db, meeting, body, current_user.id)
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting_view(meeting)
+
+
+@router.delete("/meetings/{meeting_id}", status_code=204)
+async def delete_meeting(
+    meeting_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Usuń wpis bez pakietu. Posiedzenie z wysłanym pakietem tylko odwołaj."""
+
+    meeting = await _meeting(db, meeting_id)
+    if meeting.pack is not None:
+        raise HTTPException(
+            409, "Pakiet poszedł już do Rady — zmień status na „odwołane”."
+        )
+    await db.delete(meeting)
+    await db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/meetings/{meeting_id}/pack")
+async def freeze_pack(
+    meeting_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zamroź pakiet na dziś i daj znać Radzie (ponowne zamrożenie podmienia)."""
+
+    meeting = await _meeting(db, meeting_id)
+    if meeting.status == "cancelled":
+        raise HTTPException(409, "Posiedzenie jest odwołane.")
+    meeting.pack = await meetings_service.build_pack(db, meeting, business_today())
+    meeting.pack_frozen_at = datetime.now(timezone.utc)
+    meeting.pack_frozen_by = current_user.id
+    await db.flush()
+    notified = await meetings_service.notify_pack(db, meeting)
+    await db.commit()
+    await db.refresh(meeting)
+    return {**meeting_view(meeting, with_pack=True), "notified": notified}
 
 
 # ── KRS ──────────────────────────────────────────────────────────────────────

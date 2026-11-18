@@ -283,6 +283,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # Raporty dla klientów (0712)
     _T.client_report_due: _C.client_reports,
     _T.board_krs_entry: _C.system,
+    _T.board_meeting_pack: _C.system,
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,

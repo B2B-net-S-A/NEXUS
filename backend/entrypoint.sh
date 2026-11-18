@@ -390,6 +390,8 @@ _ENUM_STATEMENTS = [
     # 0727: Rada — odczyt skanu dokumentu korporacyjnego i dzwonek o wpisie w KRS.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'board_document_read'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
+    # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",

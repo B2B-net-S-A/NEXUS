@@ -1,4 +1,5 @@
-"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) budżet (0733, R3) i sprawozdania roczne (0734, R4).
+"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) budżet (0733, R3), sprawozdania roczne (0734, R4)
+i posiedzenia (0735, R5).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
@@ -30,6 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.services import board_budget_schema as budget_schema
 from app.services import board_documents_schema as schema
+from app.services import board_meetings_schema as meetings_schema
 from app.services import board_statements_schema as statements_schema
 
 
@@ -219,6 +221,58 @@ class BoardFinancialStatement(Base):
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardMeeting(Base):
+    """Posiedzenie Rady (0735, R5) z porządkiem obrad i zamrożonym pakietem."""
+
+    __tablename__ = "board_meetings"
+    __table_args__ = (
+        CheckConstraint(meetings_schema.CK_KIND, name="ck_board_meetings_kind"),
+        CheckConstraint(meetings_schema.CK_STATUS, name="ck_board_meetings_status"),
+        CheckConstraint(meetings_schema.CK_AGENDA, name="ck_board_meetings_agenda"),
+        CheckConstraint(meetings_schema.CK_PACK, name="ck_board_meetings_pack"),
+        Index("ix_board_meetings_held_on", text("held_on DESC")),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    held_on: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="meeting", server_default="meeting"
+    )
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="planned", server_default="planned"
+    )
+    title: Mapped[str] = mapped_column(String(meetings_schema.TITLE_MAX), nullable=False)
+    place: Mapped[Optional[str]] = mapped_column(
+        String(meetings_schema.PLACE_MAX), nullable=True
+    )
+    agenda: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    minutes_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    pack: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    pack_frozen_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pack_frozen_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
