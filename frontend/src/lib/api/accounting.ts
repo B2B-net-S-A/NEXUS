@@ -424,10 +424,32 @@ export interface AllocationDetail {
   payroll: boolean;
 }
 
+/** Nabywca FVS bez konta przychodu (brak historii) — księgowa wskazuje konto. */
+export interface RevenueBuyer {
+  counterparty_id: number;
+  name: string;
+  /** Wskazane wcześniej konto, którego plan kont już nie przyjmuje. */
+  account: string | null;
+}
+
 export interface SourceProblem {
   source_id: string;
   label: string;
   problems: string[];
+  revenue_buyer?: RevenueBuyer | null;
+}
+
+/** Konto przychodu wskazane dla nabywcy bez historii (18.11.2026). */
+export interface RevenueChoice {
+  counterparty_id: number;
+  name: string | null;
+  id_type: string | null;
+  id_value: string | null;
+  account: string;
+  /** Powód, dla którego plan kont nie przyjmie już tego konta. */
+  problem: string | null;
+  by: string | null;
+  at: string | null;
 }
 
 /** Źródło miesiąca (K2): ile faktur, ile już w księdze, co czeka, co blokuje. */
@@ -632,6 +654,7 @@ export const accountingKeys = {
   chart: ["accounting", "chart"] as const,
   candidates: ["accounting", "candidates"] as const,
   sources: (year: number, month: number) => ["accounting", "sources", year, month] as const,
+  revenueChoices: ["accounting", "sources", "revenue-accounts"] as const,
   automations: ["accounting", "automations"] as const,
   exports: (year: number, month: number) => ["accounting", "exports", year, month] as const,
   closing: (year: number, month: number) => ["accounting", "closing", year, month] as const,
@@ -869,6 +892,30 @@ export function useSyncSources() {
     mutationFn: async (args: { kind: SourceKind; year: number; month: number }) =>
       (await api.post<SyncResult>(`${BASE}/sources/sync`, args)).data,
     onSettled: () => invalidate(),
+  });
+}
+
+export function useRevenueChoices(enabled = true) {
+  return useQuery({
+    queryKey: accountingKeys.revenueChoices,
+    queryFn: async () =>
+      (await api.get<{ items: RevenueChoice[] }>(`${BASE}/sources/revenue-accounts`)).data.items,
+    enabled,
+  });
+}
+
+/** Wskazanie konta przychodu nabywcy; puste konto zdejmuje wskazanie. */
+export function useSetRevenueChoice() {
+  const invalidate = useInvalidateLedger();
+  return useMutation({
+    mutationFn: async (args: { counterpartyId: number; account: string }) =>
+      (
+        await api.put<{ counterparty_id: number; account: string | null }>(
+          `${BASE}/sources/revenue-accounts/${args.counterpartyId}`,
+          { account: args.account },
+        )
+      ).data,
+    onSuccess: () => invalidate(),
   });
 }
 
