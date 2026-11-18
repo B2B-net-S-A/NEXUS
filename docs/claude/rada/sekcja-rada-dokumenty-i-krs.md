@@ -69,8 +69,8 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
 
 ## Pulpit i Firma (R2)
 
-- Zakładki „Rady”: **Pulpit** (domyślna), **Firma** (ten sam `FirmaView` co
-  w Insights; okres zapisuje się w bieżącej ścieżce, nie w `/insights`),
+- Zakładki „Rady”: **Pulpit** (domyślna), **Firma** (do R7 ten sam `FirmaView`
+  co w Insights, od R7 własny widok — niżej),
   **Dokumenty**. Insights zniknęło z menu Rady (`BOARD_NAV_IDS`); adresy
   `/insights` zostają dla linków z maila i raportów.
 - `GET /summary` (`services/board/summary.py`): sprzedaż i koszty z archiwum
@@ -196,9 +196,56 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   w Dokumentach → Uchwały Rady (numer, tytuł, wynik w opisie) — ten wiersz
   zalicza obowiązek „ocena sprawozdań” z R5, jeśli tytuł o tym mówi.
 
+## Uwagi Rady do pulpitu, Firmy i Dokumentów (R7, 0737, 18.11.2026)
+
+Rada przysłała Arturowi uwagi do wersji z produkcji; „rób wszystko”.
+
+- **Miesiąc faktury = data sprzedaży** z eBI24 (`meta.transactionDate`), nie
+  data wystawienia (`summary.period_date`). Od kwietnia 2026 faktury za miesiąc
+  pracy wystawia się na początku następnego: po dacie wystawienia kwiecień
+  miał 0,6 mln, czerwiec 18 mln. Data sprzedaży dalej niż 92 dni przed albo
+  45 dni po wystawieniu (korekty starych faktur) → data wystawienia. Ta sama
+  miara idzie do Budżetu (R3) i pakietu posiedzenia (R5).
+- **Pozycje wyniku**: sprzedaż, koszty kontraktorów (folder eBI24
+  `Kontraktorzy…`), marża na kontraktorach (zł, %), koszty biurowe (pozostałe
+  foldery: `BIURO`, `Zakupy pozostałe`), zysk brutto (zł, %). Nadal bez płac
+  UoP, ZUS i amortyzacji — nie zastępuje RZiS. Rok bieżący liczy cały słupek
+  (także sprzedaż) za miesiące z pełnymi kosztami.
+- **Tabela miesięcy**: tylko sprzedaż, z ramkami (na telefonie liczby się
+  zlewały); wiersze wykonanie roku poprzedniego, budżet (R3), wykonanie,
+  odchylenie od budżetu i od roku poprzedniego (zł i %), kolumna „Razem I–n”.
+  Odchylenia i sumy liczą tylko miesiące z kompletem faktur sprzedaży (bieżący
+  miesiąc nigdy). Przełącznik roku pokazuje rok następny, gdy ma budżet.
+- **„Do uwagi Rady” na dole**, w jego miejscu „Finanse spółki”
+  (`GET /outlook`, `services/board/outlook.py`): stan gotówki (wpis Zarządu
+  `PUT /cash`, tabela `board_cash_positions`; bez wpisu gotówka ze
+  sprawozdania), zdolność kredytowa i wartość spółki dla inwestora
+  finansowego (6×, 4–8×) i branżowego (8×, 6–11×) z EBITDA ostatniego pełnego
+  roku ze sprawozdania (R4) **+ zmiana zysku brutto z faktur** (12 ostatnich
+  miesięcy z pełnymi kosztami wobec roku sprawozdania), symulacja sprzedaży
+  i zysku brutto na koniec roku (wykonanie + prognoza z kontraktów z R3, dwa
+  scenariusze). Bez sprawozdania — kreska i odesłanie do Analizy, nie zero.
+- **Raporty PDF** (`services/board/reports.py`, weasyprint): miesięczny,
+  roczny, budżet; `GET /reports/render` liczy z bieżących danych, admin
+  zapisuje w archiwum (`POST /reports`, tabela `board_reports`, plik w magazynie
+  dokumentów Rady), Rada pobiera z archiwum. Raport roczny ma podsumowanie
+  zejść bez listy (lista w miesięcznym).
+- **Firma Rady** (`RadaFirmaTab`, `GET /people`) zamiast `FirmaView` z
+  Insights (ten zostaje w Insights): placementy (definicja z Insights;
+  sprzed 12.10.2026 z raportów DynaReportera, bez klienta — „bez
+  przypisania”), kontraktorzy na projektach według klienta, zejścia z powodem,
+  kto zakończył, stażem i opisem „czego się nauczyliśmy”, wnioski opisowe
+  (`firma-conclusions.ts`, reguły na liczbach, odwołują się do lejka), lejek
+  zwinięty. **Bez nazwisk**: nie wychodzą tytuły rekrutacji (bywa „NAMED req —
+  imię i nazwisko”), a z opisu zejścia znika imię i nazwisko konsultanta, też
+  odmienione (`people.without_name`) — opis bywa wklejonym mailem klienta.
+  `project_name` kontraktu jest prawie zawsze pusty, więc projektem jest klient.
+- **Dokumenty**: filtr roku i miesiąca powstania dokumentu (`doc_date`, bez
+  niej data wpisu KRS); liczniki rodzajów liczą się w wybranym okresie.
+
 ## Pilnują
 
-`tests/test_supervisory_board_unit.py` (parser, wiersze z wzmianek, skrót,
+`tests/test_supervisory_board_r7.py` (gotówka, raporty PDF i archiwum, Firma bez nazwisk, filtr dokumentów), `tests/test_supervisory_board_unit.py` (EBITDA z przesunięciem, symulacja roku, opis zejścia bez nazwiska, parser, wiersze z wzmianek, skrót,
 czytnik, treść dzwonka), `tests/test_supervisory_board_api.py` (bramki ról,
 jeden odpis przy braku zmian, dzwonek tylko przy nowym wpisie, wiersz KRS bez
 usunięcia), `tests/test_supervisory_board_votes.py` (kworum połowy, większość głosów
@@ -208,6 +255,6 @@ głos konta bez Insights i admina = 403, wiersz uchwały w Dokumentach),
 posiedzeń; pakiet z dzwonkiem; usunięcie zablokowane po pakiecie; bramki),
 `tests/test_supervisory_board_statements.py` (parser XML i XAdES, odrzucenie
 DTD, ścieżki z księgi, wskaźniki, import z rokiem poprzednim, wpis ręczny
-wygrywa z `xml_prev`, bramki), `frontend/src/components/rada/__tests__/DocumentsTab.test.tsx`
+wygrywa z `xml_prev`, bramki), `frontend/src/components/rada/__tests__/pulpit-months.test.ts` (odchylenia tylko z miesięcy z kompletem), `firma-conclusions.test.ts`, `DocumentsTab.test.tsx`
 (Rada bez zapisu, awaria ≠ pusta lista), `board-role.test.ts`,
 `middleware.test.ts`.

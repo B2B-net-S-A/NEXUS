@@ -2,10 +2,19 @@
 zamówienia kończące się do końca roku.
 
 Źródło kwot: archiwum faktur z eBI24 (``finance_archive_documents``, netto
-w PLN, data wystawienia). To nie jest księga: „wynik z faktur” = sprzedaż
-minus faktury kosztowe, bez płac UoP, ZUS i amortyzacji — po K8 zastąpi go
-RZiS. Faktury kosztowe przychodzą z opóźnieniem, więc porównanie rok do roku
-liczy wynik tylko za miesiące z pełnymi kosztami (``complete_cost_months``).
+w PLN). Miesiąc faktury to **data sprzedaży** z eBI24 (``transactionDate``),
+nie data wystawienia: od kwietnia 2026 faktury za miesiąc pracy wystawia się
+na początku następnego, więc po dacie wystawienia kwiecień miał 0,6 mln,
+a czerwiec 18 mln (zgłoszenie Rady 18.11.2026). Data sprzedaży odległa od
+wystawienia o więcej niż ``SALE_DATE_WINDOW`` (korekty starych faktur, błędy)
+— zostaje data wystawienia.
+
+Koszty dzielą się po folderze eBI24: ``Kontraktorzy`` = koszty kontraktorów,
+reszta (``BIURO``, ``Zakupy pozostałe``) = koszty biurowe. „Zysk brutto”
+= sprzedaż minus faktury kosztowe, bez płac UoP, ZUS i amortyzacji — po K8
+zastąpi go RZiS. Faktury kosztowe przychodzą z opóźnieniem, więc wynik roku
+bieżącego i porównanie rok do roku liczą się tylko za miesiące z pełnymi
+kosztami (``complete_cost_months``).
 
 Kwoty są sumami całej firmy — trasa wpuszcza tylko Radę i admina.
 """
@@ -13,14 +22,26 @@ Kwoty są sumami całej firmy — trasa wpuszcza tylko Radę i admina.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from statistics import median
 from typing import Any, Optional
 
-from sqlalchemy import and_, case, extract, func, or_, select
+from sqlalchemy import (
+    Date,
+    Integer,
+    and_,
+    case,
+    cast,
+    extract,
+    func,
+    or_,
+    select,
+    type_coerce,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.board_document import BoardBudget, BoardBudgetLine
 from app.models.contract import Contract, ContractStatus, RateUnit
 from app.models.finance_archive import FinanceArchiveDocument as Doc
 from app.services.fx_service import rates_to_pln
@@ -32,6 +53,9 @@ COST_COMPLETE_SHARE = 0.8
 # Ostatni miesiąc sprzedaży do porównań: co najmniej połowa mediany 6 poprzednich
 # (bieżący, ledwo zaczęty miesiąc nie wydłuża okresu porównania).
 SALES_COMPLETE_SHARE = 0.5
+# Data sprzedaży liczy się, gdy leży od kwartału przed do 45 dni po wystawieniu.
+SALE_DATE_WINDOW = (timedelta(days=92), timedelta(days=45))
+CONTRACTOR_FOLDER = "Kontraktorzy"
 HOURS_PER_MONTH = 160
 DAYS_PER_MONTH = 20
 
@@ -46,6 +70,40 @@ def _net_pln():
     )
 
 
+#: Kształt daty z sensownym rokiem, miesiącem i dniem; Postgres i tak odrzuci
+#: 30 lutego, więc dzień buduje się z ``make_date`` + przesunięcia (niżej).
+_SALE_DATE_SHAPE = r"^(19|20)[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+
+
+def period_date():
+    """Dzień, do którego miesiąca należy faktura: data sprzedaży z eBI24
+    w oknie wokół wystawienia, w przeciwnym razie data wystawienia.
+
+    Data z eBI24 przychodzi bez walidacji („0000-00-00”, „2026-02-30”), a jedno
+    rzutowanie złej wartości wywraca całe zapytanie. Dlatego nie ma tu
+    ``CAST(... AS date)``: dzień = ``make_date(rok, miesiąc, 1) + (dzień − 1)``
+    (nigdy nie rzuca dla miesiąca 1–12), a 30 lutego wychodzi jako 2 marca
+    i odpada na porównaniu miesiąca. CASE gwarantuje kolejność warunków."""
+
+    raw = Doc.meta["transactionDate"].astext
+    year = cast(func.substr(raw, 1, 4), Integer)
+    month = cast(func.substr(raw, 6, 2), Integer)
+    day = cast(func.substr(raw, 9, 2), Integer)
+    sold = type_coerce(func.make_date(year, month, 1) + (day - 1), Date)
+    before, after = SALE_DATE_WINDOW
+    return case(
+        (Doc.issue_date.is_(None), None),
+        (or_(raw.is_(None), ~raw.op("~")(_SALE_DATE_SHAPE)), Doc.issue_date),
+        (extract("month", sold) != month, Doc.issue_date),
+        (sold.between(Doc.issue_date - before, Doc.issue_date + after), sold),
+        else_=Doc.issue_date,
+    )
+
+
+def is_contractor_cost():
+    return and_(Doc.kind == "cost", Doc.folder.ilike(f"{CONTRACTOR_FOLDER}%"))
+
+
 def mln(value: Optional[Decimal | float]) -> Optional[float]:
     return None if value is None else round(float(value) / 1_000_000, 2)
 
@@ -56,6 +114,11 @@ class MonthRow:
     month: int
     sales: float
     costs: float
+    contractors: float = 0.0
+
+    @property
+    def office(self) -> float:
+        return self.costs - self.contractors
 
 
 def _complete(rows: list[MonthRow], attr: str, share: float) -> set[tuple[int, int]]:
@@ -133,30 +196,80 @@ def year_over_year(rows: list[MonthRow], year: int) -> dict[str, Any]:
 
 async def month_rows(db: AsyncSession, first_year: int) -> list[MonthRow]:
     net = _net_pln()
-    year = extract("year", Doc.issue_date)
-    month = extract("month", Doc.issue_date)
+    day = period_date()
+    year = extract("year", day)
+    month = extract("month", day)
     rows = await db.execute(
         select(
             year.label("y"),
             month.label("m"),
             func.coalesce(func.sum(case((Doc.kind == "sale", net))), 0),
             func.coalesce(func.sum(case((Doc.kind == "cost", net))), 0),
+            func.coalesce(func.sum(case((is_contractor_cost(), net))), 0),
         )
-        .where(Doc.kind.in_(("sale", "cost")), Doc.issue_date >= date(first_year, 1, 1))
+        .where(
+            Doc.kind.in_(("sale", "cost")),
+            # Faktura z początku stycznia może mieć sprzedaż z grudnia.
+            Doc.issue_date >= date(first_year, 1, 1) - SALE_DATE_WINDOW[1],
+            day >= date(first_year, 1, 1),
+        )
         .group_by(year, month)
         .order_by(year, month)
     )
     return [
-        MonthRow(int(y), int(m), float(s or 0), float(c or 0))
-        for y, m, s, c in rows.all()
+        MonthRow(int(y), int(m), float(s or 0), float(c or 0), float(k or 0))
+        for y, m, s, c, k in rows.all()
     ]
 
 
-async def _top_clients(
-    db: AsyncSession, start: date, end: date
-) -> list[dict[str, Any]]:
+def year_figures(rows: list[MonthRow], year: int, months: int = 12) -> dict[str, Any]:
+    """Sprzedaż, koszty kontraktorów, marża, koszty biurowe i zysk brutto
+    za miesiące 1..``months`` roku (mln zł)."""
+
+    picked = [r for r in rows if r.year == year and r.month <= months]
+    sales = sum(r.sales for r in picked)
+    contractors = sum(r.contractors for r in picked)
+    office = sum(r.office for r in picked)
+    margin = sales - contractors
+    result = margin - office
+
+    def share(value: float) -> Optional[float]:
+        return round(100 * value / sales, 1) if sales else None
+
+    return {
+        "sales": mln(sales),
+        "costs": mln(contractors + office),
+        "contractors": mln(contractors),
+        "contractor_margin": mln(margin),
+        "contractor_margin_pct": share(margin),
+        "office": mln(office),
+        "result": mln(result),
+        "result_pct": share(result),
+    }
+
+
+async def budget_sales(
+    db: AsyncSession, years: list[int]
+) -> dict[str, list[Optional[float]]]:
+    """Plan sprzedaży miesięcy z budżetów Rady (R3), mln zł; brak = ``None``."""
+
+    lines = (
+        await db.execute(
+            select(BoardBudget.year, BoardBudgetLine.month, BoardBudgetLine.amount)
+            .join(BoardBudgetLine, BoardBudgetLine.budget_id == BoardBudget.id)
+            .where(BoardBudget.year.in_(years), BoardBudgetLine.line == "sales")
+        )
+    ).all()
+    out: dict[str, list[Optional[float]]] = {}
+    for year, month, amount in lines:
+        out.setdefault(str(year), [None] * 12)[month - 1] = mln(amount)
+    return out
+
+
+async def top_clients(db: AsyncSession, start: date, end: date) -> list[dict[str, Any]]:
     net = _net_pln()
-    window = and_(Doc.kind == "sale", Doc.issue_date >= start, Doc.issue_date <= end)
+    day = period_date()
+    window = and_(Doc.kind == "sale", day >= start, day <= end)
     total = (await db.execute(select(func.sum(net)).where(window))).scalar_one_or_none()
     if not total:
         return []
@@ -245,38 +358,39 @@ async def company_summary(db: AsyncSession, today: date) -> dict[str, Any]:
     ytd = year_over_year(rows, today.year)
     years = []
     for year in range(first_year, today.year + 1):
-        sales = sum(r.sales for r in rows if r.year == year)
-        costs = sum(r.costs for r in rows if r.year == year)
-        if not sales and not costs:
+        if not any(r.year == year and (r.sales or r.costs) for r in rows):
+            continue
+        current = year == today.year
+        # Koszty bieżącego roku spływają z opóźnieniem — cały słupek roku
+        # (także sprzedaż) liczymy za miesiące z pełnymi kosztami.
+        months = ytd.get("result_months", 0) if current else 12
+        if not months:
             continue
         entry: dict[str, Any] = {
             "year": year,
-            "sales": mln(sales),
-            "costs": mln(costs),
-            "result": mln(sales - costs),
-            "result_pct": round(100 * (sales - costs) / sales, 1) if sales else None,
-            "complete": year < today.year,
+            **year_figures(rows, year, months),
+            "complete": not current,
         }
-        if year == today.year:
-            # Koszty bieżącego roku spływają z opóźnieniem — wynik tylko
-            # z miesięcy z pełnymi kosztami, jak w porównaniu rok do roku.
-            entry.update(
-                result=ytd.get("result"),
-                result_pct=ytd.get("result_pct"),
-                result_months=ytd.get("result_months", 0),
-            )
+        if current:
+            entry["result_months"] = months
         years.append(entry)
     complete = complete_cost_months(rows)
+    sales_complete = complete_sales_months(rows)
     months = [
         {
             "year": r.year,
             "month": r.month,
             "sales": mln(r.sales),
             "costs": mln(r.costs),
+            "contractors": mln(r.contractors),
             "costs_complete": (r.year, r.month) in complete,
+            # Bieżący miesiąc jest zawsze niepełny: faktury za niego wystawia
+            # się na początku następnego.
+            "sales_complete": (r.year, r.month) in sales_complete
+            and (r.year, r.month) < (today.year, today.month),
         }
         for r in rows
-        if r.year >= today.year - 1
+        if r.year >= today.year - 2
     ]
     last_full_year = today.year - 1
     return {
@@ -287,10 +401,11 @@ async def company_summary(db: AsyncSession, today: date) -> dict[str, Any]:
         },
         "years": years,
         "months": months,
+        "budgets": await budget_sales(db, [today.year - 1, today.year, today.year + 1]),
         "ytd": ytd,
         "top_clients": {
             "year": last_full_year,
-            "items": await _top_clients(
+            "items": await top_clients(
                 db, date(last_full_year, 1, 1), date(last_full_year, 12, 31)
             ),
         },

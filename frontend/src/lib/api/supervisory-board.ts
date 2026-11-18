@@ -77,7 +77,15 @@ export interface BoardDocument {
 
 export interface BoardDocumentsResponse {
   categories: { key: BoardDocumentCategory; total: number; without_file: number }[];
+  /** Lata, z których są dokumenty (data dokumentu, bez niej data wpisu KRS). */
+  years: number[];
   items: BoardDocument[];
+}
+
+/** Filtr okresu dokumentów (R7): rok, a w nim opcjonalnie miesiąc. */
+export interface DocumentPeriod {
+  year: number | null;
+  month: number | null;
 }
 
 export type FilingKind = "financial_statement" | "activity_report" | "audit_opinion" | "approval";
@@ -114,8 +122,8 @@ export interface DocumentFields {
 
 export const boardKeys = {
   krs: ["supervisory-board", "krs"] as const,
-  documents: (category: BoardDocumentCategory | null) =>
-    ["supervisory-board", "documents", category ?? "all"] as const,
+  documents: (category: BoardDocumentCategory | null, period?: DocumentPeriod) =>
+    ["supervisory-board", "documents", category ?? "all", period?.year ?? 0, period?.month ?? 0] as const,
   all: ["supervisory-board"] as const,
 };
 
@@ -127,13 +135,20 @@ export function useBoardKrs() {
   });
 }
 
-export function useBoardDocuments(category: BoardDocumentCategory | null) {
+export function useBoardDocuments(
+  category: BoardDocumentCategory | null,
+  period: DocumentPeriod = { year: null, month: null },
+) {
   return useQuery({
-    queryKey: boardKeys.documents(category),
+    queryKey: boardKeys.documents(category, period),
     queryFn: async () =>
       (
         await api.get<BoardDocumentsResponse>(`${BASE}/documents`, {
-          params: category ? { category } : undefined,
+          params: {
+            ...(category ? { category } : {}),
+            ...(period.year ? { year: period.year } : {}),
+            ...(period.year && period.month ? { month: period.month } : {}),
+          },
         })
       ).data,
     placeholderData: (previous) => previous,
@@ -240,6 +255,13 @@ export interface BoardYear {
   year: number;
   sales: number | null;
   costs: number | null;
+  /** Faktury z folderu eBI24 „Kontraktorzy” (R7). */
+  contractors: number | null;
+  contractor_margin: number | null;
+  contractor_margin_pct: number | null;
+  /** Pozostałe faktury kosztowe (BIURO, Zakupy pozostałe). */
+  office: number | null;
+  /** Zysk brutto = sprzedaż − koszty z faktur (bez płac UoP, ZUS, amortyzacji). */
   result: number | null;
   result_pct: number | null;
   complete: boolean;
@@ -250,7 +272,18 @@ export interface BoardYear {
 export interface BoardSummary {
   source: { kind: "invoices"; first_date: string | null; last_date: string | null };
   years: BoardYear[];
-  months: { year: number; month: number; sales: number | null; costs: number | null; costs_complete: boolean }[];
+  months: {
+    year: number;
+    month: number;
+    sales: number | null;
+    costs: number | null;
+    contractors: number | null;
+    costs_complete: boolean;
+    /** Miesiąc z kompletem faktur sprzedaży (bieżący nigdy). */
+    sales_complete: boolean;
+  }[];
+  /** Plan sprzedaży z Budżetu (R3) według roku: 12 miesięcy, brak = null. */
+  budgets: Record<string, (number | null)[]>;
   ytd: {
     sales_months: number;
     sales?: number | null;
@@ -679,5 +712,238 @@ export function useCloseBoardVote() {
     mutationFn: async ({ id, action }: { id: number; action: "close" | "withdraw" }) =>
       (await api.post<BoardVote>(`${BASE}/votes/${id}/${action}`)).data,
     onSuccess: invalidate,
+  });
+}
+
+// ── Pulpit: gotówka, zdolność kredytowa, wycena, symulacja roku (R7) ────────
+
+export interface InvestorView {
+  multiple: number;
+  range: [number, number];
+  ev: number | null;
+  equity?: number | null;
+  equity_low?: number | null;
+  equity_high?: number | null;
+}
+
+export interface BoardOutlook {
+  cash: { as_of: string; amount: number | null; note: string | null } | null;
+  statement_cash: { year: number; amount: number | null } | null;
+  current: {
+    base_year: number | null;
+    base_source?: string | null;
+    ebitda_base?: number | null;
+    ebitda_shift?: number | null;
+    ebitda: number | null;
+    financial_debt?: number | null;
+    cash_used?: number | null;
+    cash_source?: "entry" | "statement";
+    net_debt: number | null;
+    credit?: {
+      debt_to_ebitda: number;
+      max_net_debt: number | null;
+      headroom: number | null;
+      factoring_share: number;
+      factoring_limit: number | null;
+    };
+    valuation?: { financial: InvestorView; strategic: InvestorView };
+  };
+  profit_window: { from: string; to: string } | null;
+  profit_shift_applied: boolean;
+  year_end: {
+    year: number;
+    actual_sales: number;
+    actual_months: number;
+    sales_low: number | null;
+    sales_high: number | null;
+    profit_low?: number | null;
+    profit_high?: number | null;
+    profit_pct?: number | null;
+    plan_sales?: number | null;
+    realization?: number | null;
+    reason: string | null;
+  };
+}
+
+export function useBoardOutlook() {
+  return useQuery({
+    queryKey: ["supervisory-board", "outlook"] as const,
+    queryFn: async () => (await api.get<BoardOutlook>(`${BASE}/outlook`)).data,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export interface CashPosition {
+  id: number;
+  as_of: string;
+  amount: number;
+  note: string | null;
+  updated_at: string | null;
+}
+
+export function useBoardCash(enabled = true) {
+  return useQuery({
+    queryKey: ["supervisory-board", "cash"] as const,
+    queryFn: async () => (await api.get<{ items: CashPosition[] }>(`${BASE}/cash`)).data,
+    enabled,
+  });
+}
+
+export function useSaveBoardCash() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (body: { as_of: string; amount: string; note: string | null }) =>
+      (await api.put<CashPosition>(`${BASE}/cash`, body)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBoardCash() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`${BASE}/cash/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+// ── Raporty PDF i archiwum (R7) ──────────────────────────────────────────────
+
+export type ReportKind = "monthly" | "annual" | "budget";
+
+export interface BoardReportItem {
+  id: number;
+  kind: ReportKind;
+  year: number;
+  month: number | null;
+  title: string;
+  file_name: string;
+  file_size: number;
+  created_at: string | null;
+}
+
+export interface BoardReportsResponse {
+  items: BoardReportItem[];
+  years: number[];
+  today: string;
+}
+
+export function useBoardReports() {
+  return useQuery({
+    queryKey: ["supervisory-board", "reports"] as const,
+    queryFn: async () => (await api.get<BoardReportsResponse>(`${BASE}/reports`)).data,
+  });
+}
+
+export interface ReportPeriod {
+  kind: ReportKind;
+  year: number;
+  month: number | null;
+}
+
+export function reportParams(period: ReportPeriod): Record<string, number | string> {
+  return {
+    kind: period.kind,
+    year: period.year,
+    ...(period.kind === "monthly" && period.month ? { month: period.month } : {}),
+  };
+}
+
+/** Ścieżka raportu liczonego z bieżących danych (PDF, pobranie z tokenem). */
+export function boardReportPath(period: ReportPeriod): string {
+  const query = new URLSearchParams(
+    Object.entries(reportParams(period)).map(([k, v]) => [k, String(v)]),
+  ).toString();
+  return `${BASE}/reports/render?${query}`;
+}
+
+export function boardArchivedReportPath(id: number): string {
+  return `${BASE}/reports/${id}/file`;
+}
+
+export function reportFileName(period: ReportPeriod): string {
+  if (period.kind === "monthly" && period.month) {
+    return `Rada-raport-${period.year}-${String(period.month).padStart(2, "0")}.pdf`;
+  }
+  return `Rada-${period.kind === "annual" ? "raport" : "budzet"}-${period.year}.pdf`;
+}
+
+export function useArchiveBoardReport() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (period: ReportPeriod) =>
+      (await api.post<BoardReportItem>(`${BASE}/reports`, reportParams(period))).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBoardReport() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`${BASE}/reports/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+// ── Firma: placementy, kontraktorzy, zejścia (R7) ────────────────────────────
+
+export interface ExitItem {
+  ended_on: string;
+  client: string;
+  project: string | null;
+  reason: string;
+  reason_label: string;
+  lessons: string | null;
+  party: string | null;
+  mode: string | null;
+  tenure_months: number | null;
+}
+
+export interface ReasonCount {
+  reason: string;
+  label: string;
+  count: number;
+}
+
+export interface BoardPeople {
+  period: { kind: string; start: string; end: string; label?: string };
+  window: { from: string; to: string };
+  previous_window: { from: string; to: string };
+  placements: {
+    count: number;
+    previous: number;
+    by_client: { client: string; count: number }[];
+  };
+  contractors: {
+    active: number;
+    previous: number;
+    clients: number;
+    by_client: { client: string; count: number; rest?: boolean }[];
+  };
+  flows: {
+    starts: number;
+    ends: number;
+    resignations: number;
+    previous_starts: number;
+    previous_ends: number;
+  };
+  exits: { count: number; by_reason: ReasonCount[]; items: ExitItem[] };
+  previous_exits: ReasonCount[];
+}
+
+export interface PeoplePeriod {
+  period: "month" | "quarter" | "year";
+  offset: number;
+}
+
+export function useBoardPeople(period: PeoplePeriod) {
+  return useQuery({
+    queryKey: ["supervisory-board", "people", period.period, period.offset] as const,
+    queryFn: async () =>
+      (await api.get<BoardPeople>(`${BASE}/people`, { params: period })).data,
+    placeholderData: (previous) => previous,
   });
 }
