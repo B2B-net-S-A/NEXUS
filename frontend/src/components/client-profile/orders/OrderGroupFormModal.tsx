@@ -87,6 +87,8 @@ interface Props {
     common: CarriedOrderFields,
   ) => void;
   allowedOrderTypes?: readonly OrderType[];
+  /** Typ najczęstszy u klienta — podpowiedź przy przełączniku typu. */
+  usualOrderType?: OrderType;
   /** Plik przeniesiony z formularza, z którego przełączono typ. */
   initialFile?: File | null;
   /** Numer zamówienia przeniesiony z formularza, z którego przełączono typ. */
@@ -138,6 +140,7 @@ export function OrderGroupFormModal({
   orderType,
   onOrderTypeChange,
   allowedOrderTypes,
+  usualOrderType,
   initialFile = null,
   initialOrderNumber = "",
   initialCommon = null,
@@ -875,6 +878,7 @@ export function OrderGroupFormModal({
             })
           }
           allowedTypes={allowedOrderTypes}
+          usualType={editing ? undefined : usualOrderType}
           disabled={editing}
         />
         {!editing ? (

@@ -8,6 +8,7 @@ import {
   Download,
   ExternalLink,
   FileSearch,
+  Info,
   Loader2,
   Trash2,
 } from "lucide-react";
@@ -129,13 +130,14 @@ export function EditOrderDialog({
   contractRateCandidateCurrency,
   canManageFinance,
   recruitmentRates = null,
-  suggestedOrderType = "periodic",
+  suggestedOrderType: suggestedOrderTypeProp,
   allowedOrderTypes,
   legacyNullOrderType = "periodic",
   onClose,
   onSaved,
   onChanged,
 }: EditOrderDialogProps) {
+  const suggestedOrderType = suggestedOrderTypeProp ?? "periodic";
   const { showToast } = useToast();
   const ezdrowie = isEzdrowieClient(clientId);
 
@@ -239,6 +241,20 @@ export function EditOrderDialog({
     net: string;
   } | null>(null);
   const [unitChangeNotice, setUnitChangeNotice] = useState<string | null>(null);
+  // Zgłoszenie 18.11.2026 (BNP 4643_2026): szkic okresowy uzupełniono PDF-em
+  // z „Liczba MD 61”, odczyt zwrócił `md_total`, a okno go pominęło — powstało
+  // aktywne zamówienie okresowe bez budżetu i bez zużycia MD. Dokument z liczbą
+  // MD przestawia teraz szkic na MD sam; „Cofnij” przywraca stan sprzed odczytu.
+  const [mdSwitch, setMdSwitch] = useState<{
+    md: string;
+    previous: {
+      rateCost: string;
+      rateRevenue: string;
+      rateUnit: OrderRateUnit;
+      mdBudget: string;
+      unitChangeNotice: string | null;
+    };
+  } | null>(null);
 
   async function handleExtract() {
     if (!file || extracting) return;
@@ -259,33 +275,23 @@ export function EditOrderDialog({
       if (orderType === "md" && data.md_total != null) {
         setMdBudget(numberToField(data.md_total));
       }
+      // Wartości po odczycie liczone lokalnie: przełączenie na MD niżej
+      // przelicza je dalej, a stan Reacta w tej funkcji jest jeszcze sprzed odczytu.
+      let costNow = rateCost;
+      let revenueNow = rateRevenue;
+      let unitNow = rateUnit;
+      let noticeNow: string | null = unitChangeNotice;
       if (canManageFinance) {
         const detectedUnit = extractionRateUnit(data.rate_unit);
         if (detectedUnit && detectedUnit !== rateUnit) {
-          setRateCost(
-            convertRateInput(
-              rateCost,
-              rateUnit,
-              detectedUnit,
-              rateBillingHours,
-            ),
-          );
-          setRateRevenue(
-            convertRateInput(
-              rateRevenue,
-              rateUnit,
-              detectedUnit,
-              rateBillingHours,
-            ),
-          );
-          setRateUnit(detectedUnit);
-          setUnitChangeNotice(
-            `Jednostkę stawki zmieniono na ${rateUnitNoticeLabel(detectedUnit)} na podstawie odczytanej pozycji`,
-          );
+          costNow = convertRateInput(rateCost, rateUnit, detectedUnit, rateBillingHours);
+          revenueNow = convertRateInput(rateRevenue, rateUnit, detectedUnit, rateBillingHours);
+          unitNow = detectedUnit;
+          noticeNow = `Jednostkę stawki zmieniono na ${rateUnitNoticeLabel(detectedUnit)} na podstawie odczytanej pozycji`;
         } else {
-          setUnitChangeNotice(null);
+          noticeNow = null;
         }
-        if (data.rate_client != null) setRateRevenue(numberToField(data.rate_client));
+        if (data.rate_client != null) revenueNow = numberToField(data.rate_client);
         // PDF opisuje pozycję przychodową klienta. Nie wolno nim nadpisać
         // niezależnej waluty kosztowej kontraktora.
         if (data.currency) {
@@ -304,6 +310,35 @@ export function EditOrderDialog({
               }
             : null,
         );
+      }
+      const switchToMd =
+        canSelectOrderType && orderType === "periodic" && data.md_total != null;
+      if (switchToMd) {
+        const md = numberToField(data.md_total);
+        setMdSwitch({
+          md,
+          previous: {
+            rateCost: costNow,
+            rateRevenue: revenueNow,
+            rateUnit: unitNow,
+            mdBudget,
+            unitChangeNotice: noticeNow,
+          },
+        });
+        setOrderType("md");
+        setMdBudget(md);
+        if (canManageFinance && unitNow !== "daily") {
+          costNow = convertRateInput(costNow, unitNow, "daily", rateBillingHours);
+          revenueNow = convertRateInput(revenueNow, unitNow, "daily", rateBillingHours);
+          unitNow = "daily";
+          noticeNow = "Stawki przeliczono na MD (1 MD = 8 h).";
+        }
+      }
+      if (canManageFinance) {
+        setRateCost(costNow);
+        setRateRevenue(revenueNow);
+        setRateUnit(unitNow);
+        setUnitChangeNotice(noticeNow);
       }
       // Poza blokiem `canManageFinance` — numer ID nie jest kwotą, a operator
       // bez uprawnień finansowych też musi wiedzieć, czyjego zamówienia
@@ -536,7 +571,41 @@ export function EditOrderDialog({
             value={orderType}
             onChange={setOrderType}
             allowedTypes={allowedOrderTypes}
+            usualType={suggestedOrderTypeProp}
           />
+        ) : null}
+
+        {mdSwitch && orderType === "md" ? (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-md border border-border bg-info-muted p-3 text-sm text-info-muted-foreground"
+          >
+            <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            <div className="space-y-2">
+              <p>
+                <span className="font-semibold">
+                  Dokument to zamówienie na MD ({mdSwitch.md} MD).
+                </span>{" "}
+                Typ zmieniono na MD, liczbę MD wpisano z dokumentu.
+              </p>
+              <button
+                type="button"
+                className="rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted"
+                onClick={() => {
+                  const previous = mdSwitch.previous;
+                  setOrderType("periodic");
+                  setMdBudget(previous.mdBudget);
+                  setRateCost(previous.rateCost);
+                  setRateRevenue(previous.rateRevenue);
+                  setRateUnit(previous.rateUnit);
+                  setUnitChangeNotice(previous.unitChangeNotice);
+                  setMdSwitch(null);
+                }}
+              >
+                Cofnij — zostaw okresowe
+              </button>
+            </div>
+          </div>
         ) : null}
 
         {/* Baner NAD tytułem — tak samo jak w przedłużeniu; to pierwsze, co

@@ -631,3 +631,117 @@ describe("EditOrderDialog — duplikat numeru (zgłoszenie 28.09.2026)", () => {
     expect(screen.queryByText(/już istnieje/)).not.toBeInTheDocument();
   });
 });
+
+// ── Zgłoszenie 18.11.2026 (BNP 4643_2026): PDF z „Liczba MD” w szkicu okresowym ──
+// Odczyt zwracał `md_total: 61`, a szkic okresowy zostawał okresowy w zł/h —
+// aktywne zamówienie bez budżetu i bez zużycia MD.
+
+describe("EditOrderDialog — dokument na MD w szkicu okresowym", () => {
+  const mdDocument = {
+    title: "ZAMÓWIENIE 4643_2026",
+    start_date: "2026-10-05",
+    end_date: "2026-12-31",
+    rate_client: null,
+    rate_unit: null,
+    rate_client_md: null,
+    total_value: 99735,
+    currency: "PLN",
+    md_total: 61,
+    uncertain: false,
+    uncertain_reasons: [],
+    fields_confidence: {},
+    title_needs_review: false,
+    source: "claude",
+  };
+
+  const typeRadio = (name: string) =>
+    within(screen.getByRole("radiogroup", { name: "Typ zamówienia" })).getByRole("radio", {
+      name,
+    });
+
+  function periodicDraft(): ClientOrderRead {
+    return {
+      ...draftOrder("periodic"),
+      rate_client: 204.375,
+      rate_unit: "hourly",
+    } as ClientOrderRead;
+  }
+
+  beforeEach(() => {
+    extractOrderPdf.mockReset();
+    updateOrder.mockReset();
+    updateOrder.mockResolvedValue({ data: {} } as never);
+  });
+
+  it("przestawia szkic na MD z liczbą MD z dokumentu i stawkami za MD", async () => {
+    extractOrderPdf.mockResolvedValue({ data: mdDocument } as never);
+    renderDialog({
+      order: periodicDraft(),
+      suggestedOrderType: "md",
+      rateCandidate: 160,
+      contractRateUnit: "hourly",
+    });
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    await waitFor(() =>
+      expect(screen.getByText(/Dokument to zamówienie na MD \(61 MD\)/)).toBeInTheDocument(),
+    );
+    expect(typeRadio("MD")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByDisplayValue("61")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1280")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("1635")).toBeInTheDocument();
+  });
+
+  it("„Cofnij” przywraca typ okresowy i stawki godzinowe", async () => {
+    extractOrderPdf.mockResolvedValue({ data: mdDocument } as never);
+    renderDialog({
+      order: periodicDraft(),
+      suggestedOrderType: "md",
+      rateCandidate: 160,
+      contractRateUnit: "hourly",
+    });
+    addPdf();
+    fireEvent.click(extractBtn());
+    await screen.findByText(/Dokument to zamówienie na MD/);
+
+    fireEvent.click(screen.getByRole("button", { name: /Cofnij — zostaw okresowe/ }));
+
+    expect(typeRadio("Okresowe")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByDisplayValue("204.375")).toBeInTheDocument();
+    expect(screen.queryByText(/Dokument to zamówienie na MD/)).not.toBeInTheDocument();
+  });
+
+  it("dokument bez liczby MD zostawia szkic okresowy", async () => {
+    extractOrderPdf.mockResolvedValue({ data: { ...mdDocument, md_total: null } } as never);
+    renderDialog({
+      order: periodicDraft(),
+      suggestedOrderType: "md",
+      rateCandidate: 160,
+      contractRateUnit: "hourly",
+    });
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    await waitFor(() => expect(extractOrderPdf).toHaveBeenCalled());
+    await screen.findByDisplayValue("ZAMÓWIENIE 4643_2026");
+    expect(typeRadio("Okresowe")).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByText(/Dokument to zamówienie na MD/)).not.toBeInTheDocument();
+  });
+
+  it("aktywnego zamówienia okresowego nie przestawia (typ zablokowany)", async () => {
+    extractOrderPdf.mockResolvedValue({ data: mdDocument } as never);
+    renderDialog({
+      order: { ...periodicDraft(), status: "active" } as ClientOrderRead,
+      suggestedOrderType: "md",
+      rateCandidate: 160,
+      contractRateUnit: "hourly",
+    });
+    addPdf();
+    fireEvent.click(extractBtn());
+
+    await screen.findByDisplayValue("ZAMÓWIENIE 4643_2026");
+    expect(screen.queryByText(/Dokument to zamówienie na MD/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "Typ zamówienia" })).not.toBeInTheDocument();
+  });
+});

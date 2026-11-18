@@ -1602,6 +1602,7 @@ export function MultiConsultantOrdersTab({
           openNewOrderForm(orderType, file, orderNumber);
         }}
         allowedOrderTypes={allowedOrderTypes}
+        usualOrderType={suggestedOrderType}
         initialFile={carriedFile}
         initialOrderNumber={carriedOrderNumber}
         initialCommon={carriedCommon}
@@ -1638,6 +1639,7 @@ export function MultiConsultantOrdersTab({
             openNewOrderForm(orderType, file, orderNumber);
           }}
           allowedOrderTypes={allowedOrderTypes}
+          usualOrderType={suggestedOrderType}
           initialFile={carriedFile}
           initialOrderNumber={carriedOrderNumber}
           initialDraft={periodicDraftForReturn(carriedPeriodicDraft, carriedCommon)}
