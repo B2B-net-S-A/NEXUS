@@ -3,7 +3,7 @@
     "id": "kandydaci-ostatnio-z-osoba",
     "pr": 3575,
     "title": "„Ostatnio z osobą” i „Szuka aktywnie” jednym kliknięciem",
-    "why": "Pod każdą osobą na liście widzisz dwie ostatnie informacje — rozmowę, notatkę albo odrzucenie — najnowszą pierwszą, z datą. Gdy status jest nieaktualny, kliknij „Szuka aktywnie” przy nazwisku i wybierz właściwy.",
+    "why": "Pod osobą na liście widać dwie ostatnie informacje, najnowszą pierwszą, z datą. Status nieaktualny? Kliknij „Szuka aktywnie” przy nazwisku i wybierz właściwy.",
     "tier": "dot",
     "shipped_on": "2026-11-18",
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
