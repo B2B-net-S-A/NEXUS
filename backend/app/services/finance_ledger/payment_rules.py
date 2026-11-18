@@ -48,6 +48,7 @@ from app.services.hr.bank.titles import (
     MAX_LINES,
     clean,
     ksef_numbers_in,
+    number_in_title,
 )
 
 ZERO = Decimal("0.00")
@@ -325,14 +326,6 @@ _NAME_NOISE = frozenset(
 )
 
 
-def _number_pattern(number: str) -> Optional[re.Pattern[str]]:
-    parts = number.split()
-    if not parts:
-        return None
-    body = r"\s*".join(re.escape(part) for part in parts)
-    return re.compile(r"(?<![0-9A-Za-z])" + body + r"(?![0-9A-Za-z])", re.IGNORECASE)
-
-
 def _number_in_title(
     number: Optional[str], title: str, mpp_number: Optional[str]
 ) -> bool:
@@ -340,8 +333,7 @@ def _number_in_title(
         return False
     if mpp_number and " ".join(number.split()).lower() == mpp_number.lower():
         return True
-    pattern = _number_pattern(number)
-    return bool(pattern and pattern.search(title))
+    return number_in_title(number, title)
 
 
 def _shadowed(found: CostCandidate, others: Sequence[CostCandidate]) -> bool:
