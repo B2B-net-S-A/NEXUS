@@ -130,3 +130,13 @@ def test_cancelled_order_is_neither_shown_nor_coverage():
     state = consultant_order_state(_contract(cancelled), TODAY, is_current=True)
     assert state.attention == (ATTENTION_NO_CURRENT_ORDER,)
     assert state.order_start_date is None
+
+
+def test_draft_order_covers_the_day_but_is_marked_as_draft():
+    draft = _order(1, start=date(2026, 11, 3), end=None, status=ClientOrderStatus.draft)
+    state = consultant_order_state(_contract(draft), TODAY, is_current=True)
+    # Szkic liczy się jako pokrycie (zaślepka z hooka zatrudnienia)…
+    assert state.attention == ()
+    # …ale wiersz mówi, że zamówienie jest do uzupełnienia.
+    assert state.order_status == "draft"
+    assert state.order_start_date == date(2026, 11, 3)

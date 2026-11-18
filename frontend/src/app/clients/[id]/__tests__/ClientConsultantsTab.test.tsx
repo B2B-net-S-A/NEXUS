@@ -342,9 +342,11 @@ describe("ProfileTab — tabela konsultantów", () => {
       "Bieżące zamówienie",
       "Stawka [godz.]",
       "Marża [mc]",
-      "Wymaga uwagi",
       "Akcje",
     ]);
+    // Znaczniki stoją pod bieżącym zamówieniem, nie w osobnej kolumnie
+    // (1280 px: osobna kolumna wypychała akcje poza ekran).
+    expect(headers).not.toContain("Wymaga uwagi");
     // Ta sekcja pokazuje TYLKO aktualnie przypisanych konsultantów, więc data
     // zakończenia nie ma tu prawa istnieć — oni jeszcze nie zakończyli.
     expect(headers).not.toContain("End date");
@@ -796,7 +798,7 @@ describe("ClientConsultantsTab — zakładka „Konsultanci”", () => {
     await user.click(attentionTab);
 
     expect(
-      await screen.findByText("Zamówienie kończy się 30.11.2026 bez kontynuacji"),
+      await screen.findByText("Bez kontynuacji po 30.11.2026"),
     ).toBeInTheDocument();
     expect(screen.getByText("Brak zamówienia")).toBeInTheDocument();
     // Bieżące zamówienie stoi w swojej kolumnie.
@@ -882,7 +884,7 @@ describe("ProfileTab — karta „Konsultanci” w Przeglądzie", () => {
     );
 
     expect(await screen.findByText("Konsultanci")).toBeInTheDocument();
-    expect(screen.getByText(/zamówienie kończy się 30\.11\.2026 bez kontynuacji/)).toBeInTheDocument();
+    expect(screen.getByText(/zamówienie bez kontynuacji po 30\.11\.2026/)).toBeInTheDocument();
     expect(screen.getByText(/brak zamówienia/)).toBeInTheDocument();
     // Pełnej tabeli w Przeglądzie już nie ma.
     expect(document.querySelector("table")).toBeNull();

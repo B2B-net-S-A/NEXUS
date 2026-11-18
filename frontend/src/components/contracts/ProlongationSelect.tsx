@@ -103,7 +103,7 @@ export function ProlongationSelect({ contractId, clientId, value, canEdit }: Pro
     <Select value={current} onValueChange={(next) => mutation.mutate(next as ProlongationStatus)}>
       <SelectTrigger
         aria-label="Prolongata"
-        className={cn("h-8 w-[130px] font-medium", TEXT_CLASS[variant])}
+        className={cn("h-8 w-[116px] font-medium", TEXT_CLASS[variant])}
       >
         <span className="flex items-center gap-2">
           <span className={cn("h-2 w-2 shrink-0 rounded-full", DOT_CLASS[variant])} />

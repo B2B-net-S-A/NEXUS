@@ -65,6 +65,10 @@ class ConsultantOrderState:
 
     order_start_date: Optional[date]
     order_end_date: Optional[date]
+    # Status pokazanego zamówienia — „szkic” liczy się jako pokrycie (zaślepka
+    # z hooka zatrudnienia), ale wiersz ma mówić, że zamówienie jest do
+    # uzupełnienia.
+    order_status: Optional[str]
     # Koniec zamówienia okresowego bez kontynuacji w oknie 30 dni.
     order_ending_on: Optional[date]
     attention: tuple[str, ...]
@@ -120,6 +124,9 @@ def consultant_order_state(
     return ConsultantOrderState(
         order_start_date=start,
         order_end_date=end,
+        order_status=(
+            getattr(shown.status, "value", shown.status) if shown is not None else None
+        ),
         order_ending_on=ending.end_date if ending is not None else None,
         attention=tuple(attention),
     )

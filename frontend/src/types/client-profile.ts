@@ -128,6 +128,8 @@ export interface ActiveConsultantItem {
       a bez niego najnowsze; znaczniki z `services/consultant_order_state.py`. */
   order_start_date?: string | null;
   order_end_date?: string | null;
+  /** `draft` = zamówienie w szkicu — pokrywa dzień, ale jest do uzupełnienia. */
+  order_status?: string | null;
   /** Koniec zamówienia okresowego bez kontynuacji w oknie 30 dni. */
   order_ending_on?: string | null;
   attention?: ConsultantAttention[];

@@ -25,8 +25,8 @@ function attentionText(row: ActiveConsultantItem): string {
   }
   if (codes.includes("order_ending")) {
     return row.order_ending_on
-      ? `zamówienie kończy się ${formatDate(row.order_ending_on)} bez kontynuacji`
-      : "zamówienie kończy się bez kontynuacji";
+      ? `zamówienie bez kontynuacji po ${formatDate(row.order_ending_on)}`
+      : "zamówienie bez kontynuacji";
   }
   return "umowa wypowiedziana";
 }

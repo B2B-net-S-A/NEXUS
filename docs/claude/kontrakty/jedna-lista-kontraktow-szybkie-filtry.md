@@ -35,6 +35,10 @@ to jedna lista `ContractsListV2` z rzędem pigułek nad paskiem filtrów.
 - **Ostrzeżenie „N szkice z brakami”** (`drafts_incomplete` z `/api/contractors/stats`)
   to jeden przycisk, który włącza pigułkę „Do uzupełnienia”; krótki, żeby rząd
   pigułek z „Zamówieniami z maila” mieścił się w jednej linii przy 1280 px.
+- **Kontrakty jednego klienta** są w profilu klienta (zakładka „Konsultanci”,
+  18.11.2026): wybór klienta w pasku filtrów otwiera
+  `/clients/{id}?tab=konsultanci`, a stary rejestr pod `?client=` przekierowuje
+  tam samo (`klienci/zakladka-konsultanci-u-klienta.md`).
 - **„Zamówienia z maila”** to przycisk z licznikiem „do weryfikacji” w rzędzie
   pigułek; otwiera kolejkę pod `?view=order-mail` (linki z powiadomień), powrót
   „Wróć do listy kontraktów”.

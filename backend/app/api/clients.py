@@ -789,6 +789,7 @@ async def get_client_profile(
             executive_contract=_representative_executive_contract(c),
             order_start_date=state.order_start_date,
             order_end_date=state.order_end_date,
+            order_status=state.order_status,
             order_ending_on=state.order_ending_on,
             attention=list(state.attention),
             project_code=c.project_code,

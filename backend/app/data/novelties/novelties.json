@@ -3137,6 +3137,18 @@
     "dot_anchor": "contracts.quick-filters"
   },
   {
+    "id": "klient-konsultanci",
+    "title": "Klient: zakładka Konsultanci",
+    "why": "Kto u klienta pracuje, na jakiej umowie i do kiedy ma zamówienie — w jednym wierszu. „Wymaga uwagi” pokazuje brak zamówienia, koniec bez kontynuacji i wypowiedzenie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → klient → Konsultanci",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.consultants"
+  },
+  {
     "id": "profil-championa-co-sie-zmienilo",
     "pr": 3551,
     "title": "Co się zmieniło w Profilu Championa",

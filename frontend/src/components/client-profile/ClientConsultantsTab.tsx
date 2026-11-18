@@ -76,9 +76,10 @@ function attentionLabel(code: ConsultantAttention, row: ActiveConsultantItem): s
   if (code === "no_current_order") {
     return row.order_end_date ? "Brak bieżącego zamówienia" : "Brak zamówienia";
   }
+  // Ta sama nazwa co pigułka „Bez kontynuacji 30 dni” w Zamówieniach.
   return row.order_ending_on
-    ? `Zamówienie kończy się ${formatDate(row.order_ending_on)} bez kontynuacji`
-    : "Zamówienie kończy się bez kontynuacji";
+    ? `Bez kontynuacji po ${formatDate(row.order_ending_on)}`
+    : "Bez kontynuacji";
 }
 
 function needsAttention(row: ActiveConsultantItem): boolean {
@@ -112,7 +113,7 @@ function ConsultantsWorkTable({
 }: WorkTableProps) {
   return (
     <div className="relative overflow-x-auto">
-      <table className="w-full min-w-[880px] text-sm">
+      <table className="w-full min-w-[760px] text-sm">
         <thead>
           <tr className="border-b border-border text-left">
             <th className={cn(HEAD, "sticky left-0 z-10 bg-card dark:bg-muted")}>Konsultant</th>
@@ -123,7 +124,6 @@ function ConsultantsWorkTable({
             {/* Marża zostaje miesięczna — „Aktywne MRR” w nagłówku jest jej sumą. */}
             <th className={HEAD_RIGHT}>Marża [mc]</th>
             {showProlongation ? <th className={HEAD}>Prolongata</th> : null}
-            <th className={HEAD}>Wymaga uwagi</th>
             <th className={cn(CALM_HEAD, "py-2 text-right")}>Akcje</th>
           </tr>
         </thead>
@@ -135,7 +135,7 @@ function ConsultantsWorkTable({
             };
             return (
               <tr key={row.contract_id} className={cn(CALM_ROW, "h-[52px] last:border-b-0")}>
-                <td className="sticky left-0 z-10 bg-card py-2 pr-4 dark:bg-muted">
+                <td className="sticky left-0 z-10 max-w-[250px] bg-card py-2 pr-4 dark:bg-muted">
                   <ConsultantIdentity r={toConsultantRow(row)} />
                 </td>
                 <td className="py-2 pr-4 whitespace-nowrap">
@@ -148,13 +148,33 @@ function ConsultantsWorkTable({
                   {row.order_end_date || row.order_start_date ? (
                     <>
                       {row.order_end_date ? `do ${formatDate(row.order_end_date)}` : "bez daty końca"}
-                      {row.order_start_date ? (
-                        <span className={CALM_SUBLINE}>od {formatDate(row.order_start_date)}</span>
+                      {row.order_start_date || row.order_status === "draft" ? (
+                        <span className={CALM_SUBLINE}>
+                          {row.order_start_date ? `od ${formatDate(row.order_start_date)}` : ""}
+                          {row.order_status === "draft" ? (
+                            <span className="text-warning-muted-foreground">
+                              {row.order_start_date ? " · " : ""}szkic zamówienia
+                            </span>
+                          ) : null}
+                        </span>
                       ) : null}
                     </>
                   ) : (
                     <span className={CALM_EMPTY}>—</span>
                   )}
+                  {/* Znaczniki zamówienia pod jego datami — w 1280 px osobna
+                      kolumna wypychała akcje poza ekran. Wypowiedzenie widać
+                      w statusie umowy. */}
+                  {(row.attention ?? [])
+                    .filter((code) => code !== "notice")
+                    .map((code) => (
+                      <span
+                        key={code}
+                        className="mt-1 block w-fit max-w-[220px] whitespace-normal rounded-md border border-warning/30 bg-warning-muted px-1.5 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
+                      >
+                        {attentionLabel(code, row)}
+                      </span>
+                    ))}
                 </td>
                 {showProject ? (
                   <td className="max-w-[180px] py-2 pr-4">
@@ -198,22 +218,6 @@ function ConsultantsWorkTable({
                     />
                   </td>
                 ) : null}
-                <td className="py-2 pr-4">
-                  {needsAttention(row) ? (
-                    <div className="flex flex-wrap gap-1">
-                      {(row.attention ?? []).map((code) => (
-                        <span
-                          key={code}
-                          className="rounded-md border border-warning/30 bg-warning-muted px-1.5 py-0.5 text-[11px] font-medium text-warning-muted-foreground"
-                        >
-                          {attentionLabel(code, row)}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className={CALM_EMPTY}>—</span>
-                  )}
-                </td>
                 <td className="py-2 text-right">
                   <div className="flex items-center justify-end gap-1">
                     <ExtendContractMenu

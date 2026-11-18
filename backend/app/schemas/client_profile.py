@@ -132,6 +132,8 @@ class ActiveConsultantItem(BaseModel):
     # w 30 dni, ta sama reguła co pigułka w Zamówieniach).
     order_start_date: Optional[date] = None
     order_end_date: Optional[date] = None
+    # `draft` = zamówienie w szkicu (liczy się jako pokrycie, do uzupełnienia).
+    order_status: Optional[str] = None
     order_ending_on: Optional[date] = None
     attention: List[str] = []
     # Pola dawnego rejestru klienta w module Kontrakty — wypełnia je tylko
