@@ -226,6 +226,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # 0727: wpis w KRS spółki — Rada nadzorcza i admini (Rada ma tylko Insights).
     NotificationType.board_krs_entry: ProductSection.insights,
     NotificationType.board_meeting_pack: ProductSection.insights,
+    NotificationType.board_vote: ProductSection.insights,
 }
 
 CONTEXTUAL_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(

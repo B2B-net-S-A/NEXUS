@@ -1,4 +1,4 @@
-# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet, analiza, posiedzenia (R1 0727, R2, R3 0733, R4 0734, R5 0735, 16–18.11.2026)
+# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet, analiza, posiedzenia, uchwały pisemne (R1 0727, R2, R3 0733, R4 0734, R5 0735, R6 0736, 16–18.11.2026)
 <!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5; analiza z e-Sprawozdań (R4), posiedzenia z pakietem i obowiązkami KSH (R5) -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
@@ -163,15 +163,43 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   § 3). Każda pozycja mówi, skąd wie (KRS, Analiza, tytuł uchwały w
   Dokumentach, rejestr posiedzeń). Uchwały rozpoznawane po słowach w tytule
   („ocen”/„sprawozd”, „zatwierdz”).
-- Głosowanie pisemne w NEXUSIE — **nie zrobione**: najpierw sprawdzić, czy
-  statut dopuszcza tryb pisemny (art. 388 § 3 KSH).
+- Głosowanie pisemne — zakładka „Uchwały” (R6 niżej).
+
+## Uchwały w trybie pisemnym (R6, 0736, 18.11.2026)
+
+- Decyzja Artura 18.11.2026: budować **na projekcie statutu** (akt NWZ
+  z 16.09.2025, § 25), choć tekstu przyjętego 24.11.2025 (Rep. A
+  8533/2025) nie ma w M365. Po jego wgraniu sprawdzić § 25 i poprawić
+  `services/board/votes.py`, jeśli się różni.
+- Reguły (`votes.tally`): ważna, gdy projekt dostali **wszyscy** członkowie
+  (skład `member_ids` zapisany przy wysyłce, każdy dostaje dzwonek
+  `board_vote`) i głosowała **co najmniej połowa** (ust. 4); zwykła większość
+  głosów oddanych — więcej „za” niż „przeciw”, wstrzymujący nie przesądzają;
+  remis rozstrzyga Przewodniczący, jeśli głosował za albo przeciw (ust. 1).
+  Wyłączone (ust. 5): wybór Przewodniczącego / Wiceprzewodniczącego Rady,
+  powołanie, odwołanie i zawieszenie członka Zarządu — admin potwierdza
+  przy wysyłce (`not_excluded_matter`), NEXUS treści nie ocenia.
+- Członek Rady = aktywne konto z rolą `board`; admin bez tej roli nie
+  głosuje. Konto dodane po wysyłce nie głosuje w tej uchwale. Głos można
+  zmienić do zamknięcia i terminu.
+- **Bramka:** Rada ma w Insights tylko odczyt, więc `POST
+  /votes/{id}/ballot` stoi na osobnym `ballot_router` z
+  `require_section_access_any_read(insights)`; uprawnienie do głosu (członek
+  ze składu) sprawdza trasa. Reszta tras uchwał na zwykłym routerze Rady,
+  wysyłka i zamknięcie tylko admin.
+- Zamknięcie (`/close`, admin) zapisuje wynik i przy podjęciu zakłada wiersz
+  w Dokumentach → Uchwały Rady (numer, tytuł, wynik w opisie) — ten wiersz
+  zalicza obowiązek „ocena sprawozdań” z R5, jeśli tytuł o tym mówi.
 
 ## Pilnują
 
 `tests/test_supervisory_board_unit.py` (parser, wiersze z wzmianek, skrót,
 czytnik, treść dzwonka), `tests/test_supervisory_board_api.py` (bramki ról,
 jeden odpis przy braku zmian, dzwonek tylko przy nowym wpisie, wiersz KRS bez
-usunięcia), `tests/test_supervisory_board_meetings.py` (obowiązki z KRS, dokumentów i
+usunięcia), `tests/test_supervisory_board_votes.py` (kworum połowy, większość głosów
+oddanych, remis i Przewodniczący, głos spoza składu, wyłączenia z ust. 5,
+głos konta bez Insights i admina = 403, wiersz uchwały w Dokumentach),
+`tests/test_supervisory_board_meetings.py` (obowiązki z KRS, dokumentów i
 posiedzeń; pakiet z dzwonkiem; usunięcie zablokowane po pakiecie; bramki),
 `tests/test_supervisory_board_statements.py` (parser XML i XAdES, odrzucenie
 DTD, ścieżki z księgi, wskaźniki, import z rokiem poprzednim, wpis ręczny

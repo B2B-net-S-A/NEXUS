@@ -22,7 +22,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, require_roles
-from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
+from app.api.section_access import (
+    INSIGHTS_SECTION_DEPENDENCIES,
+    require_section_access_any_read,
+)
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
@@ -34,6 +37,8 @@ from app.models.board_document import (
     BoardBudgetLine,
     BoardDocument,
     BoardMeeting,
+    BoardVote,
+    BoardVoteBallot,
 )
 from app.models.user import User, UserRole
 from app.services import storage_service
@@ -44,15 +49,24 @@ from app.services.board import reader
 from app.services.board import budget as budget_service
 from app.services.board import financials
 from app.services.board import meetings as meetings_service
+from app.services.board import votes as votes_service
+from app.services import board_votes_schema as votes_schema
 from app.services import board_meetings_schema as meetings_schema
 from app.services.board.statements import StatementError
 from app.services.board import summary as summary_service
 from app.services import board_budget_schema as budget_schema
 from app.services.board.notify import notify_new_entries
+from app.services.section_permissions import ProductSection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
+# Oddanie głosu (R6) to zapis członka Rady, który w sekcji Insights ma tylko
+# odczyt: bramka sekcji na poziomie „odczyt”, a uprawnienie do głosu (członek
+# ze składu uchwały) sprawdza trasa. Konto bez Insights nie dojdzie i tu.
+ballot_router = APIRouter(
+    dependencies=[Depends(require_section_access_any_read(ProductSection.insights))]
+)
 
 BoardViewer = Annotated[User, Depends(require_roles(UserRole.board))]
 
@@ -453,6 +467,256 @@ async def freeze_pack(
     await db.commit()
     await db.refresh(meeting)
     return {**meeting_view(meeting, with_pack=True), "notified": notified}
+
+
+# ── Uchwały w trybie pisemnym (R6) ───────────────────────────────────────────
+
+
+async def _ballots(db: AsyncSession, vote_ids: list[int]) -> dict[int, dict[int, str]]:
+    out: dict[int, dict[int, str]] = {vote_id: {} for vote_id in vote_ids}
+    if not vote_ids:
+        return out
+    rows = await db.execute(
+        select(
+            BoardVoteBallot.vote_id, BoardVoteBallot.user_id, BoardVoteBallot.choice
+        ).where(BoardVoteBallot.vote_id.in_(vote_ids))
+    )
+    for vote_id, user_id, choice in rows.all():
+        out[vote_id][user_id] = choice
+    return out
+
+
+def _vote_open(vote: BoardVote) -> bool:
+    return vote.status == "open" and business_today() <= vote.deadline
+
+
+async def vote_view(
+    db: AsyncSession, vote: BoardVote, ballots: dict[int, str], viewer: User
+) -> dict[str, Any]:
+    current = votes_service.tally(vote.member_ids, ballots, vote.chair_user_id)
+    members = await votes_service.board_members(db, list(vote.member_ids))
+    return {
+        "id": vote.id,
+        "number": vote.number,
+        "title": vote.title,
+        "draft": vote.draft,
+        "document_id": vote.document_id,
+        "meeting_id": vote.meeting_id,
+        "deadline": vote.deadline.isoformat(),
+        "status": vote.status,
+        "accepting": _vote_open(vote),
+        "chair_user_id": vote.chair_user_id,
+        "members": [
+            {**member, "choice": ballots.get(member["id"])} for member in members
+        ],
+        "tally": current.as_dict(),
+        "result": vote.result,
+        "resolution_document_id": vote.resolution_document_id,
+        "my_choice": ballots.get(viewer.id),
+        "can_vote": viewer.id in vote.member_ids and _vote_open(vote),
+        "created_at": _iso(vote.created_at),
+        "closed_at": _iso(vote.closed_at),
+    }
+
+
+async def _vote(db: AsyncSession, vote_id: int) -> BoardVote:
+    vote = await db.get(BoardVote, vote_id)
+    if vote is None:
+        raise HTTPException(404, "Nie ma takiej uchwały.")
+    return vote
+
+
+@router.get("/votes")
+async def list_votes(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Uchwały w trybie pisemnym, najnowsze pierwsze, z głosami członków."""
+
+    votes = list(
+        (
+            await db.execute(
+                select(BoardVote).order_by(BoardVote.created_at.desc(), BoardVote.id)
+            )
+        ).scalars()
+    )
+    ballots = await _ballots(db, [vote.id for vote in votes])
+    members = await votes_service.board_member_ids(db)
+    return {
+        "items": [
+            await vote_view(db, vote, ballots[vote.id], current_user) for vote in votes
+        ],
+        "board": await votes_service.board_members(db, members),
+        "excluded_matters": list(votes_service.EXCLUDED_MATTERS),
+    }
+
+
+class VoteCreate(BaseModel):
+    number: Optional[str] = Field(None, max_length=votes_schema.NUMBER_MAX)
+    title: str = Field(..., min_length=1, max_length=votes_schema.TITLE_MAX)
+    draft: str = Field(..., min_length=1, max_length=20000)
+    document_id: Optional[int] = None
+    meeting_id: Optional[int] = None
+    deadline: date
+    chair_user_id: Optional[int] = None
+    #: Admin potwierdza, że sprawa nie jest wyłączona z trybu pisemnego (§ 25 ust. 5).
+    not_excluded_matter: bool = False
+
+
+@router.post("/votes", status_code=201)
+async def create_vote(
+    body: VoteCreate,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Projekt uchwały do głosowania pisemnego; każdy członek Rady dostaje dzwonek."""
+
+    if not body.not_excluded_matter:
+        raise HTTPException(
+            422,
+            "Potwierdź, że uchwała nie dotyczy spraw wyłączonych z trybu pisemnego "
+            "(§ 25 ust. 5 statutu).",
+        )
+    if body.deadline < business_today():
+        raise HTTPException(422, "Termin głosowania nie może być w przeszłości.")
+    members = await votes_service.board_member_ids(db)
+    if not members:
+        raise HTTPException(409, "W NEXUSIE nie ma aktywnych kont członków Rady.")
+    if body.chair_user_id is not None and body.chair_user_id not in members:
+        raise HTTPException(422, "Przewodniczący musi być członkiem Rady.")
+    if (
+        body.document_id is not None
+        and await db.get(BoardDocument, body.document_id) is None
+    ):
+        raise HTTPException(422, "Wskazany dokument nie istnieje.")
+    if (
+        body.meeting_id is not None
+        and await db.get(BoardMeeting, body.meeting_id) is None
+    ):
+        raise HTTPException(422, "Wskazane posiedzenie nie istnieje.")
+    vote = BoardVote(
+        number=(body.number or "").strip() or None,
+        title=body.title.strip(),
+        draft=body.draft.strip(),
+        document_id=body.document_id,
+        meeting_id=body.meeting_id,
+        deadline=body.deadline,
+        member_ids=members,
+        chair_user_id=body.chair_user_id,
+        created_by=current_user.id,
+    )
+    db.add(vote)
+    await db.flush()
+    await votes_service.notify_opened(db, vote)
+    await db.commit()
+    await db.refresh(vote)
+    return await vote_view(db, vote, {}, current_user)
+
+
+class BallotBody(BaseModel):
+    choice: str
+
+
+@ballot_router.post("/votes/{vote_id}/ballot")
+async def cast_ballot(
+    vote_id: int,
+    body: BallotBody,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Głos członka Rady ze składu; do zamknięcia i terminu można go zmienić."""
+
+    if body.choice not in votes_schema.CHOICES:
+        raise HTTPException(422, "Głos: za, przeciw albo wstrzymuję się.")
+    vote = await _vote(db, vote_id)
+    if current_user.id not in vote.member_ids:
+        raise HTTPException(403, "Głosują członkowie Rady, którzy dostali projekt.")
+    if not _vote_open(vote):
+        raise HTTPException(409, "Głosowanie jest zamknięte albo minął termin.")
+    ballot = (
+        await db.execute(
+            select(BoardVoteBallot).where(
+                BoardVoteBallot.vote_id == vote.id,
+                BoardVoteBallot.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if ballot is None:
+        db.add(
+            BoardVoteBallot(
+                vote_id=vote.id,
+                user_id=current_user.id,
+                choice=body.choice,
+                cast_at=now,
+            )
+        )
+    else:
+        ballot.choice = body.choice
+        ballot.cast_at = now
+    await db.commit()
+    ballots = (await _ballots(db, [vote.id]))[vote.id]
+    return await vote_view(db, vote, ballots, current_user)
+
+
+@router.post("/votes/{vote_id}/close")
+async def close_vote(
+    vote_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zamknij głosowanie: wynik według § 25; podjęta uchwała trafia do Dokumentów."""
+
+    vote = await _vote(db, vote_id)
+    if vote.status != "open":
+        raise HTTPException(409, "Głosowanie jest już zamknięte.")
+    ballots = (await _ballots(db, [vote.id]))[vote.id]
+    result = votes_service.tally(vote.member_ids, ballots, vote.chair_user_id)
+    vote.status = "closed"
+    vote.result = result.as_dict()
+    vote.closed_by = current_user.id
+    vote.closed_at = datetime.now(timezone.utc)
+    if result.passed:
+        doc = BoardDocument(
+            category="resolution_supervisory",
+            organ="supervisory",
+            number=vote.number,
+            title=vote.title[: schema.TITLE_MAX],
+            subject=(
+                f"Podjęta w trybie pisemnym (§ 25 ust. 4 statutu): za {result.votes_for}, "
+                f"przeciw {result.against}, wstrzymało się {result.abstain}; "
+                f"głosowało {result.voted} z {result.members}."
+            ),
+            doc_date=business_today(),
+            source="upload",
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(doc)
+        await db.flush()
+        vote.resolution_document_id = doc.id
+    await votes_service.notify_closed(db, vote, result)
+    await db.commit()
+    await db.refresh(vote)
+    return await vote_view(db, vote, ballots, current_user)
+
+
+@router.post("/votes/{vote_id}/withdraw")
+async def withdraw_vote(
+    vote_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    vote = await _vote(db, vote_id)
+    if vote.status != "open":
+        raise HTTPException(409, "Głosowanie jest już zamknięte.")
+    vote.status = "withdrawn"
+    vote.closed_by = current_user.id
+    vote.closed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(vote)
+    ballots = (await _ballots(db, [vote.id]))[vote.id]
+    return await vote_view(db, vote, ballots, current_user)
 
 
 # ── KRS ──────────────────────────────────────────────────────────────────────

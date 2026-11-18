@@ -32,6 +32,7 @@ from app.services import board_documents_schema as board_documents
 from app.services import board_budget_schema as board_budgets
 from app.services import board_statements_schema as board_statements
 from app.services import board_meetings_schema as board_meetings
+from app.services import board_votes_schema as board_votes
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -170,6 +171,8 @@ MODULES = (
     board_statements,
     # 0735: posiedzenia Rady z zamrażanym pakietem (R5, 18.11.2026).
     board_meetings,
+    # 0736: uchwały Rady w trybie pisemnym (R6, 18.11.2026).
+    board_votes,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

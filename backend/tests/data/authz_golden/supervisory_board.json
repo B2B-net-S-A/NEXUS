@@ -42,6 +42,7 @@
   "GET /api/supervisory-board/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/meetings/{meeting_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/supervisory-board/votes": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "PATCH /api/supervisory-board/documents/{document_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/documents/{document_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
@@ -50,6 +51,10 @@
   "POST /api/supervisory-board/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/meetings/{meeting_id}/pack": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/statements/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/supervisory-board/votes": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/supervisory-board/votes/{vote_id}/ballot": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "POST /api/supervisory-board/votes/{vote_id}/close": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/supervisory-board/votes/{vote_id}/withdraw": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/supervisory-board/budget/{year}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/supervisory-board/meetings/{meeting_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/supervisory-board/statements/{year}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"

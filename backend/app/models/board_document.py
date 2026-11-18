@@ -1,5 +1,5 @@
 """Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) budżet (0733, R3), sprawozdania roczne (0734, R4)
-i posiedzenia (0735, R5).
+posiedzenia (0735, R5) i uchwały w trybie pisemnym (0736, R6).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
@@ -33,6 +33,7 @@ from app.services import board_budget_schema as budget_schema
 from app.services import board_documents_schema as schema
 from app.services import board_meetings_schema as meetings_schema
 from app.services import board_statements_schema as statements_schema
+from app.services import board_votes_schema as votes_schema
 
 
 class BoardDocument(Base):
@@ -277,5 +278,78 @@ class BoardMeeting(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardVote(Base):
+    """Uchwała Rady w trybie pisemnym (0736, R6) — § 25 ust. 4 projektu statutu."""
+
+    __tablename__ = "board_votes"
+    __table_args__ = (
+        CheckConstraint(votes_schema.CK_STATUS, name="ck_board_votes_status"),
+        CheckConstraint(votes_schema.CK_MEMBERS, name="ck_board_votes_members"),
+        CheckConstraint(votes_schema.CK_RESULT, name="ck_board_votes_result"),
+        Index("ix_board_votes_status_deadline", "status", "deadline"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    number: Mapped[Optional[str]] = mapped_column(
+        String(votes_schema.NUMBER_MAX), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(votes_schema.TITLE_MAX), nullable=False)
+    draft: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    meeting_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_meetings.id", ondelete="SET NULL"), nullable=True
+    )
+    deadline: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="open", server_default="open"
+    )
+    member_ids: Mapped[list[int]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    chair_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    resolution_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    closed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class BoardVoteBallot(Base):
+    """Głos członka Rady w uchwale pisemnej."""
+
+    __tablename__ = "board_vote_ballots"
+    __table_args__ = (
+        CheckConstraint(votes_schema.CK_CHOICE, name="ck_board_vote_ballots_choice"),
+        Index("uq_board_vote_ballots_vote_user", "vote_id", "user_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    vote_id: Mapped[int] = mapped_column(
+        ForeignKey("board_votes.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    choice: Mapped[str] = mapped_column(String(8), nullable=False)
+    cast_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

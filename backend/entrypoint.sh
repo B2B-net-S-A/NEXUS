@@ -392,6 +392,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
     # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
+    # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_vote'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
