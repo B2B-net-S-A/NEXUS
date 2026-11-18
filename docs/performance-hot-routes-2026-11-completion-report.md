@@ -124,7 +124,9 @@ karcie. Bez obsługi ukrytej karty: `AdPublications.tsx:118` (co 10 s unieważni
 `docs/claude/podstawy/web-i-worker-osobno.md`, sekcja „Kilka procesów web”: przed
 `WEB_CONCURRENCY>1` trzeba przenieść limiter, gniazda (`process_bus` z web), `ALIAS_MAP`
 i stany ręcznych backfilli. Daje to drugi rdzeń (serwer ma 8 vCPU), ale nie usuwa pauz GC
-w żadnym procesie. Decyzja Artura po pomiarze z nowymi progami.
+w żadnym procesie. Decyzja Artura z 18.11.2026: wrócić do tego po pomiarze szczytu 19.11
+z nowymi progami; plan etapu 2 powstaje, jeśli CPU procesu web nadal przekracza 90%
+albo zostaną trasy powyżej 30 s.
 
 ## Po wdrożeniu
 
