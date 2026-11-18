@@ -177,10 +177,6 @@ class TermsEmail:
     html_body: str
 
 
-#: Tematy formularza jednym zdaniem (wariant „Pasek postępu”, decyzja Artura 18.11.2026:
-#: bez wypunktowania, tylko co uzupełnić i po co).
-_TOPICS = "stawkę, tryb pracy, dni w biurze, miasta i termin startu"
-
 _COMPANY = (
     "B2B.NET S.A. · Kopernik Office Buildings, wejście A, Al. Jerozolimskie 180, "
     "02-486 Warszawa · KRS 0000387063 · NIP 5711707392"
@@ -247,23 +243,15 @@ def render_terms_email(
         f"Dziękujemy za zgłoszenie: {title}" if title else "Dziękujemy za zgłoszenie"
     )
     no_reply = "Wiadomość automatyczna, nie odpowiadaj na nią."
-    got = (
-        f"Twoje zgłoszenie na stanowisko „{title}” i CV do nas dotarły."
-        if title
-        else "Twoje zgłoszenie i CV do nas dotarły."
-    )
-    ask = (
-        f"Brakuje jeszcze Twoich warunków: {_TOPICS}. To 30 sekund i nie jest "
-        "obowiązkowe. Rekruter od razu zobaczy, czy ta rekrutacja jest dla Ciebie, "
-        "i podsunie Ci kolejne."
-    )
-
+    position = f" na stanowisko „{title}”" if title else ""
     text_lines = ["Dzień dobry,", ""]
     if link:
+        intro = (
+            f"dziękujemy za CV{position}. Jeśli chcesz, daj nam znać, jaka stawka "
+            "Ci odpowiada, jak wolisz pracować i kiedy możesz zacząć."
+        )
         text_lines += [
-            got,
-            "",
-            ask,
+            intro,
             "",
             f"Dokończ w 30 sekund: {link}",
             f"Link działa {LINK_TTL_DAYS} dni i jest tylko dla Ciebie. Nie wymaga logowania.",
@@ -271,10 +259,11 @@ def render_terms_email(
             "",
         ]
     else:
-        text_lines += [
-            f"{got} Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował.",
-            "",
-        ]
+        intro = (
+            f"Twoje zgłoszenie{position} i CV do nas dotarły. "
+            "Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował."
+        )
+        text_lines += [intro, ""]
     if optout_link:
         text_lines.append(f"Nie chcesz takich pytań? Wypisz się: {optout_link}")
     text_lines += [
@@ -321,7 +310,7 @@ def render_terms_email(
         action = (
             '<tr><td class="wh pad" bgcolor="#FFFFFF" style="background:#FFFFFF;padding:30px 36px 32px">'
             f'<p class="tx" style="margin:0 0 24px;{_F}font-size:17px;line-height:26px;color:#1A1816">'
-            f"Dzień dobry, {e(got)} {e(ask)}</p>"
+            f"Dzień dobry,<br><br>{e(intro)}</p>"
             '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
             'style="margin:0 0 14px"><tr><td class="bt" bgcolor="#1A1816" '
             'style="background:#1A1816;border-radius:2px">'
@@ -341,8 +330,7 @@ def render_terms_email(
             'letter-spacing:-1px;color:#1A1816">Dziękujemy za zgłoszenie'
             '<span style="color:#D62E40">.</span></h1>'
             f'<p class="tx" style="margin:0;{_F}font-size:17px;line-height:26px;color:#1A1816">'
-            f"Dzień dobry, {e(got)} Rekruter przejrzy je i odezwie się, "
-            "jeśli profil będzie pasował.</p></td></tr>"
+            f"Dzień dobry, {e(intro)}</p></td></tr>"
         )
     optout_html = (
         f'<p class="tx" style="margin:0 0 4px;{_F}font-size:14px;line-height:21px;color:#3C3934">'
