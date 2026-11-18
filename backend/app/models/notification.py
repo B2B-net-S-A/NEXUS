@@ -63,8 +63,8 @@ class NotificationType(str, enum.Enum):
     # delivery_lead/head_of_recruitment/admin (migracja 0056).
     pending_verification = "pending_verification"
     # Job Chat — wewnętrzny czat zespołu per rekrutacja (migracja 0061).
-    # `job_chat_message` — każda nowa wiadomość → notyfikacja dla każdego
-    # członka projektu poza autorem.
+    # `job_chat_message` — każda nowa wiadomość → notyfikacja dla każdej
+    # osoby przypisanej do rekrutacji poza autorem (`list_job_assigned_ids`).
     # `job_chat_mention` — bezpośrednie @mention; wyższy priorytet w UI.
     job_chat_message = "job_chat_message"
     job_chat_mention = "job_chat_mention"
