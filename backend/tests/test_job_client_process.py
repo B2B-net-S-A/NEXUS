@@ -253,18 +253,34 @@ async def test_put_saves_process_and_hint_suggests_it_for_next_job(
     assert cleared.json()["client_process"] is None
 
 
-async def test_put_rejected_for_recruiter_outside_job_and_writes_nothing(app_client):
+async def test_put_follows_the_champion_gate_and_refusal_writes_nothing(app_client):
+    # Ta sama bramka co zapis Championa — rekruter spoza rekrutacji może tyle,
+    # ile przy Championie (decyzja 22.09.2026: Champion redaguje też zespół
+    # rekrutacji), a rola bez edycji rekrutacji dostaje odmowę i nic nie zapisuje.
     from app.core.database import AsyncSessionLocal
     from app.models.job import Job
     from app.models.user import UserRole
     from tests._jarvis_helpers import make_user
 
     _, (job_id,) = await _seed_jobs(1)
-    _, headers = await make_user(UserRole.recruiter)
-    denied = await app_client.put(
-        f"/api/jobs/{job_id}/client-process", headers=headers, json=PROCESS
+    _, recruiter = await make_user(UserRole.recruiter)
+    champion = await app_client.put(
+        f"/api/jobs/{job_id}/champion-profile", headers=recruiter, json={}
     )
-    assert denied.status_code in (403, 404), denied.text
+    process = await app_client.put(
+        f"/api/jobs/{job_id}/client-process", headers=recruiter, json={"steps": []}
+    )
+    refused = (401, 403, 404)
+    assert (process.status_code in refused) == (champion.status_code in refused), (
+        champion.text,
+        process.text,
+    )
+
+    _, employee = await make_user(UserRole.employee)
+    denied = await app_client.put(
+        f"/api/jobs/{job_id}/client-process", headers=employee, json=PROCESS
+    )
+    assert denied.status_code == 403, denied.text
     async with AsyncSessionLocal() as db:
         profile = await db.scalar(select(Job.champion_profile).where(Job.id == job_id))
     assert "client_process" not in (profile or {})
