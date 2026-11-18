@@ -243,6 +243,10 @@ export function useCvTopic(enabled: boolean) {
     enabled,
     refetchInterval: enabled ? WS_BACKED_SAFETY_POLL_MS : false,
     staleTime: 30_000,
+    // Ramka gniazda w ukrytej karcie tylko oznacza ikonę jako nieaktualną
+    // (`lib/cv-topic-refresh.ts`) — pobieramy ją przy powrocie na kartę.
+    // Zwykły powrót bez takiej ramki nie odpytuje serwera.
+    refetchOnWindowFocus: (query) => query.state.isInvalidated,
   });
 }
 

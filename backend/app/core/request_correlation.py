@@ -44,6 +44,9 @@ class RequestCorrelationMiddleware:
             return await self.app(scope, receive, send)
         started = time.monotonic()
         status_code = 500
+        # Koniec odpowiedzi = ostatni kawałek ciała. Starlette wykonuje
+        # `BackgroundTasks` PO nim, ale wciąż wewnątrz tego wywołania.
+        response_done: tuple[float, int, float] | None = None
         request_id = str(uuid4())
         headers = dict(scope.get("headers", []))
         try:
@@ -57,7 +60,15 @@ class RequestCorrelationMiddleware:
         )
 
         async def send_correlated(message):
-            nonlocal status_code
+            nonlocal status_code, response_done
+            if message["type"] == "http.response.body" and not message.get(
+                "more_body", False
+            ):
+                response_done = (
+                    time.monotonic(),
+                    db_usage.statements,
+                    db_usage.seconds,
+                )
             if message["type"] == "http.response.start":
                 status_code = message["status"]
                 message = {
@@ -105,14 +116,13 @@ class RequestCorrelationMiddleware:
                 correlation_ids.reset(correlation_token)
                 request_db_usage.reset(db_usage_token)
                 route = getattr(scope.get("route"), "path", "unmatched-route")
+                finished = time.monotonic()
                 extra = {
                     "event_kind": "http_outcome",
                     "route": route,
                     "method": scope.get("method", "UNKNOWN"),
                     "status_code": status_code,
-                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                    "db_statements": db_usage.statements,
-                    "db_ms": db_usage.rounded_ms(),
+                    **_timing_fields(started, finished, response_done, db_usage),
                     "request_id": request_id,
                     "operation_id": operation_id,
                 }
@@ -121,6 +131,46 @@ class RequestCorrelationMiddleware:
                     # API integracyjne v1 (0443): które konto serwisowe wołało.
                     extra["actor"] = f"service_account:{slug}"
                 logging.getLogger(__name__).info("http_outcome", extra=extra)
+
+
+# Praca po odpowiedzi krótsza niż to i bez zapytań to narzut middleware'u, nie
+# zadanie w tle — linia logu zostaje wtedy w dawnym kształcie.
+_BACKGROUND_MS_FLOOR = 100.0
+
+
+def _timing_fields(
+    started: float,
+    finished: float,
+    response_done: tuple[float, int, float] | None,
+    db_usage: RequestDbUsage,
+) -> dict:
+    """`duration_ms` i `db_*` do końca odpowiedzi, `background_*` po niej.
+
+    18.11.2026: odczyt CV w `BackgroundTasks` (ekstrakcja, model, wektor)
+    wliczał się w `duration_ms` trasy — `POST /api/candidates/{id}/cv` miał
+    p50 18 s, choć klient dostawał odpowiedź wcześniej, a ranking wolnych tras
+    mieszał czas czekania ludzi z pracą procesu po odpowiedzi.
+    """
+    if response_done is None:
+        # Bez ciała odpowiedzi (rozłączenie, błąd przed wysłaniem): cały czas.
+        return {
+            "duration_ms": round((finished - started) * 1000, 2),
+            "db_statements": db_usage.statements,
+            "db_ms": db_usage.rounded_ms(),
+        }
+    done_at, statements, db_seconds = response_done
+    fields: dict = {
+        "duration_ms": round((done_at - started) * 1000, 2),
+        "db_statements": statements,
+        "db_ms": round(db_seconds * 1000, 2),
+    }
+    background_ms = (finished - done_at) * 1000
+    background_statements = db_usage.statements - statements
+    if background_ms >= _BACKGROUND_MS_FLOOR or background_statements:
+        fields["background_ms"] = round(background_ms, 2)
+        fields["background_db_statements"] = background_statements
+        fields["background_db_ms"] = round((db_usage.seconds - db_seconds) * 1000, 2)
+    return fields
 
 
 def _service_slug(scope) -> str | None:

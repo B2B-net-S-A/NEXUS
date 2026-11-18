@@ -19,6 +19,7 @@ import {
   type CvTopicResponse,
   type DlSendQueueResponse,
 } from "@/lib/api/boardTasks";
+import { refreshCvTopicFromRealtime } from "@/lib/cv-topic-refresh";
 import { pipelineCvRefresh } from "@/lib/pipeline-changed-refresh";
 import { REQUEST_BOARD_QUERY_KEY } from "@/lib/api/requestAllocation";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
@@ -200,7 +201,7 @@ export function useNotifications({
             queryClient.getQueryData<CvTopicResponse>(CV_TOPIC_QUERY_KEY),
             queryClient.getQueryData<DlSendQueueResponse>(DL_SEND_QUEUE_QUERY_KEY),
           );
-          if (refresh.cv) queryClient.invalidateQueries({ queryKey: CV_TOPIC_QUERY_KEY });
+          if (refresh.cv) refreshCvTopicFromRealtime(queryClient);
           if (refresh.dlSend) {
             queryClient.invalidateQueries({ queryKey: DL_SEND_QUEUE_QUERY_KEY });
           }
