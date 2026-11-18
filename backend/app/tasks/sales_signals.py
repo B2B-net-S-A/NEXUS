@@ -1,7 +1,8 @@
 """Pętla kanału sygnałów z bota researchu (kontener worker).
 
 Co 15 minut: wygasza biegi bez raportu (ostrzeżenie w logu), w poniedziałek od 7:00
-startuje tygodniowy przegląd sygnałów firm pilota, a co godzinę zbiera firmy do
+startuje tygodniowy przegląd sygnałów firm pilota w małych paczkach. Niezakończony
+przegląd może być kontynuowany w kolejnych dniach. Co godzinę pętla zbiera firmy do
 punktów do rozmowy (nowe leady i szanse, w poniedziałek od 7:30 także odświeżenie
 przed krokiem i przy ofertach „Do decyzji”). Osobny kanał Cognism bierze firmy
 z odebranego researchu po dacie uruchomienia. W nocy od 1:00 do 6:00
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select
@@ -49,6 +51,8 @@ RETRY_FAILED_AFTER = timedelta(hours=1)
 #: poniedziałkowy przegląd wygasł i następna próba wypadała dopiero za tydzień).
 EXPIRED_RETRY_LIMIT = 3
 SIGNALS_HOUR = 7
+SIGNALS_BATCH_SIZE = 5
+SIGNALS_ATTEMPTS_PER_COMPANY = 3
 REFRESH_HOUR, REFRESH_MINUTE = 7, 30
 #: Rodzaje miesięczne (decyzja Artura 12.11.2026): pierwszy poniedziałek od 7:00.
 MONTHLY_KINDS: tuple[str, ...] = ("winback", "discovery")
@@ -105,11 +109,58 @@ def _started(run: object) -> bool:
     return getattr(run, "status", None) == "started"
 
 
-def _monday_start(local: datetime) -> datetime:
-    monday = (local - timedelta(days=local.weekday())).replace(
-        hour=0, minute=0, second=0, microsecond=0
+async def _weekly_signal_ids(
+    db: AsyncSession, *, now: datetime, local: datetime
+) -> list[int]:
+    due = (local - timedelta(days=local.weekday())).replace(
+        hour=SIGNALS_HOUR, minute=0, second=0, microsecond=0
     )
-    return monday.astimezone(timezone.utc)
+    if local < due:
+        return []
+    runs = (
+        await db.execute(
+            select(
+                SalesSignalRun.status,
+                SalesSignalRun.started_at,
+                SalesSignalRun.company_ids,
+                SalesSignalRun.report,
+            ).where(
+                SalesSignalRun.kind == "signals",
+                SalesSignalRun.started_at >= due.astimezone(timezone.utc),
+            )
+        )
+    ).all()
+    if not runs and local.weekday() != 0:
+        return []
+
+    attempts: Counter[int] = Counter()
+    covered: set[int] = set()
+    cooling_down: set[int] = set()
+    for status, started_at, ids, report in runs:
+        if status == "started":
+            return []  # Dokończ jeden bieg przed wysłaniem następnego do Groka.
+        attempts.update(ids)
+        if status == "received":
+            summary = report or {}
+            covered.update(
+                targets.researched_refs(
+                    ids,
+                    summary.get("researched_company_ids"),
+                    summary.get("checked_firms"),
+                )
+            )
+        elif started_at > now - RETRY_FAILED_AFTER:
+            cooling_down.update(ids)
+
+    candidates = await targets.pilot_company_ids(db)
+    pending = [
+        cid
+        for cid in candidates
+        if cid not in covered
+        and cid not in cooling_down
+        and attempts[cid] < SIGNALS_ATTEMPTS_PER_COMPANY
+    ]
+    return sorted(pending, key=attempts.__getitem__)[:SIGNALS_BATCH_SIZE]
 
 
 async def _start_cognism_people(db: AsyncSession, *, now: datetime) -> int:
@@ -197,12 +248,11 @@ async def _legacy_tick(
     db: AsyncSession, *, now: datetime, local: datetime, done: dict[str, int]
 ) -> None:
     is_monday = local.weekday() == 0
-    if is_monday and local.hour >= SIGNALS_HOUR:
-        last = await _last_start(db, "signals", now=now)
-        if last is None or last < _monday_start(local):
-            ids = await targets.pilot_company_ids(db)
-            if ids and _started(await signals.start_run(db, "signals", ids, now=now)):
-                done["signals"] = len(ids)
+    ids = await _weekly_signal_ids(db, now=now, local=local)
+    if ids:
+        run = await signals.start_run(db, "signals", ids, now=now)
+        if run is not None and run.status in ("started", "received"):
+            done["signals"] = len(ids)
 
     last = await _last_start(db, "briefing", now=now)
     if last is None or last <= now - BRIEFING_EVERY:

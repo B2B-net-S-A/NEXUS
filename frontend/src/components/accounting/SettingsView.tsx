@@ -35,6 +35,7 @@ import { cn } from "@/lib/utils";
 
 import { SectionCard, useAccounting } from "./AccountingShell";
 import { BankSettingsCard } from "./BankSettingsCard";
+import { RevenueChoicesCard } from "./RevenueChoice";
 import { MONTHS_PL, gr } from "./ledger-model";
 
 const CONTROL = "h-8 rounded-md border border-border bg-background px-2.5 text-sm pointer-coarse:h-10";
@@ -92,6 +93,7 @@ export function SettingsView() {
       <div className="space-y-3.5">
         <Accountants />
         <SalesAccountsCard />
+        <RevenueChoicesCard />
         <AllocationAccountsCard />
         <PayrollAccountsCard />
       </div>
@@ -256,7 +258,13 @@ const SALES_FIELDS: AccountField<SalesAccounts>[] = [
     hint: "konto ze słownikiem kontrahentów; analityka = ID Symfonii, gdy kontrahent nie ma konta w kartotece",
     placeholder: "np. 200",
   },
-  { key: "revenue_account", label: "Przychody ze sprzedaży", hint: "konto przychodów z faktur do klientów", placeholder: "np. 701" },
+  {
+    key: "revenue_account",
+    label: "Przychody ze sprzedaży",
+    hint: "puste = jak w Symfonii: konto z dekretu faktury w eBI24 albo poprzedniej faktury nabywcy, bez historii — konto wskazane w Źródłach; wpisane = jedno konto dla wszystkich",
+    placeholder: "puste",
+    optional: true,
+  },
   { key: "vat_account", label: "VAT należny", hint: "VAT z faktur sprzedaży", placeholder: "np. 222" },
 ];
 const NO_SALES_ACCOUNTS: SalesAccounts = { receivable_account: "", revenue_account: "", vat_account: "" };

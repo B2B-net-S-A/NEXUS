@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -128,6 +128,63 @@ describe("MentionTextarea", () => {
     expect(field.value).toBe("Hej @marta@example.com ");
     expect(parentKeyDown).not.toHaveBeenCalled();
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("pisanie zaraz po wyborze wzmianki nie cofa kursora w następnej klatce", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    render(<Field />);
+    const field = type("@mar");
+    fireEvent.keyDown(field, { key: "Enter" });
+    const mention = "@marta@example.com ";
+    expect(field.value).toBe(mention);
+    const start = " czy bu";
+    const rest = "dżet 115 zł/h jest sztywny?";
+    // Pierwsze znaki trafiają do pola przed klatką przywracającą kursor.
+    fireEvent.change(field, {
+      target: { value: mention + start, selectionStart: mention.length + start.length },
+    });
+    act(() => frames.splice(0).forEach((callback) => callback(16)));
+    const caret = field.selectionStart;
+    fireEvent.change(field, {
+      target: {
+        value: field.value.slice(0, caret) + rest + field.value.slice(caret),
+        selectionStart: caret + rest.length,
+      },
+    });
+    expect(field.value).toBe(mention + start + rest);
+    expect(field.selectionStart).toBe(field.value.length);
+  });
+
+  it("wzmianka w środku tekstu ustawia kursor od razu i zachowuje istniejący koniec", () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    render(<Field />);
+    const field = screen.getByLabelText("Treść") as HTMLTextAreaElement;
+    fireEvent.change(field, {
+      target: { value: "Hej @mar, wróćmy jutro", selectionStart: "Hej @mar".length },
+    });
+    fireEvent.keyDown(field, { key: "Enter" });
+    const prefix = "Hej @marta@example.com ";
+    const suffix = ", wróćmy jutro";
+    expect(field.value).toBe(prefix + suffix);
+    expect(field.selectionStart).toBe(prefix.length);
+    const inserted = "czy budżet 115 zł/h jest sztywny?";
+    fireEvent.change(field, {
+      target: {
+        value: prefix + inserted + suffix,
+        selectionStart: prefix.length + inserted.length,
+      },
+    });
+    act(() => frames.splice(0).forEach((callback) => callback(16)));
+    expect(field.value).toBe(prefix + inserted + suffix);
+    expect(field.selectionStart).toBe(prefix.length + inserted.length);
   });
 
   it("adres e-mail w tekście nie otwiera listy, a Enter idzie do rodzica", () => {

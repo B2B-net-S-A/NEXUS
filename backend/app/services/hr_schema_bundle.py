@@ -29,6 +29,8 @@ from app.services import client_invoice_series_ext_schema as client_invoice_seri
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import board_documents_schema as board_documents
+from app.services import board_budget_schema as board_budgets
+from app.services import board_statements_schema as board_statements
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -71,6 +73,7 @@ from app.services import hr_settlement_schema as settlement
 from app.services import hr_time_schema as time_
 from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
+from app.services.cpro_bot import schema as cpro_bot
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -158,6 +161,12 @@ MODULES = (
     order_revenue_steps,
     # 0727: dokumenty Rady nadzorczej i odpisy KRS spółki (R1, 16.11.2026).
     board_documents,
+    # 0732: bot Cpro — biegi rutyny Grok Bota (17.11.2026).
+    cpro_bot,
+    # 0733: budżet Rady — plan miesięczny sprzedaży i kosztów (R3, 16.11.2026).
+    board_budgets,
+    # 0734: sprawozdania roczne dla Rady — bilans i RZiS (R4, 18.11.2026).
+    board_statements,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

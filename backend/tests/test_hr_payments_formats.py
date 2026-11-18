@@ -315,6 +315,21 @@ def test_full_account_numbers_are_masked_in_titles():
     assert accounts.mask_accounts(KSEF) == KSEF
 
 
+def test_mt940_numer_operacji_z_podpola_63_nie_skleja_sie_z_tytulem():
+    # Santander: tytuł w ?20–?25 (pocięty w pół słowa), w ?63 numer operacji
+    # banku. Sklejony wprost dawał „FV/1/10/2026823973257” i numer faktury
+    # przestawał pasować (wyciąg 12.11.2026).
+    raw = (
+        ":20:X\r\n:25:/PL72999900010000000000001234\r\n:60F:C261112PLN100,00\r\n"
+        ":61:261112DN10,00FCHGNONREF\r\n"
+        ":86:B130?00PRZELEW ELIXIR?20FV/1/10/20?2126?32JAN PRZYKLADOWY\r\n"
+        "?63823973257\r\n-"
+    ).encode()
+    (line,) = mt940.parse(raw).lines
+    assert line.title == "FV/1/10/2026 823973257"
+    assert line.counterparty_name == "JAN PRZYKLADOWY"
+
+
 def test_camt053_refuses_doctype_hidden_in_utf16():
     evil = (
         '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE d [<!ENTITY x "X">]>'

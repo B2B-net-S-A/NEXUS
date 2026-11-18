@@ -21,6 +21,9 @@ spotkaniem wstępnym; termin był tekstem w opisie, 14 spotkań nie miało daty,
 - **Nic nie wychodzi samo do ludzi z zewnątrz.** „Potwierdź termin u klienta” daje
   numer i adres do kliknięcia, a potem zapisuje „Klient potwierdził”. Zaproszenie
   do klienta wysyła prowadzący swoim kliknięciem (sekcja „Zaproszenie” niżej).
+  Wyjątek od 17.11.2026: z kolejki dzwonienia osoba, która umawia, wysyła kliknięciem
+  „Umów … i wyślij mail” mail ze swojej skrzynki do klienta, z kopią do prowadzącego
+  (`dzwonienie-mail-po-umowieniu-spotkania.md`).
 - **Klient NEXUSA nie dostaje szansy** (409 z nazwą Delivery Leada, `client_gate`),
   także gdy ktoś wpisuje jego nazwę jako nową firmę. Nasza spółka też nie.
 

@@ -156,6 +156,17 @@ export function MentionTextarea({
   const innerRef = useRef<HTMLTextAreaElement | null>(null);
   const ref = textareaRef ?? innerRef;
   const [mention, setMention] = useState<MentionState>(initialMentionState);
+  const pendingCaret = useRef<{ value: string; position: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const selection = pendingCaret.current;
+    const field = ref.current;
+    pendingCaret.current = null;
+    if (!field || !selection || selection.value !== value) return;
+    // Ustaw kursor po zapisaniu wartości w DOM, zanim użytkownik wpisze kolejny znak.
+    field.focus();
+    field.setSelectionRange(selection.position, selection.position);
+  }, [ref, value]);
 
   // Opakowanie ma szerokość pola (`w-full`) — po zmianie szerokości tekst
   // zawija się inaczej i wysokość trzeba policzyć od nowa.
@@ -295,15 +306,9 @@ export function MentionTextarea({
     const before = value.slice(0, mention.startIndex);
     const afterCaret = value.slice(ta.selectionStart ?? value.length);
     const next = before + insertion + afterCaret;
+    pendingCaret.current = { value: next, position: before.length + insertion.length };
     onChange(next);
     setMention(initialMentionState);
-    requestAnimationFrame(() => {
-      const taNow = ref.current;
-      if (!taNow) return;
-      const newPos = (before + insertion).length;
-      taNow.focus();
-      taNow.setSelectionRange(newPos, newPos);
-    });
   };
 
   const chooseOption = (option: MentionOption) => {
@@ -323,14 +328,9 @@ export function MentionTextarea({
   const addSubstitute = () => {
     if (!hint) return;
     const next = insertAfterMention(value, hint.person.email, hint.substitute.email);
+    pendingCaret.current = { value: next.text, position: next.caret };
     onChange(next.text);
     setHintFor(null);
-    requestAnimationFrame(() => {
-      const taNow = ref.current;
-      if (!taNow) return;
-      taNow.focus();
-      taNow.setSelectionRange(next.caret, next.caret);
-    });
   };
 
   const handleKeyDownInner = (e: KeyboardEvent<HTMLTextAreaElement>) => {

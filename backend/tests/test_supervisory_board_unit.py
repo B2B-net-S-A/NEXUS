@@ -254,3 +254,33 @@ def test_year_over_year_compares_the_same_months_and_result_only_with_full_costs
     assert out["result_pct"] == round(100 * (99 - 94.5) / 99, 1)
     assert out["result_previous_pct"] == 10.0
     assert year_over_year(previous, 2027) == {"sales_months": 0, "result_months": 0}
+
+
+def test_potential_counts_business_days_until_contract_end() -> None:
+    from app.services.board.budget import ContractRate, potential
+
+    # Grudzień 2026: 21 dni roboczych (24 i 25.12 wolne). Umowa do 15.12 = 11 dni.
+    rates = [ContractRate(per_day=1000.0, last_day=date(2026, 12, 15), monthly=False)]
+    assert potential(rates, 2026, 12, renewed=False) == 11 * 1000.0
+    assert potential(rates, 2026, 12, renewed=True) == 21 * 1000.0
+    assert potential(rates, 2027, 1, renewed=False) == 0.0
+
+
+def test_cost_share_uses_twelve_trailing_months_so_shifts_cancel_out() -> None:
+    from app.services.board.budget import cost_share
+
+    sales = {(2026, m): 10.0 for m in range(1, 10)}
+    sales[(2026, 4)], sales[(2026, 6)] = 0.5, 19.5  # faktury za IV wystawione w VI
+    costs = {(2026, m): 9.0 for m in range(1, 10)}
+    complete = [(2026, m) for m in range(1, 10)]
+    assert cost_share(sales, costs, complete) == 0.9
+    assert cost_share(sales, costs, []) is None
+
+
+def test_realization_is_invoices_over_potential() -> None:
+    from app.services.board.budget import ContractRate, potential, realization
+
+    rates = [ContractRate(per_day=100.0, last_day=date(2099, 12, 31), monthly=False)]
+    cap = potential(rates, 2026, 10, renewed=True)
+    assert realization({(2026, 10): cap * 0.8}, rates, [(2026, 10)]) == 0.8
+    assert realization({}, rates, [(2026, 10)]) is None

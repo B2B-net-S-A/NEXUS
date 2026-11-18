@@ -117,6 +117,7 @@ from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
 from app.api import integrations_law_radar
+from app.api import integrations_cpro_bot
 from app.api import integrations_sales_signals
 from app.api import integrations_v1
 from app.api.integrations_v1.common import (
@@ -861,6 +862,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
+    from app.tasks.cpro_bot import cpro_bot_loop
     from app.tasks.board_krs import board_krs_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
@@ -1111,6 +1113,9 @@ async def lifespan(app: FastAPI):
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
             # wyłącznik LAW_RADAR_ENABLED przed pętlą.
             "law_radar": asyncio.create_task(law_radar_loop()),
+            # Bot Cpro: karty z kolejki Cpro do Grok Bota (Nordea, nordea.onevms.se);
+            # wyłącznik CPRO_BOT_ENABLED przed pętlą.
+            "cpro_bot": asyncio.create_task(cpro_bot_loop()),
             # Rada: odpis pełny KRS spółki co noc (05:40); wyłącznik BOARD_KRS_ENABLED.
             "board_krs": asyncio.create_task(board_krs_loop()),
             "insights_seniority_journal": asyncio.create_task(
@@ -2052,6 +2057,12 @@ app.include_router(
 app.include_router(
     integrations_law_radar.router,
     prefix="/api/integrations/law-radar",
+    tags=["integrations"],
+)
+# Bot Cpro (Grok Bot): plik CV i raport biegu; jednorazowy token biegu.
+app.include_router(
+    integrations_cpro_bot.router,
+    prefix="/api/integrations/cpro-bot",
     tags=["integrations"],
 )
 # API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
@@ -4192,6 +4203,7 @@ async def api_health_deep_check(request: Request):
         ClientTimeReportRow,
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.cpro_bot import CproBotRun
     from app.models.client_report import ClientReportDefinition, ClientReportRun
     from app.models.law_radar import (
         LawChange,
@@ -4211,7 +4223,13 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
-    from app.models.board_document import BoardDocument, BoardKrsSnapshot
+    from app.models.board_document import (
+        BoardBudget,
+        BoardBudgetLine,
+        BoardDocument,
+        BoardFinancialStatement,
+        BoardKrsSnapshot,
+    )
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4877,6 +4895,8 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0732: bot Cpro — biegi rutyny Grok Bota.
+        ("cpro_bot_runs", CproBotRun),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.
@@ -4897,6 +4917,9 @@ async def api_health_deep_check(request: Request):
         ("client_order_revenue_steps", ClientOrderRevenueStep),
         ("board_documents", BoardDocument),
         ("board_krs_snapshots", BoardKrsSnapshot),
+        ("board_budgets", BoardBudget),
+        ("board_budget_lines", BoardBudgetLine),
+        ("board_financial_statements", BoardFinancialStatement),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
         # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.

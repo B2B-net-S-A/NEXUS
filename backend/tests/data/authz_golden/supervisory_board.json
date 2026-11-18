@@ -32,6 +32,9 @@
  ],
  "routes": {
   "DELETE /api/supervisory-board/documents/{document_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "DELETE /api/supervisory-board/statements/{year}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/supervisory-board/analysis": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/supervisory-board/budget/{year}": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/documents/{document_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
   "GET /api/supervisory-board/krs": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
@@ -40,6 +43,9 @@
   "POST /api/supervisory-board/documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/documents/{document_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/supervisory-board/documents/{document_id}/read": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/supervisory-board/krs/refresh": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "POST /api/supervisory-board/krs/refresh": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/supervisory-board/statements/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/supervisory-board/budget/{year}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/supervisory-board/statements/{year}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

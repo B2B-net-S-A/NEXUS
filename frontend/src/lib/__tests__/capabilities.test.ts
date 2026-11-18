@@ -1636,11 +1636,16 @@ const SIDEBAR_ROLE_GATED_WITHOUT_CAPABILITY: readonly string[] = [
 describe("kontrakt sidebar ↔ rejestr capability", () => {
   for (const [href, capability] of Object.entries(SIDEBAR_HREF_CAPABILITY)) {
     it(`${href} widoczne dokładnie dla ról z ${capability}`, () => {
-      expect(sortRoles(rolesSeeingHref(href))).toEqual(
-        sortRoles(
-          SIDEBAR_ROLES.filter((role) => hasCapability(mkUser(role), capability)),
-        ),
+      const withCapability = SIDEBAR_ROLES.filter((role) =>
+        hasCapability(mkUser(role), capability),
       );
+      // „Umowy klientów” (18.11.2026) stoją w menu tylko u osoby bez „Klientów”
+      // (`MENU_SHADOWED_BY` w `nav-registry.ts`) — reszta ma umowy pod klientem.
+      const expected =
+        href === "/client-contracts"
+          ? withCapability.filter((role) => !hasCapability(mkUser(role), "nav.clients"))
+          : withCapability;
+      expect(sortRoles(rolesSeeingHref(href))).toEqual(sortRoles(expected));
     });
   }
 

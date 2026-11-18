@@ -39,7 +39,7 @@ from app.services.ledger.assets import (
 )
 from app.services.ledger.depreciation import PlanRow
 from app.services.ledger.documents import Viewer
-from app.services.ledger.settings import LedgerSettings
+from app.services.ledger.settings import LedgerSettings, assets_json
 
 OPTIONS_MAX = 20
 
@@ -203,11 +203,7 @@ async def overview(
             if am is not None
             else None
         ),
-        "accounts": {
-            "cost_account": settings.assets.cost_account,
-            "intake_account": settings.assets.intake_account,
-            "disposal_account": settings.assets.disposal_account,
-        },
+        "accounts": assets_json(settings.assets),
         "allocation_complete": settings.allocation.complete(),
         "can_manage": viewer.approver,
         "can_configure": viewer.admin,

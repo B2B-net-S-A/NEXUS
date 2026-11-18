@@ -29,6 +29,12 @@ class FeatureFlag:
 
 REGISTERED_FLAGS: tuple[FeatureFlag, ...] = (
     FeatureFlag(
+        name="CPRO_BOT_ENABLED",
+        purpose="Bot Cpro: Grok Bot wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę; włącza Artur po próbie rutyny (szkic, potem jedna wysyłka).",
+        decided=date(2026, 11, 17),
+        expires=date(2027, 1, 15),
+    ),
+    FeatureFlag(
         name="LAW_RADAR_ENABLED",
         purpose="Radar przepisów: codzienny bieg Grok Zbieracza i Analityka, ekran „Przepisy”; włącza Artur po próbie obu rutyn.",
         decided=date(2026, 11, 15),

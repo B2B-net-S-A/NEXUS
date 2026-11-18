@@ -223,6 +223,10 @@ describe("Moje powiadomienia — ruchy w prowadzonych rekrutacjach", () => {
     const user = renderPanel();
     const mine = await screen.findByRole("radio", { name: /Tylko moi kandydaci/ });
     expect(mine).toHaveAttribute("aria-checked", "true");
+    // 18.11.2026: prowadzący też dostaje tylko swoich ludzi, bez wyjątku
+    // dla Interview Klient, Akceptacji i Zatrudnionego.
+    expect(screen.getByText(/Także w rekrutacjach, które prowadzisz/)).toBeInTheDocument();
+    expect(screen.queryByText(/Plus Interview Klient/)).toBeNull();
     await user.click(
       screen.getByRole("radio", { name: /Wszyscy kandydaci w rekrutacjach, które prowadzę/ }),
     );

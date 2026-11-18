@@ -107,7 +107,9 @@ def test_collect_task_tells_the_bot_about_lex_and_since() -> None:
     request = collect.build_request(date(2026, 11, 12))
     text = collect.task_text(request)
     assert "od 2026-11-12" in text
-    assert "zaloguj się do LEX (sip.lex.pl) loginem zapisanym w Vault" in text
+    assert "sip.lex.pl" in text
+    assert "borg.wolterskluwer.pl" in text
+    assert "logowanie.gofin.pl" in text
     assert "Nigdy nie zgaduj numerów" in text
     # Format przechodzi własny model: bot dostaje przykład, który NEXUS przyjmie.
     collect.CollectReport.model_validate(collect.report_format())
@@ -368,6 +370,28 @@ def test_analyze_request_has_no_probe_numbers() -> None:
     assert {probe["key"] for probe in request["probes"]} == set(probes.REGISTRY)
     assert all(set(probe) == {"key", "description"} for probe in request["probes"])
     assert "change_ref" in analyze.task_text(request)
+
+
+def test_analyze_webhook_stays_small_as_the_request_grows() -> None:
+    request = analyze.build_request(
+        [{"id": i, "quote": "ą" * 500} for i in range(analyze.MAX_REQUEST_ITEMS)],
+        [{"id": 2, "title": "Zmiana", "legal_ref": None}],
+        topics=collect.PROFILE_TOPICS,
+    )
+    run, token = runs.new_run(
+        "analyze", request, now=datetime(2026, 11, 17, 15, tzinfo=timezone.utc)
+    )
+    run.id = 42
+    webhook = runs.webhook_body(run, token)
+    assert len(json.dumps(webhook, ensure_ascii=False).encode()) < 1000
+    assert webhook["schema_version"] == 2
+    assert webhook["request_url"] == webhook["callback_url"]
+    assert "request" not in webhook
+    assert "report_format" not in webhook
+    full = runs.analyze_request_body(run)
+    assert full["request"] == request
+    assert "token" not in full
+    analyze.AnalyzeReport.model_validate(full["report_format"])
 
 
 # ── Sondy i terminy pętli ────────────────────────────────────────────────

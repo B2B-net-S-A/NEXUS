@@ -198,10 +198,16 @@ async def eligible_slot_recruiters(
 
 
 async def default_recruiter_ids(
-    db: AsyncSession, pairs: Iterable[tuple[int, int]]
+    db: AsyncSession,
+    pairs: Iterable[tuple[int, int]],
+    *,
+    job_fallback: bool = True,
 ) -> dict[tuple[int, int], Optional[int]]:
     """``default_recruiter_id`` dla wielu par (kandydat, rekrutacja) naraz —
-    stała liczba zapytań niezależnie od liczby par (runda 7, R7-V3-2)."""
+    stała liczba zapytań niezależnie od liczby par (runda 7, R7-V3-2).
+
+    ``job_fallback=False`` pomija ostatnie ogniwo (prowadzący rekrutację):
+    dzwonki ruchu pytają, czy kandydat ma WŁASNEGO rekrutera (18.11.2026)."""
     wanted = list(dict.fromkeys(pairs))
     if not wanted:
         return {}
@@ -268,7 +274,7 @@ async def default_recruiter_ids(
                     assigned.get(pair),
                     owners.get(pair),
                     verifiers.get(pair),
-                    job_recruiters.get(pair[1]),
+                    job_recruiters.get(pair[1]) if job_fallback else None,
                 )
             )
             if user_id

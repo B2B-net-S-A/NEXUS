@@ -38,6 +38,12 @@ amortyzacji (401) w dokumencie AM, konto przeciwstawne przyjęcia i ulepszenia
 (080 — zakup z faktury idzie na 080, OT przenosi go na 010) i konto pozostałych
 kosztów operacyjnych na wartość netto likwidowanego albo sprzedanego środka.
 Podział AM na „5” bierze konta z ``allocation``.
+
+Konta przychodu nabywców bez historii (``revenue_accounts``, 18.11.2026)
+wskazuje księgowa na problemie w „Źródłach”: kontrahent → konto przychodu,
+którego reguła ``revenue.pick`` używa, gdy nabywca nie ma ani dekretu
+w archiwum eBI24, ani zatwierdzonej FVS. To nie jest ``revenue_account``
+kontrahenta z kartoteki — tamto to konto rozrachunkowe z eBI24.
 """
 
 from __future__ import annotations
@@ -45,6 +51,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -104,12 +111,15 @@ MODULE_DISABLED_DETAIL = "Moduł Księgowości jest wyłączony."
 ACCOUNTANTS_MAX = 20
 
 
-#: Konta sprzedaży: klucz → (domyślne konto, etykieta w komunikatach).
+#: Konta sprzedaży: klucz → (domyślne konto, etykieta w komunikatach). Puste
+#: konto przychodów = jak w Symfonii (``revenue.py``: konto z dekretu faktury
+#: w archiwum eBI24 albo z poprzedniej faktury nabywcy); wpisane — jedno konto.
 SALES_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
     "receivable_account": ("200", "Rozrachunki z odbiorcami"),
     "revenue_account": ("", "Przychody ze sprzedaży"),
     "vat_account": ("222", "VAT należny"),
 }
+SALES_OPTIONAL: frozenset[str] = frozenset({"revenue_account"})
 
 
 @dataclass(frozen=True)
@@ -179,12 +189,29 @@ class PayrollAccounts:
         ]
 
 
-#: Konta środków trwałych (K6): klucz → (domyślne konto, etykieta).
+#: Konta środków trwałych (K6): klucz → (domyślne konto, etykieta). Konto
+#: amortyzacji AM bierze z mapy umorzeń (``cost_map``); ``cost_account`` to konto
+#: dla umorzeń spoza mapy — puste = taki środek czeka w „Źródłach” z problemem.
 ASSETS_ACCOUNT_FIELDS: dict[str, tuple[str, str]] = {
-    "cost_account": ("401", "Amortyzacja"),
+    "cost_account": ("", "Amortyzacja — umorzenia spoza mapy"),
     "intake_account": ("080", "Przyjęcie i ulepszenie — konto przeciwstawne"),
     "disposal_account": ("761", "Likwidacja i sprzedaż — wartość netto"),
 }
+ASSETS_OPTIONAL: frozenset[str] = frozenset({"cost_account"})
+#: Umorzenie środka → konto amortyzacji (jak w planie kont Symfonii: 070-x
+#: umorzenie grupy środków, 075/071 umorzenie WNiP → 400-x). Klucz pasuje też
+#: do kont pod nim (075 obejmuje 075-3).
+DEFAULT_COST_MAP: tuple[tuple[str, str], ...] = (
+    ("070-1", "400-2"),
+    ("070-2", "400-3"),
+    ("070-3", "400-4"),
+    ("070-4", "400-5"),
+    ("070-5", "400-6"),
+    ("070-6", "400-7"),
+    ("071", "400-1"),
+    ("075", "400-1"),
+)
+COST_MAP_MAX = 40
 
 
 @dataclass(frozen=True)
@@ -192,6 +219,19 @@ class AssetsAccounts:
     cost_account: str = ASSETS_ACCOUNT_FIELDS["cost_account"][0]
     intake_account: str = ASSETS_ACCOUNT_FIELDS["intake_account"][0]
     disposal_account: str = ASSETS_ACCOUNT_FIELDS["disposal_account"][0]
+    cost_map: tuple[tuple[str, str], ...] = DEFAULT_COST_MAP
+
+    def cost_for(self, depreciation_account: str) -> Optional[str]:
+        """Konto amortyzacji dla konta umorzenia: najdłuższy pasujący klucz mapy
+        (po segmentach numeru), inaczej ``cost_account``; ``None`` = brak."""
+
+        mapping = dict(self.cost_map)
+        parts = depreciation_account.split("-")
+        for cut in range(len(parts), 0, -1):
+            found = mapping.get("-".join(parts[:cut]))
+            if found:
+                return found
+        return self.cost_account or None
 
 
 #: Konta rejestrów VAT (K5a): klucz → (domyślne konto, etykieta). VAT należny
@@ -231,6 +271,19 @@ class VatAccounts:
 #: i TP w kolejności z XSD, na wszystkich fakturach sprzedaży kontrahenta.
 MARKERS: tuple[str, ...] = tuple(f"GTU_{n:02d}" for n in range(1, 14)) + ("TP",)
 MARKED_MAX = 500
+
+
+#: Konta przychodu wskazane dla nabywców bez historii (K2, 18.11.2026).
+REVENUE_CHOICES_MAX = 2000
+
+
+@dataclass(frozen=True)
+class RevenueChoice:
+    """Konto przychodu nabywcy bez historii: kto i kiedy je wskazał."""
+
+    account: str
+    by: Optional[int] = None
+    at: str = ""
 
 
 #: Kontakt w JPK_V7M (Podmiot1): e-mail obowiązkowy, telefon opcjonalny (K5b).
@@ -360,6 +413,8 @@ class LedgerSettings:
     jpk_kr: JpkKrSettings = field(default_factory=JpkKrSettings)
     #: Kontrahent (``finance_counterparties.id``) → znaczniki z ``MARKERS``.
     vat_markers: dict[int, tuple[str, ...]] = field(default_factory=dict)
+    #: Kontrahent → konto przychodu wskazane, gdy nabywca nie ma historii.
+    revenue_accounts: dict[int, RevenueChoice] = field(default_factory=dict)
 
 
 def _accounts(raw: object, fields: dict[str, tuple[str, str]]) -> dict[str, str]:
@@ -389,8 +444,28 @@ def _payroll(raw: object) -> PayrollAccounts:
     return PayrollAccounts(**_accounts(raw, PAYROLL_ACCOUNT_FIELDS))
 
 
+def _cost_map(raw: object) -> tuple[tuple[str, str], ...]:
+    """Zapisana mapa umorzeń; brak klucza = domyślna, zła para jest pomijana."""
+
+    if not isinstance(raw, list):
+        return DEFAULT_COST_MAP
+    pairs: list[tuple[str, str]] = []
+    for item in raw[:COST_MAP_MAX]:
+        if not (isinstance(item, (list, tuple)) and len(item) == 2):
+            continue
+        try:
+            pairs.append((clean_account(item[0]), clean_account(item[1])))
+        except (LedgerError, TypeError, AttributeError):
+            continue
+    return tuple(pairs)
+
+
 def _assets(raw: object) -> AssetsAccounts:
-    return AssetsAccounts(**_accounts(raw, ASSETS_ACCOUNT_FIELDS))
+    data = raw if isinstance(raw, dict) else {}
+    return AssetsAccounts(
+        **_accounts(raw, ASSETS_ACCOUNT_FIELDS),
+        cost_map=_cost_map(data.get("cost_map")),
+    )
 
 
 def _vat(raw: object) -> VatAccounts:
@@ -407,6 +482,28 @@ def _markers(raw: object) -> dict[int, tuple[str, ...]]:
         if items and int(key) > 0:
             found[int(key)] = items
     return dict(sorted(found.items())[:MARKED_MAX])
+
+
+def _revenue_choices(raw: object) -> dict[int, RevenueChoice]:
+    data = raw if isinstance(raw, dict) else {}
+    found: dict[int, RevenueChoice] = {}
+    for key, value in data.items():
+        if not (isinstance(key, str) and key.isdigit() and int(key) > 0):
+            continue
+        if not isinstance(value, dict) or not isinstance(value.get("account"), str):
+            continue
+        try:
+            account = clean_account(value["account"], "Konto przychodu")
+        except LedgerError:
+            continue
+        by = value.get("by")
+        at = value.get("at")
+        found[int(key)] = RevenueChoice(
+            account=account,
+            by=by if isinstance(by, int) and not isinstance(by, bool) else None,
+            at=at if isinstance(at, str) else "",
+        )
+    return dict(sorted(found.items())[:REVENUE_CHOICES_MAX])
 
 
 def _jpk(raw: object) -> JpkContact:
@@ -506,6 +603,7 @@ def normalize(raw: object) -> LedgerSettings:
         jpk=_jpk(data.get("jpk")),
         jpk_kr=_jpk_kr(data.get("jpk_kr")),
         vat_markers=_markers(data.get("vat_markers")),
+        revenue_accounts=_revenue_choices(data.get("revenue_accounts")),
     )
 
 
@@ -524,7 +622,7 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         "payroll": {
             key: getattr(settings.payroll, key) for key in PAYROLL_ACCOUNT_FIELDS
         },
-        "assets": {key: getattr(settings.assets, key) for key in ASSETS_ACCOUNT_FIELDS},
+        "assets": assets_json(settings.assets),
         "vat": {key: getattr(settings.vat, key) for key in VAT_ACCOUNT_FIELDS},
         "jpk": {"email": settings.jpk.email, "phone": settings.jpk.phone},
         "jpk_kr": {
@@ -534,6 +632,10 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
         },
         "vat_markers": {
             str(key): list(value) for key, value in sorted(settings.vat_markers.items())
+        },
+        "revenue_accounts": {
+            str(key): {"account": value.account, "by": value.by, "at": value.at}
+            for key, value in sorted(settings.revenue_accounts.items())
         },
         "bank": {
             "accounts": [
@@ -547,6 +649,13 @@ def to_json(settings: LedgerSettings) -> dict[str, Any]:
             ],
             **{key: getattr(settings.bank, key) for key in BANK_ACCOUNT_FIELDS},
         },
+    }
+
+
+def assets_json(accounts: AssetsAccounts) -> dict[str, Any]:
+    return {
+        **{key: getattr(accounts, key) for key in ASSETS_ACCOUNT_FIELDS},
+        "cost_map": [list(pair) for pair in accounts.cost_map],
     }
 
 
@@ -778,6 +887,19 @@ def account_problems(
                         "problem": problem,
                     }
                 )
+    for source, target in settings.assets.cost_map:
+        problem = account_problem(target, plan)
+        if problem:
+            out.append(
+                {
+                    "group": "assets",
+                    "group_label": ACCOUNT_GROUPS["assets"][0],
+                    "field": f"cost_map.{source}",
+                    "label": f"Amortyzacja dla umorzenia {source}",
+                    "account": target,
+                    "problem": problem,
+                }
+            )
     for index, item in enumerate(settings.bank.accounts, start=1):
         problem = account_problem(item.account, plan)
         if problem:
@@ -825,9 +947,12 @@ async def _plan_accounts(
 async def set_sales_accounts(
     db: AsyncSession, values: dict[str, str], *, actor: User
 ) -> LedgerSettings:
-    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont."""
+    """Konta dekretu sprzedaży (bez commita, admin): każde z planu kont, konto
+    przychodów opcjonalne (puste = konto jak w Symfonii, ``revenue.py``)."""
 
-    cleaned = await _plan_accounts(db, values, SALES_ACCOUNT_FIELDS, group="sales")
+    cleaned = await _plan_accounts(
+        db, values, SALES_ACCOUNT_FIELDS, optional=SALES_OPTIONAL, group="sales"
+    )
     current = await load(db)
     settings = replace(current, sales=SalesAccounts(**cleaned))
     await _save(db, settings, actor=actor)
@@ -865,11 +990,45 @@ async def set_payroll_accounts(
 async def set_assets_accounts(
     db: AsyncSession, values: dict[str, str], *, actor: User
 ) -> LedgerSettings:
-    """Konta środków trwałych (bez commita, admin): każde z planu kont."""
+    """Konta środków trwałych (bez commita, admin): każde z planu kont, konto
+    dla umorzeń spoza mapy opcjonalne; mapa umorzeń — konto umorzenia z planu,
+    konto amortyzacji przyjmujące zapisy, bez powtórzeń."""
 
-    cleaned = await _plan_accounts(db, values, ASSETS_ACCOUNT_FIELDS, group="assets")
+    cleaned = await _plan_accounts(
+        db, values, ASSETS_ACCOUNT_FIELDS, optional=ASSETS_OPTIONAL, group="assets"
+    )
+    plan = await load_plan(db)
+    raw_map = values.get("cost_map")
+    if raw_map is None:
+        cost_map = (await load(db)).assets.cost_map
+    else:
+        if len(raw_map) > COST_MAP_MAX:
+            raise LedgerError(
+                f"Mapa umorzeń: najwyżej {COST_MAP_MAX} pozycji.", status=422
+            )
+        pairs: list[tuple[str, str]] = []
+        for pair in raw_map:
+            source = clean_account(pair[0], "Mapa umorzeń: konto umorzenia")
+            if source not in plan:
+                raise LedgerError(
+                    f"Mapa umorzeń: konta umorzenia {source} nie ma w planie kont.",
+                    status=422,
+                )
+            if any(source == known for known, _ in pairs):
+                raise LedgerError(
+                    f"Mapa umorzeń: konto umorzenia {source} jest wpisane dwa razy.",
+                    status=422,
+                )
+            target = clean_account(pair[1], f"Amortyzacja dla umorzenia {source}")
+            problem = account_problem(target, plan)
+            if problem:
+                raise LedgerError(
+                    f"Amortyzacja dla umorzenia {source}: {problem}", status=422
+                )
+            pairs.append((source, target))
+        cost_map = tuple(pairs)
     current = await load(db)
-    settings = replace(current, assets=AssetsAccounts(**cleaned))
+    settings = replace(current, assets=AssetsAccounts(**cleaned, cost_map=cost_map))
     await _save(db, settings, actor=actor)
     return settings
 
@@ -930,6 +1089,86 @@ async def set_vat_markers(
     settings = replace(current, vat_markers=dict(sorted(updated.items())))
     await _save(db, settings, actor=actor)
     return settings
+
+
+async def set_revenue_choice(
+    db: AsyncSession,
+    counterparty_id: int,
+    account: str,
+    *,
+    actor: User,
+) -> LedgerSettings:
+    """Konto przychodu nabywcy bez historii (bez commita; lista „Księgowi”
+    albo admin — sprawdza trasa). Puste konto zdejmuje wskazanie."""
+
+    exists = await db.scalar(
+        select(FinanceCounterparty.id).where(FinanceCounterparty.id == counterparty_id)
+    )
+    if exists is None:
+        raise LedgerError("Nie ma takiego kontrahenta w kartotece.", status=404)
+    current = await load(db)
+    updated = dict(current.revenue_accounts)
+    if account.strip():
+        number = clean_account(account, "Konto przychodu")
+        problem = account_problem(number, await load_plan(db))
+        if problem:
+            raise LedgerError(f"Konto przychodu: {problem}", status=422)
+        updated[counterparty_id] = RevenueChoice(
+            account=number,
+            by=actor.id,
+            at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        )
+    else:
+        updated.pop(counterparty_id, None)
+    if len(updated) > REVENUE_CHOICES_MAX:
+        raise LedgerError(
+            f"Wskazanych kont przychodu może być najwyżej {REVENUE_CHOICES_MAX}.",
+            status=422,
+        )
+    settings = replace(current, revenue_accounts=dict(sorted(updated.items())))
+    await _save(db, settings, actor=actor)
+    return settings
+
+
+async def revenue_choices(
+    db: AsyncSession, settings: LedgerSettings
+) -> list[dict[str, Any]]:
+    """Wskazane konta przychodu z nazwą nabywcy i osoby, która wskazała."""
+
+    ids = list(settings.revenue_accounts)
+    if not ids:
+        return []
+    parties = {
+        row.id: row
+        for row in await db.scalars(
+            select(FinanceCounterparty).where(FinanceCounterparty.id.in_(ids))
+        )
+    }
+    people_ids = {value.by for value in settings.revenue_accounts.values() if value.by}
+    people: dict[int, str] = {}
+    if people_ids:
+        rows = await db.execute(
+            select(User.id, User.name).where(User.id.in_(people_ids))
+        )
+        people = {row_id: name or "" for row_id, name in rows.all()}
+    plan = await load_plan(db)
+    out = []
+    for counterparty_id, choice in settings.revenue_accounts.items():
+        party = parties.get(counterparty_id)
+        out.append(
+            {
+                "counterparty_id": counterparty_id,
+                "name": party.name if party else None,
+                "id_type": party.id_type if party else None,
+                "id_value": party.id_value if party else None,
+                "account": choice.account,
+                "problem": account_problem(choice.account, plan),
+                "by": people.get(choice.by) if choice.by else None,
+                "at": choice.at or None,
+            }
+        )
+    out.sort(key=lambda item: (item["name"] or "").lower())
+    return out
 
 
 async def set_jpk_contact(

@@ -1387,6 +1387,12 @@ class Settings(BaseSettings):
     GROK_BOT_LAW_COLLECT_WEBHOOK_KEY: str = ""
     GROK_BOT_LAW_ANALYZE_WEBHOOK_URL: str = ""
     GROK_BOT_LAW_ANALYZE_WEBHOOK_KEY: str = ""
+    # Bot Cpro (0732, ``app/services/cpro_bot``): rutyna „NEXUS Cpro” w Grok Bocie
+    # wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę.
+    # OFF: pętla stoi, kolejka nie pokazuje stanu bota; trasy biegu działają zawsze.
+    CPRO_BOT_ENABLED: bool = False
+    GROK_BOT_CPRO_WEBHOOK_URL: str = ""
+    GROK_BOT_CPRO_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
     # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):

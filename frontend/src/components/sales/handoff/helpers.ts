@@ -168,3 +168,49 @@ export function confirmMailHref(handoff: Handoff): string | undefined {
   const when = handoffWhen(handoff.meeting_at);
   return `mailto:${email}?subject=${encodeURIComponent(`Potwierdzenie spotkania: ${when}`)}`;
 }
+
+const WEEKDAYS_IN_PL = [
+  "w poniedziałek",
+  "we wtorek",
+  "w środę",
+  "w czwartek",
+  "w piątek",
+  "w sobotę",
+  "w niedzielę",
+] as const;
+
+/** Termin dla klienta: „w czwartek 19.11.2026 o 10:00”. */
+export function clientWhen(iso: string): string {
+  const { day, time } = companyDayTime(iso);
+  const [year, month, date] = day.split("-");
+  return `${WEEKDAYS_IN_PL[weekdayOfIso(day)]} ${date}.${month}.${year} o ${time}`;
+}
+
+/** Tytuł maila do klienta po umówieniu; dzwoniący go poprawia. */
+export function bookingMailSubject(start: string | null): string {
+  if (!start) return "Potwierdzenie spotkania";
+  const { day, time } = companyDayTime(start);
+  return `Potwierdzenie spotkania: ${formatDayMonthPl(day)}, godz. ${time}`;
+}
+
+/** Treść maila do klienta po umówieniu (stopkę dokleja Outlook). */
+export function bookingMailBody({
+  start,
+  minutes,
+  service,
+  hostName,
+}: {
+  start: string | null;
+  minutes: number;
+  service?: string | null;
+  hostName?: string | null;
+}): string {
+  const topic = service?.trim() ? ` w sprawie: ${service.trim()}` : "";
+  const when = start
+    ? `Potwierdzam nasze spotkanie ${clientWhen(start)} (${minutes} min)${topic}.`
+    : `Potwierdzam, że umówiliśmy spotkanie${topic}. Termin prześlemy w osobnej wiadomości.`;
+  const host = hostName?.trim()
+    ? `\nSpotkanie poprowadzi ${hostName.trim()} (w kopii tej wiadomości). Zaproszenie w Teams przyjdzie osobno.`
+    : "\nZaproszenie w Teams przyjdzie osobno.";
+  return `Dzień dobry,\n\ndziękuję za rozmowę. ${when}${host}\n\nPozdrawiam`;
+}

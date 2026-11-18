@@ -2,7 +2,8 @@
 
 * wygasza biegi bez raportu (ostrzeżenie w logu),
 * codziennie od 5:30 (kalendarz firmy) startuje Grok Zbieracza, raz dziennie;
-  nieudany start liczy się tylko przez godzinę, potem ponowienie,
+  nieudany albo wygasły start liczy się tylko przez godzinę, potem ponowienie,
+  najwyżej trzy próby w dniu,
 * dokańcza bramkę dla pozycji ``pending`` starszych niż 20 minut (np. po
   restarcie w trakcie sprawdzania w API Sejmu),
 * ponawia Analityka, gdy pozycje po bramce czekają, a żaden bieg nie trwa
@@ -36,6 +37,7 @@ TICK_SECONDS = 15 * 60
 COLLECT_AT = time(5, 30)
 PROBES_AT = time(6, 30)
 RETRY_FAILED_AFTER = timedelta(hours=1)
+MAX_COLLECT_ATTEMPTS_PER_DAY = 3
 ANALYZE_RETRY_AFTER = timedelta(hours=1)
 PENDING_STALE_AFTER = timedelta(minutes=20)
 
@@ -43,17 +45,33 @@ PENDING_STALE_AFTER = timedelta(minutes=20)
 async def last_start(
     db: AsyncSession, kind: str, *, now: datetime
 ) -> Optional[datetime]:
-    """Ostatni start biegu; nieudany liczy się tylko przez godzinę, potem ponowienie."""
+    """Ostatni start; failed/expired blokuje ponowienie tylko przez godzinę."""
 
     return await db.scalar(
         select(func.max(LawRadarRun.started_at)).where(
             LawRadarRun.kind == kind,
             or_(
-                LawRadarRun.status != "failed",
+                LawRadarRun.status.notin_(("failed", "expired")),
                 LawRadarRun.started_at >= now - RETRY_FAILED_AFTER,
             ),
         )
     )
+
+
+async def collect_retry_available(db: AsyncSession, *, local: datetime) -> bool:
+    """Limit startów Zbieracza w dniu firmy, także przy stale niedostępnej rutynie."""
+
+    attempts = await db.scalar(
+        select(func.count())
+        .select_from(LawRadarRun)
+        .where(
+            LawRadarRun.kind == collect.KIND,
+            LawRadarRun.started_at >= local_day_start_utc(local.date()),
+            LawRadarRun.started_at
+            < local_day_start_utc(local.date() + timedelta(days=1)),
+        )
+    )
+    return int(attempts or 0) < MAX_COLLECT_ATTEMPTS_PER_DAY
 
 
 def _at(local: datetime, moment: time) -> datetime:
@@ -100,7 +118,9 @@ async def tick(db: AsyncSession, *, now: datetime, local: datetime) -> dict[str,
         "analyze": 0,
         "probes": 0,
     }
-    if collect_due(local, await last_start(db, collect.KIND, now=now)):
+    if collect_due(
+        local, await last_start(db, collect.KIND, now=now)
+    ) and await collect_retry_available(db, local=local):
         run = await flow.start_collect(db, now=now)
         done["collect"] = int(run is not None and run.status in ("started", "received"))
     if await _stale_pending(db, now=now):

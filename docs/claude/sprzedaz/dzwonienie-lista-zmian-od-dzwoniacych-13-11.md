@@ -39,6 +39,8 @@ Bez migracji.
   klienta”: adres (z karty, do poprawienia) i treść. Trafiają do bloku przekazania
   (`invite_to`, `invite_message`) i wypełniają okno „Wyślij zaproszenie” prowadzącego.
   **Nic nie wychodzi samo**: wysyła dalej prowadzący, ze swojej skrzynki (decyzja 10.11.2026).
+  Od 17.11.2026 ta sekcja to „Mail do klienta” z tytułem, wysyłany kliknięciem osoby, która
+  umawia, z jej skrzynki: `dzwonienie-mail-po-umowieniu-spotkania.md`.
 
 ## Import
 

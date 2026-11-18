@@ -177,8 +177,9 @@ describe("ClientsListV2 — katalog klientów", () => {
       ).toEqual([
         "Firma",
         "Aktywni konsultanci / kontrakty",
-        "Start umowy",
-        "Koniec umowy",
+        // 18.11.2026: daty umowy w jednej kolumnie, obok „Wymaga uwagi”.
+        "Umowa ramowa",
+        "Wymaga uwagi",
         "Status klienta",
       ]);
       // Branża w układzie zwartym stoi drobnym drukiem pod nazwą firmy;
@@ -197,8 +198,9 @@ describe("ClientsListV2 — katalog klientów", () => {
         screen.queryByRole("columnheader", { name: "Dodano" }),
       ).not.toBeInTheDocument();
 
-      expect(screen.getByText("01.02.2026")).toBeVisible();
-      expect(screen.getByText("Bezterminowa")).toBeVisible();
+      // „Umowa ramowa”: koniec w pierwszej linii, początek drobnym drukiem.
+      expect(screen.getByText("od 01.02.2026")).toBeVisible();
+      expect(screen.getByText("bezterminowa")).toBeVisible();
       // Nazwa prawna, branża i zakres stoją pod nazwą firmy, a w szerokiej
       // tabeli we własnych kolumnach.
       expect(screen.getAllByText("Bankowość")).toHaveLength(2);

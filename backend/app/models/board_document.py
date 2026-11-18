@@ -1,4 +1,4 @@
-"""Dokumenty Rady nadzorczej i odpisy KRS spółki (0727, R1).
+"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) budżet (0733, R3) i sprawozdania roczne (0734, R4).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
@@ -7,6 +7,7 @@ CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import (
@@ -16,6 +17,8 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
+    SmallInteger,
     String,
     Text,
     func,
@@ -25,7 +28,9 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.services import board_budget_schema as budget_schema
 from app.services import board_documents_schema as schema
+from app.services import board_statements_schema as statements_schema
 
 
 class BoardDocument(Base):
@@ -118,5 +123,103 @@ class BoardKrsSnapshot(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     checked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardBudget(Base):
+    """Budżet roku (0733, R3): status i uchwała Rady, która go przyjęła."""
+
+    __tablename__ = "board_budgets"
+    __table_args__ = (
+        CheckConstraint(budget_schema.CK_STATUS, name="ck_board_budgets_status"),
+        CheckConstraint(budget_schema.CK_YEAR, name="ck_board_budgets_year"),
+        Index("uq_board_budgets_year", "year", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="draft", server_default="draft"
+    )
+    resolution_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardBudgetLine(Base):
+    """Plan miesiąca: sprzedaż albo koszty z faktur, PLN netto."""
+
+    __tablename__ = "board_budget_lines"
+    __table_args__ = (
+        CheckConstraint(budget_schema.CK_MONTH, name="ck_board_budget_lines_month"),
+        CheckConstraint(budget_schema.CK_LINE, name="ck_board_budget_lines_line"),
+        CheckConstraint(budget_schema.CK_AMOUNT, name="ck_board_budget_lines_amount"),
+        Index(
+            "uq_board_budget_lines_month_line",
+            "budget_id",
+            "month",
+            "line",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    budget_id: Mapped[int] = mapped_column(
+        ForeignKey("board_budgets.id", ondelete="CASCADE"), nullable=False
+    )
+    month: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    line: Mapped[str] = mapped_column(String(8), nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), nullable=False)
+
+
+class BoardFinancialStatement(Base):
+    """Sprawozdanie roczne (0734, R4): wspólne pola bilansu i RZiS w PLN."""
+
+    __tablename__ = "board_financial_statements"
+    __table_args__ = (
+        CheckConstraint(
+            statements_schema.CK_SOURCE, name="ck_board_financial_statements_source"
+        ),
+        CheckConstraint(
+            statements_schema.CK_YEAR, name="ck_board_financial_statements_year"
+        ),
+        CheckConstraint(
+            statements_schema.CK_AMOUNTS,
+            name="ck_board_financial_statements_amounts",
+        ),
+        CheckConstraint(
+            statements_schema.CK_RAW, name="ck_board_financial_statements_raw"
+        ),
+        Index("uq_board_financial_statements_year", "year", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    period_start: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    period_end: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    source: Mapped[str] = mapped_column(String(8), nullable=False)
+    schema_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    amounts: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    raw: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

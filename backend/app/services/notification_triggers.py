@@ -53,6 +53,7 @@ from app.models.user import User, UserRole
 from app.schemas.pipeline import STAGE_LABELS
 from app.services.calendar_auto_complete import mark_ended_interviews_completed
 from app.services.job_previous_recruiters import working_owner_id
+from app.services.interview_slots import default_recruiter_ids
 from app.services.job_priority import level_of
 from app.services.job_team import recruiters_for_jobs, working
 from app.services.stage_verifier import verifier_ids
@@ -790,7 +791,8 @@ async def check_stage_stuck_7d(
     * rekrutacja bez pracującego rekrutera daje jeden wpis do DL-a i HoR
       („przypisz rekrutera”), bo tam nie ma komu dzwonić;
     * pojedynczy dzwonek zostaje tylko dla „CV wysłane”, gdzie ruch jest po
-      stronie osoby (follow-up), i tylko do pracującego rekrutera.
+      stronie osoby (follow-up), gdy rekrutacja ma pracującego rekrutera; idzie
+      do rekrutera kandydata, a bez niego do prowadzącego (18.11.2026).
 
     Co budzi, zostaje jak było (okno ``[now - STAGE_STUCK_MAX_DAYS, now -
     STAGE_STUCK_DAYS]``, tylko etapy ustawione w NEXUSIE, rekrutacje otwarte,
@@ -850,6 +852,13 @@ async def check_stage_stuck_7d(
     reminded_this_week = {(row[0], row[1], row[2]) for row in already}
 
     names = await _candidate_names(db, (s.candidate_id for s in follow_ups))
+    pair_recruiters = (
+        await default_recruiter_ids(
+            db, [(s.candidate_id, s.job_id) for s in follow_ups]
+        )
+        if follow_ups
+        else {}
+    )
     teams = await recruiters_for_jobs(db, fresh_by_job)
     head_of_recruitment: Optional[list[int]] = None
     emitted = 0
@@ -916,11 +925,19 @@ async def check_stage_stuck_7d(
         for stage in stages:
             if not _is_follow_up(stage):
                 continue
+            # Rekruter kandydata, nie prowadzący (18.11.2026: prowadzący
+            # dostaje tylko swoich ludzi); bez aktywnej osoby — prowadzący.
+            target = await _operational_recipient(
+                db,
+                [pair_recruiters.get((stage.candidate_id, stage.job_id)), recruiter],
+            )
+            if target is None:
+                continue
             days = _days_in_stage(stage, now_utc)
             who = names.get(stage.candidate_id) or "Kandydat"
             stage_label = STAGE_LABELS.get(stage.stage, stage.stage.value)
             await send(
-                recruiter,
+                target,
                 "candidate_stage",
                 stage.id,
                 title="Kandydat utknął na etapie",

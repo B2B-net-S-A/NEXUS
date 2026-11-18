@@ -3,7 +3,6 @@ import {
   clientsMineToggleAvailable,
   legacyRedirectTarget,
   resolveClientsMine,
-  resolveClientsView,
   resolveContractsView,
 } from "@/lib/clients-workspace";
 
@@ -24,12 +23,7 @@ describe("clients-workspace", () => {
     expect(clientsMineToggleAvailable(false, "all")).toBe(false);
   });
 
-  it("tryby ekranów: nieznana wartość = widok domyślny", () => {
-    expect(resolveClientsView("contacts")).toBe("contacts");
-    // 15.11.2026: kalendarz raportów dla klientów.
-    expect(resolveClientsView("reports")).toBe("reports");
-    expect(resolveClientsView("bogus")).toBe("list");
-    expect(resolveClientsView(null)).toBe("list");
+  it("tryby Kontraktów: nieznana wartość = widok domyślny (Klienci od 18.11.2026 nie mają trybów)", () => {
     expect(resolveContractsView("order-mail")).toBe("order-mail");
     expect(resolveContractsView("operations")).toBe("operations");
     expect(resolveContractsView(null)).toBe("register");

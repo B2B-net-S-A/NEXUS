@@ -56,13 +56,16 @@ SOURCE_GUIDE: tuple[tuple[str, str], ...] = (
     ("x", "Serwis X: konta ministerstw, ZUS, KAS, UODO, PIP i doradców"),
     (
         "lex",
-        "LEX (sip.lex.pl): zaloguj się do LEX (sip.lex.pl) loginem zapisanym w Vault; "
+        "LEX (sip.lex.pl): użyj bieżącej sesji przeglądarki. Jeśli LEX przekieruje do "
+        "logowania Wolters Kluwer (borg.wolterskluwer.pl), użyj wpisu Vault dla "
+        "tej domeny wyłącznie w oficjalnym formularzu; "
         "z LEX odsyłasz tylko tytuł, link i cytat do 500 znaków",
     ),
     (
         "gofin",
-        "Gofin (www.gofin.pl, Serwis Głównego Księgowego, Gazeta Podatkowa): zaloguj się "
-        "loginem zapisanym w Vault; z Gofina odsyłasz tylko tytuł, link i cytat do 500 znaków",
+        "Gofin (www.gofin.pl, Serwis Głównego Księgowego, Gazeta Podatkowa): użyj "
+        "bieżącej sesji; jeśli portal wymaga logowania, wpis Vault jest dla "
+        "logowanie.gofin.pl. Z Gofina odsyłasz tylko tytuł, link i cytat do 500 znaków",
     ),
     ("other", "Inne oficjalne źródło, gdy żadne z powyższych nie pasuje"),
 )

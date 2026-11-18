@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -244,8 +245,19 @@ def test_webhook_body_carries_company_ids_but_no_people() -> None:
 
 
 class _Db:
-    def __init__(self, last: dict[str, datetime | None]) -> None:
+    def __init__(self, last: dict[str, datetime | None], *, runs: list | None = None):
         self.last = last
+        last_signal = last.get("signals")
+        self.runs = (
+            runs
+            if runs is not None
+            else [("received", last_signal, [1, 2], {"checked_firms": 2})]
+            if last_signal
+            else []
+        )
+
+    async def execute(self, _statement):
+        return SimpleNamespace(all=lambda: self.runs)
 
     async def scalar(self, statement):
         text = str(statement.compile(compile_kwargs={"literal_binds": True}))
@@ -319,6 +331,36 @@ async def test_no_signals_run_before_seven_or_on_tuesday(monkeypatch) -> None:
         db = _Db({"signals": None, "briefing": None})
         await loop.tick(db, now=local.astimezone(timezone.utc), local=local)
     assert all(kind != "signals" for kind, _ in started)
+
+
+@pytest.mark.asyncio
+async def test_weekly_signals_resume_after_monday_without_resending_covered_firms(
+    monkeypatch,
+) -> None:
+    started: list = []
+    _patch(monkeypatch, started)
+
+    async def pilot(_db):
+        return list(range(1, 10))
+
+    monkeypatch.setattr(loop.targets, "pilot_company_ids", pilot)
+    local = datetime(2026, 11, 17, 0, 20, tzinfo=WARSAW)
+    now = local.astimezone(timezone.utc)
+    runs = [
+        ("expired", now - timedelta(hours=5), list(range(1, 9)), {}),
+        ("expired", now - timedelta(hours=3), [1, 2], {}),
+        ("expired", now - timedelta(hours=2), [1], {}),
+        ("received", now - timedelta(hours=4), [3, 4], {"researched_company_ids": [3]}),
+        ("received", now - timedelta(hours=4), [2, 4], {"checked_firms": 1}),
+    ]
+    db = _Db({"briefing": now}, runs=runs)
+    await loop.tick(db, now=now, local=local)
+    assert started == [("signals", [9, 5, 6, 7, 8])]
+
+    started.clear()
+    runs.append(("started", now, [9, 5, 6, 7, 8], {}))
+    await loop.tick(db, now=now, local=local)
+    assert started == []
 
 
 @pytest.mark.asyncio

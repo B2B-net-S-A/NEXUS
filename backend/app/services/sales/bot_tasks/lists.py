@@ -198,7 +198,13 @@ async def _ingest(
     from app.services.sales import bot_lists
 
     campaign_id = int((run.request or {}).get("campaign_id") or 0)
-    result = await bot_lists.ingest_firms(db, campaign_id, report.firms, now=now)
+    result = await bot_lists.ingest_firms(
+        db,
+        campaign_id,
+        report.firms,
+        now=now,
+        max_added=(run.request or {}).get("count"),
+    )
     logger.info(
         "bot_lists lists run=%s campaign=%s firms=%d added=%d",
         run.id,

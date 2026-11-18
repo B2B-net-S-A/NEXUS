@@ -678,7 +678,7 @@
    "opis": "Zakładka „Importy MD”",
    "file": "app/clients/[id]/page.tsx",
    "marker": "Importy MD",
-   "b_home": "Profil klienta: „Więcej” w pasku zakładek (22.10.2026)"
+   "b_home": "Profil klienta: Zamówienia → Importy MD (grupy sekcji, 18.11.2026)"
   },
   {
    "id": "k.care-tab",
@@ -752,10 +752,10 @@
   },
   {
    "id": "c.tabs-more",
-   "opis": "„Więcej” w pasku zakładek klienta: Delivery Lead (z „Wiedzą o kliencie”), Importy MD, Faktury, Analityka; wybrana stoi w pasku",
+   "opis": "Grupy sekcji klienta (18.11.2026, zamiast „Więcej”): Przegląd, Zamówienia, Umowy, Rozliczenia, Współpraca, Ludzie, Rekrutacje, Sprzedaż; podzakładki pod grupą (Delivery Lead z „Wiedzą o kliencie”, Importy MD, Faktury, Analityka nadal są)",
    "file": "app/clients/[id]/page.tsx",
-   "marker": "Więcej sekcji klienta",
-   "b_home": "Pasek zakładek klienta"
+   "marker": "Sekcje klienta",
+   "b_home": "Pasek grup klienta"
   },
   {
    "id": "c.tab-sales",

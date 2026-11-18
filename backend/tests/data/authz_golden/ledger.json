@@ -33,6 +33,7 @@
  "routes": {
   "DELETE /api/accounting/automations/prepayments/{item_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "DELETE /api/accounting/automations/recurring/{template_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "DELETE /api/accounting/bank/statements/{statement_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "DELETE /api/accounting/documents/{doc_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/accounts/card": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/automations": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -47,6 +48,7 @@
   "GET /api/accounting/exports": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/exports/{export_id}/file": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/sources": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/accounting/sources/revenue-accounts": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/accounting/trial-balance": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/accounting/automations/prepayments/{item_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PATCH /api/accounting/automations/recurring/{template_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
@@ -77,6 +79,7 @@
   "PUT /api/accounting/config/bank": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/modules": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "PUT /api/accounting/config/payroll": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
-  "PUT /api/accounting/config/sales": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
+  "PUT /api/accounting/config/sales": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PUT /api/accounting/sources/revenue-accounts/{counterparty_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

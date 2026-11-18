@@ -229,6 +229,7 @@ function route(cfg: LedgerConfig, docs: DocumentList = list(), sources: SourcesM
     if (url === "/api/accounting/documents/7") return { data: APPROVED };
     if (url === "/api/accounting/documents/8") return { data: DRAFT };
     if (url === "/api/accounting/chart") return { data: { items: [] } };
+    if (url === "/api/accounting/sources/revenue-accounts") return { data: { items: [] } };
     if (url === "/api/accounting/config/candidates") return { data: { items: [{ id: 5, name: "Osoba Finansów", admin: false }] } };
     throw new Error(`nieoczekiwane ${url}`);
   });
@@ -445,6 +446,93 @@ describe("Księgowość — źródła (K2)", () => {
     for (const button of screen.getAllByRole("button", { name: "Zaksięguj miesiąc" })) {
       expect(button).toBeDisabled();
     }
+  });
+
+  it("nabywcy bez historii księgowa wskazuje konto przychodu na problemie", async () => {
+    pathname = "/accounting/sources";
+    const month = sourcesMonth({
+      sales_accounts: { receivable_account: "200", revenue_account: "", vat_account: "222" },
+    });
+    month.items[1] = {
+      ...month.items[1],
+      problems: [
+        {
+          source_id: "77",
+          label: "12/10/2026 · Nabywca Testowy",
+          problems: ["Nabywca nie ma wcześniejszej faktury w Symfonii — wskaż konto przychodu dla tego nabywcy."],
+          revenue_buyer: { counterparty_id: 31, name: "Nabywca Testowy", account: null },
+        },
+      ],
+      problems_total: 1,
+    };
+    route(config(), list(), month);
+    put.mockResolvedValue({ data: { counterparty_id: 31, account: "760-5" } });
+    const user = userEvent.setup();
+    renderWith(<SourcesView />);
+    const input = await screen.findByLabelText("Konto przychodu dla nabywcy Nabywca Testowy");
+    const save = screen.getByRole("button", { name: "Zapisz dla nabywcy" });
+    expect(save).toBeDisabled();
+    await user.type(input, " 760-5 ");
+    await user.click(save);
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/accounting/sources/revenue-accounts/31", { account: "760-5" }),
+    );
+    await waitFor(() =>
+      expect(showToast).toHaveBeenCalledWith(expect.stringContaining("Konto 760-5 zapisane dla nabywcy Nabywca Testowy"), "success"),
+    );
+  });
+
+  it("bez listy „Księgowi” problem mówi, kto wskazuje konto, i nie ma pola", async () => {
+    pathname = "/accounting/sources";
+    const month = sourcesMonth();
+    month.items[1] = {
+      ...month.items[1],
+      problems: [
+        {
+          source_id: "77",
+          label: "12/10/2026 · Nabywca Testowy",
+          problems: ["Nabywca nie ma wcześniejszej faktury."],
+          revenue_buyer: { counterparty_id: 31, name: "Nabywca Testowy", account: null },
+        },
+      ],
+      problems_total: 1,
+    };
+    route(config({ me: { admin: false, approver: false, payroll: false } }), list(), month);
+    renderWith(<SourcesView />);
+    expect(await screen.findByText("Konto przychodu dla nabywcy wskazuje osoba z listy „Księgowi”.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Konto przychodu dla nabywcy Nabywca Testowy")).not.toBeInTheDocument();
+  });
+
+  it("Ustawienia pokazują wskazane konta przychodu i zdejmują wskazanie", async () => {
+    pathname = "/accounting/settings";
+    route(config({ accountants: [] }));
+    const choices = [
+      {
+        counterparty_id: 31,
+        name: "Nabywca Testowy",
+        id_type: "nip",
+        id_value: "5260250274",
+        account: "760-5",
+        problem: "konto 760-5 jest wyłączone w planie kont.",
+        by: "Osoba Finansów",
+        at: "2026-11-18T10:00:00+00:00",
+      },
+    ];
+    const base = get.getMockImplementation()!;
+    get.mockImplementation(async (url: string, ...rest: unknown[]) =>
+      url === "/api/accounting/sources/revenue-accounts" ? { data: { items: choices } } : base(url, ...rest),
+    );
+    put.mockResolvedValue({ data: { counterparty_id: 31, account: null } });
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const card = (await screen.findByText("Nabywca Testowy")).closest("section")!;
+    expect(within(card).getByText("760-5")).toBeInTheDocument();
+    expect(within(card).getByText("NIP 5260250274 · Osoba Finansów, 18.11.2026")).toBeInTheDocument();
+    expect(within(card).getByText("Plan kont: konto 760-5 jest wyłączone w planie kont.")).toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Usuń" }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/accounting/sources/revenue-accounts/31", { account: "" }),
+    );
   });
 
   it("komunikat po księgowaniu wylicza zmiany w buforze", () => {

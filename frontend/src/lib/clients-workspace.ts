@@ -6,11 +6,13 @@
  * | dawny adres          | nowy adres                          |
  * |----------------------|-------------------------------------|
  * | `/my-clients`        | `/clients?mine=1` (przełącznik „Moi klienci") |
- * | `/my-relationships`  | `/clients?view=contacts`            |
+ * | `/my-relationships`  | `/clients` (do 18.11.2026 `?view=contacts`) |
  * | `/order-mail`        | `/contracts?view=order-mail`        |
  *
- * Od 15.11.2026 trzeci tryb Klientów: `/clients?view=reports` — kalendarz
- * „Raporty dla klientów” (co i komu w miesiącu; DL widzi domyślnie swoje).
+ * Od 18.11.2026 Klienci to jedna lista bez trybów: „Kluczowe relacje”
+ * (`?view=contacts`) i „Raporty dla klientów” (`?view=reports`, od 15.11)
+ * przeszły pod klienta, a to, co wymaga uwagi, stoi w wierszu listy
+ * (`components/clients/ClientAttention.tsx`). Stare `?view=` otwierają listę.
  *
  * Stare adresy przekierowują na stałe — powiadomienia w bazie mają zapisane
  * `link="/order-mail?doc=…"`.
@@ -50,13 +52,6 @@ export function resolveClientsMine(
   if (!mineAvailable) return false;
   if (param === "0") return false;
   return true;
-}
-
-export type ClientsView = "list" | "contacts" | "reports";
-
-export function resolveClientsView(param: string | null): ClientsView {
-  if (param === "reports") return "reports";
-  return param === "contacts" ? "contacts" : "list";
 }
 
 export type ContractsView = "register" | "operations" | "order-mail";

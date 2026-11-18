@@ -63,6 +63,10 @@ export function isNavItemActive(pathname: string, href: string): boolean {
   ) {
     return false;
   }
+  // Księga jest grupą Finansów (18.11.2026): na `/accounting/*` świeci „Finanse”.
+  if (hrefPath === "/finance" && (pathname === "/accounting" || pathname.startsWith("/accounting/"))) {
+    return true;
+  }
   return pathname === hrefPath || pathname.startsWith(hrefPath + "/");
 }
 

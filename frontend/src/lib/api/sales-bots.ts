@@ -9,6 +9,16 @@ import { api } from "@/lib/api";
 
 export type SalesBotKey = "lists" | "leads" | "research" | "company" | "contacts" | "cognism";
 
+export interface SalesBotRun {
+  id: number;
+  kind: string;
+  status: string;
+  started_at: string;
+  received_at: string | null;
+  outcome: "waiting" | "failed" | "expired" | "saved" | "partial" | "no_changes" | "received";
+  detail: string;
+}
+
 export interface SalesBot {
   key: SalesBotKey;
   name: string;
@@ -22,6 +32,8 @@ export interface SalesBot {
   received_7d: number;
   failed_7d: number;
   last_received_at: string | null;
+  /** Optional while frontend/backend versions roll independently. Null = never run. */
+  last_run?: SalesBotRun | null;
 }
 
 export interface SalesBots {
@@ -35,6 +47,7 @@ export function useSalesBots() {
   return useQuery({
     queryKey: salesBotsKey,
     queryFn: async () => (await api.get<SalesBots>("/api/sales/bots")).data,
+    refetchInterval: 30_000,
   });
 }
 

@@ -1,4 +1,4 @@
-# Sekcja „Rada”: dokumenty, odpis KRS, pulpit z faktur (R1 0727, R2, 16.11.2026)
+# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet, analiza (R1 0727, R2, R3 0733, R4 0734, 16–18.11.2026)
 <!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5 -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
@@ -90,11 +90,64 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   roku, co najmniej 30% kontraktów kończących się do 31.12, klient powyżej 30%
   sprzedaży, brakujące wzmianki KRS, dokumenty bez skanu.
 
+## Budżet (R3, 0733)
+
+- `board_budgets` (rok, szkic/przyjęty, uchwała Rady z dokumentów) i
+  `board_budget_lines` (miesiąc × sprzedaż/koszty, PLN netto). Plan wpisuje
+  admin (`PUT /budget/{rok}`, rok bieżący ±1, uchwała musi być „Uchwałą Rady”);
+  Rada czyta (`GET /budget/{rok}`).
+- **Prognoza** (`services/board/budget.py`) miesięcy po ostatnim pełnym
+  miesiącu sprzedaży: aktywne kontrakty × stawka klienta po kursie NBP × dni
+  robocze miesiąca z polskimi świętami (8 h przy stawce godzinowej) ×
+  realizacja = średnia faktur do potencjału z ostatnich 3 pełnych miesięcy.
+  Dwa scenariusze: bez przedłużeń (kontrakt kończy się w dniu końca umowy albo
+  zamówienia) i wszystkie przedłużone; Rada przesuwa realizację suwakiem.
+- **Koszty** prognozy i miesięcy, których faktury kosztowe jeszcze spływają =
+  sprzedaż × udział kosztów z 12 miesięcy kroczących (krótsze okno łapało
+  przesunięcia dat wystawienia: lipiec 2026 dawał 109%).
+- Na kopii 16.11: realizacja 79%, koszty 92,7%, rok 2026 ok. 121 mln
+  sprzedaży; 2027 bez przedłużeń to ok. 24 mln — miara ryzyka, nie prognoza.
+
+## Analiza finansowa (R4, 0734, 18.11.2026)
+
+- `board_financial_statements` — rok obrotowy: pola bilansu i RZiS
+  (`amounts`, PLN, lista w `services/board/statements.py::FIELDS`), surowe
+  pozycje pliku (`raw`) i źródło: `xml` (e-Sprawozdanie z eKRS), `xml_prev`
+  (kolumna „rok poprzedni” z pliku za rok następny — tylko gdy roku nie ma
+  z innego źródła), `manual` (admin z PDF). Rok z **księgi NEXUSA** (K8a,
+  `ledger.statements.statements`) liczy się na bieżąco, gdy roku nie ma
+  w tabeli; rok w trakcie ma `partial_months` i nie jest oceniany ani wyceniany.
+- **Pozycja = ścieżka z załącznika nr 1 UoR** (`assets:B.III.1.c`,
+  `income:B.I`). Parser nie zna całego schematu MF: zbiera każdy element
+  z `KwotaA`/`KwotaB` pod `Bilans`, `RZiSPor`, `RZiSKalk`, `PrzeplywyPosr`.
+  DOCTYPE i deklaracje encji odrzuca przebieg samym expatem przed
+  ElementTree (podgląd bajtów omijał komentarz-dopełnienie i UTF-16);
+  XAdES z treścią w base64 rozpakowany. `JednostkaInnaWTysiacach` × 1000;
+  jednostki małe i mikro (inny układ, zał. 4 i 5 UoR) odrzucone. Ponowny
+  import tego samego roku podmienia plik w tym samym dokumencie. **Parser nie był jeszcze sprawdzony na prawdziwym pliku
+  spółki** — przy pierwszym imporcie porównaj „pozycje w pliku” i KPI z PDF.
+- Import (`POST /statements/import`, admin, XML/XADES do 10 MB) zapisuje
+  plik jako dokument „Sprawozdania finansowe” (przy wzmiance KRS za ten rok,
+  gdy ta nie ma jeszcze PDF-u). Wpis ręczny `PUT /statements/{rok}`;
+  `GET /analysis` dla Rady i admina.
+- **Wskaźniki i założenia** (`services/board/analysis.py`): płynność,
+  zadłużenie, dług netto / EBITDA, DSO/DPO, marże, ROE/ROA; zdolność
+  kredytowa = 3× EBITDA − dług netto (+ faktoring 85% należności z tytułu
+  dostaw); wycena EV/EBITDA: fundusz 6× (4–8), inwestor branżowy 8× (6–11),
+  kontrola EV/przychody. Rada zmienia mnożniki suwakami. To nie jest wycena
+  biegłego — tak też mówi ekran.
+- Należności i gotówki „na dziś” nie liczymy z archiwum eBI24: flaga `paid`
+  na fakturach sprzedaży jest niewiarygodna (2025: 121 mln „nieopłaconych”).
+  Bieżąca gotówka i wiekowanie przyjdą z księgi (wyciągi K4, rozrachunki),
+  gdy będą w niej zapisy.
+
 ## Pilnują
 
 `tests/test_supervisory_board_unit.py` (parser, wiersze z wzmianek, skrót,
 czytnik, treść dzwonka), `tests/test_supervisory_board_api.py` (bramki ról,
 jeden odpis przy braku zmian, dzwonek tylko przy nowym wpisie, wiersz KRS bez
-usunięcia), `frontend/src/components/rada/__tests__/DocumentsTab.test.tsx`
+usunięcia), `tests/test_supervisory_board_statements.py` (parser XML i XAdES, odrzucenie
+DTD, ścieżki z księgi, wskaźniki, import z rokiem poprzednim, wpis ręczny
+wygrywa z `xml_prev`, bramki), `frontend/src/components/rada/__tests__/DocumentsTab.test.tsx`
 (Rada bez zapisu, awaria ≠ pusta lista), `board-role.test.ts`,
 `middleware.test.ts`.
