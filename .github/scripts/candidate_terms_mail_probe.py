@@ -19,7 +19,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from email.message import EmailMessage
-from email.policy import SMTP
+from email.parser import BytesHeaderParser
+from email.policy import SMTP, compat32
 from pathlib import Path
 
 SENDER = "kariera@b2bnetwork.pl"
@@ -94,19 +95,39 @@ def mime_message(to, rules=None):
     msg["From"] = SENDER
     msg["To"] = to
     msg["Subject"] = mail.subject
-    msg["List-Unsubscribe"] = (
-        f"<{rules.one_click_unsubscribe_url(API_BASE, token)}>"
-    )
+    msg["List-Unsubscribe"] = f"<{rules.one_click_unsubscribe_url(API_BASE, token)}>"
     msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
     msg.set_content(mail.text_body)
     msg.add_alternative(mail.html_body, subtype="html")
     return msg
 
 
+def serialized_headers_match(raw, unsubscribe):
+    """Check exact outgoing wire values, before Graph can transform the message.
+
+    Do not decode RFC 2047 or unfold the fields: either would hide the T3
+    serialization regression. Reject duplicates and headers found only in the
+    body. This check says nothing about delivery or the receiver's DKIM result.
+    """
+    headers = BytesHeaderParser(policy=compat32).parsebytes(raw)
+    return headers.get_all("List-Unsubscribe", []) == [unsubscribe] and headers.get_all(
+        "List-Unsubscribe-Post", []
+    ) == ["List-Unsubscribe=One-Click"]
+
+
 def send(envs, gmail, opener=urllib.request.urlopen):
     creds = credentials(envs)
     if creds is None:
         return {"result": "configuration_unavailable", "sent": []}
+    rules = _rules()
+    messages = []
+    for index, to in enumerate(recipients(gmail)):
+        message = mime_message(to, rules)
+        # Check every serialized message before any send; never log its token.
+        raw = message.as_bytes(policy=SMTP.clone(max_line_length=998))
+        if not serialized_headers_match(raw, str(message["List-Unsubscribe"])):
+            return {"result": "outbound_headers_invalid", "sent": []}
+        messages.append(("work" if index == 0 else "gmail", base64.b64encode(raw)))
     tenant, client_id, client_secret = creds
     body = urllib.parse.urlencode(
         {
@@ -126,14 +147,8 @@ def send(envs, gmail, opener=urllib.request.urlopen):
             token = json.load(response)["access_token"]
     except Exception:
         return {"result": "token_unavailable", "sent": []}
-    rules = _rules()
     sent = []
-    for index, to in enumerate(recipients(gmail)):
-        label = "work" if index == 0 else "gmail"
-        # max_line_length jak w app_mail._mime_body: bez kodowania adresu wypisu
-        raw = base64.b64encode(
-            mime_message(to, rules).as_bytes(policy=SMTP.clone(max_line_length=998))
-        )
+    for label, raw in messages:
         request = urllib.request.Request(
             "https://graph.microsoft.com/v1.0/users/" + SENDER + "/sendMail",
             data=raw,
@@ -147,7 +162,11 @@ def send(envs, gmail, opener=urllib.request.urlopen):
         except Exception:
             sent.append({"to": label, "result": "delivery_uncertain"})
     ok = all(row.get("http_status") == 202 for row in sent)
-    return {"result": "accepted" if ok else "failed", "sent": sent}
+    return {
+        "result": "accepted" if ok else "failed",
+        "sent": sent,
+        "outbound_mime_header_pair_verified": True,
+    }
 
 
 def main():
