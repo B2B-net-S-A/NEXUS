@@ -51,6 +51,14 @@ describe("tabela miesięcy pulpitu", () => {
     expect(rows[4].total).toEqual({ value: 3, pct: 15 });
   });
 
+  it("miesiąc bez kompletu i bez żadnej faktury sprzedaży to kreska, nie „0,0”", () => {
+    // Produkcja 18.11.2026: październik i listopad przed importem faktur pokazywały 0,0.
+    const data = summary({ months: [...summary().months, month(2099, 4, 0, false)] });
+    const current = monthTable(data, 2099).find((r) => r.key === "current")!;
+    expect(current.cells[3]).toEqual({ value: null, partial: true });
+    expect(current.cells[2]).toEqual({ value: 2, partial: true });
+  });
+
   it("bez budżetu nie ma wierszy budżetu, rok następny pokazuje się, gdy ma budżet", () => {
     const rows = monthTable(summary({ budgets: {} }), 2099);
     expect(rows.map((r) => r.key)).toEqual(["previous", "current", "vs-previous"]);

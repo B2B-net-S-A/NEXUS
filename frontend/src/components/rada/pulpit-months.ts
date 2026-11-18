@@ -47,7 +47,10 @@ export function monthTable(data: BoardSummary, year: number): MonthTableRow[] {
   const series = (y: number): MonthCell[] =>
     Array.from({ length: 12 }, (_, i) => {
       const m = byKey.get(`${y}-${i + 1}`);
-      return m ? { value: m.sales, partial: !m.sales_complete } : { value: null };
+      if (!m) return { value: null };
+      // Miesiąc przed importem faktur sprzedaży: kreska, nie „0,0”.
+      const empty = !m.sales_complete && !m.sales;
+      return { value: empty ? null : m.sales, partial: !m.sales_complete };
     });
   const previous = series(year - 1);
   const current = series(year);

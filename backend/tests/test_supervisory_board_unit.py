@@ -394,3 +394,47 @@ def test_trailing_window_stops_at_month_with_incomplete_costs() -> None:
     # Grudzień z kosztami poniżej progu (święta) sprzed 10 miesięcy nie blokuje okna.
     assert len(trailing_months([], months - {(2025, 12)})) == 12
     assert trailing_months([], set()) == []
+
+
+class _Recorder:
+    """Sesja, która zapisuje zapytania i oddaje pusty wynik."""
+
+    def __init__(self) -> None:
+        self.statements: list = []
+
+    async def execute(self, statement):  # noqa: ANN001
+        self.statements.append(statement)
+
+        class _Empty:
+            def all(self) -> list:
+                return []
+
+            def scalar_one_or_none(self) -> None:
+                return None
+
+        return _Empty()
+
+
+def _sql(statement) -> str:  # noqa: ANN001
+    from sqlalchemy.dialects import postgresql
+
+    return str(statement.compile(dialect=postgresql.dialect()))
+
+
+def test_invoice_queries_read_sale_date_from_meta_once_per_row() -> None:
+    """Pulpit Rady na produkcji 18.11.2026: 9–11 s, bo każde odwołanie do
+    ``meta->>'transactionDate'`` rozpakowuje cały JSONB (kilkanaście razy na
+    wiersz). Data sprzedaży ma być czytana raz, w zmaterializowanym CTE."""
+
+    import asyncio
+
+    from app.services.board import summary
+
+    db = _Recorder()
+    asyncio.run(summary.month_rows(db, 2023))  # type: ignore[arg-type]
+    asyncio.run(summary.top_clients(db, date(2025, 1, 1), date(2025, 12, 31)))  # type: ignore[arg-type]
+    assert len(db.statements) == 2
+    for statement in db.statements:
+        sql = _sql(statement)
+        assert sql.count("finance_archive_documents.meta") == 1, sql
+        assert "MATERIALIZED" in sql
