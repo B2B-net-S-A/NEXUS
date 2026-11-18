@@ -42,7 +42,20 @@
     "audience": { "permissions": ["sales_edit"] },
     "where": "Sprzedaż → Dzwonienie → Umówione spotkanie",
     "href": "/sales/calling",
-    "dot_anchor": "sales.calling.booking-mail"
+    "dot_anchor": "sales.calling.booking-mail",
+    "steps": [
+      {
+        "anchor": "sales.calling.book",
+        "text": "Kliknij „Umówione spotkanie”",
+        "hint": "Otworzy się formularz spotkania z mailem do klienta."
+      },
+      {
+        "anchor": "sales.calling.booking-mail",
+        "text": "Umów i wyślij mail do klienta",
+        "hint": "Mail wyjdzie z Twojego Outlooka do klienta z kopią do prowadzącego i zostanie w Wysłanych i na osi szansy.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-dzwonienie-juz-dzwoniono",
@@ -66,8 +79,17 @@
     "audience": { "roles": ["finance", "delivery_lead", "admin"] },
     "where": "Generator umów → Generator aneksów → „Aneks — inna zmiana”",
     "href": "/contracts/b2b-generator",
+    "practice_href": "/contracts/b2b-generator?tab=annexes",
     "section": "sourcing",
-    "dot_anchor": "b2b-generator.annex-custom"
+    "dot_anchor": "b2b-generator.annex-custom",
+    "steps": [
+      {
+        "anchor": "b2b-generator.annex-custom",
+        "text": "To „Aneks — inna zmiana”.",
+        "hint": "Nazwij aneks, wpisz zmiany paragrafów albo wybierz gotową klauzulę. Kontraktu podpis sam nie zmienia.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "doplata-uzasadnienie-z-modelu",
@@ -86,7 +108,25 @@
     "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.premium-justification"
+    "dot_anchor": "contracts.premium-justification",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz kontraktu u klienta z umową ramową.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+      },
+      {
+        "anchor": "contracts.premium-justification",
+        "text": "To „Uzasadnienie (EN)” przy złożonym wniosku o dopłatę.",
+        "hint": "W oknie „Zaproponuj uzasadnienie” model pisze szkic po angielsku, bez nazwiska i stawek. Przycisk jest tylko przy złożonym wniosku.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "porcja-szczegol-powodu",
@@ -117,7 +157,20 @@
     "where": "Nowa rekrutacja → „Co zamawia klient?” → „Stanowisko w zespole”",
     "href": "/jobs/new",
     "section": "pipeline",
-    "dot_anchor": "jobs.new.team-split"
+    "dot_anchor": "jobs.new.team-split",
+    "steps": [
+      {
+        "anchor": "jobs.new.team-mode",
+        "text": "Przełącz na „Stanowisko w zespole”.",
+        "hint": "Tak zaznaczasz, że klient zamawia kilka stanowisk naraz. Samo przełączenie niczego nie zapisuje."
+      },
+      {
+        "anchor": "jobs.new.team-split",
+        "text": "„Rozbij zapytanie na stanowiska” wypisze role z maila.",
+        "hint": "Najpierw wklej treść zapytania („Wypełnij z: Wklej treść”). „Użyj” wpisze rolę i liczbę osób do tej rekrutacji.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "zespol-gotowe-sklady",
@@ -129,8 +182,22 @@
     "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Zespół → „Gotowe składy dla klienta” → „Zaproponuj składy”",
     "href": "/jobs",
+    "practice_href": "/zespoly/990601",
     "section": "pipeline",
-    "dot_anchor": "jobs.team.variants"
+    "dot_anchor": "jobs.team.variants",
+    "steps": [
+      {
+        "anchor": "jobs.team.variants",
+        "text": "Kliknij „Zaproponuj składy”.",
+        "hint": "Automat ułoży trzy składy z wysłanych osób. Nic się nie zapisze, dopóki nie zatwierdzisz."
+      },
+      {
+        "anchor": "jobs.team.variants-approve",
+        "text": "Po zatwierdzeniu klient zobaczy te składy w linku zespołu.",
+        "hint": "Wcześniej podmienisz osoby i poprawisz nazwę. W linku klient prosi o rozmowy z całym składem jednym kliknięciem.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "zespol-dla-klienta",
@@ -142,8 +209,17 @@
     "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Rekrutacja → pasek nad Tablicą → „Utwórz zespół”",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
-    "dot_anchor": "jobs.board.team"
+    "dot_anchor": "jobs.board.team",
+    "steps": [
+      {
+        "anchor": "jobs.board.team",
+        "text": "„Utwórz zespół” łączy kilka stanowisk klienta w jeden link.",
+        "hint": "Stoi na pasku nad Tablicą. Klient w linku widzi wszystkie stanowiska, wybiera osoby do składu i od razu widzi cenę zespołu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-dzwonienie-przypomnienia",
@@ -174,7 +250,25 @@
     "where": "Sprzedaż → Firmy → karta firmy → Kontakty",
     "href": "/sales/companies",
     "dot_anchor": "sales.company.contacts",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.company.contacts-tab",
+        "text": "Przejdź do zakładki „Kontakty”",
+        "hint": "Wszystkie osoby firmy w jednym miejscu."
+      },
+      {
+        "anchor": "sales.company.contacts",
+        "text": "Kontakty to jedna lista osób",
+        "hint": "Osoby od bota i z Cognism są od razu tutaj. Kto odszedł, stoi na końcu jako „nie pracuje”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-leady-teczka",
@@ -243,7 +337,21 @@
     },
     "where": "Sprzedaż → Mój dzień → „Po spotkaniu” albo „Zaplanuj” → pole daty",
     "href": "/sales",
-    "dot_anchor": "sales.myday.custom-date"
+    "practice_href": "/sales/my-day",
+    "dot_anchor": "sales.myday.custom-date",
+    "steps": [
+      {
+        "anchor": "sales.myday.plan",
+        "text": "Otwórz „Po spotkaniu” albo „Zaplanuj”",
+        "hint": "Kliknij przycisk przy dowolnym wierszu dnia."
+      },
+      {
+        "anchor": "sales.myday.custom-date",
+        "text": "Własna data następnego kroku",
+        "hint": "Obok Jutro…Za miesiąc wpiszesz albo wybierzesz z kalendarza dowolny dzień.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-listy-dzwonienia-wszyscy",
@@ -2736,7 +2844,20 @@
     },
     "where": "Sprzedaż → Leady → Lista z researchu",
     "href": "/sales/leads",
-    "dot_anchor": "sales.research.cognism"
+    "dot_anchor": "sales.research.cognism",
+    "steps": [
+      {
+        "anchor": "sales.leads.mode.research",
+        "text": "Przejdź do „Lista z researchu”",
+        "hint": "Tu wgrywasz listę osób z researchu."
+      },
+      {
+        "anchor": "sales.research.cognism",
+        "text": "Eksport z Cognism wgrywasz bez zmian",
+        "hint": "Osoby trafiają na mapy z telefonem komórkowym albo bezpośrednim; niezweryfikowany e-mail jest pomijany z ostrzeżeniem.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-uzupelnia-karte",
@@ -2751,7 +2872,20 @@
     "where": "Sprzedaż → Firmy → karta firmy",
     "href": "/sales/companies",
     "dot_anchor": "sales.company.enrich",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.company.enrich",
+        "text": "„Uzupełnij dane” wypełnia puste pola karty",
+        "hint": "Bot szuka domeny, NIP-u, miasta, branży i wielkości. Pole wpisane ręcznie zostaje, a źródło widać w Aktywnościach.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-zapytaj-bota",
@@ -2766,7 +2900,20 @@
     "where": "Sprzedaż → Firmy → karta firmy → Przegląd",
     "href": "/sales/companies",
     "dot_anchor": "sales.company.ask",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.company.ask",
+        "text": "Zapytaj bota o firmę",
+        "hint": "Odpowiedź ze źródłami przyjdzie w kilka minut. Do bota idzie tylko nazwa, domena i pytanie: bez e-maili i telefonów.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-znajdz-decydentow",
@@ -2782,8 +2929,22 @@
     },
     "where": "Sprzedaż → Szanse → Fabryki IT → konto → Mapa decyzyjna (także karta firmy)",
     "href": "/sales/opportunities",
+    "practice_href": "/sales/companies",
     "dot_anchor": "sales.bot-people.find",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.companies.row",
+        "text": "Otwórz kartę firmy",
+        "hint": "Kliknij nazwę firmy na liście."
+      },
+      {
+        "anchor": "sales.bot-people.find",
+        "text": "„Znajdź decydentów (bot)”",
+        "hint": "Bot szuka osób decyzyjnych na publicznych stronach firmy, z linkiem do źródła. Jeden bieg na firmę na dobę.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-bot-osoby-do-przegladu",
@@ -2800,7 +2961,20 @@
     "where": "Sprzedaż → Leady → Lista z researchu → Osoby od bota",
     "href": "/sales/leads",
     "dot_anchor": "sales.bot-people.list",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.leads.mode.research",
+        "text": "Przejdź do „Lista z researchu”",
+        "hint": "Tu są też osoby, które znalazł bot."
+      },
+      {
+        "anchor": "sales.bot-people.list",
+        "text": "Osoby od bota",
+        "hint": "Bot dopisuje decydentów od razu na mapę konta. Tu zostaje tylko wynik, przy którym trzeba wskazać właściwą kartę firmy.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-mapa-decydentow-cognism",
@@ -2870,7 +3044,15 @@
     "where": "Sprzedaż → Dzwonienie → karta rozmowy",
     "href": "/sales/calling",
     "dot_anchor": "sales.calling.hook",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.calling.hook",
+        "text": "Haczyk na otwarcie rozmowy",
+        "hint": "Pod nazwą firmy bot podsuwa zdanie na otwarcie i do dwóch faktów ze źródłem. Przygotowuje je dzień roboczy wcześniej.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-teczka-przed-spotkaniem",
@@ -2887,7 +3069,15 @@
     "where": "Sprzedaż → Mój dzień → Przygotowanie do spotkania",
     "href": "/sales/my-day",
     "dot_anchor": "sales.my-day.prep-points",
-    "requires_setting": "SALES_BOT_TASKS_ENABLED"
+    "requires_setting": "SALES_BOT_TASKS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.my-day.prep-points",
+        "text": "Punkty od bota przed spotkaniem",
+        "hint": "Dzień roboczy przed spotkaniem bot przygotowuje do czterech punktów o firmie, ze źródłami.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "podpis-paczka-umowa-nda",
@@ -2907,8 +3097,27 @@
     },
     "where": "Rekrutacja → panel osoby → Umowa → Wyślij do podpisu (też Generator umów)",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990115",
     "section": "pipeline",
-    "dot_anchor": "b2b.esign.package"
+    "dot_anchor": "b2b.esign.package",
+    "steps": [
+      {
+        "anchor": "person.dock.contract",
+        "text": "W panelu osoby kliknij „Umowa →”.",
+        "hint": "Otworzy się zakładka „Umowa” z umową tej osoby."
+      },
+      {
+        "anchor": "b2b.esign.send",
+        "text": "Kliknij „Wyślij do podpisu”.",
+        "hint": "Okno niczego nie wyśle, dopóki nie zaznaczysz potwierdzenia i nie klikniesz „Wyślij”."
+      },
+      {
+        "anchor": "b2b.esign.package",
+        "text": "NDA i inne dokumenty klienta idą razem z umową.",
+        "hint": "Kontraktor podpisuje wszystko pod jednym linkiem, a podpisane NDA samo odhacza się w dokumentach do startu.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "sprzedaz-leady-boty",
@@ -2937,7 +3146,20 @@
     "where": "Sprzedaż → Dzwonienie → Kampanie → Bot Listy",
     "href": "/sales/calling",
     "dot_anchor": "sales.calling.bot-lists",
-    "requires_setting": "SALES_BOT_LISTS_ENABLED"
+    "requires_setting": "SALES_BOT_LISTS_ENABLED",
+    "steps": [
+      {
+        "anchor": "sales.calling.campaigns",
+        "text": "Otwórz „Kampanie”",
+        "hint": "Lista kampanii dzwonienia."
+      },
+      {
+        "anchor": "sales.calling.bot-lists",
+        "text": "Bot Listy buduje listę do dzwonienia",
+        "hint": "Opisz, do kogo dzwonimy, a bot złoży listę z bazy i dosypie ją w poniedziałek.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "czat-wszyscy-przypisani",
@@ -2949,6 +3171,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
     "where": "Rekrutacja → Historia i czat → Czat zespołu (też notatki w panelu osoby)",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?win=history-chat&wintab=chat",
     "section": "pipeline",
     "dot_anchor": "jobs.chat.compose"
   },
@@ -2974,6 +3197,7 @@
     "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "finance", "recruiter", "back_office", "employee", "automation"] },
     "where": "Menu → Firma → Szkolenia",
     "href": "/trainings",
+    "practice_href": "/trainings?tab=recordings",
     "dot_anchor": "trainings.library"
   },
   {
@@ -2999,7 +3223,25 @@
     "where": "Kontrakty → kontrakt → Szczegóły → Umowa ramowa",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.framework-category"
+    "dot_anchor": "contracts.framework-category",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz kontraktu u klienta z umową ramową.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+      },
+      {
+        "anchor": "contracts.framework-category",
+        "text": "To karta „Umowa ramowa” i przycisk „Kategoria i dopłata”.",
+        "hint": "Kategoria z zamówienia, limit z cennika i czy stawka się mieści. Dopłatę wpisujesz z potwierdzeniem klienta: podnosi limit, nie stawkę.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "raporty-dla-klientow",
@@ -3025,7 +3267,30 @@
     "where": "Klienci → klient → Stawki ramowe → Raport kwartalny",
     "href": "/clients",
     "section": "delivery",
-    "dot_anchor": "clients.framework-rates.report"
+    "dot_anchor": "clients.framework-rates.report",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę klienta z umową ramową.",
+        "hint": "Otworzy się karta klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.sections.contracts",
+        "text": "Kliknij grupę „Umowy”.",
+        "hint": "Pod nią są umowy i aneksy, stawki i cennik oraz raporty dla klienta."
+      },
+      {
+        "anchor": "client.sections.framework-rates",
+        "text": "Kliknij „Stawki i cennik”.",
+        "hint": "Tabela stawek z umowy pokazuje się, gdy klient ma wgrany cennik umowy ramowej."
+      },
+      {
+        "anchor": "clients.framework-rates.report",
+        "text": "To „Raport kwartalny”.",
+        "hint": "Kto jest w stawce z umowy, kto dzięki dopłacie, kto ponad i co daje umowa. Excel dla klienta pobierzesz bez marży.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "doplata-wniosek-zna-korzysta",
@@ -3038,7 +3303,25 @@
     "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contracts.premium-skills"
+    "dot_anchor": "contracts.premium-skills",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz kontraktu u klienta z umową ramową.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+      },
+      {
+        "anchor": "contracts.premium-skills",
+        "text": "To „Oceń i złóż wniosek” w „Technologiach premium z umowy”.",
+        "hint": "NEXUS pokazuje, czy osoba zna i korzysta z technologii z umowy. Sekcja stoi w karcie „Umowa ramowa”, gdy umowa ma dopłaty.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "nowa-osoba-przechodzi-poligon",
@@ -3062,6 +3345,7 @@
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "talent_community_manager", "admin"] },
     "where": "Rekrutacja → Tablica → fakt „Rekruter” w nagłówku → Kto ilu dodał",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
     "dot_anchor": "job.recruiter-team"
   },
@@ -3075,7 +3359,16 @@
     "audience": { "roles": ["admin", "head_of_recruitment", "delivery_lead", "finance", "talent_community_manager"] },
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
-    "dot_anchor": "dashboard.team-table.fullscreen"
+    "practice_href": "/insights?tab=raporty&report=aktywnosc-zespolu",
+    "dot_anchor": "dashboard.team-table.fullscreen",
+    "steps": [
+      {
+        "anchor": "insights.team-activity.added",
+        "text": "To kolumna „Dodani do rekrutacji”.",
+        "hint": "Ile osób każdy dodał do rekrutacji, także już będących w bazie. Na pulpicie to samo w „Dodali dziś” i „Dodali 7 dni”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "porcja-kogo-szukamy",
@@ -3102,7 +3395,30 @@
     "where": "Kontrakty → kontrakt → Aneksy → Zmień stawkę",
     "href": "/contracts",
     "section": "delivery",
-    "dot_anchor": "contract.amendments.rate-change"
+    "dot_anchor": "contract.amendments.rate-change",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+      },
+      {
+        "anchor": "contract.tabs.amendments",
+        "text": "Kliknij zakładkę „Aneksy”.",
+        "hint": "Przedłużenia, zmiany stawki i zakresu kontraktu. Nic tu nie zapiszesz."
+      },
+      {
+        "anchor": "contract.amendments.rate-change",
+        "text": "Tu jest „Zmień stawkę”.",
+        "hint": "Okno pokaże przed zapisem, że nowa stawka klienta wejdzie do trwającego zamówienia od dnia aneksu. Wcześniejsze miesiące zostają.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "kontakty-klienta-szukaj",
@@ -3114,7 +3430,25 @@
     "where": "Klienci → klient → Kontakty klienta",
     "href": "/clients",
     "section": "delivery",
-    "dot_anchor": "clients.contacts.search"
+    "dot_anchor": "clients.contacts.search",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę dowolnego klienta.",
+        "hint": "Otworzy się karta klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.sections.people",
+        "text": "Kliknij grupę „Ludzie”.",
+        "hint": "Otworzą się „Kontakty i relacje”."
+      },
+      {
+        "anchor": "clients.contacts.search",
+        "text": "To pole szukania w kontaktach klienta.",
+        "hint": "Nazwisko, kawałek e-maila, telefonu albo stanowiska; polskie znaki opcjonalne. Przy e-mailu i telefonie jest ikona „kopiuj”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "lata-w-punkcie-1-i-daty-stanowisk",
@@ -3199,8 +3533,17 @@
     },
     "where": "Rekrutacja → Profil Championa → Brief",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?tab=champion",
     "section": "pipeline",
-    "dot_anchor": "champion.changes.seen"
+    "dot_anchor": "champion.changes.seen",
+    "steps": [
+      {
+        "anchor": "champion.changes.seen",
+        "text": "Na górze Briefu widzisz, co DL zmienił w profilu.",
+        "hint": "„Przeczytane” zwija kartę do jednej linii. Całą historię zmian znajdziesz w zakładce „Zmiany”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "klient-profil-w-grupach",

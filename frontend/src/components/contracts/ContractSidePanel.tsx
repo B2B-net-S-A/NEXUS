@@ -345,6 +345,7 @@ export function ContractSidePanel({
       <Link
         href={detailHref()}
         onClick={rememberScroll}
+        data-tour="contract.panel.open"
         className="inline-flex items-center gap-1 text-primary hover:underline"
       >
         Otwórz kontrakt <ExternalLink className="h-3 w-3" aria-hidden="true" />

@@ -297,6 +297,7 @@ function OutcomeForm({ item, card, today, nextCompany, canEdit, meetingStage, on
                 key={outcome}
                 size="sm"
                 className="h-8 justify-start gap-1.5 px-2"
+                data-tour="sales.calling.book"
                 disabled={blocked || pending || meetingBlocked}
                 title={card.client_refusal ?? undefined}
                 onClick={bookMeeting}

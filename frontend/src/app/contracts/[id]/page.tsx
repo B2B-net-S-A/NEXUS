@@ -1462,6 +1462,7 @@ export default function ContractDetailPage() {
               key={t.key}
               onClick={() => setActiveTab(t.key)}
               aria-current={active ? "page" : undefined}
+              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : undefined}
               className={`shrink-0 whitespace-nowrap px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors ${
                 active
                   ? "border-primary text-foreground font-semibold"

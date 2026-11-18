@@ -52,14 +52,26 @@ export const CLIENT_SUBTAB_LABELS: Readonly<Record<ClientTab, string>> = {
   konsultanci: "Konsultanci",
 };
 
+// Kotwice nowości (`data-tour`) prowadzące przeklikanie z listy klientów do
+// zakładki: grupa „Ludzie” otwiera od razu kontakty, w „Umowach” trzeba
+// jeszcze wybrać „Stawki i cennik”.
+const GROUP_TOUR: Readonly<Record<string, string>> = {
+  ludzie: "client.sections.people", // data-tour="client.sections.people"
+  umowy: "client.sections.contracts", // data-tour="client.sections.contracts"
+};
+const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {
+  "stawki-ramowe": "client.sections.framework-rates", // data-tour="client.sections.framework-rates"
+};
+
 /** Grupy z pozycjami, które ta osoba widzi (puste grupy odpadają). */
 export function clientSectionGroups(visibleTabs: readonly ClientTab[]): SectionNavGroup[] {
   const visible = new Set(visibleTabs);
   return CLIENT_TAB_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
+    tourId: GROUP_TOUR[group.key],
     items: group.tabs
       .filter((tab) => visible.has(tab))
-      .map((tab) => ({ key: tab, label: CLIENT_SUBTAB_LABELS[tab] })),
+      .map((tab) => ({ key: tab, label: CLIENT_SUBTAB_LABELS[tab], tourId: TAB_TOUR[tab] })),
   })).filter((group) => group.items.length > 0);
 }

@@ -55,6 +55,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   porcja: "Porcja dnia",
   start: "Start w NEXUSIE",
   poligon: "Poligon NEXUSA",
+  "nowosci-dnia": "Nowości na dziś",
   people: "Ludzie",
   equipment: "Sprzęt",
   hr: "Administracja współpracy",

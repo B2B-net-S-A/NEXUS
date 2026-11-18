@@ -25,6 +25,8 @@ export interface SectionNavGroup {
   key: string;
   label: string;
   items: SectionNavItem[];
+  /** Kotwica nowości na grupie (zasady jak `SectionNavItem.tourId`). */
+  tourId?: string;
 }
 
 export interface SectionNavProps {
@@ -135,7 +137,7 @@ export function SectionNav({
             </>,
             group.key,
             // Grupa z jedną pozycją nie ma drugiego paska — kotwica stoi na grupie.
-            group.items.length === 1 ? first.tourId : undefined,
+            group.tourId ?? (group.items.length === 1 ? first.tourId : undefined),
           );
         })}
       </div>

@@ -21,7 +21,9 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 
 from app.api.novelties import (
+    DAILY_FLOOR,
     apply_event,
+    daily_batch,
     apply_poligon_event,
     next_morning,
     poligon_status,
@@ -77,9 +79,7 @@ def test_registry_loads_and_every_entry_is_valid() -> None:
     novelties = load_novelties()
     assert novelties, "rejestr nowości jest pusty"
     for novelty in novelties.values():
-        if novelty.tier == "dot":
-            assert not novelty.steps
-        else:
+        if novelty.tier != "dot":
             assert len(novelty.steps) >= 2
 
 
@@ -93,7 +93,6 @@ def test_novelty_ids_do_not_use_the_poligon_prefix() -> None:
 @pytest.mark.parametrize(
     "overrides",
     [
-        {"tier": "dot"},  # drobiazg z krokami
         {"steps": [{"anchor": "a.one", "text": "Krok", "hint": "Opis"}]},  # jeden krok
         {"tier": "process"},  # zmiana procesu bez ekranu
         {
@@ -101,6 +100,8 @@ def test_novelty_ids_do_not_use_the_poligon_prefix() -> None:
         },  # ekran przy nowości, która nie jest zmianą procesu
         {"audience": {"roles": ["sourcer"]}},  # rola, której nie ma
         {"audience": {"permissions": ["kontrakty"]}},  # uprawnienie z literówką
+        {"practice_href": "jobs/990001"},  # ekran ćwiczebny bez ukośnika
+        {"practice_href": "/jobs/990001?tab=<x>"},  # znaki spoza adresu
     ],
 )
 def test_registry_refuses_malformed_entries(overrides: dict) -> None:
@@ -249,6 +250,123 @@ def test_model_columns_match_the_ddl() -> None:
         re.findall(r"^\s+([a-z_]+) (?:INTEGER|VARCHAR|TIMESTAMPTZ)", ddl, re.M)
     )
     assert ddl_columns == set(NoveltyProgress.__table__.columns.keys())
+
+
+# ── Poranna porcja (18.11.2026) ───────────────────────────────────────────────
+
+
+def test_dot_may_carry_steps_and_a_practice_screen() -> None:
+    """Porcja przeklikuje każdy wpis, więc drobiazg może mieć kroki do elementu
+    na rekrutacji ćwiczebnej."""
+    dot = _novelty(
+        tier="dot",
+        steps=[{"anchor": "a.one", "text": "Krok", "hint": "Opis"}],
+        practice_href="/jobs/990001?tab=chat",
+    )
+    assert dot.practice_href == "/jobs/990001?tab=chat"
+    assert shape_for_user(dot, None, NOW)["practice_href"] == "/jobs/990001?tab=chat"
+
+
+def _day(offset: int) -> str:
+    return (DAILY_FLOOR + timedelta(days=offset)).isoformat()
+
+
+def test_daily_batch_is_everything_since_the_floor_until_yesterday() -> None:
+    today = DAILY_FLOOR + timedelta(days=10)
+    older = _novelty(id="przed-granica", shipped_on=_day(-1))
+    first = _novelty(id="pierwsza", shipped_on=_day(0))
+    holiday = _novelty(id="z-urlopu", shipped_on=_day(3))
+    yesterday = _novelty(id="wczoraj", shipped_on=_day(9))
+    fresh = _novelty(id="dzisiaj", shipped_on=_day(10))
+    batch = daily_batch([fresh, yesterday, holiday, first, older], {}, today)
+    # Bez limitu i bez 45 dni życia; dzisiejsza czeka do jutra.
+    assert [n.id for n in batch] == ["pierwsza", "z-urlopu", "wczoraj"]
+
+
+def test_daily_batch_drops_what_was_done_before_today_and_keeps_today() -> None:
+    today = DAILY_FLOOR + timedelta(days=5)
+    tz = ZoneInfo("Europe/Warsaw")
+    earlier = _novelty(id="wczesniej", shipped_on=_day(1))
+    now_done = _novelty(id="dzis-zaliczona", shipped_on=_day(2))
+    waiting = _novelty(id="czeka", shipped_on=_day(3))
+    # 23:30 w Warszawie dzień wcześniej to już „przed dzisiaj”, choć w UTC
+    # jest to ten sam dzień co dzisiejsze 00:30.
+    late_yesterday = datetime.combine(
+        today - timedelta(days=1), datetime.min.time(), tzinfo=tz
+    ) + timedelta(hours=23, minutes=30)
+    progress = {
+        "wczesniej": _row(completed_at=late_yesterday),
+        "dzis-zaliczona": _row(completed_at=late_yesterday + timedelta(hours=1)),
+        "czeka": _row(first_seen_at=late_yesterday),
+    }
+    batch = daily_batch([earlier, now_done, waiting], progress, today)
+    assert [n.id for n in batch] == ["dzis-zaliczona", "czeka"]
+
+
+@pytest.fixture
+def frozen_daily(monkeypatch):
+    """Jedna nowość rekrutera z wczoraj — porcja ma dokładnie ją."""
+    from app.api import novelties as api
+
+    yesterday = datetime.now(ZoneInfo("Europe/Warsaw")).date() - timedelta(days=1)
+    novelty = _novelty(
+        id="test-porcja",
+        shipped_on=yesterday.isoformat(),
+        audience={"roles": ["recruiter"]},
+    )
+    monkeypatch.setattr(api, "load_novelties", lambda: {novelty.id: novelty})
+    monkeypatch.setattr(api, "DAILY_FLOOR", yesterday - timedelta(days=7))
+    return novelty
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_daily_batch_blocks_until_toured_and_only_own_role(
+    app_client: AsyncClient, frozen_daily
+) -> None:
+    _, recruiter = await _user("recruiter")
+    _, finance = await _user("finance")
+    daily = (await app_client.get("/api/novelties/daily", headers=recruiter)).json()
+    assert [i["id"] for i in daily["items"]] == ["test-porcja"]
+    assert daily["enforced"] is True and (daily["done"], daily["total"]) == (0, 1)
+
+    other = (await app_client.get("/api/novelties/daily", headers=finance)).json()
+    assert other["items"] == [] and other["enforced"] is False
+
+    resp = await app_client.post(
+        "/api/novelties/test-porcja/events", json={"event": "toured"}, headers=recruiter
+    )
+    assert resp.status_code == 204
+    daily = (await app_client.get("/api/novelties/daily", headers=recruiter)).json()
+    # Przeklikana dziś zostaje na liście jako zaliczona, blokady już nie ma.
+    assert daily["enforced"] is False and (daily["done"], daily["total"]) == (1, 1)
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_hor_switches_the_daily_gate_alone_and_recruiter_cannot(
+    app_client: AsyncClient, frozen_daily
+) -> None:
+    """Wyłącznik porcji nie rusza Startu ani Poligonu; lista zostaje."""
+    _, recruiter = await _user("recruiter")
+    _, hor = await _user("head_of_recruitment")
+    refused = await app_client.put(
+        "/api/novelties/start/gate", json={"daily": False}, headers=recruiter
+    )
+    assert refused.status_code == 403
+    try:
+        resp = await app_client.put(
+            "/api/novelties/start/gate", json={"daily": False}, headers=hor
+        )
+        assert resp.status_code == 200 and resp.json()["daily"] is False
+        assert resp.json()["enforced"] is True and resp.json()["poligon"] is True
+        daily = (await app_client.get("/api/novelties/daily", headers=recruiter)).json()
+        assert daily["enforced"] is False and daily["gate_on"] is False
+        assert [i["id"] for i in daily["items"]] == ["test-porcja"]
+    finally:
+        await app_client.put(
+            "/api/novelties/start/gate", json={"daily": True}, headers=hor
+        )
 
 
 # ── Trasy (z bazą) ────────────────────────────────────────────────────────────
@@ -582,6 +700,7 @@ async def test_hor_switches_the_start_gate_off_and_recruiter_cannot(
         assert resp.status_code == 200 and resp.json() == {
             "enforced": False,
             "poligon": True,
+            "daily": True,
         }
         start = (await app_client.get("/api/novelties/start", headers=recruiter)).json()
         assert start["enforced"] is False and start["gate_on"] is False
@@ -615,6 +734,7 @@ async def test_hor_switches_the_poligon_gate_alone_and_recruiter_cannot(
         assert resp.status_code == 200 and resp.json() == {
             "enforced": True,
             "poligon": False,
+            "daily": True,
         }
         start = (await app_client.get("/api/novelties/start", headers=hor)).json()
         assert start["poligon_gate_on"] is False and start["gate_on"] is True

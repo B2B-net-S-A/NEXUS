@@ -710,6 +710,255 @@ def add_slot_card(dataset: dict) -> None:
         dataset[key] = with_slot_card(dataset[key])
 
 
+def drop_stripped_words(value):
+    """Słowa wymagań, które filtr nazw wyciął (`None`), znikają razem z wierszem.
+
+    Wiersz `[None]` w `search.requirements` wywracał zakładkę Profil Championa
+    na poligonie (`sanitizeKeyword` na `null`, 18.11.2026).
+    """
+    if isinstance(value, list):
+        # Notatka albo podpowiedź bez treści (`text: None`) obok innych z treścią:
+        # ekran woła `.trim()` na każdej (Brief Profilu Championa).
+        if any(isinstance(v, dict) and isinstance(v.get("text"), str) for v in value):
+            value = [
+                v
+                for v in value
+                if not (isinstance(v, dict) and "text" in v and v["text"] is None)
+            ]
+        return [drop_stripped_words(v) for v in value]
+    if not isinstance(value, dict):
+        return value
+    out = {}
+    for k, v in value.items():
+        if (
+            k == "requirements"
+            and isinstance(v, list)
+            and all(isinstance(r, list) for r in v)
+        ):
+            v = [[w for w in r if w is not None] for r in v]
+            v = [r for r in v if r]
+        elif k == "rows" and isinstance(v, list):
+            v = [
+                {**r, "words": [w for w in r["words"] if w is not None]}
+                if isinstance(r, dict) and isinstance(r.get("words"), list)
+                else r
+                for r in v
+            ]
+            v = [r for r in v if not (isinstance(r, dict) and r.get("words") == [])]
+        elif k == "all_of" and isinstance(v, list):
+            v = [
+                {**r, "any_of": [w for w in r["any_of"] if w is not None]}
+                if isinstance(r, dict) and isinstance(r.get("any_of"), list)
+                else r
+                for r in v
+            ]
+            v = [r for r in v if not (isinstance(r, dict) and r.get("any_of") == [])]
+        elif k in ("must", "nice") and isinstance(v, list):
+            v = [
+                r
+                for r in v
+                if not (isinstance(r, dict) and "name" in r and not r["name"])
+            ]
+        out[k] = drop_stripped_words(v)
+    return out
+
+
+# Nowości z porannej porcji przeklikiwane na poligonie (18.11.2026). Treść
+# wymyślona: zmiana Profilu Championa, zespół z gotowymi składami i umowa
+# do podpisu z NDA. Żaden z tych odczytów nie ma odpowiednika w nagraniu.
+PRACTICE_TEAM_ID = 990601
+PRACTICE_AGREEMENT_ID = 990801
+PRACTICE_NDA_ID = 990811
+# Osoby zespołu: dwie z „QC CV” i osoba z „Rozmowy u klienta” (indeksy `ALL_PEOPLE`).
+TEAM_PEOPLE = [(8, "cv_sent"), (9, "cv_sent"), (14, CLIENT_INTERVIEW_STAGE)]
+
+
+def champion_changes() -> dict:
+    """„Co się zmieniło od przekazania”: jedna nieprzeczytana zmiana DL-a."""
+    return {
+        "job_id": POLIGON_JOB,
+        "last_seen_revision_id": None,
+        "revisions": [
+            {
+                "id": 990651,
+                "created_at": "@rel:-0.2",
+                "author_id": TRAINERS["dl"][0],
+                "author_name": TRAINERS["dl"][1],
+                "note": None,
+                # Zgodne z Briefem rekrutacji ćwiczebnej (15 osób, te słowa w „Musi mieć”).
+                "changes": [
+                    {
+                        "kind": "set",
+                        "text": "Liczba osób",
+                        "detail": "15 (wcześniej 10)",
+                    },
+                    {
+                        "kind": "moved",
+                        "text": "data sourcing",
+                        "detail": "„Mile widziane” → „Musi mieć”",
+                    },
+                    {
+                        "kind": "added",
+                        "text": "escalations",
+                        "detail": "nowe w „Musi mieć”",
+                    },
+                ],
+                "mine": False,
+            }
+        ],
+    }
+
+
+def _team_candidate(index: int, stage: str, rate: float, sent_days_ago: float) -> dict:
+    first, last = ALL_PEOPLE[index]
+    money = {"value": rate, "unit": "hourly", "currency": "PLN"}
+    return {
+        "candidate_id": FIRST_CANDIDATE + index,
+        "name": f"{first} {last}",
+        "stage": stage,
+        "sent_at": f"@rel:-{sent_days_ago}",
+        "available_from": None,
+        "client_rate": money,
+        "expected_rate": {**money, "value": rate - 20},
+    }
+
+
+def practice_team() -> dict:
+    """Zespół klienta z rekrutacją ćwiczebną: dwa miejsca, trzy wysłane osoby."""
+    candidates = [
+        _team_candidate(i, stage, rate, 2 + n)
+        for n, ((i, stage), rate) in enumerate(zip(TEAM_PEOPLE, (125.0, 130.0, 120.0)))
+    ]
+    return {
+        "id": PRACTICE_TEAM_ID,
+        "name": "Zespół projektowy (ćwiczenie)",
+        "client_id": POLIGON_CLIENT,
+        "client_name": CLIENT_NAME,
+        "hours_per_month": 168,
+        "positions": [
+            {
+                "job_id": POLIGON_JOB,
+                "title": JOB_TITLE,
+                "headcount": 2,
+                "closed": False,
+                "budget_min": None,
+                "budget_max": POLIGON_BUDGET_MAX_HOURLY,
+                "delivery_lead": {"id": TRAINERS["dl"][0], "name": TRAINERS["dl"][1]},
+                "candidates": candidates,
+                "rate_hint": None,
+            }
+        ],
+        "panel": {
+            "enabled": False,
+            "show_rate": False,
+            "expires_at": None,
+            "url": None,
+            "short_url": None,
+        },
+        "selections": [],
+        "variants": [],
+        "variants_approved_at": None,
+    }
+
+
+def team_variants_proposal() -> dict:
+    """„Zaproponuj składy”: trzy składy po dwie osoby (odczyt, nic nie zapisuje)."""
+    ids = [FIRST_CANDIDATE + i for i, _ in TEAM_PEOPLE]
+    variants = [
+        ("fastest", "Najszybszy start", [ids[0], ids[1]], 255.0),
+        ("cheapest", "Najniższa cena", [ids[0], ids[2]], 245.0),
+        ("best_fit", "Najwięcej wymagań w CV", [ids[1], ids[2]], 250.0),
+    ]
+    return {
+        "variants": [
+            {
+                "key": key,
+                "name": name,
+                "why": "",
+                "picks": [{"job_id": POLIGON_JOB, "candidate_ids": picks}],
+                "hourly_total": total,
+                "start": None,
+                "unknown_start": 2,
+            }
+            for key, name, picks, total in variants
+        ]
+    }
+
+
+def practice_agreement_row() -> dict:
+    """Umowa B2B osoby na „Rozmowie u klienta”, gotowa do wysyłki do podpisu."""
+    i = len(PEOPLE) + EXTRA_PEOPLE.index(SLOT_PERSON)
+    full = " ".join(SLOT_PERSON)
+    return {
+        "id": PRACTICE_AGREEMENT_ID,
+        "contract_number": "cw-b2b-001",
+        "partner_name": full,
+        "partner_display_name": full,
+        "partner_secondary_line": None,
+        "partner_nip": None,
+        "start_date": "@reld:14",
+        "client_name": CLIENT_NAME,
+        "language": "pl",
+        "signing_date": None,
+        "created_at": "@rel:-0.3",
+        "created_by_name": TRAINERS["rec"][1],
+        "created_by_role": "recruiter",
+        "pair_column": CLIENT_INTERVIEW_STAGE,
+        # Bez `signature_status` („unsigned”): strażnik zestawu nie przyjmuje
+        # tekstu pod kluczem z „signature”, a brak = niepodpisana.
+        "signature_source": None,
+        "contract_status": "in_progress",
+        "closure_reason": None,
+        "closure_reason_other": None,
+        "closure_date": None,
+        "can_change_status": False,
+        "candidate_id": FIRST_CANDIDATE + i,
+        "job_id": POLIGON_JOB,
+        "client_id": POLIGON_CLIENT,
+        "contract_id": None,
+        "candidate_name": full,
+        "job_title": JOB_TITLE,
+        "canonical_client_name": None,
+        "signed_at": None,
+        "signed_by_name": None,
+        "can_confirm_signed": False,
+        "blocked_reason": None,
+        "esign": None,
+        "can_send_esign": True,
+        "can_delete": False,
+        "can_edit": False,
+        "can_download": False,
+    }
+
+
+def esign_defaults() -> dict:
+    """Okno „Wyślij do podpisu”: podpisujący za firmę to trener, w paczce NDA klienta."""
+    return {
+        "contractor_name": " ".join(SLOT_PERSON),
+        "contractor_email": None,
+        "company_signers": [{"id": TRAINERS["dl"][0], "name": TRAINERS["dl"][1]}],
+        "mailbox_connected": False,
+        "cc_candidates": [],
+        "documents": [{"id": PRACTICE_NDA_ID, "name": f"NDA {CLIENT_NAME}"}],
+    }
+
+
+def add_novelty_practice(dataset: dict) -> None:
+    """Odczyty nowości z porannej porcji: zastępują puste odpowiedzi nagrania."""
+    job = POLIGON_JOB
+    dataset[f"GET /api/jobs/{job}/champion-profile/changes"] = champion_changes()
+    dataset[f"GET /api/job-teams/{PRACTICE_TEAM_ID}"] = practice_team()
+    dataset[f"GET /api/job-teams/{PRACTICE_TEAM_ID}/variants/proposal"] = (
+        team_variants_proposal()
+    )
+    dataset[f"GET /api/b2b-generator/generated?job_id={job}&limit=50"] = [
+        practice_agreement_row()
+    ]
+    dataset[
+        f"GET /api/b2b-generator/generated/{PRACTICE_AGREEMENT_ID}/esign/defaults"
+    ] = esign_defaults()
+
+
 FICTION_SKILLS = [
     "Agile",
     "Scrum",
@@ -1389,6 +1638,8 @@ def main() -> None:
     # Ćwiczenia z 16.11.2026: osoba czeka na wybór terminu u klienta, a CV
     # firmowe osoby-szablonu jest szkicem do poprawy asystentem.
     add_slot_card(dataset)
+    add_novelty_practice(dataset)
+    dataset = drop_stripped_words(dataset)
     dataset[
         f"GET /api/interview-cycle/preps/suggestions?candidate_id={tpl}&job_id={job}"
         "&prep1_minutes=45&prep2_minutes=45"
