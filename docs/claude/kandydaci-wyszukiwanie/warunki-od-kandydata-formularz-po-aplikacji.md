@@ -36,6 +36,10 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   nagłówki `x-*`, więc taki mail idzie przez `sendMail` w MIME
   (`app_mail._mime_body`). Samo podziękowanie nie ma tokenu, więc nie ma nagłówka.
   Nie dawaj `mailto:` w wypisie: MX domeny wskazuje hosting, nie M365.
+  MIME serializuj z `policy.SMTP.clone(max_line_length=998)`: przy domyślnych 78
+  znakach adres wypisu z tokenem wychodził jako `=?utf-8?q?...?=` i Gmail go nie
+  uznawał (T3 18.11.2026: dostarczenie i SPF/DKIM/DMARC = PASS, nagłówek zakodowany,
+  `List-Unsubscribe-Post` nie dotarł).
 - **Wysyłka:** pętla `candidate_terms_sender` co 5 min, 8:00–20:00 Warszawa,
   limit `CANDIDATE_TERMS_DAILY_LIMIT` (400). Zgłoszenia sprzed włączenia rodzaju
   odpadają (`before_enabled`), nie ma zaległości. Na stagingu pętla zablokowana

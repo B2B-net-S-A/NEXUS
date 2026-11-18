@@ -8,7 +8,7 @@ import { TermsPage } from "@/components/candidate-terms/TermsPage";
  * `?wypis=1` = ekran „Nie chcę dostawać takich pytań”.
  */
 export const metadata: Metadata = {
-  title: "Twoje warunki — B2B Network",
+  title: "Twoje warunki — B2Bnetwork",
   robots: { index: false, follow: false },
   referrer: "no-referrer",
 };

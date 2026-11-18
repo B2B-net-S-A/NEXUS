@@ -376,7 +376,10 @@ def _mime_body(
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype="html")
-    return base64.b64encode(msg.as_bytes(policy=SMTP))
+    # Bez zawijania do 78 znaków: adres wypisu z tokenem jest dłuższy, a
+    # ``policy.SMTP`` zakodowałby go jako ``=?utf-8?q?...?=`` i Gmail nie uzna
+    # go za wypis (T3 18.11.2026). 998 to twardy limit linii z RFC 5322.
+    return base64.b64encode(msg.as_bytes(policy=SMTP.clone(max_line_length=998)))
 
 
 def _send_via_graph_app(
