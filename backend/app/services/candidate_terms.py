@@ -162,6 +162,14 @@ def token_hash(raw: str) -> str:
 # ── Mail ──────────────────────────────────────────────────────────────────────
 
 
+def one_click_unsubscribe_url(api_base: str, raw_token: Optional[str]) -> Optional[str]:
+    """Adres dla ``List-Unsubscribe`` (RFC 8058): POST od Gmaila trafia wprost
+    w trasę wypisu w API. Bez tokenu (samo podziękowanie) nie ma czego wypisać."""
+    if not raw_token:
+        return None
+    return f"{api_base.rstrip('/')}/api/public/candidate-terms/{raw_token}/opt-out"
+
+
 @dataclass(frozen=True)
 class TermsEmail:
     subject: str

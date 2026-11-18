@@ -187,3 +187,11 @@ def test_ad_title_from_import_note():
     )
     assert ad_title_from_note("Aplikacja ręczna") is None
     assert ad_title_from_note(None) is None
+
+
+def test_one_click_unsubscribe_points_at_the_api_opt_out():
+    assert t.one_click_unsubscribe_url("https://api.example.com/", "tok") == (
+        "https://api.example.com/api/public/candidate-terms/tok/opt-out"
+    )
+    # Samo podziękowanie nie ma tokenu, więc nie ma też wypisu jednym kliknięciem.
+    assert t.one_click_unsubscribe_url("https://api.example.com", None) is None

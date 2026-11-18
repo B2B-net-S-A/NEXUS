@@ -28,6 +28,7 @@ hashem tenanta, aplikacji oraz nadawcy. Treści i adresy nie trafiają do logów
 
 from __future__ import annotations
 
+import base64
 import logging
 import threading
 from datetime import datetime, timezone
@@ -326,10 +327,17 @@ def send_via_graph_app(
     html_body: Optional[str] = None,
     reply_to: Optional[str] = None,
     sender_upn: Optional[str] = None,
+    list_unsubscribe: Optional[str] = None,
 ) -> bool:
     """Wysyłka app-only. ``sender_upn`` = inna skrzynka niż zespołowa (maile do
     kandydatów, 17.11.2026); ma własny stan bezpiecznika (``sender_scope``).
     Ta sama rejestracja aplikacji musi mieć do niej ``Mail.Send`` w Exchange RBAC.
+
+    ``list_unsubscribe`` (adres wypisu jednym kliknięciem, RFC 8058) przełącza
+    na wysyłkę MIME: JSON Graph przyjmuje tylko nagłówki ``x-*``, a Gmail i Yahoo
+    wymagają ``List-Unsubscribe`` od nadawców masowych. MIME niesie też część
+    tekstową obok HTML. Graph zapisuje wtedy kopię w Wysłanych (MIME nie ma
+    ``saveToSentItems``).
     """
     sender = sender_upn or settings.M365_MAIL_SENDER_UPN
     with mail_circuit.sender_scope(sender_upn):
@@ -340,7 +348,35 @@ def send_via_graph_app(
             html_body=html_body,
             reply_to=reply_to,
             sender=sender,
+            list_unsubscribe=list_unsubscribe,
         )
+
+
+def _mime_body(
+    *,
+    sender: str,
+    to: str,
+    subject: str,
+    text_body: str,
+    html_body: Optional[str],
+    reply_to: Optional[str],
+    list_unsubscribe: str,
+) -> bytes:
+    from email.message import EmailMessage
+    from email.policy import SMTP
+
+    msg = EmailMessage()
+    msg["From"] = sender
+    msg["To"] = to
+    msg["Subject"] = subject
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    msg["List-Unsubscribe"] = f"<{list_unsubscribe}>"
+    msg["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+    msg.set_content(text_body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+    return base64.b64encode(msg.as_bytes(policy=SMTP))
 
 
 def _send_via_graph_app(
@@ -351,6 +387,7 @@ def _send_via_graph_app(
     html_body: Optional[str],
     reply_to: Optional[str],
     sender: str,
+    list_unsubscribe: Optional[str] = None,
 ) -> bool:
     """True means Graph accepted, not delivered. No raw Graph text is logged.
 
@@ -388,6 +425,35 @@ def _send_via_graph_app(
     if reply_to:
         payload["message"]["replyTo"] = [{"emailAddress": {"address": reply_to}}]
     url = f"{_GRAPH_BASE}/users/{sender}/sendMail"
+    if list_unsubscribe:
+        mime = _mime_body(
+            sender=sender,
+            to=to,
+            subject=subject,
+            text_body=text_body,
+            html_body=html_body,
+            reply_to=reply_to,
+            list_unsubscribe=list_unsubscribe,
+        )
+
+        def _post(token: str):
+            return httpx.post(
+                url,
+                content=mime,
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "text/plain"},
+                timeout=15.0,
+            )
+
+    else:
+
+        def _post(token: str):
+            return httpx.post(
+                url,
+                json=payload,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15.0,
+            )
+
     posted = False
     try:
         token = _acquire_token()
@@ -396,12 +462,7 @@ def _send_via_graph_app(
             _finish(ticket, "token")
             return False
         posted = True
-        resp = httpx.post(
-            url,
-            json=payload,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=15.0,
-        )
+        resp = _post(token)
         if resp.status_code == 401:
             # Only a definite rejection is safe to retry after a token refresh.
             posted = False
@@ -411,12 +472,7 @@ def _send_via_graph_app(
                 _finish(ticket, "token")
                 return False
             posted = True
-            resp = httpx.post(
-                url,
-                json=payload,
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=15.0,
-            )
+            resp = _post(token)
         if resp.status_code == 202:
             # From this point, a failed state write must not turn acceptance
             # into a retryable rejection.
