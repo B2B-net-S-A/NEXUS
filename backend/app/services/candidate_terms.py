@@ -177,20 +177,45 @@ class TermsEmail:
     html_body: str
 
 
-_QUESTIONS = (
-    ("Minimalna stawka na B2B", "kwota netto za godzinę albo za miesiąc"),
-    ("Tryb pracy", "zdalnie, hybrydowo albo w biurze"),
-    ("Dni w biurze", "przy hybrydzie: od 1 do 5 w tygodniu"),
-    ("Miasta", "gdzie możesz dojeżdżać do biura"),
-    ("Od kiedy możesz zacząć", "data albo okres wypowiedzenia"),
-)
+#: Tematy formularza jednym zdaniem (wariant „Pasek postępu”, decyzja Artura 18.11.2026:
+#: bez wypunktowania, tylko co uzupełnić i po co).
+_TOPICS = "stawkę, tryb pracy, dni w biurze, miasta i termin startu"
 
 _COMPANY = (
     "B2B.NET S.A. · Kopernik Office Buildings, wejście A, Al. Jerozolimskie 180, "
     "02-486 Warszawa · KRS 0000387063 · NIP 5711707392"
 )
 
-_F = "font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;"
+_F = "font-family:Helvetica,Arial,sans-serif;"
+_F_BIG = "font-family:'Arial Black','Helvetica Neue',Helvetica,Arial,sans-serif;font-weight:900;"
+
+#: Ciemny wygląd dla Apple Mail, iOS i Outlooka na Macu. Aplikacje Gmaila
+#: tej reguły nie czytają i przyciemniają mail same.
+_STYLE = (
+    "@media (prefers-color-scheme: dark){"
+    ".bg{background:#0E0E0D!important}.wh{background:#181715!important}"
+    ".tx{color:#F3F0E9!important}.mu{color:#A9A399!important}.ln{border-color:#33302B!important}"
+    ".bt{background:#F3F0E9!important}.bt a{color:#141312!important}.lk{color:#FF8A95!important}"
+    ".sgo{background:#181715!important;border-color:#F3F0E9!important}"
+    ".lt{display:none!important}.dk{display:block!important}}"
+    "@media (max-width:620px){.pad{padding:24px 22px!important}.poster{padding:8px 22px 30px!important}"
+    ".big{font-size:44px!important;line-height:46px!important}}"
+)
+
+
+def _segment(label: str, done: bool) -> str:
+    """Odcinek paska: zgłoszenie i CV zaliczone, warunki czekają na kandydata."""
+    fill, cls, mark = (
+        ("#D62E40", "sgd", "&#10003;&nbsp;") if done else ("#FFFFFF", "sgo", "")
+    )
+    border = "#D62E40" if done else "#1A1816"
+    return (
+        '<td valign="top" width="33%" style="width:33%;padding:0 4px">'
+        f'<div class="{cls}" style="height:12px;background:{fill};border:2px solid {border};'
+        'border-radius:8px"></div>'
+        f'<div class="tx" style="{_F}font-size:14px;line-height:20px;font-weight:bold;'
+        f'color:#1A1816;margin-top:8px">{mark}{label}</div></td>'
+    )
 
 
 def render_terms_email(
@@ -204,6 +229,12 @@ def render_terms_email(
 ) -> TermsEmail:
     """Mail „Dziękujemy za zgłoszenie”. Bez ``link`` = samo podziękowanie.
 
+    Wygląd „Pasek postępu” (decyzja Artura 18.11.2026, makiety
+    https://claude.ai/artifact/CqKhX41iCPVCwQJyam4ruR): „30 sekund.” i pasek,
+    w którym zgłoszenie i CV są zaliczone, a warunki czekają. Wypis, dane
+    i adres spółki stoją na końcu bez logo pod nimi, bo Gmail zwija
+    powtarzającą się stopkę w kolejnych mailach wątku.
+
     Powitanie bez imienia (jak ``application_confirmation``): imię przychodzi
     z formularza albo portalu i bywa czymkolwiek. Wszystko, co pochodzi
     z bazy, przechodzi przez ``html.escape``.
@@ -212,132 +243,141 @@ def render_terms_email(
     kandydat ma wypełnić formularz, nie odpisywać na maila.
     """
     title = (job_title or "").strip() or None
-    what = f"Twoje zgłoszenie na stanowisko „{title}”" if title else "Twoje zgłoszenie"
     subject = (
         f"Dziękujemy za zgłoszenie: {title}" if title else "Dziękujemy za zgłoszenie"
     )
-    no_reply = (
-        "Wiadomość wysłana automatycznie, nie odpowiadaj na nią. "
-        + ("Swoje warunki podaj w formularzu." if link else "")
-    ).strip()
+    no_reply = "Wiadomość automatyczna, nie odpowiadaj na nią."
+    got = (
+        f"Twoje zgłoszenie na stanowisko „{title}” i CV do nas dotarły."
+        if title
+        else "Twoje zgłoszenie i CV do nas dotarły."
+    )
+    ask = (
+        f"Brakuje jeszcze Twoich warunków: {_TOPICS}. To 30 sekund i nie jest "
+        "obowiązkowe. Rekruter od razu zobaczy, czy ta rekrutacja jest dla Ciebie, "
+        "i podsunie Ci kolejne."
+    )
 
-    text_lines = [
-        "Dzień dobry,",
-        "",
-        f"{what} do nas dotarło, CV też. Rekruter przejrzy je i odezwie się, "
-        "jeśli profil będzie pasował.",
-        "",
-    ]
+    text_lines = ["Dzień dobry,", ""]
     if link:
         text_lines += [
-            "Żeby dopasować do Ciebie tę i podobne oferty, możesz od razu podać "
-            "swoje warunki. To ok. 2 minuty i nie jest obowiązkowe:",
+            got,
             "",
-            *[f"{i}. {q}" for i, (q, _) in enumerate(_QUESTIONS, 1)],
+            ask,
             "",
-            f"Podaj swoje warunki: {link}",
-            f"Link działa {LINK_TTL_DAYS} dni i jest tylko dla Ciebie.",
-            "",
-            "English: you can answer the same questions in English — the form "
-            "has a language switch.",
+            f"Dokończ w 30 sekund: {link}",
+            f"Link działa {LINK_TTL_DAYS} dni i jest tylko dla Ciebie. Nie wymaga logowania.",
+            "English: the form has a language switch.",
             "",
         ]
+    else:
+        text_lines += [
+            f"{got} Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował.",
+            "",
+        ]
+    if optout_link:
+        text_lines.append(f"Nie chcesz takich pytań? Wypisz się: {optout_link}")
     text_lines += [
         no_reply,
-        "",
-        _COMPANY,
         f"Informacje o przetwarzaniu danych: {rodo_url}",
+        _COMPANY,
     ]
-    if optout_link:
-        text_lines.append(f"Nie chcę dostawać takich pytań: {optout_link}")
     text_body = "\n".join(text_lines) + "\n"
 
     e = html.escape
     pre = (
-        "5 krótkich pytań, ok. 2 minuty. Pomogą dopasować do Ciebie tę i podobne oferty."
+        "Zgłoszenie i CV mamy. 30 sekund dzieli je od kompletu: Twoje warunki."
         if link
-        else "Twoje zgłoszenie do nas dotarło."
+        else "Twoje zgłoszenie i CV do nas dotarły."
     )
-    rows = "".join(
-        f'<tr><td style="padding:14px 0;border-top:1px solid #D9D6CA;width:40px;'
-        f'vertical-align:top;{_F}font-size:15px;font-weight:800;color:#C42536">{i:02d}</td>'
-        f'<td style="padding:14px 0;border-top:1px solid #D9D6CA;vertical-align:top;{_F}">'
-        f'<div style="font-size:16px;font-weight:700;color:#141414;line-height:22px">{e(q)}</div>'
-        f'<div style="font-size:14px;color:#5C5A55;line-height:20px">{e(h)}</div></td></tr>'
-        for i, (q, h) in enumerate(_QUESTIONS, 1)
+    job_html = (
+        f'<br><b class="tx" style="color:#1A1816">{e(title)}</b>' if title else ""
     )
-    ask = ""
+    header = (
+        '<tr><td class="wh pad" bgcolor="#FFFFFF" style="background:#FFFFFF;padding:24px 36px 22px">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+        f'<td><img class="lt" src="{e(logo_url, quote=True)}" width="88" height="41" '
+        'alt="B2Bnetwork" style="display:block;border:0">'
+        f'<img class="dk" src="{e(logo_light_url, quote=True)}" width="88" height="41" '
+        'alt="B2Bnetwork" style="display:none;border:0"></td>'
+        f'<td align="right" class="mu" style="{_F}font-size:13px;line-height:18px;color:#6E6A63">'
+        f"Zgłoszenie przyjęte{job_html}</td></tr></table></td></tr>"
+    )
     if link:
-        ask = (
-            f'<p style="margin:0 0 20px;{_F}font-size:16px;line-height:24px;color:#141414">'
-            "Żeby dopasować do Ciebie tę i podobne oferty, możesz od razu podać swoje "
-            "warunki. To ok. 2 minuty i nie jest obowiązkowe.</p>"
-            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            f'border="0" style="border-bottom:1px solid #D9D6CA">{rows}</table>'
-            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
-            'style="margin:28px 0 12px"><tr><td bgcolor="#C42536" '
-            'style="background:#C42536;border-radius:4px">'
-            f'<a href="{e(link, quote=True)}" style="display:inline-block;padding:15px 26px;'
-            f"{_F}font-size:16px;font-weight:700;color:#FFFFFF;text-decoration:none;"
-            'border-radius:4px">Podaj swoje warunki&nbsp;&rarr;</a></td></tr></table>'
-            f'<p style="margin:0 0 24px;{_F}font-size:13px;line-height:19px;color:#5C5A55">'
-            f"Link działa {LINK_TTL_DAYS} dni i jest tylko dla Ciebie. Nie wymaga logowania. "
-            "English version: use the language switch on the form.</p>"
+        poster = (
+            '<tr><td class="poster wh ln" bgcolor="#FFFFFF" style="background:#FFFFFF;'
+            'padding:10px 32px 34px;border-top:1px solid #ECE8E1">'
+            f'<div class="tx big" style="{_F_BIG}font-size:60px;line-height:62px;'
+            'letter-spacing:-2px;color:#1A1816;margin:18px 4px 6px">'
+            '30 sekund<span style="color:#D62E40">.</span></div>'
+            f'<div class="tx" style="{_F}font-size:19px;line-height:27px;color:#1A1816;'
+            'margin:0 4px 26px">Tyle dzieli Twoje zgłoszenie od kompletu.</div>'
+            '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+            + _segment("Zgłoszenie", True)
+            + _segment("CV", True)
+            + _segment("Twoje warunki", False)
+            + "</tr></table></td></tr>"
         )
-    title_html = f"<b>„{e(title)}”</b>" if title else ""
-    lead = (
-        f"Twoje zgłoszenie na stanowisko {title_html} do nas dotarło, CV też."
-        if title
-        else "Twoje zgłoszenie do nas dotarło, CV też."
-    )
+        action = (
+            '<tr><td class="wh pad" bgcolor="#FFFFFF" style="background:#FFFFFF;padding:30px 36px 32px">'
+            f'<p class="tx" style="margin:0 0 24px;{_F}font-size:17px;line-height:26px;color:#1A1816">'
+            f"Dzień dobry, {e(got)} {e(ask)}</p>"
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0" '
+            'style="margin:0 0 14px"><tr><td class="bt" bgcolor="#1A1816" '
+            'style="background:#1A1816;border-radius:2px">'
+            f'<a href="{e(link, quote=True)}" style="display:inline-block;padding:16px 30px;'
+            f'{_F}font-size:16px;font-weight:bold;color:#FFFFFF;text-decoration:none">'
+            "Dokończ w 30 sekund&nbsp;&nbsp;&rarr;</a></td></tr></table>"
+            f'<p class="mu" style="margin:0;{_F}font-size:13px;line-height:20px;color:#6E6A63">'
+            f"Nieobowiązkowe · bez logowania · link działa {LINK_TTL_DAYS} dni i jest tylko "
+            "dla Ciebie · English version on the form</p></td></tr>"
+        )
+    else:
+        poster = ""
+        action = (
+            '<tr><td class="wh pad ln" bgcolor="#FFFFFF" style="background:#FFFFFF;'
+            'padding:30px 36px 32px;border-top:1px solid #ECE8E1">'
+            f'<h1 class="tx" style="margin:0 0 14px;{_F_BIG}font-size:30px;line-height:34px;'
+            'letter-spacing:-1px;color:#1A1816">Dziękujemy za zgłoszenie'
+            '<span style="color:#D62E40">.</span></h1>'
+            f'<p class="tx" style="margin:0;{_F}font-size:17px;line-height:26px;color:#1A1816">'
+            f"Dzień dobry, {e(got)} Rekruter przejrzy je i odezwie się, "
+            "jeśli profil będzie pasował.</p></td></tr>"
+        )
     optout_html = (
-        f'<p style="margin:0 0 12px;{_F}font-size:14px;line-height:22px">'
-        f'<a href="{e(optout_link, quote=True)}" '
-        'style="display:inline-block;padding:11px 0;color:#A21D2D;text-decoration:underline">'
-        "Nie chcę dostawać takich pytań</a></p>"
+        f'<p class="tx" style="margin:0 0 4px;{_F}font-size:14px;line-height:21px;color:#3C3934">'
+        "Nie chcesz takich pytań? "
+        f'<a class="lk" href="{e(optout_link, quote=True)}" style="display:inline-block;'
+        'padding:6px 0;color:#B3202F;font-weight:bold;text-decoration:underline">'
+        "Wypisz się jednym kliknięciem</a></p>"
         if optout_link
         else ""
+    )
+    footer = (
+        '<tr><td class="pad" style="padding:20px 36px 30px">'
+        f"{optout_html}"
+        f'<p class="mu" style="margin:0 0 6px;{_F}font-size:12px;line-height:18px;color:#6E6A63">'
+        f"{e(no_reply)} "
+        f'<a class="lk" href="{e(rodo_url, quote=True)}" style="display:inline-block;'
+        'padding:6px 0;color:#B3202F;text-decoration:underline">'
+        "Informacje o przetwarzaniu danych</a></p>"
+        f'<p class="mu" style="margin:0;{_F}font-size:11px;line-height:17px;color:#7A756C">'
+        f"{e(_COMPANY)}</p></td></tr>"
     )
     html_body = (
         '<!doctype html><html lang="pl"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        '<meta name="color-scheme" content="light">'
-        f"<title>{e(subject)}</title></head>"
-        '<body style="margin:0;padding:0;background:#F5F4EC">'
-        '<div style="display:none;max-height:0;overflow:hidden;opacity:0;color:#F5F4EC">'
+        '<meta name="color-scheme" content="light dark">'
+        '<meta name="supported-color-schemes" content="light dark">'
+        f"<title>{e(subject)}</title><style>{_STYLE}</style></head>"
+        '<body class="bg" style="margin:0;padding:0;background:#F4F3F0">'
+        '<div style="display:none;max-height:0;overflow:hidden;opacity:0">'
         f"{e(pre)}</div>"
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
-        'bgcolor="#F5F4EC" style="background:#F5F4EC"><tr><td align="center" '
-        'style="padding:24px 12px"><table role="presentation" width="600" cellpadding="0" '
+        'class="bg" bgcolor="#F4F3F0" style="background:#F4F3F0"><tr><td align="center" '
+        'style="padding:28px 10px"><table role="presentation" width="600" cellpadding="0" '
         'cellspacing="0" border="0" style="width:100%;max-width:600px">'
-        f'<tr><td style="padding:8px 8px 24px"><img src="{e(logo_url, quote=True)}" '
-        'width="132" height="61" alt="B2Bnetwork" style="display:block;border:0"></td></tr>'
-        '<tr><td bgcolor="#FFFFFF" style="background:#FFFFFF;padding:36px 32px 32px;'
-        'border-top:4px solid #E73748">'
-        f'<h1 style="margin:0 0 20px;{_F}font-size:28px;line-height:32px;font-weight:800;'
-        'letter-spacing:-0.5px;color:#141414">Dziękujemy za zgłoszenie</h1>'
-        f'<p style="margin:0 0 16px;{_F}font-size:16px;line-height:24px;color:#141414">'
-        "Dzień dobry,</p>"
-        f'<p style="margin:0 0 16px;{_F}font-size:16px;line-height:24px;color:#141414">'
-        f"{lead} Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował.</p>"
-        f"{ask}"
-        # Gmail may collapse repeated signatures after the footer logo. Keep
-        # opt-out, privacy and sender information in the message, before it.
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'border="0"><tr><td style="padding:20px 0 0;border-top:1px solid #D9D6CA">'
-        f"{optout_html}"
-        f'<p style="margin:0 0 12px;{_F}font-size:13px;line-height:20px;color:#5C5A55">'
-        f"{e(no_reply)}</p>"
-        f'<p style="margin:0 0 12px;{_F}font-size:13px;line-height:20px">'
-        f'<a href="{e(rodo_url, quote=True)}" style="display:inline-block;padding:12px 0;'
-        'color:#A21D2D;text-decoration:underline">'
-        "Informacje o przetwarzaniu danych</a></p>"
-        f'<p style="margin:0;{_F}font-size:12px;line-height:18px;color:#5C5A55">'
-        f"{e(_COMPANY)}</p></td></tr></table>"
-        "</td></tr>"
-        '<tr><td bgcolor="#1A1816" style="background:#1A1816;padding:28px 32px">'
-        f'<img src="{e(logo_light_url, quote=True)}" width="96" height="44" alt="B2Bnetwork" '
-        'style="display:block;border:0">'
-        "</td></tr></table></td></tr></table></body></html>"
+        f"{header}{poster}{action}{footer}"
+        "</table></td></tr></table></body></html>"
     )
     return TermsEmail(subject=subject, text_body=text_body, html_body=html_body)

@@ -145,7 +145,8 @@ def test_mail_with_link_has_both_parts_and_questions():
     )
     for part in (m.text_body, m.html_body):
         assert "https://nexus.example/warunki/abc" in part
-        assert "Minimalna stawka na B2B" in part
+        assert "stawkę, tryb pracy, dni w biurze, miasta i termin startu" in part
+        assert "30 sekund" in part
         assert "nie odpowiadaj na nią" in part
         assert "/warunki/abc/wypis" in part
 
@@ -176,33 +177,62 @@ def test_mail_never_invites_replies():
 
 
 @pytest.mark.parametrize("with_request", [True, False])
-def test_essential_footer_is_visible_before_the_signature_logo(with_request):
-    """Gmail can collapse repeated signature content after a footer logo."""
+def test_mail_ends_with_footer_and_nothing_after_it(with_request):
+    """Gmail zwija powtarzającą się stopkę w kolejnych mailach wątku (T3b 18.11).
+
+    Wypis, informacja o danych i dane spółki są na końcu, bez logo ani obrazu
+    pod nimi; logo jest tylko w nagłówku.
+    """
 
     class MessageOrder(HTMLParser):
         def __init__(self):
             super().__init__()
             self.items = []
+            self._skip = False
 
         def handle_starttag(self, tag, attrs):
             attrs = dict(attrs)
+            self._skip = tag in {"style", "title"}
             if tag in {"a", "img"}:
                 self.items.append(attrs.get("href") or attrs.get("src"))
 
+        def handle_endtag(self, tag):
+            self._skip = False
+
         def handle_data(self, data):
-            if data.strip():
+            if data.strip() and not self._skip:
                 self.items.append(data.strip())
 
     message = _mail(**({} if with_request else {"link": None, "optout_link": None}))
     parsed = MessageOrder()
     parsed.feed(message.html_body)
-    signature = parsed.items.index("https://nexus.example/brand/mail/logo-light.png")
-    assert parsed.items.index("https://nexus.example/kariera/rodo") < signature
-    assert any("nie odpowiadaj na nią" in item for item in parsed.items[:signature])
-    assert any("B2B.NET S.A." in item for item in parsed.items[:signature])
+    logos = [i for i, item in enumerate(parsed.items) if item and item.endswith(".png")]
+    rodo = parsed.items.index("https://nexus.example/kariera/rodo")
+    assert logos and max(logos) < rodo
+    assert any(
+        "nie odpowiadaj na nią" in item for item in parsed.items[rodo - 2 : rodo]
+    )
+    assert parsed.items[-1].startswith("B2B.NET S.A.")
     if with_request:
-        assert parsed.items.index("https://nexus.example/warunki/abc/wypis") < signature
-    assert parsed.items[signature + 1 :] == []
+        optout = parsed.items.index("https://nexus.example/warunki/abc/wypis")
+        assert parsed.items.index("https://nexus.example/warunki/abc") < optout < rodo
+
+
+def test_progress_bar_only_when_terms_are_missing():
+    """Pasek „Zgłoszenie ✓ · CV ✓ · Twoje warunki” tylko w mailu z linkiem."""
+    assert "Tyle dzieli Twoje zgłoszenie od kompletu" in _mail().html_body
+    thanks = _mail(link=None, optout_link=None)
+    assert "30 sekund" not in thanks.html_body + thanks.text_body
+    assert "kompletu" not in thanks.html_body
+
+
+def test_dark_mode_swaps_to_light_logo():
+    html_body = _mail().html_body
+    assert 'content="light dark"' in html_body
+    assert "prefers-color-scheme: dark" in html_body
+    assert (
+        'class="dk" src="https://nexus.example/brand/mail/logo-light.png"' in html_body
+    )
 
 
 def test_ad_title_from_import_note():

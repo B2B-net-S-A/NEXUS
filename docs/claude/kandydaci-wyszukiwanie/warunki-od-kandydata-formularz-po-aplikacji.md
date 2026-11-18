@@ -40,6 +40,14 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   znakach adres wypisu z tokenem wychodził jako `=?utf-8?q?...?=` i Gmail go nie
   uznawał (T3 18.11.2026: dostarczenie i SPF/DKIM/DMARC = PASS, nagłówek zakodowany,
   `List-Unsubscribe-Post` nie dotarł).
+- **Wygląd „Pasek postępu” (decyzja Artura 18.11.2026, makiety
+  https://claude.ai/artifact/CqKhX41iCPVCwQJyam4ruR):** nagłówek z logo i stanowiskiem,
+  „30 sekund.” i pasek z trzech odcinków (Zgłoszenie ✓, CV ✓, Twoje warunki), zdanie
+  z tematami formularza zamiast wypunktowania, przycisk „Dokończ w 30 sekund”. Wypis,
+  informacja o danych i dane spółki są na końcu i nic pod nimi nie stoi (logo tylko
+  w nagłówku), bo Gmail zwija powtarzającą się stopkę w drugim mailu wątku. Ciemny
+  wygląd przez `prefers-color-scheme` z jasnym logo. Samo podziękowanie nie ma paska
+  ani „30 sekund”. Artur odrzucił listę pięciu tematów w mailu: zostaje jedno zdanie.
 - **Wysyłka:** pętla `candidate_terms_sender` co 5 min, 8:00–20:00 Warszawa,
   limit `CANDIDATE_TERMS_DAILY_LIMIT` (400). Zgłoszenia sprzed włączenia rodzaju
   odpadają (`before_enabled`), nie ma zaległości. Na stagingu pętla zablokowana
