@@ -50,6 +50,26 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   `db_statements` i `db_ms` w `http_outcome` mówią, ile zapytań zrobiła trasa
   i ile na nie czekała (`db_ms` obejmuje kolejkę w pętli). Trasa z dziesiątkami
   zapytań spowalnia też wszystkie inne.
+- **`duration_ms` w `http_outcome` kończy się na ostatnim kawałku odpowiedzi**
+  (18.11.2026). Praca po nim — `BackgroundTasks`, które Starlette wykonuje
+  wewnątrz middleware'u — idzie do `background_ms`, `background_db_statements`
+  i `background_db_ms` (pola są tylko wtedy, gdy trwała ≥ 100 ms albo pytała bazę).
+  Wcześniej odczyt CV w tle dawał `POST /api/candidates/{id}/cv` p50 18 s
+  w rankingu tras, choć odpowiedź szła wcześniej. Wolne trasy licz po
+  `duration_ms`, obciążenie procesu web po sumie obu.
+- **Odczyt CV modelem oddaje połączenie na czas odpowiedzi**
+  (`parse_cv(..., release_db_during_model=True)` w wgraniu CV, `from-cv`
+  i podglądzie). Model ma p50 16,5 s, a sesja trzymała połączenie „idle in
+  transaction” od zapytań kwoty. Domyślnie wyłączone: sesja z
+  `pg_advisory_xact_lock` (narzędzia CLI) zgubiłaby blokadę na commicie.
+  Pomiar 18.11: CPU odczytu CV w pętli zdarzeń jest pomijalne (ekstrakcja
+  w wątku i podprocesie, normalizacja ok. 0,5 ms), więc nie ma czego
+  przenosić do `to_thread` ani do workera.
+- **Ikona „CV” po ramce gniazda: `refreshCvTopicFromRealtime`**
+  (`frontend/src/lib/cv-topic-refresh.ts`): pierwsza ramka od razu, kolejne
+  w oknie 2 s jednym odświeżeniem na końcu; ukryta karta tylko oznacza dane
+  jako nieaktualne. Bez tego seria `pipeline_changed` z kilku rekrutacji
+  dawała jednemu klientowi kilkanaście odczytów trasy z 22–34 zapytaniami.
 - **`freeze_startup_heap()` w lifespanie, przed pętlami w tle.** Ponad 1,3 mln
   obiektów z importu nie wchodzi do pełnej zbiórki GC, która zatrzymuje cały
   proces. Staging: 589 ms bez zamrożenia, 51 ms po nim. Nie usuwaj tego bez
