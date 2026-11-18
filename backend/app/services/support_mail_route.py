@@ -8,11 +8,12 @@ z własnym znacznikiem. Mail **z załącznikiem i z adresem rozliczeń w „Do�
 spraw. Obie strony pytają tę samą funkcję, więc wiadomość trafia do dokładnie jednego
 czytnika. Bez tego każdy raport stałby się i dokumentem, i sprawą.
 
-Czytnik spraw pomija maile rozliczeń tylko wtedy, gdy obie zmienne skrzynek wskazują tę samą
-skrzynkę; osobne skrzynki = bierze wszystko, jak przed E8. Czytnik rozliczeń przy ustawionych
-adresach bierze tylko maile rozliczeń zawsze, żeby wsparcie@ ustawiona przed zmienną spraw nie
-zrobiła dokumentu z każdego maila. Wspólna skrzynka bez adresów rozliczeń = czytnik rozliczeń stoi
-z błędem ``shared_without_route``, a sprawy biorą wszystko.
+Router działa tylko wtedy, gdy obie zmienne skrzynek wskazują tę samą skrzynkę, a czytnik spraw
+pomija maile rozliczeń tylko przy działającym czytniku rozliczeń (portal ``internal``/``pilot``/
+``all``). Osobne skrzynki bez adresów = każdy czytnik bierze swoją w całości, jak przed E8.
+Dwa stany są błędem konfiguracji i zatrzymują czytnik rozliczeń bez ruszania znacznika
+(``misconfiguration``): wspólna skrzynka bez adresów (``shared_without_route``) i adresy przy
+osobnych skrzynkach (``route_not_shared``, np. wsparcie@ ustawiona przed skrzynką spraw).
 
 Mail na rozliczenia@ bez załącznika (pytanie) jest sprawą. Mail wysłany w ukrytej kopii nie ma
 adresu rozliczeń w nagłówkach, które czytamy, więc też jest sprawą.
@@ -69,3 +70,13 @@ def is_settlements_mail(message: dict[str, Any], addresses: frozenset[str]) -> b
     """Wiadomość dla czytnika rozliczeń: załącznik i adres rozliczeń w „Do”/„DW”."""
 
     return bool(message.get("hasAttachments")) and bool(recipients(message) & addresses)
+
+
+def misconfiguration(route: Optional[frozenset[str]]) -> Optional[str]:
+    """Kod błędu, przy którym czytnik rozliczeń stoi; ``route`` z ``shared_route``."""
+
+    if route is not None and not route:
+        return "shared_without_route"
+    if route is None and settlements_addresses():
+        return "route_not_shared"
+    return None

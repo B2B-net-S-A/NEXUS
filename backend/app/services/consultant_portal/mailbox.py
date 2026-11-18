@@ -14,9 +14,9 @@ daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
   daje kartę do ręcznego przypisania.
 * Znacznik idzie z zakładką 2 h, a duplikaty zamyka unikat na (wiadomość, plik).
   Do logu trafia klasa błędu, nigdy adres ani temat.
-* Jedna skrzynka wsparcie@ (E8): przy ustawionych adresach rozliczeń bierzemy tylko maile
-  z załącznikiem na te adresy (``support_mail_route``), resztę czytnik spraw. Wspólna skrzynka
-  ze sprawami bez adresów rozliczeń = stan ``error``/``shared_without_route`` i nic nie czytamy.
+* Jedna skrzynka wsparcie@ (E8): na skrzynce wspólnej ze sprawami bierzemy tylko maile
+  z załącznikiem na adresy rozliczeń (``support_mail_route``), resztę czytnik spraw. Zła
+  konfiguracja (``support_mail_route.misconfiguration``) = stan ``error`` i nic nie czytamy.
 """
 
 from __future__ import annotations
@@ -467,13 +467,13 @@ async def run_once(
         await _write_state(db, now=moment, status="disabled", error="no_mailbox")
         return {"status": "disabled", "reason": "no_mailbox"}
     route = support_mail_route.shared_route(upn, cases_mailbox())
-    if route is not None and not route:
-        # Bez adresów rozliczeń każdy mail z wsparcie@ byłby i sprawą, i dokumentem.
-        await _write_state(db, now=moment, status="error", error="shared_without_route")
-        return {"status": "error", "reason": "shared_without_route"}
-    # Adresy rozliczeń zawężają czytnik zawsze, także gdy skrzynka spraw jest jeszcze inna:
-    # skrzynka wsparcie@ ustawiona przed zmienną spraw nie zrobi z każdego maila dokumentu.
-    only_to = support_mail_route.settlements_addresses() or None
+    misconfigured = support_mail_route.misconfiguration(route)
+    if misconfigured:
+        # Wspólna skrzynka bez adresów: każdy mail byłby i sprawą, i dokumentem. Adresy przy
+        # osobnych skrzynkach: wsparcie@ ustawiona przed skrzynką spraw zrobiłaby dokument
+        # z każdego maila. Stoimy bez ruszania znacznika, więc nic nie przepada.
+        await _write_state(db, now=moment, status="error", error=misconfigured)
+        return {"status": "error", "reason": misconfigured}
     reader: SettlementsMailbox = mailbox or GraphSettlementsMailbox(upn or "")
     current = await _state(db)
     seen = current.last_seen_received_at if current else None
@@ -491,7 +491,7 @@ async def run_once(
     created = skipped = failed = 0
     newest = seen
     for message in messages:
-        if only_to and not support_mail_route.is_settlements_mail(message, only_to):
+        if route and not support_mail_route.is_settlements_mail(message, route):
             # Sprawa dla czytnika spraw: znacznik idzie dalej, nic nie zapisujemy.
             received = _parse_time(message.get("receivedDateTime"))
             if received and (newest is None or received > newest):

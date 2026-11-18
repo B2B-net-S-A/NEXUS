@@ -425,10 +425,11 @@ async def test_shared_mailbox_without_settlements_address_reads_nothing(
 
 
 @pytest.mark.usefixtures("internal")
-async def test_settlements_address_narrows_reader_before_cases_mailbox_moves(
+async def test_settlements_address_with_separate_mailboxes_stops_reader(
     shared_support_mailbox, monkeypatch
 ) -> None:
-    """wsparcie@ ustawiona dla rozliczeń, skrzynka spraw jeszcze stara: tylko maile rozliczeń."""
+    """Adresy rozliczeń przy innej skrzynce spraw (np. wsparcie@ ustawiona za wcześnie):
+    czytnik stoi i nie rusza znacznika, zamiast robić dokument z każdego maila."""
     monkeypatch.setattr(
         shared_support_mailbox, "ADMIN_CASES_M365_MAILBOX", "stara@example.com"
     )
@@ -439,14 +440,11 @@ async def test_settlements_address_narrows_reader_before_cases_mailbox_moves(
     )
     person = await make_person(activated=False)
     reader = FakeMailbox(
-        [
-            _to(_message("m1", person.email), "rozliczenia@example.com"),
-            _to(_message("m2", person.email), "wsparcie@example.com"),
-        ],
-        {
-            "m1": [_attachment("rcp.pdf", PDF)],
-            "m2": [_attachment("l4.pdf", PDF + b" inny")],
-        },
+        [_to(_message("m1", person.email), "wsparcie@example.com")],
+        {"m1": [_attachment("l4.pdf", PDF)]},
     )
-    assert (await _read(reader))["created"] == 1
-    assert [row.graph_message_id for row in await _documents()] == ["m1"]
+    assert await _read(reader) == {"status": "error", "reason": "route_not_shared"}
+    assert await _documents() == []
+    async with AsyncSessionLocal() as db:
+        state = await db.get(CpMailboxState, 1)
+    assert (state.last_error, state.last_seen_received_at) == ("route_not_shared", None)

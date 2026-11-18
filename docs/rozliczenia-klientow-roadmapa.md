@@ -593,8 +593,10 @@ i `CONSULTANT_PORTAL_MAILBOX` (wsparcie@: nadawca linków i organizator rozmów)
 - Jak zrobione (18.11, E8.2): zamiast jednego czytnika zostają oba, ale na wspólnej
   skrzynce rozdziela je jedna funkcja (`app/services/support_mail_route.py`): mail
   z załącznikiem i z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do”/„DW” bierze
-  czytnik rozliczeń, każdy inny czytnik spraw (wynik `routed_settlements`). Wspólna skrzynka
-  bez adresów zatrzymuje czytnik rozliczeń (`shared_without_route`). Każdy czytnik zachowuje
+  czytnik rozliczeń, każdy inny czytnik spraw (wynik `routed_settlements`, tylko przy
+  działającym czytniku rozliczeń). Wspólna skrzynka bez adresów (`shared_without_route`)
+  i adresy przy osobnych skrzynkach (`route_not_shared`) zatrzymują czytnik rozliczeń bez
+  ruszania znacznika. Każdy czytnik zachowuje
   własny znacznik i całą dotychczasową logikę. Zmienne i kolejność startu:
   `docs/claude/ludzie/jedna-skrzynka-wsparcie.md`, sekcja „Router E8”.
 - **Meta:** mail wysłany na każdy stary adres ląduje jako jedna sprawa albo jeden

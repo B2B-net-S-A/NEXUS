@@ -156,9 +156,16 @@ Gdy `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` i skrzynka spraw (`ADMIN_CASES_M365_
   → czytnik rozliczeń (dokument, dalej jak dotąd), a czytnik spraw liczy go jako `routed_settlements`;
 - każdy inny mail (także pytanie na rozliczenia@ bez załącznika i mail w ukrytej kopii) → sprawa.
 
-Wspólna skrzynka bez adresów rozliczeń: czytnik rozliczeń stoi z `last_error = 'shared_without_route'`
-(karta „Start rozliczeń” to pokazuje), a sprawy biorą wszystko. Osobne skrzynki: router nie działa,
-każdy czytnik bierze swoją skrzynkę w całości, jak przed E8.
+Czytnik spraw oddaje maile rozliczeniom tylko wtedy, gdy czytnik rozliczeń czyta (portal `internal`,
+`pilot` albo `all`); przy portalu `off` raport na rozliczenia@ zostaje sprawą.
+
+Dwa stany to błąd konfiguracji. Czytnik rozliczeń stoi wtedy bez ruszania znacznika, więc po poprawce
+nic nie przepada, a karta „Start rozliczeń” pokazuje, co poprawić:
+- wspólna skrzynka bez adresów rozliczeń: `last_error = 'shared_without_route'`, sprawy biorą wszystko;
+- adresy rozliczeń przy osobnych skrzynkach: `last_error = 'route_not_shared'`, np. wsparcie@ ustawiona
+  dla rozliczeń, zanim `ADMIN_CASES_M365_MAILBOX` dostała tę samą wartość.
+
+Osobne skrzynki bez adresów: router nie działa, każdy czytnik bierze swoją skrzynkę w całości, jak przed E8.
 
 Mail na rozliczenia@, którego czytnik rozliczeń nie przypisze (nadawca bez kontraktu w `internal`
 albo spoza pilotażu w `pilot`), nie staje się sprawą. Na czas przejścia kopia zostaje na home.pl.
@@ -176,9 +183,8 @@ env -u GH_TOKEN gh workflow run "Coolify set env" --repo B2B-net-S-A/NEXUS --ref
 
 Do tego samego wdrożenia `ADMIN_CASES_M365_MAILBOX=wsparcie@b2bnetwork.pl` (polecenie w stanie
 przejściowym niżej): dopiero wtedy czytnik spraw wie, że skrzynka jest wspólna. Kolejność nie jest
-groźna. Przy ustawionych adresach czytnik rozliczeń bierze tylko maile rozliczeń także wtedy,
-gdy skrzynka spraw jest jeszcze inna, a skrzynka wspólna bez adresów zatrzymuje go na
-`shared_without_route`. `ADMIN_CASES_MAIL_INGEST_ENABLED=true` włączasz osobno, po próbie 1d.
+groźna: dopóki trzy zmienne do siebie nie pasują, czytnik rozliczeń stoi na `route_not_shared` albo
+`shared_without_route` i nie rusza znacznika. `ADMIN_CASES_MAIL_INGEST_ENABLED=true` włączasz osobno, po próbie 1d.
 
 ### Bez routera (stan przejściowy sprzed E8)
 

@@ -66,3 +66,14 @@ def test_settlements_mail_needs_attachment_and_settlements_address(
     addresses, message, expected
 ) -> None:
     assert route.is_settlements_mail(message, route.settlements_addresses()) is expected
+
+
+def test_misconfiguration_codes(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "")
+    assert route.misconfiguration(None) is None
+    assert route.misconfiguration(frozenset()) == "shared_without_route"
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "rozliczenia@example.com"
+    )
+    assert route.misconfiguration(None) == "route_not_shared"
+    assert route.misconfiguration(route.settlements_addresses()) is None

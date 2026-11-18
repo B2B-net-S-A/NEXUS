@@ -56,6 +56,14 @@ function mailboxCheck(start: SettlementsStart): Check {
       note: "zmienna adresów rozliczeń (E8)",
     };
   }
+  if (box.last_status === "error" && box.last_error === "route_not_shared") {
+    return {
+      key: "mailbox",
+      tone: "danger",
+      text: "Adres rozliczeń ustawiony, ale skrzynka spraw jest inna niż skrzynka rozliczeń",
+      note: "skrzynka spraw = skrzynka rozliczeń (E8)",
+    };
+  }
   if (box.last_status === "error") {
     return {
       key: "mailbox",

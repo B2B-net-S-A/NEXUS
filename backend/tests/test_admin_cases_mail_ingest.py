@@ -246,12 +246,50 @@ async def test_second_run_duplicates_nothing(mailbox_on) -> None:
 _PDF = [{"name": "rcp.pdf", "contentType": "application/pdf", "size": 10}]
 
 
+def _settlements_reader(monkeypatch, state: str) -> None:
+    """Stan portalu widziany przez router (czy czytnik rozliczeń czyta skrzynkę)."""
+    from app.services.consultant_portal import portal_settings
+
+    async def load(db):
+        return portal_settings.PortalSettings(state=state)
+
+    monkeypatch.setattr(portal_settings, "load", load)
+
+
+@pytest.mark.asyncio
+async def test_settlement_mail_stays_a_case_while_settlements_reader_is_off(
+    mailbox_on, monkeypatch
+) -> None:
+    """Portal wyłączony = czytnik rozliczeń nie czyta, więc raport zostaje sprawą."""
+    from app.core.config import settings
+
+    _settlements_reader(monkeypatch, "off")
+    monkeypatch.setattr(settings, "CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX", mailbox_on)
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", "rozliczenia@example.com"
+    )
+    fake = FakeMailbox()
+    report = fake.add(
+        subject="RCP 10/2026",
+        hours_ago=1,
+        attachments=_PDF,
+        to=["rozliczenia@example.com"],
+    )
+
+    result = await _run(fake)
+
+    assert result.get("routed_settlements", 0) == 0
+    assert report["id"] in await _cases_for(fake)
+
+
 @pytest.mark.asyncio
 async def test_shared_support_mailbox_leaves_settlement_mail_to_settlements(
     mailbox_on, monkeypatch
 ) -> None:
     """E8: wsparcie@ czytają oba czytniki — raport na rozliczenia@ nie jest sprawą."""
     from app.core.config import settings
+
+    _settlements_reader(monkeypatch, "internal")
 
     monkeypatch.setattr(
         settings, "CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX", mailbox_on.upper()
