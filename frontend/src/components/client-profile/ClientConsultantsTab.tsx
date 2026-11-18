@@ -394,15 +394,20 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
 
   return (
     <section className="space-y-3" data-tour="client.consultants">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <h2 className="text-base font-semibold text-foreground">Konsultanci u klienta</h2>
-          <p className="text-xs text-muted-foreground">
-            Umowa i bieżące zamówienie w jednym wierszu. Zamówienia jako dokumenty i budżety MD są
-            w podzakładce „Zamówienia”.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      {/* Bez nagłówka i opisu nad listą (E2E „treść w górnej części okna”,
+          1280 × 720 na runnerze CI): przyciski stoją w rzędzie podzakładek. */}
+      <h2 className="sr-only">Konsultanci u klienta</h2>
+      {ezdrowie ? <ContractStructureSection clientId={clientId} /> : null}
+
+      <div className="flex flex-wrap items-end gap-2">
+        <TabbedNav
+          value={tab}
+          onValueChange={(value) => setTab(value as ConsultantsTabKey)}
+          ariaLabel="Konsultanci"
+          tabs={tabs}
+          className="w-auto min-w-0 flex-1"
+        />
+        <div className="flex shrink-0 items-center gap-2 pb-1">
           {canExport ? (
             <Button size="sm" variant="outline" onClick={() => void doExport()} disabled={exporting}>
               <Download className="h-4 w-4" aria-hidden="true" /> Eksport
@@ -415,15 +420,6 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
           ) : null}
         </div>
       </div>
-
-      {ezdrowie ? <ContractStructureSection clientId={clientId} /> : null}
-
-      <TabbedNav
-        value={tab}
-        onValueChange={(value) => setTab(value as ConsultantsTabKey)}
-        ariaLabel="Konsultanci"
-        tabs={tabs}
-      />
 
       {tab === "obecni" && data.summary.active_consultants !== active.length ? (
         <p className="text-xs text-muted-foreground">
