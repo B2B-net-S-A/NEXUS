@@ -102,7 +102,7 @@ ruchu). Żeby to rozpisać, `runtime_metrics` dostaje `gc_frozen`, `alloc_blocks
 
 | Obszar | Zmiana | PR | Stan |
 |---|---|---|---|
-| Proces web (wszystkie trasy) | `GC_THRESHOLDS` po zamrożeniu sterty; sprzątanie wygasłych wpisów `app.core.cache` raz na minutę; `gc_frozen`/`alloc_blocks`/`cache_entries` w `runtime_metrics` | PR_GC | w kolejce |
+| Proces web (wszystkie trasy) | `GC_THRESHOLDS` po zamrożeniu sterty; sprzątanie wygasłych wpisów `app.core.cache` raz na minutę; `gc_frozen`/`alloc_blocks`/`cache_entries` w `runtime_metrics` | [#3579](https://github.com/B2B-net-S-A/NEXUS/pull/3579) | w kolejce, czeka na okno 18:00 |
 | Tablica (`kanban`, `pipeline-scores`, `move`) | ok. 100 zapytań stałych (nie N+1 po kartach: 97–109 dla Tablic 148–1 992 kart), kilka powtórzonych (`client_family_ids`, `load_modules`, `client_clocks`, `load_followups`, `app_settings` ×3) | karta sesji | do zrobienia |
 | Pulpit i pasek (`my-next-steps` 400 zapytań, `review-batch/me`, `interview-cycle` co 60 s poza `polling.ts`, `recommendations` 356) | | karta sesji | do zrobienia |
 | Upload CV (`POST /{id}/cv`, `from-cv`, `board-tasks/cv`) | odczyt CV w `BackgroundTasks` procesu web | karta sesji | do zrobienia |
