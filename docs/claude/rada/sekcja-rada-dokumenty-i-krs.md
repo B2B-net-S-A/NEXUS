@@ -1,4 +1,4 @@
-# Sekcja „Rada”: dokumenty, odpis KRS, pulpit z faktur (R1 0727, R2, 16.11.2026)
+# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet (R1 0727, R2, R3 0733, 16.11.2026)
 <!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5 -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
@@ -89,6 +89,24 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
 - „Do uwagi Rady” (`attentionItems`): spadek wyniku o ponad 1 p.p. rok do
   roku, co najmniej 30% kontraktów kończących się do 31.12, klient powyżej 30%
   sprzedaży, brakujące wzmianki KRS, dokumenty bez skanu.
+
+## Budżet (R3, 0733)
+
+- `board_budgets` (rok, szkic/przyjęty, uchwała Rady z dokumentów) i
+  `board_budget_lines` (miesiąc × sprzedaż/koszty, PLN netto). Plan wpisuje
+  admin (`PUT /budget/{rok}`, rok bieżący ±1, uchwała musi być „Uchwałą Rady”);
+  Rada czyta (`GET /budget/{rok}`).
+- **Prognoza** (`services/board/budget.py`) miesięcy po ostatnim pełnym
+  miesiącu sprzedaży: aktywne kontrakty × stawka klienta po kursie NBP × dni
+  robocze miesiąca z polskimi świętami (8 h przy stawce godzinowej) ×
+  realizacja = średnia faktur do potencjału z ostatnich 3 pełnych miesięcy.
+  Dwa scenariusze: bez przedłużeń (kontrakt kończy się w dniu końca umowy albo
+  zamówienia) i wszystkie przedłużone; Rada przesuwa realizację suwakiem.
+- **Koszty** prognozy i miesięcy, których faktury kosztowe jeszcze spływają =
+  sprzedaż × udział kosztów z 12 miesięcy kroczących (krótsze okno łapało
+  przesunięcia dat wystawienia: lipiec 2026 dawał 109%).
+- Na kopii 16.11: realizacja 79%, koszty 92,7%, rok 2026 ok. 121 mln
+  sprzedaży; 2027 bez przedłużeń to ok. 24 mln — miara ryzyka, nie prognoza.
 
 ## Pilnują
 

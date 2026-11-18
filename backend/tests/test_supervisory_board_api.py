@@ -243,3 +243,68 @@ async def test_summary_sums_archive_and_is_board_only(app_client) -> None:
     assert [c["name"] for c in body["top_clients"]["items"]] == ["Klient A", "Klient B"]
     assert body["top_clients"]["items"][0]["share"] == 54.1
     assert set(body["orders"]) >= {"active", "ending", "potential_month", "year_end"}
+
+
+async def test_budget_plan_admin_writes_board_reads(app_client) -> None:
+    from app.core.scheduling import business_today
+    from app.models.board_document import BoardBudget
+
+    admin = await _user(role="admin")
+    board = await _user(role="board")
+    finance = await _user("finance_module", role="finance")
+    year = business_today().year
+    async with AsyncSessionLocal() as db:
+        await db.execute(delete(BoardBudget))
+        await db.commit()
+
+    body = {
+        "status": "draft",
+        "months": [{"month": 1, "sales": "9850000", "costs": "9000000"}],
+    }
+    assert (
+        await app_client.put(f"{API}/budget/{year}", json=body, headers=_headers(board))
+    ).status_code == 403
+    assert (
+        await app_client.get(f"{API}/budget/{year}", headers=_headers(finance))
+    ).status_code == 403
+    saved = await app_client.put(
+        f"{API}/budget/{year}", json=body, headers=_headers(admin)
+    )
+    assert saved.status_code == 200, saved.text
+    january = saved.json()["months"][0]
+    assert january["plan_sales"] == 9.85 and january["plan_costs"] == 9.0
+
+    view = (
+        await app_client.get(f"{API}/budget/{year}", headers=_headers(board))
+    ).json()
+    assert view["budget"]["status"] == "draft" and len(view["months"]) == 12
+
+    cleared = await app_client.put(
+        f"{API}/budget/{year}",
+        json={
+            "status": "draft",
+            "months": [{"month": 1, "sales": None, "costs": None}],
+        },
+        headers=_headers(admin),
+    )
+    assert cleared.json()["months"][0]["plan_sales"] is None
+
+    assert (
+        await app_client.put(
+            f"{API}/budget/{year + 5}", json=body, headers=_headers(admin)
+        )
+    ).status_code == 422
+    assert (
+        await app_client.put(
+            f"{API}/budget/{year}",
+            json={"status": "draft", "months": [{"month": 1}, {"month": 1}]},
+            headers=_headers(admin),
+        )
+    ).status_code == 422
+    assert (
+        await app_client.put(
+            f"{API}/budget/{year}",
+            json={"status": "adopted", "resolution_document_id": 999999, "months": []},
+            headers=_headers(admin),
+        )
+    ).status_code == 422

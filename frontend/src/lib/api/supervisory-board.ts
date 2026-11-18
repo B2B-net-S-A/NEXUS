@@ -281,3 +281,57 @@ export function useBoardSummary() {
     staleTime: 5 * 60 * 1000,
   });
 }
+
+// ── Budżet (R3) ──────────────────────────────────────────────────────────────
+
+export interface BudgetMonthView {
+  month: number;
+  plan_sales: number | null;
+  plan_costs: number | null;
+  kind: "actual" | "forecast";
+  sales: number | null;
+  costs: number | null;
+  costs_complete: boolean;
+  potential: number | null;
+  potential_renewed: number | null;
+  business_days: number;
+}
+
+export interface BudgetView {
+  year: number;
+  budget: {
+    status: "draft" | "adopted";
+    resolution_document_id: number | null;
+    note: string | null;
+    updated_at: string | null;
+  } | null;
+  months: BudgetMonthView[];
+  realization: number | null;
+  realization_months: string[];
+  cost_share: number | null;
+  contracts: number;
+}
+
+export interface BudgetPutBody {
+  status: "draft" | "adopted";
+  resolution_document_id: number | null;
+  note: string | null;
+  months: { month: number; sales: number | null; costs: number | null }[];
+}
+
+export function useBoardBudget(year: number) {
+  return useQuery({
+    queryKey: ["supervisory-board", "budget", year] as const,
+    queryFn: async () => (await api.get<BudgetView>(`${BASE}/budget/${year}`)).data,
+    placeholderData: (previous) => previous,
+  });
+}
+
+export function useSaveBoardBudget(year: number) {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (body: BudgetPutBody) =>
+      (await api.put<BudgetView>(`${BASE}/budget/${year}`, body)).data,
+    onSuccess: invalidate,
+  });
+}

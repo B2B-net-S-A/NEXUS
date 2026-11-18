@@ -27,14 +27,18 @@ from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
-from app.models.board_document import BoardDocument
+from decimal import Decimal
+
+from app.models.board_document import BoardBudget, BoardBudgetLine, BoardDocument
 from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services import board_documents_schema as schema
 from app.services.ai_quota import ai_feature
 from app.services.board import krs as krs_service
 from app.services.board import reader
+from app.services.board import budget as budget_service
 from app.services.board import summary as summary_service
+from app.services import board_budget_schema as budget_schema
 from app.services.board.notify import notify_new_entries
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,104 @@ async def get_summary(
         )
     ).scalar_one()
     return data
+
+
+# ── Budżet (R3) ──────────────────────────────────────────────────────────────
+
+BUDGET_MAX_PLN = Decimal("10000000000")
+
+
+def _budget_year(year: int) -> int:
+    today = business_today()
+    if not today.year - 1 <= year <= today.year + 1:
+        raise HTTPException(
+            422, "Budżet prowadzimy dla roku bieżącego, poprzedniego i następnego."
+        )
+    return year
+
+
+@router.get("/budget/{year}")
+async def get_budget(
+    year: int,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Plan, wykonanie z faktur i prognoza z kontraktów (dwa scenariusze)."""
+
+    return await budget_service.budget_view(db, _budget_year(year), business_today())
+
+
+class BudgetMonth(BaseModel):
+    month: int = Field(..., ge=1, le=12)
+    sales: Optional[Decimal] = Field(None, ge=0, le=BUDGET_MAX_PLN)
+    costs: Optional[Decimal] = Field(None, ge=0, le=BUDGET_MAX_PLN)
+
+
+class BudgetPut(BaseModel):
+    status: str = "draft"
+    resolution_document_id: Optional[int] = None
+    note: Optional[str] = Field(None, max_length=4000)
+    months: list[BudgetMonth] = Field(default_factory=list, max_length=12)
+
+
+@router.put("/budget/{year}")
+async def put_budget(
+    year: int,
+    body: BudgetPut,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zapis planu roku (admin). Kwoty w PLN netto; puste pole usuwa wiersz planu."""
+
+    year = _budget_year(year)
+    if body.status not in budget_schema.STATUSES:
+        raise HTTPException(422, "Status budżetu: szkic albo przyjęty.")
+    if len({m.month for m in body.months}) != len(body.months):
+        raise HTTPException(422, "Każdy miesiąc może wystąpić raz.")
+    if body.resolution_document_id is not None:
+        doc = await db.get(BoardDocument, body.resolution_document_id)
+        if doc is None or doc.category != "resolution_supervisory":
+            raise HTTPException(422, "Wskaż uchwałę Rady z dokumentów.")
+    budget = (
+        await db.execute(select(BoardBudget).where(BoardBudget.year == year))
+    ).scalar_one_or_none()
+    if budget is None:
+        budget = BoardBudget(year=year)
+        db.add(budget)
+    budget.status = body.status
+    budget.resolution_document_id = body.resolution_document_id
+    budget.note = (body.note or "").strip() or None
+    budget.updated_by = current_user.id
+    budget.updated_at = datetime.now(timezone.utc)
+    await db.flush()
+    existing = {
+        (line.month, line.line): line
+        for line in (
+            await db.execute(
+                select(BoardBudgetLine).where(BoardBudgetLine.budget_id == budget.id)
+            )
+        ).scalars()
+    }
+    for item in body.months:
+        for line_name, amount in (("sales", item.sales), ("costs", item.costs)):
+            row = existing.get((item.month, line_name))
+            if amount is None:
+                if row is not None:
+                    await db.delete(row)
+                continue
+            if row is None:
+                db.add(
+                    BoardBudgetLine(
+                        budget_id=budget.id,
+                        month=item.month,
+                        line=line_name,
+                        amount=amount,
+                    )
+                )
+            else:
+                row.amount = amount
+    await db.commit()
+    return await budget_service.budget_view(db, year, business_today())
 
 
 # ── KRS ──────────────────────────────────────────────────────────────────────

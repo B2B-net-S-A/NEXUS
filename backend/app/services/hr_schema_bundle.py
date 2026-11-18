@@ -29,6 +29,7 @@ from app.services import client_invoice_series_ext_schema as client_invoice_seri
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import board_documents_schema as board_documents
+from app.services import board_budget_schema as board_budgets
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -161,6 +162,8 @@ MODULES = (
     board_documents,
     # 0732: bot Cpro — biegi rutyny Grok Bota (17.11.2026).
     cpro_bot,
+    # 0733: budżet Rady — plan miesięczny sprzedaży i kosztów (R3, 16.11.2026).
+    board_budgets,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

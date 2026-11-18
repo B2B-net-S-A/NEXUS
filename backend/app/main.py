@@ -4223,7 +4223,12 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
-    from app.models.board_document import BoardDocument, BoardKrsSnapshot
+    from app.models.board_document import (
+        BoardBudget,
+        BoardBudgetLine,
+        BoardDocument,
+        BoardKrsSnapshot,
+    )
     from app.models.client_issued_invoice import (
         ClientInvoiceSeries,
         ClientInvoiceTemplate,
@@ -4911,6 +4916,8 @@ async def api_health_deep_check(request: Request):
         ("client_order_revenue_steps", ClientOrderRevenueStep),
         ("board_documents", BoardDocument),
         ("board_krs_snapshots", BoardKrsSnapshot),
+        ("board_budgets", BoardBudget),
+        ("board_budget_lines", BoardBudgetLine),
         # Tabele spoza paczki, które tworzy siatka `entrypoint.sh` albo moduł DDL
         # w `app/services` (reguła z 22.10, F79). Pomiar 15.11.2026: 111 z nich
         # było bez sondy. Każdą nową łapie `test_every_entrypoint_table_is_probed`.
