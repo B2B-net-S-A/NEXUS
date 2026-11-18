@@ -80,6 +80,7 @@ REASON_LABELS: dict[str, str] = {
 
 _MPP_VAT = re.compile(r"/VAT/\s*(\d+(?:[.,]\d{1,2})?)\s*/", re.IGNORECASE)
 _MPP_INV = re.compile(r"/INV/\s*([^/]+?)\s*(?:/|$)", re.IGNORECASE)
+_MPP_IDC = re.compile(r"/IDC/\s*(\d{10})\s*/", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -193,16 +194,41 @@ def _number_pattern(number: str) -> Optional[re.Pattern[str]]:
     return re.compile(r"(?<![0-9A-Za-z])" + body + r"(?![0-9A-Za-z])", re.IGNORECASE)
 
 
-def _number_in_title(
+def _numbers_in_title(
     invoice: OpenInvoice, title: str, mpp_number: Optional[str]
-) -> bool:
+) -> list[str]:
+    found = []
     for number in invoice.invoice_numbers:
-        if mpp_number and " ".join(number.split()).lower() == mpp_number.lower():
-            return True
+        plain = " ".join(number.split()).lower()
+        if mpp_number and plain == mpp_number.lower():
+            found.append(plain)
+            continue
         pattern = _number_pattern(number)
         if pattern is not None and pattern.search(title or ""):
-            return True
-    return False
+            found.append(plain)
+    return found
+
+
+def _by_number(
+    invoices: Sequence[OpenInvoice], title: str, mpp_number: Optional[str]
+) -> list[OpenInvoice]:
+    """Faktury z numerem w tytule; numer zawarty w dłuższym, który też jest
+    w tytule („2/10/2026” w „2/10/2026/UE”), ustępuje dłuższemu."""
+
+    hits = [
+        (invoice, numbers)
+        for invoice in invoices
+        if (numbers := _numbers_in_title(invoice, title, mpp_number))
+    ]
+    matched = {number for _invoice, numbers in hits for number in numbers}
+    return [
+        invoice
+        for invoice, numbers in hits
+        if not all(
+            any(mine != other and mine in other for other in matched)
+            for mine in numbers
+        )
+    ]
 
 
 def _settle(
@@ -228,6 +254,23 @@ def _settle(
     )
 
 
+def _foreign_seller(title: str, invoices: Sequence[OpenInvoice]) -> bool:
+    """Uznanie MPP z NIP-em sprzedawcy (/IDC/) spoza naszych faktur.
+
+    Numer KSeF faktury zaczyna się NIP-em sprzedawcy, czyli naszym. Inny NIP
+    w /IDC/ to noga VAT naszej zapłaty dla dostawcy (Santander przenosi VAT
+    z rachunku VAT na główny: „UZNANIE VAT (SP)”), nie wpłata klienta —
+    12.11.2026 takie uznania opłacały faktury sprzedaży o tym samym numerze.
+    Bez faktur z KSeF nie rozstrzygamy.
+    """
+
+    found = _MPP_IDC.search(title)
+    if found is None:
+        return False
+    prefixes = {k.split("-", 1)[0] for i in invoices for k in i.ksef_numbers}
+    return bool(prefixes) and found.group(1) not in prefixes
+
+
 def decide_credit(
     line: StatementLine, invoices: Sequence[OpenInvoice]
 ) -> CreditDecision:
@@ -235,6 +278,8 @@ def decide_credit(
 
     amount = money(line.amount)
     title = line.title or ""
+    if _foreign_seller(title, invoices):
+        return CreditDecision(None, False, "unrelated")
     numbers = set(ksef_numbers_in(title))
     if numbers:
         by_ksef = [i for i in invoices if numbers & set(i.ksef_numbers)]
@@ -250,7 +295,7 @@ def decide_credit(
 
     mpp = _MPP_INV.search(title)
     mpp_number = " ".join(mpp.group(1).split()) if mpp else None
-    by_number = [i for i in invoices if _number_in_title(i, title, mpp_number)]
+    by_number = _by_number(invoices, title, mpp_number)
     same = [i for i in by_number if i.currency == line.currency]
     if len(same) == 1:
         return _settle(same[0], amount, title, "invoice_number")

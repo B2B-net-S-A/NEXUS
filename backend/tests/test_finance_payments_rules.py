@@ -184,7 +184,13 @@ def test_rachunek_krajowy_i_zagraniczny() -> None:
 # ── Obciążenie z wyciągu ─────────────────────────────────────────────────────
 
 
-def _line(amount: str, title: str, account: str | None = None, currency="PLN"):
+def _line(
+    amount: str,
+    title: str,
+    account: str | None = None,
+    currency="PLN",
+    name: str = "",
+):
     return StatementLine(
         index=1,
         booked_on=date(2026, 11, 20),
@@ -192,6 +198,7 @@ def _line(amount: str, title: str, account: str | None = None, currency="PLN"):
         direction="debit",
         currency=currency,
         title=title,
+        counterparty_name=name,
         counterparty_account=account,
         bank_ref="R1",
     )
@@ -260,6 +267,58 @@ def test_ten_sam_numer_faktury_u_dwoch_dostawcow_rozstrzyga_rachunek() -> None:
         _line("100.00", "Faktura 1/11/2026", SUPPLIER), [first]
     )
     assert (confirmed.entry_id, confirmed.partial) == (1, True)
+
+
+def test_numer_zawarty_w_dluzszym_numerze_z_tytulu_ustepuje() -> None:
+    # „1/10/2026” jednego dostawcy jest częścią „FV/1/10/2026” drugiego —
+    # tytuł „FV/1/10/2026” wskazuje dłuższy numer, nie oba.
+    short = _cand(1, "500.00", invoice_number="1/10/2026")
+    long_ = _cand(2, "500.00", invoice_number="FV/1/10/2026")
+    decision = rules.decide_debit(_line("500.00", "FV/1/10/2026"), [short, long_])
+    assert (decision.entry_id, decision.reason) == (2, "invoice_number")
+
+
+def test_mpp_nip_z_pola_idc_wskazuje_dostawce_i_pozwala_na_czesciowa() -> None:
+    # Faktury z KSeF nie niosą rachunku dostawcy; ten sam numer „1/10/2026”
+    # mają dziesiątki jednoosobowych firm. NIP z /IDC/ rozstrzyga, a kwota
+    # mniejsza o potrącenie to zapłata częściowa tej faktury.
+    other_nip = "1111111111"
+    first = _cand(1, "1230.00", invoice_number="1/10/2026", seller_nip=other_nip)
+    second = _cand(2, "1230.00", invoice_number="1/10/2026", seller_nip=NIP)
+    title = f"/VAT/230,00/IDC/{NIP}/INV/1/10/2026/TXT/1/10/2026"
+    full = rules.decide_debit(_line("1230.00", title), [first, second])
+    assert (full.entry_id, full.amount) == (2, Decimal("1230.00"))
+    part = rules.decide_debit(_line("1159.00", title), [first, second])
+    assert (part.entry_id, part.partial, part.amount) == (2, True, Decimal("1159.00"))
+    # NIP spoza kandydatów nie zawęża — zostaje „kilka faktur”.
+    unknown = rules.decide_debit(
+        _line("1159.00", title.replace(NIP, "2222222222")), [first, second]
+    )
+    assert (unknown.entry_id, unknown.reason) == (None, "ambiguous")
+
+
+def test_nazwa_odbiorcy_zaweza_numer_ale_nie_potwierdza_czesciowej() -> None:
+    first = _cand(
+        1, "800.00", invoice_number="1/10/2026", seller_name="Anna Testowa Usługi IT"
+    )
+    second = _cand(
+        2, "900.00", invoice_number="1/10/2026", seller_name="Jan Przykładowy"
+    )
+    name = "JAN PRZYKŁADOWY UL. TESTOWA 1 00-001 WARSZAWA"
+    exact = rules.decide_debit(_line("900.00", "1/10/2026", name=name), [first, second])
+    assert (exact.entry_id, exact.reason) == (2, "invoice_number")
+    # Bez rachunku i NIP-u mniejsza kwota to tylko wskazówka do sprawdzenia.
+    short = rules.decide_debit(_line("829.00", "1/10/2026", name=name), [first, second])
+    assert (short.entry_id, short.reason, short.candidates) == (
+        None,
+        "amount_differs",
+        (2,),
+    )
+    # Jedno wspólne słowo („Testowa” w adresie) nie wystarcza.
+    vague = rules.decide_debit(
+        _line("829.00", "1/10/2026", name="PIOTR TESTOWA"), [first, second]
+    )
+    assert (vague.entry_id, vague.reason) == (None, "ambiguous")
 
 
 def test_pozycja_paczki_po_rachunku_i_kwocie() -> None:
