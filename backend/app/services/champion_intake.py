@@ -1118,10 +1118,23 @@ def enforce_operation(job, operation, *, force=False):
         )
 
 
+def _hashed_profile(profile):
+    """Profil do odcisków edytora i importu — bez procesu u klienta.
+
+    Proces (18.11.2026) zapisuje osobna trasa z nagłówka; gdyby wchodził do
+    odcisku, każdy taki zapis dawałby otwartemu edytorowi fałszywy konflikt
+    (409) i przywracał odrzucone porządki wymagań. Profil bez procesu ma
+    odcisk bajt w bajt taki jak przed tą zmianą.
+    """
+    if isinstance(profile, dict) and "client_process" in profile:
+        return {k: v for k, v in profile.items() if k != "client_process"}
+    return profile
+
+
 def fingerprint(job):
     deadline = getattr(job, "deadline", None)
     state = {
-        "profile": getattr(job, "champion_profile", None),
+        "profile": _hashed_profile(getattr(job, "champion_profile", None)),
         "title": getattr(job, "title", None),
         "client_id": getattr(job, "client_id", None),
         "requirements": getattr(job, "matching_requirements", None),
@@ -1150,7 +1163,7 @@ def profile_hash(job) -> str:
     """
     return hashlib.sha256(
         json.dumps(
-            getattr(job, "champion_profile", None) or {},
+            _hashed_profile(getattr(job, "champion_profile", None)) or {},
             sort_keys=True,
             ensure_ascii=False,
             default=str,
@@ -1551,7 +1564,9 @@ def copy_profile(profile, actor_id):
     # Briefing DL-a też należy do zlecenia źródłowego (runda 6 audytu), bo
     # kopia pokazywała cudzy briefing jako zaliczony, a „Odepnij briefing” na
     # kopii kasował w magazynie nagranie, którego wciąż słucha źródło.
-    for key in ("client_history", "verification", "briefing"):
+    # Proces u klienta też: przenosi go tylko „Użyj” z podpowiedzi
+    # (18.11.2026), inaczej „Usuń proces” na `/jobs/new` nic by nie dawało.
+    for key in ("client_history", "verification", "briefing", "client_process"):
         stored.pop(key, None)
     # Krytyczne wybrał DL rekrutacji źródłowej — kopia czeka na własną
     # decyzję (przekazanie do searchu jej wymaga, 30.09.2026).

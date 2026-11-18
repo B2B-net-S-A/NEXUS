@@ -316,6 +316,8 @@ _NON_REQUIREMENT_KEYS = frozenset(
         "intake",
         "insights",
         "client_history",
+        # Proces u klienta (18.11.2026): jak klient prowadzi rozmowy, nie kogo szukamy.
+        "client_process",
         "_parser",
         "_parsed_at",
         "_source",
@@ -327,7 +329,14 @@ _NON_REQUIREMENT_KEYS = frozenset(
 # klucze; poszerzenie o resztę `_NON_REQUIREMENT_KEYS` zmieniłoby odcisk KAŻDEJ
 # oferty i jednorazowo unieważniło wszystkie migawki rankingu.
 RANKING_IGNORED_KEYS = frozenset(
-    {"verification", "recommended_searches", "insights", "client_history"}
+    {
+        "verification",
+        "recommended_searches",
+        "insights",
+        "client_history",
+        # 18.11.2026 — nowy klucz, więc żaden zapisany odcisk go nie zawiera.
+        "client_process",
+    }
 )
 
 

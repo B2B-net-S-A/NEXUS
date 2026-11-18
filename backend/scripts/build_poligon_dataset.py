@@ -1379,6 +1379,13 @@ def main() -> None:
             },
         },
     )
+    # Proces u klienta (18.11.2026) — fakt w nagłówku rekrutacji. Na
+    # rekrutacji ćwiczebnej nikt go nie wpisał, a historia klienta ma mniej
+    # niż 5 decyzji: serwer odpowiada wtedy obiema wartościami `null`.
+    dataset.setdefault(
+        f"GET /api/jobs/client-process?client_id={POLIGON_CLIENT}&job_id={job}",
+        {"client_id": POLIGON_CLIENT, "suggested": None, "measured": None},
+    )
     # Ćwiczenia z 16.11.2026: osoba czeka na wybór terminu u klienta, a CV
     # firmowe osoby-szablonu jest szkicem do poprawy asystentem.
     add_slot_card(dataset)
