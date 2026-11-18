@@ -21,7 +21,7 @@ pokazał `M365_APP_MAIL_ENABLED=true` i nadawcę
 
 ## Skrzynka kandydatów kariera@ (18.11.2026)
 
-Udostępniona skrzynka `kariera@b2bnetwork.pl` („B2B Network Kariera”, bez licencji)
+Udostępniona skrzynka `kariera@b2bnetwork.pl` („B2Bnetwork Kariera”, bez licencji)
 dostała `Application Mail.Send` przez członkostwo w grupie `NEXUS-SystemMail-Scope`
 (obok `nexus-powiadomienia@`). Tę samą aplikację „NEXUS System Mail” wybiera
 `CANDIDATE_MAIL_SENDER_UPN=kariera@b2bnetwork.pl` (Coolify, 18.11). Próbny mail:
