@@ -20,3 +20,4 @@ pakowanie `scripts/pack_ebi24_archive.py`.
   PDF jako oryginał; HTML z obcego systemu wyłącznie do pobrania (nie otwieramy go w domenie NEXUSA).
 - **Dostęp:** „Moduł Finanse” + sekcja Finanse; moduł „Księgowość” wyłączony = 404 (admin widzi), jak Koszty i Kontrahenci.
 - **Eksport źródłowy** leży na laptopie Artura (`~/NEXUS-ebi24-export/`), poza repo — repo jest publiczne.
+- **Przyrost i kopia na dysku firmy** (przed wyłączeniem eBI24): `docs/claude/finanse-insights/archiwum-ebi24-przyrost-i-kopia.md`; import w workerze `scripts/import_ebi24_archive.py`.
