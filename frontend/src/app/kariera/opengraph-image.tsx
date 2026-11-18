@@ -6,7 +6,7 @@ import { requestDisplayHost } from "@/lib/career/host";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "Rekrutacje IT — B2B Network";
+export const alt = "Rekrutacje IT — B2Bnetwork";
 export const dynamic = "force-dynamic";
 
 /**
@@ -19,7 +19,7 @@ export default async function Image() {
   return new ImageResponse(
     (
       <OgCard
-        kicker="Kariera w B2B Network"
+        kicker="Kariera w B2Bnetwork"
         title="Otwarte rekrutacje IT"
         facts={[
           { label: "Współpraca", value: "Kontrakty B2B" },

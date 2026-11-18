@@ -114,7 +114,7 @@ export function AgreementPanel({
           <dd>{agreement.trainer_signed_at ? formatDateTimePl(agreement.trainer_signed_at) : "czeka"}</dd>
         </div>
         <div>
-          <dt className="text-xs text-muted-foreground">Podpis B2B Network</dt>
+          <dt className="text-xs text-muted-foreground">Podpis B2Bnetwork</dt>
           <dd>{agreement.company_signed_at ? formatDateTimePl(agreement.company_signed_at) : "czeka"}</dd>
         </div>
       </dl>
@@ -149,7 +149,7 @@ export function AgreementPanel({
               type="file"
               accept="application/pdf,.pdf"
               className="sr-only"
-              aria-label="PDF z podpisem B2B Network"
+              aria-label="PDF z podpisem B2Bnetwork"
               onChange={async (event) => {
                 const file = event.target.files?.[0];
                 if (file) await onCompanySign(file);
@@ -162,7 +162,7 @@ export function AgreementPanel({
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Umowa czeka na podpis osoby z listy reprezentantów B2B Network.
+            Umowa czeka na podpis osoby z listy reprezentantów B2Bnetwork.
           </p>
         )
       ) : null}
@@ -198,7 +198,7 @@ export function AgreementPanel({
               </FormField>
             ))}
             <FormField
-              label="E-mail osoby z B2B Network w umowie"
+              label="E-mail osoby z B2Bnetwork w umowie"
               htmlFor="partner-company-email"
               required
             >

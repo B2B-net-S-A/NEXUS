@@ -220,13 +220,13 @@ def company_signer_message(
         lead = (
             f"umowa B2B nr {num} ma podpis kontraktora ({who}) od "
             f"{since.astimezone(_WARSAW):%d.%m.%Y} i nadal czeka na podpis "
-            "za B2B Network."
+            "za B2Bnetwork."
         )
     else:
         subject = f"Umowa B2B {number} czeka na Twój podpis"
         lead = (
             f"umowa B2B nr {num} ma już podpis kwalifikowany kontraktora "
-            f"({who}). Brakuje podpisu za B2B Network."
+            f"({who}). Brakuje podpisu za B2Bnetwork."
         )
     body = (
         _p("Cześć,")
@@ -249,7 +249,7 @@ def contractor_copy_message(*, number: str) -> tuple[str, str]:
         _p("Dzień dobry,")
         + _p(
             f"w załączniku umowa B2B nr {html.escape(number)} podpisana przez "
-            "Ciebie i przez B2B Network. To Twój egzemplarz, zachowaj go."
+            "Ciebie i przez B2Bnetwork. To Twój egzemplarz, zachowaj go."
         )
         + _p(
             f"Plik pobierzesz też ze strony podpisu przez {SIGNED_COPY_DAYS} dni.",

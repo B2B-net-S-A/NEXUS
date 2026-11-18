@@ -131,7 +131,7 @@ export function EsignRowStatus({ row }: { row: B2BGeneratedContractRow }) {
   const onTakeOver = async () => {
     const ok = await askConfirm({
       title: "Przejąć obsługę wysyłki?",
-      description: `Przypomnienia, mail do podpisu za B2B Network i kopia umowy ${row.contract_number} pójdą z Twojej skrzynki, a dzwonki do Ciebie. ${e.handled_by_name ?? "Dotychczasowa osoba"} dostanie o tym dzwonek.`,
+      description: `Przypomnienia, mail do podpisu za B2Bnetwork i kopia umowy ${row.contract_number} pójdą z Twojej skrzynki, a dzwonki do Ciebie. ${e.handled_by_name ?? "Dotychczasowa osoba"} dostanie o tym dzwonek.`,
       confirmLabel: "Przejmij obsługę",
     });
     if (ok) takeOver.mutate(e.request_id);

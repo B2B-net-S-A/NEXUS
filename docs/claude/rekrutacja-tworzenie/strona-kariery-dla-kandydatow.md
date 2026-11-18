@@ -95,7 +95,7 @@ Reguły, które łatwo cofnąć:
     `/robots.txt` w `resolveCareerRoute` by nie zadziałało;
   - strona otwartej rekrutacji niesie dane JobPosting (`lib/career/jobPosting.ts`):
     tytuł, opis z opublikowanej wersji, `datePosted` = `published_at` z API
-    (data zatwierdzenia, bez godziny), `CONTRACTOR`, B2B Network, miejsce albo
+    (data zatwierdzenia, bez godziny), `CONTRACTOR`, B2Bnetwork, miejsce albo
     praca zdalna z Polski. Bez klienta i bez stawek; adres kanoniczny na
     domenie kariery;
   - `app/sitemap.ts` zależny od hosta: na domenie kariery strona główna
@@ -266,7 +266,7 @@ Reguły, które łatwo cofnąć:
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
   link: opublikowany opis + „pokazuj na mojej stronie”) — bez listy i bez
   stałego linku prosi o kontakt z osobą od linku, nie odsyła na LinkedIna.
-- **Trzy szablony ogłoszeń w barwach B2B Network (decyzja Artura 28.10.2026,
+- **Trzy szablony ogłoszeń w barwach B2Bnetwork (decyzja Artura 28.10.2026,
   makiety https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU, warianty A, C i B).**
   Zespół (Teams, 28.10) ocenił ogłoszenia jako nieczytelne, „nie w szacie B2B”
   i „jakby się nie doładowały”. Pomiar na AMLR/KYC: 51% tekstu ≤ 13 px,
@@ -423,8 +423,8 @@ Reguły, które łatwo cofnąć:
   `outputFileTracingIncludes` w `next.config.ts` (obraz standalone).
 - Klauzula `/kariera/rodo`: kontakt rodo@b2bnetwork.pl, okres przechowywania
   3 lata od zgłoszenia lub do cofnięcia zgody (decyzja Artura 27.09.2026, F16).
-- **Marka i domena (decyzje C i marka, 19.10.2026):** strona mówi „B2B Network”
-  (`~/b2bnetwork/kariera`, `marta@b2bnetwork`, karta „… — B2B Network”), bez
+- **Marka i domena (decyzje C i marka, 19.10.2026):** strona mówi „B2Bnetwork”
+  (`~/b2bnetwork/kariera`, `marta@b2bnetwork`, karta „… — B2Bnetwork”), bez
   haseł Dynaminds („Architects of the unseen”, manifest „Define tomorrow”).
   Docelowa domena `kariera.b2bnetwork.pl`; slug `b2bnetwork` zarezerwowany.
   Gdy `NEXT_PUBLIC_CAREER_HOST` jest ustawiony, middleware przekierowuje stare

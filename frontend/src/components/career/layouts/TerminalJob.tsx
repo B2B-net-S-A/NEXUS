@@ -86,7 +86,7 @@ export function TerminalJob({ data, base, host, formPreview }: CareerJobLayoutPr
     <div className={styles.root}>
       <header className={styles.chrome}>
         <Dots />
-        <a href={homeHref} className={styles.logoLink} aria-label="B2B Network — kariera">
+        <a href={homeHref} className={styles.logoLink} aria-label="B2Bnetwork — kariera">
           <B2BLogo variant="onDark" height={26} />
         </a>
         <span className={styles.path}>~/kariera/{pathSlug}</span>

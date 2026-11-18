@@ -157,13 +157,13 @@ def judge(
         return Verdict.no(
             "missing_signer",
             "W pliku nie ma podpisu kwalifikowanego osoby reprezentującej "
-            f"B2B Network ({', '.join(any_of_signers)}).",
+            f"B2Bnetwork ({', '.join(any_of_signers)}).",
         )
     expected = len(required_signers) + (1 if any_of_signers else 0)
     if expected > 1 and len(report.positive_signer_identities) < expected:
         return Verdict.no(
             "same_person",
             "Obie strony podpisała ta sama osoba — potrzebny jest podpis "
-            "kontraktora i podpis za B2B Network.",
+            "kontraktora i podpis za B2Bnetwork.",
         )
     return Verdict.ok()

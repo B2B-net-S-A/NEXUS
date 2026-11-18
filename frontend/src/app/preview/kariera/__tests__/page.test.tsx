@@ -164,7 +164,7 @@ describe("/preview/kariera", () => {
     expect(job).not.toHaveTextContent("scena:");
     expect(within(page).getByRole("heading", { level: 2, name: "Nic nie pasuje? Zostaw CV u Marty." })).toBeInTheDocument();
     expect(
-      within(page).getByRole("link", { name: "Wszystkie otwarte rekrutacje B2B Network →" }),
+      within(page).getByRole("link", { name: "Wszystkie otwarte rekrutacje B2Bnetwork →" }),
     ).toHaveAttribute("href", "/kariera");
     // Formularz do bazy: jedna obowiązkowa zgoda na przyszłe procesy (bez zmian reguł).
     expect(page.querySelector('input[name="consent"]')).not.toBeNull();

@@ -107,7 +107,7 @@ async def awaiting_company_signature(db: AsyncSession, training: Training) -> in
         current.company_signer_ids,
         training,
         title="Umowa szkoleniowa do podpisu",
-        message=f"Trener podpisał umowę. Czeka na podpis B2B Network: {training.title}.",
+        message=f"Trener podpisał umowę. Czeka na podpis B2Bnetwork: {training.title}.",
         ntype=T.training_sign,
         link="/trainings?tab=sign",
     )

@@ -508,7 +508,7 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
     try {
       await openGeneral({ "/api/me/career-link": careerLink });
       const preview = await screen.findByTestId("linkedin-preview");
-      expect(preview).toHaveTextContent("Łucja · rekrutacje IT w B2B Network");
+      expect(preview).toHaveTextContent("Łucja · rekrutacje IT w B2Bnetwork");
       expect(preview).toHaveTextContent("Łucja — rekrutacje IT");
       expect(preview).not.toHaveTextContent(/dynaminds\b(?!\.pl)/i);
     } finally {
