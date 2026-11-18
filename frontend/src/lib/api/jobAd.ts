@@ -46,12 +46,19 @@ export interface AdContent {
   offer: string[];
   /** Punkty z rekrutacji i stałego bloku ukryte w tym ogłoszeniu. */
   offer_hidden?: string[];
+  /** Własne etapy rekrutacji; brak = stały blok firmy. */
+  process?: string[];
 }
 
 /** Ile własnych punktów „co oferujemy” przyjmuje serwer (`LIST_LIMITS`). */
 export const OFFER_OWN_MAX = 6;
 
-export type AdListKey = "responsibilities" | "requirements" | "nice_to_have" | "offer";
+export type AdListKey =
+  | "responsibilities"
+  | "requirements"
+  | "nice_to_have"
+  | "offer"
+  | "process";
 export type AdTextKey =
   | "title"
   | "lead"

@@ -66,7 +66,13 @@ CODE_ADDRESS = "address"
 
 # Pola ogłoszenia w kolejności, w jakiej czyta je rekruter.
 TEXT_FIELDS = ("title", "lead", "about", "start", "duration", "language", "city")
-LIST_FIELDS = ("responsibilities", "requirements", "nice_to_have", "offer")
+LIST_FIELDS = (
+    "responsibilities",
+    "requirements",
+    "nice_to_have",
+    "offer",
+    "process",
+)
 # Miejsca poza treścią, którą rekruter poprawia w oknie.
 FIELD_TERMS = "terms"
 FIELD_FIXED = "fixed"

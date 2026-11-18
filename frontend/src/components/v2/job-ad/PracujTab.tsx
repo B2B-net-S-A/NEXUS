@@ -20,9 +20,12 @@ import {
   editorText,
   findingsByField,
   isEditKey,
+  isTechKey,
+  lockedFixedCount,
   type AdDrafts,
   type AdEditKey,
   type AdFieldKey,
+  type AdTechKey,
 } from "./job-ad-edit";
 
 export interface AdTabProps {
@@ -41,6 +44,11 @@ export interface AdTabProps {
   onSaveField: (key: AdFieldKey, text: string) => Promise<boolean>;
 }
 
+export interface PracujTabProps extends AdTabProps {
+  /** Lista technologii poprawiona na karcie — zapis do `tech`. */
+  onSaveTechNames: (key: AdTechKey, text: string) => Promise<boolean>;
+}
+
 const EDIT_HINTS: Partial<Record<AdEditKey, string>> = {
   title: "Wpisz samą nazwę stanowiska — dopisek do tytułu dokłada się sam.",
   lead: "Jedno zdanie: kogo szukamy i do czego.",
@@ -50,9 +58,14 @@ const EDIT_HINTS: Partial<Record<AdEditKey, string>> = {
   nice_to_have: "Jedna pozycja w wierszu.",
   offer:
     "Jedna pozycja w wierszu. W polu tylko punkty z projektu — warunki z rekrutacji i stały blok dokładają się same; możesz je ukryć w tym ogłoszeniu.",
+  process:
+    "Jeden etap w wierszu, w kolejności. Puste pole = etapy ze stałych części ogłoszenia firmy.",
+  tech_required:
+    "Jedna technologia w wierszu, krótka nazwa (Java, Kafka). Ta sama lista idzie do JustJoin.IT.",
+  tech_optional: "Jedna technologia w wierszu, krótka nazwa. Ta sama lista idzie do JustJoin.IT.",
 };
 
-export function editHint(key: AdFieldKey): string | undefined {
+export function editHint(key: AdEditKey): string | undefined {
   return EDIT_HINTS[key];
 }
 
@@ -76,11 +89,40 @@ export function PracujTab({
   onCopy,
   onDraftChange,
   onSaveField,
-}: AdTabProps) {
+  onSaveTechNames,
+}: PracujTabProps) {
   const byField = findingsByField(findings);
   const { fields, params } = rendered.pracuj;
 
+  // Technologie nie są polem treści: lista nazw zapisuje się do `tech`
+  // (zgłoszenie 18.11.2026 — na karcie nie dało się ich poprawić).
+  const techBlock = (field: RenderedField, techKey: AdTechKey) => {
+    const copyKey = `pracuj.${field.key}`;
+    return (
+      <AdBlock
+        key={field.key}
+        fieldKey={field.key}
+        label={field.label}
+        kind={field.kind}
+        text={field.text}
+        items={field.items}
+        tone={toneOf(byField.get(field.key))}
+        editValue={field.items.join("\n")}
+        editHint={editHint(techKey)}
+        draft={drafts[techKey] ?? null}
+        onDraftChange={(text) => onDraftChange(techKey, text)}
+        onSave={(text) => onSaveTechNames(techKey, text)}
+        saving={saving}
+        locked={locked}
+        copied={copied.has(copyKey)}
+        copyBlockedReason={copyBlockedReason}
+        onCopy={() => onCopy(copyKey, field.html, field.text)}
+      />
+    );
+  };
+
   const block = (field: RenderedField) => {
+    if (isTechKey(field.key)) return techBlock(field, field.key);
     const editKey = isEditKey(field.key) ? field.key : null;
     const copyKey = `pracuj.${field.key}`;
     const offer = field.key === "offer";
@@ -94,9 +136,9 @@ export function PracujTab({
         text={field.text}
         items={field.items}
         autoCount={field.auto_count}
-        fixedCount={field.fixed_count}
+        fixedCount={lockedFixedCount(field.key, field.fixed_count, drafts)}
         tone={toneOf(byField.get(field.key))}
-        editValue={editKey ? editorText(content, editKey) : undefined}
+        editValue={editKey ? editorText(content, editKey, field.items) : undefined}
         editHint={editKey ? editHint(editKey) : undefined}
         draft={editKey ? (drafts[editKey] ?? null) : null}
         onDraftChange={
