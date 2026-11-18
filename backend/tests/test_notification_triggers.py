@@ -512,7 +512,12 @@ def _u4_world(monkeypatch, *, team, reminded=(), owner=3, priority="medium"):
     monkeypatch.setattr(nt, "_head_of_recruitment_ids", hors)
     monkeypatch.setattr(nt, "_user_is_active", _active_only(3, 44))
     monkeypatch.setattr(nt, "emit", emit)
+    monkeypatch.setattr(nt, "default_recruiter_ids", _no_pair_recruiters)
     return sent, _Db()
+
+
+async def _no_pair_recruiters(db, pairs, *, job_fallback=True):
+    return {}
 
 
 def _latest(*stages):
@@ -592,6 +597,44 @@ async def test_cv_sent_keeps_its_own_reminder_without_a_digest(monkeypatch):
     assert sent[0]["link"] == "/jobs/12?candidate=101"
     assert sent[0]["related_entity_type"] == "candidate_stage"
     assert "Anna Nowak" in sent[0]["message"]
+
+
+@pytest.mark.asyncio
+async def test_cv_sent_reminder_goes_to_the_candidates_recruiter(monkeypatch):
+    # 18.11.2026: prowadzący dostaje tylko swoich ludzi. „CV wysłane stoi”
+    # o kandydacie, którego wysłała Julia (7), idzie do niej, nie do prowadzącego (3).
+    from app.models.recruitment_pipeline import PipelineStage
+
+    sent, db = _u4_world(monkeypatch, team=[3])
+
+    async def pairs(_db, wanted, *, job_fallback=True):
+        return {pair: 7 for pair in wanted}
+
+    monkeypatch.setattr(nt, "default_recruiter_ids", pairs)
+    monkeypatch.setattr(nt, "_user_is_active", _active_only(3, 44, 7))
+    latest = _latest(_u4_stage(1, 10, stage=PipelineStage.cv_sent))
+
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, latest) == 1
+    assert [row["user_id"] for row in sent] == [7]
+
+
+@pytest.mark.asyncio
+async def test_cv_sent_reminder_falls_back_to_the_owner_when_recruiter_is_gone(
+    monkeypatch,
+):
+    from app.models.recruitment_pipeline import PipelineStage
+
+    sent, db = _u4_world(monkeypatch, team=[3])
+
+    async def pairs(_db, wanted, *, job_fallback=True):
+        return {pair: 7 for pair in wanted}
+
+    monkeypatch.setattr(nt, "default_recruiter_ids", pairs)
+    # Konto rekrutera kandydata wyłączone: przypomnienie bierze prowadzący.
+    latest = _latest(_u4_stage(1, 10, stage=PipelineStage.cv_sent))
+
+    assert await nt.check_stage_stuck_7d(db, _U4_NOW, latest) == 1
+    assert [row["user_id"] for row in sent] == [3]
 
 
 @pytest.mark.asyncio
@@ -753,6 +796,7 @@ def _stage_reminder_fakes(monkeypatch, sent: list[str]):
     monkeypatch.setattr(nt, "_candidate_names", names)
     monkeypatch.setattr(nt, "_user_is_active", _active_only(3))
     monkeypatch.setattr(nt, "emit", emit)
+    monkeypatch.setattr(nt, "default_recruiter_ids", _no_pair_recruiters)
 
 
 class _NoRemindersYet:

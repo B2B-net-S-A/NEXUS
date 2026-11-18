@@ -23,3 +23,8 @@ Delivery, które otwierają kwoty i kontrakty w całym systemie.
 - **Umowa scalonego duplikatu pokazuje się pod klientem docelowym.** Scalenie zostawia
   umowy na duplikacie (`clients.py`), więc 5 z 48 umów stało pod drugą nazwą tej samej
   firmy. Zakres Delivery Leada i pobieranie liczą się dalej po `client_id` umowy.
+- **Menu (18.11.2026):** pozycja „Umowy klientów” i skrót w palecie stoją tylko
+  u osoby, która nie widzi Klientów (`MENU_SHADOWED_BY` w `lib/nav-registry.ts`).
+  Kto widzi Klientów, ma umowy pod klientem (Umowy › Umowy i aneksy). Lista ma
+  podsumowanie i filtr „Obowiązujące / Kończą się w 90 dni / Wszystkie”
+  (`ui/klienci-i-finanse-jedna-lista.md`).

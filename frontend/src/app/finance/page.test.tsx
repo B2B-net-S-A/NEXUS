@@ -7,8 +7,20 @@ import FinancePage from "@/app/finance/page";
 import { useAuthStore, type User } from "@/store/auth";
 
 let mockParams: URLSearchParams | null = null;
+const mockReplace = vi.fn();
 vi.mock("next/navigation", () => ({
   useSearchParams: () => mockParams,
+  useRouter: () => ({ replace: mockReplace, push: vi.fn() }),
+  usePathname: () => "/finance",
+}));
+
+// Księga (18.11.2026): otwarta = samo `/finance` prowadzi na Przegląd miesiąca.
+let mockLedger: { data?: { open: boolean; modules: { key: string; open: boolean }[]; me: { payroll: boolean } }; isLoading: boolean } = {
+  data: undefined,
+  isLoading: false,
+};
+vi.mock("@/lib/api/accounting", () => ({
+  useLedgerConfig: () => mockLedger,
 }));
 
 vi.mock("@/components/ds/PageHeader", () => ({
@@ -38,6 +50,7 @@ vi.mock("@/components/finance/OrderChangesTab", () => ({
 
 let mockTodo = 0;
 vi.mock("@/lib/api/finance", () => ({
+  ORDER_CHANGES_SUMMARY_KEY: ["finance-order-changes-summary"],
   financeApi: {
     getOrderChangesSummary: async () => ({
       data: {
@@ -86,6 +99,8 @@ const financeUser = {
 beforeEach(() => {
   mockParams = null;
   mockTodo = 0;
+  mockReplace.mockReset();
+  mockLedger = { data: undefined, isLoading: false };
   window.history.replaceState(null, "", "/finance");
   useAuthStore.setState({
     user: financeUser,
@@ -112,12 +127,14 @@ describe("FinancePage permissions", () => {
     render(<FinancePage />);
 
     expect(
-      await screen.findByRole("tab", { name: /Zmiany w zamówieniach/ }),
-    ).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Zamówienia PDF" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Import zużycia MD" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Wyniki miesięczne" })).toBeNull();
-    expect(screen.queryByRole("tab", { name: "Archiwum" })).toBeNull();
+      await screen.findByRole("link", { name: /Zmiany w zamówieniach/ }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Zamówienia PDF" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Import zużycia MD" })).toBeInTheDocument();
+    // Jedyna grupa Back office'u (18.11.2026): bez Raportów, Kosztów i Księgi.
+    expect(screen.queryByRole("link", { name: "Raporty" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Wyniki miesięczne" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Archiwum wyników" })).toBeNull();
     expect(screen.queryByText("results-read")).toBeNull();
     expect(screen.queryByText("results-write")).toBeNull();
   });
@@ -129,8 +146,8 @@ describe("FinancePage permissions", () => {
     render(<FinancePage />);
 
     expect(
-      await screen.findByRole("tab", { name: /Zmiany w zamówieniach/ }),
-    ).toHaveAttribute("aria-selected", "true");
+      await screen.findByRole("link", { name: /Zmiany w zamówieniach/ }),
+    ).toHaveAttribute("aria-current", "page");
     expect(screen.queryByText("results-read")).toBeNull();
     expect(screen.queryByText("results-write")).toBeNull();
   });
@@ -147,14 +164,18 @@ describe("FinancePage permissions", () => {
     render(<FinancePage />);
 
     expect(await screen.findByText(/wymaga uprawnienia/)).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: "Wyniki miesięczne" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Wyniki miesięczne" })).toBeNull();
   });
 
   it("shows write surfaces for a direct Finance write session", async () => {
+    window.history.replaceState(null, "", "/finance?view=md");
     render(<FinancePage />);
 
-    expect(await screen.findByText("results-write")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Import zużycia MD" })).toBeInTheDocument();
+    expect(await screen.findByText("md-import")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Import zużycia MD" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("is read-only while an administrator impersonates a Finance writer", async () => {
@@ -164,10 +185,8 @@ describe("FinancePage permissions", () => {
 
     render(<FinancePage />);
 
+    // Brak Importu MD w podglądzie sprawdza test audytu zmian niżej (grupa „Zamówienia”).
     expect(await screen.findByText("results-read")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("tab", { name: "Import zużycia MD" }),
-    ).not.toBeInTheDocument();
   });
 
   it("offers the read-only order changes audit, also while impersonating", async () => {
@@ -180,8 +199,11 @@ describe("FinancePage permissions", () => {
 
     expect(await screen.findByText("order-changes")).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Zmiany w zamówieniach" }),
-    ).toHaveAttribute("aria-selected", "true");
+      screen.getByRole("link", { name: "Zmiany w zamówieniach" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.queryByRole("link", { name: "Import zużycia MD" }),
+    ).not.toBeInTheDocument();
   });
 
   it("follows ?view= on soft navigation without remounting (FE-N09)", async () => {
@@ -193,8 +215,8 @@ describe("FinancePage permissions", () => {
     view.rerender(<FinancePage />);
     expect(await screen.findByText("order-changes")).toBeInTheDocument();
     expect(
-      screen.getByRole("tab", { name: "Zmiany w zamówieniach" }),
-    ).toHaveAttribute("aria-selected", "true");
+      screen.getByRole("link", { name: "Zmiany w zamówieniach" }),
+    ).toHaveAttribute("aria-current", "page");
 
     mockParams = new URLSearchParams("");
     view.rerender(<FinancePage />);
@@ -204,8 +226,37 @@ describe("FinancePage permissions", () => {
   it("shows how many changes of the current month are still to do", async () => {
     mockTodo = 24;
     render(<FinancePage />);
+    // Licznik grupy „Zamówienia” niesie nazwę jedynej liczącej pozycji.
     expect(
       await screen.findByLabelText("24 do zrobienia w bieżącym miesiącu"),
     ).toBeInTheDocument();
+  });
+
+  it("samo /finance przy otwartej Księdze prowadzi na Przegląd miesiąca", async () => {
+    mockLedger = {
+      data: { open: true, modules: [{ key: "ledger", open: true }], me: { payroll: false } },
+      isLoading: false,
+    };
+    render(<FinancePage />);
+    await vi.waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/accounting"));
+    expect(screen.queryByText("results-write")).toBeNull();
+  });
+
+  it("widok z adresu wygrywa z Przeglądem, a Back office bez Księgi zostaje przy zamówieniach", async () => {
+    mockLedger = {
+      data: { open: true, modules: [{ key: "ledger", open: true }], me: { payroll: false } },
+      isLoading: false,
+    };
+    window.history.replaceState(null, "", "/finance?view=results");
+    render(<FinancePage />);
+    expect(await screen.findByText("results-write")).toBeInTheDocument();
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it("czeka na konfigurację Księgi, zamiast mignąć Wynikami", async () => {
+    mockLedger = { data: undefined, isLoading: true };
+    render(<FinancePage />);
+    expect(await screen.findByText("Ładowanie…")).toBeInTheDocument();
+    expect(screen.queryByText("results-write")).toBeNull();
   });
 });
