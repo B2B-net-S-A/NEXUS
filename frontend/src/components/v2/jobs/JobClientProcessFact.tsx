@@ -79,6 +79,7 @@ export function JobClientProcessFact({
               : "border-dashed border-border hover:bg-muted",
           )}
           data-testid="job-header-fact-process"
+          data-tour="job.client-process"
           title={`Proces u klienta: ${label ?? "nie podano"}`}
         >
           <Route className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />

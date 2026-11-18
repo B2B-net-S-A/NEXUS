@@ -1,5 +1,25 @@
 [
   {
+    "id": "proces-u-klienta",
+    "pr": 3586,
+    "title": "Proces u klienta: etapy i ile to trwa",
+    "why": "Kliknij „proces” w nagłówku: etapy po wysłaniu CV (np. rozmowa + zadanie), ile u klienta trwa naprawdę decyzja i zdanie dla kandydata. Etapy wpiszesz też przy zakładaniu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek → proces u klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job.client-process"
+  },
+  {
     "id": "kandydaci-ostatnio-z-osoba",
     "pr": 3575,
     "title": "„Ostatnio z osobą” i „Szuka aktywnie” jednym kliknięciem",
