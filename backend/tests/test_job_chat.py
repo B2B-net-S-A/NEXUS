@@ -308,6 +308,73 @@ async def test_everyone_mentions_only_assigned_people(
     assert not mentioned & {cc_id, admin_id, chat_setup["outsider_id"]}
 
 
+async def test_new_message_notifies_only_assigned_people(
+    app_client: AsyncClient, chat_setup
+):
+    """Zgłoszenie z 18.11.2026: dzwonek o zwykłej wiadomości w czacie
+    rekrutacji dostają tylko przypisani do requestu — nie admin spoza
+    zespołu ani uczestnik kategorii. Oznaczony admin dostaje samą wzmiankę."""
+    from app.models.job_collaborator import JobCollaborator, JobCollaboratorSource
+
+    async with AsyncSessionLocal() as db:
+        peer, _ = await _new_user(db, UserRole.recruiter)
+        category_cc, _ = await _new_user(db, UserRole.recruiter)
+        admin, _ = await _new_user(db, UserRole.admin)
+        mentioned_admin, _ = await _new_user(db, UserRole.admin)
+        for user, source in (
+            (peer, JobCollaboratorSource.manual),
+            (category_cc, JobCollaboratorSource.auto_cc),
+        ):
+            db.add(
+                JobCollaborator(
+                    job_id=chat_setup["job_id"],
+                    user_id=user.id,
+                    added_by=chat_setup["recruiter_id"],
+                    source=source,
+                )
+            )
+        job = await db.get(Job, chat_setup["job_id"])
+        job.delivery_lead_id = chat_setup["dl_id"]
+        await db.commit()
+        peer_id, cc_id, admin_id = peer.id, category_cc.id, admin.id
+        mentioned_admin_id, mentioned_admin_email = (
+            mentioned_admin.id,
+            mentioned_admin.email,
+        )
+
+    headers = await _login(
+        app_client, chat_setup["recruiter_email"], chat_setup["recruiter_password"]
+    )
+    resp = await app_client.post(
+        f"/api/jobs/{chat_setup['job_id']}/chat/messages",
+        headers=headers,
+        json={"content": f"szukamy jako dodatkowy projekt @{mentioned_admin_email}"},
+    )
+    assert resp.status_code == 201, resp.text
+    link_like = f"%{chat_setup['job_id']}%msg={resp.json()['id']}"
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(Notification.user_id, Notification.notification_type).where(
+                    Notification.related_entity_type == "job_chat_message",
+                    Notification.link.like(link_like),
+                )
+            )
+        ).all()
+    by_type: dict[NotificationType, set[int]] = {}
+    for user_id, notification_type in rows:
+        by_type.setdefault(notification_type, set()).add(user_id)
+
+    assert by_type.get(NotificationType.job_chat_message) == {
+        peer_id,
+        chat_setup["dl_id"],
+    }
+    assert by_type.get(NotificationType.job_chat_mention) == {mentioned_admin_id}
+    notified = set().union(*by_type.values())
+    assert not notified & {cc_id, admin_id, chat_setup["outsider_id"]}
+
+
 async def test_soft_delete(app_client: AsyncClient, chat_setup):
     headers = await _login(
         app_client, chat_setup["recruiter_email"], chat_setup["recruiter_password"]
