@@ -27,7 +27,18 @@ from decimal import Decimal
 from statistics import median
 from typing import Any, Optional
 
-from sqlalchemy import Date, and_, case, cast, extract, func, or_, select
+from sqlalchemy import (
+    Date,
+    Integer,
+    and_,
+    case,
+    cast,
+    extract,
+    func,
+    or_,
+    select,
+    type_coerce,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.board_document import BoardBudget, BoardBudgetLine
@@ -59,19 +70,31 @@ def _net_pln():
     )
 
 
+#: Kształt daty z sensownym rokiem, miesiącem i dniem; Postgres i tak odrzuci
+#: 30 lutego, więc dzień buduje się z ``make_date`` + przesunięcia (niżej).
+_SALE_DATE_SHAPE = r"^(19|20)[0-9]{2}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
+
+
 def period_date():
     """Dzień, do którego miesiąca należy faktura: data sprzedaży z eBI24
     w oknie wokół wystawienia, w przeciwnym razie data wystawienia.
 
-    CASE, nie AND: tylko CASE gwarantuje kolejność, więc rzutowanie na datę
-    nie dotknie wartości, która datą nie jest."""
+    Data z eBI24 przychodzi bez walidacji („0000-00-00”, „2026-02-30”), a jedno
+    rzutowanie złej wartości wywraca całe zapytanie. Dlatego nie ma tu
+    ``CAST(... AS date)``: dzień = ``make_date(rok, miesiąc, 1) + (dzień − 1)``
+    (nigdy nie rzuca dla miesiąca 1–12), a 30 lutego wychodzi jako 2 marca
+    i odpada na porównaniu miesiąca. CASE gwarantuje kolejność warunków."""
 
     raw = Doc.meta["transactionDate"].astext
-    sold = cast(func.substr(raw, 1, 10), Date)
+    year = cast(func.substr(raw, 1, 4), Integer)
+    month = cast(func.substr(raw, 6, 2), Integer)
+    day = cast(func.substr(raw, 9, 2), Integer)
+    sold = type_coerce(func.make_date(year, month, 1) + (day - 1), Date)
     before, after = SALE_DATE_WINDOW
     return case(
         (Doc.issue_date.is_(None), None),
-        (or_(raw.is_(None), ~raw.op("~")(r"^\d{4}-\d{2}-\d{2}")), Doc.issue_date),
+        (or_(raw.is_(None), ~raw.op("~")(_SALE_DATE_SHAPE)), Doc.issue_date),
+        (extract("month", sold) != month, Doc.issue_date),
         (sold.between(Doc.issue_date - before, Doc.issue_date + after), sold),
         else_=Doc.issue_date,
     )

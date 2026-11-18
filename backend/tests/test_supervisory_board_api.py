@@ -341,6 +341,10 @@ async def test_summary_months_by_sale_date_and_contractor_costs_split(
         ),
         ("cost", date(year, 4, 20), None, "100000.00", "BIURO"),
         ("cost", date(year, 4, 22), None, "50000.00", "Zakupy pozostałe"),
+        # Daty, które mają kształt daty, ale nią nie są — data wystawienia, nie 500.
+        ("sale", date(year, 5, 11), "0000-00-00T00:00:00", "0.00", None),
+        ("sale", date(year, 3, 2), f"{year}-02-30T00:00:00.000", "0.00", None),
+        ("sale", date(year, 5, 12), f"{year}-13-01", "0.00", None),
     ]
     async with AsyncSessionLocal() as db:
         await db.execute(delete(FinanceArchiveDocument))

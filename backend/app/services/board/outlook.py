@@ -37,17 +37,27 @@ def _m(value: Optional[float]) -> Optional[float]:
     return None if value is None else round(value / 1_000_000, 2)
 
 
+#: Po tylu miesiącach od najnowszego pełnego miesiąca koszty uznajemy za spłynięte.
+SETTLED_MONTHS = 4
+
+
 def trailing_months(
     rows: list[summary.MonthRow], complete: set[tuple[int, int]], count: int = 12
 ) -> list[tuple[int, int]]:
-    """Ostatnie ``count`` miesięcy z pełnymi kosztami, bez przerw."""
+    """Ostatnie ``count`` miesięcy z pełnymi kosztami, bez przerw; miesiąc
+    z niepełnymi kosztami w środku okna = brak okna (``[]``), bo zawyżyłby
+    zysk brutto, a za nim EBITDA, zdolność kredytową i wycenę."""
 
     ordered = sorted(complete)
     if not ordered:
         return []
     year, month = ordered[-1]
     out: list[tuple[int, int]] = []
-    for _ in range(count):
+    for i in range(count):
+        # Miesiąc sprzed ``SETTLED_MONTHS`` miał czas na spływ faktur; niska
+        # suma to krótki miesiąc (grudzień ze świętami), nie brak kosztów.
+        if (year, month) not in complete and i < SETTLED_MONTHS:
+            return []
         out.append((year, month))
         year, month = (year - 1, 12) if month == 1 else (year, month - 1)
     return out

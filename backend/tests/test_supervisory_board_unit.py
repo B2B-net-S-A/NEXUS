@@ -372,3 +372,25 @@ def test_exit_description_drops_consultant_name_in_any_case() -> None:
     )
     assert without_name("Klient — No budget", person) == "Klient — No budget"
     assert without_name("Michał", None) == "Michał"
+
+
+def test_double_barrelled_surname_and_project_are_redacted() -> None:
+    from types import SimpleNamespace
+
+    from app.services.board.people import without_name
+
+    person = SimpleNamespace(name="Anna", lastname="Nowak-Kowalska")
+    assert without_name("Pani Nowak odeszła, Kowalskiej brak", person) == (
+        "Pani [konsultant] odeszła, [konsultant] brak"
+    )
+
+
+def test_trailing_window_stops_at_month_with_incomplete_costs() -> None:
+    from app.services.board.outlook import trailing_months
+
+    months = {(2025, m) for m in range(11, 13)} | {(2026, m) for m in range(1, 11)}
+    assert len(trailing_months([], months)) == 12
+    assert trailing_months([], months - {(2026, 7)}) == []
+    # Grudzień z kosztami poniżej progu (święta) sprzed 10 miesięcy nie blokuje okna.
+    assert len(trailing_months([], months - {(2025, 12)})) == 12
+    assert trailing_months([], set()) == []

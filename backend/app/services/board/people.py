@@ -60,7 +60,7 @@ def without_name(text_value: str, candidate: Any) -> str:
         getattr(candidate, "name", None),
         getattr(candidate, "lastname", None),
     ):
-        for token in (part or "").split():
+        for token in re.split(r"[\s\-]+", part or ""):
             if len(token) < 3:
                 continue
             stem = token[: max(3, len(token) - 2)]
@@ -96,7 +96,12 @@ def exits(
             {
                 "ended_on": day.isoformat(),
                 "client": clients.get(contract.client_id, "—"),
-                "project": contract.project_name,
+                # Nazwa projektu to wolny tekst — może nieść nazwisko.
+                "project": without_name(
+                    (contract.project_name or "").strip(),
+                    getattr(contract, "candidate", None),
+                )
+                or None,
                 "reason": _reason(contract),
                 "reason_label": reason_label(_reason(contract)),
                 "lessons": without_name(
