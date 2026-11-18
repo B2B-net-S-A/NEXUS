@@ -2,6 +2,7 @@
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from html import unescape
 from html.parser import HTMLParser
 
 import pytest
@@ -145,7 +146,11 @@ def test_mail_with_link_has_both_parts_and_questions():
     )
     for part in (m.text_body, m.html_body):
         assert "https://nexus.example/warunki/abc" in part
-        assert "stawkę, tryb pracy, dni w biurze, miasta i termin startu" in part
+        assert (
+            "dziękujemy za CV na stanowisko „Junior IT Analyst – Data & Reporting (f/m/x)”. "
+            "Jeśli chcesz, daj nam znać, jaka stawka Ci odpowiada, jak wolisz pracować "
+            "i kiedy możesz zacząć."
+        ) in unescape(part)
         assert "30 sekund" in part
         assert "nie odpowiadaj na nią" in part
         assert "/warunki/abc/wypis" in part
@@ -166,7 +171,9 @@ def test_mail_escapes_title_and_name():
 def test_mail_without_title_is_generic():
     m = _mail(job_title="  ")
     assert m.subject == "Dziękujemy za zgłoszenie"
-    assert "stanowisko" not in m.text_body
+    for part in (m.text_body, m.html_body):
+        assert "dziękujemy za CV. Jeśli chcesz" in part
+        assert "stanowisko" not in part
 
 
 def test_mail_never_invites_replies():
