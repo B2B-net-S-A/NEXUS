@@ -39,3 +39,9 @@ export const P0_JOBS_POLL_MS = 5 * 60_000;
 
 /** Ogłoszenia na pulpicie u każdego (28.10.2026). */
 export const ANNOUNCEMENTS_POLL_MS = 5 * 60_000;
+
+/** Porcja dnia w pasku (`GET /api/review-batch/me`, 18.11.2026; wcześniej
+ * literał 120 s). Własne decyzje i ruchy kart odświeżają ją od razu
+ * (`lib/pipeline-move-invalidation.ts`), więc interwał łapie tylko zmiany
+ * z zewnątrz (nowa porcja z automatu, minimum ustawione przez HoR). */
+export const REVIEW_BATCH_STATUS_POLL_MS = 5 * 60_000;

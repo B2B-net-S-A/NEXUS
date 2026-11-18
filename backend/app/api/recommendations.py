@@ -1011,8 +1011,15 @@ async def recommend_jobs_for_candidate(
     already = {jid for (jid,) in in_pipeline.all()}
     jobs = [j for j in jobs if j.id not in already]
 
+    # Screening pary i konflikt z klientem hurtem (18.11.2026): bez kontekstu
+    # ocena pytała o oba osobno dla każdej rekrutacji z puli — na produkcji
+    # 356 zapytań na jedno wejście w profil kandydata.
     breakdowns = await rank_jobs_for_candidate(
-        candidate, jobs, db, similarity_map=similarity_map
+        candidate,
+        jobs,
+        db,
+        similarity_map=similarity_map,
+        contexts=await build_jobs_scoring_contexts(db, jobs, [candidate.id]),
     )
     # Published roles outrank drafts (higher-priority signal); re-rank BEFORE the
     # top_k cap so published matches aren't truncated away by a score-only sort.
