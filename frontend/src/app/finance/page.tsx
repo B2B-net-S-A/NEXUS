@@ -1,8 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { QueryStateNotice } from "@/components/ds";
 import { RequirePermission } from "@/components/RequirePermission";
@@ -10,7 +9,6 @@ import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
 import {
-  ORDER_CHANGES_SUMMARY_KEY,
   ORDER_CHANGES_URL_KEYS,
   OrderChangesTab,
 } from "@/components/finance/OrderChangesTab";
@@ -18,11 +16,9 @@ import {
   ORDER_PDFS_URL_KEYS,
   OrderPdfsTab,
 } from "@/components/finance/OrderPdfsTab";
-import { financeApi, type OrderPdfRef } from "@/lib/api/finance";
-import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
+import type { OrderPdfRef } from "@/lib/api/finance";
 import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
-import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
 
 import { parseFinanceView, type FinanceViewMode as ViewMode } from "@/lib/finance-view";
@@ -43,6 +39,8 @@ import { CounterpartiesTab } from "@/components/finance/ledger/CounterpartiesTab
 import { PaymentsTab } from "@/components/finance/ledger/PaymentsTab";
 import { Ebi24ArchiveTab } from "@/components/finance/ledger/Ebi24ArchiveTab";
 import { useAccountingModule } from "@/lib/api/finance-ledger";
+import { useLedgerConfig } from "@/lib/api/accounting";
+import { FinanceAreaNav, financeItemKey } from "@/components/finance/FinanceAreaNav";
 
 /** Jedno zdanie pod tytułem — mówi, co pokazuje wybrana zakładka. */
 const VIEW_DESCRIPTION: Record<ViewMode, string> = {
@@ -80,13 +78,13 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
  * komponent w `Suspense`, żeby `useSearchParams` nie wymusił granicy
  * Suspense wokół całej strony.
  */
-function FinanceViewSync({ onView }: { onView: (view: ViewMode) => void }) {
+function FinanceViewSync({ onView }: { onView: (raw: string | null) => void }) {
   const searchParams = useSearchParams();
   const raw = searchParams ? searchParams.get("view") : undefined;
   useEffect(() => {
     // `undefined` = poza routerem App (testy) — zostaje odczyt przy montowaniu.
     if (raw === undefined) return;
-    onView(parseFinanceView(raw));
+    onView(raw);
   }, [raw, onView]);
   return null;
 }
@@ -120,9 +118,23 @@ function FinanceViewSync({ onView }: { onView: (view: ViewMode) => void }) {
 export default function FinancePage() {
   const user = useAuthStore((state) => state.user);
   const impersonating = useAuthStore((state) => state.realUser !== null);
+  const router = useRouter();
   const [view, setView] = useState<ViewMode>("results");
   const hasModule = hasPermission(user, "finance_module");
   const [mounted, setMounted] = useState(false);
+  // Samo `/finance` (bez `?view=`) to wejście do modułu (makieta 18.11.2026):
+  // przy otwartej Księdze prowadzi na Przegląd miesiąca (`/accounting`).
+  const [viewInAddress, setViewInAddress] = useState(true);
+  const ledger = useLedgerConfig(hasModule);
+  const landOnOverview = mounted && !viewInAddress && ledger.data?.open === true;
+  const waitingForLanding = mounted && !viewInAddress && hasModule && ledger.isLoading;
+  const syncView = useCallback((raw: string | null) => {
+    setViewInAddress(raw !== null);
+    setView(parseFinanceView(raw));
+  }, []);
+  useEffect(() => {
+    if (landOnOverview) router.replace("/accounting");
+  }, [landOnOverview, router]);
   // Podgląd jako użytkownik jest zawsze read-only, także gdy target ma
   // Finance=write. Backend odrzuca takie mutacje; UI nie może sugerować, że
   // import, restore lub edycja komórek zadziałają.
@@ -160,20 +172,10 @@ export default function FinancePage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setView(parseFinanceView(params.get("view")));
+    syncView(params.get("view"));
     setMounted(true);
-  }, []);
+  }, [syncView]);
 
-  // Badge „do zrobienia" przy zakładce — zmiany bieżącego miesiąca. Liczony
-  // przez serwer; odhaczenie unieważnia ten klucz, więc spada od razu.
-  const summary = useQuery({
-    queryKey: ORDER_CHANGES_SUMMARY_KEY,
-    queryFn: async () => (await financeApi.getOrderChangesSummary()).data,
-    enabled: mounted,
-    refetchOnWindowFocus: true,
-    refetchInterval: ORDER_CHANGES_POLL_MS,
-  });
-  const todoBadge = summary.data?.todo ?? 0;
 
   /** „Otwórz w Zamówienia PDF" — miesiąc i klient pliku, nic więcej z adresu. */
   function openInPdfs(pdf: OrderPdfRef) {
@@ -191,11 +193,8 @@ export default function FinancePage() {
   function changeView(next: ViewMode) {
     setView(next);
     const params = new URLSearchParams(window.location.search);
-    if (next === "results") {
-      params.delete("view");
-    } else {
-      params.set("view", next);
-    }
+    // Zawsze z `?view=` — samo `/finance` prowadzi na Przegląd miesiąca.
+    params.set("view", next);
     // Podzakładka, miesiąc i filtry należą do „Zmian w zamówieniach" — w innym
     // widoku zostałyby w adresie jako martwy parametr.
     if (next !== "order-changes") {
@@ -232,7 +231,7 @@ export default function FinancePage() {
       }
     >
       <Suspense fallback={null}>
-        <FinanceViewSync onView={setView} />
+        <FinanceViewSync onView={syncView} />
       </Suspense>
       <div className="space-y-3.5">
         {/* Tytuł i opis w jednej linii, zakładki pod spodem (makiety 02.10.2026)
@@ -246,139 +245,11 @@ export default function FinancePage() {
           </p>
         </header>
 
-        <div
-          role="tablist"
-          aria-label="Tryb modułu Finanse"
-          // Pięć długich etykiet (~460 px) — poniżej `sm` przewijanie w poziomie
-          // zamiast wypychania strony (audyt 23.09.2026, P1-12).
-          data-help="finance.modes"
-          className="flex max-w-full gap-0.5 overflow-x-auto border-b border-border"
-        >
-          {settlementsOpen ? (
-            <ModeButton
-              active={visibleView === "settlements"}
-              onClick={() => changeView("settlements")}
-            >
-              Rozliczenia
-            </ModeButton>
-          ) : null}
-          {accountingOpen ? (
-            <ModeButton
-              active={visibleView === "costs"}
-              onClick={() => changeView("costs")}
-            >
-              Koszty
-            </ModeButton>
-          ) : null}
-          {accountingOpen ? (
-            <ModeButton
-              active={visibleView === "payments"}
-              onClick={() => changeView("payments")}
-            >
-              Przelewy
-            </ModeButton>
-          ) : null}
-          {accountingOpen ? (
-            <ModeButton
-              active={visibleView === "counterparties"}
-              onClick={() => changeView("counterparties")}
-            >
-              Kontrahenci
-            </ModeButton>
-          ) : null}
-          {accountingOpen ? (
-            <ModeButton
-              active={visibleView === "ebi24-archive"}
-              onClick={() => changeView("ebi24-archive")}
-            >
-              Archiwum eBI24
-            </ModeButton>
-          ) : null}
-          {accountingOpen ? (
-            <ModeButton
-              active={visibleView === "booking"}
-              onClick={() => changeView("booking")}
-            >
-              Księgowanie
-            </ModeButton>
-          ) : null}
-          {accountingOpen ? (
-            <ModeButton
-              active={visibleView === "accounts"}
-              onClick={() => changeView("accounts")}
-            >
-              Plan kont
-            </ModeButton>
-          ) : null}
-          {hasModule && (
-            <ModeButton
-              active={visibleView === "results"}
-              onClick={() => changeView("results")}
-            >
-              Wyniki miesięczne
-            </ModeButton>
-          )}
-          {hasModule && (
-            <ModeButton
-              active={visibleView === "archive"}
-              onClick={() => changeView("archive")}
-            >
-              Archiwum
-            </ModeButton>
-          )}
-          {canImportMd && (
-            <ModeButton active={view === "md"} onClick={() => changeView("md")}>
-              Import zużycia MD
-            </ModeButton>
-          )}
-          <ModeButton
-            active={visibleView === "order-changes"}
-            onClick={() => changeView("order-changes")}
-          >
-            Zmiany w zamówieniach
-            {todoBadge > 0 ? (
-              <span
-                className="rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground tabular-nums"
-                aria-label={`${todoBadge} do zrobienia w bieżącym miesiącu`}
-              >
-                {todoBadge}
-              </span>
-            ) : null}
-          </ModeButton>
-          <ModeButton
-            active={visibleView === "order-pdfs"}
-            onClick={() => changeView("order-pdfs")}
-          >
-            Zamówienia PDF
-          </ModeButton>
-          {invoicingOpen ? (
-            <ModeButton
-              active={visibleView === "sales-invoices"}
-              onClick={() => changeView("sales-invoices")}
-            >
-              Faktury do klientów
-            </ModeButton>
-          ) : null}
-          {hasModule ? (
-            <ModeButton
-              active={visibleView === "rate-divergences"}
-              onClick={() => changeView("rate-divergences")}
-              data-tour="finance.rate-divergences"
-            >
-              Rozjazdy stawek
-            </ModeButton>
-          ) : null}
-          {approvalsOpen ? (
-            <ModeButton
-              active={visibleView === "approved-expenses"}
-              onClick={() => changeView("approved-expenses")}
-            >
-              Wydatki ze zgodą
-            </ModeButton>
-          ) : null}
-        </div>
+        {/* Makieta 18.11.2026: Finanse i Księga w jednej nawigacji w grupach
+            (`FinanceAreaNav`) zamiast 15 zakładek w jednym rzędzie. */}
+        <FinanceAreaNav active={financeItemKey(visibleView)} />
 
-        {!mounted ? (
+        {!mounted || waitingForLanding || landOnOverview ? (
           <div className="py-10 text-center text-sm text-muted-foreground">
             Ładowanie…
           </div>
@@ -417,37 +288,5 @@ export default function FinancePage() {
         )}
       </div>
     </RequirePermission>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  children,
-  "data-tour": dataTour,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: ReactNode;
-  "data-tour"?: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      data-tour={dataTour}
-      aria-selected={active}
-      onClick={onClick}
-      // Podkreślenie jak w `ds/WorkspaceModeTabs` (Klienci, Kontrakty). Zakładki
-      // zostają ręczne, bo licznik „do zrobienia" ma własną nazwę dostępną.
-      className={cn(
-        "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-1.5 text-[13px] transition-colors pointer-coarse:min-h-10",
-        active
-          ? "border-primary font-semibold text-foreground"
-          : "border-transparent font-medium text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }

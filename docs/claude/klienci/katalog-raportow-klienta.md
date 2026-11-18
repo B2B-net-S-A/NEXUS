@@ -42,9 +42,11 @@ sesji, nie w repo — ma nazwy i liczby). Decyzje Artura z 15.11.2026 niżej.
   Terminów sprzed „obowiązuje od” albo dnia dodania raportu nie pokazujemy
   jako zaległych (`catalog.tracking_start`) — inaczej świeży katalog świeci
   się na czerwono za miesiące, w których nikt go nie prowadził.
-- **Wejścia:** tryb „Raporty dla klientów” w module Klienci
-  (`/clients?view=reports`, DL domyślnie „Moje”) i zakładka „Raporty” w karcie
-  klienta pod „Więcej”. Bez nowej pozycji menu.
+- **Wejścia (od 18.11.2026):** „Umowy › Raporty dla klienta” w profilu klienta,
+  karta „Raporty dla klienta” w jego Przeglądzie i znacznik w kolumnie „Wymaga
+  uwagi” na liście klientów (`ui/klienci-i-finanse-jedna-lista.md`). Tryb
+  „Raporty dla klientów” w module Klienci (`/clients?view=reports`, 15–18.11)
+  zniknął. Bez nowej pozycji menu.
 - **Bramki:** router za sekcją Delivery; odczyt „podgląd Delivery”, zapis
   „edycja klientów”, zakres klientów DL-a w handlerze; pobranie plików z
   `NOT_READ_ONLY`. Plik spoza NEXUSA w historii pobiera tylko osoba z podglądem

@@ -11,6 +11,10 @@ zgodnych z Symfonią. eBI24 (E0–E5) to osobny plan:
 
 ## Moduły i dostęp
 
+- **Nawigacja (18.11.2026):** Księga to grupa modułu Finanse (`FinanceAreaNav`,
+  `ui/klienci-i-finanse-jedna-lista.md`); pozycji „Księgowość” nie ma w menu,
+  a „Miesiąc” jest Przeglądem Finansów. Trasy `/accounting/*` się nie zmieniły.
+
 - Przełączniki w `app_settings['ledger']` (`services/ledger/settings.py`):
   `ledger`, `automations`, `bank`, `vat`, `assets`, `payroll`, `reports`.
   Włączyć da się tylko moduł z ekranami (`BUILT`), reszta = 409 z etapem.
