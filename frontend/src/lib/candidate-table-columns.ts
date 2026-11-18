@@ -17,7 +17,6 @@ export type CandidateColumnId =
   | "experience"
   | "process"
   | "last_contact"
-  | "last_rejection"
   | "added"
   | "cv"
   | "fit"
@@ -33,12 +32,6 @@ export interface CandidateColumn {
   /** Ukryta, dopóki ktoś jej nie włączy. */
   hiddenByDefault?: boolean;
   /**
-   * Na szerokim ekranie widoczna od razu mimo `hiddenByDefault`. Na laptopie
-   * (1280 px z przypiętym menu) tabela domyślna mieści się na styk — dodatkowa
-   * kolumna wypychałaby „Przypisz” poza ekran.
-   */
-  wideDefault?: boolean;
-  /**
    * Tylko w „Szukaj ręcznie” z rekrutacji (lista w trybie osadzonym) —
    * dopasowanie liczy się względem TEJ rekrutacji, na liście nie ma do czego.
    */
@@ -48,12 +41,6 @@ export interface CandidateColumn {
    * „Kolumny”: bez filtra nie ma czego pokazać.
    */
   filterOnly?: boolean;
-  /**
-   * Kolumna `wideDefault` dodana po tym, jak ludzie zapisali już swoje
-   * wybory: brak id na zapisanej liście NIE znaczy „włączona” (dla starszych
-   * kolumn znaczy), tylko „bez decyzji”. Włączenie zapisuje znacznik `:shown`.
-   */
-  addedAfterSavedPrefs?: boolean;
 }
 
 export const CANDIDATE_TABLE_PREFS_KEY = "candidates-table-v2";
@@ -77,12 +64,11 @@ export const CANDIDATE_COLUMNS: readonly CandidateColumn[] = [
   { id: "process", label: "W procesie", width: "minmax(112px, 1fr)", minWidth: 112 },
   // „Ostatnia rozmowa” (03.10.2026): data i autor najnowszej notatki z rozmowy,
   // a bez niej liczba prób kontaktu. Id zostaje — niosą je zapisane wybory kolumn.
-  // Od 06.11.2026 (decyzja Artura) domyślnie na szerokim ekranie stoi
-  // „Ostatnie odrzucenie”; „Ostatnia rozmowa” zostaje do włączenia w „Kolumny”.
+  // Kolumny „Ostatnie odrzucenie” (06.11.2026) nie ma od 18.11.2026 (decyzja
+  // Artura): stary cytat wyglądał w niej na dzisiejszy. Dwie ostatnie
+  // informacje o osobie są w linii „Ostatnio z osobą” pod wierszem; id
+  // `last_rejection` z zapisanych wyborów jest ignorowane jak każde nieznane.
   { id: "last_contact", label: "Ostatnia rozmowa", width: "minmax(118px, 0.9fr)", minWidth: 118, hiddenByDefault: true },
-  // Powód, kto zakończył, klient i data ostatniego odrzucenia
-  // (`candidate-last-rejection.ts`). Przy 1280 tylko filtr i pasek nad tabelą.
-  { id: "last_rejection", label: "Ostatnie odrzucenie", width: "minmax(170px, 1.3fr)", minWidth: 170, hiddenByDefault: true, wideDefault: true, addedAfterSavedPrefs: true },
   { id: "added", label: "Dodano", width: "minmax(88px, 0.6fr)", minWidth: 88, hiddenByDefault: true },
   { id: "cv", label: "CV", width: "minmax(52px, 0.4fr)", minWidth: 52 },
   { id: "fit", label: "Dop.", width: "72px", minWidth: 72, jobOnly: true },
@@ -108,28 +94,8 @@ export const DEFAULT_HIDDEN_JOB_COLUMNS: readonly CandidateColumnId[] = [
   "phone",
 ];
 
-/** Od tej szerokości okna lista pokazuje domyślnie także kolumny `wideDefault`. */
+/** Szeroki ekran — „Dodany na etap” nie musi tam zastępować „Ostatniego stanowiska”. */
 export const CANDIDATE_WIDE_DEFAULT_QUERY = "(min-width: 1536px)";
-
-const WIDE_DEFAULT = new Set<string>(
-  CANDIDATE_COLUMNS.filter((c) => c.wideDefault).map((c) => c.id),
-);
-
-/**
- * Kolumna `wideDefault` w zapisanej liście ukrytych ma trzy stany:
- * - samo id na liście = brak decyzji osoby. Lista ukrytych powstaje
- *   z domyślnych przy pierwszym przełączeniu DOWOLNEJ kolumny, więc id trafia
- *   na nią samo — kolumna idzie wtedy za szerokością okna (inaczej wybór
- *   zapisany na dużym monitorze przyklejałby ją do laptopa);
- * - id + znacznik `:hidden` = osoba ją wyłączyła — ukryta na każdym ekranie;
- * - brak id = osoba ją włączyła — widoczna na każdym ekranie (tak też czyta
- *   się wybór zapisany przed tą zmianą).
- */
-const hiddenMark = (id: string) => `${id}:hidden`;
-const shownMark = (id: string) => `${id}:shown`;
-const ADDED_LATER = new Set<string>(
-  CANDIDATE_COLUMNS.filter((c) => c.addedAfterSavedPrefs).map((c) => c.id),
-);
 
 export interface CandidateColumnOptions {
   forJob?: boolean;
@@ -141,18 +107,6 @@ function defaultHidden(options: CandidateColumnOptions): readonly string[] {
   return options.forJob ? DEFAULT_HIDDEN_JOB_COLUMNS : DEFAULT_HIDDEN_COLUMNS;
 }
 
-function wideDefaultVisible(
-  id: string,
-  saved: ReadonlySet<string>,
-  options: CandidateColumnOptions,
-): boolean {
-  if (saved.has(hiddenMark(id))) return false;
-  if (ADDED_LATER.has(id)) {
-    if (saved.has(shownMark(id))) return true;
-  } else if (!saved.has(id)) return true;
-  return Boolean(options.wide) && !options.forJob;
-}
-
 export function visibleCandidateColumns(
   hidden: readonly string[] | null | undefined,
   options: CandidateColumnOptions = {},
@@ -160,7 +114,6 @@ export function visibleCandidateColumns(
   const saved = new Set(hidden ?? defaultHidden(options));
   return selectableCandidateColumns(options).filter((c) => {
     if (c.required) return true;
-    if (WIDE_DEFAULT.has(c.id)) return wideDefaultVisible(c.id, saved, options);
     return !saved.has(c.id);
   });
 }
@@ -196,23 +149,9 @@ export function toggleCandidateColumn(
   options: CandidateColumnOptions = {},
 ): string[] {
   const current = new Set(hidden ?? defaultHidden(options));
-  if (WIDE_DEFAULT.has(id)) {
-    if (wideDefaultVisible(id, current, options)) {
-      current.add(id);
-      current.add(hiddenMark(id));
-      current.delete(shownMark(id));
-    } else {
-      current.delete(id);
-      current.delete(hiddenMark(id));
-      if (ADDED_LATER.has(id)) current.add(shownMark(id));
-    }
-  } else if (current.has(id)) current.delete(id);
+  if (current.has(id)) current.delete(id);
   else current.add(id);
-  return [
-    ...CANDIDATE_COLUMNS.filter((c) => current.has(c.id) && !c.required).map((c) => c.id),
-    ...[...WIDE_DEFAULT].map(hiddenMark).filter((mark) => current.has(mark)),
-    ...[...ADDED_LATER].map(shownMark).filter((mark) => current.has(mark)),
-  ];
+  return CANDIDATE_COLUMNS.filter((c) => current.has(c.id) && !c.required).map((c) => c.id);
 }
 
 /** Odstęp między kolumnami siatki wiersza (`gap-3`). */

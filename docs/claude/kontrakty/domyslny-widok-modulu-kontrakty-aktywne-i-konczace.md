@@ -8,3 +8,5 @@ Etykieta licznika („N kontraktorów / M aktywnych kontraktów") liczy teraz
 **cały zbiór obowiązujących**, nie tylko dokładnie jeden status — inaczej
 domyślne wejście do modułu cofało ją do generycznego „osób / kontraktów".
 Filtrowanie do pojedynczego statusu i sentinel `status=all` działają bez zmian.
+Od 18.11.2026 to pigułka „Aktywne” jednej listy; pigułka „Kończące się” liczy
+osobną regułą serwera (`bucket=ending`) → `jedna-lista-kontraktow-szybkie-filtry.md`.

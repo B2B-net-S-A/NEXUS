@@ -42,8 +42,7 @@ export const EXTEND_INVALIDATED_KEYS = [
   ["client-profile"],
   ["dl-orders-grouped"],
   ["contracts-v2"],
-  ["contracts-expiring-v2"],
-  ["contractors-v2"],
+  ["contracts-quick-counts"],
 ] as const;
 
 export function ExtendContractMenu({ contractId, clientId, contractStatus }: Props) {

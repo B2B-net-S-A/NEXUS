@@ -73,6 +73,13 @@ def _nrb(seed: int) -> str:
     return iban_check_digits(bban) + bban
 
 
+def _sender_nrb(bank: str = "11400000") -> str:
+    """Rachunek nadawcy; bank 1090… (Santander) daje układ pliku z eBI24."""
+
+    bban = f"{bank}{1:016d}"
+    return iban_check_digits(bban) + bban
+
+
 def _headers(user: User) -> dict[str, str]:
     token = create_access_token(subject=user.id, role=user.role.value)
     return {"Authorization": f"Bearer {token}"}
@@ -206,7 +213,7 @@ async def world(monkeypatch):
     await _set(module_settings.SETTING_KEY, {"enabled": True})
     await _set(
         service.SETTING_KEY,
-        {"sender_name": "Spółka Przykładowa", "sender_account": _nrb(1)},
+        {"sender_name": "Spółka Przykładowa", "sender_account": _sender_nrb()},
     )
     async with AsyncSessionLocal() as db:
         await ledger.catch_up(db)
@@ -437,6 +444,43 @@ async def test_paczka_plik_elixir_odhaczenie_i_anulowanie(world, client) -> None
     assert (
         await client.get(f"{PAY}/batches/{batch['id']}/file", headers=accountant)
     ).status_code == 409
+
+
+async def test_santander_plik_w_ukladzie_ebi24_a_mpp_odmowa(world, client) -> None:
+    accountant = _headers(world["accountant"])
+    await _set(
+        service.SETTING_KEY,
+        {"sender_name": "Spółka Przykładowa", "sender_account": _sender_nrb("10900000")},
+    )
+    mpp = await _supplier_entry(
+        world, world["nips"]["a"], gross="20000.00", vat="3739.84", account=_nrb(41)
+    )
+    plain = await _supplier_entry(
+        world, world["nips"]["b"], gross="1230.00", account=_nrb(42)
+    )
+    world["listed"].add(_nrb(42))
+
+    refused = await client.post(
+        f"{PAY}/batches",
+        json={"entry_ids": [mpp, plain], "acknowledged": [mpp]},
+        headers=accountant,
+    )
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "santander_mpp"
+    assert {await _state(mpp), await _state(plain)} == {"unpaid"}
+
+    created = await client.post(
+        f"{PAY}/batches", json={"entry_ids": [plain]}, headers=accountant
+    )
+    assert created.status_code == 200, created.text
+    file = await client.get(
+        f"{PAY}/batches/{created.json()['id']}/file", headers=accountant
+    )
+    assert file.status_code == 200, file.text
+    (line,) = file.content.decode("windows-1250").strip().split("\r\n")
+    assert line.startswith(",") and line.endswith(',"","","","",""')
+    assert f',"10900000","{_nrb(42)[2:10]}",' in line
+    assert '"Spółka Przykładowa"' in line and ',"51"' not in line
 
 
 async def test_dwie_rownolegle_paczki_nie_biora_tej_samej_faktury(

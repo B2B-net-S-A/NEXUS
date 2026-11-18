@@ -40,6 +40,17 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   przełom miesiąca → 422, wgrać miesięczny albo dzienny). Pozycje 0,00
   pomijamy. Bez tego obce waluty i drugi rachunek szły na jedno konto 130-x
   w PLN, a marzec lądował w kwietniu (przegląd 14.11.2026).
+- **Saldo musi się zgadzać** (od 18.11.2026): każdy wyciąg w pliku, który ma
+  oba salda (MT940 `:60F:`/`:60M:` → `:62F:`/`:62M:`, CAMT.053 `OPBD`/`PRCD`
+  → `CLBD`), daje `ParsedStatement.balances`; otwarcie + operacje ≠ saldo
+  końcowe banku → 422 (plik ucięty albo uszkodzony). Wyciąg bez salda
+  końcowego przechodzi bez tej kontroli. Odrzuca tylko Księga — parser i stare
+  ekrany importu (Przelewy, Płace, faktury do klientów) zostają bez zmian.
+  Santander przez eBI24 daje plik `.eMT`: MT940 z nagłówkami SWIFT
+  `{1:}{2:}{4:` … `-}`, trzy części wyciągu dnia, windows-1250 — pola wyboru
+  pliku przyjmują `.emt`. Próbka 06.10.2026: 30/30 operacji, saldo zgodne.
+  Fikstury testów z MT940 do Księgi muszą mieć saldo końcowe zgodne
+  z operacjami (`_mt940_balance` w `test_ledger_sources_db.py`).
 - **Rozpoznanie**, po kolei: duplikat (ten sam rachunek, referencja banku,
   data i kwota w innym wyciągu — dzienny i miesięczny) → wypłata dla zespołu
   **tak jak w E3**: każdy wiersz R9 tego pliku (też „unmatched”/„ignored”)

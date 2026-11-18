@@ -2,86 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   NO_REJECTION_FILTER,
   cycleFacetKey,
-  hasLaterLiveProcess,
-  lastRejectionCell,
   rejectionFilterCount,
   rejectionFilterSummary,
   rejectionKeyLabel,
-  type LastRejection,
 } from "@/lib/candidate-last-rejection";
 import { decodeFilters, encodeFilters, DEFAULT_FILTERS, filtersToApiParams } from "@/lib/url-filters";
-
-const base: LastRejection = {
-  key: "r:Brak doświadczenia",
-  label: "Brak doświadczenia",
-  who: "us",
-  ended_by: "recruiter",
-  note: null,
-  at: "2026-10-16T13:48:46Z",
-  job_id: 10,
-  job_title: "Senior AI Engineer",
-  client_name: "PKO BP",
-  moved_by_name: "Rekruter Testowy",
-};
-
-describe("komórka „Ostatnie odrzucenie”", () => {
-  it("powód ze słownika: powód, kto, klient i data", () => {
-    const v = lastRejectionCell(base);
-    expect(v.primary).toBe("Brak doświadczenia");
-    expect(v.primaryIsNote).toBe(false);
-    expect(v.whoLabel).toBe("My");
-    expect(v.secondary).toBe("PKO BP · 16.10.2026");
-    expect(v.title).toContain("Rekrutacja: Senior AI Engineer");
-  });
-
-  it("„Inne” pokazuje opis, DL ma własną etykietę", () => {
-    const v = lastRejectionCell({
-      ...base,
-      key: "r:Inne",
-      label: "Inne",
-      ended_by: "delivery_lead",
-      note: "podpisał umowę z inną firmą",
-    });
-    expect(v.primary).toBe("Inne · „podpisał umowę z inną firmą”");
-    expect(v.whoLabel).toBe("DL");
-  });
-
-  it("Traffit bez powodu: opis kursywą, kategoria w drugiej linii", () => {
-    const v = lastRejectionCell({
-      ...base,
-      key: "t:Po CV",
-      label: "Traffit · Po CV",
-      ended_by: null,
-      note: "stawka 115",
-    });
-    expect(v.primary).toBe("„stawka 115”");
-    expect(v.primaryIsNote).toBe(true);
-    expect(v.who).toBe("traffit");
-    expect(v.whoLabel).toBe("Traffit · Po CV");
-  });
-
-  it("bez powodu i opisu mówi to wprost", () => {
-    const v = lastRejectionCell({ ...base, key: "none", label: "Bez powodu", ended_by: null });
-    expect(v.primary).toBe("bez powodu");
-  });
-
-  it("Traffit bez opisu: kategoria w pierwszej linii, nie dwa razy", () => {
-    const v = lastRejectionCell({ ...base, key: "t:Po CV", label: "Traffit · Po CV", ended_by: null });
-    expect(v.primary).toBe("Po CV");
-    expect(v.whoLabel).toBe("Traffit");
-  });
-});
-
-describe("„potem: w toku”", () => {
-  it("liczy tylko proces w innej rekrutacji, trwający i nowszy niż odrzucenie", () => {
-    const later = { job_id: 11, stage: "screening", moved_at: "2026-10-20T10:00:00Z" };
-    expect(hasLaterLiveProcess(base, [later])).toBe(true);
-    expect(hasLaterLiveProcess(base, [{ ...later, moved_at: "2026-10-01T10:00:00Z" }])).toBe(false);
-    expect(hasLaterLiveProcess(base, [{ ...later, stage: "rejected" }])).toBe(false);
-    expect(hasLaterLiveProcess(base, [{ ...later, job_id: 10 }])).toBe(false);
-    expect(hasLaterLiveProcess(base, null)).toBe(false);
-  });
-});
 
 describe("filtr „Powód odrzucenia”", () => {
   const f = (patch: Partial<typeof NO_REJECTION_FILTER>) => ({ ...NO_REJECTION_FILTER, ...patch });
@@ -153,7 +78,11 @@ describe("zapytanie paska", () => {
       "@/components/v2/pages/CandidatesListV2"
     );
     const filters = { ...DEFAULT_FILTERS, q: "AI Engineer", rejectionKeys: ["t:Po CV"] };
-    const page1 = rejectionFacetsApiParams(candidatesListApiParams(filters, 1, 50));
+    const list = candidatesListApiParams(filters, 1, 50);
+    // 18.11.2026: lista prosi o „Ostatnio z osobą” zamiast kolumny odrzucenia.
+    expect(list).toMatchObject({ include_recent_facts: true });
+    expect(list).not.toHaveProperty("include_last_rejection");
+    const page1 = rejectionFacetsApiParams(list);
     const page3 = rejectionFacetsApiParams(candidatesListApiParams({ ...filters, page: 3 }, 3, 50));
     expect(page3).toEqual(page1);
     expect(page1).toMatchObject({
@@ -164,7 +93,8 @@ describe("zapytanie paska", () => {
       include_rejection_facets: true,
     });
     expect(page1).not.toHaveProperty("sort");
-    expect(page1).not.toHaveProperty("include_last_rejection");
+    // Pasek nie potrzebuje danych wierszy, w tym „Ostatnio z osobą”.
+    expect(page1).not.toHaveProperty("include_recent_facts");
     expect(page1).not.toHaveProperty("include_active_recruitments");
   });
 });
