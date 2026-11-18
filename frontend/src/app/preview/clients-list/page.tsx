@@ -2,13 +2,11 @@
 
 /**
  * Harness ekranu „Klienci” (`/clients`) — PRODUKCYJNE `ClientsListV2` (lista
- * klientów w trzech zakładkach portfela) i `KeyRelationshipsPanel` (tryb
- * „Kluczowe relacje”), z tym samym przełącznikiem trybów co
- * `app/clients/page.tsx`:
+ * klientów w trzech zakładkach portfela, od 18.11.2026 bez trybów, z kolumną
+ * „Wymaga uwagi”: raport miesiąca i relacja bez kontaktu z zasianego cache):
  *
  * - `/preview/clients-list` — lista klientów (`?category=relationship`
- *   i `?category=inactive` otwierają pozostałe zakładki portfela),
- * - `/preview/clients-list?view=contacts` — kluczowe relacje.
+ *   i `?category=inactive` otwierają pozostałe zakładki portfela).
  *
  * Zero zapytań: cache react-query zasiany z góry (`staleTime: Infinity`),
  * a przechwytujący `axios` odrzuca lokalnie każde żądanie, które mimo to by
@@ -20,13 +18,9 @@
  */
 
 import { Suspense, useEffect, useState } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
-import { useUrlWriter } from "@/lib/url-selection";
 import { AxiosError } from "axios";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { KeyRelationshipsPanel } from "@/components/clients/KeyRelationshipsPanel";
-import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
 import { ToastProvider } from "@/components/Toast";
 import { ClientsListV2 } from "@/components/v2/pages/ClientsListV2";
 import {
@@ -36,7 +30,8 @@ import {
   type ClientDirectoryItem,
   type ClientDirectoryResponse,
 } from "@/lib/api";
-import { resolveClientsView, type ClientsView } from "@/lib/clients-workspace";
+import type { ReportsCalendar } from "@/lib/api/client-reports";
+import { warsawToday } from "@/lib/warsaw-date";
 import { useAuthStore, type User } from "@/store/auth";
 
 const PREVIEW_ADMIN: User = {
@@ -240,9 +235,9 @@ function directoryPage(category: ClientDirectoryCategory): ClientDirectoryRespon
   };
 }
 
-// ── Kluczowe relacje ─────────────────────────────────────────────────────────
+// ── Kluczowe relacje (kolumna „Wymaga uwagi”) ────────────────────────────────
 
-/** Kształt wiersza `GET /api/my-relationships` (lustro typu z panelu). */
+/** Kształt wiersza `GET /api/my-relationships`. */
 interface RelationshipRow {
   contact_id: number;
   name: string;
@@ -389,47 +384,43 @@ function seededClient(): QueryClient {
   );
   qc.setQueryData(["clients-directory", "inactive", "", 1, false], directoryPage("inactive"));
   qc.setQueryData(["my-relationships"], relationshipRows());
+  // Kalendarz raportów miesiąca — klucz jak w `useClientAttention`.
+  qc.setQueryData(["client-reports-calendar", warsawToday().slice(0, 7), false], reportsCalendar());
   return qc;
 }
 
-const MODES = [
-  { value: "list", label: "Lista klientów" },
-  { value: "contacts", label: "Kluczowe relacje" },
-] as const satisfies readonly { value: ClientsView; label: string }[];
-
-/** Lustro `ClientsWorkspace` z `app/clients/page.tsx` — tryb z `?view=`. */
-function ClientsWorkspace() {
-  const { replaceUrl } = useUrlWriter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const view = resolveClientsView(searchParams.get("view"));
-
-  const changeView = (next: ClientsView) => {
-    if (next === view) return;
-    replaceUrl(next === "contacts" ? `${pathname}?view=contacts` : pathname);
+/** Jeden raport bez ustalonego terminu u fikcyjnego klienta (kolumna „Wymaga uwagi”). */
+function reportsCalendar(): ReportsCalendar {
+  const today = warsawToday();
+  const month = today.slice(0, 7);
+  return {
+    month,
+    today,
+    items: [
+      {
+        due: null,
+        carried: false,
+        definition_id: 9001,
+        client_id: 101,
+        client_name: "Bank Przykładowy",
+        report: "Raport miesięczny rekrutacji",
+        family: "management",
+        period_key: month,
+        period_label: "ten miesiąc",
+        preparer_label: "Delivery Lead",
+        preparer_is_me: false,
+        state: "no_date",
+        has_generator: true,
+      },
+    ],
+    upcoming: [],
+    counts: { no_date: 1 },
   };
+}
 
-  const modeTabs = (
-    <WorkspaceModeTabs
-      label="Tryb modułu Klienci"
-      modes={MODES}
-      value={view}
-      onChange={changeView}
-    />
-  );
-
-  return (
-    <div className="space-y-4">
-      {view === "contacts" ? (
-        <>
-          {modeTabs}
-          <KeyRelationshipsPanel />
-        </>
-      ) : (
-        <ClientsListV2 modeTabs={modeTabs} />
-      )}
-    </div>
-  );
+/** Lustro `ClientsWorkspace` z `app/clients/page.tsx` — jedna lista bez trybów. */
+function ClientsWorkspace() {
+  return <ClientsListV2 modeTabs={null} />;
 }
 
 export default function ClientsListPreview() {
@@ -462,8 +453,8 @@ export default function ClientsListPreview() {
             <p className="text-sm font-semibold text-foreground">Harness — ekran „Klienci”</p>
             <p className="text-sm text-muted-foreground">
               Publiczny podgląd na fikcyjnych danych. Zero zapytań do API. Zakładki portfela
-              i tryb „Kluczowe relacje” (<code>?view=contacts</code>) przełączają się jak na{" "}
-              <code>/clients</code>.
+              przełączają się jak na <code>/clients</code>; kolumna „Wymaga uwagi” czyta zasiany
+              raport miesiąca i relacje.
             </p>
           </header>
           <Suspense

@@ -569,7 +569,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     capability: "nav.my_relationships",
     placement: "primary",
     paletteKeywords: ["moje relacje", "kontakty", "relacje"],
-    inPalette: true,
+    // Od 18.11.2026 nie ma osobnego widoku: relacje są pod klientem (Przegląd,
+    // Ludzie › Kontakty i relacje), bez kontaktu — w „Wymaga uwagi” na liście.
+    inPalette: false,
     inSidebar: false,
   },
   // „Kontrakty" to jeden workspace z dwoma trybami (Obsługa kontraktorów /
@@ -638,6 +640,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     paletteKeywords: ["księga", "dziennik", "obroty", "salda", "plan kont", "pk", "symfonia"],
     inPalette: true,
+    // Makieta 18.11.2026: Księga to grupa w Finansach (wspólna nawigacja
+    // `FinanceAreaNav`), więc w menu jest jedna pozycja „Finanse”.
+    inSidebar: false,
   },
   // Przepisy (15.11.2026): zmiany w prawie, terminy i co znaczą dla nas.
   // Bez nowego uprawnienia: admin i HoR z roli albo jedno z czterech uprawnień
@@ -814,7 +819,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance", "accounting"],
+    ids: ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"],
   },
   // „Przepisy” (15.11.2026) w „Firmie”: widzi je też HoR, który nie ma „Klientów i umów”.
   { key: "company", title: "Firma", ids: ["rada", "insights", "people", "equipment", "trainings", "compliance"] },
@@ -892,6 +897,25 @@ function isEntryVisible(
 }
 
 /**
+ * Pozycja, którą w MENU (szyna, „Więcej”, sekcje) zastępuje inna widoczna
+ * pozycja: od 18.11.2026 umowy klienta są pod klientem, więc „Umowy klientów”
+ * stoją w menu tylko u osoby bez Klientów (samo uprawnienie „Umowy klientów:
+ * lista i pliki”). Paleta ⌘K idzie za menu (nigdy nie prowadzi tam, dokąd
+ * menu nie prowadzi), więc też go nie pokazuje.
+ */
+const MENU_SHADOWED_BY: Readonly<Record<string, string>> = {
+  "client-contracts": "clients",
+};
+
+function withoutShadowed(entries: NavEntry[]): NavEntry[] {
+  const ids = new Set(entries.map((entry) => entry.id));
+  return entries.filter((entry) => {
+    const shadow = MENU_SHADOWED_BY[entry.id];
+    return !shadow || !ids.has(shadow);
+  });
+}
+
+/**
  * Pozycje nawigacji widoczne dla użytkownika, w kolejności menu (sekcja po
  * sekcji). Czysta funkcja — te same reguły czyta sidebar i paleta ⌘K.
  */
@@ -925,7 +949,7 @@ export function visibleNavSections(
   user: NavUser,
   opts: NavVisibilityOptions,
 ): NavSection[] {
-  const entries = visibleNavEntries(user, opts).filter(
+  const entries = withoutShadowed(visibleNavEntries(user, opts)).filter(
     (entry) => entry.inSidebar !== false,
   );
   return NAV_SECTION_META.map((meta) => ({
@@ -952,7 +976,7 @@ export function visiblePrimaryGroups(
   opts: NavVisibilityOptions,
 ): NavPrimaryGroup[] {
   const byId = new Map(
-    visibleNavEntries(user, opts)
+    withoutShadowed(visibleNavEntries(user, opts))
       .filter((entry) => entry.inSidebar !== false && entry.placement === "primary")
       .map((entry) => [entry.id, entry]),
   );
@@ -989,7 +1013,7 @@ export function visibleMoreGroups(
   user: NavUser,
   opts: NavVisibilityOptions,
 ): NavMoreGroup[] {
-  const entries = visibleNavEntries(user, opts).filter(
+  const entries = withoutShadowed(visibleNavEntries(user, opts)).filter(
     (entry) => entry.inSidebar !== false && entry.placement === "more",
   );
   return NAV_MORE_GROUPS.map((group) => ({
@@ -1024,7 +1048,7 @@ export function visiblePaletteEntries(
   opts: NavVisibilityOptions,
   can: (capability: Capability) => boolean,
 ): NavEntry[] {
-  return visibleNavEntries(user, opts).filter(
+  return withoutShadowed(visibleNavEntries(user, opts)).filter(
     (entry) => entry.inPalette && (!entry.capability || can(entry.capability)),
   );
 }

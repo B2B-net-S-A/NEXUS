@@ -98,7 +98,7 @@
     "section": "finance",
     "dot_anchor": "finance.modes",
     "steps": [
-      {"anchor": "finance.modes", "text": "Kliknij przełącznik widoków.", "hint": "Każdy widok to inna lista do rozliczenia."},
+      {"anchor": "finance.modes", "text": "Kliknij grupę, a pod nią widok.", "hint": "Grupy idą za miesiącem: przychody, zamówienia, koszty, księga, raporty."},
       {"anchor": "finance.export", "text": "Tu eksportujesz listę do pliku.", "hint": "Eksport bierze to, co widzisz po filtrach.", "ack": true}
     ]
   },
