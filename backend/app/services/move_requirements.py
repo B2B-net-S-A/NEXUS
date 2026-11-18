@@ -1231,21 +1231,18 @@ async def company_cv_refs(
         job_created: dict[int, Any] = {}
         job_ids = sorted({j for c, j in missing if c in by_candidate})
         if job_ids:
-            for job_id, display_name, name in (
+            # Jedno zapytanie: data rekrutacji i nazwa jej klienta (bez klienta
+            # nazwa zostaje pusta, jak przy dawnym złączeniu wewnętrznym).
+            for job_id, created_at, display_name, name in (
                 await db.execute(
-                    select(Job.id, Client.display_name, Client.name)
-                    .join(Client, Client.id == Job.client_id)
+                    select(Job.id, Job.created_at, Client.display_name, Client.name)
+                    .outerjoin(Client, Client.id == Job.client_id)
                     .where(Job.id.in_(job_ids))
                 )
             ).all():
-                client_names[job_id] = display_name or name
-            job_created = dict(
-                (
-                    await db.execute(
-                        select(Job.id, Job.created_at).where(Job.id.in_(job_ids))
-                    )
-                ).all()
-            )
+                job_created[job_id] = created_at
+                if display_name is not None or name is not None:
+                    client_names[job_id] = display_name or name
         for cand, job in missing:
             # Plik starszy niż rekrutacja nie jest jej CV (`rows_from_job`).
             rows = rows_from_job(by_candidate.get(cand, []), job_created.get(job))

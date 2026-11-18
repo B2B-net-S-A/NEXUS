@@ -39,7 +39,16 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Any, Collection, Iterable, Mapping, Optional, Sequence
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Collection,
+    Iterable,
+    Mapping,
+    Optional,
+    Sequence,
+)
 
 from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -676,19 +685,26 @@ async def load_employment_markers(
     *,
     today: date,
     job_client_id: Optional[int] = None,
+    family_loader: Optional[Callable[[], Awaitable[Optional[set[int]]]]] = None,
 ) -> dict[int, Optional[EmploymentMarker]]:
     """``{candidate_id: znacznik | None}`` — każdy przekazany id jest w wyniku.
 
-    Jedno zapytanie o umowy; zamówienia i Delivery Leadzi dochodzą tylko
-    wtedy, gdy na stronie jest ktoś z umową. ``job_client_id`` włącza
-    ``elsewhere`` (klient spoza rodziny klienta rekrutacji).
+    Jedno zapytanie o umowy; rodzina klienta, zamówienia i Delivery Leadzi
+    dochodzą tylko wtedy, gdy na stronie jest ktoś z umową. ``job_client_id``
+    włącza ``elsewhere`` (klient spoza rodziny klienta rekrutacji);
+    ``family_loader`` podaje tę rodzinę, gdy wołający liczy ją już do czegoś
+    innego (Tablica: też „Zatrudniony bez umowy”).
     """
     ids = sorted({int(cid) for cid in candidate_ids if cid is not None})
     out: dict[int, Optional[EmploymentMarker]] = {cid: None for cid in ids}
     if not ids:
         return out
     contracts = await _load_contract_rows(db, ids)
-    family = await job_client_family(db, job_client_id)
+    if not contracts:
+        return out
+    family = await (
+        family_loader() if family_loader else job_client_family(db, job_client_id)
+    )
     out.update(
         await markers_from_rows(db, contracts, today=today, job_client_ids=family)
     )

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Collection, Iterable, Optional
+from typing import Awaitable, Callable, Collection, Iterable, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,9 +80,13 @@ async def missing_contract_ids(
     job_client_id: Optional[int],
     hired: Iterable[tuple[int, Optional[datetime]]],
     now: datetime,
+    family_loader: Optional[Callable[[], Awaitable[Optional[set[int]]]]] = None,
 ) -> set[int]:
     """Osoby z kartą na „Zatrudniony” (``(candidate_id, moved_at)``) z ostatnich
-    ``MISSING_CONTRACT_HIRE_DAYS`` dni bez umowy u klienta rekrutacji."""
+    ``MISSING_CONTRACT_HIRE_DAYS`` dni bez umowy u klienta rekrutacji.
+
+    ``family_loader`` — rodzina klienta liczona raz na Tablicę (znacznik
+    „Pracuje u nas” potrzebuje tej samej)."""
     if job_client_id is None:
         return set()
     cutoff = now - timedelta(days=MISSING_CONTRACT_HIRE_DAYS)
@@ -93,7 +97,9 @@ async def missing_contract_ids(
     }
     if not recent:
         return set()
-    family = await job_client_family(db, job_client_id) or {job_client_id}
+    family = await (
+        family_loader() if family_loader else job_client_family(db, job_client_id)
+    ) or {job_client_id}
     return recent - await candidates_with_contract(
         db, candidate_ids=recent, client_ids=family
     )
