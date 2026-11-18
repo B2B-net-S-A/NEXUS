@@ -7,14 +7,12 @@ z ostatniej rekrutacji”.
 
 ## Co widzi rekruter
 
-- **Kolumna „Ostatnie odrzucenie”** stoi domyślnie na szerokim ekranie
-  (≥ 1536 px) w miejscu „Ostatniej rozmowy”, która zostaje do włączenia
-  w „Kolumny”. Przy laptopie 1280 × 720 kolumny domyślnie nie ma (decyzja:
-  „tylko szeroki ekran”) — działa pigułka i pasek. Kolumna jest dodana po tym,
-  jak ludzie zapisali swoje wybory, więc brak jej id na zapisanej liście
-  znaczy „bez decyzji”, a włączenie zapisuje znacznik `last_rejection:shown`
-  (`addedAfterSavedPrefs` w `candidate-table-columns.ts`). Bez tego każdy
-  z zapisanym wyborem dostałby ją na laptopie.
+- **Kolumny „Ostatnie odrzucenie” nie ma od 18.11.2026** (decyzja Artura):
+  cytat z lipca („nie jest zainteresowany, nie wydzwaniać”) wyglądał w niej
+  na dzisiejszy, choć potem była rozmowa. Zastąpiła ją linia „Ostatnio
+  z osobą” pod wierszem (`ostatnio-z-osoba-i-status-jednym-kliknieciem.md`),
+  w której odrzucenie stoi, gdy jest wśród dwóch ostatnich informacji.
+  Nie przywracaj kolumny. Filtr i pasek niżej działają bez zmian.
 - **Pigułka „Odrzucenie”** (krótka nazwa: z licznikiem i „Wyczyść” mieści się w jednym rzędzie przy 1280; pełny opis ma chip) w rzędzie filtrów, obok „Rekrutacje
   i historia”: Pokaż tylko / Ukryj, okres (kiedykolwiek / 3 / 12 mies.),
   kto zakończył (Klient / My / Kandydat), powody NEXUSA i osobno kategorie
@@ -35,7 +33,7 @@ z ostatniej rekrutacji”.
   jest nadal stanem swojej pary (osoba, rekrutacja) — karta przywrócona
   w tej samej rekrutacji się nie liczy. Osoba może mieć po nim nowszy proces
   w innej rekrutacji; decyzja Artura: pokazujemy i filtrujemy ostatnie
-  odrzucenie, a komórka dopisuje „potem: w toku”.
+  odrzucenie (od 18.11.2026 bez kolumny — patrz wyżej).
 - **Klucz**: `r:<etykieta>` (powód ze słownika przez `rejection_reason_label`,
   oba „Inne (…)” to jedno „Inne”), `t:<kategoria>` (import z Traffita bez
   powodu — Traffit trzymał w `rejection_note` kategorię „Po CV”, „Po
@@ -52,7 +50,8 @@ z ostatniej rekrutacji”.
 
 - `GET /api/candidates`: `rejection_key[]`, `rejection_by[]`,
   `rejection_within_months` (3 | 12), `rejection_exclude`;
-  `include_last_rejection` (pole `last_rejection` w wierszu),
+  `include_last_rejection` (pole `last_rejection` w wierszu — lista go już
+  nie wysyła, zostaje dla API),
   `include_rejection_facets` (`rejection_facets` w odpowiedzi, liczone BEZ
   samego filtra odrzucenia — inaczej pasek pokazywałby tylko wybrane).
   Filtr jest tylko na liście (jak blok „Rekrutacje”), nie w wyszukiwarce S.
