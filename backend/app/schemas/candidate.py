@@ -545,6 +545,16 @@ class LastRejectionBrief(BaseModel):
     moved_by_name: Optional[str] = None
 
 
+class RecentFact(BaseModel):
+    """Jedna informacja z linii „Ostatnio z osobą” (18.11.2026,
+    `candidate_recent_facts`): rozmowa, notatka albo odrzucenie, z datą."""
+
+    at: datetime
+    kind: Literal["talk", "note", "rejection"]
+    text: str
+    client_name: Optional[str] = None
+
+
 class RejectionFacetItem(BaseModel):
     key: str
     label: str
@@ -928,6 +938,9 @@ class CandidateResponse(BaseModel):
     last_rate: Optional[str] = None
     # „Ostatnie odrzucenie” — tylko przy `include_last_rejection=true`.
     last_rejection: Optional[LastRejectionBrief] = None
+    # „Ostatnio z osobą” (18.11.2026) — tylko przy `include_recent_facts=true`:
+    # dwie najnowsze informacje, najnowsza pierwsza.
+    recent_facts: Optional[list[RecentFact]] = None
     # „Ostatnia rozmowa” (03.10.2026) — tylko przy `include_last_talk=true`:
     # najnowsza notatka z zakładki „Rozmowy” i liczba prób kontaktu.
     last_talk_at: Optional[datetime] = None

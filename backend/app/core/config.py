@@ -1672,6 +1672,10 @@ class Settings(BaseSettings):
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # Jedna skrzynka wsparcie@ (E8, 18.11.2026): adresy rozliczeń po przecinku. Gdy skrzynka
+    # rozliczeń = skrzynka spraw, mail z załącznikiem na te adresy idzie do rozliczeń,
+    # reszta do spraw (`app/services/support_mail_route.py`).
+    CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES: str = ""
     # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
     # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.

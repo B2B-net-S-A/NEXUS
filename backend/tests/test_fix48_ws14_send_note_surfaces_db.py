@@ -116,6 +116,8 @@ async def _list_row(client: AsyncClient, headers: dict, world: dict) -> tuple:
             "page_size": 100,
             "include_last_talk": "true",
             "include_last_activity": "true",
+            # „Ostatnio z osobą” (18.11.2026) — ta sama decyzja C.
+            "include_recent_facts": "true",
             "q_all": world["marker"],
             "q_scope": "notes",
             "semantics_version": 2,
@@ -141,6 +143,9 @@ async def test_candidate_list_covers_the_send_note_for_the_recruiter(
     assert row["last_talk_preview"] == note_kinds.CLIENT_RATE_PLACEHOLDER
     assert row["last_talk_at"] is not None
     assert row["last_note_preview"] == note_kinds.CLIENT_RATE_PLACEHOLDER
+    # „Ostatnio z osobą”: data zostaje, cena nie.
+    facts = [fact["text"] for fact in row["recent_facts"]]
+    assert note_kinds.CLIENT_RATE_PLACEHOLDER in facts
     # Wycinek bierze rozmowę rekrutera, nie notatkę z wysyłki.
     assert row["match_snippets"], row
     assert PRICE not in text
@@ -149,6 +154,7 @@ async def test_candidate_list_covers_the_send_note_for_the_recruiter(
     lead_row, _ = await _list_row(app_client, lead, world)
     assert lead_row["last_talk_preview"].startswith(SEND_NOTE)
     assert lead_row["last_note_preview"].startswith(SEND_NOTE)
+    assert any(fact["text"].startswith(SEND_NOTE) for fact in lead_row["recent_facts"])
 
 
 @pytest.mark.asyncio

@@ -658,7 +658,7 @@ function Statement({ canWrite }: { canWrite: boolean }) {
             <input
               ref={input}
               type="file"
-              accept=".sta,.txt,.xml,.mt940"
+              accept=".sta,.txt,.xml,.mt940,.emt"
               aria-label="Wyciąg MT940 albo CAMT.053"
               className="hidden"
               onChange={(event) => {

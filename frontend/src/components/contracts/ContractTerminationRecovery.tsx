@@ -54,8 +54,7 @@ export function invalidateAfterRecovery(
   qc.invalidateQueries({ queryKey: ["contract-activities", contractId] });
   qc.invalidateQueries({ queryKey: ["contracts-v2"] });
   qc.invalidateQueries({ queryKey: ["client-register"] });
-  qc.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
-  qc.invalidateQueries({ queryKey: ["contractors-v2"] });
+  qc.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
   qc.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
   qc.invalidateQueries({ queryKey: ["client-profile"] });
   qc.invalidateQueries({ queryKey: ["client-order-groups"] });

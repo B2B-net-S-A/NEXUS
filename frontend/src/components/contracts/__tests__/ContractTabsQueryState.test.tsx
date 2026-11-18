@@ -166,7 +166,7 @@ describe("ContractAmendmentsTab", () => {
     await waitFor(() => {
       const keys = invalidate.mock.calls.map((call) => call[0]?.queryKey);
       expect(keys).toContainEqual(["contracts-v2"]);
-      expect(keys).toContainEqual(["contracts-expiring-v2"]);
+      expect(keys).toContainEqual(["contracts-quick-counts"]);
       expect(keys).toContainEqual(["contract-rate-history", 5]);
     });
   });

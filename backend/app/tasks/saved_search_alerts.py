@@ -67,6 +67,7 @@ _DROPPED_PARAMS = {
     "include_last_activity",
     "include_last_talk",
     "include_last_rejection",
+    "include_recent_facts",
     "include_rejection_facets",
     "match_threshold",
     "profile_id",

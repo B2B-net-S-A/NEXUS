@@ -16,6 +16,12 @@ kolejnego wyciągu zdążyłby podmienić walutę (audyt A2, 19.10.2026). Rachun
 ``:25:`` nie jest cechą operacji (dopasowanie idzie po rachunku kontrahenta
 z ``:86:``), a ``ParsedStatement.account`` to rachunek ostatniego wyciągu.
 
+Saldo: każdy wyciąg (część wyciągu) od ``:60F:``/``:60M:`` do
+``:62F:``/``:62M:`` daje ``BalanceCheck`` — otwarcie + operacje = zamknięcie
+banku. Parser sam nie odrzuca pliku (stare ekrany importu bez zmian), robi to
+Księga (K4a). Wyciąg Santandera przez eBI24 (``.eMT``, 06.10.2026) ma trzy
+części z ``:62M:``/``:60M:`` i nagłówki SWIFT ``{1:}{2:}{4:`` … ``-}``.
+
 Storno: ``RC`` (reversal of credit) to obciążenie, ``RD`` (reversal of debit)
 — uznanie. Znak opisuje więc kierunek samego wpisu, tak jak ``CdtDbtInd``
 w CAMT.053 przy ``RvslInd``.
@@ -37,13 +43,21 @@ from app.services.hr.bank.accounts import (
     normalize_nrb,
     nrb_from_parts,
 )
-from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
+from app.services.hr.bank.parsed import (
+    BalanceCheck,
+    ParsedStatement,
+    StatementError,
+    StatementLine,
+)
 
 _TAG = re.compile(r"^:(\d{2}[A-Z]?):", re.M)
 _LINE_61 = re.compile(
     r"^(?P<value>\d{6})(?P<entry>\d{4})?(?P<mark>RC|RD|C|D)(?P<funds>[A-Z])?"
     r"(?P<amount>\d{1,15},\d{0,2})(?P<type>[NSF][A-Z0-9]{3})"
     r"(?P<cref>[^/\r\n]{0,16})(?://(?P<bref>[^\r\n]{0,16}))?"
+)
+_BALANCE = re.compile(
+    r"^(?P<mark>[CD])\d{6}(?P<currency>[A-Z]{3})(?P<amount>\d{1,15},\d{0,2})"
 )
 _SUBFIELD = re.compile(r"[~^<>?](\d{2})")
 _ACCOUNT_IN_TEXT = re.compile(r"(?:PL)?(\d{2}(?:\s?\d{4}){6})")
@@ -91,6 +105,19 @@ def _date(yymmdd: str) -> date:
         return date(year, int(yymmdd[2:4]), int(yymmdd[4:6]))
     except ValueError as exc:
         raise StatementError("Wyciąg MT940 ma niepoprawną datę operacji.") from exc
+
+
+def _balance(body: str) -> Optional[tuple[str, Decimal]]:
+    """``:60F:``/``:62F:`` → (waluta, saldo ze znakiem); ``None`` = nie umiem."""
+
+    match = _BALANCE.match(body.strip())
+    if match is None:
+        return None
+    try:
+        amount = Decimal(match.group("amount").replace(",", "."))
+    except InvalidOperation:
+        return None
+    return match.group("currency"), -amount if match.group("mark") == "D" else amount
 
 
 def _booking_date(value_date: date, entry: Optional[str]) -> date:
@@ -180,6 +207,11 @@ def parse(raw: bytes) -> ParsedStatement:
     lines: list[StatementLine] = []
     accounts: list[str] = []
     pending: Optional[dict] = None
+    balances: list[BalanceCheck] = []
+    #: Saldo otwarcia bieżącego wyciągu i suma jego operacji (ze znakiem).
+    opening: Optional[Decimal] = None
+    movement = Decimal("0")
+    statement_no = 0
 
     def flush() -> None:
         nonlocal pending
@@ -210,9 +242,24 @@ def parse(raw: bytes) -> ParsedStatement:
                 account = None
             accounts.append(account or raw_account)
         elif tag in ("60F", "60M"):
-            match = re.match(r"^[CD]\d{6}([A-Z]{3})", body.strip())
-            if match:
-                currency = match.group(1)
+            statement_no += 1
+            found = _balance(body)
+            if found:
+                currency = found[0]
+            opening = found[1] if found else None
+            movement = Decimal("0")
+        elif tag in ("62F", "62M"):
+            found = _balance(body)
+            if opening is not None and found is not None:
+                balances.append(
+                    BalanceCheck(
+                        statement=statement_no,
+                        opening=opening,
+                        movement=movement,
+                        closing=found[1],
+                    )
+                )
+            opening = None
         elif tag == "61":
             flush()
             match = _LINE_61.match(body.strip())
@@ -229,6 +276,7 @@ def parse(raw: bytes) -> ParsedStatement:
             # Storno: RC (zwrot uznania) obciąża rachunek, RD (zwrot obciążenia)
             # go uznaje — kierunek samego wpisu, jak CdtDbtInd w CAMT.053.
             direction = "debit" if mark in ("D", "RC") else "credit"
+            movement += -amount if direction == "debit" else amount
             reference = (match.group("bref") or "").strip() or (
                 (match.group("cref") or "").strip()
                 if (match.group("cref") or "").strip() not in ("", "NONREF")
@@ -254,6 +302,7 @@ def parse(raw: bytes) -> ParsedStatement:
         currency=currency,
         lines=tuple(lines),
         accounts=tuple(accounts),
+        balances=tuple(balances),
     )
 
 

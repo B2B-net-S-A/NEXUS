@@ -1,5 +1,18 @@
 [
   {
+    "id": "kandydaci-ostatnio-z-osoba",
+    "pr": 3575,
+    "title": "„Ostatnio z osobą” i „Szuka aktywnie” jednym kliknięciem",
+    "why": "Pod osobą na liście widać dwie ostatnie informacje, najnowszą pierwszą, z datą. Status nieaktualny? Kliknij „Szuka aktywnie” przy nazwisku i wybierz właściwy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "where": "Kandydaci → lista → „Szuka aktywnie” przy nazwisku",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidates.availability-status"
+  },
+  {
     "id": "sprzedaz-dzwonienie-mail-po-umowieniu",
     "pr": 3557,
     "title": "Dzwonienie: mail do klienta po umówieniu spotkania",
@@ -3122,6 +3135,19 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "cv.ready-cv-new-consent"
+  },
+  {
+    "id": "kontrakty-jedna-lista",
+    "pr": 3574,
+    "title": "Kontrakty: jedna lista z szybkimi filtrami",
+    "why": "Kontrakty to jedna lista. Pigułki „Do uzupełnienia”, „Aktywne”, „Kończące się” i „Wszystkie” mają liczniki, a szkic uzupełnisz albo aktywujesz wprost z wiersza.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → szybkie filtry nad listą",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.quick-filters"
   },
   {
     "id": "profil-championa-co-sie-zmienilo",

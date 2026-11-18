@@ -62,7 +62,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { AvailabilityPill } from "@/components/ds/AvailabilityPill";
+import { AvailabilityStatusPicker } from "@/components/v2/candidates/AvailabilityStatusPicker";
 import { EmploymentPill } from "@/components/ds/EmploymentMarker";
 import { CandidateNav } from "@/components/v2/CandidateNav";
 import { CompetenceCategoryBadge } from "@/components/v2/CompetenceCategoryBadge";
@@ -273,7 +273,7 @@ export function ProfilePersonBar({
             {/* Żywa umowa (D3, 15.10.2026): „Pracuje u nas” zamiast „Szuka
                 aktywnie” ze screeningu sprzed zatrudnienia. */}
             {hidesAvailabilityStatus(employmentMarker) ? null : (
-              <AvailabilityPill status={candidate.availability_status} />
+              <AvailabilityStatusPicker candidateId={candidateId} status={candidate.availability_status} />
             )}
             {employmentMarker ? <EmploymentPill marker={employmentMarker} /> : null}
             <CompetenceCategoryBadge
