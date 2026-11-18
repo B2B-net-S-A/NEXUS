@@ -144,7 +144,9 @@ describe("Lista płac (K7a)", () => {
     route(month());
     renderTab();
     expect(await screen.findByRole("heading", { name: "Lista płac 10/2026 · UoP i zlecenia" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Lista płac" })).toHaveAttribute("aria-current", "page");
+    // Nawigacja Finansów (18.11.2026): „Lista płac” jest w grupie „Koszty”; gdy to
+    // jej jedyna pozycja (bez modułu eBI24), grupa nie ma drugiego paska.
+    expect(screen.getByRole("link", { name: "Koszty" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByText("Szkic do zatwierdzenia")).toBeInTheDocument();
 
     const uop = screen.getByRole("rowheader", { name: "Umowy o pracę · 2" }).closest("tr")!;
@@ -281,6 +283,7 @@ describe("Lista płac (K7a)", () => {
     renderTab();
     expect(await screen.findByText(/Listy płac widzą osoby z uprawnieniem „Rozliczenia”/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Lista płac" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Koszty" })).not.toBeInTheDocument();
     expect(get).not.toHaveBeenCalledWith("/api/hr/payroll-lists/months/2026/10");
   });
 });

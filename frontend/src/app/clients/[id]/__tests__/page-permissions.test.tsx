@@ -45,6 +45,7 @@ vi.mock("next/link", () => ({
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...args: unknown[]) => mocks.apiGet(...args) },
+  api: { get: (...args: unknown[]) => mocks.apiGet(...args) },
   clientTeamApi: {
     get: () => Promise.resolve({ data: { delivery_leads: [] } }),
   },
@@ -122,10 +123,6 @@ vi.mock("@/components/client-profile/DeleteClientDialog", () => ({
 vi.mock("@/components/client-profile/ClientConflictsSection", () => ({
   ClientConflictsSection: () => null,
 }));
-vi.mock("@/components/clients/KeyRelationshipsPanel", () => ({
-  RELATIONSHIP_STRENGTH_COLORS: {},
-  RELATIONSHIP_STRENGTH_LABELS: {},
-}));
 
 import ClientDetailPage from "../page";
 import { useAuthStore } from "@/store/auth";
@@ -150,8 +147,9 @@ function renderPage() {
   );
 }
 
-// Pasek zakładek profilu to `role="tablist"` z zakładkami `role="tab"`.
-const contractsTab = () => screen.queryByRole("tab", { name: "Umowy" });
+// Sekcje profilu (18.11.2026): grupy i podzakładki to przyciski z `aria-current`.
+const contractsGroup = () => screen.queryByRole("button", { name: "Umowy" });
+const contractsSubTab = () => screen.queryByRole("button", { name: "Umowy i aneksy" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -180,27 +178,31 @@ afterEach(() => {
   useAuthStore.setState({ user: null, realUser: null, hydrated: true } as never);
 });
 
-describe("profil klienta — zakładka „Umowy” za podglądem kwot klienta", () => {
-  it("pokazuje zakładkę temu, kto widzi kwoty TEGO klienta — pyta o jego id", async () => {
+describe("profil klienta — umowy za podglądem kwot klienta", () => {
+  it("pokazuje umowy temu, kto widzi kwoty TEGO klienta — pyta o jego id", async () => {
     renderPage();
 
     expect(await screen.findByText("profil klienta")).toBeInTheDocument();
-    expect(contractsTab()).toBeInTheDocument();
+    expect(contractsGroup()).toBeInTheDocument();
     expect(mocks.canViewClientFinance).toHaveBeenCalledWith(
       expect.objectContaining({ id: 3 }),
       7,
     );
 
-    fireEvent.click(contractsTab() as HTMLElement);
+    fireEvent.click(contractsGroup() as HTMLElement);
     expect(await screen.findByText("umowy ramowe")).toBeInTheDocument();
+    expect(contractsSubTab()).toHaveAttribute("aria-current", "page");
   });
 
-  it("chowa zakładkę temu, kto kwot tego klienta nie widzi", async () => {
+  it("bez kwot tego klienta grupa „Umowy” ma tylko raporty — bez umów i stawek", async () => {
     mocks.canViewClientFinance.mockReturnValue(false);
     renderPage();
 
     expect(await screen.findByText("profil klienta")).toBeInTheDocument();
-    expect(contractsTab()).not.toBeInTheDocument();
+    fireEvent.click(contractsGroup() as HTMLElement);
+    expect(screen.queryByText("umowy ramowe")).not.toBeInTheDocument();
+    expect(contractsSubTab()).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stawki i cennik" })).not.toBeInTheDocument();
   });
 
   it("link `?tab=umowy-ramowe` bez podglądu kwot ląduje na Profilu, nie na pustej zakładce", async () => {
@@ -221,15 +223,12 @@ describe("profil klienta — zakładka „Umowy” za podglądem kwot klienta", 
 });
 
 describe("profil klienta — materiały za edycją klientów", () => {
+  // Od 18.11.2026 materiały to podzakładka grupy „Rekrutacje”.
   async function openMaterials() {
     renderPage();
     await screen.findByText("profil klienta");
-    const details = screen
-      .getByText("Materiały sprzedażowe")
-      .closest("details") as HTMLDetailsElement;
-    // `toggle` jest w jsdom kolejkowane — ustawiamy stan i wysyłamy zdarzenie.
-    details.open = true;
-    fireEvent(details, new Event("toggle"));
+    fireEvent.click(screen.getByRole("button", { name: "Rekrutacje" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Materiały dla rekruterów" }));
     return waitFor(() => screen.getByTestId("materials"));
   }
 

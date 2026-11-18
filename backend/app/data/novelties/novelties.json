@@ -2971,15 +2971,15 @@
   {
     "id": "raporty-dla-klientow",
     "pr": 3456,
-    "title": "Raporty dla klientów: co, komu i do kiedy",
-    "why": "W Klientach nowy widok „Raporty dla klientów”: terminy raportów z umów w jednym kalendarzu miesiąca. Pobierzesz plik i zapiszesz, że raport poszedł.",
+    "title": "Klienci: jedna lista i „Wymaga uwagi”",
+    "why": "Klienci to jedna lista. Kolumna „Wymaga uwagi” pokazuje raport do przygotowania, wygasłą umowę ramową i relację bez kontaktu. Kliknięcie prowadzi do zakładki klienta.",
     "tier": "dot",
     "shipped_on": "2026-11-15",
     "audience": { "permissions": ["delivery_view"] },
-    "where": "Klienci → Raporty dla klientów",
+    "where": "Klienci → kolumna „Wymaga uwagi”",
     "href": "/clients",
     "section": "delivery",
-    "dot_anchor": "clients.reports"
+    "dot_anchor": "clients.attention"
   },
   {
     "id": "stawki-ramowe-raport-kwartalny",
@@ -3142,5 +3142,38 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "champion.changes.seen"
+  },
+  {
+    "id": "klient-profil-w-grupach",
+    "title": "Profil klienta w ośmiu grupach",
+    "why": "Wszystko o kliencie jest pod nim: umowy, stawki i raporty w „Umowach”, faktury w „Rozliczeniach”, kontakty w „Ludziach”. Przegląd pokazuje umowę, raport, rozliczenie i kluczowe osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → klient",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.sections"
+  },
+  {
+    "id": "finanse-jeden-modul",
+    "title": "Finanse i Księga w jednym module",
+    "why": "Księgowość jest teraz grupą „Księga” w Finansach. Widoki są w grupach: Przegląd, Przychody, Zamówienia, Koszty, Księga, Raporty, Ustawienia. Plan kont jest jeden.",
+    "tier": "dot",
+    "shipped_on": "2026-11-18",
+    "audience": {
+      "permissions": [
+        "finance_module",
+        "orders_work"
+      ]
+    },
+    "where": "Finanse",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.sections"
   }
 ]

@@ -711,7 +711,7 @@
     "title": "Finanse",
     "section": "finance",
     "roles": ["finance", "back_office", "admin"],
-    "what": "Tu rozliczasz miesiąc: wyniki, import MD, zmiany w zamówieniach, PDF-y zamówień, rozjazdy stawek, a przy włączonych modułach RCP konsultantów, faktury do klientów (wystawianie i odczyt z KSeF), wydatki ze zgodą i Księgowość.",
+    "what": "Tu rozliczasz miesiąc. Finanse i Księga są w jednym module, w grupach: Przegląd, Przychody, Zamówienia, Koszty, Księga, Raporty i Ustawienia. Pod grupą wybierasz widok, np. Zamówienia → Zmiany w zamówieniach albo Import zużycia MD.",
     "tasks": [
       {
         "q": "Co się zmieniło w zamówieniach w tym miesiącu?",
@@ -746,7 +746,7 @@
       "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [
-      {"id": "finance.modes", "label": "Tryby modułu Finanse", "describe": "Rozliczenia, Koszty, Przelewy, Kontrahenci, Księgowanie, Plan kont, Wyniki, Archiwum (+ eBI24), Import MD, Zmiany zamówień, Zamówienia PDF, Rozjazdy stawek, Faktury do klientów, Wydatki ze zgodą."},
+      {"id": "finance.modes", "label": "Grupy modułu Finanse", "describe": "Przegląd, Przychody, Zamówienia, Koszty, Księga, Raporty, Ustawienia; pod grupą przełącznik widoków (np. Zamówienia: Zmiany w zamówieniach, Zamówienia PDF, Import zużycia MD, Rozjazdy stawek)."},
       {"id": "finance.order_changes", "label": "Zmiany w zamówieniach", "describe": "Podzakładki audytu i wybór miesiąca."},
       {"id": "finance.export", "label": "Eksport do Excela", "describe": "Eksport bieżącej podzakładki z filtrami."},
       {"id": "finance.md_import", "label": "Import zużycia MD", "describe": "Wgranie miesięcznego raportu MD."},
@@ -756,8 +756,8 @@
     "help_slug": null,
     "sources": [
       "frontend/src/app/finance/page.tsx",
-      "frontend/src/components/finance/OrderChangesPanel.tsx",
-      "frontend/src/components/finance/MdImportWorkspace.tsx"
+      "frontend/src/components/finance/FinanceAreaNav.tsx",
+      "frontend/src/components/finance/OrderChangesPanel.tsx"
     ]
   },
   {

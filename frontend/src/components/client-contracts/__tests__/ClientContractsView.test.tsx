@@ -61,9 +61,22 @@ describe("ClientContractsView", () => {
     vi.clearAllMocks();
   });
 
+  it("domyślnie pokazuje obowiązujące, z podsumowaniem nad tabelą", async () => {
+    vi.spyOn(clientContractDocumentsApi, "list").mockResolvedValue(CONTRACTS);
+    renderView();
+
+    expect(await screen.findByText("Umowa ramowa Alfa")).toBeInTheDocument();
+    // Wygasła umowa Beta to historia — widać ją dopiero we „Wszystkich”.
+    expect(screen.queryByText("Umowa ramowa Beta")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Obowiązujące" })).toHaveAttribute("aria-pressed", "true");
+    // `InlineStats`: podpis (dt), pod nim liczba (dd) — kolejność odwraca CSS.
+    expect(screen.getByText("umów obowiązujących").nextSibling).toHaveTextContent("1");
+  });
+
   it("pokazuje umowy z aneksami, a brak pliku nazywa wprost", async () => {
     vi.spyOn(clientContractDocumentsApi, "list").mockResolvedValue(CONTRACTS);
     renderView();
+    await userEvent.click(await screen.findByRole("button", { name: "Wszystkie" }));
 
     expect(await screen.findByText("Umowa ramowa Alfa")).toBeInTheDocument();
     expect(screen.getByText("Aneks: Aneks numer 1")).toBeInTheDocument();

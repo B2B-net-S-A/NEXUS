@@ -62,6 +62,14 @@ import {
 import { AddClientModal } from "@/components/AppShell";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import {
+  AttentionCell,
+  CONTRACT_ENDING_DAYS,
+  contractAttention,
+  daysUntil,
+  useClientAttention,
+  type AttentionItem,
+} from "@/components/clients/ClientAttention";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -359,6 +367,9 @@ export function ClientsListV2({
   // Z trzema kolumnami szerokiej tabeli — w wąskiej są ukryte, a `colSpan`
   // ponad liczbę widocznych kolumn niczego nie dokłada.
   const columnCount = canManagePortfolio ? 10 : 9;
+  // Makieta 18.11.2026: raporty miesiąca i relacje jako znaczniki w wierszu,
+  // zamiast osobnych trybów „Raporty” i „Kluczowe relacje”.
+  const attention = useClientAttention();
   const items = data?.items ?? [];
   const totalRows = data?.total_rows ?? 0;
   const totalClients = data?.total_clients ?? 0;
@@ -723,8 +734,8 @@ export function ClientsListV2({
                   <span className={WIDE_HIDDEN}> / kontrakty</span>
                 </TableHead>
                 <TableHead className={cn(CALM_HEAD, WIDE_ONLY_CELL)}>Aktywne kontrakty</TableHead>
-                <TableHead className={CALM_HEAD}>Start umowy</TableHead>
-                <TableHead className={CALM_HEAD}>Koniec umowy</TableHead>
+                <TableHead className={CALM_HEAD}>Umowa ramowa</TableHead>
+                <TableHead className={CALM_HEAD} data-tour="clients.attention">Wymaga uwagi</TableHead>
                 <TableHead className={CALM_HEAD}>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -999,14 +1010,38 @@ export function ClientsListV2({
                         {item.active_contracts_count}
                       </TableCell>
                       <TableCell className="whitespace-nowrap tabular-nums">
-                        {item.effective_date
-                          ? formatDirectoryDate(item.effective_date)
-                          : EMPTY_CELL}
+                        {hasContractPeriod(item) || item.effective_date ? (
+                          <span className="flex flex-col">
+                            <span
+                              className={cn(
+                                item.expiry_date &&
+                                  daysUntil(item.expiry_date) <= CONTRACT_ENDING_DAYS &&
+                                  "font-medium text-warning",
+                              )}
+                            >
+                              {hasContractPeriod(item)
+                                ? item.expiry_date
+                                  ? `do ${contractEndLabel(item)}`
+                                  : "bezterminowa"
+                                : EMPTY_CELL}
+                            </span>
+                            {item.effective_date ? (
+                              <span className={CALM_SUBLINE}>od {formatDirectoryDate(item.effective_date)}</span>
+                            ) : null}
+                          </span>
+                        ) : (
+                          EMPTY_CELL
+                        )}
                       </TableCell>
-                      <TableCell className="whitespace-nowrap tabular-nums">
-                        {hasContractPeriod(item)
-                          ? contractEndLabel(item)
-                          : EMPTY_CELL}
+                      <TableCell>
+                        <AttentionCell
+                          items={[
+                            ...(hasContractPeriod(item) ? [contractAttention(item)] : []).filter(
+                              (entry): entry is AttentionItem => entry !== null,
+                            ),
+                            ...(attention.get(item.client_id) ?? []),
+                          ]}
+                        />
                       </TableCell>
                       <TableCell>
                         <StatusDot tone={status.tone}>{status.label}</StatusDot>

@@ -25,7 +25,7 @@ const PIPELINE_CATEGORY = "pipeline";
 /**
  * Ruchy kandydatów innych rekruterów w rekrutacjach, które konto prowadzi
  * (10.11.2026, `users.stage_moves_all_led_jobs`). Domyślnie tylko własni
- * kandydaci plus Interview Klient, Akceptacja i Zatrudniony.
+ * kandydaci, także w prowadzonych rekrutacjach (18.11.2026).
  */
 function StageMovesScope() {
   const query = useUserPreferences();
@@ -59,8 +59,8 @@ function StageMovesScope() {
           <span>
             <span className="block font-medium text-foreground">Tylko moi kandydaci</span>
             <span className="block text-muted-foreground">
-              Plus Interview Klient, Akceptacja i Zatrudniony w rekrutacjach,
-              które prowadzisz.
+              Przypisani do Ciebie, zweryfikowani przez Ciebie albo przesunięci
+              przez Ciebie. Także w rekrutacjach, które prowadzisz.
             </span>
           </span>
         </label>
@@ -71,7 +71,8 @@ function StageMovesScope() {
               Wszyscy kandydaci w rekrutacjach, które prowadzę
             </span>
             <span className="block text-muted-foreground">
-              Każdy ruch innych rekruterów, także Screening i Odrzucony.
+              Każdy ruch innych rekruterów, od Screeningu po Zatrudnionego,
+              z dopiskiem, kto prowadzi kandydata.
             </span>
           </span>
         </label>

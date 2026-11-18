@@ -264,4 +264,11 @@ describe("Wyszukiwarka i Talent Radar = tryby ekranu „Kandydaci” (21.09.2026
     expect(isNavItemActive("/candidates/123", "/candidates")).toBe(true);
     expect(isNavItemActive("/candidates/searchable", "/candidates")).toBe(true);
   });
+
+  it("Księga to grupa Finansów (18.11.2026): na /accounting świeci „Finanse”", () => {
+    expect(isNavItemActive("/accounting", "/finance")).toBe(true);
+    expect(isNavItemActive("/accounting/bank", "/finance")).toBe(true);
+    expect(isNavItemActive("/accountingx", "/finance")).toBe(false);
+    expect(isNavItemActive("/accounting/bank", "/clients")).toBe(false);
+  });
 });
