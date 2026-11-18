@@ -31,6 +31,17 @@ adresaci stali). Domena: SPF z `spf.protection.outlook.com`, DKIM w M365
 (MX na home.pl), więc mail na kariera@ z zewnątrz tam nie dojdzie — i nie ma
 dochodzić, kandydat odpowiada formularzem.
 
+T3b (18.11.2026, po #3585): obie wiadomości dotarły do Odebranych. Gmail
+potwierdził SPF, DKIM i DMARC. W obu kopiach `List-Unsubscribe` dotarł jako
+ASCII, a `List-Unsubscribe-Post` zniknął. Podpis DKIM w Gmailu pomijał oba pola. To nie
+potwierdza wypisu jednym kliknięciem: [RFC 8058 §4](https://www.rfc-editor.org/rfc/rfc8058.html#section-4)
+wymaga objęcia obu nagłówków ważnym podpisem DKIM.
+
+Sonda sprawdza dokładne wartości obu nagłówków w każdym zserializowanym MIME
+przed jakąkolwiek wysyłką. `outbound_mime_header_pair_verified=true` potwierdza
+wyłącznie bajty przekazane do Graph. Log nie weryfikuje nagłówków u odbiorcy
+ani ich objęcia podpisem DKIM. Ta diagnostyka nie naprawia transportu.
+
 ## Konfiguracja docelowa
 
 1. Zarejestruj osobną aplikację „NEXUS System Mail” w Entra. **Nie nadawaj**

@@ -2,6 +2,7 @@
 
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from html.parser import HTMLParser
 
 import pytest
 
@@ -172,6 +173,36 @@ def test_mail_never_invites_replies():
     for m in (_mail(), _mail(link=None, optout_link=None)):
         assert "Odpowiedz na tego maila" not in m.text_body + m.html_body
         assert "nie odpowiadaj na nią" in m.text_body
+
+
+@pytest.mark.parametrize("with_request", [True, False])
+def test_essential_footer_is_visible_before_the_signature_logo(with_request):
+    """Gmail can collapse repeated signature content after a footer logo."""
+
+    class MessageOrder(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.items = []
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag in {"a", "img"}:
+                self.items.append(attrs.get("href") or attrs.get("src"))
+
+        def handle_data(self, data):
+            if data.strip():
+                self.items.append(data.strip())
+
+    message = _mail(**({} if with_request else {"link": None, "optout_link": None}))
+    parsed = MessageOrder()
+    parsed.feed(message.html_body)
+    signature = parsed.items.index("https://nexus.example/brand/mail/logo-light.png")
+    assert parsed.items.index("https://nexus.example/kariera/rodo") < signature
+    assert any("nie odpowiadaj na nią" in item for item in parsed.items[:signature])
+    assert any("B2B.NET S.A." in item for item in parsed.items[:signature])
+    if with_request:
+        assert parsed.items.index("https://nexus.example/warunki/abc/wypis") < signature
+    assert parsed.items[signature + 1 :] == []
 
 
 def test_ad_title_from_import_note():
