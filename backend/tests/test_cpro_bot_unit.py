@@ -45,6 +45,8 @@ def _payload(**over):
         last_name="Feest",
         job_title="PL_KYC_3 x IT Automation Tester Senior",
         job_location="Gdynia, Gdańsk lub Warszawa",
+        delivery_lead_id=14,
+        delivery_lead_active=True,
         remote_policy="hybrid",
         onsite_days_per_week=3,
         request_no="42511",
@@ -65,6 +67,37 @@ def _payload(**over):
 
 
 # ── Pola oferty ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("delivery_lead_id", "name", "vault_entry"),
+    [(14, "Igor", "Nordea Cpro – Igor"), (27, "Marcin", "Nordea Cpro – Marcin")],
+)
+def test_account_belongs_to_the_target_jobs_delivery_lead(
+    delivery_lead_id, name, vault_entry
+) -> None:
+    blockers, payload = _payload(delivery_lead_id=delivery_lead_id)
+    assert blockers == ()
+    assert payload["cpro_account"] == {
+        "delivery_lead_id": delivery_lead_id,
+        "delivery_lead_name": name,
+        "vault_entry": vault_entry,
+    }
+
+
+@pytest.mark.parametrize(
+    ("delivery_lead_id", "delivery_lead_active"),
+    [(None, True), (999999, True), (14, False), (27, False)],
+)
+def test_unknown_missing_or_inactive_delivery_lead_never_has_a_payload(
+    delivery_lead_id, delivery_lead_active
+) -> None:
+    blockers, payload = _payload(
+        delivery_lead_id=delivery_lead_id,
+        delivery_lead_active=delivery_lead_active,
+    )
+    assert payload is None
+    assert blockers == (bot_items.BLOCK_NO_CPRO_ACCOUNT,)
 
 
 def test_location_cheat_sheet_matches_the_recording() -> None:
@@ -409,3 +442,31 @@ def test_webhook_body_sends_items_with_cv_url_but_not_internal_cards(
     assert body["task"] == task_text.TASK and body["submit"] is True
     assert run.stage_ids == [101]
     assert run.token_hash == runs.hash_token(token)
+
+
+def test_mixed_run_keeps_a_separate_account_on_every_item() -> None:
+    _, igor = _payload(stage_id=101, delivery_lead_id=14)
+    _, marcin = _payload(stage_id=102, delivery_lead_id=27)
+    run, token = runs.new_run([igor, marcin], now=NOW, submit=False)
+    run.id = 42
+    body = runs.webhook_body(run, token)
+    assert body["submit"] is False
+    assert [(item["ref"], item["cpro_account"]) for item in body["items"]] == [
+        (
+            101,
+            {
+                "delivery_lead_id": 14,
+                "delivery_lead_name": "Igor",
+                "vault_entry": "Nordea Cpro – Igor",
+            },
+        ),
+        (
+            102,
+            {
+                "delivery_lead_id": 27,
+                "delivery_lead_name": "Marcin",
+                "vault_entry": "Nordea Cpro – Marcin",
+            },
+        ),
+    ]
+    assert "cpro_account" not in body

@@ -52,6 +52,7 @@ async def show() -> dict[str, object]:
                     {
                         "stage_id": item.stage_id,
                         "job_id": item.job_id,
+                        "delivery_lead_id": item.extra.get("delivery_lead_id"),
                         "request": (item.payload or {}).get("request_number"),
                         "ready": item.payload is not None,
                         "blockers": list(item.blockers),
