@@ -1,9 +1,9 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Inbox } from "lucide-react";
 import { ContractsListV2 } from "@/components/v2/pages/ContractsListV2";
-import { ContractorsListV2 } from "@/components/v2/pages/ContractorsListV2";
 import {
   ContractsClientPicker,
   type ClientRef,
@@ -11,38 +11,24 @@ import {
 import { ClientContractRegister } from "@/components/contracts/ClientContractRegister";
 import { OrderMailQueue } from "@/components/order-mail/OrderMailQueue";
 import { useOrderMailPendingCount } from "@/components/order-mail/useOrderMailPendingCount";
-import {
-  WorkspaceModeTabs,
-  type WorkspaceMode,
-} from "@/components/ds/WorkspaceModeTabs";
+import { Button } from "@/components/ui/button";
 import { useCapability } from "@/hooks/useCapability";
 import { resolveContractsView, type ContractsView } from "@/lib/clients-workspace";
-import { hasPermission } from "@/lib/permissions";
-import { useAuthStore } from "@/store/auth";
 
 type ViewMode = ContractsView;
 
 /**
- * /contracts is one workspace with three modes:
- *  - "register"   — the full contract register (global list or per-client),
- *                   financial-gated. Default; visible to everyone who can open
- *                   /contracts today.
- *  - "operations" — the contractor roster (drafty do uzupełnienia / aktywni /
- *                   kończący się). Shown to holders of the permission
- *                   „Klienci, kontrakty i zamówienia: podgląd” — the same one
- *                   the roster route asks for. The backend enforces access
- *                   independently (403), so the toggle is UX, not the
- *                   security boundary.
- *  - "order-mail" — the order-mail queue („Skrzynka zamówień"). Until
- *                   22.09.2026 a separate nav item „Zamówienia z maila";
- *                   `/order-mail` now redirects here (stored notification
- *                   links keep working, `?doc=` is preserved).
+ * /contracts — jedna lista kontraktów (makieta 18.11.2026):
+ *  - rejestr (`ContractsListV2`) z szybkimi filtrami „Do uzupełnienia ·
+ *    Aktywne · Kończące się · Wszystkie” zamiast trybów „Obsługa
+ *    kontraktorów” / „Rejestr kontraktów”, które pokazywały te same umowy
+ *    w dwóch cięciach i z innymi licznikami;
+ *  - „Zamówienia z maila” to przycisk z licznikiem obok szybkich filtrów; kolejka
+ *    otwiera się pod `?view=order-mail` (linki z powiadomień bez zmian)
+ *    z powrotem do listy.
  *
- * The former /contractors route now redirects here with ?view=operations.
- *
- * Workspace state lives in the URL via the History API, so deep-links and
- * back/forward work. The reactive search-param reader sits inside an explicit
- * Suspense boundary required by Next's streaming renderer.
+ * Dawne `?view=operations&tab=…` (i `/contractors`) prowadzą na listę
+ * z odpowiadającym filtrem.
  */
 
 export default function ContractsPage() {
@@ -69,7 +55,9 @@ function selectionFromSearch(search: string): {
   client: ClientRef | null;
 } {
   const params = new URLSearchParams(search);
-  const view = resolveContractsView(params.get("view"));
+  const resolved = resolveContractsView(params.get("view"));
+  // „Obsługa kontraktorów” nie jest już osobnym widokiem — to filtr listy.
+  const view: ViewMode = resolved === "operations" ? "register" : resolved;
   if (view !== "register") {
     return { view, client: null };
   }
@@ -86,6 +74,20 @@ function selectionFromSearch(search: string): {
   };
 }
 
+/** Dawny adres „Obsługi kontraktorów” → ten sam zbiór na liście. */
+function legacyOperationsTarget(search: string): string | null {
+  const params = new URLSearchParams(search);
+  if (params.get("view") !== "operations") return null;
+  const tab = params.get("tab");
+  // „Kończący się” = ten sam zbiór co filtr „Kończące się” (`?ending=30`
+  // → `bucket=ending` na serwerze).
+  if (tab === "ending") return "/contracts?ending=30";
+  const statuses = tab === "draft" ? ["draft", "ready_for_signature"] : ["active", "ending"];
+  const next = new URLSearchParams();
+  statuses.forEach((status) => next.append("status", status));
+  return `/contracts?${next.toString()}`;
+}
+
 function ContractsWorkspace({
   navigationSearch,
 }: {
@@ -99,16 +101,19 @@ function ContractsWorkspace({
   );
   const [appliedNavigationSearch, setAppliedNavigationSearch] =
     useState(navigationSearch);
-  const { user } = useAuthStore();
-  // Uprawnienie „Klienci, kontrakty i zamówienia: podgląd" — z niego wynika
-  // też odczyt sekcji Delivery, więc bez niego widoku nie ma (zamiast 403).
-  const canSeeOperations = hasPermission(user, "delivery_view");
   const canSeeOrderMail = useCapability("nav.order_mail");
   const orderMailPending = useOrderMailPendingCount(canSeeOrderMail);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+  // Dawny adres „Obsługi kontraktorów”: najpierw podmiana adresu routerem
+  // (lista czyta filtry z adresu i z `navigationSearch`), dopiero potem lista.
+  const router = useRouter();
+  const legacyTarget = legacyOperationsTarget(`?${navigationSearch}`);
+  useEffect(() => {
+    if (legacyTarget) router.replace(legacyTarget);
+  }, [legacyTarget, router]);
 
   // Next can retain this page instance for same-route sidebar navigation.
   // Reconcile the workspace selection during render so an external queryless
@@ -121,31 +126,7 @@ function ContractsWorkspace({
     setClient(nextSelection.client);
   }
 
-  // Guard: an account without the permission that deep-links ?view=operations
-  // falls back to the register (and the backend would 403 the roster fetch
-  // anyway).
-  const showOperations = view === "operations" && canSeeOperations;
   const showOrderMail = view === "order-mail" && canSeeOrderMail;
-  const activeView: ViewMode = showOperations
-    ? "operations"
-    : showOrderMail
-      ? "order-mail"
-      : "register";
-  const modes: WorkspaceMode<ViewMode>[] = [
-    ...(canSeeOperations
-      ? [{ value: "operations" as const, label: "Obsługa kontraktorów" }]
-      : []),
-    { value: "register", label: "Rejestr kontraktów" },
-    ...(canSeeOrderMail
-      ? [
-          {
-            value: "order-mail" as const,
-            label: "Skrzynka zamówień",
-            count: orderMailPending,
-          },
-        ]
-      : []),
-  ];
 
   const changeView = (next: ViewMode) => {
     setView(next);
@@ -156,12 +137,7 @@ function ContractsWorkspace({
     // A mode switch is a fresh entry into the target view. Build the URL from
     // scratch so global `page`/filters, operations tab/page and client-register
     // filters can never be interpreted by another view.
-    const target =
-      next === "operations"
-        ? "/contracts?view=operations&tab=active"
-        : next === "order-mail"
-          ? "/contracts?view=order-mail"
-          : "/contracts";
+    const target = next === "order-mail" ? "/contracts?view=order-mail" : "/contracts";
     window.history.replaceState(
       window.history.state,
       "",
@@ -193,15 +169,29 @@ function ContractsWorkspace({
     );
   };
 
-  const modeTabs =
-    modes.length > 1 ? (
-      <WorkspaceModeTabs
-        label="Tryb modułu Kontrakty"
-        modes={modes}
-        value={activeView}
-        onChange={changeView}
-      />
-    ) : null;
+  // „Zamówienia z maila” w rzędzie szybkich filtrów zamiast trzeciej zakładki.
+  const orderMailButton = canSeeOrderMail ? (
+    <Button size="sm" variant="outline" onClick={() => changeView("order-mail")}>
+      <Inbox className="h-4 w-4" aria-hidden="true" />
+      Zamówienia z maila
+      {orderMailPending ? (
+        <span
+          className="rounded-full bg-primary px-1.5 text-[11px] font-semibold leading-5 text-primary-foreground tabular-nums"
+          aria-label={`${orderMailPending} do weryfikacji`}
+        >
+          {orderMailPending > 99 ? "99+" : orderMailPending}
+        </span>
+      ) : null}
+    </Button>
+  ) : null;
+  const backToList = (
+    <div>
+      <Button size="sm" variant="ghost" onClick={() => changeView("register")}>
+        <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+        Wróć do listy kontraktów
+      </Button>
+    </div>
+  );
   const clientPicker = (
     <ContractsClientPicker
       compact
@@ -210,7 +200,7 @@ function ContractsWorkspace({
     />
   );
 
-  if (!mounted) {
+  if (!mounted || legacyTarget) {
     return (
       <div className="p-8 text-sm text-muted-foreground">Ładowanie kontraktów…</div>
     );
@@ -220,22 +210,11 @@ function ContractsWorkspace({
     // Bez limitu szerokości (jak pulpit) — panel szczegółów mieści się obok
     // tabeli bez osobnego poszerzania ramki.
     <div className="space-y-4">
-      {/* Makieta B: tytuł widoku → tryby modułu → pasek filtrów z wyborem
-          klienta. Każdy widok (rejestr, obsługa kontraktorów, skrzynka
-          zamówień) sam rysuje tryby pod swoim tytułem. */}
-      {showOperations ? (
-        <Suspense
-          fallback={
-            <div className="p-8 text-sm text-muted-foreground">
-              Ładowanie kontraktorów…
-            </div>
-          }
-        >
-          <ContractorsListV2 modeTabs={modeTabs} />
-        </Suspense>
-      ) : showOrderMail ? (
-        <OrderMailQueue modeTabs={modeTabs} />
-      ) : client ? (
+      {/* Jedna lista z szybkimi filtrami; kolejka zamówień z maila z przycisku. */}
+      {showOrderMail ? (
+        <OrderMailQueue modeTabs={backToList} />
+      ) : null}
+      {showOrderMail ? null : client ? (
         <Suspense
           fallback={
             <div className="p-8 text-sm text-muted-foreground">
@@ -247,7 +226,6 @@ function ContractsWorkspace({
             clientId={client.id}
             clientName={client.name}
             navigationSearch={navigationSearch}
-            modeTabs={modeTabs}
             toolbarLead={clientPicker}
           />
         </Suspense>
@@ -261,8 +239,8 @@ function ContractsWorkspace({
         >
           <ContractsListV2
             navigationSearch={navigationSearch}
-            modeTabs={modeTabs}
             toolbarLead={clientPicker}
+            trailingActions={orderMailButton}
           />
         </Suspense>
       )}

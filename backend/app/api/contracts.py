@@ -176,6 +176,8 @@ from app.services.contract_rates import effective_rate_fields
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_service import (
     ACTIVATION_REQUIRED_FIELDS,
+    PENDING_CONTRACT_STATUSES,
+    ending_bucket_clause,
     validate_ready_for_activation,
 )
 from app.services.contract_order_offboarding import apply_contract_order_offboarding
@@ -1516,6 +1518,7 @@ def _apply_contract_list_filters(
     order_end_from: Optional[date] = None,
     order_end_to: Optional[date] = None,
     agreement_not_terminated: bool = False,
+    bucket: Optional[Literal["ending"]] = None,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1550,6 +1553,10 @@ def _apply_contract_list_filters(
                 )
             )
         )
+    if bucket == "ending":
+        # Szybki filtr „Kończące się” (18.11.2026): jedna reguła z „Obsługą
+        # kontraktorów” — status `ending` albo żywa umowa z końcem w 30 dni.
+        query = query.where(ending_bucket_clause())
     if status:
         query = query.where(Contract.status.in_(status))
     else:
@@ -2038,6 +2045,7 @@ def _contract_list_item(
                     "job_title",
                     "latest_order_end_date",
                     "group_members",
+                    "missing_fields",
                 )
             },
             "candidate_name": (
@@ -2048,6 +2056,13 @@ def _contract_list_item(
             "client_name": client_display_name(c.client) if c.client else None,
             "job_title": c.job.title if c.job else None,
             "latest_order_end_date": latest_order_dates.get(c.id),
+            # Braki szkicu do „Uzupełnij / Aktywuj” w wierszu listy (18.11.2026);
+            # ta sama bramka co aktywacja, harmonogramy stawek są załadowane.
+            "missing_fields": (
+                validate_ready_for_activation(c)
+                if c.status in PENDING_CONTRACT_STATUSES
+                else []
+            ),
             "candidate_rate_schedule": _schedule_entries(c),
             "client_rate_schedule": _client_schedule_entries(c),
             "framework_rate_schedule": _framework_schedule_entries(c),
@@ -2212,6 +2227,14 @@ async def list_contracts(
             "(`agreement_termination_mode` puste). Łączy się ze `status` (AND)."
         ),
     ),
+    bucket: Optional[Literal["ending"]] = Query(
+        None,
+        description=(
+            "Szybki filtr „Kończące się” (18.11.2026): status `ending` albo żywa "
+            "umowa z końcem w 30 dni — ta sama reguła co „Obsługa kontraktorów” "
+            "(`contract_service.ending_bucket_clause`). Łączy się ze `status` (AND)."
+        ),
+    ),
     sort_by: Optional[ContractSortKey] = Query(
         None,
         description=(
@@ -2286,6 +2309,7 @@ async def list_contracts(
         order_end_from=order_end_from,
         order_end_to=order_end_to,
         agreement_not_terminated=agreement_not_terminated,
+        bucket=bucket,
     )
     sort_expr = (
         _contract_sort_expression(sort_by, business_today()) if sort_by else None
@@ -2625,6 +2649,7 @@ async def export_contracts(
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
     agreement_not_terminated: bool = Query(False),
+    bucket: Optional[Literal["ending"]] = Query(None),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -2668,6 +2693,7 @@ async def export_contracts(
         order_end_from=order_end_from,
         order_end_to=order_end_to,
         agreement_not_terminated=agreement_not_terminated,
+        bucket=bucket,
     )
     query = query.order_by(Contract.id).limit(limit)
     result = await db.execute(query)
@@ -3817,9 +3843,9 @@ async def expiring_contracts(
                 **{
                     k: getattr(c, k, None)
                     for k in ContractResponse.model_fields.keys()
-                    # Pole odpowiedziowe bez odpowiednika na ORM — `getattr`
+                    # Pola odpowiedziowe bez odpowiednika na ORM — `getattr`
                     # podłożyłby None pod pole typu list (błąd walidacji).
-                    if k != "group_members"
+                    if k not in ("group_members", "missing_fields")
                 },
                 "candidate_rate_schedule": _schedule_entries(c),
                 "client_rate_schedule": _client_schedule_entries(c),

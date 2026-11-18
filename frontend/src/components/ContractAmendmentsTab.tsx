@@ -274,7 +274,7 @@ export function ContractAmendmentsTab({
       // „kończących się" i historia stawek muszą to zobaczyć bez przeładowania
       // strony (audyt FE-02). Klucze: `ContractsListV2`, `contracts/[id]`.
       queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
-      queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
+      queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
       queryClient.invalidateQueries({ queryKey: ["contract-rate-history", contractId] });
       setShowForm(false);
       setForm(emptyAmendmentForm());

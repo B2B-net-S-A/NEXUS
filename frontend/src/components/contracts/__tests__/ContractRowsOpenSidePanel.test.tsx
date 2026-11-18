@@ -1,8 +1,8 @@
 /**
- * „Obsługa kontraktorów” i rejestr klienta otwierają TEN SAM boczny panel
- * kontraktu co rejestr globalny (wersja B, 29.09.2026). Akcje w wierszach
- * (Uzupełnij/Aktywuj, Zakończ projekt, prolongata, ołówek) zostają w wierszu
- * i nie otwierają panelu.
+ * Rejestr klienta otwiera TEN SAM boczny panel kontraktu co lista globalna
+ * (wersja B, 29.09.2026). Akcje w wierszach (prolongata, ołówek) zostają
+ * w wierszu i nie otwierają panelu. „Uzupełnij / Aktywuj” szkicu na liście
+ * globalnej sprawdza `ContractsListV2QuickFilters.test.tsx` (18.11.2026).
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -11,31 +11,21 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiGet: vi.fn(),
-  list: vi.fn(),
-  stats: vi.fn(),
   panel: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams("view=operations&tab=draft"),
+  useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
 vi.mock("@/lib/api", () => ({
   default: { get: (...args: unknown[]) => mocks.apiGet(...args) },
   contractsApi: { update: vi.fn() },
-  contractorsApi: {
-    list: (...args: unknown[]) => mocks.list(...args),
-    stats: (...args: unknown[]) => mocks.stats(...args),
-  },
 }));
 
 vi.mock("@/components/contracts/ContractSidePanel", () => ({
-  ContractSidePanel: (props: {
-    contractId: number;
-    source?: string;
-    contractorItem?: { contract_id: number } | null;
-  }) => {
+  ContractSidePanel: (props: { contractId: number; source?: string }) => {
     mocks.panel(props);
     return (
       <div data-testid="contract-side-panel">
@@ -45,16 +35,11 @@ vi.mock("@/components/contracts/ContractSidePanel", () => ({
   },
 }));
 
-vi.mock("@/components/v2/modals/DraftCompletionModal", () => ({
-  DraftCompletionModal: () => <div role="dialog">okno uzupełnienia</div>,
-}));
-
 vi.mock("@/components/contracts/ContractRegisterDialog", () => ({
   ContractRegisterDialog: ({ open }: { open: boolean }) =>
     open ? <div role="dialog">okno rejestru</div> : null,
 }));
 
-import { ContractorsListV2 } from "@/components/v2/pages/ContractorsListV2";
 import { ClientContractRegister } from "@/components/contracts/ClientContractRegister";
 import { useAuthStore } from "@/store/auth";
 
@@ -85,61 +70,6 @@ beforeEach(() => {
     realUser: null,
     hydrated: true,
   } as never);
-});
-
-describe("ContractorsListV2 — wiersz otwiera boczny panel", () => {
-  beforeEach(() => {
-    mocks.stats.mockResolvedValue({
-      data: { draft: 1, drafts_incomplete: 1, active: 0, active_contracts: 0, ending: 0 },
-    });
-    mocks.list.mockResolvedValue({
-      data: {
-        items: [
-          {
-            contract_id: 801,
-            candidate: { id: 9, name: "Ewa", lastname: "Przykładowa", email: null },
-            client_name: "Bank Przykładowy",
-            job_title: "Tester",
-            status: "draft",
-            start_date: "2026-10-01",
-            end_date: null,
-            rate_candidate: null,
-            rate_client: null,
-            rate_unit: "hourly",
-            currency: "PLN",
-            margin: null,
-            contract_type: "b2b",
-            work_mode: null,
-            missing_fields: ["rate_client"],
-          },
-        ],
-        total: 1,
-        page: 1,
-        page_size: 50,
-      },
-    });
-  });
-
-  it("klik w wiersz otwiera panel z wierszem kontraktora (braki draftu)", async () => {
-    wrap(<ContractorsListV2 />);
-    const cell = await screen.findByText("Bank Przykładowy");
-    fireEvent.click(cell);
-    expect(await screen.findByTestId("contract-side-panel")).toHaveTextContent(
-      "panel 801 contractors",
-    );
-    expect(mocks.panel).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        contractorItem: expect.objectContaining({ contract_id: 801 }),
-      }),
-    );
-  });
-
-  it("„Uzupełnij” w wierszu zostaje i nie otwiera panelu", async () => {
-    wrap(<ContractorsListV2 />);
-    fireEvent.click(await screen.findByRole("button", { name: "Uzupełnij" }));
-    expect(await screen.findByText("okno uzupełnienia")).toBeInTheDocument();
-    expect(screen.queryByTestId("contract-side-panel")).not.toBeInTheDocument();
-  });
 });
 
 describe("ClientContractRegister — wiersz otwiera boczny panel", () => {

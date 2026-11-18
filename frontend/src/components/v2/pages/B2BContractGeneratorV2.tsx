@@ -2765,7 +2765,8 @@ export function GeneratedContractsTab({
       durationMs: 10_000,
     });
     queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
-    queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
     queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
     queryClient.invalidateQueries({
       queryKey: ["candidate", result.candidate_id],
