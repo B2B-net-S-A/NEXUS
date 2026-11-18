@@ -15,6 +15,7 @@ import { downloadBlob } from "@/lib/authenticated-files";
 import {
   useAcceptSettlement,
   useNeedsFixSettlement,
+  fetchContractKcp,
   fetchSettlementDocument,
   useNipDecision,
   useSetSettlementMd,
@@ -28,6 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
+import { kcpFileName } from "./ClientAcceptancePanel";
 import { IntegrationCostsSection } from "./IntegrationCostsSection";
 import { PanelPreviewDialog } from "./PanelPreviewDialog";
 import { KesuSection } from "./KesuSection";
@@ -120,6 +122,7 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
           </span>
         </div>
         <div className="flex flex-wrap gap-1.5">
+          {d.kcp_pdf ? <KcpDownload contractId={contractId} month={month} person={d.person} /> : null}
           <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)}>
             Zobacz panel jak konsultant
           </Button>
@@ -175,6 +178,23 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
         </section>
       </div>
     </div>
+  );
+}
+
+/** KCP osoby w PDF (E6.5): plik od konsultanta albo karta złożona z eksportu Redmine. */
+function KcpDownload({ contractId, month, person }: { contractId: number; month: string; person: string }) {
+  const { showError } = useToast();
+  async function onClick() {
+    try {
+      downloadBlob(await fetchContractKcp(contractId, month), kcpFileName(person));
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się pobrać KCP."));
+    }
+  }
+  return (
+    <Button size="sm" variant="outline" onClick={onClick}>
+      <FileText aria-hidden className="size-3.5" /> KCP (PDF)
+    </Button>
   );
 }
 

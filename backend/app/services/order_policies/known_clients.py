@@ -74,6 +74,8 @@ KNOWN_SENDER_DOMAINS: dict[str, str] = {
     "pkobp.pl": "pko_bp",
     "velobank.pl": "velobank",
     "bankpocztowy.pl": "bank_pocztowy",
+    # Skrzynka body leasingu banku pisze z tej domeny (wątek KCP, 11.2026).
+    "pocztowy.pl": "bank_pocztowy",
     "erstebank.pl": "erste",
     "mleasing.pl": "mleasing",
     "kir.pl": "kir",

@@ -569,7 +569,7 @@ krokach E6.
   faktura kontraktora, godziny = netto ÷ stawka), ekran „Raport klienta (T4T)”
   za regułą `report.time_for_teams`.
 - E6.5 Bank Pocztowy (instrukcja rozliczeń z 18.11.2026, decyzje Artura z 18.11).
-  Plan do akceptacji, kodu jeszcze nie ma; makieta w prywatnym artefakcie Artura.
+  Makieta zaakceptowana przez Artura 18.11; kod w osobnym PR-ze bez migracji (18.11).
   - Fakty z próbek za październik 2026:
     - KCP to PDF arkusza „KARTA” ze wzoru banku `Karta_pracy_wzór.xlsm`, a nie
       wydruk z Redmine. Wzór ma arkusz „import” na eksport Redmine „Przepracowany
@@ -634,6 +634,35 @@ krokach E6.
     testach zespołu.
   - Zostaje poza NEXUS-em: KCP jako załącznik do faktury kontraktora w EBI24,
     zapis plików w B2B_share.
+  - Jak zrobione (18.11, osobny PR, bez migracji):
+    - `kcp.py`: KCP z PDF (tekst strony i tabele `pdfplumber`) i z arkusza
+      „KARTA”; `redmine_timelog.py`: eksport Redmine → KCP (zagadnienia dnia po
+      średniku, wpisy spoza miesiąca jako błąd `proof.month`) i wydruk KCP
+      (WeasyPrint), który czyta się z powrotem tym samym odczytem. Wzór banku
+      z pustą „KARTA” czytamy z arkusza „import”. Odczyt w `service._proof`
+      przed Time Sheet PKO i Boscha.
+    - `client_acceptance.py`: stan osoby (`to_send` → `sent` → `accepted`) w danych
+      przy kontrolach (`service.CLIENT_ACCEPTANCE`, przeżywa przeliczenie), panel
+      nad listą miesiąca (paczki z datą i godziną, „Do wysłania”, „Brak KCP”),
+      szkic maila z tematem z reguły, zip KCP („J. Kowalski.pdf”), „Oznacz jako
+      wysłane”, „Klient zaakceptował” przy paczce, „Wgraj odpowiedź klienta”
+      (MSG/EML). Odpowiedź czytamy z najnowszej wiadomości wątku (do pierwszego
+      cytowanego nagłówka): słowo akceptacji bez odmowy, osoby po
+      „brakujących” zostają wysłane. Czytnik rozliczenia@ zapisuje mail z domeny
+      reguły tylko, gdy akceptuje.
+    - Faktura do klienta: stan „Czeka na klienta” (`awaiting_client`) na liście
+      i w „Do faktury dla klienta”; `cl.item_name` daje opis pozycji ze wzoru.
+      Karta osoby: grupa „Akceptacja klienta” i „KCP (PDF)”.
+    - Staging (kopia 18.11 bez dużych tabel CV, baza `nexus_branch_bp`, Finanse,
+      1280 × 720): październik BP, 7 KCP (2 prawdziwe pliki: KCP w PDF 17 MD,
+      eksport Redmine 15 MD; reszta syntetyczne) bez uwag; paczka 7 → odpowiedź
+      „Akceptuję nadesłane KCP … brakujących: [4 osoby]” wgrana z pliku → 7 z 7;
+      druga paczka 3 KCP → „Klient zaakceptował” → 10 z 10; pozycja faktury
+      17 MD × stawka = kwota prawdziwej faktury do banku za październik co do
+      grosza. Prawdziwy wątek `.msg` z banku: domena `pocztowy.pl`, październik,
+      „Potwierdzam.”; w pierwszej odpowiedzi rozpoznane osoby z listy brakujących.
+    - Zostaje: zaznaczenie przy „Brak KCP” osób, o które prosi klient; odczyt
+      odpowiedzi bez załącznika z rozliczenia@ zależy od routera E8.2.
   - **Meta:** osobny PR bez migracji; na stagingu październik BP (2 KCP w PDF
     i eksport Redmine jednej osoby z próbek, reszta syntetyczne KCP): osoby
     z KCP przyjęte bez czekania na klienta, po odpowiedzi na pierwszą paczkę
@@ -742,6 +771,6 @@ Dwa źródła, oba z danymi tylko poza repo:
 | E3 | gotowe lokalnie (10.11), styl A bez kroków; E3.2 dane do skopiowania dokończone z E4 | panel jako konsultant BNP na kopii: „Do zrobienia” = „Wyślij fakturę · <kwota> netto”, „Faktury” z wynikiem sprawdzenia i danymi do faktury, 1280 i 390 px; 200 testów BE (portal + rozliczenia), 349 FE; zrzuty `e3-*.png` |
 | E4 | gotowe lokalnie (10.11) | 3 prawdziwe faktury konsultantów BNP za październik (wizualizacje KSeF z próbek, metadane odtworzone lokalnie) przypięte po imieniu i nazwisku do właściwych osób i miesiąca, kwoty = wyliczenie co do grosza (3 z 3); zatwierdzenie NIP-u przez API zmienia stan na „W KSeF”; panel konsultanta i karta Finansów przeklikane 1280 i 390 px; 9 testów BE E4, 8 FE; prawdziwego pobrania z KSeF lokalnie nie ma (token tylko na produkcji) |
 | E5 | gotowe (10.11), marża dla DL-a, koszty integracji i „Wyślij plan” 13.11 | 13.11: 6 testów na bazie (limit roku, drugi koszt ponad limit, koniec roku, obniżony limit przy zgodzie, odmowa bez zgody DL-a, marża DL-a przez API i 403 dla obcego DL-a), wzorzec authz z 6 trasami; staging na kopii z 09.11 (13.11, 1280 × 720): Finanse wpisują 1 500 zł osobie BNP za październik („czeka”), drugi koszt 600 zł odmówiony („zostało 500 zł z 2 000 zł”), DL BNP widzi marżę w zł i % i daje zgodę → marża tej osoby z 8,8% na 5,2%, na liście Finansów „w tym −1 500 zł integracja”; konsultant w trwającym listopadzie z planem widzi „Wyślij plan”. Wcześniej: kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
-| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE; staging z kopii 10.11 (12.11): listopad 6 osób z syntetycznych Time Sheet, MD × stawka klienta w EUR równe kwocie z bloku ESP za październik (próbka), SDC bez autora i nazwisk, plan grudnia jednej osoby 16 MD → faktura z planu; druga osoba „Brak MD”, bo nowa linia zamówienia jest w szkicu (dane, nie kod). Bank Pocztowy E6.5: plan i decyzje 18.11, makieta na kopii 18.11 (zaślepione API, kwota z KCP równa fakturze kontraktora w KSeF), kod czeka na akceptację Artura |
+| E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE; staging z kopii 10.11 (12.11): listopad 6 osób z syntetycznych Time Sheet, MD × stawka klienta w EUR równe kwocie z bloku ESP za październik (próbka), SDC bez autora i nazwisk, plan grudnia jednej osoby 16 MD → faktura z planu; druga osoba „Brak MD”, bo nowa linia zamówienia jest w szkicu (dane, nie kod). Bank Pocztowy E6.5 (18.11, osobny PR): odczyt KCP i eksportu Redmine, paczki do akceptacji i odpowiedź banku, „Czeka na klienta”, opis pozycji ze wzoru; 21 testów BE bez bazy, 4 na bazie, 6 FE; staging na kopii 18.11: 10 osób przez wysyłkę, odpowiedź banku i klik, kwota pozycji = faktura do banku za październik |
 | E7 | 16.11: najpierw „Tylko zespół” (`internal`): włącznik modułu, karta „Start rozliczeń”, czytnik bez aktywacji, podgląd panelu w kodzie; czeka wdrożenie, M365 Mail.Read na rozliczenia@ i włączenie przez admina. Wpuszczenie konsultantów (decyzja 12.11: wszyscy od listopada) po testach zespołu | testy `test_consultant_portal_internal*.py`, `start-and-preview.test.tsx` |
 | E8 | 18.11: E8.2 router w kodzie (decyzja Artura „od razu jedna skrzynka”, M365 i home.pl robi Codex: przekierowania z kopią na home.pl, MX bez zmian); E8.1 w toku po stronie M365, E8.3 do zrobienia | `support_mail_route.py`; 9 testów bez bazy (adresy, wspólna skrzynka, załącznik, DW, ukryta kopia), testy obu czytników na bazie: raport na rozliczenia@ = dokument bez sprawy, pytanie bez załącznika = sprawa, wspólna skrzynka bez adresów = `shared_without_route` |
