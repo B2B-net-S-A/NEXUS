@@ -1,5 +1,5 @@
-# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet, analiza (R1 0727, R2, R3 0733, R4 0734, 16–18.11.2026)
-<!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5 -->
+# Sekcja „Rada”: dokumenty, KRS, pulpit, budżet, analiza, posiedzenia (R1 0727, R2, R3 0733, R4 0734, R5 0735, 16–18.11.2026)
+<!-- indeks: /rada dom roli board, Rada czyta, admin wgrywa; odpis pełny KRS co noc, wiersze z wzmianek, dzwonek board_krs_entry; F51 odczyt skanu jako propozycja; etapy R2–R5; analiza z e-Sprawozdań (R4), posiedzenia z pakietem i obowiązkami KSH (R5) -->
 
 Członek Rady nadzorczej poprosił 16.11.2026 o moduł „tylko dla RN”: dokumenty
 korporacyjne, analiza finansowa i budżet, z historią 2023–2025, żeby nie
@@ -141,12 +141,39 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   Bieżąca gotówka i wiekowanie przyjdą z księgi (wyciągi K4, rozrachunki),
   gdy będą w niej zapisy.
 
+## Posiedzenia (R5, 0735, 18.11.2026)
+
+- `board_meetings`: data, tryb (posiedzenie / zdalnie / pisemnie), status
+  (zaplanowane / odbyte / odwołane), porządek obrad z dokumentami, protokół
+  (dokument z „Protokołów Rady”). Admin prowadzi, Rada czyta.
+- **Pakiet** (`POST /meetings/{id}/pack`, admin) zamraża na dziś: pulpit,
+  budżet roku, ostatnie pełne sprawozdanie z wskaźnikami, dokumenty i wpisy
+  KRS od poprzedniego odbytego posiedzenia (bez niego: 90 dni). To
+  informacja Zarządu dla Rady (art. 380¹ KSH), której nie zmienia późniejszy
+  import faktur. Dzwonek `board_meeting_pack` do Rady i adminów (`fresh`,
+  więc ponowne zamrożenie tego samego dnia też dzwoni). Posiedzenia z
+  pakietem nie da się usunąć — tylko odwołać.
+- Dokumenty w pakiecie liczą się po dacie dokumentu albo wpisu KRS;
+  `created_at` tylko dla wgranych bez daty (wiersze z wzmianek KRS powstają
+  przy pierwszym odpisie, a dotyczą lat wstecz — wcześniej wpadało ich 57).
+- **Obowiązki roku** (`services/board/meetings.py::obligations`) dla S.A.:
+  sprawozdanie do 31.03 (art. 52 UoR), ocena Rady i sprawozdanie Rady przed
+  ZWZ (art. 382 § 3 i § 3¹ KSH), ZWZ do 30.06 (art. 395 § 1), złożenie do KRS
+  15 dni od zatwierdzenia (art. 69 UoR), min. 3 posiedzenia w roku (art. 389
+  § 3). Każda pozycja mówi, skąd wie (KRS, Analiza, tytuł uchwały w
+  Dokumentach, rejestr posiedzeń). Uchwały rozpoznawane po słowach w tytule
+  („ocen”/„sprawozd”, „zatwierdz”).
+- Głosowanie pisemne w NEXUSIE — **nie zrobione**: najpierw sprawdzić, czy
+  statut dopuszcza tryb pisemny (art. 388 § 3 KSH).
+
 ## Pilnują
 
 `tests/test_supervisory_board_unit.py` (parser, wiersze z wzmianek, skrót,
 czytnik, treść dzwonka), `tests/test_supervisory_board_api.py` (bramki ról,
 jeden odpis przy braku zmian, dzwonek tylko przy nowym wpisie, wiersz KRS bez
-usunięcia), `tests/test_supervisory_board_statements.py` (parser XML i XAdES, odrzucenie
+usunięcia), `tests/test_supervisory_board_meetings.py` (obowiązki z KRS, dokumentów i
+posiedzeń; pakiet z dzwonkiem; usunięcie zablokowane po pakiecie; bramki),
+`tests/test_supervisory_board_statements.py` (parser XML i XAdES, odrzucenie
 DTD, ścieżki z księgi, wskaźniki, import z rokiem poprzednim, wpis ręczny
 wygrywa z `xml_prev`, bramki), `frontend/src/components/rada/__tests__/DocumentsTab.test.tsx`
 (Rada bez zapisu, awaria ≠ pusta lista), `board-role.test.ts`,

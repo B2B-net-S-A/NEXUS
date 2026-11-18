@@ -22,7 +22,7 @@ import json
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.board_document import (
@@ -41,7 +41,11 @@ from app.services.hr.notify import notify_each
 MIN_MEETINGS = 3
 SOON_DAYS = 30
 PACK_VERSION = 1
-KIND_LABELS = {"meeting": "posiedzenie", "remote": "zdalnie", "circular": "tryb pisemny"}
+KIND_LABELS = {
+    "meeting": "posiedzenie",
+    "remote": "zdalnie",
+    "circular": "tryb pisemny",
+}
 
 
 def _plain(value: Any) -> Any:
@@ -88,13 +92,24 @@ async def build_pack(
         await db.execute(
             select(BoardDocument)
             .where(
+                # Data dokumentu albo wpisu KRS; ``created_at`` tylko dla wgranych
+                # bez daty (wiersze z wzmianek KRS powstają dziś, a dotyczą lat wstecz).
                 or_(
-                    BoardDocument.doc_date > since,
-                    BoardDocument.created_at
-                    >= datetime.combine(since, datetime.min.time(), tzinfo=timezone.utc),
+                    func.coalesce(BoardDocument.doc_date, BoardDocument.krs_entry_date)
+                    > since,
+                    and_(
+                        BoardDocument.doc_date.is_(None),
+                        BoardDocument.source == "upload",
+                        BoardDocument.created_at
+                        >= datetime.combine(
+                            since, datetime.min.time(), tzinfo=timezone.utc
+                        ),
+                    ),
                 )
             )
-            .order_by(BoardDocument.doc_date.desc().nulls_last(), BoardDocument.id.desc())
+            .order_by(
+                BoardDocument.doc_date.desc().nulls_last(), BoardDocument.id.desc()
+            )
             .limit(100)
         )
     ).scalars()
@@ -142,6 +157,7 @@ async def notify_pack(db: AsyncSession, meeting: BoardMeeting) -> int:
         related_entity_type="board_meeting",
         related_entity_id=meeting.id,
         log_tag="board",
+        fresh=True,  # ponowne zamrożenie tego samego dnia też dzwoni
     )
 
 
@@ -282,7 +298,9 @@ def obligations(
 async def obligations_view(db: AsyncSession, today: date) -> list[dict[str, Any]]:
     snapshot = await krs_service.latest_snapshot(db, krs_service.company_krs())
     filings = (
-        krs_service.parse_odpis(snapshot.payload).filings if snapshot is not None else []
+        krs_service.parse_odpis(snapshot.payload).filings
+        if snapshot is not None
+        else []
     )
     statement_years = set(
         (

@@ -370,7 +370,9 @@ async def _apply_meeting(
             ).scalars()
         )
         if found != referenced:
-            raise HTTPException(422, "Porządek obrad wskazuje dokument, którego nie ma.")
+            raise HTTPException(
+                422, "Porządek obrad wskazuje dokument, którego nie ma."
+            )
     meeting.held_on = body.held_on
     meeting.kind = body.kind
     meeting.status = body.status

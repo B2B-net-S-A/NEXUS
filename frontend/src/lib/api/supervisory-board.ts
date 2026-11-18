@@ -449,3 +449,139 @@ export function useImportBoardStatement() {
     onSuccess: invalidate,
   });
 }
+
+// ── Posiedzenia (R5) ─────────────────────────────────────────────────────────
+
+export type MeetingKind = "meeting" | "remote" | "circular";
+export type MeetingStatus = "planned" | "held" | "cancelled";
+
+export const MEETING_KIND_LABELS: Record<MeetingKind, string> = {
+  meeting: "Posiedzenie",
+  remote: "Zdalnie",
+  circular: "Tryb pisemny",
+};
+
+export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
+  planned: "zaplanowane",
+  held: "odbyte",
+  cancelled: "odwołane",
+};
+
+export interface AgendaItem {
+  title: string;
+  document_ids: number[];
+}
+
+export interface BoardMeeting {
+  id: number;
+  held_on: string;
+  kind: MeetingKind;
+  status: MeetingStatus;
+  title: string;
+  place: string | null;
+  agenda: AgendaItem[];
+  note: string | null;
+  minutes_document_id: number | null;
+  pack_frozen_at: string | null;
+  has_pack: boolean;
+}
+
+export interface MeetingPackDocument {
+  id: number;
+  category: BoardDocumentCategory;
+  organ: BoardOrgan | null;
+  number: string | null;
+  title: string;
+  doc_date: string | null;
+  has_file: boolean;
+}
+
+/** Zamrożony obraz liczb na dzień wysłania pakietu (kwoty pulpitu i budżetu w mln, sprawozdania w zł). */
+export interface MeetingPack {
+  version: number;
+  as_of: string;
+  since: string;
+  previous_meeting: { id: number; held_on: string } | null;
+  summary: BoardSummary;
+  budget: BudgetView;
+  statement: StatementYear | null;
+  documents: MeetingPackDocument[];
+  krs_entries: { number: number; day: string | null; description: string }[];
+}
+
+export interface BoardMeetingDetail extends BoardMeeting {
+  pack: MeetingPack | null;
+}
+
+export type ObligationStatus = "done" | "soon" | "overdue" | "pending";
+
+export interface BoardObligation {
+  key: string;
+  label: string;
+  legal: string;
+  due: string;
+  done: boolean;
+  status: ObligationStatus;
+  evidence: string;
+}
+
+export interface MeetingsResponse {
+  items: BoardMeeting[];
+  obligations: BoardObligation[];
+}
+
+export interface MeetingBody {
+  held_on: string;
+  kind: MeetingKind;
+  status: MeetingStatus;
+  title: string;
+  place: string | null;
+  agenda: AgendaItem[];
+  note: string | null;
+  minutes_document_id: number | null;
+}
+
+export function useBoardMeetings() {
+  return useQuery({
+    queryKey: [...boardKeys.all, "meetings"] as const,
+    queryFn: async () => (await api.get<MeetingsResponse>(`${BASE}/meetings`)).data,
+  });
+}
+
+export function useBoardMeeting(id: number | null) {
+  return useQuery({
+    queryKey: [...boardKeys.all, "meetings", id] as const,
+    queryFn: async () => (await api.get<BoardMeetingDetail>(`${BASE}/meetings/${id}`)).data,
+    enabled: id !== null,
+  });
+}
+
+export function useSaveBoardMeeting() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: number | null; body: MeetingBody }) =>
+      id === null
+        ? (await api.post<BoardMeeting>(`${BASE}/meetings`, body)).data
+        : (await api.put<BoardMeeting>(`${BASE}/meetings/${id}`, body)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useDeleteBoardMeeting() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      await api.delete(`${BASE}/meetings/${id}`);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useFreezeMeetingPack() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post<BoardMeetingDetail & { notified: number }>(`${BASE}/meetings/${id}/pack`)).data,
+    onSuccess: invalidate,
+  });
+}

@@ -247,7 +247,9 @@ class BoardMeeting(Base):
     status: Mapped[str] = mapped_column(
         String(12), nullable=False, default="planned", server_default="planned"
     )
-    title: Mapped[str] = mapped_column(String(meetings_schema.TITLE_MAX), nullable=False)
+    title: Mapped[str] = mapped_column(
+        String(meetings_schema.TITLE_MAX), nullable=False
+    )
     place: Mapped[Optional[str]] = mapped_column(
         String(meetings_schema.PLACE_MAX), nullable=True
     )
