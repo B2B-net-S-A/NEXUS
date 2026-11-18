@@ -64,5 +64,7 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
 - Nie wysyłaj tych maili ze skrzynki zespołowej (`M365_MAIL_SENDER_UPN`).
 - Nie pokazuj na stronie formularza danych z profilu — link bywa przekazywany dalej.
 - Nie dodawaj piksela śledzącego ani skracacza linków (dostarczalność).
+- Próbny mail (T3): Coolify Ops → `candidate-terms-mail-probe` (`.github/scripts/candidate_terms_mail_probe.py`),
+  stan skrzynki i uprawnień: `docs/m365-system-mail-setup.md`.
 - Nie włączaj rodzaju bez T3 (próbny mail na Gmail i skrzynkę firmową,
   nagłówki SPF/DKIM/DMARC = PASS) i T4 (pilot do 20 dziennie przez 5 dni).
