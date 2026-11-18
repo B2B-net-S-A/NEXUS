@@ -83,6 +83,8 @@ TITLE_MAX_LENGTH = 300
 COUNTERPARTY_MAX_LENGTH = 140
 KSEF_NUMBER_MAX = 64
 MATCH_REASON_MAX = 32
+#: Jak ``fa_sales.ADDRESS_LINE_MAX_LENGTH`` (``AdresL1``/``AdresL2`` w FA mają do 512 znaków).
+ADDRESS_LINE_MAX = 512
 
 
 def quoted(values: tuple[str, ...]) -> str:
@@ -266,7 +268,26 @@ EBI24_DOCUMENT_ID_DDL = (
     "ALTER TABLE client_sales_invoice_payments "
     f"ADD COLUMN IF NOT EXISTS ebi24_document_id VARCHAR({EBI24_DOCUMENT_ID_MAX}) NULL"
 )
-COLUMN_DDL: tuple[str, ...] = (BUYER_FOREIGN_ID_DDL, EBI24_DOCUMENT_ID_DDL)
+#: Adres nabywcy z ``Podmiot2/Adres`` (0730) — kartoteka kontrahentów Symfonii
+#: (lista „Czeka na Symfonię”); 17.11.2026 na stagingu 206 z 208 nabywców nie
+#: miało adresu, bo ``clients.address`` jest wypełnione u 11 ze 170 klientów.
+#: ``buyer_address_read_at`` = XML faktury przeczytany pod kątem adresu (także
+#: gdy adresu w nim nie było); ``NULL`` = faktura sprzed 0730, do doczytania.
+BUYER_ADDRESS_DDL: tuple[str, ...] = (
+    "ALTER TABLE client_sales_invoices "
+    "ADD COLUMN IF NOT EXISTS buyer_country VARCHAR(2) NULL",
+    "ALTER TABLE client_sales_invoices "
+    f"ADD COLUMN IF NOT EXISTS buyer_address_line1 VARCHAR({ADDRESS_LINE_MAX}) NULL",
+    "ALTER TABLE client_sales_invoices "
+    f"ADD COLUMN IF NOT EXISTS buyer_address_line2 VARCHAR({ADDRESS_LINE_MAX}) NULL",
+    "ALTER TABLE client_sales_invoices "
+    "ADD COLUMN IF NOT EXISTS buyer_address_read_at TIMESTAMPTZ NULL",
+)
+COLUMN_DDL: tuple[str, ...] = (
+    BUYER_FOREIGN_ID_DDL,
+    EBI24_DOCUMENT_ID_DDL,
+    *BUYER_ADDRESS_DDL,
+)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_sales_invoices_ksef_number "

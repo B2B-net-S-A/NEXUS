@@ -133,6 +133,30 @@ export interface CallCard {
   client_refusal: string | null;
   can_save: boolean;
   history: CallHistoryEntry[];
+  /** Wyniki pod tym samym numerem, adresem albo osobą w innych rekordach (17.11.2026). */
+  earlier_calls?: EarlierCall[];
+  /** Rekord z listy, którego firmę prowadzi już otwarta szansa (17.11.2026). */
+  crm_opportunity?: CrmOpportunity | null;
+}
+
+export interface EarlierCall {
+  record_id: number;
+  company: Ref;
+  person_name: string | null;
+  state: RecordState;
+  at: string;
+  caller_name: string | null;
+  campaign_name: string | null;
+  /** „11.11 · Osoba Dzwoniąca · Nie zainteresowany (Ewa Nowacka)”. */
+  label: string;
+}
+
+export interface CrmOpportunity {
+  id: number;
+  title: string;
+  stage_name: string;
+  owner_name: string | null;
+  created_at: string;
 }
 
 export interface OutcomeInput {
@@ -193,6 +217,7 @@ export type ImportFate =
   | "new_company"
   | "linked"
   | "already_in_campaign"
+  | "already_called"
   | "other_caller"
   | "client"
   | "do_not_contact"

@@ -107,6 +107,20 @@ def test_no_budget_bonus_when_rate_is_not_a_known_fit(rate, currency, budget):
     assert order.bonus_for(None, rate, currency, budget).in_budget is False
 
 
+@pytest.mark.usefixtures("porcja_on")
+def test_polish_and_leader_gap_push_the_card_back():
+    # 16.11.2026: polski nieojczysty −8, bez danych −5, lider/wykonawca −5.
+    assert order.bonus_for(None, None, None, None, "native").points == 0
+    assert order.bonus_for(None, None, None, None, "level").points == -8
+    assert order.bonus_for(None, None, None, None, "no").points == -8
+    assert order.bonus_for(None, None, None, None, "unknown").points == -5
+    assert (
+        order.bonus_for("actively_looking", None, None, None, "unknown", True).points
+        == -5
+    )
+    assert order.bonus_for(None, None, None, None, None, True).leader_gap is True
+
+
 def test_bonus_is_zero_while_batch_is_off(monkeypatch):
     monkeypatch.setattr(rb.settings, "REVIEW_BATCH_ENABLED", False, raising=False)
     assert order.bonus_for("actively_looking", 150, "PLN", 170.0).points == 0

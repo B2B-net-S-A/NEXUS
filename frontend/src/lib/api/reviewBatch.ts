@@ -103,6 +103,10 @@ export interface ReviewBatchItem {
   known?: KnownFacts | null
   order_active?: boolean
   order_in_budget?: boolean
+  /** Polski nieojczysty albo bez danych w rekrutacji wymagającej polskiego (16.11.2026). */
+  order_polish_later?: boolean
+  /** Rekrutacja na lidera, osoba wykonawca (16.11.2026). */
+  order_leader_gap?: boolean
   why?: ReviewBatchWhy
   /** „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski. */
   key_facts?: ReviewBatchKeyFacts | null
@@ -180,10 +184,65 @@ export interface ReviewBatchLearnedRule {
   count: number
 }
 
+/** Poziom w profilu „Kogo szukamy” (lustro `job_role_profile_schema.LEVELS`). */
+export type ReviewBatchRoleLevel = "wykonawca" | "lider" | "dowolny"
+
+export interface ReviewBatchExcludedRole {
+  label: string
+  /** Ile odrzuceń „Inna rola” z „Osoba to:” tej etykiety w rekrutacji. */
+  count: number
+  source: "manual" | "rejections"
+}
+
+/**
+ * Profil „Kogo szukamy” rekrutacji (16.11.2026). Bez zapisu (`saved: false`)
+ * liczy się z tytułu i krytycznych Championa. „Nie proponujemy” = wpisy
+ * ręczne i etykiety z odrzuceń od `exclude_min` takich samych.
+ */
+export interface ReviewBatchRoleProfile {
+  job_id: number
+  role: string | null
+  specialty: string | null
+  technology: string | null
+  level: ReviewBatchRoleLevel
+  saved: boolean
+  excluded: ReviewBatchExcludedRole[]
+  /** Etykiety z odrzuceń jeszcze poniżej progu (albo zdjęte z listy). */
+  learning: { label: string; count: number; dismissed: boolean }[]
+  exclude_min: number
+  can_edit?: boolean
+}
+
+export interface ReviewBatchRoleProfileIn {
+  role: string | null
+  specialty: string | null
+  technology: string | null
+  level: ReviewBatchRoleLevel
+  /** Cała lista „Nie proponujemy”, jaka ma zostać. */
+  excluded: string[]
+}
+
 export interface ReviewBatchQueue {
   items: ReviewBatchItem[]
   /** Klucz to id rekrutacji jako tekst. */
   job_rules?: Record<string, ReviewBatchLearnedRule[]>
+  /** Profil „Kogo szukamy”; klucz to id rekrutacji jako tekst. */
+  job_profiles?: Record<string, ReviewBatchRoleProfile>
+  /** Ile osób z której rekrutacji idzie po kolei w całej kolejce (17.11.2026). */
+  runs?: ReviewBatchQueueRun[]
+}
+
+export interface ReviewBatchQueueRun {
+  job_id: number
+  count: number
+}
+
+export async function saveRoleProfile(
+  jobId: number,
+  body: ReviewBatchRoleProfileIn,
+): Promise<ReviewBatchRoleProfile> {
+  const res = await api.put<ReviewBatchRoleProfile>(`/api/review-batch/jobs/${jobId}/profile`, body)
+  return res.data
 }
 
 export function useReviewBatchQueue(options: { enabled?: boolean } = {}) {

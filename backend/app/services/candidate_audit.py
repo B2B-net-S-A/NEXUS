@@ -75,6 +75,10 @@ HIRED_ENGAGEMENT_ACTIONS: dict[str, str] = {
 }
 # Ręczna korekta faktów z telefonu praktykanta (audyt 24.09.2026): stare → nowe.
 CALL_FACTS_CORRECTED = "candidate_call_facts_corrected"
+# 17.11.2026: kandydat podał warunki formularzem z maila (bez konta, user_id NULL).
+# `details`: pola zapisane w profilu, pola zostawione (rekruter zmienił je
+# w ostatnich 14 dniach) i odpowiedź jak ją podał (stawka z jednostką i walutą).
+TERMS_ANSWERED = "candidate_terms_answered"
 IDENTITY_SOURCE_QUARANTINED = "candidate_identity_source_quarantined"
 IDENTITY_SOURCE_QUARANTINE_OVERRIDDEN = (
     "candidate_identity_source_quarantine_overridden"

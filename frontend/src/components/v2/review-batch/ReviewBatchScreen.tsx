@@ -16,9 +16,11 @@ import {
   useReviewBatchQueue,
   useReviewBatchStatus,
   type ReviewBatchJob,
+  type ReviewBatchQueueRun,
   type ReviewBatchSource,
   type ReviewBatchStatus,
   type ReviewBatchLearnedRule,
+  type ReviewBatchRoleProfile,
   type ReviewBatchWhy,
 } from "@/lib/api/reviewBatch";
 
@@ -26,6 +28,7 @@ import { usePlainBrief } from "@/lib/api/plainKnowledge";
 import { cn } from "@/lib/utils";
 
 import { ReviewBatchCard } from "./ReviewBatchCard";
+import { RoleProfileBlock } from "./ReviewBatchRoleProfile";
 
 // pdf.js i docx-preview nie mogą wejść do chunku ekranu; ten sam podgląd co w screeningu.
 const CandidatePreviewPane = dynamic(
@@ -169,6 +172,41 @@ function hasNoJobs(data: ReviewBatchStatus): boolean {
 
 type BatchTab = "decide" | "close" | "jobs";
 
+/**
+ * „Ta rekrutacja: jeszcze 2 osoby · Potem: … (4) i 1 kolejna” nad kartą. Serwer
+ * podaje kolejkę rekrutacja po rekrutacji (zgłoszenie rekrutera 17.11.2026),
+ * a `runs` mówi, ile osób z której idzie po kolei w całej kolejce.
+ */
+function QueueRunLine({
+  runs,
+  jobId,
+  titles,
+}: {
+  runs: readonly ReviewBatchQueueRun[];
+  jobId: number;
+  titles: ReadonlyMap<number, string>;
+}) {
+  const index = runs.findIndex((run) => run.job_id === jobId);
+  const after = runs[index + 1];
+  if (index < 0 || !after) return null;
+  const left = runs[index].count;
+  const more = runs.length - index - 2;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs"
+      data-testid="review-queue-run"
+    >
+      <span className="font-semibold text-primary">
+        Ta rekrutacja: jeszcze {left} {pluralPl(left, "osoba", "osoby", "osób")}
+      </span>
+      <span className="min-w-0 basis-full truncate text-muted-foreground">
+        Potem: {titles.get(after.job_id) ?? "kolejna rekrutacja"} ({after.count})
+        {more > 0 ? ` i ${more} ${pluralPl(more, "kolejna", "kolejne", "kolejnych")}` : ""}
+      </span>
+    </div>
+  );
+}
+
 function progressHint(data: ReviewBatchStatus, open: number): string {
   const overdue = data.overdue_screenings ?? 0;
   if (overdue > 0 && data.remaining === 0) {
@@ -291,11 +329,16 @@ function JobContext({
   title,
   why,
   rules,
+  profile,
+  compact = false,
 }: {
   jobId: number;
   title: string;
   why?: ReviewBatchWhy;
   rules?: readonly ReviewBatchLearnedRule[];
+  profile?: ReviewBatchRoleProfile;
+  /** Po pierwszej karcie tej rekrutacji: profil w jednej linii (1280 × 720). */
+  compact?: boolean;
 }) {
   const learned = learnedRulesLine(rules);
   const brief = usePlainBrief(jobId);
@@ -309,6 +352,7 @@ function JobContext({
       <div className="text-sm font-semibold leading-snug">{title}</div>
       {why ? <WhyLine why={why} /> : null}
       {oneLiner ? <p className="mt-1 text-xs leading-snug text-muted-foreground">{oneLiner}</p> : null}
+      {profile ? <RoleProfileBlock profile={profile} compact={compact} /> : null}
       {learned ? (
         <p className="mt-1 text-xs leading-snug text-primary" data-testid="review-learned-rules">
           {learned}
@@ -418,6 +462,13 @@ function BatchWorkspace({
   // Klik w „Kluczowe” na karcie: CV po prawej szuka tej frazy (jak „Wymagania”).
   const [searchRequest, setSearchRequest] = useState<{ text: string; nonce: number } | null>(null);
   const next = queue.data?.items?.[0] ?? null;
+  const jobTitles = new Map<number, string>([
+    ...data.team_jobs.map((job): [number, string] => [job.job_id, job.title]),
+    ...(queue.data?.items ?? []).map((item): [number, string] => [item.job_id, item.job_title]),
+  ]);
+  // Rekrutacje, w których była już karta: profil „Kogo szukamy” zwija się do jednej linii.
+  const [seenJobs, setSeenJobs] = useState<ReadonlySet<number>>(() => new Set());
+  const nextProfile = next ? queue.data?.job_profiles?.[String(next.job_id)] : undefined;
   // Karty z rekrutacji, z których osobę zdjęto, idą na koniec, bez terminu.
   const allOpen = data.open_today_screenings ?? [];
   const parkedCount = allOpen.filter((item) => item.parked).length;
@@ -461,16 +512,23 @@ function BatchWorkspace({
           {tab === "decide" ? (
             next ? (
               <>
+                <QueueRunLine runs={queue.data?.runs ?? []} jobId={next.job_id} titles={jobTitles} />
                 <JobContext
                   jobId={next.job_id}
                   title={next.job_title}
                   why={next.why}
                   rules={queue.data?.job_rules?.[String(next.job_id)]}
+                  profile={nextProfile}
+                  compact={seenJobs.has(next.job_id)}
                 />
                 <ReviewBatchCard
                   key={next.process_id}
                   item={next}
-                  onDecided={onDecided}
+                  profile={nextProfile}
+                  onDecided={() => {
+                    setSeenJobs((current) => new Set(current).add(next.job_id));
+                    onDecided();
+                  }}
                   hideJob
                   onPickRequirement={(text) => setSearchRequest({ text, nonce: Date.now() })}
                 />

@@ -1247,6 +1247,36 @@ except Exception as _autofill_feedback_err:  # noqa: BLE001
     print(f"autofill feedback DDL unavailable: {_autofill_feedback_err!r}")
     _AUTOFILL_FEEDBACK_DDL = []
 
+# Profil „Kogo szukamy” rekrutacji (migracja 0728) — JEDNO źródło z migracją
+# (`app/services/job_role_profile_schema.py`).
+try:
+    from app.services import job_role_profile_schema as _job_role_profile_schema
+
+    _JOB_ROLE_PROFILE_DDL = list(_job_role_profile_schema.TABLE_DDL)
+except Exception as _job_role_profile_err:  # noqa: BLE001
+    print(f"job role profile DDL unavailable: {_job_role_profile_err!r}")
+    _JOB_ROLE_PROFILE_DDL = []
+
+# Prośby o warunki kandydata (migracja 0729) — JEDNO źródło z migracją
+# (`app/services/candidate_terms_schema.py`).
+try:
+    from app.services import candidate_terms_schema as _candidate_terms_schema
+
+    _CANDIDATE_TERMS_DDL = list(_candidate_terms_schema.TABLE_DDL)
+except Exception as _candidate_terms_err:  # noqa: BLE001
+    print(f"candidate terms DDL unavailable: {_candidate_terms_err!r}")
+    _CANDIDATE_TERMS_DDL = []
+
+# Wersje Profilu Championa i „Przeczytane” (migracja 0731) — JEDNO źródło
+# z migracją (`app/services/champion_profile_revisions_schema.py`).
+try:
+    from app.services import champion_profile_revisions_schema as _champion_revisions_schema
+
+    _CHAMPION_REVISIONS_DDL = list(_champion_revisions_schema.TABLE_DDL)
+except Exception as _champion_revisions_err:  # noqa: BLE001
+    print(f"champion revisions DDL unavailable: {_champion_revisions_err!r}")
+    _CHAMPION_REVISIONS_DDL = []
+
 # Raporty „Jakość podpowiedzi systemu” (migracja 0518) — JEDNO źródło z migracją
 # (`app/services/autofill_quality_schema.py`).
 try:
@@ -1601,6 +1631,9 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_POOL_DDL,
     *_CONVERSATION_FACTS_DDL,
     *_AUTOFILL_FEEDBACK_DDL,
+    *_JOB_ROLE_PROFILE_DDL,
+    *_CANDIDATE_TERMS_DDL,
+    *_CHAMPION_REVISIONS_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
@@ -11567,6 +11600,43 @@ async def repair():
             )
             return
     print(f"stale termination repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# „Wycofaj wypowiedzenie” ze zgłoszenia Finansów 17.11.2026 — jednorazowo:
+# konsultant wycofał wypowiedzenie (aneks „Wcześniejsze zakończenie”), a nocny
+# proces zakończył kontrakt i uciął przypisanie na zamówieniu. Decyzja Artura
+# 17.11: naprawić od razu. Ta sama operacja co przycisk w Aneksach; logika
+# w `app/services/contract_notice_withdrawal_repair.py`, przypięta do trójki
+# ID. Marker w `app_settings` + advisory lock; porażka nie zapisuje niczego —
+# następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-notice-withdrawal-2026-11"
+echo "Contracts: withdrawn notice from 17.11 ticket (one-shot)..."
+run_unless_marked "notice_withdrawal_ticket_2026_11_17" <<'PY' || echo "notice withdrawal repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_notice_withdrawal_repair import (
+    run_notice_withdrawal_repair,
+    summarize_for_log,
+)
+from app.services.order_write_errors import commit_order_write
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_notice_withdrawal_repair(db)
+            await commit_order_write(db)
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"notice withdrawal repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"notice withdrawal repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

@@ -117,6 +117,7 @@ from app.api import insights_charts
 from app.api import insights_reconciliation
 from app.api import integrations_compass
 from app.api import integrations_law_radar
+from app.api import integrations_cpro_bot
 from app.api import integrations_sales_signals
 from app.api import integrations_v1
 from app.api.integrations_v1.common import (
@@ -188,6 +189,7 @@ from app.api import contacts
 from app.api import prep_kit
 from app.api import talent_pools
 from app.api import public_engagement
+from app.api import public_candidate_terms
 from app.api import cv_generator_b2b
 from app.api import b2b_contract_generator
 from app.api import b2b_documents
@@ -860,6 +862,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.sales_archive_shadow import sales_archive_shadow_loop
     from app.tasks.sales_signals import sales_signals_loop
     from app.tasks.law_radar import law_radar_loop
+    from app.tasks.cpro_bot import cpro_bot_loop
     from app.tasks.board_krs import board_krs_loop
     from app.tasks.jjit_import import jjit_import_loop
     from app.tasks.integration_stale_alerts import (
@@ -879,6 +882,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
+    from app.tasks.candidate_terms_sender import candidate_terms_sender_loop
     from app.tasks.compass_workdays_sync import compass_workdays_sync_loop
     from app.tasks.compass_lifecycle_sync import compass_lifecycle_sync_loop
     from app.tasks.m365_account_sweep import m365_account_sweep_loop
@@ -1090,6 +1094,11 @@ async def lifespan(app: FastAPI):
             "notification_email_outbox": asyncio.create_task(
                 notification_email_outbox_loop()
             ),
+            # 17.11.2026: podziękowanie i prośba o warunki do kandydatów po
+            # aplikacji z ogłoszenia; rodzaj `candidate_terms` włącza admin.
+            "candidate_terms_sender": asyncio.create_task(
+                candidate_terms_sender_loop()
+            ),
             # Powiadomienia Delivery Leada (0233). Kill-switch sprawdzany PRZED
             # pętlą — wyłączona funkcja kończy zadanie, a nie budzi procesu co
             # 24 h po to, żeby sprawdzić tę samą flagę.
@@ -1104,6 +1113,9 @@ async def lifespan(app: FastAPI):
             # Radar przepisów: Grok Zbieracz od 5:30, bramka, Analityk, sondy;
             # wyłącznik LAW_RADAR_ENABLED przed pętlą.
             "law_radar": asyncio.create_task(law_radar_loop()),
+            # Bot Cpro: karty z kolejki Cpro do Grok Bota (Nordea, nordea.onevms.se);
+            # wyłącznik CPRO_BOT_ENABLED przed pętlą.
+            "cpro_bot": asyncio.create_task(cpro_bot_loop()),
             # Rada: odpis pełny KRS spółki co noc (05:40); wyłącznik BOARD_KRS_ENABLED.
             "board_krs": asyncio.create_task(board_krs_loop()),
             "insights_seniority_journal": asyncio.create_task(
@@ -1558,6 +1570,9 @@ app.include_router(
     tags=["candidate-activity-summary"],
 )
 app.include_router(public_engagement.router, prefix="/api", tags=["public-engagement"])
+app.include_router(
+    public_candidate_terms.router, prefix="/api", tags=["public-candidate-terms"]
+)
 app.include_router(jobs.router, prefix="/api/jobs", tags=["jobs"])
 # Static `/directory` must be registered before `clients`' catch-all
 # `/{client_id}` route.
@@ -2042,6 +2057,12 @@ app.include_router(
 app.include_router(
     integrations_law_radar.router,
     prefix="/api/integrations/law-radar",
+    tags=["integrations"],
+)
+# Bot Cpro (Grok Bot): plik CV i raport biegu; jednorazowy token biegu.
+app.include_router(
+    integrations_cpro_bot.router,
+    prefix="/api/integrations/cpro-bot",
     tags=["integrations"],
 )
 # API integracyjne v1 (0443, decyzja Artura 14.10.2026): automatyzacje
@@ -4182,6 +4203,7 @@ async def api_health_deep_check(request: Request):
         ClientTimeReportRow,
     )
     from app.models.client_einvoice import ClientSalesInvoiceEinvoice
+    from app.models.cpro_bot import CproBotRun
     from app.models.client_report import ClientReportDefinition, ClientReportRun
     from app.models.law_radar import (
         LawChange,
@@ -4302,6 +4324,12 @@ async def api_health_deep_check(request: Request):
     from app.models.job_champion import JobChampion
     from app.models.job_autofill_pool import JobAutofillPool
     from app.models.autofill_feedback import AutofillFeedback
+    from app.models.job_role_profile import JobRoleProfile
+    from app.models.candidate_terms_request import CandidateTermsRequest
+    from app.models.champion_profile_revision import (
+        ChampionProfileChangeRead,
+        ChampionProfileRevision,
+    )
     from app.models.autofill_quality_report import AutofillQualityReport
     from app.models.candidate_job_owner import CandidateJobOwnerEvent
     from app.models.sales import (
@@ -4866,6 +4894,8 @@ async def api_health_deep_check(request: Request):
         ("law_change_tasks", LawChangeTask),
         ("law_change_events", LawChangeEvent),
         ("law_change_probes", LawChangeProbe),
+        # 0732: bot Cpro — biegi rutyny Grok Bota.
+        ("cpro_bot_runs", CproBotRun),
         # 0692: e-faktury Peppol do klientów.
         ("client_sales_invoice_einvoices", ClientSalesInvoiceEinvoice),
         # 0694 (+0697): szkolenia i trenerzy.
@@ -5021,6 +5051,13 @@ async def api_health_deep_check(request: Request):
         ("job_autofill_pool", JobAutofillPool),
         ("autofill_feedback", AutofillFeedback),
         ("autofill_quality_reports", AutofillQualityReport),
+        # 0728: profil „Kogo szukamy” rekrutacji w porcji.
+        ("job_role_profiles", JobRoleProfile),
+        # 0729: prośby o warunki kandydata po aplikacji.
+        ("candidate_terms_requests", CandidateTermsRequest),
+        # 0731: wersje Profilu Championa i „Przeczytane”.
+        ("champion_profile_revisions", ChampionProfileRevision),
+        ("champion_profile_change_reads", ChampionProfileChangeRead),
         # 0519: historia „Prowadzi”.
         ("candidate_job_owner_events", CandidateJobOwnerEvent),
         # 0601–0683: Sprzedaż — lejki, kontakty, pliki, leady, historia szansy,

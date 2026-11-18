@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, CheckCheck, Loader2, Settings2 } from "lucide-react";
+import { useOptionalToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { apiErrorMessage } from "@/lib/api-error";
 import {
   useJobThreads,
   useMarkJobTopicRead,
   type JobThread,
 } from "@/lib/api/jobTopic";
+import { markWhileAwayHandled } from "@/lib/api/whileAway";
 import { formatNotificationText, notificationTimeAgo } from "@/lib/notification-format";
 import { MY_NOTIFICATIONS_SETTINGS_HREF } from "@/lib/notification-topics";
 import { cn } from "@/lib/utils";
@@ -45,6 +49,13 @@ export function splitJobThreads(threads: JobThread[]): {
 
 export type JobThreadsPanelState = "loading" | "error" | "ready";
 
+/** „Dałem znać” przy zamknięciu w zastępstwie (16.11.2026). */
+interface AwayActions {
+  onMarkAwayHandled?: (thread: JobThread) => void;
+  /** Id sprawy, której zapis trwa — przycisk czeka. */
+  markingAwayId?: number | null;
+}
+
 export interface JobThreadsPanelProps {
   state: JobThreadsPanelState;
   threads: JobThread[];
@@ -54,6 +65,8 @@ export interface JobThreadsPanelProps {
   onMarkAllRead: () => void;
   onRetry: () => void;
   onOpenSettings: () => void;
+  onMarkAwayHandled?: (thread: JobThread) => void;
+  markingAwayId?: number | null;
 }
 
 /** Treść okienka „Rekrutacje” — bez zapytań, dane w propsach (także w harnessie). */
@@ -66,8 +79,11 @@ export function JobThreadsPanel({
   onMarkAllRead,
   onRetry,
   onOpenSettings,
+  onMarkAwayHandled,
+  markingAwayId = null,
 }: JobThreadsPanelProps) {
   const sections = splitJobThreads(threads);
+  const away: AwayActions = { onMarkAwayHandled, markingAwayId };
   return (
     <div className="@container flex max-h-[min(520px,calc(100dvh-6rem))] flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
@@ -119,18 +135,20 @@ export function JobThreadsPanel({
         </p>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <ThreadList threads={sections.news} onOpen={onOpenThread} />
+          <ThreadList threads={sections.news} onOpen={onOpenThread} away={away} />
           <ThreadSection
             label="Bez pracującego rekrutera"
             threads={sections.unstaffed}
             onOpen={onOpenThread}
+            away={away}
           />
           <ThreadSection
             label="Stoją > 7 dni"
             threads={sections.stuck}
             onOpen={onOpenThread}
+            away={away}
           />
-          <ThreadList threads={sections.read} onOpen={onOpenThread} />
+          <ThreadList threads={sections.read} onOpen={onOpenThread} away={away} />
         </div>
       )}
 
@@ -146,9 +164,11 @@ export function JobThreadsPanel({
 function ThreadList({
   threads,
   onOpen,
+  away,
 }: {
   threads: JobThread[];
   onOpen: (thread: JobThread) => void;
+  away: AwayActions;
 }) {
   if (threads.length === 0) return null;
   return (
@@ -156,6 +176,7 @@ function ThreadList({
       {threads.map((thread) => (
         <li key={threadKey(thread)}>
           <JobThreadRow thread={thread} onOpen={onOpen} />
+          {thread.away_case ? <AwayCaseBar thread={thread} away={away} /> : null}
         </li>
       ))}
     </ul>
@@ -166,10 +187,12 @@ function ThreadSection({
   label,
   threads,
   onOpen,
+  away,
 }: {
   label: string;
   threads: JobThread[];
   onOpen: (thread: JobThread) => void;
+  away: AwayActions;
 }) {
   if (threads.length === 0) return null;
   return (
@@ -177,8 +200,45 @@ function ThreadSection({
       <h3 className="bg-muted/50 px-4 py-1.5 text-xs font-medium text-muted-foreground">
         {label} · {threads.length}
       </h3>
-      <ThreadList threads={threads} onOpen={onOpen} />
+      <ThreadList threads={threads} onOpen={onOpen} away={away} />
     </section>
+  );
+}
+
+/**
+ * Zamknięcie, które przyszło w zastępstwie (także ciche — zastępca sam zamknął
+ * rekrutację). „Dałem znać” oznacza ten sam wiersz, który osoba zobaczy po
+ * powrocie w „Gdy Cię nie było”, więc kandydat nie dostaje dwóch wiadomości.
+ * Osobny pasek pod wierszem, bo wiersz jest przyciskiem otwierającym rekrutację.
+ */
+function AwayCaseBar({ thread, away }: { thread: JobThread; away: AwayActions }) {
+  const awayCase = thread.away_case;
+  if (!awayCase) return null;
+  const handled = awayCase.handled_at != null;
+  return (
+    <div className="flex flex-wrap items-center gap-2 pb-2.5 pl-[3.75rem] pr-4">
+      <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
+        {awayCase.on_behalf_of_name
+          ? `W zastępstwie za ${awayCase.on_behalf_of_name}`
+          : "W zastępstwie"}
+      </span>
+      {handled ? (
+        <span className="rounded-full bg-success-muted px-2 py-0.5 text-[11px] font-medium text-success-muted-foreground">
+          Załatwione{awayCase.handled_by_name ? ` · ${awayCase.handled_by_name}` : ""}
+        </span>
+      ) : away.onMarkAwayHandled ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="ml-auto h-7 px-2.5 text-xs"
+          disabled={away.markingAwayId === awayCase.id}
+          aria-label={`Dałem znać — ${thread.title}`}
+          onClick={() => away.onMarkAwayHandled?.(thread)}
+        >
+          Dałem znać
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -306,6 +366,15 @@ export function JobsNotificationsDropdown() {
   const setOpenTopic = useRealtimeStatus((s) => s.setOpenTopic);
   const threadsQuery = useJobThreads();
   const markRead = useMarkJobTopicRead();
+  const queryClient = useQueryClient();
+  const toast = useOptionalToast();
+  const markAway = useMutation({
+    mutationFn: (id: number) => markWhileAwayHandled(id),
+    // Pod `["notifications"]` są i to okienko, i „Gdy Cię nie było”.
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+    onError: (error) =>
+      toast?.showError(apiErrorMessage(error, "Nie udało się oznaczyć sprawy.")),
+  });
 
   const threads = threadsQuery.data?.items ?? [];
   const unreadJobs = threadsQuery.data?.unread_jobs ?? 0;
@@ -343,6 +412,10 @@ export function JobsNotificationsDropdown() {
           onOpenThread={openThread}
           onMarkAllRead={() => markRead.mutate(undefined)}
           onRetry={() => void threadsQuery.refetch()}
+          onMarkAwayHandled={(thread) => {
+            if (thread.away_case) markAway.mutate(thread.away_case.id);
+          }}
+          markingAwayId={markAway.isPending ? (markAway.variables ?? null) : null}
           onOpenSettings={() => {
             onOpenChange(false);
             router.push(MY_NOTIFICATIONS_SETTINGS_HREF);

@@ -2594,6 +2594,7 @@ export default function ContractDetailPage() {
           personName={contract.candidate_name}
           readOnly={!canEditContract}
           extensionLocked={b2bExtensionLocked(contract)}
+          canWithdrawNotice={canRecoverTermination}
           // „Zakończ wcześniej" to też zakończenie kontraktu — przez to samo
           // okno i za tym samym uprawnieniem co „Zakończ współpracę" (edycja
           // kontraktu go nie daje; bez callbacku przycisku nie ma).

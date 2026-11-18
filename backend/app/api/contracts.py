@@ -92,6 +92,9 @@ from app.schemas.contract import (
     ContractStatusUpdate,
     ContractReopenRequest,
     ContractResponse,
+    ContractNoticeWithdrawalPreview,
+    ContractNoticeWithdrawalRequest,
+    ContractNoticeWithdrawalResult,
     ContractReturnAfterBreakRequest,
     ContractReturnAfterBreakResponse,
     ContractTerminationReversalPlanRead,
@@ -129,6 +132,7 @@ from app.services import contract_document_folders, storage_service
 from app.services.b2b_contract_end_date import (
     B2B_END_DATE_MESSAGE,
     B2B_END_DATE_REASON,
+    WITHDRAWN_AMENDMENT_KEY,
     end_date_allowed,
     has_early_termination_amendment,
     is_b2b,
@@ -179,6 +183,12 @@ from app.services.contract_termination_snapshot import ContractStateBefore
 from app.services.contract_return_after_break import (
     create_return_after_break,
     existing_return,
+)
+from app.services.contract_notice_withdrawal import (
+    NoticeWithdrawalError,
+    preview_notice_withdrawal,
+    withdraw_notice,
+    withdrawable_notice,
 )
 from app.services.contract_termination_reversal import (
     ReversalBlocked,
@@ -5926,7 +5936,21 @@ async def list_contract_amendments(
     )
     amendments = list(result.scalars().all())
     finance_ok = await _can_read_contract_finance(contract, current_user, db)
-    return await _amendments_to_responses(db, amendments, finance_ok=finance_ok)
+    responses = await _amendments_to_responses(db, amendments, finance_ok=finance_ok)
+    # „Wycofaj wypowiedzenie” (17.11.2026): wiersz wypowiedzenia wie, czy
+    # już je wycofano i czy da się je wycofać teraz.
+    withdrawn = {
+        (a.new_values or {}).get(WITHDRAWN_AMENDMENT_KEY)
+        for a in amendments
+        if a.amendment_type == ContractAmendmentType.custom_change
+    }
+    notice = await withdrawable_notice(db, contract)
+    for response in responses:
+        response.withdrawn = response.id in withdrawn
+        response.withdrawable = (
+            notice is not None and response.id == notice.amendment.id
+        )
+    return responses
 
 
 @router.get(
@@ -7101,6 +7125,79 @@ async def reverse_termination(
     await contract_hooks.contract_end_undone(db, contract)
     await commit_order_write(db, actor_id=current_user.id)
     return ContractTerminationReversalPlanRead(**result, executed=True)
+
+
+def _notice_withdrawal_http(exc: NoticeWithdrawalError) -> HTTPException:
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": exc.message},
+    )
+
+
+@router.get(
+    "/{contract_id}/notice-withdrawal",
+    response_model=ContractNoticeWithdrawalPreview,
+)
+async def preview_contract_notice_withdrawal(
+    contract_id: int,
+    current_user: ContractTerminationRecoveryUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Okno „Wycofaj wypowiedzenie”: wypowiedzenie, opcje daty końca i plan
+    przywrócenia zamówień. Tylko odczyt."""
+    contract = await db.scalar(select(Contract).where(Contract.id == contract_id))
+    if contract is None:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    try:
+        return await preview_notice_withdrawal(db, contract)
+    except NoticeWithdrawalError as exc:
+        raise _notice_withdrawal_http(exc) from exc
+
+
+@router.post(
+    "/{contract_id}/notice-withdrawal",
+    response_model=ContractNoticeWithdrawalResult,
+)
+async def withdraw_contract_notice(
+    contract_id: int,
+    data: ContractNoticeWithdrawalRequest,
+    current_user: ContractTerminationRecoveryUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Wycofaj wypowiedzenie” — konsultant wycofał wypowiedzenie zapisane
+    aneksem „Wcześniejsze zakończenie” (zgłoszenie Finansów 17.11.2026).
+
+    Kontrakt dostaje nową datę końca (B2B: domyślnie bez daty); zakończony
+    wraca tą samą drogą co „Cofnij zakończenie”, łącznie z zamówieniami.
+    """
+    contract = await _lock_contract_for_recovery(db, contract_id)
+    was_ended = contract.status == ContractStatus.ended
+    try:
+        result = await withdraw_notice(
+            db,
+            contract,
+            end_date=data.end_date,
+            actor_id=current_user.id,
+            note=data.note,
+            document_id=data.document_id,
+        )
+    except NoticeWithdrawalError as exc:
+        raise _notice_withdrawal_http(exc) from exc
+    except ReversalBlocked as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "termination_reversal_blocked",
+                "message": " ".join(b["message"] for b in exc.plan.blockers),
+                "blockers": exc.plan.blockers,
+            },
+        ) from exc
+    if was_ended:
+        from app.services.hr import contract_hooks
+
+        await contract_hooks.contract_end_undone(db, contract)
+    await commit_order_write(db, actor_id=current_user.id)
+    return result
 
 
 @router.post(

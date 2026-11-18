@@ -61,7 +61,10 @@ def _applies(user: User, ctx: prefs._Context = prefs._Context()) -> set[str]:
 
 def test_every_account_email_kind_has_an_applies_rule():
     catalog = {spec["id"] for spec in delivery.CATALOG}
-    assert set(prefs.OPTABLE_KINDS) == catalog - {"application_confirmation"}
+    assert set(prefs.OPTABLE_KINDS) == catalog - {
+        "application_confirmation",
+        "candidate_terms",
+    }
     # Nowy rodzaj w katalogu bez reguły „kogo dotyczy” nie może przejść po cichu.
     assert set(prefs.APPLIES) == set(prefs.OPTABLE_KINDS)
     assert not {spec["id"] for spec in delivery.SECURITY_CATALOG} & set(

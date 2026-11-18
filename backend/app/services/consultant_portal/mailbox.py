@@ -6,8 +6,10 @@ jeszcze skonfigurowane, dlatego brak ``CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX`` a
 daje czytelny stan w ``cp_mailbox_state``, a nie wyjątek.
 
 * Wyłączony portal = czytnik nie rusza. W pilotażu bierze wyłącznie nadawców z pilotażu:
-  reszta firmy nadal rozlicza się po staremu i jej maili nie dotykamy.
-* Nadawcę dopasowujemy po adresie z kontraktu. Adres można podrobić, dlatego dokument
+  reszta firmy nadal rozlicza się po staremu i jej maili nie dotykamy. W ``internal``
+  („Tylko zespół”) i ``all`` bierze każdego nadawcę z kontraktem, także bez aktywacji
+  panelu (``identity.resolve_sender``): odczyt maila nie otwiera nikomu panelu.
+* Nadawcę dopasowujemy po adresie z kontraktu (w ``internal``/``all`` potem z kartoteki). Adres można podrobić, dlatego dokument
   z maila zawsze czeka na decyzję Finansów, a nieznany nadawca (tylko w stanie ``all``)
   daje kartę do ręcznego przypisania.
 * Znacznik idzie z zakładką 2 h, a duplikaty zamyka unikat na (wiadomość, plik).
@@ -46,8 +48,12 @@ INITIAL_LOOKBACK = timedelta(days=3)
 MAX_MESSAGES_PER_RUN = 200
 _MESSAGE_SELECT = "id,subject,from,receivedDateTime,hasAttachments"
 _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
+# Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
+# Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
 _REPORT = re.compile(
-    r"raport|timesheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora", re.IGNORECASE
+    r"raport|time[\s_-]*sheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora"
+    r"|rcp|arkusz|protok[oó][lł]",
+    re.IGNORECASE,
 )
 _INVOICE = re.compile(r"faktur|invoice|(?:^|[^a-z])fv(?:[^a-z]|$)", re.IGNORECASE)
 _PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)")
@@ -224,10 +230,10 @@ async def _ingest_message(
     sender = _sender(message)
     subject = str(message.get("subject") or "")
     by_subject = await _kesu_contract(db, subject, sender, state=state, today=today)
-    contract = by_subject or await identity.resolve_by_email(
+    contract = by_subject or await identity.resolve_sender(
         db, sender, settings=state, today=today
     )
-    if contract is None and state.state != "all":
+    if contract is None and not state.any_sender:
         return 0, 1
     contract_id = contract.id if contract else None
     received = _parse_time(message.get("receivedDateTime")) or now
@@ -446,7 +452,7 @@ async def run_once(
 ) -> dict[str, Any]:
     moment = now or datetime.now(timezone.utc)
     state = await portal_settings.load(db)
-    if not state.is_on:
+    if not state.reads_mailbox:
         return {"status": "disabled"}
     upn = mailbox_upn()
     if mailbox is None and upn is None:

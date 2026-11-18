@@ -123,6 +123,49 @@ def date_ranges(text: Optional[str]) -> list[DateRange]:
     return found
 
 
+def line_period(text: Optional[str]) -> Optional[DateRange]:
+    """Okres z linii stanowiska CV — ostatni w linii, także odwrócony.
+
+    `date_ranges` pomija „08.2021 – 09.2019”, bo w oryginale to zwykle dwa
+    sąsiednie okresy z układu kolumn. W linii stanowiska CV to jeden okres
+    z błędem, który pokazuje uwaga QC „Data końca przed datą startu”.
+    Rok w nazwie roli stoi przed okresem, więc liczy się ostatni.
+    """
+    last: Optional[DateRange] = None
+    for match in _RANGE.finditer(text or ""):
+        start = _parse_date(match.group("start") or match.group("bare_start"))
+        raw_end = match.group("end") or match.group("bare_end")
+        end = _parse_date(raw_end)
+        if start is None or (end is None and re.fullmatch(_DATE, raw_end, re.I)):
+            continue
+        last = DateRange(start, end, match.start(), match.group(0))
+    return last
+
+
+def is_reversed(period: DateRange) -> bool:
+    """Koniec przed startem („08.2021 – 09.2019”); rok bez miesiąca nie przeczy."""
+    if period.end is None:
+        return False
+    (sy, sm), (ey, em) = period.start, period.end
+    if ey != sy:
+        return ey < sy
+    return sm is not None and em is not None and em < sm
+
+
+def month_dates_in_year(source: str, year: int) -> list[str]:
+    """Daty z miesiącem w danym roku z oryginału („04.2021”, „April 2021”)."""
+    found: list[str] = []
+    for match in re.finditer(
+        rf"(?<![\w./-])(?:{_MONTH_DATE})(?![\w/]|\.\d)", source or "", re.IGNORECASE
+    ):
+        value = _parse_date(match.group(0))
+        if value is not None and value[0] == year and value[1] is not None:
+            text = " ".join(match.group(0).split())
+            if text not in found:
+                found.append(text)
+    return found
+
+
 def _fold(text: str) -> str:
     plain = unicodedata.normalize("NFKD", text.replace("ł", "l").replace("Ł", "L"))
     return plain.encode("ascii", "ignore").decode().casefold()

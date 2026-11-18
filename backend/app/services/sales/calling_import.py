@@ -10,8 +10,11 @@ Bramki, od najważniejszej (pierwsza pasująca decyduje):
    albo adres przy innej firmie);
 2. ``client``: klient NEXUSA (reguła ``client_gate``, jak przy leadach i szansach)
    albo nasza spółka. Popyt u klienta idzie do jego Delivery Leada;
-3. ``already_in_campaign``: ta firma z tą osobą albo numerem jest już w kampanii,
-   wiersz powtarza się w pliku albo dzwoniący ma już otwartą szansę tej firmy;
+3. ``already_called``: pod tym numerem, adresem albo osobą był już wynik rozmowy
+   (w każdej kampanii, u każdej osoby, także w rekordzie zamkniętym; 17.11.2026);
+   ``already_in_campaign``: ta firma z tą osobą albo numerem jest już w kampanii,
+   ten numer czeka na liście dzwonienia, wiersz powtarza się w pliku albo dzwoniący
+   ma już otwartą szansę tej firmy;
 4. ``other_caller``: firmę ma w kolejce albo w otwartej szansie ktoś inny;
 5. ``no_phone``: wiersz bez numeru nie ma po co wchodzić do kolejki dzwonienia;
 6. ``linked`` (karta firmy istnieje) albo ``new_company`` (import ją założy).
@@ -42,7 +45,7 @@ from app.models.sales import (
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.company_names import normalize_company_name
-from app.services.sales import client_gate
+from app.services.sales import calling_repeats, client_gate
 from app.services.sales.calling import OPEN_STATES
 from app.services.sales.calling_file import (
     ListFile,
@@ -62,6 +65,8 @@ logger = logging.getLogger(__name__)
 NEW_COMPANY = "new_company"
 LINKED = "linked"
 ALREADY = "already_in_campaign"
+#: Zgłoszenie dzwoniących 17.11.2026: numer, adres albo osoba mają już wynik rozmowy.
+ALREADY_CALLED = "already_called"
 OTHER_CALLER = "other_caller"
 CLIENT = "client"
 NO_PHONE = "no_phone"
@@ -69,6 +74,7 @@ FATES: tuple[str, ...] = (
     NEW_COMPANY,
     LINKED,
     ALREADY,
+    ALREADY_CALLED,
     OTHER_CALLER,
     CLIENT,
     DO_NOT_CONTACT,
@@ -145,6 +151,11 @@ class _Known:
     users: dict[int, str] = field(default_factory=dict)
     objected_phones: set[str] = field(default_factory=set)
     objected_emails: set[str] = field(default_factory=set)
+    #: Rekordy pod numerami, adresami i osobami z pliku, od najświeższej zmiany.
+    #: Klucz („phone”/„email”/„contact”, wartość) → rekordy, od najświeższej zmiany.
+    calls: dict[tuple[str, Any], list[calling_repeats.EarlierCall]] = field(
+        default_factory=dict
+    )
 
 
 def row_note(row: ListRow) -> Optional[str]:
@@ -380,14 +391,92 @@ def _match_contact(
 
 
 def _same_entry(row: ListRow, record: SalesCallRecord) -> bool:
-    """Ten sam wpis co rekord: ta sama osoba, a bez nazwisk ten sam numer."""
+    """Ten sam wpis co rekord: ten sam numer albo adres, a bez nich ta sama osoba.
 
+    Numer idzie przed nazwiskiem: lista z 13.11.2026 miała samo nazwisko („Nowacka”
+    zamiast „Ewa Nowacka”) i 380 powtórek przeszło jako nowe wpisy.
+    """
+
+    digits = phone_digits(row.phone)
+    if digits is not None and digits == phone_digits(record.phone):
+        return True
+    email = valid_email(row.email)
+    if email is not None and email == valid_email(record.email):
+        return True
     name = person_key(row.person)
     other = person_key(record.person_name)
     if name and other:
         return name == other
-    digits = phone_digits(row.phone)
-    return digits is not None and digits == phone_digits(record.phone)
+    return False
+
+
+async def _calls(db: AsyncSession, rows: list[ListRow], known: _Known) -> None:
+    """Wcześniejsze rekordy po numerze, adresie i osobie: firma z innej karty też się liczy.
+
+    Słowniki zamiast przeszukiwania listy: plik ma do 2000 wierszy, a rekordów bywa tyle samo.
+    """
+
+    found = await calling_repeats.called_records(
+        db,
+        phones={digits for row in rows if (digits := phone_digits(row.phone))},
+        emails={email for row in rows if (email := valid_email(row.email))},
+        contact_ids={
+            contact.id for contacts in known.contacts.values() for contact in contacts
+        },
+        with_new=True,
+    )
+    for call in found:
+        keys = [("phone", call.phone_key)]
+        # „Zły numer” blokuje sam numer: ta osoba może wrócić z poprawnym numerem.
+        if call.state != calling_repeats.BAD_CONTACT:
+            keys += [("email", call.email_key), ("contact", call.contact_id)]
+        for key in keys:
+            if key[1] is not None:
+                known.calls.setdefault(key, []).append(call)
+
+
+def _earlier(
+    row: ListRow, contact: Optional[SalesContact], known: _Known, *, called: bool
+) -> Optional[calling_repeats.EarlierCall]:
+    """Najświeższy rekord tej osoby: z wynikiem (``called``) albo czekający jako „Nowy”."""
+
+    keys = [
+        ("phone", phone_digits(row.phone)),
+        ("email", valid_email(row.email)),
+        ("contact", contact.id if contact is not None else None),
+    ]
+    matches = [
+        call
+        for key in keys
+        if key[1] is not None
+        for call in known.calls.get(key, [])
+        if (call.state != calling_repeats.NEW) == called
+    ]
+    return max(matches, key=lambda call: (call.at, call.record_id), default=None)
+
+
+def _company_calls(company_id: Optional[int], known: _Known) -> Optional[str]:
+    """Inna osoba w tej firmie miała już rozmowę: dopisek przy wierszu, nie blokada."""
+
+    records = [
+        record
+        for record in known.records.get(company_id or 0, [])
+        if record.state != calling_repeats.NEW and record.last_outcome_at is not None
+    ]
+    if not records:
+        return None
+    last = max(records, key=lambda record: record.last_outcome_at)
+    call = calling_repeats.EarlierCall(
+        record_id=last.id,
+        company_id=last.company_id,
+        company_name="",
+        person_name=last.person_name,
+        state=last.state,
+        at=last.last_outcome_at,
+        caller_name=known.users.get(last.assigned_user_id or 0),
+        campaign_name=None,
+    )
+    return f" W tej firmie dzwoniono już: {call.label}."
 
 
 def _client_detail(match: client_gate.ClientMatch) -> str:
@@ -454,6 +543,9 @@ def _plan_row(
     if key in seen:
         return plan(ALREADY, REPEATED_DETAIL)
     seen.add(key)
+    called = _earlier(row, contact, known, called=True)
+    if called is not None:
+        return plan(ALREADY_CALLED, f"Już dzwoniono: {called.label}.")
     if any(
         record.campaign_id == campaign_id and _same_entry(row, record)
         for record in records
@@ -492,6 +584,15 @@ def _plan_row(
             f"Otwarta szansa na etapie „{other[1]}”, prowadzi {_name(known, other[0])}.",
         )
 
+    listed = _earlier(row, contact, known, called=False)
+    if listed is not None:
+        campaign = (
+            f", kampania „{listed.campaign_name}”" if listed.campaign_name else ""
+        )
+        return plan(
+            ALREADY,
+            f"Ten numer czeka już na liście dzwonienia ({listed.caller_name or 'bez osoby'}{campaign}).",
+        )
     if digits is None:
         return plan(NO_PHONE, NO_PHONE_DETAIL)
     person = (
@@ -502,7 +603,8 @@ def _plan_row(
         else "bez osoby"
     )
     if company is not None:
-        return plan(LINKED, f"Karta firmy istnieje ({how}), {person}.")
+        before = _company_calls(company_id, known) or ""
+        return plan(LINKED, f"Karta firmy istnieje ({how}), {person}.{before}")
     with_domain = f" z domeną {domain}" if domain else ""
     return plan(NEW_COMPANY, f"Założy kartę firmy{with_domain}, {person}.")
 
@@ -548,6 +650,7 @@ async def plan_import(
     await _companies(db, listing.rows, known)
     await _clients(db, listing.rows, known)
     await _company_state(db, known)
+    await _calls(db, listing.rows, known)
     await _objections(db, known)
     await _user_names(db, known)
     seen: set[tuple[Any, ...]] = set()

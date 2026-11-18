@@ -284,9 +284,15 @@ https://claude.ai/artifact/M6mS1dYC9DwcPe3BDBEv7j.
 wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
 `docs/teams-prep-setup.md`.
 
-- **Osobna grupa handlowców, bez automatycznego nagrywania.** Nie dopisuj ich do
-  `NEXUS-Meetings-Scope`: tamta grupa nagrywa każde spotkanie i daje zapis do
-  kalendarza. Handlowiec sam włącza transkrypcję, więc brak transkryptu jest normą.
+- **Osobna grupa handlowców `NEXUS-Sales-Transcripts`, z automatycznym nagrywaniem**
+  (decyzja Artura 16.11.2026, zastępuje „handlowiec sam włącza” z 02.11): każde
+  spotkanie handlowca w Teams ma się nagrywać, transkrybować i trafiać do podsumowania;
+  wyjątek robi tylko handlowiec, który ręcznie zatrzymuje nagrywanie w trakcie spotkania.
+  Grupa dostaje politykę spotkań `NEXUS-TeamsPrep-AutoRecording` i politykę dostępu
+  aplikacji, ale NIE zapis do kalendarza: nie dopisuj handlowców do
+  `NEXUS-Meetings-Scope` (tamta grupa daje aplikacji zapis do ich kalendarza).
+  Brak transkryptu jest więc od teraz sygnałem do sprawdzenia (polityka, organizator,
+  zatrzymane ręcznie), a nie normą. Konfigurację w Microsoft robi Codex z briefu od Claude.
 - **Tylko spotkania, których handlowiec jest organizatorem,** i tylko nowe: bez
   pobierania historii. Klucz to `iCalUId`, bo jedno spotkanie bywa przy kilku firmach.
 - **Adres spotkania czyta token handlowca podczas synchronizacji**, osobnym GET-em
@@ -295,6 +301,13 @@ wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
 - **Spotkanie cykliczne ma wspólną listę transkryptów**, więc do wystąpienia należą
   tylko te utworzone w jego czasie (`within_meeting`).
 - **Spotkanie odwołane albo oznaczone jako prywatne** zabiera też transkrypt.
+- **Spotkania zapisane przed włączeniem flagi** (decyzja Artura 16.11.2026: delta
+  nie zwraca niezmienionych wydarzeń, więc 15 spotkań z najbliższych dni nigdy
+  nie trafiłoby do kolejki): raz na skrzynkę z „Sprzedaż: podgląd”
+  `_sales_transcript_backfill` (`m365/sync.py`) czyta `/me/calendarView` od
+  `TEAMS_PREP_FETCH_GIVE_UP_HOURS` wstecz do 14 dni w przód i wkłada spotkania tą
+  samą ścieżką co delta (`_record_sales_meeting`). Marker w `app_settings`
+  (`m365_sales_transcript_backfill`) dostaje tylko udany przebieg.
 - **Podsumowanie (F40) jest dodatkiem:** lista czyta je z wiersza, awaria modelu
   zostawia sam transkrypt, najwyżej 3 próby na spotkanie.
 
@@ -303,9 +316,10 @@ wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
 Logika wysyłki: `services/sales/meeting_client_mail.py`, trasy w `api/sales_activities.py`,
 kolumny 0677 przy `sales_meeting_transcripts`.
 
-- **Nagrywanie włącza handlowiec sam w Teams.** Bez polityki automatycznego nagrywania
-  i bez `NEXUS-Meetings-Scope`; kroki w M365: `docs/teams-prep-setup.md`, sekcja
-  „Transkrypty spotkań handlowców”.
+- **Nagrywanie startuje samo (polityka `NEXUS-TeamsPrep-AutoRecording` dla grupy
+  handlowców), handlowiec może je zatrzymać w trakcie spotkania** (16.11.2026,
+  wcześniej: włączał sam). Bez `NEXUS-Meetings-Scope`; kroki w M365:
+  `docs/teams-prep-setup.md`, sekcja „Transkrypty spotkań handlowców”.
 - **Oś szansy pokazuje podsumowanie bez rozwijania wiersza** (`MeetingSummary`
   w `OpportunityTimeline.tsx`): spotkanie przypięte do szansy i spotkanie jej firmy.
   Aktywność nie ma powiązania z leadem, więc spotkanie sprzed szansy z leada jest na osi

@@ -27,7 +27,6 @@ from httpx import AsyncClient
 
 from app.core.cache import cache_invalidate
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -213,12 +212,15 @@ async def test_naive_window_is_refused() -> None:
 @pytest.mark.asyncio
 async def test_dashboard_route_for_head_and_delivery_lead_refuses_recruiter(
     app_client: AsyncClient,
+    monkeypatch,
 ) -> None:
+    today = date(2026, 11, 16)
+    monkeypatch.setattr("app.api.insights_team_signals.business_today", lambda: today)
     person, _, _ = await _user()
     client_id, job_id = await _job()
-    now = datetime.now(timezone.utc)
-    await _pair(job_id, (now - timedelta(minutes=5), person))
-    await _pair(job_id, (now - timedelta(minutes=5), None), entry_source="system")
+    noon = _warsaw(today, 12)
+    await _pair(job_id, (noon, person))
+    await _pair(job_id, (noon, None), entry_source="system")
     await cache_invalidate("insights:team:added-to-jobs:")
 
     for role in (UserRole.head_of_recruitment, UserRole.delivery_lead):
@@ -231,7 +233,7 @@ async def test_dashboard_route_for_head_and_delivery_lead_refuses_recruiter(
         )
         assert resp.status_code == 200, f"{role.value}: {resp.text}"
         body = resp.json()
-        assert body["date_to"] == business_today().isoformat()
+        assert body["date_to"] == today.isoformat()
         assert body["days"] == 7
         rows = {row["user_id"]: row for row in body["rows"]}
         assert rows[person]["today"] == 1

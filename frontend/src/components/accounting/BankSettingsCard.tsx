@@ -225,7 +225,7 @@ export function BankSettingsCard() {
         {admin ? (
           <div className="flex items-start justify-between gap-3 pt-1">
             <span className="text-[12px] leading-5 text-muted-foreground">
-              {problems.length ? <span className="text-warning-muted-foreground">{problems[0]}</span> : "Każde konto musi być w Planie kont."}
+              {problems.length ? <span className="text-warning-muted-foreground">{problems[0]}</span> : "Konto z Planu kont, bez kont analitycznych pod sobą."}
             </span>
             <Button size="sm" disabled={!dirty || problems.length > 0} loading={save.isPending} onClick={submit}>
               Zapisz

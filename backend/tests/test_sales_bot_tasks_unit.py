@@ -179,7 +179,7 @@ def test_webhook_body_v2_keeps_v1_fields_and_adds_task(monkeypatch) -> None:
         run, token, [company], {"rejected": [], "seen_urls": []}
     )
     assert body["kind"] == "enrich"
-    assert body["task"] == "Sprawdź 1 firm, limit 3."
+    assert body["task"].split("\n\n", 1)[0] == "Sprawdź 1 firm, limit 3."
     assert body["report_format"] == {"items": ["https://..."]}
     assert body["request"] == {"limit": 3}
 

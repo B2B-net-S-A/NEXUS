@@ -29,13 +29,16 @@ import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.models.finance_ledger import FinanceCounterparty
+from app.core.scheduling import business_date
+from app.models.client_sales_invoice import ClientSalesInvoice
+from app.models.finance_ledger import FinanceCostEntry, FinanceCounterparty
 from app.models.ledger import (
     LedgerDocument,
     LedgerExport,
@@ -45,13 +48,16 @@ from app.models.ledger import (
     LedgerYear,
 )
 from app.models.user import User
+from app.services.finance_ledger import costs, posting
 from app.services.finance_ledger.costs import LedgerError
 from app.services.ledger import engine, opening, payroll_lists, sources
 from app.services.ledger.documents import Viewer
 from app.services.ledger.export_file import (
     DEFAULT_FORMAT,
     FORMATS,
+    ExportInvoice,
     ExportLine,
+    SymfoniaFormatError,
     money,
 )
 
@@ -206,6 +212,265 @@ async def _candidates(
     return out
 
 
+# ── Dane faktury dla szablonu 4 Symfonii ─────────────────────────────────────
+
+#: Typ dokumentu Symfonii dla faktury kosztowej bez typu w regule dekretu.
+DEFAULT_PURCHASE_SYMBOL = "FVZ"
+
+
+def _iso_country(code: Optional[str]) -> Optional[str]:
+    value = (code or "").strip().upper() or None
+    # Grecja: prefiks VAT UE to EL, kod kraju ISO — GR.
+    return "GR" if value == "EL" else value
+
+
+def party_country(party: Optional[FinanceCounterparty]) -> tuple[Optional[str], str]:
+    """``(kod kraju, "")`` albo ``(None, powód)``.
+
+    Kraj w kartotece jest opcjonalny (kolumna pliku importu). Kontrahent z VAT UE
+    bez kraju dostałby w pliku Polskę, więc kraj bierzemy z prefiksu numeru,
+    a sprzeczność z kartoteką odrzucamy.
+    """
+
+    if party is None:
+        return None, ""
+    stored = _iso_country(party.country)
+    if party.id_type != "vat_eu":
+        return stored, ""
+    prefix = _iso_country((party.id_value or "")[:2])
+    if stored and stored != prefix:
+        return None, (
+            f"kraj kontrahenta w kartotece ({stored}) inny niż prefiks VAT UE ({prefix})"
+        )
+    return prefix, ""
+
+
+def _address(party: Optional[FinanceCounterparty], country: Optional[str]) -> dict:
+    return {
+        "party_street": party.street if party else None,
+        "party_postal": party.postal_code if party else None,
+        "party_city": party.city if party else None,
+        "party_country": country,
+    }
+
+
+#: Stawka z pozycji faktury w KSeF (``P_12``) → stawka rejestru w Symfonii
+#: (``stawkivat`` z eksportu modelu księgowego: -1 „Zwolnione”, -2 „Nie podlega
+#: VAT”; „np II” = usługa dla podatnika z UE jak w próbce WDT). „oo”, „np I”,
+#: „0 WDT”, „0 EX” i stawki archiwalne nie mają próbki — faktura odpada.
+KSEF_RATES: dict[str, str] = {
+    "23": "23",
+    "8": "8",
+    "5": "5",
+    "0": "0",
+    "0 KR": "0",
+    "zw": "-1",
+    "np II": "-2",
+}
+NO_ZERO_KIND = "faktura bez VAT — z kwot nie wiadomo, czy to 0%, „zw” czy „np”"
+
+
+def _amount_rate(net: Decimal, vat: Decimal) -> str:
+    """Stawka z kwot (faktura bez stawek w pozycjach) albo powód odmowy."""
+
+    if vat == 0:
+        return NO_ZERO_KIND
+    # Zgodność co do grosza (±1 gr na zaokrąglenie): tolerancja procentowa
+    # przyjmowała fakturę 23% + 8% jako 23%. W przeglądzie 17.11.2026 VAT
+    # wszystkich 858 faktur z jedną stawką zgadzał się z netto × stawka co do grosza.
+    for rate in (23, 8, 5):
+        expected = posting.grosze(abs(net) * rate / 100)
+        if abs(expected - posting.grosze(abs(vat))) <= 1:
+            return str(rate)
+    return "VAT z kwot nie pasuje do 23, 8 ani 5% (kilka stawek?) — brak próbki"
+
+
+def sales_rate(invoice: ClientSalesInvoice, *, eu: bool) -> tuple[Optional[str], str]:
+    """``(stawka, "")`` albo ``(None, powód)``.
+
+    Stawka idzie z pozycji (``P_12``), nie z kwot: stosunek VAT do netto
+    faktury z pozycjami 8% i „zw” wypada np. na 5%, a „zw” na 0%.
+    """
+
+    codes = sorted(
+        {
+            str(item.get("vat_rate") or "").strip()
+            for item in invoice.items or []
+            if not item.get("before_correction")
+        }
+        - {""}
+    )
+    if len(codes) > 1:
+        return None, f"kilka stawek VAT na fakturze ({', '.join(codes)}) — brak próbki"
+    if codes:
+        rate = KSEF_RATES.get(codes[0])
+        if rate is None:
+            return None, f"stawka VAT „{codes[0]}” — brak próbki"
+    else:
+        found = _amount_rate(
+            Decimal(invoice.net_amount), Decimal(invoice.vat_amount or 0)
+        )
+        if found not in KSEF_RATES.values():
+            return None, found
+        rate = found
+    if eu and rate != "-2":
+        return None, (
+            "nabywca z UE bez stawki „np II” — szablon 4 zna tylko usługę dla UE"
+        )
+    if not eu and rate == "-2":
+        return None, "stawka „np II” u nabywcy bez VAT UE — brak próbki"
+    return rate, ""
+
+
+def sales_invoice(
+    invoice: ClientSalesInvoice, party: Optional[FinanceCounterparty]
+) -> ExportInvoice | str:
+    """Dane FVS albo powód: nabywca z VAT UE = usługa poza krajem (WDT),
+    korekta = FKS, nabywca spoza Polski i UE = brak próbki."""
+
+    if party is not None and party.id_type == "other":
+        return "nabywca spoza Polski i UE — brak próbki eksportu"
+    eu = party is not None and party.id_type == "vat_eu"
+    if invoice.invoice_kind == "correction":
+        symbol = "FKS"
+    else:
+        symbol = "WDT" if eu else "FVS"
+    net, vat, gross = (
+        Decimal(invoice.net_amount),
+        Decimal(invoice.vat_amount or 0),
+        Decimal(invoice.gross_amount),
+    )
+    rate, problem = sales_rate(invoice, eu=eu)
+    if rate is None:
+        return problem
+    country, problem = party_country(party)
+    if problem:
+        return problem
+    sale_date = invoice.sale_date or invoice.issue_date
+    return ExportInvoice(
+        symbol=symbol,
+        purchase=False,
+        number=invoice.invoice_number,
+        issue_date=invoice.issue_date,
+        sale_date=sale_date,
+        register_date=invoice.issue_date,
+        period_date=sale_date,
+        due_date=invoice.due_date or invoice.issue_date,
+        net=net,
+        vat=vat,
+        gross=gross,
+        vat_rate=rate,
+        currency=invoice.currency,
+        ksef_date=(
+            business_date(invoice.ksef_acquired_at)
+            if invoice.ksef_acquired_at
+            else None
+        ),
+        negative=gross < 0,
+        corrects_number=invoice.corrected_invoice_number,
+        **_address(party, country),
+    )
+
+
+def purchase_invoice(
+    entry: FinanceCostEntry,
+    row: Any,
+    doc: LedgerDocument,
+    party: Optional[FinanceCounterparty],
+) -> ExportInvoice | str:
+    """Dane faktury kosztowej z wiersza kolejki E2 albo powód, że się nie da.
+
+    Faktury kosztowej NEXUS nie czyta z XML-a, więc nie zna daty sprzedaży
+    (bierzemy datę wystawienia), numeru faktury korygowanej ani rachunku
+    sprzedawcy.
+    """
+
+    if row.gross_amount is None:
+        return "faktura bez kwoty brutto"
+    decree = entry.decree or {}
+    gross = Decimal(row.gross_amount)
+    vat = Decimal(row.vat_amount or 0)
+    net = Decimal(row.net_amount) if row.net_amount is not None else gross - vat
+    rate = _amount_rate(net, vat)
+    if rate not in KSEF_RATES.values():
+        return rate
+    positions = decree.get("positions") or []
+    if not any(item.get("kind") == "vat" for item in positions):
+        # Reguła „bez odliczenia” księguje koszt brutto bez pozycji VAT, a rejestr
+        # z próbki (``ABC =1``) to VAT do odliczenia — pola na brak odliczenia nie znamy.
+        return "faktura bez odliczenia VAT (dekret bez pozycji VAT) — brak próbki"
+    country, problem = party_country(party)
+    if problem:
+        return problem
+    issued = row.issue_date or doc.doc_date
+    settlement = next(
+        (
+            str(item.get("account") or "")
+            for item in positions
+            if item.get("kind") == "counterparty"
+        ),
+        None,
+    )
+    return ExportInvoice(
+        symbol=str(decree.get("doc_type") or DEFAULT_PURCHASE_SYMBOL),
+        purchase=True,
+        number=row.invoice_number or doc.number,
+        issue_date=issued,
+        sale_date=issued,
+        register_date=doc.op_date,
+        period_date=doc.op_date,
+        due_date=entry.due_date or row.source_due or issued,
+        net=net,
+        vat=vat,
+        gross=gross,
+        vat_rate=rate,
+        currency=str(row.currency or "PLN"),
+        negative=gross < 0,
+        settlement_account=settlement,
+        **_address(party, country),
+    )
+
+
+async def _invoices(
+    db: AsyncSession,
+    docs: list[LedgerDocument],
+    parties: dict[int, FinanceCounterparty],
+) -> dict[int, ExportInvoice | str]:
+    """Dane faktur dokumentów ze źródeł sprzedaż / koszty (klucz: id dokumentu)."""
+
+    sale_type = sources.SOURCE_TYPES[sources.SALES]
+    cost_type = sources.SOURCE_TYPES[sources.COSTS]
+
+    def source_ids(source_type: str) -> dict[int, LedgerDocument]:
+        return {
+            int(doc.source_id): doc
+            for doc in docs
+            if doc.source_type == source_type and (doc.source_id or "").isdigit()
+        }
+
+    out: dict[int, ExportInvoice | str] = {}
+    sales = source_ids(sale_type)
+    if sales:
+        rows = await db.scalars(
+            select(ClientSalesInvoice).where(ClientSalesInvoice.id.in_(sales))
+        )
+        for invoice in rows:
+            doc = sales[invoice.id]
+            out[doc.id] = sales_invoice(invoice, parties.get(doc.counterparty_id or 0))
+    entries = source_ids(cost_type)
+    if entries:
+        rows = await db.execute(
+            costs._select(costs._sources()).where(FinanceCostEntry.id.in_(entries))
+        )
+        for row in rows.all():
+            entry: FinanceCostEntry = row.FinanceCostEntry
+            doc = entries[entry.id]
+            out[doc.id] = purchase_invoice(
+                entry, row, doc, parties.get(doc.counterparty_id or 0)
+            )
+    return out
+
+
 async def export_lines(
     db: AsyncSession, docs: list[LedgerDocument]
 ) -> list[ExportLine]:
@@ -240,8 +505,11 @@ async def export_lines(
             )
         )
         originals = {row.id: row.number for row in rows.all()}
+    invoices = await _invoices(db, docs, parties)
     out: list[ExportLine] = []
     for doc in docs:
+        found = invoices.get(doc.id)
+        invoice = found if isinstance(found, ExportInvoice) else None
         for line in by_doc[doc.id]:
             party = parties.get(line.counterparty_id or doc.counterparty_id or 0)
             tax_id = (
@@ -273,6 +541,8 @@ async def export_lines(
                     fx_date=line.fx_date or doc.fx_date,
                     reverses=originals.get(doc.reverses_id or 0),
                     ksef_number=(doc.meta or {}).get("ksef_number"),
+                    invoice=invoice,
+                    invoice_problem=found if isinstance(found, str) else None,
                 )
             )
     return out
@@ -507,7 +777,10 @@ async def create(
             "w zaznaczonych rodzajach.",
             status=409,
         )
-    content = fmt.render(await export_lines(db, picked))
+    try:
+        content = fmt.render(await export_lines(db, picked))
+    except SymfoniaFormatError as exc:
+        raise LedgerError(str(exc), status=422) from exc
     sequence = (
         await db.scalar(
             select(func.count())

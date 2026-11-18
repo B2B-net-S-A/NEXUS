@@ -26,6 +26,7 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import exists, select
+from sqlalchemy.sql import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.contract import Contract, ContractStatus, ContractType
@@ -38,6 +39,11 @@ B2B_END_DATE_MESSAGE = (
     "także przyszła). Koniec zamówienia u klienta wpisz w zamówieniu, nie "
     "w umowie."
 )
+
+#: Klucz w ``new_values`` wpisu „Wycofanie wypowiedzenia” (``custom_change``)
+#: — id aneksu ``early_termination``, który przestał obowiązywać
+#: (`contract_notice_withdrawal`, zgłoszenie Finansów 17.11.2026).
+WITHDRAWN_AMENDMENT_KEY = "withdrawn_amendment_id"
 
 # Statusy, w których data zakończenia jest faktem, a nie prognozą: umowa już
 # się skończyła (albo została unieważniona), więc jej data zostaje bez zmian.
@@ -62,7 +68,8 @@ async def is_manually_terminated(db: AsyncSession, contract: Contract) -> bool:
 
     ``/terminate`` zostawia ``terminated_at`` + ``termination_reason``; aneks
     ``early_termination`` przesuwa samą datę i statusu wypowiedzenia na wierszu
-    nie zostawia — dlatego trzecie źródło to historia aneksów.
+    nie zostawia — dlatego trzecie źródło to historia aneksów. Wypowiedzenie
+    wycofane („Wycofaj wypowiedzenie”) już się nie liczy.
     """
     if has_termination_metadata(contract):
         return True
@@ -81,9 +88,21 @@ async def has_early_termination_amendment(
                     ContractAmendment.contract_id == contract_id,
                     ContractAmendment.amendment_type
                     == ContractAmendmentType.early_termination,
+                    ContractAmendment.id.not_in(withdrawn_notice_ids(contract_id)),
                 )
             )
         )
+    )
+
+
+def withdrawn_notice_ids(contract_id: int) -> Select:
+    """Podzapytanie: id aneksów wypowiedzenia wycofanych na tym kontrakcie."""
+    return select(
+        ContractAmendment.new_values[WITHDRAWN_AMENDMENT_KEY].as_integer()
+    ).where(
+        ContractAmendment.contract_id == contract_id,
+        ContractAmendment.amendment_type == ContractAmendmentType.custom_change,
+        ContractAmendment.new_values.has_key(WITHDRAWN_AMENDMENT_KEY),
     )
 
 

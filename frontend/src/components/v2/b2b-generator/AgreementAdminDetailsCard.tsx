@@ -146,13 +146,38 @@ function PayeeField({
   );
 }
 
+const BONUS_WITHHELD_REASON: Record<
+  NonNullable<B2BAgreementAdminDefaults["recruiter_bonus_withheld"]>,
+  string
+> = {
+  departed:
+    "tę osobę u tego klienta weryfikował wcześniej rekruter, który odszedł z firmy",
+  dl_verified:
+    "zweryfikował ją Delivery Lead bez roli rekrutera, więc dostaje tylko premię DL",
+};
+
 function OwnerNotice({
   owner,
   meId,
+  bonusWithheld,
 }: {
   owner: B2BPlacementPerson | null;
   meId: number | null;
+  bonusWithheld: B2BAgreementAdminDefaults["recruiter_bonus_withheld"];
 }) {
+  if (owner && bonusWithheld) {
+    const who =
+      owner.user_id === meId
+        ? "Prowadzisz tę osobę: przypomnienia o podpisie są Twoje."
+        : `Tworzysz umowę za osobę prowadzącą: ${owner.name}. Przypomnienia o podpisie zostają przy niej i dostanie dzwonek, że umowa jest gotowa.`;
+    return (
+      <p className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
+        <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        {who} Premii rekrutera za ten placement nie będzie:{" "}
+        {BONUS_WITHHELD_REASON[bonusWithheld]}.
+      </p>
+    );
+  }
   if (!owner) {
     return (
       <p className="flex items-start gap-2 rounded-md border border-warning/25 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
@@ -494,7 +519,11 @@ export function AgreementAdminDetailsCard({
           </p>
         ) : null}
         {hasRecruitment && prefillQuery.isSuccess ? (
-          <OwnerNotice owner={admin?.recruiter ?? null} meId={meId} />
+          <OwnerNotice
+            owner={admin?.recruiter ?? null}
+            meId={meId}
+            bonusWithheld={admin?.recruiter_bonus_withheld ?? null}
+          />
         ) : null}
         <div className="grid gap-x-6 gap-y-4 @xl:grid-cols-2">
           <PayeeField

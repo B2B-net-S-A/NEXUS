@@ -1,5 +1,29 @@
 [
   {
+    "id": "sprzedaz-dzwonienie-mail-po-umowieniu",
+    "pr": 3557,
+    "title": "Dzwonienie: mail do klienta po umówieniu spotkania",
+    "why": "Przy „Umówione spotkanie” wpisujesz adres, tytuł i treść, a „Umów … i wyślij mail” wysyła je z Twojego Outlooka do klienta, z kopią do prowadzącego. Mail zostaje w Wysłanych i na osi szansy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Umówione spotkanie",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.booking-mail"
+  },
+  {
+    "id": "sprzedaz-dzwonienie-juz-dzwoniono",
+    "pr": 3539,
+    "title": "Dzwonienie: „Już dzwoniono” przy wgrywaniu listy",
+    "why": "Numer, pod który już dzwoniono, dostaje przy imporcie „Już dzwoniono” z datą i wynikiem i nie wraca do kolejki. Listę z oznaczeniami pobierzesz do Excela.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["sales_edit"] },
+    "where": "Sprzedaż → Dzwonienie → Importuj listę",
+    "href": "/sales/calling",
+    "dot_anchor": "sales.calling.import"
+  },
+  {
     "id": "aneks-inna-zmiana",
     "pr": 3505,
     "title": "Generator aneksów: aneks z własną nazwą",
@@ -3019,5 +3043,104 @@
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
     "dot_anchor": "dashboard.team-table.fullscreen"
+  },
+  {
+    "id": "porcja-kogo-szukamy",
+    "pr": 3526,
+    "title": "Porcja dnia: „Kogo szukamy” i czego nie proponować",
+    "why": "Nad kartą: kogo szuka rekrutacja i jakich ról system w niej nie proponuje — „Popraw” zmienia to od razu. Przy „Inna rola” wybierasz, co nie gra (1–8).",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "roles": ["recruiter"] },
+    "where": "Pasek u góry → licznik porcji → Porcja dnia → Kogo szukamy → Popraw",
+    "href": "/porcja",
+    "section": "pipeline",
+    "dot_anchor": "review-batch.role-profile",
+    "requires_setting": "REVIEW_BATCH_ENABLED"
+  },
+  {
+    "id": "aneks-stawki-zmienia-zamowienie",
+    "pr": 3504,
+    "title": "Aneks stawki klienta zmienia też zamówienie",
+    "why": "Nowa stawka klienta z aneksu wchodzi do trwającego zamówienia od dnia aneksu. Okno „Zmień stawkę” pokazuje to przed zapisem. Wcześniejsze miesiące zostają po starej stawce.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["amounts_edit"] },
+    "where": "Kontrakty → kontrakt → Aneksy → Zmień stawkę",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.amendments.rate-change"
+  },
+  {
+    "id": "kontakty-klienta-szukaj",
+    "title": "Szukanie i kopiowanie w kontaktach klienta",
+    "why": "Pole szukania: nazwisko, kawałek e-maila, telefonu albo stanowiska, polskie znaki opcjonalne. Przy e-mailu i telefonie ikona „kopiuj” jak u kandydatów. Tabela mieści się na ekranie laptopa.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Klienci → klient → Kontakty klienta",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.contacts.search"
+  },
+  {
+    "id": "lata-w-punkcie-1-i-daty-stanowisk",
+    "pr": 3544,
+    "title": "Lata w punkcie 1 i daty stanowisk w „Do poprawy”",
+    "why": "Widzisz, z których ról wyszły lata w punkcie 1 i ile daje cały staż. Przy różnicy ponad roku wpiszesz „N lat w IT, w tym M jako X” albo zostawisz liczbę. Są też uwagi o datach ról.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw → Do poprawy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-editor.tenure-split"
+  },
+  {
+    "id": "gotowe-cv-z-nowa-zgoda",
+    "pr": 3548,
+    "title": "Gotowe CV z nową zgodą RODO",
+    "why": "Gotowe CV z innej rekrutacji PKO BP użyjesz bez generowania nowego: wgraj w pasku zrzut zgody do tej rekrutacji i kliknij „Użyj tego CV z nową zgodą”. Treść zostaje.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → osoba → CV do klienta → Ta osoba ma już gotowe CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.ready-cv-new-consent"
+  },
+  {
+    "id": "profil-championa-co-sie-zmienilo",
+    "pr": 3551,
+    "title": "Co się zmieniło w Profilu Championa",
+    "why": "Gdy DL zmieni profil rekrutacji, w której szukasz, na górze Briefu zobaczysz, co się zmieniło i na co klient kładzie nacisk. Historia zostaje w zakładce „Zmiany”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → Profil Championa → Brief",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.changes.seen"
   }
 ]

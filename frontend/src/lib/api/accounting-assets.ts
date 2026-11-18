@@ -53,9 +53,12 @@ export interface AssetListItem {
 }
 
 export interface AssetsAccounts {
+  /** Konto amortyzacji dla umorzeń spoza mapy; puste = taki środek czeka z problemem. */
   cost_account: string;
   intake_account: string;
   disposal_account: string;
+  /** Konto umorzenia → konto amortyzacji (070-3 → 400-4), jak w planie kont Symfonii. */
+  cost_map: [string, string][];
 }
 
 export interface AssetsOverview {

@@ -46,7 +46,7 @@ function dateOrIndefinite(value: string | null): string {
   return value ? formatIsoDatePl(value) : "bezterminowo";
 }
 
-function invalidateAfterRecovery(
+export function invalidateAfterRecovery(
   qc: ReturnType<typeof useQueryClient>,
   contractId: number,
 ) {
@@ -138,8 +138,11 @@ export function ContractTerminationRecoveryPanel({
 
 export function ReverseTerminationPlanView({
   plan,
+  showContract = true,
 }: {
   plan: ContractTerminationReversalPlan;
+  /** „Wycofaj wypowiedzenie” pokazuje kontrakt sam — z wybraną datą końca. */
+  showContract?: boolean;
 }) {
   const c = plan.contract;
   return (
@@ -159,6 +162,7 @@ export function ReverseTerminationPlanView({
           </ul>
         </div>
       )}
+      {showContract && (
       <section>
         <h4 className="text-xs font-semibold uppercase text-muted-foreground">Kontrakt</h4>
         <ul className="mt-1 space-y-0.5">
@@ -175,6 +179,7 @@ export function ReverseTerminationPlanView({
           )}
         </ul>
       </section>
+      )}
       <section>
         <h4 className="text-xs font-semibold uppercase text-muted-foreground">
           Zamówienia do przywrócenia

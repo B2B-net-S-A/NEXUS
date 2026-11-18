@@ -168,6 +168,10 @@ def test_only_listed_modules_read_recommendation_cards():
         # `redact_card_text` (bez narodowości), zapis idzie przez formularz
         # screeningu (0424).
         "app/services/recommendation_card_assist.py",
+        # Bot Cpro (17.11.2026): Warunki do formularza Nordei. Narodowość idzie
+        # wyłącznie do pola „Country of citizenship”, które Cpro wymaga; nie
+        # trafia do promptu NEXUSA ani do dopasowania.
+        "app/services/cpro_bot/items.py",
         # Jeden formularz screeningu (0424): pola karty czyta i zapisuje
         # człowiek; reguły migawki i różnic biorą z karty tylko nazwy pól.
         # Żaden z tych modułów nie woła modelu (strażnik w

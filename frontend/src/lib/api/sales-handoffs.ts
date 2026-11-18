@@ -92,9 +92,17 @@ export interface Handoffs {
   weeks: HandoffWeek[];
 }
 
+export interface HandoffHost extends Ref {
+  /** Adres prowadzącego: kopia maila do klienta po umówieniu. */
+  email?: string | null;
+}
+
 export interface HandoffForm {
-  hosts: Ref[];
+  hosts: HandoffHost[];
   default_host_id: number | null;
+  /** Skrzynka osoby, która umawia: z niej wychodzi mail do klienta. */
+  mailbox?: "ok" | "missing" | "no_send_scope";
+  mailbox_address?: string | null;
 }
 
 export interface BusySpan {
@@ -200,11 +208,18 @@ export function useOpportunityHandoff(opportunityId: number) {
   });
 }
 
-export function useBookMeeting() {
+/**
+ * `refresh: false`: bez odświeżenia list po zapisie. Kolejka dzwonienia zdejmuje firmę
+ * z nową szansą, a z nią kartę i okno, zanim wróci mail do klienta; listy odświeża
+ * wtedy zapis wyniku rozmowy przy zamknięciu okna.
+ */
+export function useBookMeeting({ refresh = true }: { refresh?: boolean } = {}) {
   const invalidate = useInvalidateSales();
   return useMutation({
     mutationFn: async (payload: BookMeetingInput) => (await api.post<Handoff>("/api/sales/handoffs", payload)).data,
-    onSuccess: invalidate,
+    onSuccess: () => {
+      if (refresh) void invalidate();
+    },
   });
 }
 
@@ -258,6 +273,33 @@ export function useSendInvite() {
       return (await api.post<Handoff>(`/api/sales/handoffs/${opportunity_id}/invite`, payload)).data;
     },
     onSuccess: invalidate,
+  });
+}
+
+export interface BookingMailInput {
+  opportunity_id: number;
+  to: string[];
+  subject: string;
+  message: string;
+  /** Kopia do prowadzącego spotkania. */
+  cc_host: boolean;
+  request_id: string;
+}
+
+export interface BookingMailResult {
+  sent_at: string;
+  to: string[];
+  cc: string[];
+}
+
+/** Mail do klienta po „Umów spotkanie”: ze skrzynki osoby, która umówiła, z kopią do prowadzącego. */
+export function useSendBookingMail() {
+  // Bez odświeżenia: okno umawiania z kolejki odświeża listy przy zamknięciu.
+  return useMutation({
+    mutationFn: async (input: BookingMailInput) => {
+      const { opportunity_id, ...payload } = input;
+      return (await api.post<BookingMailResult>(`/api/sales/handoffs/${opportunity_id}/booking-mail`, payload)).data;
+    },
   });
 }
 

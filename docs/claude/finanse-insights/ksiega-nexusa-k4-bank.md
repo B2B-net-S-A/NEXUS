@@ -84,6 +84,13 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   kont swojej grupy (409) — poprawka to storno dokumentu.
 - Przypisanie i księgowanie idą po kolei (blokada wiersza wyciągu `FOR
   UPDATE`). Duplikatu nie da się przypisać — nie wchodzi do WB.
+- **„Usuń wyciąg”** (`DELETE /bank/statements/{id}`, tylko administrator, od
+  17.11.2026): cofnięcie importu po złym dopasowaniu — znikają linie wyciągu
+  i zapłaty E3/E8 z tego pliku (po skrócie), stan zapłaty faktur kosztowych
+  liczy się od nowa, plik wczytuje się potem od zera. Odmowa (409), gdy wyciąg
+  ma jakikolwiek WB (też po stornie), gdy z pliku są wypłaty R9 albo gdy import
+  zostawił skutek, którego nie odtworzymy (zamknięta pozycja paczki, zapłata
+  eBI24 zastąpiona zapłatą z wyciągu) — to rozstrzygają Finanse.
 - Pełnego rachunku kontrahenta nie trzymamy (tylko cztery ostatnie cyfry, jak
   E3 i R9), a tytuły mają zamaskowane numery rachunków z parsera.
 - Rachunki walutowe (EUR, USD) i kurs NBP operacji — K4c-1

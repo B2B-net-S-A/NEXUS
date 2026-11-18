@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -62,9 +63,16 @@ from app.models.ledger import (
 )
 from app.services.finance_ledger import costs, identifiers, posting
 from app.services.finance_ledger.costs import LedgerError
-from app.services.ledger import allocation, assets, automations, documents, engine
+from app.services.ledger import (
+    allocation,
+    assets,
+    automations,
+    documents,
+    engine,
+    revenue,
+)
 from app.services.ledger.documents import DocumentSpec, Viewer
-from app.services.ledger.engine import LineIn
+from app.services.ledger.engine import LineIn, PlanAccount
 from app.services.ledger.settings import SALES_ACCOUNT_FIELDS, LedgerSettings
 from app.services.ledger_schema import DESCRIPTION_MAX, NUMBER_MAX
 
@@ -108,9 +116,6 @@ NO_BUYER = (
 NO_RECEIVABLE = (
     "Kontrahent nie ma konta rozrachunkowego sprzedaży („konto przychodowe”) ani "
     "ID Symfonii — uzupełnij je w Finanse → Kontrahenci."
-)
-NO_REVENUE_ACCOUNT = (
-    "Ustaw konto przychodów ze sprzedaży w Ustawieniach Księgowości (administrator)."
 )
 #: Zaliczka i jej korekta (KSeF: ``KOR_ZAL``) czekają razem na regułę zaliczek —
 #: korekta zaliczki jako FVS zmniejszyłaby przychód, którego nie było.
@@ -352,6 +357,33 @@ def buyer_key(invoice: ClientSalesInvoice) -> Optional[tuple[str, str]]:
     return None
 
 
+def buyer_keys(invoice: ClientSalesInvoice) -> tuple[tuple[str, str], ...]:
+    """Klucze nabywcy w kartotece, po kolei: ``buyer_key``, a dla VAT UE też „inny”.
+
+    eBI24 trzyma zagraniczne numery jako OTHER, więc kartoteka z jego importu
+    ma ``FI28583949`` jako „inny”, a nie VAT UE (17.11.2026: tak zablokowało
+    się 290 faktur sprzedaży z października).
+    """
+
+    key = buyer_key(invoice)
+    if key is None:
+        return ()
+    if key[0] == "vat_eu":
+        return (key, ("other", key[1]))
+    return (key,)
+
+
+def find_buyer(
+    counterparties: Mapping[tuple[str, str], FinanceCounterparty],
+    invoice: ClientSalesInvoice,
+) -> Optional[FinanceCounterparty]:
+    for key in buyer_keys(invoice):
+        found = counterparties.get(key)
+        if found is not None:
+            return found
+    return None
+
+
 def receivable_account(
     counterparty: FinanceCounterparty, default_account: str
 ) -> Optional[str]:
@@ -424,6 +456,9 @@ class _SalesContext:
     issued_rates: dict[int, tuple[Decimal, date]]
     originals: dict[int, ClientSalesInvoice]
     nbp: dict[tuple[str, date], Decimal]
+    revenue: revenue.RevenueHistory = field(default_factory=revenue.RevenueHistory)
+    #: Plan kont do sprawdzenia konta przychodu z historii (``None`` = bez sprawdzenia).
+    plan: Optional[dict[str, PlanAccount]] = None
 
 
 def _rate_base(invoice: ClientSalesInvoice) -> date:
@@ -461,14 +496,15 @@ def sales_spec(
     if invoice.invoice_type in ADVANCE_TYPES:
         return ADVANCE
     key = buyer_key(invoice)
-    counterparty = ctx.counterparties.get(key) if key else None
+    counterparty = find_buyer(ctx.counterparties, invoice)
     if counterparty is None:
         return NO_BUYER
     receivable = receivable_account(counterparty, settings.sales.receivable_account)
     if receivable is None:
         return NO_RECEIVABLE
-    if not settings.sales.revenue_account:
-        return NO_REVENUE_ACCOUNT
+    revenue_to, revenue_from = revenue_account(invoice, ctx, settings, key)
+    if revenue_to is None:
+        return revenue_from
     rate, fx_date, fx_source = invoice_rate(invoice, ctx)
     if rate is None:
         day = fx_date.strftime("%d.%m.%Y") if fx_date else "—"
@@ -483,7 +519,7 @@ def sales_spec(
         currency=invoice.currency,
         rate=rate,
         receivable=receivable,
-        revenue=settings.sales.revenue_account,
+        revenue=revenue_to,
         vat_account=settings.sales.vat_account,
         counterparty_id=counterparty.id,
     )
@@ -517,14 +553,42 @@ def sales_spec(
             "source": "ksef",
             "ksef_number": invoice.ksef_number,
             "fx_source": fx_source,
+            "revenue_from": revenue_from,
         },
     )
 
 
+def revenue_account(
+    invoice: ClientSalesInvoice,
+    ctx: _SalesContext,
+    settings: LedgerSettings,
+    key: Optional[tuple[str, str]],
+) -> tuple[Optional[str], str]:
+    """Konto przychodu FVS → (konto, skąd) albo (``None``, problem).
+
+    Konto z Ustawień = tryb jednego konta; puste — jak w Symfonii
+    (``revenue.pick``), a konto spoza planu to problem, nie konto zapasowe."""
+
+    if settings.sales.revenue_account:
+        return settings.sales.revenue_account, revenue.SETTINGS
+    account, found = revenue.pick(invoice, ctx.revenue, key[1] if key else None)
+    if account is None or ctx.plan is None:
+        return account, found
+    resolved, problem = engine.resolve(account, ctx.plan)
+    if resolved is not None:
+        return account, found
+    why = (problem or "").rstrip(".")
+    return None, (
+        f"Konto przychodu {account} ({revenue.SOURCE_LABELS[found]}) nie przyjmuje "
+        f"zapisów: {why[:1].lower() + why[1:]}. Popraw plan kont albo zaksięguj "
+        "fakturę ręcznie."
+    )
+
+
 async def _sales_context(
-    db: AsyncSession, invoices: list[ClientSalesInvoice]
+    db: AsyncSession, invoices: list[ClientSalesInvoice], settings: LedgerSettings
 ) -> _SalesContext:
-    keys = {key for key in (buyer_key(invoice) for invoice in invoices) if key}
+    keys = {key for invoice in invoices for key in buyer_keys(invoice)}
     counterparties: dict[tuple[str, str], FinanceCounterparty] = {}
     if keys:
         rows = await db.scalars(
@@ -586,7 +650,14 @@ async def _sales_context(
             for currency, day, rate in rows.all()
             if (currency, day) in wanted
         }
-    return _SalesContext(counterparties, issued_rates, originals, nbp)
+    history = revenue.RevenueHistory()
+    plan = None
+    if not settings.sales.revenue_account:
+        history = await revenue.load_history(
+            db, invoices, counterparties, vat_account=settings.sales.vat_account
+        )
+        plan = await documents.load_plan(db)
+    return _SalesContext(counterparties, issued_rates, originals, nbp, history, plan)
 
 
 async def _sales_candidates(
@@ -618,7 +689,7 @@ async def _sales_candidates(
             )
         ).all()
     )
-    ctx = await _sales_context(db, invoices)
+    ctx = await _sales_context(db, invoices, settings)
     candidates: list[Candidate] = []
     for invoice in invoices:
         candidate = Candidate(

@@ -20,6 +20,7 @@ from app.api.recruitment_access import (
     ensure_job_editor,
     ensure_job_membership,
     job_edit_level,
+    user_can_staff_job,
 )
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -28,15 +29,24 @@ from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import review_batch as svc
-from app.services import review_batch_streams, review_batch_team
+from app.services import job_role_profile, review_batch_streams, review_batch_team
 from app.services.request_work_state import IN_WORK_STATES
-from app.services.review_batch_order import OrderFacts
+from app.services.review_batch_order import OrderFacts, polish_penalty
 
 router = APIRouter(
     prefix="/api/review-batch",
     tags=["review-batch"],
     dependencies=PIPELINE_SECTION_DEPENDENCIES,
 )
+
+
+class RoleProfileIn(BaseModel):
+    role: Optional[str] = Field(default=None, max_length=200)
+    specialty: Optional[str] = Field(default=None, max_length=200)
+    technology: Optional[str] = Field(default=None, max_length=200)
+    level: str = job_role_profile.DEFAULT_LEVEL
+    # Cała lista „Nie proponujemy”, jaka ma zostać (ręczne i z odrzuceń).
+    excluded: list[str] = Field(default_factory=list, max_length=50)
 
 
 class SettingsIn(BaseModel):
@@ -81,6 +91,8 @@ def _order_note(card: svc.PendingCard) -> dict:
         "known": facts.known.as_dict() if facts.known is not None else None,
         "order_active": facts.bonus.active,
         "order_in_budget": facts.bonus.in_budget,
+        "order_polish_later": polish_penalty(facts.bonus.polish) > 0,
+        "order_leader_gap": facts.bonus.leader_gap,
     }
 
 
@@ -90,12 +102,15 @@ async def my_queue(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(20, ge=1, le=100),
 ):
-    """Osoby z porcji w kolejności przeglądu (rekrutacje na zmianę, w każdej
-    od najlepszej). Każdy wiersz niesie migawkę karty i id etapu do ruchu."""
+    """Osoby z porcji w kolejności przeglądu (rekrutacja po rekrutacji, w każdej
+    od najlepszej; 17.11.2026). Każdy wiersz niesie migawkę karty i id etapu
+    do ruchu, a ``runs`` mówi, ile osób z której rekrutacji idzie po kolei
+    w całej kolejce, nie tylko na tej stronie."""
     now = datetime.now(timezone.utc)
-    cards = await svc.review_queue(db, current_user, now=now, limit=limit)
+    whole = await svc.review_queue(db, current_user, now=now, limit=None)
+    cards = whole[:limit]
     if not cards:
-        return {"items": []}
+        return {"items": [], "runs": []}
     candidate_ids = {c.candidate_id for c in cards}
     job_ids = {c.job_id for c in cards}
     candidates = {
@@ -199,13 +214,74 @@ async def my_queue(
     from app.services.job_learned_rules import rules_for_jobs
 
     learned = await rules_for_jobs(db, job_ids)
+    # Profil „Kogo szukamy” i „Nie proponujemy” (16.11.2026) — blok nad kartą.
+    profiles = await job_role_profile.profiles_for_jobs(db, jobs.values())
     return {
         "items": items,
         "job_rules": {
             str(job_id): [rule.as_dict() for rule in rules]
             for job_id, rules in learned.items()
         },
+        "job_profiles": {str(job_id): profile for job_id, profile in profiles.items()},
+        "runs": [
+            {"job_id": job_id, "count": count}
+            for job_id, count in svc.queue_runs(whole)
+        ],
     }
+
+
+async def _job_or_404(db: AsyncSession, job_id: int) -> Job:
+    job = await db.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
+    return job
+
+
+@router.get("/jobs/{job_id}/profile")
+async def get_role_profile(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Profil „Kogo szukamy” rekrutacji z listą „Nie proponujemy”."""
+    await ensure_job_membership(db, current_user, job_id)
+    job = await _job_or_404(db, job_id)
+    profile = (await job_role_profile.profiles_for_jobs(db, [job]))[job.id]
+    return {**profile, "can_edit": await _can_edit_profile(db, current_user, job)}
+
+
+async def _can_edit_profile(db: AsyncSession, user, job: Job) -> bool:
+    """Rekruter przypisany do rekrutacji (jak „Dodaj kolejnych”), Delivery Lead
+    w swoim zakresie, Head of Recruitment i admin."""
+    if await user_can_staff_job(db, user, job):
+        return True
+    team = (await svc.recruiter_ids_for_jobs(db, [job.id])).get(job.id, [])
+    return user.id in team
+
+
+@router.put("/jobs/{job_id}/profile")
+async def put_role_profile(
+    job_id: int,
+    payload: RoleProfileIn,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """„Popraw” w porcji: rola, specjalizacja, technologia, poziom i lista
+    „Nie proponujemy”. Ręczny wpis działa od następnego dokładania kart."""
+    job = await _job_or_404(db, job_id)
+    if not await _can_edit_profile(db, current_user, job):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Profil „Kogo szukamy” poprawia rekruter tej rekrutacji, "
+                "Delivery Lead albo Head of Recruitment."
+            ),
+        )
+    profile = await job_role_profile.save_profile(
+        db, job, payload.model_dump(), user_id=current_user.id
+    )
+    await db.commit()
+    return {**profile, "can_edit": True}
 
 
 def _in_work(job: Job) -> bool:

@@ -1,7 +1,7 @@
 """Dokumenty Rady nadzorczej i odpisy KRS spółki (R1).
 
 Revision ID: 0727_board_documents
-Revises: 0726_settlement_extra_sources
+Revises: 0726_law_radar_gofin
 
 Tabele ``board_documents`` (rejestr dokumentów korporacyjnych) i
 ``board_krs_snapshots`` (odpis pełny KRS co noc), wartość powiadomienia
@@ -16,7 +16,7 @@ from alembic import op
 from app.services import board_documents_schema as schema
 
 revision = "0727_board_documents"
-down_revision = "0726_settlement_extra_sources"
+down_revision = "0726_law_radar_gofin"
 branch_labels = None
 depends_on = None
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
+import { Plus, X } from "lucide-react";
 
 import { AppModal } from "@/components/ds";
 import { useToast } from "@/components/Toast";
@@ -790,7 +791,7 @@ function ImportSummary({ result }: { result: AssetImportResult }) {
   );
 }
 
-/** Konta modułu (administrator): amortyzacja, przyjęcie i ulepszenie, zbycie. */
+/** Konta modułu (administrator): mapa umorzenie → amortyzacja, przyjęcie i ulepszenie, zbycie. */
 export function AccountsModal({ open, accounts, onClose }: { open: boolean; accounts: AssetsAccounts; onClose: () => void }) {
   const { showToast } = useToast();
   const save = useSetAssetsAccounts();
@@ -798,8 +799,23 @@ export function AccountsModal({ open, accounts, onClose }: { open: boolean; acco
   useEffect(() => {
     if (open) setValues(accounts);
   }, [open, accounts]);
-  const set = (key: keyof AssetsAccounts) => (event: ChangeEvent<HTMLInputElement>) =>
+  const set = (key: "cost_account" | "intake_account" | "disposal_account") => (event: ChangeEvent<HTMLInputElement>) =>
     setValues((current) => ({ ...current, [key]: event.target.value }));
+  const setPair = (index: number, side: 0 | 1) => (event: ChangeEvent<HTMLInputElement>) =>
+    setValues((current) => ({
+      ...current,
+      cost_map: current.cost_map.map((pair, at) =>
+        at === index ? ((side === 0 ? [event.target.value, pair[1]] : [pair[0], event.target.value]) as [string, string]) : pair,
+      ),
+    }));
+  const payload = (): AssetsAccounts => ({
+    cost_account: values.cost_account.trim(),
+    intake_account: values.intake_account.trim(),
+    disposal_account: values.disposal_account.trim(),
+    cost_map: values.cost_map
+      .map(([source, target]) => [source.trim(), target.trim()] as [string, string])
+      .filter(([source, target]) => source || target),
+  });
   return (
     <AppModal
       open={open}
@@ -815,7 +831,7 @@ export function AccountsModal({ open, accounts, onClose }: { open: boolean; acco
           <Button
             loading={save.isPending}
             onClick={() =>
-              save.mutate(values, {
+              save.mutate(payload(), {
                 onSuccess: () => {
                   showToast("Zapisano konta środków trwałych.");
                   onClose();
@@ -830,13 +846,57 @@ export function AccountsModal({ open, accounts, onClose }: { open: boolean; acco
       }
     >
       <div className="grid gap-3 text-sm">
-        <Field label="Amortyzacja (Wn w AM), np. 401">
+        <div className="grid gap-1.5">
+          <p className="text-[12px] text-muted-foreground">
+            Amortyzacja (Wn w AM) według konta umorzenia środka — jak w Symfonii, np. 070-3 → 400-4. Konto umorzenia obejmuje
+            też konta pod nim (075 → 075-3).
+          </p>
+          {values.cost_map.map((pair, index) => (
+            <div key={index} className="grid grid-cols-[minmax(0,1fr)_16px_minmax(0,1fr)_28px] items-center gap-1.5">
+              <input
+                aria-label={`Konto umorzenia ${index + 1}`}
+                className={cn(CONTROL, "font-mono")}
+                value={pair[0]}
+                placeholder="np. 070-3"
+                onChange={setPair(index, 0)}
+              />
+              <span className="text-center text-muted-foreground">→</span>
+              <input
+                aria-label={`Konto amortyzacji ${index + 1}`}
+                className={cn(CONTROL, "font-mono")}
+                value={pair[1]}
+                placeholder="np. 400-4"
+                onChange={setPair(index, 1)}
+              />
+              <button
+                type="button"
+                aria-label={`Usuń pozycję mapy ${index + 1}`}
+                onClick={() =>
+                  setValues((current) => ({ ...current, cost_map: current.cost_map.filter((_, at) => at !== index) }))
+                }
+                className="grid h-7 w-7 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-7 justify-self-start px-2"
+            onClick={() => setValues((current) => ({ ...current, cost_map: [...current.cost_map, ["", ""]] }))}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Dodaj umorzenie
+          </Button>
+        </div>
+        <Field label="Amortyzacja dla umorzeń spoza mapy — puste: taki środek czeka w „Źródłach”">
           <input className={cn(CONTROL, "font-mono")} value={values.cost_account} onChange={set("cost_account")} />
         </Field>
-        <Field label="Przyjęcie i ulepszenie — konto przeciwstawne, np. 080">
+        <Field label="Przyjęcie i ulepszenie — konto przeciwstawne, np. 085">
           <input className={cn(CONTROL, "font-mono")} value={values.intake_account} onChange={set("intake_account")} />
         </Field>
-        <Field label="Likwidacja i sprzedaż — wartość netto, np. 761">
+        <Field label="Likwidacja i sprzedaż — wartość netto, np. 761-2">
           <input className={cn(CONTROL, "font-mono")} value={values.disposal_account} onChange={set("disposal_account")} />
         </Field>
       </div>

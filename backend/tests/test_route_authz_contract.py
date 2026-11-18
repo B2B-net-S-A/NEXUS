@@ -105,6 +105,8 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "require_signal_run_token",
     # Raport botów radaru przepisów: jednorazowy token biegu (``X-Run-Token``).
     "require_law_run_token",
+    # Bot Cpro: plik CV i raport biegu na jednorazowym tokenie (``X-Run-Token``).
+    "require_cpro_run_token",
 )
 
 # Many handlers carry no gate in their signature but check imperatively as the
@@ -400,6 +402,10 @@ _PUBLIC_BASELINE: set[tuple[str, str]] = {
     ("GET", "/api/public/cv/{token}"),
     ("GET", "/api/public/engagement-declaration/{token}"),
     ("POST", "/api/public/engagement-declaration/{token}"),
+    # Warunki od kandydata (0729): link z maila, token SHA-256, 14 dni.
+    ("GET", "/api/public/candidate-terms/{token}"),
+    ("POST", "/api/public/candidate-terms/{token}"),
+    ("POST", "/api/public/candidate-terms/{token}/opt-out"),
     # Szkolenia (0694): odtwarzanie pliku z biletem HMAC jednego pliku, ważnym 6 h
     # (``services/trainings/media.py``) — ``<video>`` nie dołoży nagłówka sesji.
     ("GET", "/api/public/training-media/{file_id}"),

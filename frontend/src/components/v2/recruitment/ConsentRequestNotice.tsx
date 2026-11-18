@@ -27,6 +27,23 @@ const NEXT_STEP: Record<ConsentRequestNoticeProps["moment"], string> = {
  * przy gotowym CV pojawia się dopiero pod koniec ścieżki. Pasek jest podpowiedzią:
  * bez odczytu reguły klienta go nie ma, a pobranie i tak blokuje serwer.
  */
+/**
+ * Czy klient tej rekrutacji wymaga zrzutu zgody w CV — tak jak serwer:
+ * polityka centralna albo aktywna reguła klienta (dziś PKO BP). `false` także
+ * w trakcie odczytu: wołający pokazuje wtedy zwykły widok.
+ */
+export function useClientConsentRequired(jobId: number): boolean {
+  const jobQuery = useQuery(consentRequestJobQuery(jobId));
+  const clientId = jobQuery.data?.client_id ?? null;
+  const policyQuery = useCentralPolicy(clientId);
+  const ruleQuery = useClientCvRule(clientId);
+  return (
+    clientId != null &&
+    (policyQuery.data?.effective_policy?.requires_rodo_consent_block === true ||
+      (ruleQuery.data?.is_active === true && ruleQuery.data.requires_rodo_consent_block === true))
+  );
+}
+
 export function ConsentRequestNotice(props: ConsentRequestNoticeProps) {
   const jobQuery = useQuery(consentRequestJobQuery(props.jobId));
   const clientId = jobQuery.data?.client_id;

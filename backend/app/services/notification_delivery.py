@@ -89,6 +89,15 @@ CATALOG = (
         trigger="Kandydat wysłał zgłoszenie z CV przez link aplikacyjny lub stronę kariery (najwyżej jeden mail na adres i link w ciągu 24 h).",
         recipient_rule="Kandydat — adres z formularza. Treść jest taka sama, niezależnie od tego, czy osoba była już w bazie.",
     ),
+    dict(
+        id="candidate_terms",
+        label="Podziękowanie i prośba o warunki",
+        module="Kandydaci",
+        trigger="Kandydat aplikował z ogłoszenia (Pracuj.pl, JustJoin.IT, RocketJobs) albo ze strony kariery "
+        "w ostatnich 3 dniach. Wysyłka 8:00–20:00, z dziennym limitem.",
+        recipient_rule="Kandydat. Link do formularza warunków tylko przy brakach w profilu i najwyżej raz na 30 dni; "
+        "bez maila: czarna lista, osoba z żywą umową, brak adresu.",
+    ),
     # Maile natychmiast (07.10.2026) — kolejka `tasks/notification_email_outbox.py`
     # bierze powiadomienia z dzwonka typów z `notification_kind`.
     dict(
@@ -375,6 +384,8 @@ REPORT_KINDS = frozenset(
     }
 )
 ROUTINE_KINDS = frozenset(item["id"] for item in CATALOG)
+#: Maile do kandydatów (bez dzwonka; nadawca może być inną skrzynką niż zespołowa).
+CANDIDATE_KINDS = frozenset({"application_confirmation", "candidate_terms"})
 SECURITY_CATALOG = (
     dict(
         id="password_reset",
@@ -521,6 +532,8 @@ ADMIN_DECIDES: dict[str, str] = {
     "rate_change": "Informacja dla Delivery Leada; firma decyduje, czy idzie mailem.",
     "job_deadline": "Przypomnienie o terminie, do wyłączenia przez konto (26.10.2026).",
     "application_confirmation": "Mail do kandydata — bez maili do kandydatów (decyzja Artura).",
+    "candidate_terms": "Mail do kandydata (decyzja Artura 17.11.2026): włącza admin dopiero po próbnych "
+    "skrzynkach i pilocie, bo idzie z nowej skrzynki do tysięcy osób.",
     "daily_digest": "Poranny skrót zbiera resztę dzwonka; admin decyduje o całej firmie.",
     "kpi_weekly_report": "Raport okresowy, nie sprawa, na którą ktoś czeka.",
     "board_monthly_report": "Raport dla Rady z przychodem i marżą — włącza admin.",
@@ -1209,12 +1222,18 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
                 self_disabled=self_disabled.get(kind, []),
                 send_not_before=cutoff.isoformat() if cutoff else None,
                 channels=["email"]
-                if kind in REPORT_KINDS or kind == "application_confirmation"
+                if kind in REPORT_KINDS or kind in CANDIDATE_KINDS
                 else [
                     "client_panel" if kind == "delivery_alert" else "in_app",
                     "email",
                 ],
-                sender=delegated.mailbox_upn if use_delegated else provider["sender"],
+                sender=delegated.mailbox_upn
+                if use_delegated
+                else (
+                    settings.CANDIDATE_MAIL_SENDER_UPN or provider["sender"]
+                    if kind == "candidate_terms"
+                    else provider["sender"]
+                ),
                 provider_kind="graph_delegated" if use_delegated else provider["kind"],
                 provider_status="unknown"
                 if use_delegated

@@ -746,6 +746,12 @@ from app.models.candidate_conversation_fact import (  # noqa: F401
     CandidateConversationFact,
 )
 from app.models.autofill_feedback import AutofillFeedback  # noqa: F401
+from app.models.job_role_profile import JobRoleProfile  # noqa: F401
+from app.models.candidate_terms_request import CandidateTermsRequest  # noqa: F401
+from app.models.champion_profile_revision import (  # noqa: F401
+    ChampionProfileChangeRead,
+    ChampionProfileRevision,
+)
 from app.models.autofill_quality_report import AutofillQualityReport  # noqa: F401
 from app.models.own_hiring import (  # noqa: F401
     OwnHiringApplication,
@@ -941,3 +947,6 @@ from app.models import job_team_panel as _job_team_panel_models  # noqa: F401,E4
 
 # 0713: radar przepisów (dwa Grok Boty, bramka NEXUSA, zmiany w prawie).
 from app.models import law_radar as _law_radar_models  # noqa: F401,E402
+
+# 0732: bot Cpro (Grok Bot wrzuca kandydatów Nordei do Cpro).
+from app.models import cpro_bot as _cpro_bot_models  # noqa: F401,E402

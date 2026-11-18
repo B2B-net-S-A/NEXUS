@@ -388,3 +388,75 @@ async def test_changed_draft_of_a_copy_is_not_reapproved(
     )
     csv = await _csv(world["stage_id"])
     assert len(await _versions(csv.id)) == 1
+
+
+# ── „Użyj tego CV z nową zgodą” (17.11.2026, wariant A z makiet) ─────────────
+# Bliźniaki i kolejne rekrutacje PKO BP: treść CV z innej rekrutacji, zgoda
+# do TEJ rekrutacji (inny numer ZOB) dołączona w tym samym żądaniu.
+
+
+async def _copy_with_consent(
+    client: AsyncClient, headers: dict, world: dict, source_job_id: int, token: str
+):
+    return await client.post(
+        _base(world["stage_id"]) + "/select-stage-cv",
+        headers=headers,
+        json={
+            "expected_revision": await _revision(client, headers, world["stage_id"]),
+            "source_job_id": source_job_id,
+            "consent_screenshot_token": token,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_copy_with_a_new_consent_replaces_the_one_from_the_other_recruitment(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, storage
+):
+    from tests.test_stage_cv_copy import _job, _source_cv
+
+    consent_client(monkeypatch)
+    world = await _seed()
+    old = _png("white")
+    sibling_job = await _job(same_client_as=world["job_id"], title="Bliźniak")
+    await _source_cv(world, job_id=sibling_job, branded_consent_content=old)
+    new = _png("black")
+    token = await _receipt(app_client, app_auth_headers, world, new)
+
+    chosen = await _copy_with_consent(
+        app_client, app_auth_headers, world, sibling_job, token
+    )
+
+    assert chosen.status_code == 200, chosen.text
+    body = chosen.json()
+    assert (body["consent_attached"], body["consent_missing"]) == (True, False)
+    csv = await _csv(world["stage_id"])
+    assert bytes(csv.branded_consent_content) == new
+    assert (
+        csv.branded_render_metadata["consent_binding"]["subject"]["stage_id"]
+        == world["stage_id"]
+    )
+    assert (await _preview(app_client, app_auth_headers, world)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_copy_with_a_consent_for_another_stage_copies_nothing(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch, storage
+):
+    from tests.test_stage_cv_copy import _job, _source_cv
+
+    consent_client(monkeypatch)
+    world = await _seed()
+    sibling_job = await _job(same_client_as=world["job_id"], title="Bliźniak")
+    source = await _source_cv(world, job_id=sibling_job, branded_consent_content=_png())
+    foreign = await _receipt(
+        app_client, app_auth_headers, world, _png("black"), stage_id=source["stage_id"]
+    )
+
+    chosen = await _copy_with_consent(
+        app_client, app_auth_headers, world, sibling_job, foreign
+    )
+
+    assert chosen.status_code == 422, chosen.text
+    assert "Wgraj go ponownie" in chosen.json()["detail"]
+    assert (await _csv(world["stage_id"])).branded_status == "none"

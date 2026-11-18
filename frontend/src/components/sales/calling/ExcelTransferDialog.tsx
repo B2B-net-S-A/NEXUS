@@ -38,7 +38,14 @@ const STATE_PLAN: { state: RecordState; what: string; excel?: string }[] = [
 ];
 
 /** Wiersze, których przeniesienie nie doda (te same bramki co import listy). */
-const SKIPPED: ImportFate[] = ["already_in_campaign", "other_caller", "client", "do_not_contact", "no_phone"];
+const SKIPPED: ImportFate[] = [
+  "already_in_campaign",
+  "already_called",
+  "other_caller",
+  "client",
+  "do_not_contact",
+  "no_phone",
+];
 
 function SheetCard({
   sheet,

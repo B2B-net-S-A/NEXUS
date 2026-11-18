@@ -156,6 +156,8 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "register",
         "share",
         "sign",
+        # Formularz warunków kandydata z linku w mailu (17.11.2026).
+        "warunki",
         "wypis",
         # Wtyczka i harnessy.
         "extension",

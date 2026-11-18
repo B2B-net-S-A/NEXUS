@@ -17,8 +17,18 @@ trybu „od całości” dla Nordei bez nowej decyzji.
   zostaje jako opcja definicji dla umów, które wprost tak mówią. Nie
   dokładaj `if client == …`: różnice między klientami to `params` definicji
   (zasada katalogu, `katalog-raportow-klienta.md`).
-- **Z obrotu wyłączone są podróże i faktury nieusługowe** (refaktury). NEXUS
-  ich nie rozpoznaje — raport mówi to w kontroli, DL wyłącza je ręcznie.
+- **Obrót = usługi PRZED rabatem, tak samo jak w fakturach** (decyzja Artura
+  16.11.2026 wieczorem): eBI24 wpisuje rabat % na każdym wierszu, więc
+  `net_amount` jest po rabacie. Raporty liczą obrót z wierszy importem
+  `client_invoicing.rebate.service_base` (netto + opust: ilość × cena − netto),
+  a rok przypisują po okresie usługi (bez okresu — data wystawienia), jak
+  `rebate.year_rebate`. Nie kopiuj tej logiki do `client_reports` — raport
+  i nota rabatowa muszą dać ten sam obrót (staging 16.11: 7 268 656,02 EUR
+  w obu; z `net_amount` raport dawał o 2,5% mniej).
+- **Z obrotu wyłączone są podróże i faktury nieusługowe** (refaktury): pozycje
+  ze słowami z `exclude_words` w warunkach rabatu klienta (ustawienia
+  wystawiania faktur, `issue_settings.client_rebate`). Bez warunków raport
+  mówi w kontroli, że trzeba je wyłączyć ręcznie.
 - Rabat rozlicza się raz w roku notą kredytową do końca stycznia; faktury
   w ciągu roku idą bez rabatu (wystawianie faktur: osobna sprawa w
   `client_invoicing`).

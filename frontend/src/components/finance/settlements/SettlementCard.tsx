@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 import { CONTRACTOR_INVOICE, STATUS, mdText, monthLabel, pln } from "./format";
 import { IntegrationCostsSection } from "./IntegrationCostsSection";
+import { PanelPreviewDialog } from "./PanelPreviewDialog";
 import { KesuSection } from "./KesuSection";
 
 const ICON: Record<CheckState, ReactNode> = {
@@ -64,6 +65,7 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
   const needsFix = useNeedsFixSettlement(month, kind);
   const { askReason, confirmDialog } = useConfirmV2();
   const { showSuccess, showError } = useToast();
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   if (query.isError) {
     return <QueryStateNotice state="error" description={apiErrorMessage(query.error, "Nie udało się pobrać rozliczenia osoby.")} onRetry={() => query.refetch()} />;
@@ -117,19 +119,25 @@ export function SettlementCard({ contractId, month, canWrite, onBack, kind = "ac
               .join(" · ")}
           </span>
         </div>
-        {canDecide ? (
-          <div className="flex gap-1.5">
-            {d.status !== "accepted" ? (
-              <Button size="sm" variant="outline" disabled={needsFix.isPending} onClick={onNeedsFix}>
-                Do poprawy
-              </Button>
-            ) : null}
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => setPreviewOpen(true)}>
+            Zobacz panel jak konsultant
+          </Button>
+          {canDecide && d.status !== "accepted" ? (
+            <Button size="sm" variant="outline" disabled={needsFix.isPending} onClick={onNeedsFix}>
+              Do poprawy
+            </Button>
+          ) : null}
+          {canDecide ? (
             <Button size="sm" disabled={accept.isPending || d.status === "no_md"} onClick={onAccept}>
               {d.status === "accepted" ? "Przyjmij ponownie" : warnings > 0 ? `Przyjmij z uwagami (${warnings})` : "Przyjmij"}
             </Button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
+      {previewOpen ? (
+        <PanelPreviewDialog contractId={contractId} person={d.person} onClose={() => setPreviewOpen(false)} />
+      ) : null}
       {d.estimate && d.estimate.status === "accepted" ? (
         <p className="rounded-lg bg-info-muted px-3 py-2 text-[13px] text-info-muted-foreground">
           Za ten miesiąc przyjęto plan: {mdText(d.estimate.md_charged)} MD. Faktura do klienta poszła z planu; RCP ponad plan nie

@@ -179,6 +179,16 @@ async def place_application(
         ad_title=ad_title,
         applied_at=applied_at,
     )
+    from app.services.candidate_terms_queue import enqueue  # noqa: PLC0415
+
+    await enqueue(
+        db,
+        candidate_id=candidate_id,
+        job_id=job.id,
+        source="jjit" if portal == "justjoinit" else portal,
+        applied_at=applied_at,
+        ad_title=ad_title,
+    )
     if job.status != JobStatus.published:
         return PortalApplicationResult(outcome="job_not_open", job_id=job.id)
 

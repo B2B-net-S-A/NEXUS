@@ -697,6 +697,39 @@ class ContractTerminationReversalPlanRead(BaseModel):
     executed: bool = False
 
 
+class ContractNoticeWithdrawalRequest(BaseModel):
+    """POST /{id}/notice-withdrawal — „Wycofaj wypowiedzenie”.
+
+    ``end_date`` pusta = umowa bezterminowa (tylko B2B)."""
+
+    end_date: Optional[date] = None
+    note: Optional[str] = Field(default=None, max_length=2000)
+    document_id: Optional[int] = None
+
+
+class ContractNoticeWithdrawalPreview(BaseModel):
+    """Okno „Wycofaj wypowiedzenie”: wypowiedzenie, opcje daty i plan
+    przywrócenia zamówień (gdy zakończenie już je ruszyło). Bez kwot."""
+
+    contract_id: int
+    contract_type: str
+    status: str
+    end_date: Optional[date] = None
+    notice: dict[str, Any]
+    earliest_end_date: date
+    indefinite_allowed: bool
+    reversal: Optional[ContractTerminationReversalPlanRead] = None
+
+
+class ContractNoticeWithdrawalResult(BaseModel):
+    contract_id: int
+    amendment_id: int
+    withdrawn_amendment_id: int
+    status: str
+    end_date: Optional[date] = None
+    reversal: Optional[ContractTerminationReversalPlanRead] = None
+
+
 class ContractActivityEntry(BaseModel):
     id: int
     action: str

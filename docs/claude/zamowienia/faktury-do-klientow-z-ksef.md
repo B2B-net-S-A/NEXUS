@@ -130,3 +130,27 @@
 - Faktura w PLN do zamówienia w EUR dalej czeka z `currency_differs`: równowartości w złotych nie porównujemy.
 - `currency_differs` jest w `RETRY_REASONS`: po poprawce waluty zamówienia faktura wraca do automatu bez ręcznego przypisania.
 - Zamówienie kosztowe zostaje w PLN: kwotę faktury ustalają Finanse, a budżet nie ma pola waluty.
+
+- **Zaległe okna sprzedaży (16.11.2026).** Pierwsze pobranie cofało się o 3 miesiące (`INITIAL_MONTHS_BACK`),
+  więc sprzedaż z KSeF zaczynała się 04.08.2026, choć KSeF działa od 02.2026. `_backfill` w
+  `client_invoicing/sync.py` idzie po bieżącej pętli i po XML-ach e-faktur (z resztki budżetu, więc nowe faktury
+  nie czekają): okna po 99 dni od `BACKFILL_FROM` (2025-01-01) do dnia sprzed pierwszego znacznika (`to` zapisane
+  raz w `app_settings['client_sales_ksef_sync'].backfill` per środowisko i NIP), znacznik rośnie okno po oknie,
+  po dojściu `done`. Faktura, którą już mamy, nie jest pobierana drugi raz. Decyzja Artura 16.11 („cofnij sprzedaż
+  wstecz”); skutek: stare faktury dopasowują się do zamówień, a „Nieznani nabywcy” rośnie o ok. 200/mies.
+  Zakupy (koszty) cofa się ręcznie „Pobierz ponownie okres” w Płace → Faktury z KSeF (najwyżej 12 miesięcy).
+- **Budżet pobrań przy zaległych oknach (16.11.2026).** Dopóki w stanie nie ma `done` przy `backfill`, przebieg ma
+  `MAX_DOWNLOADS + BACKFILL_EXTRA_DOWNLOADS` (20 + 30 = 50) pobrań faktury; limit KSeF na produkcji to 64 na godzinę
+  i dzieli go pętla zakupów (do 40, zwykle kilka). Po `done` wraca 20. Przekroczenie limitu daje blokadę 429
+  (`blocked_until`), nie utratę danych.
+- **Adres nabywcy z `Podmiot2/Adres` (0730, 17.11.2026).** Lista „Czeka na Symfonię” i plik dla księgowej potrzebują
+  adresu nabywcy, a `clients.address` miał go u 11 ze 170 klientów (staging 17.11: 206 z 208 nabywców bez adresu).
+  `client_sales_invoices` ma `buyer_country`, `buyer_address_line1`, `buyer_address_line2` (`KodKraju`, `AdresL1`,
+  `AdresL2`) i `buyer_address_read_at`; nowe faktury zapisują je przy pobraniu (`buyer_address.columns`). Faktury
+  sprzed 0730 (`buyer_address_read_at IS NULL`) doczytuje ta sama pętla (`buyer_address.py`): najpierw z XML-a, który
+  już jest w bazie (`client_issued_invoices.xml`, `client_sales_invoice_einvoices.fa_xml`), potem z KSeF z resztki
+  budżetu pobrań, na samym końcu przebiegu — po bieżących fakturach, e-fakturach i zaległych oknach. Plik bierzemy
+  tylko ze skrótem równym `xml_sha256`. `buyer_address_read_at` stawiamy też, gdy adresu w pliku nie ma, skrót się nie
+  zgadza albo KSeF odmawia na stałe, żeby jedna faktura nie zjadała budżetu co godzinę; `not_ready`/`unavailable`
+  przerywa doczytanie do następnego przebiegu, 429 jak wszędzie. Przy ok. 20 wolnych pobraniach na godzinę ponad
+  1000 starych faktur to 2–3 doby.

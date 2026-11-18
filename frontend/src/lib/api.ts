@@ -2329,6 +2329,31 @@ export interface ContractTerminationReversalOrder {
   removes_decision_case: boolean;
 }
 
+/** „Wycofaj wypowiedzenie” (17.11.2026) — okno w zakładce Aneksy. */
+export interface ContractNoticeWithdrawalPreview {
+  contract_id: number;
+  contract_type: string;
+  status: string;
+  end_date: string | null;
+  notice: {
+    amendment_id: number;
+    effective_date: string;
+    notice_end: string;
+    end_before_notice: string | null;
+    reason: string | null;
+  };
+  earliest_end_date: string;
+  indefinite_allowed: boolean;
+  /** Plan przywrócenia zamówień, gdy zakończenie już je ruszyło. */
+  reversal: ContractTerminationReversalPlan | null;
+}
+
+export interface ContractNoticeWithdrawalRequest {
+  end_date: string | null;
+  note?: string | null;
+  document_id?: number | null;
+}
+
 export interface ContractTerminationReversalPlan {
   contract_id: number;
   source: "snapshot" | "history";
@@ -2348,6 +2373,7 @@ export interface ContractTerminationReversalPlan {
     order_id?: number;
     order_label?: string;
     decision?: string;
+    notice_amendment_id?: number | null;
   }[];
   md_imports: {
     import_id: number;
@@ -2423,6 +2449,13 @@ export const contractsApi = {
     api.post<ContractTerminationReversalPlan>(
       `/api/contracts/${id}/termination-reversal`,
     ),
+  // „Wycofaj wypowiedzenie” — konsultant wycofał wypowiedzenie (aneks).
+  noticeWithdrawalPreview: (id: number) =>
+    api.get<ContractNoticeWithdrawalPreview>(
+      `/api/contracts/${id}/notice-withdrawal`,
+    ),
+  withdrawNotice: (id: number, payload: ContractNoticeWithdrawalRequest) =>
+    api.post(`/api/contracts/${id}/notice-withdrawal`, payload),
   // „Powrót po przerwie" — nowy kontrakt (szkic) powiązany z tym.
   returnAfterBreak: (id: number, startDate: string) =>
     api.post<ContractReturnAfterBreakResult>(
@@ -3727,8 +3760,15 @@ export interface B2BAgreementAdminDefaults {
   /** Klient rekrutacji — „Replacement za kogo” zaczyna od jego kontraktorów. */
   client_id: number | null;
   client_name: string | null;
+  /** Osoba prowadząca („Prowadzi”, bez przypisania pierwszy weryfikujący). */
   recruiter: B2BPlacementPerson | null;
   delivery_lead: B2BPlacementPerson | null;
+  /**
+   * Prowadzący jest, ale premii rekrutera nie dostanie nikt: `departed` —
+   * u klienta weryfikowała wcześniej osoba, która odeszła; `dl_verified` —
+   * zweryfikował DL bez roli rekrutera. Brak pola = premia jest.
+   */
+  recruiter_bonus_withheld?: "departed" | "dl_verified" | null;
   /** Tytuł rekrutacji mówi o zastępstwie. */
   replacement_from_title: boolean;
   /** Jedyny pasujący kontraktor u klienta — inaczej null. */
@@ -5754,6 +5794,35 @@ export interface ChampionProfileResponse {
   profile_hash?: string;
   /** Tylko odpowiedź `PUT`: uwagi zapisu (np. krytyczna, która przestała być technologią). */
   notices?: string[];
+  /**
+   * Tylko odpowiedź `PUT` (17.11.2026): zmiana rekrutacji w pracy zostawiła
+   * wersję — edytor pyta autora o zdanie dla rekruterów.
+   */
+  change_revision?: { id: number; changes: ChampionChangeItem[] } | null;
+}
+
+/** Pozycja „Co się zmieniło” (`champion_profile_changes.describe_changes`). */
+export interface ChampionChangeItem {
+  kind: "added" | "removed" | "moved" | "set";
+  text: string;
+  detail: string;
+}
+
+export interface ChampionProfileRevision {
+  id: number;
+  created_at: string | null;
+  author_id: number | null;
+  author_name: string | null;
+  note: string | null;
+  changes: ChampionChangeItem[];
+  /** Zmiana zapisana przez czytającego — nie jest dla niego „nowa”. */
+  mine: boolean;
+}
+
+export interface ChampionChangesResponse {
+  job_id: number;
+  revisions: ChampionProfileRevision[];
+  last_seen_revision_id: number | null;
 }
 
 export interface ChampionVerificationRequest {
@@ -5781,6 +5850,18 @@ export interface ChampionConsultantSuggestion {
 }
 
 export const championApi = {
+  changes: (jobId: number) =>
+    api.get<ChampionChangesResponse>(`/api/jobs/${jobId}/champion-profile/changes`),
+  markChangesSeen: (jobId: number, revisionId: number) =>
+    api.post<{ last_seen_revision_id: number | null }>(
+      `/api/jobs/${jobId}/champion-profile/changes/seen`,
+      { revision_id: revisionId },
+    ),
+  setChangeNote: (jobId: number, revisionId: number, note: string | null) =>
+    api.patch<ChampionProfileRevision>(
+      `/api/jobs/${jobId}/champion-profile/changes/${revisionId}`,
+      { note },
+    ),
   get: (jobId: number) =>
     api.get<ChampionProfileResponse>(`/api/jobs/${jobId}/champion-profile`),
   // Ładunek bywa częściowy (serwer scala sekcje) i niesie `expected_profile_hash`.
@@ -7164,9 +7245,16 @@ export const candidateStageCvApi = {
     sources: (stageId: number) =>
       api.get<{ items: StageCvSourceItem[] }>(`/api/candidates/stages/${stageId}/cv/branded/sources`),
     /** CV etapu z innej rekrutacji (z poprawkami rekrutera) → szkic tej. */
-    selectStageCv: (stageId: number, source_job_id: number, expected_revision: number) =>
+    selectStageCv: (
+      stageId: number,
+      source_job_id: number,
+      expected_revision: number,
+      /** Zrzut zgody do TEJ rekrutacji — zastępuje ten, który jechałby z kopią (17.11.2026). */
+      consent_screenshot_token?: string,
+    ) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/select-stage-cv`, {
         source_job_id, expected_revision,
+        ...(consent_screenshot_token ? { consent_screenshot_token } : {}),
       }),
     /** Plik Word z dysku → szkic (bez AI; plik nie trafia do plików kandydata). */
     uploadDocx: (stageId: number, file: File, expected_revision: number) => {

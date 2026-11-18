@@ -35,6 +35,14 @@ w trzech miejscach.
   pulpicie (`board_flow._unsigned_contracts`, `agreement_tasks`) idą do autora
   ORAZ prowadzącego. Zmiana „Prowadzi” przepina niepodpisane umowy pary
   (`pair_owner.assign_owner`).
+- **Pole „Rekruter” to zawsze prowadzący, nawet bez premii** (zgłoszenie Olafa
+  17.11.2026). Kiedy reguła premii nie daje premii rekrutera nikomu, prowadzący
+  zostaje w polu i w `recruiter_user_id`, a powód idzie w
+  `admin.recruiter_bonus_withheld`. Są dwa powody: `departed` — osobę u tego klienta
+  weryfikował wcześniej ktoś, kto odszedł (decyzja 06.11.2026); `dl_verified` —
+  sam zweryfikował ją DL bez roli rekrutera. Kafelek mówi wtedy „Premii
+  rekrutera za ten placement nie będzie: …” zamiast „Nikt nie prowadzi”, który
+  zostaje tylko dla pary bez przypisania i bez weryfikacji.
 
 ## Replacement i FTE
 

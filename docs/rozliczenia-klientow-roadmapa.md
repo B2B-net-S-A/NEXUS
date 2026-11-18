@@ -615,6 +615,12 @@ i `CONSULTANT_PORTAL_MAILBOX` (wsparcie@: nadawca linków i organizator rozmów)
     (ryzyko opisane w `jedna-skrzynka-wsparcie.md` §2). Jeśli rozliczenia@
     już wpada do wsparcie@, tamtejszy „bezpieczny stan przejściowy” (pusta
     zmienna czytnika rozliczeń) trzeba zmienić razem z tym krokiem.
+- **Decyzja Artura z 16.11.2026: najpierw „Tylko zespół”.** Finanse, rozliczenia i back
+  office widzą i testują wszystko na produkcji, konsultanci nic nie dostają (stan panelu
+  `internal`: czytnik rozliczenia@ dla wszystkich nadawców z kontraktem, panel i maile
+  zamknięte). W kodzie: włącznik modułu i karta „Start rozliczeń” w Finanse → Rozliczenia,
+  podgląd panelu oczami konsultanta na karcie osoby. Konsultantów wpuszcza osobna decyzja
+  (aktywacja hurtem, mail powitalny, `pilot` albo `all`).
 - E7.1 Pilot: moduł włączony dla BNP, panel w stanie `pilot` dla kilku osób,
   mail na `rozliczenia@` dla reszty.
 - E7.2 Kontrole przenoszone stopniowo z „Ostrzega” na „Blokuje” po miesiącu bez fałszywych alarmów.
@@ -656,5 +662,5 @@ Dwa źródła, oba z danymi tylko poza repo:
 | E4 | gotowe lokalnie (10.11) | 3 prawdziwe faktury konsultantów BNP za październik (wizualizacje KSeF z próbek, metadane odtworzone lokalnie) przypięte po imieniu i nazwisku do właściwych osób i miesiąca, kwoty = wyliczenie co do grosza (3 z 3); zatwierdzenie NIP-u przez API zmienia stan na „W KSeF”; panel konsultanta i karta Finansów przeklikane 1280 i 390 px; 9 testów BE E4, 8 FE; prawdziwego pobrania z KSeF lokalnie nie ma (token tylko na produkcji) |
 | E5 | gotowe (10.11), marża dla DL-a, koszty integracji i „Wyślij plan” 13.11 | 13.11: 6 testów na bazie (limit roku, drugi koszt ponad limit, koniec roku, obniżony limit przy zgodzie, odmowa bez zgody DL-a, marża DL-a przez API i 403 dla obcego DL-a), wzorzec authz z 6 trasami; staging na kopii z 09.11 (13.11, 1280 × 720): Finanse wpisują 1 500 zł osobie BNP za październik („czeka”), drugi koszt 600 zł odmówiony („zostało 500 zł z 2 000 zł”), DL BNP widzi marżę w zł i % i daje zgodę → marża tej osoby z 8,8% na 5,2%, na liście Finansów „w tym −1 500 zł integracja”; konsultant w trwającym listopadzie z planem widzi „Wyślij plan”. Wcześniej: kopia BNP październik: pozycje dla 2 osób z prawdziwym RCP = faktury w KSeF co do nazwy, ilości, ceny i netto (2 z 2); osoba z nadgodzinami w tym samym układzie co jej wrześniowa faktura (pozycja zasadnicza i `_nadgodziny`); zip z RCP i mailem; plan listopada „Ponad pulę o 10,2 MD”; 7 testów BE E5, 2 FE; zrzuty `e5-*.png` |
 | E6 | reguły Alior, Bosch, Velo, PKO w katalogu (12.11, silnik ich nie sprawdza); Bosch E6.2 w osobnym PR-ze (12.11: odczyt Time Sheet, SDC per projekt, faktura w EUR, estymacja grudnia na E5.3); CeZ, Orlen czekają na E0.3 | testy katalogu: reguły E6 z `stage == "E6"`, koszty dodatkowe nie blokują; Bosch: 13 testów BE bez bazy, 2 na bazie (Time Sheet → faktura w EUR → SDC, plan → FORECAST), 4 FE; staging z kopii 10.11 (12.11): listopad 6 osób z syntetycznych Time Sheet, MD × stawka klienta w EUR równe kwocie z bloku ESP za październik (próbka), SDC bez autora i nazwisk, plan grudnia jednej osoby 16 MD → faktura z planu; druga osoba „Brak MD”, bo nowa linia zamówienia jest w szkicu (dane, nie kod) |
-| E7 | decyzja 12.11: wszyscy klienci od listopada (panel `all`, kontrole tylko BNP); czeka M365, zmienna skrzynki i włączenie modułów | — |
+| E7 | 16.11: najpierw „Tylko zespół” (`internal`): włącznik modułu, karta „Start rozliczeń”, czytnik bez aktywacji, podgląd panelu w kodzie; czeka wdrożenie, M365 Mail.Read na rozliczenia@ i włączenie przez admina. Wpuszczenie konsultantów (decyzja 12.11: wszyscy od listopada) po testach zespołu | testy `test_consultant_portal_internal*.py`, `start-and-preview.test.tsx` |
 | E8 | do zrobienia (E8.1 po instrukcji z osobnej sesji) | — |

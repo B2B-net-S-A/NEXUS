@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useMemo } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 import {
   readPeriodFromParams,
@@ -23,7 +23,6 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
 } {
   const { pushUrl } = useUrlWriter();
   const searchParams = useSearchParams();
-  const pathname = usePathname() ?? "/insights";
 
   const period = useMemo(
     () => readPeriodFromParams(searchParams, fallback),
@@ -34,9 +33,11 @@ export function useInsightsPeriod(fallback: InsightsPeriodParams): {
     (next: InsightsPeriodParams) => {
       const params = writePeriodToParams(searchParams, next);
       // Bieżąca ścieżka: ten sam widok Firma stoi też w „Radzie” (/rada?tab=firma).
-      pushUrl(`${pathname}?${params.toString()}`);
+      // Czytana przy kliknięciu, nie hookiem — testy mockują `next/navigation`.
+      const path = typeof window === "undefined" ? "/insights" : window.location.pathname;
+      pushUrl(`${path}?${params.toString()}`);
     },
-    [pathname, pushUrl, searchParams],
+    [pushUrl, searchParams],
   );
 
   return { period, setPeriod };

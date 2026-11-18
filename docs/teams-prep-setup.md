@@ -110,30 +110,38 @@ Test-ServicePrincipalAuthorization -Identity <APP_ID NEXUS Teams Prep> -Resource
 
 Kalendarz działa po kilkunastu minutach, Teams do ok. 30 min.
 
-### Transkrypty spotkań handlowców (decyzja Artura 02.11.2026)
+### Transkrypty spotkań handlowców (decyzje Artura 02.11 i 16.11.2026)
 
-Handlowcy mają OSOBNĄ grupę, a nie `NEXUS-Meetings-Scope`. Członkostwo w tamtej
-włącza `NEXUS-TeamsPrep-AutoRecording` i zapis do kalendarza, czyli nagrywanie
-każdego spotkania z klientem. Handlowiec sam włącza transkrypcję w spotkaniu,
-NEXUS tylko ją odczytuje. Kalendarz czyta token handlowca z synchronizacji, więc
-ta grupa nie dostaje Exchange App RBAC.
+Handlowcy mają OSOBNĄ grupę `NEXUS-Sales-Transcripts`, a nie `NEXUS-Meetings-Scope`:
+tamta daje aplikacji zapis do kalendarza organizatora, a handlowców kalendarz czyta
+token z ich synchronizacji (ta grupa nie dostaje Exchange App RBAC). Od 16.11.2026
+każde spotkanie handlowca ma się nagrywać i transkrybować samo, więc grupa dostaje
+też politykę spotkań `NEXUS-TeamsPrep-AutoRecording` (AutoRecording, AllowCloudRecording,
+AllowTranscription, `ExplicitRecordingConsent` jak w tej polityce). Handlowiec może
+nagrywanie zatrzymać ręcznie w trakcie spotkania. NEXUS tylko odczytuje transkrypt.
 
-1. W Entra załóż grupę zabezpieczeń `NEXUS-Sales-Transcripts` i dodaj handlowców.
-2. Daj grupie samą politykę dostępu aplikacji (bez polityki spotkań):
+1. W Entra załóż grupę zabezpieczeń `NEXUS-Sales-Transcripts` i dodaj handlowców
+   (na 16.11.2026 spotkania ma dwoje: konta 229 i 259; resztę dopisuj przez „Sprzedaż: podgląd”).
+2. Daj grupie politykę dostępu aplikacji i politykę spotkań z automatycznym nagrywaniem:
 
 ```powershell
 Connect-MicrosoftTeams
 Grant-CsApplicationAccessPolicy -PolicyName NEXUS-TeamsPrep-ApplicationAccess -Group <ID_GRUPY_HANDLOWCOW>
+Grant-CsTeamsMeetingPolicy -PolicyName NEXUS-TeamsPrep-AutoRecording -Group <ID_GRUPY_HANDLOWCOW> -Rank <wolny numer>
 ```
 
-3. Po ok. 30 minutach workflow „Coolify set env”: `SALES_TEAMS_TRANSCRIPTS_ENABLED=true`,
-   potem Deploy w oknie wdrożeń.
+   Przypisanie wprost do konta wygrywa z przypisaniem do grupy, więc handlowiec
+   z własną polityką spotkań jej nie dostanie: sprawdź `Get-CsOnlineUser`.
+3. Po ok. 30 minutach workflow „Coolify set env”: `SALES_TEAMS_TRANSCRIPTS_ENABLED=true`
+   (włączone 16.11.2026), potem Deploy w oknie wdrożeń.
 4. Dowód działania: handlowiec organizuje spotkanie w Teams z osobą z firmy
-   z kartoteki, włącza transkrypcję, a po ok. 10 minutach od końca spotkania
+   z kartoteki, NIE włącza nic ręcznie, a po ok. 10 minutach od końca spotkania
    Sprzedaż → Spotkania pokazuje plakietkę „transkrypt”.
 
 Graph daje transkrypt tylko organizatorowi, więc spotkania założonego przez klienta
-nie pobierzemy. Bez kroku 2 wiersze kończą w stanie `forbidden` (`last_error=http_403`).
+nie pobierzemy. Bez kroku 2 wiersze kończą w stanie `forbidden` (`last_error=http_403`);
+kolejka ponawia je co 6 godzin przez 48 godzin, więc po naprawie polityki same się
+dociągną, o ile spotkanie zostało nagrane.
 
 Sprawdzenie zakresu przed krokiem 3 (bez danych spotkań):
 
@@ -141,6 +149,7 @@ Sprawdzenie zakresu przed krokiem 3 (bez danych spotkań):
 Connect-MicrosoftTeams
 Get-CsApplicationAccessPolicy -Identity NEXUS-TeamsPrep-ApplicationAccess   # AppIds = APP_ID NEXUS Teams Prep
 Get-CsGroupPolicyAssignment -PolicyType ApplicationAccessPolicy             # jest wpis dla ID grupy handlowców
+Get-CsGroupPolicyAssignment -PolicyType TeamsMeetingPolicy                  # jest wpis NEXUS-TeamsPrep-AutoRecording dla grupy handlowców
 ```
 
 Mail z podsumowaniem do klienta (09.11.2026) wychodzi delegowanym `Mail.Send`

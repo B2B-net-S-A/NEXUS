@@ -240,3 +240,82 @@ describe("ReviewBatchScreen: porcja na osobę, P0 najpierw (10.11.2026)", () => 
     expect(screen.getByTestId("review-why").textContent).toMatch(/Masz tę osobę, bo:.*Twoja rekrutacja \(współpraca\).*P0 do/);
   });
 });
+
+describe("ReviewBatchScreen: kolejka rekrutacja po rekrutacji (17.11.2026)", () => {
+  function item(processId: number, jobId: number, jobTitle: string) {
+    return {
+      process_id: processId,
+      stage_id: processId,
+      job_id: jobId,
+      job_title: jobTitle,
+      candidate_id: processId,
+      name: `Osoba ${processId}`,
+      city: null,
+      years: null,
+      position: null,
+      score: 70,
+      matched_must: [],
+      missing_must: [],
+      rate_from_hourly: null,
+      rate_currency: null,
+      availability_status: null,
+      cautions: [],
+      budget_hourly: null,
+    };
+  }
+
+  it("nad kartą mówi, ile zostało w tej rekrutacji i która następna", () => {
+    given(
+      {
+        pending: 7,
+        team_jobs: [
+          { job_id: 1, title: "DevOps Lead", pending: 2, p0: true },
+          { job_id: 2, title: "Senior IT developer GCOP", pending: 4, p0: true },
+          { job_id: 3, title: "Analityk", pending: 1, p0: false },
+        ],
+      },
+      {
+        data: {
+          items: [item(1, 1, "DevOps Lead"), item(2, 1, "DevOps Lead"), item(3, 2, "Senior IT developer GCOP")],
+          runs: [
+            { job_id: 1, count: 2 },
+            { job_id: 2, count: 4 },
+            { job_id: 3, count: 1 },
+          ],
+        },
+      },
+    );
+    render(<ReviewBatchScreen />);
+    const line = screen.getByTestId("review-queue-run").textContent;
+    expect(line).toMatch(/Ta rekrutacja: jeszcze 2 osoby/);
+    expect(line).toMatch(/Potem: Senior IT developer GCOP \(4\) i 1 kolejna/);
+  });
+
+  it("dwie rekrutacje: bez dopisku o kolejnych", () => {
+    given(
+      { pending: 5 },
+      {
+        data: {
+          items: [item(1, 1, "DevOps Lead")],
+          runs: [
+            { job_id: 1, count: 1 },
+            { job_id: 2, count: 4 },
+          ],
+        },
+      },
+    );
+    render(<ReviewBatchScreen />);
+    const line = screen.getByTestId("review-queue-run").textContent;
+    expect(line).toMatch(/jeszcze 1 osoba/);
+    expect(line).toMatch(/Potem: kolejna rekrutacja \(4\)$/);
+  });
+
+  it("ostatnia albo jedyna rekrutacja w kolejce: bez linii", () => {
+    given(
+      { pending: 2 },
+      { data: { items: [item(1, 1, "DevOps Lead")], runs: [{ job_id: 1, count: 2 }] } },
+    );
+    render(<ReviewBatchScreen />);
+    expect(screen.queryByTestId("review-queue-run")).toBeNull();
+  });
+});

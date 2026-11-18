@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sales import (
@@ -416,6 +416,14 @@ async def _new_per_caller(
     return counts
 
 
+async def _lock_list_imports(db: AsyncSession) -> None:
+    # Wczytaj stan paczek dopiero po ewentualnym równoległym imporcie.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+        {"key": calling_import.LOCK_KEY},
+    )
+
+
 def _why(candidate: Candidate) -> str:
     parts = [ROLE_LABELS[candidate.role]]
     if candidate.industry:
@@ -448,6 +456,7 @@ async def build(
     callers = {int(uid): name for uid, name in users if name}
     if not callers:
         raise ValueError("Brief nie ma aktywnej osoby dzwoniącej.")
+    await _lock_list_imports(db)
     have = await _new_per_caller(db, campaign.id, list(callers))
     need = {uid: max(0, brief.per_caller - have.get(uid, 0)) for uid in callers}
     total = sum(need.values())
@@ -709,7 +718,12 @@ def firm_rows(
 
 
 async def ingest_firms(
-    db: AsyncSession, campaign_id: int, firms: list[Any], *, now: datetime
+    db: AsyncSession,
+    campaign_id: int,
+    firms: list[Any],
+    *,
+    now: datetime,
+    max_added: Optional[int] = None,
 ) -> BuildResult:
     """Raport ``lists``: firmy do kampanii od razu, przez bramki importu."""
 
@@ -727,8 +741,28 @@ async def ingest_firms(
     callers = {int(uid): name for uid, name in users if name}
     if not callers:
         return BuildResult(campaign_id, 0, {}, {}, len(firms))
+    await _lock_list_imports(db)
     have = await _new_per_caller(db, campaign.id, list(callers))
     need = {uid: max(0, brief.per_caller - have.get(uid, 0)) for uid in callers}
+    if max_added is not None:
+        per_caller = dict.fromkeys(callers, 0)
+        skipped: dict[str, int] = {}
+        added = 0
+        for firm in firms:
+            open_callers = [uid for uid in callers if per_caller[uid] < need[uid]]
+            if added >= max_added or not open_callers:
+                break
+            uid = min(open_callers, key=lambda u: (per_caller[u] / need[u], u))
+            # Odrzucony kandydat nie zużywa limitu ani miejsca w paczce.
+            rows = firm_rows([firm], brief, {uid: callers[uid]}, {uid: 1})
+            counts, dropped, count = await _apply_rows(
+                db, campaign.id, {uid: callers[uid]}, rows, user_id=None
+            )
+            added += count
+            per_caller[uid] += counts[uid]
+            for reason, total in dropped.items():
+                skipped[reason] = skipped.get(reason, 0) + total
+        return BuildResult(campaign.id, added, per_caller, skipped, len(firms))
     rows = firm_rows(firms, brief, callers, need)
     per_caller, skipped, added = await _apply_rows(
         db, campaign.id, callers, rows, user_id=None

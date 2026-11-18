@@ -35,6 +35,7 @@ vi.mock("next/navigation", () => ({
 import { AccountingShell } from "@/components/accounting/AccountingShell";
 import { DocumentsView } from "@/components/accounting/DocumentsView";
 import { SettingsView } from "@/components/accounting/SettingsView";
+import { ChartView } from "@/components/accounting/ChartView";
 import { AutomationsView, monthLabel, templateLines } from "@/components/accounting/AutomationsView";
 import { SourcesView, syncMessage } from "@/components/accounting/SourcesView";
 import { ExportsView, defaultKinds, packedDocuments } from "@/components/accounting/ExportsView";
@@ -355,6 +356,51 @@ describe("Księgowość — obszar i ustawienia", () => {
     expect(screen.getByRole("switch", { name: /Księga/ })).toBeDisabled();
     expect(get).not.toHaveBeenCalledWith("/api/accounting/config/candidates");
   });
+
+  it("konta, na które moduły już nie zaksięgują, są na liście z powodem i miejscem zmiany", async () => {
+    pathname = "/accounting/settings";
+    route(
+      config({
+        me: { admin: false, approver: true, payroll: false },
+        account_problems: [
+          {
+            group: "payroll",
+            group_label: "Ustawienia → Konta listy płac z Enovy",
+            field: "zus_account",
+            label: "Rozrachunki z ZUS",
+            account: "229",
+            problem: "konto 229 ma konta analityczne — wybierz np. 229-1-1.",
+          },
+          {
+            group: "assets",
+            group_label: "Środki trwałe → Konta środków trwałych",
+            field: "intake_account",
+            label: "Przyjęcie i ulepszenie — konto przeciwstawne",
+            account: "080",
+            problem: "konta 080 nie ma w planie kont.",
+          },
+        ],
+      }),
+    );
+    renderWith(<SettingsView />);
+    const card = (await screen.findByRole("heading", { name: "Konta do przestawienia · 2" })).closest("section")!;
+    const rows = within(card).getAllByRole("row").slice(1);
+    expect(within(rows[0]).getByText("229")).toBeInTheDocument();
+    expect(within(rows[0]).getByText("konto 229 ma konta analityczne — wybierz np. 229-1-1.")).toBeInTheDocument();
+    expect(within(rows[0]).queryByRole("link")).not.toBeInTheDocument();
+    expect(within(rows[1]).getByRole("link", { name: "Środki trwałe → Konta środków trwałych" })).toHaveAttribute(
+      "href",
+      "/accounting/assets",
+    );
+  });
+
+  it("bez kont do przestawienia karty nie ma", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: false, payroll: false }, account_problems: [] }));
+    renderWith(<SettingsView />);
+    expect(await screen.findByText("Nie jesteś na liście „Księgowi”")).toBeInTheDocument();
+    expect(screen.queryByText(/Konta do przestawienia/)).not.toBeInTheDocument();
+  });
 });
 
 describe("Księgowość — źródła (K2)", () => {
@@ -537,6 +583,163 @@ describe("Księgowość — bilans otwarcia z Symfonii", () => {
     renderWith(<SettingsView />);
     await screen.findByText("Nie jesteś na liście „Księgowi”");
     expect(screen.queryByLabelText("Plik zestawienia sald")).not.toBeInTheDocument();
+  });
+});
+
+describe("Księgowość — plan kont z Symfonii", () => {
+  const chartPreview = {
+    saved: false,
+    accounts_in_file: 914,
+    created: 903,
+    existing: 11,
+    blocked: 0,
+    filled: 2,
+    dictionaries: 17,
+    markers: 742,
+    markers_ignored: 21,
+    problems: ["Pozycji sprawozdania nie zapisano na 7 kontach (753, 756) — ustaw je w Planie kont."],
+    problems_total: 1,
+    notes: ["Nazwy 8 istniejących kont różnią się od Symfonii — zostały bez zmian."],
+    preview: [
+      { number: "010", name: "Środki trwałe", account_type: "active", account_type_label: "bilansowe aktywne", dictionary: null, report_line: null },
+      { number: "200-1", name: "Odbiorcy", account_type: "mixed", account_type_label: "bilansowe aktywno-pasywne", dictionary: "counterparty", report_line: null },
+    ],
+  };
+
+  it("sprawdza plik XML, pokazuje problemy i dodaje konta dopiero po zapisie", async () => {
+    pathname = "/accounting/chart";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    post
+      .mockResolvedValueOnce({ data: chartPreview })
+      .mockResolvedValueOnce({ data: { ...chartPreview, saved: true } });
+    const user = userEvent.setup();
+    renderWith(<ChartView />);
+    await user.click(await screen.findByRole("button", { name: "Wczytaj plan z Symfonii" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "Dodaj konta" })).toBeDisabled();
+    await user.upload(
+      within(dialog).getByLabelText("Plik planu kont z Symfonii"),
+      new File(["<DokumentXML/>"], "model.xml", { type: "text/xml" }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(dialog).findByText(/do dodania: 903/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Pozycji sprawozdania nie zapisano na 7 kontach/)).toBeInTheDocument();
+    expect(within(dialog).getByText("200-1")).toBeInTheDocument();
+    const [url, body, options] = post.mock.calls[0];
+    expect(url).toBe("/api/accounting/chart/import");
+    expect(body).toBeInstanceOf(FormData);
+    expect(options).toMatchObject({ params: { save: false } });
+    await user.click(within(dialog).getByRole("button", { name: "Dodaj 903 kont" }));
+    expect(await within(dialog).findByText(/Plan kont jest zaktualizowany/)).toBeInTheDocument();
+    expect(post.mock.calls[1][2]).toMatchObject({ params: { save: true } });
+    expect(showToast).toHaveBeenCalledWith("Dodano 903 kont do planu.");
+    expect(within(dialog).getByRole("button", { name: "Dodaj konta" })).toBeDisabled();
+  });
+
+  it("plik, w którym wszystkie konta już są, nie pozwala zapisać", async () => {
+    pathname = "/accounting/chart";
+    route(config());
+    post.mockResolvedValueOnce({ data: { ...chartPreview, created: 0, existing: 914, preview: [], problems: [], problems_total: 0 } });
+    const user = userEvent.setup();
+    renderWith(<ChartView />);
+    await user.click(await screen.findByRole("button", { name: "Wczytaj plan z Symfonii" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.upload(within(dialog).getByLabelText("Plik planu kont z Symfonii"), new File(["<DokumentXML/>"], "model.xml"));
+    await user.click(within(dialog).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(dialog).findByText(/Wszystkie konta z pliku już są w planie/)).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Dodaj konta" })).toBeDisabled();
+  });
+
+  it("osoba spoza listy „Księgowi” nie widzi przycisku importu", async () => {
+    pathname = "/accounting/chart";
+    route(config({ me: { admin: false, approver: false, payroll: false } }));
+    renderWith(<ChartView />);
+    await screen.findByRole("button", { name: "Dodaj konto" });
+    expect(screen.queryByRole("button", { name: "Wczytaj plan z Symfonii" })).not.toBeInTheDocument();
+  });
+
+  it("bilans otwarcia z ZOiS: wybór kolumn BO albo salda i informacja o pominiętych syntetykach", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    const zois = {
+      year: 2026,
+      rows: 653,
+      skipped: 3,
+      errors: [],
+      debit_total: 3440016073,
+      credit_total: 3440016073,
+      balanced: true,
+      missing_accounts: [],
+      missing_total: 0,
+      counterparties_matched: 0,
+      problems: [] as string[],
+      preview: [],
+      saved: false,
+      document_id: null,
+      basis: "bo",
+      both_bases: true,
+      synthetic_skipped: 37,
+    };
+    post.mockResolvedValue({ data: zois });
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const input = await screen.findByLabelText("Plik zestawienia sald");
+    await user.upload(input, new File(["Konto;BO Wn"], "zois.xlsx"));
+    const card = input.closest("section")!;
+    expect(within(card).queryByLabelText("Kolumny salda z pliku")).not.toBeInTheDocument();
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/pominięto wiersze syntetyczne: 37/)).toBeInTheDocument();
+    await user.selectOptions(within(card).getByLabelText("Kolumny salda z pliku"), "saldo");
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    expect(post.mock.calls[1][2]).toMatchObject({ params: { year: 2026, save: false, basis: "saldo" } });
+  });
+});
+
+describe("Księgowość — bilans otwarcia: kolumny salda przy zmianie pliku", () => {
+  const zoisPreview = (basis: string) => ({
+    year: 2026,
+    rows: 2,
+    skipped: 0,
+    errors: [],
+    debit_total: 1000,
+    credit_total: 1000,
+    balanced: true,
+    missing_accounts: [],
+    missing_total: 0,
+    counterparties_matched: 0,
+    problems: [] as string[],
+    preview: [],
+    saved: false,
+    document_id: null,
+    basis,
+    both_bases: true,
+    synthetic_skipped: 0,
+  });
+
+  it("nowy plik wraca do kolumn BO i zapis wysyła te kolumny, które pokazał podgląd", async () => {
+    pathname = "/accounting/settings";
+    route(config({ me: { admin: false, approver: true, payroll: true } }));
+    post.mockImplementation(async (_url: string, _body: unknown, options: { params: { basis?: string } }) => ({
+      data: zoisPreview(options.params.basis ?? "bo"),
+    }));
+    const user = userEvent.setup();
+    renderWith(<SettingsView />);
+    const input = await screen.findByLabelText("Plik zestawienia sald");
+    const card = input.closest("section")!;
+    await user.upload(input, new File(["A"], "zois-a.xlsx"));
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    await user.selectOptions(await within(card).findByLabelText("Kolumny salda z pliku"), "saldo");
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/kolumny: Saldo Wn\/Ma/)).toBeInTheDocument();
+
+    await user.upload(input, new File(["B"], "zois-b.xlsx"));
+    await user.click(within(card).getByRole("button", { name: "Sprawdź plik" }));
+    expect(await within(card).findByText(/kolumny: BO Wn\/Ma/)).toBeInTheDocument();
+    expect(within(card).getByLabelText("Kolumny salda z pliku")).toHaveValue("bo");
+    await user.click(within(card).getByRole("button", { name: "Zapisz jako BO" }));
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(4));
+    expect(post.mock.calls[3][2].params.basis ?? "bo").toBe("bo");
   });
 });
 
@@ -784,6 +987,7 @@ function exportsMonth(overrides: Partial<ExportsOverview> = {}): ExportsOverview
     formats: [
       { key: "neutral_xlsx", label: "Arkusz XLSX (format neutralny)" },
       { key: "neutral_csv", label: "CSV ze średnikiem (format neutralny)" },
+      { key: "symfonia_fk_txt4", label: "Symfonia FK — import dokumentów (szablon 4)" },
     ],
     default_format: "neutral_xlsx",
     ...overrides,
@@ -829,6 +1033,27 @@ describe("Księgowość — paczki do Symfonii (K3b)", () => {
     );
     await waitFor(() =>
       expect(download).toHaveBeenCalledWith("/api/accounting/exports/31/file", "symfonia-ksiega-2026-10-1.xlsx"),
+    );
+  });
+
+  it("szablon 4 Symfonii mówi, że przyjmuje tylko faktury, i idzie w żądaniu", async () => {
+    pathname = "/accounting/symfonia";
+    routeExports(config());
+    post.mockResolvedValue({ data: exportItem({ document_count: 1 }) });
+    const user = userEvent.setup();
+    renderWith(<ExportsView />);
+    await screen.findByText("PK 4/10/2026");
+    expect(screen.getByText(/Format neutralny: wiersz na pozycję dekretu/)).toBeInTheDocument();
+    expect(screen.queryByText(/dopiszemy po/)).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText("Format pliku"), "symfonia_fk_txt4");
+    expect(screen.getByText(/Szablon 4 Symfonii przyjmuje tylko faktury/)).toBeInTheDocument();
+    await user.click(screen.getByLabelText(/Faktury kosztowe \(FVZ\)/));
+    await user.click(screen.getByRole("button", { name: "Pobierz paczkę (3)" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/api/accounting/exports",
+        expect.objectContaining({ file_format: "symfonia_fk_txt4" }),
+      ),
     );
   });
 

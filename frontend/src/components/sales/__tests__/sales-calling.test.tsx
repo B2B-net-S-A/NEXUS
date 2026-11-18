@@ -148,6 +148,7 @@ import {
   fileProblem,
   importSummary,
   itemReason,
+  markedListCsv,
   nextKey,
   plusDaysIso,
   queueLine,
@@ -330,7 +331,7 @@ describe("podpisy kolejki", () => {
       importSummary({
         addable: 5,
         without_company: 1,
-        counts: { new_company: 3, linked: 2, already_in_campaign: 0, other_caller: 1, client: 2, do_not_contact: 0, no_phone: 4 },
+        counts: { new_company: 3, linked: 2, already_in_campaign: 0, already_called: 0, other_caller: 1, client: 2, do_not_contact: 0, no_phone: 4 },
       }),
     ).toBe(
       "5 trafi do kolejki, w tym 2 do istniejącej karty firmy · 1 dzwoni ktoś inny · 2 klienci NEXUSA · 4 bez telefonu · 1 bez nazwy firmy pominięto",
@@ -562,6 +563,40 @@ describe("kolejka", () => {
     await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Zapisano termin spotkania."));
   });
 
+  it("powtórka z innej listy i firma już w CRM: uwagi nad numerem (17.11.2026)", () => {
+    card.mockReturnValue(
+      ok(
+        cardData({
+          earlier_calls: [
+            {
+              record_id: 41,
+              company: { id: 9, name: "Stara Karta" },
+              person_name: "Ewa Nowacka",
+              state: "bad_contact",
+              at: "2026-11-11T10:00:00Z",
+              caller_name: "Osoba Testowa",
+              campaign_name: "BE Leady",
+              label: "11.11 · Osoba Testowa · Zły numer / brak danych (Ewa Nowacka)",
+            },
+          ],
+          crm_opportunity: {
+            id: 77,
+            title: "Oferta ogólna wysłana",
+            stage_name: "Lead",
+            owner_name: "Osoba Testowa",
+            created_at: "2026-11-12T09:00:00Z",
+          },
+        }),
+      ),
+    );
+    render(<CallQueueView />);
+    const notes = screen.getAllByRole("note");
+    expect(notes[0]).toHaveTextContent("Ta firma jest już w CRM: szansa „Oferta ogólna wysłana”, etap Lead, od 12.11");
+    expect(within(notes[0]).getByRole("link", { name: "Otwórz szansę" })).toHaveAttribute("href", "/sales/opportunities/77");
+    expect(notes[1]).toHaveTextContent("Pod ten numer już dzwoniono:");
+    expect(notes[1]).toHaveTextContent("11.11 · Osoba Testowa · Zły numer / brak danych (Ewa Nowacka) · Stara Karta");
+  });
+
   it("klient NEXUSA: komunikat o Delivery Leadzie i zablokowane umawianie spotkania", () => {
     card.mockReturnValue(ok(cardData({ client_refusal: "Firma Testowa to klient NEXUSA, szansy nie zakładamy. Przekaż do: Opiekun Testowy." })));
     render(<CallQueueView />);
@@ -626,7 +661,7 @@ describe("import listy", () => {
     addable: 1,
     to_decide: 2,
     without_company: 0,
-    counts: { new_company: 1, linked: 0, already_in_campaign: 0, other_caller: 0, client: 1, do_not_contact: 0, no_phone: 1 },
+    counts: { new_company: 1, linked: 0, already_in_campaign: 0, already_called: 0, other_caller: 0, client: 1, do_not_contact: 0, no_phone: 1 },
     rows: [
       { line: 2, company: "Nowa Firma", person: "Adam Nowy", title: "CTO", phone: "600 400 001", fate: "new_company", detail: "Założy kartę firmy, dojdzie nowa osoba.", to_decide: false },
       { line: 3, company: "Klient Testowy", person: null, title: null, phone: "600 400 002", fate: "client", detail: "Klient Testowy to klient NEXUSA.", to_decide: true },
@@ -684,6 +719,48 @@ describe("import listy", () => {
     });
     expect(showSuccess).toHaveBeenCalledWith("Dodano 1 do kolejki.");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("„Już dzwoniono” (17.11.2026): licznik, uwaga nad tabelą i filtr tylko tych wierszy", () => {
+    const view = render(<ImportListDialog open onOpenChange={vi.fn()} onNewCampaign={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText("Kampania"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Plik z listą"), { target: { files: [file] } });
+    fireEvent.click(screen.getByRole("button", { name: "Sprawdź listę" }));
+    const base = previewOf();
+    previewData = previewOf({
+      total: 4,
+      counts: { ...base.counts, already_called: 1 },
+      rows: [
+        ...base.rows,
+        {
+          line: 5,
+          company: "Nowacka Systemy",
+          person: "Nowacka",
+          title: "CTO",
+          phone: "600 400 009",
+          fate: "already_called",
+          detail: "Już dzwoniono: 11.11 · Osoba Testowa · Nie zainteresowany (Ewa Nowacka).",
+          to_decide: false,
+        },
+      ],
+    });
+    view.rerender(<ImportListDialog open onOpenChange={vi.fn()} onNewCampaign={vi.fn()} />);
+    expect(screen.getByText("1 trafi do kolejki · 1 już dzwoniono · 1 klienci NEXUSA · 1 bez telefonu")).toBeInTheDocument();
+    expect(screen.getByRole("note")).toHaveTextContent("Już dzwoniono: 1");
+    fireEvent.click(screen.getByRole("button", { name: "Pokaż je" }));
+    expect(screen.getByText("Nowacka Systemy")).toBeInTheDocument();
+    expect(screen.queryByText("Nowa Firma")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pokaż wszystkie" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("plik z oznaczeniami: kolumna „W NEXUSIE”, średnik, BOM i cudzysłowy", () => {
+    const csv = markedListCsv([
+      { line: 2, company: "Firma \"Cytat\"", person: null, title: null, phone: "600", fate: "already_called", detail: "Już dzwoniono: 11.11", to_decide: false },
+    ]);
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    const [header, row] = csv.slice(1).split("\r\n");
+    expect(header).toBe('"Wiersz";"Firma";"Osoba";"Stanowisko";"Telefon";"W NEXUSIE";"Szczegóły"');
+    expect(row).toBe('"2";"Firma ""Cytat""";"";"";"600";"Już dzwoniono";"Już dzwoniono: 11.11"');
   });
 });
 

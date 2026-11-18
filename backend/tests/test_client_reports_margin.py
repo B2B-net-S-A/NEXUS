@@ -137,6 +137,58 @@ def test_same_currency_needs_no_rate():
     )
 
 
+def test_turnover_counts_services_before_line_discount():
+    # eBI24: cena 157,00, rabat 2,5% na wierszu, netto 153,08 — obrót = 157,00
+    row = InvoiceRow(
+        "FV/3",
+        "VAT",
+        None,
+        date(2026, 9, 3),
+        None,
+        "PLN",
+        Decimal("153.08"),
+        date(2026, 8, 31),
+        (
+            {
+                "name": "Usługi IT",
+                "quantity": "1",
+                "unit_price": "157.00",
+                "net": "153.08",
+            },
+        ),
+    )
+    assert convert_turnover([row], "PLN", {}).amount == Decimal("157.00")
+
+
+def test_excluded_items_leave_turnover():
+    row = InvoiceRow(
+        "FV/4",
+        "VAT",
+        None,
+        date(2026, 9, 3),
+        None,
+        "PLN",
+        Decimal("1153.08"),
+        None,
+        (
+            {
+                "name": "Usługi IT",
+                "quantity": "1",
+                "unit_price": "157.00",
+                "net": "153.08",
+            },
+            {
+                "name": "Podróż służbowa",
+                "quantity": "1",
+                "unit_price": "1000",
+                "net": "1000",
+            },
+        ),
+    )
+    result = convert_turnover([row], "PLN", {}, exclude_words=("podróż",))
+    assert result.amount == Decimal("157.00") and result.excluded == 1
+
+
 # ---------------------------------------------------------------- wzór Cost
 
 

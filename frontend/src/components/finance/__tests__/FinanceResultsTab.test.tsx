@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api/finance", () => ({
@@ -187,6 +187,81 @@ describe("FinanceResultsTab — stany", () => {
     expect(
       screen.queryByText(/Nie zaimportowano jeszcze żadnego miesiąca/),
     ).not.toBeInTheDocument();
+  });
+
+  it("selektor ma też miesiące bez pliku, a taki miesiąc mówi „nie wgrano”", async () => {
+    // Produkcja 17.11.2026: wgrany był tylko lipiec, więc lista miała jedną
+    // pozycję i „nie dało się zmienić miesiąca”.
+    vi.useFakeTimers({ now: new Date(2026, 10, 17, 12), toFake: ["Date"] });
+    try {
+      vi.mocked(financeApi.listPeriods).mockResolvedValue({
+        data: [
+          { year: 2026, month: 7, label: "Lipiec 2026", run_id: 2, row_count: 477 },
+        ],
+      } as never);
+      vi.mocked(financeApi.getResults).mockResolvedValue({
+        data: {
+          year: 2026,
+          month: 7,
+          run_id: 2,
+          rows: [],
+          totals: null,
+          needs_completion_count: 35,
+        },
+      } as never);
+
+      renderTab();
+
+      const select = (await screen.findByLabelText("Miesiąc")) as HTMLSelectElement;
+      // Domyślnie najnowszy miesiąc z danymi, nie bieżący pusty.
+      expect(select.value).toBe("2026-7");
+      const labels = Array.from(select.options).map((o) => o.textContent);
+      expect(labels[0]).toBe("Listopad 2026 · brak pliku");
+      expect(labels).toContain("Wrzesień 2026 · brak pliku");
+      expect(labels).toContain("Lipiec 2026 · 477 wierszy");
+      expect(labels).toHaveLength(12);
+
+      fireEvent.change(select, { target: { value: "2026-9" } });
+
+      expect(
+        await screen.findByText("Nie wgrano pliku za wrzesień 2026. Wgraj plik Excel powyżej."),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("DO UZUPEŁNIENIA")).not.toBeInTheDocument();
+      expect(financeApi.getResults).not.toHaveBeenCalledWith(
+        expect.objectContaining({ month: 9 }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starszy import spoza 12 miesięcy zostaje na liście", async () => {
+    vi.useFakeTimers({ now: new Date(2026, 10, 17, 12), toFake: ["Date"] });
+    try {
+      vi.mocked(financeApi.listPeriods).mockResolvedValue({
+        data: [
+          { year: 2025, month: 3, label: "Marzec 2025", run_id: 9, row_count: 1 },
+        ],
+      } as never);
+      vi.mocked(financeApi.getResults).mockResolvedValue({
+        data: { year: 2025, month: 3, run_id: 9, rows: [], totals: null, needs_completion_count: 0 },
+      } as never);
+
+      renderTab(false);
+
+      const select = (await screen.findByLabelText("Miesiąc")) as HTMLSelectElement;
+      expect(select.value).toBe("2025-3");
+      const labels = Array.from(select.options).map((o) => o.textContent);
+      expect(labels).toHaveLength(13);
+      expect(labels[12]).toBe("Marzec 2025 · 1 wiersz");
+
+      fireEvent.change(select, { target: { value: "2026-10" } });
+      expect(
+        await screen.findByText("Nie wgrano pliku za październik 2026."),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("marżę % pokazuje w punktach procentowych, nie jako ułamek z Excela (M09-B01)", async () => {

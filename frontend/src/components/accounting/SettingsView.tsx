@@ -20,6 +20,7 @@ import {
   useSetPayrollAccounts,
   useSetSalesAccounts,
   useSetYearMode,
+  type AccountProblem,
   type AllocationAccounts,
   type OpeningPreview,
   type PayrollAccounts,
@@ -46,6 +47,11 @@ export function SettingsView() {
 
   return (
     <div className="grid gap-3.5 xl:grid-cols-2">
+      {config.account_problems?.length ? (
+        <div className="xl:col-span-2">
+          <AccountProblemsCard items={config.account_problems} />
+        </div>
+      ) : null}
       <div className="space-y-3.5">
         <SectionCard title="Moduły" aside={config.me.admin ? "wyłączony = widzi tylko administrator" : "zmienia administrator"}>
           <table className="w-full table-fixed text-sm">
@@ -100,6 +106,57 @@ export function SettingsView() {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Karty kont spoza tej zakładki — reszta jest niżej na ekranie Ustawień. */
+const PROBLEM_HREF: Partial<Record<AccountProblem["group"], string>> = {
+  assets: "/accounting/assets",
+  vat: "/accounting/vat",
+};
+
+/** Zapisane konta modułów, na które księga już nie przyjmie zapisów (np. po
+ * imporcie pełnego planu kont z Symfonii) — z powodem i miejscem zmiany. */
+export function AccountProblemsCard({ items }: { items: AccountProblem[] }) {
+  return (
+    <SectionCard
+      title={`Konta do przestawienia · ${items.length}`}
+      aside="moduł odrzuci dekret na tych kontach"
+      className="border-warning/50"
+    >
+      <table className="w-full table-fixed text-sm">
+        <thead>
+          <tr className={CALM_HEAD}>
+            <th className="w-[30%] px-3.5 py-1.5 text-left font-medium">Pole</th>
+            <th className="w-[92px] px-2 py-1.5 text-left font-medium">Konto</th>
+            <th className="px-3.5 py-1.5 text-left font-medium">Powód</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => {
+            const href = PROBLEM_HREF[item.group];
+            return (
+              <tr key={`${item.group}.${item.field}`} className={cn(CALM_ROW, "align-top last:border-0")}>
+                <td className="px-3.5 py-2">
+                  <span className="font-medium">{item.label}</span>
+                  <span className={CALM_SUBLINE}>
+                    {href ? (
+                      <Link href={href} className="underline-offset-2 hover:underline">
+                        {item.group_label}
+                      </Link>
+                    ) : (
+                      item.group_label
+                    )}
+                  </span>
+                </td>
+                <td className="px-2 py-2 font-mono text-[13px]">{item.account}</td>
+                <td className="px-3.5 py-2 text-[13px] text-warning-muted-foreground">{item.problem}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </SectionCard>
   );
 }
 
@@ -199,7 +256,13 @@ const SALES_FIELDS: AccountField<SalesAccounts>[] = [
     hint: "konto ze słownikiem kontrahentów; analityka = ID Symfonii, gdy kontrahent nie ma konta w kartotece",
     placeholder: "np. 200",
   },
-  { key: "revenue_account", label: "Przychody ze sprzedaży", hint: "konto przychodów z faktur do klientów", placeholder: "np. 701" },
+  {
+    key: "revenue_account",
+    label: "Przychody ze sprzedaży",
+    hint: "puste = jak w Symfonii: konto z dekretu faktury w eBI24 albo poprzedniej faktury nabywcy; wpisane = jedno konto dla wszystkich",
+    placeholder: "puste",
+    optional: true,
+  },
   { key: "vat_account", label: "VAT należny", hint: "VAT z faktur sprzedaży", placeholder: "np. 222" },
 ];
 const NO_SALES_ACCOUNTS: SalesAccounts = { receivable_account: "", revenue_account: "", vat_account: "" };
@@ -275,7 +338,7 @@ function AccountsCard<T extends object>({
         ))}
         {config.me.admin ? (
           <div className="flex items-center justify-between gap-3 pt-1">
-            <span className="text-[12px] text-muted-foreground">Każde konto musi być w Planie kont.</span>
+            <span className="text-[12px] text-muted-foreground">Konto z Planu kont, bez kont analitycznych pod sobą.</span>
             <Button
               size="sm"
               disabled={!dirty || !complete}
@@ -532,15 +595,20 @@ function OpeningImportCard() {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<OpeningPreview | null>(null);
   const [saving, setSaving] = useState(false);
+  const [basis, setBasis] = useState("bo");
+  const [bothBases, setBothBases] = useState(false);
 
   const send = (save: boolean) => {
     if (!file) return;
     setSaving(save);
     run.mutate(
-      { file, year, save },
+      { file, year, save, basis: bothBases ? basis : undefined },
       {
         onSuccess: (data) => {
           setResult(data);
+          setBothBases(data.both_bases === true);
+          // Wybór pokazuje kolumny, z których serwer policzył ten podgląd — zapis wyśle te same.
+          if (data.basis === "bo" || data.basis === "saldo") setBasis(data.basis);
           if (data.saved) showToast(`Zapisano bilans otwarcia ${year} w buforze.`);
         },
         onError: (error) => showToast(apiErrorMessage(error, "Nie udało się wczytać pliku."), "error"),
@@ -552,9 +620,11 @@ function OpeningImportCard() {
     <SectionCard title="Bilans otwarcia z Symfonii" aside="zestawienie sald → dokument BO w buforze">
       <div className="space-y-3 px-3.5 py-3 text-[13px]">
         <p className="text-muted-foreground">
-          Plik XLSX albo CSV z kolumną „Konto” i saldem: „BO Wn/Ma”, „Saldo Wn/Ma” albo „Wn/Ma”. Konta muszą być
-          w Planie kont; analityka kontrahentów dostaje kontrahenta po ID Symfonii. Najpierw sprawdzenie, potem zapis —
-          jeden BO na rok, ponowny import przebudowuje szkic.
+          Plik XLSX albo CSV z kolumną „Konto” i saldem: „BO Wn/Ma”, „Saldo Wn/Ma” albo „Wn/Ma”. Zestawienie obrotów
+          i sald z Symfonii (ZOiS) może mieć obie pary kolumn — rok otwierają wtedy kolumny BO, a wiersze syntetyczne
+          z analityką pod spodem są pomijane. Konta muszą być w Planie kont (plan wczytasz z XML Symfonii); analityka
+          kontrahentów dostaje kontrahenta po ID Symfonii. Najpierw sprawdzenie, potem zapis — jeden BO na rok, ponowny
+          import przebudowuje szkic.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -580,9 +650,25 @@ function OpeningImportCard() {
             className="max-w-[260px] text-[12px]"
             onChange={(e) => {
               setFile(e.target.files?.[0] ?? null);
+              setBothBases(false);
+              setBasis("bo");
               setResult(null);
             }}
           />
+          {bothBases ? (
+            <select
+              aria-label="Kolumny salda z pliku"
+              className={CONTROL}
+              value={basis}
+              onChange={(e) => {
+                setBasis(e.target.value);
+                setResult(null);
+              }}
+            >
+              <option value="bo">Bilans otwarcia (BO Wn/Ma)</option>
+              <option value="saldo">Saldo końcowe (Saldo Wn/Ma)</option>
+            </select>
+          ) : null}
           <Button size="sm" variant="outline" disabled={!file || !years.length} loading={run.isPending && !saving} onClick={() => send(false)}>
             Sprawdź plik
           </Button>
@@ -610,6 +696,8 @@ function OpeningSummary({ result }: { result: OpeningPreview }) {
           {result.balanced ? "Wn = Ma" : "Wn ≠ Ma"}
         </span>
         {result.counterparties_matched ? ` · kontrahenci rozpoznani: ${result.counterparties_matched}` : ""}
+        {result.both_bases ? ` · kolumny: ${result.basis === "saldo" ? "Saldo Wn/Ma (saldo końcowe)" : "BO Wn/Ma (bilans otwarcia)"}` : ""}
+        {result.synthetic_skipped ? ` · pominięto wiersze syntetyczne: ${result.synthetic_skipped} (kwoty niosą konta analityczne)` : ""}
       </p>
       {result.problems.length ? (
         <ul className="space-y-1">

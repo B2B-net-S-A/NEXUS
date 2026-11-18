@@ -1250,6 +1250,16 @@ class Settings(BaseSettings):
     # UPN/adres skrzynki, z której wychodzą maile systemowe
     # (prod: "nexus-powiadomienia@b2bnetwork.pl").
     M365_MAIL_SENDER_UPN: str = ""
+    # Skrzynka maili do kandydatów (podziękowanie i prośba o warunki, decyzja
+    # Artura 17.11.2026: osobny adres `kariera@b2bnetwork.pl`). Puste = maile
+    # do kandydatów nie wychodzą przez Graph (nadawca zespołowy nie pisze do
+    # kandydatów). Na stagingu SMTP → Mailpit, więc ta zmienna nie jest potrzebna.
+    CANDIDATE_MAIL_SENDER_UPN: str = ""
+    # Pętla wysyłki próśb o warunki (`tasks/candidate_terms_sender.py`) i jej
+    # dzienny limit. Mail i tak przechodzi przez politykę z Ustawień
+    # (rodzaj `candidate_terms`, domyślnie wyłączony).
+    CANDIDATE_TERMS_ENABLED: bool = True
+    CANDIDATE_TERMS_DAILY_LIMIT: int = 400
     # Tenant dla client_credentials. Pusty → fallback na M365_TENANT_ID; musi
     # być realnym tenantem (GUID lub domena), NIE "common".
     M365_MAIL_TENANT_ID: str = ""
@@ -1377,6 +1387,12 @@ class Settings(BaseSettings):
     GROK_BOT_LAW_COLLECT_WEBHOOK_KEY: str = ""
     GROK_BOT_LAW_ANALYZE_WEBHOOK_URL: str = ""
     GROK_BOT_LAW_ANALYZE_WEBHOOK_KEY: str = ""
+    # Bot Cpro (0732, ``app/services/cpro_bot``): rutyna „NEXUS Cpro” w Grok Bocie
+    # wrzuca kandydatów Nordei z kolejki Cpro do nordea.onevms.se i wysyła ofertę.
+    # OFF: pętla stoi, kolejka nie pokazuje stanu bota; trasy biegu działają zawsze.
+    CPRO_BOT_ENABLED: bool = False
+    GROK_BOT_CPRO_WEBHOOK_URL: str = ""
+    GROK_BOT_CPRO_WEBHOOK_KEY: str = ""
     # Firmy z tym tagiem idą do tygodniowego przeglądu sygnałów (pilot 20 firm).
     SALES_SIGNALS_TAG: str = "sygnały"
     # Zadania bota poza sygnałami i punktami (0684, ``services/sales/bot_tasks``):

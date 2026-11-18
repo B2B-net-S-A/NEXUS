@@ -44,6 +44,7 @@ import { fetchStageCvFile } from "@/lib/stage-cv-file";
 import { countPl } from "@/lib/plural-pl";
 import { QC_STATUS_LABEL, qcStateText } from "@/lib/cv-qc";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
+import { CproBotItemStatus, CproBotLine } from "@/components/v2/dashboard/CproBotStatus";
 import { resolveViewState } from "@/lib/view-state";
 import { cn, formatDate } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -457,6 +458,7 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
             <DialogDescription id="cpro-queue-desc" className="text-xs text-muted-foreground">
               Tylko Nordea. Osoby trafiają tu po akceptacji Delivery Leada.
             </DialogDescription>
+            <CproBotLine bot={queue.data?.bot} />
           </div>
           <CproSenderControl sender={sender} loading={!sender && (queue.isLoading || senderQuery.isLoading)} />
         </div>
@@ -591,6 +593,11 @@ export function CproQueueDialog({ open, onClose, initialJobId = null }: CproQueu
                           </p>
                           <CproAcceptance item={item} />
                           <CproCvDraftBadge item={item} />
+                          <CproBotItemStatus
+                            stageId={item.stage_id}
+                            bot={item.bot}
+                            canRetry={queue.data?.bot?.can_retry ?? false}
+                          />
                         </div>
                         <div className="col-span-2 flex flex-wrap gap-1.5 sm:col-span-1 sm:justify-end">
                           <Button

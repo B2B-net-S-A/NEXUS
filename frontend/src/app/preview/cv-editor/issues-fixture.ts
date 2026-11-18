@@ -109,6 +109,108 @@ function rolesNewestFirst(html: string): string {
   return parts ? parts.before + newestFirst(parts.roles).join("") + parts.after : html;
 }
 
+// ── Lata w punkcie 1 i daty stanowisk (R2–R3, 17.11.2026) — liczby policzone
+// ręcznie dla fikcyjnego CV z `page.tsx`; prawdziwe reguły: `cv_tenure_checks`.
+
+const TENURE_PHRASE = "Ponad 7 lat doświadczenia jako Java Developer";
+const TENURE_PROPOSAL = "Ponad 9 lat w IT, w tym ponad 7 lat jako Java Developer";
+const REVERSED = /(<strong>Stażysta<\/strong> )(\d{2}\.\d{4}) – (\d{2}\.\d{4})/;
+
+/** CV ze stanu `?state=lata`: punkt 1 „jako Java Developer” i dwie starsze role. */
+export function withTenureExamples(html: string): string {
+  return html
+    .replace(
+      "Ponad 7 lat doświadczenia w <strong>Javie</strong>, w tym 3 lata w bankowości.",
+      `${TENURE_PHRASE} w bankowości i e-commerce.`,
+    )
+    .replace(
+      '<p data-cv-section="rodo"',
+      '<p data-cv-section="role"><strong>Specjalista wsparcia IT</strong> 2015 – 2016</p>' +
+        '<p data-cv-section="employer">Serwis Przykładowy sp. z o.o.</p>' +
+        "<ul><li><p>Wsparcie użytkowników i konfiguracja stacji roboczych.</p></li></ul>" +
+        '<p data-cv-section="role"><strong>Stażysta</strong> 08.2014 – 09.2013</p>' +
+        '<p data-cv-section="employer">Biuro Przykładowe</p>' +
+        "<ul><li><p>Inwentaryzacja sprzętu.</p></li></ul>" +
+        '<p data-cv-section="rodo"',
+    );
+}
+
+/** „MM.RRRR” jako numer miesiąca — do porównania końca ze startem. */
+function monthIndex(value: string): number {
+  const [month, year] = value.split(".").map(Number);
+  return year * 12 + month;
+}
+
+function tenureChecks(html: string): QcCheck[] {
+  // Inne stany harnessu nie mają tych przykładów — uwag nie ma.
+  if (!html.includes("Specjalista wsparcia IT")) return [];
+  const found = REVERSED.exec(html);
+  const reversed = found && monthIndex(found[3]) < monthIndex(found[2]) ? found : null;
+  const swappedDates = reversed ? null : "09.2013 – 08.2014";
+  const roles = [
+    { title: "Senior Java Developer", dates: "03.2021 – 06.2024", months: 40, matched: true },
+    { title: "Java Developer", dates: "01.2017 – 02.2021", months: 50, matched: true },
+    { title: "Specjalista wsparcia IT", dates: "2015 – 2016", months: 24, matched: false },
+    reversed
+      ? { title: "Stażysta", dates: `${reversed[2]} – ${reversed[3]}`, months: null, matched: false }
+      : { title: "Stażysta", dates: swappedDates, months: 12, matched: false },
+  ];
+  const total = 114 + (reversed ? 0 : 12);
+  const breakdown = html.includes(TENURE_PHRASE)
+    ? check("years_breakdown", "Lata w punkcie 1 z dat stanowisk", "warning", [
+        {
+          key: "years_breakdown|ponad 7 lat|cv",
+          term: "Ponad 7 lat",
+          fix: "tenure_split",
+          detail: `„Ponad 7 lat” — role z punktu 1: 7 lat 6 mies., cały staż z dat ról: ${total === 114 ? "9 lat 6 mies." : "10 lat 6 mies."}`,
+          proposal: TENURE_PROPOSAL,
+          tenure: { quote: TENURE_PHRASE, matched_months: 90, total_months: total, proposal: TENURE_PROPOSAL, roles },
+        },
+      ])
+    : {
+        ...check("years_breakdown", "Lata w punkcie 1 z dat stanowisk", "warning", []),
+        summary: "role z punktu 1: 7 lat 6 mies. · cały staż: 9 lat 6 mies.",
+      };
+  return [
+    breakdown,
+    check(
+      "role_dates_reversed",
+      "Data końca stanowiska po dacie startu",
+      "warning",
+      reversed
+        ? [
+            {
+              key: "role_dates_reversed|08.2014 – 09.2013|stażysta · biuro przykładowe",
+              role: "Stażysta · Biuro Przykładowe",
+              term: `${reversed[2]} – ${reversed[3]}`,
+              proposal: `${reversed[3]} – ${reversed[2]}`,
+              fix: "swap_dates",
+              role_index: 3,
+              detail: `„${reversed[2]} – ${reversed[3]}” — koniec przed startem. Staż w punkcie 1 liczy się bez tej roli.`,
+            },
+          ]
+        : [],
+    ),
+    check(
+      "role_year_only",
+      "Miesiące w datach stanowisk jak w oryginale",
+      "warning",
+      html.includes("<strong>Specjalista wsparcia IT</strong> 2015 – 2016")
+        ? [
+            {
+              key: "role_year_only|2015 – 2016|specjalista wsparcia it · serwis przykładowy sp. z o.o.",
+              role: "Specjalista wsparcia IT · Serwis Przykładowy sp. z o.o.",
+              term: "2015 – 2016",
+              fix: "show_original",
+              role_index: 2,
+              detail: "W CV: „2015 – 2016”. W oryginale: „04.2015 – 12.2016”.",
+            },
+          ]
+        : [],
+    ),
+  ];
+}
+
 function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: boolean): QcCheck[] {
   const text = plain(html);
   const unboldedItems: QcCheck["items"] =
@@ -188,6 +290,7 @@ function checksFor(html: string, confirmed: ReadonlySet<string>, boldExpected: b
     check("dates", "Daty w rolach", "warning", []),
     check("role_order", "Stanowiska od najnowszego", "warning", roleOrderItems(html)),
     check("client_rules", "Reguły klienta", "blocking", []),
+    ...tenureChecks(html),
   ];
 }
 
@@ -249,7 +352,9 @@ function memoryDismissal(id: number, reason: QcDismissReason, note: string | und
     reason_label:
       reason === "kept_order"
         ? "Kolejność stanowisk celowo inna"
-        : reason === "kept"
+        : reason === "kept_years"
+          ? "Liczba lat zostaje"
+          : reason === "kept"
           ? "Sprawdzone — zostaje w CV"
           : (QC_DISMISS_REASONS.find((option) => option.code === reason)?.label ?? reason),
     note: note ?? null,
@@ -381,6 +486,19 @@ export function memoryIssuesApi(savedHtml: () => string, variant: IssuesVariant)
         let next = html;
         if (action.action === "spelling") next = html.replaceAll(MISSPELLED, "GitHub");
         else if (action.action === "role_order") next = rolesNewestFirst(html);
+        else if (action.action === "tenure_split" || action.action === "swap_dates") {
+          // Lustro `cv_qc.tenure_split_html` i `swap_role_dates_html` na fikcyjnym CV.
+          if (body.bulk) {
+            skipped.push({ action: action.action, code: "not_in_bulk", message: "Tę poprawkę zatwierdza się pojedynczo." });
+            continue;
+          }
+          next =
+            action.action === "tenure_split"
+              ? html.replace(TENURE_PHRASE, TENURE_PROPOSAL)
+              : html.replace(REVERSED, (whole: string, head: string, a: string, b: string) =>
+                  monthIndex(b) < monthIndex(a) ? `${head}${b} – ${a}` : whole,
+                );
+        }
         else if (action.action === "remove_line") {
           // Linia z kontroli AI: cały punkt listy o tej treści (`cv_qc.remove_line_html`).
           if (body.bulk) {

@@ -33,6 +33,8 @@
  "routes": {
   "DELETE /api/finance/issued-invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/issued-invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/issued-invoices/rebate-correction": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/finance/issued-invoices/rebate-correction/xml": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/issued-invoices/settings": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/issued-invoices/to-issue": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/issued-invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
