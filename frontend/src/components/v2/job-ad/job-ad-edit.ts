@@ -20,6 +20,7 @@ export const LIST_KEYS: readonly AdListKey[] = [
   "requirements",
   "nice_to_have",
   "offer",
+  "process",
 ];
 export const TEXT_KEYS: readonly AdTextKey[] = [
   "title",
@@ -33,8 +34,10 @@ export const TEXT_KEYS: readonly AdTextKey[] = [
 
 /** Pole treści z własnym edytorem. */
 export type AdFieldKey = AdListKey | AdTextKey;
-/** Klucz niezapisanej poprawki: pole albo lista ukrytych punktów „co oferujemy”. */
-export type AdEditKey = AdFieldKey | "offer_hidden";
+/** Lista technologii z karty Pracuj.pl — zapisuje się do `tech`, nie do treści. */
+export type AdTechKey = "tech_required" | "tech_optional";
+/** Klucz niezapisanej poprawki: pole, technologie albo ukryte punkty „co oferujemy”. */
+export type AdEditKey = AdFieldKey | AdTechKey | "offer_hidden";
 
 /** Niezapisane teksty pól okna; brak klucza = pole nie jest w edycji. */
 export type AdDrafts = Readonly<Partial<Record<AdEditKey, string>>>;
@@ -55,9 +58,30 @@ export function isEditKey(key: string | null | undefined): key is AdFieldKey {
   return !!key && (isListKey(key) || (TEXT_KEYS as readonly string[]).includes(key));
 }
 
-/** Tekst do pola edycji: lista = jedna pozycja w wierszu. */
-export function editorText(content: AdContent, key: AdFieldKey): string {
-  return isListKey(key) ? content[key].join("\n") : content[key];
+export function isTechKey(key: string): key is AdTechKey {
+  return key === "tech_required" || key === "tech_optional";
+}
+
+/**
+ * Tekst do pola edycji: lista = jedna pozycja w wierszu. Etapy bez własnej
+ * listy otwierają się z tym, co pokazuje karta (`shown`, stały blok firmy).
+ */
+export function editorText(
+  content: AdContent,
+  key: AdFieldKey,
+  shown: readonly string[] = [],
+): string {
+  if (key === "process" && !content.process?.length) return shown.join("\n");
+  return isListKey(key) ? (content[key] ?? []).join("\n") : content[key];
+}
+
+/**
+ * Ile wierszy karty to stały blok, którego edytor nie zmienia. Etapy
+ * w edycji to cała lista — własna zastępuje stały blok, a nie dopisuje się
+ * do niego jak w „To oferujemy”.
+ */
+export function lockedFixedCount(key: string, fixedCount: number, drafts: AdDrafts): number {
+  return key === "process" && drafts.process !== undefined ? 0 : fixedCount;
 }
 
 /** Treść po zapisaniu pola z edytora. */
@@ -100,10 +124,10 @@ export function withoutExcerpt(content: AdContent, finding: AdFinding): AdConten
   const key = finding.field;
   if (!finding.excerpt || !isEditKey(key)) return null;
   if (isListKey(key)) {
-    const next = content[key]
+    const next = (content[key] ?? [])
       .map((item) => removeExcerpt(item, finding.excerpt as string))
       .filter(Boolean);
-    return next.join("\n") === content[key].join("\n") ? null : { ...content, [key]: next };
+    return next.join("\n") === (content[key] ?? []).join("\n") ? null : { ...content, [key]: next };
   }
   const next = removeExcerpt(content[key], finding.excerpt);
   return next === content[key] ? null : { ...content, [key]: next };
@@ -111,6 +135,29 @@ export function withoutExcerpt(content: AdContent, finding: AdFinding): AdConten
 
 export function withTechLevel(tech: AdTechItem[], name: string, level: AdTechLevel): AdTechItem[] {
   return tech.map((item) => (item.name === name ? { ...item, level } : item));
+}
+
+/**
+ * Technologie po poprawce listy z karty Pracuj.pl (jedna nazwa w wierszu).
+ * Znana nazwa zachowuje poziom (krytyczna zostaje krytyczną), nowa jest
+ * wymagana albo mile widziana — zależnie od listy. Nazwa wpisana tu znika
+ * z drugiej listy, żeby nie wyszła w ogłoszeniu dwa razy.
+ */
+export function withTechNames(tech: AdTechItem[], key: AdTechKey, text: string): AdTechItem[] {
+  const optional = key === "tech_optional";
+  const inList = (item: AdTechItem) => (item.level === "nice") === optional;
+  const names: string[] = [];
+  for (const line of linesToItems(text)) {
+    if (!names.some((name) => sameItem(name, line))) names.push(line);
+  }
+  const edited = names.map((name): AdTechItem => {
+    const before = tech.find((item) => inList(item) && sameItem(item.name, name));
+    return before ? { ...before, name } : { name, level: optional ? "nice" : "must" };
+  });
+  const rest = tech.filter(
+    (item) => !inList(item) && !names.some((name) => sameItem(name, item.name)),
+  );
+  return optional ? [...rest, ...edited] : [...edited, ...rest];
 }
 
 export function withoutTech(tech: AdTechItem[], name: string): AdTechItem[] {

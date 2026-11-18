@@ -380,6 +380,17 @@ def _pracuj_params(terms: Terms) -> list[str]:
     return [chip for chip in chips if chip]
 
 
+def _process(content: dict[str, Any], blocks: LangBlocks) -> tuple[list[str], int]:
+    """Etapy rekrutacji: własne z ogłoszenia albo stały blok firmy.
+
+    Zwraca punkty i to, ile z nich jest stałym blokiem (0 = własne).
+    """
+    own = _items(content.get("process"))
+    if own:
+        return own, 0
+    return list(blocks.process), len(blocks.process)
+
+
 def pracuj_view(
     content: dict[str, Any],
     tech: list[dict[str, str]],
@@ -393,6 +404,7 @@ def pracuj_view(
     auto, hidden_auto = _split(term_lines(terms, lang), hidden)
     own = own_offer(content, terms, blocks, lang=lang)
     fixed, hidden_fixed = _split(list(blocks.offer), hidden)
+    process, process_fixed = _process(content, blocks)
     required = [t["name"] for t in tech if t["level"] != LEVEL_NICE]
     optional = [t["name"] for t in tech if t["level"] == LEVEL_NICE]
     about = str(content.get("about") or "")
@@ -430,9 +442,9 @@ def pracuj_view(
         _list_field(
             "process",
             "Etapy rekrutacji",
-            list(blocks.process),
+            process,
             ordered=True,
-            fixed_count=len(blocks.process),
+            fixed_count=process_fixed,
         ),
     ]
     return {"fields": fields, "params": _pracuj_params(terms)}
@@ -550,6 +562,7 @@ def jjit_view(
     own = own_offer(content, terms, blocks, lang=lang)
     fixed_offer, _ = _split(list(blocks.offer), hidden)
     terms_shown, _ = _split(term_lines(terms, lang), hidden)
+    process, process_fixed = _process(content, blocks)
     candidates = [
         _section("lead", None, text=str(content.get("lead") or "")),
         _section("about", headings["about"], text=str(content.get("about") or "")),
@@ -578,9 +591,9 @@ def jjit_view(
         _section(
             "process",
             headings["process"],
-            items=list(blocks.process),
+            items=process,
             ordered=True,
-            fixed_count=len(blocks.process),
+            fixed_count=process_fixed,
         ),
         _section("company", None, text=blocks.about),
     ]
