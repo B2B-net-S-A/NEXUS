@@ -59,7 +59,7 @@ from app.services.stage_handoff_recipients import (
     TITLE_CPRO_RETURNED,
     TITLE_DL_REVIEW,
     TITLE_QC_RETURNED,
-    pair_recruiter_id,
+    move_recruiter_id,
 )
 from app.services.stage_notification_email_template import render_stage_email
 from app.services.stage_notification_resolver import (
@@ -467,10 +467,16 @@ async def notify_stage_change(
         logger.warning("stage_notif: fix labels lookup failed: %s", type(exc).__name__)
         fix_labels = []
 
-    # Rekruter kandydata: odbiorca, który nim nie jest (prowadzący na etapie
-    # Interview Klient i dalej, DL rekrutacji), widzi w treści, czyj to kandydat.
+    # Rekruter kandydata: odbiorca, który nim nie jest (prowadzący, który
+    # wybrał wszystkie ruchy, DL rekrutacji), widzi w treści, czyj to kandydat.
+    # Ten sam łańcuch co odbiorcy reguły (18.11.2026).
     try:
-        pair_id = await pair_recruiter_id(db, candidate_id=candidate.id, job_id=job.id)
+        pair_id = await move_recruiter_id(
+            db,
+            candidate_id=candidate.id,
+            job_id=job.id,
+            mover_id=mover.id if mover else None,
+        )
         pair_user = await _user_by_id(db, pair_id) if pair_id is not None else None
         pair_name = pair_user.name if pair_user and pair_user.name else None
     except Exception as exc:  # noqa: BLE001
