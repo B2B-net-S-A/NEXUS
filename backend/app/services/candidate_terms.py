@@ -291,8 +291,10 @@ def render_terms_email(
         else "Twoje zgłoszenie do nas dotarło, CV też."
     )
     optout_html = (
-        f' &nbsp;·&nbsp; <a href="{e(optout_link, quote=True)}" '
-        'style="color:#F5F4EC;text-decoration:underline">Nie chcę dostawać takich pytań</a>'
+        f'<p style="margin:0 0 12px;{_F}font-size:14px;line-height:22px">'
+        f'<a href="{e(optout_link, quote=True)}" '
+        'style="display:inline-block;padding:11px 0;color:#A21D2D;text-decoration:underline">'
+        "Nie chcę dostawać takich pytań</a></p>"
         if optout_link
         else ""
     )
@@ -319,17 +321,23 @@ def render_terms_email(
         f'<p style="margin:0 0 16px;{_F}font-size:16px;line-height:24px;color:#141414">'
         f"{lead} Rekruter przejrzy je i odezwie się, jeśli profil będzie pasował.</p>"
         f"{ask}"
+        # Gmail may collapse repeated signatures after the footer logo. Keep
+        # opt-out, privacy and sender information in the message, before it.
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'border="0"><tr><td style="padding:20px 0 0;border-top:1px solid #D9D6CA">'
+        f"{optout_html}"
+        f'<p style="margin:0 0 12px;{_F}font-size:13px;line-height:20px;color:#5C5A55">'
+        f"{e(no_reply)}</p>"
+        f'<p style="margin:0 0 12px;{_F}font-size:13px;line-height:20px">'
+        f'<a href="{e(rodo_url, quote=True)}" style="display:inline-block;padding:12px 0;'
+        'color:#A21D2D;text-decoration:underline">'
+        "Informacje o przetwarzaniu danych</a></p>"
+        f'<p style="margin:0;{_F}font-size:12px;line-height:18px;color:#5C5A55">'
+        f"{e(_COMPANY)}</p></td></tr></table>"
         "</td></tr>"
         '<tr><td bgcolor="#1A1816" style="background:#1A1816;padding:28px 32px">'
         f'<img src="{e(logo_light_url, quote=True)}" width="96" height="44" alt="B2Bnetwork" '
-        'style="display:block;border:0;margin:0 0 16px">'
-        f'<p style="margin:0 0 12px;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'
-        f"{e(no_reply)}</p>"
-        f'<p style="margin:0 0 12px;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'
-        f"{e(_COMPANY)}</p>"
-        f'<p style="margin:0;{_F}font-size:12px;line-height:18px;color:#B9B3A8">'
-        f'<a href="{e(rodo_url, quote=True)}" style="color:#F5F4EC;text-decoration:underline">'
-        f"Informacje o przetwarzaniu danych</a>{optout_html}</p>"
+        'style="display:block;border:0">'
         "</td></tr></table></td></tr></table></body></html>"
     )
     return TermsEmail(subject=subject, text_body=text_body, html_body=html_body)
