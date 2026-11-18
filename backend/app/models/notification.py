@@ -476,6 +476,10 @@ class NotificationType(str, enum.Enum):
     # nadzorczej i adminów; related_entity=(board_krs_snapshot, id). Sekcja
     # Insights (Rada ma tylko ją), kategoria „Systemowe”. ``tasks/board_krs.py``.
     board_krs_entry = "board_krs_entry"
+    # 0735 (18.11.2026): Zarząd zamroził pakiet na posiedzenie Rady — do Rady
+    # i adminów; related_entity=(board_meeting, id). Sekcja Insights,
+    # kategoria „Systemowe”. ``services/board/meetings.py``.
+    board_meeting_pack = "board_meeting_pack"
 
 
 class Notification(Base, TimestampMixin):
