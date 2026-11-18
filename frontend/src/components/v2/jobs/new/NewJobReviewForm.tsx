@@ -73,6 +73,7 @@ import {
   splitCities,
 } from "@/lib/job-request-intake";
 import { blurNumberInputOnWheel } from "@/lib/number-input";
+import { NewJobClientProcessField } from "@/components/v2/jobs/new/NewJobClientProcessField";
 import {
   responsibilityCount,
   responsibilityGroups,
@@ -1200,6 +1201,12 @@ function ReviewSections({
             />
           </div>
         </div>
+
+        <NewJobClientProcessField
+          clientId={clientId}
+          value={form.clientProcess}
+          onChange={(next) => set("clientProcess", next)}
+        />
       </SectionCard>
 
       <SectionCard section="project" number={4} title="O projekcie" warn={isMissing("context")}>

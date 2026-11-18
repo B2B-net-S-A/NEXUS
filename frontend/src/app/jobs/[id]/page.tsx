@@ -34,6 +34,8 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
+import { storedProcess } from "@/lib/job-client-process";
+import { JobClientProcessFact } from "@/components/v2/jobs/JobClientProcessFact";
 import { recruitersOf, workingRecruiters } from "@/lib/job-team";
 import { invalidateJobTeam } from "@/lib/job-team-cache";
 import {
@@ -1022,6 +1024,15 @@ export default function JobDetailPage() {
         recruiter={recruiterFact(false)}
         recruiterCompact={recruiterFact(true)}
         // Liczba osób (07.11.2026) — edycja jak w Profilu Championa › Zespół.
+        processFact={
+          <JobClientProcessFact
+            jobId={jobId}
+            clientId={job.client_id ?? null}
+            clientName={job.client_name ?? null}
+            process={storedProcess(job.champion_profile?.client_process)}
+            canEdit={canEditChampion}
+          />
+        }
         headcount={
           <JobHeadcountFact
             jobId={jobId}

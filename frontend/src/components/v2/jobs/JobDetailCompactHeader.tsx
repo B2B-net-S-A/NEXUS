@@ -119,6 +119,8 @@ interface JobDetailCompactHeaderProps {
   recruiterCompact?: ReactNode;
   /** „Szukamy N osób ✎” za faktem „Rekruter” (`JobHeadcountFact`, 07.11.2026). */
   headcount?: ReactNode;
+  /** MAKIETA 18.11.2026: „Proces u klienta”. */
+  processFact?: ReactNode;
   /**
    * Trzecia linia, tylko na Tablicy: „Kandydaci do dodania”
    * (`CandidateSourcesStrip`) — do 14.10.2026 osobny pasek nad Tablicą.
@@ -221,7 +223,7 @@ const FACT_ICON: Record<JobHeaderFactKey, LucideIcon> = {
  * najpierw nazwa klienta (najwyżej 15rem), potem tryb pracy; budżet nigdy.
  */
 const FACT_SHRINK: Record<JobHeaderFactKey, string> = {
-  client: "max-w-60 shrink-[4]",
+  client: "max-w-60 min-w-28 shrink-[4]",
   budget: "shrink-0",
   work_mode: "shrink",
 };
@@ -321,6 +323,7 @@ export function JobDetailCompactHeader({
   recruiter,
   recruiterCompact,
   headcount,
+  processFact,
   sources,
   sourcesTrailing,
   collapsed = false,
@@ -785,6 +788,7 @@ export function JobDetailCompactHeader({
                 );
               })}
             </dl>
+            {processFact}
             {recruiter}
             {headcount}
           </div>

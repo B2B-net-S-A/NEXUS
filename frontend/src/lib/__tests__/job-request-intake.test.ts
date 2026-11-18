@@ -1372,6 +1372,31 @@ describe("utworzenie jednym żądaniem (04.10.2026)", () => {
     intakeFormId: 12,
   };
 
+  it("proces u klienta jedzie osobno; nic albo pusta lista etapów = null (18.11.2026)", () => {
+    expect(buildCreateJobPayload(complete(), opts)).toMatchObject({ client_process: null });
+    expect(
+      buildCreateJobPayload(
+        { ...complete(), clientProcess: { steps: [], decision_workdays: 5 } },
+        opts,
+      ),
+    ).toMatchObject({ client_process: null });
+    const payload = buildCreateJobPayload(
+      {
+        ...complete(),
+        clientProcess: {
+          steps: [{ kind: "tech_interview", format: "remote", duration: " 60 min " }],
+          decision_workdays: 99,
+        },
+      },
+      opts,
+    );
+    expect(payload.client_process).toEqual({
+      steps: [{ kind: "tech_interview", format: "remote", duration: "60 min" }],
+      decision_workdays: null,
+    });
+    expect(payload.champion_profile).not.toHaveProperty("client_process");
+  });
+
   it("Delivery Lead jedzie w żądaniu tylko, gdy ktoś go wskazał", () => {
     expect(buildCreateJobPayload(complete(), opts)).not.toHaveProperty("delivery_lead_id");
     expect(
@@ -1459,6 +1484,27 @@ describe("braki z serwera (422 `job_not_ready`)", () => {
 });
 
 describe("restoreIntakeForm — formularz z konta", () => {
+  it("proces u klienta wraca z autozapisu, zepsute etapy odpadają (18.11.2026)", () => {
+    const saved = restoreIntakeForm({
+      title: "Java",
+      clientProcess: {
+        steps: [
+          { kind: "home_task", format: "remote", duration: "3 h" },
+          { kind: "coffee", format: "remote", duration: "" },
+          { kind: "tech_interview", format: "moon", duration: "" },
+          null,
+        ],
+        decision_workdays: 7,
+      },
+    });
+    expect(saved.clientProcess).toEqual({
+      steps: [{ kind: "home_task", format: "remote", duration: "3 h" }],
+      decision_workdays: 7,
+    });
+    expect(restoreIntakeForm({ title: "Java" }).clientProcess).toBeNull();
+    expect(restoreIntakeForm({ clientProcess: "x" }).clientProcess).toBeNull();
+  });
+
   it("zapis sprzed nowych pól dostaje wartości domyślne", () => {
     const form = restoreIntakeForm({ title: "Java", rows: [] });
     expect(form.title).toBe("Java");
