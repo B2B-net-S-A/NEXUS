@@ -25,6 +25,10 @@ Audyt A2 (19.10.2026):
   waluty pierwszego. ``ParsedStatement.currency`` to waluta pierwszego
   wyciągu (tylko informacja).
 
+Saldo: wyciąg z ``Bal`` otwarcia (``OPBD``, a bez niego ``PRCD``) i zamknięcia
+(``CLBD``) daje ``BalanceCheck`` z sumą zaksięgowanych pozycji (``Ntry/Amt``).
+Odrzuca go Księga (K4a), nie parser.
+
 Plik od użytkownika: parser bez DTD, encji i sieci (lxml ``resolve_entities``
 wyłączone, ``<!DOCTYPE`` odrzucany), bez ogromnych drzew.
 """
@@ -38,7 +42,12 @@ from typing import Optional
 from lxml import etree
 
 from app.services.hr.bank.accounts import AccountError, mask_accounts, normalize_nrb
-from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
+from app.services.hr.bank.parsed import (
+    BalanceCheck,
+    ParsedStatement,
+    StatementError,
+    StatementLine,
+)
 
 MAX_LINES = 20_000
 
@@ -93,6 +102,19 @@ def _amount(
     except InvalidOperation as exc:
         raise StatementError("Wyciąg CAMT.053 ma niepoprawną kwotę.") from exc
     return abs(value), (node.get("Ccy") or default_currency).upper()
+
+
+def _balance(statement: etree._Element, codes: tuple[str, ...]) -> Optional[Decimal]:
+    """Saldo wyciągu o pierwszym pasującym kodzie ``Bal/Tp`` (ze znakiem)."""
+
+    found: dict[str, Decimal] = {}
+    for node in statement.findall("{*}Bal"):
+        code = _text(node, "{*}Tp/{*}CdOrPrtry/{*}Cd").upper()
+        amount = _amount(node.find("{*}Amt"), "")
+        if code in codes and code not in found and amount is not None:
+            debit = _text(node, "{*}CdtDbtInd") == "DBIT"
+            found[code] = -amount[0] if debit else amount[0]
+    return next((found[code] for code in codes if code in found), None)
 
 
 def _booked(entry: etree._Element) -> bool:
@@ -158,7 +180,9 @@ def parse(raw: bytes) -> ParsedStatement:
     currency: Optional[str] = None
     lines: list[StatementLine] = []
     accounts: list[str] = []
-    for statement in statements:
+    balances: list[BalanceCheck] = []
+    for number, statement in enumerate(statements, start=1):
+        movement = Decimal("0")
         iban = _text(statement, "{*}Acct/{*}Id/{*}IBAN")
         try:
             accounts.append(
@@ -193,6 +217,7 @@ def parse(raw: bytes) -> ParsedStatement:
             original_debit = (indicator == "DBIT") != reversed_
             party = "Cdtr" if original_debit else "Dbtr"
             details = entry.findall("{*}NtryDtls/{*}TxDtls")
+            first_line = len(lines)
             for tx in details or [None]:
                 amount = None
                 if tx is not None:
@@ -227,12 +252,31 @@ def parse(raw: bytes) -> ParsedStatement:
                     raise StatementError(
                         "Wyciąg ma za dużo operacji — podziel go na miesiące."
                     )
+            # Saldo zmienia kwota pozycji; bez niej — suma jej transakcji.
+            total = (
+                entry_amount[0]
+                if entry_amount
+                else sum((line.amount for line in lines[first_line:]), Decimal("0"))
+            )
+            movement += -total if direction == "debit" else total
+        opening = _balance(statement, ("OPBD", "PRCD"))
+        closing = _balance(statement, ("CLBD",))
+        if opening is not None and closing is not None:
+            balances.append(
+                BalanceCheck(
+                    statement=number,
+                    opening=opening,
+                    movement=movement,
+                    closing=closing,
+                )
+            )
     return ParsedStatement(
         format="camt053",
         account=account,
         currency=currency,
         lines=tuple(lines),
         accounts=tuple(accounts),
+        balances=tuple(balances),
     )
 
 
