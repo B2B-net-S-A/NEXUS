@@ -19,7 +19,10 @@ co ``INTERVAL_SECONDS`` loguje ``runtime_metrics`` (Alloy → Loki):
   przypisać je wprost do GC;
 * ``cpu_pct`` — czas CPU procesu (wszystkie wątki) jako procent rzeczywistej
   długości okna, więc może przekroczyć 100; w pierwszym oknie ``None``;
-* ``rss_mb`` — bieżąca pamięć RSS z ``/proc/self/statm``; bez ``/proc`` ``None``.
+* ``rss_mb`` — bieżąca pamięć RSS z ``/proc/self/statm``; bez ``/proc`` ``None``;
+* ``gc_frozen`` / ``alloc_blocks`` / ``cache_entries`` — obiekty zamrożone przy
+  starcie, bloki pamięci Pythona (przybliżenie liczby obiektów) i wpisy
+  `app.core.cache`; razem mówią, czy pełna zbiórka rośnie przez stertę, czy ruch.
 
 Wyłącznie liczby, bez treści zapytań i danych. Awaria pomiaru nigdy nie
 przerywa pętli.
@@ -31,6 +34,7 @@ import asyncio
 import gc
 import logging
 import os
+import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -166,6 +170,62 @@ def freeze_startup_heap() -> None:
     """
     gc.collect()
     gc.freeze()
+    apply_gc_thresholds(settings.GC_THRESHOLDS)
+
+
+def parse_gc_thresholds(raw: str) -> tuple[int, int, int] | None:
+    """``"50000,20,100"`` → krotka progów; pusty albo zły zapis → ``None``."""
+    parts = [part.strip() for part in (raw or "").split(",") if part.strip()]
+    if len(parts) != 3:
+        return None
+    try:
+        values = tuple(int(part) for part in parts)
+    except ValueError:
+        return None
+    if any(value < 1 for value in values):
+        return None
+    return values  # type: ignore[return-value]
+
+
+def apply_gc_thresholds(raw: str) -> tuple[int, int, int]:
+    """Ustaw progi GC; zwraca progi obowiązujące po wywołaniu.
+
+    Przy domyślnym (700, 10, 10) obiekty żądania, które czeka sekundy na pętlę,
+    przechodzą do najstarszej generacji, zanim umrą, i co kilka sekund
+    odpalają pełną zbiórkę. Produkcja 18.11.2026 (12:09–12:12 UTC): 9–10 pełnych
+    zbiórek na minutę po ok. 900 ms, `loop_lag_ms_p99` równe ich długości.
+    Staging, 6 równoległych Tablic przez 240 s, oba warianty naraz: domyślnie
+    135 pełnych zbiórek (15,4 s zatrzymania), przy (50000, 20, 10) jedna, o 10%
+    więcej Tablic i 7 MB więcej RSS. (50000, 20, 100) też zero, ale +22 MB.
+    """
+    thresholds = parse_gc_thresholds(raw)
+    if thresholds is None:
+        if (raw or "").strip():
+            logger.warning("GC_THRESHOLDS pominięte: zły zapis", extra={"value": raw})
+        return gc.get_threshold()
+    gc.set_threshold(*thresholds)
+    return thresholds
+
+
+def heap_snapshot() -> dict[str, int | None]:
+    """Tanie liczby o stercie: co zostaje poza pełną zbiórką i ile żyje w cache.
+
+    Pełna zbiórka przechodzi wszystko, czego nie zamroził start; bez tych liczb
+    nie widać, czy rośnie sterta (cache), czy tylko ruch.
+    """
+    from app.core import cache as response_cache
+
+    snapshot: dict[str, int | None] = {}
+    for key, read in (
+        ("gc_frozen", gc.get_freeze_count),
+        ("alloc_blocks", sys.getallocatedblocks),
+        ("cache_entries", response_cache.entry_count),
+    ):
+        try:
+            snapshot[key] = int(read())
+        except Exception:  # noqa: BLE001 — pomiar, nie może wywrócić pętli
+            snapshot[key] = None
+    return snapshot
 
 
 def attach_pool_usage(engine: AsyncEngine) -> PoolUsage:
@@ -236,6 +296,7 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
                     **gc_window.take(),
                     **cpu_window.take(),
                     "rss_mb": read_rss_mb(),
+                    **heap_snapshot(),
                     **pool_snapshot(engine),
                     "pool_in_use_max": usage.take_window_max(),
                     "pool_probe_checkout_ms": probe_ms,

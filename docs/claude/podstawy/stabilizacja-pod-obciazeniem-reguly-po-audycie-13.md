@@ -54,6 +54,15 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   obiektów z importu nie wchodzi do pełnej zbiórki GC, która zatrzymuje cały
   proces. Staging: 589 ms bez zamrożenia, 51 ms po nim. Nie usuwaj tego bez
   porównania `gc_gen2_ms_max`.
+- **Progi GC `GC_THRESHOLDS=50000,20,10` zaraz po zamrożeniu** (`apply_gc_thresholds`).
+  Przy domyślnych (700, 10, 10) obiekty żądania, które czeka sekundy na pętlę, trafiały
+  do najstarszej generacji i odpalały pełną zbiórkę: 18.11.2026 w szczycie 9–10 na minutę
+  po ok. 900 ms, a `loop_lag_ms_p99` było równe ich długości (minuty bez pełnej zbiórki:
+  12–50 ms). Staging, 6 równoległych Tablic przez 240 s (warianty naraz): 135 pełnych
+  zbiórek → 1, o 10% więcej Tablic, RSS +7 MB; trzeci próg 100 zamiast 10 dawał +22 MB. Pusty `GC_THRESHOLDS` = domyślne Pythona (wycofanie bez kodu). Nie wracaj do
+  domyślnych bez porównania `gc_gen2_count` i `rss_mb`. Wygasłe wpisy `app.core.cache`
+  sprząta `cache_set` raz na minutę; `gc_frozen`, `alloc_blocks` i `cache_entries`
+  w `runtime_metrics` mówią, czy rośnie sterta, czy ruch.
 - **`pipeline_scores_stages` w logu** podaje czasy etapów `pipeline-scores`.
   Trasa miała 04.11 p50 5,5–10,5 s przy spokojnym kanbanie, a przyczyna nie
   była wtedy ustalona.

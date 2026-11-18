@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # żądania z `/api/health/live` = 503, żeby Traefik zdjął go z routingu.
     # 0 = zamknięcie od razu (compose). → app/core/shutdown_drain.py
     NEXUS_SHUTDOWN_DRAIN_SECONDS: float = 0
+    # Progi GC Pythona (`gc.set_threshold`) ustawiane po zamrożeniu sterty startu.
+    # Pusty = domyślne (700, 10, 10), czyli wycofanie bez zmiany kodu.
+    # → app/tasks/runtime_metrics_monitor.py `apply_gc_thresholds`
+    GC_THRESHOLDS: str = "50000,20,10"
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
