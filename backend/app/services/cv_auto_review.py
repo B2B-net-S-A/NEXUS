@@ -8,6 +8,8 @@ brandowanego CV. Automat nigdy nie zatwierdza sam. Odrzucone w karcie
 „CV do klienta” (audyt 22.10, F64) nie czeka na przegląd.
 """
 
+from typing import Iterable
+
 from sqlalchemy import and_, exists, or_, select
 
 from app.models.candidate_stage_cv import CandidateStageCV
@@ -67,22 +69,38 @@ async def job_stages_auto_cv(
     przerwane utratą wykonawcy ``recovery_loop`` przestawia na ``failed``).
     ``with_processing=False`` pomija drugi stan (pusty zbiór).
     """
+    return (
+        await job_stages_auto_cv_for_jobs(db, [job_id], with_processing=with_processing)
+    )[job_id]
+
+
+async def job_stages_auto_cv_for_jobs(
+    db, job_ids: Iterable[int], *, with_processing: bool
+) -> dict[int, tuple[set[int], set[int]]]:
+    """:func:`job_stages_auto_cv` dla kilku Tablic naraz — jedno zapytanie."""
+    ids = sorted({int(j) for j in job_ids})
+    out: dict[int, tuple[set[int], set[int]]] = {job: (set(), set()) for job in ids}
+    if not ids:
+        return out
     ready = and_(CvGeneratedDocument.status == "ready", needs_review_clause())
     processing = and_(
         CvGeneratedDocument.origin == "auto",
         CvGeneratedDocument.status == "processing",
     )
     rows = await db.execute(
-        select(CvGeneratedDocument.stage_id, CvGeneratedDocument.status)
+        select(
+            CvGeneratedDocument.stage_id,
+            CvGeneratedDocument.status,
+            CvGeneratedDocument.job_id,
+        )
         .where(
-            CvGeneratedDocument.job_id == job_id,
+            CvGeneratedDocument.job_id.in_(ids),
             CvGeneratedDocument.stage_id.is_not(None),
             or_(ready, processing) if with_processing else ready,
         )
         .distinct()
     )
-    ready_ids: set[int] = set()
-    processing_ids: set[int] = set()
-    for stage_id, status in rows.all():
+    for stage_id, status, job_id in rows.all():
+        ready_ids, processing_ids = out[job_id]
         (ready_ids if status == "ready" else processing_ids).add(int(stage_id))
-    return ready_ids, processing_ids
+    return out

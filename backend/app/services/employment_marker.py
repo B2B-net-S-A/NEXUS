@@ -715,11 +715,26 @@ async def job_client_family(
     db: AsyncSession, job_client_id: Optional[int]
 ) -> Optional[set[int]]:
     """Klient rekrutacji ze scalonymi rekordami; ``None`` = bez rekrutacji."""
-    if job_client_id is None:
-        return None
-    from app.services.recruitment_rates import client_family_ids
+    return (await job_client_families(db, [job_client_id]))[job_client_id]
 
-    return await client_family_ids(db, job_client_id)
+
+async def job_client_families(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> dict[Optional[int], Optional[set[int]]]:
+    """:func:`job_client_family` dla wielu klientów rekrutacji naraz.
+
+    Klucz dla każdego przekazanego id (``None`` → ``None``); dwa zapytania
+    niezależnie od liczby klientów."""
+    keys = list(dict.fromkeys(client_ids))
+    out: dict[Optional[int], Optional[set[int]]] = {key: None for key in keys}
+    ids = [key for key in keys if key is not None]
+    if ids:
+        from app.services.recruitment_rates import client_family_ids_for_clients
+
+        families = await client_family_ids_for_clients(db, ids)
+        for key in ids:
+            out[key] = families[int(key)]
+    return out
 
 
 # ── Filtr listy kandydatów ──────────────────────────────────────────────────
@@ -813,6 +828,7 @@ __all__ = [
     "contracts_with_current_order",
     "ending_soon_exists",
     "job_client_family",
+    "job_client_families",
     "load_employment_markers",
     "load_order_ends",
     "load_order_rows",

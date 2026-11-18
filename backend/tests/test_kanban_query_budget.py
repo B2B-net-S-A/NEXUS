@@ -182,8 +182,12 @@ async def test_kanban_reads_shared_lookups_once():
     assert len(names) <= 1, names
     assert len(_reads_of(statements, "pipeline_stage_defs")) == 1
     assert len(_reads_of(statements, "pipeline_templates")) <= 1
+    # Rodzina klienta = dwa zapytania (klient → korzeń, korzeń → scaleni);
+    # liczymy pierwsze, czyli ile razy rodzinę czytano.
     family = [
-        s for s in statements if "clients.merged_into_client_id FROM clients" in s
+        s
+        for s in statements
+        if "clients.merged_into_client_id FROM clients WHERE clients.id" in s
     ]
     assert len(family) == 1, family
     auto_cv = [s for s in statements if "DISTINCT cv_generated_documents.stage_id" in s]

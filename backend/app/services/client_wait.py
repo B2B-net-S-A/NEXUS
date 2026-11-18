@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,7 +41,11 @@ from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services import client_panel as panel_service
 from app.services.dl_send_queue import waiting_workdays
-from app.services.job_close_client_cards import client_side_rows, end_card
+from app.services.job_close_client_cards import (
+    client_side_rows,
+    client_side_rows_for_jobs,
+    end_card,
+)
 from app.services.rejection_reason_labels import CLIENT_NO_RESPONSE
 
 logger = logging.getLogger(__name__)
@@ -210,69 +214,105 @@ async def _marks(
     db: AsyncSession, job_id: int
 ) -> tuple[dict[int, datetime], dict[int, datetime]]:
     """{kandydat: ostatnie „przypomnij”}, {kandydat: ostatnie „klient odpowiedział”}."""
+    return (await _marks_for_jobs(db, [job_id]))[job_id]
+
+
+async def _marks_for_jobs(
+    db: AsyncSession, job_ids: Sequence[int]
+) -> dict[int, tuple[dict[int, datetime], dict[int, datetime]]]:
+    """:func:`_marks` dla wielu rekrutacji jednym zapytaniem."""
+    out: dict[int, tuple[dict[int, datetime], dict[int, datetime]]] = {
+        job_id: ({}, {}) for job_id in job_ids
+    }
+    if not out:
+        return out
     rows = await db.execute(
-        select(Activity.action, Activity.details, Activity.created_at).where(
+        select(
+            Activity.entity_id, Activity.action, Activity.details, Activity.created_at
+        ).where(
             Activity.entity_type == "job",
-            Activity.entity_id == job_id,
+            Activity.entity_id.in_(sorted(out)),
             Activity.action.in_((ACTION_REMINDED, ACTION_RESPONDED)),
         )
     )
-    reminded: dict[int, datetime] = {}
-    responded: dict[int, datetime] = {}
-    for action, details, created_at in rows.all():
+    for job_id, action, details, created_at in rows.all():
+        reminded, responded = out[job_id]
         target = reminded if action == ACTION_REMINDED else responded
         for candidate_id in (details or {}).get("candidate_ids") or ():
             cid = int(candidate_id)
             if cid not in target or created_at > target[cid]:
                 target[cid] = created_at
-    return reminded, responded
+    return out
 
 
 async def _interview_signals(
     db: AsyncSession, job_id: int, candidate_ids: Iterable[int], now: datetime
 ) -> tuple[set[int], dict[int, datetime]]:
     """(osoby z rozmową przed nami lub otwartym wnioskiem, ostatni sygnał klienta)."""
-    ids = list(candidate_ids)
-    paused: set[int] = set()
-    last: dict[int, datetime] = {}
-    if not ids:
-        return paused, last
+    return (await _interview_signals_for_jobs(db, {job_id: candidate_ids}, now))[job_id]
 
-    def offer(cid: int, at: datetime) -> None:
+
+async def _interview_signals_for_jobs(
+    db: AsyncSession,
+    candidate_ids_by_job: Mapping[int, Iterable[int]],
+    now: datetime,
+) -> dict[int, tuple[set[int], dict[int, datetime]]]:
+    """:func:`_interview_signals` dla wielu rekrutacji: dwa zapytania razem.
+
+    Wiersz pary spoza wejścia (ta osoba w innej rekrutacji) odpada w Pythonie."""
+    ids_by_job = {job_id: set(ids) for job_id, ids in candidate_ids_by_job.items()}
+    out: dict[int, tuple[set[int], dict[int, datetime]]] = {
+        job_id: (set(), {}) for job_id in ids_by_job
+    }
+    job_ids = sorted(job_id for job_id, ids in ids_by_job.items() if ids)
+    if not job_ids:
+        return out
+    all_ids = sorted({cid for ids in ids_by_job.values() for cid in ids})
+
+    def offer(job_id: int, cid: int, at: datetime) -> None:
+        last = out[job_id][1]
         if cid not in last or at > last[cid]:
             last[cid] = at
 
     events = await db.execute(
         select(
-            CalendarEvent.candidate_id, CalendarEvent.start_time, CalendarEvent.end_time
+            CalendarEvent.job_id,
+            CalendarEvent.candidate_id,
+            CalendarEvent.start_time,
+            CalendarEvent.end_time,
         ).where(
             CalendarEvent.event_type == EventType.client_interview,
             CalendarEvent.status != EventStatus.cancelled,
-            CalendarEvent.candidate_id.in_(ids),
-            CalendarEvent.job_id == job_id,
+            CalendarEvent.candidate_id.in_(all_ids),
+            CalendarEvent.job_id.in_(job_ids),
         )
     )
-    for cid, start, end in events.all():
-        if start > now:
-            paused.add(cid)
+    for job_id, cid, start, end in events.all():
+        if cid not in ids_by_job.get(job_id, ()):
             continue
-        offer(cid, end if end is not None and end <= now else start)
+        if start > now:
+            out[job_id][0].add(cid)
+            continue
+        offer(job_id, cid, end if end is not None and end <= now else start)
     slots = await db.execute(
         select(
+            ClientInterviewSlotRequest.job_id,
             ClientInterviewSlotRequest.candidate_id,
             ClientInterviewSlotRequest.status,
             ClientInterviewSlotRequest.created_at,
             ClientInterviewSlotRequest.slots,
         ).where(
-            ClientInterviewSlotRequest.candidate_id.in_(ids),
-            ClientInterviewSlotRequest.job_id == job_id,
+            ClientInterviewSlotRequest.candidate_id.in_(all_ids),
+            ClientInterviewSlotRequest.job_id.in_(job_ids),
         )
     )
-    for cid, status, created_at, terms in slots.all():
+    for job_id, cid, status, created_at, terms in slots.all():
+        if cid not in ids_by_job.get(job_id, ()):
+            continue
         if status in OPEN_SLOT_STATUSES and not all_slots_past(terms or (), now):
-            paused.add(cid)
-        offer(cid, created_at)
-    return paused, last
+            out[job_id][0].add(cid)
+        offer(job_id, cid, created_at)
+    return out
 
 
 async def _panel_states(
@@ -355,30 +395,66 @@ async def client_clocks(
     today: Optional[date] = None,
 ) -> dict[int, ClientClock]:
     """{kandydat: zegar} kart u klienta, ta sama reguła co pas."""
+    return (await client_clocks_for_jobs(db, [job], now=now, today=today))[job.id]
+
+
+async def client_clocks_for_jobs(
+    db: AsyncSession,
+    jobs: Sequence[Job],
+    *,
+    now: Optional[datetime] = None,
+    today: Optional[date] = None,
+) -> dict[int, dict[int, ClientClock]]:
+    """:func:`client_clocks` dla wielu rekrutacji — zapytań tyle, co dla jednej."""
     now = now or datetime.now(timezone.utc)
     today = today or business_today()
-    rows = await client_side_rows(db, job)
-    if not rows:
-        return {}
-    paused, signals = await _interview_signals(db, job.id, sorted(rows), now)
-    _, responded = await _marks(db, job.id)
-    out: dict[int, ClientClock] = {}
-    for cid, (_, moved_at) in rows.items():
-        since = _silent_since(moved_at, signals.get(cid), responded.get(cid))
-        days = waiting_workdays(since, today)
-        silent = days if cid not in paused and days > WAIT_AFTER_WORKDAYS else None
-        out[cid] = ClientClock(since=since, silent_workdays=silent)
+    out: dict[int, dict[int, ClientClock]] = {job.id: {} for job in jobs}
+    rows_by_job = {
+        job_id: rows
+        for job_id, rows in (await client_side_rows_for_jobs(db, jobs)).items()
+        if rows
+    }
+    if not rows_by_job:
+        return out
+    signals_by_job = await _interview_signals_for_jobs(
+        db, {job_id: sorted(rows) for job_id, rows in rows_by_job.items()}, now
+    )
+    marks_by_job = await _marks_for_jobs(db, sorted(rows_by_job))
+    for job_id, rows in rows_by_job.items():
+        paused, signals = signals_by_job[job_id]
+        _, responded = marks_by_job[job_id]
+        clocks: dict[int, ClientClock] = {}
+        for cid, (_, moved_at) in rows.items():
+            since = _silent_since(moved_at, signals.get(cid), responded.get(cid))
+            days = waiting_workdays(since, today)
+            silent = days if cid not in paused and days > WAIT_AFTER_WORKDAYS else None
+            clocks[cid] = ClientClock(since=since, silent_workdays=silent)
+        out[job_id] = clocks
     return out
 
 
 async def client_clocks_safely(db: AsyncSession, job: Job) -> dict[int, ClientClock]:
     """Dla Tablicy: awaria = brak plakietki + log, nigdy 500 całej Tablicy."""
+    return (await client_clocks_for_jobs_safely(db, [job]))[job.id]
+
+
+async def client_clocks_for_jobs_safely(
+    db: AsyncSession, jobs: Sequence[Job]
+) -> dict[int, dict[int, ClientClock]]:
+    """:func:`client_clocks_safely` dla wielu Tablic: awaria = puste zegary
+    wszystkich rekrutacji + ten sam log. Id czytamy przed savepointem, żeby
+    log i wynik po awarii nie sięgały do obiektów sesji."""
+    job_ids = [job.id for job in jobs]
+    if not job_ids:
+        return {}
     try:
         async with db.begin_nested():
-            return await client_clocks(db, job)
+            return await client_clocks_for_jobs(db, jobs)
     except Exception:  # noqa: BLE001
-        logger.exception("client_wait: cisza klienta job_id=%s", job.id)
-        return {}
+        logger.exception(
+            "client_wait: cisza klienta job_id=%s", ", ".join(map(str, job_ids))
+        )
+        return {job_id: {} for job_id in job_ids}
 
 
 async def load_wait(

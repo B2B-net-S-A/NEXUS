@@ -117,7 +117,6 @@ from app.services.pipeline_eligibility import (
     assert_candidate_move_eligible,
     assert_candidates_move_eligible,
     check_candidate_move_eligibility,
-    evaluate_candidates_for_job_with_verdicts,
 )
 from app.services.pipeline_next_action import (
     StageColumn,
@@ -923,6 +922,23 @@ async def _process_state_versions(
     return {cid: int(version or 0) for cid, version in rows.all()}
 
 
+def _board_pairs(
+    boards: Mapping[int, Iterable[int]],
+) -> tuple[list[int], list[int], set[tuple[int, int]]]:
+    """``(rekrutacje, suma kandydatów, pary)`` tablic — wejście zapytań hurtem.
+
+    Zapytanie bierze ``job_id IN`` i ``candidate_id IN`` (suma), a wynik
+    przechodzi przez ``pairs``: osoba z jednej tablicy nie może dostać wiersza
+    z innej rekrutacji, w której też stoi.
+    """
+    pairs = {(jid, cid) for jid, cids in boards.items() for cid in cids}
+    return (
+        sorted({jid for jid, _ in pairs}),
+        sorted({cid for _, cid in pairs}),
+        pairs,
+    )
+
+
 async def _process_v4_cards(
     db: AsyncSession, *, job_id: int, candidate_ids: Iterable[int]
 ) -> dict[int, RecruitmentProcess]:
@@ -931,23 +947,35 @@ async def _process_v4_cards(
     Osobne od :func:`_process_cards`, bo tamto zwraca krotki czytane w kilku
     miejscach. Jedno zapytanie dla całej tablicy.
     """
-    ids = sorted(set(candidate_ids))
+    return (await _process_v4_cards_for_jobs(db, {job_id: candidate_ids}))[job_id]
+
+
+async def _process_v4_cards_for_jobs(
+    db: AsyncSession, boards: Mapping[int, Iterable[int]]
+) -> dict[int, dict[int, RecruitmentProcess]]:
+    """:func:`_process_v4_cards` wielu tablic — jedno zapytanie."""
+    out: dict[int, dict[int, RecruitmentProcess]] = {jid: {} for jid in boards}
+    job_ids, ids, pairs = _board_pairs(boards)
     if not ids:
-        return {}
+        return out
     rows = await db.execute(
         select(RecruitmentProcess)
         .where(
-            RecruitmentProcess.job_id == job_id,
+            RecruitmentProcess.job_id.in_(job_ids),
             RecruitmentProcess.candidate_id.in_(ids),
         )
         .order_by(
+            RecruitmentProcess.job_id,
             RecruitmentProcess.candidate_id,
             RecruitmentProcess.attempt_no.desc(),
             RecruitmentProcess.id.desc(),
         )
-        .distinct(RecruitmentProcess.candidate_id)
+        .distinct(RecruitmentProcess.job_id, RecruitmentProcess.candidate_id)
     )
-    return {p.candidate_id: p for p in rows.scalars().all()}
+    for p in rows.scalars().all():
+        if (p.job_id, p.candidate_id) in pairs:
+            out[p.job_id][p.candidate_id] = p
+    return out
 
 
 async def _link_reapplications(
@@ -963,6 +991,13 @@ async def _link_reapplications(
     wołający — zgłoszenie, które kartę otworzyło, jest od niej starsze albo
     z tej samej transakcji.
     """
+    return (await _link_reapplications_for_jobs(db, {job_id: candidate_ids}))[job_id]
+
+
+async def _link_reapplications_for_jobs(
+    db: AsyncSession, boards: Mapping[int, Iterable[int]]
+) -> dict[int, list[tuple[int, int, datetime]]]:
+    """:func:`_link_reapplications` wielu tablic — jedno zapytanie."""
     from sqlalchemy import Integer, cast, union_all
 
     from app.models.application_screening import ApplicationScreening
@@ -972,11 +1007,13 @@ async def _link_reapplications(
     )
     from app.models.invite_link import CandidateInviteLink
 
-    ids = sorted(set(candidate_ids))
+    out: dict[int, list[tuple[int, int, datetime]]] = {jid: [] for jid in boards}
+    job_ids, ids, pairs = _board_pairs(boards)
     if not ids:
-        return []
+        return out
     submissions = (
         select(
+            ApplicationSubmission.job_id.label("job_id"),
             ApplicationSubmission.matched_candidate_id.label("candidate_id"),
             CandidateInviteLink.created_by.label("owner_id"),
             ApplicationSubmission.created_at.label("at"),
@@ -987,7 +1024,7 @@ async def _link_reapplications(
             == ApplicationSubmission.invite_link_token_sha256,
         )
         .where(
-            ApplicationSubmission.job_id == job_id,
+            ApplicationSubmission.job_id.in_(job_ids),
             ApplicationSubmission.matched_candidate_id.in_(ids),
             ApplicationSubmission.status.in_(
                 (
@@ -999,21 +1036,22 @@ async def _link_reapplications(
     )
     owner_in_context = ApplicationScreening.context["link_owner_id"].astext
     screenings = select(
+        ApplicationScreening.job_id.label("job_id"),
         ApplicationScreening.candidate_id.label("candidate_id"),
         cast(owner_in_context, Integer).label("owner_id"),
         ApplicationScreening.created_at.label("at"),
     ).where(
-        ApplicationScreening.job_id == job_id,
+        ApplicationScreening.job_id.in_(job_ids),
         ApplicationScreening.candidate_id.in_(ids),
         ApplicationScreening.outcome == "already_in_job",
         owner_in_context.op("~")(r"^\d+$"),
     )
     rows = await db.execute(union_all(submissions, screenings))
-    return [
-        (cid, owner, at)
-        for cid, owner, at in rows.all()
-        if cid is not None and owner is not None and at is not None
-    ]
+    for jid, cid, owner, at in rows.all():
+        if cid is not None and owner is not None and at is not None:
+            if (jid, cid) in pairs:
+                out[jid].append((cid, owner, at))
+    return out
 
 
 def _reapplied_link_owners(
@@ -1080,11 +1118,26 @@ async def _requirements_skipped(
     przez wiersze etapów rekrutacji (``Activity.entity_id`` = wiersz).
     Braki z bieżącej próby sumują się (:func:`_merge_skip_traces`).
     """
-    ids = sorted(set(candidate_ids))
+    return (
+        await _requirements_skipped_for_jobs(
+            db, {job_id: candidate_ids}, since={job_id: since or {}}
+        )
+    )[job_id]
+
+
+async def _requirements_skipped_for_jobs(
+    db: AsyncSession,
+    boards: Mapping[int, Iterable[int]],
+    *,
+    since: Mapping[int, Mapping[int, Optional[datetime]]],
+) -> dict[int, dict[int, tuple[list[str], Optional[int]]]]:
+    """:func:`_requirements_skipped` wielu tablic — jedno zapytanie."""
+    job_ids, ids, pairs = _board_pairs(boards)
     if not ids:
-        return {}
+        return {jid: {} for jid in boards}
     rows = await db.execute(
         select(
+            CandidateStage.job_id,
             CandidateStage.candidate_id,
             Activity.details,
             Activity.user_id,
@@ -1096,13 +1149,20 @@ async def _requirements_skipped(
             & (Activity.entity_id == CandidateStage.id),
         )
         .where(
-            CandidateStage.job_id == job_id,
+            CandidateStage.job_id.in_(job_ids),
             CandidateStage.candidate_id.in_(ids),
             Activity.action == pipeline_move_rules.REQUIREMENTS_SKIPPED_ACTION,
         )
-        .order_by(CandidateStage.candidate_id, Activity.id)
+        .order_by(CandidateStage.job_id, CandidateStage.candidate_id, Activity.id)
     )
-    return _merge_skip_traces(rows.all(), since or {})
+    by_job: dict[int, list[tuple]] = {jid: [] for jid in boards}
+    for jid, cid, details, user_id, moved_at in rows.all():
+        if (jid, cid) in pairs:
+            by_job[jid].append((cid, details, user_id, moved_at))
+    return {
+        jid: _merge_skip_traces(job_rows, since.get(jid) or {})
+        for jid, job_rows in by_job.items()
+    }
 
 
 def _still_missing(keys: list[str], payload: dict) -> list[str]:
@@ -1190,27 +1250,40 @@ async def _process_cards(
     Ten sam porządek co :func:`_process_state_versions` (jedno zapytanie dla
     całej tablicy); dokłada właściciela procesu dla pola ``recruiter_id`` karty.
     """
-    ids = sorted(set(candidate_ids))
+    return (await _process_cards_for_jobs(db, {job_id: candidate_ids}))[job_id]
+
+
+async def _process_cards_for_jobs(
+    db: AsyncSession, boards: Mapping[int, Iterable[int]]
+) -> dict[int, dict[int, tuple[int, Optional[int]]]]:
+    """:func:`_process_cards` wielu tablic — jedno zapytanie."""
+    out: dict[int, dict[int, tuple[int, Optional[int]]]] = {jid: {} for jid in boards}
+    job_ids, ids, pairs = _board_pairs(boards)
     if not ids:
-        return {}
+        return out
     rows = await db.execute(
         select(
+            RecruitmentProcess.job_id,
             RecruitmentProcess.candidate_id,
             RecruitmentProcess.state_version,
             RecruitmentProcess.owner_user_id,
         )
         .where(
-            RecruitmentProcess.job_id == job_id,
+            RecruitmentProcess.job_id.in_(job_ids),
             RecruitmentProcess.candidate_id.in_(ids),
         )
         .order_by(
+            RecruitmentProcess.job_id,
             RecruitmentProcess.candidate_id,
             RecruitmentProcess.attempt_no.desc(),
             RecruitmentProcess.id.desc(),
         )
-        .distinct(RecruitmentProcess.candidate_id)
+        .distinct(RecruitmentProcess.job_id, RecruitmentProcess.candidate_id)
     )
-    return {cid: (int(version or 0), owner) for cid, version, owner in rows.all()}
+    for jid, cid, version, owner in rows.all():
+        if (jid, cid) in pairs:
+            out[jid][cid] = (int(version or 0), owner)
+    return out
 
 
 @router.get("/stages", response_model=List[StageInfo])
@@ -3527,20 +3600,62 @@ async def build_kanban_view(
     row). Deliberately not ``moved_by`` — that is whoever moved the card last
     (decision of the product owner, 21.09.2026).
     """
-    job_id = job.id
-    # All CandidateStage rows for this job, newest→oldest per candidate.
-    # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
-    # (earliest) rows deterministic when two moves share a `moved_at`.
-    result = await db.execute(
-        select(CandidateStage)
-        .where(CandidateStage.job_id == job_id)
-        .order_by(
-            CandidateStage.candidate_id,
-            CandidateStage.moved_at.desc(),
-            CandidateStage.id.desc(),
+    return (
+        await build_kanban_views(
+            db,
+            [job],
+            viewer=viewer,
+            with_followups=with_followups,
+            with_employment=with_employment,
+            with_start_docs=with_start_docs,
+            with_cv_state=with_cv_state,
+            with_other_jobs=with_other_jobs,
+            dl_review_memo=dl_review_memo,
         )
+    )[0]
+
+
+async def build_kanban_views(
+    db: AsyncSession,
+    jobs: Sequence[Job],
+    *,
+    viewer: Optional[User] = None,
+    with_followups: bool = True,
+    with_employment: bool = True,
+    with_start_docs: bool = True,
+    with_cv_state: bool = True,
+    with_other_jobs: bool = True,
+    dl_review_memo: Optional[dict[Any, Any]] = None,
+) -> list[KanbanView]:
+    """Tablice wielu rekrutacji (:func:`build_kanban_view`) jednym zestawem zapytań.
+
+    18.11.2026: „Moje następne kroki” składały do 25 tablic po ok. 47 zapytań
+    (do 1360 zapytań, p95 37 s w szczycie). Dane wszystkich tablic czyta teraz
+    :func:`_load_kanban_boards` — każde zapytanie raz dla całej listy — a każdą
+    tablicę składa :func:`_render_kanban_board`. Pojedyncza Tablica idzie tą samą
+    drogą z listą jednej rekrutacji, więc oba ekrany nie mogą się rozjechać.
+    """
+    if not jobs:
+        return []
+    boards = await _load_kanban_boards(
+        db,
+        jobs,
+        viewer=viewer,
+        with_followups=with_followups,
+        with_employment=with_employment,
+        with_start_docs=with_start_docs,
+        with_cv_state=with_cv_state,
+        with_other_jobs=with_other_jobs,
+        dl_review_memo=dl_review_memo,
     )
-    all_stages = result.scalars().all()
+    return [
+        await _render_kanban_board(db, job, boards[job.id], viewer=viewer)
+        for job in jobs
+    ]
+
+
+def _board_stage_rows(all_stages: Sequence[CandidateStage]) -> SimpleNamespace:
+    """Karty jednej tablicy z jej wierszy etapów (od najnowszego per kandydat)."""
     # First row per candidate = current (latest) stage → the card.
     # Last row per candidate = earliest stage → who assigned them to the job.
     seen: dict[int, CandidateStage] = {}
@@ -3583,15 +3698,110 @@ async def build_kanban_view(
                 latest_acceptance.setdefault(s.candidate_id, s)
     for cid, row in latest_any_acceptance.items():
         latest_acceptance.setdefault(cid, row)
-    show_client_rate = user_can_view_client_rate(viewer)
-    # „Czeka na Ciebie” w kolumnie „QC CV”: raz na tablicę, dla obu gałęzi niżej.
-    viewer_owns_dl_review = await _viewer_owns_dl_review(
-        db, job, viewer, memo=dl_review_memo
+    return SimpleNamespace(
+        seen=seen,
+        earliest=earliest,
+        screened_pairs=screened_pairs,
+        carried_expected_rate=carried_expected_rate,
+        carried_client_rate=carried_client_rate,
+        latest_acceptance=latest_acceptance,
+        first_verified=first_verified,
     )
 
+
+async def _load_kanban_boards(
+    db: AsyncSession,
+    jobs: Sequence[Job],
+    *,
+    viewer: Optional[User],
+    with_followups: bool,
+    with_employment: bool,
+    with_start_docs: bool,
+    with_cv_state: bool,
+    with_other_jobs: bool,
+    dl_review_memo: Optional[dict[Any, Any]],
+) -> dict[int, SimpleNamespace]:
+    """Dane tablic ``jobs`` — każde zapytanie raz dla wszystkich rekrutacji.
+
+    Wynik: ``{job_id: dane tablicy}``; mapy kluczowane kandydatem są już
+    zawężone do kart danej tablicy (ta sama osoba stoi w kilku rekrutacjach).
+    Gałęzie wyłączane flagami (follow-up, „Pracuje u nas”, dokumenty startu,
+    stan CV, „+1 rekrutacja”) zostają per tablica — „Moje następne kroki” ich
+    nie wołają, a pojedyncza Tablica i tak ma jedną rekrutację.
+    """
+    from app.services import (
+        autofill_decisions,
+        client_form_status,
+        job_proposals,
+        known_queue_points,
+        recommendation_cards,
+        review_batch_order,
+    )
+    from app.services import candidate_rate_change as _rate_change
+    from app.services import client_wait as client_wait_service
+    from app.services.agreement_status import agreement_status_for_jobs
+    from app.services.cv_auto_review import job_stages_auto_cv_for_jobs
+    from app.services.cv_qc import pair_statuses
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+    from app.services.departure_care import open_care
+    from app.services.employment_marker import job_client_family
+    from app.services.hire_contract_reminder import missing_contract_ids_for_jobs
+    from app.services.hired_order_status import order_status_for_pairs
+    from app.services.interview_cycle import interview_badges_for_jobs
+    from app.services.job_champions import live_candidate_ids_for_jobs
+    from app.services.job_similarity import HIRED_STAGES  # noqa: PLC0415
+    from app.services.pair_owner import owners_for_jobs
+    from app.services.pipeline_eligibility import (
+        evaluate_candidates_for_jobs_with_verdicts,
+    )
+    from app.services.pre_contracts import kanban_badges_for_jobs
+    from app.services.recommendation_cards import attempt_started
+    from app.services.request_work_state import FINISHED as _WORK_FINISHED
+
+    job_ids = [job.id for job in jobs]
+    by_id = {job.id: job for job in jobs}
+    # All CandidateStage rows for these jobs, newest→oldest per candidate.
+    # Secondary id.desc() makes the per-candidate "first" (latest) and "last"
+    # (earliest) rows deterministic when two moves share a `moved_at`.
+    stage_rows = (
+        (
+            await db.execute(
+                select(CandidateStage)
+                .where(CandidateStage.job_id.in_(job_ids))
+                .order_by(
+                    CandidateStage.job_id,
+                    CandidateStage.candidate_id,
+                    CandidateStage.moved_at.desc(),
+                    CandidateStage.id.desc(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    rows_by_job: dict[int, list[CandidateStage]] = {jid: [] for jid in job_ids}
+    for row in stage_rows:
+        rows_by_job[row.job_id].append(row)
+    b: dict[int, SimpleNamespace] = {
+        jid: _board_stage_rows(rows_by_job[jid]) for jid in job_ids
+    }
+    for jid, board in b.items():
+        board.candidate_ids = list(board.seen.keys())
+        board.show_client_rate = user_can_view_client_rate(viewer)
+        # „Czeka na Ciebie” w kolumnie „QC CV”: raz na tablicę (pamięć żądania).
+        board.viewer_owns_dl_review = await _viewer_owns_dl_review(
+            db, by_id[jid], viewer, memo=dl_review_memo
+        )
+    boards_cids = {jid: board.candidate_ids for jid, board in b.items()}
+    all_cids = sorted({cid for cids in boards_cids.values() for cid in cids})
+    pairs = [(jid, cid) for jid, cids in boards_cids.items() for cid in cids]
+
+    def _own(values: Mapping[int, Any], jid: int) -> dict[int, Any]:
+        """Mapa kluczowana kandydatem zawężona do kart tablicy ``jid``."""
+        return {cid: values[cid] for cid in boards_cids[jid] if cid in values}
+
     # Bulk-load candidate names so cards render with real names (not "Kandydat" fallback)
-    candidate_ids = list(seen.keys())
-    contact_case_by_candidate = await load_contact_case_summaries(db, candidate_ids)
+    contact_cases = await load_contact_case_summaries(db, all_cids)
     name_by_id: dict[int, tuple[Optional[str], Optional[str]]] = {}
     # Stawka z profilu (PLN/h) — podpowiedź w oknie „Zweryfikowany" (17.09.2026).
     profile_rate_by_id: dict[int, Optional[Decimal]] = {}
@@ -3603,7 +3813,7 @@ async def build_kanban_view(
     # „W bazie od” (0437): data wejścia osoby do bazy i kto ją dodał — pigułka
     # „Nowy · N dni” na karcie w „Nowych” i „Screeningu”.
     added_to_base_by_id: dict[int, tuple[Optional[datetime], bool, Optional[int]]] = {}
-    if candidate_ids:
+    if all_cids:
         rows = await db.execute(
             select(
                 Candidate.id,
@@ -3620,7 +3830,7 @@ async def build_kanban_view(
                 Candidate.source_created_at,
                 Candidate.external_source,
                 Candidate.created_by,
-            ).where(Candidate.id.in_(candidate_ids))
+            ).where(Candidate.id.in_(all_cids))
         )
         for (
             cid,
@@ -3655,25 +3865,31 @@ async def build_kanban_view(
             eligibility_rows[cid] = SimpleNamespace(
                 id=cid, status=candidate_status, preferences=preferences
             )
+    for jid, board in b.items():
+        board.contact_case_by_candidate = _own(contact_cases, jid)
+        board.name_by_id = _own(name_by_id, jid)
+        board.profile_rate_by_id = _own(profile_rate_by_id, jid)
+        board.rate_from_by_id = _own(rate_from_by_id, jid)
+        board.availability_by_id = _own(availability_by_id, jid)
+        board.added_to_base_by_id = _own(added_to_base_by_id, jid)
+        # Bulk-load names of the recruiters who first assigned each candidate to
+        # the job (mover on the earliest stage) — one query below for all boards.
+        # Nazwiska wszystkich osób z kart (dodający, właściciele, ruch mimo
+        # braków, dzwoniący z follow-upu) — jedno zapytanie niżej, gdy znane są
+        # wszystkie id.
+        board.name_user_ids = (
+            {e.moved_by for e in board.earliest.values() if e.moved_by is not None}
+            | {v.moved_by for v in board.first_verified.values() if v is not None}
+            | {
+                creator
+                for _, _, creator in board.added_to_base_by_id.values()
+                if creator is not None
+            }
+        )
 
-    # Bulk-load names of the recruiters who first assigned each candidate to the
-    # job (mover on the earliest stage). One query, no per-card N+1.
-    added_by_user_ids = (
-        {e.moved_by for e in earliest.values() if e.moved_by is not None}
-        | {v.moved_by for v in first_verified.values() if v is not None}
-        | {
-            creator
-            for _, _, creator in added_to_base_by_id.values()
-            if creator is not None
-        }
-    )
-    # Nazwiska wszystkich osób z kart (dodający, właściciele, ruch mimo braków,
-    # dzwoniący z follow-upu) — jedno zapytanie niżej, gdy znane są wszystkie id.
-    name_user_ids: set[int] = set(added_by_user_ids)
-    user_name_by_id: dict[int, Optional[str]] = {}
-
+    board_now = datetime.now(timezone.utc)
     # Standing rejections by this job's hiring manager, one batched query for
-    # the whole board (none at all when the job has no manager set). Lets the
+    # all boards (none at all when no job has a manager set). Lets the
     # recruiter see the block before dragging a card into it, instead of
     # discovering it as a 409 halfway through the move.
     #
@@ -3682,86 +3898,79 @@ async def build_kanban_view(
     # miękkich (konflikt z klientem, NDA, obecne zatrudnienie…) — bez N+1.
     # `candidates=` podaje lekkie wiersze z zapytania wyżej, więc polityka nie
     # ładuje drugi raz pełnych encji kandydatów.
-    (
-        eligibility_decisions,
-        manager_verdicts,
-    ) = await evaluate_candidates_for_job_with_verdicts(
+    verdicts = await evaluate_candidates_for_jobs_with_verdicts(
         db,
-        job=job,
-        candidate_ids=candidate_ids,
-        now=datetime.now(timezone.utc),
+        jobs=jobs,
+        candidate_ids_by_job=boards_cids,
+        now=board_now,
         candidates=eligibility_rows,
     )
     # F05: wersja procesu na karcie — front odsyła ją przy ruchu
-    # (`expected_state_version`). Jedno zapytanie dla całej tablicy; to samo
-    # zapytanie niesie właściciela procesu (`recruiter_id` karty).
-    process_cards = await _process_cards(db, job_id=job_id, candidate_ids=candidate_ids)
-    process_versions = {cid: card[0] for cid, card in process_cards.items()}
+    # (`expected_state_version`). To samo zapytanie niesie właściciela procesu
+    # (`recruiter_id` karty).
+    process_cards = await _process_cards_for_jobs(db, boards_cids)
     # „Prowadzi” (25.10.2026): przypisanie admina/HoR wygrywa z właścicielem
     # procesu i osobą, która dodała — karta, panel i „kto ma ruch”.
-    from app.services.pair_owner import owners_for_job
-
-    pair_owners = await owners_for_job(db, job_id)
+    pair_owners = await owners_for_jobs(db, job_ids)
     # Odejście z firmy (28.10.2026): karta osoby z wyłączonym kontem pokazuje
     # Delivery Leada, który ją domyka (``departure_care``).
-    from app.services.departure_care import open_care
-
-    pair_care = {row.candidate_id: row for row in await open_care(db, job_id=job_id)}
-    owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
+    care_rows = await open_care(db, job_ids=job_ids)
     # Pipeline v4 (0352): blokada 12 h, źródło wejścia i przepięcie.
-    v4_processes = await _process_v4_cards(
-        db, job_id=job_id, candidate_ids=candidate_ids
-    )
-    owner_ids |= {
-        p.claimed_by_user_id
-        for p in v4_processes.values()
-        if p.claimed_by_user_id is not None
-    }
-    # Etap 2 linków (19.10.2026): plakietka „Z Twojego linku” / „Z linku …”.
-    link_owner_by_candidate = {
-        cid: owner
-        for cid, p in v4_processes.items()
-        if p.entry_source == candidate_claim.ENTRY_APPLICATION
-        and (owner := application_link_owner_id(p.entry_meta)) is not None
-    }
-    owner_ids |= set(link_owner_by_candidate.values())
-    # Porcja dnia (07.11.2026): „Dla: …” na karcie od systemu. Tylko osoba dalej
-    # przypisana do rekrutacji (10.11.2026): karta osoby zdjętej z rekrutacji
-    # wyglądała jak jej porcja, choć nikogo nie blokuje i nikt jej nie przegląda.
-    review_owner_by_candidate = {
-        cid: owner
-        for cid, p in v4_processes.items()
-        if p.entry_source == candidate_claim.ENTRY_SYSTEM
-        and (owner := review_batch.owner_of(p.entry_meta)) is not None
-    }
-    if review_owner_by_candidate:
-        assigned = set(
-            (await review_batch.recruiter_ids_for_jobs(db, [job_id])).get(job_id, [])
-        )
-        review_owner_by_candidate = {
-            cid: owner
-            for cid, owner in review_owner_by_candidate.items()
-            if owner in assigned
+    v4_by_job = await _process_v4_cards_for_jobs(db, boards_cids)
+    for jid, board in b.items():
+        board.eligibility_decisions, board.manager_verdicts = verdicts[jid]
+        board.process_cards = process_cards[jid]
+        board.process_versions = {
+            cid: card[0] for cid, card in board.process_cards.items()
         }
-    owner_ids |= set(review_owner_by_candidate.values())
+        board.pair_owners = pair_owners[jid]
+        board.pair_care = {
+            row.candidate_id: row for row in care_rows if row.job_id == jid
+        }
+        board.v4_processes = v4_by_job[jid]
+        board.owner_ids = {
+            card[1] for card in board.process_cards.values() if card[1] is not None
+        } | {
+            p.claimed_by_user_id
+            for p in board.v4_processes.values()
+            if p.claimed_by_user_id is not None
+        }
+        # Etap 2 linków (19.10.2026): plakietka „Z Twojego linku” / „Z linku …”.
+        board.link_owner_by_candidate = {
+            cid: owner
+            for cid, p in board.v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_APPLICATION
+            and (owner := application_link_owner_id(p.entry_meta)) is not None
+        }
+        board.owner_ids |= set(board.link_owner_by_candidate.values())
+        # Porcja dnia (07.11.2026): „Dla: …” na karcie od systemu.
+        board.review_owner_by_candidate = {
+            cid: owner
+            for cid, p in board.v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+            and (owner := review_batch.owner_of(p.entry_meta)) is not None
+        }
+        board.system_ids = [
+            cid
+            for cid, p in board.v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ]
+    # Tylko osoba dalej przypisana do rekrutacji (10.11.2026): karta osoby
+    # zdjętej z rekrutacji wyglądała jak jej porcja, choć nikogo nie blokuje
+    # i nikt jej nie przegląda.
+    review_jobs = [jid for jid, board in b.items() if board.review_owner_by_candidate]
+    assigned_by_job = (
+        await review_batch.recruiter_ids_for_jobs(db, review_jobs)
+        if review_jobs
+        else {}
+    )
     # …i ślad ponownego zgłoszenia osoby, która już była w rekrutacji:
     # „Zgłosił się też z Twojego linku” / „Zgłosił się też z linku: Marta”.
-    reapplied_link_owners = _reapplied_link_owners(
-        await _link_reapplications(db, job_id=job_id, candidate_ids=candidate_ids),
-        v4_processes,
-        link_owner_by_candidate,
-    )
-    for reapplied in reapplied_link_owners.values():
-        owner_ids |= set(reapplied)
-    inactive_claimers = await candidate_claim.inactive_holders(
-        db, v4_processes.values()
-    )
-    booked_calls = await screening_calls.starts_by_candidate(db, job_id, candidate_ids)
-    reassign_job_ids = {
-        p.reassign_from_job_id
-        for p in v4_processes.values()
-        if p.reassign_from_job_id is not None
-    }
+    reapplications = await _link_reapplications_for_jobs(db, boards_cids)
+    all_processes = [p for board in b.values() for p in board.v4_processes.values()]
+    inactive_claimers = await candidate_claim.inactive_holders(db, all_processes)
+    booked_by_job = await screening_calls.starts_by_candidate_for_jobs(db, boards_cids)
+    reassign_job_ids = {p.reassign_from_job_id for p in all_processes} - {None}
     reassign_titles: dict[int, str] = {}
     reassign_refs: dict[int, Optional[str]] = {}
     if reassign_job_ids:
@@ -3774,185 +3983,197 @@ async def build_kanban_view(
         ).all():
             reassign_titles[rid] = rtitle
             reassign_refs[rid] = rref
-    board_now = datetime.now(timezone.utc)
-    # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
-    # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
-    from app.services import (
-        autofill_decisions,
-        job_proposals,
-        known_queue_points,
-        new_column_autofill,
-        review_batch_order,
-    )
-    from app.services.dealbreaker_filters import resolve_job_budget_hourly
+    for jid, board in b.items():
+        if board.review_owner_by_candidate:
+            assigned = set(assigned_by_job.get(jid, []))
+            board.review_owner_by_candidate = {
+                cid: owner
+                for cid, owner in board.review_owner_by_candidate.items()
+                if owner in assigned
+            }
+        board.owner_ids |= set(board.review_owner_by_candidate.values())
+        board.reapplied_link_owners = _reapplied_link_owners(
+            reapplications[jid], board.v4_processes, board.link_owner_by_candidate
+        )
+        for reapplied in board.reapplied_link_owners.values():
+            board.owner_ids |= set(reapplied)
+        board.inactive_claimers = inactive_claimers
+        board.booked_calls = booked_by_job[jid]
+        board.reassign_titles = reassign_titles
+        board.reassign_refs = reassign_refs
+        board.board_now = board_now
+        # Premia porcji w kolejności kolumny „Nowi” (S-C4, zero przy wyłączonej porcji).
+        board.board_budget_hourly = resolve_job_budget_hourly(by_id[jid])
 
-    # Premia porcji w kolejności kolumny „Nowi” (S-C4, zero przy wyłączonej porcji).
-    board_budget_hourly = resolve_job_budget_hourly(job)
-    known_queue_facts = await known_queue_points.facts_for(
+    # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
+    # rekrutera; zapytania tylko wtedy, gdy na tablicach są takie karty.
+    known_facts = await known_queue_points.facts_for_jobs(
         db,
-        job_id=job_id,
-        client_id=job.client_id,
-        candidate_ids=[
-            cid
-            for cid, p in v4_processes.items()
-            if p.entry_source == candidate_claim.ENTRY_SYSTEM
-        ],
+        boards={
+            jid: (by_id[jid].client_id, board.system_ids) for jid, board in b.items()
+        },
         now=board_now,
     )
-    without_process_ids = await known_queue_points.without_process(
-        db,
-        job_id=job_id,
-        candidate_ids=[
-            cid
-            for cid, p in v4_processes.items()
-            if p.entry_source == candidate_claim.ENTRY_SYSTEM
-        ],
+    without_process = await known_queue_points.without_process_for_jobs(
+        db, boards={jid: board.system_ids for jid, board in b.items()}
     )
     # Polski i lider/wykonawca w kolejności „Nowych” (16.11.2026) — jak w porcji.
-    board_signals = await review_batch_order.order_signals_for_ids(
-        db,
-        job,
-        [
-            cid
-            for cid, p in v4_processes.items()
-            if p.entry_source == candidate_claim.ENTRY_SYSTEM
-        ],
+    signals = await review_batch_order.order_signals_for_jobs(
+        db, {jid: (by_id[jid], board.system_ids) for jid, board in b.items()}
     )
-    has_system_cards = any(
-        p.entry_source == candidate_claim.ENTRY_SYSTEM for p in v4_processes.values()
+    system_jobs = [jid for jid, board in b.items() if board.system_ids]
+    recruiter_since = (
+        await autofill_decisions.recruiter_since_for_jobs(db, system_jobs)
+        if system_jobs
+        else {}
     )
-    autofill_recruiter_since = (
-        (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
-        if has_system_cards
-        else None
-    )
-    fresh_threshold = (
-        await job_proposals.proposal_threshold(db) if has_system_cards else 0.0
-    )
+    fresh_threshold = await job_proposals.proposal_threshold(db) if system_jobs else 0.0
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
-    from app.services.hired_order_status import order_status_for_pairs
-    from app.services.interview_cycle import interview_badges_for_job
-
-    interview_badges = await interview_badges_for_job(
+    interview_badges = await interview_badges_for_jobs(
         db,
-        job_id=job_id,
-        candidate_ids=candidate_ids,
+        boards=boards_cids,
         now=board_now,
-        # Najnowszy etap pary i stan rekrutacji Tablica już ma.
-        latest_stages={(cid, job_id): (s.stage, s.moved_at) for cid, s in seen.items()},
-        job_closed=job.status == JobStatus.closed,
+        # Najnowszy etap pary i stan rekrutacji tablice już mają.
+        latest_stages={
+            (cid, jid): (s.stage, s.moved_at)
+            for jid, board in b.items()
+            for cid, s in board.seen.items()
+        },
+        closed_job_ids={job.id for job in jobs if job.status == JobStatus.closed},
     )
     # „Zatrudniony” na Tablicy to też Onboarding (`job_similarity.HIRED_STAGES`).
-    from app.services.job_similarity import HIRED_STAGES  # noqa: PLC0415
-
-    hired_ids = [s.candidate_id for s in seen.values() if s.stage in HIRED_STAGES]
+    hired_pairs = [
+        (cid, jid)
+        for jid, board in b.items()
+        for cid, s in board.seen.items()
+        if s.stage in HIRED_STAGES
+    ]
     order_statuses = (
-        await order_status_for_pairs(db, [(cid, job_id) for cid in hired_ids])
-        if hired_ids
-        else {}
-    )
-    # 17.10.2026: „Zatrudniony” bez umowy w Kontraktach — „Pracuje u nas”
-    # liczy się wyłącznie z umowy, więc karta mówi, czego brakuje.
-    from app.services.employment_marker import job_client_family
-    from app.services.hire_contract_reminder import missing_contract_ids
-
-    # Rodzina klienta rekrutacji: raz na Tablicę i tylko, gdy ktoś jej potrzebuje
-    # (zatrudniony bez umowy, znacznik „Pracuje u nas”).
-    family_memo: dict[str, Optional[set[int]]] = {}
-
-    async def board_client_family() -> Optional[set[int]]:
-        if "family" not in family_memo:
-            family_memo["family"] = await job_client_family(db, job.client_id)
-        return family_memo["family"]
-
-    missing_contracts = (
-        await missing_contract_ids(
-            db,
-            job_client_id=job.client_id,
-            hired=[
-                (s.candidate_id, s.moved_at)
-                for s in seen.values()
-                if s.stage in HIRED_STAGES
-            ],
-            now=board_now,
-            family_loader=board_client_family,
-        )
-        if hired_ids
-        else set()
+        await order_status_for_pairs(db, hired_pairs) if hired_pairs else {}
     )
     # 04.10.2026: stan umowy z Generatora na karcie w każdej kolumnie.
-    from app.services.agreement_status import agreement_status_for_pairs
+    agreements = await agreement_status_for_jobs(db, boards=boards_cids)
+    # 0506: umowa przedwstępna pary na karcie.
+    pre_contract_badges = await kanban_badges_for_jobs(db, boards_cids)
+    # 0450 (D3): złota plakietka „Champion” na karcie.
+    champion_ids = await live_candidate_ids_for_jobs(db, job_ids)
+    # Rodzina klienta rekrutacji: raz na klienta i tylko, gdy ktoś jej potrzebuje
+    # (znacznik „Pracuje u nas” niżej, zatrudniony bez umowy po pętli).
+    family_cache: dict[Optional[int], Optional[set[int]]] = {}
+    for jid, board in b.items():
+        job = by_id[jid]
+        board.known_queue_facts = known_facts[jid]
+        board.without_process_ids = without_process[jid]
+        board.board_signals = signals[jid]
+        board.autofill_recruiter_since = recruiter_since.get(jid)
+        board.fresh_threshold = fresh_threshold if board.system_ids else 0.0
+        board.interview_badges = interview_badges[jid]
+        board.order_statuses = order_statuses
+        board.agreements = agreements[jid]
+        board.pre_contract_badges = pre_contract_badges[jid]
+        board.champion_ids = champion_ids[jid]
 
-    agreements = await agreement_status_for_pairs(
-        db, job_id=job_id, candidate_ids=candidate_ids
-    )
-    # Znacznik „Pracuje u nas” — jedno zapytanie o źródła na tablicę.
-    employment_markers = (
-        await load_employment_markers(
-            db,
-            candidate_ids,
-            today=business_today(),
-            job_client_id=job.client_id,
-            family_loader=board_client_family,
+        async def board_client_family(job: Job = job) -> Optional[set[int]]:
+            if job.client_id not in family_cache:
+                family_cache[job.client_id] = await job_client_family(db, job.client_id)
+            return family_cache[job.client_id]
+
+        # Znacznik „Pracuje u nas” — jedno zapytanie o źródła na tablicę.
+        board.employment_markers = (
+            await load_employment_markers(
+                db,
+                board.candidate_ids,
+                today=business_today(),
+                job_client_id=job.client_id,
+                family_loader=board_client_family,
+            )
+            if with_employment
+            else {}
         )
-        if with_employment
-        else {}
-    )
-    # 0506: umowa przedwstępna pary na karcie — dwa zapytania na tablicę.
-    from app.services.pre_contracts import kanban_badges  # noqa: PLC0415
+        # 0649: dokumenty do startu. Klient bez listy to jedno zapytanie.
+        from app.services.start_documents import card_badges  # noqa: PLC0415
 
-    pre_contract_badges = await kanban_badges(db, job_id, candidate_ids)
-    # 0649: dokumenty do startu. Klient bez listy to jedno zapytanie.
-    from app.services.start_documents import card_badges  # noqa: PLC0415
-
-    start_docs_badges = (
-        await card_badges(db, job, candidate_ids) if with_start_docs else {}
-    )
-    # 0450 (D3): złota plakietka „Champion” na karcie — jedno zapytanie.
-    from app.services.job_champions import live_candidate_ids  # noqa: PLC0415
-
-    champion_ids = await live_candidate_ids(db, job_id)
-    # „+1 rekrutacja” (14.10.2026): ta sama osoba czeka też w „Nowych”/
-    # „Screeningu” innej rekrutacji — sygnał „zrób screening razem”.
-    other_open_jobs: dict[int, list[dict]] = {}
-    if with_other_jobs and candidate_ids:
-        from app.services.also_fits import (
-            SCREENING_ENTRY_STAGES,
-            other_open_jobs_for_candidates,
+        board.start_docs_badges = (
+            await card_badges(db, job, board.candidate_ids) if with_start_docs else {}
         )
+        # „+1 rekrutacja” (14.10.2026): ta sama osoba czeka też w „Nowych”/
+        # „Screeningu” innej rekrutacji — sygnał „zrób screening razem”.
+        board.other_open_jobs = {}
+        if with_other_jobs and board.candidate_ids:
+            from app.services.also_fits import (
+                SCREENING_ENTRY_STAGES,
+                other_open_jobs_for_candidates,
+            )
 
-        # Znacznik stoi tylko na kartach w „Nowych”/„Screeningu” — reszty Tablicy
-        # nie pytamy (zespół czyta Tablicę przy każdym `pipeline_changed`).
-        screening_ids = [
-            cid
-            for cid, s in seen.items()
-            if getattr(s.stage, "value", s.stage) in SCREENING_ENTRY_STAGES
+            # Znacznik stoi tylko na kartach w „Nowych”/„Screeningu” — reszty
+            # Tablicy nie pytamy (zespół czyta Tablicę przy każdym
+            # `pipeline_changed`).
+            screening_ids = [
+                cid
+                for cid, s in board.seen.items()
+                if getattr(s.stage, "value", s.stage) in SCREENING_ENTRY_STAGES
+            ]
+            board.other_open_jobs = await other_open_jobs_for_candidates(
+                db,
+                candidate_ids=screening_ids,
+                exclude_job_id=jid,
+                scope_clause=(
+                    job_read_scope_clause(viewer, Job.id)
+                    if viewer is not None
+                    else None
+                ),
+            )
+        # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
+        board.owner_ids |= {
+            s.task_assignee_id
+            for s in board.seen.values()
+            if s.task_assignee_id is not None
+        }
+        # 0451: kto zaznaczył akceptację klienta.
+        board.owner_ids |= {
+            s.moved_by
+            for s in board.latest_acceptance.values()
+            if s.moved_by is not None
+        }
+        # Powód zamknięcia na karcie i w panelu osoby (19.10.2026): nazwa powodu
+        # i kto zamknął kartę — tylko w „Odrzuconych” i „Rezygnacjach”.
+        board.closed_cards = [
+            s for s in board.seen.values() if s.stage in _CLOSED_CARD_STAGES
         ]
-        other_open_jobs = await other_open_jobs_for_candidates(
-            db,
-            candidate_ids=screening_ids,
-            exclude_job_id=job_id,
-            scope_clause=(
-                job_read_scope_clause(viewer, Job.id) if viewer is not None else None
-            ),
-        )
-    # 0348: wytypowani do wysłania do Cpro — ta sama paczka nazwisk.
-    owner_ids |= {
-        s.task_assignee_id for s in seen.values() if s.task_assignee_id is not None
-    }
-    # 0451: kto zaznaczył akceptację klienta.
-    owner_ids |= {
-        s.moved_by for s in latest_acceptance.values() if s.moved_by is not None
-    }
-    # Powód zamknięcia na karcie i w panelu osoby (19.10.2026): nazwa powodu
-    # i kto zamknął kartę — tylko w „Odrzuconych” i „Rezygnacjach”. Nazwa
-    # z bazy, nie ze słownika szablonu: powód wycofany z szablonu nadal ma
-    # się wyświetlić przy kartach, które go dostały.
-    closed_cards = [s for s in seen.values() if s.stage in _CLOSED_CARD_STAGES]
-    owner_ids |= {s.moved_by for s in closed_cards if s.moved_by is not None}
+        board.owner_ids |= {
+            s.moved_by for s in board.closed_cards if s.moved_by is not None
+        }
+        board.name_user_ids |= board.owner_ids
+    # 17.10.2026: „Zatrudniony” bez umowy w Kontraktach — „Pracuje u nas”
+    # liczy się wyłącznie z umowy, więc karta mówi, czego brakuje. Rodzina
+    # klienta rekrutacji tylko, gdy ktoś jej potrzebuje.
+    missing_contracts = await missing_contract_ids_for_jobs(
+        db,
+        boards={
+            jid: (
+                by_id[jid].client_id,
+                [
+                    (s.candidate_id, s.moved_at)
+                    for s in board.seen.values()
+                    if s.stage in HIRED_STAGES
+                ],
+            )
+            for jid, board in b.items()
+            if any(s.stage in HIRED_STAGES for s in board.seen.values())
+        },
+        now=board_now,
+        families=family_cache,
+    )
+    for jid, board in b.items():
+        board.missing_contracts = missing_contracts.get(jid, set())
+    # Nazwa powodu z bazy, nie ze słownika szablonu: powód wycofany z szablonu
+    # nadal ma się wyświetlić przy kartach, które go dostały.
     closed_reason_ids = {
-        s.rejection_reason_id for s in closed_cards if s.rejection_reason_id is not None
+        s.rejection_reason_id
+        for board in b.values()
+        for s in board.closed_cards
+        if s.rejection_reason_id is not None
     }
     reason_name_by_id: dict[int, Optional[str]] = {}
     if closed_reason_ids:
@@ -3965,178 +4186,281 @@ async def build_kanban_view(
             rid: rejection_reason_labels.rejection_reason_label(rname)
             for rid, rname in rrows.all()
         }
-    name_user_ids |= owner_ids
 
-    # Auto-CV gotowe w tle i czekające na przegląd (21.09.2026) — JEDNO
-    # zapytanie na tablicę; flaga dotyczy wiersza etapu, na którym je zakolejkowano.
-    # Droga rekrutera do DL (14.10.2026): automat właśnie generuje CV dla
-    # wiersza etapu — karta mówi „CV w przygotowaniu…”. To samo zapytanie.
-    from app.services.cv_auto_review import job_stages_auto_cv
-
-    auto_cv_stage_ids, generating_stage_ids = await job_stages_auto_cv(
-        db, job_id, with_processing=with_cv_state
+    # Auto-CV gotowe w tle i czekające na przegląd (21.09.2026); flaga dotyczy
+    # wiersza etapu, na którym je zakolejkowano. Droga rekrutera do DL
+    # (14.10.2026): automat właśnie generuje CV dla wiersza etapu — karta mówi
+    # „CV w przygotowaniu…”. To samo zapytanie.
+    auto_cv = await job_stages_auto_cv_for_jobs(
+        db, job_ids, with_processing=with_cv_state
     )
     # Rekrutacja v5 (0361): stan QC CV każdej karty — jedno zapytanie hurtowe
     # (najnowszy przebieg pary; obejście DL/admina = `overridden`).
-    from app.services.cv_qc import pair_statuses
-
-    qc_by_pair = await pair_statuses(db, [(cid, job_id) for cid in candidate_ids])
+    qc_by_pair = await pair_statuses(db, [(cid, jid) for jid, cid in pairs])
     # 22.10.2026: Delivery Lead przesunął mimo braków — odznaka na karcie.
     # Tylko ślady bieżącej próby — po ponownym dodaniu osoby dawne nie wracają.
-    from app.services.recommendation_cards import attempt_started
-
-    skipped_by_candidate = await _requirements_skipped(
+    skipped = await _requirements_skipped_for_jobs(
         db,
-        job_id=job_id,
-        candidate_ids=candidate_ids,
-        since={cid: attempt_started(p) for cid, p in v4_processes.items()},
+        boards_cids,
+        since={
+            jid: {cid: attempt_started(p) for cid, p in board.v4_processes.items()}
+            for jid, board in b.items()
+        },
     )
-    name_user_ids |= {
-        uid for _keys, uid in skipped_by_candidate.values() if uid is not None
-    }
-    # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”)
-    # i liczba prób kontaktu — po jednym zapytaniu na tablicę.
+    # Pola, które klient dokłada do minimum dla DL (karta klienta, D3).
+    required_by_client = await move_requirements.client_required_fields_for_clients(
+        db, {job.client_id for job in jobs}
+    )
+    # Para ma CV firmowe — ta sama reguła co wymaganie ruchu na „QC CV”
+    # (`company_cv_refs`, hurtem: najwyżej 4 zapytania). Karta
+    # z „Zweryfikowanego” wie przed ruchem, że CV brakuje (14.10.2026).
+    company_cv_pairs = (
+        set(await move_requirements.company_cv_refs(db, [(c, j) for j, c in pairs]))
+        if with_cv_state
+        else None
+    )
+    client_clocks = await client_wait_service.client_clocks_for_jobs_safely(
+        db, [job for job in jobs if job.status != JobStatus.closed]
+    )
+    # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
+    rate_changes = await _rate_change.open_badges_for_jobs(db, job_ids=job_ids)
+    # 0413: stan karty rekomendacji każdej osoby („Karta gotowa” / „brakuje N”).
+    cards = await recommendation_cards.summaries_for_jobs(
+        db,
+        started_by_job={
+            jid: {
+                cid: recommendation_cards.attempt_started(board.v4_processes.get(cid))
+                for cid in board.candidate_ids
+            }
+            for jid, board in b.items()
+        },
+    )
+    # …i liczba prób kontaktu: notatka przy tej rekrutacji albo bez rekrutacji.
     from sqlalchemy import func, or_
 
     from app.models.note import Note as _Note
-    from app.services import (
-        note_kinds,
-        recommendation_cards,
-        screening_sheets,
-    )
+    from app.services import note_kinds
 
-    from app.services import candidate_rate_change as _rate_change
-
-    job_has_questions = bool(screening_sheets.question_texts(job.champion_profile))
-    # Pola, które klient dokłada do minimum dla DL (karta klienta, D3).
-    job_client_required, _ = await move_requirements.client_required_fields(
-        db, job.client_id
-    )
-    # Para ma CV firmowe — ta sama reguła co wymaganie ruchu na „QC CV”
-    # (`company_cv_refs`, hurtem: najwyżej 4 zapytania na tablicę). Karta
-    # z „Zweryfikowanego” wie przed ruchem, że CV brakuje (14.10.2026).
-    company_cv_pairs = (
-        set(
-            await move_requirements.company_cv_refs(
-                db, [(cid, job_id) for cid in candidate_ids]
+    attempts_by_pair: dict[tuple[int, Optional[int]], int] = {}
+    if all_cids:
+        for cid, note_job_id, total in (
+            await db.execute(
+                select(_Note.candidate_id, _Note.job_id, func.count(_Note.id))
+                .where(
+                    _Note.candidate_id.in_(all_cids),
+                    _Note.kind == note_kinds.CONTACT_ATTEMPT,
+                    or_(_Note.job_id.in_(job_ids), _Note.job_id.is_(None)),
+                )
+                .group_by(_Note.candidate_id, _Note.job_id)
             )
-        )
-        if with_cv_state
+        ).all():
+            attempts_by_pair[(cid, note_job_id)] = int(total)
+    # Szablon Tablicy i katalog etapów — raz na żądanie: kolumny niżej i reguła
+    # follow-upu („czeka na klienta”) czytają te same definicje etapów.
+    default_template_id: Optional[int] = None
+    if any(not job.pipeline_template_id for job in jobs):
+        default_template_id = await _default_template_id(db)
+    template_ids = {
+        jid: by_id[jid].pipeline_template_id or default_template_id for jid in job_ids
+    }
+    stage_catalog = (
+        await board_tasks_svc._catalog(db)
+        if any(tid is not None for tid in template_ids.values())
         else None
     )
-    # 0521 (26.10.2026): klient bierze formularz CV — karta pokazuje stan
-    # formularza zamiast CV firmowego. `None` = klient bierze CV firmowe.
-    from app.services import client_form_status
+    from app.services import candidate_followups, screening_sheets
 
-    client_forms = (
-        await client_form_status.job_states(db, job_id, candidate_ids)
-        if with_cv_state
-        else None
+    for jid, board in b.items():
+        job = by_id[jid]
+        board.reason_name_by_id = reason_name_by_id
+        board.auto_cv_stage_ids, board.generating_stage_ids = auto_cv[jid]
+        board.qc_by_pair = qc_by_pair
+        board.skipped_by_candidate = skipped[jid]
+        board.name_user_ids |= {
+            uid for _keys, uid in board.skipped_by_candidate.values() if uid is not None
+        }
+        board.job_has_questions = bool(
+            screening_sheets.question_texts(job.champion_profile)
+        )
+        board.job_client_required = required_by_client[job.client_id][0]
+        board.company_cv_pairs = company_cv_pairs
+        # 0521 (26.10.2026): klient bierze formularz CV — karta pokazuje stan
+        # formularza zamiast CV firmowego. `None` = klient bierze CV firmowe.
+        board.client_forms = (
+            await client_form_status.job_states(db, jid, board.candidate_ids)
+            if with_cv_state
+            else None
+        )
+        board.client_clocks = client_clocks.get(jid, {})
+        board.rate_change_by_candidate = rate_changes[jid]
+        board.card_by_candidate = cards[jid]
+        board.contact_attempts = {
+            cid: total
+            for cid in sorted(board.candidate_ids)
+            if (
+                total := attempts_by_pair.get((cid, jid), 0)
+                + attempts_by_pair.get((cid, None), 0)
+            )
+        }
+        board.template_id = template_ids[jid]
+        board.stage_catalog = stage_catalog if board.template_id is not None else None
+        # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
+        # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
+        # Odznaka stoi tylko przy procesie TEJ rekrutacji, który czeka na
+        # klienta: rekrutacja opublikowana, nie „Zakończona”, karta w kolumnie
+        # „czeka na klienta” (`_WAITING_SQL`). Reszty Tablicy nie liczymy —
+        # wynik dla tych osób (wszystkie ich procesy) jest ten sam co przy całej
+        # liście.
+        followup_ids: list[int] = []
+        if (
+            with_followups
+            and job.status == JobStatus.published
+            and job.work_state != _WORK_FINISHED
+        ):
+            followup_ids = (
+                candidate_followups.board_waiting_ids(
+                    board.stage_catalog,
+                    template_id=board.template_id,
+                    stages=board.seen.values(),
+                )
+                if board.stage_catalog is not None
+                else board.candidate_ids
+            )
+        board.followups = (
+            await candidate_followups.load_followups_safely(
+                db,
+                now=board_now,
+                candidate_ids=followup_ids,
+                catalog=board.stage_catalog,
+                # Rekrutacja bez własnego szablonu rysuje domyślny — to ten sam id.
+                **(
+                    {"default_template_id": board.template_id}
+                    if job.pipeline_template_id is None
+                    else {}
+                ),
+            )
+            if followup_ids
+            else {}
+        )
+        board.caller_ids = {
+            f.caller_id for f in board.followups.values() if f.caller_id
+        }
+    # Nazwiska z kart wszystkich tablic — jedno zapytanie. Dwie mapy na tablicę
+    # jak przed scaleniem zapytań: nazwisko dzwoniącego nie trafia do pól
+    # karty, które go wcześniej nie miały, a nazwisko z jednej tablicy — do
+    # drugiej.
+    all_user_ids = {
+        uid for board in b.values() for uid in board.name_user_ids | board.caller_ids
+    }
+    names: dict[int, Optional[str]] = {}
+    if all_user_ids:
+        names = dict(
+            (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(all_user_ids))
+                )
+            ).all()
+        )
+    for board in b.values():
+        board.user_name_by_id = {
+            uid: names[uid] for uid in board.name_user_ids if uid in names
+        }
+        board.followup_names = {
+            uid: names[uid] for uid in board.caller_ids if uid in names
+        }
+    return b
+
+
+async def _render_kanban_board(
+    db: AsyncSession,
+    job: Job,
+    board: SimpleNamespace,
+    *,
+    viewer: Optional[User],
+) -> KanbanView:
+    """Jedna tablica z danych :func:`_load_kanban_boards` (bez zapytań, poza
+    nazwami etapów obcego szablonu w kubełku)."""
+    from app.services import (
+        autofill_decisions,
+        new_column_autofill,
+        review_batch_order,
     )
+    from app.services.candidate_followups import local_date
+    from app.services.dl_send_queue import TRAFFIT_SOURCE, board_waiting_workdays
+    from app.services.job_similarity import HIRED_STAGES  # noqa: PLC0415
+
+    job_id = job.id
+    seen = board.seen
+    earliest = board.earliest
+    screened_pairs = board.screened_pairs
+    carried_expected_rate = board.carried_expected_rate
+    carried_client_rate = board.carried_client_rate
+    latest_acceptance = board.latest_acceptance
+    first_verified = board.first_verified
+    show_client_rate = board.show_client_rate
+    viewer_owns_dl_review = board.viewer_owns_dl_review
+    contact_case_by_candidate = board.contact_case_by_candidate
+    name_by_id = board.name_by_id
+    profile_rate_by_id = board.profile_rate_by_id
+    rate_from_by_id = board.rate_from_by_id
+    availability_by_id = board.availability_by_id
+    added_to_base_by_id = board.added_to_base_by_id
+    user_name_by_id = board.user_name_by_id
+    eligibility_decisions = board.eligibility_decisions
+    manager_verdicts = board.manager_verdicts
+    process_cards = board.process_cards
+    process_versions = board.process_versions
+    pair_owners = board.pair_owners
+    pair_care = board.pair_care
+    v4_processes = board.v4_processes
+    link_owner_by_candidate = board.link_owner_by_candidate
+    review_owner_by_candidate = board.review_owner_by_candidate
+    reapplied_link_owners = board.reapplied_link_owners
+    inactive_claimers = board.inactive_claimers
+    booked_calls = board.booked_calls
+    reassign_titles = board.reassign_titles
+    reassign_refs = board.reassign_refs
+    board_now = board.board_now
+    board_budget_hourly = board.board_budget_hourly
+    known_queue_facts = board.known_queue_facts
+    without_process_ids = board.without_process_ids
+    board_signals = board.board_signals
+    autofill_recruiter_since = board.autofill_recruiter_since
+    fresh_threshold = board.fresh_threshold
+    interview_badges = board.interview_badges
+    order_statuses = board.order_statuses
+    missing_contracts = board.missing_contracts
+    agreements = board.agreements
+    employment_markers = board.employment_markers
+    pre_contract_badges = board.pre_contract_badges
+    start_docs_badges = board.start_docs_badges
+    champion_ids = board.champion_ids
+    other_open_jobs = board.other_open_jobs
+    reason_name_by_id = board.reason_name_by_id
+    auto_cv_stage_ids = board.auto_cv_stage_ids
+    generating_stage_ids = board.generating_stage_ids
+    qc_by_pair = board.qc_by_pair
+    skipped_by_candidate = board.skipped_by_candidate
+    job_has_questions = board.job_has_questions
+    job_client_required = board.job_client_required
+    company_cv_pairs = board.company_cv_pairs
+    client_forms = board.client_forms
+    client_clocks = board.client_clocks
+    rate_change_by_candidate = board.rate_change_by_candidate
+    card_by_candidate = board.card_by_candidate
+    contact_attempts = board.contact_attempts
+    template_id = board.template_id
+    stage_catalog = board.stage_catalog
+    followups = board.followups
+    followup_names = board.followup_names
+    followup_today = local_date(board_now)
     # „Do wysłania do klienta” (`dl_send_queue`): kolejka Delivery Leada bierze
     # tylko opublikowane rekrutacje, a etap z importu Traffita nie liczy się do
     # „Czeka na Ciebie” — karta mówi to samo co pas na pulpicie (audyt 13.10.2026).
-    from app.services.dl_send_queue import TRAFFIT_SOURCE, board_waiting_workdays
-
     dl_send_job = job.status == JobStatus.published
     # Kolumna Tablicy każdego etapu — wypełnione niżej, gdy znane są definicje.
     column_by_def_id: dict[int, str] = {}
     board_today = business_today()
-    from app.services import client_wait as client_wait_service
-
-    client_clocks = (
-        await client_wait_service.client_clocks_safely(db, job)
-        if job.status != JobStatus.closed
-        else {}
-    )
-
-    # 0418: otwarta sprawa zmiany stawki pary — plakietka na karcie.
-    rate_change_by_candidate = await _rate_change.open_badges_for_job(db, job_id=job_id)
-    card_by_candidate = await recommendation_cards.summaries_for_job(
-        db,
-        job_id=job_id,
-        started_by_candidate={
-            cid: recommendation_cards.attempt_started(v4_processes.get(cid))
-            for cid in candidate_ids
-        },
-    )
-    contact_attempts: dict[int, int] = {}
-    if candidate_ids:
-        contact_attempts = {
-            cid: int(total)
-            for cid, total in (
-                await db.execute(
-                    select(_Note.candidate_id, func.count(_Note.id))
-                    .where(
-                        _Note.candidate_id.in_(sorted(candidate_ids)),
-                        _Note.kind == note_kinds.CONTACT_ATTEMPT,
-                        or_(_Note.job_id == job_id, _Note.job_id.is_(None)),
-                    )
-                    .group_by(_Note.candidate_id)
-                )
-            ).all()
-        }
-    # 0372: follow-up z kandydatem, gdy klient milczy — liczony dla OSOBY (ze
-    # wszystkimi jej procesami), na karcie tylko przy procesie, który czeka.
-    from app.services import candidate_followups
-    from app.services.request_work_state import FINISHED as _WORK_FINISHED
-
-    # Szablon Tablicy i katalog etapów — raz na żądanie: kolumny niżej i reguła
-    # follow-upu („czeka na klienta”) czytają te same definicje etapów.
-    template_id = job.pipeline_template_id or await _default_template_id(db)
-    stage_catalog = (
-        await board_tasks_svc._catalog(db) if template_id is not None else None
-    )
-    # Odznaka follow-upu stoi tylko przy procesie TEJ rekrutacji, który czeka na
-    # klienta: rekrutacja opublikowana, nie „Zakończona”, karta w kolumnie
-    # „czeka na klienta” (`_WAITING_SQL`). Reszty Tablicy nie liczymy — wynik
-    # dla tych osób (wszystkie ich procesy) jest ten sam co przy całej liście.
-    followup_ids: list[int] = []
-    if (
-        with_followups
-        and job.status == JobStatus.published
-        and job.work_state != _WORK_FINISHED
-    ):
-        followup_ids = (
-            candidate_followups.board_waiting_ids(
-                stage_catalog, template_id=template_id, stages=seen.values()
-            )
-            if stage_catalog is not None
-            else candidate_ids
-        )
-    followups = (
-        await candidate_followups.load_followups_safely(
-            db,
-            now=board_now,
-            candidate_ids=followup_ids,
-            catalog=stage_catalog,
-            # Rekrutacja bez własnego szablonu rysuje domyślny — to ten sam id.
-            **(
-                {"default_template_id": template_id}
-                if job.pipeline_template_id is None
-                else {}
-            ),
-        )
-        if followup_ids
-        else {}
-    )
-    followup_today = candidate_followups.local_date(board_now)
-    caller_ids = {f.caller_id for f in followups.values() if f.caller_id}
-    followup_names: dict[int, Optional[str]] = {}
-    if name_user_ids or caller_ids:
-        for uid, uname in (
-            await db.execute(
-                select(User.id, User.name).where(
-                    User.id.in_(name_user_ids | caller_ids)
-                )
-            )
-        ).all():
-            # Dwie mapy jak przed scaleniem zapytań: nazwisko dzwoniącego nie
-            # trafia do pól karty, które go wcześniej nie miały.
-            if uid in name_user_ids:
-                user_name_by_id[uid] = uname
-            if uid in caller_ids:
-                followup_names[uid] = uname
 
     def _followup_badge(candidate_id: int) -> Optional[dict]:
         f = followups.get(candidate_id)
@@ -4640,9 +4964,7 @@ async def my_next_steps(
         if user_can_access_candidate_domain(current_user)
         else set()
     )
-    out: list[MyNextStepsJob] = []
-    # „Czyj przegląd” raz na żądanie, nie raz na tablicę (audyt 13.10.2026).
-    dl_review_memo: dict[Any, Any] = {}
+    readable: list[Job] = []
     for job in jobs:
         try:
             # The board read guard is the one that decides (`jobs_mine_clause`
@@ -4655,28 +4977,32 @@ async def my_next_steps(
                 )
         except HTTPException:
             continue
-        out.append(
-            MyNextStepsJob(
-                job_id=job.id,
-                title=job.title,
-                client_name=job.client.name if job.client else None,
-                # Follow-up (0372) liczy ~14 zapytań na tablicę — „Moje
-                # następne kroki” składa do 25 tablic, a plakietki nie pokazuje.
-                # Stan CV firmowego (14.10.2026) też nie: `company_cv=None`
-                # znaczy „nie wiadomo” i niczego nie blokuje.
-                view=await build_kanban_view(
-                    db,
-                    job,
-                    viewer=current_user,
-                    with_followups=False,
-                    with_employment=False,
-                    with_start_docs=False,
-                    with_cv_state=False,
-                    with_other_jobs=False,
-                    dl_review_memo=dl_review_memo,
-                ),
-            )
+        readable.append(job)
+    # Wszystkie tablice jednym zestawem zapytań (18.11.2026: do 1360 zapytań
+    # po jednej tablicy naraz). Follow-up (0372) liczy ~14 zapytań na tablicę,
+    # a plakietki tu nie widać; stan CV firmowego (14.10.2026) też nie:
+    # `company_cv=None` znaczy „nie wiadomo” i niczego nie blokuje.
+    views = await build_kanban_views(
+        db,
+        readable,
+        viewer=current_user,
+        with_followups=False,
+        with_employment=False,
+        with_start_docs=False,
+        with_cv_state=False,
+        with_other_jobs=False,
+        # „Czyj przegląd” raz na żądanie, nie raz na tablicę (audyt 13.10.2026).
+        dl_review_memo={},
+    )
+    out = [
+        MyNextStepsJob(
+            job_id=job.id,
+            title=job.title,
+            client_name=job.client.name if job.client else None,
+            view=view,
         )
+        for job, view in zip(readable, views)
+    ]
     return MyNextStepsResponse(jobs=out, truncated=truncated)
 
 

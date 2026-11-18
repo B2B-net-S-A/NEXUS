@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from sqlalchemy import func, select
 
@@ -277,6 +277,36 @@ async def polish_states(db, job: Any, candidates: Iterable[Any]) -> dict[int, st
         return {cid: "native" for cid in people}
     profile, refused = await _polish_inputs(db, sorted(people))
     return {cid: polish_state_of(c, profile, refused) for cid, c in people.items()}
+
+
+async def polish_states_for_jobs(
+    db, boards: Mapping[int, tuple[Any, Iterable[Any]]]
+) -> dict[int, dict[int, str]]:
+    """``polish_states`` dla wielu rekrutacji: ``{rekrutacja: (job, osoby)}``.
+
+    Dwa zapytania ``_polish_inputs`` raz na sumę osób z rekrutacji, które
+    wymagają polskiego."""
+    people = {job_id: {c.id: c for c in cands} for job_id, (_, cands) in boards.items()}
+    out: dict[int, dict[int, str]] = {job_id: {} for job_id in boards}
+    needs = {
+        job_id
+        for job_id, (job, _) in boards.items()
+        if people[job_id] and job_needs_polish(job_language(job))
+    }
+    for job_id in boards:
+        if people[job_id] and job_id not in needs:
+            out[job_id] = {cid: "native" for cid in people[job_id]}
+    if not needs:
+        return out
+    profile, refused = await _polish_inputs(
+        db, sorted({cid for job_id in needs for cid in people[job_id]})
+    )
+    for job_id in needs:
+        out[job_id] = {
+            cid: polish_state_of(c, profile, refused)
+            for cid, c in people[job_id].items()
+        }
+    return out
 
 
 async def key_facts_for(db, cards: list[tuple[int, Any, Any]]) -> dict[int, dict]:

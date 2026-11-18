@@ -23,7 +23,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Literal, Mapping, Optional
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -665,18 +665,32 @@ async def starts_by_candidate(
     db: AsyncSession, job_id: int, candidate_ids: list[int]
 ) -> dict[int, CalendarEvent]:
     """Otwarte terminy jednej Tablicy — jedno zapytanie."""
-    if not candidate_ids:
-        return {}
+    return (await starts_by_candidate_for_jobs(db, {job_id: candidate_ids}))[job_id]
+
+
+async def starts_by_candidate_for_jobs(
+    db: AsyncSession, boards: Mapping[int, list[int]]
+) -> dict[int, dict[int, CalendarEvent]]:
+    """Otwarte terminy wielu Tablic — jedno zapytanie; pary spoza Tablic odpadają."""
+    out: dict[int, dict[int, CalendarEvent]] = {job_id: {} for job_id in boards}
+    wanted = {job_id: set(ids) for job_id, ids in boards.items() if ids}
+    if not wanted:
+        return out
     rows = (
         await db.scalars(
             select(CalendarEvent).where(
                 *_open_calls_clause(),
-                CalendarEvent.job_id == job_id,
-                CalendarEvent.candidate_id.in_(candidate_ids),
+                CalendarEvent.job_id.in_(sorted(wanted)),
+                CalendarEvent.candidate_id.in_(
+                    sorted({cid for ids in wanted.values() for cid in ids})
+                ),
             )
         )
     ).all()
-    return {event.candidate_id: event for event in rows}
+    for event in rows:
+        if event.candidate_id in wanted.get(event.job_id, ()):
+            out[event.job_id][event.candidate_id] = event
+    return out
 
 
 async def for_user(db: AsyncSession, user: User) -> list[BookedCall]:

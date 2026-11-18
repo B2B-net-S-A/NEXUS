@@ -30,7 +30,7 @@ Czasy na bezczynnym stagingu nie odpowiadają szczytowi — miarą jest liczba z
 | Trasa | Konta / kandydaci | Zapytania przed | Zapytania po | JSON |
 |---|---|---|---|---|
 | `recommendations` | 3 kandydatów, pula 170 rekrutacji | 306–308 | **10** | identyczny (3/3) |
-| `my-next-steps` | 6 kont, 15–52 „moich” rekrutacji (limit 25) | 791–1363 (4–27 s, 3,5–8,2 MB) | bez zmian w tym PR-ze | — |
+| `my-next-steps` | 6 kont, 15–52 „moich” rekrutacji (limit 25) | 791–1363 (4–27 s, 3,5–8,2 MB) | drugi PR, tabela niżej | — |
 | `review-batch/me` | 17 rekruterów, porcja włączona tylko dla pomiaru | mediana 43, maks. 46 (mediana 100 ms) | bez zmian | — |
 | `interview-cycle` (`mine`) | 17 rekruterów | mediana 24, maks. 32 (mediana 72 ms) | bez zmian | — |
 
@@ -61,9 +61,49 @@ Szacunek ruchu tła: `review-batch/me` 698 → ok. 280 wywołań na te same
 plus kilka dociągnięć na granicach rozmów w ciągu dnia. Do potwierdzenia
 w logach po wdrożeniu.
 
-## Czego ten PR nie robi
+## `my-next-steps` (drugi PR, 19.11.2026)
 
-`my-next-steps` zostaje na osobny PR: wersja zbiorcza przepisuje ok. 30 wywołań
+Ta sama metoda, drzewo `app/` z `origin/main` 774b3b575 (po PR-ze Tablicy #3587)
+i z gałęzi `claude/my-next-steps-hurtem`. Każde konto wołane dwa razy, liczony
+drugi bieg.
+
+| Konto | Tablic | Zapytania przed | Zapytania po | Czas przed → po | Odpowiedź | JSON |
+|---|---|---|---|---|---|---|
+| 14 | 25 | 1287 | **71** | 2,9 s → 1,2 s | 6,6 MB | identyczny |
+| 86 | 25 | 1170 | **73** | 2,3 s → 0,6 s | 5,4 MB | identyczny |
+| 27 | 25 | 1314 | **94** | 2,7 s → 1,0 s | 8,2 MB | identyczny |
+| 101 | 22 | 1080 | **81** | 2,2 s → 0,8 s | 6,0 MB | identyczny |
+| 30 | 17 | 831 | **68** | 1,4 s → 0,4 s | 3,6 MB | identyczny |
+| 91 | 15 | 763 | **83** | 1,2 s → 0,4 s | 3,5 MB | identyczny |
+
+„Identyczny” = bajt w bajt (`cmp`), także pola liczone z zegara, bo oba biegi
+szły minutę po sobie. Pojedyncza Tablica (`/kanban/{job_id}`) idzie tą samą
+drogą: 8 Tablic (4 największe, 4 najnowsze, 130 KB–48 MB) — liczba zapytań
+bez zmian (44–93), JSON bajt w bajt ten sam.
+
+Zostało 68–94 zapytań, bo stałe są per żądanie, nie per tablica: rozbieżność
+między kontami to gałęzie warunkowe (porcja dnia, zatrudnieni, kubełek poza
+szablonem, przegląd DL). Na produkcji 18.11 średnio 400 zapytań przy p95
+36,7 s — przy ok. 1,4 ms CPU na zapytanie to ok. 0,5 s pętli mniej na każde
+wywołanie, plus mniej zajętych połączeń z puli.
+
+Rozmiar odpowiedzi się nie zmienia (3,5–8,2 MB, pulpit składa z pełnych
+tablic następny krok karty). To osobna decyzja: odchudzenie odpowiedzi
+zmienia kontrakt API pulpitu.
+
+Jak: `build_kanban_view` dzieli się na `_load_kanban_boards` (wszystkie
+zapytania, każde raz dla listy rekrutacji) i `_render_kanban_board` (bez
+zapytań). `/kanban/{job_id}` woła to z listą jednej rekrutacji, `my-next-steps`
+z całą listą (`build_kanban_views`). Helpery serwisów dostały warianty
+`*_for_jobs`, a stare funkcje wołają nowe — jedna ścieżka kodu.
+Testy: `backend/tests/test_my_next_steps_query_budget.py` (ta sama liczba
+zapytań dla 2 i 6 tablic; każda tablica = `build_kanban_view` tej rekrutacji,
+osoba na trzech tablicach nie przecieka między nimi) i testy wariantów
+`*_for_jobs`. Bramka odczytu (`ensure_job_read_access`) zostaje per rekrutacja.
+
+## Czego pierwszy PR nie robił
+
+`my-next-steps` poszło osobnym PR-em (wyżej): wersja zbiorcza przepisuje ok. 30 wywołań
 w `build_kanban_view`, które w tym samym czasie zmienia PR Tablicy
 (sesja „Tablica: mniej zapytań w kanban”). Pomiar „przed” wyżej jest punktem
 odniesienia; porównanie JSON musi pominąć pola liczone z zegara

@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AbstractSet, Mapping, Optional, Sequence
+from typing import AbstractSet, Any, Mapping, Optional, Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -56,7 +56,10 @@ from app.services.candidate_job_eligibility import (
 )
 from app.services.current_employment import current_employment_client_ids
 from app.services.eligibility_annotation import eligibility_annotation
-from app.services.hiring_manager_verdicts import ManagerVerdict, load_manager_rejections
+from app.services.hiring_manager_verdicts import (
+    ManagerVerdict,
+    load_manager_rejections_for_jobs,
+)
 
 
 ELIGIBILITY_WARNING_CODE = "ELIGIBILITY_WARNING"
@@ -145,22 +148,71 @@ async def evaluate_candidates_for_job_with_verdicts(
     endpoints use it for transitions that are not "put this person in front of
     the manager again" — see ``api/pipeline.py``.
     """
-    ids = list(dict.fromkeys(candidate_ids))
-    if not ids:
-        return {}, {}
+    return (
+        await evaluate_candidates_for_jobs_with_verdicts(
+            db,
+            jobs=[job],
+            candidate_ids_by_job={job.id: candidate_ids},
+            now=now,
+            candidates=candidates,
+            enforce_manager_verdict=enforce_manager_verdict,
+            already_in_job_ids_by_job=(
+                {job.id: already_in_job_ids} if already_in_job_ids else None
+            ),
+        )
+    )[job.id]
+
+
+async def evaluate_candidates_for_jobs_with_verdicts(
+    db: AsyncSession,
+    *,
+    jobs: Sequence[Job],
+    candidate_ids_by_job: Mapping[int, Sequence[int]],
+    now: datetime,
+    candidates: Optional[Mapping[int, Any]] = None,
+    enforce_manager_verdict: bool = True,
+    already_in_job_ids_by_job: Optional[Mapping[int, AbstractSet[int]]] = None,
+) -> dict[int, tuple[dict[int, EligibilityDecision], dict[int, ManagerVerdict]]]:
+    """:func:`evaluate_candidates_for_job_with_verdicts` dla wielu rekrutacji.
+
+    ``{job_id: (decyzje, werdykty)}`` z kluczem dla każdej rekrutacji — ta sama
+    polityka, a zapytań tyle, ile dla jednej Tablicy: kandydaci, konflikty
+    i umowy po ``client_id IN``, werdykty managerów jednym zapytaniem. Para
+    spoza ``candidate_ids_by_job`` nie trafia do wyniku. ``candidates`` to
+    lekkie wiersze (``id``, ``status``, ``preferences``) — suma ze wszystkich
+    rekrutacji.
+    """
+    ids_by_job: dict[int, list[int]] = {
+        job.id: list(dict.fromkeys(candidate_ids_by_job.get(job.id, ())))
+        for job in jobs
+    }
+    out: dict[int, tuple[dict[int, EligibilityDecision], dict[int, ManagerVerdict]]] = {
+        job.id: ({}, {}) for job in jobs
+    }
+    all_ids = list(dict.fromkeys(cid for ids in ids_by_job.values() for cid in ids))
+    if not all_ids:
+        return out
 
     if candidates is None:
         cand_rows = (
-            (await db.execute(select(Candidate).where(Candidate.id.in_(ids))))
+            (await db.execute(select(Candidate).where(Candidate.id.in_(all_ids))))
             .scalars()
             .all()
         )
-        candidates_by_id: dict[int, Candidate] = {c.id: c for c in cand_rows}
+        candidates_by_id: dict[int, Any] = {c.id: c for c in cand_rows}
     else:
         candidates_by_id = dict(candidates)
 
-    conflicts_by_candidate: dict[int, list[ConflictInput]] = {}
-    if job.client_id is not None:
+    # (rekrutacja, kandydat) → konflikty z klientem tej rekrutacji.
+    conflicts_by_pair: dict[tuple[int, int], list[ConflictInput]] = {}
+    client_jobs = [
+        job for job in jobs if job.client_id is not None and ids_by_job[job.id]
+    ]
+    if client_jobs:
+        client_ids = sorted({job.client_id for job in client_jobs})
+        client_candidate_ids = sorted(
+            {cid for job in client_jobs for cid in ids_by_job[job.id]}
+        )
         # Wyłącznie kolumny potrzebne polityce — nie cała encja. Gorąca ścieżka
         # (każdy ruch, bulk-add, ranking) nie może zależeć od kolumn audytu
         # dołożonych w 0321: na prodzie wprowadza je safety-net entrypointu
@@ -174,14 +226,17 @@ async def evaluate_candidates_for_job_with_verdicts(
                     CandidateConflict.active,
                     CandidateConflict.expires_at,
                 ).where(
-                    CandidateConflict.candidate_id.in_(ids),
-                    CandidateConflict.client_id == job.client_id,
+                    CandidateConflict.candidate_id.in_(client_candidate_ids),
+                    CandidateConflict.client_id.in_(client_ids),
                     CandidateConflict.active.is_(True),
                 )
             )
         ).all()
+        by_client_candidate: dict[tuple[int, int], list[ConflictInput]] = {}
         for row in conflict_rows:
-            conflicts_by_candidate.setdefault(row.candidate_id, []).append(
+            by_client_candidate.setdefault(
+                (row.client_id, row.candidate_id), []
+            ).append(
                 ConflictInput(
                     type=row.type.value,
                     client_id=row.client_id,
@@ -190,36 +245,49 @@ async def evaluate_candidates_for_job_with_verdicts(
                 )
             )
         derived = await current_employment_client_ids(
-            db, ids, client_id=job.client_id, today=business_today()
+            db, client_candidate_ids, client_ids=client_ids, today=business_today()
         )
-        for cid, client_ids in derived.items():
-            for employer_id in client_ids:
-                conflicts_by_candidate.setdefault(cid, []).append(
-                    ConflictInput(type="current_employment", client_id=employer_id)
-                )
+        for job in client_jobs:
+            for cid in ids_by_job[job.id]:
+                pair = [*by_client_candidate.get((job.client_id, cid), ())]
+                if job.client_id in derived.get(cid, ()):
+                    pair.append(
+                        ConflictInput(
+                            type="current_employment", client_id=job.client_id
+                        )
+                    )
+                if pair:
+                    conflicts_by_pair[(job.id, cid)] = pair
 
-    in_job = already_in_job_ids or frozenset()
-    verdicts: dict[int, ManagerVerdict] = {}
+    verdicts_by_job: dict[int, dict[int, ManagerVerdict]] = {}
     if enforce_manager_verdict:
-        verdicts = await load_manager_rejections(db, job=job, candidate_ids=ids)
-
-    decisions: dict[int, EligibilityDecision] = {}
-    for cid in ids:
-        candidate = candidates_by_id.get(cid)
-        if candidate is None:
-            continue
-        decisions[cid] = evaluate_eligibility(
-            EligibilityInput(
-                candidate_status=candidate.status.value,
-                job_client_id=job.client_id,
-                conflicts=tuple(conflicts_by_candidate.get(cid, ())),
-                excluded_client_ids=extract_excluded_client_ids(candidate.preferences),
-                already_in_job=cid in in_job,
-                rejected_by_hiring_manager=cid in verdicts,
-            ),
-            now,
+        verdicts_by_job = await load_manager_rejections_for_jobs(
+            db, jobs=jobs, candidate_ids_by_job=ids_by_job
         )
-    return decisions, verdicts
+
+    for job in jobs:
+        in_job = (already_in_job_ids_by_job or {}).get(job.id) or frozenset()
+        verdicts = verdicts_by_job.get(job.id, {})
+        decisions: dict[int, EligibilityDecision] = {}
+        for cid in ids_by_job[job.id]:
+            candidate = candidates_by_id.get(cid)
+            if candidate is None:
+                continue
+            decisions[cid] = evaluate_eligibility(
+                EligibilityInput(
+                    candidate_status=candidate.status.value,
+                    job_client_id=job.client_id,
+                    conflicts=tuple(conflicts_by_pair.get((job.id, cid), ())),
+                    excluded_client_ids=extract_excluded_client_ids(
+                        candidate.preferences
+                    ),
+                    already_in_job=cid in in_job,
+                    rejected_by_hiring_manager=cid in verdicts,
+                ),
+                now,
+            )
+        out[job.id] = (decisions, verdicts)
+    return out
 
 
 async def partition_eligible_candidates(
