@@ -1,17 +1,22 @@
 /**
- * Nowości do przeklikania — zapytania. Awaria = brak kropek i ✦ w pasku,
- * nigdy błąd na ekranie (to dodatek do pracy, nie jej warunek).
+ * Nowości do przeklikania — zapytania. Awaria = brak porcji i archiwum ✦,
+ * nigdy błąd na ekranie ani blokada (to dodatek do pracy, nie jej warunek).
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { LukiMatrix, Novelty, NoveltyEvent, StartStatus } from "./logic";
+import type { DailyStatus, LukiMatrix, Novelty, NoveltyEvent, StartStatus } from "./logic";
 
 export const myNoveltiesKey = ["novelties", "mine"] as const;
 
 export function useMyNovelties(enabled: boolean): Novelty[] {
+  return useMyNoveltiesState(enabled).items;
+}
+
+/** Lista z `/mine` i to, czy już przyszła (pusta lista ≠ jeszcze nie wiadomo). */
+export function useMyNoveltiesState(enabled: boolean): { items: Novelty[]; loaded: boolean } {
   const query = useQuery({
     queryKey: myNoveltiesKey,
     queryFn: async () => (await api.get<Novelty[]>("/api/novelties/mine")).data,
@@ -19,10 +24,10 @@ export function useMyNovelties(enabled: boolean): Novelty[] {
     staleTime: 5 * 60_000,
     retry: 0,
   });
-  return query.data ?? [];
+  return { items: query.data ?? [], loaded: query.isSuccess };
 }
 
-/** Zapis zdarzenia; po zaliczeniu lista się odświeża (znika kropka i licznik). */
+/** Zapis zdarzenia; po zaliczeniu odświeżają się lista, porcja i Start. */
 export function useNoveltyEvent(): (
   noveltyId: string,
   event: NoveltyEvent,
@@ -38,6 +43,7 @@ export function useNoveltyEvent(): (
         if (event !== "seen") {
           await queryClient.invalidateQueries({ queryKey: myNoveltiesKey });
           await queryClient.invalidateQueries({ queryKey: startKey });
+          await queryClient.invalidateQueries({ queryKey: dailyKey });
         }
         return true;
       } catch {
@@ -130,6 +136,33 @@ export async function setPoligonGate(on: boolean): Promise<boolean> {
     poligon: on,
   });
   return resp.data.poligon;
+}
+
+export const dailyKey = ["novelties", "daily"] as const;
+
+/**
+ * Poranna porcja nowości (18.11.2026). Jak przy Starcie: dane dopiero po
+ * zamontowaniu, a awaria zapytania = brak blokady.
+ */
+export function useDailyStatus(enabled: boolean): DailyStatus | null {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const query = useQuery({
+    queryKey: dailyKey,
+    queryFn: async () => (await api.get<DailyStatus>("/api/novelties/daily")).data,
+    enabled,
+    staleTime: 60_000,
+    retry: 0,
+  });
+  return mounted ? (query.data ?? null) : null;
+}
+
+/** Wyłącznik porannej porcji nowości dla całej firmy (admin, HoR). */
+export async function setDailyGate(on: boolean): Promise<boolean> {
+  const resp = await api.put<{ daily: boolean }>("/api/novelties/start/gate", {
+    daily: on,
+  });
+  return resp.data.daily;
 }
 
 export const lukiKey = ["novelties", "poligon-luki"] as const;

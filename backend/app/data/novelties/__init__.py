@@ -5,13 +5,17 @@ u 46 osób, 1 otwarty przewodnik). Nowość pokazuje się więc kropką na tym
 przycisku, którego dotyczy, i zalicza się z pracy: przeklikaniem po prawdziwym
 ekranie albo pierwszym użyciem funkcji. Samo „przeczytałem” nie istnieje.
 
-Trzy poziomy (``tier``):
+Od 18.11.2026 (decyzja Artura) nowości nie wyskakują w ciągu dnia: przy
+pierwszym wejściu dnia osoba przeklikuje porcję — wszystko, co weszło do jej
+roli i czego jeszcze nie przeszła (``GET /novelties/daily``) — na rekrutacji
+ćwiczebnej Poligonu, a potem do jutra nic się nie pokazuje.
 
-- ``dot`` — drobiazg: kropka na elemencie, znika po pierwszym kliknięciu;
-- ``tour`` — nowa funkcja: kropka + karta „Przeklikaj” z krokami po kotwicach
-  ``data-tour`` (krok przechodzi po kliknięciu prawdziwego elementu);
-- ``process`` — zmiana procesu: okno przy pierwszym wejściu na ekran
-  ``path_prefix``, odłożyć można raz, do następnego ranka.
+Trzy poziomy (``tier``) mówią, jak duża jest zmiana (karta na liście porcji):
+
+- ``dot`` — drobiazg; kroki opcjonalne (bez nich jeden krok na ``dot_anchor``);
+- ``tour`` — nowa funkcja, co najmniej 2 kroki po kotwicach ``data-tour``
+  (krok przechodzi po kliknięciu prawdziwego elementu);
+- ``process`` — zmiana sposobu pracy (``path_prefix`` ekranu).
 
 Wpis dopisuje PR, który wdraża nowość. Kotwice kroków muszą istnieć we
 froncie jako ``data-tour`` — pilnuje tego test frontu
@@ -101,6 +105,12 @@ class Novelty(BaseModel):
     where: str = Field(min_length=1, max_length=80)
     #: Ekran, na który prowadzi pozycja listy „Nowości”.
     href: str = Field(pattern=r"^/[a-z0-9/_-]*$", max_length=80)
+    #: Ekran porannej porcji (18.11.2026): gdzie na rekrutacji ćwiczebnej
+    #: Poligonu stoi element, gdy ``href`` prowadzi tylko na listę (np. karta
+    #: na Tablicy: ``/jobs/990001``). Brak = przeklikanie zaczyna się na ``href``.
+    practice_href: Optional[str] = Field(
+        default=None, pattern=r"^/[a-z0-9/_-]*(\?[a-z0-9_=&.-]+)?$", max_length=120
+    )
     #: Kotwica ``data-tour``, przy której stoi kropka.
     dot_anchor: str = Field(pattern=_ANCHOR)
     #: Kliknięcie tej kotwicy poza przeklikaniem = „użyte w pracy”.
@@ -119,8 +129,6 @@ class Novelty(BaseModel):
 
     @model_validator(mode="after")
     def _tier_shape(self) -> "Novelty":
-        if self.tier == "dot" and self.steps:
-            raise ValueError(f"{self.id}: drobiazg nie ma kroków przeklikania")
         if self.tier != "dot" and len(self.steps) < 2:
             raise ValueError(f"{self.id}: przeklikanie potrzebuje co najmniej 2 kroków")
         if self.tier == "process" and not self.path_prefix:

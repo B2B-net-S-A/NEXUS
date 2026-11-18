@@ -12,7 +12,8 @@ testowałby bramkę onboardingu zamiast przepływu. Z tego samego powodu
 blokada „Start w NEXUSIE” jest na stacku wyłączona (``app_settings.start_gate``)
 — bez tego każde konto, także zakładane przez scenariusz, lądowałoby na ``/start``.
 Blokadę Poligonu nowego rekrutera wyłącza osobno ``app_settings.poligon_gate``,
-bo wyłącznik Startu jej nie zdejmuje (15.11.2026).
+bo wyłącznik Startu jej nie zdejmuje (15.11.2026), a poranną porcję nowości
+— ``app_settings.novelty_daily_gate`` (18.11.2026).
 
 Dwie bramki bezpieczeństwa, bo skrypt pisze hasła do tabeli ``users``:
 * ``E2E_SEED_CONFIRM=nexus-e2e`` — bez tego skrypt kończy się błędem;
@@ -52,6 +53,8 @@ CONFIRM_TOKEN = "nexus-e2e"
 START_GATE_KEY = "start_gate"
 #: Lustro ``app.api.novelties.POLIGON_GATE_KEY``.
 POLIGON_GATE_KEY = "poligon_gate"
+#: Lustro ``app.api.novelties.DAILY_GATE_KEY``.
+DAILY_GATE_KEY = "novelty_daily_gate"
 MAX_EXISTING_USERS = 10
 
 
@@ -106,7 +109,7 @@ async def seed_accounts(db: AsyncSession, password: str) -> list[str]:
         user.ensure_roles_invariant()
         db.add(user)
         created.append(account.email)
-    for key in (START_GATE_KEY, POLIGON_GATE_KEY):
+    for key in (START_GATE_KEY, POLIGON_GATE_KEY, DAILY_GATE_KEY):
         gate = await db.get(AppSetting, key)
         if gate is None:
             db.add(AppSetting(key=key, value={"enforced": False}))

@@ -133,13 +133,25 @@ export function MyDayRowItem({ row, canEdit }: { row: MyDayRow; canEdit: boolean
             </Button>
           )}
           {canEdit && isMeeting && (
-            <Button size="sm" variant="outline" className="h-7 px-2.5" onClick={() => toggle("plan")}>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7 px-2.5"
+              data-tour="sales.myday.plan"
+              onClick={() => toggle("plan")}
+            >
               Po spotkaniu
             </Button>
           )}
           {canEdit && !isMeeting && (
             <>
-              <Button size="sm" variant="ghost" className="h-7 px-2.5" onClick={() => toggle("plan")}>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2.5"
+                data-tour="sales.myday.plan"
+                onClick={() => toggle("plan")}
+              >
                 Zaplanuj
               </Button>
               {!row.do_not_contact && (

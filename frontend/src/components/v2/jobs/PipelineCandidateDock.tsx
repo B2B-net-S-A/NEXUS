@@ -572,14 +572,18 @@ function earlyQcDotClass(result: QcResult): string {
 function WorkbenchLink({
   onClick,
   children,
+  "data-tour": tour,
 }: {
   onClick: () => void;
   children: ReactNode;
+  /** Kotwica przeklikania nowości (novelties.json). */
+  "data-tour"?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      data-tour={tour}
       className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
     >
       {children} <span aria-hidden="true">→</span>
@@ -2313,7 +2317,7 @@ export function PipelineCandidateDock({
                 <WorkbenchLink onClick={() => onOpenWorkbench("interviews")}>
                   Rozmowy i werdykt klienta
                 </WorkbenchLink>
-                <WorkbenchLink onClick={() => onOpenWorkbench("contract")}>
+                <WorkbenchLink onClick={() => onOpenWorkbench("contract")} data-tour="person.dock.contract">
                   Umowa
                 </WorkbenchLink>
               </div>

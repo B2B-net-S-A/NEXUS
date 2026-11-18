@@ -32,6 +32,7 @@
  ],
  "routes": {
   "GET /api/novelties/adoption": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/novelties/daily": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/novelties/mine": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
   "GET /api/novelties/poligon/luki": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
   "GET /api/novelties/start": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",

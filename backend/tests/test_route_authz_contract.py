@@ -278,6 +278,8 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # Start w NEXUSIE (30.10.2026) — własny postęp osoby przy przeklikaniach
     # jej roli, ten sam rejestr bez danych domenowych. Wyłącznik ma bramkę HoR.
     ("GET", "/api/novelties/start"),
+    # Poranna porcja nowości (18.11.2026) — ten sam rejestr i własny stan.
+    ("GET", "/api/novelties/daily"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
     ("GET", "/api/notifications/contracts"),

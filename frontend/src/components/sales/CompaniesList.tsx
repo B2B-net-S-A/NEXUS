@@ -198,6 +198,7 @@ export function CompaniesList() {
                       <Link
                         href={`/sales/companies/${company.id}`}
                         className="font-medium text-foreground hover:underline"
+                        data-tour="sales.companies.row"
                         onClick={(event) => event.stopPropagation()}
                       >
                         {company.name}

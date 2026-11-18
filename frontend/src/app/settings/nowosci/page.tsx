@@ -18,10 +18,13 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { Button } from "@/components/ui/button";
 import {
   adoptionKey,
+  dailyKey,
   remindNovelty,
+  setDailyGate,
   setPoligonGate,
   setStartGate,
   startKey,
+  useDailyStatus,
   useNoveltiesAdoption,
   useStartStatus,
 } from "@/lib/novelties/api";
@@ -56,7 +59,7 @@ export default function NoveltiesAdoptionPage() {
       showSuccess(
         reminded === 0
           ? "Nikomu nie trzeba było przypominać."
-          : `Przypomniano ${reminded} ${reminded === 1 ? "osobie" : "osobom"} — karta wróci przy kropce.`,
+          : `Przypomniano ${reminded} ${reminded === 1 ? "osobie" : "osobom"} — nowość czeka w ich porannej porcji.`,
       );
       await queryClient.invalidateQueries({ queryKey: adoptionKey });
     } catch (error) {
@@ -68,6 +71,7 @@ export default function NoveltiesAdoptionPage() {
 
   return (
     <div className="space-y-4">
+      <DailyGateSwitch />
       <StartGateSwitch />
       <PoligonGateSwitch />
       <KtoZnaNexus />
@@ -98,8 +102,8 @@ function StartGateSwitch() {
       const on = await setStartGate(!status.gate_on);
       showSuccess(
         on
-          ? "Włączone — Start i okna nowości znów obowiązują."
-          : "Wyłączone — nikt nie jest zatrzymywany przez Start ani okna nowości.",
+          ? "Włączone — Start w NEXUSIE znów obowiązuje."
+          : "Wyłączone — nikt nie jest zatrzymywany przez Start.",
       );
       await queryClient.invalidateQueries({ queryKey: startKey });
     } catch (error) {
@@ -116,13 +120,13 @@ function StartGateSwitch() {
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-foreground">
-          Start w NEXUSIE i obowiązkowe nowości:{" "}
+          Start w NEXUSIE:{" "}
           {status.gate_on ? "włączone" : "wyłączone"}
         </p>
         <p className="text-xs text-muted-foreground">
           {status.gate_on
-            ? "Kto nie przeklikał najważniejszych funkcji swojej roli, widzi tylko pulpit i listę Startu, a każda nowość do przeklikania ma okno na swoim ekranie (odłożyć można raz). Każdy dostaje tylko to, do czego ma dostęp. Postęp osób jest niżej."
-            : "Start i nowości są dostępne, ale nikogo nie zatrzymują — zostaje tylko okno zmiany procesu."}
+            ? "Kto nie przeklikał najważniejszych funkcji swojej roli, widzi tylko pulpit i listę Startu. Każdy dostaje tylko to, do czego ma dostęp. Postęp osób jest niżej."
+            : "Start jest dostępny, ale nikogo nie zatrzymuje."}
         </p>
       </div>
       <Button
@@ -132,6 +136,63 @@ function StartGateSwitch() {
         onClick={() => void toggle()}
       >
         {status.gate_on ? "Wyłącz obowiązek" : "Włącz obowiązek"}
+      </Button>
+    </section>
+  );
+}
+
+/**
+ * Wyłącznik porannej porcji nowości (18.11.2026), osobny od Startu: przy
+ * pierwszym wejściu dnia każdy przeklikuje to, co weszło do jego roli. Gdyby
+ * rano coś zablokowało ludzi, admin albo HoR zdejmuje porcję bez deployu.
+ */
+function DailyGateSwitch() {
+  const status = useDailyStatus(true);
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const [saving, setSaving] = useState(false);
+  if (!status) return null;
+  const on = status.gate_on;
+
+  const toggle = async () => {
+    setSaving(true);
+    try {
+      const next = await setDailyGate(!on);
+      showSuccess(
+        next
+          ? "Włączone — rano każdy najpierw przeklikuje nowości swojej roli."
+          : "Wyłączone — nowości czekają na liście, ale nikogo nie zatrzymują.",
+      );
+      await queryClient.invalidateQueries({ queryKey: dailyKey });
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zmienić porannej porcji."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section
+      className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-4"
+      aria-label="Poranna porcja nowości"
+    >
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-foreground">
+          Poranna porcja nowości: {on ? "obowiązkowa" : "wyłączona"}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {on
+            ? "Przy pierwszym wejściu dnia każdy przeklikuje na rekrutacji ćwiczebnej wszystko, co weszło do jego roli i czego jeszcze nie przeszedł. Potem do jutra nic nie wyskakuje."
+            : "Lista nowości na dziś jest dostępna, ale nikogo nie zatrzymuje."}
+        </p>
+      </div>
+      <Button
+        size="sm"
+        variant={on ? "outline" : "primary"}
+        disabled={saving}
+        onClick={() => void toggle()}
+      >
+        {on ? "Wyłącz porcję" : "Włącz porcję"}
       </Button>
     </section>
   );

@@ -31,6 +31,8 @@ export interface Novelty {
   shipped_on: string;
   where: string;
   href: string;
+  /** Ekran na rekrutacji ćwiczebnej Poligonu, gdzie stoi element (porcja dnia). */
+  practice_href: string | null;
   dot_anchor: string;
   used_anchor: string | null;
   path_prefix: string | null;
@@ -47,65 +49,21 @@ export interface Novelty {
 export type NoveltyEvent =
   "seen" | "card_dismissed" | "postponed" | "toured" | "used" | "dot_clicked";
 
+/** Poranna porcja nowości (`GET /api/novelties/daily`, 18.11.2026). */
+export interface DailyStatus {
+  /** Wyłącznik porcji dla całej firmy (admin, HoR). */
+  gate_on: boolean;
+  /** Zostało coś do przeklikania i porcja obowiązuje tę osobę. */
+  enforced: boolean;
+  today: string;
+  done: number;
+  total: number;
+  items: Novelty[];
+}
+
 export interface TourState {
   noveltyId: string;
   step: number;
-}
-
-/** Ile nowości czeka na przeklikanie — licznik ✦ w pasku (drobiazgi się nie liczą). */
-export function pendingCount(list: readonly Novelty[]): number {
-  return list.filter((n) => !n.done && !n.start && n.tier !== "dot").length;
-}
-
-/** Nowości, którym należy się kropka (wszystkie niezaliczone). */
-export function dotNovelties(list: readonly Novelty[]): Novelty[] {
-  return list.filter((n) => !n.done && !n.start);
-}
-
-/**
- * Karta nieproszona: pierwsza nowość „do przeklikania” z kropką widoczną
- * na tym ekranie. Zmiana procesu ma własne okno, drobiazg karty nie ma.
- */
-export function cardCandidate(
-  list: readonly Novelty[],
-  visibleAnchors: ReadonlySet<string>,
-): Novelty | null {
-  return (
-    list.find(
-      (n) =>
-        n.tier === "tour" && n.show_card && visibleAnchors.has(n.dot_anchor),
-    ) ?? null
-  );
-}
-
-/**
- * Obowiązkowe okno dla otwartego ekranu. Od 30.10.2026 (decyzja Artura)
- * każdą nowość do przeklikania trzeba przejść, nie tylko zmianę procesu:
- * okno staje na ekranie nowości (`path_prefix`, a bez niego `href`).
- * Drobiazg okna nie ma. Dopóki osoba nie skończy Startu, nowości milczą —
- * najpierw podstawy.
- */
-export function requiredForPath(
-  list: readonly Novelty[],
-  pathname: string,
-): Novelty | null {
-  if (pathname.startsWith(START_PATH)) return null;
-  if (list.some((n) => n.start && !n.done)) return null;
-  return (
-    list.find(
-      (n) =>
-        !n.start &&
-        n.tier !== "dot" &&
-        n.required_now &&
-        onScreen(pathname, n.path_prefix ?? n.href),
-    ) ?? null
-  );
-}
-
-/** Ekran nowości: „/” to sam pulpit, reszta to prefiks adresu. */
-function onScreen(pathname: string, prefix: string): boolean {
-  if (prefix === "/") return pathname === "/";
-  return pathname === prefix || pathname.startsWith(`${prefix}/`) || pathname.startsWith(`${prefix}?`);
 }
 
 /** Selektor kotwicy: `data-tour` nowości albo `data-help` przewodnika ekranu. */
@@ -159,22 +117,6 @@ export function onEveryClick(
   };
 }
 
-/**
- * Co zapisać po kliknięciu poza przeklikaniem: drobiazg zalicza klik w jego
- * element, nowość „do przeklikania” i zmianę procesu — użycie w pracy.
- */
-export function eventForClick(
-  novelty: Novelty,
-  target: EventTarget | null,
-): NoveltyEvent | null {
-  if (novelty.done) return null;
-  if (novelty.tier === "dot")
-    return withinAnchor(target, novelty.dot_anchor) ? "dot_clicked" : null;
-  if (novelty.used_anchor && withinAnchor(target, novelty.used_anchor))
-    return "used";
-  return null;
-}
-
 /** Następny krok po kliknięciu; `null` = kliknięcie nie dotyczy kroku. */
 export function advanceTour(
   novelty: Novelty,
@@ -221,23 +163,6 @@ export function writeTour(state: TourState | null): void {
     else window.sessionStorage.setItem(TOUR_KEY, JSON.stringify(state));
   } catch {
     /* storage zablokowany — przeklikanie działa do przeładowania strony */
-  }
-}
-
-const SEEN_KEY = "nexus:novelty-seen:v1";
-
-/** `seen` wysyłamy raz na kartę przeglądarki i nowość, nie przy każdym renderze. */
-export function markSeenOnce(noveltyId: string): boolean {
-  try {
-    const seen = new Set<string>(
-      JSON.parse(window.sessionStorage.getItem(SEEN_KEY) || "[]"),
-    );
-    if (seen.has(noveltyId)) return false;
-    seen.add(noveltyId);
-    window.sessionStorage.setItem(SEEN_KEY, JSON.stringify([...seen]));
-    return true;
-  } catch {
-    return false;
   }
 }
 

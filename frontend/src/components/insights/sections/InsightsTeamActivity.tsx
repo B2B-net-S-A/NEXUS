@@ -155,6 +155,7 @@ export function InsightsTeamActivity({ period, limit = 20 }: Props) {
                       key={c.key}
                       className="text-right font-medium py-2 px-2"
                       title={c.title}
+                      data-tour={c.key === "added_to_jobs" ? "insights.team-activity.added" : undefined}
                     >
                       {c.label}
                     </th>

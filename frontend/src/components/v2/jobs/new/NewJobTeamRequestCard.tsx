@@ -196,13 +196,16 @@ export function NewJobTeamRequestCard({
           <Users className="h-4 w-4 text-muted-foreground" />
           Co zamawia klient?
         </h2>
-        <SegmentedRadio
-          label="Co zamawia klient"
-          size="sm"
-          value={value.mode}
-          options={MODE_OPTIONS}
-          onChange={(mode) => onChange(mode === "one" ? NO_TEAM : { mode: "team", teamId: null, newName: "" })}
-        />
+        {/* Kropka nowości „Rozbij zapytanie” (novelties.json): pierwszy krok przeklikania. */}
+        <span data-tour="jobs.new.team-mode">
+          <SegmentedRadio
+            label="Co zamawia klient"
+            size="sm"
+            value={value.mode}
+            options={MODE_OPTIONS}
+            onChange={(mode) => onChange(mode === "one" ? NO_TEAM : { mode: "team", teamId: null, newName: "" })}
+          />
+        </span>
         {value.mode === "one" ? (
           <span className="text-xs text-muted-foreground">
             Klient zamawia kilka stanowisk naraz? Wybierz „Stanowisko w zespole”.

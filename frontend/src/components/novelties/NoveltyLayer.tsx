@@ -1,66 +1,65 @@
 "use client";
 
 /**
- * Nowości do przeklikania — warstwa nad prawdziwym ekranem
- * (decyzja Artura 28.10.2026, `docs/claude/ui/nowosci-do-przeklikania.md`).
+ * Nowości do przeklikania — przeklikanie nad prawdziwym ekranem
+ * (`docs/claude/ui/nowosci-do-przeklikania.md`).
  *
- * - kropka „Nowe” przy kotwicy `data-tour` każdej niezaliczonej nowości;
- * - karta „Przeklikaj” przy kropce: sama z siebie raz, w budżecie dymków
- *   Jarvisa (3 dziennie, nigdy przy otwartym oknie), albo po kliknięciu kropki;
- * - przeklikanie: podświetlony prawdziwy element, krok przechodzi po jego
- *   kliknięciu (krok `ack` — przyciskiem „Rozumiem”), także po przejściu
- *   na inny ekran;
- * - okno zmiany procesu przy wejściu na `path_prefix`, odłożyć raz.
- *
- * Zalicza przeklikanie albo kliknięcie kotwicy `used_anchor` w pracy.
+ * Od 18.11.2026 (decyzja Artura) w ciągu dnia nic nie wyskakuje: bez kropek,
+ * kart i okien. Nowości przeklikuje się rano w porcji (`/nowosci-dnia`) —
+ * na rekrutacji ćwiczebnej Poligonu, więc kliknięcie niczego nie zapisze —
+ * a Start w NEXUSIE z `/start`. Warstwa prowadzi tylko przeklikanie:
+ * podświetlony prawdziwy element, krok przechodzi po jego kliknięciu (krok
+ * `ack` — przyciskiem „Rozumiem”), także po przejściu na inny ekran.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
-import { CheckCircle2, Clock, Sparkles, X } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { CheckCircle2, Sparkles, X } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  canShowUnsolicited,
-  recordUnsolicited,
-} from "@/lib/jarvis/bubble-budget";
-import { useMyNovelties, useNoveltyEvent } from "@/lib/novelties/api";
+  useDailyStatus,
+  useMyNoveltiesState,
+  useNoveltyEvent,
+} from "@/lib/novelties/api";
+import { DAILY_PATH, withSteps } from "@/lib/novelties/daily";
 import {
   acknowledgeStep,
   anchorSelector,
   advanceTour,
-  cardCandidate,
-  dotNovelties,
-  eventForClick,
   intersectRects,
-  markSeenOnce,
   onEveryClick,
   placeBeside,
   readTour,
-  requiredForPath,
   START_PATH,
   writeTour,
   type Novelty,
   type Rect,
   type TourState,
 } from "@/lib/novelties/logic";
+import {
+  enterPoligon,
+  isNoveltyPractice,
+  leavePoligon,
+} from "@/lib/poligon/mode";
 import { useAuthStore } from "@/store/auth";
 
 export const NOVELTY_TOUR_START_EVENT = "nexus:novelty-tour-start";
 
-/** Start przeklikania z listy „Nowości” w pasku (inny komponent). */
+/** Start przeklikania na bieżącej karcie (Start w NEXUSIE). */
 export function startNoveltyTour(noveltyId: string): void {
   writeTour({ noveltyId, step: 0 });
   window.dispatchEvent(new CustomEvent(NOVELTY_TOUR_START_EVENT));
+}
+
+/**
+ * Przeklikanie nowości na Poligonie (18.11.2026): tryb ćwiczebny na tej
+ * karcie, ekran `practice_href` (element na rekrutacji ćwiczebnej) albo
+ * `href`. Zapisy są tam wyłączone, więc nowość można klikać naprawdę.
+ */
+export function startNoveltyPractice(novelty: Novelty): void {
+  writeTour({ noveltyId: novelty.id, step: 0 });
+  enterPoligon(novelty.practice_href ?? novelty.href, "novelty");
 }
 
 /**
@@ -187,14 +186,6 @@ function revealAnchor(anchor: string): void {
   });
 }
 
-function modalOpen(): boolean {
-  return Boolean(
-    document.querySelector(
-      '[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]',
-    ),
-  );
-}
-
 /**
  * Pozycje kotwic: co 400 ms (okna, zmiana ekranu) oraz przy przewijaniu
  * i zmianie rozmiaru, żeby wycięcie nie zostawało w tyle za elementem.
@@ -278,92 +269,6 @@ function sameBoxes(a: Map<string, Box>, b: Map<string, Box>): boolean {
   return true;
 }
 
-function Dot({
-  box,
-  label,
-  onClick,
-}: {
-  box: Box;
-  label: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={`Nowe: ${label}`}
-      title={`Nowe: ${label}`}
-      className={`fixed z-[55] flex h-3.5 w-3.5 ${onClick ? "" : "pointer-events-none"}`}
-      style={{ top: box.top, left: box.left + box.width - 10 }}
-      data-testid="novelty-dot"
-    >
-      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:animate-none" />
-      <span className="relative inline-flex h-3.5 w-3.5 rounded-full border-2 border-card bg-primary" />
-    </button>
-  );
-}
-
-function NoveltyCard({
-  novelty,
-  box,
-  onTour,
-  onLater,
-}: {
-  novelty: Novelty;
-  box: Box;
-  onTour: () => void;
-  onLater: () => void;
-}) {
-  const left = Math.min(Math.max(12, box.left - 24), window.innerWidth - 372);
-  const below = box.top + box.height + 230 < window.innerHeight;
-  return (
-    <div
-      role="dialog"
-      aria-label={`Nowość: ${novelty.title}`}
-      className="fixed z-[56] w-[360px] rounded-xl border border-primary/30 bg-card p-4 shadow-xl"
-      style={
-        below
-          ? { top: box.top + box.height + 10, left }
-          : { bottom: window.innerHeight - box.top + 10, left }
-      }
-      data-testid="novelty-card"
-    >
-      <div className="flex items-center gap-2">
-        <Badge variant="soft" size="sm" uppercase>
-          Nowe · {formatShipped(novelty.shipped_on)}
-        </Badge>
-        <span className="text-xs text-muted-foreground">{novelty.where}</span>
-      </div>
-      <p className="mt-2 text-sm font-semibold text-foreground">
-        {novelty.title}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">{novelty.why}</p>
-      <div className="mt-3 flex items-center gap-2">
-        <Button size="sm" onClick={onTour}>
-          Przeklikaj · {novelty.steps.length}{" "}
-          {novelty.steps.length > 4 ? "kroków" : "kroki"}
-        </Button>
-        <button
-          type="button"
-          onClick={onLater}
-          className="ml-auto text-xs font-semibold text-muted-foreground hover:text-foreground"
-        >
-          Później
-        </button>
-      </div>
-      <p className="mt-2 border-t border-border pt-2 text-[11px] text-muted-foreground">
-        Zaliczysz też bez przeklikania — wystarczy, że raz użyjesz tej funkcji w
-        pracy.
-      </p>
-    </div>
-  );
-}
-
-function formatShipped(iso: string): string {
-  const [, month, day] = iso.split("-");
-  return `${day}.${month}`;
-}
-
 // Krok `ack` stoi nad otwartym oknem Radix (np. „Zakończ współpracę”), które
 // wyłącza kliknięcia poza sobą (`pointer-events: none` na body) — karta
 // przywraca je sobie. Klik w nią zamyka to okno bez zapisu, i o to chodzi.
@@ -412,7 +317,7 @@ function TourStepCard({
     >
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
         <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-        {novelty.start ? "Start w NEXUSIE" : "Przeklikaj nowość"} · krok{" "}
+        {novelty.start ? "Start w NEXUSIE" : "Nowość"} · krok{" "}
         {state.step + 1} z {novelty.steps.length}
         <span className="ml-auto flex gap-1" aria-hidden="true">
           {novelty.steps.map((s, i) => (
@@ -431,7 +336,11 @@ function TourStepCard({
             ? "To miejsce zasłania otwarty panel. Zamknij go, a krok wróci."
             : blocked === "offscreen"
               ? "To miejsce jest poza widokiem."
-              : `Nie widzę tego miejsca na tym ekranie. Przejdź do: ${novelty.where} — przeklikanie poczeka.`}
+              : step.ack
+                ? // Krok „Rozumiem” (np. drobiazg z porcji) bez elementu na
+                  // ekranie: treść wystarcza, nie odsyłamy z rekrutacji ćwiczebnej.
+                  `${step.hint} Tutaj tego miejsca nie widać — znajdziesz je w: ${novelty.where}.`
+                : `Nie widzę tego miejsca na tym ekranie. Przejdź do: ${novelty.where} — przeklikanie poczeka.`}
       </p>
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
         {blocked === "offscreen" ? (
@@ -510,7 +419,7 @@ function FinishedCard({
           <p className="mt-1 text-xs text-muted-foreground">
             {novelty.start
               ? "Postęp masz na liście Startu. Zaliczenie widzi też Twój Head of Recruitment."
-              : "Kropka zniknęła. Zaliczenie widzi też Twój Head of Recruitment."}
+              : "Wracamy do listy nowości na dziś."}
           </p>
         </div>
         <button
@@ -526,95 +435,18 @@ function FinishedCard({
   );
 }
 
-/** „2 kroki”, „5 kroków” — polska odmiana dla 2–6 kroków przeklikania. */
-function stepsLabel(count: number): string {
-  return `${count} ${count >= 2 && count <= 4 ? "kroki" : "kroków"}`;
-}
-
-function ProcessDialog({
-  novelty,
-  onTour,
-  onPostpone,
-  postponeError,
-}: {
-  novelty: Novelty;
-  onTour: () => void;
-  onPostpone: () => void;
-  postponeError: string | null;
-}) {
-  return (
-    <Dialog open onOpenChange={() => undefined}>
-      <DialogContent
-        hideClose
-        className="max-w-lg"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <DialogHeader>
-          <DialogTitle>
-            {novelty.tier === "process" ? "Zmiana w procesie" : "Nowe w NEXUSIE"}:{" "}
-            {novelty.title}
-          </DialogTitle>
-          <DialogDescription>
-            Przeklikaj raz, żeby wiedzieć, jak z tego korzystać. Odłożyć możesz
-            jeden raz — do jutra rano.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="relative space-y-3 px-6 py-4 text-sm">
-          <div className="rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
-            {novelty.why}
-          </div>
-          <p className="text-muted-foreground">
-            Przeklikanie ma {stepsLabel(novelty.steps.length)} na prawdziwym
-            ekranie
-            {novelty.tier === "process"
-              ? " i kończy się przed zapisem — niczego nie zmienisz naprawdę."
-              : "."}
-          </p>
-          {postponeError ? (
-            <p className="text-destructive">{postponeError}</p>
-          ) : null}
-        </div>
-        <DialogFooter className="flex items-center gap-2 sm:justify-between">
-          {novelty.can_postpone ? (
-            <button
-              type="button"
-              onClick={onPostpone}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground"
-            >
-              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
-              Przypomnij jutro rano (raz)
-            </button>
-          ) : (
-            <span />
-          )}
-          <Button size="sm" onClick={onTour}>
-            Przeklikaj teraz
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function NoveltyLayer() {
   const user = useAuthStore((s) => s.user);
   const hydrated = useAuthStore((s) => s.hydrated);
   const pathname = usePathname() ?? "";
-  const router = useRouter();
-  const novelties = useMyNovelties(
-    hydrated && Boolean(user) && user?.role !== "trainee",
-  );
+  const enabled = hydrated && Boolean(user) && user?.role !== "trainee";
+  const mine = useMyNoveltiesState(enabled);
+  const novelties = mine.items;
+  const daily = useDailyStatus(enabled);
   const sendEvent = useNoveltyEvent();
 
   const [tour, setTour] = useState<TourState | null>(null);
   const [finished, setFinished] = useState<Novelty | null>(null);
-  const [openCard, setOpenCard] = useState<string | null>(null);
-  const [hiddenCards, setHiddenCards] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const [postponeError, setPostponeError] = useState<string | null>(null);
-  const unsolicitedShown = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     setTour(readTour());
@@ -623,102 +455,86 @@ export function NoveltyLayer() {
     return () => window.removeEventListener(NOVELTY_TOUR_START_EVENT, onStart);
   }, []);
 
+  // Porcja bywa starsza niż 45 dni życia nowości (po urlopie), więc jej
+  // pozycje dochodzą do listy z `/mine`.
   const byId = useMemo(
-    () => new Map(novelties.map((n) => [n.id, n])),
-    [novelties],
+    () =>
+      new Map(
+        [...novelties, ...(daily?.items ?? [])].map((n) => [n.id, withSteps(n)]),
+      ),
+    [novelties, daily],
   );
+  // Obie listy muszą przyjść, zanim uznamy przeklikanie za nieaktualne: po
+  // przeładowaniu w tryb ćwiczebny `/mine` bywa pierwszy, a pozycji porcji
+  // starszej niż 45 dni w nim nie ma (recenzja 18.11.2026).
+  const loaded = mine.loaded && daily !== null;
   const touring = tour ? (byId.get(tour.noveltyId) ?? null) : null;
-  const dots = dotNovelties(novelties);
-  const anchors = useMemo(() => {
-    const list = dots.map((n) => n.dot_anchor);
-    if (touring && tour) list.push(touring.steps[tour.step]?.anchor ?? "");
-    return [...new Set(list.filter(Boolean))];
-  }, [dots, touring, tour]);
   const stepAnchor =
     touring && tour ? (touring.steps[tour.step]?.anchor ?? null) : null;
+  const anchors = useMemo(
+    () => (stepAnchor ? [stepAnchor] : []),
+    [stepAnchor],
+  );
   const boxes = useAnchorBoxes(anchors, stepAnchor);
 
-  // `seen` raz na kartę przeglądarki, gdy kropka pierwszy raz stanie na ekranie.
-  useEffect(() => {
-    for (const n of dots) {
-      if (boxes.get(n.dot_anchor)?.state === "visible" && markSeenOnce(n.id))
-        void sendEvent(n.id, "seen");
-    }
-  }, [boxes, dots, sendEvent]);
+  // Przeklikanie z porcji idzie na Poligonie; po nim wracamy do listy porcji
+  // (przeładowanie zdejmuje tryb ćwiczebny z tej karty).
+  const backToDaily = useCallback(() => {
+    if (isNoveltyPractice()) leavePoligon(DAILY_PATH);
+  }, []);
 
   // Podwójny klik w ostatni krok nie wysyła „toured” dwa razy.
   const finishing = useRef<string | null>(null);
   const finishTour = useCallback(
-    (novelty: Novelty) => {
+    async (novelty: Novelty) => {
       if (finishing.current === novelty.id) return;
       finishing.current = novelty.id;
       writeTour(null);
       setTour(null);
       setFinished(novelty);
-      void sendEvent(novelty.id, "toured");
+      await sendEvent(novelty.id, "toured");
+      if (isNoveltyPractice()) window.setTimeout(backToDaily, 900);
     },
-    [sendEvent],
+    [sendEvent, backToDaily],
   );
 
-  // Jedno nasłuchiwanie kliknięć: krok przeklikania, użycie w pracy, drobiazg.
+  // Krok przechodzi po kliknięciu prawdziwego elementu.
   useEffect(() => {
+    if (!touring || !tour) return;
     const onClick = (target: EventTarget | null) => {
-      if (touring && tour) {
-        const next = advanceTour(touring, tour, target);
-        if (next === "finished")
-          window.setTimeout(() => finishTour(touring), 250);
-        else if (next) {
-          writeTour(next);
-          window.setTimeout(() => setTour(next), 250);
-        }
-      }
-      for (const n of novelties) {
-        if (touring?.id === n.id) continue;
-        const e = eventForClick(n, target);
-        if (e) void sendEvent(n.id, e);
+      const next = advanceTour(touring, tour, target);
+      if (next === "finished")
+        window.setTimeout(() => void finishTour(touring), 250);
+      else if (next) {
+        writeTour(next);
+        window.setTimeout(() => setTour(next), 250);
       }
     };
     return onEveryClick(document, onClick);
-  }, [novelties, touring, tour, finishTour, sendEvent]);
-
-  const startTour = (novelty: Novelty) => {
-    const state = { noveltyId: novelty.id, step: 0 };
-    finishing.current = null;
-    writeTour(state);
-    setTour(state);
-    setOpenCard(null);
-    setPostponeError(null);
-  };
-
-  // Ekran, na którym osoba przerwała albo odłożyła obowiązkowe okno — do
-  // wyjścia z niego okno nie wraca (inaczej „Przerwij” od razu by je otworzył).
-  const [quietPath, setQuietPath] = useState<string | null>(null);
+  }, [touring, tour, finishTour]);
 
   const stopTour = () => {
     writeTour(null);
     setTour(null);
-    setQuietPath(pathname);
+    backToDaily();
   };
 
-  // Lista Startu sama pokazuje ✓ — karta „Zaliczone” zasłaniałaby przy
-  // 1280 × 720 przycisk ostatniej pozycji.
+  // Lista Startu i lista porcji same pokazują ✓ — karta „Zaliczone”
+  // zasłaniałaby przy 1280 × 720 przycisk ostatniej pozycji.
   const showFinished =
-    finished !== null && !(finished.start && pathname.startsWith(START_PATH));
+    finished !== null &&
+    !(finished.start && pathname.startsWith(START_PATH)) &&
+    !pathname.startsWith(DAILY_PATH);
 
-  // Przeklikanie nowości, której już nie ma na liście (zaliczona gdzie indziej) — koniec.
+  // Przeklikanie nowości, której już nie ma na liście — koniec.
   useEffect(() => {
-    if (tour && novelties.length > 0 && !byId.has(tour.noveltyId)) {
+    if (tour && loaded && !byId.has(tour.noveltyId)) {
       writeTour(null);
       setTour(null);
     }
-  }, [tour, novelties, byId]);
+  }, [tour, loaded, byId]);
 
-  if (!user || novelties.length === 0)
-    return showFinished ? (
-      <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
-    ) : null;
-
-  if (touring && tour && touring.steps[tour.step]) {
+  if (user && touring && tour && touring.steps[tour.step]) {
     const measured = boxes.get(touring.steps[tour.step].anchor) ?? null;
     const box = measured?.state === "visible" ? measured : null;
     return (
@@ -736,7 +552,7 @@ export function NoveltyLayer() {
           onReveal={() => revealAnchor(touring.steps[tour.step].anchor)}
           onAck={() => {
             const next = acknowledgeStep(touring, tour);
-            if (next === "finished") finishTour(touring);
+            if (next === "finished") void finishTour(touring);
             else {
               writeTour(next);
               setTour(next);
@@ -747,82 +563,7 @@ export function NoveltyLayer() {
     );
   }
 
-  const required =
-    quietPath === pathname ? null : requiredForPath(novelties, pathname);
-  if (required) {
-    return (
-      <ProcessDialog
-        novelty={required}
-        postponeError={postponeError}
-        onTour={() => {
-          startTour(required);
-          if (!pathname.startsWith(required.href)) router.push(required.href);
-        }}
-        onPostpone={async () => {
-          const ok = await sendEvent(required.id, "postponed");
-          if (ok) setQuietPath(pathname);
-          setPostponeError(
-            ok
-              ? null
-              : "Nie udało się odłożyć. Przeklikaj teraz albo spróbuj za chwilę.",
-          );
-        }}
-      />
-    );
-  }
-
-  const visible = new Set(
-    [...boxes].filter(([, b]) => b.state === "visible").map(([a]) => a),
-  );
-  const solicited = openCard ? (byId.get(openCard) ?? null) : null;
-  let card = solicited && visible.has(solicited.dot_anchor) ? solicited : null;
-  if (!card) {
-    const candidate = cardCandidate(
-      novelties.filter((n) => !hiddenCards.has(n.id)),
-      visible,
-    );
-    if (
-      candidate &&
-      (unsolicitedShown.current.has(candidate.id) ||
-        (!modalOpen() && canShowUnsolicited(user.id)))
-    ) {
-      if (!unsolicitedShown.current.has(candidate.id)) {
-        unsolicitedShown.current.add(candidate.id);
-        recordUnsolicited(user.id);
-      }
-      card = candidate;
-    }
-  }
-
-  return (
-    <>
-      {dots.map((n) => {
-        const box = boxes.get(n.dot_anchor);
-        if (box?.state !== "visible") return null;
-        return (
-          <Dot
-            key={n.id}
-            box={box}
-            label={n.title}
-            onClick={n.tier === "dot" ? undefined : () => setOpenCard(n.id)}
-          />
-        );
-      })}
-      {card ? (
-        <NoveltyCard
-          novelty={card}
-          box={boxes.get(card.dot_anchor)!}
-          onTour={() => startTour(card!)}
-          onLater={() => {
-            setHiddenCards((prev) => new Set([...prev, card!.id]));
-            setOpenCard(null);
-            void sendEvent(card!.id, "card_dismissed");
-          }}
-        />
-      ) : null}
-      {showFinished ? (
-        <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
-      ) : null}
-    </>
-  );
+  return showFinished ? (
+    <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
+  ) : null;
 }

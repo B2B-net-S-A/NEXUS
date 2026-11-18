@@ -654,9 +654,6 @@
        "name": "business area"
       },
       {
-       "name": ""
-      },
-      {
        "name": "reporting"
       },
       {
@@ -690,12 +687,6 @@
        "level": "must",
        "words": [
         "business area"
-       ]
-      },
-      {
-       "level": "must",
-       "words": [
-        null
        ]
       },
       {
@@ -781,9 +772,6 @@
        "business area"
       ],
       [
-       null
-      ],
-      [
        "reporting"
       ],
       [
@@ -859,20 +847,6 @@
       "author_name": "Anna Poligonowa"
      },
      {
-      "id": "n-79db28925deb",
-      "done": false,
-      "text": null,
-      "topic": "ask_client",
-      "origin": "ai_intake",
-      "source": "client",
-      "audience": "team",
-      "editable": true,
-      "author_id": 14,
-      "created_at": "@rel:-20.116",
-      "updated_at": "@rel:-20.116",
-      "author_name": "Anna Poligonowa"
-     },
-     {
       "id": "n-afc8590c8129",
       "done": false,
       "text": "Ile etapów obejmuje rekrutacja i kto podejmuje ostateczną decyzję?",
@@ -925,16 +899,6 @@
     },
     "client_history": {
      "items": [
-      {
-       "text": null,
-       "topic": "needs",
-       "basis_count": 22
-      },
-      {
-       "text": null,
-       "topic": "process",
-       "basis_count": 2
-      },
       {
        "text": "Zarządzaj oczekiwaniami dotyczącymi tempa rekrutacji: kandydaci czekali na informację zwrotną lub termin kolejnego etapu, a w notatkach pojawiały się wskazane terminy odpowiedzi. Podawaj realistyczny termin i informuj o opóźnieniach, by ograniczyć niepewność po rozmowie.",
        "topic": "pitch",
@@ -2903,14 +2867,6 @@
     },
     {
      "any_of": [
-      null
-     ],
-     "level": "must",
-     "source": "request",
-     "evidence": ""
-    },
-    {
-     "any_of": [
       "reporting"
      ],
      "level": "must",
@@ -3102,9 +3058,6 @@
        "business area"
       ],
       [
-       null
-      ],
-      [
        "reporting"
       ],
       [
@@ -3132,9 +3085,6 @@
       },
       {
        "name": "business area"
-      },
-      {
-       "name": ""
       },
       {
        "name": "reporting"
@@ -3170,12 +3120,6 @@
       {
        "words": [
         "business area"
-       ],
-       "level": "must"
-      },
-      {
-       "words": [
-        null
        ],
        "level": "must"
       },
@@ -3310,20 +3254,6 @@
       "editable": true
      },
      {
-      "id": "n-79db28925deb",
-      "source": "client",
-      "topic": "ask_client",
-      "audience": "team",
-      "text": null,
-      "done": false,
-      "origin": "ai_intake",
-      "author_id": 14,
-      "author_name": "Anna Poligonowa",
-      "created_at": "@rel:-20.116",
-      "updated_at": "@rel:-20.116",
-      "editable": true
-     },
-     {
       "id": "n-afc8590c8129",
       "source": "client",
       "topic": "ask_client",
@@ -3382,16 +3312,6 @@
     "client_history": {
      "status": "ready",
      "items": [
-      {
-       "topic": "needs",
-       "text": null,
-       "basis_count": 22
-      },
-      {
-       "topic": "process",
-       "text": null,
-       "basis_count": 2
-      },
       {
        "topic": "pitch",
        "text": "Zarządzaj oczekiwaniami dotyczącymi tempa rekrutacji: kandydaci czekali na informację zwrotną lub termin kolejnego etapu, a w notatkach pojawiały się wskazane terminy odpowiedzi. Podawaj realistyczny termin i informuj o opóźnieniach, by ograniczyć niepewność po rozmowie.",
@@ -6435,9 +6355,6 @@
        "business area"
       ],
       [
-       null
-      ],
-      [
        "reporting"
       ],
       [
@@ -6465,9 +6382,6 @@
       },
       {
        "name": "business area"
-      },
-      {
-       "name": ""
       },
       {
        "name": "reporting"
@@ -6503,12 +6417,6 @@
       {
        "words": [
         "business area"
-       ],
-       "level": "must"
-      },
-      {
-       "words": [
-        null
        ],
        "level": "must"
       },
@@ -6643,20 +6551,6 @@
       "editable": true
      },
      {
-      "id": "n-79db28925deb",
-      "source": "client",
-      "topic": "ask_client",
-      "audience": "team",
-      "text": null,
-      "done": false,
-      "origin": "ai_intake",
-      "author_id": 14,
-      "author_name": "Anna Poligonowa",
-      "created_at": "@rel:-20.116",
-      "updated_at": "@rel:-20.116",
-      "editable": true
-     },
-     {
       "id": "n-afc8590c8129",
       "source": "client",
       "topic": "ask_client",
@@ -6715,16 +6609,6 @@
     "client_history": {
      "status": "ready",
      "items": [
-      {
-       "topic": "needs",
-       "text": null,
-       "basis_count": 22
-      },
-      {
-       "topic": "process",
-       "text": null,
-       "basis_count": 2
-      },
       {
        "topic": "pitch",
        "text": "Zarządzaj oczekiwaniami dotyczącymi tempa rekrutacji: kandydaci czekali na informację zwrotną lub termin kolejnego etapu, a w notatkach pojawiały się wskazane terminy odpowiedzi. Podawaj realistyczny termin i informuj o opóźnieniach, by ograniczyć niepewność po rozmowie.",
@@ -7849,7 +7733,46 @@
    },
    "owner_note": null
   },
-  "GET /api/b2b-generator/generated?job_id=990001&limit=50": [],
+  "GET /api/b2b-generator/generated?job_id=990001&limit=50": [
+   {
+    "id": 990801,
+    "contract_number": "cw-b2b-001",
+    "partner_name": "Kamil Dębowski",
+    "partner_display_name": "Kamil Dębowski",
+    "partner_secondary_line": null,
+    "partner_nip": null,
+    "start_date": "@reld:14",
+    "client_name": "Bank Północny",
+    "language": "pl",
+    "signing_date": null,
+    "created_at": "@rel:-0.3",
+    "created_by_name": "Jakub Szkoleniowy",
+    "created_by_role": "recruiter",
+    "pair_column": "client_interview",
+    "signature_source": null,
+    "contract_status": "in_progress",
+    "closure_reason": null,
+    "closure_reason_other": null,
+    "closure_date": null,
+    "can_change_status": false,
+    "candidate_id": 990115,
+    "job_id": 990001,
+    "client_id": 990501,
+    "contract_id": null,
+    "candidate_name": "Kamil Dębowski",
+    "job_title": "Senior Project Manager (bankowość)",
+    "canonical_client_name": null,
+    "signed_at": null,
+    "signed_by_name": null,
+    "can_confirm_signed": false,
+    "blocked_reason": null,
+    "esign": null,
+    "can_send_esign": true,
+    "can_delete": false,
+    "can_edit": false,
+    "can_download": false
+   }
+  ],
   "GET /api/pre-contracts/pair?candidate_id=990105&job_id=990001": {
    "current": null,
    "history": [],
@@ -19244,6 +19167,195 @@
       }
      ],
      "busy": []
+    }
+   ]
+  },
+  "GET /api/jobs/990001/champion-profile/changes": {
+   "job_id": 990001,
+   "last_seen_revision_id": null,
+   "revisions": [
+    {
+     "id": 990651,
+     "created_at": "@rel:-0.2",
+     "author_id": 990901,
+     "author_name": "Anna Poligonowa",
+     "note": null,
+     "changes": [
+      {
+       "kind": "set",
+       "text": "Liczba osób",
+       "detail": "15 (wcześniej 10)"
+      },
+      {
+       "kind": "moved",
+       "text": "data sourcing",
+       "detail": "„Mile widziane” → „Musi mieć”"
+      },
+      {
+       "kind": "added",
+       "text": "escalations",
+       "detail": "nowe w „Musi mieć”"
+      }
+     ],
+     "mine": false
+    }
+   ]
+  },
+  "GET /api/job-teams/990601": {
+   "id": 990601,
+   "name": "Zespół projektowy (ćwiczenie)",
+   "client_id": 990501,
+   "client_name": "Bank Północny",
+   "hours_per_month": 168,
+   "positions": [
+    {
+     "job_id": 990001,
+     "title": "Senior Project Manager (bankowość)",
+     "headcount": 2,
+     "closed": false,
+     "budget_min": null,
+     "budget_max": 115.0,
+     "delivery_lead": {
+      "id": 990901,
+      "name": "Anna Poligonowa"
+     },
+     "candidates": [
+      {
+       "candidate_id": 990109,
+       "name": "Weronika Cisowska",
+       "stage": "cv_sent",
+       "sent_at": "@rel:-2",
+       "available_from": null,
+       "client_rate": {
+        "value": 125.0,
+        "unit": "hourly",
+        "currency": "PLN"
+       },
+       "expected_rate": {
+        "value": 105.0,
+        "unit": "hourly",
+        "currency": "PLN"
+       }
+      },
+      {
+       "candidate_id": 990110,
+       "name": "Szymon Grabowiec",
+       "stage": "cv_sent",
+       "sent_at": "@rel:-3",
+       "available_from": null,
+       "client_rate": {
+        "value": 130.0,
+        "unit": "hourly",
+        "currency": "PLN"
+       },
+       "expected_rate": {
+        "value": 110.0,
+        "unit": "hourly",
+        "currency": "PLN"
+       }
+      },
+      {
+       "candidate_id": 990115,
+       "name": "Kamil Dębowski",
+       "stage": "client_interview",
+       "sent_at": "@rel:-4",
+       "available_from": null,
+       "client_rate": {
+        "value": 120.0,
+        "unit": "hourly",
+        "currency": "PLN"
+       },
+       "expected_rate": {
+        "value": 100.0,
+        "unit": "hourly",
+        "currency": "PLN"
+       }
+      }
+     ],
+     "rate_hint": null
+    }
+   ],
+   "panel": {
+    "enabled": false,
+    "show_rate": false,
+    "expires_at": null,
+    "url": null,
+    "short_url": null
+   },
+   "selections": [],
+   "variants": [],
+   "variants_approved_at": null
+  },
+  "GET /api/job-teams/990601/variants/proposal": {
+   "variants": [
+    {
+     "key": "fastest",
+     "name": "Najszybszy start",
+     "why": "",
+     "picks": [
+      {
+       "job_id": 990001,
+       "candidate_ids": [
+        990109,
+        990110
+       ]
+      }
+     ],
+     "hourly_total": 255.0,
+     "start": null,
+     "unknown_start": 2
+    },
+    {
+     "key": "cheapest",
+     "name": "Najniższa cena",
+     "why": "",
+     "picks": [
+      {
+       "job_id": 990001,
+       "candidate_ids": [
+        990109,
+        990115
+       ]
+      }
+     ],
+     "hourly_total": 245.0,
+     "start": null,
+     "unknown_start": 2
+    },
+    {
+     "key": "best_fit",
+     "name": "Najwięcej wymagań w CV",
+     "why": "",
+     "picks": [
+      {
+       "job_id": 990001,
+       "candidate_ids": [
+        990110,
+        990115
+       ]
+      }
+     ],
+     "hourly_total": 250.0,
+     "start": null,
+     "unknown_start": 2
+    }
+   ]
+  },
+  "GET /api/b2b-generator/generated/990801/esign/defaults": {
+   "contractor_name": "Kamil Dębowski",
+   "contractor_email": null,
+   "company_signers": [
+    {
+     "id": 990901,
+     "name": "Anna Poligonowa"
+    }
+   ],
+   "mailbox_connected": false,
+   "cc_candidates": [],
+   "documents": [
+    {
+     "id": 990811,
+     "name": "NDA Bank Północny"
     }
    ]
   }
