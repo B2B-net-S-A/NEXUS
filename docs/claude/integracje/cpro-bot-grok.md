@@ -10,21 +10,44 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 ## Decyzje Artura (17.11.2026)
 
 - **Robi to Grok Bot z pełnymi danymi.** Rutyna „NEXUS Cpro” loguje się do
-  Cpro wpisem Vault „Nordea Cpro” i dostaje dane osoby: imię i nazwisko,
+  Cpro osobnym wpisem Vault właściwym dla Delivery Leada rekrutacji (reguła
+  kont poniżej) i dostaje dane osoby: imię i nazwisko,
   narodowość, miasto, dostępność, stawkę do klienta, punkty „Why our
   candidate” i plik CV firmowego. To **świadomy wyjątek** od reguły „żadnych
   osób, CV ani kontaktów do bota w USA” (`sprzedaz/sygnaly-grok-bot.md`,
   `przepisy/radar-przepisow-dwa-boty.md`); dotyczy tylko tej rutyny. Do
   rejestru czynności przetwarzania i do IOD: transfer poza EOG (Grok Bot).
-- **Bot sam klika „Submit Offer”.** Po wysłaniu NEXUS przesuwa kartę na
-  „Wysłane do Cpro” tym samym ruchem co „✓ Wrzucone”. Nic nie czeka na
-  człowieka. Próba przed włączeniem idzie bez wysyłki (szkic, `--start` bez
-  `--submit`).
+- **Docelowo bot sam klika „Submit Offer”.** Po przyszłym włączeniu przez
+  Artura NEXUS przesuwa kartę na „Wysłane do Cpro” tym samym ruchem co
+  „✓ Wrzucone”. Obecny pilotaż obejmuje wyłącznie szkic (`--start` bez
+  `--submit`), przy `CPRO_BOT_ENABLED=false`. Najpierw Sandra ocenia szkic;
+  pierwszą wysyłkę i późniejsze włączenie wykonuje Artur.
 - **Osoba na kilku requestach bez screeningu** (Marcin wrzuca ludzi do „Do
   Cpro” bez arkusza i bez rekrutera): brakujące Warunki i brakujące CV bot
   bierze z najnowszej karty tej osoby w **innej rekrutacji tego samego
   klienta**. Kolejka pokazuje „Dane z rekrutacji 42480”. Bez zmian dla Marcina
   i rekruterów.
+
+## Konto Cpro według rekrutacji (18.11.2026)
+
+- Źródłem jest wyłącznie `jobs.delivery_lead_id` bieżącej rekrutacji:
+  Igor (`14`) → Vault **„Nordea Cpro – Igor”**,
+  Marcin (`27`) → Vault **„Nordea Cpro – Marcin”**. Brak, nieaktywny albo
+  inny DL blokuje kartę. Nie ma wspólnego ani zapasowego konta.
+- Każda pozycja webhooka zawiera `cpro_account` z `delivery_lead_id`,
+  `delivery_lead_name` i `vault_entry`. Nie zawiera loginu ani hasła.
+  Rekruter, autor przesunięcia karty oraz DL karty źródłowej z uzupełnieniami
+  Warunków/CV nie wybierają konta.
+- Bot dla **każdej pozycji** zaczyna nową, odizolowaną sesję portalu,
+  loguje się wskazanym wpisem Vault i potwierdza tożsamość widoczną w Cpro
+  względem tego wpisu przed zapisami. Powtarza weryfikację przed każdym
+  Save i „Submit Offer”; zamyka sesję po pozycji. Nigdy nie dziedziczy sesji
+  poprzedniej osoby, także gdy obie mają tego samego DL.
+- Brak lub nieznana trasa → `skipped/account_unknown`; nie da się
+  potwierdzić konta → `skipped/account_unverified`; portal pokazuje inne
+  konto → `skipped/account_mismatch`. Przy wyborze lub weryfikacji konta
+  nie zapisuje profilu, szkicu ani oferty. Brak dostępu nie uprawnia do
+  próby innym kontem. Błąd logowania → `failed/login_failed`.
 
 ## Kiedy bot bierze kartę
 
@@ -35,7 +58,8 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   za godzinę, rekrutacja bez numeru requestu (`jobs.client_reference`), brak
   **zatwierdzonego** CV firmowego (szkic „SZKIC_…” nigdy nie idzie), QC CV
   z błędami blokującymi, CV bez punktów „Why our candidate”, brak miasta
-  (karta albo `candidates.city`), brak narodowości. Po uzupełnieniu w NEXUSIE
+  (karta albo `candidates.city`), brak narodowości, nieobsługiwany albo
+  nieaktywny DL rekrutacji. Po uzupełnieniu w NEXUSIE
   następna pętla bierze kartę sama.
 - Pętla `cpro_bot` w workerze co 5 minut, **jeden bieg naraz**, najwyżej
   5 osób na bieg, najstarsze w kolejce pierwsze.
@@ -88,7 +112,9 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   z biegu, link do oferty tylko `https://*.onevms.se`, znaki sterujące wycięte,
   `submitted` w próbie liczy się jako szkic.
 - Hasło do Cpro wpisuje do Vault Grok Bota Artur, nigdy sesja Claude, Codex
-  ani kod. Logi są publiczne: same liczby i identyfikatory.
+  ani kod. Wpisy kont Igora i Marcina pozostają oddzielne; hasła i loginy
+  nie trafiają do webhooka ani raportu. Logi są publiczne: same liczby
+  i identyfikatory.
 - Na stagingu pętla stoi (`STAGING_BLOCKED_TASKS`: `cpro_bot`).
 - Narodowość z karty czyta `cpro_bot/items.py` wyłącznie do pola „Country of
   citizenship” (wpis w strażniku `test_only_listed_modules_read_recommendation_cards`).

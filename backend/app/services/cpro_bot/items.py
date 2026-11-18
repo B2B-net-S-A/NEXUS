@@ -59,6 +59,16 @@ BLOCK_QC = "QC CV ma błędy blokujące"
 BLOCK_NO_WHY = "CV bez punktów „Why our candidate”"
 BLOCK_NO_CITY = "Brak miasta kandydata w Warunkach"
 BLOCK_NO_CITIZENSHIP = "Brak narodowości w Warunkach"
+BLOCK_NO_CPRO_ACCOUNT = "Delivery Lead rekrutacji nie ma aktywnego konta Cpro bota"
+
+# Tożsamość konta wybiera zapisany DL TEJ rekrutacji, nigdy osoba prowadząca
+# kandydata, autor ruchu ani DL rekrutacji, z której pożyczamy CV/Warunki.
+# Identyfikatory kont NEXUSA potwierdzone 18.11.2026; nazwy służą tylko
+# poleceniu dla bota i wskazaniu wpisu Vault, nie dopasowaniu użytkownika.
+CPRO_ACCOUNTS: dict[int, tuple[str, str]] = {
+    14: ("Igor", "Nordea Cpro – Igor"),
+    27: ("Marcin", "Nordea Cpro – Marcin"),
+}
 
 _REQUEST_NUMBER = re.compile(r"\b(\d{4,7})\b")
 
@@ -171,10 +181,15 @@ def build_payload(
     accepted: bool,
     qc_blocking_failed: int,
     today: date,
+    delivery_lead_id: Optional[int],
+    delivery_lead_active: bool,
 ) -> tuple[tuple[str, ...], Optional[dict[str, Any]]]:
     """Braki i pozycja dla bota — czysta reguła, bez bazy."""
 
     blockers: list[str] = []
+    account = CPRO_ACCOUNTS.get(delivery_lead_id) if delivery_lead_active else None
+    if account is None:
+        blockers.append(BLOCK_NO_CPRO_ACCOUNT)
     if not accepted:
         blockers.append(BLOCK_NOT_ACCEPTED)
     if rate is None or rate[0] is None:
@@ -202,7 +217,9 @@ def build_payload(
     if blockers:
         return tuple(blockers), None
 
-    assert rate is not None and cv is not None and city is not None
+    assert (
+        rate is not None and cv is not None and city is not None and account is not None
+    )
     when = offer_text.availability(
         today=today, available_date=available_date, card_value=card.get("availability")
     )
@@ -217,6 +234,11 @@ def build_payload(
         "ref": stage_id,
         "request_number": request_no,
         "request_title": job_title,
+        "cpro_account": {
+            "delivery_lead_id": delivery_lead_id,
+            "delivery_lead_name": account[0],
+            "vault_entry": account[1],
+        },
         "candidate": {
             "first_name": first_name.strip(),
             "last_name": last_name.strip(),
@@ -359,6 +381,20 @@ async def load_items(
             )
         ).all()
     }
+    delivery_lead_ids = {
+        j.delivery_lead_id
+        for j in queue_jobs.values()
+        if j.delivery_lead_id in CPRO_ACCOUNTS
+    }
+    active_delivery_lead_ids = set(
+        (
+            await db.scalars(
+                select(User.id).where(
+                    User.id.in_(sorted(delivery_lead_ids)), User.is_active.is_(True)
+                )
+            )
+        ).all()
+    )
     client_ids = {j.client_id for j in queue_jobs.values() if j.client_id is not None}
     client_jobs = {
         j.id: j
@@ -434,6 +470,8 @@ async def load_items(
             accepted=t.moved_by in accepted,
             qc_blocking_failed=t.qc_blocking_failed,
             today=today,
+            delivery_lead_id=job.delivery_lead_id,
+            delivery_lead_active=job.delivery_lead_id in active_delivery_lead_ids,
         )
         if payload is not None and used:
             payload["data_from"] = list(used)
@@ -449,6 +487,7 @@ async def load_items(
                 payload=payload,
                 data_from=tuple(used),
                 cv=cv,
+                extra={"delivery_lead_id": job.delivery_lead_id},
             )
         )
     return items
