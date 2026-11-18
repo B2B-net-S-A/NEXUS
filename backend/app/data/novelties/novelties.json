@@ -3125,6 +3125,7 @@
   },
   {
     "id": "kontrakty-jedna-lista",
+    "pr": 3574,
     "title": "Kontrakty: jedna lista z szybkimi filtrami",
     "why": "Kontrakty to jedna lista. Pigułki „Do uzupełnienia”, „Aktywne”, „Kończące się” i „Wszystkie” mają liczniki, a szkic uzupełnisz albo aktywujesz wprost z wiersza.",
     "tier": "dot",
