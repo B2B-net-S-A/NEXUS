@@ -11645,6 +11645,42 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# „Zatrudniony” z datą akceptacji (zgłoszenie 18.11.2026): cztery pary
+# z podpisaną umową i żywym kontraktem zostały na „Akceptacji”, a ponowne
+# otwarcie rekrutacji wróciło jedną do kafelka „Kandydaci do zamknięcia”.
+# Decyzja Artura 18.11: zatrudnienie liczy się w miesiącu podpisu. Logika
+# w `app/services/stale_acceptance_hired_repair.py`, pary przypięte po ID.
+# Marker w `app_settings` + advisory lock; porażka nie zapisuje niczego —
+# następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-stale-acceptance-hired-2026-11"
+echo "Pipeline: hire signed pairs left on acceptance (one-shot)..."
+run_unless_marked "stale_acceptance_hired_2026_11_18" <<'PY' || echo "stale acceptance hired repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.stale_acceptance_hired_repair import (
+    run_stale_acceptance_hired_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_stale_acceptance_hired_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"stale acceptance hired repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"stale acceptance hired repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
