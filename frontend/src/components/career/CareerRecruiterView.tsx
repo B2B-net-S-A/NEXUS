@@ -73,7 +73,7 @@ export function CareerRecruiterView({
                       {initial}
                     </span>
                     <span className={s.recRole}>
-                      <b>B2B Network</b>
+                      <b>B2Bnetwork</b>
                       Zespół rekrutacji IT
                     </span>
                   </div>
@@ -151,7 +151,7 @@ export function CareerRecruiterView({
             </div>
             <nav className={`${s.wrap} ${s.recAll}`} aria-label="Wszystkie rekrutacje">
               <a className={s.btnOutline} href={homeHref}>
-                Wszystkie otwarte rekrutacje B2B Network →
+                Wszystkie otwarte rekrutacje B2Bnetwork →
               </a>
             </nav>
           </main>

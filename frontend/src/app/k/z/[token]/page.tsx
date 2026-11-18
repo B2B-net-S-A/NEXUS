@@ -9,7 +9,7 @@ import type { Metadata } from "next";
 import { ClientTeamPanelApp } from "@/components/v2/team-request/ClientTeamPanelApp";
 
 export const metadata: Metadata = {
-  title: "Zespół od B2B Network",
+  title: "Zespół od B2Bnetwork",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

@@ -43,7 +43,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const description =
     status === "closed"
       ? "Ta rekrutacja została zakończona."
-      : job.subtitle || paramsSummary(job.params) || "Rekrutacja IT — B2B Network";
+      : job.subtitle || paramsSummary(job.params) || "Rekrutacja IT — B2Bnetwork";
   return {
     title: job.title,
     description,

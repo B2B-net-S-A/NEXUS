@@ -116,7 +116,7 @@ function groupsOf(view: TeamPanelView): SeatGroup<PanelCandidate>[] {
 
 const STALE = {
   heading: "Ten link jest nieaktualny, napisz do opiekuna procesu",
-  body: "Opiekun procesu to osoba z B2B Network, która przesłała Ci link do zespołu. Prześle aktualny.",
+  body: "Opiekun procesu to osoba z B2Bnetwork, która przesłała Ci link do zespołu. Prześle aktualny.",
 };
 const FAILED = {
   heading: "Nie udało się otworzyć panelu",
@@ -166,7 +166,7 @@ function TopBar({ view }: { view: TeamPanelView }) {
       >
         B2B
       </span>
-      <span className="text-sm font-semibold">B2B Network</span>
+      <span className="text-sm font-semibold">B2Bnetwork</span>
       {view.team.client_name ? (
         <span className="text-sm text-muted-foreground">
           zespół dla {view.team.client_name}

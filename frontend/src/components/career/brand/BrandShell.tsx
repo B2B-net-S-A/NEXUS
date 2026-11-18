@@ -92,7 +92,7 @@ export function BrandPage({
     <div className={styles.root}>
       <header className={styles.bar}>
         <div className={styles.barInner}>
-          <a href={homeHref} className={styles.logoLink} aria-label="B2B Network — wszystkie rekrutacje">
+          <a href={homeHref} className={styles.logoLink} aria-label="B2Bnetwork — wszystkie rekrutacje">
             <B2BLogo variant="onDark" height={30} className={styles.logoDark} />
             <B2BLogo variant="color" height={30} className={styles.logoLight} />
           </a>

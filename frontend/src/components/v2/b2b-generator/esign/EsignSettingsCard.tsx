@@ -111,14 +111,14 @@ export function EsignSettingsCard() {
         </div>
       ) : null}
       <div className="space-y-1">
-        <Label>Kto podpisuje za B2B Network</Label>
+        <Label>Kto podpisuje za B2Bnetwork</Label>
         <UserMultiSelect
           value={signers}
           onChange={setSigners}
           placeholder="Wybierz reprezentantów"
           searchPlaceholder="Szukaj osoby…"
           triggerWidthClass="w-full sm:w-80"
-          ariaLabel="Kto podpisuje za B2B Network"
+          ariaLabel="Kto podpisuje za B2Bnetwork"
         />
         <p className="text-xs text-muted-foreground">
           Imienni reprezentanci z podpisem kwalifikowanym. Pierwsza osoba jest domyślna
@@ -129,7 +129,7 @@ export function EsignSettingsCard() {
         <Alert
           variant="warning"
           title="Brak reprezentanta"
-          description="Bez osoby podpisującej za B2B Network nikt nie wyśle umowy w NEXUSIE."
+          description="Bez osoby podpisującej za B2Bnetwork nikt nie wyśle umowy w NEXUSIE."
         />
       ) : null}
       {save.isError ? (

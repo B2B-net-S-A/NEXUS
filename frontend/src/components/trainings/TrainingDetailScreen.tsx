@@ -37,7 +37,7 @@ import { previousTrainingOf, warsawToday } from "./training-model";
 import { useRunAction } from "./use-run-action";
 
 const NO_ACCESS =
-  "Kartę szkolenia widzą Talent Community Manager, Finanse i administrator. Umowę do podpisu za B2B Network znajdziesz w Szkolenia → Do podpisu.";
+  "Kartę szkolenia widzą Talent Community Manager, Finanse i administrator. Umowę do podpisu za B2Bnetwork znajdziesz w Szkolenia → Do podpisu.";
 
 export function TrainingDetailScreen({ id }: { id: number }) {
   const me = useTrainingsMe();

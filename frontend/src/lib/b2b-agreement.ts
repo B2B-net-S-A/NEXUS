@@ -116,7 +116,7 @@ function esignBadge(agreement: CardAgreement, now: Date): AgreementBadge | null 
     return {
       label: "Czeka na podpis firmy",
       tone: "warning",
-      title: `Kontraktor podpisał umowę ${agreement.number} — czeka na podpis za B2B Network.`,
+      title: `Kontraktor podpisał umowę ${agreement.number} — czeka na podpis za B2Bnetwork.`,
     };
   }
   return null;

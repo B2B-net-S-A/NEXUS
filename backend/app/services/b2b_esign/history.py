@@ -48,7 +48,7 @@ def esign_history(requests: Iterable[B2BSigningRequest]) -> list[EsignHistoryEnt
                 EsignHistoryEntry(
                     f"esign-{r.id}-reminder",
                     r.last_reminder_at,
-                    "Przypomnienie do podpisu za B2B Network"
+                    "Przypomnienie do podpisu za B2Bnetwork"
                     if to_company
                     else "Przypomnienie do kontraktora",
                 )
@@ -66,7 +66,7 @@ def esign_history(requests: Iterable[B2BSigningRequest]) -> list[EsignHistoryEnt
                 EsignHistoryEntry(
                     f"esign-{r.id}-completed",
                     r.completed_at,
-                    "Podpis za B2B Network — umowa podpisana przez obie strony",
+                    "Podpis za B2Bnetwork — umowa podpisana przez obie strony",
                     r.company_signer_id,
                 )
             )
@@ -122,7 +122,7 @@ def _event_entry(
         "extended": f"Termin przedłużony do {until}",
         "relinked": f"Nowy link do kontraktora, ten sam PDF, ważny do {until}",
         "taken_over": "Obsługa wysyłki przejęta: przypomnienia i kopia z tej skrzynki",
-        "signer_changed": "Za B2B Network podpisze inna osoba z listy "
+        "signer_changed": "Za B2Bnetwork podpisze inna osoba z listy "
         "(poprzedniej nie ma już w ustawieniach)",
         # Paczka (0687, 13.11.2026).
         "contract_signed": "Kontraktor podpisał umowę, czekają pozostałe dokumenty",

@@ -147,7 +147,15 @@ def test_real_employers_are_not_dropped(raw: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "raw", ["B2B Network", "B2BNetwork S.A.", "B2B Net S.A.", "B2B Network - projekty"]
+    "raw",
+    [
+        "B2B Network",
+        "B2Bnetwork",
+        "B2BNetwork S.A.",
+        "B2B Net S.A.",
+        "B2B Network - projekty",
+        "B2Bnetwork - projekty",
+    ],
 )
 def test_own_company_names(raw: str) -> None:
     assert company_aliases.is_own_company(normalize_company_name(raw)) is True

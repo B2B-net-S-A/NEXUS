@@ -41,7 +41,7 @@ w NEXUSIE, `/konsultant/szkolenia` i `/konsultant/trener` w panelu.
 - **TCM i admin**: zamówienie, przyjęcie albo odesłanie wyceny, dane do umowy i PDF,
   przyjęcie plików, nagranie i pliki wewnętrzne, „dla uczestników”, publikacja, obecność.
 - **Finanse** (uprawnienie „Moduł Finanse”): rejestr z kwotami, „Zapłacone”.
-- **Reprezentant** (lista podpisu B2B): wgrywa PDF z podpisem za B2B Network; reguła
+- **Reprezentant** (lista podpisu B2B): wgrywa PDF z podpisem za B2Bnetwork; reguła
   w handlerze, nie w bramce, bo lista jest w ustawieniach.
 - **Każdy pracownik** po wejściu do NEXUSA i **każdy konsultant z panelem**: biblioteka
   i zapisy na szkolenia na żywo. Kwot nie widzą.

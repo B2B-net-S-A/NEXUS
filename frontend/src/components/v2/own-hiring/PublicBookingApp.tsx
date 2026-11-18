@@ -16,7 +16,7 @@ function Frame({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-muted/40 px-4 py-6 sm:py-10">
       <div className="mx-auto max-w-lg">
-        <p className="mb-4 text-sm font-semibold">B2B Network</p>
+        <p className="mb-4 text-sm font-semibold">B2Bnetwork</p>
         <div className="rounded-lg border border-border bg-card p-5 sm:p-6">{children}</div>
         <p className="mt-3 text-center text-xs text-muted-foreground">
           Dane przetwarzamy na potrzeby tej rekrutacji.

@@ -116,7 +116,7 @@ export function JasnyJob({ data, base, host, formPreview }: CareerJobLayoutProps
     <div className={s.root}>
       <header className={s.bar}>
         <div className={s.barInner}>
-          <a href={homeHref} className={s.brand} aria-label="B2B Network — Kariera, wszystkie rekrutacje">
+          <a href={homeHref} className={s.brand} aria-label="B2Bnetwork — Kariera, wszystkie rekrutacje">
             <B2BLogo variant="color" height={30} />
             <span className={s.brandDivider} aria-hidden="true" />
             <span className={s.brandLabel}>Kariera</span>

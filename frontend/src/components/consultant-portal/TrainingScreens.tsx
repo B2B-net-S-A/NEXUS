@@ -419,7 +419,7 @@ export function RecordingView({ recording, onBack }: { recording: LibraryRecordi
   const meta = [
     shortDay(recording.session_date),
     recording.duration_minutes ? minutesLabel(recording.duration_minutes) : null,
-    recording.trainer_kind === "consultant" ? "prowadzi trener z Talent Community" : "prowadzi zespół B2B Network",
+    recording.trainer_kind === "consultant" ? "prowadzi trener z Talent Community" : "prowadzi zespół B2Bnetwork",
   ].filter(Boolean);
 
   return (
