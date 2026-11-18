@@ -187,6 +187,11 @@ https://claude.ai/artifact/Fg6SAGKUAri2yEMLvoHStp.
   `require_section_access_any_read(insights)`; uprawnienie do głosu (członek
   ze składu) sprawdza trasa. Reszta tras uchwał na zwykłym routerze Rady,
   wysyłka i zamknięcie tylko admin.
+- Zamknąć (`/close`) można **po terminie albo gdy zagłosowali wszyscy** ze
+  składu — wcześniej tylko wycofać (przegląd 18.11: admin zamykał zaraz po
+  kworum, odbierając głos pozostałym). Głos, zamknięcie i wycofanie blokują
+  wiersz uchwały (`FOR UPDATE`): bez głosu po wyniku, podwójnego dokumentu
+  i 500 przy podwójnym kliknięciu.
 - Zamknięcie (`/close`, admin) zapisuje wynik i przy podjęciu zakłada wiersz
   w Dokumentach → Uchwały Rady (numer, tytuł, wynik w opisie) — ten wiersz
   zalicza obowiązek „ocena sprawozdań” z R5, jeśli tytuł o tym mówi.

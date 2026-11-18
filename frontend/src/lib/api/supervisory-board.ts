@@ -626,6 +626,8 @@ export interface BoardVote {
   resolution_document_id: number | null;
   my_choice: VoteChoice | null;
   can_vote: boolean;
+  /** Po terminie albo gdy zagłosowali wszyscy ze składu. */
+  closable: boolean;
   created_at: string | null;
   closed_at: string | null;
 }

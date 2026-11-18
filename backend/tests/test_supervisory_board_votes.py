@@ -121,12 +121,22 @@ async def test_written_resolution_flow(app_client, _clean_votes) -> None:
         f"{API}/votes/{vote['id']}/close", headers=_headers(chair)
     )
     assert denied.status_code == 403
+    # Przed terminem zamknąć można dopiero, gdy zagłosowali wszyscy członkowie.
+    early = await app_client.post(
+        f"{API}/votes/{vote['id']}/close", headers=_headers(admin)
+    )
+    assert early.status_code == 409, early.text
+    await app_client.post(
+        f"{API}/votes/{vote['id']}/ballot",
+        headers=_headers(third),
+        json={"choice": "abstain"},
+    )
     closed = await app_client.post(
         f"{API}/votes/{vote['id']}/close", headers=_headers(admin)
     )
     assert closed.status_code == 200, closed.text
     body = closed.json()
-    assert body["result"]["passed"] is True and body["result"]["voted"] == 2
+    assert body["result"]["passed"] is True and body["result"]["voted"] == 3
     async with AsyncSessionLocal() as db:
         doc = await db.get(BoardDocument, body["resolution_document_id"])
         assert doc.category == "resolution_supervisory" and doc.number == "4/2026"
@@ -139,6 +149,10 @@ async def test_written_resolution_flow(app_client, _clean_votes) -> None:
         json={"choice": "for"},
     )
     assert late.status_code == 409
+    again = await app_client.post(
+        f"{API}/votes/{vote['id']}/close", headers=_headers(admin)
+    )
+    assert again.status_code == 409  # drugie zamknięcie nie zakłada drugiego dokumentu
 
 
 async def test_create_requires_confirmation_and_valid_input(
@@ -217,10 +231,12 @@ async def test_member_added_later_cannot_vote_and_quorum_failure(
         headers=_headers(first),
         json={"choice": "for"},
     )
-    closed = (
-        await app_client.post(
-            f"{API}/votes/{vote['id']}/close", headers=_headers(admin)
-        )
-    ).json()
-    # 2 członków → kworum 1; 1 głos „za” wystarcza.
-    assert closed["result"]["passed"] is True
+    listing = (await app_client.get(f"{API}/votes", headers=_headers(first))).json()
+    # 2 członków → kworum 1; 1 głos „za” to już większość, ale przed terminem
+    # zamknąć nie można, bo drugi członek jeszcze nie głosował.
+    assert listing["items"][0]["tally"]["passed"] is True
+    assert listing["items"][0]["closable"] is False
+    early = await app_client.post(
+        f"{API}/votes/{vote['id']}/close", headers=_headers(admin)
+    )
+    assert early.status_code == 409

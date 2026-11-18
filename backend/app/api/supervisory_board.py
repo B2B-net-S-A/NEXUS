@@ -514,13 +514,26 @@ async def vote_view(
         "resolution_document_id": vote.resolution_document_id,
         "my_choice": ballots.get(viewer.id),
         "can_vote": viewer.id in vote.member_ids and _vote_open(vote),
+        # Zamknięcie: po terminie albo gdy zagłosowali wszyscy ze składu.
+        "closable": vote.status == "open"
+        and (
+            business_today() > vote.deadline
+            or all(uid in ballots for uid in vote.member_ids)
+        ),
         "created_at": _iso(vote.created_at),
         "closed_at": _iso(vote.closed_at),
     }
 
 
-async def _vote(db: AsyncSession, vote_id: int) -> BoardVote:
-    vote = await db.get(BoardVote, vote_id)
+async def _vote(db: AsyncSession, vote_id: int, *, lock: bool = False) -> BoardVote:
+    """Uchwała; ``lock`` = wiersz zablokowany do końca transakcji (głos,
+    zamknięcie, wycofanie idą po kolei — bez głosu po wyniku, podwójnego
+    zamknięcia i 500 przy podwójnym kliknięciu pierwszego głosu)."""
+
+    query = select(BoardVote).where(BoardVote.id == vote_id)
+    if lock:
+        query = query.with_for_update()
+    vote = (await db.execute(query)).scalar_one_or_none()
     if vote is None:
         raise HTTPException(404, "Nie ma takiej uchwały.")
     return vote
@@ -628,7 +641,7 @@ async def cast_ballot(
 
     if body.choice not in votes_schema.CHOICES:
         raise HTTPException(422, "Głos: za, przeciw albo wstrzymuję się.")
-    vote = await _vote(db, vote_id)
+    vote = await _vote(db, vote_id, lock=True)
     if current_user.id not in vote.member_ids:
         raise HTTPException(403, "Głosują członkowie Rady, którzy dostali projekt.")
     if not _vote_open(vote):
@@ -667,10 +680,19 @@ async def close_vote(
 ) -> dict[str, Any]:
     """Zamknij głosowanie: wynik według § 25; podjęta uchwała trafia do Dokumentów."""
 
-    vote = await _vote(db, vote_id)
+    vote = await _vote(db, vote_id, lock=True)
     if vote.status != "open":
         raise HTTPException(409, "Głosowanie jest już zamknięte.")
     ballots = (await _ballots(db, [vote.id]))[vote.id]
+    missing = [uid for uid in vote.member_ids if uid not in ballots]
+    if business_today() <= vote.deadline and missing:
+        # Każdy członek, który dostał projekt, ma czas do terminu (§ 25 ust. 4).
+        raise HTTPException(
+            409,
+            f"Termin mija {vote.deadline.strftime('%d.%m.%Y')}, a nie głosowało "
+            f"{len(missing)} z {len(vote.member_ids)} członków. Zamknąć można po "
+            "terminie albo gdy zagłosują wszyscy; wcześniej — tylko wycofać.",
+        )
     result = votes_service.tally(vote.member_ids, ballots, vote.chair_user_id)
     vote.status = "closed"
     vote.result = result.as_dict()
@@ -707,7 +729,7 @@ async def withdraw_vote(
     current_user: AdminUser,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    vote = await _vote(db, vote_id)
+    vote = await _vote(db, vote_id, lock=True)
     if vote.status != "open":
         raise HTTPException(409, "Głosowanie jest już zamknięte.")
     vote.status = "withdrawn"

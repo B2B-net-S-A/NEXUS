@@ -282,7 +282,10 @@ function VoteCard({ vote, isAdmin, focused }: { vote: BoardVote; isAdmin: boolea
               <Button size="sm" variant="ghost" onClick={() => onClose("withdraw")} disabled={close.isPending}>
                 Wycofaj
               </Button>
-              <Button size="sm" variant="outline" onClick={() => onClose("close")} disabled={close.isPending}>
+              {!vote.closable ? (
+                <span className="text-[11px] text-muted-foreground">zamknięcie po {plDate(vote.deadline)} albo gdy zagłosują wszyscy</span>
+              ) : null}
+              <Button size="sm" variant="outline" onClick={() => onClose("close")} disabled={close.isPending || !vote.closable}>
                 <Gavel className="mr-1 h-3.5 w-3.5" />
                 Zamknij głosowanie
               </Button>
