@@ -45,6 +45,7 @@ from app.models.pipeline_template import (
 )
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.services import cpro_mail_parse as parsing
+from app.services import cpro_reason_map
 from app.services.board_stage_badges import board_column_for, cpro_enabled_for_client
 from app.services.job_close_client_cards import (
     end_client_cards_after_close,
@@ -53,6 +54,9 @@ from app.services.job_close_client_cards import (
 from app.services.cpro_mail_parse import CproEvent
 
 logger = logging.getLogger(__name__)
+
+# Nazwa „Inne” przy odrzuceniu w szablonie (0006).
+OTHER_REJECTED = "Inne (rejected)"
 
 RULES_KEY = "cpro_mail:rules"
 RULE_CLOSED = "closed"
@@ -440,21 +444,37 @@ async def _card_owner(
 
 
 async def _reason_id(
-    db: AsyncSession, template_id: Optional[int], *, withdrawn: bool
+    db: AsyncSession,
+    template_id: Optional[int],
+    *,
+    withdrawn: bool,
+    cpro_reason: Optional[str] = None,
 ) -> Optional[int]:
+    """Powód z szablonu. Odrzucenie: z treści maila (`cpro_reason_map`), awaryjnie „Inne”.
+
+    Szablon bez powodu ze słownika (admin go skasował) dostaje „Inne”; tekst
+    klienta zostaje w notatce „Z CPro: …” tak samo.
+    """
     if template_id is None:
         return None
-    wanted = "Kandydat się wycofał" if withdrawn else "Inne (rejected)"
-    category = TerminalType.withdrawn if withdrawn else TerminalType.rejected
-    return await db.scalar(
-        select(RejectionReason.id)
-        .where(
-            RejectionReason.template_id == template_id,
-            RejectionReason.name == wanted,
-            RejectionReason.category == category,
+    if withdrawn:
+        wanted: tuple[str, ...] = ("Kandydat się wycofał",)
+        category = TerminalType.withdrawn
+    else:
+        mapped = cpro_reason_map.reason_name_for(cpro_reason)
+        wanted = (mapped, OTHER_REJECTED) if mapped else (OTHER_REJECTED,)
+        category = TerminalType.rejected
+    rows = (
+        await db.execute(
+            select(RejectionReason.name, RejectionReason.id).where(
+                RejectionReason.template_id == template_id,
+                RejectionReason.name.in_(wanted),
+                RejectionReason.category == category,
+            )
         )
-        .limit(1)
-    )
+    ).all()
+    by_name = {name: reason_id for name, reason_id in rows}
+    return next((by_name[name] for name in wanted if name in by_name), None)
 
 
 async def _reject_card(
@@ -514,7 +534,9 @@ async def _reject_card(
     target = PipelineStage.withdrawn if withdrawal else PipelineStage.rejected
     template_id = await _template_id(db, job)
     target_def = await _target_stage_def(db, template_id, target)
-    reason_id = await _reason_id(db, template_id, withdrawn=withdrawal)
+    reason_id = await _reason_id(
+        db, template_id, withdrawn=withdrawal, cpro_reason=event.reason
+    )
     if withdrawal and reason_id is None:
         return None, "manual"
     try:
