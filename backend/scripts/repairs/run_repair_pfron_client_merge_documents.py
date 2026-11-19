@@ -17,11 +17,14 @@ Znacznik w `app_settings`: `0738_pfron_client_merge_documents`.
 import asyncio
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import func, select, text, update
 
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
+from app.models.client import Client
+from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.order_mail import OrderMailDocument
 from scripts.repairs.cardif_client_merge_repair import (
     merge_client,
     summarize_for_log,
@@ -29,11 +32,7 @@ from scripts.repairs.cardif_client_merge_repair import (
 from scripts.repairs.run_repair_pfron_client_merge import TARGET
 
 MARKER = "0738_pfron_client_merge_documents"
-_DOCUMENT_TABLES = ("cv_generated_documents", "order_mail_documents")
-_IDENTITY_SQL = text(
-    "SELECT count(*) FROM clients WHERE id IN (:s, :t) "
-    "AND lower(coalesce(name, '')) LIKE :token"
-)
+_DOCUMENT_MODELS = (CvGeneratedDocument, OrderMailDocument)
 
 
 async def run_pfron_documents_merge(db, *, target=TARGET, marker=MARKER):
@@ -46,20 +45,27 @@ async def run_pfron_documents_merge(db, *, target=TARGET, marker=MARKER):
     if await db.get(AppSetting, marker) is not None:
         return None
 
-    params = {"s": target.source_id, "t": target.target_id}
     # Id są zaszyte; bez zgodnej nazwy obu stron nic nie ruszamy
     # (merge_client i tak zrobi własną kontrolę tożsamości).
     identity = await db.scalar(
-        _IDENTITY_SQL, {**params, "token": f"%{target.name_token.lower()}%"}
+        select(func.count())
+        .select_from(Client)
+        .where(
+            Client.id.in_((target.source_id, target.target_id)),
+            func.lower(func.coalesce(Client.name, "")).like(
+                f"%{target.name_token.lower()}%"
+            ),
+        )
     )
     moved: dict[str, int] = {}
     if identity == 2:
-        for table in _DOCUMENT_TABLES:
+        for model in _DOCUMENT_MODELS:
             result = await db.execute(
-                text(f"UPDATE {table} SET client_id = :t WHERE client_id = :s"),
-                params,
+                update(model)
+                .where(model.client_id == target.source_id)
+                .values(client_id=target.target_id)
             )
-            moved[table] = int(result.rowcount or 0)
+            moved[model.__tablename__] = int(result.rowcount or 0)
     summary = await merge_client(db, target)
     summary["documents_moved"] = moved
     summary["executed_at"] = datetime.now(timezone.utc).isoformat()
