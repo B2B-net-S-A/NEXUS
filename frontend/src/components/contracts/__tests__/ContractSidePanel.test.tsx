@@ -288,7 +288,7 @@ describe("ContractSidePanel — bramki ról", () => {
     renderPanel();
     const actions = await footer();
     expect(actions.queryByRole("button", { name: "Zakończ współpracę…" })).not.toBeInTheDocument();
-    expect(actions.queryByRole("combobox", { name: "Zmień status kontraktu" })).not.toBeInTheDocument();
+    expect(actions.queryByRole("button", { name: /Zmień status kontraktu/ })).not.toBeInTheDocument();
   });
 
   it("„Przepnij na innego klienta” tylko dla admina", async () => {
@@ -345,7 +345,8 @@ describe("ContractStatusControl — ta sama lista na karcie i w panelu", () => {
   it("„Zakończony” otwiera okno zakończenia zamiast zapisu statusu", async () => {
     const user = userEvent.setup();
     const h = renderControl("active");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "ended");
+    await user.click(screen.getByRole("button", { name: /Zmień status kontraktu/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Zakończony…" }));
     expect(h.onRequestTermination).toHaveBeenCalled();
     expect(mocks.updateStatus).not.toHaveBeenCalled();
   });
@@ -353,7 +354,8 @@ describe("ContractStatusControl — ta sama lista na karcie i w panelu", () => {
   it("zakończony kontrakt nie wraca zmianą statusu — podpowiedź przywrócenia", async () => {
     const user = userEvent.setup();
     const h = renderControl("ended", false);
-    await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "active");
+    await user.click(screen.getByRole("button", { name: /Zmień status kontraktu/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Aktywny" }));
     expect(h.onRecoveryHint).toHaveBeenCalledWith(expect.stringContaining("przywraca Admin"));
     expect(mocks.updateStatus).not.toHaveBeenCalled();
   });
@@ -361,7 +363,8 @@ describe("ContractStatusControl — ta sama lista na karcie i w panelu", () => {
   it("zwykła zmiana statusu idzie do API", async () => {
     const user = userEvent.setup();
     renderControl("active");
-    await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "draft");
+    await user.click(screen.getByRole("button", { name: /Zmień status kontraktu/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Szkic" }));
     await waitFor(() => expect(mocks.updateStatus).toHaveBeenCalledWith(501, "draft"));
   });
 
@@ -384,7 +387,8 @@ describe("ContractStatusControl — ta sama lista na karcie i w panelu", () => {
         />
       </QueryClientProvider>,
     );
-    await user.selectOptions(screen.getByRole("combobox", { name: "Zmień status kontraktu" }), "draft");
+    await user.click(screen.getByRole("button", { name: /Zmień status kontraktu/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Szkic" }));
     await waitFor(() => expect(spy).toHaveBeenCalledWith({ queryKey: ["client-register"] }));
   });
 });

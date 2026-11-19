@@ -415,7 +415,7 @@ describe("ContractDetailPage — bez edycji kontraktów strona jest do odczytu",
     // Menu z usunięciem, przepięciem i szablonami też jest tylko dla edycji kontraktów.
     expect(screen.queryByRole("button", { name: "Więcej akcji" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("combobox", { name: "Zmień status kontraktu" }),
+      screen.queryByRole("button", { name: /Zmień status kontraktu/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -617,10 +617,9 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     renderPage();
 
     await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
-    await user.selectOptions(
-      screen.getByRole("combobox", { name: "Zmień status kontraktu" }),
-      "draft",
-    );
+    // Od 19.11.2026 status to kropka z menu, nie natywna lista.
+    await user.click(screen.getByRole("button", { name: /Zmień status kontraktu/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Szkic" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Nie udało się usunąć kontraktu.",
     );
