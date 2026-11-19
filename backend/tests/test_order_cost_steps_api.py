@@ -27,13 +27,14 @@ from tests.test_b2b_generated_contract_status import _seed_linked_contract
 
 pytestmark = pytest.mark.asyncio
 
-TODAY = business_today()
-
 
 def m(shift: int, day: int = 1) -> date:
-    """Dzień ``day`` miesiąca przesuniętego o ``shift`` od bieżącego."""
+    """Dzień ``day`` miesiąca przesuniętego o ``shift`` od bieżącego.
 
-    index = TODAY.year * 12 + TODAY.month - 1 + shift
+    Liczone przy wywołaniu, nie przy imporcie (``test_no_import_time_dates``)."""
+
+    today = business_today()
+    index = today.year * 12 + today.month - 1 + shift
     return date(index // 12, index % 12 + 1, day)
 
 
@@ -95,7 +96,7 @@ async def _sync(contract_id: int) -> list[int]:
             )
         )
         changed = await sync_orders_cost_from_contract(
-            db, contract, orders, today=TODAY
+            db, contract, orders, today=business_today()
         )
         await db.commit()
         return changed
@@ -115,19 +116,32 @@ async def _parts(order_id: int) -> list[tuple[str, float, str]]:
 
 
 # Jak Nordea 18.11: 120, od dwóch miesięcy 130, od tego miesiąca 140.
-NORDEA_STEPS = [(m(-12), "120"), (m(-2), "130"), (m(0), "140")]
-LIVE = dict(
-    start=m(-4), end=m(1, 15), order_rate="140", status=ClientOrderStatus.active
-)
+def nordea_steps() -> list[tuple[date, str]]:
+    return [(m(-12), "120"), (m(-2), "130"), (m(0), "140")]
+
+
+def live() -> dict:
+    return dict(
+        start=m(-4), end=m(1, 15), order_rate="140", status=ClientOrderStatus.active
+    )
+
+
 # Jak PFRON 18.11: zakończone zamówienie za poprzedni miesiąc ze stawką sprzed aneksu.
-PFRON_STEPS = [(m(-4), "150"), (m(-2), "120")]
-PFRON = dict(
-    start=m(-1), end=month_end(-1), order_rate="150", status=ClientOrderStatus.completed
-)
+def pfron_steps() -> list[tuple[date, str]]:
+    return [(m(-4), "150"), (m(-2), "120")]
+
+
+def pfron() -> dict:
+    return dict(
+        start=m(-1),
+        end=month_end(-1),
+        order_rate="150",
+        status=ClientOrderStatus.completed,
+    )
 
 
 async def test_live_order_spanning_changes_gets_parts_and_keeps_todays_rate():
-    contract_id, _, order_id = await _seed(NORDEA_STEPS, **LIVE)
+    contract_id, _, order_id = await _seed(nordea_steps(), **live())
     assert order_id in await _sync(contract_id)
     assert await _parts(order_id) == [
         (m(-4).isoformat(), 120.0, "contract"),
@@ -146,7 +160,7 @@ async def test_live_order_spanning_changes_gets_parts_and_keeps_todays_rate():
 
 
 async def test_parts_disappear_when_the_schedule_has_one_rate_in_the_period():
-    contract_id, _, order_id = await _seed(NORDEA_STEPS, **LIVE)
+    contract_id, _, order_id = await _seed(nordea_steps(), **live())
     await _sync(contract_id)
     async with AsyncSessionLocal() as db:
         for row in await db.scalars(
@@ -162,7 +176,7 @@ async def test_parts_disappear_when_the_schedule_has_one_rate_in_the_period():
 
 
 async def test_order_view_shows_cost_parts(app_client, app_auth_headers):
-    contract_id, client_id, order_id = await _seed(NORDEA_STEPS, **LIVE)
+    contract_id, client_id, order_id = await _seed(nordea_steps(), **live())
     await _sync(contract_id)
     resp = await app_client.get(
         f"/api/clients/{client_id}/orders", headers=app_auth_headers
@@ -182,7 +196,7 @@ async def test_order_view_shows_cost_parts(app_client, app_auth_headers):
 async def test_completed_order_with_old_cost_is_listed_and_apply_fixes_it(
     app_client, app_auth_headers
 ):
-    contract_id, _, order_id = await _seed(PFRON_STEPS, **PFRON)
+    contract_id, _, order_id = await _seed(pfron_steps(), **pfron())
     # Synchronizacja nie rusza zakończonego zamówienia.
     assert order_id not in await _sync(contract_id)
 
@@ -213,7 +227,7 @@ async def test_completed_order_spanning_a_change_gets_finance_parts(
     app_client, app_auth_headers
 ):
     contract_id, _, order_id = await _seed(
-        NORDEA_STEPS,
+        nordea_steps(),
         start=m(-3),
         end=month_end(-2),
         order_rate="120",
@@ -231,7 +245,7 @@ async def test_completed_order_spanning_a_change_gets_finance_parts(
 
 
 async def test_dismiss_hides_until_the_schedule_changes(app_client, app_auth_headers):
-    contract_id, _, order_id = await _seed(PFRON_STEPS, **PFRON)
+    contract_id, _, order_id = await _seed(pfron_steps(), **pfron())
     resp = await app_client.post(
         f"/api/finance/order-cost-corrections/{order_id}/dismiss",
         headers=app_auth_headers,
@@ -258,7 +272,7 @@ async def test_dismiss_hides_until_the_schedule_changes(app_client, app_auth_hea
 
 
 async def test_live_order_is_not_on_the_finance_list(app_client, app_auth_headers):
-    contract_id, _, order_id = await _seed(NORDEA_STEPS, **LIVE)
+    contract_id, _, order_id = await _seed(nordea_steps(), **live())
     resp = await app_client.post(
         f"/api/finance/order-cost-corrections/{order_id}/apply",
         headers=app_auth_headers,
@@ -269,7 +283,7 @@ async def test_live_order_is_not_on_the_finance_list(app_client, app_auth_header
 async def test_manual_cost_edit_drops_finance_parts(app_client, app_auth_headers):
     """Części w starej jednostce nie mogą przykryć ręcznej zmiany kosztu."""
     contract_id, client_id, order_id = await _seed(
-        NORDEA_STEPS,
+        nordea_steps(),
         start=m(-3),
         end=month_end(-2),
         order_rate="120",

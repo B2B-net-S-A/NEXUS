@@ -131,7 +131,7 @@ def order_parts(order: Any, steps: Sequence[Any]) -> list[Part]:
 async def load_steps(
     db: AsyncSession, order_ids: Iterable[int]
 ) -> dict[int, list[ClientOrderCostStep]]:
-    ids = sorted({int(i) for i in order_ids})
+    ids = sorted({int(i) for i in order_ids if i is not None})
     if not ids:
         return {}
     out: dict[int, list[ClientOrderCostStep]] = defaultdict(list)
