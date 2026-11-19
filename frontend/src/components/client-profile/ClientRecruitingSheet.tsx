@@ -62,7 +62,6 @@ export function ClientRecruitingSheet({ clientId }: { clientId: number }) {
     <aside
       className="space-y-3 rounded-xl border border-border bg-card px-4 py-3 text-[13px] shadow-xs"
       aria-label="Ściąga: zasady i konflikty klienta"
-      data-tour="client.recruiting-sheet"
     >
       <div>
         <h3 className="text-sm font-semibold text-foreground">Zasady klienta</h3>

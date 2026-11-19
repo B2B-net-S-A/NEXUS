@@ -490,6 +490,7 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
             <div
               role="group"
               aria-label="Widok"
+              data-tour="client.consultants.view"
               className="inline-flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
             >
               {(

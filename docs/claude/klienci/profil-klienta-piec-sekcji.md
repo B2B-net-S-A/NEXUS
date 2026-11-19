@@ -61,3 +61,30 @@ rozsiane po pięciu kartach.
 - Testy: `app/clients/[id]/__tests__/ClientConsultantsTab.test.tsx` (Przegląd
   i nagłówek), `lib/__tests__/client-tab-groups.test.ts`,
   `components/client-profile/SummaryBar.test.tsx`.
+
+## Ekrany sekcji (etap 3a, 19.11.2026)
+
+- **Nasi ludzie › Konsultanci**: jeden rząd filtrów (role `tab`): Pracują teraz,
+  Wymaga uwagi, „Kończy się DD.MM” (dzień z ≥ 5 końcami zamówień w 120 dniach,
+  `orderWave`), Zaczynają, Szkice, Zakończeni. Przełącznik „Lista / Oś czasu”
+  (`ConsultantsTimeline`: okres bieżącego zamówienia na 8 miesiącach, pomarańczowy
+  = bez kontynuacji, przerywany = bez daty końca). Kategoria kompetencji w dymku
+  przy nazwisku (`ConsultantIdentity compact`), wiersz ma dwie linie.
+- **Rekrutacje › Projekty**: aktywne w grupach „Bez przypisanego rekrutera”,
+  „W toku”, „Szkice” (`groupActiveProjects`). Rekruter = przypisania zespołu
+  (`workingRecruiters`), jak kolumna „Rekruter” — NIE pole właściciela z profilu
+  (19.11.2026 u PKO BP: 34 kontra 16 „bez rekrutera”). „Zamknij z powodem…”
+  w menu „…” wiersza — świadomy wyjątek od „rzadkie akcje na wierzchu, ale
+  ciche” (makieta zatwierdzona 19.11.2026). Ściąga `ClientRecruitingSheet`
+  (zasady z karty klienta, aktywne konflikty) obok tabeli od 1536 px, niżej pod nią.
+- **Ludzie klienta › Kontakty**: grupy według wagi (`lib/client-contacts-weight.ts`):
+  decydenci i kluczowe relacje, kierownicy i dyrektorzy (po stanowisku),
+  pozostali — zwinięci, gdy jest ich ponad 10 i coś stoi nad nimi. Przy frazie
+  płaska lista. Nad tabelą: ile kontaktów ma zapisaną rozmowę. „Usuń” zostaje
+  cichym przyciskiem (spokojne tabele, 02.10.2026).
+- **Ludzie klienta › Sprzedaż**: trzy liczby nad listą szans (otwarte, wygrane
+  w 12 miesięcy, przegrane; suma tylko w jednej walucie, `salesFigures`).
+- Poza etapem 3a (osobny krok): Umowa na jednej stronie (umowy, stawki,
+  raporty), Rozliczenie miesiąca jako kroki RCP → faktura → KSeF → zapłata
+  (czeka na naprawę „po terminie” — zapłaty nie są zapisywane), Zasady jako
+  lista punktów i „Start u klienta: N z 5 ustalone”.

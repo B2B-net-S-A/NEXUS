@@ -151,12 +151,12 @@ function ProjectRow({
             przyciskami w ostatniej kolumnie (przycisk nie może siedzieć w linku). */}
         <a
           href={`/jobs/${job.id}`}
-          className="block max-w-[460px] truncate font-semibold text-foreground hover:text-primary hover:underline"
+          className="block max-w-[360px] truncate font-semibold text-foreground hover:text-primary hover:underline"
         >
           {job.title}
         </a>
         {subline ? (
-          <span className={cn(CALM_SUBLINE, "max-w-[460px] truncate")}>{subline}</span>
+          <span className={cn(CALM_SUBLINE, "max-w-[360px] truncate")}>{subline}</span>
         ) : null}
       </TableCell>
       <TableCell>
