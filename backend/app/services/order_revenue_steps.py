@@ -117,7 +117,7 @@ class PricedOrder:
         object.__setattr__(self, "_order", order)
         object.__setattr__(self, "rate_client", rate_client)
         object.__setattr__(self, "md_rate_revenue", md_rate_revenue)
-        # Koszt z części zamówienia (0740, `order_cost_steps`). Bez części slot
+        # Koszt z części zamówienia (0741, `order_cost_steps`). Bez części slot
         # zostaje pusty i `__getattr__` czyta kolumnę zamówienia.
         if rate_candidate is not None:
             object.__setattr__(self, "rate_candidate", rate_candidate)

@@ -1,6 +1,6 @@
-"""Koszt zamówienia od dnia zmiany stawki Partnera: SQL migracji ``0740`` i lustra entrypointu.
+"""Koszt zamówienia od dnia zmiany stawki Partnera: SQL migracji ``0741`` i lustra entrypointu.
 
-Jedno źródło instrukcji dla ``alembic/versions/0740_order_cost_steps.py``
+Jedno źródło instrukcji dla ``alembic/versions/0741_order_cost_steps.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Każda
 instrukcja jest idempotentna.
 
