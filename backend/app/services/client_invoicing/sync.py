@@ -74,10 +74,11 @@ WINDOW = timedelta(days=99)
 MAX_WINDOWS = 4
 MAX_METADATA_REQUESTS = 6
 MAX_DOWNLOADS = 20
-#: Dodatkowy budżet pobrań na godzinę, dopóki trwają zaległe okna (``_backfill``).
+#: Dodatkowy budżet pobrań na godzinę, dopóki trwają zaległe okna (``_backfill``)
+#: albo w kolejce czekają faktury na budżet (``_backfill_pending``).
 #: Limit KSeF na produkcji to 64 pobrania na godzinę, a pętla zakupów bierze z niego
 #: niewiele (faktury od zespołu), więc razem z ``MAX_DOWNLOADS`` zostaje margines.
-#: Po ``done`` w znaczniku wraca zwykłe ``MAX_DOWNLOADS``.
+#: Po ``done`` w znaczniku i pustej kolejce wraca zwykłe ``MAX_DOWNLOADS``.
 BACKFILL_EXTRA_DOWNLOADS = 30
 MANUAL_COOLDOWN = timedelta(minutes=5)
 MAX_PENDING_ATTEMPTS = 24
@@ -501,7 +502,14 @@ async def _consider(run: _Run, item: dict[str, Any]) -> None:
 
 
 async def _retry_pending(run: _Run) -> None:
-    for ksef_number, entry in list(run.pending.items()):
+    # Najnowsze pierwsze: kolejka zaległych okien (19.11.2026: 447 faktur z VI–VII)
+    # nie może trzymać bieżących faktur, z których żyją „po terminie” i rozliczenia.
+    waiting = sorted(
+        run.pending.items(),
+        key=lambda item: str(item[1].get("acquired_at") or ""),
+        reverse=True,
+    )
+    for ksef_number, entry in waiting:
         if await _exists(run.db, ksef_number):
             run.pending.pop(ksef_number, None)
             continue
@@ -583,10 +591,20 @@ async def _incremental(run: _Run, state: dict[str, Any]) -> None:
 
 
 def _backfill_pending(state: dict[str, Any], key: str) -> bool:
-    """Zaległe okna jeszcze trwają (brak znacznika albo bez ``done``)."""
+    """Zaległości trwają: okna bez ``done`` albo faktury czekające na budżet pobrań.
+
+    ``done`` znaczy tylko, że okna są wylistowane (jedno zapytanie na okno), a ich
+    faktury czekają w kolejce z powodem ``budget`` — 19.11.2026 było ich 494,
+    a dodatkowy budżet znikał razem z ``done``, więc szły po 20 na godzinę.
+    """
 
     mark = (state.get("backfill") or {}).get(key)
-    return not (isinstance(mark, dict) and mark.get("done"))
+    if not (isinstance(mark, dict) and mark.get("done")):
+        return True
+    waiting = (state.get("pending") or {}).get(key) or []
+    return any(
+        isinstance(entry, dict) and entry.get("reason") == "budget" for entry in waiting
+    )
 
 
 async def _backfill(run: _Run, state: dict[str, Any]) -> None:
