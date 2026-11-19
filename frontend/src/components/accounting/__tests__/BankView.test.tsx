@@ -240,10 +240,26 @@ describe("Księgowość — Bank", () => {
     const admin = config();
     admin.me = { ...admin.me, admin: true };
     route(admin);
-    del.mockResolvedValue({ data: { lines: 3, cost_records: 2, cost_matched: 1, sales_records: 1, sales_matched: 1 } });
+    // Po usunięciu serwer odpowiada na wyciąg 404, a na miesiąc — pustą listą (jak na produkcji).
+    let deleted = false;
+    let refetchedDeleted = 0;
+    const routed = get.getMockImplementation()!;
+    get.mockImplementation(async (url: string, ...rest: unknown[]) => {
+      if (deleted && url === "/api/accounting/bank/statements/7") {
+        refetchedDeleted += 1;
+        throw Object.assign(new Error("404"), { response: { status: 404, data: { detail: "Nie ma takiego wyciągu." } } });
+      }
+      if (deleted && url === "/api/accounting/bank") return { data: overview({ statements: [] }) };
+      return routed(url, ...rest);
+    });
+    del.mockImplementation(async () => {
+      deleted = true;
+      return { data: { lines: 3, cost_records: 2, cost_matched: 1, sales_records: 1, sales_matched: 1 } };
+    });
     const user = userEvent.setup();
     renderView();
     await user.click(await screen.findByRole("button", { name: "…2875" }));
+    expect(window.location.search).toContain("statement=7");
     await user.click(await screen.findByRole("button", { name: "Usuń wyciąg" }));
     expect(del).not.toHaveBeenCalled();
     const dialog = await screen.findByRole("dialog");
@@ -252,6 +268,10 @@ describe("Księgowość — Bank", () => {
     await waitFor(() =>
       expect(showToast).toHaveBeenCalledWith("Usunięto wyciąg (3 operacje) i zapłaty faktur z tego pliku: 2."),
     );
+    // Panel usuniętego wyciągu się zamyka, zamiast pokazać błąd zapytania o nieistniejący wyciąg.
+    await waitFor(() => expect(window.location.search).not.toContain("statement="));
+    expect(screen.queryByRole("button", { name: "Zamknij wyciąg" })).not.toBeInTheDocument();
+    expect(refetchedDeleted).toBe(0);
   });
 
   it("bez uprawnień administratora nie ma „Usuń wyciąg”", async () => {
