@@ -1985,7 +1985,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=4,
+    version=5,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -2023,7 +2023,9 @@ CLIENT_FORM_FILL = PromptTemplate(
         "nie ma: pomiń pola daty, instytucji i numeru (zostają puste); "
         "„NIE” wpisuj tylko w pole z „TAK/NIE” w etykiecie.\n"
         "- Opisy: rzeczowo, po polsku, do 400 znaków, bez przymiotników "
-        "reklamowych.\n"
+        'reklamowych. Tylko czynności z CV; "quote" to lista fragmentów, po '
+        "jednym na każdą czynność z opisu, każdy w całości (z nowymi liniami "
+        "jak w CV). Opis dłuższy niż cytowane fragmenty zostanie odrzucony.\n"
         "- Doświadczenie zawodowe: wszystkie stanowiska z CV, od najnowszego. "
         'Najpierw wiersze wzoru, kolejne stanowiska w "extra_rows" — tylko dla '
         "tabel z listy wyżej, najwyżej 10 wierszy na tabelę.\n"
