@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
 
@@ -215,32 +216,70 @@ async def _from_costs(db: AsyncSession, *, payroll: bool) -> list[Candidate]:
     return [_candidate("koszty", number, name) for number, name in rows.all() if number]
 
 
+#: ``AdresL2`` w FA to zwykle „kod miasto” (``00-001 Warszawa``, ``10115 Berlin``).
+_POSTAL_CITY = re.compile(r"^(\d[\d-]{2,9})\s+(\D.*)$")
+
+
+def split_postal_city(line: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """(kod pocztowy, miasto) z drugiej linii adresu FA; bez kodu całość to miasto."""
+
+    text = _clean(line)
+    if text is None:
+        return None, None
+    found = _POSTAL_CITY.match(text)
+    return (found.group(1), found.group(2)) if found else (None, text)
+
+
 async def _from_sales(db: AsyncSession) -> list[Candidate]:
+    """Nabywcy faktur sprzedaży, najnowsza faktura pierwsza (jej adres wygrywa
+    przy łączeniu); adres z ``Podmiot2/Adres`` faktury, bez niego ``clients.address``."""
+
+    invoice = ClientSalesInvoice
     rows = await db.execute(
         select(
-            ClientSalesInvoice.buyer_nip,
-            ClientSalesInvoice.buyer_foreign_id,
-            ClientSalesInvoice.buyer_name,
+            invoice.buyer_nip,
+            invoice.buyer_foreign_id,
+            invoice.buyer_name,
+            invoice.buyer_country,
+            invoice.buyer_address_line1,
+            invoice.buyer_address_line2,
             Client.name,
             Client.address,
         )
-        .outerjoin(Client, Client.id == ClientSalesInvoice.client_id)
+        .outerjoin(Client, Client.id == invoice.client_id)
         .where(
-            (ClientSalesInvoice.buyer_nip.is_not(None))
-            | (ClientSalesInvoice.buyer_foreign_id.is_not(None))
+            (invoice.buyer_nip.is_not(None)) | (invoice.buyer_foreign_id.is_not(None))
         )
-        .order_by(ClientSalesInvoice.issue_date.desc(), ClientSalesInvoice.id.desc())
+        .order_by(invoice.issue_date.desc(), invoice.id.desc())
     )
-    return [
-        _candidate(
-            "sprzedaz",
-            nip or foreign,
-            buyer_name or client_name,
-            street=address,
-            id_type="nip" if nip else None,
+    out = []
+    for (
+        nip,
+        foreign,
+        buyer_name,
+        country,
+        line1,
+        line2,
+        client_name,
+        address,
+    ) in rows.all():
+        postal_code, city = split_postal_city(line2)
+        from_invoice = bool(_clean(line1) or city)
+        out.append(
+            _candidate(
+                "sprzedaz",
+                nip or foreign,
+                buyer_name or client_name,
+                street=line1 if from_invoice else address,
+                postal_code=postal_code if from_invoice else None,
+                city=city if from_invoice else None,
+                # Kraj z adresu tylko bez polskiego NIP-u: NIP to zawsze kontrahent
+                # krajowy (konta 200-2/201-2), nawet z adresem oddziału za granicą.
+                country=None if nip else country,
+                id_type="nip" if nip else None,
+            )
         )
-        for nip, foreign, buyer_name, client_name, address in rows.all()
-    ]
+    return out
 
 
 def _merge(items: Iterable[Candidate]) -> list[Candidate]:

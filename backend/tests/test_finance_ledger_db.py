@@ -36,10 +36,12 @@ from app.models.finance_posting import FinancePostingRule
 from app.models.hr_approval import ApprovalDocument
 from app.models.hr_settlement import EmployeeBillingDetails, PayrollInvoice
 from app.models.user import User, UserRole
+from app.services.client_invoicing import buyer_address, fa_sales
 from app.services.finance_ledger import costs as ledger
 from app.services.finance_ledger import settings as module_settings
 from app.services.hr.approvals import cost_invoices
 from tests._permission_grants import grant_permissions
+from tests.client_invoicing import helpers as sales_fx
 
 COSTS = "/api/finance/costs"
 PARTIES = "/api/finance/counterparties"
@@ -650,12 +652,34 @@ async def test_faktury_osob_zespolu_tylko_dla_plac(world, client) -> None:
     ).stage == "received"
 
 
-async def _buyer_invoice(nip: str) -> int:
-    issued = date(2026, 11, 3)
+def _fabricated_sales_xml(nip: str, address: str) -> bytes:
+    """Faktura z fikstury KSeF z innym NIP-em i adresem nabywcy (dane fikcyjne)."""
+
+    text = (sales_fx.DATA_DIR / f"{sales_fx.KSEF_118}.xml").read_text("utf-8")
+    old_address = (
+        "<Adres><KodKraju>PL</KodKraju><AdresL1>ul. Przykładowa 5</AdresL1></Adres>"
+    )
+    old_nip = f"<NIP>{sales_fx.CLIENT_NIP}</NIP>"
+    assert text.count(old_address) == 1 and text.count(old_nip) == 1
+    return (
+        text.replace(old_address, address)
+        .replace(old_nip, f"<NIP>{nip}</NIP>")
+        .encode()
+    )
+
+
+async def _buyer_invoice(
+    nip: str, *, xml: bytes | None = None, issued: date = date(2026, 11, 3)
+) -> int:
+    now = datetime.now(timezone.utc)
+    address = (
+        buyer_address.columns(fa_sales.parse_sales_invoice(xml), now) if xml else {}
+    )
     async with AsyncSessionLocal() as db:
         invoice = ClientSalesInvoice(
+            **address,
             ksef_number=f"{nip}-20261103-{uuid.uuid4().hex[:12].upper()}-AB",
-            xml_sha256="0" * 64,
+            xml_sha256=hashlib.sha256(xml).hexdigest() if xml else "0" * 64,
             buyer_nip=nip,
             buyer_name="Nabywca Testowy Sp. z o.o.",
             invoice_number=f"{random.randint(1, 999)}/TEST/2026",
@@ -771,5 +795,53 @@ async def test_czekaja_na_symfonie_kartoteka_koszty_sprzedaz_i_plik(world, clien
         async with AsyncSessionLocal() as db:
             await db.execute(
                 delete(ClientSalesInvoice).where(ClientSalesInvoice.id == invoice_id)
+            )
+            await db.commit()
+
+
+async def test_czeka_na_symfonie_adres_z_najnowszej_faktury_na_liscie_i_w_pliku(
+    world, client
+) -> None:
+    nip = world["nips"]["client"]
+    accountant = _headers(world["accountant"])
+    newer = await _buyer_invoice(
+        nip,
+        xml=_fabricated_sales_xml(
+            nip,
+            "<Adres><KodKraju>PL</KodKraju><AdresL1>ul. Fikcyjna 7/2</AdresL1>"
+            "<AdresL2>00-950 Warszawa</AdresL2></Adres>",
+        ),
+        issued=date(2026, 11, 3),
+    )
+    older = await _buyer_invoice(
+        nip,
+        xml=_fabricated_sales_xml(
+            nip,
+            "<Adres><KodKraju>PL</KodKraju><AdresL1>ul. Dawna 1</AdresL1>"
+            "<AdresL2>30-001 Kraków</AdresL2></Adres>",
+        ),
+        issued=date(2026, 10, 2),
+    )
+    try:
+        body = (await client.get(f"{PARTIES}/pending", headers=accountant)).json()
+        row = next(item for item in body["items"] if item["id_value"] == nip)
+        assert (row["street"], row["postal_code"], row["city"], row["country"]) == (
+            "ul. Fikcyjna 7/2",
+            "00-950",
+            "Warszawa",
+            "PL",
+        )
+        assert row["warnings"] == []
+
+        sheet = await client.get(f"{PARTIES}/pending/file", headers=accountant)
+        lines = sheet.content.decode("utf-8-sig").strip().split("\r\n")
+        line = next(line.split(";") for line in lines if f";{nip};" in line)
+        assert line[3:7] == ["PL", "ul. Fikcyjna 7/2", "00-950", "Warszawa"]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(ClientSalesInvoice).where(
+                    ClientSalesInvoice.id.in_([newer, older])
+                )
             )
             await db.commit()
