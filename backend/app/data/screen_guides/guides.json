@@ -525,7 +525,7 @@
       }
     ],
     "pitfalls": [
-      "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem. Zmianę stawki klienta od jakiegoś dnia wpisz aneksem w kontrakcie („Aneksy” → „Zmień stawkę”), nie w zamówieniu — wcześniejsze miesiące zostaną po starej stawce.",
+      "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem. Zmianę stawki klienta od jakiegoś dnia wpisz aneksem w kontrakcie („Aneksy” → „Zmień stawkę”), nie w zamówieniu — wcześniejsze miesiące zostaną po starej stawce. Tak samo stawkę Partnera: koszt zamówienia liczy się wtedy „w częściach”.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć ani anulować (okno pokaże blokujące miesiące) — najpierw usuń zejścia: wspólna pula w panelu zamówienia („Zejścia MD”), osoba w oknie „Zużycie MD”, kwoty zamówienia kosztowego w zakładce „Zużycie” osoby.",
       "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie.",
       "Zamówienie okresowe nie ma budżetu ani zużycia MD. Przełącznik typu pokazuje „zwykle u klienta” — u klienta rozliczanego w MD wybieraj MD. Gdy w szkicu okresowym zczytasz PDF z liczbą MD, okno samo zmieni typ na MD (przycisk „Cofnij — zostaw okresowe” przywraca poprzedni stan)."
@@ -742,7 +742,7 @@
     "pitfalls": [
       "Zejścia to tylko zapisany koniec współpracy — zamówienie kończące się przy trwającej umowie jest w „Zamówienia bez kontynuacji”. Gdy brak kolejnego zamówienia jest już w „Brakach” tego miesiąca, osoba stoi tylko tam.",
       "Powtórny import tego samego miesiąca nadpisuje wcześniejsze zużycie.",
-      "„Rozjazdy stawek” niczego nie poprawiają, tylko pokazują różnicę kontrakt ↔ zamówienie MD z nocnego raportu.",
+      "Raport linii MD w „Rozjazdach stawek” niczego nie poprawia, tylko pokazuje różnicę kontrakt ↔ zamówienie MD z nocy. Wyżej, w „Do korekty po zmianie stawki”, są zakończone zamówienia z kosztem sprzed aneksu: „Ustaw koszt z kontraktu” albo „Zostaw”.",
       "Faktura z KSeF bez klienta czeka w „Faktury do klientów” → „Nieznani nabywcy”: „Przypisz” dopisuje numer do klienta i wiąże wszystkie jego faktury."
     ],
     "anchors": [

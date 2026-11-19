@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 18.11.2026
+> **Zgodność z systemem sprawdzona:** 19.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -271,6 +271,15 @@ Zużycie sprzed tego dnia zostaje po starej stawce. Zużycie MD liczy się
 miesiącami, więc aneks od połowy miesiąca wchodzi do rozliczenia od
 następnego miesiąca. Nie poprawiaj stawki przychodowej w zamówieniu ręcznie:
 przeliczyłoby to także miesiące sprzed aneksu.
+
+**Partner zmienia stawkę w trakcie zamówienia (aneks albo progresja z umowy)** —
+też aneksem w kontrakcie („Zmień stawkę”, „Nowa stawka Partnera”), nigdy
+w zamówieniu. Zamówienie, które trwa w dniu zmiany, dostaje koszt w częściach:
+w tabeli zamówień pod stawką „My płacimy” stoi np. „120 zł/h do 31.08 · 130 zł/h
+od 01.09 · 140 zł/h od 01.11”. Numer, PDF, przychód i faktury zostają przy
+jednym zamówieniu. Zamówienia zakończone się nie zmieniają — gdy zmiana
+sięga ich okresu, trafiają do Finansów na listę „Do korekty po zmianie stawki”.
+Linie zamówień MD i kosztowych prowadzisz dalej sam.
 
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa

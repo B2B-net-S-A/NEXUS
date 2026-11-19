@@ -3639,5 +3639,22 @@
     "href": "/clients",
     "section": "delivery",
     "dot_anchor": "clients.states"
+  },
+  {
+    "id": "koszt-zamowienia-w-czesciach",
+    "pr": 3615,
+    "title": "Koszt zamówienia od dnia zmiany stawki Partnera",
+    "why": "Gdy stawka Partnera zmienia się w trakcie zamówienia, koszt liczy się częściami od dnia zmiany. Zakończone zamówienia ze starym kosztem trafiają na listę „Do korekty po zmianie stawki”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Rozjazdy stawek → Do korekty po zmianie stawki",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.rate-divergences"
   }
 ]
