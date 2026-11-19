@@ -3594,5 +3594,24 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.rate-document"
+  },
+  {
+    "id": "nie-szuka-data-kazda-karta",
+    "title": "„Nie szuka pracy”: wybierz, do kiedy",
+    "why": "Przy odrzuceniu z powodem „Nie szuka pracy” wybierasz 3 miesiące, 6 miesięcy, rok albo datę — przy każdej karcie, nie tylko od systemu. Profil dostaje „Nie szuka” do tej daty i system do tego dnia nie podsuwa tej osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Nie szuka pracy lub niezainteresowany",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.not-looking"
   }
 ]

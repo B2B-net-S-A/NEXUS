@@ -165,7 +165,9 @@ export function AutofillFeedbackField({
  * „Do kiedy nie podsuwać?” przy „Nie szuka pracy” (makieta M1, 28.10.2026):
  * 9 z 44 odrzuceń, a te same osoby czekały w „Nowych” innych rekrutacji.
  */
-function NotLookingUntilField({
+/** „Do kiedy nie podsuwać?” — przy osobie od systemu i (19.11.2026) przy
+ *  „Nie szuka pracy” na karcie dodanej ręcznie. */
+export function NotLookingUntilField({
   value,
   onChange,
   several,

@@ -118,6 +118,10 @@ class StageMove(BaseModel):
     # i „Dostępny od” = ta data, system zdejmuje nietknięte karty osoby od
     # systemu z innych rekrutacji i nie podsuwa jej do tej daty.
     autofill_not_looking_until: Optional[date] = None
+    # 19.11.2026: to samo przy karcie dodanej przez człowieka — powód
+    # `not_looking_for_work` z szablonu z datą (okno odrzucenia: 3 / 6 mies. /
+    # rok). Bez daty profil zostaje bez zmian.
+    not_looking_until: Optional[date] = None
     # 12.11.2026 (0686): braki przy pozycjach przy „Brak umiejętności”:
     # [{label, kind: missing|mention|too_few_years}], najwyżej 10.
     autofill_gaps: Optional[list[dict]] = Field(None, max_length=30)

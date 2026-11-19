@@ -333,6 +333,7 @@ export function JobInterviewsTab({
       workMode?: RejectionWorkModeChoice | null;
       rate?: RejectionRateChoice | null;
       meetings?: PairMeetingsChoice | null;
+      notLookingUntil?: string | null;
     }) =>
       moveCore.send(
         {
@@ -351,6 +352,7 @@ export function JobInterviewsTab({
           work_mode_max_onsite_days: vars.workMode?.maxOnsiteDays,
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
           ...rejectionRateMoveFields(vars.rate),
+          not_looking_until: vars.notLookingUntil ?? undefined,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: expectedStateVersionOf(vars.item),
         },
@@ -540,6 +542,7 @@ export function JobInterviewsTab({
             _autofill,
             rate,
             meetings,
+            notLookingUntil,
           ) =>
             terminalMutation.mutate({
               item: pendingTerminal.entry.item,
@@ -553,6 +556,7 @@ export function JobInterviewsTab({
               workMode,
               rate,
               meetings,
+              notLookingUntil,
             })
           }
         />
