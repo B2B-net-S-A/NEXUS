@@ -784,6 +784,15 @@ describe("ContractDetailPage — pas „Co się dzieje”", () => {
     expect(within(strip).queryByRole("button", { name: "Uzupełnij stawkę" })).not.toBeInTheDocument();
   });
 
+  it("konto bez widoku kwot nie widzi fałszywego „Brak stawki klienta” (serwer zeruje stawki)", async () => {
+    mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: null } });
+    mocks.access = { canViewFinance: false, canViewBenchmark: false };
+    renderPage();
+    await screen.findByRole("heading", { name: /Agnieszka Urbaniak/ });
+    expect(screen.queryByText("Brak stawki klienta")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Uzupełnij stawkę" })).not.toBeInTheDocument();
+  });
+
   it("spokojny kontrakt nie ma pasa", async () => {
     mocks.getContract.mockResolvedValue({ data: { ...contract, rate_client: 165, rate_client_currency: "PLN" } });
     renderPage();

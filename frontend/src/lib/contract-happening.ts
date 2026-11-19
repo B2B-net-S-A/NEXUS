@@ -85,10 +85,19 @@ function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
+export interface HappeningOptions {
+  /**
+   * Czy osoba widzi kwoty (`canViewFinance`). Bez tego serwer zeruje stawki
+   * (`_redact_contract_finance`), więc „brak stawki klienta” byłby fałszywy.
+   */
+  canSeeRates: boolean;
+}
+
 export function buildContractHappening(
   c: HappeningContract,
   care: HappeningCare | null,
   today: string,
+  options: HappeningOptions = { canSeeRates: false },
 ): HappeningItem[] {
   const items: HappeningItem[] = [];
   const agreementOpen = c.contract_type === "b2b" && !c.agreement_termination_mode;
@@ -161,7 +170,7 @@ export function buildContractHappening(
     }
   }
 
-  if (live && c.rate_client == null) {
+  if (options.canSeeRates && live && c.rate_client == null) {
     items.push({
       id: "rate",
       tone: "info",

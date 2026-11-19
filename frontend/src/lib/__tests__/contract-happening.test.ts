@@ -119,12 +119,19 @@ describe("„Co się dzieje” na stronie kontraktu", () => {
     expect(risk[0]).toMatchObject({ id: "care", tone: "danger" });
   });
 
+  it("osoba bez wglądu w kwoty nie dostaje „Brak stawki klienta” — serwer zeruje jej stawki", () => {
+    expect(
+      buildContractHappening({ ...base, rate_client: null }, null, TODAY, { canSeeRates: false }),
+    ).toEqual([]);
+  });
+
   it("brak stawki klienta tylko przy żywej umowie", () => {
-    expect(buildContractHappening({ ...base, rate_client: null }, null, TODAY)[0]).toMatchObject({
+    const rates = { canSeeRates: true };
+    expect(buildContractHappening({ ...base, rate_client: null }, null, TODAY, rates)[0]).toMatchObject({
       id: "rate",
       actions: ["fill_rate"],
     });
-    expect(buildContractHappening({ ...base, status: "draft", rate_client: null }, null, TODAY)).toEqual([]);
+    expect(buildContractHappening({ ...base, status: "draft", rate_client: null }, null, TODAY, rates)).toEqual([]);
   });
 });
 

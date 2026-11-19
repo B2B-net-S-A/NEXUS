@@ -1035,6 +1035,8 @@ export default function ContractDetailPage() {
       ? { level: careCard.health.level, reasons: careCard.health.reasons, ownerName: careCard.owner?.name ?? null }
       : null,
     warsawToday(),
+    // Bez wglądu w kwoty serwer zeruje stawki — „brak stawki” byłby fałszywy.
+    { canSeeRates: canViewFinance },
   );
   const tabCount: Partial<Record<ContractDetailTab, number | undefined>> = {
     documents: canViewContractDocuments ? contractDocs?.length : undefined,
