@@ -105,7 +105,7 @@
         "finance"
       ]
     },
-    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
+    "where": "Kontrakty → Pieniądze → Umowa ramowa → Technologie premium → Uzasadnienie (EN)",
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.premium-justification",
@@ -118,7 +118,12 @@
       {
         "anchor": "contract.panel.open",
         "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
-        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.money",
+        "text": "Kliknij zakładkę „Pieniądze”.",
+        "hint": "Stawki, umowa ramowa, premie i faktury kontraktu są w jednej zakładce."
       },
       {
         "anchor": "contracts.premium-justification",
@@ -3220,7 +3225,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-15",
     "audience": { "roles": ["admin", "delivery_lead", "finance"] },
-    "where": "Kontrakty → kontrakt → Szczegóły → Umowa ramowa",
+    "where": "Kontrakty → kontrakt → Pieniądze → Umowa ramowa",
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.framework-category",
@@ -3233,7 +3238,12 @@
       {
         "anchor": "contract.panel.open",
         "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
-        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.money",
+        "text": "Kliknij zakładkę „Pieniądze”.",
+        "hint": "Stawki, umowa ramowa, premie i faktury kontraktu są w jednej zakładce."
       },
       {
         "anchor": "contracts.framework-category",
@@ -3300,7 +3310,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-15",
     "audience": { "roles": ["admin", "delivery_lead", "finance"] },
-    "where": "Kontrakty → kontrakt → Umowa ramowa → Technologie premium",
+    "where": "Kontrakty → kontrakt → Pieniądze → Umowa ramowa → Technologie premium",
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.premium-skills",
@@ -3313,7 +3323,12 @@
       {
         "anchor": "contract.panel.open",
         "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
-        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.money",
+        "text": "Kliknij zakładkę „Pieniądze”.",
+        "hint": "Stawki, umowa ramowa, premie i faktury kontraktu są w jednej zakładce."
       },
       {
         "anchor": "contracts.premium-skills",
@@ -3405,7 +3420,7 @@
       {
         "anchor": "contract.panel.open",
         "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
-        "hint": "Pełna karta kontraktu otworzy się na „Szczegółach”."
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
       },
       {
         "anchor": "contract.tabs.amendments",
@@ -3672,6 +3687,37 @@
     "href": "/finance",
     "section": "finance",
     "dot_anchor": "finance.rate-divergences"
+  },
+  {
+    "id": "kontrakt-co-sie-dzieje-7-zakladek",
+    "pr": 3639,
+    "title": "Kontrakt: „Co się dzieje” na górze i 7 zakładek",
+    "why": "Pod nagłówkiem kontraktu stoi, co trzeba zrobić: koniec współpracy, kończące się zamówienie, zaległa rozmowa — z przyciskiem. Notatki są teraz w „Opiece”, a faktury w „Pieniądzach”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["delivery_view"] },
+    "where": "Kontrakty → kontrakt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.tabs",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Gdy coś czeka na ruch, stoi pod nagłówkiem w pasie „Co się dzieje”, z przyciskiem: koniec współpracy, zamówienie, rozmowa."
+      },
+      {
+        "anchor": "contract.tabs",
+        "text": "Zakładek jest 7 zamiast 10.",
+        "hint": "Notatki są w „Opiece i rozmowach”, faktury i historia stawek w „Pieniądzach”, sprzęt w „Starcie i sprzęcie”.",
+        "ack": true
+      }
+    ]
   },
   {
     "id": "nie-szuka-data-kazda-karta",

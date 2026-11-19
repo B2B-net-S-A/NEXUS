@@ -1609,7 +1609,7 @@ export default function ContractDetailPage() {
       )}
 
       {/* Zakładki z licznikami */}
-      <nav aria-label="Sekcje kontraktu" className="border-b border-border flex gap-1 overflow-x-auto">
+      <nav aria-label="Sekcje kontraktu" data-tour="contract.tabs" className="border-b border-border flex gap-1 overflow-x-auto">
         {visibleTabs.map((t) => {
           const active = t.key === activeTab;
           const count = tabCount[t.key];
@@ -1620,7 +1620,7 @@ export default function ContractDetailPage() {
               type="button"
               onClick={() => setActiveTab(t.key)}
               aria-current={active ? "page" : undefined}
-              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : undefined}
+              data-tour={t.key === "amendments" ? "contract.tabs.amendments" : t.key === "money" ? "contract.tabs.money" : undefined}
               className={`-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors ${
                 active
                   ? "border-primary text-foreground font-semibold"
