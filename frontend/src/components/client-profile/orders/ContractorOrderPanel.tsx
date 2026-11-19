@@ -655,7 +655,6 @@ export function ContractorOrderPanel({
       )}
       {costParts && (
         <span
-          data-tour="orders.cost-parts"
           className="block text-[11px] font-normal leading-4 text-muted-foreground"
           title="Stawka Partnera zmienia się w okresie tego zamówienia — każda część liczy się swoją stawką. Numer, PDF, przychód i faktury zostają przy jednym zamówieniu."
         >

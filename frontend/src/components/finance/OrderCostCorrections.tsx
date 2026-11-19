@@ -85,7 +85,7 @@ export function OrderCostCorrections({ canWrite }: { canWrite: boolean }) {
   const rows = query.data?.rows ?? [];
 
   return (
-    <section className="space-y-3" data-tour="finance.order-cost-corrections">
+    <section className="space-y-3">
       <div>
         <h2 className="text-sm font-semibold text-foreground">Do korekty po zmianie stawki</h2>
         <p className="text-sm text-muted-foreground">

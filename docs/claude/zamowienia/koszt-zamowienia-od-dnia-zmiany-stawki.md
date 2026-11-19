@@ -48,8 +48,7 @@ przy 286585, gdzie zmiana wypadła na granicy faktur.
 - **Widok:** zamówienie w API ma `cost_parts` (`[{from, to, rate}]`, redagowane
   razem z `rate_candidate`). Tabela zamówień klienta pokazuje pod kosztem
   „w częściach od zmiany stawki”, a panel osoby pokazuje pełną linię
-  „120 PLN/h do 31.08.2026 · 130 PLN/h od 01.09.2026 · …”
-  (`data-tour="orders.cost-parts"`).
+  „120 PLN/h do 31.08.2026 · 130 PLN/h od 01.09.2026 · …”.
 - Pomiar na produkcji 19.11, tylko odczyt: części dostanie 8 żywych zamówień
   (284887 i 7 innych, głównie z progresją z umowy). Lista „Do korekty” ma 1 pozycję,
   po korektach PFRON zrobionych tego dnia ręcznie.

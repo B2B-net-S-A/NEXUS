@@ -1,4 +1,4 @@
 {
-  "sha256": "fbecc778e450c3ea6e8d6ac818240a23b801e02ca5b1f21b497b39c514c2ac8e",
+  "sha256": "98132bea29dac9aace69c7eebcbe01d83291f64eb8353e1e4bf077367291dfb5",
   "source": "frontend/src/components/client-profile/orders/ContractorOrderPanel.tsx"
 }
