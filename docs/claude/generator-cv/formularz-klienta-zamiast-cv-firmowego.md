@@ -110,7 +110,11 @@ Reguły, które łatwo cofnąć:
   („Wypełnij z CV i screeningu”, „Uzupełnij braki”, „Pobierz Word”, „Wygeneruj
   też CV firmowe”), okno `ClientFormDialog` z brakami najpierw i źródłem
   każdej wartości; pusty opis w „Wiersz N” pokazuje pierwszą wypełnioną komórkę
-  wiersza (firmę). Pliki rekrutacji: plakietka „Wzór formularza”, co NEXUS
+  wiersza (firmę). Ta sama karta (i karta tabeli punktowej) stoi na górze
+  zakładki „CV” rozwiniętego panelu (`CvHandoffWorkbench`, od 19.11.2026,
+  na każdym etapie) — rozwinięty panel to domyślny widok pracy rekrutera,
+  a do tej daty pokazywał tam tylko „Jeszcze nie ma CV do klienta”.
+  Pliki rekrutacji: plakietka „Wzór formularza”, co NEXUS
   rozpoznał, „Ustaw jako wzór” / „To nie jest wzór”. Edytor reguły CV:
   „Dokument do klienta”.
 - **Odczyt cytatów (po próbie na stagingu 26.10.2026):** tekst CV
