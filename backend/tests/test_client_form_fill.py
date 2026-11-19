@@ -95,7 +95,7 @@ def test_yes_no_scale_and_contact_rules() -> None:
                 "quote": "Kontakt",
             },
             {"id": "t6.r0.c0", "value": "Tel. +48 600 100 200", "quote": "Kontakt"},
-            {"id": "t1.r1.c2", "value": "2019 - 2023", "quote": "07.2023 – obecnie"},
+            {"id": "t1.r1.c2", "value": "2020 - 2023", "quote": "06.2020 – 01.2023"},
         ]
     )
     fields = result["fields"]
@@ -103,7 +103,7 @@ def test_yes_no_scale_and_contact_rules() -> None:
     assert "t2.r5.c3" not in fields and "t2.r6.c3" not in fields
     assert "t0.r0.c0" not in fields and "t6.r0.c0" not in fields
     # Okres to nie telefon.
-    assert fields["t1.r1.c2"]["value"] == "2019 - 2023"
+    assert fields["t1.r1.c2"]["value"] == "2020 - 2023"
 
 
 def test_extra_rows_fill_empty_template_rows_first_then_overflow() -> None:
@@ -319,3 +319,201 @@ def test_city_comes_from_the_profile_when_known() -> None:
         raw, structure=_structure(), sources=SOURCES, candidate_name="Jan Fikcyjny"
     )
     assert without_city["fields"]["p4"]["source"] == "cv"
+
+
+# ── daty i certyfikaty (staging 19.11.2026, rekrutacja „Tester” CEZ) ─────────
+#
+# Fikcyjne CV w układzie, który wywrócił kontrolę: dwukolumnowy PDF rozdziela
+# początek i koniec okresu kolumną boczną, „1.5 roku” to okres pracy w sklepie,
+# a certyfikat jest dopiero „w przygotowaniu”.
+
+TWO_COLUMN_CV = (
+    "Anna Fikcyjna\nWork History\n"
+    "2022 - obecnie\nTester / Firma Testowa Sp. z o.o.\n"
+    "2021-12 Junior Software Service Consultant\n"
+    "Analytical Thinking - 2022-09\n"
+    "Przykładowa Spółka S.A., Warsaw\n"
+    "1.5 roku - okres maturalny\nSamodzielny sprzedawca\n"
+    "Courses\n"
+    "ISTQB Certified Tester – Foundation Level (preparing for a\n"
+    "certification exam)\n"
+    "ISTQB Advanced Test Analyst, 03.2023, wydany przez SJSI\n"
+)
+TWO_COLUMN = fill.Sources(cv=TWO_COLUMN_CV, notes="")
+
+
+def _parse_two_column(fields=(), extra_rows=()) -> dict:
+    raw = json.dumps({"fields": list(fields), "extra_rows": list(extra_rows)})
+    return fill.check_parse(
+        raw, structure=_structure(), sources=TWO_COLUMN, candidate_name="Anna"
+    )
+
+
+def test_date_field_takes_only_a_date_from_the_quote() -> None:
+    # „Data wydania” certyfikatu: tylko MM.RRRR albo RRRR, który stoi w cytacie.
+    assert fill._checked_value("Data wydania", "1,5 roku", "1.5 roku - okres") is None
+    assert fill._checked_value("Data wydania", "brak", "brak") is None
+    assert (
+        fill._checked_value("Data wydania", "03.2023", "Analyst, 03.2023, wydany")
+        == "03.2023"
+    )
+    assert fill._checked_value("Data wydania", "2023", "Analyst, 03.2023") == "2023"
+    # Miesiąca ani roku spoza cytatu nie wolno dopisać.
+    assert fill._checked_value("Data wydania", "04.2023", "Analyst, 03.2023") is None
+    assert fill._checked_value("Data wydania", "2024", "Analyst, 03.2023") is None
+
+    result = _parse_two_column(
+        [{"id": "t4.r1.c2", "value": "1,5 roku", "quote": "1.5 roku - okres maturalny"}]
+    )
+    assert "t4.r1.c2" not in result["fields"]
+
+
+def test_certificate_in_preparation_is_not_a_certificate() -> None:
+    preparing = "ISTQB Certified Tester – Foundation Level (preparing for a\ncertification exam)"
+    result = _parse_two_column(
+        [
+            {
+                "id": "t4.r1.c3",
+                "value": "ISTQB Certified Tester – Foundation Level "
+                "(w trakcie przygotowań do egzaminu certyfikującego)",
+                "quote": preparing,
+            },
+            # Bez dopisku w wartości — cytat i tak mówi, że certyfikatu nie ma.
+            {
+                "id": "t4.r1.c2",
+                "value": "2023",
+                "quote": "ISTQB Certified Tester – Foundation Level (preparing for a",
+            },
+        ]
+    )
+    assert "t4.r1.c3" not in result["fields"]
+    assert "t4.r1.c2" not in result["fields"]
+    context = "Instytucja wydająca certyfikat i nr certyfikatu"
+    assert fill._checked_value(context, "SJSI", "w trakcie przygotowań") is None
+    assert fill._checked_value(context, "SJSI", "wydany przez SJSI") == "SJSI"
+    # Poza certyfikatami „przygotowanie” to zwykłe słowo opisu.
+    assert (
+        fill._checked_value("Opis projektów", "Przygotowanie scenariuszy", "x")
+        == "Przygotowanie scenariuszy"
+    )
+
+
+def test_obtained_certificate_still_goes_through() -> None:
+    result = _parse_two_column(
+        [
+            {
+                "id": "t4.r1.c3",
+                "value": "SJSI",
+                "quote": "ISTQB Advanced Test Analyst, 03.2023, wydany przez SJSI",
+            },
+            {
+                "id": "t4.r1.c2",
+                "value": "03.2023",
+                "quote": "ISTQB Advanced Test Analyst, 03.2023",
+            },
+        ]
+    )
+    assert result["fields"]["t4.r1.c3"]["value"] == "SJSI"
+    assert result["fields"]["t4.r1.c2"]["value"] == "03.2023"
+
+
+def test_work_period_split_by_the_side_column_is_kept() -> None:
+    # Model cytuje początek i koniec jednym ciągiem z nową linią — w CV między
+    # nimi stoi kolumna boczna. Każda linia cytatu musi stać w CV osobno.
+    quote = "2021-12 Junior Software Service Consultant\n- 2022-09"
+    result = _parse_two_column(
+        [{"id": "t1.r1.c2", "value": "12.2021 – 09.2022", "quote": quote}],
+        [
+            {
+                "table": 1,
+                "cells": {
+                    "c2": {"value": "12.2021 – 09.2022", "quote": quote},
+                    "c1": {
+                        "value": "Przykładowa Spółka S.A.",
+                        "quote": "Przykładowa Spółka S.A., Warsaw",
+                    },
+                },
+            }
+        ],
+    )
+    assert result["fields"]["t1.r1.c2"]["value"] == "12.2021 – 09.2022"
+    assert result["fields"]["t1.r2.c2"]["value"] == "12.2021 – 09.2022"
+    # Linia, której w CV nie ma, nadal wywraca cytat.
+    bad = _parse_two_column(
+        [
+            {
+                "id": "t1.r1.c2",
+                "value": "12.2021 – 09.2022",
+                "quote": "2021-12 Junior Software Service Consultant\n- 2022-10",
+            }
+        ]
+    )
+    assert "t1.r1.c2" not in bad["fields"]
+
+
+def test_work_period_without_month_in_cv_stays_without_month() -> None:
+    label = "Okres pracy"
+    assert fill._checked_value(label, "01.2022 – obecnie", "2022 - obecnie") is None
+    assert (
+        fill._checked_value(label, "2022 – obecnie", "2022 - obecnie")
+        == "2022 – obecnie"
+    )
+    assert (
+        fill._checked_value(label, "12.2021 – 09.2022", "2021-12 x - 2022-09")
+        == "12.2021 – 09.2022"
+    )
+    assert (
+        fill._checked_value(label, "09.2024 – obecnie", "2024-09 Tester - present")
+        == "09.2024 – obecnie"
+    )
+    assert fill._checked_value(label, "1,5 roku", "1.5 roku - okres") is None
+    # „obecnie” tylko, gdy źródło mówi, że praca trwa.
+    assert fill._checked_value(label, "2021 – obecnie", "2021 - 2022") is None
+
+
+@pytest.mark.asyncio
+async def test_staging_cases_end_empty_or_right(monkeypatch) -> None:
+    """Trzy przypadki ze stagingu 19.11.2026 przez ``fill`` z odpowiedzią modelu."""
+    monkeypatch.setattr(fill, "api_key_configured", lambda _model: True)
+    monkeypatch.setattr(fill, "ai_feature", _no_quota)
+    answer = {
+        "fields": [
+            {
+                "id": "t4.r1.c2",
+                "value": "1,5 roku",
+                "quote": "1.5 roku - okres maturalny",
+            },
+            {
+                "id": "t4.r1.c3",
+                "value": "ISTQB Certified Tester – Foundation Level "
+                "(w trakcie przygotowań do egzaminu certyfikującego)",
+                "quote": "ISTQB Certified Tester – Foundation Level (preparing for a\n"
+                "certification exam)",
+            },
+            {
+                "id": "t1.r1.c2",
+                "value": "12.2021 – 09.2022",
+                "quote": "2021-12 Junior Software Service Consultant\n- 2022-09",
+            },
+        ]
+    }
+    monkeypatch.setattr(fill, "_call_model", lambda *_a: json.dumps(answer))
+    result = await fill.fill(
+        AsyncMock(),
+        structure=_structure(),
+        sources=TWO_COLUMN,
+        candidate_name="Anna Fikcyjna",
+        user_id=1,
+    )
+    assert result["status"] == "ok"
+    assert "t4.r1.c2" not in result["fields"]
+    assert "t4.r1.c3" not in result["fields"]
+    assert result["fields"]["t1.r1.c2"]["value"] == "12.2021 – 09.2022"
+    assert result["dropped"] == 2
+
+
+def test_prompt_tells_dates_and_certificates_rules() -> None:
+    prompt = fill.build_prompt(_structure(), SOURCES)
+    assert "sam rok" in prompt
+    assert "w trakcie" in prompt
+    assert "wszystkie stanowiska" in prompt

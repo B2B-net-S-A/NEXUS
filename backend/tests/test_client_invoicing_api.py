@@ -195,14 +195,47 @@ async def test_client_tab_compares_orders_with_ksef_invoices(client, seed):
     assert corrected["net"] == "22425.00"
     assert corrected["corrections"][0]["net"] == "-75.00"
     assert corrected["check"] == "ok"
-    # Nieopłacone, termin 10.11 minął.
-    assert invoices["FS 10/121/2026"]["overdue_days"] == 10
-    assert {item["invoice_number"] for item in body["overdue"]} >= {"FS 10/121/2026"}
+    # Termin 10.11 minął, ale NEXUS nie wie, czy zapłacono — to nie zaległość.
+    unpaid = invoices["FS 10/121/2026"]
+    assert (unpaid["overdue_days"], unpaid["payment_unknown"]) == (0, True)
+    assert body["overdue"] == []
     # Faktura dla nabywcy spoza NEXUSA nie trafia do zakładki klienta.
     assert "FS 11/7/2026" not in invoices
 
     finance = (await _tab(client, seed.users["finance"], seed)).json()
     assert finance["can_manage"] is True
+
+
+async def test_overdue_without_payment_data_is_a_count_not_arrears(client, seed):
+    """Brak zapisanej zapłaty to brak danych, nie zaległość.
+
+    19.11.2026 jeden klient miał „62 po terminie”, a cała firma 2 741 faktur,
+    żadna z datą zapłaty: NEXUS miał wyciągi z jednego dnia (12.11.2026).
+    """
+
+    dl = seed.users["dl"]
+    tab = (await _tab(client, dl, seed)).json()
+    # FS 10/118, 10/121 i 10/124 mają termin 10–18.11, a „dziś” to 20.11.
+    assert (tab["summary"]["overdue"], tab["summary"]["payment_unknown"]) == (0, 3)
+    assert tab["overdue"] == []
+    late = fx.as_dict(tab["invoices"], "invoice_number")
+    assert all(item["overdue_days"] == 0 for item in late.values())
+    assert late["FS 10/118/2026"]["payment_unknown"] is True
+
+    scope = await client.get(
+        f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(dl)
+    )
+    assert scope.json() == {"invoices": [], "payment_unknown": 3}
+    other = await client.get(
+        f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["other_dl"])
+    )
+    assert other.json() == {"invoices": [], "payment_unknown": 0}
+    finance = await client.get(
+        f"{FINANCE}/overdue", headers=fx.headers(seed.users["finance"])
+    )
+    # Do tego FS 11/7 (nabywca spoza NEXUSA, termin 19.11); baza testów jest wspólna.
+    assert finance.json()["invoices"] == []
+    assert finance.json()["payment_unknown"] >= 4
 
 
 async def test_export_has_every_position_with_polish_decimals(client, seed):
@@ -362,18 +395,19 @@ async def test_statement_credits_pay_invoices_and_reimport_changes_nothing(
     )  # MPP: VAT na rachunku VAT
     partial = invoices["FS 10/121/2026"]
     assert (partial["payment_status"], partial["to_pay"]) == ("partial", "19261.60")
-    assert partial["overdue_days"] == 10
+    # Część zapłaty jest z wyciągu, o reszcie NEXUS nie wie — to nie zaległość.
+    assert (partial["overdue_days"], partial["payment_unknown"]) == (0, True)
 
+    # Po wyciągu termin za sobą bez pełnej zapłaty ma tylko FS 10/121 (118 i 124
+    # opłacone); drugi DL nie widzi faktur cudzego klienta.
     late = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["dl"])
     )
-    assert [item["invoice_number"] for item in late.json()["invoices"]] == [
-        "FS 10/121/2026"
-    ]
+    assert late.json() == {"invoices": [], "payment_unknown": 1}
     nobody = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["other_dl"])
     )
-    assert nobody.json()["invoices"] == []
+    assert nobody.json() == {"invoices": [], "payment_unknown": 0}
     recruiter = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["recruiter"])
     )

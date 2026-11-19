@@ -6,8 +6,9 @@ fakty o kandydacie — podział pracy jak w odczytach „znajdź i zacytuj” (F
 
 * model zwraca każdą wartość z DOSŁOWNYM cytatem z CV albo notatek,
 * KOD odrzuca wartość bez cytatu ze źródła, „TAK/NIE” spoza tych dwóch słów,
-  ocenę w skali, której liczby nie ma w cytacie, i wartość z e-mailem albo
-  telefonem. Imię i nazwisko wpisuje kod z profilu.
+  ocenę w skali, której liczby nie ma w cytacie, wartość z e-mailem albo
+  telefonem, datę i okres, których nie ma w cytacie, oraz certyfikat
+  „w trakcie”. Imię i nazwisko wpisuje kod z profilu.
 
 Czego zabrakło, zostaje puste i rekruter to uzupełnia — ocen 1–10 i numerów
 certyfikatów zwykle nie ma w żadnym źródle. Model jest dodatkiem: błąd albo
@@ -64,6 +65,37 @@ YES_NO_LABEL = re.compile(r"tak\s*/\s*nie", re.IGNORECASE)
 SCALE_LABEL = re.compile(r"skali|\b1\s*[-–]\s*10\b", re.IGNORECASE)
 _EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 _PHONE = re.compile(r"\+?\d[\d \-]{7,}\d")
+# Daty idą do klienta w przetargu, więc kod sprawdza je sam (staging 19.11.2026:
+# „Data wydania” = „1,5 roku”, „Okres pracy” z miesiącem, którego CV nie podaje).
+DATE_LABEL = re.compile(r"\bdata\b", re.IGNORECASE)
+PERIOD_LABEL = re.compile(r"\bokres\b", re.IGNORECASE)
+_DATE = r"(?:(0[1-9]|1[0-2])\.)?((?:19|20)\d{2})"
+_DATE_VALUE = re.compile(rf"^{_DATE}$")
+_PERIOD_VALUE = re.compile(rf"^{_DATE}\s*[-–—]\s*(?:{_DATE}|(obecnie))$", re.IGNORECASE)
+_ONGOING = re.compile(
+    r"obecn|nadal|teraz|dzi[sś]|present|current|\bnow\b|today|ongoing|since|\bod\b",
+    re.IGNORECASE,
+)
+_MONTH_NAMES = (
+    ("sty", "jan"),
+    ("lut", "feb"),
+    ("mar",),
+    ("kwi", "apr"),
+    ("maj", "may"),
+    ("cze", "jun"),
+    ("lip", "jul"),
+    ("sie", "aug"),
+    ("wrz", "sep"),
+    ("paź", "paz", "oct"),
+    ("lis", "nov"),
+    ("gru", "dec"),
+)
+# Certyfikat „w trakcie”/„preparing for exam” to brak certyfikatu.
+CERTIFICATE_LABEL = re.compile(r"certyfikat|certificat", re.IGNORECASE)
+_NOT_OBTAINED = re.compile(
+    r"w\s+trakcie|przygotow|preparing|in\s+progress|planowan|planned|zamierzam",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -115,6 +147,27 @@ def _grounded(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str
     return _grounded_one(quote, sources)
 
 
+def _grounded_for(
+    label: str, quote: Any, sources: Sources
+) -> tuple[Optional[str], Optional[str]]:
+    """Jak ``_grounded``, a w polu z datą wielowierszowy cytat liczy się po liniach.
+
+    Dwukolumnowy PDF stawia kolumnę boczną między początkiem a końcem okresu
+    („2021-12 Konsultant” … „- 2022-09”), a model cytuje obie linie razem
+    (staging 19.11.2026: pusty „Okres pracy”). Każda linia musi stać w źródle,
+    a daty wartości i tak muszą stać w cytacie (``_checked_date``).
+    """
+    source, found = _grounded(quote, sources)
+    if found is not None or not isinstance(quote, str):
+        return source, found
+    if not (PERIOD_LABEL.search(label) or DATE_LABEL.search(label)):
+        return None, None
+    lines = [line.strip() for line in quote.splitlines() if line.strip()]
+    if len(lines) < 2:
+        return None, None
+    return _grounded(lines, sources)
+
+
 def _contact(value: str) -> bool:
     """E-mail albo numer telefonu (9+ cyfr — okres „2019 - 2023” to nie telefon)."""
     if _EMAIL.search(value):
@@ -125,11 +178,60 @@ def _contact(value: str) -> bool:
     )
 
 
+def _date_in_quote(month: Optional[str], year: str, quote: str) -> bool:
+    """Rok (i miesiąc, gdy wartość go ma) stoi w cytacie — nic nie jest dopisane."""
+    text = quote.lower()
+    if not re.search(rf"(?<!\d){year}(?!\d)", text):
+        return False
+    if month is None:
+        return True
+    number = rf"0?{int(month)}"
+    if re.search(rf"(?<!\d){number}\s*[./-]\s*{year}(?!\d)", text) or re.search(
+        rf"(?<!\d){year}\s*[./-]\s*{number}(?!\d)", text
+    ):
+        return True
+    names = "|".join(_MONTH_NAMES[int(month) - 1])
+    return bool(re.search(rf"\b(?:{names})\w*\.?\s*{year}(?!\d)", text))
+
+
+def _checked_date(label: str, value: str, quote: str) -> Optional[bool]:
+    """``True``/``False`` dla pól z datą („Data …”, „Okres …”), ``None`` dla reszty."""
+    if PERIOD_LABEL.search(label):
+        match = _PERIOD_VALUE.match(value.strip())
+        if match is None:
+            return False
+        start_month, start_year, end_month, end_year, ongoing = match.groups()
+        if not _date_in_quote(start_month, start_year, quote):
+            return False
+        if ongoing:
+            return bool(_ONGOING.search(quote))
+        return _date_in_quote(end_month, end_year, quote)
+    if DATE_LABEL.search(label):
+        match = _DATE_VALUE.match(value.strip())
+        return match is not None and _date_in_quote(*match.groups(), quote)
+    return None
+
+
 def _checked_value(
-    label: str, value: str, quote: str, max_points: Optional[int] = None
+    label: str,
+    value: str,
+    quote: str,
+    max_points: Optional[int] = None,
+    context: str = "",
 ) -> Optional[str]:
-    """Wartość po kontrolach kodu albo ``None`` (pole zostaje do uzupełnienia)."""
+    """Wartość po kontrolach kodu albo ``None`` (pole zostaje do uzupełnienia).
+
+    ``context`` to nazwa wiersza i sekcji pola — po niej kod poznaje wiersz
+    certyfikatu, gdy kolumna nazywa się tylko „Instytucja wydająca”.
+    """
     if _contact(value):
+        return None
+    # „NIE” albo 0 pkt przy certyfikacie „w trakcie” to prawda — reszta nie.
+    if (
+        CERTIFICATE_LABEL.search(f"{label} {context}")
+        and _NOT_OBTAINED.search(f"{value} {quote}")
+        and value.strip().upper() not in ("NIE", "0")
+    ):
         return None
     if max_points is not None:
         # Wynik w tabeli punktowej: liczba całkowita od 0 do maksimum wiersza.
@@ -137,6 +239,9 @@ def _checked_value(
         if match is None or int(match.group(1)) > max_points:
             return None
         return match.group(1)
+    dated = _checked_date(label, value, quote)
+    if dated is not None:
+        return value if dated else None
     if YES_NO_LABEL.search(label):
         word = value.strip().upper()
         return word if word in ("TAK", "NIE") else None
@@ -189,6 +294,12 @@ def check_parse(
     labels = {
         item["id"]: item.get("label") or "" for item in structure.get("fields") or []
     }
+    contexts = {
+        item["id"]: " ".join(
+            item.get(key) or "" for key in ("row_label", "section", "table")
+        )
+        for item in structure.get("fields") or []
+    }
     limits = {
         item["id"]: int(item["max_points"])
         for item in structure.get("fields") or []
@@ -222,9 +333,15 @@ def check_parse(
             dropped += 1  # punkty tylko według zasad oceny z Plików rekrutacji
             continue
         value = _short(item.get("value"))
-        source, quote = _grounded(item.get("quote"), sources)
+        source, quote = _grounded_for(labels[field_id], item.get("quote"), sources)
         checked = (
-            _checked_value(labels[field_id], value, quote, limits.get(field_id))
+            _checked_value(
+                labels[field_id],
+                value,
+                quote,
+                limits.get(field_id),
+                context=contexts[field_id],
+            )
             if value and quote is not None
             else None
         )
@@ -245,10 +362,11 @@ def check_parse(
             if column not in table["columns"] or not isinstance(cell, dict):
                 dropped += 1
                 continue
+            label = table["columns"][column]
             value = _short(cell.get("value"))
-            source, quote = _grounded(cell.get("quote"), sources)
+            source, quote = _grounded_for(label, cell.get("quote"), sources)
             checked = (
-                _checked_value(table["columns"][column], value, quote)
+                _checked_value(label, value, quote, context=table.get("title") or "")
                 if value and quote is not None
                 else None
             )

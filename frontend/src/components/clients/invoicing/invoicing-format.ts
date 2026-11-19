@@ -143,9 +143,25 @@ export function summaryStats(
     stats.push({ id: "differences", label: "różnice do sprawdzenia", value: summary.differences });
   }
   if (overdue !== undefined) {
-    stats.push({ id: "overdue", label: "po terminie", value: overdue });
+    const unknown = summary.payment_unknown ?? 0;
+    const title = unknown ? unknownPaymentsText(unknown) : undefined;
+    stats.push(
+      unknown && overdue === 0
+        ? { id: "overdue", label: "o zapłatach", value: "brak danych", title }
+        : { id: "overdue", label: "po terminie", value: overdue, title },
+    );
   }
   return stats;
+}
+
+/**
+ * Faktury po dacie terminu bez zapisanej zapłaty to brak danych, nie zaległość
+ * (19.11.2026: „62 po terminie” u jednego klienta, żadna z datą zapłaty).
+ */
+export function unknownPaymentsText(count: number): string {
+  const invoices = countPl(count, "faktura ma", "faktury mają", "faktur ma");
+  const paid = count === 1 ? "czy jest zapłacona" : "czy są zapłacone";
+  return `${invoices} termin za sobą, ale NEXUS nie wie, ${paid}: wpłaty zna tylko z wyciągów wgranych w Księgowość → Bank i z „Opłacono”, a zaległości z wyciągów jeszcze nie liczy.`;
 }
 
 export function rowInvoiceText(row: BillingRow, invoices: SalesInvoice[]): string {
@@ -171,6 +187,9 @@ export function paymentText(invoice: SalesInvoice): string {
     const days = countPl(invoice.overdue_days, "dzień", "dni", "dni");
     return `po terminie ${days}`;
   }
+  if (invoice.payment_unknown && invoice.payment_status === "unpaid") {
+    return "brak danych o zapłacie";
+  }
   switch (invoice.payment_status as PaymentStatus) {
     case "paid":
       return invoice.paid_on ? `zapłacono ${formatDayMonthPl(invoice.paid_on)}` : "zapłacono";
@@ -190,6 +209,9 @@ export function paymentText(invoice: SalesInvoice): string {
  * jest krótka, bo kolumna „Zapłata” ma przy 1280 px ok. 170 px.
  */
 export function paymentNote(invoice: SalesInvoice): string | null {
+  if (invoice.payment_unknown && invoice.payment_status === "unpaid") {
+    return invoice.due_date ? `termin ${formatDayMonthPl(invoice.due_date)}` : null;
+  }
   if (invoice.payment_status !== "partial") return null;
   const left = `zostało ${formatMoney(invoice.to_pay, invoice.currency)}`;
   return invoice.overdue_days > 0 ? `zapłacono część · ${left}` : left;
