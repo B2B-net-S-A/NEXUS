@@ -32,6 +32,7 @@ import {
   placeBeside,
   readTour,
   START_PATH,
+  TOUR_STEP_CARD,
   writeTour,
   type Novelty,
   type Rect,
@@ -75,8 +76,6 @@ interface Box extends Rect {
 }
 
 const PAD = 6;
-/** Rozmiar karty kroku do wyboru miejsca obok celu (wysokość z zapasem na dwie linie). */
-const STEP_CARD = { width: 340, height: 170 };
 /** Tablica ma ponad 100 kart z tą samą kotwicą, a pomiar idzie co 400 ms. */
 const MAX_MEASURED = 30;
 
@@ -303,7 +302,7 @@ function TourStepCard({
     return () => window.clearTimeout(id);
   }, [hasBox, state.step]);
   const style: React.CSSProperties = box
-    ? placeBeside(box, STEP_CARD, {
+    ? placeBeside(box, TOUR_STEP_CARD, {
         width: window.innerWidth,
         height: window.innerHeight,
       })

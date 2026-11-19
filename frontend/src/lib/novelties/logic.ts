@@ -174,6 +174,14 @@ export interface Rect {
 }
 
 /**
+ * Rozmiar karty kroku do wyboru miejsca obok celu. Wysokość to najwyższa
+ * karta: dwulinijkowy tytuł i krok „Rozumiem” z dopiskiem „Tutaj tego miejsca
+ * nie widać…” mają do 240 px. Przy 170 px karta pod celem wychodziła poza
+ * okno 1280 × 720 i „Rozumiem” było ucięte (tester 19.11.2026).
+ */
+export const TOUR_STEP_CARD = { width: 340, height: 250 } as const;
+
+/**
  * Miejsce karty kroku obok podświetlenia: pod, nad, z lewej, z prawej —
  * pierwsze, które mieści się w oknie i nie zasłania celu. Przycisk w stopce
  * panelu (np. „Zakończ współpracę…”) nie ma miejsca pod ani nad sobą.

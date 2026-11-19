@@ -14,6 +14,7 @@ import {
   intersectRects,
   placeBeside,
   startAllows,
+  TOUR_STEP_CARD,
   withinAnchor,
   type Novelty,
 } from "@/lib/novelties/logic";
@@ -224,6 +225,18 @@ describe("miejsce karty kroku", () => {
       expect(overlaps).toBe(false);
       expect(at.top + card.height).toBeLessThanOrEqual(viewport.height);
     }
+  });
+
+  it("szacunek karty mieści najwyższą kartę: „Rozumiem” nie wychodzi pod dolną krawędź", () => {
+    // Tester 19.11.2026, 1280 × 720: „+ Czy szuka?” na liście kandydatów
+    // (cel 507/364, 90 × 28). Karta z dwulinijkowym tytułem ma 210 px, a krok
+    // „Rozumiem” z dopiskiem „Tutaj tego miejsca nie widać…” 240 px. Przy
+    // szacunku 170 px karta szła pod cel i kończyła się na 757 px.
+    const tallest = 240;
+    const target = { top: 507, left: 364, width: 90, height: 28 };
+    const at = placeBeside(target, TOUR_STEP_CARD, viewport);
+    expect(TOUR_STEP_CARD.height).toBeGreaterThanOrEqual(tallest);
+    expect(at.top + tallest).toBeLessThanOrEqual(viewport.height);
   });
 
   it("cel prawie na cały ekran: karta zostaje w oknie, choć wchodzi na cel", () => {
