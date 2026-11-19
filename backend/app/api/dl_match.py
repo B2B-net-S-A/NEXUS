@@ -470,22 +470,20 @@ async def _emit(db: AsyncSession, **kwargs) -> None:
 def target_recipients(
     *,
     recruiter_id: Optional[int],
-    delivery_lead_id: Optional[int],
     sender_id: int,
     lead_wants_all: bool,
 ) -> list[int]:
     """Kto w B dostaje „<DL> wysłał(a) <osoba> do klienta — Match z <A>”.
 
-    Osoba z Matcha nie jest kandydatem prowadzącego B, więc prowadzący dostaje
-    dzwonek tylko po wyborze „Wszyscy kandydaci…” w „Moje konto” — jak przy
-    ruchach etapów (decyzja Artura 18.11 i 19.11.2026: „nie chcemy, żeby ktoś
-    miał powiadomienia, jak to nie jego kandydat”)."""
-    lead = recruiter_id if lead_wants_all else None
-    return [
-        uid
-        for uid in dict.fromkeys((lead, delivery_lead_id))
-        if uid is not None and uid != sender_id
-    ]
+    To informacja bez zadania: osoba nie jest kandydatem prowadzącego B, a DL
+    rekrutacji B nie ma przy niej nic do zrobienia. Dzwoni więc tylko
+    prowadzącemu, który wybrał „Wszyscy kandydaci…” w „Moje konto” — jak przy
+    ruchach etapów (decyzje Artura 18.11 i 19.11.2026: „nie chcemy, żeby ktoś
+    miał powiadomienia, jak to nie jego kandydat”; DL „tylko jak jest coś dla
+    niego do zrobienia”)."""
+    if not lead_wants_all or recruiter_id is None or recruiter_id == sender_id:
+        return []
+    return [recruiter_id]
 
 
 async def _notify_target_owners(
@@ -497,9 +495,8 @@ async def _notify_target_owners(
     user: User,
     stage: CandidateStage,
 ) -> None:
-    """DL rekrutacji B (gdy to nie wysyłający — od 27.10.2026 DL może wysłać
-    też do cudzej rekrutacji) wie, kto wysłał osobę i skąd. Prowadzący B tylko
-    wtedy, gdy wybrał wszystkie ruchy w swoich rekrutacjach (19.11.2026)."""
+    """Prowadzący B, który wybrał wszystkie ruchy w swoich rekrutacjach, wie,
+    kto wysłał osobę i skąd. DL rekrutacji B — od 19.11.2026 już nie."""
     lead_wants_all = job.recruiter_id is not None and bool(
         await db.scalar(
             select(User.stage_moves_all_led_jobs).where(User.id == job.recruiter_id)
@@ -507,7 +504,6 @@ async def _notify_target_owners(
     )
     recipients = target_recipients(
         recruiter_id=job.recruiter_id,
-        delivery_lead_id=job.delivery_lead_id,
         sender_id=user.id,
         lead_wants_all=lead_wants_all,
     )

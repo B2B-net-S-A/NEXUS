@@ -115,20 +115,16 @@ def test_only_a_qc_refusal_triggers_the_override() -> None:
 
 
 def test_match_bell_skips_the_lead_of_b_unless_they_chose_all_moves() -> None:
-    """19.11.2026: prowadzący B dostawał „<DL> wysłał(a) <osoba> do klienta”
-    o osobie, która nie jest jego kandydatem. DL rekrutacji B zostaje."""
+    """19.11.2026: prowadzący B i DL rekrutacji B dostawali „<DL> wysłał(a)
+    <osoba> do klienta” o osobie, która nie jest ich kandydatem i nie daje im
+    nic do zrobienia. Zostaje tylko prowadzący z wyborem „Wszyscy kandydaci…”."""
     from app.api.dl_match import target_recipients
 
-    base = dict(recruiter_id=5, delivery_lead_id=8, sender_id=9)
-    assert target_recipients(**base, lead_wants_all=False) == [8]
-    assert target_recipients(**base, lead_wants_all=True) == [5, 8]
-    # DL wysyła do własnej rekrutacji: prowadzący bez wyboru nie dostaje nic.
-    own = dict(recruiter_id=5, delivery_lead_id=9, sender_id=9)
-    assert target_recipients(**own, lead_wants_all=False) == []
-    # Prowadzący i DL to ta sama osoba — DL dostaje raz.
-    same = dict(recruiter_id=8, delivery_lead_id=8, sender_id=9)
-    assert target_recipients(**same, lead_wants_all=False) == [8]
-    assert target_recipients(**same, lead_wants_all=True) == [8]
+    assert target_recipients(recruiter_id=5, sender_id=9, lead_wants_all=False) == []
+    assert target_recipients(recruiter_id=5, sender_id=9, lead_wants_all=True) == [5]
+    # Prowadzący sam wysłał — siebie nie powiadamia.
+    assert target_recipients(recruiter_id=9, sender_id=9, lead_wants_all=True) == []
+    assert target_recipients(recruiter_id=None, sender_id=9, lead_wants_all=True) == []
 
 
 @pytest.mark.asyncio
@@ -305,11 +301,12 @@ async def test_nordea_target_lands_in_the_cpro_queue(
 
 
 @pytest.mark.asyncio
-async def test_job_of_another_dl_is_sent_and_its_dl_is_told(
+async def test_job_of_another_dl_is_sent_without_a_bell_for_its_dl(
     api_client: AsyncClient, dl_skips_on, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Od 27.10.2026 (prośba Igora, decyzja Artura) DL wysyła też do cudzej
-    rekrutacji, którą dodał ręcznie; DL tamtej rekrutacji dostaje dzwonek."""
+    rekrutacji, którą dodał ręcznie. Od 19.11.2026 DL tamtej rekrutacji nie
+    dostaje dzwonka: nie ma przy tej osobie nic do zrobienia."""
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     world = await _seed_world()
     rec_id, _ = await _seed_user(UserRole.recruiter)
@@ -327,9 +324,12 @@ async def test_job_of_another_dl_is_sent_and_its_dl_is_told(
         assert rows[-1].stage == PipelineStage.cv_sent
         async with AsyncSessionLocal() as db:
             told = await db.scalar(
-                select(Notification).where(Notification.user_id == other_dl)
+                select(Notification).where(
+                    Notification.user_id == other_dl,
+                    Notification.title.contains("Match z"),
+                )
             )
-        assert told is not None and "Match z" in told.title
+        assert told is None
     finally:
         await _drop([job_b], [rec_id, dl_id, other_dl])
         await _cleanup(world, [rec_id, dl_id, other_dl])
