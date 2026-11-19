@@ -1985,7 +1985,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=3,
+    version=4,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -2010,12 +2010,23 @@ CLIENT_FORM_FILL = PromptTemplate(
         "informacji = pomiń.\n"
         "- Liczba lat: wylicz z dat w CV i zapisz jak „3 lata 4 mies.”; "
         "cytatem jest okres z CV.\n"
-        "- Okres pracy: „MM.RRRR – MM.RRRR” albo „MM.RRRR – obecnie”.\n"
+        "- Okres pracy: „MM.RRRR – MM.RRRR” albo „MM.RRRR – obecnie”, z dat "
+        "w CV. Gdy CV podaje sam rok, wpisz sam rok („2022 – obecnie”) — nie "
+        "dopisuj miesiąca. Gdy początek i koniec stoją w CV w różnych liniach "
+        '(PDF w dwóch kolumnach), "quote" to lista obu fragmentów, np. '
+        '["2021-12 Konsultant", "- 2022-09"].\n'
+        "- Pole „Data …” (np. data wydania certyfikatu): wyłącznie data z CV "
+        "jako „MM.RRRR” albo „RRRR”. Czas trwania („1,5 roku”) ani okres pracy "
+        "to nie data — pomiń pole.\n"
+        "- Certyfikaty: tylko uzyskane. Certyfikat „w trakcie”, "
+        "„w przygotowaniu”, „preparing for exam” albo sam kurs = kandydat go "
+        "nie ma: pomiń pola daty, instytucji i numeru (zostają puste); "
+        "„NIE” wpisuj tylko w pole z „TAK/NIE” w etykiecie.\n"
         "- Opisy: rzeczowo, po polsku, do 400 znaków, bez przymiotników "
         "reklamowych.\n"
-        "- Doświadczenie zawodowe od najnowszego. Najpierw wiersze wzoru, "
-        'kolejne stanowiska w "extra_rows" — tylko dla tabel z listy wyżej, '
-        "najwyżej 10 wierszy na tabelę.\n"
+        "- Doświadczenie zawodowe: wszystkie stanowiska z CV, od najnowszego. "
+        'Najpierw wiersze wzoru, kolejne stanowiska w "extra_rows" — tylko dla '
+        "tabel z listy wyżej, najwyżej 10 wierszy na tabelę.\n"
         '- Pole z "max_points": liczba punktów według <scoring_rules> — '
         "liczba całkowita od 0 do max_points, policzona z faktów w CV i notatkach "
         '(np. lata doświadczenia); "quote" to fragment, z którego wynika. '
