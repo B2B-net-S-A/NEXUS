@@ -150,6 +150,8 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
+    # 0742: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
+    ledger_bank_balances,
     # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
     client_invoice_templates,
     # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
@@ -180,8 +182,6 @@ MODULES = (
     board_reports,
     # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
     contract_rate_documents,
-    # 0742: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
-    ledger_bank_balances,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
