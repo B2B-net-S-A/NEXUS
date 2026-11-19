@@ -34,6 +34,10 @@ https://claude.ai/artifact/BtbntEV8kg9WFBHekc3iU7
 - **„CV wysłane stoi ponad 7 dni”** (`check_stage_stuck_7d`, pojedynczy
   dzwonek) idzie do rekrutera kandydata, a bez aktywnego — do prowadzącego.
   Tygodniowy skrót „N osób stoi” na rekrutację zostaje u prowadzącego.
+- **Match DL-a do innej rekrutacji** („<DL> wysłał(a) <osoba> do klienta —
+  Match z <A>”, `api/dl_match.py`) podlega tej samej zasadzie od 19.11.2026:
+  prowadzący B tylko po wyborze w „Moje konto”, DL rekrutacji B wcale
+  (DL dostaje tylko to, przy czym ma coś do zrobienia).
 - **Bez zmian:** przekazania z przepływu (QC, Cpro, „CV wysłane”, etapy-odznaki),
   zastępstwa (`notification_route`), reguły z rolą, `specific_user`, DL rekrutacji
   i override'y klienta.
