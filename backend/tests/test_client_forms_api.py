@@ -403,3 +403,77 @@ async def test_pdf_or_other_files_cannot_be_templates(
     )
     assert marked.status_code == 422
     assert marked.json()["detail"].startswith("Wzorem może być plik Word")
+
+
+@pytest.mark.asyncio
+async def test_years_grid_roles_and_screening_questions(
+    app_client, app_auth_headers, storage, model
+):
+    """Lata liczy kod ze stanowisk; rekruter zdejmuje rolę i wysyła braki do screeningu."""
+    job_id, stage_id = await _pair()
+    await _add_template(app_client, app_auth_headers, job_id)
+    url = f"/api/candidates/stages/{stage_id}/client-form"
+    answer = {
+        "fields": [],
+        "roles": [
+            {
+                "key": "r1",
+                "employer": "Bank Przykładowy S.A.",
+                "title": "Automation Test Engineer",
+                "start": "2023-07",
+                "end": "obecnie",
+                "quote": "07.2023 – obecnie Automation Test Engineer",
+            }
+        ],
+        "years": [
+            {
+                "id": "t2.r2.c3",
+                "roles": [
+                    {
+                        "key": "r1",
+                        "level": "implied",
+                        "quote": "Automation Test Engineer",
+                    }
+                ],
+            },
+            {"id": "t2.r5.c2", "roles": [], "skills_quote": "Selenium WebDriver"},
+        ],
+    }
+    model.append(answer)
+    filled = (await app_client.post(f"{url}/fill", headers=app_auth_headers)).json()
+    values = {item["id"]: item for item in filled["fields"]}
+    assert values["t2.r2.c3"]["value"] and values["t2.r2.c3"]["source"] == "cv"
+    assert values["t2.r2.c3"]["years"]["basis"][0]["period"] == "07.2023 – obecnie"
+    assert values["p3"]["value"] == values["t2.r2.c3"]["value"]
+    assert values["t2.r5.c2"]["value"] is None
+    assert values["t2.r5.c2"]["years"]["skills"] == "Selenium WebDriver"
+
+    # Rola zdjęta w siatce → pole do uzupełnienia; braki do ściągi screeningu.
+    saved = await app_client.put(
+        f"{url}/years",
+        json={"roles": {"t2.r2.c3": []}, "ask": ["t2.r2.c3", "t2.r5.c2"]},
+        headers=app_auth_headers,
+    )
+    assert saved.status_code == 200, saved.text
+    after = {item["id"]: item for item in saved.json()["fields"]}
+    assert after["t2.r2.c3"]["value"] is None
+    assert "t2.r2.c3" in saved.json()["missing"]
+    assert after["t2.r5.c2"]["years"]["ask"] is True
+
+    # Pole bez siatki lat → 422; wpis rekrutera nie gubi siatki.
+    refused = await app_client.put(
+        f"{url}/years", json={"roles": {"t1.r1.c1": []}}, headers=app_auth_headers
+    )
+    assert refused.status_code == 422
+    typed = await app_client.put(
+        url, json={"fields": {"t2.r5.c2": "1 rok"}}, headers=app_auth_headers
+    )
+    typed_value = {item["id"]: item for item in typed.json()["fields"]}["t2.r5.c2"]
+    assert typed_value["source"] == "recruiter" and typed_value["years"]["ask"] is True
+
+    # Ponowne wypełnienie zostawia pytania do screeningu.
+    model.append(answer)
+    refilled = (await app_client.post(f"{url}/fill", headers=app_auth_headers)).json()
+    again = {item["id"]: item for item in refilled["fields"]}
+    assert again["t2.r2.c3"]["years"]["ask"] is True
+    assert again["t2.r2.c3"]["value"] is not None
