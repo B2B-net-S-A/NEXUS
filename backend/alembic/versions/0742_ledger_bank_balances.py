@@ -1,7 +1,7 @@
 """Salda wyciągów w księdze: ciągłość rachunku dla „po terminie” (19.11.2026).
 
 Revision ID: 0742_ledger_bank_balances
-Revises: 0740_cpro_client_reasons
+Revises: 0741_order_cost_steps
 
 Wyciąg w Księgowość → Bank zapamiętuje saldo otwarcia i zamknięcia z datami,
 numery wyciągów banku i to, czy jego uznania przeszły przez E8. Z tego
@@ -17,7 +17,7 @@ from alembic import op
 from app.services import ledger_bank_balance_schema as schema
 
 revision = "0742_ledger_bank_balances"
-down_revision = "0740_cpro_client_reasons"
+down_revision = "0741_order_cost_steps"
 branch_labels = None
 depends_on = None
 
