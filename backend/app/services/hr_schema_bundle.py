@@ -77,6 +77,7 @@ from app.services import hr_time_schema as time_
 from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
 from app.services.cpro_bot import schema as cpro_bot
+from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -176,6 +177,8 @@ MODULES = (
     board_votes,
     # 0737: gotówka i archiwum raportów Rady (R7, 18.11.2026).
     board_reports,
+    # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
+    contract_rate_documents,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

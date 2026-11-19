@@ -216,6 +216,10 @@ class AIFeatureKey(str, enum.Enum):
     # 0727 (16.11.2026): Rada — odczyt skanu uchwały albo protokołu (numer, data,
     # organ, przedmiot) jako propozycja do zatwierdzenia przez admina.
     board_document_read = "board_document_read"
+    # 0739 (18.11.2026): stawka Partnera z umowy albo aneksu w Dokumentach
+    # kontraktu — kroki z datami i cytat; różnicę z harmonogramem liczy kod,
+    # stawkę zmienia aneks „Zmiana stawki”, nigdy sam odczyt.
+    contract_document_rate_read = "contract_document_rate_read"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -272,6 +276,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.client_report_requirements: "Raporty dla klientów — obowiązki raportowe z umów ramowych",
     AIFeatureKey.premium_skill_justification: "Umowa ramowa — szkic uzasadnienia dopłaty za technologię premium (EN)",
     AIFeatureKey.board_document_read: "Rada — odczyt skanu uchwały i protokołu",
+    AIFeatureKey.contract_document_rate_read: "Kontrakty — stawka Partnera z umowy i aneksu",
 }
 
 
@@ -515,6 +520,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
     AIFeatureKey.board_document_read: [
         "Wgrany przez admina plik dokumentu korporacyjnego (PDF albo zdjęcie): uchwała, protokół, regulamin",
         "(bez danych kandydatów, kontraktów i stawek z NEXUSA)",
+    ],
+    AIFeatureKey.contract_document_rate_read: [
+        "Plik umowy, aneksu albo innego dokumentu z Dokumentów kontraktu (tekst PDF-u albo skan)",
+        "(bez stawek i harmonogramu z NEXUSA — porównanie robi kod)",
     ],
 }
 

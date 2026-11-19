@@ -1431,6 +1431,13 @@ class Settings(BaseSettings):
     CONTRACT_DOCS_SP_SYNC_ENABLED: bool = False
     CONTRACT_DOCS_SP_SYNC_MINUTES: int = 60
 
+    # Stawki z dokumentów kontraktu (0739): pętla czyta każdy plik umowy
+    # i aneksu modelem i liczy różnicę z harmonogramem (karta na kontrakcie).
+    # Wpis automatyczny różnic „oczywistych” — osobno, po tygodniu na karcie
+    # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
+    CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
+    CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
+
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
     PREP_REVIEW_GOOD_COVERAGE: float = 0.8

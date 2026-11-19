@@ -890,6 +890,7 @@ async def lifespan(app: FastAPI):
     from app.tasks.order_mail_ingest import order_mail_ingest_loop
     from app.tasks.teams_prep_transcripts import teams_prep_transcripts_loop
     from app.tasks.contract_docs_sharepoint import contract_docs_sharepoint_loop
+    from app.tasks.contract_rate_documents import contract_rate_documents_loop
     from app.tasks.notes_insights_sync import notes_insights_sync_loop
     from app.tasks.weekly_eval import weekly_eval_loop
     from app.tasks.match_digest import match_digest_loop
@@ -1143,6 +1144,11 @@ async def lifespan(app: FastAPI):
             # kończy się przed pętlą.
             "contract_docs_sharepoint": asyncio.create_task(
                 contract_docs_sharepoint_loop()
+            ),
+            # 0739: stawka Partnera z umów i aneksów — odczyt modelem, różnica
+            # z harmonogramem, wpis automatyczny za flagą.
+            "contract_rate_documents": asyncio.create_task(
+                contract_rate_documents_loop()
             ),
             # D5: mianownik wskaznikow „na dzien". Petla KONCZY sie przed
             # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
@@ -4228,6 +4234,7 @@ async def api_health_deep_check(request: Request):
     )
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
+    from app.models.contract_document_rate_read import ContractDocumentRateRead
     from app.models.board_document import (
         BoardBudget,
         BoardBudgetLine,
@@ -4926,6 +4933,8 @@ async def api_health_deep_check(request: Request):
         # 0724: kroki stawki przychodowej zamówienia (aneks stawki klienta).
         ("client_order_revenue_steps", ClientOrderRevenueStep),
         ("board_documents", BoardDocument),
+        # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
+        ("contract_document_rate_reads", ContractDocumentRateRead),
         ("board_krs_snapshots", BoardKrsSnapshot),
         ("board_budgets", BoardBudget),
         ("board_budget_lines", BoardBudgetLine),
