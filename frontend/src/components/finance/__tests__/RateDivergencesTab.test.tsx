@@ -53,7 +53,7 @@ beforeEach(() => {
   get.mockReset();
 });
 
-/** Raport linii MD pod `rate-divergences`, lista do korekty (0740) pusta. */
+/** Raport linii MD pod `rate-divergences`, lista do korekty (0741) pusta. */
 function respond(report: unknown) {
   get.mockImplementation((url: string) =>
     Promise.resolve({

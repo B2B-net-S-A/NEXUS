@@ -338,7 +338,7 @@ async def get_rate_divergences(
     }
 
 
-# ── Do korekty po zmianie stawki (0740) ─────────────────────────────────────
+# ── Do korekty po zmianie stawki (0741) ─────────────────────────────────────
 
 
 def _correction_row(found, client_name: str) -> dict[str, object]:

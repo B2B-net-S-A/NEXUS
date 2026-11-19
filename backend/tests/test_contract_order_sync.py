@@ -59,7 +59,7 @@ class _FakeDb:
         return None
 
     async def scalars(self, *_args, **_kwargs):
-        # Części kosztu zamówień (0740): w czystym przebiegu jeszcze ich nie ma.
+        # Części kosztu zamówień (0741): w czystym przebiegu jeszcze ich nie ma.
         return []
 
 

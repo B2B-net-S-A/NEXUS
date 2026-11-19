@@ -1,4 +1,4 @@
-"""Koszt zamówienia od dnia zmiany stawki Partnera (0740, decyzja Artura 19.11.2026).
+"""Koszt zamówienia od dnia zmiany stawki Partnera (0741, decyzja Artura 19.11.2026).
 
 Zgłoszenie: zamówienie Nordei 284887 trwa 01.07–15.12.2026 i ma jedną stawkę
 kosztową. Aneks podniósł stawkę Partnera ze 120 na 130 zł/h od 01.09 i na 140

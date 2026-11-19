@@ -243,7 +243,7 @@ describe("canTerminateContractor (re-eksport reguły)", () => {
   });
 });
 
-describe("costPartsLabel (koszt od dnia zmiany stawki, 0740)", () => {
+describe("costPartsLabel (koszt od dnia zmiany stawki, 0741)", () => {
   it("lists every part with its days", () => {
     expect(
       costPartsLabel(
