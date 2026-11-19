@@ -43,6 +43,8 @@ THRESHOLDS_MAX = 10
 
 YEARS_LABEL = re.compile(r"liczba\s+lat|\blat\w*\s+do[sś]wiadcz", re.IGNORECASE)
 TOTAL_LABEL = re.compile(r"[łl][aą]czn", re.IGNORECASE)
+# Wiersz testu u klienta i wolny wiersz tabeli to nie lata z CV.
+NOT_YEARS_ROW = re.compile(r"^\s*(?:test\b|wiersz\s+\d)", re.IGNORECASE)
 # „Staż pracy liczony w latach ponad minimalne wymagania opisane w OPZ”.
 OVER_MINIMUM = re.compile(r"\bponad\s+minim", re.IGNORECASE)
 _MONTH = re.compile(r"^\s*((?:19|20)\d{2})(?:\s*-\s*(0[1-9]|1[0-2]))?\s*$")
@@ -53,11 +55,17 @@ YearMonth = tuple[int, Optional[int]]
 
 
 def years_fields(structure: dict[str, Any]) -> dict[str, str]:
-    """Pola lat wzoru: id → ``total`` (łączny staż) albo ``competency``."""
+    """Pola lat wzoru: id → ``total`` (łączny staż) albo ``competency``.
+
+    Bez wiersza testu u klienta („Test sprawdzający wiedzę”) i wolnych wierszy
+    „Wiersz N” — tam nazwę kompetencji i lata wpisuje model jak dotąd.
+    """
     found: dict[str, str] = {}
     for item in structure.get("fields") or []:
         label = item.get("label") or ""
-        if not YEARS_LABEL.search(label):
+        if not YEARS_LABEL.search(label) or NOT_YEARS_ROW.match(
+            item.get("row_label") or ""
+        ):
             continue
         found[item["id"]] = KIND_TOTAL if TOTAL_LABEL.search(label) else KIND_COMPETENCY
     return found
@@ -285,8 +293,12 @@ def build(
         _, skills = grounded(item.get("skills_quote"))
         minimum_months = None
         years_min = item.get("minimum_years")
+        # Minimum odejmuje się tylko w wierszu „ponad minimalne wymagania”;
+        # „Minimum 3-letnie doświadczenie w …” to próg wymagania, nie odjemnik.
+        over_minimum = bool(OVER_MINIMUM.search(field.get("row_label") or ""))
         if (
-            kind == KIND_COMPETENCY
+            over_minimum
+            and kind == KIND_COMPETENCY
             and isinstance(years_min, int)
             and not isinstance(years_min, bool)
             and 0 < years_min <= 20
@@ -301,7 +313,6 @@ def build(
                 minimum_months = years_min * 12
             else:
                 dropped += 1
-        over_minimum = bool(OVER_MINIMUM.search(field.get("row_label") or ""))
         years = {
             "kind": kind,
             "basis": basis,

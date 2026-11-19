@@ -106,7 +106,10 @@ describe("ClientFormYearsGrid — lata w kompetencjach z ról w CV", () => {
     const sql = screen.getByText("Znajomość języka SQL;").closest("tr") as HTMLElement;
     expect(within(sql).getByText("dopytaj")).toBeInTheDocument();
     expect(within(sql).getByText(/tylko lista umiejętności: „SQL, Postman”/)).toBeInTheDocument();
-    expect(screen.getByText(/Łączny staż 1 rok 6 mies\. — z dat 2 stanowisk/)).toBeInTheDocument();
+    // Łączny staż to pierwszy wiersz — też da się w nim zdjąć rolę.
+    const total = screen.getByText("Łączna liczba lat doświadczenia zawodowego").closest("tr") as HTMLElement;
+    expect(within(total).getByText("1 rok 6 mies.")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")[1]).toBe(total);
   });
 
   it("klik zdejmuje rolę, wartość zmienia się od razu, zapis wysyła wybór", () => {
@@ -133,6 +136,6 @@ describe("ClientFormYearsGrid — lata w kompetencjach z ról w CV", () => {
     renderGrid({ readOnly: true });
     expect(screen.queryByRole("button", { name: /Zapisz lata|Lata zapisane/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ściągi screeningu/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Firma Alfa: liczy się" })).toBeDisabled();
+    for (const cell of screen.getAllByRole("button", { name: "Firma Alfa: liczy się" })) expect(cell).toBeDisabled();
   });
 });
