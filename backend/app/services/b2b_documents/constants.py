@@ -22,7 +22,7 @@ B2B_DOCUMENT_TYPES: tuple[str, ...] = (
     # Umowa o udziale w procesie rekrutacyjnym (0503, 21.10.2026).
     "preliminary_participation_jdg",
     "preliminary_participation_person",
-    # Umowa przedwstępna na współpracę B2B (0743, 19.11.2026).
+    # Umowa przedwstępna na współpracę B2B (0744, 19.11.2026).
     "preliminary_b2b",
 )
 

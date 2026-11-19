@@ -1,13 +1,13 @@
 """Umowa przedwstępna na współpracę B2B w Generatorze dokumentów (19.11.2026).
 
-Revision ID: 0743_b2b_document_preliminary_b2b
-Revises: 0742_ledger_bank_balances
+Revision ID: 0744_b2b_document_preliminary_b2b
+Revises: 0743_admin_cases_settlements_area
 
 Typ ``preliminary_b2b`` (rodzina ``preliminary``, każdy klient poza Centrum
 e-Zdrowia) w CHECK ``ck_b2b_contract_documents_type``. DDL ma jedno źródło
 z siatką w ``entrypoint.sh`` (``services/b2b_documents/schema_sql.py``).
 
-Downgrade wraca do listy typów sprzed 0743 jako ``NOT VALID`` (wydane umowy
+Downgrade wraca do listy typów sprzed 0744 jako ``NOT VALID`` (wydane umowy
 zostają w tabeli).
 """
 
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services.b2b_documents.schema_sql import TYPE_CHECK_DDL, TYPES_BEFORE_0743
 
-revision = "0743_b2b_document_preliminary_b2b"
-down_revision = "0742_ledger_bank_balances"
+revision = "0744_b2b_document_preliminary_b2b"
+down_revision = "0743_admin_cases_settlements_area"
 branch_labels = None
 depends_on = None
 
