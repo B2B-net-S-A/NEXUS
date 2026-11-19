@@ -108,7 +108,7 @@ async def test_finding_shows_on_contract_and_in_list_bucket(
     assert "110" in item["quote"]
 
     listed = await app_client.get(
-        "/api/contracts?bucket=rate_document&page_size=500", headers=app_auth_headers
+        "/api/contracts?bucket=rate_document&page_size=100", headers=app_auth_headers
     )
     assert listed.status_code == 200, listed.text
     row = next(i for i in listed.json()["items"] if i["id"] == contract_id)
@@ -149,7 +149,7 @@ async def test_dismiss_removes_contract_from_bucket(app_client, app_auth_headers
     )
     assert resp.status_code == 200, resp.text
     listed = await app_client.get(
-        "/api/contracts?bucket=rate_document&page_size=500", headers=app_auth_headers
+        "/api/contracts?bucket=rate_document&page_size=100", headers=app_auth_headers
     )
     assert contract_id not in {i["id"] for i in listed.json()["items"]}
 
