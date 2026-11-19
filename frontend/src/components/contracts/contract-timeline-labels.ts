@@ -50,6 +50,8 @@ const ACTION_LABELS: Record<string, string> = {
   equipment_removed: "Usunięto sprzęt",
   document_uploaded: "Dodano dokument",
   document_deleted: "Usunięto dokument",
+  // 19.11.2026: jednorazowe usunięcie zdublowanych aneksów i kroków stawki.
+  amendment_history_cleaned: "Usunięto zdublowane aneksy i kroki stawki (kwoty bez zmian)",
   b2b_generated: "Wygenerowano umowę B2B",
   generated_contract_linked: "Powiązano podpisaną umowę B2B z kontraktem",
   admin_details_changed: "Zmieniono szczegóły administracyjne (replacement, kandydat od klienta)",

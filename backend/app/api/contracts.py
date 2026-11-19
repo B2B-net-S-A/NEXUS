@@ -177,6 +177,10 @@ from app.services import contract_client_manager
 from app.services import contract_placements_export as placements
 from app.services.hr import payroll_access
 from app.services.contract_rates import effective_rate_fields
+from app.services.contract_amendment_guard import (
+    AmendmentBaseline,
+    find_redundant_amendment,
+)
 from app.services.contractor_identity import contractor_identity_sql_expression
 from app.services.contract_rate_documents.listing import (
     attach_rate_document_changes,
@@ -415,6 +419,56 @@ def _amendment_step_from(
         if effective_date < step.effective_from <= start_date
     ]
     return max(blocking, default=effective_date)
+
+
+async def _reject_redundant_amendment(
+    db: AsyncSession, contract: Contract, data: ContractAmendmentCreate
+) -> None:
+    """409/422 dla ręcznego aneksu, który niczego nie zmienia.
+
+    Stawka do porównania to stawka z harmonogramu w dniu, od którego aneks
+    dopisałby krok (ta sama data co w ``apply_contract_amendment``). Kontrakt
+    musi mieć wczytane oba harmonogramy (``selectinload``).
+    """
+    existing = (
+        await db.scalars(
+            select(ContractAmendment)
+            .where(
+                ContractAmendment.contract_id == contract.id,
+                ContractAmendment.amendment_type == data.amendment_type,
+                ContractAmendment.effective_date == data.effective_date,
+            )
+            .order_by(ContractAmendment.id)
+        )
+    ).all()
+    baseline = AmendmentBaseline(
+        candidate_rate=contract.effective_candidate_rate(
+            _amendment_step_from(
+                contract.candidate_rate_schedule,
+                contract.start_date,
+                data.effective_date,
+            )
+        ),
+        client_rate=contract.effective_client_rate(
+            _amendment_step_from(
+                contract.client_rate_schedule,
+                contract.start_date,
+                data.effective_date,
+            )
+        ),
+        rate_unit=(
+            contract.rate_unit.value
+            if hasattr(contract.rate_unit, "value")
+            else contract.rate_unit
+        ),
+        billing_hours_per_month=contract.billing_hours_per_month,
+        end_date=contract.end_date,
+        project_name=contract.project_name,
+        team_name=contract.team_name,
+    )
+    refused = find_redundant_amendment(data, baseline, existing)
+    if refused is not None:
+        raise HTTPException(status_code=refused.status_code, detail=refused.detail())
 
 
 def _extension_end_date_passed(contract: Contract, new_end: date) -> bool:
@@ -6299,7 +6353,11 @@ async def create_contract_amendment(
     db: AsyncSession = Depends(get_db),
 ):
     return await apply_contract_amendment(
-        contract_id=contract_id, data=data, current_user=current_user, db=db
+        contract_id=contract_id,
+        data=data,
+        current_user=current_user,
+        db=db,
+        reject_redundant=True,
     )
 
 
@@ -6379,13 +6437,18 @@ async def apply_contract_amendment(
     current_user: Optional[User],
     db: AsyncSession,
     finance_write_authorized: bool = False,
+    reject_redundant: bool = False,
 ):
     """Aneks kontraktu — ciało trasy ``POST /{id}/amendments``.
 
     ``finance_write_authorized=True`` wyłącznie dla wołającego, który sam
     sprawdził bramkę kwot: podpisany aneks stawki z Generatora potwierdza
     także Delivery Lead u klienta z portfela (decyzja Artura 27.09.2026,
-    ``b2b_documents.effects.can_confirm_rate_annex``)."""
+    ``b2b_documents.effects.can_confirm_rate_annex``).
+
+    ``reject_redundant=True`` tylko dla ręcznego zapisu z okna „Dodaj aneks”:
+    duplikat = 409, aneks bez zmiany i „przedłużenie” skracające umowę = 422.
+    Podpis w Generatorze i wpis stawki z dokumentu idą bez tej reguły."""
     # ``current_user=None`` = automat: wpis stawki odczytanej z umowy albo
     # aneksu w Dokumentach kontraktu (`services/contract_rate_documents`).
     # Tylko aneks stawki i tylko ze zdjętą bramką kwot — bez osoby nie ma
@@ -6449,6 +6512,11 @@ async def apply_contract_amendment(
                     ),
                 },
             )
+    # Ręczny aneks, który niczego nie zmienia, nie powstaje (19.11.2026,
+    # `services/contract_amendment_guard.py`). Po blokadzie FOR UPDATE, więc
+    # podwójne kliknięcie widzi już pierwszy aneks.
+    if reject_redundant:
+        await _reject_redundant_amendment(db, contract, data)
 
     # Snapshot only the fields that might change, for audit.
     old_values: dict = {

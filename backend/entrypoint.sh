@@ -11780,6 +11780,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Zdublowane i mylne aneksy kontraktów z wprowadzania wstecz 29.06–10.07.2026
+# (decyzja Artura 19.11.2026): usuwa 6 aneksów i 5 identycznych kroków stawki,
+# kwoty bez zmian. Logika w `app/services/contract_amendment_history_repair.py`,
+# przypięta do stanu z 19.11. Marker w `app_settings` + advisory lock; porażka
+# nie zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-contract-amendment-history-2026-11"
+echo "Contracts: duplicate and mistaken amendments from the 06-07.2026 backfill (one-shot)..."
+run_unless_marked "contract_amendment_history_cleanup_2026_11_19" <<'PY' || echo "contract amendment history repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_amendment_history_repair import (
+    run_contract_amendment_history_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_contract_amendment_history_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"contract amendment history repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"contract amendment history repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
