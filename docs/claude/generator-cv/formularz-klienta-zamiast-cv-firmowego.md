@@ -79,6 +79,17 @@ Reguły, które łatwo cofnąć:
   etapu: rola czyta albo pisze dokumenty kandydata, a do pary wymagany jest
   dostęp do rekrutacji (`ensure_job_read_access` / `ensure_job_membership`).
   Plik do klienta nie ma żółtych „UZUPEŁNIJ” — puste pole zostaje puste.
+- **Daty i certyfikaty kontroluje kod (staging 19.11.2026, „Tester” CEZ).**
+  Model wpisał „1,5 roku” w „Data wydania”, certyfikat „preparing for exam”
+  jako posiadany i dopisywał miesiąc do okresu „2022 – obecnie”. Pole z „Data”
+  w etykiecie przyjmuje tylko „MM.RRRR”/„RRRR”, pole z „Okres” — „data – data”
+  albo „data – obecnie”; rok i miesiąc wartości muszą stać w cytacie, „obecnie”
+  — gdy cytat mówi, że praca trwa. W wierszu certyfikatu (etykieta albo nazwa
+  wiersza z „certyfikat”) wartość z „w trakcie/przygotow/preparing” w wartości
+  lub cytacie odpada; „NIE” i 0 pkt zostają. Wielowierszowy cytat pola z datą
+  liczy się po liniach — dwukolumnowy PDF stawia kolumnę boczną między
+  początkiem a końcem okresu. Prompt F36 od wersji 4 każe wpisać wszystkie
+  stanowiska (Asseco jako 4. wiersz wcześniej nie trafiało do `extra_rows`).
 
 ## Ekrany i bramki (PR 3)
 
