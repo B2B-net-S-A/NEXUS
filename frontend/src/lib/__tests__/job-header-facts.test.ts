@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { jobHeaderFacts, jobWorkModeFact } from "@/lib/job-header-facts";
+import { jobHeaderFacts, jobWorkModeFact, jobWorkModeShort } from "@/lib/job-header-facts";
 
 describe("jobHeaderFacts — klient, budżet, tryb pracy", () => {
   it("komplet: klient, budżet z efektywnej kwoty, tryb z dniami i miastem", () => {
@@ -15,7 +15,12 @@ describe("jobHeaderFacts — klient, budżet, tryb pracy", () => {
     ).toEqual([
       { key: "client", label: "Klient", value: "Bank Przykładowy S.A." },
       { key: "budget", label: "Budżet", value: "do 93,00 PLN/h" },
-      { key: "work_mode", label: "Tryb pracy", value: "Hybrydowo · 2 dni w tygodniu · Warszawa" },
+      {
+        key: "work_mode",
+        label: "Tryb pracy",
+        value: "Hybrydowo · 2 dni w tygodniu · Warszawa",
+        short: "Hybrydowo · 2 dni/tydz. · Warszawa",
+      },
     ]);
   });
 
@@ -64,5 +69,30 @@ describe("jobWorkModeFact", () => {
   it("nieznany tryb = brak faktu", () => {
     expect(jobWorkModeFact({ remote_policy: null })).toBeNull();
     expect(jobWorkModeFact({ remote_policy: "cokolwiek" })).toBeNull();
+  });
+});
+
+describe("jobWorkModeShort", () => {
+  it("hybryda: krótkie dni dla 1280 px, reszta jak w pełnej formie", () => {
+    const job = {
+      remote_policy: "hybrid",
+      onsite_days_per_week: 4,
+      location: "Warszawa",
+    };
+    expect(jobWorkModeFact(job)).toBe("Hybrydowo · 4 dni w tygodniu · Warszawa");
+    expect(jobWorkModeShort(job)).toBe("Hybrydowo · 4 dni/tydz. · Warszawa");
+    expect(jobWorkModeShort({ ...job, onsite_days_per_week: null, onsite_days_per_month: 2 })).toBe(
+      "Hybrydowo · 2 dni/mies. · Warszawa",
+    );
+  });
+
+  it("zdalnie i brak trybu bez zmian; fakt niesie obie formy", () => {
+    expect(jobWorkModeShort({ remote_policy: "remote", location: "Gdańsk" })).toBe("Zdalnie");
+    expect(jobWorkModeShort({ remote_policy: null })).toBeNull();
+    const fact = jobHeaderFacts({ remote_policy: "hybrid", onsite_days_per_week: 2, location: "Kraków" })[2];
+    expect(fact).toMatchObject({
+      value: "Hybrydowo · 2 dni w tygodniu · Kraków",
+      short: "Hybrydowo · 2 dni/tydz. · Kraków",
+    });
   });
 });

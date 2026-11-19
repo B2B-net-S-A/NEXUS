@@ -3594,5 +3594,34 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.rate-document"
+  },
+  {
+    "id": "rekrutacja-dodana-termin-w-naglowku",
+    "pr": 3614,
+    "title": "Data dodania i termin w nagłówku rekrutacji",
+    "why": "Obok trybu pracy widzisz, kiedy rekrutację dodano i do kiedy klient czeka: „18.11 → 23.11 · za 4 dni”. Po terminie końcówka jest czerwona, pełne daty są w dymku.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → nagłówek, za trybem pracy",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.header-dates",
+    "steps": [
+      {
+        "anchor": "job.header-dates",
+        "text": "Tu widzisz datę dodania rekrutacji i termin od klienta.",
+        "hint": "Czerwona końcówka znaczy, że termin minął. Najedź, żeby zobaczyć pełne daty z godziną.",
+        "ack": true
+      }
+    ]
   }
 ]
