@@ -48,13 +48,25 @@ NO_CONTACT = "no_contact"
 CLIENT_NO_REASON = "client_no_reason"
 CLIENT_CHOSE_OTHER = "client_chose_other"
 
+# Dwa powody klienta z odczytu maili CPro (19.11.2026, migracja 0741, sprawa B7).
+# Tylko przy „Odrzuca klient”. Inny dostawca to sytuacja (duplikat zgłoszenia,
+# tańsza oferta), więc nie jest werdyktem o osobie. Słaba rozmowa jest: manager
+# poznał osobę i powiedział nie, więc uruchamia weto `hiring_manager_verdicts`.
+CLIENT_OTHER_VENDOR = "client_other_vendor"
+CLIENT_INTERVIEW_WEAK = "client_interview_weak"
+
 # Końce procesu bez decyzji klienta o osobie (08.11.2026, 0663): zamknięcie
 # requestu i klient, który przez 30 dni nie odpowiedział. Nie wybiera się ich
 # ręcznie w oknie odrzucenia.
 REQUEST_CLOSED = "request_closed"
 CLIENT_NO_RESPONSE = "client_no_response"
 # Powody, które nie mówią nic o osobie: ranking ich nie liczy jako odrzucenia.
-CLIENT_NOT_A_VERDICT = (CLIENT_CHOSE_OTHER, REQUEST_CLOSED, CLIENT_NO_RESPONSE)
+CLIENT_NOT_A_VERDICT = (
+    CLIENT_CHOSE_OTHER,
+    REQUEST_CLOSED,
+    CLIENT_NO_RESPONSE,
+    CLIENT_OTHER_VENDOR,
+)
 
 OTHER_LABEL = "Inne"
 
@@ -67,6 +79,8 @@ REJECTION_REASON_LABELS: dict[str, str] = {
     NO_CONTACT: "Brak kontaktu",
     CLIENT_NO_REASON: "Klient nie podał powodu",
     CLIENT_CHOSE_OTHER: "Klient wybrał kogoś innego",
+    CLIENT_OTHER_VENDOR: "Zgłoszony już przez innego dostawcę",
+    CLIENT_INTERVIEW_WEAK: "Rozmowa u klienta wypadła słabo",
     REQUEST_CLOSED: "Request zamknięty",
     CLIENT_NO_RESPONSE: "Klient nie odpowiedział",
     "counter_offer": "Kontroferta od obecnego pracodawcy",
