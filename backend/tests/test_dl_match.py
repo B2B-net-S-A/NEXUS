@@ -114,6 +114,23 @@ def test_only_a_qc_refusal_triggers_the_override() -> None:
     assert not _is_qc_failure(HTTPException(403, detail="Brak uprawnień"))
 
 
+def test_match_bell_skips_the_lead_of_b_unless_they_chose_all_moves() -> None:
+    """19.11.2026: prowadzący B dostawał „<DL> wysłał(a) <osoba> do klienta”
+    o osobie, która nie jest jego kandydatem. DL rekrutacji B zostaje."""
+    from app.api.dl_match import target_recipients
+
+    base = dict(recruiter_id=5, delivery_lead_id=8, sender_id=9)
+    assert target_recipients(**base, lead_wants_all=False) == [8]
+    assert target_recipients(**base, lead_wants_all=True) == [5, 8]
+    # DL wysyła do własnej rekrutacji: prowadzący bez wyboru nie dostaje nic.
+    own = dict(recruiter_id=5, delivery_lead_id=9, sender_id=9)
+    assert target_recipients(**own, lead_wants_all=False) == []
+    # Prowadzący i DL to ta sama osoba — DL dostaje raz.
+    same = dict(recruiter_id=8, delivery_lead_id=8, sender_id=9)
+    assert target_recipients(**same, lead_wants_all=False) == [8]
+    assert target_recipients(**same, lead_wants_all=True) == [8]
+
+
 @pytest.mark.asyncio
 async def test_month_match_handoffs_counts_processes_from_match() -> None:
     from app.services.kpi_panel import month_match_handoffs
@@ -136,7 +153,11 @@ async def test_month_match_handoffs_counts_processes_from_match() -> None:
 
 
 async def _second_job(
-    world: dict, *, delivery_lead_id: int | None, title: str | None = None
+    world: dict,
+    *,
+    delivery_lead_id: int | None,
+    title: str | None = None,
+    recruiter_id: int | None = None,
 ) -> int:
     async with AsyncSessionLocal() as db:
         job = Job(
@@ -147,6 +168,7 @@ async def _second_job(
             client_id=world["client_id"],
             pipeline_template_id=world["template_id"],
             delivery_lead_id=delivery_lead_id,
+            recruiter_id=recruiter_id,
         )
         db.add(job)
         await db.commit()
@@ -311,6 +333,49 @@ async def test_job_of_another_dl_is_sent_and_its_dl_is_told(
     finally:
         await _drop([job_b], [rec_id, dl_id, other_dl])
         await _cleanup(world, [rec_id, dl_id, other_dl])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wants_all", [False, True])
+async def test_lead_of_b_is_told_only_when_they_chose_all_moves(
+    api_client: AsyncClient,
+    dl_skips_on,
+    monkeypatch: pytest.MonkeyPatch,
+    wants_all: bool,
+) -> None:
+    """19.11.2026, zgłoszenie rekrutera: Match DL-a dzwonił prowadzącemu B
+    o cudzym kandydacie. Teraz tylko po wyborze „Wszyscy kandydaci…”."""
+    from app.models.user import User
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    rec_id, _ = await _seed_user(UserRole.recruiter)
+    lead_id, _ = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    job_b = await _second_job(world, delivery_lead_id=dl_id, recruiter_id=lead_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            lead = await db.get(User, lead_id)
+            lead.stage_moves_all_led_jobs = wants_all
+            await db.commit()
+        await _verified_in_a(world, rec_id)
+        resp = await _send(api_client, dl, world, job_b)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["results"][0]["status"] == "sent"
+        async with AsyncSessionLocal() as db:
+            told = (
+                await db.scalars(
+                    select(Notification).where(
+                        Notification.user_id == lead_id,
+                        Notification.title.contains("Match z"),
+                    )
+                )
+            ).all()
+        assert len(told) == (1 if wants_all else 0)
+    finally:
+        await _drop([job_b], [rec_id, lead_id, dl_id])
+        await _cleanup(world, [rec_id, lead_id, dl_id])
 
 
 @pytest.mark.asyncio
