@@ -126,6 +126,14 @@ export interface SalesInvoice {
   to_pay: string;
   paid_on: string | null;
   overdue_days: number;
+  /** Termin minął, a zapłaty nie ma w NEXUSIE — brak danych, nie zaległość. */
+  payment_unknown?: boolean;
+}
+
+export interface OverdueInvoices {
+  invoices: SalesInvoice[];
+  /** Faktury po dacie terminu bez danych o zapłacie — poza listą. */
+  payment_unknown?: number;
 }
 
 export interface MoneyTotal {
@@ -147,6 +155,8 @@ export interface InvoicingSummary {
   /** Konto bez „Wyników firmy”: suma miesiąca całej firmy nie przychodzi. */
   totals_hidden?: boolean;
   overdue?: number;
+  /** Faktury po dacie terminu, o których zapłacie NEXUS nie ma danych. */
+  payment_unknown?: number;
 }
 
 export interface ClientInvoicing {
@@ -379,7 +389,7 @@ export function useFinanceOverdue(enabled = true) {
   return useQuery({
     queryKey: invoicingKeys.overdue,
     queryFn: async () =>
-      (await api.get<{ invoices: SalesInvoice[] }>(`${FINANCE}/overdue`)).data,
+      (await api.get<OverdueInvoices>(`${FINANCE}/overdue`)).data,
     enabled,
   });
 }
@@ -389,7 +399,7 @@ export function useOverdueInScope(enabled = true) {
   return useQuery({
     queryKey: invoicingKeys.scopeOverdue,
     queryFn: async () =>
-      (await api.get<{ invoices: SalesInvoice[] }>(`${CLIENTS}/sales-invoices/overdue`)).data,
+      (await api.get<OverdueInvoices>(`${CLIENTS}/sales-invoices/overdue`)).data,
     enabled,
   });
 }

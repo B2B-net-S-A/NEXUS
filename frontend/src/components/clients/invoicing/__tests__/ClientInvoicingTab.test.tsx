@@ -79,6 +79,41 @@ describe("ClientInvoicingTab", () => {
     expect(screen.queryByText("Rozstrzygnij w Finansach")).not.toBeInTheDocument();
   });
 
+  it("shows no data about payments instead of an overdue count without statements", async () => {
+    // 19.11.2026: „62 po terminie” u jednego klienta to faktury bez wyciągów, nie zaległości.
+    const invoices = CLIENT_MONTH.invoices.map((item) =>
+      item.overdue_days > 0 ? { ...item, overdue_days: 0, payment_unknown: true } : item,
+    );
+    get.mockResolvedValue({
+      data: {
+        ...CLIENT_MONTH,
+        invoices,
+        overdue: [],
+        summary: {
+          ...CLIENT_MONTH.summary,
+          overdue: 0,
+          payment_unknown: 2,
+        },
+      },
+    });
+    const { container } = renderTab();
+    const unpaid = await screen.findByTestId("billing-row-g13");
+    expect(nbsp(unpaid.textContent)).toContain("brak danych o zapłacie");
+    expect(nbsp(unpaid.textContent)).not.toContain("po terminie");
+    // Część wpłaty jest z wyciągu (fakt), o reszcie NEXUS nie wie.
+    const hourly = screen.getByTestId("billing-row-o21");
+    expect(nbsp(hourly.textContent)).toContain("zapłacono część");
+    expect(nbsp(hourly.textContent)).not.toContain("po terminie");
+
+    const stats = container.querySelector<HTMLElement>("#client-invoicing-stats");
+    expect(stats).not.toBeNull();
+    expect(within(stats!).getByText("brak danych")).toBeInTheDocument();
+    expect(within(stats!).getByText("o zapłatach")).toBeInTheDocument();
+    expect(within(stats!).queryByText("po terminie")).not.toBeInTheDocument();
+    expect(within(stats!).getByTitle(/2 faktury mają termin za sobą/)).toBeInTheDocument();
+    expect(screen.queryByText("Po terminie z wcześniejszych miesięcy")).not.toBeInTheDocument();
+  });
+
   it("does not render an empty month when the request fails", async () => {
     get.mockRejectedValue({ response: { status: 500, data: { detail: "Błąd" } } });
     renderTab();

@@ -159,3 +159,27 @@
   zgadza albo KSeF odmawia na stałe, żeby jedna faktura nie zjadała budżetu co godzinę; `not_ready`/`unavailable`
   przerywa doczytanie do następnego przebiegu, 429 jak wszędzie. Przy ok. 20 wolnych pobraniach na godzinę ponad
   1000 starych faktur to 2–3 doby.
+
+## „Po terminie” to brak danych o zapłacie, nie zaległość (19.11.2026)
+
+19.11.2026 zakładka jednego klienta pokazywała „62 po terminie”, a cała firma 2 741 faktur po terminie — żadna z datą
+zapłaty. Zapłatę faktury sprzedaży NEXUS zapisuje tylko z uznań na wyciągach (E8), z ręcznego „opłacono” i z lustra
+eBI24, a za 2026 r. żadne z nich nie ma danych: wyciągi w Księgowość → Bank są z jednego dnia (12.11.2026, 8 zapłat),
+lustro eBI24 nie ruszyło (`EBI24_MODE` ≠ `prod`; 13.11 konto API na produkcji nie widziało dokumentów) i nic by nie dało, bo w eBI24 zapłat się nie
+oznacza (w archiwum z 2026 r. zapłatę ma 8 z 5 117 faktur sprzedaży).
+
+- **NEXUS nie liczy zaległości.** Faktura z terminem za sobą i bez pełnej zapłaty ma `payment_unknown: true`
+  i `overdue_days: 0`: przy fakturze „brak danych o zapłacie” z terminem pod spodem, w nagłówku zakładki klienta
+  i w karcie „Rozliczenie” w Przeglądzie „brak danych o zapłatach” zamiast liczby (liczba faktur w dymku),
+  w Finansach → „Po terminie” zdanie z liczbą takich faktur, bez listy i bez licznika „0” na zakładce. Trasy
+  zaległości zwracają `{"invoices": [], "payment_unknown": N}` w zakresie konta.
+- Częściowa wpłata z wyciągu zostaje „zapłacono część”: część jest faktem, o reszcie NEXUS nie wie.
+- **Nie wracaj do zaległości z samego terminu** ani z samych dni wyciągów. Przegląd z 19.11.2026 pokazał, czego
+  potrzeba, żeby „po terminie” było prawdą: wyciągi rachunku, na który płaci dany klient (domyślny rachunek EUR
+  z faktur nie jest w Księdze, a na rachunek EUR z Księgi płacą tylko dwaj klienci), ciągłe dla każdego rachunku
+  (rachunek EUR nie ma operacji co dzień, więc ciągłość po dniach operacji nie wystarcza — potrzebne saldo otwarcia
+  i zamknięcia wyciągu), wgrane po tym, jak faktura była już w NEXUSIE (E8 dopasowuje uznania tylko do istniejących
+  faktur), i bez faktur rozliczanych kompensatą (seria „Benefit”, 590 faktur w 2026 r.). To osobny etap, po decyzji
+  Finansów, jak i od kiedy wgrywają wyciągi.
+- Próbka 12.11.2026: wszystkie 102 uznania, których E8 nie przypisało, to nogi VAT zapłat dla dostawców (MPP
+  z cudzym NIP-em w `/IDC/`) — wpłat klientów E8 nie przeoczyło.

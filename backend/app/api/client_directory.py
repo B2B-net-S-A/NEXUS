@@ -14,14 +14,16 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import and_, distinct, exists, func, or_, select
+from sqlalchemy import and_, case, distinct, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import NOT_READ_ONLY
 from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
+from app.api.financial_access import list_finance_client_ids
+from app.api.my_clients import _monthly_margin_total_pln
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.export_safety import safe_cell
@@ -36,26 +38,43 @@ from app.models.client_directory import (
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.models.job import Job, JobStatus
 from app.models.user import User
 from app.schemas.client_directory import (
     ClientDirectoryCategoryCounts,
     ClientDirectoryItem,
     ClientDirectoryResponse,
+    ClientListConsultantAttention,
+    ClientListDeliveryLead,
+    ClientListItem,
+    ClientListResponse,
+    ClientListStateCounts,
     ClientPortfolioScopeCreate,
     ClientPortfolioScopePlacementUpdate,
     ClientPortfolioScopeResponse,
     ClientPortfolioScopeUpdate,
 )
 from app.models.team_structure import ClientTacAssignment, DeliveryLeadClientAssignment
-from app.services.access_scope import resolve_delivery_lead_client_ids
+from app.services.access_scope import (
+    resolve_delivery_lead_client_ids,
+    resolve_delivery_lead_finance_client_ids,
+)
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_identity import (
     client_display_name_expression,
     visible_client_predicates,
 )
+from app.services.consultant_order_state import (
+    ATTENTION_NO_CURRENT_ORDER,
+    ATTENTION_NOTICE,
+    ATTENTION_ORDER_ENDING,
+    consultant_order_state,
+)
+from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.contractor_identity import (
     contractor_identity_sql_expression,
     current_contract_clause,
+    load_current_contracts,
 )
 from app.services.polish_ilike import polish_folded_ilike
 from app.core.scheduling import business_today
@@ -166,13 +185,16 @@ def _client_has_pin_free_scope():
     ).correlate(ClientPortfolioScope)
 
 
-def _active_consultants_subquery(as_of: date):
+def _active_consultants_subquery(as_of: date, *, by_scope: bool = True):
     """Date-effective consultant count per (client, scope bucket), by person.
 
     ``scope_id`` is the scope a contract is pinned to (``_contract_scope_bucket``)
     or ``NULL`` for contracts pinned to no scope.  A client without pinned
     contracts has a single ``NULL`` bucket, so every scope row still shows the
     whole client — the behaviour before 28.09.2026.
+
+    ``by_scope=False`` liczy całego klienta (lista „Klienci”, jeden wiersz na
+    klienta) — ta sama reguła „obecnego” kontraktu, bez podziału na zakresy.
     """
 
     identity_key = contractor_identity_sql_expression(
@@ -182,11 +204,12 @@ def _active_consultants_subquery(as_of: date):
         Candidate.id,
     )
 
+    scope_column = [_contract_scope_bucket().label("scope_id")] if by_scope else []
     current = (
         select(
             Contract.id.label("contract_id"),
             Contract.client_id.label("client_id"),
-            _contract_scope_bucket().label("scope_id"),
+            *scope_column,
             identity_key.label("identity_key"),
             Candidate.id.label("candidate_id"),
         )
@@ -211,16 +234,18 @@ def _active_consultants_subquery(as_of: date):
         .subquery()
     )
 
+    group_columns = (
+        [current.c.client_id, current.c.scope_id] if by_scope else [current.c.client_id]
+    )
     return (
         select(
-            current.c.client_id,
-            current.c.scope_id,
+            *group_columns,
             func.count(distinct(current.c.identity_key))
             .filter(current.c.candidate_id.is_not(None))
             .label("active_consultants"),
             func.count(current.c.contract_id).label("active_contracts"),
         )
-        .group_by(current.c.client_id, current.c.scope_id)
+        .group_by(*group_columns)
         .subquery()
     )
 
@@ -514,6 +539,618 @@ async def list_client_directory(
     )
 
 
+# ── Lista „Klienci”: jeden wiersz na klienta (makieta 19.11.2026) ───────────
+# Decyzja Artura 19.11.2026 (wariant A): zakładki portfela ustawiane z manifestu
+# albo ręcznym „Przenieś” były niezrozumiałe („czym są klienci relacyjni, czym
+# jest »ręcznie«”) i nie mówiły prawdy — Tauron z dwiema otwartymi
+# rekrutacjami stał w „Nieaktywnych”, a Nordea w dwóch zakładkach naraz. Stan
+# na liście liczy się teraz z faktów; zakresy i ręczne ustawienia zostają
+# w „Porządkach portfela” (``GET /directory`` powyżej, bez zmian).
+
+_LIVE_CONTRACT_STATUSES = (ContractStatus.active, ContractStatus.ending)
+_OPEN_SCOPE_CATEGORIES = (PortfolioCategory.active, PortfolioCategory.relationship)
+CLIENT_LIST_STATES = ("working", "idle", "archive")
+
+
+def _live_contracts_subquery():
+    """Żywe kontrakty (aktywne i w wypowiedzeniu) per klient.
+
+    Planowani = żywe minus obecne — ta sama para co „Obecni” i „Planowani”
+    w profilu klienta, bez drugiej definicji „planowanego”.
+    """
+
+    return (
+        select(
+            Contract.client_id.label("client_id"),
+            func.count(Contract.id).label("live_contracts"),
+        )
+        .where(Contract.status.in_(_LIVE_CONTRACT_STATUSES))
+        .group_by(Contract.client_id)
+        .subquery()
+    )
+
+
+def _open_jobs_subquery():
+    """Otwarte rekrutacje per klient — ta sama reguła co profil (``published``)."""
+
+    return (
+        select(
+            Job.client_id.label("client_id"),
+            func.count(Job.id).label("open_jobs"),
+        )
+        .where(Job.status == JobStatus.published)
+        .group_by(Job.client_id)
+        .subquery()
+    )
+
+
+def _client_scopes_subquery():
+    """Żywe zakresy portfela klienta zebrane do jednego wiersza."""
+
+    effective_category = func.coalesce(
+        ClientPortfolioScope.category_override,
+        ClientPortfolioScope.category,
+    )
+    # Lustro `manuallyPlaced` z listy zakresów: zakładka inna niż w manifeście
+    # albo przypięta data umowy (sama kolumna nadpisania równa manifestowi nie).
+    manually_placed = or_(
+        and_(
+            ClientPortfolioScope.category_override.is_not(None),
+            ClientPortfolioScope.category_override != ClientPortfolioScope.category,
+        ),
+        ClientPortfolioScope.contract_start_override.is_not(None),
+        ClientPortfolioScope.contract_end_override.is_not(None),
+    )
+    return (
+        select(
+            ClientPortfolioScope.client_id.label("client_id"),
+            func.bool_or(effective_category.in_(_OPEN_SCOPE_CATEGORIES)).label(
+                "has_open_scope"
+            ),
+            func.bool_or(manually_placed).label("manually_placed"),
+        )
+        .where(ClientPortfolioScope.archived_at.is_(None))
+        .group_by(ClientPortfolioScope.client_id)
+        .subquery()
+    )
+
+
+def _client_list_base(
+    *,
+    as_of: date,
+    allowed_client_ids: frozenset[int] | None,
+):
+    """Klienci z żywym zakresem portfela, z liczbami i stanem — podzapytanie.
+
+    ``working`` = obecny albo planowany kontrakt, albo otwarta rekrutacja.
+    Bez tego decyduje zakładka portfela: aktywni i relacyjni → ``idle``
+    („Bez bieżącej pracy”), nieaktywni → ``archive``.
+    """
+
+    people = _active_consultants_subquery(as_of, by_scope=False)
+    live = _live_contracts_subquery()
+    jobs = _open_jobs_subquery()
+    scopes = _client_scopes_subquery()
+
+    current_contracts = func.coalesce(people.c.active_contracts, 0)
+    planned = func.greatest(
+        func.coalesce(live.c.live_contracts, 0) - current_contracts, 0
+    )
+    open_jobs = func.coalesce(jobs.c.open_jobs, 0)
+    state = case(
+        (or_(current_contracts > 0, planned > 0, open_jobs > 0), "working"),
+        (scopes.c.has_open_scope.is_(True), "idle"),
+        else_="archive",
+    )
+
+    statement = (
+        select(
+            Client.id.label("client_id"),
+            _effective_client_name().label("display_name"),
+            Client.legal_name.label("legal_name"),
+            Client.industry.label("industry"),
+            func.coalesce(people.c.active_consultants, 0).label("active_consultants"),
+            planned.label("planned_consultants"),
+            open_jobs.label("open_jobs"),
+            state.label("state"),
+            func.coalesce(scopes.c.manually_placed, False).label("manually_placed"),
+        )
+        .select_from(Client)
+        .join(scopes, scopes.c.client_id == Client.id)
+        .outerjoin(people, people.c.client_id == Client.id)
+        .outerjoin(live, live.c.client_id == Client.id)
+        .outerjoin(jobs, jobs.c.client_id == Client.id)
+        .where(*_visible_client_filters())
+    )
+    if allowed_client_ids is not None:
+        statement = statement.where(Client.id.in_(sorted(allowed_client_ids) or [-1]))
+    return statement.subquery()
+
+
+def _client_search_clause(client_id_column, q: str):
+    """Ta sama wyszukiwarka co lista zakresów, ale po wszystkich stanach."""
+
+    canonical_name = _effective_client_name()
+    matching = select(Client.id).where(
+        or_(
+            polish_folded_ilike(canonical_name, q),
+            polish_folded_ilike(Client.legal_name, q),
+            polish_folded_ilike(Client.name, q),
+            polish_folded_ilike(Client.industry, q),
+            exists(
+                select(ClientAlias.id).where(
+                    ClientAlias.client_id == Client.id,
+                    ClientAlias.archived_at.is_(None),
+                    polish_folded_ilike(ClientAlias.alias, q),
+                )
+            ),
+            exists(
+                select(ClientPortfolioScope.id).where(
+                    ClientPortfolioScope.client_id == Client.id,
+                    ClientPortfolioScope.archived_at.is_(None),
+                    polish_folded_ilike(ClientPortfolioScope.label, q),
+                )
+            ),
+        )
+    )
+    return client_id_column.in_(matching)
+
+
+def _client_list_rows_statement(base, *, state: str, q: Optional[str]):
+    """Wiersze jednego stanu albo — przy frazie — wyniki ze wszystkich stanów."""
+
+    normalized_q = (q or "").strip()
+    statement = select(base)
+    name_key = polish_alphabetical_key(base.c.display_name).asc()
+    if normalized_q:
+        statement = statement.where(
+            _client_search_clause(base.c.client_id, normalized_q)
+        )
+        state_rank = case(
+            (base.c.state == "working", 0),
+            (base.c.state == "idle", 1),
+            else_=2,
+        )
+        return statement.order_by(state_rank, name_key, base.c.client_id)
+    statement = statement.where(base.c.state == state)
+    if state == "working":
+        # Najwięksi klienci na górze: tam najczęściej się wchodzi.
+        return statement.order_by(
+            base.c.active_consultants.desc(),
+            base.c.planned_consultants.desc(),
+            base.c.open_jobs.desc(),
+            name_key,
+            base.c.client_id,
+        )
+    return statement.order_by(name_key, base.c.client_id)
+
+
+def _pick_framework_period(
+    periods: list,
+) -> tuple[Optional[date], Optional[date], bool]:
+    """Umowa ramowa pokazywana w wierszu klienta z kilku zakresów.
+
+    Bezterminowa wygrywa, potem najpóźniejszy koniec — to umowa, na której
+    klient dziś stoi; pozostałe są liczone w ``framework_count``.
+    """
+
+    if not periods:
+        return None, None, False
+    open_ended = [period for period in periods if period.expiry_date is None]
+    chosen = (
+        open_ended[0]
+        if open_ended
+        else max(periods, key=lambda period: period.expiry_date)
+    )
+    return chosen.effective_date, chosen.expiry_date, True
+
+
+async def _client_list_extras(
+    db: AsyncSession,
+    *,
+    client_ids: list[int],
+    finance_client_ids: frozenset[int],
+    as_of: date,
+    with_attention: bool,
+) -> dict[int, dict]:
+    """DL, umowa ramowa, „Wymaga uwagi” konsultantów i marża dla strony listy."""
+
+    extras: dict[int, dict] = {
+        client_id: {
+            "delivery_leads": [],
+            "framework": (None, None, False),
+            "framework_count": 0,
+            "attention": ClientListConsultantAttention(),
+            "margin": None,
+            "unpriced": 0,
+        }
+        for client_id in client_ids
+    }
+    if not client_ids:
+        return extras
+
+    lead_rows = await db.execute(
+        select(
+            DeliveryLeadClientAssignment.client_id,
+            DeliveryLeadClientAssignment.is_head,
+            User.name,
+        )
+        .join(User, User.id == DeliveryLeadClientAssignment.delivery_lead_user_id)
+        .where(DeliveryLeadClientAssignment.client_id.in_(client_ids))
+        .order_by(
+            DeliveryLeadClientAssignment.client_id,
+            DeliveryLeadClientAssignment.is_head.desc(),
+            User.name,
+        )
+    )
+    for row in lead_rows.all():
+        extras[row.client_id]["delivery_leads"].append(
+            ClientListDeliveryLead(name=row.name, is_head=bool(row.is_head))
+        )
+
+    period_rows = await db.execute(
+        select(
+            ClientPortfolioScope.client_id,
+            func.coalesce(
+                ClientPortfolioScope.contract_start_override,
+                ClientFrameworkContract.effective_date,
+            ).label("effective_date"),
+            func.coalesce(
+                ClientPortfolioScope.contract_end_override,
+                ClientFrameworkContract.expiry_date,
+            ).label("expiry_date"),
+        )
+        .outerjoin(
+            ClientFrameworkContract,
+            and_(
+                ClientFrameworkContract.id
+                == ClientPortfolioScope.framework_contract_id,
+                ClientFrameworkContract.client_id == ClientPortfolioScope.client_id,
+            ),
+        )
+        .where(
+            ClientPortfolioScope.client_id.in_(client_ids),
+            ClientPortfolioScope.archived_at.is_(None),
+            or_(
+                ClientPortfolioScope.framework_contract_id.is_not(None),
+                ClientPortfolioScope.contract_start_override.is_not(None),
+                ClientPortfolioScope.contract_end_override.is_not(None),
+            ),
+        )
+    )
+    periods_by_client: dict[int, list] = {}
+    for row in period_rows.all():
+        periods_by_client.setdefault(row.client_id, []).append(row)
+    for client_id, periods in periods_by_client.items():
+        extras[client_id]["framework"] = _pick_framework_period(periods)
+        extras[client_id]["framework_count"] = len(periods)
+
+    need_contracts = (
+        client_ids
+        if with_attention
+        else [cid for cid in client_ids if cid in finance_client_ids]
+    )
+    if not need_contracts:
+        return extras
+    loads = [*RATE_SCHEDULE_LOADS]
+    if with_attention:
+        loads.append(
+            selectinload(Contract.client_orders).selectinload(ClientOrder.order_group)
+        )
+    contracts = list(
+        (
+            await db.execute(
+                select(Contract)
+                .options(*loads)
+                .where(
+                    Contract.client_id.in_(need_contracts),
+                    Contract.status.in_(_LIVE_CONTRACT_STATUSES),
+                )
+            )
+        ).scalars()
+    )
+    current_by_client: dict[int, list[Contract]] = {}
+    for contract in await load_current_contracts(db, contracts, as_of):
+        current_by_client.setdefault(contract.client_id, []).append(contract)
+
+    for client_id, current in current_by_client.items():
+        if with_attention:
+            # Te same znaczniki co podzakładka „Wymaga uwagi” w Konsultantach
+            # profilu: liczone wyłącznie u obecnych (planowanych nie oznaczamy).
+            attention = extras[client_id]["attention"]
+            for contract in current:
+                state = consultant_order_state(contract, as_of, is_current=True)
+                if not state.attention:
+                    continue
+                attention.total += 1
+                if ATTENTION_ORDER_ENDING in state.attention:
+                    attention.order_ending += 1
+                    ending_on = state.order_ending_on
+                    if ending_on is not None and (
+                        attention.order_ending_first is None
+                        or ending_on < attention.order_ending_first
+                    ):
+                        attention.order_ending_first = ending_on
+                if ATTENTION_NO_CURRENT_ORDER in state.attention:
+                    attention.no_current_order += 1
+                if ATTENTION_NOTICE in state.attention:
+                    attention.notice += 1
+        if client_id in finance_client_ids:
+            totals = await _monthly_margin_total_pln(db, current, as_of)
+            # Lustro „Aktywnego MRR” profilu: bez kompletu kursów albo bez
+            # żadnej wycenionej marży u obecnych konsultantów — brak liczby.
+            if totals.complete and totals.has_margin:
+                extras[client_id]["margin"] = int(totals.margin)
+            extras[client_id]["unpriced"] = totals.unpriced
+    for client_id in finance_client_ids:
+        if client_id in extras and client_id not in current_by_client:
+            extras[client_id]["margin"] = 0
+    return extras
+
+
+def _client_list_item(row, extras: dict, *, can_view_legal: bool) -> ClientListItem:
+    effective_date, expiry_date, has_period = extras["framework"]
+    return ClientListItem(
+        client_id=row.client_id,
+        display_name=row.display_name,
+        legal_name=row.legal_name if can_view_legal else None,
+        industry=row.industry,
+        state=row.state,
+        active_consultants=int(row.active_consultants or 0),
+        planned_consultants=int(row.planned_consultants or 0),
+        open_jobs=int(row.open_jobs or 0),
+        monthly_margin=extras["margin"],
+        monthly_margin_unpriced=extras["unpriced"],
+        delivery_leads=extras["delivery_leads"],
+        framework_effective_date=effective_date,
+        framework_expiry_date=expiry_date,
+        has_framework_period=has_period,
+        framework_count=extras["framework_count"],
+        consultant_attention=extras["attention"],
+        manually_placed=bool(row.manually_placed),
+    )
+
+
+async def _list_finance_ids(
+    user: User, db: AsyncSession, client_ids: list[int]
+) -> frozenset[int]:
+    return list_finance_client_ids(
+        user,
+        client_ids,
+        delivery_lead_finance_client_ids=await resolve_delivery_lead_finance_client_ids(
+            user, db
+        ),
+    )
+
+
+@router.get("/directory/clients", response_model=ClientListResponse)
+async def list_clients_by_state(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    state: str = Query("working", pattern="^(working|idle|archive)$"),
+    q: Optional[str] = Query(None, max_length=200),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    mine: bool = Query(False),
+):
+    """Lista „Klienci”: jeden wiersz na klienta, stan liczony z faktów.
+
+    Fraza szuka we wszystkich stanach (wiersz niesie swój ``state``); liczniki
+    stanów nie zależą od frazy. Kwoty (marża miesięczna) tą samą regułą co
+    „Moi klienci”: ``list_finance_client_ids``.
+    """
+
+    as_of = business_today()
+    allowed_client_ids = await _directory_client_scope(current_user, db, mine=mine)
+    base = _client_list_base(as_of=as_of, allowed_client_ids=allowed_client_ids)
+    rows_statement = _client_list_rows_statement(base, state=state, q=q)
+    total = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(
+                    rows_statement.order_by(None).subquery()
+                )
+            )
+        ).scalar_one()
+    )
+    rows = (
+        await db.execute(rows_statement.offset((page - 1) * page_size).limit(page_size))
+    ).all()
+    client_ids = [row.client_id for row in rows]
+    finance_client_ids = await _list_finance_ids(current_user, db, client_ids)
+    extras = await _client_list_extras(
+        db,
+        client_ids=client_ids,
+        finance_client_ids=finance_client_ids,
+        as_of=as_of,
+        with_attention=True,
+    )
+    can_view_legal = _can_view_directory_legal(current_user)
+    items = [
+        _client_list_item(row, extras[row.client_id], can_view_legal=can_view_legal)
+        for row in rows
+    ]
+
+    counts = dict.fromkeys(CLIENT_LIST_STATES, 0)
+    for state_value, count in (
+        await db.execute(select(base.c.state, func.count()).group_by(base.c.state))
+    ).all():
+        counts[state_value] = int(count)
+    manually_placed_count = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(base)
+                .where(base.c.manually_placed.is_(True))
+            )
+        ).scalar_one()
+    )
+
+    return ClientListResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        state_counts=ClientListStateCounts(**counts),
+        amounts_visible=bool(finance_client_ids),
+        manually_placed_count=manually_placed_count,
+        as_of=as_of,
+    )
+
+
+_CLIENT_STATE_LABELS = {
+    "working": "Współpracujemy",
+    "idle": "Bez bieżącej pracy",
+    "archive": "Archiwum",
+}
+
+
+@router.get("/directory/clients/export", dependencies=NOT_READ_ONLY)
+async def export_clients_by_state(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    format: str = Query("xlsx", pattern="^(csv|xlsx)$"),
+    state: str = Query("working", pattern="^(working|idle|archive)$"),
+    q: Optional[str] = Query(None, max_length=200),
+    limit: int = Query(10000, ge=1, le=50000),
+    mine: bool = Query(False),
+):
+    """Eksport listy „Klienci” — to, co widać na ekranie, bez stronicowania.
+
+    Marża tylko u klientów, których kwoty ta osoba widzi na liście; kolumny
+    prawne tylko dla ról, które widzą je w katalogu. Eksport nie poszerza dostępu.
+    """
+
+    as_of = business_today()
+    base = _client_list_base(
+        as_of=as_of,
+        allowed_client_ids=await _directory_client_scope(current_user, db, mine=mine),
+    )
+    rows = (
+        await db.execute(
+            _client_list_rows_statement(base, state=state, q=q).limit(limit)
+        )
+    ).all()
+    truncated = len(rows) >= limit
+    client_ids = [row.client_id for row in rows]
+    finance_client_ids = await _list_finance_ids(current_user, db, client_ids)
+    extras = await _client_list_extras(
+        db,
+        client_ids=client_ids,
+        finance_client_ids=finance_client_ids,
+        as_of=as_of,
+        with_attention=False,
+    )
+    can_view_legal = _can_view_directory_legal(current_user)
+    show_margin = bool(finance_client_ids)
+
+    columns = [
+        "ID klienta",
+        "Klient",
+        "Stan",
+        "Nasi ludzie u klienta",
+        "Zaczynają",
+        "Otwarte rekrutacje",
+    ]
+    if show_margin:
+        columns.append("Marża / mc (PLN)")
+    columns += ["Umowa ramowa od", "Umowa ramowa do", "Delivery Lead", "Branża"]
+    if can_view_legal:
+        columns.append("Nazwa prawna")
+
+    data_rows = []
+    for row in rows:
+        item = _client_list_item(
+            row, extras[row.client_id], can_view_legal=can_view_legal
+        )
+        values: list = [
+            item.client_id,
+            item.display_name,
+            _CLIENT_STATE_LABELS[item.state],
+            item.active_consultants,
+            item.planned_consultants,
+            item.open_jobs,
+        ]
+        if show_margin:
+            values.append("" if item.monthly_margin is None else item.monthly_margin)
+        values += [
+            item.framework_effective_date.isoformat()
+            if item.framework_effective_date
+            else "",
+            (
+                ""
+                if not item.has_framework_period
+                else item.framework_expiry_date.isoformat()
+                if item.framework_expiry_date
+                else "Bezterminowa"
+            ),
+            ", ".join(lead.name for lead in item.delivery_leads),
+            item.industry or "",
+        ]
+        if can_view_legal:
+            values.append(item.legal_name or "")
+        data_rows.append([safe_cell(value) for value in values])
+
+    return _directory_file_response(
+        columns, data_rows, format=format, truncated=truncated, stem="klienci"
+    )
+
+
+def _directory_file_response(
+    columns: list[str],
+    data_rows: list[list],
+    *,
+    format: str,
+    truncated: bool,
+    stem: str,
+) -> StreamingResponse:
+    """Plik XLSX albo CSV (z BOM dla Excela) z nagłówkiem ``X-Export-Truncated``."""
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    headers_extra = {"X-Export-Truncated": "true"} if truncated else {}
+    if format == "xlsx":
+        from openpyxl import Workbook
+        from openpyxl.styles import Font
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Klienci"
+        ws.append(columns)
+        for cell in ws[1]:
+            cell.font = Font(bold=True)
+        ws.freeze_panes = "A2"
+        for data_row in data_rows:
+            ws.append(data_row)
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f'attachment; filename="{stem}_{ts}.xlsx"',
+                **headers_extra,
+            },
+        )
+
+    import csv
+    from io import StringIO
+
+    text = StringIO()
+    writer = csv.writer(text, quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(columns)
+    for data_row in data_rows:
+        writer.writerow(data_row)
+    return StreamingResponse(
+        iter(["﻿" + text.getvalue()]),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}_{ts}.csv"',
+            **headers_extra,
+        },
+    )
+
+
 # ── Export (CSV / XLSX) ───────────────────────────────────────────────────────
 # Business-facing Polish labels for the enum columns — the directory export
 # lands in delivery / finance spreadsheets, so we render labels instead of the
@@ -624,53 +1261,8 @@ async def export_client_directory(
     data_rows = [
         _directory_export_row(row, can_view_legal=can_view_legal) for row in rows
     ]
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-    def _export_headers(filename: str) -> dict:
-        headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
-        if truncated:
-            headers["X-Export-Truncated"] = "true"
-        return headers
-
-    if format == "xlsx":
-        from openpyxl import Workbook
-        from openpyxl.styles import Font
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "Klienci"
-        ws.append(columns)
-        for cell in ws[1]:
-            cell.font = Font(bold=True)
-        ws.freeze_panes = "A2"  # keep the header row visible while scrolling
-        for data_row in data_rows:
-            ws.append(data_row)
-
-        buf = BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        filename = f"klienci_{ts}.xlsx"
-        return StreamingResponse(
-            buf,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers=_export_headers(filename),
-        )
-
-    # CSV (UTF-8). Prepend a BOM so Excel on Windows renders the Polish
-    # diacritics correctly instead of mojibake.
-    import csv
-    from io import StringIO
-
-    buf = StringIO()
-    writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
-    writer.writerow(columns)
-    for data_row in data_rows:
-        writer.writerow(data_row)
-    filename = f"klienci_{ts}.csv"
-    return StreamingResponse(
-        iter(["\ufeff" + buf.getvalue()]),
-        media_type="text/csv; charset=utf-8",
-        headers=_export_headers(filename),
+    return _directory_file_response(
+        columns, data_rows, format=format, truncated=truncated, stem="klienci"
     )
 
 

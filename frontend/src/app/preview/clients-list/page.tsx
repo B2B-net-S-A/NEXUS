@@ -1,12 +1,15 @@
 "use client";
 
 /**
- * Harness ekranu „Klienci” (`/clients`) — PRODUKCYJNE `ClientsListV2` (lista
- * klientów w trzech zakładkach portfela, od 18.11.2026 bez trybów, z kolumną
- * „Wymaga uwagi”: raport miesiąca i relacja bez kontaktu z zasianego cache):
+ * Harness ekranu „Klienci” (`/clients`) — PRODUKCYJNE komponenty:
  *
- * - `/preview/clients-list` — lista klientów (`?category=relationship`
- *   i `?category=inactive` otwierają pozostałe zakładki portfela).
+ * - `/preview/clients-list` — `ClientsList` (od 19.11.2026): jeden wiersz na
+ *   klienta, stan współpracy liczony z faktów (`?state=idle`, `?state=archive`
+ *   otwierają pozostałe stany), kolumna „Wymaga uwagi” z konsultantami,
+ *   umową, raportem miesiąca i relacją bez kontaktu z zasianego cache.
+ * - `/preview/clients-list?harness=portfolio` — „Porządki portfela”
+ *   (`ClientsListV2`, dawna lista zakresów w trzech zakładkach portfela;
+ *   `?category=relationship` i `?category=inactive` jak dotąd).
  *
  * Zero zapytań: cache react-query zasiany z góry (`staleTime: Infinity`),
  * a przechwytujący `axios` odrzuca lokalnie każde żądanie, które mimo to by
@@ -18,10 +21,12 @@
  */
 
 import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AxiosError } from "axios";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
+import { ClientsList } from "@/components/clients/ClientsList";
 import { ClientsListV2 } from "@/components/v2/pages/ClientsListV2";
 import {
   api,
@@ -29,6 +34,9 @@ import {
   type ClientDirectoryCategoryCounts,
   type ClientDirectoryItem,
   type ClientDirectoryResponse,
+  type ClientListItem,
+  type ClientListResponse,
+  type ClientListState,
 } from "@/lib/api";
 import type { ReportsCalendar } from "@/lib/api/client-reports";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -235,6 +243,206 @@ function directoryPage(category: ClientDirectoryCategory): ClientDirectoryRespon
   };
 }
 
+// ── Lista „Klienci”: jeden wiersz na klienta, stan z faktów ──────────────────
+
+type ClientSeed = Pick<ClientListItem, "client_id" | "display_name" | "state"> &
+  Partial<ClientListItem>;
+
+function client(seed: ClientSeed): ClientListItem {
+  return {
+    legal_name: null,
+    industry: null,
+    active_consultants: 0,
+    planned_consultants: 0,
+    open_jobs: 0,
+    monthly_margin: 0,
+    monthly_margin_unpriced: 0,
+    delivery_leads: [],
+    framework_effective_date: null,
+    framework_expiry_date: null,
+    has_framework_period: false,
+    framework_count: 0,
+    consultant_attention: {
+      total: 0,
+      order_ending: 0,
+      order_ending_first: null,
+      no_current_order: 0,
+      notice: 0,
+    },
+    manually_placed: false,
+    ...seed,
+  };
+}
+
+/** Dzień za `days` dni od dziś (daty liczone po zamontowaniu, jak relacje). */
+function inDays(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function clientListRows(): Record<ClientListState, ClientListItem[]> {
+  return {
+    working: [
+      client({
+        client_id: 101,
+        display_name: "Bank Przykładowy",
+        legal_name: "Bank Przykładowy S.A.",
+        industry: "Bankowość",
+        state: "working",
+        active_consultants: 17,
+        planned_consultants: 1,
+        open_jobs: 6,
+        monthly_margin: 98400,
+        delivery_leads: [
+          { name: "Delivery Lead Przykładowy", is_head: true },
+          { name: "Opiekun Zapasowy", is_head: false },
+        ],
+        framework_effective_date: "2025-01-01",
+        framework_expiry_date: "2027-12-31",
+        has_framework_period: true,
+        framework_count: 2,
+        consultant_attention: {
+          total: 2,
+          order_ending: 2,
+          order_ending_first: inDays(11),
+          no_current_order: 0,
+          notice: 0,
+        },
+      }),
+      client({
+        client_id: 102,
+        display_name: "Telekom Demo",
+        legal_name: "Telekom Demo sp. z o.o.",
+        industry: "Telekomunikacja",
+        state: "working",
+        active_consultants: 8,
+        open_jobs: 3,
+        monthly_margin: 41000,
+        delivery_leads: [{ name: "Delivery Lead Przykładowy", is_head: true }],
+        framework_effective_date: "2024-06-15",
+        framework_expiry_date: inDays(42),
+        has_framework_period: true,
+        framework_count: 1,
+      }),
+      client({
+        client_id: 103,
+        display_name: "Ubezpieczenia Wzorcowe",
+        legal_name: "Towarzystwo Ubezpieczeń Wzorcowe S.A.",
+        industry: "Ubezpieczenia",
+        state: "working",
+        active_consultants: 5,
+        monthly_margin: 22500,
+        delivery_leads: [{ name: "Opiekun Zapasowy", is_head: true }],
+        framework_effective_date: "2026-02-01",
+        has_framework_period: true,
+        framework_count: 1,
+        manually_placed: true,
+        consultant_attention: {
+          total: 1,
+          order_ending: 0,
+          order_ending_first: null,
+          no_current_order: 1,
+          notice: 0,
+        },
+      }),
+      client({
+        client_id: 105,
+        display_name: "Energia Testowa",
+        legal_name: "Energia Testowa Dystrybucja S.A.",
+        industry: "Energetyka",
+        state: "working",
+        active_consultants: 2,
+        open_jobs: 1,
+        monthly_margin: 9100,
+        framework_effective_date: "2025-09-01",
+        framework_expiry_date: inDays(-19),
+        has_framework_period: true,
+        framework_count: 1,
+      }),
+      client({
+        client_id: 106,
+        display_name: "Urząd Przykładowy",
+        state: "working",
+        active_consultants: 1,
+        monthly_margin: 3360,
+        monthly_margin_unpriced: 1,
+      }),
+      // Sama rekrutacja, bez ludzi — też „Współpracujemy”.
+      client({
+        client_id: 104,
+        display_name: "Fintech Próbny",
+        legal_name: "Fintech Próbny",
+        industry: "Fintech",
+        state: "working",
+        open_jobs: 2,
+      }),
+    ],
+    idle: [
+      client({
+        client_id: 107,
+        display_name: "Logistyka Makietowa",
+        legal_name: "Logistyka Makietowa sp. z o.o.",
+        industry: "Logistyka i transport",
+        state: "idle",
+        framework_effective_date: "2023-04-01",
+        framework_expiry_date: "2026-03-31",
+        has_framework_period: true,
+        framework_count: 1,
+      }),
+      client({
+        client_id: 108,
+        display_name: "Software Atrapa",
+        legal_name: "Software Atrapa sp. z o.o.",
+        industry: "Oprogramowanie",
+        state: "idle",
+        manually_placed: true,
+      }),
+    ],
+    archive: [
+      client({
+        client_id: 109,
+        display_name: "Media Zmyślone",
+        legal_name: "Media Zmyślone S.A.",
+        industry: "Media",
+        state: "archive",
+        framework_effective_date: "2021-01-01",
+        framework_expiry_date: "2023-12-31",
+        has_framework_period: true,
+        framework_count: 1,
+      }),
+      client({
+        client_id: 110,
+        display_name: "Produkcja Wzorcowa",
+        legal_name: "Zakłady Produkcyjne Wzorcowe sp. z o.o.",
+        industry: "Przemysł",
+        state: "archive",
+      }),
+    ],
+  };
+}
+
+function clientListPage(
+  rows: Record<ClientListState, ClientListItem[]>,
+  state: ClientListState,
+): ClientListResponse {
+  const items = rows[state];
+  return {
+    items,
+    total: items.length,
+    page: 1,
+    page_size: 50,
+    state_counts: {
+      working: rows.working.length,
+      idle: rows.idle.length,
+      archive: rows.archive.length,
+    },
+    amounts_visible: true,
+    manually_placed_count: 2,
+    as_of: new Date().toISOString(),
+  };
+}
+
 // ── Kluczowe relacje (kolumna „Wymaga uwagi”) ────────────────────────────────
 
 /** Kształt wiersza `GET /api/my-relationships`. */
@@ -376,7 +584,12 @@ function seededClient(): QueryClient {
       },
     },
   });
-  // Klucz listy: kategoria, fraza, strona, „Moi klienci” (admin = wszyscy).
+  // Lista „Klienci”: stan, fraza, strona, „Moi klienci” (admin = wszyscy).
+  const rows = clientListRows();
+  qc.setQueryData(["clients-directory", "clients", "working", "", 1, false], clientListPage(rows, "working"));
+  qc.setQueryData(["clients-directory", "clients", "idle", "", 1, false], clientListPage(rows, "idle"));
+  qc.setQueryData(["clients-directory", "clients", "archive", "", 1, false], clientListPage(rows, "archive"));
+  // „Porządki portfela”: kategoria, fraza, strona, „Moi klienci”.
   qc.setQueryData(["clients-directory", "active", "", 1, false], directoryPage("active"));
   qc.setQueryData(
     ["clients-directory", "relationship", "", 1, false],
@@ -418,9 +631,13 @@ function reportsCalendar(): ReportsCalendar {
   };
 }
 
-/** Lustro `ClientsWorkspace` z `app/clients/page.tsx` — jedna lista bez trybów. */
+/** `/clients` albo — z `?harness=portfolio` — `/clients/portfolio`. */
 function ClientsWorkspace() {
-  return <ClientsListV2 modeTabs={null} />;
+  const params = useSearchParams();
+  if (params.get("harness") === "portfolio") {
+    return <ClientsListV2 modeTabs={null} variant="portfolio" />;
+  }
+  return <ClientsList />;
 }
 
 export default function ClientsListPreview() {
@@ -452,9 +669,9 @@ export default function ClientsListPreview() {
           <header>
             <p className="text-sm font-semibold text-foreground">Harness — ekran „Klienci”</p>
             <p className="text-sm text-muted-foreground">
-              Publiczny podgląd na fikcyjnych danych. Zero zapytań do API. Zakładki portfela
+              Publiczny podgląd na fikcyjnych danych. Zero zapytań do API. Stany współpracy
               przełączają się jak na <code>/clients</code>; kolumna „Wymaga uwagi” czyta zasiany
-              raport miesiąca i relacje.
+              raport miesiąca i relacje. Dawna lista zakresów: <code>?harness=portfolio</code>.
             </p>
           </header>
           <Suspense

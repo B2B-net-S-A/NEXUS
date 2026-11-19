@@ -34,6 +34,7 @@ import { positiveIntParam } from "@/lib/client-tab";
 import { resolveUrlTab } from "@/lib/url-tab";
 import { WS_BACKED_SAFETY_POLL_MS } from "@/lib/polling";
 import { jobHeaderFacts } from "@/lib/job-header-facts";
+import { JobDatesFact } from "@/components/v2/jobs/JobDatesFact";
 import { storedProcess } from "@/lib/job-client-process";
 import { JobClientProcessFact } from "@/components/v2/jobs/JobClientProcessFact";
 import { recruitersOf, workingRecruiters } from "@/lib/job-team";
@@ -995,8 +996,11 @@ export default function JobDetailPage() {
           </>
         }
         // Klient · Budżet · Tryb pracy (02.10.2026) i od 14.10.2026 „Rekruter”
-        // z okienkiem zespołu. DL, hiring manager i termin — „Profil Championa”.
+        // z okienkiem zespołu. DL i hiring manager — „Profil Championa”; termin
+        // wrócił do nagłówka 19.11.2026 (`dates`).
         facts={jobHeaderFacts(job)}
+        // „Dodana → Termin” obok faktów (19.11.2026, makieta wariant B).
+        dates={<JobDatesFact job={job} />}
         // P0 — ultrapilne przez 24 h (27.10.2026): do kiedy, kto i po co.
         p0Strip={
           <JobP0Strip jobId={jobId} job={job} canSet={job.can_set_p0 === true} />

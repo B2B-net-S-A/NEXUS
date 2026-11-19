@@ -6,7 +6,7 @@
  */
 
 import { formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
-import { officeDaysLabel } from "@/lib/office-days";
+import { officeDaysLabel, officeDaysShort } from "@/lib/office-days";
 
 export interface JobHeaderFactsSource extends JobBudgetSource {
   client_name?: string | null;
@@ -25,6 +25,12 @@ export interface JobHeaderFact {
   label: string;
   /** `null` = nie podano (nagłówek mówi to wprost, nie zostawia pustki). */
   value: string | null;
+  /**
+   * Krótsza forma poniżej `2xl` (19.11.2026): przy 1280 px linia faktów ma
+   * też „Dodana → Termin”, a pełny tryb pracy ścinał się do „H…”. Pełna
+   * wartość zostaje w dymku.
+   */
+  short?: string | null;
 }
 
 /** Etykiety trybu pracy — lustro `RemotePolicy` (`backend/app/models/job.py`). */
@@ -46,6 +52,18 @@ export function jobWorkModeFact(job: JobHeaderFactsSource): string | null {
   return [mode, days, job.location?.trim() || null].filter(Boolean).join(" · ");
 }
 
+/** „Hybrydowo · 4 dni/tydz. · Warszawa” — `jobWorkModeFact` z krótkimi dniami. */
+export function jobWorkModeShort(job: JobHeaderFactsSource): string | null {
+  const mode = job.remote_policy ? REMOTE_POLICY_LABEL[job.remote_policy] : undefined;
+  if (!mode) return null;
+  if (job.remote_policy === "remote") return mode;
+  const days =
+    job.remote_policy === "hybrid"
+      ? officeDaysShort(job.onsite_days_per_week, job.onsite_days_per_month)
+      : null;
+  return [mode, days, job.location?.trim() || null].filter(Boolean).join(" · ");
+}
+
 export function jobHeaderFacts(job: JobHeaderFactsSource): JobHeaderFact[] {
   const budget = formatJobBudgetLabel(job);
   return [
@@ -60,6 +78,11 @@ export function jobHeaderFacts(job: JobHeaderFactsSource): JobHeaderFact[] {
             ? "ukryty dla Twojej roli"
             : null,
     },
-    { key: "work_mode", label: "Tryb pracy", value: jobWorkModeFact(job) },
+    {
+      key: "work_mode",
+      label: "Tryb pracy",
+      value: jobWorkModeFact(job),
+      short: jobWorkModeShort(job),
+    },
   ];
 }
