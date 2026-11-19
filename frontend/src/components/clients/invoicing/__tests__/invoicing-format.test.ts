@@ -16,6 +16,7 @@ import {
   summaryStats,
   targetsText,
   totalsText,
+  unknownPaymentsText,
 } from "@/components/clients/invoicing/invoicing-format";
 import { statusSummary } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 
@@ -67,6 +68,56 @@ describe("invoicing-format", () => {
     expect(paymentText(unknown)).toBe("brak danych o zapłacie");
     expect(paymentNote(unknown)).toBe("termin 17.11");
     expect(paymentTone(unknown)).toBe("neutral");
+  });
+
+  it("dates a proven overdue invoice with the last day of continuous statements", () => {
+    const late = invoice({
+      payment_status: "unpaid",
+      overdue_days: 43,
+      paid: "0.00",
+      paid_on: null,
+      statements_until: "2026-06-30",
+      payment_account: "8025",
+    });
+    expect(paymentText(late)).toBe("po terminie 43 dni");
+    expect(paymentNote(late)).toBe("wyciągi do 30.06");
+    expect(paymentTone(late)).toBe("danger");
+    const part = { ...late, payment_status: "partial" as const, to_pay: "100.00" };
+    expect(nbsp(paymentNote(part) ?? "")).toBe("zapłacono część · zostało 100,00 zł · wyciągi do 30.06");
+  });
+
+  it("names why there is no payment data next to the due date", () => {
+    const unknown = (extra: Parameters<typeof invoice>[0]) =>
+      paymentNote(
+        invoice({
+          payment_status: "unpaid",
+          overdue_days: 0,
+          paid: "0.00",
+          paid_on: null,
+          payment_unknown: true,
+          ...extra,
+        }),
+      );
+    expect(
+      unknown({ payment_unknown_reason: "statements", payment_account: "8025", statements_until: "2026-11-12" }),
+    ).toBe("termin 17.11 · wyciągi …8025 do 12.11");
+    expect(unknown({ payment_unknown_reason: "statements", payment_account: "8025" })).toBe(
+      "termin 17.11 · brak wyciągów …8025",
+    );
+    expect(unknown({ payment_unknown_reason: "account_outside_ledger", payment_account: "9022" })).toBe(
+      "termin 17.11 · rachunek …9022 poza Księgą",
+    );
+    expect(unknown({ payment_unknown_reason: "compensation" })).toBe("termin 17.11 · kompensata");
+    expect(unknown({ payment_unknown_reason: "credit_pending" })).toBe("termin 17.11 · wpłata do sprawdzenia");
+  });
+
+  it("counts invoices without payment data per reason", () => {
+    const text = unknownPaymentsText(3, [
+      { reason: "statements", label: "", account: "8025", count: 2 },
+      { reason: "compensation", label: "", account: null, count: 1 },
+    ]);
+    expect(text).toContain("zaległość liczy tylko z ciągłych wyciągów rachunku, na który płaci klient");
+    expect(text).toContain("Powody: brak ciągłych wyciągów rachunku …8025: 2 · rozliczane kompensatą: 1.");
   });
 
   it("shows no data about payments instead of an overdue count it cannot back", () => {

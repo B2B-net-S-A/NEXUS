@@ -2013,6 +2013,71 @@ async def test_bank_statement_is_classified_posted_once_and_deduplicated(client,
     assert (items["bank"]["state"], items["bank"]["detail"]) == ("todo", "wyciągi bez WB: 1")
 
 
+async def test_bank_statement_keeps_its_balances_and_whether_e8_saw_the_credits(
+    client, world, books
+):
+    """Saldo otwarcia i zamknięcia z datami (ciągłość dla „po terminie”, 0742):
+    zapisane przy imporcie, a plik sprzed migracji dostaje je przy ponownym
+    wgraniu — bez drugiego importu operacji. ``credits_matched`` mówi, czy
+    uznania przeszły przez E8 (moduł faktur do klientów wyłączony = nie)."""
+
+    from tests.client_invoicing.helpers import set_module
+
+    year = books["year"]
+    await _set_ledger(_bank_settings(world, books))
+    marker = uuid.uuid4().hex[:6].upper()
+    content = _statement(
+        year,
+        ("C", "250,00", "Wpłata bez faktury", OTHER_ACCOUNT, f"C{marker}"),
+        ("D", "12,50", "Opłata za prowadzenie rachunku", "", f"F{marker}"),
+    )
+    off = _statement(
+        year, ("C", "10,00", "Odsetki", "", f"O{marker}"), day="21"
+    )
+    await set_module(True)
+    try:
+        imported = await _bank_import(client, world, content)
+        await set_module(False)
+        unchecked = await _bank_import(client, world, off)
+    finally:
+        await set_module(None)
+    assert imported.status_code == 201, imported.text
+    assert unchecked.status_code == 201, unchecked.text
+    async with AsyncSessionLocal() as db:
+        statement = await db.get(LedgerBankStatement, imported.json()["id"])
+        other = await db.get(LedgerBankStatement, unchecked.json()["id"])
+    assert (
+        statement.opening_balance,
+        statement.opening_day,
+        statement.closing_balance,
+        statement.closing_day,
+    ) == (10_000_000, date(year, 3, 1), 10_023_750, date(year, 3, 20))
+    assert (statement.credits_matched, other.credits_matched) == (True, False)
+
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(LedgerBankStatement)
+            .where(LedgerBankStatement.id == statement.id)
+            .values(
+                opening_balance=None,
+                opening_day=None,
+                closing_balance=None,
+                closing_day=None,
+            )
+        )
+        await db.commit()
+    again = await _bank_import(client, world, content)
+    assert again.status_code == 201, again.text
+    assert again.json()["already_imported"] is True
+    assert len(again.json()["lines"]) == 2
+    async with AsyncSessionLocal() as db:
+        refreshed = await db.get(LedgerBankStatement, statement.id)
+    assert (refreshed.opening_balance, refreshed.closing_day) == (
+        10_000_000,
+        date(year, 3, 20),
+    )
+
+
 async def test_admin_deletes_statement_with_its_e3_e8_matches(client, world, books):
     """Cofnięcie importu wyciągu (17.11.2026: E8 wziął nogi VAT MPP za wpłaty
     klientów): znika wyciąg, jego linie i zapłaty E3/E8 z tego pliku, stan

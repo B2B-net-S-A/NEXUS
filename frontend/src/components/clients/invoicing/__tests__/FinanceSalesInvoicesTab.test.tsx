@@ -107,11 +107,22 @@ describe("FinanceSalesInvoicesTab", () => {
 
   it("lists known overdue invoices and still names the ones without payment data", async () => {
     get.mockReset();
-    mockApi({ invoices: [CLIENT_MONTH.invoices[1]], payment_unknown: 3 });
+    mockApi({
+      invoices: [CLIENT_MONTH.invoices[1]],
+      payment_unknown: 3,
+      payment_unknown_reasons: [
+        { reason: "account_outside_ledger", label: "", account: "9022", count: 2 },
+        { reason: "compensation", label: "", account: null, count: 1 },
+      ],
+    });
     renderTab("overdue");
     expect(await screen.findByTestId("sales-invoice-2")).toBeInTheDocument();
     const notice = screen.getByTestId("overdue-payment-unknown");
     expect(notice).toHaveTextContent("3 faktury mają termin za sobą");
+    // Finanse widzą, czego brakuje: rachunku w Księdze, wyciągów, kompensaty.
+    expect(notice).toHaveTextContent(
+      "Powody: rachunek …9022 poza Księgowość → Ustawienia: 2 · rozliczane kompensatą: 1.",
+    );
   });
 
   it("asks for a reason before skipping an invoice", async () => {

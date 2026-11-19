@@ -49,6 +49,7 @@ from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_bank_balance_schema as ledger_bank_balances
 from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_fx_schema as ledger_fx
@@ -150,6 +151,8 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
+    # 0742: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
+    ledger_bank_balances,
     # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
     client_invoice_templates,
     # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
