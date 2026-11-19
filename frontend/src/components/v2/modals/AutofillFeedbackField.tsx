@@ -90,6 +90,7 @@ export function AutofillFeedbackField({
                 <label
                   key={r.value}
                   className="flex cursor-pointer items-start gap-2 rounded-md p-1 text-sm hover:bg-primary/10"
+                  data-tour={r.value === "not_looking" ? "rejection.not-looking" : undefined}
                 >
                   <RadioGroupItem value={r.value} className="mt-0.5" />
                   <span>{r.label}</span>
