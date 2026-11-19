@@ -34,10 +34,27 @@ import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { canReadClientPeople, type ManagerHint } from "@/lib/api/client-people";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
 import { useHrConfig } from "@/lib/api/hr";
+import { useConsultantCard } from "@/lib/api/care";
+import { buildContractHappening, type HappeningActionId } from "@/lib/contract-happening";
+import { warsawToday } from "@/lib/warsaw-date";
+import { ContractHappeningStrip } from "@/components/contracts/detail/ContractHappeningStrip";
+import { ContractPeriodBar } from "@/components/contracts/detail/ContractPeriodBar";
+import { ContractOverviewMoney } from "@/components/contracts/detail/ContractOverviewMoney";
 import {
-  contractActivityDetailRows,
-  contractActivityLabel,
-} from "@/components/contracts/contract-timeline-labels";
+  ContractRecentActivity,
+  ContractRecentDocuments,
+} from "@/components/contracts/detail/ContractOverviewRecent";
+import { ContractHistoryFeed } from "@/components/contracts/detail/ContractHistoryFeed";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ContractCandidateContactRow } from "@/components/contracts/ContractCandidateContactRow";
 import { ContractRateBenchmarkCard } from "@/components/contracts/ContractRateBenchmarkCard";
 import { ContractTerminationDialog } from "@/components/contracts/ContractTerminationDialog";
@@ -124,6 +141,9 @@ import {
   AlertCircle,
   Loader2,
   Building2,
+  FileText,
+  FilePlus2,
+  MoreHorizontal,
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -231,6 +251,8 @@ interface ContractDetail {
   returned_from_contract_id?: number | null;
   return_contract_id?: number | null;
   can_reverse_termination?: boolean;
+  /** Decyzja klienta o przedłużeniu (pas „Co się dzieje”): unknown | yes | no | negotiate. */
+  prolongation_status?: string | null;
   can_return_after_break?: boolean;
   termination_reversed_at?: string | null;
   termination_reversed_by_name?: string | null;
@@ -303,7 +325,12 @@ interface ContractTemplate {
   contract_type: string;
 }
 
-function GenerateDocumentButton({
+/**
+ * „Generuj z szablonu” jako podmenu w „Więcej akcji” nagłówka (przebudowa
+ * 19.11.2026) — dawniej natywna lista obok „Edytuj”. Bez szablonów dla typu
+ * umowy pozycji nie ma.
+ */
+function GenerateFromTemplateMenu({
   contractId,
   contractType,
 }: {
@@ -351,25 +378,19 @@ function GenerateDocumentButton({
   };
 
   return (
-    <div className="relative">
-      <select
-        id="contract-template-render"
-        aria-label="Generuj dokument z szablonu"
-        onChange={(e) => {
-          const id = Number(e.target.value);
-          if (id) openRendered(id);
-          e.target.value = "";
-        }}
-        className="h-8 max-w-full rounded-md border border-border bg-transparent px-3 text-xs font-medium text-foreground hover:bg-muted pointer-coarse:min-h-10"
-      >
-        <option value="">Generuj z szablonu…</option>
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <FileText className="mr-2 h-3.5 w-3.5" aria-hidden />
+        Generuj z szablonu
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
         {templates.map((t) => (
-          <option key={t.id} value={t.id}>
+          <DropdownMenuItem key={t.id} onSelect={() => void openRendered(t.id)}>
             {t.name}
-          </option>
+          </DropdownMenuItem>
         ))}
-      </select>
-    </div>
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
   );
 }
 
@@ -382,17 +403,19 @@ interface Tab {
   label: string;
 }
 
+// Przebudowa 19.11.2026 (wariant A po makietach): 10 zakładek → 7. „Szczegóły”
+// to „Przegląd”, „Historia stawek” i „Faktury” są w „Pieniądzach”, „Notatki /
+// Rozmowy” w „Opiece i rozmowach”, „Wejście” (dawniej „Onboarding”) i „Sprzęt”
+// w „Starcie i sprzęcie”, „Timeline” to „Historia”. Dawne klucze adresu
+// prowadzą na nowe zakładki (`lib/contract-detail-tab.ts`).
 const TABS: Tab[] = [
-  { key: "details", label: "Szczegóły" },
+  { key: "overview", label: "Przegląd" },
+  { key: "money", label: "Pieniądze" },
   { key: "documents", label: "Dokumenty" },
   { key: "amendments", label: "Aneksy" },
-  { key: "onboarding", label: "Wejście" },
-  { key: "equipment", label: "Sprzęt" },
-  { key: "notes", label: "Notatki / Rozmowy" },
-  { key: "care", label: "Opieka" },
-  { key: "invoices", label: "Faktury" },
-  { key: "rateHistory", label: "Historia stawek" },
-  { key: "timeline", label: "Timeline" },
+  { key: "care", label: "Opieka i rozmowy" },
+  { key: "start", label: "Start i sprzęt" },
+  { key: "history", label: "Historia" },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -583,6 +606,20 @@ export default function ContractDetailPage() {
   const careOpen =
     useHrConfig().data?.open_modules.care === true &&
     !getUserRoles(user).includes("automation");
+  // Premie z kontraktu widzą tylko Płace (`ContractBonusesCard`) — liczą się
+  // do widoczności zakładki „Pieniądze”.
+  const hrForPayroll = useHrConfig().data;
+  const payrollOpen = Boolean(hrForPayroll?.me.payroll && hrForPayroll?.open_modules.payroll);
+  // Karta opieki zasila pas „Co się dzieje” (powody „Uwaga”) — ten sam odczyt
+  // i klucz co zakładka „Opieka i rozmowy”.
+  const careCard = useConsultantCard(id, careOpen).data;
+  const [careTalkRequested, setCareTalkRequested] = useState(false);
+  // Licznik przy zakładce „Aneksy” — ten sam klucz i odczyt co zakładka.
+  const amendmentsCount = useQuery<unknown[]>({
+    queryKey: ["contract-amendments", id],
+    queryFn: () => api.get(`/api/contracts/${id}/amendments`).then((r) => r.data),
+    enabled: !Number.isNaN(id),
+  }).data?.length;
   const [editing, setEditing] = useState(false);
   const [recordAgreementOpen, setRecordAgreementOpen] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
@@ -623,7 +660,8 @@ export default function ContractDetailPage() {
   const activitiesQuery = useQuery<ActivityEntry[]>({
     queryKey: ["contract-activities", id],
     queryFn: () => contractsApi.activities(id).then((r) => r.data),
-    enabled: !Number.isNaN(id) && activeTab === "timeline",
+    // Przegląd pokazuje „Ostatnio”, więc historia ładuje się od razu.
+    enabled: !Number.isNaN(id),
   });
   const activities = activitiesQuery.data;
   // Ładowanie i błąd to nie „brak wpisów” (retest UAT B23: pusta historia
@@ -643,7 +681,7 @@ export default function ContractDetailPage() {
     enabled:
       canViewFinance &&
       !Number.isNaN(id) &&
-      activeTab === "rateHistory",
+      activeTab === "money",
   });
 
   // Compliance risk — eagerly fetch documents so the badge works on all tabs.
@@ -972,13 +1010,112 @@ export default function ContractDetailPage() {
     );
   }
 
+  // „Opieka i rozmowy” zostaje zawsze (notatki); karta opieki wewnątrz tylko
+  // przy włączonym module. „Pieniądze”: stawki, faktury albo premie (Płace).
   const visibleTabs = TABS.filter(
     (tab) =>
-      (careOpen || tab.key !== "care") &&
       (canViewContractDocuments || canUploadContractDocuments || tab.key !== "documents") &&
-      (canViewFinance || tab.key !== "rateHistory") &&
-      (canViewInvoices || tab.key !== "invoices"),
+      (canViewFinance || canViewInvoices || payrollOpen || tab.key !== "money"),
   );
+  const happening = buildContractHappening(
+    {
+      status: contract.status,
+      contract_type: contract.contract_type,
+      end_date: contract.end_date,
+      terminated_at: contract.terminated_at ?? null,
+      termination_reason: contract.termination_reason ?? null,
+      termination_lessons: contract.termination_lessons,
+      agreement_termination_mode: contract.agreement_termination_mode,
+      client_order_end_date: contract.client_order_end_date ?? null,
+      prolongation_status: contract.prolongation_status ?? null,
+      rate_client: contract.rate_client,
+      can_reverse_termination: contract.can_reverse_termination ?? false,
+    },
+    careOpen && careCard?.health
+      ? { level: careCard.health.level, reasons: careCard.health.reasons, ownerName: careCard.owner?.name ?? null }
+      : null,
+    warsawToday(),
+  );
+  const tabCount: Partial<Record<ContractDetailTab, number | undefined>> = {
+    documents: canViewContractDocuments ? contractDocs?.length : undefined,
+    amendments: amendmentsCount,
+  };
+  const openTab = (tab: ContractDetailTab) => {
+    setActiveTab(tab);
+    window.scrollTo({ top: 0 });
+  };
+  const renderHappeningAction = (action: HappeningActionId) => {
+    switch (action) {
+      case "record_agreement":
+        return canEditContractStatus ? (
+          <Button size="sm" variant="outline" onClick={() => setRecordAgreementOpen(true)}>
+            Zapisz rozwiązanie umowy
+          </Button>
+        ) : null;
+      case "reverse_termination":
+        return canRecoverTermination ? (
+          <Button
+            size="sm"
+            variant="quiet"
+            onClick={() => {
+              setActiveTab("overview");
+              requestAnimationFrame(() =>
+                document.getElementById("contract-termination-recovery")?.scrollIntoView({ behavior: "smooth", block: "center" }),
+              );
+            }}
+          >
+            Cofnij zakończenie…
+          </Button>
+        ) : null;
+      case "add_order":
+        return canEditContract ? (
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/clients/${contract.client_id}?tab=zamowienia`}>Dodaj zamówienie</Link>
+          </Button>
+        ) : null;
+      case "terminate":
+        return canEditContractStatus ? (
+          <Button
+            size="sm"
+            variant="quiet"
+            onClick={() => {
+              setTerminationDate(undefined);
+              setShowTerminationDialog(true);
+            }}
+          >
+            Zakończ współpracę…
+          </Button>
+        ) : null;
+      case "log_conversation":
+        return careOpen && careCard?.can_edit ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setCareTalkRequested(true);
+              openTab("care");
+            }}
+          >
+            Zapisz rozmowę
+          </Button>
+        ) : null;
+      case "fill_rate":
+        return canEditContract || financeAmountsOnly ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setActiveTab("overview");
+              handleStartEdit();
+            }}
+          >
+            Uzupełnij stawkę
+          </Button>
+        ) : null;
+      default:
+        return null;
+    }
+  };
 
   // Konsolidacja wieloklientowa: pozostałe kontrakty tej samej osoby.
   // Chipy = zakładki nazwane po kliencie (klik → pełny widok tamtej umowy:
@@ -1163,8 +1300,10 @@ export default function ContractDetailPage() {
 
   return (
     <div className="space-y-4">
-      {/* Nagłówek: osoba jest tytułem, klient i numer kontraktu — podtytułem. */}
-      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      {/* Nagłówek (przebudowa 19.11.2026, wariant A): osoba i status w jednej
+          linii, klient · rekrutacja · typ · okres · numer w drugiej; rzadkie
+          i niebezpieczne akcje w menu „Więcej akcji”. */}
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0 space-y-1">
           <Link
             href={returnContext.returnTarget}
@@ -1172,7 +1311,7 @@ export default function ContractDetailPage() {
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Kontrakty
           </Link>
-          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xl font-semibold text-foreground">
+          <h1 className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[22px] font-semibold leading-7 tracking-tight text-foreground">
             {contract.candidate_name ?? `Kontrakt #${contract.id}`}
             {/* Lista statusu sama pokazuje bieżący status — plakietka zostaje
                 dla osób, które statusu nie zmieniają, i na czas edycji. */}
@@ -1202,17 +1341,31 @@ export default function ContractDetailPage() {
               </span>
             )}
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-2 text-[13px] text-muted-foreground">
             {contract.client_name ? (
-              <Link className={linkClass} href={`/clients/${contract.client_id}`}>
+              <Link className={`${linkClass} font-medium`} href={`/clients/${contract.client_id}`}>
                 {contract.client_name}
               </Link>
             ) : (
-              `Klient #${contract.client_id}`
+              <span>Klient #{contract.client_id}</span>
             )}
-            {" · "}
-            Kontrakt #{contract.id}
-            {contract.job_title ? ` · ${contract.job_title}` : ""}
+            {contract.job_title ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="max-w-[340px] truncate" title={contract.job_title}>
+                  {contract.job_title}
+                </span>
+              </>
+            ) : null}
+            <span aria-hidden>·</span>
+            <span>{contract.contract_type === "b2b" ? "B2B" : contract.contract_type.toUpperCase()}</span>
+            <span aria-hidden>·</span>
+            <span className="tabular-nums">
+              {contract.start_date ? `od ${formatDate(contract.start_date)}` : "bez daty startu"}
+              {contract.end_date ? ` do ${formatDate(contract.end_date)}` : ", bezterminowo"}
+            </span>
+            <span aria-hidden>·</span>
+            <span className="tabular-nums">Kontrakt #{contract.id}</span>
             {contract.returned_from_contract_id != null && (
               <span className="ml-2 inline-flex items-center gap-1">
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-warning-muted text-warning-muted-foreground border border-warning/25">
@@ -1250,36 +1403,55 @@ export default function ContractDetailPage() {
           </Button>
         )}
         {canEditContract && (
-          <div className="flex flex-wrap items-center gap-2">
-            {isAdmin && !impersonating && (
-              <Button size="sm" variant="quiet" onClick={() => setShowReassign(true)}>
-                <Building2 className="w-3.5 h-3.5" /> Przepnij na innego klienta
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="quiet"
-              onClick={handleDelete}
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Trash2 className="w-3.5 h-3.5" />
-              )}{" "}
-              Usuń
-            </Button>
-            <GenerateDocumentButton contractId={id} contractType={contract.contract_type} />
-            {contract.candidate_id != null && (
-              <Button size="sm" variant="outline" onClick={() => setShowAddProject(true)}>
-                <Plus className="w-3.5 h-3.5" /> Dodaj kolejny projekt
+          <div className="flex flex-wrap items-center gap-1.5">
+            {!editing && (
+              <Button size="sm" variant="outline" onClick={() => openTab("amendments")}>
+                <FilePlus2 className="w-3.5 h-3.5" /> Dodaj aneks
               </Button>
             )}
             {!editing && (
-              <Button size="sm" variant="primary" onClick={handleStartEdit}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setActiveTab("overview");
+                  handleStartEdit();
+                }}
+              >
                 <Pencil className="w-3.5 h-3.5" /> Edytuj
               </Button>
             )}
+            {/* Rzadkie i niebezpieczne akcje (szablon, kolejny projekt,
+                przepięcie, usunięcie) w jednym menu — dawniej cztery
+                przyciski i natywna lista obok „Edytuj”. */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="icon" variant="ghost" aria-label="Więcej akcji" className="size-8">
+                  <MoreHorizontal className="w-4 h-4" aria-hidden />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <GenerateFromTemplateMenu contractId={id} contractType={contract.contract_type} />
+                {contract.candidate_id != null && (
+                  <DropdownMenuItem onSelect={() => setShowAddProject(true)}>
+                    <Plus className="mr-2 h-3.5 w-3.5" aria-hidden /> Dodaj kolejny projekt
+                  </DropdownMenuItem>
+                )}
+                {isAdmin && !impersonating && (
+                  <DropdownMenuItem onSelect={() => setShowReassign(true)}>
+                    <Building2 className="mr-2 h-3.5 w-3.5" aria-hidden /> Przepnij na innego klienta
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={handleDelete}
+                  disabled={deleteMutation.isPending}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <Trash2 className="mr-2 h-3.5 w-3.5" aria-hidden /> Usuń kontrakt…
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
       </div>
@@ -1416,68 +1588,60 @@ export default function ContractDetailPage() {
         />
       )}
 
-      {/* Informacje o kontrakcie — siatka faktów nad zakładkami, widoczna na
-          każdej z nich. W trybie edycji ustępuje formularzowi (jak dotąd). */}
-      {!editing && (
-        <section
-          aria-label="Informacje o kontrakcie"
-          className="rounded-lg border border-border bg-card px-4 py-3"
-        >
-          <KeyFacts facts={facts} columns={4} density="compact" />
-          {/* Kontakt do konsultanta — wartość leci z backendu już po fallbacku
-              (umowa → profil kandydata → puste), więc ekran nie powtarza tej
-              reguły. Te same kolumny co siatka faktów wyżej. */}
-          <div className="mt-3 border-t border-border/60 pt-3 [&>div]:gap-x-4! [&>div]:py-0! [&>div]:pl-0! xl:[&>div]:grid-cols-4!">
-            <ContractCandidateContactRow
-              email={contract.candidate_email_effective ?? null}
-              emailSource={contract.candidate_email_source ?? null}
-              phone={contract.candidate_phone_effective ?? null}
-              phoneSource={contract.candidate_phone_source ?? null}
-              editable={canEditContract}
-              onSaveEmail={(raw) =>
-                saveCandidateContact({ candidate_email: raw })
-              }
-              onSavePhone={(raw) =>
-                saveCandidateContact({ candidate_phone: raw })
-              }
-              onError={setError}
-            />
-          </div>
-        </section>
-      )}
-
-      {!editing && (
-        <ContractAdminDetailsCard
-          contractId={id}
-          clientName={contract.client_name ?? null}
-        />
-      )}
-      {!editing && <ContractBonusesCard contractId={id} />}
+      {/* „Co się dzieje” — koniec współpracy, koniec zamówienia, opieka „Uwaga”
+          i brak stawki w jednym pasie z przyciskami (przebudowa 19.11.2026).
+          Fakty o umowie są w „Przeglądzie”, premie w „Pieniądzach”. */}
+      {!editing && <ContractHappeningStrip items={happening} renderAction={renderHappeningAction} />}
+      {/* Stawka z dokumentu do potwierdzenia — karta znika, gdy nie ma czego
+          potwierdzić, więc stoi przy sprawach do zrobienia. */}
       {!editing && (
         <ContractRateDocumentsCard contractId={id} canDismiss={canEditContract} />
       )}
+      {recordAgreementOpen && (
+        <ContractAgreementRecordDialog
+          contractId={contract.id}
+          candidateName={contract.candidate_name}
+          projectEnd={contractProjectEnd(contract)}
+          onClose={() => setRecordAgreementOpen(false)}
+        />
+      )}
 
-      {/* Tabs */}
-      <div className="border-b border-border flex gap-1 overflow-x-auto">
+      {/* Zakładki z licznikami */}
+      <nav aria-label="Sekcje kontraktu" className="border-b border-border flex gap-1 overflow-x-auto">
         {visibleTabs.map((t) => {
           const active = t.key === activeTab;
+          const count = tabCount[t.key];
+          const careWatch = t.key === "care" && careOpen && careCard?.health && careCard.health.level !== "ok";
           return (
             <button
               key={t.key}
+              type="button"
               onClick={() => setActiveTab(t.key)}
               aria-current={active ? "page" : undefined}
               data-tour={t.key === "amendments" ? "contract.tabs.amendments" : undefined}
-              className={`shrink-0 whitespace-nowrap px-3 py-2 text-[13px] border-b-2 -mb-px transition-colors ${
+              className={`-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[13px] transition-colors ${
                 active
                   ? "border-primary text-foreground font-semibold"
                   : "border-transparent font-medium text-muted-foreground hover:text-foreground"
               }`}
             >
               {t.label}
+              {count != null ? (
+                <span
+                  className={`rounded-full px-1.5 text-[11px] tabular-nums ${
+                    count === 0 ? "text-muted-foreground/60" : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {count}
+                </span>
+              ) : null}
+              {careWatch ? (
+                <span aria-label="wymaga uwagi" title="Opieka: wymaga uwagi" className="size-1.5 rounded-full bg-warning" />
+              ) : null}
             </button>
           );
         })}
-      </div>
+      </nav>
 
       {/* Błąd zapisu poza formularzem (zmiana statusu z nagłówka, kontakt
           zapisywany w miejscu) — do 24.09 był widoczny wyłącznie w trybie
@@ -1500,40 +1664,67 @@ export default function ContractDetailPage() {
         </div>
       )}
 
-      {/* Tab: Szczegóły */}
-      {activeTab === "details" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2 space-y-4">
-            {/* Stawki i benchmark — lewa kolumna. W trybie edycji karta stawek
-                zostaje obok formularza (prawa kolumna), jak dotąd. */}
-            {!editing &&
-              (canViewFinance ? (
-                <>
-                  <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />
-                  <FrameworkCategoryCard
-                    contractId={contract.id}
-                    canView={canViewFinance}
-                    canEdit={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+      {/* Tab: Przegląd (dawne „Szczegóły”). Bez edycji: umowa i zamówienie po
+          lewej, pieniądze i ostatnie zdarzenia po prawej. W trybie edycji
+          formularz i karta stawek jak dotąd. */}
+      {activeTab === "overview" && (
+        <div
+          className={
+            editing
+              ? "grid grid-cols-1 lg:grid-cols-3 gap-4"
+              : "grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]"
+          }
+        >
+          <div className={editing ? "lg:col-span-2 space-y-4" : "min-w-0 space-y-4"}>
+            {!editing && (
+              <section
+                aria-label="Umowa i zamówienie"
+                className="rounded-xl border border-border bg-card p-4 shadow-xs"
+              >
+                <h2 className="mb-3 text-[13.5px] font-semibold text-foreground">Umowa i zamówienie</h2>
+                <ContractPeriodBar
+                  startDate={contract.start_date}
+                  endDate={contract.end_date}
+                  orderStart={contract.client_order_start_date ?? null}
+                  orderEnd={contract.client_order_end_date ?? null}
+                  today={warsawToday()}
+                />
+                {/* Kandydat, klient, typ i okresy są w nagłówku i na pasku —
+                    tu zostaje to, czego tam nie ma. */}
+                <div className="mt-3 border-t border-border/60 pt-3">
+                  <KeyFacts
+                    facts={facts.filter(
+                      (f) => !["candidate", "client", "type", "period", "order-period"].includes(f.id),
+                    )}
+                    columns={3}
+                    density="compact"
                   />
-                </>
-              ) : (
-                <div
-                  className="rounded-lg border border-border bg-card p-4"
-                  data-testid="contract-finance-redacted"
-                >
-                  <h2 className="text-sm font-semibold text-foreground">Stawki finansowe</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Stawki widzą osoby z uprawnieniem „{permissionLabel("amounts_view")}”
-                    (Delivery Lead — u swoich klientów).
-                  </p>
                 </div>
-              ))}
-
-            {/* Rate benchmark card — compare vs internal avg + market */}
-            {!editing && canViewBenchmark && (
-              <ContractRateBenchmarkCard
+                {/* Kontakt do konsultanta — wartość leci z backendu już po fallbacku
+                    (umowa → profil kandydata → puste), więc ekran nie powtarza tej
+                    reguły. */}
+                <div className="mt-3 border-t border-border/60 pt-3 [&>div]:gap-x-4! [&>div]:py-0! [&>div]:pl-0!">
+                  <ContractCandidateContactRow
+                    email={contract.candidate_email_effective ?? null}
+                    emailSource={contract.candidate_email_source ?? null}
+                    phone={contract.candidate_phone_effective ?? null}
+                    phoneSource={contract.candidate_phone_source ?? null}
+                    editable={canEditContract}
+                    onSaveEmail={(raw) =>
+                      saveCandidateContact({ candidate_email: raw })
+                    }
+                    onSavePhone={(raw) =>
+                      saveCandidateContact({ candidate_phone: raw })
+                    }
+                    onError={setError}
+                  />
+                </div>
+              </section>
+            )}
+            {!editing && (
+              <ContractAdminDetailsCard
                 contractId={id}
-                currency={contract.rate_client_currency ?? contract.currency ?? "PLN"}
+                clientName={contract.client_name ?? null}
               />
             )}
 
@@ -1543,11 +1734,14 @@ export default function ContractDetailPage() {
               </p>
             )}
             {!editing && canRecoverTermination && (
-              <ContractTerminationRecoveryPanel
-                contractId={contract.id}
-                canReverse={Boolean(contract.can_reverse_termination)}
-                canReturn={Boolean(contract.can_return_after_break)}
-              />
+              // Cel przycisku „Cofnij zakończenie…” z pasa „Co się dzieje”.
+              <div id="contract-termination-recovery" className="scroll-mt-4">
+                <ContractTerminationRecoveryPanel
+                  contractId={contract.id}
+                  canReverse={Boolean(contract.can_reverse_termination)}
+                  canReturn={Boolean(contract.can_return_after_break)}
+                />
+              </div>
             )}
             {!editing && contract.termination_reversed_at && (
               <p className="text-sm text-muted-foreground" data-testid="termination-reversed">
@@ -1630,14 +1824,8 @@ export default function ContractDetailPage() {
                     )}
                   </div>
                 )}
-                {recordAgreementOpen && (
-                  <ContractAgreementRecordDialog
-                    contractId={contract.id}
-                    candidateName={contract.candidate_name}
-                    projectEnd={contractProjectEnd(contract)}
-                    onClose={() => setRecordAgreementOpen(false)}
-                  />
-                )}
+                {/* Okno „Zapisz rozwiązanie umowy” jest renderowane nad
+                    zakładkami — otwiera je też pas „Co się dzieje”. */}
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">
                     <span className="text-muted-foreground block">
@@ -2562,15 +2750,79 @@ export default function ContractDetailPage() {
             )}
           </div>
 
-          {/* Prawa kolumna: meta; w trybie edycji także karta stawek. */}
-          <div className="space-y-4">
+          {/* Prawa kolumna: pieniądze, ostatnie zdarzenia, dokumenty; w trybie
+              edycji karta stawek obok formularza, jak dotąd. */}
+          <div className="min-w-0 space-y-4">
             {editing && canViewFinance && <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />}
-
-            <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground space-y-1">
-              <div>Utworzono: {formatDate(contract.created_at)}</div>
-              <div>Aktualizacja: {formatDate(contract.updated_at)}</div>
-            </div>
+            {!editing &&
+              (canViewFinance ? (
+                <ContractOverviewMoney
+                  contractId={contract.id}
+                  rateClient={contract.rate_client}
+                  rateCandidate={contract.rate_candidate}
+                  margin={contract.margin}
+                  monthlyMargin={contract.monthly_margin ?? null}
+                  hoursPerMonth={contract.billing_hours_per_month}
+                  clientCurrency={contract.rate_client_currency ?? contract.currency ?? null}
+                  candidateCurrency={contract.rate_candidate_currency ?? contract.currency ?? null}
+                  frameworkRate={contract.framework_rate}
+                  clientSchedule={contract.client_rate_schedule}
+                  candidateSchedule={contract.candidate_rate_schedule}
+                  showBenchmark={canViewBenchmark}
+                  onOpenMoney={() => openTab("money")}
+                />
+              ) : (
+                <div
+                  className="rounded-xl border border-border bg-card p-4 shadow-xs"
+                  data-testid="contract-finance-redacted"
+                >
+                  <h2 className="text-sm font-semibold text-foreground">Stawki finansowe</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Stawki widzą osoby z uprawnieniem „{permissionLabel("amounts_view")}”
+                    (Delivery Lead — u swoich klientów).
+                  </p>
+                </div>
+              ))}
+            {!editing && (
+              <ContractRecentActivity
+                activities={activities ?? []}
+                onOpenHistory={() => openTab("history")}
+              />
+            )}
+            {!editing && canViewContractDocuments && (
+              <ContractRecentDocuments
+                documents={contractDocs ?? []}
+                onOpenDocuments={() => openTab("documents")}
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              Utworzono {formatDate(contract.created_at)} · aktualizacja {formatDate(contract.updated_at)}
+            </p>
           </div>
+        </div>
+      )}
+
+      {/* Tab: Pieniądze — stawki z harmonogramem, umowa ramowa, porównanie,
+          premie (Płace), historia stawek z wcześniejszych umów i faktury. */}
+      {activeTab === "money" && (
+        <div className="space-y-4">
+          {canViewFinance ? (
+            <>
+              <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />
+              <FrameworkCategoryCard
+                contractId={contract.id}
+                canView={canViewFinance}
+                canEdit={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+              />
+            </>
+          ) : null}
+          {canViewBenchmark && (
+            <ContractRateBenchmarkCard
+              contractId={id}
+              currency={contract.rate_client_currency ?? contract.currency ?? "PLN"}
+            />
+          )}
+          <ContractBonusesCard contractId={id} />
         </div>
       )}
 
@@ -2614,69 +2866,59 @@ export default function ContractDetailPage() {
         />
       )}
 
-      {/* Tab: Wejście (dawniej „Onboarding”): lista wejścia konsultanta, stara lista przy wyłączonym module */}
-      {activeTab === "onboarding" && (
+      {/* Tab: Start i sprzęt — dawne „Wejście” (dawniej „Onboarding”: lista
+          wejścia konsultanta, stara lista przy wyłączonym module, panel
+          konsultanta) i „Sprzęt”. */}
+      {activeTab === "start" && (
         <div className="space-y-4">
           <ConsultantPanelCard contractId={id} />
           <ContractEntryTab
             contractId={id}
             readOnly={!canEditContract}
           />
+          <section aria-label="Sprzęt" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+            <ContractEquipmentTab
+              contractId={id}
+              readOnly={!canEditContract}
+            />
+          </section>
         </div>
       )}
 
-      {/* Tab: Sprzęt */}
-      {activeTab === "equipment" && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <ContractEquipmentTab
-            contractId={id}
-            readOnly={!canEditContract}
-          />
-        </div>
-      )}
-
-      {/* Tab: Notatki / rozmowy */}
-      {activeTab === "notes" && (
-        <div className="rounded-lg border border-border bg-card p-4">
-          <ContractNotesTab contractId={id} canAddNote={canEditContract} />
-        </div>
-      )}
-
-      {/* Tab: Opieka (moduł „care” z „Ludzi w NEXUSIE”) */}
-      {careOpen && activeTab === "care" && (
+      {/* Tab: Opieka i rozmowy — karta opieki (moduł „care” z „Ludzi
+          w NEXUSIE”, tylko przy włączonym module) i notatki z rozmów. */}
+      {activeTab === "care" && (
         <div className="space-y-4">
-          <ContractCareTab contractId={id} />
-          {canReadClientPeople(user) ? (
+          {careOpen ? (
+            <ContractCareTab
+              contractId={id}
+              autoStartTalk={careTalkRequested}
+              onAutoStartTalkDone={() => setCareTalkRequested(false)}
+            />
+          ) : null}
+          {careOpen && canReadClientPeople(user) ? (
             <ContractFeedbackHistory contractId={id} clientId={contract.client_id} />
           ) : null}
+          <section aria-label="Notatki i rozmowy" className="rounded-xl border border-border bg-card p-4 shadow-xs">
+            <ContractNotesTab contractId={id} canAddNote={canEditContract} />
+          </section>
         </div>
       )}
 
-      {/* Tab: Faktury */}
-      {canViewInvoices && activeTab === "invoices" && (
-        <ContractInvoicesTab contractId={id} readOnly={!canManageInvoices} />
+      {/* Pieniądze, ciąg dalszy: faktury konsultanta. */}
+      {canViewInvoices && activeTab === "money" && (
+        <div className="mt-4">
+          <ContractInvoicesTab contractId={id} readOnly={!canManageInvoices} />
+        </div>
       )}
 
-      {/* Tab: Rate history */}
-      {canViewFinance && activeTab === "rateHistory" && (
-        <div className="rounded-lg border border-border bg-card overflow-x-auto">
-          {!rateHistory || rateHistory.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">
-              Brak historii stawek dla tego kandydata i klienta.
-              {/* Ta zakładka czyta historię stawek kandydata z poprzednich
-                  zaangażowań (osobna tabela), nie harmonogram tego kontraktu.
-                  Bez tej wskazówki pusta zakładka obok kroków w Szczegółach
-                  czytała się jak zgubione dane. */}
-              {(contract.client_rate_schedule.length > 0 ||
-                contract.candidate_rate_schedule.length > 0) && (
-                <p className="mt-2 text-xs">
-                  Harmonogram stawek tego kontraktu (kroki z datami, także z
-                  zamówień klienta) jest w zakładce „Szczegóły” w karcie „Stawki
-                  finansowe”.
-                </p>
-              )}
-            </div>
-          ) : (
+      {/* Pieniądze, ciąg dalszy: stawki tej osoby u klienta z wcześniejszych
+          umów (osobna tabela). Pusta lista nic nie pokazuje — harmonogram tego
+          kontraktu jest wyżej, w karcie stawek. */}
+      {canViewFinance && activeTab === "money" && rateHistory && rateHistory.length > 0 && (
+        <div className="mt-4 rounded-xl border border-border bg-card overflow-x-auto shadow-xs">
+          <h2 className="px-4 pt-3 text-[13.5px] font-semibold text-foreground">Stawki z wcześniejszych umów u tego klienta</h2>
+          {(
             <table className="w-full min-w-[32rem] text-sm">
               <thead className={CALM_HEAD}>
                 <tr>
@@ -2712,9 +2954,10 @@ export default function ContractDetailPage() {
         </div>
       )}
 
-      {/* Tab: Timeline (activity log) */}
-      {activeTab === "timeline" && (
-        <div className="rounded-lg border border-border bg-card p-4">
+      {/* Tab: Historia (dawny „Timeline”) — zdarzenia po ludzku: jedno zdanie
+          na zdarzenie, automatyczne wyszarzone, serie zwinięte, bez JSON-a. */}
+      {activeTab === "history" && (
+        <div>
           {activitiesViewState === "loading" ? (
             <div role="status" className="text-center text-sm text-muted-foreground py-6">
               Wczytuję historię…
@@ -2725,65 +2968,11 @@ export default function ContractDetailPage() {
               onRetry={() => void activitiesQuery.refetch()}
             />
           ) : !activities || activities.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground dark:text-muted-foreground py-6">
+            <div className="rounded-xl border border-border bg-card py-6 text-center text-sm text-muted-foreground">
               Brak wpisów w historii.
             </div>
           ) : (
-            <ol className="space-y-4">
-              {activities.map((a) => (
-                <li key={a.id} className="flex gap-3">
-                  <div className="w-2 h-2 rounded-full bg-primary mt-2 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-foreground dark:text-foreground">
-                      {/* Etykieta PL zamiast slugu (UAT B23) — `synced_with_orders`
-                          i `<pre>` z JSON-em kazały czytać strukturę techniczną. */}
-                      <span
-                        className="font-medium"
-                        data-testid={`contract-activity-${a.id}-label`}
-                      >
-                        {contractActivityLabel(a.action)}
-                      </span>
-                      {a.user_name && (
-                        <span className="text-muted-foreground dark:text-muted-foreground">
-                          {" "}
-                          · {a.user_name}
-                        </span>
-                      )}
-                    </div>
-                    {a.details && Object.keys(a.details).length > 0 && (
-                      <>
-                        <dl
-                          className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs"
-                          data-testid={`contract-activity-${a.id}-details`}
-                        >
-                          {contractActivityDetailRows(a.details).map((row) => (
-                            <div key={row.key} className="contents">
-                              <dt className="text-muted-foreground dark:text-muted-foreground">
-                                {row.label}
-                              </dt>
-                              <dd className="text-foreground dark:text-foreground break-words">
-                                {row.value}
-                              </dd>
-                            </div>
-                          ))}
-                        </dl>
-                        <details className="mt-1 text-xs text-muted-foreground">
-                          <summary className="cursor-pointer select-none">
-                            Dane techniczne
-                          </summary>
-                          <pre className="mt-1 bg-muted dark:bg-card/50 rounded px-2 py-1 overflow-x-auto">
-                            {JSON.stringify(a.details, null, 2)}
-                          </pre>
-                        </details>
-                      </>
-                    )}
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {formatDate(a.created_at)}
-                    </div>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <ContractHistoryFeed activities={activities} />
           )}
         </div>
       )}
