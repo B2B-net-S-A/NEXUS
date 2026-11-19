@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate
 from app.models.contract import Contract, ContractStatus
+from app.models.user import User
 from app.services.consultant_portal.portal_settings import PortalSettings
 
 ENDED_GRACE_DAYS = 60
@@ -112,18 +113,96 @@ async def resolve_sender(
             )
         ).all()
         rows = [row for row in by_card if eligible(row, today)]
+    if not rows:
+        rows = await _by_company_address(db, address, today=today)
     # Jeden działający kontrakt = jedno dopasowanie. Dwa (zmiana kontraktu w ostatnich
     # 60 dniach, dwóch klientów naraz) albo dwie osoby = karta do ręcznego przypisania:
     # przypisanego dokumentu Finanse nie przepną, a RCP od razu liczy rozliczenie.
     return rows[0] if len(rows) == 1 else None
 
 
-def _tokens(text: Optional[str]) -> set[str]:
+def _company_domains() -> frozenset[str]:
+    """Domeny adresów rozliczeń: konsultanci mają w nich skrzynki firmowe."""
+
+    from app.services import support_mail_route
+
+    return frozenset(
+        address.rsplit("@", 1)[1]
+        for address in support_mail_route.settlements_addresses()
+        if "@" in address
+    )
+
+
+def _address_forms(first: Optional[str], last: Optional[str]) -> set[str]:
+    """Lokalne części adresu firmowego osoby: ``jan.kowalski``, ``j.kowalski``,
+    ``jan_kowalski``, ``jankowalski``; nazwisko dwuczłonowe także po członie."""
+
+    given = _fold(first).split()[:1]
+    parts = _fold(last).split()
+    if not given or not parts:
+        return set()
+    name = given[0]
+    forms: set[str] = set()
+    for surname in {"".join(parts), "-".join(parts), *parts}:
+        for sep in (".", "_", "-", ""):
+            forms.add(name + sep + surname)
+        forms.add(name[0] + "." + surname)
+        forms.add(name[0] + surname)
+    return forms
+
+
+async def _by_company_address(
+    db: AsyncSession, address: str, *, today: date
+) -> list[Contract]:
+    """Działające kontrakty osoby z adresu firmowego ``imie.nazwisko@<domena>``.
+
+    Kontrakt i kartoteka mają adres prywatny, a konsultanci piszą ze skrzynek
+    firmowych (próba IX–XI 2026: bez tego 14% dokumentów z nadawcą). Konto
+    NEXUSA pod tym adresem = pracownik przesyła cudze pliki, więc nikt. Dwie
+    osoby o tej samej formie adresu = nikt (karta do ręcznego przypisania).
+    """
+
+    local, _, domain = address.partition("@")
+    if not local or domain not in _company_domains():
+        return []
+    staff = await db.scalar(
+        select(User.id).where(func.lower(func.btrim(User.email)) == address).limit(1)
+    )
+    if staff is not None:
+        return []
+    rows = (
+        await db.execute(
+            select(Contract, Candidate.name, Candidate.lastname)
+            .join(Candidate, Candidate.id == Contract.candidate_id)
+            .where(
+                Contract.status.in_(_LIVE)
+                | (
+                    (Contract.status == ContractStatus.ended)
+                    & (Contract.end_date >= today - timedelta(days=ENDED_GRACE_DAYS))
+                )
+            )
+            .order_by(Contract.start_date.desc().nulls_last(), Contract.id.desc())
+        )
+    ).all()
+    hits = [
+        contract
+        for contract, first, last in rows
+        if local in _address_forms(first, last) and eligible(contract, today)
+    ]
+    if len({c.candidate_id for c in hits}) != 1:
+        return []
+    return hits
+
+
+def _fold(text: Optional[str]) -> str:
     raw = unicodedata.normalize(
         "NFKD", (text or "").replace("ł", "l").replace("Ł", "L")
     )
-    folded = raw.encode("ascii", "ignore").decode().lower().replace("-", " ")
-    return {token for token in folded.split() if token}
+    return raw.encode("ascii", "ignore").decode().lower().replace("-", " ")
+
+
+def _tokens(text: Optional[str]) -> set[str]:
+    return {token for token in _fold(text).split() if token}
 
 
 async def resolve_by_name(

@@ -58,10 +58,16 @@ _MESSAGE_SELECT = (
 _FILE_ATTACHMENT = "#microsoft.graph.fileAttachment"
 # Dowód pracy: RCP (BNP), Time Sheet (Bosch, PKO), arkusz (Velo), protokół (PKO), KEŚU (Alior).
 # Bez tego plik „RCP_10_2026.pdf” szedł jako faktura i omijał kontrole RCP (16.11.2026).
+# KCP: karta pracy Banku Pocztowego („KCP 10/2026”, plik z nazwiskiem).
 _REPORT = re.compile(
     r"raport|time[\s_-]*sheet|ewidencj|godzin|ke[sś]u|rozliczenie\s+kontraktora"
-    r"|rcp|arkusz|protok[oó][lł]",
+    r"|rcp|arkusz|protok[oó][lł]|(?<![a-z])kcp(?![a-z])",
     re.IGNORECASE,
+)
+# Arkusz albo zrzut ekranu bez słów-kluczy to dowód pracy: w próbie na archiwum
+# IX–XI 2026 78 arkuszy z godzinami („BIK wrzesien.xlsx”) szło jako faktury.
+_PROOF_EXTENSIONS = re.compile(
+    r"\.(xlsx|xlsm|xls|ods|csv|png|jpe?g|heic|gif|bmp|webp)$", re.IGNORECASE
 )
 _INVOICE = re.compile(r"faktur|invoice|(?:^|[^a-z])fv(?:[^a-z]|$)", re.IGNORECASE)
 _PERIOD_NUMERIC = re.compile(r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)")
@@ -143,14 +149,15 @@ class GraphSettlementsMailbox:
 
 
 def classify_kind(subject: str, file_name: str) -> str:
-    """Raport albo faktura z nazwy pliku, potem z tematu; domyślnie faktura."""
+    """Raport albo faktura z nazwy pliku, potem z tematu; bez słów-kluczy arkusz
+    i obraz to raport, reszta faktura."""
 
     for text in (file_name, subject):
         if _INVOICE.search(text):
             return "invoice"
         if _REPORT.search(text):
             return "report"
-    return "invoice"
+    return "report" if _PROOF_EXTENSIONS.search(file_name.strip()) else "invoice"
 
 
 def find_period(text: str) -> Optional[tuple[int, int]]:

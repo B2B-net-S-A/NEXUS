@@ -369,3 +369,47 @@ async def test_odczyt_rcp_dziala_w_petli_async(monkeypatch):
     parsed, signatures = await service.read_rcp(b"%PDF-", "application/pdf")
     assert calls == [True]
     assert parsed is not None and signatures == SIGNED
+
+
+# ── Puste „OPIS PRAC” i arkusz z samym tytułem (próba IX–XI 2026) ────────────
+
+EMPTY_SUMMARY_PDF = """Rozliczenie czasu pracy
+Rozliczenie 2026-09-30 Ilość dni przepracowanych 13,0
+Check OK
+Nazwisko Testowa
+Imię Anna
+Godziny w tygodniu 8,0 8,0 8,0 8,0 0,0 0,0 8,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 0,0 104,0 13,00
+SUMA 8,0 8,0 8,0 8,0 0,0 0,0 8,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 0,0 8,0 8,0 8,0 8,0 8,0 0,0 0,0 8,0 8,0 8,0 0,0 104,0 13,00
+Koszty Delegacji 1 2 3
+SUMA 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0,00
+OPIS PRAC MDs No ID PRODUCT Kod aplikacji CMDB Koszty wyjazdu
+Godziny dodatkowe w tygodniu 0,00
+SUMA: 13,0000
+"""
+
+
+def test_puste_opis_prac_bierze_md_z_sumy_zamiast_zera():
+    """RCP BNP z wypełnionymi godzinami i sumą 13 MD, bez wierszy opisu: NEXUS
+    liczył 0 MD i zdejmował 0 z zamówienia (faktura do klienta: 13 MD)."""
+
+    p = parse_pdf_text(EMPTY_SUMMARY_PDF)
+    assert p is not None and p.summary == ()
+    r = _eval(p, month="2026-09")
+    assert r.md_regular == D("13.0000")
+    assert not r.md_extra
+    # Brak ID PRODUCT nadal widać jako uwagę według reguł klienta.
+    assert _states(r)["Brak ID PRODUCT w podsumowaniu"] == "fail"
+
+
+def test_arkusz_z_samym_tytulem_rcp_to_brak_odczytu():
+    """Szablon innego klienta z tytułem „Rozliczenie czasu pracy”, ale bez
+    układu BNP: NEXUS dawał 0 MD ze statusem „ok”. Ma być „nie rozpoznano”,
+    żeby spróbować innych odczytów i oddać MD Finansom."""
+
+    rows = [
+        [None, "Rozliczenie czasu pracy"],
+        [None, "Imię i nazwisko", "Anna Testowa"],
+        [None, "Data", "Godziny", "Opis"],
+        *[[None, f"2026-10-{d:02d}", 8, "praca"] for d in range(1, 23)],
+    ]
+    assert parse_xlsx_rows(rows) is None
