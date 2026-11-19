@@ -129,6 +129,13 @@ NEXUS jak formularz.
   w kolumnie „punkty” = `max_points` wiersza. Wiersze „Razem” i formuły zostają —
   Excel liczy sumy sam. Zapis (`client_form_render.render_score`) wpisuje punkty
   liczbą, żeby formuły sum działały. openpyxl gubi obrazki z arkusza.
+- **Maksimum w kolumnie bez nagłówka** (zał. 5 Testera, 19.11.2026): nagłówek
+  „Lp · Oceniany element · (pusto) · Liczba punktów · Legenda”, liczby maksimów
+  pod pustym nagłówkiem, a pusta „Liczba punktów” to miejsce na wynik (jej
+  „Razem” sumuje D). Odczyt v1 brał „Liczbę punktów” za maksimum i nie dał żadnego
+  pola punktowanego; od `STRUCTURE_VERSION = 2` pustą kolumnę „punkty” z liczbą
+  w kolumnie bez nagłówka czyta się jako pole wyniku z `max_points`. „Razem”
+  zamyka tabelę — wiersz testu klienta pod nim (60 pkt) nie jest polem.
 - **Punkty liczy model według zasad oceny z Plików** (`job_files.scoring_rules_text`:
   PDF/Word z „ocen”/„kryter”/„punkt” w nazwie, np. zał. 5b). Kod przyjmuje tylko
   liczbę całkowitą od 0 do `max_points` z cytatem ze źródła; bez pliku z zasadami
