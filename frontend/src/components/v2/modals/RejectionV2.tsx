@@ -586,13 +586,7 @@ export function RejectionV2({
  <React.Fragment key={r.id}>
  <label
  className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1 hover:bg-primary/10"
- data-tour={
- r.name?.trim() === EMPLOYED_ELSEWHERE_REASON
- ? "rejection.employed-elsewhere"
- : r.name?.trim() === NOT_LOOKING_FOR_WORK_REASON
- ? "rejection.not-looking"
- : undefined
- }
+ data-tour={r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? "rejection.employed-elsewhere" : r.name?.trim() === NOT_LOOKING_FOR_WORK_REASON ? "rejection.not-looking" : undefined}
  >
  <RadioGroupItem value={r.id} />
  <span>{r.label}</span>
