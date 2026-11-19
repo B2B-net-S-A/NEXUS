@@ -658,6 +658,85 @@ async def test_client_list_edit_needs_permission_and_scope(client: AsyncClient) 
     assert "BHP" not in names
 
 
+async def test_not_required_is_an_explicit_decision_on_an_empty_list(
+    client: AsyncClient,
+) -> None:
+    """0745: pusta lista to „nikt nie ustalił” albo „klient nic nie wymaga”.
+
+    Licznik „Start u klienta” rozróżnia to tylko jawnym znacznikiem, więc
+    znacznik stoi wyłącznie przy pustej liście, a pierwsza pozycja go zdejmuje.
+    """
+
+    world = await _world()
+    url = f"/api/start-documents/clients/{world['client_id']}"
+    mark_url = f"{url}/not-required"
+    dl = await _headers(client, world["dl"])
+    listed = (await client.get(url, headers=dl)).json()
+    assert len(listed["items"]) == 4
+    assert listed["not_required"] is None
+    with_items = await client.put(mark_url, json={"not_required": True}, headers=dl)
+    assert with_items.status_code == 409
+    assert "Usuń je" in with_items.json()["detail"]
+
+    async with AsyncSessionLocal() as db:
+        for document_id in world["documents"].values():
+            document = await db.get(ClientStartDocument, document_id)
+            document.archived_at = svc.utcnow()
+        await db.commit()
+    empty = (await client.get(url, headers=dl)).json()
+    assert empty == {"items": [], "not_required": None}
+
+    recruiter = await _headers(client, world["recruiter"])
+    foreign = await _headers(client, world["foreign_dl"])
+    for headers in (recruiter, foreign):
+        denied = await client.put(
+            mark_url, json={"not_required": True}, headers=headers
+        )
+        assert denied.status_code == 403
+    marked = await client.put(mark_url, json={"not_required": True}, headers=dl)
+    assert marked.status_code == 200, marked.text
+    mark = marked.json()["not_required"]
+    assert mark["by_name"].startswith("Sd delivery_lead")
+    assert mark["at"]
+    assert (await client.get(url, headers=dl)).json()["not_required"] == mark
+
+    created = await client.post(url, json={"name": "BHP"}, headers=dl)
+    assert created.status_code == 201, created.text
+    after_add = (await client.get(url, headers=dl)).json()
+    assert [i["name"] for i in after_add["items"]] == ["BHP"]
+    assert after_add["not_required"] is None
+    gone = await client.delete(
+        f"/api/start-documents/items/{created.json()['id']}", headers=dl
+    )
+    assert gone.status_code == 204
+    # Usunięcie ostatniej pozycji wraca do „nieustalone”, nie do starej decyzji.
+    assert (await client.get(url, headers=dl)).json() == {
+        "items": [],
+        "not_required": None,
+    }
+
+    await client.put(mark_url, json={"not_required": True}, headers=dl)
+    cleared = await client.put(mark_url, json={"not_required": False}, headers=dl)
+    assert cleared.status_code == 200
+    assert cleared.json()["not_required"] is None
+    async with AsyncSessionLocal() as db:
+        actions = (
+            await db.scalars(
+                select(Activity.action)
+                .where(
+                    Activity.entity_type == "client",
+                    Activity.entity_id == world["client_id"],
+                )
+                .order_by(Activity.id)
+            )
+        ).all()
+    assert actions == [
+        "start_documents_not_required_set",
+        "start_documents_not_required_set",
+        "start_documents_not_required_cleared",
+    ]
+
+
 async def test_template_upload_rejects_other_formats(client: AsyncClient) -> None:
     world = await _world()
     dl = await _headers(client, world["dl"])

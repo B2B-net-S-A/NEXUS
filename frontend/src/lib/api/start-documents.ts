@@ -24,6 +24,18 @@ export interface ClientStartDoc {
 
 export type ClientStartDocInput = Omit<ClientStartDoc, "id" | "template_name">;
 
+/** „Klient nie wymaga dokumentów” (0745) — jawna decyzja przy pustej liście. */
+export interface StartDocsNotRequired {
+  at: string;
+  by_name: string | null;
+}
+
+export interface ClientStartDocsList {
+  items: ClientStartDoc[];
+  /** `null` = nikt nie zaznaczył; pusta lista bez znacznika to „nieustalone”. */
+  not_required: StartDocsNotRequired | null;
+}
+
 export interface PairStartDoc extends ClientStartDoc {
   state: StartDocState;
   deadline: string | null;
@@ -125,12 +137,26 @@ export function itemUrl(
   return `${pairUrl(candidateId, jobId)}/items/${documentId}/${action}`;
 }
 
-export function useClientStartDocs(clientId: number) {
+export function useClientStartDocs(clientId: number, enabled = true) {
   return useQuery({
     queryKey: startDocsKeys.client(clientId),
     queryFn: async () =>
-      (await api.get<{ items: ClientStartDoc[] }>(`${BASE}/clients/${clientId}`)).data.items,
+      (await api.get<ClientStartDocsList>(`${BASE}/clients/${clientId}`)).data,
+    enabled: enabled && clientId > 0,
     retry: false,
+  });
+}
+
+export function useSetStartDocsNotRequired(clientId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (notRequired: boolean) =>
+      (
+        await api.put<ClientStartDocsList>(`${BASE}/clients/${clientId}/not-required`, {
+          not_required: notRequired,
+        })
+      ).data,
+    onSuccess: (list) => queryClient.setQueryData(startDocsKeys.client(clientId), list),
   });
 }
 

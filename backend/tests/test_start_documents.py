@@ -381,6 +381,27 @@ def test_entrypoint_and_migration_use_one_source_of_ddl() -> None:
     assert "from app.services.start_documents_schema import" in migration
 
 
+def test_not_required_mark_has_one_source_and_stays_additive() -> None:
+    """0745: znacznik „Klient nie wymaga dokumentów” — kolumny przy kliencie.
+
+    Siatka w entrypoincie biegnie przy żywym ruchu, więc tylko dodanie
+    kolumn z ``IF NOT EXISTS`` (``podstawy/migracje-zgodne-wstecz.md``)."""
+
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "list(_start_documents_schema.NOT_REQUIRED_DDL)" in entrypoint
+    assert "*_START_DOCUMENTS_NOT_REQUIRED_DDL," in entrypoint
+    migration = (
+        BACKEND / "alembic/versions/0745_client_start_documents_not_required.py"
+    ).read_text(encoding="utf-8")
+    assert "from app.services.start_documents_schema import NOT_REQUIRED_DDL" in (
+        migration
+    )
+    assert len(schema.NOT_REQUIRED_DDL) == 2
+    for statement in schema.NOT_REQUIRED_DDL:
+        assert statement.startswith("ALTER TABLE clients ADD COLUMN IF NOT EXISTS ")
+        assert "NOT NULL" not in statement
+
+
 def test_mail_kind_is_required_so_it_reaches_people() -> None:
     assert "start_documents" in notification_delivery.REQUIRED_KINDS
 

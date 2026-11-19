@@ -192,10 +192,11 @@ export function useSavePanelSwitches() {
   });
 }
 
-export function useSettlementRule(clientId: number) {
+export function useSettlementRule(clientId: number, enabled = true) {
   return useQuery({
     queryKey: keys.settlement(clientId),
     queryFn: async () => (await api.get<SettlementRule>(`${BASE}/clients/${clientId}/settlement`)).data,
+    enabled,
     retry: false,
   });
 }
