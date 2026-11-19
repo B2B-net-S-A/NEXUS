@@ -1025,6 +1025,80 @@ TYPES: dict[str, DocumentType] = {
         ),
         _participation_type("jdg"),
         _participation_type("person"),
+        # Wzór działu z 06.05.2026, w NEXUSIE od 19.11.2026 (decyzje Artura:
+        # kara do zmiany, domyślnie 10 000 zł; stawka tylko godzinowa).
+        DocumentType(
+            key="preliminary_b2b",
+            label="Umowa przedwstępna na współpracę B2B",
+            family="preliminary",
+            languages=("pl",),
+            parent="none",
+            uses_refs=False,
+            signatories="partner_and_company",
+            preliminary_scope="general",
+            default_validity_days=14,
+            description=(
+                "Umowa z osobą, która dopiero założy działalność: zawarcie umowy "
+                "B2B do wskazanego dnia, stawka godzinowa netto, kara umowna za "
+                "rezygnację bez uzasadnionej przyczyny."
+            ),
+            effect_label=(
+                "Brak zmian w kontraktach. Umowa wygasa, gdy powstanie umowa B2B "
+                "albo minie termin jej zawarcia."
+            ),
+            fields=(
+                DOCUMENT_DATE,
+                FieldDef(
+                    "gender", "Płeć kandydata", "gender", required=True, group="partner"
+                ),
+                FieldDef(
+                    "partner_name", "Imię i nazwisko", required=True, group="partner"
+                ),
+                FieldDef(
+                    "partner_instrumental",
+                    "Imię i nazwisko — narzędnik",
+                    help="„z Panem/Panią …”. Puste = mianownik.",
+                    group="partner",
+                ),
+                FieldDef(
+                    "partner_home_address",
+                    "Adres zamieszkania",
+                    required=True,
+                    sensitive=True,
+                    group="partner",
+                ),
+                FieldDef(
+                    "id_document",
+                    "Numer dowodu osobistego",
+                    required=True,
+                    sensitive=True,
+                    group="partner",
+                ),
+                FieldDef(
+                    "pesel", "PESEL", required=True, sensitive=True, group="partner"
+                ),
+                FieldDef(
+                    "valid_until",
+                    "Umowa B2B zostanie zawarta najpóźniej do",
+                    "date",
+                    required=True,
+                    help="§ 2 ust. 1. Domyślnie 14 dni od daty zawarcia.",
+                ),
+                FieldDef(
+                    "hourly_rate",
+                    "Stawka netto za godzinę w umowie B2B",
+                    "money",
+                    required=True,
+                ),
+                FieldDef(
+                    "penalty_amount",
+                    "Kara umowna",
+                    "money",
+                    required=True,
+                    help="§ 4 ust. 2. Domyślnie 10 000 zł.",
+                ),
+            ),
+        ),
     )
 }
 
