@@ -1418,6 +1418,7 @@ export function ContractsListV2({
  <button
  key={filter.key}
  type="button"
+ data-tour={filter.key === "rate_document" ? "contracts.rate-document" : undefined}
  aria-pressed={selected}
  title={filter.hint}
  onClick={() => selectQuickFilter(filter.key)}
