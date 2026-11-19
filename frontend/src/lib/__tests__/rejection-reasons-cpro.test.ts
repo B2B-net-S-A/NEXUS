@@ -1,5 +1,5 @@
 /**
- * Dwa powody klienta z odczytu maili CPro (0741, 19.11.2026, sprawa B7): tylko
+ * Dwa powody klienta z odczytu maili CPro (0740, 19.11.2026, sprawa B7): tylko
  * przy „Odrzuca klient”, w grupie „Klient” okna odrzucenia.
  */
 import { describe, expect, it } from "vitest";

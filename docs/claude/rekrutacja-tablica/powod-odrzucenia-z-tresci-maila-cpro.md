@@ -1,5 +1,5 @@
 # Powód odrzucenia z treści maila CPro zamiast „Inne” (19.11.2026)
-<!-- indeks: cpro_reason_map, reason_name_for, cpro_mail._reason_id, client_other_vendor, client_interview_weak, 0741, cpro_rejection_reason_repair, nexus_reason w banerze CPro, weto hiring managera -->
+<!-- indeks: cpro_reason_map, reason_name_for, cpro_mail._reason_id, client_other_vendor, client_interview_weak, 0740, cpro_rejection_reason_repair, nexus_reason w banerze CPro, weto hiring managera -->
 
 Decyzja Artura 19.11.2026 (sprawa B7, wariant A z makiet
 `FiA2yR96sow4Bo6pq1C7EU`). Po #3040 udział „Inne” w odrzuceniach przez klienta
@@ -16,7 +16,7 @@ wzrost to automat poczty CPro: każdy mail „rejected” lądował jako
   trafienia i szablon bez danego powodu dają „Inne”, a notatka „Z CPro: …”
   zostaje zawsze, więc pomyłka słownika nie gubi tego, co napisał klient.
   Nowy wzorzec tekstu = przypadek w `tests/test_cpro_reason_map.py`.
-- **Dwa nowe powody klienta (0741 + lustro w `entrypoint.sh`):**
+- **Dwa nowe powody klienta (0740 + lustro w `entrypoint.sh`):**
   `client_other_vendor` „Zgłoszony już przez innego dostawcę” (duplikat, tańsza
   oferta) i `client_interview_weak` „Rozmowa u klienta wypadła słabo”. Tylko
   przy „Odrzuca klient” (`CLIENT_ONLY_REASONS`), w grupie „Klient” okna.

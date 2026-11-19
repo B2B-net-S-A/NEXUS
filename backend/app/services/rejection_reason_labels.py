@@ -48,7 +48,7 @@ NO_CONTACT = "no_contact"
 CLIENT_NO_REASON = "client_no_reason"
 CLIENT_CHOSE_OTHER = "client_chose_other"
 
-# Dwa powody klienta z odczytu maili CPro (19.11.2026, migracja 0741, sprawa B7).
+# Dwa powody klienta z odczytu maili CPro (19.11.2026, migracja 0740, sprawa B7).
 # Tylko przy „Odrzuca klient”. Inny dostawca to sytuacja (duplikat zgłoszenia,
 # tańsza oferta), więc nie jest werdyktem o osobie. Słaba rozmowa jest: manager
 # poznał osobę i powiedział nie, więc uruchamia weto `hiring_manager_verdicts`.

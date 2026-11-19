@@ -2,7 +2,7 @@
 
 Od #3040 człowiek przy „Odrzuca klient” wybiera „Inne” w 5% odrzuceń, a automat
 CPro wpisywał „Inne” w 100%. Teksty niżej to treści z produkcji bez imion
-i nazwisk. Seed 0741 musi mieć lustro w ``entrypoint.sh``.
+i nazwisk. Seed 0740 musi mieć lustro w ``entrypoint.sh``.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from app.services.rejection_reason_labels import (
 
 _BACKEND = Path(__file__).resolve().parents[1]
 _ENTRYPOINT = (_BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
-_MIGRATION_PATH = _BACKEND / "alembic" / "versions" / "0741_cpro_client_reasons.py"
+_MIGRATION_PATH = _BACKEND / "alembic" / "versions" / "0740_cpro_client_reasons.py"
 _FRONT_MIRROR = (
     _BACKEND.parent / "frontend" / "src" / "lib" / "rejection-reasons.ts"
 ).read_text(encoding="utf-8")

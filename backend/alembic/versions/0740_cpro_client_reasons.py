@@ -1,7 +1,7 @@
 """Dwa powody klienta z odczytu maili CPro (B7, 19.11.2026).
 
-Revision ID: 0741_cpro_client_reasons
-Revises: 0740_order_cost_steps
+Revision ID: 0740_cpro_client_reasons
+Revises: 0739_contract_rate_documents
 
 Decyzja Artura 19.11.2026: automat poczty CPro wpisuje powód z treści maila
 (`services/cpro_reason_map.py`) zamiast „Inne”. Na 108 tekstach z produkcji
@@ -18,8 +18,8 @@ Stare wpisy przepina naprawa w ``entrypoint.sh``
 
 from alembic import op
 
-revision = "0741_cpro_client_reasons"
-down_revision = "0740_order_cost_steps"
+revision = "0740_cpro_client_reasons"
+down_revision = "0739_contract_rate_documents"
 branch_labels = None
 depends_on = None
 
@@ -59,7 +59,7 @@ BEGIN
         JOIN rejection_reasons r ON r.id = f.rejection_reason_id
         WHERE r.name IN ('client_other_vendor', 'client_interview_weak')
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0741 odmawia: są wpisy z nowymi powodami odrzucenia.';
+        RAISE EXCEPTION 'Downgrade 0740 odmawia: są wpisy z nowymi powodami odrzucenia.';
     END IF;
 END $$"""
 

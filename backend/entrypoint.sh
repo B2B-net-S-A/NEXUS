@@ -9555,7 +9555,7 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
-    # 0741 — jednorazowo: dwa powody klienta z odczytu maili CPro (B7, decyzja
+    # 0740 — jednorazowo: dwa powody klienta z odczytu maili CPro (B7, decyzja
     # Artura 19.11.2026) w każdym szablonie, tuż przed „Inne”. Słaba rozmowa
     # jest werdyktem o osobie (weto hiring managera), inny dostawca nie. Lustro
     # migracji (pilnuje `test_cpro_reason_map.py`).
@@ -11713,7 +11713,7 @@ PY
 # Powód z treści maila dla starych odrzuceń z CPro (B7, decyzja Artura
 # 19.11.2026): 108 wpisów „Inne (rejected)” z notatką „Z CPro: …” przepięte tym
 # samym słownikiem, który wybiera powód dla nowych maili. Po siatce DDL, bo
-# potrzebuje powodów z 0741. Marker w `app_settings` + advisory lock; porażka nie
+# potrzebuje powodów z 0740. Marker w `app_settings` + advisory lock; porażka nie
 # zapisuje niczego, następny start ponawia. Log: wyłącznie liczby.
 startup_phase "repair-cpro-rejection-reasons-2026-11"
 echo "Pipeline: reason from CPro mail text for old client rejections (one-shot)..."

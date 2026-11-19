@@ -37,7 +37,7 @@ export const CONTRACT_FORM_REASON = "contract_form";
 export const NO_CONTACT_REASON = "no_contact";
 export const CLIENT_NO_REASON_REASON = "client_no_reason";
 export const CLIENT_CHOSE_OTHER_REASON = "client_chose_other";
-/** Dwa powody klienta z odczytu maili CPro (19.11.2026, 0741, sprawa B7). */
+/** Dwa powody klienta z odczytu maili CPro (19.11.2026, 0740, sprawa B7). */
 export const CLIENT_OTHER_VENDOR_REASON = "client_other_vendor";
 export const CLIENT_INTERVIEW_WEAK_REASON = "client_interview_weak";
 
