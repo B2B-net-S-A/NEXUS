@@ -788,9 +788,18 @@ async def _client_list_extras(
             ClientListDeliveryLead(name=row.name, is_head=bool(row.is_head))
         )
 
+    # Zakres scalonego duplikatu zostaje na nim (inwariant manifestu), a umowa
+    # idzie za scaleniem na klienta docelowego — wiersz celu bierze więc też
+    # zakresy swoich duplikatów. Umowa liczy się, gdy należy do klienta wiersza
+    # albo do klienta zakresu; zakres z umową przeniesioną do kogoś innego nie
+    # udaje umowy bez terminu (porządki klientów 20.11.2026).
+    scope_client = aliased(Client)
+    row_client_id = func.coalesce(
+        scope_client.merged_into_client_id, ClientPortfolioScope.client_id
+    )
     period_rows = await db.execute(
         select(
-            ClientPortfolioScope.client_id,
+            row_client_id.label("client_id"),
             func.coalesce(
                 ClientPortfolioScope.contract_start_override,
                 ClientFrameworkContract.effective_date,
@@ -800,19 +809,24 @@ async def _client_list_extras(
                 ClientFrameworkContract.expiry_date,
             ).label("expiry_date"),
         )
+        .select_from(ClientPortfolioScope)
+        .join(scope_client, scope_client.id == ClientPortfolioScope.client_id)
         .outerjoin(
             ClientFrameworkContract,
             and_(
                 ClientFrameworkContract.id
                 == ClientPortfolioScope.framework_contract_id,
-                ClientFrameworkContract.client_id == ClientPortfolioScope.client_id,
+                or_(
+                    ClientFrameworkContract.client_id == ClientPortfolioScope.client_id,
+                    ClientFrameworkContract.client_id == row_client_id,
+                ),
             ),
         )
         .where(
-            ClientPortfolioScope.client_id.in_(client_ids),
+            row_client_id.in_(client_ids),
             ClientPortfolioScope.archived_at.is_(None),
             or_(
-                ClientPortfolioScope.framework_contract_id.is_not(None),
+                ClientFrameworkContract.id.is_not(None),
                 ClientPortfolioScope.contract_start_override.is_not(None),
                 ClientPortfolioScope.contract_end_override.is_not(None),
             ),
