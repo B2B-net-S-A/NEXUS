@@ -435,34 +435,53 @@ async def client_required_fields(
     Jedno zapytanie; brak karty albo pustej listy = ``((), None)``. Klucze
     spoza ``CLIENT_EXTRA_FIELDS`` (stary zapis) pomijamy.
     """
+    return (await client_required_fields_for_clients(db, [client_id]))[client_id]
+
+
+async def client_required_fields_for_clients(
+    db: AsyncSession, client_ids: Iterable[Optional[int]]
+) -> dict[Optional[int], tuple[tuple[str, ...], Optional[str]]]:
+    """:func:`client_required_fields` dla wielu klientów jednym zapytaniem.
+
+    Klucz dla każdego przekazanego id; ``None`` i klient bez karty = ``((), None)``.
+    """
     from app.models.client import Client  # noqa: PLC0415
     from app.models.client_playbook import ClientPlaybook  # noqa: PLC0415
     from app.services.recommendation_card_rules import (  # noqa: PLC0415
         CLIENT_EXTRA_FIELDS,
     )
 
-    if client_id is None:
-        return (), None
-    row = (
+    keys = list(dict.fromkeys(client_ids))
+    out: dict[Optional[int], tuple[tuple[str, ...], Optional[str]]] = {
+        key: ((), None) for key in keys
+    }
+    ids = sorted({int(key) for key in keys if key is not None})
+    if not ids:
+        return out
+    rows = (
         await db.execute(
             select(
+                ClientPlaybook.client_id,
                 ClientPlaybook.verified_required_fields,
                 Client.display_name,
                 Client.name,
             )
             .join(Client, Client.id == ClientPlaybook.client_id)
-            .where(ClientPlaybook.client_id == client_id)
+            .where(ClientPlaybook.client_id.in_(ids))
         )
-    ).first()
-    if row is None or not isinstance(row.verified_required_fields, list):
-        return (), None
-    fields = tuple(
-        key for key in CLIENT_EXTRA_FIELDS if key in row.verified_required_fields
-    )
-    if not fields:
-        return (), None
-    name = (row.display_name or "").strip() or row.name
-    return fields, name
+    ).all()
+    # Karta klienta jest jedna na klienta (UNIQUE `client_id`).
+    for row in rows:
+        if not isinstance(row.verified_required_fields, list):
+            continue
+        fields = tuple(
+            key for key in CLIENT_EXTRA_FIELDS if key in row.verified_required_fields
+        )
+        if not fields:
+            continue
+        name = (row.display_name or "").strip() or row.name
+        out[row.client_id] = (fields, name)
+    return out
 
 
 def card_field_label(key: str) -> str:

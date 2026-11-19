@@ -1,4 +1,4 @@
 {
-  "sha256": "9c39fc951e9936a122668851cd3ef910916ea06119af3d59269eb4c3d6369e49",
+  "sha256": "72f52a9ea47bde90860c7022a351e0220ee7ceeaa1a3df94a6d5ccf2a42bd76e",
   "source": "backend/app/services/recruitment_rates.py"
 }

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Awaitable, Callable, Collection, Iterable, Optional
+from typing import Awaitable, Callable, Collection, Iterable, Mapping, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,7 +45,7 @@ from app.services.delivery_alert_recipients import (
     DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
 )
-from app.services.employment_marker import job_client_family
+from app.services.employment_marker import job_client_families, job_client_family
 from app.services.notification_triggers import emit
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,34 @@ async def candidates_with_contract(
     return set(rows.scalars().all())
 
 
+async def contract_client_ids(
+    db: AsyncSession, *, candidate_ids: Iterable[int], client_ids: Collection[int]
+) -> dict[int, set[int]]:
+    """``{kandydat: {klient}}`` umów poza unieważnioną — jedno zapytanie dla
+    wszystkich Tablic; przypisanie do rodziny rekrutacji robi wołający."""
+    ids = sorted({int(cid) for cid in candidate_ids})
+    if not ids or not client_ids:
+        return {}
+    out: dict[int, set[int]] = {}
+    for candidate_id, client_id in (
+        await db.execute(
+            select(Contract.candidate_id, Contract.client_id)
+            .where(
+                Contract.candidate_id.in_(ids),
+                Contract.client_id.in_(sorted(client_ids)),
+                Contract.status != ContractStatus.void,
+            )
+            .distinct()
+        )
+    ).all():
+        out.setdefault(candidate_id, set()).add(client_id)
+    return out
+
+
+#: Rodziny klientów rekrutacji: ``{client_id: rodzina | None}``.
+FamiliesLoader = Callable[[list[int]], Awaitable[Mapping[int, Optional[set[int]]]]]
+
+
 async def missing_contract_ids(
     db: AsyncSession,
     *,
@@ -87,22 +115,93 @@ async def missing_contract_ids(
 
     ``family_loader`` — rodzina klienta liczona raz na Tablicę (znacznik
     „Pracuje u nas” potrzebuje tej samej)."""
-    if job_client_id is None:
-        return set()
-    cutoff = now - timedelta(days=MISSING_CONTRACT_HIRE_DAYS)
-    recent = {
-        candidate_id
-        for candidate_id, moved_at in hired
-        if moved_at is not None and moved_at >= cutoff
-    }
-    if not recent:
-        return set()
-    family = await (
-        family_loader() if family_loader else job_client_family(db, job_client_id)
-    ) or {job_client_id}
-    return recent - await candidates_with_contract(
-        db, candidate_ids=recent, client_ids=family
+
+    async def load_families(client_ids: list[int]) -> Mapping[int, Optional[set[int]]]:
+        if family_loader is None:
+            return await job_client_families(db, client_ids)
+        return {client_id: await family_loader() for client_id in client_ids}
+
+    # Jedna Tablica pod umownym kluczem — wołający nie podaje id rekrutacji.
+    board = 0
+    return (
+        await _missing_for_boards(
+            db,
+            boards={board: (job_client_id, list(hired))},
+            now=now,
+            load_families=load_families,
+        )
+    )[board]
+
+
+async def missing_contract_ids_for_jobs(
+    db: AsyncSession,
+    *,
+    boards: Mapping[int, tuple[Optional[int], list[tuple[int, Optional[datetime]]]]],
+    now: datetime,
+    families: Optional[Mapping[int, Optional[set[int]]]] = None,
+) -> dict[int, set[int]]:
+    """:func:`missing_contract_ids` dla wielu Tablic: ``{job_id: (client_id
+    rekrutacji, zatrudnieni z kartą)}`` → ``{job_id: osoby bez umowy}``.
+
+    Zapytań tyle, co dla jednej Tablicy: rodziny klientów hurtem
+    (:func:`job_client_families`) i jedno o umowy. ``families`` — rodziny
+    policzone już przez wołającego (Tablica: też znacznik „Pracuje u nas”);
+    brakujących klientów dociągamy."""
+
+    async def load_families(client_ids: list[int]) -> Mapping[int, Optional[set[int]]]:
+        known = {
+            cid: families[cid] for cid in client_ids if families and cid in families
+        }
+        rest = [cid for cid in client_ids if cid not in known]
+        if rest:
+            known.update(await job_client_families(db, rest))
+        return known
+
+    return await _missing_for_boards(
+        db, boards=boards, now=now, load_families=load_families
     )
+
+
+async def _missing_for_boards(
+    db: AsyncSession,
+    *,
+    boards: Mapping[int, tuple[Optional[int], list[tuple[int, Optional[datetime]]]]],
+    now: datetime,
+    load_families: FamiliesLoader,
+) -> dict[int, set[int]]:
+    out: dict[int, set[int]] = {job_id: set() for job_id in boards}
+    cutoff = now - timedelta(days=MISSING_CONTRACT_HIRE_DAYS)
+    recent_by_job: dict[int, tuple[int, set[int]]] = {}
+    for job_id, (job_client_id, hired) in boards.items():
+        if job_client_id is None:
+            continue
+        recent = {
+            candidate_id
+            for candidate_id, moved_at in hired
+            if moved_at is not None and moved_at >= cutoff
+        }
+        if recent:
+            recent_by_job[job_id] = (job_client_id, recent)
+    if not recent_by_job:
+        return out
+    loaded = await load_families(
+        sorted({client_id for client_id, _ in recent_by_job.values()})
+    )
+    family_by_job = {
+        job_id: loaded.get(client_id) or {client_id}
+        for job_id, (client_id, _) in recent_by_job.items()
+    }
+    contracted = await contract_client_ids(
+        db,
+        candidate_ids={cid for _, ids in recent_by_job.values() for cid in ids},
+        client_ids={cid for family in family_by_job.values() for cid in family},
+    )
+    for job_id, (_, recent) in recent_by_job.items():
+        family = family_by_job[job_id]
+        out[job_id] = {
+            cid for cid in recent if not (contracted.get(cid, set()) & family)
+        }
+    return out
 
 
 def bell_content(

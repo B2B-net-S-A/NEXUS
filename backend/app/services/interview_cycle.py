@@ -24,7 +24,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Collection, Iterable, Literal, Mapping, Optional, Sequence
+from typing import (
+    AbstractSet,
+    Any,
+    Collection,
+    Iterable,
+    Literal,
+    Mapping,
+    Optional,
+    Sequence,
+)
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, true
@@ -2102,17 +2111,48 @@ async def interview_badges_for_job(
     ``MAX_PAIRS`` par na paczkę. ``latest_stages`` i ``job_closed`` podaje
     Tablica, która je zna (``load_snapshots`` ich wtedy nie czyta).
     """
+    return (
+        await interview_badges_for_jobs(
+            db,
+            boards={job_id: list(candidate_ids)},
+            now=now,
+            latest_stages=latest_stages,
+            closed_job_ids=(
+                None if job_closed is None else ({job_id} if job_closed else set())
+            ),
+        )
+    )[job_id]
+
+
+async def interview_badges_for_jobs(
+    db: AsyncSession,
+    *,
+    boards: Mapping[int, list[int]],
+    now: Optional[datetime] = None,
+    latest_stages: Optional[Mapping[tuple[int, int], tuple[Any, Any]]] = None,
+    closed_job_ids: Optional[AbstractSet[int]] = None,
+) -> dict[int, dict[int, dict]]:
+    """``interview_badges_for_job`` dla wielu Tablic: ``{rekrutacja: kandydaci}``.
+
+    ``load_snapshots`` przyjmuje pary z wielu rekrutacji, więc zapytań jest
+    tyle co dla jednej (paczki po ``MAX_PAIRS`` par). ``latest_stages`` to
+    suma par wszystkich Tablic; ``closed_job_ids=None`` = stan rekrutacji
+    czyta ``load_snapshots``.
+    """
     from sqlalchemy import union
 
-    ids = sorted(set(candidate_ids))
-    if not ids:
-        return {}
+    out: dict[int, dict[int, dict]] = {job_id: {} for job_id in boards}
+    wanted = {(cid, job_id) for job_id, ids in boards.items() for cid in ids}
+    if not wanted:
+        return out
+    ids = sorted({cid for cid, _ in wanted})
+    job_ids = sorted({job_id for _, job_id in wanted})
     now = _as_utc(now) if now is not None else datetime.now(timezone.utc)
     window_start = now - timedelta(days=DEFAULT_DAYS_BACK)
     window_end = now + timedelta(days=BADGE_DAYS_AHEAD)
 
-    with_events = select(CalendarEvent.candidate_id).where(
-        CalendarEvent.job_id == job_id,
+    with_events = select(CalendarEvent.candidate_id, CalendarEvent.job_id).where(
+        CalendarEvent.job_id.in_(job_ids),
         CalendarEvent.candidate_id.in_(ids),
         CalendarEvent.event_type.in_((EventType.prep_call, EventType.client_interview)),
         CalendarEvent.status != EventStatus.cancelled,
@@ -2121,33 +2161,37 @@ async def interview_badges_for_job(
         CalendarEvent.start_time >= window_start - timedelta(days=30),
         CalendarEvent.start_time <= window_end,
     )
-    with_slots = select(ClientInterviewSlotRequest.candidate_id).where(
-        ClientInterviewSlotRequest.job_id == job_id,
+    with_slots = select(
+        ClientInterviewSlotRequest.candidate_id, ClientInterviewSlotRequest.job_id
+    ).where(
+        ClientInterviewSlotRequest.job_id.in_(job_ids),
         ClientInterviewSlotRequest.candidate_id.in_(ids),
         ClientInterviewSlotRequest.status != SLOT_STATUS_CANCELLED,
     )
+    # Iloczyn ``IN × IN`` łapie też pary spoza Tablic — zostają tylko pary z wejścia.
     active = sorted(
-        {cid for cid in (await db.execute(union(with_events, with_slots))).scalars()}
+        {
+            (int(cid), int(jid))
+            for cid, jid in (await db.execute(union(with_events, with_slots))).all()
+        }
+        & wanted
     )
     if not active:
-        return {}
+        return out
 
     call_window = settings.POST_INTERVIEW_CALL_WINDOW_MINUTES
-    badges: dict[int, dict] = {}
     for offset in range(0, len(active), MAX_PAIRS):
         chunk = active[offset : offset + MAX_PAIRS]
         snaps = await load_snapshots(
             db,
-            [(cid, job_id) for cid in chunk],
+            chunk,
             window_start=window_start,
             window_end=window_end,
             now=now,
             latest_stages=latest_stages,
-            closed_job_ids=(
-                None if job_closed is None else ({job_id} if job_closed else set())
-            ),
+            closed_job_ids=closed_job_ids,
         )
-        for (cid, _jid), snap in snaps.items():
+        for (cid, jid), snap in snaps.items():
             badge = compute_badge(snap, now, call_window_minutes=call_window)
             if badge is not None:
                 # Kreski postępu na karcie i sekcja rozmowy w doku osoby —
@@ -2206,5 +2250,5 @@ async def interview_badges_for_job(
                 badge.update(_prep2_skip_fields(snap, now))
                 # 05.10.2026: faza cyklu dla kroku na karcie („kto ma ruch”).
                 badge["phase"], badge["interview_date"] = badge_phase(snap, badge)
-                badges[cid] = badge
-    return badges
+                out[jid][cid] = badge
+    return out

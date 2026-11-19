@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
 
 from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,6 +136,43 @@ async def load_manager_rejections(
     ids = None if candidate_ids is None else {int(cid) for cid in candidate_ids}
     if manager_id is None or ids == set():
         return {}
+    return (
+        await load_manager_rejections_for_jobs(
+            db, jobs=[job], candidate_ids_by_job={job.id: ids}
+        )
+    )[job.id]
+
+
+async def load_manager_rejections_for_jobs(
+    db: AsyncSession,
+    *,
+    jobs: Sequence[Job],
+    candidate_ids_by_job: Mapping[int, Optional[Sequence[int]]],
+) -> dict[int, dict[int, ManagerVerdict]]:
+    """:func:`load_manager_rejections` dla wielu rekrutacji jednym zapytaniem.
+
+    ``{job_id: {candidate_id: verdict}}`` z kluczem dla każdej rekrutacji.
+    ``None`` w mapie = wszystkie werdykty tej rekrutacji (jak
+    ``candidate_ids=None``); brak klucza = brak kandydatów. Rekrutacja bez
+    managera albo bez kandydatów nie trafia do zapytania, a gdy nie zostaje
+    żadna — zapytania nie ma wcale. ``S <> T`` i przynależność kandydata do
+    rekrutacji sprawdzamy w Pythonie, bo w jednym zapytaniu różnią się per
+    rekrutacja.
+    """
+    out: dict[int, dict[int, ManagerVerdict]] = {job.id: {} for job in jobs}
+    # manager → [(rekrutacja, jej kandydaci albo None = wszyscy)]
+    targets: dict[int, list[tuple[int, Optional[set[int]]]]] = {}
+    all_ids: Optional[set[int]] = set()
+    for job in jobs:
+        manager_id = job.hiring_manager_contact_id
+        raw = candidate_ids_by_job.get(job.id, ())
+        ids = None if raw is None else {int(cid) for cid in raw}
+        if manager_id is None or ids == set():
+            continue
+        targets.setdefault(manager_id, []).append((job.id, ids))
+        all_ids = None if ids is None or all_ids is None else all_ids | ids
+    if not targets:
+        return out
 
     rejected = aliased(CandidateStage)
     met = aliased(CandidateStage)
@@ -160,6 +197,7 @@ async def load_manager_rejections(
             rejected.rejection_note,
             RejectionReason.name,
             Job.title,
+            Job.hiring_manager_contact_id,
             Contact.name.label("manager_name"),
         )
         .select_from(rejected)
@@ -169,11 +207,9 @@ async def load_manager_rejections(
         # lose the veto.
         .outerjoin(Contact, Contact.id == Job.hiring_manager_contact_id)
         .where(
-            rejected.candidate_id.in_(ids) if ids is not None else True,
+            rejected.candidate_id.in_(sorted(all_ids)) if all_ids is not None else True,
             rejected.stage == PipelineStage.rejected,
-            # Never let a job veto its own candidates — see module docstring.
-            rejected.job_id != job.id,
-            Job.hiring_manager_contact_id == manager_id,
+            Job.hiring_manager_contact_id.in_(sorted(targets)),
             RejectionReason.disqualifies_person.is_(True),
             manager_met_candidate,
         )
@@ -181,22 +217,29 @@ async def load_manager_rejections(
         .order_by(rejected.candidate_id, rejected.moved_at.desc())
     )
 
-    verdicts: dict[int, ManagerVerdict] = {}
     for row in (await db.execute(stmt)).all():
-        if row.candidate_id in verdicts:
-            continue
-        verdicts[row.candidate_id] = ManagerVerdict(
-            candidate_id=row.candidate_id,
-            hiring_manager_contact_id=manager_id,
-            hiring_manager_name=row.manager_name,
-            source_job_id=row.job_id,
-            source_job_title=row.title,
-            rejected_at=row.moved_at,
-            rejection_reason_id=row.rejection_reason_id,
-            rejection_reason_name=rejection_reason_label(row.name) or row.name,
-            rejection_note=row.rejection_note,
-        )
-    return verdicts
+        manager_id = row.hiring_manager_contact_id
+        for job_id, ids in targets.get(manager_id, ()):
+            # Never let a job veto its own candidates — see module docstring.
+            if row.job_id == job_id or (
+                ids is not None and row.candidate_id not in ids
+            ):
+                continue
+            verdicts = out[job_id]
+            if row.candidate_id in verdicts:
+                continue
+            verdicts[row.candidate_id] = ManagerVerdict(
+                candidate_id=row.candidate_id,
+                hiring_manager_contact_id=manager_id,
+                hiring_manager_name=row.manager_name,
+                source_job_id=row.job_id,
+                source_job_title=row.title,
+                rejected_at=row.moved_at,
+                rejection_reason_id=row.rejection_reason_id,
+                rejection_reason_name=rejection_reason_label(row.name) or row.name,
+                rejection_note=row.rejection_note,
+            )
+    return out
 
 
 async def pair_carries_manager_veto(
