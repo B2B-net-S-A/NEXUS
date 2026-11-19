@@ -393,7 +393,9 @@ def test_certificate_in_preparation_is_not_a_certificate() -> None:
     assert fill._checked_value(context, "SJSI", "wydany przez SJSI") == "SJSI"
     # Poza certyfikatami „przygotowanie” to zwykłe słowo opisu.
     assert (
-        fill._checked_value("Opis projektów", "Przygotowanie scenariuszy", "x")
+        fill._checked_value(
+            "Opis projektów", "Przygotowanie scenariuszy", "Preparing scenarios"
+        )
         == "Przygotowanie scenariuszy"
     )
 
@@ -512,8 +514,150 @@ async def test_staging_cases_end_empty_or_right(monkeypatch) -> None:
     assert result["dropped"] == 2
 
 
+# ── opisy stanowisk z dwukolumnowego PDF-a (staging 19.11.2026) ─────────────
+#
+# Kolumna boczna („Umiejętności”, „Kontakt”) wchodzi w środek punktu opisu: raz
+# osobną linią, raz na początku tej samej linii. Model cytuje punkt w całości,
+# z nową linią, więc fragment nie stoi w CV jednym ciągiem.
+
+SIDE_COLUMN_CV = (
+    "Work History\n"
+    "2021-12 Junior Software Service Consultant\n"
+    "- 2022-09\n"
+    "Przykładowa Spółka S.A., Warsaw\n"
+    "Analytical Thinking & Problem-Solving\n"
+    "Conducting manual tests of web applications based on existing\n"
+    "Collaboration & Communication specifications,\n"
+    "Creating test scenarios and user guides,\n"
+    "Attention to Detail\n"
+    "Designing a hashing program using Python,\n"
+    "Personal Info\n"
+    "Flask, and JavaScript to enhance data security.\n"
+    "Languages\n"
+    "English - fluent\n"
+    "Polish - native\n"
+    "Providing service for errors reported by the Example Health\n"
+    "Fund regarding nationwide programs\n"
+    "I hereby consent to the processing of my personal data included in my "
+    "application for the purposes necessary to carry out the recruitment\n"
+    "process in accordance with the General Data Protection Regulation (GDPR) "
+    "and applicable local laws.\n\n"
+    "ABC, DEF and GHI,\n"
+    "Hobby\n"
+    + "Mountain hiking and photography of old railway stations in the region\n" * 6
+    + "Detecting and reporting errors,\n"
+)
+SIDE_COLUMN = fill.Sources(cv=SIDE_COLUMN_CV, notes="")
+
+
+def _description(quote) -> dict:
+    raw = json.dumps(
+        {
+            "extra_rows": [
+                {
+                    "table": 1,
+                    "cells": {
+                        "c1": {
+                            "value": "Przykładowa Spółka S.A.",
+                            "quote": "Przykładowa Spółka S.A., Warsaw",
+                        },
+                        "c4": {
+                            "value": "Testy manualne aplikacji webowych.",
+                            "quote": quote,
+                        },
+                    },
+                }
+            ]
+        }
+    )
+    result = fill.check_parse(
+        raw, structure=_structure(), sources=SIDE_COLUMN, candidate_name="Anna"
+    )
+    return result["fields"]["t1.r1.c1"] | {"c4": result["fields"].get("t1.r1.c4")}
+
+
+def test_description_split_by_the_side_column_is_kept() -> None:
+    # Cytaty `c4` z odpowiedzi modelu na stagingu, w fikcyjnym CV.
+    row = _description(
+        [
+            "Conducting manual tests of web applications based on existing\n"
+            "specifications,",
+            "Creating test scenarios and user guides,",
+            "Designing a hashing program using Python,\n"
+            "Flask, and JavaScript to enhance data security.",
+        ]
+    )
+    assert row["c4"] is not None
+    assert row["c4"]["source"] == "cv"
+    # Punkt rozdzielony stopką strony z klauzulą RODO.
+    row = _description(
+        "Providing service for errors reported by the Example Health\n"
+        "Fund regarding nationwide programs\n\nABC, DEF and GHI,"
+    )
+    assert row["c4"] is not None
+    # To samo jednym ciągiem z nowymi liniami.
+    row = _description(
+        "Conducting manual tests of web applications based on existing\n"
+        "specifications,\nCreating test scenarios and user guides,"
+    )
+    assert row["c4"] is not None
+
+
+def test_description_lines_must_stand_next_to_each_other_in_the_cv() -> None:
+    # Linia, której w CV nie ma, wywraca cytat.
+    assert (
+        _description(
+            "Conducting manual tests of web applications based on existing\n"
+            "specifications for the hospital system,"
+        )["c4"]
+        is None
+    )
+    # Linie z różnych miejsc CV to nie jeden punkt opisu.
+    assert (
+        _description(
+            "Conducting manual tests of web applications based on existing\n"
+            "Detecting and reporting errors,"
+        )["c4"]
+        is None
+    )
+    # Kolejność linii jak w CV.
+    assert (
+        _description(
+            "specifications,\n"
+            "Conducting manual tests of web applications based on existing"
+        )["c4"]
+        is None
+    )
+
+
+def test_description_longer_than_its_quotes_is_dropped() -> None:
+    # Staging 19.11.2026, bieg 3: każdy opis z jednym krótkim cytatem (11–18 %
+    # długości wartości), a reszta opisu bez pokrycia w CV.
+    value = (
+        "Testy manualne aplikacji webowych na podstawie specyfikacji, tworzenie "
+        "scenariuszy testowych i instrukcji użytkownika, wykrywanie i zgłaszanie "
+        "błędów, analiza dokumentacji technicznej i biznesowej, obsługa infolinii."
+    )
+    one_quote = "Creating test scenarios and user guides,"
+    assert fill._checked_value("Opis projektów", value, one_quote) is None
+    full = (
+        "Conducting manual tests of web applications based on existing\n"
+        "specifications, … Creating test scenarios and user guides, … "
+        "Detecting and reporting errors,"
+    )
+    assert fill._checked_value("Opis projektów", value, full) == value
+    # Krótki opis z krótkim cytatem przechodzi, a inne pola nie liczą długości.
+    assert fill._checked_value("Opis wykonywanych zadań", "Testy API", "REST API") == (
+        "Testy API"
+    )
+    assert fill._checked_value(
+        "Stanowisko", "Młodszy konsultant ds. oprogramowania", "Junior"
+    ) == ("Młodszy konsultant ds. oprogramowania")
+
+
 def test_prompt_tells_dates_and_certificates_rules() -> None:
     prompt = fill.build_prompt(_structure(), SOURCES)
     assert "sam rok" in prompt
     assert "w trakcie" in prompt
     assert "wszystkie stanowiska" in prompt
+    assert "po jednym na każdą czynność" in prompt

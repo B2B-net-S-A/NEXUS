@@ -7,8 +7,8 @@ fakty o kandydacie — podział pracy jak w odczytach „znajdź i zacytuj” (F
 * model zwraca każdą wartość z DOSŁOWNYM cytatem z CV albo notatek,
 * KOD odrzuca wartość bez cytatu ze źródła, „TAK/NIE” spoza tych dwóch słów,
   ocenę w skali, której liczby nie ma w cytacie, wartość z e-mailem albo
-  telefonem, datę i okres, których nie ma w cytacie, oraz certyfikat
-  „w trakcie”. Imię i nazwisko wpisuje kod z profilu.
+  telefonem, datę i okres, których nie ma w cytacie, certyfikat „w trakcie”
+  i opis wielokrotnie dłuższy od swoich cytatów. Imię i nazwisko wpisuje kod z profilu.
 
 Czego zabrakło, zostaje puste i rekruter to uzupełnia — ocen 1–10 i numerów
 certyfikatów zwykle nie ma w żadnym źródle. Model jest dodatkiem: błąd albo
@@ -30,7 +30,7 @@ from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_chain_for
 from app.services.ai_quota import ai_feature
 from app.services.cv_qc import _json_object
-from app.services.interview_slot_mail import _quote_in_text
+from app.services.interview_slot_mail import _norm, _quote_in_text
 from app.services.llm_prompts import CLIENT_FORM_FILL
 from app.services.llm_providers import api_key_configured
 from app.services.prompt_fencing import fence, json_for_prompt
@@ -43,6 +43,10 @@ NOTES_MAX = 15_000
 VALUE_MAX = 1_500
 EXTRA_ROWS_MAX = 10
 QUOTE_PARTS_MAX = 8
+# Tyle znaków może stać między kolejnymi liniami cytatu (``_lines_in_order``):
+# kolumna boczna („Analytical Thinking & Problem-Solving”) albo stopka strony
+# z klauzulą RODO (ok. 230 znaków w CV z Testera CEZ, 19.11.2026).
+LINE_GAP_MAX = 400
 ROWS_PARSED_MAX = 60
 
 SOURCE_CV = "cv"
@@ -96,6 +100,12 @@ _NOT_OBTAINED = re.compile(
     r"w\s+trakcie|przygotow|preparing|in\s+progress|planowan|planned|zamierzam",
     re.IGNORECASE,
 )
+# Opis to przekład czynności z CV, więc kod nie porówna go z cytatem słowo
+# w słowo — ale opis wielokrotnie dłuższy od cytatów mówi o rzeczach bez
+# pokrycia (staging 19.11.2026: 7 opisów z jednym krótkim cytatem, cytat =
+# 11–18 % długości wartości; w rzetelnych odpowiedziach 51–197 %).
+DESCRIPTION_LABEL = re.compile(r"\bopis\b", re.IGNORECASE)
+QUOTE_SHARE_MIN = 0.4
 
 
 @dataclass(frozen=True)
@@ -118,13 +128,45 @@ def _short(value: Any, limit: int = VALUE_MAX) -> Optional[str]:
     return text[:limit] or None
 
 
+def _lines_in_order(quote: Any, text: str) -> Optional[str]:
+    """Wielowierszowy cytat, którego linie stoją w źródle po kolei i blisko siebie.
+
+    Dwukolumnowy PDF wstawia kolumnę boczną w środek punktu CV — osobną linią
+    albo na początku tej samej linii („…based on existing” / „Collaboration
+    & Communication specifications,”; staging 19.11.2026: opis Asseco i okres
+    pracy odrzucone), a stopka strony — między dwie linie punktu. Model cytuje
+    punkt w całości, więc cytat nie stoi w źródle jednym ciągiem. Każda linia musi stać w źródle dosłownie, w kolejności
+    cytatu i najwyżej ``LINE_GAP_MAX`` znaków za poprzednią — linie z różnych
+    miejsc CV nie składają się w jeden cytat.
+    """
+    if not isinstance(quote, str):
+        return None
+    quote = quote.strip().strip("„”\"'")
+    lines = [_norm(line) for line in quote.splitlines() if line.strip()]
+    if len(lines) < 2 or any(len(line) < 3 for line in lines):
+        return None
+    source = _norm(text)
+    start = source.find(lines[0])
+    while start != -1:
+        end = start + len(lines[0])
+        for line in lines[1:]:
+            at = source.find(line, end, end + LINE_GAP_MAX + len(line))
+            if at == -1:
+                break
+            end = at + len(line)
+        else:
+            return quote
+        start = source.find(lines[0], start + 1)
+    return None
+
+
 def _grounded_one(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str]]:
-    found = _quote_in_text(quote, sources.cv)
-    if found is not None:
-        return SOURCE_CV, found
-    found = _quote_in_text(quote, sources.notes)
-    if found is not None:
-        return SOURCE_NOTES, found
+    for source, text in ((SOURCE_CV, sources.cv), (SOURCE_NOTES, sources.notes)):
+        found = _quote_in_text(quote, text)
+        if found is None:
+            found = _lines_in_order(quote, text)
+        if found is not None:
+            return source, found
     return None, None
 
 
@@ -145,27 +187,6 @@ def _grounded(quote: Any, sources: Sources) -> tuple[Optional[str], Optional[str
         )
         return source, " … ".join(part for _, part in found if part)
     return _grounded_one(quote, sources)
-
-
-def _grounded_for(
-    label: str, quote: Any, sources: Sources
-) -> tuple[Optional[str], Optional[str]]:
-    """Jak ``_grounded``, a w polu z datą wielowierszowy cytat liczy się po liniach.
-
-    Dwukolumnowy PDF stawia kolumnę boczną między początkiem a końcem okresu
-    („2021-12 Konsultant” … „- 2022-09”), a model cytuje obie linie razem
-    (staging 19.11.2026: pusty „Okres pracy”). Każda linia musi stać w źródle,
-    a daty wartości i tak muszą stać w cytacie (``_checked_date``).
-    """
-    source, found = _grounded(quote, sources)
-    if found is not None or not isinstance(quote, str):
-        return source, found
-    if not (PERIOD_LABEL.search(label) or DATE_LABEL.search(label)):
-        return None, None
-    lines = [line.strip() for line in quote.splitlines() if line.strip()]
-    if len(lines) < 2:
-        return None, None
-    return _grounded(lines, sources)
 
 
 def _contact(value: str) -> bool:
@@ -250,6 +271,8 @@ def _checked_value(
         if not number.isdigit() or not 1 <= int(number) <= 10:
             return None
         return number if re.search(rf"(?<!\d){number}(?!\d)", quote) else None
+    if DESCRIPTION_LABEL.search(label) and len(quote) < QUOTE_SHARE_MIN * len(value):
+        return None
     return value
 
 
@@ -333,7 +356,7 @@ def check_parse(
             dropped += 1  # punkty tylko według zasad oceny z Plików rekrutacji
             continue
         value = _short(item.get("value"))
-        source, quote = _grounded_for(labels[field_id], item.get("quote"), sources)
+        source, quote = _grounded(item.get("quote"), sources)
         checked = (
             _checked_value(
                 labels[field_id],
@@ -364,7 +387,7 @@ def check_parse(
                 continue
             label = table["columns"][column]
             value = _short(cell.get("value"))
-            source, quote = _grounded_for(label, cell.get("quote"), sources)
+            source, quote = _grounded(cell.get("quote"), sources)
             checked = (
                 _checked_value(label, value, quote, context=table.get("title") or "")
                 if value and quote is not None

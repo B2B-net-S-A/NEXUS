@@ -122,6 +122,18 @@ Reguły, które łatwo cofnąć:
   cytat z kilku punktów i kod odrzucał opisy projektów. Cytat może być listą
   fragmentów — każdy musi stać w źródle osobno. Miejsce zamieszkania wpisuje
   kod z profilu (`candidates.city`), jak imię i nazwisko.
+- **Fragment z nowymi liniami liczy się po liniach, w każdym polu (staging
+  19.11.2026, Asseco w „Testerze” CEZ).** Kolumna boczna wchodzi w środek
+  punktu (osobną linią albo na początku tej samej: „…based on existing” /
+  „Collaboration & Communication specifications,”), a stopka strony z klauzulą
+  RODO — między dwie linie punktu. Każda linia musi stać w źródle dosłownie,
+  w kolejności cytatu i najwyżej `LINE_GAP_MAX` (400) znaków za poprzednią.
+  Zastępuje to dzielenie po liniach tylko w polach z datą.
+- **Opis nie może być wielokrotnie dłuższy od swoich cytatów** (`QUOTE_SHARE_MIN`
+  = 0,4 dla pól z „Opis” w etykiecie). Opis to przekład, więc kod nie porówna go
+  słowo w słowo; na stagingu model wpisał 7 opisów z jednym krótkim cytatem
+  (11–18 % długości), a rzetelne odpowiedzi mają 51–197 %. Prompt F36 od
+  wersji 5 każe dać fragment na każdą czynność z opisu.
 
 ## Tabela punktowa (Excel) obok formularza (0525, 27.10.2026)
 
