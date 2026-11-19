@@ -11688,6 +11688,41 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# „Prolongata: Nie” u 12 obecnych konsultantów PKO BP (ustalenie 19.11.2026):
+# wartość z importu Excela z 26.06.2026 (uwaga „brak nowego zamówienia”), nie
+# decyzja — wszyscy dostali potem zamówienia na III i IV kwartał. Logika
+# w `app/services/pko_prolongation_import_repair.py`, przypięta do trójki ID;
+# prolongaty zapisanej po imporcie nie rusza. Marker w `app_settings` + advisory
+# lock; porażka nie zapisuje niczego — następny start ponawia. Log: liczby i ID.
+startup_phase "repair-pko-prolongation-import-2026-11"
+echo "Contracts: PKO BP prolongation values from the 26.06 import (one-shot)..."
+run_unless_marked "pko_prolongation_import_reset_2026_11_19" <<'PY' || echo "pko prolongation import repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.pko_prolongation_import_repair import (
+    run_pko_prolongation_import_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_pko_prolongation_import_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"pko prolongation import repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"pko prolongation import repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 
 
 
