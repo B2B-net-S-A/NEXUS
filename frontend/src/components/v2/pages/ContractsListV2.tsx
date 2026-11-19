@@ -1,5 +1,7 @@
 "use client";
 
+import { RateDocumentRowNote } from "@/components/contracts/rate-documents/RateDocumentRowNote";
+import type { RateDocumentChange } from "@/lib/api/contractRateDocuments";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from"react";
 import Link from"next/link";
 import dynamic from"next/dynamic";
@@ -142,6 +144,8 @@ interface ContractRow {
  work_mode?: "remote" | "hybrid" | "onsite" | null;
  // Braki szkicu z serwera (bramka aktywacji) — „Uzupełnij / Aktywuj” w wierszu.
  missing_fields?: string[];
+ // Stawka z dokumentu, której nie ma w harmonogramie (0739, redagowana z kwotami).
+ rate_document_change?: RateDocumentChange | null;
  candidate_name?: string;
  client_name?: string;
  job_title?: string;
@@ -251,13 +255,13 @@ const RUNNING_CONTRACT_STATUSES: ReadonlySet<ContractStatusValue> = new Set(
  * `contract_service.ending_bucket_clause`): status `ending` albo żywa umowa
  * z końcem w 30 dni — ta sama, którą liczyła „Obsługa kontraktorów”.
  */
-type QuickFilterKey = "pending" | "running" | "ending" | "all";
+type QuickFilterKey = "pending" | "running" | "ending" | "all" | "rate_document";
 const QUICK_FILTERS: ReadonlyArray<{
  key: QuickFilterKey;
  label: string;
  statuses: ContractStatusValue[];
  /** Zbiór liczy serwer (`bucket`), nie lista statusów. */
- bucket?: "ending";
+ bucket?: "ending" | "rate_document";
  hint: string;
 }> = [
  {
@@ -284,6 +288,13 @@ const QUICK_FILTERS: ReadonlyArray<{
  label: "Wszystkie",
  statuses: [],
  hint: "Wszystkie statusy, także zakończone.",
+ },
+ {
+ key: "rate_document",
+ label: "Stawka z dokumentu",
+ statuses: [],
+ bucket: "rate_document",
+ hint: "Umowa albo aneks w Dokumentach podaje stawkę Partnera, której nie ma w kontrakcie.",
  },
 ];
 
@@ -769,6 +780,11 @@ export function ContractsListV2({
  // status `ending` albo żywa umowa z końcem w 30 dni. Adres `?ending=30`
  // zostaje, bo prowadzą na niego stare linki „Obsługi kontraktorów”.
  const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ // „Stawka z dokumentu” (0739): umowa albo aneks podaje stawkę, której nie
+ // ma w harmonogramie — zbiór liczy serwer (`bucket=rate_document`).
+ const [rateDocument, setRateDocument] = useState(
+ initialListState.state.rateDocument ?? false,
+ );
  // „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zakończone i kończące się
  // projekty B2B bez zapisanego rozwiązania umowy — lista zaległych porozumień.
  const [agreementNotTerminated, setAgreementNotTerminated] = useState(
@@ -807,6 +823,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  ...dateRange,
  sortBy: sort.by,
  sortDir: sort.dir,
@@ -819,6 +836,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  dateRange,
  sort,
  page,
@@ -854,6 +872,7 @@ export function ContractsListV2({
  setStatusFilter(next.statusFilter);
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
+ setRateDocument(next.rateDocument ?? false);
  setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
  startFrom: next.startFrom,
@@ -910,6 +929,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  appliedDates,
  sort,
  page,
@@ -934,6 +954,7 @@ export function ContractsListV2({
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("bucket", "ending");
+ else if (rateDocument) params.set("bucket", "rate_document");
  if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
  if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
@@ -1050,6 +1071,7 @@ export function ContractsListV2({
  statusFilter,
  typeFilter,
  endingSoon,
+ rateDocument,
  appliedDates,
  sort,
  page,
@@ -1063,7 +1085,7 @@ export function ContractsListV2({
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  // „Kończące się” (18.11.2026): jedna reguła z serwera, nie sama data końca.
- bucket: endingSoon ? "ending" : undefined,
+ bucket: endingSoon ? "ending" : rateDocument ? "rate_document" : undefined,
  agreement_not_terminated: agreementNotTerminated || undefined,
  start_from: appliedDates.startFrom || undefined,
  start_to: appliedDates.startTo || undefined,
@@ -1125,6 +1147,10 @@ export function ContractsListV2({
  const incompleteDrafts = draftStats.data?.drafts_incomplete ?? 0;
  const activeQuickFilter: QuickFilterKey | null = agreementNotTerminated
  ? null
+ : rateDocument
+ ? statusFilter.length === 0
+ ? "rate_document"
+ : null
  : endingSoon
  ? statusFilter.length === 0
  ? "ending"
@@ -1137,6 +1163,7 @@ export function ContractsListV2({
  if (!filter) return;
  setStatusFilter([...filter.statuses]);
  setEndingSoon(filter.bucket === "ending");
+ setRateDocument(filter.bucket === "rate_document");
  setAgreementNotTerminated(false);
  setPage(1);
  };
@@ -1250,6 +1277,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  appliedDates,
  ]);
  const previousFilters = useRef(filtersSignature);
@@ -1390,6 +1418,7 @@ export function ContractsListV2({
  <button
  key={filter.key}
  type="button"
+ data-tour={filter.key === "rate_document" ? "contracts.rate-document" : undefined}
  aria-pressed={selected}
  title={filter.hint}
  onClick={() => selectQuickFilter(filter.key)}
@@ -1547,6 +1576,7 @@ export function ContractsListV2({
  setAgreementNotTerminated(true);
  setStatusFilter([]);
  setEndingSoon(false);
+ setRateDocument(false);
  }
  setPage(1);
  }}
@@ -1854,6 +1884,7 @@ export function ContractsListV2({
  >
  {c.candidate_name ?? `#${c.id}`}
  </Link>
+ <RateDocumentRowNote change={c.rate_document_change} />
  {liveClientCount > 1 && (
  <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
  pracuje u {liveClientCount} klientów

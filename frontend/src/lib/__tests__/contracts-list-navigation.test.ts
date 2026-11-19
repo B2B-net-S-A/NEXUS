@@ -32,6 +32,7 @@ describe("contracts list navigation state", () => {
         typeFilter: [],
         endingSoon: false,
         agreementNotTerminated: false,
+        rateDocument: false,
         startFrom: "",
         startTo: "",
         orderEndFrom: "",
@@ -262,5 +263,15 @@ describe("contracts list navigation state", () => {
     restoreContractsListScroll(320);
     expect(main.scrollTop).toBe(320);
     main.remove();
+  });
+});
+
+describe("„Stawka z dokumentu” w adresie listy (0739)", () => {
+  it("odczytuje i zapisuje rate_doc=1 bez domyślnych statusów", () => {
+    const parsed = parseContractsListState("?rate_doc=1");
+    expect(parsed.explicit).toBe(true);
+    expect(parsed.state.rateDocument).toBe(true);
+    expect(parsed.state.statusFilter).toEqual([]);
+    expect(buildContractsListUrl(parsed.state)).toContain("rate_doc=1");
   });
 });

@@ -11,6 +11,7 @@ import api, {
   type ContractSiblingRef,
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
+import { ContractRateDocumentsCard } from "@/components/contracts/rate-documents/ContractRateDocumentsCard";
 import { AddProjectDialog } from "@/components/contracts/AddProjectDialog";
 import { StartDocsCard } from "@/components/v2/start-docs/StartDocsCard";
 import { ContractDocumentsTab } from "@/components/ContractDocumentsTab";
@@ -1452,6 +1453,9 @@ export default function ContractDetailPage() {
         />
       )}
       {!editing && <ContractBonusesCard contractId={id} />}
+      {!editing && (
+        <ContractRateDocumentsCard contractId={id} canDismiss={canEditContract} />
+      )}
 
       {/* Tabs */}
       <div className="border-b border-border flex gap-1 overflow-x-auto">

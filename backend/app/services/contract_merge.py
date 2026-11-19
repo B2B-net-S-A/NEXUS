@@ -190,6 +190,10 @@ _KNOWN_CONTRACT_FKS = {
     # z plikami. Dwa foldery o tej samej nazwie (UNIQUE kontrakt + nazwa)
     # i nazwę „Zamówień” rozstrzyga ``_resolve_child_duplicates``.
     ("contract_document_folders", "contract_id"),
+    # Odczyty stawki z plików (0739) idą za kontraktem razem z plikami.
+    # Unikat (plik, wersja czytnika) nie zależy od kontraktu, a różnicę
+    # z harmonogramem zachowanego przelicza pętla `contract_rate_documents`.
+    ("contract_document_rate_reads", "contract_id"),
     # Wiersze raportu pobrania dokumentów z SharePointa (0402) — idą za
     # kontraktem jak same dokumenty, żeby raport przebiegu wskazywał kontrakt,
     # który zostaje.

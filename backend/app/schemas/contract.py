@@ -484,6 +484,10 @@ class ContractResponse(BaseModel):
     # musiał rozróżniać „wiersz stary" od „wiersz zgrupowany". W trybie płaskim
     # (domyślnym) pole zostaje puste.
     group_members: list[ContractGroupMember] = []
+    # Stawka z dokumentu kontraktu, której nie ma w harmonogramie (0739):
+    # {"from", "rate", "kind", "category"} pierwszego kroku otwartej różnicy.
+    # Tylko w wierszach listy; redagowane razem z kwotami.
+    rate_document_change: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

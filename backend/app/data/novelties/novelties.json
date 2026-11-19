@@ -3577,5 +3577,22 @@
     "href": "/finance",
     "section": "finance",
     "dot_anchor": "finance.sections"
+  },
+  {
+    "id": "stawka-z-dokumentu",
+    "pr": 3607,
+    "title": "Stawka z umowy i aneksu sprawdzana w kontrakcie",
+    "why": "NEXUS czyta umowy i aneksy kontraktu. Gdy dokument podaje inną stawkę niż kontrakt, kontrakt pokazuje kartę z cytatem i „Wprowadź do harmonogramu”, a lista pigułkę „Stawka z dokumentu”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Kontrakty → pigułka „Stawka z dokumentu”",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.rate-document"
   }
 ]
