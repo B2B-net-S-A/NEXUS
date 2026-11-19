@@ -700,6 +700,42 @@ def _rate_rejection_note(
     return f"{line} — {rest}" if rest else line
 
 
+async def _mark_not_looking_from_move(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    until: date,
+    source: str,
+    actor_id: Optional[int],
+    job_id: int,
+    stage_id: int,
+) -> None:
+    """„Nie szuka pracy” z datą przy odrzuceniu: profil, wpis w historii
+    i zdjęcie nietkniętych kart od systemu z innych rekrutacji. Osoba od
+    systemu (28.10.2026) i karta dodana ręcznie (19.11.2026) idą tą drogą."""
+    from app.services import autofill_feedback, autofill_withdraw  # noqa: PLC0415
+
+    change = await autofill_feedback.mark_not_looking(
+        db, candidate_id=candidate_id, until=until
+    )
+    if change is not None:
+        candidate_audit.record_candidate_audit(
+            db,
+            action=candidate_audit.AVAILABILITY_CHANGED,
+            user_id=actor_id,
+            entity_id=candidate_id,
+            details={
+                **change,
+                "source": source,
+                "job_id": job_id,
+                "stage_id": stage_id,
+            },
+        )
+    await autofill_withdraw.withdraw_elsewhere(
+        db, candidate_id=candidate_id, except_job_id=job_id
+    )
+
+
 async def _record_rejection_rate(
     db: AsyncSession,
     *,
@@ -2139,6 +2175,20 @@ async def apply_move(
                 status_code=422,
                 detail="Powód jest przypisany do innego etapu.",
             )
+    # „Nie szuka pracy” z datą przy karcie dodanej ręcznie (19.11.2026): data
+    # tylko przy tym powodzie z szablonu, od jutra do dwóch lat.
+    if data.not_looking_until is not None:
+        if (
+            reason is None
+            or reason.name.strip() != rejection_reason_labels.NOT_LOOKING_FOR_WORK
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Datę „Nie szuka do” podaje się tylko przy powodzie „Nie szuka pracy”.",
+            )
+        from app.services import autofill_feedback  # noqa: PLC0415
+
+        autofill_feedback.check_not_looking_until(data.not_looking_until)
     # Powód „Nie akceptuje trybu pracy” (14.10.2026): liczba dni w biurze,
     # które kandydat akceptuje, jest przy nim obowiązkowa (trafia na profil),
     # a przy każdym innym ruchu nie ma czego zapisać.
@@ -2449,28 +2499,14 @@ async def apply_move(
         # „Nie szuka pracy” z datą (28.10.2026): profil + zdjęcie nietkniętych
         # kart od systemu z innych rekrutacji, silnik pomija do tej daty.
         if data.autofill_not_looking_until is not None:
-            from app.services import autofill_withdraw
-
-            change = await autofill_feedback.mark_not_looking(
+            await _mark_not_looking_from_move(
                 db,
                 candidate_id=data.candidate_id,
                 until=data.autofill_not_looking_until,
-            )
-            if change is not None:
-                candidate_audit.record_candidate_audit(
-                    db,
-                    action=candidate_audit.AVAILABILITY_CHANGED,
-                    user_id=policy.actor_id,
-                    entity_id=data.candidate_id,
-                    details={
-                        **change,
-                        "source": "autofill_rejection",
-                        "job_id": job.id,
-                        "stage_id": stage.id,
-                    },
-                )
-            await autofill_withdraw.withdraw_elsewhere(
-                db, candidate_id=data.candidate_id, except_job_id=job.id
+                source="autofill_rejection",
+                actor_id=policy.actor_id,
+                job_id=job.id,
+                stage_id=stage.id,
             )
         # „Ile chce?” z rozmowy — ta sama droga do „Stawki od” co stawka
         # z okna „Zweryfikowany”.
@@ -2484,6 +2520,16 @@ async def apply_move(
                 is_minimum=False,
                 actor_id=policy.actor_id,
             )
+    if data.not_looking_until is not None:
+        await _mark_not_looking_from_move(
+            db,
+            candidate_id=data.candidate_id,
+            until=data.not_looking_until,
+            source="not_looking_rejection",
+            actor_id=policy.actor_id,
+            job_id=job.id,
+            stage_id=stage.id,
+        )
     if (
         reason is not None
         and reason.name.strip() == rejection_reason_labels.EMPLOYED_ELSEWHERE

@@ -288,6 +288,9 @@ interface MoveReason {
   // „Za wysokie oczekiwania finansowe” (26.10.2026): nowa stawka — tylko
   // przy jednej osobie (okno nie pyta przy kilku).
   rate?: RejectionRateChoice | null;
+  // „Nie szuka pracy” z listy szablonu (19.11.2026): do kiedy — tylko przy
+  // osobie bez powodu dla systemu (u niej data idzie w `autofill`).
+  notLookingUntil?: string | null;
 }
 
 interface SendMoveOptions {
@@ -704,6 +707,7 @@ export function usePipelineMove({
             : undefined,
           ...autofillMoveFields(reason?.autofill),
           ...rejectionRateMoveFields(reason?.rate),
+          not_looking_until: reason?.notLookingUntil ?? undefined,
           candidate_offer_response: reason?.candidateOfferResponse ?? undefined,
           expected_state_version:
             opts?.checkVersion === false ? undefined : expectedStateVersionOf(item),
@@ -1635,7 +1639,8 @@ export function usePipelineMove({
     workMode?: RejectionWorkModeChoice | null,
     autofill?: AutofillFeedbackChoice | null,
     rate?: RejectionRateChoice | null,
-    meetings?: PairMeetingsChoice | null
+    meetings?: PairMeetingsChoice | null,
+    notLookingUntil?: string | null
   ) => {
     if (!pendingRejection) return;
     const { entries, destCol, followUp } = pendingRejection;
@@ -1662,6 +1667,11 @@ export function usePipelineMove({
             workMode: workMode ?? null,
             autofill: autofill && rejectionNeedsAutofill(item, srcColId) ? autofill : null,
             rate: entries.length === 1 ? rate ?? null : null,
+            // Osoba dodana ręcznie: data z listy szablonu, a w zbiorczym
+            // odrzuceniu z osobą od systemu — data z jej wyboru „Nie szuka”.
+            notLookingUntil: rejectionNeedsAutofill(item, srcColId)
+              ? null
+              : notLookingUntil ?? autofill?.notLookingUntil ?? null,
           },
           {
             silent: entries.length > 1,

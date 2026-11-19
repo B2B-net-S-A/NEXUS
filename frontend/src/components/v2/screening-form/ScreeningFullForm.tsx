@@ -1573,6 +1573,7 @@ export function ScreeningFullForm({
       workMode?: RejectionWorkModeChoice | null;
       autofill?: AutofillFeedbackChoice | null;
       rate?: RejectionRateChoice | null;
+      notLookingUntil?: string | null;
     }) => {
       if (!reject || !state) throw new Error("Brak etapu docelowego.");
       return moveCore.send(
@@ -1591,6 +1592,7 @@ export function ScreeningFullForm({
           work_mode_save_to_profile: vars.workMode?.saveToProfile,
           ...autofillMoveFields(vars.autofill),
           ...rejectionRateMoveFields(vars.rate),
+          not_looking_until: vars.notLookingUntil ?? undefined,
           candidate_offer_response: vars.offerResponse ?? undefined,
           expected_state_version: state.process_state_version,
         },
@@ -1867,6 +1869,8 @@ export function ScreeningFullForm({
             workMode,
             autofill,
             rate,
+            _meetings,
+            notLookingUntil,
           ) =>
             rejectMut.mutate({
               reasonId,
@@ -1879,6 +1883,7 @@ export function ScreeningFullForm({
               workMode,
               autofill,
               rate,
+              notLookingUntil,
             })
           }
         />

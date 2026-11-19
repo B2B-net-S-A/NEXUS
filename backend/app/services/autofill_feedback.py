@@ -237,6 +237,17 @@ async def system_process_in_decision(
     return process
 
 
+def check_not_looking_until(until: date) -> None:
+    """422, gdy „Nie szuka do” nie jest datą od jutra do dwóch lat. Ta sama
+    reguła przy osobie od systemu i przy karcie dodanej ręcznie (19.11.2026)."""
+    today = business_today()
+    if not today < until <= today + timedelta(days=NOT_LOOKING_MAX_DAYS):
+        raise HTTPException(
+            status_code=422,
+            detail="„Nie szuka do” to data w przyszłości, najwyżej za dwa lata.",
+        )
+
+
 def validate(
     *,
     process: Optional[RecruitmentProcess],
@@ -255,16 +266,7 @@ def validate(
                 status_code=422,
                 detail="Datę „Nie szuka do” podaje się tylko przy powodzie „Nie szuka pracy”.",
             )
-        today = business_today()
-        if (
-            not today
-            < not_looking_until
-            <= today + timedelta(days=NOT_LOOKING_MAX_DAYS)
-        ):
-            raise HTTPException(
-                status_code=422,
-                detail="„Nie szuka do” to data w przyszłości, najwyżej za dwa lata.",
-            )
+        check_not_looking_until(not_looking_until)
     if process is None:
         if reason is not None or learned_from is not None:
             raise HTTPException(
