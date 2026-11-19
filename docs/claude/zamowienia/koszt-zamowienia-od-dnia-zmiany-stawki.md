@@ -1,4 +1,4 @@
-# Koszt zamówienia od dnia zmiany stawki Partnera (0741, 19.11.2026)
+# Koszt zamówienia od dnia zmiany stawki Partnera (0740, 19.11.2026)
 <!-- indeks: części kosztu zamówienia z harmonogramu kontraktu, `client_order_cost_steps`, lista Finansów „Do korekty po zmianie stawki”, `client_order_cost_reviews`, `priced_for_month` z kosztem -->
 
 Zgłoszenie Artura z 18.11.2026 (wariant D z makiet stawek z dokumentów).

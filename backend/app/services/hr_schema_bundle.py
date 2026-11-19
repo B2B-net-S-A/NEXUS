@@ -180,7 +180,7 @@ MODULES = (
     board_reports,
     # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
     contract_rate_documents,
-    # 0741: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
+    # 0740: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
     order_cost_steps,
 )
 

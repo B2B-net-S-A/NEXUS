@@ -262,7 +262,7 @@ function dayLabel(iso: string | null): string {
 }
 
 /**
- * Koszt w częściach (0741): „120 PLN/h do 31.08.2026 · 130 PLN/h od 01.09.2026”.
+ * Koszt w częściach (0740): „120 PLN/h do 31.08.2026 · 130 PLN/h od 01.09.2026”.
  * `null`, gdy zamówienie ma jedną stawkę kosztu.
  */
 export function costPartsLabel(
@@ -325,7 +325,7 @@ export interface ContractorRowSummary {
   /** `null`, gdy stawki nie ma albo rola nie widzi kwot. */
   costLabel: string | null;
   costFromContract: boolean;
-  /** Koszt w częściach bieżącego zamówienia (0741); `null` = jedna stawka. */
+  /** Koszt w częściach bieżącego zamówienia (0740); `null` = jedna stawka. */
   costPartsLabel: string | null;
   revenueLabel: string | null;
   state: { kind: ContractorRowStateKind; label: string; tone: ContractorRowTone };

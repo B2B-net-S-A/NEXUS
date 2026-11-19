@@ -1,4 +1,4 @@
-"""Koszt zamówienia od dnia zmiany stawki Partnera (0741): synchronizacja, widok, lista Finansów.
+"""Koszt zamówienia od dnia zmiany stawki Partnera (0740): synchronizacja, widok, lista Finansów.
 
 Zgłoszenie 18.11.2026: zamówienie 01.07–15.12 z jedną stawką kosztu, choć
 aneks zmienił stawkę Partnera od 01.09 i od 01.11; zakończone zamówienia

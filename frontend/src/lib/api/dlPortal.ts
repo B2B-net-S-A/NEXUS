@@ -110,7 +110,7 @@ export interface ClientOrderRead {
   total_value: string | number | null;
   md_quantity?: string | number | null;
   /** Części kosztu, gdy stawka Partnera zmienia się w okresie zamówienia
-   *  (0741): od–do i stawka w jednostce zamówienia. Pusto = jedna stawka. */
+   *  (0740): od–do i stawka w jednostce zamówienia. Pusto = jedna stawka. */
   cost_parts?: { from: string; to: string | null; rate: string | number }[] | null;
   currency: string | null;
   rate_client_currency?: string | null;

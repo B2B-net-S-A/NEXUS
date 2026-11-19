@@ -141,7 +141,7 @@ class ClientOrderRead(BaseModel):
     """Budżet MD wpisany na szkicu przed utworzeniem wspólnej grupy."""
     cost_parts: Optional[list[dict]] = None
     """Części kosztu, gdy stawka Partnera zmienia się w okresie zamówienia
-    (0741, ``order_cost_steps``): ``[{from, to, rate}]``; bez części — pusto.
+    (0740, ``order_cost_steps``): ``[{from, to, rate}]``; bez części — pusto.
     Kwota — redagowana razem z ``rate_candidate``."""
 
     model_config = {"from_attributes": True}

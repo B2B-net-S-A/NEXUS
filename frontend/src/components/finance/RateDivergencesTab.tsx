@@ -23,7 +23,7 @@ const rowKey = (row: RateDivergence, index: number) =>
 
 /**
  * Finanse → „Rozjazdy stawek”: najpierw zakończone zamówienia do korekty po
- * zmianie stawki Partnera (0741), pod spodem nocny raport linii MD (tylko odczyt).
+ * zmianie stawki Partnera (0740), pod spodem nocny raport linii MD (tylko odczyt).
  */
 export function RateDivergencesTab({ canWrite = false }: { canWrite?: boolean }) {
   return (

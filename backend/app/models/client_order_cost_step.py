@@ -1,4 +1,4 @@
-"""Koszt zamówienia od dnia zmiany stawki Partnera (0741).
+"""Koszt zamówienia od dnia zmiany stawki Partnera (0740).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/order_cost_steps_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
