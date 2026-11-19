@@ -289,6 +289,21 @@
    "b_home": "Strona kontraktu"
   },
   {
+   "id": "k.invoices-ksef",
+   "opis": "Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF ze wszystkich miesięcy (te same co na karcie osoby w Finanse → Rozliczenia), tylko do odczytu, miesiąc prowadzi do Rozliczeń; widzi „Moduł Finanse” (decyzja Artura 19.11.2026)",
+   "file": "components/ContractInvoicesTab.tsx",
+   "marker": "Faktury konsultanta z KSeF",
+   "b_home": "Strona kontraktu › Faktury"
+  },
+  {
+   "id": "k.invoices-manual",
+   "opis": "Ręczne „Dodaj fakturę”, „Oznacz jako zapłacone” i usuwanie w zakładce „Faktury” (rejestr /api/invoices)",
+   "file": "components/ContractInvoicesTab.tsx",
+   "marker": "Dodaj fakturę",
+   "b_home": "Strona kontraktu › Faktury",
+   "removed_reason": "Decyzja Artura 19.11.2026: zakładka pokazuje faktury konsultanta z KSeF; rejestr invoices nie miał na produkcji ani jednego wiersza od powstania 17.04.2026, a faktury konsultantów przychodzą z KSeF"
+  },
+  {
    "id": "c.header",
    "opis": "Nagłówek klienta w jednej linii, menu „Więcej o kliencie”",
    "file": "app/clients/[id]/page.tsx",

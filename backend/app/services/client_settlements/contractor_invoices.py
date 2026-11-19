@@ -422,6 +422,44 @@ async def for_month(
     return out
 
 
+async def for_contract(
+    db: AsyncSession, contract_id: int
+) -> list[ClientContractorInvoice]:
+    """Wszystkie miesiące jednego kontraktu, najnowszy miesiąc pierwszy
+    (zakładka „Faktury” kontraktu); odrzucona podpowiedź NIP-u nie wraca."""
+
+    rows = await db.scalars(
+        select(ClientContractorInvoice)
+        .where(
+            ClientContractorInvoice.contract_id == contract_id,
+            ClientContractorInvoice.nip_state != REJECTED,
+        )
+        .order_by(
+            ClientContractorInvoice.period_month.desc().nulls_last(),
+            ClientContractorInvoice.issue_date.desc().nulls_last(),
+            ClientContractorInvoice.id.desc(),
+        )
+    )
+    return list(rows)
+
+
+def contract_listing(
+    invoices: list[ClientContractorInvoice], *, amounts: bool
+) -> list[dict[str, Any]]:
+    """Wiersze zakładki „Faktury” kontraktu. Termin płatności i kontrole
+    zostają na karcie osoby w Rozliczeniach, bo zależą od reguł miesiąca."""
+
+    return [
+        {
+            **_invoice_item(i, amounts=amounts),
+            "period_month": i.period_month,
+            "invoice_type": i.invoice_type,
+            "currency": i.currency,
+        }
+        for i in invoices
+    ]
+
+
 def _param(rules: dict[str, Any], key: str, name: str) -> str:
     return str(rules[key]["params"].get(name, "")).strip()
 
@@ -571,23 +609,26 @@ def card(
     return {
         "state": state(settlement, invoices, rules),
         "invoices": [
-            {
-                "id": i.id,
-                "ksef_number": i.ksef_number,
-                "invoice_number": i.invoice_number,
-                "issue_date": i.issue_date.isoformat() if i.issue_date else None,
-                "acquired_at": i.acquired_at.isoformat() if i.acquired_at else None,
-                "seller_name": i.seller_name,
-                "seller_nip": i.seller_nip,
-                "nip_state": i.nip_state,
-                "is_correction": invoice_chain.is_correction(i),
-                "net_amount": f"{i.net_amount:.2f}"
-                if amounts and i.net_amount is not None
-                else None,
-                "gross_amount": f"{i.gross_amount:.2f}" if amounts else None,
-                "due_date": _iso(_due(i, days)),
-            }
+            {**_invoice_item(i, amounts=amounts), "due_date": _iso(_due(i, days))}
             for i in invoices
         ],
         "checks": checks,
+    }
+
+
+def _invoice_item(invoice: ClientContractorInvoice, *, amounts: bool) -> dict[str, Any]:
+    return {
+        "id": invoice.id,
+        "ksef_number": invoice.ksef_number,
+        "invoice_number": invoice.invoice_number,
+        "issue_date": invoice.issue_date.isoformat() if invoice.issue_date else None,
+        "acquired_at": invoice.acquired_at.isoformat() if invoice.acquired_at else None,
+        "seller_name": invoice.seller_name,
+        "seller_nip": invoice.seller_nip,
+        "nip_state": invoice.nip_state,
+        "is_correction": invoice_chain.is_correction(invoice),
+        "net_amount": f"{invoice.net_amount:.2f}"
+        if amounts and invoice.net_amount is not None
+        else None,
+        "gross_amount": f"{invoice.gross_amount:.2f}" if amounts else None,
     }
