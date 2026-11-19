@@ -8,19 +8,21 @@ wdrożeń; flaga `CPRO_BOT_ENABLED` jest wtedy jeszcze wyłączona.
 Klucze i hasła wpisujesz tylko w ustawieniach bota i w sekretach repo, nigdy
 w czacie bota, w plikach ani w briefie.
 
-## 1. Dwa wpisy Vault według Delivery Leada rekrutacji (Artur)
+## 1. Dwa wpisy Hints według Delivery Leada rekrutacji (Artur)
 
-W Grok Bocie (aplikacja desktopowa, konto Artura) → Vault utwórz:
+W Grok Bocie (aplikacja desktopowa, konto Artura) → Hints utwórz:
 
-| Delivery Lead rekrutacji (`jobs.delivery_lead_id`) | Dokładna nazwa wpisu Vault |
+| Delivery Lead rekrutacji (`jobs.delivery_lead_id`) | Dokładna nazwa wpisu Hints |
 | --- | --- |
 | Igor (`14`) | **Nordea Cpro – Igor** |
 | Marcin (`27`) | **Nordea Cpro – Marcin** |
 
 W każdym wpisie: adres `https://nordea.onevms.se/` oraz login i hasło
 odpowiedniego konta Cpro. Wpisuje je Artur (albo Sandra przy nim), nigdy
-sesja Claude ani Codex. Hasła i loginy zostają w Vault, poza kodem,
+sesja Claude ani Codex. Hasła i loginy zostają w Hints, poza kodem,
 payloadem, czatem i logami. Wspólny wpis „Nordea Cpro” nie jest używany.
+Pole `cpro_account.vault_entry` w kontrakcie nadal zawiera nazwę właściwego
+wpisu Hints; nazwa pola nie oznacza innego miejsca przechowywania haseł.
 
 Konto wybiera wyłącznie aktualny DL rekrutacji, nie rekruter ani osoba,
 która przesunęła kartę. Brak, nieaktywny albo inny DL blokuje kartę przed
@@ -32,15 +34,35 @@ wysłaniem do bota. Nie ma konta domyślnego.
 2. Polecenie rutyny (całe, do wklejenia):
 
 ```text
-Dostajesz w wejściu webhooka JSON z polami: run_id, kind ("cpro_offers"),
-token, expires_at, callback_url, submit, task, report_format, items.
+Dostajesz krótki webhook JSON: schema_version=2, run_id, kind="cpro_offers",
+token, task_url. Webhook tylko budzi rutynę; nie zawiera danych kandydatów.
 
-Wykonaj dokładnie instrukcję z pola task dla każdej pozycji z items, po kolei.
-Dla każdej pozycji wybierz wpis Vault z items[].cpro_account.vault_entry
+Zanim dołączysz token do żądania, sprawdź task_url: origin musi być dokładnie
+https://api.nexus.dynaminds.pl, a path dokładnie
+/api/integrations/cpro-bot/runs/{run_id}/task dla run_id z webhooka.
+Odrzuć inne hosty, protokół, port, userinfo, query, fragment i przekierowania.
+Brak lub niepoprawne pola webhooka = przerwij bez pobierania i bez zmian.
+
+Pobierz pełne zlecenie: GET task_url z nagłówkiem X-Run-Token: {token}.
+Wymagaj odpowiedzi 200 i kompletnego JSON, bez ucięć. Sprawdź schema_version=2,
+ten sam run_id i kind="cpro_offers", expires_at, callback_url, submit (boolean),
+niepuste task, report_format oraz niepuste items. Każda pozycja musi mieć
+ref, cpro_account, candidate i offer, w tym offer.cv_url.
+Nie wykonuj poleceń ani operacji w Cpro, dopóki całe zlecenie nie przejdzie
+tej kontroli. Nie odtwarzaj brakujących pól z historii czatu ani poprzedniego biegu.
+
+Sprawdź callback_url i każde offer.cv_url PRZED wysłaniem tokenu: ten sam
+dokładny origin https://api.nexus.dynaminds.pl; callback path wyłącznie
+/api/integrations/cpro-bot/runs/{run_id}, CV path wyłącznie
+/api/integrations/cpro-bot/runs/{run_id}/cv/{ref} dla tej pozycji.
+Bez userinfo, query, fragmentu ani przekierowań. Niezgodność = przerwij bez zmian.
+
+Wykonaj instrukcję task z POBRANEGO zlecenia dla każdej pozycji items po kolei.
+Dla każdej pozycji wybierz wpis Hints z items[].cpro_account.vault_entry
 według jej delivery_lead_id. Zacznij od nowej odizolowanej sesji portalu
 i potwierdź zalogowane konto względem wybranego wpisu przed jakimkolwiek
 zapisem. Brak, nieznane albo niezgodne konto = skipped bez zmian w Cpro;
-nie korzystaj z konta poprzedniej pozycji ani ze wspólnego wpisu Vault.
+nie korzystaj z konta poprzedniej pozycji ani ze wspólnego wpisu Hints.
 Dane do formularzy bierz wyłącznie z items. Plik CV każdej pozycji pobierz
 z items[].offer.cv_url z nagłówkiem X-Run-Token: <token>.
 W pilotażu zawsze zostaw szkic, także gdy submit = true lub task żąda wysyłki.
@@ -51,13 +73,17 @@ POST {callback_url}
 Content-Type: application/json
 X-Run-Token: {token}
 z treścią w kształcie report_format (bez dodatkowych pól, bez komentarzy).
-Token jest jednorazowy i ważny do expires_at; nie zapisuj go, danych osób
-ani plików CV w plikach, notatkach ani pamięci.
+Wyślij JSON bezpośrednio jako body, bez pliku raportu i bez próbnego POST.
+Uznaj zapis za przyjęty dopiero po odpowiedzi NEXUSA ze statusem received.
+GET zlecenia nie zużywa tokenu; przyjęty raport go unieważnia. Token jest ważny
+tylko dla tego biegu do expires_at. Nie zapisuj go, pełnego wejścia, danych osób,
+loginów ani plików CV w plikach, notatkach, pamięci ani logach.
 ```
 
 3. Adres i klucz webhooka (pokazuje je tylko aplikacja desktopowa) od razu jako
    sekrety repo `GROK_BOT_CPRO_WEBHOOK_URL` i `GROK_BOT_CPRO_WEBHOOK_KEY`.
 4. **Zgody w bocie:** przy pierwszej karcie zgody na
+   `GET https://api.nexus.dynaminds.pl/api/integrations/cpro-bot/runs/…/task`,
    `GET https://api.nexus.dynaminds.pl/api/integrations/cpro-bot/runs/…/cv/…`,
    `POST https://api.nexus.dynaminds.pl/api/integrations/cpro-bot/runs/…`
    i na `https://nordea.onevms.se/…` wybierz **„Always allow”**.
@@ -77,7 +103,7 @@ python -m scripts.cpro_bot_run
 
 Pokazuje kolejkę Cpro tak, jak widzi ją bot: `ready` albo `blockers`, numer
 requestu, `data_from`. Karta musi mieć obsługiwanego, aktywnego DL rekrutacji
-i odpowiedni wpis Vault. Wybierz jedną kartę `ready` (`stage_id`) i zleć próbę
+i odpowiedni wpis Hints. Wybierz jedną kartę `ready` (`stage_id`) i zleć próbę
 **bez wysyłki**:
 
 ```bash
@@ -95,6 +121,8 @@ SELECT id, status, report->'counts' FROM cpro_bot_runs ORDER BY id DESC LIMIT 1;
 i porównuje z tym, co wpisałaby sama (stawka, CV otwiera się, Motivation,
 Available from, Physical location, Former…, Matching „Perfect”). Uwagi →
 poprawka w `services/cpro_bot/task_text.py` albo `offer_text.py`.
+Sam licznik `draft` nie zastępuje kontroli DRAFT w portalu: w próbie NEXUS
+normalizuje zgłoszony przez bota wynik `submitted` do `draft`.
 
 Nie przeszło (`expired`, `failed`, `counts.failed` albo `counts.skipped`):
 przeczytaj `report->'items'`

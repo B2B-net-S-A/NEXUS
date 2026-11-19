@@ -10,7 +10,7 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 ## Decyzje Artura (17.11.2026)
 
 - **Robi to Grok Bot z pełnymi danymi.** Rutyna „NEXUS Cpro” loguje się do
-  Cpro osobnym wpisem Vault właściwym dla Delivery Leada rekrutacji (reguła
+  Cpro osobnym wpisem Hints właściwym dla Delivery Leada rekrutacji (reguła
   kont poniżej) i dostaje dane osoby: imię i nazwisko,
   narodowość, miasto, dostępność, stawkę do klienta, punkty „Why our
   candidate” i plik CV firmowego. To **świadomy wyjątek** od reguły „żadnych
@@ -31,15 +31,15 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 ## Konto Cpro według rekrutacji (18.11.2026)
 
 - Źródłem jest wyłącznie `jobs.delivery_lead_id` bieżącej rekrutacji:
-  Igor (`14`) → Vault **„Nordea Cpro – Igor”**,
-  Marcin (`27`) → Vault **„Nordea Cpro – Marcin”**. Brak, nieaktywny albo
+  Igor (`14`) → Hints **„Nordea Cpro – Igor”**,
+  Marcin (`27`) → Hints **„Nordea Cpro – Marcin”**. Brak, nieaktywny albo
   inny DL blokuje kartę. Nie ma wspólnego ani zapasowego konta.
-- Każda pozycja webhooka zawiera `cpro_account` z `delivery_lead_id`,
-  `delivery_lead_name` i `vault_entry`. Nie zawiera loginu ani hasła.
+- Każda pozycja pełnego zlecenia zawiera `cpro_account` z `delivery_lead_id`,
+  `delivery_lead_name` i `vault_entry` (nazwa wpisu Hints). Nie zawiera loginu ani hasła.
   Rekruter, autor przesunięcia karty oraz DL karty źródłowej z uzupełnieniami
   Warunków/CV nie wybierają konta.
 - Bot dla **każdej pozycji** zaczyna nową, odizolowaną sesję portalu,
-  loguje się wskazanym wpisem Vault i potwierdza tożsamość widoczną w Cpro
+  loguje się wskazanym wpisem Hints i potwierdza tożsamość widoczną w Cpro
   względem tego wpisu przed zapisami. Powtarza weryfikację przed każdym
   Save i „Submit Offer”; zamyka sesję po pozycji. Nigdy nie dziedziczy sesji
   poprzedniej osoby, także gdy obie mają tego samego DL.
@@ -105,16 +105,35 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
 ## Bezpieczeństwo
 
 - Webhook do rutyny (`GROK_BOT_CPRO_WEBHOOK_URL`, `_KEY`, nagłówek Bearer).
-  Bot nie ma stałego klucza do NEXUSA: jednorazowy token biegu (2 godziny,
-  do raportu) otwiera tylko CV kart z tego biegu i jeden raport. Trasy
+  **Schema 2:** webhook jest wyłącznie krótkim pobudzeniem z polami
+  `schema_version`, `run_id`, `kind`, `token`, `task_url`. Nie przenosi polecenia,
+  raportu wzorcowego ani danych kandydatów, które platforma mogłaby uciąć.
+  Bot pobiera pełne zapisane zlecenie przez
+  `GET /api/integrations/cpro-bot/runs/{run_id}/task` z `X-Run-Token`.
+  Odpowiedź ma `Cache-Control: private, no-store`; GET nie zużywa tokenu.
+- Zanim bot wyśle token, wymaga dokładnego originu
+  `https://api.nexus.dynaminds.pl` i ścieżki task z tym samym `run_id`.
+  Nie śledzi przekierowań; odrzuca userinfo, query, fragment i obce adresy.
+  Pobranie musi dać pełny JSON 200 z pasującymi `schema_version`, `run_id`
+  i `kind`, a także kompletnymi `task`, `report_format`, `items`, `submit`,
+  `callback_url` i `expires_at`. Dopiero po kontroli całego zlecenia wolno
+  rozpocząć pracę. Uciętego wejścia nie odtwarza z historii ani domysłów.
+- Ten sam dokładny origin obowiązuje `callback_url` i każde `offer.cv_url`.
+  Dozwolone ścieżki to odpowiednio `/api/integrations/cpro-bot/runs/{run_id}`
+  oraz `/api/integrations/cpro-bot/runs/{run_id}/cv/{ref}` z tej pozycji.
+  Kontrola następuje przed dołączeniem tokenu; bez przekierowań, userinfo,
+  query ani fragmentu.
+- Bot nie ma stałego klucza do NEXUSA: jednorazowy token biegu (2 godziny,
+  do raportu) otwiera tylko zlecenie, CV kart z tego biegu i jeden raport. Trasy
   `require_cpro_run_token` (marker w `tests/test_route_authz_contract.py`).
 - Raport to dane niezaufane (`cpro_bot/ingest.py`): `extra=forbid`, tylko karty
   z biegu, link do oferty tylko `https://*.onevms.se`, znaki sterujące wycięte,
-  `submitted` w próbie liczy się jako szkic.
-- Hasło do Cpro wpisuje do Vault Grok Bota Artur, nigdy sesja Claude, Codex
+  `submitted` w próbie liczy się jako szkic. Licznik `draft` wymaga dodatkowo
+  potwierdzenia rzeczywistego statusu DRAFT w Cpro przez Sandrę.
+- Hasło do Cpro wpisuje do Hints Grok Bota Artur, nigdy sesja Claude, Codex
   ani kod. Wpisy kont Igora i Marcina pozostają oddzielne; hasła i loginy
   nie trafiają do webhooka ani raportu. Logi są publiczne: same liczby
-  i identyfikatory.
+  i identyfikatory; bez tokenu, pełnego zlecenia, treści CV i danych osób.
 - Na stagingu pętla stoi (`STAGING_BLOCKED_TASKS`: `cpro_bot`).
 - Narodowość z karty czyta `cpro_bot/items.py` wyłącznie do pola „Country of
   citizenship” (wpis w strażniku `test_only_listed_modules_read_recommendation_cards`).
@@ -125,7 +144,7 @@ danych między kartami. Nagrania Sandry z 28.10.2026, decyzje Artura z 17.11.202
   i braki), `runs` (bieg, token, stan karty), `flow` (pętla, ponowienie),
   `ingest` (raport, ruch karty), `task_text` (polecenie rutyny), `schema` (DDL).
 - Tabela `cpro_bot_runs` (migracja 0732, lustro przez `hr_schema_bundle`):
-  bieg, `stage_ids`, `request.items` (to idzie do bota), `request.cards`
+  bieg, `stage_ids`, `request.items` (bot pobiera je z endpointu task), `request.cards`
   (etap docelowy, CV — zostaje w NEXUSIE), `report.items` (wynik karty, `moved`).
 - Pętla `tasks/cpro_bot.py`, trasy `api/integrations_cpro_bot.py`, stan przy
   osobie w `GET /api/board-tasks/cpro/queue` (`bot`), ekran

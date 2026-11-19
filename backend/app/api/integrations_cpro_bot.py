@@ -1,16 +1,18 @@
-"""Bot Cpro (Grok Bot): plik CV dla biegu i przyjęcie raportu.
+"""Bot Cpro (Grok Bot): pełne zlecenie, plik CV i przyjęcie raportu.
 
+* ``GET /api/integrations/cpro-bot/runs/{run_id}/task`` — pełne zlecenie,
+  pobierane po krótkiej kopercie webhooka (Grok może obciąć długi webhook).
 * ``GET /api/integrations/cpro-bot/runs/{run_id}/cv/{stage_id}`` — zatwierdzone
   CV firmowe karty z biegu (DOCX, nazwa bez ``#``), to samo, co Sandra
   pobierała z NEXUSA.
 * ``POST /api/integrations/cpro-bot/runs/{run_id}`` — raport biegu.
 
-Poświadczeniem obu tras jest jednorazowy token biegu z webhooka (nagłówek
+Poświadczeniem tras jest jednorazowy token biegu z webhooka (nagłówek
 ``X-Run-Token``): działa tylko dla tego biegu, do przyjęcia raportu i najwyżej
 2 godziny. Brak biegu, zły, zużyty i wygasły token dają tę samą odpowiedź 401.
 Sesja użytkownika go nie zastępuje. Trasy działają także przy wyłączonym
-``CPRO_BOT_ENABLED``: bez biegu nie ma tokenu. Odpowiedź dla bota i logi to
-same liczby.
+``CPRO_BOT_ENABLED``: bez biegu nie ma tokenu. Zlecenie i CV zawierają dane
+kandydata, wyłącznie dla tego biegu; logi to same liczby.
 
 Bez ``from __future__ import annotations``: moduł ma ``@limiter.limit``, a z nim
 ciało żądania lądowałoby jako parametr query (422).
@@ -22,6 +24,7 @@ from datetime import datetime, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -64,6 +67,20 @@ async def require_cpro_run_token(
         if run is not None and runs.token_matches(run, x_run_token, now):
             return run
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=runs.INVALID_TOKEN_DETAIL)
+
+
+@router.get("/runs/{run_id}/task")
+@limiter.limit("60/minute")
+async def download_task(
+    request: Request,
+    run: CproBotRun = Depends(require_cpro_run_token),
+) -> JSONResponse:
+    """Pełna treść zlecenia bez nowego tokenu i wewnętrznych danych kart."""
+
+    return JSONResponse(
+        content=runs.task_body(run),
+        headers={"Cache-Control": "private, no-store"},
+    )
 
 
 @router.get("/runs/{run_id}/cv/{stage_id}")
