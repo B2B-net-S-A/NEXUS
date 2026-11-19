@@ -61,3 +61,26 @@ def test_invoice_still_wins_over_report_words() -> None:
     from app.services.consultant_portal.mailbox import classify_kind
 
     assert classify_kind("RCP i faktura 10/2026", "FV_10_2026.pdf") == "invoice"
+
+
+@pytest.mark.parametrize(
+    ("subject", "file_name", "expected"),
+    [
+        # KCP Banku Pocztowego bez słów raportu w nazwie pliku (próba IX–XI 2026).
+        ("KCP 10/2026", "A. Testowa.pdf", "report"),
+        ("Re: kcp za październik", "karta.pdf", "report"),
+        # Arkusz albo zrzut bez słów-kluczy to dowód pracy, nie faktura.
+        ("Dzień dobry", "BIK wrzesien.xlsx", "report"),
+        ("Dzień dobry", "wrzesien.xlsm", "report"),
+        ("Dzień dobry", "oct (1).png", "report"),
+        ("Faktura", "faktura.xlsx", "invoice"),
+        ("Dzień dobry", "fv_10.jpg", "invoice"),
+        ("Dzień dobry", "skan.pdf", "invoice"),
+    ],
+)
+def test_kcp_sheets_and_screenshots_are_work_proof(
+    subject, file_name, expected
+) -> None:
+    from app.services.consultant_portal.mailbox import classify_kind
+
+    assert classify_kind(subject, file_name) == expected

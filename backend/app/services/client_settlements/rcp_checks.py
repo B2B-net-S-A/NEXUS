@@ -138,6 +138,16 @@ def evaluate(
 
     result.md_regular = parsed.md_regular
     result.md_extra = parsed.md_extra
+    # „OPIS PRAC” bez wierszy z MD (konsultant wypełnił tylko godziny): suma z
+    # podsumowania to MD podstawowe. Bez tego NEXUS liczył 0 MD (próba IX–XI 2026).
+    md_from_total = not parsed.summary
+    if md_from_total:
+        result.md_regular = (
+            parsed.summary_total
+            if parsed.summary_total is not None
+            else parsed.declared_md
+        )
+        result.md_extra = None
 
     if parsed.month == month:
         rcp.ok(f"Miesiąc z RCP: {month}")
@@ -210,6 +220,13 @@ def evaluate(
     rcp.close()
 
     sums = _Group(result, rules, "Pola i sumy")
+    if md_from_total:
+        sums.info(
+            "MD z sumy podsumowania",
+            "Opis prac bez wierszy z MD: całość liczona jako MD podstawowe."
+            if result.md_regular is not None
+            else "Brak sumy MD w pliku: MD wpisują Finanse.",
+        )
     working = [r for r in parsed.summary if r.md > 0 and not r.is_travel]
     allowed = {
         a.strip().lower()

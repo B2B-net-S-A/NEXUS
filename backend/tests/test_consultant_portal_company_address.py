@@ -1,0 +1,106 @@
+"""Nadawca z adresu firmowego (imie.nazwisko@<domena adresu rozliczeń>).
+
+Konsultanci piszą na rozliczenia@ ze skrzynek firmowych, a kontrakt i kartoteka
+mają ich adres prywatny. Próba na archiwum IX–XI 2026: bez tego dopasowania
+NEXUS rozpoznał 14% dokumentów. Pasuje tylko jedna osoba z jednym działającym
+kontraktem; konto NEXUSA (pracownik przesyła cudze pliki) nie pasuje nigdy.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+from sqlalchemy import update
+
+from app.core.config import settings
+from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
+from app.models.candidate import Candidate
+from app.models.contract import ContractStatus
+from app.services.consultant_portal import identity
+from app.services.consultant_portal.portal_settings import PortalSettings
+from tests.care_announcements_seed import make_user, tag
+from tests.consultant_portal_seed import make_person
+from app.models.user import UserRole
+
+DOMAIN = "firma-testowa.example"
+INTERNAL = PortalSettings(state="internal")
+
+
+@pytest.fixture(autouse=True)
+def _settlements_address(monkeypatch):
+    monkeypatch.setattr(
+        settings, "CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES", f"rozliczenia@{DOMAIN}"
+    )
+
+
+async def _named(first: str, last: str, **kw):
+    person = await make_person(**kw)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(Candidate)
+            .where(Candidate.id == person.candidate_id)
+            .values(name=first, lastname=last)
+        )
+        await db.commit()
+    return person
+
+
+async def _resolve(address: str, today: date | None = None):
+    async with AsyncSessionLocal() as db:
+        return await identity.resolve_sender(
+            db, address, settings=INTERNAL, today=today or business_today()
+        )
+
+
+async def test_company_address_finds_the_person() -> None:
+    last = f"Żółtańska{tag()}"
+    person = await _named("Łucja", last)
+    folded = "zoltanska" + last.removeprefix("Żółtańska").lower()
+    for local in (f"lucja.{folded}", f"l.{folded}", f"lucja_{folded}"):
+        found = await _resolve(f"{local}@{DOMAIN}")
+        assert found is not None and found.id == person.contract_id, local
+
+
+async def test_other_domain_and_unknown_name_do_not_match() -> None:
+    last = f"Nowacka{tag()}"
+    await _named("Ewa", last)
+    assert await _resolve(f"ewa.{last.lower()}@inna-firma.example") is None
+    assert await _resolve(f"ewa.kowalska{tag()}@{DOMAIN}") is None
+
+
+async def test_two_people_with_the_same_name_need_a_human() -> None:
+    last = f"Wiśniewska{tag()}"
+    await _named("Ewa", last)
+    await _named("Ewa", last)
+    folded = "wisniewska" + last.removeprefix("Wiśniewska").lower()
+    assert await _resolve(f"ewa.{folded}@{DOMAIN}") is None
+
+
+async def test_staff_account_never_matches_a_consultant() -> None:
+    last = f"Kowal{tag()}"
+    await _named("Ola", last)
+    address = f"ola.{last.lower()}@{DOMAIN}"
+    staff = await make_user(UserRole.finance)
+    async with AsyncSessionLocal() as db:
+        from app.models.user import User
+
+        await db.execute(update(User).where(User.id == staff.id).values(email=address))
+        await db.commit()
+    assert await _resolve(address) is None
+
+
+async def test_ended_contract_outside_grace_does_not_match() -> None:
+    last = f"Zielna{tag()}"
+    person = await _named("Iga", last, status=ContractStatus.ended)
+    async with AsyncSessionLocal() as db:
+        from app.models.contract import Contract
+
+        await db.execute(
+            update(Contract)
+            .where(Contract.id == person.contract_id)
+            .values(end_date=date(2020, 1, 31))
+        )
+        await db.commit()
+    assert await _resolve(f"iga.{last.lower()}@{DOMAIN}") is None
