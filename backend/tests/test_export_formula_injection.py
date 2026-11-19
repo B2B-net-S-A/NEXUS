@@ -343,4 +343,4 @@ def test_order_changes_export_builds_with_control_character_in_invoice_line():
         row = [cell.value for cell in sheet[2]]
         assert row[0] == "Jan Kowalski"
         assert row[1] == "Klient"
-        assert row[12] == "NIDS: 1X"
+        assert row[13] == "NIDS: 1X"  # po kolumnie „Wcześniej u klienta”
