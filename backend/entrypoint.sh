@@ -11688,9 +11688,10 @@ async def repair():
 asyncio.run(repair())
 PY
 
-# „Prolongata: Nie” u 12 obecnych konsultantów PKO BP (ustalenie 19.11.2026):
-# wartość z importu Excela z 26.06.2026 (uwaga „brak nowego zamówienia”), nie
-# decyzja — wszyscy dostali potem zamówienia na III i IV kwartał. Logika
+# „Prolongata: Nie” u 12 obecnych konsultantów PKO BP (decyzja Artura 19.11.2026:
+# wszystkie 14 z importu na „Nieznany”): wartość z importu Excela z 26.06.2026
+# (uwaga „brak nowego zamówienia”), nie decyzja — wszyscy dostali potem
+# zamówienia na III i IV kwartał. Logika
 # w `app/services/pko_prolongation_import_repair.py`, przypięta do trójki ID;
 # prolongaty zapisanej po imporcie nie rusza. Marker w `app_settings` + advisory
 # lock; porażka nie zapisuje niczego — następny start ponawia. Log: liczby i ID.

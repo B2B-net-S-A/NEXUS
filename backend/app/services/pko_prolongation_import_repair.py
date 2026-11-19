@@ -10,6 +10,7 @@ ma potem zamówienie na III kwartał i kolejne na IV kwartał (01.10–31.12).
 Historia tych kontraktów nie ma żadnego wpisu zmieniającego prolongatę. Ręczne
 wybory u innych klientów (PFRON 10.07, Alior 15.07) taki wpis mają.
 
+Decyzja Artura z 19.11.2026: wszystkie 14 kontraktów z tego importu na „Nieznany”.
 Kontrakty przypięte do trójki (kontrakt, kandydat, klient), bez nazwisk w repo,
 stan produkcji z 19.11.2026: 12 obecnych i 2 zakończone z tego samego importu.
 Pominięcie z kodem powodu, gdy prolongata ma już inną wartość niż „Nie” albo
