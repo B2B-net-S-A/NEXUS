@@ -472,7 +472,10 @@ async def release_outsiders(
 
     try:
         released = await service.release_outsiders(
-            db, actor=current_user, member_ids=await access.member_ids(db)
+            db,
+            actor=current_user,
+            member_ids=await access.member_ids(db),
+            keep=await access.keep_ids(db),
         )
     except _CARD_ERRORS as exc:
         raise _translate(exc) from exc

@@ -1059,6 +1059,16 @@
         "anchor": "hr.care.card"
       },
       {
+        "q": "Jak wziąć następną sprawę w back office?",
+        "a": "W „Sprawy” kliknij „Weź następną”: dostaniesz najstarszą sprawę bez osoby (najpierw termin, potem czas bez osoby) i od razu jej kartę. Możesz też kliknąć „Biorę” na wybranej karcie. Naraz masz najwyżej 5 spraw w toku. Etykiety nad tablicą zawężają sprawy, ale nie dzielą ludzi na zespoły.",
+        "anchor": "hr.care.queue"
+      },
+      {
+        "q": "Co zrobić, gdy sprawa czeka na inny dział?",
+        "a": "W karcie sprawy kliknij „Na zewnątrz”, wybierz dział (Rekrutacja / Delivery, Sprzedaż, IT, Kadry, Księgowość, Prawnik) i napisz, o co prosisz. Sprawa zostaje u Ciebie w kolumnie „Na zewnątrz”, a „Wraca do pracy” przywraca ją do „W toku”.",
+        "anchor": "hr.care.queue"
+      },
+      {
         "q": "Co zrobić z kartą „Popyt do sprawdzenia”?",
         "a": "Widzi ją Delivery Lead klienta. Porozmawiaj z menedżerem działu i zapisz wynik: potwierdzona potrzeba otwiera nową rekrutację z klientem, menedżerem i technologiami działu, „nie teraz” wraca za 30 dni, „nieaktualne” zamyka kartę."
       }
@@ -1073,7 +1083,7 @@
       {
         "id": "hr.care.queue",
         "label": "Kolejka",
-        "describe": "Karty czterech zespołów po typie pracy, filtry Do wzięcia i Moje, przełącznik Po typie / Po statusie, lista Wszystko dla kierownika."
+        "describe": "Sprawy jednego zespołu back office: kolumny Nowe, W toku, Czeka na kogoś i Na zewnątrz, etykiety zamiast zespołów, filtry Do wzięcia, Moje, Po terminie i Do piątku, przycisk „Weź następną”, widok Lista i Tablica Opieki."
       },
       {
         "id": "hr.care.board",

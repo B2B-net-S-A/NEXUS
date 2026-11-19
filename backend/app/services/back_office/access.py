@@ -99,6 +99,23 @@ async def member_ids(db: AsyncSession) -> list[int]:
     )
 
 
+async def keep_ids(db: AsyncSession) -> set[int]:
+    """Kto może trzymać sprawy, choć nie jest w składzie: kierownicy i admini.
+
+    „Sprawy u osób spoza zespołu” i „Oddaj do kolejki” ich pomijają — admin
+    czy Head biorą sprawy jako kierownik, nie jako ktoś z zewnątrz.
+    """
+
+    admins = {
+        user.id
+        for user in (
+            await db.scalars(select(User).where(User.is_active.is_(True)))
+        ).all()
+        if user.has_role(UserRole.admin)
+    }
+    return {*await member_ids(db), *await lead_user_ids(db), *admins}
+
+
 async def load_viewer(db: AsyncSession, user: User) -> Viewer:
     is_lead = user.has_role(UserRole.admin) or user.id in await lead_user_ids(db)
     members = await member_ids(db)

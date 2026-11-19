@@ -82,6 +82,7 @@ async def team_view(db: AsyncSession, *, today: date) -> dict[str, Any]:
     def _overdue(cards: list[BoCard]) -> int:
         return sum(1 for c in cards if c.due_on is not None and c.due_on < today)
 
+    keep = await access.keep_ids(db) if member_ids else set()
     outsiders = (
         [
             {
@@ -90,7 +91,7 @@ async def team_view(db: AsyncSession, *, today: date) -> dict[str, Any]:
                 "cards": len(cards),
             }
             for uid, cards in sorted(held.items(), key=lambda kv: -len(kv[1]))
-            if uid not in member_ids
+            if uid not in keep
         ]
         if member_ids
         else []

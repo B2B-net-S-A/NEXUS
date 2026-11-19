@@ -325,11 +325,15 @@ async def test_cases_of_people_outside_the_team_go_back_to_the_queue(
     member = await _user(member=True)
     outsider = await _user("delivery_lead")
     kept = await _card(assignee_user_id=member.id, state="in_progress")
+    # Kierownik bierze sprawy jako kierownik, nie jako ktoś z zewnątrz.
+    lead_card = await _card(assignee_user_id=admin.id, state="in_progress")
     returned = await _card(
         assignee_user_id=outsider.id, state="waiting", waiting_on="klienta"
     )
     team_view = await app_client.get("/api/back-office/team", headers=_headers(admin))
-    assert any(row["user_id"] == outsider.id for row in team_view.json()["outsiders"])
+    outsiders = {row["user_id"] for row in team_view.json()["outsiders"]}
+    assert outsider.id in outsiders
+    assert admin.id not in outsiders
     released = await app_client.post(
         "/api/back-office/team/release-outsiders", headers=_headers(admin)
     )
@@ -343,6 +347,7 @@ async def test_cases_of_people_outside_the_team_go_back_to_the_queue(
             None,
         )
         assert (await db.get(BoCard, kept.id)).assignee_user_id == member.id
+        assert (await db.get(BoCard, lead_card.id)).assignee_user_id == admin.id
 
 
 @pytest.mark.asyncio

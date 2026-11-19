@@ -591,12 +591,13 @@ async def take_next(
 
 
 async def release_outsiders(
-    db: AsyncSession, *, actor: User, member_ids: list[int]
+    db: AsyncSession, *, actor: User, member_ids: list[int], keep: set[int]
 ) -> int:
     """Sprawy osób spoza zespołu wracają do kolejki (decyzja Artura 19.11.2026).
 
     Działa tylko przy wpisanym składzie: bez niego „spoza” nie znaczy nic.
-    Sprawa zamknięta po drugiej stronie zostaje, jak jest.
+    ``keep`` to skład, kierownicy i admini — ich sprawy zostają. Sprawa
+    zamknięta po drugiej stronie zostaje, jak jest.
     """
 
     if not member_ids:
@@ -607,7 +608,7 @@ async def release_outsiders(
             .where(
                 BoCard.state != "done",
                 BoCard.assignee_user_id.is_not(None),
-                BoCard.assignee_user_id.not_in(member_ids),
+                BoCard.assignee_user_id.not_in(sorted(keep | set(member_ids))),
             )
             .order_by(BoCard.id)
             .with_for_update()

@@ -29,6 +29,7 @@ from app.services.admin_cases.queries import CANDIDATE_FULL_NAME
 from app.services.back_office.access import Viewer
 from app.services.back_office.board import LABELS, user_names, visible_title
 from app.services.back_office_team_schema import CLIENT_NOTE_BLOCKS, CLIENT_NOTE_MAX
+from app.services.care.plan import end_of_cooperation
 
 #: Kontrakty, które back office obsługuje: trwają albo kończą się.
 LIVE = (ContractStatus.active, ContractStatus.ending)
@@ -44,6 +45,18 @@ BLOCK_LABELS = {
 
 class SheetError(ValueError):
     """Odmowa z komunikatem dla użytkownika (422)."""
+
+
+#: Koniec współpracy jak w Opiece: najbliższy znany koniec umowy albo zamówienia.
+EFFECTIVE_END = func.least(Contract.end_date, Contract.client_order_end_date)
+
+
+def _end(contract_end: Optional[date], order_end: Optional[date]) -> dict[str, Any]:
+    end = end_of_cooperation(contract_end, order_end)
+    source = None
+    if end is not None:
+        source = "order" if order_end is not None and end == order_end else "contract"
+    return {"end_date": end, "end_source": source}
 
 
 def _label(card: BoCard) -> dict[str, Any]:
@@ -101,6 +114,7 @@ async def consultants(db: AsyncSession) -> dict[str, Any]:
                 Contract.contract_type,
                 Contract.start_date,
                 Contract.end_date,
+                Contract.client_order_end_date,
             )
             .join(Client, Client.id == Contract.client_id)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
@@ -123,7 +137,7 @@ async def consultants(db: AsyncSession) -> dict[str, Any]:
                 "job_title": job_title,
                 "contract_type": getattr(contract_type, "value", contract_type),
                 "start_date": start_date,
-                "end_date": end_date,
+                **_end(end_date, order_end_date),
                 "open_cases": [_label(c) for c in cases.get(contract_id, [])],
                 "last_conversation": (
                     {
@@ -143,6 +157,7 @@ async def consultants(db: AsyncSession) -> dict[str, Any]:
                 contract_type,
                 start_date,
                 end_date,
+                order_end_date,
             ) in rows
         ]
     }
@@ -188,7 +203,8 @@ async def consultant_card(
         db, [c.assignee_user_id for c in cards] + [t.author_user_id for t in talks]
     )
     open_cards = [c for c in cards if c.state != "done"]
-    end = contract.end_date
+    ends = _end(contract.end_date, contract.client_order_end_date)
+    end = ends["end_date"]
     return {
         "contract_id": contract.id,
         "client_id": contract.client_id,
@@ -200,7 +216,7 @@ async def consultant_card(
         ),
         "status": getattr(contract.status, "value", contract.status),
         "start_date": contract.start_date,
-        "end_date": end,
+        **ends,
         "days_to_end": (end - today).days if end is not None else None,
         "last_conversation": (
             {"on": talks[0].occurred_on, "by": names.get(talks[0].author_user_id)}
@@ -256,9 +272,9 @@ async def clients(db: AsyncSession, *, today: date) -> dict[str, Any]:
                 Client.name,
                 func.count(Contract.id),
                 func.count(Contract.id).filter(
-                    Contract.end_date.is_not(None),
-                    Contract.end_date >= today,
-                    Contract.end_date <= horizon,
+                    EFFECTIVE_END.is_not(None),
+                    EFFECTIVE_END >= today,
+                    EFFECTIVE_END <= horizon,
                 ),
             )
             .join(Contract, Contract.client_id == Client.id)
@@ -321,10 +337,10 @@ async def client_sheet(
     horizon = today + timedelta(days=60)
     live = (
         await db.execute(
-            select(Contract.id, CANDIDATE_FULL_NAME, Contract.end_date)
+            select(Contract.id, CANDIDATE_FULL_NAME, EFFECTIVE_END)
             .outerjoin(Candidate, Candidate.id == Contract.candidate_id)
             .where(Contract.client_id == client_id, Contract.status.in_(LIVE))
-            .order_by(Contract.end_date.asc().nulls_last())
+            .order_by(EFFECTIVE_END.asc().nulls_last())
         )
     ).all()
     open_cases = int(
