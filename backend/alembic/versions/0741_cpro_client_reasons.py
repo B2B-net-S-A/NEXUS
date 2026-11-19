@@ -1,7 +1,7 @@
 """Dwa powody klienta z odczytu maili CPro (B7, 19.11.2026).
 
 Revision ID: 0741_cpro_client_reasons
-Revises: 0739_contract_rate_documents
+Revises: 0740_order_cost_steps
 
 Decyzja Artura 19.11.2026: automat poczty CPro wpisuje powód z treści maila
 (`services/cpro_reason_map.py`) zamiast „Inne”. Na 108 tekstach z produkcji
@@ -19,7 +19,7 @@ Stare wpisy przepina naprawa w ``entrypoint.sh``
 from alembic import op
 
 revision = "0741_cpro_client_reasons"
-down_revision = "0739_contract_rate_documents"
+down_revision = "0740_order_cost_steps"
 branch_labels = None
 depends_on = None
 
