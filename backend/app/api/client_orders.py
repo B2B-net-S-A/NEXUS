@@ -32,7 +32,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import and_, exists, inspect, or_, select
+from sqlalchemy import and_, delete, exists, inspect, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from starlette.concurrency import run_in_threadpool
@@ -75,6 +75,7 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.client_order_cost_step import ClientOrderCostStep
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_order_offboarding import (
     OFFBOARDING_STATUS_PENDING,
@@ -2947,6 +2948,18 @@ async def apply_order_update(
         _apply_md_order_quantity(order, md_quantity)
         await recompute_remaining(db, order)
     _refresh_md_rate_mirror(order, explicit_fields=payload.model_fields_set)
+    # Ręczna zmiana kosztu, jednostki albo godzin unieważnia części kosztu
+    # (0740): części są w starej jednostce i przykryłyby nową kwotę w każdym
+    # czytniku „za miesiąc”. Żywe zamówienie dostanie je z powrotem
+    # z harmonogramu kontraktu przy synchronizacji po tym zapisie.
+    if payload.model_fields_set & {
+        "rate_candidate",
+        "rate_unit",
+        "billing_hours_per_month",
+    }:
+        await db.execute(
+            delete(ClientOrderCostStep).where(ClientOrderCostStep.order_id == order.id)
+        )
     if (
         "status" in payload.model_fields_set
         and previous_status == ClientOrderStatus.draft

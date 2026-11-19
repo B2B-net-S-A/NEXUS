@@ -264,3 +264,30 @@ async def test_live_order_is_not_on_the_finance_list(app_client, app_auth_header
         headers=app_auth_headers,
     )
     assert resp.status_code == 404
+
+
+async def test_manual_cost_edit_drops_finance_parts(app_client, app_auth_headers):
+    """Części w starej jednostce nie mogą przykryć ręcznej zmiany kosztu."""
+    contract_id, client_id, order_id = await _seed(
+        NORDEA_STEPS,
+        start=m(-3),
+        end=month_end(-2),
+        order_rate="120",
+        status=ClientOrderStatus.completed,
+    )
+    resp = await app_client.post(
+        f"/api/finance/order-cost-corrections/{order_id}/apply",
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(await _parts(order_id)) == 2
+    patched = await app_client.patch(
+        f"/api/clients/{client_id}/orders/{order_id}",
+        json={"rate_candidate": "150"},
+        headers=app_auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    assert await _parts(order_id) == []
+    async with AsyncSessionLocal() as db:
+        order = await db.get(ClientOrder, order_id)
+        assert float((await priced_one(db, order, m(-2))).rate_candidate) == 150.0

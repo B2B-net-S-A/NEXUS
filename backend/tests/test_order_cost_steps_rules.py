@@ -187,3 +187,14 @@ def test_schema_checks_match_the_model():
     for name in checks:
         assert name in ddl
     assert "source IN ('contract', 'finance')" in ddl
+
+
+def test_month_before_the_first_part_reads_the_first_part_not_the_column():
+    # Zamówienie od 15.07: miesięczny czytnik pyta o 01.07, kolumna ma stawkę na dziś.
+    order = _order(start=date(2026, 7, 15), rate="140")
+    own = [
+        _step(date(2026, 7, 15), "120"),
+        _step(date(2026, 9, 1), "130"),
+        _step(date(2026, 11, 1), "140"),
+    ]
+    assert ocs.rate_on(order, own, date(2026, 7, 1)) == Decimal("120")

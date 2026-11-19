@@ -99,16 +99,19 @@ def steps_for(parts: Sequence[Part]) -> list[Part]:
 
 
 def rate_on(order: Any, steps: Sequence[Any], day: date) -> Optional[Decimal]:
-    """Stawka kosztowa zamówienia w dniu ``day`` (jednostka zamówienia)."""
+    """Stawka kosztowa zamówienia w dniu ``day`` (jednostka zamówienia).
 
-    current = None
-    for step in steps:
-        if step.effective_from <= day and (
-            current is None or step.effective_from > current.effective_from
-        ):
-            current = step
-    if current is None:
+    Dzień przed pierwszą częścią (miesięczny czytnik pyta o 1. dzień miesiąca,
+    a zamówienie zaczęło się 15.) czyta pierwszą część, nie kolumnę — kolumna
+    żywego zamówienia to stawka na dziś."""
+
+    if not steps:
         return order.rate_candidate
+    ordered = sorted(steps, key=lambda s: s.effective_from)
+    current = ordered[0]
+    for step in ordered:
+        if step.effective_from <= day:
+            current = step
     return current.rate_candidate
 
 
