@@ -29,6 +29,14 @@
    "v3_home": "panel → CV → karta „CV do klienta”"
   },
   {
+   "id": "cv.client-form",
+   "area": "cv",
+   "opis": "Formularz CV klienta (0521) i tabela punktowa (0525): „Wypełnij z CV i screeningu”, braki, „Pobierz Word/Excel” — u klienta z formularzem na górze zakładki „CV” (rozwinięty panel, 19.11.2026) i sekcji CV zwiniętego panelu",
+   "file": "components/v2/jobs/CvHandoffWorkbench.tsx",
+   "marker": "ClientFormCard",
+   "v3_home": "panel → CV → karta „Formularz CV klienta”"
+  },
+  {
    "id": "cv.client-rate",
    "area": "cv",
    "opis": "Stawka do klienta",
