@@ -3594,5 +3594,21 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.rate-document"
+  },
+  {
+    "id": "klienci-stan-z-faktow",
+    "title": "Klienci: stan współpracy liczy się sam",
+    "why": "Zamiast zakładek „Aktywni / Relacyjni / Nieaktywni” lista pokazuje „Współpracujemy”, gdy pracuje u nich ktoś od nas albo trwa rekrutacja. W wierszu: ludzie, rekrutacje, umowa i DL.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → Współpracujemy / Bez bieżącej pracy / Archiwum",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "clients.states"
   }
 ]

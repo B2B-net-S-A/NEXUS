@@ -10,6 +10,11 @@ osobnymi zakładkami modułu.
 
 ## Klienci: jedna lista
 
+- **Od 19.11.2026 lista ma jeden wiersz na klienta i stan współpracy liczony
+  z faktów** („Współpracujemy / Bez bieżącej pracy / Archiwum”), a dawna lista
+  zakresów w zakładkach portfela to „Porządki portfela” —
+  `klienci/lista-klientow-stan-z-faktow.md`. Opis kolumn niżej dotyczy
+  „Porządków portfela”.
 - `/clients` nie ma trybów. Dawne „Raporty dla klientów” (`?view=reports`)
   i „Kluczowe relacje” (`?view=contacts`, `/my-relationships`) otwierają listę.
 - Kolumna **„Umowa ramowa”**: koniec (`do …` albo „bezterminowa”) i drobnym
