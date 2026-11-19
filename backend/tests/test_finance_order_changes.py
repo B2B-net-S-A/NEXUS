@@ -1196,6 +1196,100 @@ async def test_termination_without_a_successor_stays_an_exit(
     assert row["verdict"] == "ended_intent"
 
 
+async def test_person_with_three_orders_at_one_client_exits_once(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Zgłoszenie 19.11.2026: konsultant z trzema zamówieniami u klienta,
+    z których „zjadano” środki, stał w Zejściach trzy razy, a statystyki
+    mówiły, że zeszło trzech konsultantów. Zejście to osoba, nie zamówienie:
+    jeden wiersz, pozostałe zamówienia przy nim (numer, okres, PDF)."""
+
+    first = _far_day(2081, 2084).replace(day=1)
+    ends = first + timedelta(days=29)
+    ids = await _seed(
+        contract_rate_client=None,
+        start=first - timedelta(days=300),
+        end=ends,
+    )
+    second = await _add_order(ids, start=first - timedelta(days=200), end=ends)
+    third = await _add_order(ids, start=first - timedelta(days=100), end=ends)
+    await _terminate(ids["contract_id"], ends)
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+
+    rows = [e for e in body["exits"] if e["client_id"] == ids["client_id"]]
+    assert len(rows) == 1
+    assert body["counts"]["exits"] == 1
+    [row] = rows
+    assert row["order_id"] == ids["order_id"]
+    others = row["other_orders"]
+    assert [o["order_id"] for o in others] == [second, third]
+    assert [o["order_start"] for o in others] == [
+        (first - timedelta(days=200)).isoformat(),
+        (first - timedelta(days=100)).isoformat(),
+    ]
+    assert all(o["order_end"] == ends.isoformat() for o in others)
+
+    # Szukanie po numerze dołączonego zamówienia trafia w zejście osoby.
+    found = await _month(
+        app_client,
+        app_auth_headers,
+        first,
+        client_id=ids["client_id"],
+        q=others[-1]["order_number"],
+    )
+    assert [e["order_id"] for e in found["exits"]] == [ids["order_id"]]
+
+
+async def test_two_people_at_one_client_stay_two_exits(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    """Łączenie idzie po osobie — dwie osoby u tego samego klienta to dwa
+    zejścia, nawet z tą samą datą końca."""
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+
+    first = _far_day(2085, 2088).replace(day=1)
+    ends = first + timedelta(days=10)
+    ids = await _seed(
+        contract_rate_client=None, start=first - timedelta(days=90), end=ends
+    )
+    async with AsyncSessionLocal() as db:
+        suffix = uuid.uuid4().hex[:8]
+        other = Candidate(
+            name="Ewa", lastname=f"Kowal-{suffix}", email=f"foc2-{suffix}@example.com"
+        )
+        db.add(other)
+        await db.flush()
+        contract = Contract(
+            candidate_id=other.id,
+            client_id=ids["client_id"],
+            contract_type=ContractType.b2b,
+            status=ContractStatus.active,
+            start_date=first - timedelta(days=90),
+            rate_candidate=Decimal("960.000"),
+            rate_unit=RateUnit.daily,
+            currency="PLN",
+            rate_candidate_currency="PLN",
+        )
+        db.add(contract)
+        await db.commit()
+        other_contract = contract.id
+    await _add_order(
+        {**ids, "contract_id": other_contract},
+        start=first - timedelta(days=90),
+        end=ends,
+    )
+    await _terminate(ids["contract_id"], ends)
+    await _terminate(other_contract, ends)
+
+    body = await _month(app_client, app_auth_headers, first, client_id=ids["client_id"])
+
+    assert body["counts"]["exits"] == 2
+    assert all(e["other_orders"] == [] for e in body["exits"])
+
+
 async def test_contract_older_than_its_first_order_is_not_a_new_consultant(
     app_client: AsyncClient, app_auth_headers: dict
 ):

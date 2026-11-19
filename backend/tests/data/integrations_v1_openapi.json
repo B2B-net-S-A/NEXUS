@@ -4152,6 +4152,94 @@
         "title": "EventStatus",
         "type": "string"
       },
+      "ExitOtherOrder": {
+        "description": "Kolejne zamówienie tej samej osoby u tego samego klienta w jednym zejściu.\n\nBez stawek: zejście liczy się raz na osobę, a stawki wiersza zostają przy\nzamówieniu głównym (API v1 i tak ukrywa stawkę kosztową zejść).",
+        "properties": {
+          "end_date": {
+            "format": "date",
+            "title": "End Date",
+            "type": "string"
+          },
+          "order_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order End"
+          },
+          "order_group_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Group Id"
+          },
+          "order_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Id"
+          },
+          "order_number": {
+            "title": "Order Number",
+            "type": "string"
+          },
+          "order_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order Start"
+          },
+          "pdf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrderPdfRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          }
+        },
+        "required": [
+          "order_number",
+          "end_date"
+        ],
+        "title": "ExitOtherOrder",
+        "type": "object"
+      },
       "ExperienceCheckOut": {
         "properties": {
           "kind": {
@@ -8253,6 +8341,13 @@
             ],
             "title": "Order Type",
             "type": "string"
+          },
+          "other_orders": {
+            "items": {
+              "$ref": "#/components/schemas/ExitOtherOrder"
+            },
+            "title": "Other Orders",
+            "type": "array"
           },
           "pdf": {
             "anyOf": [
