@@ -100,13 +100,15 @@ class InvoiceLinesResponse(BaseModel):
 
 
 class OrderEntryItem(OrderRef):
-    """Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.
+    """Wejście = osoba, która zaczyna pracę u TEGO klienta: pierwsza współpraca
+    z nami albo przejście od innego klienta, u którego już skończyła.
 
-    Kontynuacja u tego samego klienta, przejście do innego klienta i dodatkowy
-    projekt NIE są wejściami — idą do Zmian (``OrderChangeItem``). Dlatego nie
-    ma tu już pól ``is_continuation`` / ``additional_project``: po korekcie
-    kwalifikacji byłyby zawsze fałszywe, a pole, które zawsze kłamie w jedną
-    stronę, zaprasza do budowania na nim.
+    Przejście do innego klienta jest wejściem od 19.11.2026 (decyzja Artura):
+    Zejścia od dawna liczą odejście od klienta A jako zejście z rozliczeń A,
+    więc start u B jest wejściem w rozliczenia B. ``previous_client_name``
+    mówi wtedy, u kogo osoba była wcześniej (``None`` = pierwsza współpraca).
+    Kontynuacja u tego samego klienta i dodatkowy projekt NIE są wejściami —
+    idą do Zmian (``OrderChangeItem``).
 
     Pierwsza współpraca wynika z UMOWY, nie tylko z wiersza zamówienia —
     rejestr zamówień bywa młodszy niż współpraca, którą opisuje.
@@ -122,6 +124,8 @@ class OrderEntryItem(OrderRef):
     status: str
     # Tylko Nordea: gotowa pozycja faktury (``None`` = inny klient).
     invoice_lines: Optional[list[InvoiceLine]] = None
+    # Przejście od innego klienta: u kogo osoba była wcześniej.
+    previous_client_name: Optional[str] = None
 
 
 # Bez „continuation": osoba, która pracuje dalej (następca albo linia MD

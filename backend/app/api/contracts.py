@@ -1322,6 +1322,41 @@ _ORDER_SYNC_INPUTS = frozenset(
 )
 
 
+async def _move_order_drafts_with_contract_start(
+    db: AsyncSession, contract: Contract, *, previous_start: Optional[date]
+) -> int:
+    """Szkic zamówienia ze startem przepisanym z umowy idzie za nowym startem umowy.
+
+    Hook „Zatrudniony” zakłada umowę i szkic zamówienia ze startem „dziś”;
+    prawdziwy start umowy wpisuje się później. Szkic zostawał przy starej
+    dacie, więc osoba z wejściem w lutym stała w Finansach → Wejścia za
+    listopad (zgłoszenie 19.11.2026). Przesuwamy tylko szkic, którego nikt
+    nie ustawił sam: bez daty końca, ze startem pustym albo równym staremu
+    startowi umowy.
+    """
+
+    if contract.start_date is None or contract.start_date == previous_start:
+        return 0
+    result = await db.scalars(
+        select(ClientOrder)
+        .where(
+            ClientOrder.contract_id == contract.id,
+            ClientOrder.status == ClientOrderStatus.draft,
+        )
+        .order_by(ClientOrder.id.asc())
+        .with_for_update()
+    )
+    moved = 0
+    for order in result.all():
+        if order.end_date is not None:
+            continue
+        if order.start_date is not None and order.start_date != previous_start:
+            continue
+        order.start_date = contract.start_date
+        moved += 1
+    return moved
+
+
 async def _inherit_rates_into_unpriced_order_drafts(
     db: AsyncSession, contract: Contract
 ) -> int:
@@ -4477,6 +4512,10 @@ async def apply_contract_update(
         updates["billing_hours_per_month"] = contract.billing_hours_per_month
         updates["orders_in_md"] = contract.orders_in_md
 
+    if "start_date" in data.model_fields_set:
+        await _move_order_drafts_with_contract_start(
+            db, contract, previous_start=previous_start_date
+        )
     draft_orders_inherited = 0
     if data.model_fields_set & _DRAFT_ORDER_RATE_INHERITANCE_INPUTS:
         draft_orders_inherited = await _inherit_rates_into_unpriced_order_drafts(

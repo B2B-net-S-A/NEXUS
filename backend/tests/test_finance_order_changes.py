@@ -1089,10 +1089,14 @@ async def test_continuation_leaves_entries_and_lands_in_changes(
     assert row["previous_end_date"] == (first + timedelta(days=2)).isoformat()
 
 
-async def test_moving_to_another_client_is_a_client_change_not_an_entry(
+async def test_moving_to_another_client_is_an_entry_at_the_new_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
-    """Konsultant kończy u klienta A i startuje u B — to zmiana klienta."""
+    """Konsultant kończy u klienta A i startuje u B — wejście u B (19.11.2026).
+
+    Zgłoszenie: osoba po przerwie u nowego klienta od 02.11 nie stała
+    w Wejściach za listopad, bo liczyła się jako „Zmiana klienta”.
+    """
 
     first = _far_day(2054, 2057).replace(day=1)
     ids = await _seed(
@@ -1109,9 +1113,8 @@ async def test_moving_to_another_client_is_a_client_change_not_an_entry(
 
     body = await _month(app_client, app_auth_headers, first)
 
-    assert moved not in {e["order_id"] for e in body["entries"]}
-    row = next(c for c in body["changes"] if c["order_id"] == moved)
-    assert row["kind"] == "client_change"
+    assert moved not in {c["order_id"] for c in body["changes"]}
+    row = next(e for e in body["entries"] if e["order_id"] == moved)
     assert row["previous_client_name"]
     assert row["previous_client_name"] != row["client_name"]
 
@@ -1375,7 +1378,7 @@ async def test_draft_contract_is_not_proof_of_earlier_work(
     assert ids["order_id"] in {e["order_id"] for e in body["entries"]}
 
 
-async def test_earlier_contract_at_another_client_is_a_client_change(
+async def test_earlier_contract_at_another_client_is_an_entry_with_previous_client(
     app_client: AsyncClient, app_auth_headers: dict
 ):
     """Zakończona umowa u innego klienta, bez ani jednego zamówienia w NEXUSIE."""
@@ -1411,9 +1414,8 @@ async def test_earlier_contract_at_another_client_is_a_client_change(
 
     body = await _month(app_client, app_auth_headers, first)
 
-    assert ids["order_id"] not in {e["order_id"] for e in body["entries"]}
-    row = next(c for c in body["changes"] if c["order_id"] == ids["order_id"])
-    assert row["kind"] == "client_change"
+    assert ids["order_id"] not in {c["order_id"] for c in body["changes"]}
+    row = next(e for e in body["entries"] if e["order_id"] == ids["order_id"])
     assert row["previous_client_name"] == previous_name
 
 

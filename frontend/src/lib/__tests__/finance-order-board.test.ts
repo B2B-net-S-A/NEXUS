@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type {
   OrderChangeItem,
   OrderChangesResponse,
+  OrderEntryItem,
   OrderExitItem,
 } from "@/lib/api/finance";
 import {
@@ -87,6 +88,35 @@ function data(
 }
 
 describe("karta zamówienia", () => {
+  it("wejście od innego klienta mówi, u kogo osoba była wcześniej", () => {
+    const entry = {
+      ...change({}),
+      item_key: "ent:1",
+      start_date: "2026-11-02",
+      end_date: "2026-12-31",
+      rate_cost: 120,
+      rate_revenue: 152,
+      rate_unit: "hourly",
+      currency: "PLN",
+      order_type: "periodic",
+      status: "draft",
+      previous_client_name: "Klient A",
+    } as OrderEntryItem;
+    const [moved] = boardItems(
+      data([], { entries: [entry] }),
+      "entries",
+    );
+    expect(moved.title).toBe("Nowe zamówienie (zmiana klienta)");
+    expect(moved.note).toBe("wcześniej u: Klient A · szkic");
+
+    const [fresh] = boardItems(
+      data([], { entries: [{ ...entry, previous_client_name: null, status: "active" }] }),
+      "entries",
+    );
+    expect(fresh.title).toBe("Nowe zamówienie");
+    expect(fresh.note).toBeNull();
+  });
+
   it("ma nagłówek w formacie z „Zamówień PDF”", () => {
     expect(
       cardTitle({

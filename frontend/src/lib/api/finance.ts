@@ -183,6 +183,8 @@ export interface OrderEntryItem extends OrderRef {
   status: string;
   /** Tylko Nordea: gotowa pozycja faktury; `null`/brak = inny klient. */
   invoice_lines?: InvoiceLine[] | null;
+  /** Przejście od innego klienta (19.11.2026): u kogo osoba była wcześniej. */
+  previous_client_name?: string | null;
 }
 
 /**

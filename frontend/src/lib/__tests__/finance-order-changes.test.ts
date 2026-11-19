@@ -193,6 +193,10 @@ describe("finance order changes formatting", () => {
       "Nowy konsultant",
       "Szkic",
     ]);
+    // Przejście od innego klienta jest wejściem u nowego (19.11.2026).
+    expect(entryTags({ ...entry, previous_client_name: "Klient A" })).toEqual([
+      "Zmiana klienta",
+    ]);
   });
 
   it("keeps a late-filled gap visible with the delay", () => {

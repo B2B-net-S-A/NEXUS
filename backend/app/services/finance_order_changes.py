@@ -177,6 +177,11 @@ def _sort_key(item) -> tuple:
 
 EntryKind = Literal["new", "additional_project", "order_continuation", "client_change"]
 
+#: Klasy, które idą do Wejść. Przejście od innego klienta jest wejściem
+#: u nowego klienta (decyzja Artura 19.11.2026 — lustro Zejść, które liczą
+#: odejście od klienta A jako zejście z rozliczeń A).
+ENTRY_KINDS: frozenset[str] = frozenset({"new", "client_change"})
+
 
 @dataclass(frozen=True)
 class EntryClass:
@@ -494,9 +499,10 @@ async def _entries(
             currency=fact.currency,
             order_type=fact.order_type,
             status=fact.status,
+            previous_client_name=classes[fact.order_id].previous_client_name,
         )
         for fact in facts
-        if classes[fact.order_id].kind == "new"
+        if classes[fact.order_id].kind in ENTRY_KINDS
     ]
     # Nordea: gotowa pozycja faktury cyklicznej z PDF-a (ticket 8).
     invoice = await nordea_invoice_lines.entry_lines(
@@ -762,12 +768,12 @@ async def _changes(
         )
 
     # Nowe zamówienia osób, które już z nami pracują: kontynuacja u tego samego
-    # klienta, przejście do innego klienta i dodatkowy projekt. To są zmiany
-    # w trwającej współpracy, a nie wejścia — Finanse i tak potrzebują tu
-    # nowego numeru zamówienia do faktury.
+    # klienta i dodatkowy projekt. To są zmiany w trwającej współpracy, a nie
+    # wejścia — Finanse i tak potrzebują tu nowego numeru zamówienia do faktury.
+    # Przejście do innego klienta jest od 19.11.2026 w Wejściach (``ENTRY_KINDS``).
     for fact in entry_facts:
         entry_class = classes.get(fact.order_id)
-        if entry_class is None or entry_class.kind == "new":
+        if entry_class is None or entry_class.kind in ENTRY_KINDS:
             continue
         previous = entry_class.previous
         items.append(
@@ -1350,6 +1356,7 @@ def build_order_changes_workbook(
             [
                 "Konsultant",
                 "Klient",
+                "Wcześniej u klienta",
                 "Numer zamówienia",
                 "Data rozpoczęcia",
                 "Data zakończenia",
@@ -1367,6 +1374,7 @@ def build_order_changes_workbook(
                 [
                     item.consultant_name,
                     item.client_name,
+                    item.previous_client_name or "",
                     item.order_number,
                     item.start_date,
                     item.end_date,
@@ -1383,7 +1391,7 @@ def build_order_changes_workbook(
                 ]
                 for item in data.entries
             ],
-            [28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
+            [28, 28, 28, 22, 16, 16, 16, 18, 11, 9, 15, 10, 22, 70, 11, 22, 18],
         )
     if "exits" in wanted:
         _exit_like_sheet(workbook, f"Zejścia ({data.counts.exits})", data.exits, zone)
