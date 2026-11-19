@@ -17,6 +17,7 @@ from __future__ import annotations
 from app.services import admin_cases_schema as admin_cases
 from app.services import back_office_schema as back_office
 from app.services import back_office_role_schema as back_office_role
+from app.services import back_office_team_schema as back_office_team
 from app.services import board_role_schema as board_role
 from app.services import viewer_role_schema as viewer_role
 from app.services import care_announcements_schema as care_announcements
@@ -185,6 +186,8 @@ MODULES = (
     contract_rate_documents,
     # 0741: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
     order_cost_steps,
+    # 0743: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
+    back_office_team,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

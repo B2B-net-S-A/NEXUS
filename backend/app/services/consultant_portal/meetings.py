@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.scheduling import DEFAULT_TZ, is_business_day
 from app.models.admin_case import AdminCaseComment
-from app.models.back_office import BoTeamMember
+from app.models.back_office import BoMember
 from app.models.consultant_portal import CpMeeting, CpRating
 from app.models.user import User
 from app.services import prep_availability, prep_meetings
@@ -50,12 +50,8 @@ MIN_LEAD = timedelta(hours=2)
 WORK_START = time(9, 0)
 WORK_END = time(16, 0)
 MAX_UPCOMING = 3
-HOST_TEAMS: tuple[str, ...] = ("care", "finance", "contracts")
-TEAM_LABELS: dict[str, str] = {
-    "care": "Opieka",
-    "finance": "Finanse",
-    "contracts": "Umowy",
-}
+#: Jeden zespół (decyzja Artura 19.11.2026): konsultant wybiera osobę, nie zespół.
+HOST_TEAM_LABEL = "Back office"
 
 BOOKING_OFF = (
     "Rezerwacja rozmów jest chwilowo niedostępna. Załóż zgłoszenie, a oddzwonimy."
@@ -123,21 +119,17 @@ def slots_for(
 
 
 async def _host_rows(db: AsyncSession) -> list[tuple[User, str]]:
+    """Osoby z zespołu back office'u, które przyjmują rozmowy z portalu."""
+
     rows = (
-        await db.execute(
-            select(User, BoTeamMember.team)
-            .join(BoTeamMember, BoTeamMember.user_id == User.id)
-            .where(BoTeamMember.team.in_(HOST_TEAMS), User.is_active.is_(True))
-            .order_by(BoTeamMember.team, User.name)
+        await db.scalars(
+            select(User)
+            .join(BoMember, BoMember.user_id == User.id)
+            .where(BoMember.takes_calls.is_(True), User.is_active.is_(True))
+            .order_by(User.name)
         )
     ).all()
-    seen: set[int] = set()
-    out: list[tuple[User, str]] = []
-    for user, team in rows:
-        if user.id not in seen and user.email:
-            seen.add(user.id)
-            out.append((user, team))
-    return out
+    return [(user, HOST_TEAM_LABEL) for user in rows if user.email]
 
 
 async def _booked_blocks(
@@ -181,13 +173,14 @@ async def hosts_with_slots(
     rows = await _host_rows(db)
     busy = await _busy_by_email([user.email for user, _team in rows], now=now)
     booked = await _booked_blocks(db, [user.id for user, _team in rows], start=now)
-    preferred = content.TOPIC_TEAMS[topic]
     hosts = [
         {
             "id": user.id,
             "name": user.name,
-            "team": TEAM_LABELS.get(team, team),
-            "matches_topic": team == preferred,
+            "team": team,
+            # Bez podziału na zespoły nie ma „osoby od tematu”; pole zostaje dla
+            # zgodności odpowiedzi.
+            "matches_topic": False,
             "calendar_available": busy.get(user.email.lower()) is not None,
             "slots": [
                 slot.isoformat()
@@ -200,7 +193,7 @@ async def hosts_with_slots(
         }
         for user, team in rows
     ]
-    hosts.sort(key=lambda host: (not host["matches_topic"], host["name"] or ""))
+    hosts.sort(key=lambda host: host["name"] or "")
     return {"available": True, "message": None, "hosts": hosts}
 
 
@@ -310,6 +303,7 @@ async def book(
         title=f"Rozmowa: {content.TOPIC_LABELS[topic]}",
         description=row.reason or None,
         now=now,
+        host_user_id=host.id,
     )
     row.case_id = case.id
     await db.flush()
