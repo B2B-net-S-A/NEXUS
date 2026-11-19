@@ -1997,6 +1997,8 @@ CLIENT_FORM_FILL = PromptTemplate(
         "wzoru, sekcja, tabela):\n{fields}\n\n"
         "Tabele, do których można dopisać kolejne wiersze (klucze kolumn jak "
         '"c2"):\n{tables}\n\n'
+        'Pola z liczbą lat — każde musi mieć wpis w "years", także bez '
+        "stanowisk (id, nazwa wiersza):\n{years_fields}\n\n"
         "{cv}\n\n{notes}\n\n{rules}\n\n"
         "Zasady:\n"
         '- Wpisuj WYŁĄCZNIE fakty z CV i notatek. Każda wartość ma "quote": '
@@ -2017,7 +2019,11 @@ CLIENT_FORM_FILL = PromptTemplate(
         "podaj stanowiska, w których kandydat miał tę kompetencję: "
         'level "role", gdy opis stanowiska ją nazywa, "implied", gdy praca na '
         "tym stanowisku jej wymagała (np. tester w projekcie prowadzonym "
-        'w Jira); "quote" = fragment opisu stanowiska, który o tym mówi. '
+        "w Jira, dokumentacja testów przy raportowaniu wyników testów, "
+        "służba zdrowia przy projekcie dla NFZ albo szpitala); "
+        '"quote" = fragment opisu stanowiska, który o tym mówi. Przejdź '
+        "każde stanowisko przy każdym polu — pominięte stanowisko to lata, "
+        "których rekruter nie zobaczy. "
         'Kompetencja tylko na liście umiejętności = "skills_quote", bez '
         "stanowisk. Wiersz „ponad minimalne wymagania”: "
         '"minimum_years" i "minimum_quote" — fragment wymagań z liczbą lat. '

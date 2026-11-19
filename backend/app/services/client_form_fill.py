@@ -379,9 +379,7 @@ def check_parse(
 
     # Bez odpowiedzi modelu nie ma stanowisk — siatki lat też nie ma.
     years, years_dropped = (
-        _years(data, structure, sources, today or business_today())
-        if data
-        else ({}, 0)
+        _years(data, structure, sources, today or business_today()) if data else ({}, 0)
     )
     dropped += years_dropped
     for field_id, entry in years.items():
@@ -518,6 +516,19 @@ def missing_ids(structure: dict[str, Any], fields: dict[str, Any]) -> list[str]:
     ]
 
 
+def _years_prompt_fields(structure: dict[str, Any]) -> list[dict[str, str]]:
+    """Pola lat z nazwą wiersza — model bez tej listy pomijał „Kompetencje
+    dodatkowe” (staging 20.11.2026: dokumentacja, NFZ, rejestry bez wpisu)."""
+    from app.services.client_form_years import years_fields  # noqa: PLC0415
+
+    ids = years_fields(structure)
+    return [
+        {"id": item["id"], "row": item.get("row_label") or item.get("label") or ""}
+        for item in structure.get("fields") or []
+        if item["id"] in ids
+    ]
+
+
 def build_prompt(structure: dict[str, Any], sources: Sources) -> str:
     fields = [
         {
@@ -538,6 +549,7 @@ def build_prompt(structure: dict[str, Any], sources: Sources) -> str:
     return CLIENT_FORM_FILL.render(
         fields=json_for_prompt(fields),
         tables=json_for_prompt(extendable_tables(structure)),
+        years_fields=json_for_prompt(_years_prompt_fields(structure)),
         cv=fence("cv", sources.cv[:CV_MAX]),
         notes=fence("screening_notes", sources.notes[:NOTES_MAX]),
         rules=fence("scoring_rules", sources.rules[:RULES_MAX]),

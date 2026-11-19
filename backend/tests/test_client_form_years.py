@@ -355,9 +355,79 @@ def test_without_model_answer_there_is_no_grid() -> None:
 
 def test_prompt_asks_for_roles_not_for_computed_years() -> None:
     prompt = CLIENT_FORM_FILL.render(
-        fields="F", tables="T", cv="C", notes="N", rules="R"
+        fields="F", tables="T", years_fields="Y", cv="C", notes="N", rules="R"
     )
     assert 'NIE wpisuj w "fields" — lata policzy kod' in prompt
+    # Lista pól lat od kodu — bez niej model pomijał „Kompetencje dodatkowe”.
+    built = fill.build_prompt(_structure(), fill.Sources(cv=CV, notes=NOTES))
+    assert '"id": "t2.r6.c2", "row": "Staż pracy w projektach' in built
+    assert '"id": "p3"' in built
     assert '"roles": [{"key": str' in prompt
     assert '"thresholds": [{"years": int, "points": int}]' in prompt
     assert CLIENT_FORM_FILL.version == 6
+
+
+def test_minimum_in_the_row_name_is_a_requirement_not_a_subtraction() -> None:
+    # „Minimum 3-letnie doświadczenie w wytwarzaniu dokumentacji” to próg wymagania
+    # (staging 20.11.2026: 4 lata 11 mies. zamieniło się w 1 rok 11 mies.).
+    structure = {
+        "fields": [
+            {
+                "id": "t2.r8.c2",
+                "kind": "cell",
+                "label": "Liczba lat doświadczenia",
+                "row_label": (
+                    "Minimum 3-letnie doświadczenie w wytwarzaniu dokumentacji "
+                    "dla procesu testowania"
+                ),
+            }
+        ]
+    }
+    answer = {
+        "roles": ROLES,
+        "years": [
+            {
+                "id": "t2.r8.c2",
+                "roles": [
+                    {
+                        "key": "r1",
+                        "level": "role",
+                        "quote": "przygotowanie planów testów i raportów z testów",
+                    }
+                ],
+                "minimum_years": 3,
+                "minimum_quote": "Minimum 3-letnie doświadczenie",
+            }
+        ],
+    }
+    entry = _parse(answer, structure)["fields"]["t2.r8.c2"]
+    assert entry["value"] == "1 rok 9 mies."
+    assert entry["years"]["minimum_months"] is None
+
+
+def test_client_test_and_free_rows_are_not_years_fields() -> None:
+    # Staging 20.11.2026: „Test sprawdzający wiedzę” (test u klienta) i wolny
+    # „Wiersz 1” dostawały pytanie „w której firmie i od kiedy do kiedy?”.
+    structure = {
+        "fields": [
+            {
+                "id": "t2.r13.c2",
+                "kind": "cell",
+                "label": "Liczba lat doświadczenia",
+                "row_label": "Test sprawdzający wiedzę z zakresu wymagań podstawowych",
+            },
+            {
+                "id": "t2.r15.c2",
+                "kind": "cell",
+                "label": "Liczba lat doświadczenia",
+                "row_label": "Wiersz 1",
+            },
+            {
+                "id": "t2.r9.c2",
+                "kind": "cell",
+                "label": "Liczba lat doświadczenia",
+                "row_label": "Staż pracy w projektach związanych ze służbą zdrowia",
+            },
+        ]
+    }
+    assert years.years_fields(structure) == {"t2.r9.c2": "competency"}
