@@ -14,9 +14,14 @@ Faktura z terminem za sobą i czymś do zapłaty jest „po terminie” dopiero,
    tylko wyciągi, których uznania przeszły przez E8 (``credits_matched``)
    i które wgrano, gdy cały łańcuch faktury był już w NEXUSIE — E8 dopasowuje
    uznania tylko do istniejących faktur,
-4. **żadna wpłata do sprawdzenia** (E8 ``unmatched``) nie może być jej
-   zapłatą: numer faktury albo KSeF w tytule, albo ta sama waluta i kwota
-   równa temu, co zostało do zapłaty.
+4. **żadna wpłata, której E8 nie przypisało, nie może być jej zapłatą**:
+   wpłata do sprawdzenia (E8 ``unmatched``) i duplikat E8, którego oryginał
+   zniknął z „Usuń wyciąg”, z numerem faktury albo KSeF w tytule albo w tej
+   samej walucie z kwotą równą temu, co zostało do zapłaty; operacja Księgi
+   bez konta albo przypisana ręcznie (E8 jej nie zapisało, np. kwota pasowała
+   do kilku faktur) w tej samej walucie i kwocie, w dniach od wystawienia do
+   końca ciągłości. Same tytuły operacji Księgi się nie liczą: nogi VAT zapłat
+   dla dostawców niosą numery cudzych faktur, takie jak nasze (12.11.2026).
 
 Inaczej faktura ma „brak danych o zapłacie” z powodem (``REASONS``). Liczba dni
 po terminie liczy się do ostatniego dnia ciągłości (nie do dziś): po nim NEXUS
@@ -33,12 +38,13 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.models.client_sales_invoice import ClientSalesInvoicePayment
-from app.models.ledger import LedgerBankStatement
-from app.services.client_invoicing import issue_settings
+from app.models.ledger import LedgerBankLine, LedgerBankStatement
+from app.services.client_invoicing import issue_settings, payments
 from app.services.client_invoicing.billing import money
 from app.services.client_invoicing.ledger import Chain
 from app.services.hr.bank.titles import ksef_numbers_in, number_in_title
@@ -50,7 +56,7 @@ REASONS: dict[str, str] = {
     "no_account": "brak rachunku odbioru w ustawieniach wystawiania",
     "account_outside_ledger": "rachunku odbioru nie ma w Księgowość → Ustawienia",
     "statements": "brak ciągłych wyciągów rachunku od wystawienia do dnia po terminie",
-    "credit_pending": "wpłata do sprawdzenia może być zapłatą tej faktury",
+    "credit_pending": "wpłata z wyciągu nieprzypisana do faktury może być jej zapłatą",
 }
 
 _PATTERN_TOKENS = {
@@ -171,6 +177,8 @@ class Proof:
     #: NRB → wyciągi z saldami (po id, czyli w kolejności wgrania).
     statements: dict[str, tuple[KnownStatement, ...]]
     pending: tuple[PendingCredit, ...] = ()
+    #: Operacje Księgi bez konta albo przypisane ręcznie: (waluta, grosze) → dni.
+    unassigned: dict[tuple[str, int], tuple[date, ...]] = field(default_factory=dict)
     compensation: tuple[re.Pattern[str], ...] = ()
     _reach: dict[tuple[str, tuple[int, ...]], list[tuple[date, date]]] = field(
         default_factory=dict, repr=False
@@ -197,6 +205,15 @@ class Proof:
             self._reach[key] = reach([statement.span for statement in eligible])
         return last_day_from(self._reach[key], issued)
 
+    def _unassigned_for(self, chain: Chain, until: date) -> bool:
+        """Operacja Księgi, której E8 nie przypisało, w kwocie tego, co zostało."""
+
+        head = chain.head
+        key = (head.currency, int(chain.own_to_pay * 100))
+        return any(
+            head.issue_date <= day <= until for day in self.unassigned.get(key, ())
+        )
+
     def verdict(self, chain: Chain, today: date) -> Verdict:
         if chain.overdue_days(today) <= 0:
             return Verdict()
@@ -216,7 +233,7 @@ class Proof:
             return Verdict(
                 unknown=True, reason="statements", account=last4, until=until
             )
-        if pending_for(chain, self.pending):
+        if pending_for(chain, self.pending) or self._unassigned_for(chain, until):
             return Verdict(
                 unknown=True, reason="credit_pending", account=last4, until=until
             )
@@ -271,18 +288,66 @@ async def load(db: AsyncSession) -> Proof:
             booked_on=payment.booked_on,
             ksef_numbers=frozenset(ksef_numbers_in(payment.title or "")),
         )
-        for payment in await db.scalars(
-            select(ClientSalesInvoicePayment).where(
-                ClientSalesInvoicePayment.kind == "statement_line",
-                ClientSalesInvoicePayment.match_status == "unmatched",
-            )
-        )
+        for payment in await db.scalars(_pending_query())
     )
+    unassigned: dict[tuple[str, int], list[date]] = defaultdict(list)
+    for currency, amount, booked_on in await db.execute(
+        select(
+            LedgerBankLine.currency, LedgerBankLine.amount, LedgerBankLine.booked_on
+        ).where(
+            LedgerBankLine.direction == "credit",
+            LedgerBankLine.kind.in_(UNASSIGNED_KINDS),
+        )
+    ):
+        unassigned[(currency, int(amount))].append(booked_on)
     return Proof(
         issue=issue,
         ledger_accounts={account.number: account.currency for account in bank.accounts},
         statements={key: tuple(value) for key, value in statements.items()},
         pending=pending,
+        unassigned={key: tuple(days) for key, days in unassigned.items()},
+    )
+
+
+#: Operacje Księgi, których E8 nie przypisało do faktury sprzedaży.
+UNASSIGNED_KINDS = ("unmatched", "manual")
+
+
+def _ref_tail(column: Any) -> Any:
+    """Referencja banku z ``statement_line_ref`` („3:ABC” → „ABC”)."""
+
+    return func.substr(column, func.strpos(column, ":") + 1)
+
+
+def _pending_query() -> Any:
+    """Wpłaty do sprawdzenia i duplikaty E8 bez oryginału.
+
+    Duplikat (ta sama operacja na drugim pliku) E8 zapisuje jako ``ignored``.
+    Gdy „Usuń wyciąg” skasuje plik z oryginałem, zapłata faktury znika, a duplikat
+    zostaje — to wpłata, której NEXUS już nie przypisuje (przegląd 19.11.2026).
+    """
+
+    payment = ClientSalesInvoicePayment
+    original = aliased(ClientSalesInvoicePayment)
+    duplicate = and_(
+        payment.match_status == "ignored",
+        payment.reason == payments.DUPLICATE_REASON,
+    )
+    has_original = exists().where(
+        original.kind == "statement_line",
+        original.statement_sha256 != payment.statement_sha256,
+        original.booked_on == payment.booked_on,
+        original.amount == payment.amount,
+        _ref_tail(original.statement_line_ref) == _ref_tail(payment.statement_line_ref),
+        or_(
+            original.match_status != "ignored",
+            original.reason.is_(None),
+            original.reason != payments.DUPLICATE_REASON,
+        ),
+    )
+    return select(payment).where(
+        payment.kind == "statement_line",
+        or_(payment.match_status == "unmatched", and_(duplicate, ~has_original)),
     )
 
 

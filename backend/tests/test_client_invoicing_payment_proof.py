@@ -104,7 +104,9 @@ def _months(account: str, *months: int, **kwargs) -> list[KnownStatement]:
     return out
 
 
-def _proof(statements, *, issue=None, accounts=None, pending=()) -> Proof:
+def _proof(
+    statements, *, issue=None, accounts=None, pending=(), unassigned=None
+) -> Proof:
     by_account: dict[str, list[KnownStatement]] = {}
     for item in statements:
         by_account.setdefault(item.account, []).append(item)
@@ -115,6 +117,7 @@ def _proof(statements, *, issue=None, accounts=None, pending=()) -> Proof:
         else {PLN: "PLN", EUR_CLIENT: "EUR"},
         statements={key: tuple(value) for key, value in by_account.items()},
         pending=tuple(pending),
+        unassigned=unassigned or {},
     )
 
 
@@ -345,6 +348,25 @@ def test_credit_waiting_for_finance_may_be_the_payment():
     assert _verdict(older, _chain())[0] > 0
     other = _proof(statements, pending=[_pending("usługi", "1230.00", currency="EUR")])
     assert _verdict(other, _chain())[0] > 0
+
+
+def test_credit_e8_left_without_a_trace_may_be_the_payment():
+    """Przegląd 19.11.2026: dwie faktury po 1 230,00 zł, wpłata 1 230,00 zł bez
+    numeru — E8 jej nie zapisuje (kwota pasuje do kilku faktur), ale Księga ma ją
+    jako operację bez konta. Taka wpłata w oknie faktury blokuje „po terminie”."""
+
+    statements = _months(PLN, 4, 5, 6)
+    loose = _proof(statements, unassigned={("PLN", 123_000): (date(2026, 5, 20),)})
+    assert _verdict(loose, _chain()) == (0, "credit_pending")
+    # Inna kwota, inna waluta albo dzień poza oknem (przed wystawieniem, po
+    # ostatnim dniu ciągłości) nie blokują.
+    for key, day in (
+        (("PLN", 123_001), date(2026, 5, 20)),
+        (("EUR", 123_000), date(2026, 5, 20)),
+        (("PLN", 123_000), date(2026, 5, 3)),
+        (("PLN", 123_000), date(2026, 7, 1)),
+    ):
+        assert _verdict(_proof(statements, unassigned={key: (day,)}), _chain())[0] > 0
 
 
 # ── Payload i podsumowanie ───────────────────────────────────────────────────

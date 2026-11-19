@@ -28,9 +28,9 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.app_setting import AppSetting
 from app.models.client_sales_invoice import ClientSalesInvoicePayment
-from app.models.ledger import LedgerBankStatement
+from app.models.ledger import LedgerBankLine, LedgerBankStatement
 from app.models.section_permission import UserActionOverride
-from app.services.client_invoicing import sync
+from app.services.client_invoicing import payments, sync
 from app.services.client_invoicing.views import ROW_STATUS_LABELS
 from app.services.hr.bank import statements
 from app.services.hr.bank.accounts import iban_check_digits
@@ -320,9 +320,7 @@ async def test_overdue_needs_continuous_statements_of_the_receiving_account(
         "ledger",
         {
             "bank": {
-                "accounts": [
-                    {"number": account, "account": "130-1", "currency": "PLN"}
-                ]
+                "accounts": [{"number": account, "account": "130-1", "currency": "PLN"}]
             }
         },
     )
@@ -353,9 +351,12 @@ async def test_overdue_needs_continuous_statements_of_the_receiving_account(
         assert (scope["payment_unknown"], scope["payment_unknown_reasons"]) == (0, [])
         tab = (await _tab(client, seed.users["dl"], seed)).json()
         assert (tab["summary"]["overdue"], tab["summary"]["payment_unknown"]) == (3, 0)
-        assert fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"][
-            "overdue_days"
-        ] == 2
+        assert (
+            fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"][
+                "overdue_days"
+            ]
+            == 2
+        )
 
         # Drugi wyciąg nie otwiera się saldem zamknięcia pierwszego: łańcuch
         # kończy się 12.11, więc po terminie jest tylko faktura z terminem 10.11.
@@ -389,6 +390,84 @@ async def test_overdue_needs_continuous_statements_of_the_receiving_account(
             headers=fx.headers(seed.users["other_dl"]),
         )
         assert other.json()["invoices"] == []
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(LedgerBankStatement).where(LedgerBankStatement.id.in_(ids))
+            )
+            await db.commit()
+        for key, value in previous.items():
+            await _put_setting(key, value)
+
+
+async def test_overdue_waits_while_a_credit_nexus_did_not_assign_may_be_the_payment(
+    client, seed
+):
+    """Przegląd 19.11.2026: wpłata, której E8 nie przypisało, blokuje „po terminie”.
+
+    * duplikat E8 (ta sama operacja z drugiego pliku) bez oryginału — „Usuń
+      wyciąg” skasował plik, w którym operacja opłaciła fakturę;
+    * operacja Księgi bez konta w kwocie, która została do zapłaty — E8 jej nie
+      zapisało (np. ta sama kwota u kilku faktur, bez numeru w tytule).
+    """
+
+    account = _fake_nrb()
+    previous = {key: await _setting(key) for key in ("client_invoice_issue", "ledger")}
+    await _put_setting(
+        "client_invoice_issue", {"accounts": {"PLN": {"number": f"PL{account}"}}}
+    )
+    await _put_setting(
+        "ledger",
+        {
+            "bank": {
+                "accounts": [{"number": account, "account": "130-1", "currency": "PLN"}]
+            }
+        },
+    )
+    ids = await _statements(
+        account, [(date(2026, 11, 2), date(2026, 11, 19), 0, 90_000)]
+    )
+    dl = fx.headers(seed.users["dl"])
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientSalesInvoicePayment(
+                    kind="statement_line",
+                    match_status="ignored",
+                    reason=payments.DUPLICATE_REASON,
+                    amount=Decimal("100.00"),
+                    currency="PLN",
+                    booked_on=date(2026, 11, 12),
+                    title="Zapłata FS 10/118/2026",
+                    statement_sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+                    statement_format="mt940",
+                    statement_line_ref="1:ORPHAN",
+                )
+            )
+            # FS 10/124 minus korekta: 27 675,00 − 92,25 zł.
+            db.add(
+                LedgerBankLine(
+                    statement_id=ids[0],
+                    line_ref="1:LOOSE",
+                    position=1,
+                    booked_on=date(2026, 11, 10),
+                    direction="credit",
+                    amount=2_758_275,
+                    currency="PLN",
+                    amount_pln=2_758_275,
+                    kind="unmatched",
+                )
+            )
+            await db.commit()
+        scope = (
+            await client.get(f"{CLIENTS}/sales-invoices/overdue", headers=dl)
+        ).json()
+        assert [item["invoice_number"] for item in scope["invoices"]] == [
+            "FS 10/121/2026"
+        ]
+        assert [
+            (r["reason"], r["count"]) for r in scope["payment_unknown_reasons"]
+        ] == [("credit_pending", 2)]
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(

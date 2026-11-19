@@ -199,16 +199,26 @@ z korektami) z terminem za sobą i czymś do zapłaty jest „po terminie” tyl
 3. `statements` — łańcuch sald wyciągów tego rachunku (`ledger/bank_continuity.py`) od wyciągu otwartego **przed**
    dniem wystawienia (przy dacie SWIFT otwarcie z dniem X nie obejmuje operacji z dnia X) do dnia **po** terminie:
    termin w ostatnim dniu ciągłości to jeszcze brak danych. Wyciąg następuje po poprzednim, gdy jego saldo otwarcia
-   = saldo zamknięcia poprzedniego i nie ma między nimi dnia przerwy (otwarcie najpóźniej dzień po zamknięciu) albo
-   numer wyciągu banku jest następny (`:28C:`, `LglSeqNb`; w nowym roku numer kończy się na 001). Santander (eBI24)
+   = saldo zamknięcia poprzedniego i nic między nimi nie brakuje: przy znanych numerach wyciągów banku (`:28C:`,
+   `LglSeqNb`) numer jest następny (w nowym roku kończy się na 001; ten sam numer = części jednego wyciągu, tylko
+   w tym samym dniu), a bez numerów otwarcie wypada najpóźniej dzień po zamknięciu poprzedniego. Numery
+   rozstrzygają także przy stykających się datach: przy dacie SWIFT (otwarcie z dniem poprzedniego wyciągu)
+   brakujący wyciąg mieści się między dwoma sąsiednimi dniami (przegląd 19.11.2026: 45 → 47). Santander (eBI24)
    daje wyciąg tylko w dni z operacjami, a `:28C:` to rok i numer wyciągu w roku, więc dni bez wyciągu mostkuje
-   numer. Równe saldo nad luką bez numerów nie wystarcza: brakujący wyciąg mógł mieć wpływ i wypływ tej samej
-   kwoty (wpłata w EUR i jej wymiana). Liczą się tylko wyciągi wgrane, gdy cały łańcuch faktury był już
+   numer. Równe saldo nad luką nie wystarcza: brakujący wyciąg mógł mieć wpływ i wypływ tej samej kwoty
+   (wpłata w EUR i jej wymiana). Liczą się tylko wyciągi wgrane, gdy cały łańcuch faktury był już
    w NEXUSIE (`created_at`; E8 dopasowuje uznania tylko do istniejących faktur), i takie, których uznania przeszły
    przez E8 (`ledger_bank_statements.credits_matched`: moduł faktur do klientów wyłączony albo błąd E8 w ścieżce
    Płac = wyciąg nie dowodzi).
-4. `credit_pending` — wpłata do sprawdzenia (E8 `unmatched`) z numerem faktury albo KSeF w tytule albo w tej
-   samej walucie z kwotą równą temu, co zostało do zapłaty (nie sprzed wystawienia), może być jej zapłatą.
+4. `credit_pending` — wpłata z wyciągu, której E8 nie przypisało, może być jej zapłatą: wpłata do sprawdzenia
+   (E8 `unmatched`) i duplikat E8 bez oryginału (oryginał skasowało „Usuń wyciąg”) z numerem faktury albo KSeF
+   w tytule albo w tej samej walucie z kwotą równą temu, co zostało do zapłaty (nie sprzed wystawienia), oraz
+   operacja Księgi bez konta albo przypisana ręcznie (`ledger_bank_lines.kind` `unmatched`/`manual`) w tej samej
+   walucie i kwocie, w dniach od wystawienia do końca ciągłości. E8 nie zapisuje uznania bez numeru, którego
+   kwota pasuje do kilku faktur (przegląd 19.11.2026: dwie faktury po tej samej kwocie, wpłata jednego klienta
+   bez numeru). Tytułów operacji Księgi nie porównujemy: nogi VAT zapłat dla dostawców niosą numery cudzych
+   faktur, takie jak nasze (12.11.2026). Przelew zbiorczy za kilka faktur bez numerów w tytule nie pasuje kwotą
+   do żadnej — takie faktury Finanse zamykają „Opłacono”.
 
 - **Dni po terminie liczą się do ostatniego dnia ciągłości** (`statements_until`; przy fakturze „wyciągi do DD.MM”),
   nie do dziś: po nim NEXUS o wpłatach nie wie. Częściowa wpłata z dowodem dla reszty: „po terminie” z „zapłacono

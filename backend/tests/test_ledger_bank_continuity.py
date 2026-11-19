@@ -179,6 +179,26 @@ def test_gap_of_days_needs_consecutive_statement_numbers():
     assert not follows(friday, _span(500, date(2026, 11, 16), 700, date(2026, 11, 16)))
 
 
+def test_known_numbers_must_follow_even_when_days_touch():
+    """Data SWIFT (przegląd 19.11.2026): wyciąg 46 brakuje, a 45 zamknięty 12.11
+    i 47 otwarty 13.11 „stykają się” datami. Saldo się zgadza, bo 46 miał wpływ
+    i wypływ tej samej kwoty — numery pokazują lukę, więc łańcucha nie ma."""
+
+    first = _span(10_000, date(2026, 11, 11), 11_000, date(2026, 11, 12), 45, 45)
+    after_gap = _span(11_000, date(2026, 11, 13), 10_500, date(2026, 11, 14), 47, 47)
+    next_one = _span(11_000, date(2026, 11, 13), 10_500, date(2026, 11, 14), 46, 46)
+
+    assert not follows(first, after_gap)
+    assert covered_until([first, after_gap], date(2026, 11, 12)) == date(2026, 11, 12)
+    assert follows(first, next_one)
+    # Części jednego wyciągu (ten sam numer) łączą się tylko w tym samym dniu.
+    part = _span(11_000, date(2026, 11, 12), 11_500, date(2026, 11, 12), 45, 45)
+    assert follows(first, part)
+    assert not follows(
+        first, _span(11_000, date(2026, 11, 13), 11_500, date(2026, 11, 13), 45, 45)
+    )
+
+
 def test_statement_numbering_restarts_in_a_new_year():
     assert numbers_follow(26221, 27001, date(2026, 12, 30), date(2027, 1, 4))
     assert numbers_follow(301, 1, date(2026, 12, 30), date(2027, 1, 4))

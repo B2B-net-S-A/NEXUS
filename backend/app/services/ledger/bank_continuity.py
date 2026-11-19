@@ -11,13 +11,14 @@ z operacjami (numer wyciągu w roku rośnie tylko w te dni). Dowodem jest
   gdy każda jego część ma oba salda z datami, suma operacji pliku równa się
   sumie zmian sald, a kolejne części łączą się tak jak kolejne pliki (niżej);
 * **plik B następuje po A** (``follows``), gdy saldo otwarcia B = saldo
-  zamknięcia A, B nie otwiera się przed dniem zamknięcia A, a między nimi nie
-  ma dnia bez wyciągu (otwarcie B najpóźniej dzień po zamknięciu A — Santander
-  datuje saldo otwarcia dniem samego wyciągu, standard SWIFT dniem
-  poprzedniego) albo numery wyciągów banku idą po kolei (``:28C:`` 26101 →
-  26102; w nowym roku numer kończy się na 001). Równe saldo nad luką bez
-  numerów nie wystarcza: brakujący wyciąg mógł mieć wpływ i wypływ tej samej
-  kwoty (wpłata w EUR i jej wymiana na PLN tego samego dnia);
+  zamknięcia A, B nie otwiera się przed dniem zamknięcia A i nic między nimi
+  nie brakuje: przy znanych numerach wyciągów banku numer B jest następny po
+  A (``:28C:`` 26101 → 26102; w nowym roku numer kończy się na 001; ten sam
+  numer = części jednego wyciągu, tylko w tym samym dniu), a bez numerów
+  otwarcie B wypada najpóźniej dzień po zamknięciu A (Santander datuje saldo
+  otwarcia dniem samego wyciągu, standard SWIFT dniem poprzedniego). Równe
+  saldo nad luką nie wystarcza: brakujący wyciąg mógł mieć wpływ i wypływ tej
+  samej kwoty (wpłata w EUR i jej wymiana na PLN tego samego dnia);
 * **ostatni dzień ciągłości** (``covered_until``) liczy się od wyciągu
   otwartego przed danym dniem: przy dacie SWIFT wyciąg z otwarciem w dniu X
   nie obejmuje operacji z dnia X.
@@ -69,20 +70,28 @@ def numbers_follow(
 
 
 def follows(previous: Span, following: Span) -> bool:
-    """Wyciąg ``following`` zaczyna się dokładnie tam, gdzie skończył się ``previous``."""
+    """Wyciąg ``following`` zaczyna się dokładnie tam, gdzie skończył się ``previous``.
+
+    Gdy oba numery wyciągów są znane, rozstrzygają one: przy dacie SWIFT
+    wyciąg otwarty dzień po zamknięciu poprzedniego mógł mieć między nimi
+    brakujący wyciąg (przegląd 19.11.2026: 45 → 47). Ten sam numer to części
+    jednego wyciągu, więc tylko w tym samym dniu. Bez numerów — sąsiednie dni.
+    """
 
     if following.opening_balance != previous.closing_balance:
         return False
     if following.opening_day < previous.closing_day:
         return False
-    if following.opening_day <= previous.closing_day + timedelta(days=1):
-        return True
-    return numbers_follow(
-        previous.last_number,
-        following.first_number,
-        previous.closing_day,
-        following.opening_day,
-    )
+    if previous.last_number is not None and following.first_number is not None:
+        if following.first_number == previous.last_number:
+            return following.opening_day == previous.closing_day
+        return numbers_follow(
+            previous.last_number,
+            following.first_number,
+            previous.closing_day,
+            following.opening_day,
+        )
+    return following.opening_day <= previous.closing_day + timedelta(days=1)
 
 
 def _part(balance: BalanceCheck) -> Optional[Span]:
