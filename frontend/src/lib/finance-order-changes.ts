@@ -150,11 +150,12 @@ export function entryDetails(item: OrderEntryItem): string {
 }
 
 /**
- * W Wejściach są WYŁĄCZNIE osoby nowe — stąd stała plakietka. Kontynuacje,
- * zmiany klienta i dodatkowe projekty mają własne wiersze w Zmianach.
+ * W Wejściach są osoby nowe u klienta: pierwsza współpraca albo przejście od
+ * innego klienta (19.11.2026). Kontynuacje i dodatkowe projekty mają własne
+ * wiersze w Zmianach.
  */
 export function entryTags(item: OrderEntryItem): string[] {
-  const tags = ["Nowy konsultant"];
+  const tags = [item.previous_client_name ? "Zmiana klienta" : "Nowy konsultant"];
   if (item.status === "draft") tags.push("Szkic");
   return tags;
 }

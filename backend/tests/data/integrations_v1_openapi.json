@@ -7842,7 +7842,7 @@
         "type": "object"
       },
       "OrderEntryItem": {
-        "description": "Wejście = osoba, która zaczyna z nami współpracę po raz pierwszy.\n\nKontynuacja u tego samego klienta, przejście do innego klienta i dodatkowy\nprojekt NIE są wejściami — idą do Zmian (``OrderChangeItem``). Dlatego nie\nma tu już pól ``is_continuation`` / ``additional_project``: po korekcie\nkwalifikacji byłyby zawsze fałszywe, a pole, które zawsze kłamie w jedną\nstronę, zaprasza do budowania na nim.\n\nPierwsza współpraca wynika z UMOWY, nie tylko z wiersza zamówienia —\nrejestr zamówień bywa młodszy niż współpraca, którą opisuje.",
+        "description": "Wejście = osoba, która zaczyna pracę u TEGO klienta: pierwsza współpraca\nz nami albo przejście od innego klienta, u którego już skończyła.\n\nPrzejście do innego klienta jest wejściem od 19.11.2026 (decyzja Artura):\nZejścia od dawna liczą odejście od klienta A jako zejście z rozliczeń A,\nwięc start u B jest wejściem w rozliczenia B. ``previous_client_name``\nmówi wtedy, u kogo osoba była wcześniej (``None`` = pierwsza współpraca).\nKontynuacja u tego samego klienta i dodatkowy projekt NIE są wejściami —\nidą do Zmian (``OrderChangeItem``).\n\nPierwsza współpraca wynika z UMOWY, nie tylko z wiersza zamówienia —\nrejestr zamówień bywa młodszy niż współpraca, którą opisuje.",
         "properties": {
           "client_id": {
             "anyOf": [
@@ -8027,6 +8027,17 @@
                 "type": "null"
               }
             ]
+          },
+          "previous_client_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Client Name"
           },
           "rate_cost": {
             "anyOf": [

@@ -249,10 +249,20 @@ function entryItem(item: OrderEntryItem, index: number): BoardItem {
     sortAt: item.entered_at ?? item.start_date ?? "",
     label: "new_order",
     field: "new_order",
-    title: "Nowe zamówienie",
+    title: item.previous_client_name
+      ? "Nowe zamówienie (zmiana klienta)"
+      : "Nowe zamówienie",
     before: null,
     after: ratesText(item),
-    note: item.status === "draft" ? "szkic" : null,
+    note:
+      [
+        item.previous_client_name
+          ? `wcześniej u: ${item.previous_client_name}`
+          : null,
+        item.status === "draft" ? "szkic" : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || null,
     invoiceLines: item.invoice_lines ?? null,
   };
 }
