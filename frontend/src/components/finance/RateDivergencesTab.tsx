@@ -1,6 +1,7 @@
 "use client";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { OrderCostCorrections } from "@/components/finance/OrderCostCorrections";
 import {
   Table,
   TableBody,
@@ -17,8 +18,24 @@ import { countPl } from "@/lib/plural-pl";
 
 const rowKey = (row: RateDivergence) => `${row.person}|${row.order_number}|${row.leg}`;
 
-/** Finanse → „Rozjazdy stawek”: lista z nocnego raportu. Tylko odczyt, bez poprawek. */
-export function RateDivergencesTab() {
+/**
+ * Finanse → „Rozjazdy stawek”: najpierw zakończone zamówienia do korekty po
+ * zmianie stawki Partnera (0740), pod spodem nocny raport linii MD (tylko odczyt).
+ */
+export function RateDivergencesTab({ canWrite = false }: { canWrite?: boolean }) {
+  return (
+    <div className="space-y-8">
+      <OrderCostCorrections canWrite={canWrite} />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Linie zamówień MD</h2>
+        <MdLineDivergences />
+      </section>
+    </div>
+  );
+}
+
+/** Nocny raport: stawka z kontraktu a stawka linii zamówienia MD. */
+function MdLineDivergences() {
   const report = useRateDivergences();
 
   if (report.isLoading) {

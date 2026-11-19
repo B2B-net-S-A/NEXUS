@@ -8,6 +8,10 @@ vi.mock("@/lib/api", () => ({
   api: { get: (...a: unknown[]) => get(...a) },
 }));
 
+vi.mock("@/components/Toast", () => ({
+  useToast: () => ({ showError: vi.fn(), showSuccess: vi.fn() }),
+}));
+
 import { RateDivergencesTab } from "@/components/finance/RateDivergencesTab";
 import type { RateDivergence, RateDivergenceReport } from "@/lib/api/rate-divergences";
 
@@ -49,9 +53,18 @@ beforeEach(() => {
   get.mockReset();
 });
 
+/** Raport linii MD pod `rate-divergences`, lista do korekty (0740) pusta. */
+function respond(report: unknown) {
+  get.mockImplementation((url: string) =>
+    Promise.resolve({
+      data: url.includes("order-cost-corrections") ? { rows: [] } : report,
+    }),
+  );
+}
+
 describe("RateDivergencesTab", () => {
   it("lists person, client, amounts and marks rounding", async () => {
-    get.mockResolvedValue({ data: REPORT });
+    respond(REPORT);
     renderTab();
     expect(await screen.findByText("Maria Rozjazdowa")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "Bank Testowy" })[0]).toHaveAttribute(
@@ -64,8 +77,12 @@ describe("RateDivergencesTab", () => {
   });
 
   it("says when the report has not run yet", async () => {
-    get.mockResolvedValue({
-      data: { generated_at: null, month: null, checked_lines: 0, skipped: { no_contract_rate: 0, other_currency: 0 }, rows: [] },
+    respond({
+      generated_at: null,
+      month: null,
+      checked_lines: 0,
+      skipped: { no_contract_rate: 0, other_currency: 0 },
+      rows: [],
     });
     renderTab();
     expect(await screen.findByText(/Raport jeszcze nie powstał/)).toBeInTheDocument();
@@ -74,7 +91,9 @@ describe("RateDivergencesTab", () => {
   it("failure is not an empty list", async () => {
     get.mockImplementation(() => Promise.reject({ response: { status: 500 } }));
     renderTab();
-    expect(await screen.findByRole("button", { name: /Spróbuj ponownie/i })).toBeInTheDocument();
+    expect(
+      (await screen.findAllByRole("button", { name: /Spróbuj ponownie/i })).length,
+    ).toBeGreaterThan(0);
     expect(screen.queryByText(/stawki kontraktów i zamówień są zgodne/)).not.toBeInTheDocument();
   });
 });

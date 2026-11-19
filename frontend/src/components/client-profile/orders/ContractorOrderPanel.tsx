@@ -72,6 +72,7 @@ import {
   contractorEnding,
   contractorMissingOrder,
   contractorRates,
+  costPartsLabel,
   contractorRowSummary,
   fmtMoney,
   rateUnitSuffix,
@@ -290,6 +291,7 @@ export function ContractorOrderPanel({
   const { activeOrder, futureOrders, historyOrders } = split;
   knownOrderIdRef.current = activeOrder?.id ?? draftOrderId;
   const rates = contractorRates(contractor, activeOrder);
+  const costParts = costPartsLabel(activeOrder, rates.costCurrency, rates.unit);
   const {
     contractRateClientCurrency,
     contractRateCandidateCurrency,
@@ -649,6 +651,15 @@ export function ContractorOrderPanel({
           title="Stawka kosztowa pochodzi z kontraktu tej osoby — zmień ją w kontrakcie. Zaplanowane podwyżki wchodzą do zamówienia w swoim dniu."
         >
           (z kontraktu)
+        </span>
+      )}
+      {costParts && (
+        <span
+          data-tour="orders.cost-parts"
+          className="block text-[11px] font-normal leading-4 text-muted-foreground"
+          title="Stawka Partnera zmienia się w okresie tego zamówienia — każda część liczy się swoją stawką. Numer, PDF, przychód i faktury zostają przy jednym zamówieniu."
+        >
+          {costParts}
         </span>
       )}
     </span>

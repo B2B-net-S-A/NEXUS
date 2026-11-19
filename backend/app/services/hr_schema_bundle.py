@@ -28,6 +28,7 @@ from app.services import client_invoice_templates_schema as client_invoice_templ
 from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
+from app.services import order_cost_steps_schema as order_cost_steps
 from app.services import board_documents_schema as board_documents
 from app.services import board_budget_schema as board_budgets
 from app.services import board_statements_schema as board_statements
@@ -179,6 +180,8 @@ MODULES = (
     board_reports,
     # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
     contract_rate_documents,
+    # 0740: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
+    order_cost_steps,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

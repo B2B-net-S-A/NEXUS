@@ -17,7 +17,7 @@ import io
 import logging
 from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import (
     APIRouter,
@@ -38,10 +38,13 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import OrdersWorkUser
-from app.api.permission_access import FinanceModuleUser
+from app.api.permission_access import AmountsEditUser, FinanceModuleUser
 from app.api.section_access import FINANCE_SECTION_DEPENDENCIES, FinanceSectionUser
 from app.core.database import get_db
 from app.models.activity import Activity
+from app.models.client import Client
+from app.models.client_order import ClientOrder, ClientOrderStatus
+from app.models.contract import Contract
 from app.models.finance import (
     FinanceImportRun,
     FinanceImportRunStatus,
@@ -94,7 +97,11 @@ from app.services.finance_order_changes import (
     order_changes_filename,
     period_label,
 )
-from app.services import rate_divergence_report
+from app.services import order_cost_steps, rate_divergence_report
+from app.services.client_identity import client_display_name
+from app.services.contract_lifecycle import lock_contract_then_orders
+from app.services.order_write_errors import commit_order_write
+from app.core.scheduling import business_today
 from app.services.finance_import import (
     FinanceHeaderError,
     FinanceWorkbookError,
@@ -329,6 +336,124 @@ async def get_rate_divergences(
         "skipped": {"no_contract_rate": 0, "other_currency": 0},
         "rows": [],
     }
+
+
+# ── Do korekty po zmianie stawki (0740) ─────────────────────────────────────
+
+
+def _correction_row(found, client_name: str) -> dict[str, object]:
+    order, contract = found.order, found.contract
+    person = (
+        f"{contract.candidate.name} {contract.candidate.lastname}".strip()
+        if contract.candidate
+        else ""
+    )
+    unit = getattr(order.rate_unit, "value", order.rate_unit)
+    return {
+        "order_id": order.id,
+        "client_id": order.client_id,
+        "client_name": client_name,
+        "contract_id": contract.id,
+        "person": person,
+        "order_number": (order.title or "").strip(),
+        "start_date": order.start_date,
+        "end_date": order.end_date,
+        "unit": unit,
+        "currency": (order.rate_candidate_currency or "PLN").upper(),
+        "in_order": order_cost_steps.parts_label(found.in_order, order.end_date),
+        "in_contract": order_cost_steps.parts_label(found.in_contract, order.end_date),
+        "months": found.months,
+        "estimate": found.estimate,
+    }
+
+
+@router.get("/order-cost-corrections")
+async def get_order_cost_corrections(
+    _user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, object]:
+    """Zakończone zamówienia, których koszt rozjechał się ze zmianą stawki Partnera."""
+
+    found = await order_cost_steps.list_corrections(db, today=business_today())
+    names = (
+        {
+            c.id: client_display_name(c)
+            for c in await db.scalars(
+                select(Client).where(Client.id.in_({f.order.client_id for f in found}))
+            )
+        }
+        if found
+        else {}
+    )
+    return {
+        "rows": [_correction_row(f, names.get(f.order.client_id, "")) for f in found]
+    }
+
+
+async def _correction_target(db: AsyncSession, order_id: int):
+    from app.services.contract_rates import RATE_SCHEDULE_LOADS
+
+    await lock_contract_then_orders(db, order_ids=[order_id])
+    order = await db.scalar(
+        select(ClientOrder).where(ClientOrder.id == order_id).with_for_update()
+    )
+    if (
+        order is None
+        or order.order_group_id is not None
+        or order.status != ClientOrderStatus.completed
+    ):
+        raise HTTPException(
+            http_status.HTTP_404_NOT_FOUND,
+            detail="Na liście są tylko zakończone zamówienia jednej osoby.",
+        )
+    contract = await db.scalar(
+        select(Contract)
+        .where(Contract.id == order.contract_id)
+        .options(*RATE_SCHEDULE_LOADS, selectinload(Contract.candidate))
+    )
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, detail="Brak kontraktu.")
+    return order, contract
+
+
+@router.post("/order-cost-corrections/{order_id}/{decision}")
+async def decide_order_cost_correction(
+    order_id: int,
+    decision: Literal["apply", "dismiss"],
+    user: AmountsEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, object]:
+    """„Ustaw koszt z kontraktu” albo „Zostaw” dla zamówienia z listy."""
+
+    order, contract = await _correction_target(db, order_id)
+    try:
+        if decision == "apply":
+            found = await order_cost_steps.apply_correction(
+                db, order, contract, actor_id=user.id
+            )
+        else:
+            found = await order_cost_steps.dismiss_correction(
+                db, order, contract, actor_id=user.id
+            )
+    except LookupError as exc:
+        raise HTTPException(http_status.HTTP_409_CONFLICT, detail=str(exc)) from None
+    db.add(
+        Activity(
+            entity_type="client_order",
+            entity_id=order.id,
+            action=(
+                "order_cost_corrected" if decision == "apply" else "order_cost_kept"
+            ),
+            user_id=user.id,
+            details={
+                "contract_id": contract.id,
+                "in_order": [[d.isoformat(), str(r)] for d, r in found.in_order],
+                "in_contract": [[d.isoformat(), str(r)] for d, r in found.in_contract],
+                "estimate": str(found.estimate),
+            },
+        )
+    )
+    await commit_order_write(db)
+    return {"order_id": order.id, "decision": decision}
 
 
 @router.get("/periods", response_model=list[FinancePeriod])

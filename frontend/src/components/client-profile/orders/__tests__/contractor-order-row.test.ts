@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  costPartsLabel,
   canTerminateContractor,
   contractorRowSummary,
 } from "@/components/client-profile/orders/contractor-order-row";
@@ -239,5 +240,29 @@ describe("canTerminateContractor (re-eksport reguły)", () => {
     expect(canTerminateContractor("draft")).toBe(true);
     expect(canTerminateContractor("ended")).toBe(false);
     expect(canTerminateContractor("void")).toBe(false);
+  });
+});
+
+describe("costPartsLabel (koszt od dnia zmiany stawki, 0740)", () => {
+  it("lists every part with its days", () => {
+    expect(
+      costPartsLabel(
+        {
+          cost_parts: [
+            { from: "2026-07-01", to: "2026-08-31", rate: "120.000" },
+            { from: "2026-09-01", to: "2026-10-31", rate: "130.000" },
+            { from: "2026-11-01", to: "2026-12-15", rate: "140.000" },
+          ],
+        },
+        "PLN",
+        "hourly",
+      ),
+    ).toBe("120 PLN/h do 31.08.2026 · 130 PLN/h od 01.09.2026 · 140 PLN/h od 01.11.2026");
+  });
+
+  it("is null for one rate or no order", () => {
+    expect(costPartsLabel({ cost_parts: [] }, "PLN", "hourly")).toBeNull();
+    expect(costPartsLabel({ cost_parts: null }, "PLN", "hourly")).toBeNull();
+    expect(costPartsLabel(null, "PLN", "hourly")).toBeNull();
   });
 });

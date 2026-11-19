@@ -494,7 +494,13 @@ function OrdersTableRowView({
     const costCell = (
       <td className={RATE_CELL}>
         <RateText label={summary.costLabel} />
-        {summary.costFromContract ? <span className={CALM_SUBLINE}>z kontraktu</span> : null}
+        {summary.costPartsLabel ? (
+          <span className={CALM_SUBLINE} title={summary.costPartsLabel}>
+            w częściach od zmiany stawki
+          </span>
+        ) : summary.costFromContract ? (
+          <span className={CALM_SUBLINE}>z kontraktu</span>
+        ) : null}
       </td>
     );
     const revenueCell = (
