@@ -44,6 +44,9 @@ MODES = {"plan", "create", "deploy", "switch", "rollback", "stop", "preflight", 
 COMPOSE_NETWORK_RE = re.compile(r"(?ms)^networks:\s*\n(?:[ \t].*\n|\s*\n)*?  nexus-front:")
 REDIRECTS = {"www", "non-www", "both"}
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+# Linia `frontend/scripts/write-version.mjs` w logu builda. Bez „→” i „/”: json_encode
+# Coolify (PHP) i json.dumps je escapują.
+VERSION_LINE = "version.json (sha="
 UUID_RE = re.compile(r"[A-Za-z0-9_-]+")
 # Retry Traefika i łagodne wyłączanie: .github/scripts/coolify_labels.py
 RETRY_MIDDLEWARE = "nexus-front-retry"
@@ -227,6 +230,32 @@ def built_sha_line(logs: Any, commit: str) -> bool | None:
     return f"(sha={commit})" in (logs if isinstance(logs, str) else json.dumps(logs))
 
 
+def build_ran(logs: Any) -> bool:
+    """Czy log ma krok `write-version.mjs` w ogóle (z jakimkolwiek SHA).
+
+    Brak = Coolify nie budował obrazu. Przy `force=false` Coolify 4 pomija budowę,
+    gdy obraz z tym commitem już jest na serwerze, a konfiguracja się nie zmieniła
+    („Build step skipped”) — tak kończy się ręczne ponowienie Deploy tego samego SHA
+    (16.11.2026, bieg 43968908046: krok 55 s zamiast ok. 6,5 min budowy).
+    """
+    return VERSION_LINE in (logs if isinstance(logs, str) else json.dumps(logs))
+
+
+def served_sha(get: paths.Fetch, detail: dict[str, Any]) -> str | None:
+    """SHA z `/version.json`, który serwuje działający front (None = nie da się odczytać)."""
+    domains = real_domains(detail.get("fqdn"))
+    if not domains:
+        return None
+    status, _, body = get(public_domain(get, domains) + "/version.json", None)
+    if status != 200:
+        return None
+    try:
+        sha = json.loads(body or b"{}").get("sha")
+    except (ValueError, AttributeError):
+        return None
+    return sha if isinstance(sha, str) else None
+
+
 def trigger(request: Request, commit: str) -> str:
     """Wdrożenie frontu dokładnie z `commit`.
 
@@ -269,6 +298,7 @@ def wait(
     poll_seconds: float = 10.0,
     polls: int = 120,
     health_polls: int = 18,
+    get: paths.Fetch = paths.fetch,
 ) -> None:
     app = find_frontend(request)
     if app is None:
@@ -289,22 +319,43 @@ def wait(
     commit = str(deployment.get("commit") or "")
     print("commit wdrożenia: " + (commit[:12] or "brak"))
     built = built_sha_line(deployment.get("logs"), commit)
+    reused = built is False and not build_ran(deployment.get("logs"))
     print(
         "version.json z SHA wdrożenia w logu builda: "
-        + {True: "tak", False: "NIE", None: "niepotwierdzone (brak logów)"}[built]
+        + (
+            "brak budowy (Coolify użył istniejącego obrazu)"
+            if reused
+            else {True: "tak", False: "NIE", None: "niepotwierdzone (brak logów)"}[built]
+        )
     )
 
     app_status = "unknown"
+    detail: dict[str, Any] = {}
     for _ in range(health_polls):
-        app_status = str((request("GET", "applications/" + app["uuid"]) or {}).get("status"))
+        detail = request("GET", "applications/" + app["uuid"]) or {}
+        app_status = str(detail.get("status"))
         if app_status.startswith("running:healthy"):
             break
         time.sleep(poll_seconds)
     print("stan kontenera frontu: " + app_status)
-    if built is False:
+    if built is False and not reused:
         raise ValueError("obraz frontu nie ma version.json z SHA wdrożenia")
     if not app_status.startswith("running:healthy"):
         raise ValueError("kontener frontu nie przeszedł healthchecku")
+    if reused:
+        # Bez budowy w logu nie ma SHA, więc pytamy działający kontener. Inny SHA
+        # (albo brak odpowiedzi) = front nie ma kodu wdrożenia — to dalej czerwień.
+        sha = None
+        for attempt in range(3):
+            sha = served_sha(get, detail)
+            if sha == commit:
+                break
+            if attempt < 2:
+                time.sleep(poll_seconds)
+        shown = sha[:12] if sha and SHA_RE.fullmatch(sha) else ("nieczytelny" if not sha else "inny")
+        print("version.json działającego frontu: " + ("SHA wdrożenia" if sha == commit else shown))
+        if sha != commit:
+            raise ValueError("Coolify nie przebudował frontu, a działający kontener nie ma SHA wdrożenia")
 
 
 def deploy(request: Request, commit: str, **timing: Any) -> None:

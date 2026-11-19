@@ -7,6 +7,7 @@ office in Gdynia 3x/week, available from 01.12.2026, a Former employee…”.
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -422,7 +423,30 @@ def test_loop_never_resends_and_retries_at_most_three_times() -> None:
     )
 
 
-def test_webhook_body_sends_items_with_cv_url_but_not_internal_cards(
+def test_webhook_is_a_small_envelope_without_candidate_data(monkeypatch) -> None:
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "PUBLIC_API_BASE_URL", "https://api.example")
+    _, payload = _payload()
+    payload["candidate"]["first_name"] = "private-candidate-marker"
+    payload["offer"]["motivation"] = "private-motivation-marker " * 10000
+    run, token = runs.new_run([payload], now=NOW, submit=False)
+    run.id = 42
+    body = runs.webhook_body(run, token)
+    assert body == {
+        "run_id": 42,
+        "kind": "cpro_offers",
+        "token": token,
+        "task_url": "https://api.example/api/integrations/cpro-bot/runs/42/task",
+        "schema_version": 2,
+    }
+    encoded = json.dumps(body, ensure_ascii=False)
+    assert len(encoded.encode("utf-8")) < 512
+    assert "private-candidate-marker" not in encoded
+    assert "private-motivation-marker" not in encoded
+
+
+def test_task_body_sends_items_with_cv_url_but_not_token_or_internal_cards(
     monkeypatch,
 ) -> None:
     from app.core.config import settings
@@ -433,12 +457,14 @@ def test_webhook_body_sends_items_with_cv_url_but_not_internal_cards(
         [payload], now=NOW, submit=True, cards={"101": {"target_stage_def_id": 9}}
     )
     run.id = 42
-    body = runs.webhook_body(run, token)
+    body = runs.task_body(run)
     assert (
         body["callback_url"] == "https://api.example/api/integrations/cpro-bot/runs/42"
     )
     assert body["items"][0]["offer"]["cv_url"].endswith("/runs/42/cv/101")
     assert "cards" not in body and "cards" not in body["items"][0]
+    assert "token" not in body
+    assert body["schema_version"] == 2
     assert body["task"] == task_text.TASK and body["submit"] is True
     assert run.stage_ids == [101]
     assert run.token_hash == runs.hash_token(token)
@@ -449,7 +475,7 @@ def test_mixed_run_keeps_a_separate_account_on_every_item() -> None:
     _, marcin = _payload(stage_id=102, delivery_lead_id=27)
     run, token = runs.new_run([igor, marcin], now=NOW, submit=False)
     run.id = 42
-    body = runs.webhook_body(run, token)
+    body = runs.task_body(run)
     assert body["submit"] is False
     assert [(item["ref"], item["cpro_account"]) for item in body["items"]] == [
         (

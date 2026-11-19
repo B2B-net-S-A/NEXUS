@@ -17,9 +17,11 @@ import {
   EMPTY_STATE,
   TEXT,
   addCity,
+  answeredCount,
   buildPayload,
   officeNeeded,
   parseAmount,
+  pluralForm,
   rateSummary,
   stateFromAnswers,
   unitHint,
@@ -46,6 +48,48 @@ type Screen = "loading" | "form" | "saved" | "expired" | "invalid" | "optout" | 
 interface TermsPageProps {
   token: string;
   optOut: boolean;
+}
+
+type StepState = "done" | "open" | "expired";
+
+/** Pasek jak w mailu „Pasek postępu”: Zgłoszenie ✓ · CV ✓ · Twoje warunki. */
+function Progress({
+  labels,
+  last,
+  fill,
+  note,
+}: {
+  labels: readonly string[];
+  last: StepState;
+  fill: number;
+  note?: string;
+}) {
+  const states: StepState[] = ["done", "done", last];
+  return (
+    <ol className="wr-bar" aria-label={labels.join(", ")}>
+      {labels.map((label, i) => (
+        <li key={label} className={`wr-seg-${states[i]}`}>
+          <span className="wr-track" aria-hidden="true">
+            {states[i] === "open" && <span style={{ width: `${Math.round(fill * 100)}%` }} />}
+          </span>
+          <span className="wr-step">
+            {states[i] === "done" && <span aria-hidden="true">✓ </span>}
+            {label}
+            {states[i] === "expired" && note ? <small> · {note}</small> : null}
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function Title({ text }: { text: string }) {
+  return (
+    <h1>
+      {text}
+      <span className="wr-dot">.</span>
+    </h1>
+  );
 }
 
 function formatDate(iso: string, lang: Lang): string {
@@ -140,7 +184,10 @@ export function TermsPage({ token, optOut }: TermsPageProps) {
   return (
     <div className={`wr-root ${careerDisplayFont.variable}`} lang={lang}>
       <header className="wr-head">
-        <B2BLogo height={36} />
+        <span className="wr-logo">
+          <B2BLogo height={36} className="wr-logo-lt" />
+          <B2BLogo variant="onDark" height={36} className="wr-logo-dk" />
+        </span>
         <button type="button" className="wr-lang" onClick={() => setLang(lang === "pl" ? "en" : "pl")}>
           {t.lang}
         </button>
@@ -149,37 +196,50 @@ export function TermsPage({ token, optOut }: TermsPageProps) {
       <main className="wr-main">
         <section className="wr-intro" aria-live="polite">
           {screen === "loading" && <p>{t.loading}</p>}
+          {(screen === "form" || screen === "saved" || screen === "expired") && (
+            <>
+              <p className="wr-kicker">
+                {t.kicker}
+                {view?.job_title && (
+                  <>
+                    <br />
+                    <b>{view.job_title}</b>
+                  </>
+                )}
+              </p>
+              <Progress
+                labels={t.steps}
+                last={screen === "saved" ? "done" : screen === "expired" ? "expired" : "open"}
+                fill={(answeredCount(state) / 3) * 0.9}
+                note={t.expiredStep}
+              />
+            </>
+          )}
           {(screen === "form" || screen === "saved") && (
             <>
-              <h1>{screen === "saved" ? t.savedTitle : t.title}</h1>
+              <Title text={screen === "saved" ? t.savedTitle : t.title} />
               <p>
                 {screen === "saved" && view
                   ? `${t.savedLead} ${formatDate(view.expires_at, lang)}.`
                   : t.lead}
               </p>
-              {view?.job_title && (
-                <p className="wr-job">
-                  <small>{t.forJob}</small>
-                  {view.job_title}
-                </p>
-              )}
             </>
           )}
           {screen === "expired" && (
             <>
-              <h1>{t.expiredTitle}</h1>
+              <Title text={t.expiredTitle} />
               <p>{t.expiredLead}</p>
             </>
           )}
           {screen === "invalid" && (
             <>
-              <h1>{t.invalidTitle}</h1>
+              <Title text={t.invalidTitle} />
               <p>{t.invalidLead}</p>
             </>
           )}
           {(screen === "optout" || screen === "optout_done") && (
             <>
-              <h1>{t.optoutTitle}</h1>
+              <Title text={screen === "optout_done" ? t.optoutDoneTitle : t.optoutTitle} />
               <p>{screen === "optout_done" ? t.optoutDone : t.optoutLead}</p>
               {screen === "optout" && (
                 <button type="button" className="wr-btn" onClick={confirmOptOut} disabled={saving}>
@@ -214,7 +274,10 @@ export function TermsPage({ token, optOut }: TermsPageProps) {
                   : state.startKind === "date" && state.startDate
                     ? formatDate(state.startDate, lang)
                     : state.startKind === "notice"
-                      ? `${state.noticeValue} ${state.noticeUnit === "weeks" ? t.weeks : t.months}`
+                      ? `${state.noticeValue} ${pluralForm(
+                          Number(state.noticeValue),
+                          state.noticeUnit === "weeks" ? t.weekForms : t.monthForms,
+                        )} ${t.notice}`
                       : "—"}
               </dd>
             </dl>
@@ -439,16 +502,6 @@ export function TermsPage({ token, optOut }: TermsPageProps) {
               </div>
             </fieldset>
 
-            <label className="wr-consent" htmlFor="wr-consent">
-              <input
-                id="wr-consent"
-                type="checkbox"
-                checked={state.futureConsent === true}
-                onChange={(e) => patch({ futureConsent: e.target.checked ? true : null })}
-              />
-              <span>{t.consent}</span>
-            </label>
-
             {errors.includes("empty") && <p className="wr-alert">{t.errors.empty}</p>}
             {networkError && <p className="wr-alert">{t.errors.network}</p>}
 
@@ -462,11 +515,8 @@ export function TermsPage({ token, optOut }: TermsPageProps) {
 
       <footer className="wr-foot">
         <div className="wr-foot-inner">
-          <B2BLogo variant="onDark" height={24} />
-          <span>
-            B2B.NET S.A. · Al. Jerozolimskie 180, 02-486 Warszawa · KRS 0000387063 · NIP 5711707392
-          </span>
           <Link href="/kariera/rodo">{t.privacy}</Link>
+          <span>B2B.NET S.A. · Al. Jerozolimskie 180, 02-486 Warszawa · KRS 0000387063 · NIP 5711707392</span>
         </div>
       </footer>
     </div>

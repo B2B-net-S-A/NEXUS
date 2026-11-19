@@ -3517,6 +3517,23 @@
     "dot_anchor": "client.consultants"
   },
   {
+    "id": "kontrahenci-czeka-na-symfonie",
+    "pr": 3549,
+    "title": "Kontrahenci do założenia w Symfonii",
+    "why": "Lista firm z faktur, które nie mają jeszcze ID Symfonii. Pobierz plik dla księgowej, a gdy wpisze ID, wgraj go z powrotem — konta uzupełnią się same.",
+    "tier": "dot",
+    "shipped_on": "2026-11-17",
+    "audience": {
+      "permissions": [
+        "finance_module"
+      ]
+    },
+    "where": "Finanse → Kontrahenci → Czeka na Symfonię",
+    "href": "/finance",
+    "section": "finance",
+    "dot_anchor": "finance.counterparties-pending"
+  },
+  {
     "id": "profil-championa-co-sie-zmienilo",
     "pr": 3551,
     "title": "Co się zmieniło w Profilu Championa",
@@ -3596,20 +3613,32 @@
     "dot_anchor": "contracts.rate-document"
   },
   {
-    "id": "kontrahenci-czeka-na-symfonie",
-    "pr": 3549,
-    "title": "Kontrahenci do założenia w Symfonii",
-    "why": "Lista firm z faktur, które nie mają jeszcze ID Symfonii. Pobierz plik dla księgowej, a gdy wpisze ID, wgraj go z powrotem — konta uzupełnią się same.",
+    "id": "rekrutacja-dodana-termin-w-naglowku",
+    "pr": 3614,
+    "title": "Data dodania i termin w nagłówku rekrutacji",
+    "why": "Obok trybu pracy widzisz, kiedy rekrutację dodano i do kiedy klient czeka: „18.11 → 23.11 · za 4 dni”. Po terminie końcówka jest czerwona, pełne daty są w dymku.",
     "tier": "dot",
-    "shipped_on": "2026-11-17",
+    "shipped_on": "2026-11-19",
     "audience": {
-      "permissions": [
-        "finance_module"
+      "roles": [
+        "admin",
+        "head_of_recruitment",
+        "delivery_lead",
+        "recruiter"
       ]
     },
-    "where": "Finanse → Kontrahenci → Czeka na Symfonię",
-    "href": "/finance",
-    "section": "finance",
-    "dot_anchor": "finance.counterparties-pending"
+    "where": "Rekrutacja → nagłówek, za trybem pracy",
+    "href": "/jobs",
+    "practice_href": "/jobs/990001",
+    "section": "pipeline",
+    "dot_anchor": "job.header-dates",
+    "steps": [
+      {
+        "anchor": "job.header-dates",
+        "text": "Tu widzisz datę dodania rekrutacji i termin od klienta.",
+        "hint": "Czerwona końcówka znaczy, że termin minął. Najedź, żeby zobaczyć pełne daty z godziną.",
+        "ack": true
+      }
+    ]
   }
 ]

@@ -105,7 +105,7 @@ _OWN_CREDENTIAL_QUALNAME_MARKERS = (
     "require_signal_run_token",
     # Raport botów radaru przepisów: jednorazowy token biegu (``X-Run-Token``).
     "require_law_run_token",
-    # Bot Cpro: plik CV i raport biegu na jednorazowym tokenie (``X-Run-Token``).
+    # Bot Cpro: pełne zlecenie, CV i raport na tokenie biegu (``X-Run-Token``).
     "require_cpro_run_token",
 )
 

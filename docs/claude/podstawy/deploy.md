@@ -51,5 +51,14 @@
   - Brak odczytu zmiennych z API Coolify: bieg automatyczny pomija rebuild
     tylko przy tym samym kodzie (jak przed 18.10), ręczny wdraża. Każdy inny
     błąd sprawdzenia = wdrożenie.
+- **Ponowienie Deploy tego samego SHA nie buduje frontu (19.11.2026).** Aplikacja
+  `nexus-frontend` idzie z `force=false`, więc Coolify bierze obraz z tym commitem,
+  który już jest na serwerze („Build step skipped”), i w logu nie ma linii
+  `write-version.mjs`. Do 19.11 krok „Wait for frontend app deployment” kończył się
+  wtedy `obraz frontu nie ma version.json z SHA wdrożenia` przy `running:healthy`
+  (bieg 43968908046 z 16.11: 55 s zamiast ok. 6,5 min budowy). Teraz
+  `coolify_frontend_app.py wait` przy braku budowy czyta `/version.json` działającego
+  frontu: ten sam SHA = zielono, inny SHA, brak odpowiedzi albo front bez domeny =
+  czerwono. Budowa z innym SHA w logu dalej jest czerwona od razu.
 - **Rollback:** Coolify panel `https://coolify-nexus.dynaminds.pl` → Resources → nexus → Deployments → poprzedni → Redeploy. W dzień roboczy (pon–pt 08:00–18:00) tylko na polecenie Artura — to też przebudowa z przerwą; w weekend bez ograniczeń.
 - **Standardy + procedury:** patrz `~/.claude/rules/deployment.md` + `~/.claude/rules/deployment-runbook.md`.
