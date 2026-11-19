@@ -25,6 +25,11 @@ export interface SectionNavGroup {
   key: string;
   label: string;
   items: SectionNavItem[];
+  /**
+   * Cicha liczba przy nazwie grupy („Nasi ludzie 32”) — ile tam jest, nie ile
+   * do zrobienia (to `count` pozycji, plakietka w kolorze).
+   */
+  meta?: string;
   /** Kotwica nowości na grupie (zasady jak `SectionNavItem.tourId`). */
   tourId?: string;
 }
@@ -133,6 +138,11 @@ export function SectionNav({
             active,
             <>
               {group.label}
+              {group.meta ? (
+                <span className="text-[11px] font-normal tabular-nums text-muted-foreground">
+                  {group.meta}
+                </span>
+              ) : null}
               <CountBadge count={count} label={groupCountLabel(group)} />
             </>,
             group.key,

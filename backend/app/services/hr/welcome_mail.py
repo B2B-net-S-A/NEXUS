@@ -327,7 +327,7 @@ async def draft_for(
         issues.append(
             Issue(
                 "no_pack",
-                "Klient nie ma pakietu „Wejście u klienta” — mail ma tylko datę startu.",
+                "Klient nie ma pakietu „Start u klienta” — mail ma tylko datę startu.",
                 False,
             )
         )

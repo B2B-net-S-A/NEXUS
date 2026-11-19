@@ -11,23 +11,31 @@ export interface ClientTabGroup {
 }
 
 /**
- * Kolejność = kolejność w pasku. Rekord klienta w ośmiu grupach zamiast
- * dziewięciu zakładek i sześciu pod „Więcej”: wszystko o umowie (umowa ramowa,
- * stawki, raporty, których umowa wymaga) w „Umowach”, pieniądze
- * w „Rozliczeniach”, ludzie klienta w „Ludziach”.
+ * Kolejność = kolejność w pasku. Od 19.11.2026 (makieta „Klienci: nowe
+ * ekrany”, wariant A, decyzja Artura) pięć sekcji nazwanych pytaniami zamiast
+ * ośmiu grup: „Współpraca” była zbiorem zasad rekrutacji, startu konsultanta
+ * i Delivery Leada, „Ludzie” mieszali się z „Konsultantami”, a zasady
+ * rekrutacji nie stały w „Rekrutacjach”. Klucze `?tab=` bez zmian.
  */
 export const CLIENT_TAB_GROUPS: readonly ClientTabGroup[] = [
   { key: "przeglad", label: "Przegląd", tabs: ["profil"] },
-  // 18.11.2026: kto u klienta pracuje — umowa i bieżące zamówienie w jednym
-  // wierszu; zamówienia jako dokumenty i budżety MD obok (klucz `zamowienia`
-  // bez zmian, linki z powiadomień trafiają do tej samej grupy).
-  { key: "konsultanci", label: "Konsultanci", tabs: ["konsultanci", "zamowienia", "importy-md"] },
-  { key: "umowy", label: "Umowy", tabs: ["umowy-ramowe", "stawki-ramowe", "raporty"] },
-  { key: "rozliczenia", label: "Rozliczenia", tabs: ["faktury", "analityka"] },
-  { key: "wspolpraca", label: "Współpraca", tabs: ["zasady", "wejscie", "zespol"] },
-  { key: "ludzie", label: "Ludzie", tabs: ["kontakty", "ludzie"] },
-  { key: "rekrutacje", label: "Rekrutacje", tabs: ["projekty", "materialy", "konflikty"] },
-  { key: "sprzedaz", label: "Sprzedaż", tabs: ["sprzedaz"] },
+  // Kto od nas pracuje u klienta, na jakim zamówieniu, jak zaczyna i kto go
+  // prowadzi po naszej stronie (Delivery Lead — także chip w nagłówku).
+  {
+    key: "nasi-ludzie",
+    label: "Nasi ludzie",
+    tabs: ["konsultanci", "zamowienia", "wejscie", "zespol"],
+  },
+  // Czego klient szuka i jak u niego rekrutujemy.
+  { key: "rekrutacje", label: "Rekrutacje", tabs: ["projekty", "zasady", "materialy", "konflikty"] },
+  // Z kim po stronie klienta rozmawiamy: kontakty, działy, sprzedaż.
+  { key: "ludzie-klienta", label: "Ludzie klienta", tabs: ["kontakty", "ludzie", "sprzedaz"] },
+  // Na jakich warunkach i ile to daje.
+  {
+    key: "umowa",
+    label: "Umowa i pieniądze",
+    tabs: ["umowy-ramowe", "stawki-ramowe", "raporty", "faktury", "analityka", "importy-md"],
+  },
 ];
 
 /** Nazwa podzakładki — krótsza niż dawna etykieta, bo grupa mówi resztę. */
@@ -40,11 +48,11 @@ export const CLIENT_SUBTAB_LABELS: Readonly<Record<ClientTab, string>> = {
   raporty: "Raporty dla klienta",
   faktury: "Faktury i rozliczenie",
   analityka: "Analityka",
-  zasady: "Zasady współpracy",
-  wejscie: "Wejście u klienta",
+  zasady: "Zasady rekrutacji",
+  wejscie: "Start u klienta",
   zespol: "Delivery Lead",
-  kontakty: "Kontakty i relacje",
-  ludzie: "Ludzie i technologie",
+  kontakty: "Kontakty",
+  ludzie: "Działy i technologie",
   projekty: "Projekty",
   materialy: "Materiały dla rekruterów",
   konflikty: "Konflikty z kandydatami",
@@ -53,22 +61,30 @@ export const CLIENT_SUBTAB_LABELS: Readonly<Record<ClientTab, string>> = {
 };
 
 // Kotwice nowości (`data-tour`) prowadzące przeklikanie z listy klientów do
-// zakładki: grupa „Ludzie” otwiera od razu kontakty, w „Umowach” trzeba
-// jeszcze wybrać „Stawki i cennik”.
+// zakładki: grupa „Ludzie klienta” otwiera od razu kontakty, w „Umowie
+// i pieniądzach” trzeba jeszcze wybrać „Stawki i cennik”. Id kotwic zostały
+// z ośmiu grup, bo prowadzą po nich wpisy nowości.
 const GROUP_TOUR: Readonly<Record<string, string>> = {
-  ludzie: "client.sections.people", // data-tour="client.sections.people"
-  umowy: "client.sections.contracts", // data-tour="client.sections.contracts"
+  "ludzie-klienta": "client.sections.people", // data-tour="client.sections.people"
+  umowa: "client.sections.contracts", // data-tour="client.sections.contracts"
 };
 const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {
   "stawki-ramowe": "client.sections.framework-rates", // data-tour="client.sections.framework-rates"
 };
 
-/** Grupy z pozycjami, które ta osoba widzi (puste grupy odpadają). */
-export function clientSectionGroups(visibleTabs: readonly ClientTab[]): SectionNavGroup[] {
+/**
+ * Grupy z pozycjami, które ta osoba widzi (puste grupy odpadają). `meta` to
+ * cicha liczba przy nazwie grupy, np. `{ "nasi-ludzie": "32" }`.
+ */
+export function clientSectionGroups(
+  visibleTabs: readonly ClientTab[],
+  meta: Readonly<Partial<Record<string, string>>> = {},
+): SectionNavGroup[] {
   const visible = new Set(visibleTabs);
   return CLIENT_TAB_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
+    meta: meta[group.key],
     tourId: GROUP_TOUR[group.key],
     items: group.tabs
       .filter((tab) => visible.has(tab))

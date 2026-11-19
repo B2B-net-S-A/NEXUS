@@ -1,5 +1,5 @@
 {
-  "entry": "821187f0532063f652dbb1f747b914c744413bf6940173af47d22a05908bac03",
+  "entry": "b53ed4ef50313c21a3dfbb1a0e022c9c4629f769e6ec486f0f029a19b100498b",
   "guide": "client.people",
   "sources": {
     "frontend/src/components/care/client/ApprovalBar.tsx": "1611b7706ca78e1566615aa730061f394c7ea5e6a2ed8635c0d5ade368931ade",

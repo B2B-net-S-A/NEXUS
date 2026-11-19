@@ -782,7 +782,7 @@
    "id": "c.knowledge-stack",
    "opis": "Delivery Lead → Wiedza o kliencie: notatki „Stack technologiczny” do czytania, dopisuje się je w „Ludziach i technologiach” (jedno wejście, R2 22.10.2026)",
    "file": "app/clients/[id]/page.tsx",
-   "marker": "Dopisz w Ludziach i technologiach",
+   "marker": "Dopisz w Działach i technologiach",
    "b_home": "Profil klienta: „Więcej” → Delivery Lead → Wiedza o kliencie"
   },
   {

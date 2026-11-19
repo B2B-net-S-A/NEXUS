@@ -33,6 +33,9 @@ osobnymi zakładkami modułu.
 
 ## Profil klienta: osiem grup
 
+> **Od 19.11.2026 nieaktualne — pięć sekcji:** `klienci/profil-klienta-piec-sekcji.md`.
+> Opis niżej zostaje jako historia decyzji z 18.11.2026.
+
 - Grupy i podzakładki (`lib/client-tab-groups.ts`, test pilnuje, że każdy klucz
   `?tab=` ma dokładnie jedną grupę): Przegląd · Konsultanci (konsultanci,
   zamówienia, importy MD — od 18.11.2026, `klienci/zakladka-konsultanci-u-klienta.md`)
