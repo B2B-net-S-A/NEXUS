@@ -828,6 +828,13 @@
    "b_home": "Zakładka „Sprzęt” kontraktu, wiersz pozycji"
   },
   {
+   "id": "k.equipment-register-list",
+   "opis": "Zakładka „Sprzęt” kontraktu pokazuje urządzenia z rejestru „Sprzęt” (wydane i zwrócone) i liczy je w nagłówku — także dla podglądu Delivery bez uprawnienia „Sprzęt” (zgłoszenie 19.11.2026: import wydań nie zakłada wpisów zakładki)",
+   "file": "components/contracts/ContractEquipmentTab.tsx",
+   "marker": "useContractEquipmentRegister(contractId)",
+   "b_home": "Zakładka „Sprzęt” kontraktu, tabela i licznik w nagłówku"
+  },
+  {
    "id": "k.termination-equipment-return",
    "opis": "Zakończenie współpracy: lista sprzętu do zwrotu i zadanie odbioru dla recepcji",
    "file": "components/contracts/ContractTerminationDialog.tsx",

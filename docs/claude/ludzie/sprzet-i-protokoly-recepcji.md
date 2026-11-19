@@ -50,6 +50,19 @@ osobie z kartoteki i uczestniku Akademii.
 - Twarde skasowanie kontraktu kasuje kaskadą jego wydania — wyzwalacz zwraca
   egzemplarz na stan. Zakładka „Sprzęt” kontraktu (`contract_equipment`) wskazuje
   egzemplarz z rejestru (`item_id`, `assignment_id`).
+- **Sprzęt kontraktu czyta się z rejestru, nie z samego `contract_equipment`**
+  (zgłoszenie 19.11.2026). Import plików recepcji zakłada same wydania, bez wpisów
+  zakładki: na kopii produkcji z 19.11 wpisów było 0, a 27 obowiązujących
+  kontraktów miało niezwrócony sprzęt, który zakładka pokazywała jako „Brak
+  pozycji” obok „Przyjmij zwrot”. Zakładka (`ContractEquipmentTab`) bierze wydania
+  z `GET /api/equipment/contracts/{id}` (recepcja albo podgląd Delivery), wydane
+  i zwrócone, plus wpisy ręczne bez wydania; wpis z wydania kreatorem nie dubluje
+  wiersza (zostaje z niego termin zwrotu), wydanie z anulowanego protokołu nie
+  wraca jako „zwrócone”. Bez modułu (404) albo dostępu (403) — same wpisy, jak
+  przed modułem; awaria rejestru to komunikat, nie „Brak pozycji”. Tak samo liczą
+  okno zakończenia współpracy, zadanie „Odbierz sprzęt” (`tasks_for_contract_end`)
+  i raport anomalii admina (`ended_with_assigned_equipment`). Nowe miejsce, które
+  liczy sprzęt kontraktu, czyta oba źródła.
 
 ## Wydanie, zwrot, protokół
 

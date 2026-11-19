@@ -48,7 +48,7 @@ router = APIRouter()
 
 # Bump przy każdej zmianie definicji zapytań — raporty porównujemy tylko
 # w obrębie tej samej wersji.
-QUERY_VERSION = "m5-pr00-v4"
+QUERY_VERSION = "m5-pr00-v5"
 
 SAMPLE_LIMIT = 20
 CHECK_TIMEOUT_SECONDS = 20.0
@@ -326,16 +326,28 @@ _CHECKS: list[tuple[str, str, str, str]] = [
     (
         "ended_with_assigned_equipment",
         "P2",
-        "Kontrakt ended ze sprzętem wydanym i nadal nierozliczonym "
-        "(return_status=pending) — zakończenie bez zwrotu aktywów (P1.10).",
+        "Kontrakt ended ze sprzętem wydanym i nadal nierozliczonym — "
+        "zakończenie bez zwrotu aktywów (P1.10). Wpis zakładki „Sprzęt” "
+        "(return_status=pending, `equipment_id`) albo wydanie z rejestru "
+        "„Sprzęt” bez zwrotu (`item_id`): import plików recepcji zakłada same "
+        "wydania, bez wpisów zakładki. Wpis z wydania kreatorem liczy się raz.",
         """
-        SELECT c.id AS contract_id, e.id AS equipment_id,
+        SELECT c.id AS contract_id, e.equipment_id, e.item_id,
                COUNT(*) OVER () AS total_count
         FROM contracts c
-        JOIN contract_equipment e ON e.contract_id = c.id
+        JOIN (
+            SELECT ce.contract_id, ce.id AS equipment_id, NULL::integer AS item_id
+            FROM contract_equipment ce
+            WHERE ce.handed_over_date IS NOT NULL
+              AND ce.return_status = 'pending'
+              AND ce.assignment_id IS NULL
+            UNION ALL
+            SELECT a.contract_id, NULL::integer, a.item_id
+            FROM equipment_assignments a
+            WHERE a.contract_id IS NOT NULL
+              AND a.returned_at IS NULL
+        ) e ON e.contract_id = c.id
         WHERE c.status = 'ended'
-          AND e.handed_over_date IS NOT NULL
-          AND e.return_status = 'pending'
         ORDER BY c.id DESC
         LIMIT :sample_limit
         """,

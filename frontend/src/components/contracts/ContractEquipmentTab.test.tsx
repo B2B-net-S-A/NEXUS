@@ -25,8 +25,8 @@ vi.mock("@/components/Toast", () => ({
   useToast: () => ({ showToast: vi.fn() }),
 }));
 
-// Rejestr „Sprzęt” (moduł „Ludzi w NEXUSIE”): domyślnie brak konfiguracji —
-// zakładka działa jak przed modułem.
+// Rejestr „Sprzęt” (moduł „Ludzi w NEXUSIE”): domyślnie brak konfiguracji
+// i moduł wyłączony (404) — zakładka działa jak przed modułem.
 const register = vi.hoisted(() => ({
   config: undefined as unknown,
   holder: undefined as unknown,
@@ -36,6 +36,16 @@ vi.mock("@/lib/api/hr", () => ({
 }));
 vi.mock("@/lib/api/equipment", () => ({
   useHolderEquipment: () => ({ data: register.holder }),
+  useContractEquipmentRegister: () =>
+    register.holder
+      ? { data: register.holder, isLoading: false, isSuccess: true, error: null, refetch: vi.fn() }
+      : {
+          data: undefined,
+          isLoading: false,
+          isSuccess: false,
+          error: { response: { status: 404 } },
+          refetch: vi.fn(),
+        },
 }));
 vi.mock("@/components/equipment/IssueWizard", () => ({
   IssueWizard: () => <div>kreator wydania</div>,
@@ -115,6 +125,30 @@ describe("ContractEquipmentTab — pozycje z magazynu (rejestr „Sprzęt”)", 
     item_id: 11,
     assignment_id: 21,
   };
+  // To samo wydanie w rejestrze — zakładka pokazuje je raz, z rejestru.
+  const issued = {
+    assignment_id: 21,
+    item_id: 11,
+    category: "laptop",
+    model_name: "Dell Vostro 3530",
+    inventory_number: null,
+    serial_number: "TEST0001",
+    imei: null,
+    phone_number: null,
+    access_card_number: null,
+    ownership: "nasz",
+    item_status: "wydany",
+    holder: { kind: "contract", id: 42, name: "Jan Testowy", client_name: null },
+    issued_at: "2026-08-01T08:00:00+00:00",
+    returned_at: null,
+    return_condition: null,
+    return_notes: null,
+    issue_protocol: null,
+    issue_protocol_id: null,
+    return_protocol: null,
+    return_protocol_id: null,
+    unit_value: null,
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -143,7 +177,7 @@ describe("ContractEquipmentTab — pozycje z magazynu (rejestr „Sprzęt”)", 
     };
     register.holder = {
       holder: { kind: "contract", id: 42, name: "Jan Testowy", email: null, detail: null },
-      active: [{ assignment_id: 21 }],
+      active: [issued],
       history: [],
       protocols: [],
     };
@@ -161,7 +195,7 @@ describe("ContractEquipmentTab — pozycje z magazynu (rejestr „Sprzęt”)", 
     };
     register.holder = {
       holder: { kind: "contract", id: 42, name: "Jan Testowy", email: null, detail: null },
-      active: [{ assignment_id: 21 }],
+      active: [issued],
       history: [],
       protocols: [],
     };
