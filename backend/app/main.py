@@ -4884,7 +4884,7 @@ async def api_health_deep_check(request: Request):
         ("bo_cards", BoCard),
         ("bo_card_events", BoCardEvent),
         ("bo_team_members", BoTeamMember),
-        # 0743: jeden zespół back office'u i ściąga klienta.
+        # 0745: jeden zespół back office'u i ściąga klienta.
         ("bo_members", BoMember),
         ("bo_client_notes", BoClientNote),
         # 0643: portal konsultanta.

@@ -1,5 +1,5 @@
 # Back office jako jeden zespół — etykiety, „Weź następną”, „Na zewnątrz”, bez opiekunów
-<!-- indeks: bo_members, rola w zespole, przyjmuje rozmowy, etykiety zamiast zespołów, folded, Weź następną, Na zewnątrz, outside_team, automatic_assignee, sprawy osób spoza zespołu, ściąga klienta, bo_client_notes, przegląd hurtem, Tablica Opieki, 0743 -->
+<!-- indeks: bo_members, rola w zespole, przyjmuje rozmowy, etykiety zamiast zespołów, folded, Weź następną, Na zewnątrz, outside_team, automatic_assignee, sprawy osób spoza zespołu, ściąga klienta, bo_client_notes, przegląd hurtem, Tablica Opieki, 0745 -->
 
 Decyzje Artura z 10.11 i 19.11.2026 (makiety: https://claude.ai/artifact/3fRpacW9KwiZyGWkanPPWj).
 Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kolejka-spraw.md`.
@@ -10,7 +10,7 @@ Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kol
   dawne kolumny zostają na kartach jako **etykiety** (`board.LABELS`, `bo_cards.team` i `lane`
   bez zmian), a rodzina etykiety (dawny zespół) służy tylko do filtrowania. Bo Artur:
   „wszystko jest w formie etykietowej i kto jest pierwszy dostępny, to rozwiązuje”.
-- Skład: `bo_members` (0743) z rolą `deputy` (zastępca Heada, kierownik kolejki pod jego
+- Skład: `bo_members` (0745) z rolą `deputy` (zastępca Heada, kierownik kolejki pod jego
   nieobecność; jeden naraz, nowy zdejmuje rolę poprzedniemu), `reception`, `accountant`,
   `member` i przełącznikiem `takes_calls`. Head zostaje w „Struktura” (`hr_divisions`);
   19.11 Artur zostawił go pustym — kierownikiem jest admin. Nie wpisuj Heada sam.

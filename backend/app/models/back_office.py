@@ -114,7 +114,7 @@ class BoCard(Base):
     needs_review: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
-    #: 0743: dział poza back office'em, na który sprawa czeka („Na zewnątrz”).
+    #: 0745: dział poza back office'em, na który sprawa czeka („Na zewnątrz”).
     outside_team: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -170,7 +170,7 @@ class BoTeamMember(Base):
 
 
 class BoMember(Base):
-    """0743: jeden zespół back office'u z rolą i przełącznikiem rozmów z portalu."""
+    """0745: jeden zespół back office'u z rolą i przełącznikiem rozmów z portalu."""
 
     __tablename__ = "bo_members"
     __table_args__ = (
@@ -204,7 +204,7 @@ class BoMember(Base):
 
 
 class BoClientNote(Base):
-    """0743: ściąga klienta — jeden blok tekstu na klienta i temat."""
+    """0745: ściąga klienta — jeden blok tekstu na klienta i temat."""
 
     __tablename__ = "bo_client_notes"
     __table_args__ = (

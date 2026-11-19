@@ -186,7 +186,7 @@ MODULES = (
     contract_rate_documents,
     # 0741: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
     order_cost_steps,
-    # 0743: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
+    # 0745: jeden zespół back office'u, „Na zewnątrz” i ściąga klienta (19.11.2026).
     back_office_team,
 )
 
