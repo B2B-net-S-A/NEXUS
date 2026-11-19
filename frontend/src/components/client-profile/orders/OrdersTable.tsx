@@ -496,7 +496,7 @@ function OrdersTableRowView({
         <RateText label={summary.costLabel} />
         {summary.costPartsLabel ? (
           <span className={CALM_SUBLINE} title={summary.costPartsLabel}>
-            w częściach od zmiany stawki
+            w częściach
           </span>
         ) : summary.costFromContract ? (
           <span className={CALM_SUBLINE}>z kontraktu</span>

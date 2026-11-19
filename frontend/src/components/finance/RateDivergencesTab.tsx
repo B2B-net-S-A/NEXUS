@@ -16,7 +16,10 @@ import { formatMomentPl, monthTitlePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 
-const rowKey = (row: RateDivergence) => `${row.person}|${row.order_number}|${row.leg}`;
+// Ta sama osoba bywa na zamówieniu dwiema liniami z tą samą stawką (Lotte Wedel,
+// 19.11) — indeks odróżnia wiersze, które raport zwraca osobno.
+const rowKey = (row: RateDivergence, index: number) =>
+  `${row.person}|${row.order_number}|${row.leg}|${index}`;
 
 /**
  * Finanse → „Rozjazdy stawek”: najpierw zakończone zamówienia do korekty po
@@ -89,8 +92,8 @@ function MdLineDivergences() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.rows.map((row) => (
-                <TableRow key={rowKey(row)} className={`${CALM_ROW} align-top`}>
+              {data.rows.map((row, index) => (
+                <TableRow key={rowKey(row, index)} className={`${CALM_ROW} align-top`}>
                   <TableCell className="min-w-0">
                     <span className="block truncate">{row.person}</span>
                     {row.rounding ? (
