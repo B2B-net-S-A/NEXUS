@@ -13,7 +13,10 @@ zostają w tabeli).
 
 from alembic import op
 
-from app.services.b2b_documents.schema_sql import TYPE_CHECK_DDL, TYPES_BEFORE_0743
+from app.services.b2b_documents.schema_sql import (
+    TYPE_CHECK_DDL,
+    TYPES_BEFORE_PRELIMINARY_B2B,
+)
 
 revision = "0744_b2b_document_preliminary_b2b"
 down_revision = "0743_admin_cases_settlements_area"
@@ -27,7 +30,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    allowed = ", ".join(f"'{t}'" for t in TYPES_BEFORE_0743)
+    allowed = ", ".join(f"'{t}'" for t in TYPES_BEFORE_PRELIMINARY_B2B)
     op.execute(
         "ALTER TABLE b2b_contract_documents "
         "DROP CONSTRAINT IF EXISTS ck_b2b_contract_documents_type"
