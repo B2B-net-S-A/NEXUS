@@ -29,7 +29,7 @@ export interface ContractAccess {
   /** Benchmark stawek — backend trzyma go za `view_finance` bez wyjątku portfela DL. */
   canViewBenchmark: boolean;
   /**
-   * Zakładka „Faktury” (faktury konsultanta z KSeF, tylko do odczytu) — jak
+   * Faktury konsultanta z KSeF w zakładce „Pieniądze” (tylko do odczytu) — jak
    * Finanse → Rozliczenia: „Moduł Finanse”, bez Delivery Leada i Back office
    * (decyzja Artura 19.11.2026).
    */

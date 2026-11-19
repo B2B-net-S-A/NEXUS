@@ -1,6 +1,8 @@
-# Zakładka „Faktury” kontraktu = faktury konsultanta z KSeF (19.11.2026)
+# Faktury kontraktu = faktury konsultanta z KSeF (19.11.2026)
 
-Do 19.11.2026 zakładka czytała ręczny rejestr `invoices` (`/api/invoices`,
+Od przebudowy strony kontraktu (#3639, 7 zakładek) faktury są sekcją zakładki
+„Pieniądze” (`?tab=money`; dawny adres `?tab=invoices` prowadzi tutaj).
+Do 19.11.2026 zakładka „Faktury” czytała ręczny rejestr `invoices` (`/api/invoices`,
 Phase 9 C1, #35) z przyciskiem „Dodaj fakturę”. Na kopii produkcji z 19.11
 tabela miała 0 wierszy od powstania (17.04.2026), więc zakładka zawsze
 pokazywała „Brak faktur”, a prawdziwe faktury konsultantów z KSeF leżały
