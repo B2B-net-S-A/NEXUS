@@ -521,13 +521,16 @@ async def notify_request(
 async def team_recipients(
     db: AsyncSession, job: Job, *, actor_id: Optional[int]
 ) -> list[int]:
-    """Rekruterzy pracujący nad rekrutacją i jej Delivery Lead, bez autora."""
+    """Rekruterzy pracujący nad rekrutacją, bez autora.
+
+    Bez Delivery Leada (decyzja Artura 19.11.2026: DL dostaje tylko to, przy
+    czym ma coś do zrobienia). P0 widzi on dalej na pulpicie i w pasku
+    (``visible_to``); DL, który jest też rekruterem rekrutacji, dostaje dzwonek
+    jako rekruter."""
     from app.services.job_team import recruiters_for_jobs, working  # noqa: PLC0415
 
     team = working((await recruiters_for_jobs(db, [job.id])).get(job.id, []))
     ids = [person.user_id for person in team]
-    if job.delivery_lead_id is not None:
-        ids.append(job.delivery_lead_id)
     return [uid for uid in dict.fromkeys(ids) if uid != actor_id]
 
 
