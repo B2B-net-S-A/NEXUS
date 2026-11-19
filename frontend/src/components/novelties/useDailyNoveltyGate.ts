@@ -14,7 +14,7 @@ import { useDailyStatus, useStartStatus } from "@/lib/novelties/api";
 import { DAILY_PATH, dailyBlocks } from "@/lib/novelties/daily";
 import { readTour } from "@/lib/novelties/logic";
 import { isPoligonActive } from "@/lib/poligon/mode";
-import { useAuthStore } from "@/store/auth";
+import { isBoardOnly, useAuthStore } from "@/store/auth";
 
 /** `true` = ekranu nie pokazujemy, trwa przekierowanie na porcję. */
 export function useDailyNoveltyGate(): boolean {
@@ -37,6 +37,7 @@ export function useDailyNoveltyGate(): boolean {
     poligon: isPoligonActive(),
     pathname,
     touringBatch,
+    boardOnly: isBoardOnly(user),
   });
 
   useEffect(() => {

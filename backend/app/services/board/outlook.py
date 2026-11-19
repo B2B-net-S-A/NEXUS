@@ -5,13 +5,14 @@ pulpit pokazuje stan gotówki, aktualną zdolność kredytową, wartość spół
 dla inwestora finansowego i branżowego oraz symulację sprzedaży i zysku
 brutto na koniec roku.
 
-* **Baza** — ostatni pełny rok ze sprawozdania (R4: XML z eKRS, wpis ręczny
-  albo księga), bo tylko tam są EBITDA i dług.
-* **„Aktualna”** — EBITDA bazy + zmiana zysku brutto z faktur: 12 ostatnich
-  miesięcy z pełnymi kosztami wobec roku bazy. Koszty spoza faktur (płace UoP,
-  ZUS) zakładamy na poziomie roku bazy; to szacunek, nie sprawozdanie.
-* **Dług netto** = dług finansowy ze sprawozdania − gotówka (wpis Zarządu,
-  gdy nowszy niż koniec roku bazy; inaczej gotówka ze sprawozdania).
+* **EBITDA** — zysk brutto z faktur z 12 ostatnich miesięcy z pełnymi kosztami
+  + amortyzacja przyjęta na stałe 1 mln zł rocznie (uwagi Rady z 19.11.2026:
+  amortyzacja jest mała, wystarczy stała; wcześniej EBITDA brała się ze
+  sprawozdania). Koszty spoza faktur (płace UoP, ZUS) nie wchodzą — to
+  przybliżenie, nie sprawozdanie.
+* **Dług netto** = dług finansowy z ostatniego sprawozdania (brak = 0)
+  − gotówka (wpis Zarządu, gdy nowszy niż koniec roku sprawozdania; inaczej
+  gotówka ze sprawozdania).
 * **Symulacja roku** — wykonanie miesięcy z fakturami + prognoza z kontraktów
   z Budżetu (R3) w dwóch scenariuszach; zysk brutto = sprzedaż × (1 − udział
   kosztów z faktur w 12 miesiącach kroczących).
@@ -79,47 +80,47 @@ def base_year(years: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
     return max(full, key=lambda y: y["year"]) if full else None
 
 
+#: Uwagi Rady z 19.11.2026: amortyzacja mała i mało znacząca — 1 mln zł rocznie.
+AMORTIZATION = 1_000_000.0
+
+
 def current_figures(
     base: Optional[dict[str, Any]],
     *,
-    profit_now: Optional[float],
-    profit_base: Optional[float],
+    profit: Optional[float],
+    sales: Optional[float],
     cash: Optional[dict[str, Any]],
 ) -> dict[str, Any]:
-    """EBITDA 12 mies., dług netto, zdolność kredytowa i wycena (PLN)."""
+    """EBITDA 12 mies. (zysk z faktur + amortyzacja), dług netto, zdolność
+    kredytowa i wycena (PLN). ``base`` daje tylko dług, gotówkę i należności."""
 
-    if base is None:
-        return {"base_year": None, "ebitda": None, "net_debt": None}
-    ebitda_base = base["metrics"]["ebitda"]
-    shift = (
-        profit_now - profit_base
-        if profit_now is not None and profit_base is not None
-        else 0.0
-    )
-    ebitda = ebitda_base + shift
-    debt = base["metrics"].get("financial_debt") or 0.0
-    year_end = date(base["year"], 12, 31)
-    if cash is not None and cash["as_of"] > year_end:
+    ebitda = None if profit is None else profit + AMORTIZATION
+    debt = base["metrics"].get("financial_debt") if base else None
+    statement_cash = base["amounts"].get("cash") if base else None
+    if cash is not None and (
+        base is None or cash["as_of"] > date(base["year"], 12, 31)
+    ):
         cash_value, cash_source = cash["amount"], "entry"
+    elif statement_cash is not None:
+        cash_value, cash_source = statement_cash, "statement"
     else:
-        cash_value, cash_source = base["amounts"].get("cash") or 0.0, "statement"
-    net_debt = debt - cash_value
-    amounts = {"revenue": base["amounts"].get("revenue")}
+        cash_value, cash_source = 0.0, None
+    net_debt = (debt or 0.0) - cash_value
     metrics = {"ebitda": ebitda, "net_debt": net_debt}
+    receivables = base["amounts"].get("trade_receivables") if base else None
     return {
-        "base_year": base["year"],
-        "base_source": base.get("source_label"),
-        "ebitda_base": ebitda_base,
-        "ebitda_shift": shift,
+        "base_year": base["year"] if base else None,
+        "base_source": base.get("source_label") if base else None,
+        "profit": profit,
+        "sales": sales,
+        "amortization": AMORTIZATION,
         "ebitda": ebitda,
         "financial_debt": debt,
         "cash_used": cash_value,
         "cash_source": cash_source,
         "net_debt": net_debt,
-        "credit": analysis.credit(
-            {"trade_receivables": base["amounts"].get("trade_receivables")}, metrics
-        ),
-        "valuation": analysis.valuation(amounts, metrics),
+        "credit": analysis.credit({"trade_receivables": receivables}, metrics),
+        "valuation": analysis.valuation({"revenue": sales}, metrics),
     }
 
 
@@ -182,15 +183,14 @@ async def outlook(db: AsyncSession, today: date) -> dict[str, Any]:
     rows = await summary.month_rows(db, today.year - 3)
     complete = summary.complete_cost_months(rows)
     trailing = trailing_months(rows, complete)
-    profit_now = gross_profit(rows, trailing) if len(trailing) == 12 else None
-    profit_base = None
-    if base is not None:
-        base_months = [(base["year"], m) for m in range(1, 13)]
-        if all(key in complete for key in base_months):
-            profit_base = gross_profit(rows, base_months)
+    full = len(trailing) == 12
+    keys = set(trailing)
     cash = await latest_cash(db)
     figures = current_figures(
-        base, profit_now=profit_now, profit_base=profit_base, cash=cash
+        base,
+        profit=gross_profit(rows, trailing) if full else None,
+        sales=sum(r.sales for r in rows if (r.year, r.month) in keys) if full else None,
+        cash=cash,
     )
     year_view = await budget.budget_view(db, today.year, today)
 
@@ -220,9 +220,8 @@ async def outlook(db: AsyncSession, today: date) -> dict[str, Any]:
             "from": f"{trailing_sorted[0][1]:02d}.{trailing_sorted[0][0]}",
             "to": f"{trailing_sorted[-1][1]:02d}.{trailing_sorted[-1][0]}",
         }
-        if len(trailing) == 12
+        if full
         else None,
-        "profit_shift_applied": profit_now is not None and profit_base is not None,
         "year_end": {"year": today.year, **year_end(year_view)},
     }
 

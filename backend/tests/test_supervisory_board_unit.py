@@ -299,29 +299,41 @@ def _base(year: int = 2025) -> dict:
     }
 
 
-def test_current_ebitda_moves_with_invoice_profit_and_newer_cash_wins() -> None:
-    from app.services.board.outlook import current_figures
+def test_current_ebitda_is_invoice_profit_plus_fixed_amortization() -> None:
+    """Uwagi Rady z 19.11.2026: zdolność i wycena z zysku i sprzedaży,
+    amortyzacja stała 1 mln rocznie — bez EBITDA ze sprawozdania."""
+    from app.services.board.outlook import AMORTIZATION, current_figures
 
+    assert AMORTIZATION == 1e6
     cash = {"as_of": date(2026, 10, 31), "amount": 9e6, "note": None}
-    out = current_figures(_base(), profit_now=14e6, profit_base=12e6, cash=cash)
-    assert out["ebitda"] == 12e6 and out["ebitda_shift"] == 2e6
-    # Dług 6 mln − gotówka z wpisu 9 mln (nowsza niż 31.12.2025) = −3 mln.
+    out = current_figures(_base(), profit=14e6, sales=110e6, cash=cash)
+    # 14 mln zysku z faktur + 1 mln amortyzacji; EBITDA 10 mln ze sprawozdania nie gra roli.
+    assert (
+        out["ebitda"] == 15e6 and out["profit"] == 14e6 and out["amortization"] == 1e6
+    )
+    # Dług 6 mln ze sprawozdania − gotówka z wpisu 9 mln (nowsza niż 31.12.2025) = −3 mln.
     assert out["net_debt"] == -3e6 and out["cash_source"] == "entry"
-    assert out["credit"]["max_net_debt"] == 36e6 and out["credit"]["headroom"] == 39e6
-    assert out["valuation"]["financial"]["equity"] == 6 * 12e6 + 3e6
-    assert out["valuation"]["strategic"]["multiple"] == 8.0
+    assert out["credit"]["max_net_debt"] == 45e6 and out["credit"]["headroom"] == 48e6
+    assert out["valuation"]["financial"]["equity"] == 6 * 15e6 + 3e6
+    # EV / sprzedaż liczone ze sprzedaży 12 miesięcy, nie z przychodu ze sprawozdania.
+    assert out["valuation"]["financial"]["ev_to_revenue"] == round(90e6 / 110e6, 2)
 
 
-def test_current_figures_fall_back_to_statement_cash_and_no_shift() -> None:
+def test_current_figures_without_statement_or_profit_window() -> None:
     from app.services.board.outlook import base_year, current_figures
 
+    cash = {"as_of": date(2026, 10, 31), "amount": 2e6, "note": None}
+    out = current_figures(None, profit=12e6, sales=100e6, cash=cash)
+    # Bez sprawozdania dług finansowy nieznany: liczymy 0 i mówimy to wprost.
+    assert out["ebitda"] == 13e6 and out["financial_debt"] is None
+    assert out["net_debt"] == -2e6 and out["cash_source"] == "entry"
     old_cash = {"as_of": date(2025, 6, 30), "amount": 1e6, "note": None}
-    out = current_figures(_base(), profit_now=None, profit_base=12e6, cash=old_cash)
-    assert out["ebitda"] == 10e6 and out["cash_source"] == "statement"
-    assert out["net_debt"] == 2e6
-    assert (
-        current_figures(None, profit_now=1, profit_base=1, cash=None)["ebitda"] is None
-    )
+    stale = current_figures(_base(), profit=12e6, sales=100e6, cash=old_cash)
+    assert stale["cash_source"] == "statement" and stale["net_debt"] == 2e6
+    # Brak 12 miesięcy z pełnymi kosztami = brak zysku = brak zdolności i wyceny.
+    none = current_figures(_base(), profit=None, sales=None, cash=cash)
+    assert none["ebitda"] is None and none["credit"]["headroom"] is None
+    assert none["valuation"]["financial"]["ev"] is None
     ledger = {**_base(2026), "partial_months": 9}
     assert base_year([_base(2024), _base(2025), ledger])["year"] == 2025
     assert base_year([{**_base(), "metrics": {"ebitda": None}}]) is None

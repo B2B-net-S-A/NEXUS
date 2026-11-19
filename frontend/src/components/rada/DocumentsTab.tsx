@@ -412,18 +412,20 @@ function DocumentsTable({
 }) {
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-[13px]">
-        <thead>
+      {/* Telefon (uwagi Rady z 19.11.2026): wiersz to karta — tytuł na całą
+          szerokość, pod nim data, plik i akcje; bez kolumn ściśniętych do słowa. */}
+      <table className="w-full text-[13px] max-sm:block">
+        <thead className="max-sm:hidden">
           <tr className="border-b border-border text-left text-[11px] text-muted-foreground">
             <th className="px-2 py-1.5 font-medium">Dokument</th>
-            <th className="px-2 py-1.5 font-medium">Organ</th>
+            <th className="px-2 py-1.5 font-medium max-sm:hidden">Organ</th>
             <th className="px-2 py-1.5 font-medium">Data</th>
-            <th className="px-2 py-1.5 font-medium">KRS</th>
+            <th className="px-2 py-1.5 font-medium max-sm:hidden">KRS</th>
             <th className="px-2 py-1.5 font-medium">Plik</th>
             {isAdmin ? <th className="px-2 py-1.5" aria-label="Akcje" /> : null}
           </tr>
         </thead>
-        <tbody className="divide-y divide-border">
+        <tbody className="divide-y divide-border max-sm:block">
           {items.map((doc) => (
             <DocumentRow key={doc.id} doc={doc} isAdmin={isAdmin} onEdit={onEdit} />
           ))}
@@ -506,13 +508,21 @@ function DocumentRow({
   };
 
   return (
-    <tr className="align-top">
-      <td className="px-2 py-2">
+    <tr className="align-top max-sm:flex max-sm:h-auto max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-1 max-sm:py-2.5">
+      <td className="px-2 py-2 max-sm:w-full max-sm:p-0">
         <div className="font-medium text-foreground">
           {doc.number ? <span className="mr-1 tabular-nums">nr {doc.number} ·</span> : null}
           {doc.title}
         </div>
         {doc.subject ? <div className="text-[12px] text-muted-foreground">{doc.subject}</div> : null}
+        {/* Telefon: organ i wpis KRS pod tytułem zamiast dwóch kolumn (uwagi Rady 19.11.2026). */}
+        {doc.organ || doc.krs_entry_no ? (
+          <div className="text-[12px] text-muted-foreground sm:hidden">
+            {[doc.organ ? ORGAN_LABELS[doc.organ] : null, doc.krs_entry_no ? `wpis KRS ${doc.krs_entry_no}` : null]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+        ) : null}
         {proposal && isAdmin ? (
           <div className="mt-1 flex flex-wrap items-center gap-2 rounded-md bg-info-muted px-2 py-1 text-[12px] text-info-muted-foreground">
             <Sparkles className="h-3.5 w-3.5" />
@@ -533,8 +543,8 @@ function DocumentRow({
           </div>
         ) : null}
       </td>
-      <td className="whitespace-nowrap px-2 py-2">{doc.organ ? ORGAN_LABELS[doc.organ] : "—"}</td>
-      <td className="whitespace-nowrap px-2 py-2 tabular-nums">
+      <td className="whitespace-nowrap px-2 py-2 max-sm:hidden">{doc.organ ? ORGAN_LABELS[doc.organ] : "—"}</td>
+      <td className="whitespace-nowrap px-2 py-2 tabular-nums max-sm:p-0 max-sm:text-[12px] max-sm:text-muted-foreground">
         {doc.doc_date ? (
           formatDate(doc.doc_date)
         ) : doc.krs_entry_date ? (
@@ -545,7 +555,7 @@ function DocumentRow({
           "—"
         )}
       </td>
-      <td className="whitespace-nowrap px-2 py-2">
+      <td className="whitespace-nowrap px-2 py-2 max-sm:hidden">
         {doc.krs_entry_no ? (
           <Badge variant="success" size="sm" title={doc.krs_entry_date ? `wpis z ${formatDate(doc.krs_entry_date)}` : undefined}>
             wpis {doc.krs_entry_no}
@@ -554,7 +564,7 @@ function DocumentRow({
           <span className="text-muted-foreground">—</span>
         )}
       </td>
-      <td className="whitespace-nowrap px-2 py-2">
+      <td className="whitespace-nowrap px-2 py-2 max-sm:p-0">
         {doc.has_file ? (
           <button
             type="button"
@@ -575,7 +585,7 @@ function DocumentRow({
         )}
       </td>
       {isAdmin ? (
-        <td className="whitespace-nowrap px-2 py-2 text-right">
+        <td className="whitespace-nowrap px-2 py-2 text-right max-sm:ml-auto max-sm:p-0">
           <input
             ref={fileInput}
             type="file"
