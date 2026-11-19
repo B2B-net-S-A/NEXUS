@@ -82,9 +82,14 @@ rozsiane po pięciu kartach.
   pozostali — zwinięci, gdy jest ich ponad 10 i coś stoi nad nimi. Przy frazie
   płaska lista. Nad tabelą: ile kontaktów ma zapisaną rozmowę. „Usuń” zostaje
   cichym przyciskiem (spokojne tabele, 02.10.2026).
+- **Rekrutacje › Zasady rekrutacji**: nad pełną kartą klienta „Najważniejsze
+  zasady” — ustawione liczby (blokada, SLA, limit CV) i pierwsze linie zasad
+  procesu bez znaczników (`playbookCheatLines`, ten sam skrót co ściąga przy
+  Projektach). Karta (`ClientPlaybookCard`) bez zmian — używa jej też Champion.
 - **Ludzie klienta › Sprzedaż**: trzy liczby nad listą szans (otwarte, wygrane
   w 12 miesięcy, przegrane; suma tylko w jednej walucie, `salesFigures`).
 - Poza etapem 3a (osobny krok): Umowa na jednej stronie (umowy, stawki,
   raporty), Rozliczenie miesiąca jako kroki RCP → faktura → KSeF → zapłata
-  (czeka na naprawę „po terminie” — zapłaty nie są zapisywane), Zasady jako
-  lista punktów i „Start u klienta: N z 5 ustalone”.
+  (czeka na naprawę „po terminie” — zapłaty nie są zapisywane) i „Start
+  u klienta: N z 5 ustalone” (sposób rozliczania godzin jest w innej trasie
+  niż pakiet klienta).
