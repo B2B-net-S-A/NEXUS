@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -255,8 +255,31 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                 assert run is not None and run.status == "started"
                 run_id = run.id
                 run_ids.append(run_id)
-            body = sent[0]
-            token = body["token"]
+            envelope = sent[0]
+            assert set(envelope) == {
+                "run_id",
+                "kind",
+                "token",
+                "task_url",
+                "schema_version",
+            }
+            assert envelope["schema_version"] == 2
+            assert envelope["run_id"] == run_id
+            assert len(json.dumps(envelope).encode("utf-8")) < 512
+            token = envelope["token"]
+            task_url = f"/api/integrations/cpro-bot/runs/{run_id}/task"
+            assert envelope["task_url"].endswith(task_url)
+            assert (await api_client.get(task_url)).status_code == 401
+            assert (
+                await api_client.get(task_url, headers={"X-Run-Token": "zly"})
+            ).status_code == 401
+            task = await api_client.get(task_url, headers={"X-Run-Token": token})
+            assert task.status_code == 200, task.text
+            assert task.headers["cache-control"] == "private, no-store"
+            body = task.json()
+            assert body["schema_version"] == 2 and body["run_id"] == run_id
+            assert body["submit"] is True
+            assert "token" not in body
             offer = body["items"][0]["offer"]
             # Warunki pochodzą z drugiej rekrutacji, ale konto zawsze z DL-a
             # rekrutacji docelowej, a nie DL-a źródła ani osoby od Cpro.
@@ -340,6 +363,9 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                 json={"items": []},
             )
             assert again.status_code == 401
+            assert (
+                await api_client.get(task_url, headers={"X-Run-Token": token})
+            ).status_code == 401
 
             async with AsyncSessionLocal() as db:
                 stored = await db.get(CproBotRun, run_id)
@@ -409,3 +435,35 @@ async def _cleanup_users(user_ids: list[int]) -> None:
     async with AsyncSessionLocal() as db:
         await db.execute(delete(User).where(User.id.in_(user_ids)))
         await db.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["expired", "used"])
+async def test_task_rejects_expired_or_used_run_token(
+    api_client: AsyncClient, state: str
+) -> None:
+    now = datetime.now(timezone.utc)
+    run, token = runs.new_run(
+        [{"ref": 101, "offer": {}}],
+        now=now - runs.TOKEN_TTL - timedelta(minutes=1) if state == "expired" else now,
+        submit=False,
+    )
+    if state == "used":
+        run.status = "received"
+        run.token_hash = None
+    async with AsyncSessionLocal() as db:
+        db.add(run)
+        await db.commit()
+        run_id = run.id
+    try:
+        response = await api_client.get(
+            f"/api/integrations/cpro-bot/runs/{run_id}/task",
+            headers={"X-Run-Token": token},
+        )
+        assert response.status_code == 401
+        assert response.json() == {"detail": runs.INVALID_TOKEN_DETAIL}
+        assert "items" not in response.json()
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(delete(CproBotRun).where(CproBotRun.id == run_id))
+            await db.commit()

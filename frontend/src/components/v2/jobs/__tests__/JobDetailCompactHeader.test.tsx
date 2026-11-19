@@ -162,6 +162,55 @@ describe("JobDetailCompactHeader", () => {
     expect(within(facts).getByText("Zdalnie")).toBeTruthy();
   });
 
+  it("„Dodana → Termin” stoi w linii faktów, za trybem pracy, a zwinięty nagłówek ją chowa", () => {
+    const { unmount } = renderHeader({
+      dates: <span data-testid="job-header-dates">18.11 → 23.11</span>,
+      recruiter: <span data-testid="job-header-recruiter">Rekruter</span>,
+    });
+    const dates = screen.getByTestId("job-header-dates");
+    expect(dates.parentElement).toBe(screen.getByTestId("job-header-facts").parentElement);
+    expect(
+      screen.getByTestId("job-header-facts").compareDocumentPosition(dates) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      dates.compareDocumentPosition(screen.getByTestId("job-header-recruiter")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    unmount();
+
+    renderHeader({
+      dates: <span data-testid="job-header-dates">18.11 → 23.11</span>,
+      collapsed: true,
+      onToggleCollapsed: vi.fn(),
+    });
+    expect(screen.queryByTestId("job-header-dates")).toBeNull();
+  });
+
+  it("krótka forma faktu poniżej 2xl, pełna od 2xl i w dymku", () => {
+    renderHeader({
+      facts: [
+        { key: "client", label: "Klient", value: "Bank Przykładowy S.A." },
+        { key: "budget", label: "Budżet", value: "do 93,00 PLN/h" },
+        {
+          key: "work_mode",
+          label: "Tryb pracy",
+          value: "Hybrydowo · 4 dni w tygodniu · Warszawa",
+          short: "Hybrydowo · 4 dni/tydz. · Warszawa",
+        },
+      ],
+    });
+    const mode = screen.getByTestId("job-header-fact-work_mode");
+    expect(within(mode).getByText("Hybrydowo · 4 dni/tydz. · Warszawa")).toHaveClass("2xl:hidden");
+    expect(within(mode).getByText("Hybrydowo · 4 dni w tygodniu · Warszawa")).toHaveClass("hidden");
+    expect(mode).toHaveAttribute("title", "Tryb pracy: Hybrydowo · 4 dni w tygodniu · Warszawa");
+  });
+
+  it("jednowyrazowy tryb pracy się nie kurczy, długi ustępuje miejsca", () => {
+    renderHeader();
+    expect(screen.getByTestId("job-header-fact-work_mode")).toHaveClass("shrink-0");
+  });
+
   it("brak wartości faktu to „nie podano”, nie pustka", () => {
     renderHeader({
       facts: [
