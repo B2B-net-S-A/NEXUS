@@ -51,6 +51,7 @@ AREA_LANE = {
     "offboarding": ("care", "exit"),
     "negotiation": ("contracts", "annex"),
     "administration": ("care", "help"),
+    "settlements": ("care", "help"),
     "marketing": ("care", "help"),
     "other": ("care", "help"),
 }

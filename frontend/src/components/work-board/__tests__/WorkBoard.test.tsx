@@ -272,6 +272,27 @@ describe("tablica pracy — Ludzie → Sprawy z opieką", () => {
     expect(screen.getByText("Rozmowa: Anna Przykładowa")).toBeInTheDocument();
   });
 
+  it("chip „Rozliczenia” (mail na adres rozliczeń) filtruje listę na serwerze", async () => {
+    asUser("user", 77);
+    route({
+      cases: list([caseCard({ id: 6, title: "Pytanie o fakturę", area: "settlements" })], {
+        counts: { areas: { administration: 3, settlements: 2 }, week: 0, unassigned: 0, mine_care: 0 },
+      }),
+    });
+    const user = userEvent.setup();
+    renderBoard();
+
+    await screen.findByText("Pytanie o fakturę");
+    expect(screen.getByRole("button", { name: "Administracja 3" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Rozliczenia 2" }));
+    await waitFor(() =>
+      expect(mocks.apiGet).toHaveBeenCalledWith(
+        "/api/cases",
+        expect.objectContaining({ params: expect.objectContaining({ area: "settlements" }) }),
+      ),
+    );
+  });
+
   it("„Przenieś do…” zmienia status sprawy z wersją karty; 409 mówi, że ktoś zmienił sprawę", async () => {
     asUser("user", 77);
     route({ cases: list([caseCard({ id: 4, title: "Ubezpieczenie OC", updated_at: "2026-10-21T10:00:00Z" })]) });
