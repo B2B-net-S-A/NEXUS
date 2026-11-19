@@ -2016,7 +2016,7 @@ async def test_bank_statement_is_classified_posted_once_and_deduplicated(client,
 async def test_bank_statement_keeps_its_balances_and_whether_e8_saw_the_credits(
     client, world, books
 ):
-    """Saldo otwarcia i zamknięcia z datami (ciągłość dla „po terminie”, 0741):
+    """Saldo otwarcia i zamknięcia z datami (ciągłość dla „po terminie”, 0742):
     zapisane przy imporcie, a plik sprzed migracji dostaje je przy ponownym
     wgraniu — bez drugiego importu operacji. ``credits_matched`` mówi, czy
     uznania przeszły przez E8 (moduł faktur do klientów wyłączony = nie)."""

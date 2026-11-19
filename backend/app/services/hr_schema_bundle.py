@@ -180,7 +180,7 @@ MODULES = (
     board_reports,
     # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
     contract_rate_documents,
-    # 0741: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
+    # 0742: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
     ledger_bank_balances,
 )
 

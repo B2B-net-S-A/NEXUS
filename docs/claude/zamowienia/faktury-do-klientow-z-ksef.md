@@ -168,7 +168,7 @@ eBI24, a za 2026 r. żadne z nich nie ma danych: wyciągi w Księgowość → Ba
 lustro eBI24 nie ruszyło (`EBI24_MODE` ≠ `prod`; 13.11 konto API na produkcji nie widziało dokumentów) i nic by nie dało, bo w eBI24 zapłat się nie
 oznacza (w archiwum z 2026 r. zapłatę ma 8 z 5 117 faktur sprzedaży).
 
-- **Bez dowodu z wyciągów NEXUS nie liczy zaległości** (dowód — sekcja niżej, od 0741). Faktura z terminem za sobą
+- **Bez dowodu z wyciągów NEXUS nie liczy zaległości** (dowód — sekcja niżej, od 0742). Faktura z terminem za sobą
   i bez pełnej zapłaty ma wtedy `payment_unknown: true` i `overdue_days: 0`: przy fakturze „brak danych o zapłacie” z terminem pod spodem, w nagłówku zakładki klienta
   i w karcie „Rozliczenie” w Przeglądzie „brak danych o zapłatach” zamiast liczby (liczba faktur w dymku),
   w Finansach → „Po terminie” zdanie z liczbą takich faktur, bez licznika „0” na zakładce. Trasy zaległości
@@ -183,7 +183,7 @@ oznacza (w archiwum z 2026 r. zapłatę ma 8 z 5 117 faktur sprzedaży).
 - Próbka 12.11.2026: wszystkie 102 uznania, których E8 nie przypisało, to nogi VAT zapłat dla dostawców (MPP
   z cudzym NIP-em w `/IDC/`) — wpłat klientów E8 nie przeoczyło.
 
-## „Po terminie” z ciągłych wyciągów rachunku odbioru (0741, 19.11.2026)
+## „Po terminie” z ciągłych wyciągów rachunku odbioru (0742, 19.11.2026)
 
 Decyzja Artura z 19.11.2026: Finanse wgrywają w Księgowość → Bank wyciągi wstecz od 04.2026, miesięczne, kontem bez
 Płac (konto z Płacami puszcza R9, które oznaczyłoby stare wypłaty i wysłało ludziom powiadomienia). Faktura (łańcuch
@@ -221,7 +221,7 @@ z korektami) z terminem za sobą i czymś do zapłaty jest „po terminie” tyl
   daty sald i numer wyciągu), tylko gdy plik sam jest ciągły: każda część ma oba salda z datami, suma operacji =
   suma zmian sald, a części łączą się jak kolejne pliki. Inaczej pola są puste i plik niczego nie dowodzi (nie jest
   odrzucany). Reguła importu: `docs/claude/finanse-insights/ksiega-nexusa-k4-bank.md`.
-- **Wyciąg wgrany przed 0741** nie ma sald: ponowne wgranie tego samego pliku je uzupełnia, bez drugiego importu
+- **Wyciąg wgrany przed 0742** nie ma sald: ponowne wgranie tego samego pliku je uzupełnia, bez drugiego importu
   operacji (E3, R9, E8 i linie zostają). `credits_matched` takich wyciągów ustawia raz migracja z dowodu w bazie
   (plik bez uznań albo z zapisem E8; znacznik `ledger_bank_credits_matched_backfill`).
 - Testy: `tests/test_ledger_bank_continuity.py` (parser, plik, łańcuch), `tests/test_client_invoicing_payment_proof.py`

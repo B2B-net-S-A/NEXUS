@@ -460,7 +460,7 @@ class LedgerExportDocument(Base):
 
 
 class LedgerBankStatement(Base):
-    """Wyciąg bankowy wgrany w Księdze (K4a, 0705; salda i numery — 0741)."""
+    """Wyciąg bankowy wgrany w Księdze (K4a, 0705; salda i numery — 0742)."""
 
     __tablename__ = "ledger_bank_statements"
     __table_args__ = (

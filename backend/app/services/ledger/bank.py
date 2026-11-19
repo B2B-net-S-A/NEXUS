@@ -583,7 +583,7 @@ async def import_file(
         select(LedgerBankStatement).where(LedgerBankStatement.sha256 == sha)
     )
     if existing is not None:
-        # Plik wgrany przed zapisem sald (0741): ponowne wgranie je uzupełnia,
+        # Plik wgrany przed zapisem sald (0742): ponowne wgranie je uzupełnia,
         # bez drugiego importu operacji (E3/R9/E8 i linie zostają, jakie były).
         if existing.closing_balance is None and span is not None:
             for key, value in _span_fields(span).items():

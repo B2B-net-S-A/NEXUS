@@ -1,6 +1,6 @@
-"""Salda wyciągów w księdze — SQL migracji ``0741_ledger_bank_balances``.
+"""Salda wyciągów w księdze — SQL migracji ``0742_ledger_bank_balances``.
 
-Jedno źródło DDL dla ``alembic/versions/0741_ledger_bank_balances.py`` i lustra
+Jedno źródło DDL dla ``alembic/versions/0742_ledger_bank_balances.py`` i lustra
 ``entrypoint.sh`` (``app/services/hr_schema_bundle.py``, po K4c); każda
 instrukcja idempotentna. Po co: „po terminie” faktury do klienta liczy się
 tylko z ciągłych wyciągów rachunku odbioru (``ledger/bank_continuity.py``,
