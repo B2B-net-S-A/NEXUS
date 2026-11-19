@@ -31,7 +31,6 @@ import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { mayExportFiles, useAuthStore } from "@/store/auth";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
-import { TabbedNav } from "@/components/ds/TabbedNav";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
@@ -61,8 +60,48 @@ import { ExtendContractMenu } from "@/components/client-profile/actions/ExtendCo
 import { ReEngageButton } from "@/components/client-profile/actions/ReEngageButton";
 import { ContractRegisterDialog } from "@/components/contracts/ContractRegisterDialog";
 import { ProlongationSelect } from "@/components/contracts/ProlongationSelect";
+import { ConsultantsTimeline } from "@/components/client-profile/ConsultantsTimeline";
+import { warsawToday } from "@/lib/warsaw-date";
 
-type ConsultantsTabKey = "obecni" | "uwaga" | "planowani" | "szkice" | "archiwum";
+type ConsultantsTabKey = "obecni" | "uwaga" | "fala" | "planowani" | "szkice" | "archiwum";
+
+/** Ile zamówień musi kończyć się tego samego dnia, żeby dostały własny filtr. */
+const WAVE_MIN = 5;
+/** Jak daleko w przód szukamy takiego dnia. */
+const WAVE_HORIZON_DAYS = 120;
+
+/**
+ * Dzień, w którym kończy się naraz najwięcej zamówień obecnych konsultantów
+ * (co najmniej `WAVE_MIN`, w najbliższych `WAVE_HORIZON_DAYS` dniach). Makieta
+ * 19.11.2026: u PKO BP 28 z 32 zamówień kończyło się 31.12.2026, a tabela tego
+ * nie pokazywała. Remis: wcześniejszy dzień.
+ */
+export function orderWave(
+  rows: readonly Pick<ActiveConsultantItem, "order_end_date">[],
+  today: string,
+): { date: string; count: number } | null {
+  const from = Date.parse(`${today}T00:00:00Z`);
+  const until = from + WAVE_HORIZON_DAYS * 86_400_000;
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.order_end_date) continue;
+    const at = Date.parse(`${row.order_end_date.slice(0, 10)}T00:00:00Z`);
+    if (at < from || at > until) continue;
+    const day = row.order_end_date.slice(0, 10);
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  let best: { date: string; count: number } | null = null;
+  for (const [date, count] of counts) {
+    if (count < WAVE_MIN) continue;
+    if (!best || count > best.count || (count === best.count && date < best.date)) best = { date, count };
+  }
+  return best;
+}
+
+function shortDay(iso: string): string {
+  const [, month, day] = iso.slice(0, 10).split("-");
+  return `${day}.${month}`;
+}
 
 const CONTRACT_STATUS: Record<string, { label: string; tone: StatusDotTone }> = {
   active: { label: "Aktywna", tone: "success" },
@@ -135,8 +174,8 @@ function ConsultantsWorkTable({
             };
             return (
               <tr key={row.contract_id} className={cn(CALM_ROW, "h-[52px] last:border-b-0")}>
-                <td className="sticky left-0 z-10 max-w-[250px] bg-card py-2 pr-4 dark:bg-muted">
-                  <ConsultantIdentity r={toConsultantRow(row)} />
+                <td className="sticky left-0 z-10 max-w-[280px] bg-card py-2 pr-4 dark:bg-muted">
+                  <ConsultantIdentity r={toConsultantRow(row)} compact />
                 </td>
                 <td className="py-2 pr-4 whitespace-nowrap">
                   <StatusDot tone={status.tone}>{status.label}</StatusDot>
@@ -279,6 +318,8 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
   const query = useClientProfile(clientId);
   const { data } = query;
   const [tab, setTab] = useState<ConsultantsTabKey>("obecni");
+  // „Lista” albo „Oś czasu” (makieta 19.11.2026) — ten sam filtr, inny widok.
+  const [view, setView] = useState<"lista" | "os">("lista");
   const [assignmentFilter, setAssignmentFilter] = useState<ConsultantAssignmentFilter>("all");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<RegisterContractRow | null>(null);
@@ -328,9 +369,12 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
   const filteredActive = ezdrowie
     ? filterConsultantsByExecutiveContract(active, assignmentFilter)
     : active;
+  const today = warsawToday();
+  const wave = orderWave(active, today);
   const rows: Record<Exclude<ConsultantsTabKey, "archiwum">, ActiveConsultantItem[]> = {
     obecni: filteredActive,
     uwaga: attention,
+    fala: wave ? active.filter((row) => row.order_end_date?.slice(0, 10) === wave.date) : [],
     planowani: planned,
     szkice: pending,
   };
@@ -382,12 +426,18 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
     }
   };
 
-  const tabs = [
-    { value: "obecni", label: "Obecni", icon: Users, count: filteredActive.length },
-    { value: "uwaga", label: "Wymaga uwagi", icon: AlertTriangle, count: attention.length },
-    { value: "planowani", label: "Planowani", icon: CalendarClock, count: planned.length },
+  // Jeden rząd filtrów (makieta 19.11.2026) zamiast podzakładek pod
+  // podzakładkami. „Kończy się DD.MM” tylko, gdy wiele zamówień kończy się
+  // tego samego dnia.
+  const tabs: { value: ConsultantsTabKey; label: string; icon: typeof Users; count: number; warn?: boolean }[] = [
+    { value: "obecni", label: "Pracują teraz", icon: Users, count: filteredActive.length },
+    { value: "uwaga", label: "Wymaga uwagi", icon: AlertTriangle, count: attention.length, warn: attention.length > 0 },
+    ...(wave
+      ? [{ value: "fala" as const, label: `Kończy się ${shortDay(wave.date)}`, icon: CalendarClock, count: wave.count }]
+      : []),
+    { value: "planowani", label: "Zaczynają", icon: CalendarClock, count: planned.length },
     ...(pending.length > 0
-      ? [{ value: "szkice", label: "Szkice", icon: FileClock, count: pending.length }]
+      ? [{ value: "szkice" as const, label: "Szkice", icon: FileClock, count: pending.length }]
       : []),
     { value: "archiwum", label: "Zakończeni", icon: FileText, count: archiveCount },
   ];
@@ -399,15 +449,72 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
       <h2 className="sr-only">Konsultanci u klienta</h2>
       {ezdrowie ? <ContractStructureSection clientId={clientId} /> : null}
 
-      <div className="flex flex-wrap items-end gap-2">
-        <TabbedNav
-          value={tab}
-          onValueChange={(value) => setTab(value as ConsultantsTabKey)}
-          ariaLabel="Konsultanci"
-          tabs={tabs}
-          className="w-auto min-w-0 flex-1"
-        />
-        <div className="flex shrink-0 items-center gap-2 pb-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <div role="tablist" aria-label="Konsultanci" className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+          {tabs.map((item) => {
+            const Icon = item.icon;
+            const selected = item.value === tab;
+            return (
+              <button
+                key={item.value}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setTab(item.value)}
+                className={cn(
+                  "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors pointer-coarse:h-10",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  selected
+                    ? "border-primary bg-primary/10 text-primary"
+                    : item.warn
+                      ? "border-warning/40 bg-card text-warning-muted-foreground hover:border-warning"
+                      : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+                {item.label}
+                <span
+                  className={cn(
+                    "rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums",
+                    selected ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                  )}
+                >
+                  {item.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {tab !== "archiwum" ? (
+            <div
+              role="group"
+              aria-label="Widok"
+              className="inline-flex h-8 items-center gap-0.5 rounded-md border border-border bg-muted/40 p-0.5"
+            >
+              {(
+                [
+                  ["lista", "Lista"],
+                  ["os", "Oś czasu"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={view === value}
+                  onClick={() => setView(value)}
+                  className={cn(
+                    "h-full rounded px-2.5 text-xs font-medium transition-colors",
+                    view === value
+                      ? "bg-background text-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           {canExport ? (
             <Button size="sm" variant="outline" onClick={() => void doExport()} disabled={exporting}>
               <Download className="h-4 w-4" aria-hidden="true" /> Eksport
@@ -430,8 +537,8 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
       ) : null}
       {tab === "planowani" ? (
         <p className="text-xs text-muted-foreground">
-          Kontrakty, które jeszcze nie wystartowały. Nie wchodzą do „Obecnych” ani do „Aktywnego
-          MRR”.
+          Kontrakty, które jeszcze nie wystartowały. Nie wchodzą do „Pracują teraz” ani do marży
+          miesięcznej.
         </p>
       ) : null}
       {tab === "obecni" && ezdrowie && active.length > 0 ? (
@@ -477,8 +584,12 @@ export function ClientConsultantsTab({ clientId, clientName }: Props) {
               ? "Brak zaplanowanych kontraktów u tego klienta."
               : tab === "szkice"
                 ? "Brak szkiców i umów do podpisu."
-                : "Nie mamy aktywnych konsultantów u tego klienta."}
+                : tab === "fala"
+                  ? "Żadne zamówienie nie kończy się tego dnia."
+                  : "Nie mamy aktywnych konsultantów u tego klienta."}
         </EmptyRows>
+      ) : view === "os" ? (
+        <ConsultantsTimeline rows={rows[tab]} today={today} />
       ) : (
         <ConsultantsWorkTable
           rows={rows[tab]}

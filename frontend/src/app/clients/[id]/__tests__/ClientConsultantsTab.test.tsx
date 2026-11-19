@@ -282,7 +282,7 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
 
     // Dowód, że profil się wyrenderował.
     expect(
-      await screen.findByRole("tab", { name: /^Obecni/ }),
+      await screen.findByRole("tab", { name: /^Pracują teraz/ }),
     ).toBeInTheDocument();
 
     expect(screen.queryByText("Przegrane rekrutacje")).not.toBeInTheDocument();
@@ -457,22 +457,23 @@ describe("ProfileTab — tabela konsultantów", () => {
     expect(screen.getByText("155,00 zł")).toBeInTheDocument();
   });
 
-  it("planowani konsultanci mają własną zakładkę i nie siedzą w Obecnych", async () => {
+  it("planowani konsultanci mają własny filtr i nie siedzą w „Pracują teraz”", async () => {
     const user = userEvent.setup({ delay: null });
     renderTab();
     await screen.findByText("Tomasz Sadowski");
 
     // Obecni: osoby z kontraktem, który JUŻ obowiązuje — bez przyszłego startu.
     expect(screen.queryByText("Piotr Planowany")).toBeNull();
-    expect(screen.getByRole("tab", { name: /^Obecni/ })).toHaveTextContent("2");
-    const plannedTab = screen.getByRole("tab", { name: /^Planowani/ });
+    expect(screen.getByRole("tab", { name: /^Pracują teraz/ })).toHaveTextContent("2");
+    // Od 19.11.2026 filtry w jednym rzędzie: „Pracują teraz” i „Zaczynają”.
+    const plannedTab = screen.getByRole("tab", { name: /^Zaczynają/ });
     expect(plannedTab).toHaveTextContent("1");
 
     await user.click(plannedTab);
     expect(await screen.findByText("Piotr Planowany")).toBeInTheDocument();
     expect(screen.getByText(/19\.10\.2099/)).toBeInTheDocument();
     expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
-    expect(screen.getByText(/nie wchodzą do „Obecnych”/i)).toBeInTheDocument();
+    expect(screen.getByText(/nie wchodzą do „Pracują teraz”/i)).toBeInTheDocument();
   });
 
   it("podzakładki są prawdziwymi tabami (rola + aria-selected)", async () => {
@@ -480,7 +481,7 @@ describe("ProfileTab — tabela konsultantów", () => {
     // czytnik ekranu nie wiedział, że to jeden wybór z dwóch.
     renderTab();
     const current = await screen.findByRole("tab", {
-      name: /^Obecni/,
+      name: /^Pracują teraz/,
     });
     expect(current).toHaveAttribute("aria-selected", "true");
     expect(
@@ -585,7 +586,7 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
   it("sekcja „Struktura umów” stoi NAD konsultantami i pokazuje chipy umów", async () => {
     renderEzdrowie();
     const heading = await screen.findByRole("heading", { name: "Struktura umów" });
-    const consultants = screen.getByRole("tab", { name: /^Obecni/ });
+    const consultants = screen.getByRole("tab", { name: /^Pracują teraz/ });
     expect(heading.compareDocumentPosition(consultants) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // Nagłówek części z numerem umowy ramowej sprzed myślnika (struktura
@@ -622,7 +623,7 @@ describe("ProfileTab — Centrum e-Zdrowia: struktura umów wykonawczych", () =>
     await user.click(within(filter).getByRole("button", { name: "CeZ/145/2025/UW-1" }));
     expect(screen.getByText("Tomasz Sadowski")).toBeInTheDocument();
     expect(screen.queryByText("Anna Bez Rekrutacji", { selector: "a" })).toBeNull();
-    expect(screen.getByRole("tab", { name: /^Obecni/ })).toHaveTextContent("1");
+    expect(screen.getByRole("tab", { name: /^Pracują teraz/ })).toHaveTextContent("1");
 
     await user.click(within(filter).getByRole("button", { name: "Nieprzypisani (1)" }));
     expect(screen.queryByText("Tomasz Sadowski")).toBeNull();
