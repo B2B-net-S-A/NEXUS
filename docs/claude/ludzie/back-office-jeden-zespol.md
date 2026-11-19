@@ -42,8 +42,8 @@ Ta reguła ma pierwszeństwo przed opisem czterech zespołów w `back-office-kol
 ## Praca na kolejce
 
 - Kolumny to stan: Nowe · W toku · Czeka na kogoś · **Na zewnątrz** (`outside_team` przy stanie
-  `waiting`). „Na zewnątrz” wymaga działu (Rekrutacja/Delivery, Sprzedaż, IT, Kadry,
-  Księgowość, Prawnik) i powodu; karta bez osoby dostaje przekazującego, bo ktoś musi
+  `waiting`). „Na zewnątrz” wymaga działu (Rekrutacja/Delivery, Sprzedaż, IT, HR,
+  Finanse, Prawnik — słowa Artura z 10.11) i powodu; karta bez osoby dostaje przekazującego, bo ktoś musi
   pilnować odpowiedzi. Każda zmiana stanu czyści dział. Osoby kontaktowe działów leżą
   w `app_settings['back_office'].outside_contacts`.
 - **„Weź następną”** (`POST /next`): kolejność liczy serwer — najstarszy termin, potem

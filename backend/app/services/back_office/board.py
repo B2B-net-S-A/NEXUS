@@ -104,8 +104,9 @@ OUTSIDE_LABELS = {
     "recruitment": "Rekrutacja / Delivery",
     "sales": "Sprzedaż",
     "it": "IT",
-    "hr": "Kadry",
-    "accounting": "Księgowość",
+    # Słowa Artura z 10.11.2026; „Kadry” to stara nazwa (słownik z 03.11).
+    "hr": "HR",
+    "accounting": "Finanse",
     "legal": "Prawnik",
 }
 _ACTIONS = {
