@@ -43,6 +43,10 @@ class BalanceCheck:
     Powstaje tylko, gdy wyciąg ma oba salda (MT940 ``:60F:``/``:60M:`` i
     ``:62F:``/``:62M:``, CAMT.053 ``OPBD``/``PRCD`` i ``CLBD``). Kwoty ze
     znakiem: obciążenie i saldo debetowe są ujemne.
+
+    Daty sald i numer wyciągu banku służą ciągłości wyciągów rachunku
+    (``ledger/bank_continuity.py``); ``None`` = bank ich nie podał albo nie
+    umiemy ich przeczytać.
     """
 
     #: Numer wyciągu (części wyciągu) w pliku, od 1.
@@ -50,6 +54,14 @@ class BalanceCheck:
     opening: Decimal
     movement: Decimal
     closing: Decimal
+    #: Data salda otwarcia (MT940 ``:60F:``, CAMT ``Bal/Dt``). Santander
+    #: (eBI24) podaje dzień samego wyciągu, standard SWIFT — dzień poprzedniego.
+    opening_day: Optional[date] = None
+    #: Data salda zamknięcia (MT940 ``:62F:``, CAMT ``CLBD``).
+    closing_day: Optional[date] = None
+    #: Numer wyciągu banku bez numeru części (MT940 ``:28C:`` „26101/1” → 26101,
+    #: CAMT ``LglSeqNb``, a bez niego ``ElctrncSeqNb``).
+    number: Optional[int] = None
 
     @property
     def expected(self) -> Decimal:

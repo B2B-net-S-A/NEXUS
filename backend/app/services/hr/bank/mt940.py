@@ -18,9 +18,11 @@ z ``:86:``), a ``ParsedStatement.account`` to rachunek ostatniego wyciągu.
 
 Saldo: każdy wyciąg (część wyciągu) od ``:60F:``/``:60M:`` do
 ``:62F:``/``:62M:`` daje ``BalanceCheck`` — otwarcie + operacje = zamknięcie
-banku. Parser sam nie odrzuca pliku (stare ekrany importu bez zmian), robi to
-Księga (K4a). Wyciąg Santandera przez eBI24 (``.eMT``, 06.10.2026) ma trzy
-części z ``:62M:``/``:60M:`` i nagłówki SWIFT ``{1:}{2:}{4:`` … ``-}``.
+banku, z datami obu sald i numerem wyciągu z ``:28C:``. Parser sam nie odrzuca
+pliku (stare ekrany importu bez zmian), robi to Księga (K4a). Wyciąg Santandera
+przez eBI24 (``.eMT``, 06.10.2026) ma trzy części z ``:62M:``/``:60M:``
+i nagłówki SWIFT ``{1:}{2:}{4:`` … ``-}``; saldo otwarcia ma datę dnia
+samego wyciągu, a ``:28C:`` to rok i numer wyciągu w roku („26101/1”).
 
 Storno: ``RC`` (reversal of credit) to obciążenie, ``RD`` (reversal of debit)
 — uznanie. Znak opisuje więc kierunek samego wpisu, tak jak ``CdtDbtInd``
@@ -57,8 +59,10 @@ _LINE_61 = re.compile(
     r"(?P<cref>[^/\r\n]{0,16})(?://(?P<bref>[^\r\n]{0,16}))?"
 )
 _BALANCE = re.compile(
-    r"^(?P<mark>[CD])\d{6}(?P<currency>[A-Z]{3})(?P<amount>\d{1,15},\d{0,2})"
+    r"^(?P<mark>[CD])(?P<date>\d{6})(?P<currency>[A-Z]{3})(?P<amount>\d{1,15},\d{0,2})"
 )
+#: ``:28C:`` numer wyciągu i część: Santander „26101/1” (rok + numer w roku).
+_STATEMENT_NUMBER = re.compile(r"^(?P<number>\d{1,15})(?:/\d{1,10})?\s*$")
 _SUBFIELD = re.compile(r"[~^<>?](\d{2})")
 _ACCOUNT_IN_TEXT = re.compile(r"(?:PL)?(\d{2}(?:\s?\d{4}){6})")
 _TITLE_GROUPS = (
@@ -107,8 +111,12 @@ def _date(yymmdd: str) -> date:
         raise StatementError("Wyciąg MT940 ma niepoprawną datę operacji.") from exc
 
 
-def _balance(body: str) -> Optional[tuple[str, Decimal]]:
-    """``:60F:``/``:62F:`` → (waluta, saldo ze znakiem); ``None`` = nie umiem."""
+def _balance(body: str) -> Optional[tuple[str, Decimal, Optional[date]]]:
+    """``:60F:``/``:62F:`` → (waluta, saldo ze znakiem, data salda); ``None`` = nie umiem.
+
+    Zła data salda nie odrzuca pliku (stare ekrany importu jej nie czytały) —
+    wyciąg bez niej po prostu nie dowodzi ciągłości.
+    """
 
     match = _BALANCE.match(body.strip())
     if match is None:
@@ -117,7 +125,17 @@ def _balance(body: str) -> Optional[tuple[str, Decimal]]:
         amount = Decimal(match.group("amount").replace(",", "."))
     except InvalidOperation:
         return None
-    return match.group("currency"), -amount if match.group("mark") == "D" else amount
+    try:
+        day: Optional[date] = _date(match.group("date"))
+    except StatementError:
+        day = None
+    signed = -amount if match.group("mark") == "D" else amount
+    return match.group("currency"), signed, day
+
+
+def _statement_number(body: str) -> Optional[int]:
+    match = _STATEMENT_NUMBER.match(body.strip())
+    return int(match.group("number")) if match else None
 
 
 def _booking_date(value_date: date, entry: Optional[str]) -> date:
@@ -210,8 +228,12 @@ def parse(raw: bytes) -> ParsedStatement:
     balances: list[BalanceCheck] = []
     #: Saldo otwarcia bieżącego wyciągu i suma jego operacji (ze znakiem).
     opening: Optional[Decimal] = None
+    opening_day: Optional[date] = None
     movement = Decimal("0")
     statement_no = 0
+    #: ``:28C:`` bieżącego wyciągu (stoi przed jego ``:60F:``).
+    number: Optional[int] = None
+    opening_number: Optional[int] = None
 
     def flush() -> None:
         nonlocal pending
@@ -241,12 +263,16 @@ def parse(raw: bytes) -> ParsedStatement:
             except AccountError:
                 account = None
             accounts.append(account or raw_account)
+        elif tag in ("28C", "28"):
+            number = _statement_number(body)
         elif tag in ("60F", "60M"):
             statement_no += 1
             found = _balance(body)
             if found:
                 currency = found[0]
             opening = found[1] if found else None
+            opening_day = found[2] if found else None
+            opening_number, number = number, None
             movement = Decimal("0")
         elif tag in ("62F", "62M"):
             found = _balance(body)
@@ -257,6 +283,9 @@ def parse(raw: bytes) -> ParsedStatement:
                         opening=opening,
                         movement=movement,
                         closing=found[1],
+                        opening_day=opening_day,
+                        closing_day=found[2],
+                        number=opening_number,
                     )
                 )
             opening = None

@@ -10,6 +10,7 @@ różnicy i ręczne „opłacono” tylko Finanse; uznania z wyciągu opłacają
 from __future__ import annotations
 
 import io
+import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -19,17 +20,20 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from openpyxl import load_workbook
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 
 from app.api import client_sales_invoices as api
 from app.api import hr_payments
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
+from app.models.app_setting import AppSetting
 from app.models.client_sales_invoice import ClientSalesInvoicePayment
+from app.models.ledger import LedgerBankLine, LedgerBankStatement
 from app.models.section_permission import UserActionOverride
-from app.services.client_invoicing import sync
+from app.services.client_invoicing import payments, sync
 from app.services.client_invoicing.views import ROW_STATUS_LABELS
 from app.services.hr.bank import statements
+from app.services.hr.bank.accounts import iban_check_digits
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.client_invoicing import helpers as fx
 
@@ -222,20 +226,256 @@ async def test_overdue_without_payment_data_is_a_count_not_arrears(client, seed)
     assert all(item["overdue_days"] == 0 for item in late.values())
     assert late["FS 10/118/2026"]["payment_unknown"] is True
 
-    scope = await client.get(
-        f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(dl)
-    )
-    assert scope.json() == {"invoices": [], "payment_unknown": 3}
+    scope = (
+        await client.get(f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(dl))
+    ).json()
+    assert (scope["invoices"], scope["payment_unknown"]) == ([], 3)
+    # Bez wyciągów rachunku odbioru w Księdze każda z nich ma powód braku danych.
+    assert sum(r["count"] for r in scope["payment_unknown_reasons"]) == 3
     other = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["other_dl"])
     )
-    assert other.json() == {"invoices": [], "payment_unknown": 0}
+    assert other.json() == {
+        "invoices": [],
+        "payment_unknown": 0,
+        "payment_unknown_reasons": [],
+    }
     finance = await client.get(
         f"{FINANCE}/overdue", headers=fx.headers(seed.users["finance"])
     )
     # Do tego FS 11/7 (nabywca spoza NEXUSA, termin 19.11); baza testów jest wspólna.
     assert finance.json()["invoices"] == []
     assert finance.json()["payment_unknown"] >= 4
+
+
+def _fake_nrb() -> str:
+    """Fikcyjny rachunek (losowy, z poprawną sumą kontrolną) — baza testów jest wspólna."""
+
+    bban = "10901056" + f"{uuid.uuid4().int % 10**16:016d}"
+    return iban_check_digits(bban) + bban
+
+
+async def _put_setting(key: str, value) -> None:
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, key)
+        if value is None:
+            if row is not None:
+                await db.delete(row)
+        elif row is None:
+            db.add(AppSetting(key=key, value=value))
+        else:
+            row.value = value
+        await db.commit()
+
+
+async def _setting(key: str):
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, key)
+        return None if row is None else row.value
+
+
+async def _statements(account: str, spans) -> list[int]:
+    """Wyciągi w Księdze z saldami — jak po imporcie przez Finanse (E8 przeszło)."""
+
+    ids = []
+    async with AsyncSessionLocal() as db:
+        for start, end, opening, closing in spans:
+            statement = LedgerBankStatement(
+                sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+                format="mt940",
+                bank_account=account,
+                ledger_account="130-1",
+                currency="PLN",
+                first_day=start,
+                last_day=end,
+                line_count=1,
+                debit_total=0,
+                credit_total=closing - opening,
+                opening_balance=opening,
+                opening_day=start,
+                closing_balance=closing,
+                closing_day=end,
+                credits_matched=True,
+            )
+            db.add(statement)
+            await db.flush()
+            ids.append(statement.id)
+        await db.commit()
+    return ids
+
+
+async def test_overdue_needs_continuous_statements_of_the_receiving_account(
+    client, seed
+):
+    """„Po terminie” z wyciągów (19.11.2026): rachunek odbioru jest w Księdze,
+    a łańcuch sald jego wyciągów idzie od dnia przed wystawieniem do dnia po
+    terminie. Przerwa w łańcuchu = brak danych o zapłacie z powodem."""
+
+    account = _fake_nrb()
+    previous = {key: await _setting(key) for key in ("client_invoice_issue", "ledger")}
+    await _put_setting(
+        "client_invoice_issue", {"accounts": {"PLN": {"number": f"PL{account}"}}}
+    )
+    await _put_setting(
+        "ledger",
+        {
+            "bank": {
+                "accounts": [{"number": account, "account": "130-1", "currency": "PLN"}]
+            }
+        },
+    )
+    ids = await _statements(
+        account,
+        [
+            (date(2026, 11, 2), date(2026, 11, 12), 0, 50_000),
+            (date(2026, 11, 13), date(2026, 11, 19), 50_000, 90_000),
+        ],
+    )
+    dl = fx.headers(seed.users["dl"])
+    try:
+        scope = (
+            await client.get(f"{CLIENTS}/sales-invoices/overdue", headers=dl)
+        ).json()
+        # Terminy 10, 17 i 18.11, ciągłość do 19.11 — dni do 19.11, nie do „dziś”.
+        late = fx.as_dict(scope["invoices"], "invoice_number")
+        assert {number: item["overdue_days"] for number, item in late.items()} == {
+            "FS 10/121/2026": 9,
+            "FS 10/118/2026": 2,
+            "FS 10/124/2026": 1,
+        }
+        assert [item["invoice_number"] for item in scope["invoices"]][0] == (
+            "FS 10/121/2026"
+        )
+        assert late["FS 10/121/2026"]["statements_until"] == "2026-11-19"
+        assert late["FS 10/121/2026"]["payment_account"] == account[-4:]
+        assert (scope["payment_unknown"], scope["payment_unknown_reasons"]) == (0, [])
+        tab = (await _tab(client, seed.users["dl"], seed)).json()
+        assert (tab["summary"]["overdue"], tab["summary"]["payment_unknown"]) == (3, 0)
+        assert (
+            fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"][
+                "overdue_days"
+            ]
+            == 2
+        )
+
+        # Drugi wyciąg nie otwiera się saldem zamknięcia pierwszego: łańcuch
+        # kończy się 12.11, więc po terminie jest tylko faktura z terminem 10.11.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(LedgerBankStatement)
+                .where(LedgerBankStatement.id == ids[1])
+                .values(opening_balance=49_999)
+            )
+            await db.commit()
+        scope = (
+            await client.get(f"{CLIENTS}/sales-invoices/overdue", headers=dl)
+        ).json()
+        assert [
+            (item["invoice_number"], item["overdue_days"]) for item in scope["invoices"]
+        ] == [("FS 10/121/2026", 2)]
+        assert scope["payment_unknown"] == 2
+        assert [
+            (r["reason"], r["account"], r["count"])
+            for r in scope["payment_unknown_reasons"]
+        ] == [("statements", account[-4:], 2)]
+        tab = (await _tab(client, seed.users["dl"], seed)).json()
+        unknown = fx.as_dict(tab["invoices"], "invoice_number")["FS 10/118/2026"]
+        assert (unknown["payment_unknown"], unknown["payment_unknown_reason"]) == (
+            True,
+            "statements",
+        )
+        assert unknown["statements_until"] == "2026-11-12"
+        other = await client.get(
+            f"{CLIENTS}/sales-invoices/overdue",
+            headers=fx.headers(seed.users["other_dl"]),
+        )
+        assert other.json()["invoices"] == []
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(LedgerBankStatement).where(LedgerBankStatement.id.in_(ids))
+            )
+            await db.commit()
+        for key, value in previous.items():
+            await _put_setting(key, value)
+
+
+async def test_overdue_waits_while_a_credit_nexus_did_not_assign_may_be_the_payment(
+    client, seed
+):
+    """Przegląd 19.11.2026: wpłata, której E8 nie przypisało, blokuje „po terminie”.
+
+    * duplikat E8 (ta sama operacja z drugiego pliku) bez oryginału — „Usuń
+      wyciąg” skasował plik, w którym operacja opłaciła fakturę;
+    * operacja Księgi bez konta w kwocie, która została do zapłaty — E8 jej nie
+      zapisało (np. ta sama kwota u kilku faktur, bez numeru w tytule).
+    """
+
+    account = _fake_nrb()
+    previous = {key: await _setting(key) for key in ("client_invoice_issue", "ledger")}
+    await _put_setting(
+        "client_invoice_issue", {"accounts": {"PLN": {"number": f"PL{account}"}}}
+    )
+    await _put_setting(
+        "ledger",
+        {
+            "bank": {
+                "accounts": [{"number": account, "account": "130-1", "currency": "PLN"}]
+            }
+        },
+    )
+    ids = await _statements(
+        account, [(date(2026, 11, 2), date(2026, 11, 19), 0, 90_000)]
+    )
+    dl = fx.headers(seed.users["dl"])
+    try:
+        async with AsyncSessionLocal() as db:
+            db.add(
+                ClientSalesInvoicePayment(
+                    kind="statement_line",
+                    match_status="ignored",
+                    reason=payments.DUPLICATE_REASON,
+                    amount=Decimal("100.00"),
+                    currency="PLN",
+                    booked_on=date(2026, 11, 12),
+                    title="Zapłata FS 10/118/2026",
+                    statement_sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+                    statement_format="mt940",
+                    statement_line_ref="1:ORPHAN",
+                )
+            )
+            # FS 10/124 minus korekta: 27 675,00 − 92,25 zł.
+            db.add(
+                LedgerBankLine(
+                    statement_id=ids[0],
+                    line_ref="1:LOOSE",
+                    position=1,
+                    booked_on=date(2026, 11, 10),
+                    direction="credit",
+                    amount=2_758_275,
+                    currency="PLN",
+                    amount_pln=2_758_275,
+                    kind="unmatched",
+                )
+            )
+            await db.commit()
+        scope = (
+            await client.get(f"{CLIENTS}/sales-invoices/overdue", headers=dl)
+        ).json()
+        assert [item["invoice_number"] for item in scope["invoices"]] == [
+            "FS 10/121/2026"
+        ]
+        assert [
+            (r["reason"], r["count"]) for r in scope["payment_unknown_reasons"]
+        ] == [("credit_pending", 2)]
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(LedgerBankStatement).where(LedgerBankStatement.id.in_(ids))
+            )
+            await db.commit()
+        for key, value in previous.items():
+            await _put_setting(key, value)
 
 
 async def test_export_has_every_position_with_polish_decimals(client, seed):
@@ -403,11 +643,11 @@ async def test_statement_credits_pay_invoices_and_reimport_changes_nothing(
     late = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["dl"])
     )
-    assert late.json() == {"invoices": [], "payment_unknown": 1}
+    assert (late.json()["invoices"], late.json()["payment_unknown"]) == ([], 1)
     nobody = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["other_dl"])
     )
-    assert nobody.json() == {"invoices": [], "payment_unknown": 0}
+    assert (nobody.json()["invoices"], nobody.json()["payment_unknown"]) == ([], 0)
     recruiter = await client.get(
         f"{CLIENTS}/sales-invoices/overdue", headers=fx.headers(seed.users["recruiter"])
     )

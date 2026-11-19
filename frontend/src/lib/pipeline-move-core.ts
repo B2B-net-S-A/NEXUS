@@ -60,6 +60,9 @@ export interface PipelineMovePayload {
   autofill_reason?: AutofillReason;
   autofill_learned_from?: AutofillLearnedFrom;
   autofill_rate_hourly?: number;
+  /** „Nie szuka pracy” z listy szablonu przy karcie dodanej ręcznie (19.11.2026):
+   *  „RRRR-MM-DD”, od jutra do dwóch lat. */
+  not_looking_until?: string;
   candidate_offer_response?: "pending" | "accepted" | "declined";
   ended_by?: string;
   /** Bliźniaki (0614): rekrutacja → kod powodu pominięcia (`TwinSkipDialog`). */

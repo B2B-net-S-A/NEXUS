@@ -42,6 +42,7 @@ import {
 } from "@/components/v2/modals/RejectionWorkModeField";
 import {
  AutofillFeedbackField,
+ NotLookingUntilField,
  parseRateInput,
 } from "@/components/v2/modals/AutofillFeedbackField";
 import {
@@ -60,6 +61,7 @@ import {
  HM_ALREADY_INTERVIEWED_REASON,
  WORK_MODE_MISMATCH_REASON,
  EMPLOYED_ELSEWHERE_REASON,
+ NOT_LOOKING_FOR_WORK_REASON,
  groupRejectedReasons,
  isRateTooHighReason,
  reasonFitsEndedBy,
@@ -131,7 +133,11 @@ interface Props {
   *  `null` przy innym powodzie, kilku osobach albo pustym polu. */
  rate?: RejectionRateChoice | null,
  /** Spotkania tej osoby do odwołania po zamknięciu karty (09.11.2026). */
- meetings?: PairMeetingsChoice | null
+ meetings?: PairMeetingsChoice | null,
+ /** „Nie szuka pracy” z listy szablonu (19.11.2026): do kiedy — „RRRR-MM-DD”;
+  *  `null` przy innym powodzie i przy osobie od systemu (tam data jest
+  *  w `autofill`). */
+ notLookingUntil?: string | null
  ) => void;
  /** Wstępny wybór „kto kończy" (np. upuszczenie na „Odrzucony przez klienta"). */
  initialEndedBy?: Exclude<EndedBy, "candidate"> | null;
@@ -272,7 +278,8 @@ export function RejectionV2({
  // 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” —
  // domyślnie na cały klient.
  const [autofillWholeClient, setAutofillWholeClient] = useState(true);
- // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące.
+ // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące. Od 19.11.2026 ta
+ // sama data przy powodzie z listy szablonu (karta dodana ręcznie).
  const [notLookingUntilValue, setNotLookingUntilValue] = useState(() =>
  notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS),
  );
@@ -363,6 +370,8 @@ export function RejectionV2({
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
+ const notLookingReason =
+ !autofillAsked && chosenReason?.name?.trim() === NOT_LOOKING_FOR_WORK_REASON;
 
  // Przy 1280 × 720 pole opisu stoi pod listą powodów: bez tego „Potwierdź”
  // szarzeje przy „Inne” bez widocznego powodu.
@@ -403,7 +412,8 @@ export function RejectionV2({
  : null,
  autofillChoice,
  rateChoice,
- meetingsChoice
+ meetingsChoice,
+ notLookingReason ? notLookingUntilValue : null
  );
  return;
  }
@@ -428,7 +438,8 @@ export function RejectionV2({
  null,
  autofillChoice,
  null,
- meetingsChoice
+ meetingsChoice,
+ null
  );
  };
 
@@ -575,7 +586,7 @@ export function RejectionV2({
  <React.Fragment key={r.id}>
  <label
  className="flex items-center gap-2 text-sm cursor-pointer rounded-md p-1 hover:bg-primary/10"
- data-tour={r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? "rejection.employed-elsewhere" : undefined}
+ data-tour={r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? "rejection.employed-elsewhere" : r.name?.trim() === NOT_LOOKING_FOR_WORK_REASON ? "rejection.not-looking" : undefined}
  >
  <RadioGroupItem value={r.id} />
  <span>{r.label}</span>
@@ -599,6 +610,15 @@ export function RejectionV2({
  isMinimum={newRateIsMinimum}
  onIsMinimumChange={setNewRateIsMinimum}
  />
+ ) : null}
+ {r.id === reasonId && notLookingReason ? (
+ <div className="ml-6">
+ <NotLookingUntilField
+ value={notLookingUntilValue}
+ onChange={setNotLookingUntilValue}
+ several={several}
+ />
+ </div>
  ) : null}
  {r.id === reasonId && r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? (
  <p

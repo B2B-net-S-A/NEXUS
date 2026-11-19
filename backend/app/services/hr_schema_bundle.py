@@ -28,6 +28,7 @@ from app.services import client_invoice_templates_schema as client_invoice_templ
 from app.services import client_invoice_series_ext_schema as client_invoice_series_ext
 from app.services import finance_archive_schema as finance_archive
 from app.services import order_revenue_steps_schema as order_revenue_steps
+from app.services import order_cost_steps_schema as order_cost_steps
 from app.services import board_documents_schema as board_documents
 from app.services import board_budget_schema as board_budgets
 from app.services import board_statements_schema as board_statements
@@ -48,6 +49,7 @@ from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_bank_balance_schema as ledger_bank_balances
 from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_fx_schema as ledger_fx
@@ -149,6 +151,8 @@ MODULES = (
     ledger_fx,
     # 0708: pliki JPK_V7M K5b — ewidencja VAT z deklaracją (15.11.2026).
     ledger_vat,
+    # 0742: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
+    ledger_bank_balances,
     # 0709: szablony faktur cykliczne, refaktury benefitów, faktura z ręki (E6, 15.11.2026).
     client_invoice_templates,
     # 0712: katalog raportów klienta — definicje i historia wysyłek (15.11.2026).
@@ -179,6 +183,8 @@ MODULES = (
     board_reports,
     # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
     contract_rate_documents,
+    # 0741: koszt zamówienia od dnia zmiany stawki Partnera (19.11.2026).
+    order_cost_steps,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

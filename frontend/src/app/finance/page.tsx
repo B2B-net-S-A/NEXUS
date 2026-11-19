@@ -55,7 +55,7 @@ const VIEW_DESCRIPTION: Record<ViewMode, string> = {
   "sales-invoices":
     "Faktury do klientów: wystawianie do KSeF, dopasowanie do zamówień, wpłaty z wyciągu i zaległości",
   "rate-divergences":
-    "Nocny raport: gdzie stawka z kontraktu różni się od stawki linii zamówienia MD",
+    "Zamówienia do korekty po zmianie stawki Partnera i nocny raport rozjazdów linii zamówień MD",
   settlements: "RCP, faktury kontraktorów i faktury do klienta za jeden miesiąc",
   "approved-expenses":
     "Zatwierdzone wydatki do rozliczenia, rejestr subskrypcji i faktury kosztowe bez zgody",
@@ -264,7 +264,9 @@ export default function FinancePage() {
         ) : visibleView === "sales-invoices" ? (
           <FinanceSalesInvoicesTab />
         ) : visibleView === "rate-divergences" ? (
-          <RateDivergencesTab />
+          <RateDivergencesTab
+            canWrite={!impersonating && hasPermission(user, "amounts_edit")}
+          />
         ) : visibleView === "settlements" ? (
           <SettlementsTab canWrite={canWrite} />
         ) : visibleView === "costs" ? (
