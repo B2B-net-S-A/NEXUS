@@ -264,3 +264,29 @@ describe("ProjectsTab — data otwarcia i „Wszystkie”", () => {
     expect(mocks.apiGet).not.toHaveBeenCalledWith("/api/clients/42/bnp-report/availability");
   });
 });
+
+describe("ProjectsTab — grupy aktywnych projektów (19.11.2026)", () => {
+  it("najpierw opublikowane bez przypisanego rekrutera, osobno szkice", async () => {
+    renderTab();
+
+    expect(await screen.findByText("Senior Python Developer")).toBeInTheDocument();
+    expect(screen.getByText("Bez przypisanego rekrutera · 1")).toBeInTheDocument();
+    expect(screen.getByText("Szkice · 1")).toBeInTheDocument();
+    expect(screen.queryByText(/^W toku/)).not.toBeInTheDocument();
+    const rows = screen.getAllByRole("row").map((row) => row.textContent ?? "");
+    const unassigned = rows.findIndex((text) => text.startsWith("Bez przypisanego rekrutera"));
+    const drafts = rows.findIndex((text) => text.startsWith("Szkice"));
+    expect(unassigned).toBeLessThan(drafts);
+    expect(rows[unassigned + 1]).toContain("Senior Python Developer");
+    expect(rows[drafts + 1]).toContain("React Engineer szkic");
+  });
+
+  it("zamknięte projekty zostają płaską listą", async () => {
+    const user = setupUser();
+    renderTab();
+    await screen.findByText("Senior Python Developer");
+    await user.click(tab(/Zamknięte projekty/));
+    expect(await screen.findByText("DevOps Engineer")).toBeInTheDocument();
+    expect(screen.queryByText(/Bez przypisanego rekrutera ·/)).not.toBeInTheDocument();
+  });
+});

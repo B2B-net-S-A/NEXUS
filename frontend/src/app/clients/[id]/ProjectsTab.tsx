@@ -2,11 +2,18 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { FileSpreadsheet, Search, UserPlus, XCircle } from "lucide-react";
+import { Ellipsis, FileSpreadsheet, Search, UserPlus, XCircle } from "lucide-react";
 import api from "@/lib/api";
 import { TabbedNav } from "@/components/ds";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ClientRecruitingSheet } from "@/components/client-profile/ClientRecruitingSheet";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -191,6 +198,34 @@ function ProjectRow({
 
 // ── Section ───────────────────────────────────────────────────────────────────
 
+type ProjectGroupKey = "unassigned" | "running" | "draft";
+
+/**
+ * Grupy aktywnych projektów (makieta 19.11.2026, wariant A ekranu Rekrutacje):
+ * najpierw opublikowane bez przypisanego rekrutera — to, czym ktoś musi się
+ * zająć — potem w toku i szkice. „Rekruter” = ta sama definicja co kolumna
+ * „Rekruter” (`workingRecruiters`, przypisania zespołu rekrutacji), a nie pole
+ * właściciela z profilu klienta — 19.11.2026 te dwa źródła różniły się
+ * u PKO BP (34 i 16 „bez rekrutera”).
+ */
+export function groupActiveProjects(
+  items: readonly ProjectJob[],
+): { key: ProjectGroupKey; label: string; items: ProjectJob[] }[] {
+  const unassigned: ProjectJob[] = [];
+  const running: ProjectJob[] = [];
+  const draft: ProjectJob[] = [];
+  for (const job of items) {
+    if (job.status !== "published") draft.push(job);
+    else if (workingRecruiters(recruitersOf(job)).length === 0) unassigned.push(job);
+    else running.push(job);
+  }
+  return [
+    { key: "unassigned" as const, label: "Bez przypisanego rekrutera", items: unassigned },
+    { key: "running" as const, label: "W toku", items: running },
+    { key: "draft" as const, label: "Szkice", items: draft },
+  ].filter((group) => group.items.length > 0);
+}
+
 function ProjectsSection({
   total,
   items,
@@ -199,6 +234,7 @@ function ProjectsSection({
   searching,
   emptyLabel,
   renderActions,
+  grouped = false,
 }: {
   total: number;
   items: ProjectJob[];
@@ -207,6 +243,8 @@ function ProjectsSection({
   searching: boolean;
   emptyLabel: string;
   renderActions?: (job: ProjectJob) => React.ReactNode;
+  /** Aktywne projekty w grupach (bez rekrutera · w toku · szkice). */
+  grouped?: boolean;
 }) {
   const truncated = total > items.length;
   const showActions = Boolean(renderActions);
@@ -250,14 +288,30 @@ function ProjectsSection({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((job) => (
-            <ProjectRow
-              key={job.id}
-              job={job}
-              actions={renderActions?.(job)}
-              showActions={showActions}
-            />
-          ))}
+          {grouped
+            ? groupActiveProjects(items).map((group) => (
+                <ProjectGroupRows
+                  key={group.key}
+                  group={group}
+                  columns={showActions ? 6 : 5}
+                  renderRow={(job) => (
+                    <ProjectRow
+                      key={job.id}
+                      job={job}
+                      actions={renderActions?.(job)}
+                      showActions={showActions}
+                    />
+                  )}
+                />
+              ))
+            : items.map((job) => (
+                <ProjectRow
+                  key={job.id}
+                  job={job}
+                  actions={renderActions?.(job)}
+                  showActions={showActions}
+                />
+              ))}
         </TableBody>
       </Table>
       {truncated && (
@@ -267,6 +321,33 @@ function ProjectsSection({
         </p>
       )}
     </div>
+  );
+}
+
+function ProjectGroupRows({
+  group,
+  columns,
+  renderRow,
+}: {
+  group: { key: ProjectGroupKey; label: string; items: ProjectJob[] };
+  columns: number;
+  renderRow: (job: ProjectJob) => React.ReactNode;
+}) {
+  return (
+    <>
+      <TableRow className="hover:bg-transparent">
+        <TableCell
+          colSpan={columns}
+          className={cn(
+            "pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide",
+            group.key === "unassigned" ? "text-warning-muted-foreground" : "text-muted-foreground",
+          )}
+        >
+          {group.label} · {group.items.length}
+        </TableCell>
+      </TableRow>
+      {group.items.map((job) => renderRow(job))}
+    </>
   );
 }
 
@@ -448,7 +529,9 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
       {/* Renderujemy DOKŁADNIE jedną listę — niewybrany kubełek wychodzi z DOM,
           nie jest ukrywany CSS-em (inaczej „aktywne znikają" byłoby pozorne). */}
       {bucket === "active" ? (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 2xl:grid-cols-[minmax(0,1fr)_300px] 2xl:items-start">
         <ProjectsSection
+          grouped
           total={activeQuery.data?.total ?? 0}
           items={activeJobs}
           isLoading={activeQuery.isLoading}
@@ -470,20 +553,36 @@ export function ProjectsTab({ clientId }: { clientId: number }) {
                   </Button>
                 ) : null}
                 {canCloseLost ? (
-                  <Button
-                    size="sm"
-                    variant="quiet"
-                    onClick={() => setCloseJobAsLost(job)}
-                    title="Zamknij rekrutację z powodem"
-                  >
-                    <XCircle className="h-3.5 w-3.5" aria-hidden="true" />
-                    Zamknij
-                  </Button>
+                  // Rzadka i nieodwracalna akcja w menu wiersza (makieta
+                  // 19.11.2026), nie obok „Dodaj”, gdzie łatwo w nią trafić.
+                  <DropdownMenu modal={false}>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 p-0"
+                        aria-label={`Więcej akcji: ${job.title}`}
+                        title="Więcej akcji"
+                      >
+                        <Ellipsis className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem
+                        onSelect={() => window.setTimeout(() => setCloseJobAsLost(job), 0)}
+                      >
+                        <XCircle className="h-4 w-4" aria-hidden="true" />
+                        Zamknij z powodem…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 ) : null}
               </>
             ) : null
           }
         />
+        <ClientRecruitingSheet clientId={clientId} />
+        </div>
       ) : bucket === "all" ? (
         <ProjectsSection
           total={allQuery.data?.total ?? 0}

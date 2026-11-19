@@ -119,6 +119,7 @@ import { useClientOverviewAttention } from "@/components/client-profile/overview
 import { useClientProfile } from "@/components/client-profile/useClientProfile";
 import { SectionNav } from "@/components/ds/SectionNav";
 import { clientSectionGroups } from "@/lib/client-tab-groups";
+import { contactWeightEntries } from "@/lib/client-contacts-weight";
 import {
   canEditClientLegalDocuments,
   canManageClientDelivery,
@@ -708,6 +709,16 @@ function ContactsTab({ clientId }: { clientId: number }) {
   const visibleContacts = isFiltering
     ? contacts.filter((c) => contactMatches(c, contactQuery))
     : contacts;
+  // Kontakty według wagi (makieta 19.11.2026, wariant A ekranu „Ludzie”):
+  // decydenci i kluczowe relacje, kierownicy, reszta zwinięta. Przy frazie
+  // płaska lista — szukasz konkretnej osoby.
+  const [othersOpen, setOthersOpen] = useState(false);
+  const contactEntries = isFiltering
+    ? visibleContacts.map((contact) => ({ kind: "contact" as const, contact }))
+    : contactWeightEntries(visibleContacts, othersOpen);
+  const withTalk = contacts.filter(
+    (c) => c.last_personal_touchpoint_at || c.last_contacted_at,
+  ).length;
 
   const createMutation = useMutation({
     mutationFn: (data: object) => api.post(`/api/contacts`, { ...data, client_id: clientId }),
@@ -857,7 +868,15 @@ function ContactsTab({ clientId }: { clientId: number }) {
         <p className="py-6 text-center text-sm text-muted-foreground">
           Ładowanie kontaktów…
         </p>
-      ) : contacts.length === 0 && !showAdd ? (
+      ) : null}
+      {contactsState === "ready" && contacts.length >= 5 && !isFiltering ? (
+        <p className="text-xs text-muted-foreground" data-testid="contacts-talk-summary">
+          {withTalk === 0
+            ? `Żaden z ${contacts.length} kontaktów nie ma zapisanej rozmowy — zacznij od decydentów i kierowników.`
+            : `${withTalk} z ${contacts.length} kontaktów ma zapisaną rozmowę.`}
+        </p>
+      ) : null}
+      {contactsState !== "ready" && contactsState !== "empty" ? null : contacts.length === 0 && !showAdd ? (
         <div className="text-center py-12 text-muted-foreground">
           <Users className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm">Brak kontaktów dla tego klienta</p>
@@ -888,7 +907,31 @@ function ContactsTab({ clientId }: { clientId: number }) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visibleContacts.map((contact) => {
+            {contactEntries.map((entry) => {
+              if (entry.kind === "header") {
+                return (
+                  <TableRow key={`group-${entry.group}`} className="hover:bg-transparent">
+                    <TableCell
+                      colSpan={canCreateContact ? 6 : 5}
+                      className="pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
+                    >
+                      {entry.label} · {entry.count}
+                      {entry.collapsible ? (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-2 h-6 px-2 text-[11px] normal-case tracking-normal"
+                          onClick={() => setOthersOpen((open) => !open)}
+                          aria-expanded={othersOpen}
+                        >
+                          {othersOpen ? "Zwiń" : `Pokaż ${entry.count}`}
+                        </Button>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+              const contact = entry.contact;
               if (editContact?.id === contact.id) {
                 return (
                   <TableRow key={contact.id}>
