@@ -2949,8 +2949,8 @@ async def apply_order_update(
         await recompute_remaining(db, order)
     _refresh_md_rate_mirror(order, explicit_fields=payload.model_fields_set)
     # Ręczna zmiana kosztu, jednostki albo godzin unieważnia części kosztu
-    # (0741): części są w starej jednostce i przykryłyby nową kwotę w każdym
-    # czytniku „za miesiąc”. Żywe zamówienie dostanie je z powrotem
+    # (`order_cost_steps`): części są w starej jednostce i przykryłyby nową
+    # kwotę w każdym czytniku „za miesiąc”. Żywe zamówienie dostanie je z powrotem
     # z harmonogramu kontraktu przy synchronizacji po tym zapisie.
     if payload.model_fields_set & {
         "rate_candidate",

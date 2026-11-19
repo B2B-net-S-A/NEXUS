@@ -874,7 +874,7 @@ async def sync_orders_cost_from_contract(
         if cost is None:
             continue
         # Części kosztu, gdy stawka Partnera zmienia się w okresie zamówienia
-        # (0741, `services/order_cost_steps.py`). Kolumna niżej zostaje stawką
+        # (`services/order_cost_steps.py`). Kolumna niżej zostaje stawką
         # na dzień odniesienia.
         touched = await order_cost_steps.write_steps(
             db,
