@@ -310,6 +310,8 @@ export function BreadcrumbV2({ className }: { className?: string }) {
     const seg = segments[i];
     path += "/" + seg;
     const prevSeg = segments[i - 1];
+    // MAKIETA: trasy makiet modułu Kontrakty udają prawdziwe ekrany.
+    if (seg.startsWith("makieta")) continue;
     if (isNumeric(seg) && prevSeg && ENTITY_NAME_FETCHERS[prevSeg]) {
       crumbs.push({
         label: <DynamicLabel entityType={prevSeg} id={seg} />,
