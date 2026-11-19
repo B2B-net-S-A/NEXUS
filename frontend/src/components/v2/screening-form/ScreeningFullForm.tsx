@@ -1172,6 +1172,8 @@ export interface ScreeningFullFormProps {
         previousCategory: "internal" | "external";
         /** Osoba od systemu (23.10.2026) — okno pyta o powód dla systemu. */
         autofill?: { rateKnown: boolean; several: boolean } | null;
+        /** Z „Nowych”/„Screeningu” — lista powodów okna także przy karcie ręcznej. */
+        decisionColumn?: boolean;
       })
     | null;
   /** Panel osoby (13.10.2026): po udanym „Odrzuć” panel pokazuje następną
@@ -1857,6 +1859,7 @@ export function ScreeningFullForm({
           profileWorkMode={rejectProfileWorkMode}
           profileRate={rejectProfileRate}
           autofill={reject.autofill ?? null}
+          decisionColumn={reject.decisionColumn ?? false}
           onConfirm={(
             reasonId,
             notes,

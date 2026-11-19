@@ -278,12 +278,21 @@ export function templateReasonFor<T extends { name?: string; label: string }>(
 
 const DECISION_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "screening"]);
 
+/**
+ * Czy odrzucenie z tej kolumny pyta o powód z listy okna („Nie pasuje do
+ * wymagań” / „Pieniądze i dane” / „Sprawa osoby”). Od 19.11.2026 tak samo przy
+ * karcie dodanej ręcznie — zespół wolał tę listę od krótkiej z szablonu.
+ */
+export function isDecisionColumn(fromColumn: BoardColumnKey | null | undefined): boolean {
+  return fromColumn != null && DECISION_COLUMNS.has(fromColumn);
+}
+
 /** Czy ruch na „Odrzucony” tej osoby wymaga powodu dla systemu. */
 export function needsAutofillReason(
   item: { entry_source?: string | null },
   fromColumn: BoardColumnKey | null | undefined,
 ): boolean {
-  return item.entry_source === "system" && fromColumn != null && DECISION_COLUMNS.has(fromColumn);
+  return item.entry_source === "system" && isDecisionColumn(fromColumn);
 }
 
 /** Pola żądania `/api/pipeline/move` dla wybranego powodu. */
