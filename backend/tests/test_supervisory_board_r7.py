@@ -59,7 +59,7 @@ async def test_cash_admin_writes_board_reads_and_outlook_uses_it(
     assert outlook.status_code == 200, outlook.text
     data = outlook.json()
     assert data["cash"] == {"as_of": day.isoformat(), "amount": 8.3, "note": "wyciągi"}
-    # Bez sprawozdania nie ma EBITDA, więc nie ma zdolności ani wyceny — None, nie zero.
+    # Bez 12 miesięcy faktur nie ma zysku ani EBITDA, więc nie ma zdolności ani wyceny — None, nie zero.
     assert data["current"]["ebitda"] is None
     assert data["year_end"]["year"] == business_today().year
 

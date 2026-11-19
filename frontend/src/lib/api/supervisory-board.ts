@@ -732,12 +732,14 @@ export interface BoardOutlook {
   current: {
     base_year: number | null;
     base_source?: string | null;
-    ebitda_base?: number | null;
-    ebitda_shift?: number | null;
+    /** Zysk brutto z faktur 12 mies. + stała amortyzacja (uwagi Rady 19.11.2026). */
+    profit?: number | null;
+    sales?: number | null;
+    amortization?: number | null;
     ebitda: number | null;
     financial_debt?: number | null;
     cash_used?: number | null;
-    cash_source?: "entry" | "statement";
+    cash_source?: "entry" | "statement" | null;
     net_debt: number | null;
     credit?: {
       debt_to_ebitda: number;
@@ -749,7 +751,6 @@ export interface BoardOutlook {
     valuation?: { financial: InvestorView; strategic: InvestorView };
   };
   profit_window: { from: string; to: string } | null;
-  profit_shift_applied: boolean;
   year_end: {
     year: number;
     actual_sales: number;

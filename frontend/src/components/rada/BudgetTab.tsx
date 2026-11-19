@@ -191,12 +191,12 @@ export function BudgetTab() {
           ) : null}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-[12px] tabular-nums">
+          <table className="w-full min-w-[760px] text-[12px] tabular-nums">
             <thead>
               <tr className="border-b border-border text-[11px] text-muted-foreground">
-                <th className="py-1.5 pr-2 text-left font-medium" />
+                <th className="sticky left-0 z-10 min-w-[120px] bg-card py-1.5 pr-2 text-left font-medium" />
                 {ROMAN.map((m) => (
-                  <th key={m} className="py-1.5 text-right font-medium">
+                  <th key={m} className="px-1.5 py-1.5 text-right font-medium">
                     {m}
                   </th>
                 ))}
@@ -208,18 +208,18 @@ export function BudgetTab() {
               <Line label="Sprzedaż — wyk./progn." values={rows.map((r) => r.sales)} forecast={rows.map((r) => r.kind === "forecast")} total={yearSales} />
               <Line label="Koszty z faktur" values={rows.map((r) => r.costs)} forecast={rows.map((r) => r.costsEstimated)} total={yearCosts} />
               <tr>
-                <td className="py-1.5 pr-2 text-left font-semibold">Wynik — odchylenie od planu</td>
+                <td className="sticky left-0 z-10 bg-card py-1.5 pr-2 text-left font-semibold">Wynik — odchylenie od planu</td>
                 {rows.map((r) => {
                   if (r.planSales === null || r.planCosts === null || r.sales === null || r.costs === null) {
                     return (
-                      <td key={r.month} className="py-1.5 text-right text-muted-foreground">
+                      <td key={r.month} className="px-1.5 py-1.5 text-right text-muted-foreground">
                         —
                       </td>
                     );
                   }
                   const d = r.sales - r.costs - (r.planSales - r.planCosts);
                   return (
-                    <td key={r.month} className={cn("py-1.5 text-right", d < 0 ? "text-destructive" : "text-success")}>
+                    <td key={r.month} className={cn("px-1.5 py-1.5 text-right", d < 0 ? "text-destructive" : "text-success")}>
                       {d > 0 ? "+" : ""}
                       {num(d)}
                     </td>
@@ -292,9 +292,9 @@ function Line({
 }) {
   return (
     <tr className={cn(muted && "text-muted-foreground")}>
-      <td className="py-1.5 pr-2 text-left font-semibold">{label}</td>
+      <td className="sticky left-0 z-10 bg-card py-1.5 pr-2 text-left font-semibold">{label}</td>
       {values.map((v, i) => (
-        <td key={i} className={cn("py-1.5 text-right", forecast?.[i] && "italic text-info")}>
+        <td key={i} className={cn("px-1.5 py-1.5 text-right", forecast?.[i] && "italic text-info")}>
           {num(v)}
         </td>
       ))}

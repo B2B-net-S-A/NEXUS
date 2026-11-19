@@ -68,19 +68,34 @@ describe("tabela miesięcy pulpitu", () => {
 });
 
 describe("podpis bazy wyceny", () => {
-  it("bez sprawozdania odsyła do Analizy", () => {
-    const outlook = { current: { base_year: null, ebitda: null, net_debt: null }, profit_shift_applied: false, profit_window: null } as unknown as BoardOutlook;
-    expect(basisNote(outlook)).toContain("zakładce Analiza");
+  it("bez 12 miesięcy faktur mówi, na co czeka", () => {
+    const outlook = { current: { base_year: null, ebitda: null, net_debt: null }, profit_window: null } as unknown as BoardOutlook;
+    expect(basisNote(outlook)).toContain("12 miesięcy faktur");
   });
 
-  it("z przesunięciem z faktur", () => {
+  it("zysk z faktur + stała amortyzacja, dług ze sprawozdania", () => {
     const outlook = {
-      current: { base_year: 2098, ebitda: 12, ebitda_base: 10, ebitda_shift: 2, net_debt: -3 },
-      profit_shift_applied: true,
+      current: {
+        base_year: 2098,
+        profit: 12,
+        amortization: 1,
+        ebitda: 13,
+        financial_debt: 6,
+        cash_source: "entry",
+        net_debt: -3,
+      },
       profit_window: { from: "11.2098", to: "10.2099" },
     } as unknown as BoardOutlook;
     expect(basisNote(outlook)).toBe(
-      "EBITDA 12,0 mln = 2098 ze sprawozdania 10,0 mln + 2,0 mln zmiany zysku brutto z faktur (11.2098–10.2099 wobec 2098). Dług netto -3,0 mln.",
+      "Zysk brutto 12,0 mln z faktur 11.2098–10.2099 + amortyzacja 1,0 mln (stała) = 13,0 mln. Dług netto -3,0 mln: dług 6,0 mln ze sprawozdania 2098, gotówka z wpisu Zarządu.",
     );
+  });
+
+  it("bez sprawozdania dług przyjęty jako 0, powiedziane wprost", () => {
+    const outlook = {
+      current: { base_year: null, profit: 12, amortization: 1, ebitda: 13, financial_debt: null, cash_source: null, net_debt: 0 },
+      profit_window: { from: "11.2098", to: "10.2099" },
+    } as unknown as BoardOutlook;
+    expect(basisNote(outlook)).toContain("bez sprawozdania dług finansowy przyjęty jako 0");
   });
 });

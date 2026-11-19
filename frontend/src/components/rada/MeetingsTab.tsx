@@ -216,7 +216,10 @@ function Obligations({ items }: { items: BoardObligation[] }) {
       <h2 className="mb-2 text-sm font-semibold text-foreground">Obowiązki korporacyjne {year}</h2>
       <ul className="divide-y divide-border">
         {items.map((o) => (
-          <li key={o.key} className="grid grid-cols-[92px_1fr_auto] items-center gap-3 py-1.5 text-[12px]">
+          <li
+            key={o.key}
+            className="flex flex-col items-start gap-1 py-2 text-[12px] sm:grid sm:grid-cols-[92px_1fr_auto] sm:items-center sm:gap-3 sm:py-1.5"
+          >
             <Badge variant={OBLIGATION_BADGE[o.status].variant} size="sm" className="justify-self-start">
               {OBLIGATION_BADGE[o.status].label}
             </Badge>
@@ -224,7 +227,7 @@ function Obligations({ items }: { items: BoardObligation[] }) {
               <span className="font-medium text-foreground">{o.label}</span>
               <span className="text-muted-foreground"> · {o.evidence}</span>
             </div>
-            <div className="whitespace-nowrap text-right text-muted-foreground">
+            <div className="text-muted-foreground sm:whitespace-nowrap sm:text-right">
               <span className="tabular-nums">do {plDate(o.due)}</span>
               <span className="ml-2 text-[11px]">{o.legal}</span>
             </div>
