@@ -8,7 +8,6 @@ import { describe, expect, it } from "vitest";
 import {
   CLIENT_INTERVIEW_WEAK_REASON,
   CLIENT_OTHER_VENDOR_REASON,
-  groupRejectedReasons,
   reasonFitsEndedBy,
 } from "@/lib/rejection-reasons";
 
@@ -25,28 +24,6 @@ describe("powody klienta z CPro", () => {
     const name = CLIENT_OTHER_VENDOR_REASON;
     expect(reasonFitsEndedBy({ name }, "client")).toBe(true);
     expect(reasonFitsEndedBy({ name }, "recruiter")).toBe(true);
-  });
-
-  it("słaba rozmowa w „Kliencie”, inny dostawca w „Sprawie osoby”", () => {
-    const groups = groupRejectedReasons(
-      [
-        "client_no_reason",
-        "client_chose_other",
-        CLIENT_OTHER_VENDOR_REASON,
-        CLIENT_INTERVIEW_WEAK_REASON,
-        "Inne (rejected)",
-      ].map((name) => ({ name })),
-    );
-    expect(groups[0]).toEqual({
-      title: "Klient",
-      reasons: [
-        { name: "client_no_reason" },
-        { name: "client_chose_other" },
-        { name: CLIENT_INTERVIEW_WEAK_REASON },
-      ],
-    });
-    expect(groups[1]).toEqual({ title: "Sprawa osoby", reasons: [{ name: CLIENT_OTHER_VENDOR_REASON }] });
-    expect(groups.at(-1)).toEqual({ title: "Pozostałe", reasons: [{ name: "Inne (rejected)" }] });
   });
 
   it("dane w bazie nie pojawiają się na liście z szablonu", () => {

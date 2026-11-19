@@ -60,8 +60,9 @@ describe("RejectionV2 — karta ręczna w „Nowych”/„Screeningu”", () => 
   it("pokazuje rozbudowaną listę bez „Skąd to wiesz?” i wysyła powód z szablonu bez powodu dla systemu", () => {
     const onConfirm = renderManual(true);
     expect(screen.getByText("Nie pasuje do wymagań")).toBeInTheDocument();
-    expect(screen.getByText("Pieniądze i dane")).toBeInTheDocument();
-    expect(screen.queryByText("Nie pasuje kulturowo")).toBeNull();
+    expect(screen.getByText("Dane w bazie")).toBeInTheDocument();
+    // Etykieta słownika z wierszem szablonu o tej samej nazwie (19.11.2026).
+    expect(screen.getByText("Nie pasuje kulturowo")).toBeInTheDocument();
     expect(screen.queryByText("Skąd to wiesz?")).toBeNull();
     expect(screen.queryByText(/To osoba od systemu/)).toBeNull();
     const confirm = screen.getByRole("button", { name: "Potwierdź" });
@@ -103,10 +104,12 @@ describe("RejectionV2 — karta ręczna w „Nowych”/„Screeningu”", () => 
     expect(confirm).toBeEnabled();
   });
 
-  it("poza „Nowymi”/„Screeningiem” zostaje lista z szablonu", () => {
+  it("poza „Nowymi”/„Screeningiem” ta sama lista słownika, bez „Dane w bazie”", () => {
     renderManual(false);
     expect(screen.getByText("Nie pasuje kulturowo")).toBeInTheDocument();
-    expect(screen.queryByText("Pieniądze i dane")).toBeNull();
+    expect(screen.getByText("Nie pasuje do wymagań")).toBeInTheDocument();
+    expect(screen.queryByText("Dane w bazie")).toBeNull();
+    expect(screen.queryByText("CV nieaktualne")).toBeNull();
   });
 
   it("kolumny decyzji to tylko „Nowi” i „Screening”", () => {
