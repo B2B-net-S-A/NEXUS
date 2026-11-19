@@ -172,13 +172,17 @@ describe("RejectionV2 — osoba od systemu trafia do nowych powodów", () => {
     return onConfirm.mock.calls[0];
   }
 
-  it("mapa nie ma już `null` przy sprawach osoby", () => {
+  it("mapa jest 1:1 — każdy powód ma własny klucz w szablonie (0745)", () => {
     expect(AUTOFILL_TEMPLATE_REASON.not_looking).toBe("not_looking_for_work");
     expect(AUTOFILL_TEMPLATE_REASON.no_answer).toBe("no_contact");
-    expect(AUTOFILL_TEMPLATE_REASON.wrong_phone).toBe("no_contact");
-    expect(AUTOFILL_TEMPLATE_REASON.client_employed).toBe("client_conflict");
-    expect(AUTOFILL_TEMPLATE_REASON.client_refused).toBe("client_conflict");
-    expect(AUTOFILL_TEMPLATE_REASON.client_other_vendor).toBe("client_conflict");
+    expect(AUTOFILL_TEMPLATE_REASON.wrong_phone).toBe("wrong_phone");
+    expect(AUTOFILL_TEMPLATE_REASON.client_employed).toBe("client_other_vendor");
+    expect(AUTOFILL_TEMPLATE_REASON.client_refused).toBe("client_refused");
+    expect(AUTOFILL_TEMPLATE_REASON.client_other_vendor).toBe("client_other_vendor");
+    const nulls = Object.entries(AUTOFILL_TEMPLATE_REASON)
+      .filter(([, name]) => name === null)
+      .map(([key]) => key);
+    expect(nulls.sort()).toEqual(["cleanup", "language", "other"]);
   });
 
   it("„Nie szuka pracy” idzie do własnego powodu, bez powtórzenia w opisie", () => {
@@ -192,9 +196,10 @@ describe("RejectionV2 — osoba od systemu trafia do nowych powodów", () => {
     expect(chooseAndConfirm("Nie odbiera (3 próby)")[0]).toBe("13");
   });
 
-  it("szerszy powód zostawia szczegół w opisie", () => {
+  it("powód bez wiersza w szablonie idzie jako „Inne” z nazwą w opisie", () => {
+    // Szablon z testu nie ma `client_other_vendor` (0740).
     const call = chooseAndConfirm("Zgłoszony do klienta przez inną firmę");
-    expect(call[0]).toBe("11");
+    expect(call[0]).toBe("99");
     expect(call[1]).toBe("Zgłoszony do klienta przez inną firmę");
   });
 

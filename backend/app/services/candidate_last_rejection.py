@@ -189,7 +189,12 @@ class RejectionFilter:
 async def _reason_names_for_labels(
     db: AsyncSession, labels: Sequence[str]
 ) -> list[str]:
-    """Nazwy z `rejection_reasons`, których etykieta jest jedną z wybranych."""
+    """Nazwy z `rejection_reasons`, których etykieta jest jedną z wybranych.
+
+    Od jednego słownika powodów (19.11.2026) etykieta bywa inna niż nazwa
+    („Brak doświadczenia” → „Za mało doświadczenia”). Link z filtrem sprzed
+    tej zmiany niesie starą etykietę = nazwę, więc pasuje też sama nazwa.
+    """
     wanted = set(labels)
     names = (await db.execute(select(RejectionReason.name).distinct())).scalars()
     return [
@@ -197,7 +202,10 @@ async def _reason_names_for_labels(
         for name in names
         if name
         and name.strip() not in _NO_REASON_CODES
-        and (rejection_reason_label(name.strip()) or name.strip()) in wanted
+        and (
+            (rejection_reason_label(name.strip()) or name.strip()) in wanted
+            or name.strip() in wanted
+        )
     ]
 
 

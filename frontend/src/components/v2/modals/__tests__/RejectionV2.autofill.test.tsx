@@ -254,7 +254,9 @@ describe("autofill-feedback", () => {
 
   it("powód z szablonu dla powodu dla systemu", () => {
     expect(templateReasonFor("too_junior", reasons)?.id).toBe("1");
-    expect(templateReasonFor("other_level_or_role", reasons)?.id).toBe("2");
+    // Od 19.11.2026 (0745) „Inna rola” ma własny klucz; szablon bez niego → „Inne”.
+    expect(templateReasonFor("missing_skill", reasons)?.id).toBe("2");
+    expect(templateReasonFor("other_level_or_role", reasons)?.id).toBe("9");
     expect(templateReasonFor("no_answer", reasons)?.id).toBe("9");
     expect(templateReasonFor("missing_skill", [])).toBeUndefined();
     expect(templateReasonFor(null, reasons)).toBeUndefined();
