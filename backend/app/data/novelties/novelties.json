@@ -3439,8 +3439,8 @@
       },
       {
         "anchor": "client.sections.people",
-        "text": "Kliknij grupę „Ludzie”.",
-        "hint": "Otworzą się „Kontakty i relacje”."
+        "text": "Kliknij grupę „Ludzie klienta”.",
+        "hint": "Otworzą się „Kontakty”."
       },
       {
         "anchor": "clients.contacts.search",
@@ -3594,5 +3594,21 @@
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contracts.rate-document"
+  },
+  {
+    "id": "klient-piec-sekcji",
+    "title": "Klient: pięć sekcji i Przegląd zaczynający się od spraw",
+    "why": "Profil klienta ma pięć sekcji: Przegląd, Nasi ludzie, Rekrutacje, Ludzie klienta, Umowa i pieniądze. Przegląd zaczyna się listą „Wymaga uwagi” zebraną ze wszystkich zakładek.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → klient → Przegląd",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.overview.attention"
   }
 ]

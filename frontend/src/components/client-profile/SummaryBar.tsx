@@ -9,17 +9,19 @@ import { useClientProfile } from "./useClientProfile";
 interface Props {
   summary: ClientProfileSummary;
   className?: string;
+  planned?: number;
+  attention?: number;
 }
 
 /**
- * Kafelek „Otwarte rekrutacje" zdjęty: był dosłownym duplikatem licznika przy
- * przełączniku „Aktywne projekty" w zakładce Projekty, tylko liczonym z innego
- * źródła (`summary.open_jobs` = wyłącznie `published`, tam `open_only` =
- * `draft` + `published`) — więc dwie liczby o tej samej nazwie mogły się
- * rozjeżdżać i nie było sposobu odgadnąć, która jest prawdziwa.
+ * Liczby w nagłówku klienta (makieta 19.11.2026): nasi ludzie, otwarte
+ * rekrutacje, marża miesięczna i sprawy z „Wymaga uwagi” Przeglądu.
  *
- * Pole `summary.open_jobs` ZOSTAJE w typie i w API. Nie jest to zaszłość:
- * usunięcie go z payloadu to zmiana kontraktu, a testy backendu je asertują.
+ * „Otwarte rekrutacje” wróciły 19.11.2026 (decyzja Artura, wariant A). Zdjęte
+ * 02.10.2026 jako duplikat licznika „Aktywne projekty” w zakładce Projekty,
+ * liczonego z innego źródła (tam szkice + opublikowane). Tu liczą się tylko
+ * opublikowane (`summary.open_jobs`) — tak samo jak kolumna „Rekrutacje” na
+ * liście klientów — i etykieta mówi „otwarte”, nie „aktywne projekty”.
  */
 export function activeContractsWord(n: number): string {
   if (n === 1) return "aktywny kontrakt";
@@ -44,11 +46,15 @@ function statLabel(label: string, subtitle: string) {
 }
 
 /**
- * Dwie liczby klienta: aktywni konsultanci i aktywne MRR. JEDNO miejsce reguł
- * „Brak stawek” / „Brak kursu” / „(niepełne)” — czyta je nagłówek strony
- * klienta (widoczny na każdej zakładce).
+ * Liczby klienta w nagłówku strony (widocznym na każdej zakładce). JEDNO
+ * miejsce reguł „Brak stawek” / „Brak kursu” / „(niepełna)” marży.
+ * `planned` = umowy ze startem w przyszłości, `attention` = sprawy
+ * z „Wymaga uwagi” Przeglądu (0 = bez liczby).
  */
-export function clientSummaryStats(summary: ClientProfileSummary): InlineStat[] {
+export function clientSummaryStats(
+  summary: ClientProfileSummary,
+  extra: { planned?: number; attention?: number } = {},
+): InlineStat[] {
   const unpriced = summary.active_mrr_unpriced_contracts ?? 0;
   // Runda 10 (R10-N9-4): brak kursu NBP to inny stan niż brak stawek — kwoty
   // nie da się policzyć, choć kontrakty są wycenione.
@@ -67,18 +73,28 @@ export function clientSummaryStats(summary: ClientProfileSummary): InlineStat[] 
       : mrrUnpriced
         ? `miesięczna marża — żaden z ${unpriced} ${activeContractsWord(unpriced)} nie ma stawki`
         : "miesięczna marża";
-  const consultantsSubtitle = `${summary.active_contracts} ${activeContractsWord(summary.active_contracts)}`;
+  const planned = extra.planned ?? 0;
+  const consultantsSubtitle = `${summary.active_contracts} ${activeContractsWord(summary.active_contracts)}${
+    planned > 0 ? `, +${planned} zaczyna` : ""
+  }`;
+  const attention = extra.attention ?? 0;
   return [
     {
       id: "active-consultants",
-      label: statLabel("Aktywni konsultanci", consultantsSubtitle),
+      label: statLabel("Nasi ludzie", consultantsSubtitle),
       value: summary.active_consultants,
       title: consultantsSubtitle,
     },
     {
+      id: "open-jobs",
+      label: statLabel("Otwarte rekrutacje", "opublikowane rekrutacje klienta, bez szkiców"),
+      value: summary.open_jobs,
+      title: "opublikowane rekrutacje klienta, bez szkiców",
+    },
+    {
       id: "active-mrr",
       label: statLabel(
-        mrrIncomplete ? "Aktywne MRR (niepełne)" : "Aktywne MRR",
+        mrrIncomplete ? "Marża / mc (niepełna)" : "Marża / mc",
         mrrSubtitle,
       ),
       value: mrrFxMissing
@@ -88,12 +104,22 @@ export function clientSummaryStats(summary: ClientProfileSummary): InlineStat[] 
           : formatPLN(summary.active_mrr),
       title: mrrSubtitle,
     },
+    ...(attention > 0
+      ? [
+          {
+            id: "attention",
+            label: statLabel("Wymaga uwagi", "sprawy z listy „Wymaga uwagi” w Przeglądzie"),
+            value: attention,
+            title: "sprawy z listy „Wymaga uwagi” w Przeglądzie",
+          },
+        ]
+      : []),
   ];
 }
 
 /** Zwarte liczby klienta (dawniej dwa kafle nad tabelą konsultantów). */
-export function SummaryBar({ summary, className }: Props) {
-  return <InlineStats stats={clientSummaryStats(summary)} className={className} />;
+export function SummaryBar({ summary, className, planned, attention }: Props) {
+  return <InlineStats stats={clientSummaryStats(summary, { planned, attention })} className={className} />;
 }
 
 /**
@@ -104,11 +130,21 @@ export function SummaryBar({ summary, className }: Props) {
 export function ClientHeaderStats({
   clientId,
   className,
+  attention = 0,
 }: {
   clientId: number;
   className?: string;
+  /** Liczba spraw z „Wymaga uwagi” Przeglądu (`useClientOverviewAttention`). */
+  attention?: number;
 }) {
   const { data } = useClientProfile(clientId);
   if (!data?.summary) return null;
-  return <SummaryBar summary={data.summary} className={className} />;
+  return (
+    <SummaryBar
+      summary={data.summary}
+      className={className}
+      planned={data.planned_consultants?.length ?? 0}
+      attention={attention}
+    />
+  );
 }

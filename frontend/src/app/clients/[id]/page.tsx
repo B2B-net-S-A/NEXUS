@@ -63,7 +63,7 @@ import {
 } from "lucide-react";
 import { contactMatches } from "@/lib/client-contacts-search";
 import { CopyValueButton } from "@/components/clients/CopyValueButton";
-import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
@@ -114,7 +114,9 @@ import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDial
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
 import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
 import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
-import { ClientOverviewCards } from "@/components/client-profile/ClientOverviewCards";
+import { ClientFrameworkChip, ClientStateChip } from "@/components/client-profile/ClientHeaderFacts";
+import { useClientOverviewAttention } from "@/components/client-profile/overview-attention";
+import { useClientProfile } from "@/components/client-profile/useClientProfile";
 import { SectionNav } from "@/components/ds/SectionNav";
 import { clientSectionGroups } from "@/lib/client-tab-groups";
 import {
@@ -173,18 +175,6 @@ interface Contact {
 type KnowledgeCategory = "selling_points" | "interview_questions" | "tech_stack" | "culture" | "general";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-
-const STATUS_TONES: Record<string, StatusDotTone> = {
-  active: "success",
-  inactive: "neutral",
-  prospect: "neutral",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  active: "Aktywny",
-  inactive: "Nieaktywny",
-  prospect: "Prospekt",
-};
 
 const KNOWLEDGE_CATEGORIES: {
   key: KnowledgeCategory;
@@ -455,7 +445,7 @@ function KnowledgeTab({
               </div>
               {stackHref && cat.key === "tech_stack" ? (
                 <Link href={stackHref} className="text-xs font-medium text-primary hover:underline">
-                  Dopisz w Ludziach i technologiach
+                  Dopisz w Działach i technologiach
                 </Link>
               ) : null}
             </div>
@@ -1321,6 +1311,12 @@ export default function ClientDetailPage() {
     queryFn: () => clientTeamApi.get(Number(id)).then((r) => r.data),
     enabled: Number.isFinite(Number(id)),
   });
+  // Profil (liczby nagłówka i przy grupach) i „Wymaga uwagi” Przeglądu —
+  // te same klucze co zakładki, więc nic nie pobiera się dwa razy.
+  const profileQuery = useClientProfile(Number(id));
+  const overviewAttention = useClientOverviewAttention(Number(id), {
+    showContracts: canViewDeliveryLegal,
+  });
   const headDeliveryLead = (() => {
     const leads = teamQuery.data?.delivery_leads ?? [];
     const head = leads.find((lead) => lead.is_head) ?? leads[0];
@@ -1407,9 +1403,19 @@ export default function ClientDetailPage() {
       (invoicingOpen || tab.key !== "faktury") &&
       (canViewSales || tab.key !== "sprzedaz"),
   );
-  // Makieta 18.11.2026: zakładki w ośmiu grupach (`lib/client-tab-groups.ts`)
-  // zamiast paska z „Więcej”; klucze `?tab=` bez zmian.
-  const sectionGroups = clientSectionGroups(TABS.map((tab) => tab.key));
+  // Makieta 19.11.2026: pięć sekcji (`lib/client-tab-groups.ts`) z cichą
+  // liczbą przy nazwie (ile tam jest); klucze `?tab=` bez zmian.
+  const sectionGroups = clientSectionGroups(TABS.map((tab) => tab.key), {
+    ...(profileQuery.data
+      ? {
+          "nasi-ludzie": String(profileQuery.data.summary.active_consultants),
+          rekrutacje: String(profileQuery.data.summary.open_jobs),
+        }
+      : {}),
+    ...(overviewAttention.contactsCount !== null
+      ? { "ludzie-klienta": String(overviewAttention.contactsCount) }
+      : {}),
+  });
 
   return (
     <div className="space-y-3">
@@ -1433,26 +1439,31 @@ export default function ClientDetailPage() {
           </Link>
           <span aria-hidden="true" className="text-xs text-muted-foreground">/</span>
           <h1 className="min-w-0 break-words font-display text-lg font-semibold text-foreground">{client.name}</h1>
-          {client.status && (
-            <StatusDot tone={STATUS_TONES[client.status] ?? "neutral"}>
-              {STATUS_LABELS[client.status] || client.status}
-            </StatusDot>
-          )}
+          {/* Stan współpracy (19.11.2026) — ta sama reguła co lista „Klienci”;
+              „Status klienta” został w edycji firmy. */}
+          <ClientStateChip clientId={Number(id)} />
           {client.industry && (
             <span className="text-xs text-muted-foreground">{client.industry}</span>
           )}
           {headDeliveryLead && (
-            <span
-              className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+            <button
+              type="button"
+              onClick={() => selectTab("zespol")}
+              className="rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title="Delivery Lead klienta — zmienisz w „Nasi ludzie › Delivery Lead”"
               data-client-header-dl
             >
               DL: <span className="font-medium text-foreground">{headDeliveryLead}</span>
-            </span>
+            </button>
           )}
+          {canViewDeliveryLegal ? (
+            <ClientFrameworkChip clientId={Number(id)} onOpen={selectTab} />
+          ) : null}
           {/* Liczby klienta na KAŻDEJ zakładce (dawniej dwa kafle w zakładce
               Profil). To samo zapytanie co `ProfileTab` — jeden klucz. */}
           <ClientHeaderStats
             clientId={Number(id)}
+            attention={overviewAttention.items.length}
             className="ml-auto justify-end max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:justify-start"
           />
           <div className="flex flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
@@ -1548,47 +1559,41 @@ export default function ClientDetailPage() {
           className="p-3 sm:p-4"
         >
           {activeTab === "profil" && (
-            // Od `xl` dwie kolumny: konsultanci po lewej, po prawej rozwinięte
-            // karty (informacje, materiały, konflikty). Węziej — karty pod tabelą.
-            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
-              <ProfileTab
-                clientId={Number(id)}
-                onOpenConsultants={() => selectTab("konsultanci")}
-              />
-
-              <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Najważniejsze o kliencie">
-                <ClientOverviewCards
+            // Przegląd (makieta 19.11.2026): „Wymaga uwagi”, cztery liczby,
+            // najnowsze rekrutacje i ludzie klienta; sprzęt, statystyki
+            // i notatki w dolnym rzędzie.
+            <ProfileTab
+              clientId={Number(id)}
+              onOpen={selectTab}
+              showContracts={canViewDeliveryLegal}
+              showInvoicing={invoicingOpen}
+              deliveryLead={headDeliveryLead}
+            >
+              {equipmentOpen ? (
+                <ClientEquipmentProviderField
                   clientId={Number(id)}
-                  showContracts={canViewDeliveryLegal}
-                  showInvoicing={invoicingOpen}
-                  onOpen={selectTab}
+                  canEdit={canEditDelivery || hrConfig?.me.equipment === true}
                 />
-                {equipmentOpen ? (
-                  <ClientEquipmentProviderField
-                    clientId={Number(id)}
-                    canEdit={canEditDelivery || hrConfig?.me.equipment === true}
-                  />
-                ) : null}
-                <LazyDetails
-                  defaultOpen
-                  icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
-                  title="Statystyki współpracy i notatki"
-                  contentClassName="space-y-4 border-t border-border p-4"
-                >
-                  <CooperationStatsSection clientId={Number(id)} />
-                  <div>
-                    <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
-                      Notatki
-                    </p>
-                    {client.notes ? (
-                      <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
-                    )}
-                  </div>
-                </LazyDetails>
-              </aside>
-            </div>
+              ) : null}
+              <LazyDetails
+                defaultOpen
+                icon={<Building2 className="w-4 h-4 text-muted-foreground" />}
+                title="Statystyki współpracy i notatki"
+                contentClassName="space-y-4 border-t border-border p-4"
+              >
+                <CooperationStatsSection clientId={Number(id)} />
+                <div>
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">
+                    Notatki
+                  </p>
+                  {client.notes ? (
+                    <p className="text-sm text-foreground whitespace-pre-line">{client.notes}</p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">Brak dodatkowych notatek.</p>
+                  )}
+                </div>
+              </LazyDetails>
+            </ProfileTab>
           )}
 
           {activeTab === "zasady" && <ClientPlaybookTab clientId={Number(id)} />}

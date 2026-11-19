@@ -554,7 +554,7 @@
   },
   {
     "key": "client.people",
-    "title": "Klient — Ludzie i technologie",
+    "title": "Klient — Działy i technologie",
     "section": null,
     "roles": [],
     "what": "Co wiemy o kliencie po działach: kto jest menedżerem naszych konsultantów i komu podlega, kogo tam mamy, jakich technologii używają, kogo szukają i czego jeszcze nie wiemy. Widoki: Działy, Drzewo osób, Mapa (tabela).",

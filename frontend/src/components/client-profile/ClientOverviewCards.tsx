@@ -2,15 +2,21 @@
 
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, CalendarClock, FileSignature, Receipt, Users } from "lucide-react";
+import {
+  ArrowRight,
+  Briefcase,
+  CalendarClock,
+  FileSignature,
+  Receipt,
+  Users,
+} from "lucide-react";
 
-import { InlineStats } from "@/components/ds/InlineStats";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { ReportStateDot } from "@/components/client-reports/ReportStateDot";
 import {
   defaultPeriod,
   splitPeriod,
-  summaryStats,
+  totalsText,
 } from "@/components/clients/invoicing/invoicing-format";
 import { api } from "@/lib/api";
 import { getClientCatalog, type ReportDefinition } from "@/lib/api/client-reports";
@@ -19,35 +25,21 @@ import { dlPortalApi, type FrameworkContractRead } from "@/lib/api/dlPortal";
 import type { ClientTab } from "@/lib/client-tab";
 import { formatIsoDatePl, monthYearPl } from "@/lib/date-pl";
 import { countPl } from "@/lib/plural-pl";
+import { cn } from "@/lib/utils";
+import { warsawToday } from "@/lib/warsaw-date";
+import type { ClientProfileResponse, OpenJobItem } from "@/types/client-profile";
+
+import type { OverviewContact } from "./overview-attention";
 
 /**
- * Prawa kolumna „Przeglądu” klienta (makieta 18.11.2026): to, co dziś trzeba
- * zbierać z trzech zakładek i dwóch modułów — umowa ramowa, raporty, których
- * wymaga umowa, i rozliczenie ostatniego miesiąca. Te same zapytania (klucze)
- * co zakładki, więc przejście do nich nie pobiera danych drugi raz.
+ * Karty „Przeglądu” klienta (makieta 19.11.2026, wariant A): u góry cztery
+ * liczby (nasi ludzie, rekrutacje, rozliczenie miesiąca, umowa ramowa), pod
+ * nimi najnowsze rekrutacje, ludzie klienta i raporty. Te same zapytania
+ * (klucze) co zakładki, więc przejście do nich nie pobiera danych drugi raz.
  */
-export function ClientOverviewCards({
-  clientId,
-  showContracts,
-  showInvoicing,
-  onOpen,
-}: {
-  clientId: number;
-  showContracts: boolean;
-  showInvoicing: boolean;
-  onOpen: (tab: ClientTab) => void;
-}) {
-  return (
-    <div className="grid min-w-0 gap-3">
-      {showContracts ? <FrameworkCard clientId={clientId} onOpen={onOpen} /> : null}
-      <ReportsCard clientId={clientId} onOpen={onOpen} />
-      {showInvoicing ? <InvoicingCard clientId={clientId} onOpen={onOpen} /> : null}
-      <PeopleCard clientId={clientId} onOpen={onOpen} />
-    </div>
-  );
-}
+type OpenTab = (tab: ClientTab) => void;
 
-function OverviewCard({
+export function OverviewCard({
   icon,
   title,
   action,
@@ -98,54 +90,55 @@ function expiryText(contract: FrameworkContractRead): { text: string; tone: Stat
   return { text: `do ${formatIsoDatePl(contract.expiry_date)}`, tone: "success" };
 }
 
-function FrameworkCard({ clientId, onOpen }: { clientId: number; onOpen: (tab: ClientTab) => void }) {
+/** Umowa ramowa jako liczba u góry Przeglądu: do kiedy, od kiedy, ile aneksów. */
+export function FrameworkStatCard({ clientId, onOpen }: { clientId: number; onOpen: OpenTab }) {
   const query = useQuery({
     queryKey: ["framework-contracts", clientId],
     queryFn: async () => (await dlPortalApi.listFrameworkContracts(clientId)).data,
   });
   const items = query.data?.items ?? [];
   const live = items.filter((item) => LIVE_STATUSES.has(item.status));
-  const shown = (live.length ? live : items).slice(0, 2);
+  // Najdłużej obowiązująca (bezterminowa wygrywa) — na niej klient dziś stoi.
+  const current = [...live].sort((a, b) =>
+    (b.expiry_date ?? "9999-12-31").localeCompare(a.expiry_date ?? "9999-12-31"),
+  )[0];
+  const expiry = current ? expiryText(current) : null;
 
   return (
-    <OverviewCard
-      icon={<FileSignature className="h-4 w-4" />}
+    <StatCard
+      icon={<FileSignature className="h-3.5 w-3.5" />}
       title="Umowa ramowa"
       action="Umowy"
       onAction={() => onOpen("umowy-ramowe")}
-    >
-      {query.isLoading ? (
-        <Muted>Wczytywanie umów…</Muted>
-      ) : query.isError ? (
-        <Muted>Nie udało się wczytać umów.</Muted>
-      ) : shown.length === 0 ? (
-        <Muted>Brak umowy ramowej w NEXUSIE — dodasz ją w „Umowach”.</Muted>
-      ) : (
-        <ul className="space-y-2.5">
-          {shown.map((contract) => {
-            const expiry = expiryText(contract);
-            return (
-              <li key={contract.id} className="min-w-0">
-                <p className="truncate text-[13px] font-medium text-foreground" title={contract.name}>
-                  {contract.name}
-                </p>
-                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                  <StatusDot tone={expiry.tone}>{expiry.text}</StatusDot>
-                  {contract.effective_date ? <span>od {formatIsoDatePl(contract.effective_date)}</span> : null}
-                  <span>{countPl(contract.amendments_count, "aneks", "aneksy", "aneksów")}</span>
-                  {!contract.has_file ? <span className="text-warning">bez pliku</span> : null}
-                </div>
-              </li>
-            );
-          })}
-          {items.length > shown.length ? (
-            <li className="text-xs text-muted-foreground">
-              + {countPl(items.length - shown.length, "starsza umowa", "starsze umowy", "starszych umów")}
-            </li>
-          ) : null}
-        </ul>
-      )}
-    </OverviewCard>
+      value={
+        query.isLoading
+          ? "…"
+          : query.isError
+            ? "—"
+            : current
+              ? current.expiry_date
+                ? `do ${formatIsoDatePl(current.expiry_date)}`
+                : "bezterminowa"
+              : "brak"
+      }
+      tone={expiry && expiry.tone !== "success" ? expiry.tone : undefined}
+      sub={
+        query.isError
+          ? "Nie udało się wczytać umów."
+          : current
+            ? [
+                current.effective_date ? `od ${formatIsoDatePl(current.effective_date)}` : null,
+                countPl(current.amendments_count, "aneks", "aneksy", "aneksów"),
+                current.has_file ? null : "bez pliku",
+                live.length > 1 ? `+${countPl(live.length - 1, "umowa", "umowy", "umów")}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            : query.isLoading
+              ? undefined
+              : "Brak umowy ramowej w NEXUSIE — dodasz ją w „Umowach”."
+      }
+    />
   );
 }
 
@@ -159,7 +152,7 @@ function nextReport(definitions: ReportDefinition[]): ReportDefinition | null {
   return open[0] ?? null;
 }
 
-function ReportsCard({ clientId, onOpen }: { clientId: number; onOpen: (tab: ClientTab) => void }) {
+export function ReportsCard({ clientId, onOpen }: { clientId: number; onOpen: OpenTab }) {
   const query = useQuery({ queryKey: ["client-reports", clientId], queryFn: () => getClientCatalog(clientId) });
   const definitions = query.data?.definitions ?? [];
   const active = definitions.filter((item) => item.status === "active");
@@ -207,58 +200,79 @@ function ReportsCard({ clientId, onOpen }: { clientId: number; onOpen: (tab: Cli
   );
 }
 
-function InvoicingCard({ clientId, onOpen }: { clientId: number; onOpen: (tab: ClientTab) => void }) {
+/**
+ * Rozliczenie poprzedniego miesiąca jako liczba u góry Przeglądu. Bez „po
+ * terminie”: 19.11.2026 żadna z 2 741 takich faktur nie miała zapisanej
+ * zapłaty, więc liczba nie mówiła o zaległościach (pełne dane w „Fakturach”).
+ */
+export function InvoicingStatCard({ clientId, onOpen }: { clientId: number; onOpen: OpenTab }) {
   const period = defaultPeriod();
   const { year, month } = splitPeriod(period);
   const query = useClientInvoicing(clientId, year, month);
-  const data = query.data;
+  const summary = query.data?.summary;
+  const empty = summary ? summary.rows === 0 && (query.data?.invoices.length ?? 0) === 0 : false;
 
   return (
-    <OverviewCard
-      icon={<Receipt className="h-4 w-4" />}
-      title={`Rozliczenie · ${monthYearPl(period)}`}
+    <StatCard
+      icon={<Receipt className="h-3.5 w-3.5" />}
+      title="Rozliczenie"
       action="Faktury"
       onAction={() => onOpen("faktury")}
-    >
-      {query.isLoading ? (
-        <Muted>Wczytywanie rozliczenia…</Muted>
-      ) : query.isError || !data ? (
-        <Muted>Nie udało się wczytać rozliczenia.</Muted>
-      ) : data.summary.rows === 0 && data.invoices.length === 0 ? (
-        <Muted>Za {monthYearPl(period)} nie ma zamówień do zafakturowania.</Muted>
-      ) : (
-        <InlineStats stats={summaryStats(data.summary, period, data.summary.overdue)} className="gap-x-4" />
-      )}
-    </OverviewCard>
+      value={
+        query.isLoading
+          ? "…"
+          : !summary
+            ? "—"
+            : empty
+              ? "0"
+              : summary.totals_hidden
+                ? String(summary.rows)
+                : totalsText(summary.expected)
+      }
+      sub={
+        query.isError || (!query.isLoading && !summary)
+          ? "Nie udało się wczytać rozliczenia."
+          : summary
+            ? empty
+              ? `${monthYearPl(period)}: nie ma zamówień do zafakturowania.`
+              : `${monthYearPl(period)}: ${summary.totals_hidden ? "" : "netto do faktury, "}${countPl(
+                  summary.rows,
+                  "zamówienie",
+                  "zamówienia",
+                  "zamówień",
+                )}, ${summary.invoiced} w KSeF`
+            : undefined
+      }
+    />
   );
 }
 
-interface OverviewContact {
-  id: number;
-  name: string;
-  position: string | null;
-  is_decision_maker: boolean;
-  is_key_relationship?: boolean;
-  last_personal_touchpoint_at: string | null;
-}
-
 /**
- * „Kluczowe osoby” (makieta 18.11.2026, wersja „prościej”): osoby decyzyjne
- * i kluczowe relacje z kontaktów TEGO klienta — zamiast osobnego trybu
- * „Kluczowe relacje” na liście klientów. Te same dane co „Ludzie › Kontakty”.
+ * „Ludzie klienta”: osoby decyzyjne i kluczowe relacje z kontaktów TEGO
+ * klienta (te same dane co „Ludzie klienta › Kontakty”) i opiekun po naszej
+ * stronie. Do 19.11.2026 karta nazywała się „Kluczowe osoby”.
  */
-function PeopleCard({ clientId, onOpen }: { clientId: number; onOpen: (tab: ClientTab) => void }) {
+export function PeopleCard({
+  clientId,
+  onOpen,
+  deliveryLead,
+}: {
+  clientId: number;
+  onOpen: OpenTab;
+  deliveryLead?: string | null;
+}) {
   const query = useQuery<OverviewContact[]>({
     queryKey: ["client-contacts", clientId],
     queryFn: () => api.get(`/api/clients/${clientId}/contacts`).then((r) => r.data),
   });
-  const contacts = query.data ?? [];
+  // Odpowiedź z sieci: lista albo nic (granica systemu, nie zgadujemy kształtu).
+  const contacts = Array.isArray(query.data) ? query.data : [];
   const key = contacts.filter((contact) => contact.is_decision_maker || contact.is_key_relationship);
 
   return (
     <OverviewCard
       icon={<Users className="h-4 w-4" />}
-      title="Kluczowe osoby"
+      title="Ludzie klienta"
       action="Kontakty"
       onAction={() => onOpen("kontakty")}
     >
@@ -297,6 +311,145 @@ function PeopleCard({ clientId, onOpen }: { clientId: number; onOpen: (tab: Clie
             {countPl(contacts.length, "kontakt", "kontakty", "kontaktów")} u klienta
           </p>
         </div>
+      )}
+      {deliveryLead ? (
+        <p className="mt-2 border-t border-border pt-2 text-xs text-muted-foreground">
+          Po naszej stronie: <span className="font-medium text-foreground">{deliveryLead}</span> (Delivery Lead)
+        </p>
+      ) : null}
+    </OverviewCard>
+  );
+}
+
+/** Jedna liczba u góry Przeglądu z podpisem i przejściem do zakładki. */
+export function StatCard({
+  icon,
+  title,
+  value,
+  sub,
+  tone,
+  action,
+  onAction,
+}: {
+  icon: ReactNode;
+  title: string;
+  value: string;
+  sub?: string;
+  tone?: StatusDotTone;
+  action: string;
+  onAction: () => void;
+}) {
+  return (
+    <section className="flex min-w-0 flex-col gap-1 rounded-xl border border-border bg-card px-4 py-3 shadow-xs">
+      <header className="flex items-center justify-between gap-2">
+        <h3 className="flex min-w-0 items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
+          <span aria-hidden>{icon}</span>
+          {title}
+        </h3>
+        <button
+          type="button"
+          onClick={onAction}
+          aria-label={`${title}: otwórz „${action}”`}
+          className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-primary hover:underline"
+        >
+          {action}
+          <ArrowRight className="h-3 w-3" aria-hidden />
+        </button>
+      </header>
+      <p
+        className={cn(
+          // Kwoty w kilku walutach („9475,20 EUR · 8 600 000,00 zł”) się zawijają.
+          "break-words font-semibold tabular-nums text-foreground",
+          value.length > 16 ? "text-base leading-snug" : "text-xl",
+          tone === "warning" && "text-warning",
+          tone === "danger" && "text-destructive",
+        )}
+      >
+        {value}
+      </p>
+      {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
+    </section>
+  );
+}
+
+/** Nasi ludzie u klienta: obecni, kto i kiedy zaczyna, ilu zakończyło. */
+export function PeopleStatCard({ data, onOpen }: { data: ClientProfileResponse; onOpen: OpenTab }) {
+  const planned = data.planned_consultants ?? [];
+  const firstStart = planned
+    .map((row) => row.start_date)
+    .filter(Boolean)
+    .sort()[0];
+  const ended = data.historical.placements_total ?? data.historical.placements.length;
+  return (
+    <StatCard
+      icon={<Users className="h-3.5 w-3.5" />}
+      title="Nasi ludzie"
+      action="Konsultanci"
+      onAction={() => onOpen("konsultanci")}
+      value={String(data.summary.active_consultants)}
+      sub={[
+        planned.length > 0
+          ? `+${planned.length} zaczyna${firstStart ? ` od ${formatIsoDatePl(firstStart)}` : ""}`
+          : null,
+        countPl(ended, "zakończony", "zakończonych", "zakończonych"),
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+    />
+  );
+}
+
+function openedInLastDays(jobs: readonly OpenJobItem[], days: number, today: string): number {
+  const limit = Date.parse(`${today}T00:00:00Z`) - days * 86_400_000;
+  return jobs.filter((job) => Date.parse(job.created_at) >= limit).length;
+}
+
+/** Otwarte rekrutacje klienta (`published`) i ile ruszyło w ostatnim tygodniu. */
+export function JobsStatCard({ data, onOpen }: { data: ClientProfileResponse; onOpen: OpenTab }) {
+  const fresh = openedInLastDays(data.open_jobs, 7, warsawToday());
+  return (
+    <StatCard
+      icon={<Briefcase className="h-3.5 w-3.5" />}
+      title="Otwarte rekrutacje"
+      action="Projekty"
+      onAction={() => onOpen("projekty")}
+      value={String(data.summary.open_jobs)}
+      sub={fresh > 0 ? `${countPl(fresh, "nowa", "nowe", "nowych")} w ostatnich 7 dniach` : "nic nowego w ostatnich 7 dniach"}
+    />
+  );
+}
+
+const LATEST_JOBS = 4;
+
+/** Najnowsze otwarte rekrutacje — czego klient teraz szuka. */
+export function LatestJobsCard({ data, onOpen }: { data: ClientProfileResponse; onOpen: OpenTab }) {
+  const latest = [...data.open_jobs]
+    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .slice(0, LATEST_JOBS);
+  return (
+    <OverviewCard
+      icon={<Briefcase className="h-4 w-4" />}
+      title="Najnowsze rekrutacje"
+      action="Projekty"
+      onAction={() => onOpen("projekty")}
+    >
+      {latest.length === 0 ? (
+        <Muted>Klient nie ma teraz otwartych rekrutacji.</Muted>
+      ) : (
+        <ul className="divide-y divide-border">
+          {latest.map((job) => (
+            <li key={job.id} className="flex min-w-0 items-baseline justify-between gap-3 py-1.5 text-[13px]">
+              <span className="min-w-0 truncate font-medium text-foreground" title={job.title}>
+                {job.title}
+              </span>
+              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                {/* Bez rekrutera: pole właściciela rekrutacji nie zgadza się
+                    z „Bez rekrutera” w Projektach (przypisania) — 19.11.2026. */}
+                {formatIsoDatePl(job.created_at)} · {job.candidate_count} kand.
+              </span>
+            </li>
+          ))}
+        </ul>
       )}
     </OverviewCard>
   );

@@ -147,8 +147,9 @@ function renderPage() {
   );
 }
 
-// Sekcje profilu (18.11.2026): grupy i podzakładki to przyciski z `aria-current`.
-const contractsGroup = () => screen.queryByRole("button", { name: "Umowy" });
+// Sekcje profilu (19.11.2026: pięć sekcji): grupy i podzakładki to przyciski
+// z `aria-current`. Umowy stoją w „Umowie i pieniądzach”.
+const contractsGroup = () => screen.queryByRole("button", { name: "Umowa i pieniądze" });
 const contractsSubTab = () => screen.queryByRole("button", { name: "Umowy i aneksy" });
 
 beforeEach(() => {
@@ -194,7 +195,7 @@ describe("profil klienta — umowy za podglądem kwot klienta", () => {
     expect(contractsSubTab()).toHaveAttribute("aria-current", "page");
   });
 
-  it("bez kwot tego klienta grupa „Umowy” ma tylko raporty — bez umów i stawek", async () => {
+  it("bez kwot tego klienta „Umowa i pieniądze” nie ma umów ani stawek", async () => {
     mocks.canViewClientFinance.mockReturnValue(false);
     renderPage();
 
