@@ -26,6 +26,7 @@ import {
   downloadClientForm,
   fillClientForm,
   saveClientForm,
+  saveClientFormYears,
   useClientForm,
   type ClientFormView,
 } from "@/lib/api/clientForms";
@@ -104,6 +105,18 @@ export function ClientFormCard({
       showSuccess(score ? "Zapisano tabelę." : "Zapisano formularz.");
     } catch (error) {
       showError(apiErrorMessage(error, "Nie udało się zapisać formularza."));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveYears = async (payload: { roles?: Record<string, string[]>; ask?: string[] }) => {
+    setSaving(true);
+    try {
+      store(await saveClientFormYears(stageId, payload, kind));
+      showSuccess(payload.ask ? "Pytania są w ściądze screeningu." : "Zapisano lata.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się zapisać lat."));
     } finally {
       setSaving(false);
     }
@@ -295,6 +308,7 @@ export function ClientFormCard({
           saving={saving}
           downloading={downloading}
           onSave={save}
+          onSaveYears={saveYears}
           onDownload={() => void download(view)}
         />
       ) : null}

@@ -17,6 +17,46 @@ export type ClientFormFieldKind = "line" | "box" | "cell";
 export type ClientFormSource = "cv" | "notes" | "profile" | "recruiter";
 export type ClientFormStatus = "no_template" | "not_filled" | "filled";
 
+export type ClientFormYearsLevel = "role" | "implied";
+
+/** Stanowisko z CV, z którego kod policzył lata pola (cytat z datami i dowód). */
+export interface ClientFormYearsRole {
+  key: string;
+  employer: string;
+  title: string;
+  /** „RRRR-MM” albo sam „RRRR”, gdy CV nie podaje miesiąca. */
+  start: string;
+  /** ``null`` = stanowisko trwa. */
+  end: string | null;
+  /** „12.2021 – 09.2022”, „2022 – obecnie”. */
+  period: string;
+  quote: string;
+  /** „role” — opis stanowiska nazywa kompetencję, „implied” — praca jej wymagała. */
+  level: ClientFormYearsLevel;
+  /** Fragment opisu stanowiska o kompetencji (łączny staż — brak). */
+  evidence: string | null;
+  /** Rola liczy się do wartości pola (rekruter zdejmuje ją w siatce). */
+  on: boolean;
+}
+
+/** Siatka lat pola (19.11.2026): lata liczy kod z ról, nie model. */
+export interface ClientFormYears {
+  kind: "total" | "competency" | "points";
+  basis: ClientFormYearsRole[];
+  /** Kompetencja tylko na liście umiejętności — lat z tego nie ma. */
+  skills: string | null;
+  /** Wiersz „ponad minimum”: minimum z wymagań (miesiące). */
+  minimum_months: number | null;
+  minimum_unknown?: boolean;
+  /** Punkty z lat: progi z zasad oceny. */
+  thresholds: { years: number; points: number }[];
+  max_points: number | null;
+  question: string;
+  /** Brak idzie do ściągi screeningu. */
+  ask: boolean;
+  months: number;
+}
+
 export interface ClientFormField {
   id: string;
   kind: ClientFormFieldKind;
@@ -31,6 +71,7 @@ export interface ClientFormField {
   value: string | null;
   source: ClientFormSource | null;
   quote: string | null;
+  years?: ClientFormYears | null;
 }
 
 export interface ClientFormView {
@@ -102,6 +143,22 @@ export async function saveClientForm(
   const { data } = await api.put<ClientFormView>(`${basePath(stageId)}${kindQuery(kind)}`, {
     fields,
   });
+  return data;
+}
+
+/**
+ * Siatka lat: które role liczą się do pola i które braki idą do ściągi
+ * screeningu. Wartość liczy serwer z zapisanych ról.
+ */
+export async function saveClientFormYears(
+  stageId: number,
+  payload: { roles?: Record<string, string[]>; ask?: string[] },
+  kind: ClientFormKind = "form",
+): Promise<ClientFormView> {
+  const { data } = await api.put<ClientFormView>(
+    `${basePath(stageId)}/years${kindQuery(kind)}`,
+    { roles: payload.roles ?? {}, ...(payload.ask ? { ask: payload.ask } : {}) },
+  );
   return data;
 }
 
