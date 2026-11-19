@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_STATE,
+  TEXT,
   addCity,
+  answeredCount,
   buildPayload,
   hourlyRate,
   parseAmount,
+  pluralForm,
   rateSummary,
   stateFromAnswers,
   unitHint,
@@ -88,7 +91,38 @@ describe("formularz warunków kandydata", () => {
     });
     expect(state.modes).toEqual(["hybrid"]);
     expect(state.noticeValue).toBe("1");
-    expect(state.futureConsent).toBe(true);
+    expect(state).not.toHaveProperty("futureConsent");
     expect(rateSummary(state, "pl")).toBe("120 PLN za godzinę");
+  });
+
+  it("nie zbiera zgody na inne rekrutacje (decyzja Artura 19.11.2026)", () => {
+    const { payload } = buildPayload({ ...EMPTY_STATE, startKind: "now" });
+    expect(payload).not.toHaveProperty("future_consent");
+    expect(JSON.stringify(TEXT)).not.toMatch(/zgod|consent/i);
+  });
+
+  it("odmienia okres wypowiedzenia: 1 miesiąc, 2 miesiące, 5 miesięcy, 12 tygodni, 22 tygodnie", () => {
+    const m = TEXT.pl.monthForms;
+    const w = TEXT.pl.weekForms;
+    expect(pluralForm(1, m)).toBe("miesiąc");
+    expect(pluralForm(2, m)).toBe("miesiące");
+    expect(pluralForm(5, m)).toBe("miesięcy");
+    expect(pluralForm(12, w)).toBe("tygodni");
+    expect(pluralForm(22, w)).toBe("tygodnie");
+    expect(pluralForm(0, m)).toBe("miesięcy");
+  });
+
+  it("pasek liczy tylko poprawne odpowiedzi na trzy pytania", () => {
+    expect(answeredCount(EMPTY_STATE)).toBe(0);
+    expect(answeredCount({ ...EMPTY_STATE, rateAmount: "sto" })).toBe(0);
+    expect(answeredCount({ ...EMPTY_STATE, rateAmount: "160", modes: ["remote"] })).toBe(2);
+    expect(
+      answeredCount({ ...EMPTY_STATE, rateAmount: "160", modes: ["remote"], startKind: "now" }),
+    ).toBe(3);
+  });
+
+  it("mail i formularz obiecują to samo: 30 sekund", () => {
+    expect(TEXT.pl.lead).toContain("30 sekund");
+    expect(TEXT.pl.expiredLead).not.toMatch(/wyślemy/);
   });
 });

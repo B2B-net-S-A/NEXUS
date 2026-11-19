@@ -40,7 +40,6 @@ export interface TermsState {
   startDate: string;
   noticeValue: string;
   noticeUnit: NoticeUnit;
-  futureConsent: boolean | null;
 }
 
 export const EMPTY_STATE: TermsState = {
@@ -54,7 +53,6 @@ export const EMPTY_STATE: TermsState = {
   startDate: "",
   noticeValue: "",
   noticeUnit: "months",
-  futureConsent: null,
 };
 
 export interface TermsPayload {
@@ -63,7 +61,6 @@ export interface TermsPayload {
   onsite_days?: number;
   cities: string[];
   start?: { kind: StartKind; date?: string; value?: number; unit?: NoticeUnit };
-  future_consent?: boolean;
 }
 
 export type FieldError = "rate" | "rate_range" | "start" | "empty";
@@ -126,9 +123,8 @@ export function buildPayload(
     else if (state.noticeUnit === "weeks" && value > 26) errors.push("start");
     else payload.start = { kind: "notice", value, unit: state.noticeUnit };
   }
-  if (state.futureConsent != null) payload.future_consent = state.futureConsent;
   const empty =
-    !payload.rate && !payload.modes.length && !payload.start && payload.future_consent == null;
+    !payload.rate && !payload.modes.length && !payload.start;
   if (empty && !errors.length) errors.push("empty");
   return { payload, errors };
 }
@@ -154,7 +150,6 @@ export function stateFromAnswers(answers: Record<string, unknown> | null | undef
     startDate: start?.date ?? "",
     noticeValue: start?.value != null ? String(start.value) : "",
     noticeUnit: start?.unit ?? "months",
-    futureConsent: typeof answers.future_consent === "boolean" ? answers.future_consent : null,
   };
 }
 
@@ -170,8 +165,8 @@ export function addCity(cities: string[], raw: string): string[] {
 export const TEXT = {
   pl: {
     lang: "English",
-    title: "Twoje warunki",
-    lead: "Kilka pytań, ok. 2 minuty. Każde jest nieobowiązkowe — wypełnij tylko to, co chcesz.",
+    title: "Ostatni krok",
+    lead: "Trzy pytania, 30 sekund. Każde jest nieobowiązkowe — odpowiedz na te, które chcesz.",
     forJob: "Po zgłoszeniu na",
     rate: "Minimalna stawka na B2B",
     rateHelp: "Kwota netto, poniżej której nie chcesz rozmawiać.",
@@ -194,7 +189,6 @@ export const TEXT = {
     startNotice: "Mam okres wypowiedzenia",
     weeks: "tygodnie",
     months: "miesiące",
-    consent: "Możecie proponować mi także inne rekrutacje (zgoda na 12 miesięcy).",
     submit: "Zapisz warunki",
     saving: "Zapisuję…",
     errors: {
@@ -204,28 +198,35 @@ export const TEXT = {
       empty: "Wypełnij choć jedno pytanie.",
       network: "Nie udało się zapisać. Sprawdź połączenie i spróbuj jeszcze raz — wpisane odpowiedzi zostają.",
     },
-    savedTitle: "Dziękujemy, zapisane",
-    savedLead: "Rekruter zobaczy Twoje warunki przy kolejnej propozycji. Możesz je poprawić tym samym linkiem do",
+    savedTitle: "Komplet",
+    savedLead: "Rekruter zobaczy Twoje warunki od razu przy zgłoszeniu. Możesz je poprawić tym samym linkiem do",
     edit: "Popraw odpowiedzi",
     summaryRate: "Stawka",
     summaryModes: "Tryb",
     summaryCities: "Miasta",
     summaryStart: "Start",
     expiredTitle: "Ten link wygasł",
-    expiredLead: "Gdy znowu u nas zaaplikujesz, wyślemy nowy link.",
-    invalidTitle: "Ten link jest nieprawidłowy",
-    invalidLead: "Sprawdź, czy skopiowałeś go z maila w całości.",
-    optoutTitle: "Nie chcesz dostawać takich pytań?",
-    optoutLead: "Nie wyślemy Ci już prośby o warunki. Twoja aplikacja zostaje bez zmian.",
+    expiredLead: "Twoje zgłoszenie nadal jest u nas, razem z CV.",
+    invalidTitle: "Ten link nie działa",
+    invalidLead: "Otwórz go jeszcze raz prosto z maila. Jeśli kopiujesz adres, sprawdź, czy skopiował się w całości.",
+    optoutTitle: "Nie chcesz takich pytań?",
+    optoutLead: "Nie wyślemy Ci już prośby o warunki. Twoje zgłoszenie zostaje bez zmian.",
     optoutButton: "Nie chcę dostawać takich pytań",
-    optoutDone: "Gotowe. Nie wyślemy Ci już takich pytań.",
+    optoutDoneTitle: "Gotowe",
+    optoutDone: "Nie wyślemy Ci już takich pytań. Twoje zgłoszenie zostaje bez zmian.",
     privacy: "Informacje o przetwarzaniu danych",
     loading: "Wczytuję…",
+    kicker: "Zgłoszenie przyjęte",
+    steps: ["Zgłoszenie", "CV", "Twoje warunki"],
+    expiredStep: "link wygasł",
+    notice: "wypowiedzenia",
+    weekForms: ["tydzień", "tygodnie", "tygodni"],
+    monthForms: ["miesiąc", "miesiące", "miesięcy"],
   },
   en: {
     lang: "Polski",
-    title: "Your terms",
-    lead: "A few questions, about 2 minutes. Every one is optional — answer only what you want.",
+    title: "One last step",
+    lead: "Three questions, 30 seconds. Every one is optional — answer the ones you want.",
     forJob: "For your application to",
     rate: "Minimum B2B rate",
     rateHelp: "Net amount below which you would not consider an offer.",
@@ -248,7 +249,6 @@ export const TEXT = {
     startNotice: "I have a notice period",
     weeks: "weeks",
     months: "months",
-    consent: "You may also offer me other positions (consent for 12 months).",
     submit: "Save my terms",
     saving: "Saving…",
     errors: {
@@ -258,23 +258,30 @@ export const TEXT = {
       empty: "Answer at least one question.",
       network: "Could not save. Check your connection and try again — your answers stay here.",
     },
-    savedTitle: "Thank you, saved",
-    savedLead: "The recruiter will see your terms with the next proposal. You can change them with the same link until",
+    savedTitle: "All set",
+    savedLead: "The recruiter will see your terms right away with your application. You can change them with the same link until",
     edit: "Change answers",
     summaryRate: "Rate",
     summaryModes: "Mode",
     summaryCities: "Cities",
     summaryStart: "Start",
     expiredTitle: "This link has expired",
-    expiredLead: "When you apply with us again, we will send you a new link.",
-    invalidTitle: "This link is not valid",
-    invalidLead: "Check that you copied the whole link from the email.",
+    expiredLead: "Your application is still with us, together with your CV.",
+    invalidTitle: "This link doesn’t work",
+    invalidLead: "Open it again straight from the email. If you copy the address, check that you copied all of it.",
     optoutTitle: "Don’t want questions like this?",
     optoutLead: "We won’t send you requests for your terms again. Your application stays as it is.",
     optoutButton: "Stop these questions",
-    optoutDone: "Done. We won’t send you these questions again.",
+    optoutDoneTitle: "Done",
+    optoutDone: "We won’t send you these questions again. Your application stays as it is.",
     privacy: "Privacy information",
     loading: "Loading…",
+    kicker: "Application received",
+    steps: ["Application", "CV", "Your terms"],
+    expiredStep: "link expired",
+    notice: "notice",
+    weekForms: ["week", "weeks", "weeks"],
+    monthForms: ["month", "months", "months"],
   },
 } as const;
 
@@ -289,4 +296,20 @@ export function rateSummary(state: TermsState, lang: Lang): string | null {
       ? ` (≈ ${hourlyRate(amount, "month").toLocaleString(lang === "pl" ? "pl-PL" : "en-GB")} ${state.currency}/h)`
       : "";
   return `${formatted} ${state.currency} ${unit}${extra}`;
+}
+
+/** Polska odmiana po liczbie: 1 miesiąc, 2 miesiące, 5 miesięcy. */
+export function pluralForm(n: number, forms: readonly [string, string, string] | readonly string[]): string {
+  if (n === 1) return forms[0];
+  const last = n % 10;
+  const lastTwo = n % 100;
+  if (last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14)) return forms[1];
+  return forms[2];
+}
+
+/** Ile z trzech pytań ma odpowiedź — wypełnia trzeci odcinek paska. */
+export function answeredCount(state: TermsState): number {
+  const amount = parseAmount(state.rateAmount);
+  const rate = amount != null && !Number.isNaN(amount) && amount > 0;
+  return [rate, state.modes.length > 0, state.startKind != null].filter(Boolean).length;
 }
