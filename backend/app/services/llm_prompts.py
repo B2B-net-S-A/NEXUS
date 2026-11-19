@@ -1985,7 +1985,7 @@ AUTOFILL_QUALITY_REPORT = PromptTemplate(
 
 CLIENT_FORM_FILL = PromptTemplate(
     name="client_form_fill",
-    version=5,
+    version=6,
     expected_format="json",
     system_prompt=(
         "Wypełniasz formularz CV klienta (dokument przetargowy) danymi "
@@ -2003,13 +2003,25 @@ CLIENT_FORM_FILL = PromptTemplate(
         "fragment CV albo notatki skopiowany znak w znak, który ją potwierdza — "
         "albo listę takich fragmentów, gdy wartość łączy kilka punktów CV (nie "
         "sklejaj punktów w jeden cytat). Bez takiego fragmentu pomiń pole.\n"
-        "- Nie zgaduj: ocen w skali (np. 1–10), numerów certyfikatów ani liczby "
-        "lat, której nie da się wyliczyć z dat w źródłach — pomiń takie pole.\n"
+        "- Nie zgaduj ocen w skali (np. 1–10) ani numerów certyfikatów — pomiń "
+        "takie pole.\n"
         '- Pole „TAK/NIE”: "TAK", gdy źródło potwierdza kompetencję z nazwy '
         'wiersza; "NIE", gdy źródło mówi, że kandydat jej nie ma; brak '
         "informacji = pomiń.\n"
-        "- Liczba lat: wylicz z dat w CV i zapisz jak „3 lata 4 mies.”; "
-        "cytatem jest okres z CV.\n"
+        "- Pól z liczbą lat („Liczba lat doświadczenia”, „Łączna liczba lat”) "
+        'NIE wpisuj w "fields" — lata policzy kod. Zamiast tego: w "roles" '
+        "wypisz wszystkie stanowiska z CV (key „r1”, „r2”…, firma, stanowisko, "
+        "start i koniec jako „RRRR-MM”, sam „RRRR”, gdy CV nie podaje "
+        'miesiąca, koniec „obecnie”, gdy praca trwa; "quote" = fragment CV '
+        'z datami tego stanowiska). W "years" dla każdego pola z liczbą lat '
+        "podaj stanowiska, w których kandydat miał tę kompetencję: "
+        'level "role", gdy opis stanowiska ją nazywa, "implied", gdy praca na '
+        "tym stanowisku jej wymagała (np. tester w projekcie prowadzonym "
+        'w Jira); "quote" = fragment opisu stanowiska, który o tym mówi. '
+        'Kompetencja tylko na liście umiejętności = "skills_quote", bez '
+        "stanowisk. Wiersz „ponad minimalne wymagania”: "
+        '"minimum_years" i "minimum_quote" — fragment wymagań z liczbą lat. '
+        "Łączny staż: wszystkie stanowiska zawodowe.\n"
         "- Okres pracy: „MM.RRRR – MM.RRRR” albo „MM.RRRR – obecnie”, z dat "
         "w CV. Gdy CV podaje sam rok, wpisz sam rok („2022 – obecnie”) — nie "
         "dopisuj miesiąca. Gdy początek i koniec stoją w CV w różnych liniach "
@@ -2032,13 +2044,23 @@ CLIENT_FORM_FILL = PromptTemplate(
         '- Pole z "max_points": liczba punktów według <scoring_rules> — '
         "liczba całkowita od 0 do max_points, policzona z faktów w CV i notatkach "
         '(np. lata doświadczenia); "quote" to fragment, z którego wynika. '
-        "Bez zasad oceny albo bez faktu pomiń pole.\n"
+        "Bez zasad oceny albo bez faktu pomiń pole. Gdy punkty zależą od "
+        'lat doświadczenia, dodaj pole do "years" jak wyżej, z "thresholds" '
+        '(np. [{{"years": 3, "points": 3}}]) i "rules_quote" — fragmentem '
+        "zasad z tymi liczbami; punkty z lat policzy kod.\n"
         "- Nigdy nie wpisuj stawki, wynagrodzenia, dostępności, telefonu, "
         "e-maila ani adresu (miasto zamieszkania wolno).\n\n"
         "Zwróć JSON:\n"
         '{{"fields": [{{"id": str, "value": str, "quote": str | [str]}}], '
         '"extra_rows": [{{"table": int, "cells": {{"c2": {{"value": str, '
-        '"quote": str}}}}}}]}}'
+        '"quote": str}}}}}}], '
+        '"roles": [{{"key": str, "employer": str, "title": str, "start": str, '
+        '"end": str, "quote": str | [str]}}], '
+        '"years": [{{"id": str, "roles": [{{"key": str, "level": "role" | '
+        '"implied", "quote": str | [str]}}], "skills_quote": str | null, '
+        '"minimum_years": int | null, "minimum_quote": str | null, '
+        '"thresholds": [{{"years": int, "points": int}}], '
+        '"rules_quote": str | null}}]}}'
     ),
 )
 
