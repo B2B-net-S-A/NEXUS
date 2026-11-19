@@ -857,17 +857,35 @@ async def sync_orders_cost_from_contract(
     if contract.status == ContractStatus.void or not _has_cost(contract):
         return []
 
+    from app.services import order_cost_steps
+
     currency = contract.resolved_rate_candidate_currency
     changed: list[int] = []
-    for order in orders:
-        if order.client_id != contract.client_id or order.order_group_id is not None:
-            continue
-        if ClientOrderStatus(order.status) not in COST_TARGET_ORDER_STATUSES:
-            continue
+    targets = [
+        order
+        for order in orders
+        if order.client_id == contract.client_id
+        and order.order_group_id is None
+        and ClientOrderStatus(order.status) in COST_TARGET_ORDER_STATUSES
+    ]
+    existing_steps = await order_cost_steps.load_steps(db, (o.id for o in targets))
+    for order in targets:
         cost = contract.effective_candidate_rate(cost_reference_day(order, today))
         if cost is None:
             continue
-        touched = False
+        # Części kosztu, gdy stawka Partnera zmienia się w okresie zamówienia
+        # (`services/order_cost_steps.py`). Kolumna niżej zostaje stawką
+        # na dzień odniesienia.
+        touched = await order_cost_steps.write_steps(
+            db,
+            order,
+            order_cost_steps.steps_for(
+                order_cost_steps.contract_parts(contract, order)
+            ),
+            existing_steps.get(order.id, []),
+            source="contract",
+            actor_id=None,
+        )
         # Godziny KONTRAKTU: 125 zł/h kontraktu 168-godzinnego to 21 000 zł/mc
         # w zamówieniu miesięcznym (godziny zamówienia opisują inną kwotę).
         # MD: × 8 niezależnie od godzin.

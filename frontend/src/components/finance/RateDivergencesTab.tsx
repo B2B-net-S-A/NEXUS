@@ -1,6 +1,7 @@
 "use client";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { OrderCostCorrections } from "@/components/finance/OrderCostCorrections";
 import {
   Table,
   TableBody,
@@ -15,10 +16,29 @@ import { formatMomentPl, monthTitlePl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { countPl } from "@/lib/plural-pl";
 
-const rowKey = (row: RateDivergence) => `${row.person}|${row.order_number}|${row.leg}`;
+// Ta sama osoba bywa na zamówieniu dwiema liniami z tą samą stawką (Lotte Wedel,
+// 19.11) — indeks odróżnia wiersze, które raport zwraca osobno.
+const rowKey = (row: RateDivergence, index: number) =>
+  `${row.person}|${row.order_number}|${row.leg}|${index}`;
 
-/** Finanse → „Rozjazdy stawek”: lista z nocnego raportu. Tylko odczyt, bez poprawek. */
-export function RateDivergencesTab() {
+/**
+ * Finanse → „Rozjazdy stawek”: najpierw zakończone zamówienia do korekty po
+ * zmianie stawki Partnera (0741), pod spodem nocny raport linii MD (tylko odczyt).
+ */
+export function RateDivergencesTab({ canWrite = false }: { canWrite?: boolean }) {
+  return (
+    <div className="space-y-8">
+      <OrderCostCorrections canWrite={canWrite} />
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold text-foreground">Linie zamówień MD</h2>
+        <MdLineDivergences />
+      </section>
+    </div>
+  );
+}
+
+/** Nocny raport: stawka z kontraktu a stawka linii zamówienia MD. */
+function MdLineDivergences() {
   const report = useRateDivergences();
 
   if (report.isLoading) {
@@ -72,8 +92,8 @@ export function RateDivergencesTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.rows.map((row) => (
-                <TableRow key={rowKey(row)} className={`${CALM_ROW} align-top`}>
+              {data.rows.map((row, index) => (
+                <TableRow key={rowKey(row, index)} className={`${CALM_ROW} align-top`}>
                   <TableCell className="min-w-0">
                     <span className="block truncate">{row.person}</span>
                     {row.rounding ? (

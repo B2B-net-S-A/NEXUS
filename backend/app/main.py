@@ -4235,6 +4235,10 @@ async def api_health_deep_check(request: Request):
     from app.models.finance_archive import FinanceArchiveDocument
     from app.models.client_order_revenue_step import ClientOrderRevenueStep
     from app.models.contract_document_rate_read import ContractDocumentRateRead
+    from app.models.client_order_cost_step import (
+        ClientOrderCostReview,
+        ClientOrderCostStep,
+    )
     from app.models.board_document import (
         BoardBudget,
         BoardBudgetLine,
@@ -4935,6 +4939,9 @@ async def api_health_deep_check(request: Request):
         ("board_documents", BoardDocument),
         # 0739: odczyty stawki Partnera z umów i aneksów kontraktu.
         ("contract_document_rate_reads", ContractDocumentRateRead),
+        # 0741: koszt zamówienia od dnia zmiany stawki Partnera.
+        ("client_order_cost_steps", ClientOrderCostStep),
+        ("client_order_cost_reviews", ClientOrderCostReview),
         ("board_krs_snapshots", BoardKrsSnapshot),
         ("board_budgets", BoardBudget),
         ("board_budget_lines", BoardBudgetLine),

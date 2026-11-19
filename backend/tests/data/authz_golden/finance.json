@@ -37,6 +37,7 @@
   "GET /api/finance/order-changes/export": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
   "GET /api/finance/order-changes/history": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
   "GET /api/finance/order-changes/summary": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
+  "GET /api/finance/order-cost-corrections": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "GET /api/finance/order-pdfs": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
   "GET /api/finance/order-pdfs/months": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
   "GET /api/finance/order-pdfs/zip": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
@@ -48,6 +49,7 @@
   "POST /api/finance/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/imports/{run_id}/restore": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
   "POST /api/finance/order-changes/checks": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP",
+  "POST /api/finance/order-cost-corrections/{order_id}/{decision}": "PPDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PUT /api/finance/order-changes/invoice-lines/{order_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDPDP"
  }
 }

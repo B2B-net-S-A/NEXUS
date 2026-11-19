@@ -112,6 +112,14 @@ vi.mock("@/components/v2/recruitment/CvToClientCard", () => ({
     );
   },
 }));
+// Karta formularza CV klienta ma własne testy (`ClientFormCard.test.tsx`).
+vi.mock("@/components/v2/recruitment/client-form/ClientFormCard", () => ({
+  ClientFormCard: (p: { stageId: number; kind?: string; readOnly?: boolean }) => (
+    <div data-testid="client-form-card-stub">
+      {`form:${p.kind ?? "form"}/${p.stageId}/${p.readOnly ? "ro" : "rw"}`}
+    </div>
+  ),
+}));
 // Reguła CV klienta — szyna makiety wypisuje ją klockami, więc test musi móc
 // podać ZATWIERDZONĄ regułę (bez `is_active` obowiązuje baner „brak reguł").
 let centralPolicy: Record<string, unknown> = { managed: false };
@@ -708,6 +716,49 @@ it("retains each result with its original candidate when moving to the next one"
   expect(decodeURIComponent(drafts[1].getAttribute("href")!)).toContain("Anna Testowa");
 });
 
+
+describe("formularz CV klienta w zakładce „CV” (19.11.2026)", () => {
+  const formCards = () =>
+    screen.queryAllByTestId("client-form-card-stub").map((el) => el.textContent);
+
+  it("u klienta z formularzem karta formularza i tabeli punktowej stoi nad kartą CV", () => {
+    renderWorkbench({ columns: columns([item({ client_form: { template: true, missing: 3 } })]) });
+    expect(formCards()).toEqual(["form:form/21/rw", "form:score/21/rw"]);
+    const form = screen.getAllByTestId("client-form-card-stub")[0];
+    const cv = screen.getByTestId("cv-to-client-card-stub");
+    expect(form.compareDocumentPosition(cv) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("formularz jest też w „Nowych” i po „CV wysłane”, tylko do odczytu przy readOnly", () => {
+    const early: KanbanColumn = {
+      stage: "new",
+      name: "Nowi",
+      category: "internal",
+      stage_def_id: 2,
+      count: 1,
+      items: [item({ id: 11, candidate_id: 111, stage: "new", client_form: { template: false, missing: null } })],
+    };
+    const { unmount } = renderWorkbench({ columns: [early, ...columns([])], focusCandidateId: 111 });
+    expect(formCards()).toEqual(["form:form/11/rw", "form:score/11/rw"]);
+    unmount();
+
+    const sent = columns([]);
+    sent[1].items = [item({ id: 31, candidate_id: 131, stage: "cv_sent", client_form: { template: true, missing: 0 } })];
+    renderWorkbench({ columns: sent, focusCandidateId: 131, readOnly: true });
+    expect(formCards()).toEqual(["form:form/31/ro", "form:score/31/ro"]);
+  });
+
+  it("klient z CV firmowym nie dostaje karty formularza", () => {
+    renderWorkbench();
+    expect(formCards()).toEqual([]);
+    expect(screen.getByTestId("cv-to-client-card-stub")).toBeTruthy();
+  });
+
+  it("osoby nie ma na Tablicy: bez karty formularza", () => {
+    renderWorkbench({ columns: columns([]), focusCandidateId: 999 });
+    expect(formCards()).toEqual([]);
+  });
+});
 
 describe("CvHandoffWorkbench — layout=\"panel\" (rekrutacja v3)", () => {
   const two = () =>
