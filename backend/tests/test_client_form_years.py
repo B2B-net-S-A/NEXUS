@@ -431,3 +431,39 @@ def test_client_test_and_free_rows_are_not_years_fields() -> None:
         ]
     }
     assert years.years_fields(structure) == {"t2.r9.c2": "competency"}
+
+
+def test_role_from_screening_note_counts_with_a_note_quote() -> None:
+    # Pętla „pytanie na screeningu → notatka → Wypełnij ponownie”: okres
+    # podany przez kandydata w rozmowie liczy się jak stanowisko z CV.
+    notes = "Kandydat: Szpital Przykładowy, 03.2019 – 05.2021, testy systemu HIS."
+    answer = {
+        "roles": [
+            {
+                "key": "n1",
+                "employer": "Szpital Przykładowy",
+                "title": "Tester",
+                "start": "2019-03",
+                "end": "2021-05",
+                "quote": "Szpital Przykładowy, 03.2019 – 05.2021",
+            }
+        ],
+        "years": [
+            {
+                "id": "t2.r6.c2",
+                "roles": [{"key": "n1", "level": "role", "quote": "testy systemu HIS"}],
+            }
+        ],
+    }
+    result = fill.check_parse(
+        json.dumps(answer),
+        structure=_structure(),
+        sources=fill.Sources(cv=CV, notes=notes),
+        candidate_name="Anna Fikcyjna",
+        today=TODAY,
+    )
+    assert result["fields"]["t2.r6.c2"]["value"] == "2 lata 3 mies."
+    prompt = CLIENT_FORM_FILL.render(
+        fields="F", tables="T", years_fields="Y", cv="C", notes="N", rules="R"
+    )
+    assert "w notatce screeningu" in prompt

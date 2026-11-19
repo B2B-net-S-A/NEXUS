@@ -2015,7 +2015,10 @@ CLIENT_FORM_FILL = PromptTemplate(
         "wypisz wszystkie stanowiska z CV (key „r1”, „r2”…, firma, stanowisko, "
         "start i koniec jako „RRRR-MM”, sam „RRRR”, gdy CV nie podaje "
         'miesiąca, koniec „obecnie”, gdy praca trwa; "quote" = fragment CV '
-        'z datami tego stanowiska). W "years" dla każdego pola z liczbą lat '
+        "z datami tego stanowiska). Stanowisko albo projekt z okresem podany "
+        "w notatce screeningu (odpowiedź kandydata, np. „Szpital X, "
+        '03.2019–05.2021”) też wpisz do "roles" — cytatem jest fragment '
+        'notatki. W "years" dla każdego pola z liczbą lat '
         "podaj stanowiska, w których kandydat miał tę kompetencję: "
         'level "role", gdy opis stanowiska ją nazywa, "implied", gdy praca na '
         "tym stanowisku jej wymagała (np. tester w projekcie prowadzonym "

@@ -206,7 +206,15 @@ ręcznie”. Pomiar na stagingu (rekrutacja „Tester”, trzy osoby): 0 z 9 pó
   ponad `max_points`.
 - **Siatka zapisuje się w `fields[id]["years"]`** (bez nowej kolumny): stanowiska
   z dowodem, `on`, pytanie, `ask`. Wpis rekrutera w polu nie gubi siatki,
-  a „Wypełnij ponownie” zostawia pytania wysłane do screeningu.
+  a „Wypełnij ponownie” zostawia pytania wysłane do screeningu i role zdjęte
+  w siatce (`carry_selection`, dopasowanie po okresie i firmie, bo klucze r1/r2
+  zmieniają się między biegami modelu) — inaczej zdjęta praca spoza IT wracała
+  do przetargu bez sygnału.
+- **Odpowiedź ze screeningu wraca do formularza:** stanowisko albo projekt
+  z okresem podany w notatce screeningu model wpisuje do `roles` z cytatem
+  z notatki (prompt od 20.11.2026).
+- **Wiersz testu u klienta i wolne „Wiersz N”** nie są polami lat (`NOT_YEARS_ROW`).
+  Okno formularza po „Zapisz lata” nie kasuje niezapisanych wpisów w innych polach.
   `PUT …/client-form/years` (`roles`: id pola → klucze ról, `ask`: pola do ściągi)
   przelicza wartość na serwerze — przeglądarka nie przysyła liczby lat. Gdy kod
   nie policzył nic, a model dał wartość z cytatem (np. „0” z notatki), zostaje

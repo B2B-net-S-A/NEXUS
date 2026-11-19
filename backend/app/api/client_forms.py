@@ -289,7 +289,15 @@ async def fill_client_form(
         for field_id, value in (form.fields or {}).items()
         if ((value or {}).get("years") or {}).get("ask")
     }
+    previous = dict(form.fields or {})
     form.fields = {**result["fields"], **kept}
+    today = business_today()
+    for field_id, entry in list(form.fields.items()):
+        # Role zdjęte w siatce zostają zdjęte po „Wypełnij ponownie”.
+        if field_id not in kept and (previous.get(field_id) or {}).get("years"):
+            form.fields[field_id] = client_form_years.carry_selection(
+                previous[field_id], entry, today
+            )
     for field_id in asked & set(form.fields):
         years = form.fields[field_id].get("years")
         if years:

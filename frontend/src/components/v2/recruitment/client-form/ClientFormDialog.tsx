@@ -165,11 +165,20 @@ export function ClientFormDialog({
   );
   const [draft, setDraft] = useState<Record<string, string>>(initial);
   const [showFilled, setShowFilled] = useState(false);
-  // Nowe dane z serwera (zapis, ponowne wypełnienie) zastępują szkic.
+  // Nowe dane z serwera (zapis, ponowne wypełnienie, „Zapisz lata”) zastępują
+  // pola, których rekruter nie ruszył; niezapisany wpis w innym polu zostaje —
+  // siatka lat ma własny zapis i nie może kasować reszty okna.
   const [seen, setSeen] = useState(initial);
   if (seen !== initial) {
     setSeen(initial);
-    setDraft(initial);
+    setDraft((prev) =>
+      Object.fromEntries(
+        Object.entries(initial).map(([id, value]) => [
+          id,
+          id in prev && prev[id] !== (seen[id] ?? "") ? prev[id] : value,
+        ]),
+      ),
+    );
   }
 
   const changed = Object.fromEntries(

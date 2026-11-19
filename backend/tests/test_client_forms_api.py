@@ -471,9 +471,13 @@ async def test_years_grid_roles_and_screening_questions(
     typed_value = {item["id"]: item for item in typed.json()["fields"]}["t2.r5.c2"]
     assert typed_value["source"] == "recruiter" and typed_value["years"]["ask"] is True
 
-    # Ponowne wypełnienie zostawia pytania do screeningu.
-    model.append(answer)
+    # Ponowne wypełnienie zostawia pytania do screeningu i role zdjęte przez
+    # rekrutera — klucz roli może się zmienić, dopasowanie po firmie i okresie.
+    renamed = json.loads(json.dumps(answer).replace('"r1"', '"r7"'))
+    model.append(renamed)
     refilled = (await app_client.post(f"{url}/fill", headers=app_auth_headers)).json()
     again = {item["id"]: item for item in refilled["fields"]}
     assert again["t2.r2.c3"]["years"]["ask"] is True
-    assert again["t2.r2.c3"]["value"] is not None
+    assert again["t2.r2.c3"]["value"] is None
+    assert [b["on"] for b in again["t2.r2.c3"]["years"]["basis"]] == [False]
+    assert again["p3"]["value"] is not None

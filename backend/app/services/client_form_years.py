@@ -351,3 +351,31 @@ def recompute(entry: dict[str, Any], on: set[str], today: date) -> dict[str, Any
         "quote": quote if value else None,
         "years": years,
     }
+
+
+def _role_identity(role: dict[str, Any]) -> tuple[str, Optional[str], str]:
+    """Rola między biegami modelu: okres i początek nazwy firmy (klucz r1/r2 się zmienia)."""
+    employer = re.sub(r"\W+", "", (role.get("employer") or "").casefold())[:12]
+    return str(role.get("start") or ""), role.get("end"), employer
+
+
+def carry_selection(
+    previous: dict[str, Any], entry: dict[str, Any], today: date
+) -> dict[str, Any]:
+    """Nowy wpis pola z rolami, które rekruter zdjął w siatce przed „Wypełnij ponownie”.
+
+    Bez tego ponowne wypełnienie (np. po notatce ze screeningu) włączało z powrotem
+    zdjętą pracę spoza IT i zawyżone lata szły do przetargu bez sygnału.
+    """
+    off = {
+        _role_identity(role)
+        for role in (previous.get("years") or {}).get("basis") or []
+        if not role.get("on")
+    }
+    basis = (entry.get("years") or {}).get("basis") or []
+    if not off or not basis:
+        return entry
+    on = {role["key"] for role in basis if _role_identity(role) not in off}
+    if len(on) == len(basis):
+        return entry
+    return recompute(entry, on, today)
