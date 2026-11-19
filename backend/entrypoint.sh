@@ -9577,6 +9577,45 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0745 — jednorazowo: jeden słownik powodów zamknięcia procesu (decyzja
+    # Artura 19.11.2026, `app/services/close_reasons.py`). Brakujące powody
+    # słownika w każdym szablonie, w odrzuceniu i rezygnacji, tuż przed „Inne”
+    # tej samej kategorii. Lustro migracji (pilnuje `test_close_reasons.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('close_reason_dictionary_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, k.name, k.cat::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = k.cat "
+    "AND r.name = 'Inne (' || k.cat || ')' LIMIT 1), 99), "
+    "TRUE, k.verdict, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "CROSS JOIN (VALUES "
+    "(1, 'client_project_closed', 'rejected', FALSE), "
+    "(2, 'client_after_deadline', 'rejected', FALSE), "
+    "(3, 'overqualified', 'rejected', FALSE), "
+    "(4, 'other_level_or_role', 'rejected', FALSE), "
+    "(5, 'no_polish', 'rejected', TRUE), "
+    "(6, 'weak_english', 'rejected', TRUE), "
+    "(7, 'available_too_late', 'rejected', FALSE), "
+    "(8, 'in_other_process', 'rejected', FALSE), "
+    "(9, 'client_refused', 'rejected', FALSE), "
+    "(10, 'outdated_cv', 'rejected', FALSE), "
+    "(11, 'profile_mismatch', 'rejected', FALSE), "
+    "(12, 'wrong_phone', 'rejected', FALSE), "
+    "(13, 'contract_form', 'withdrawn', FALSE), "
+    "(14, 'available_too_late', 'withdrawn', FALSE), "
+    "(15, 'not_looking_for_work', 'withdrawn', FALSE), "
+    "(16, 'no_contact', 'withdrawn', FALSE), "
+    "(17, 'client_refused', 'withdrawn', FALSE)"
+    ") AS k(pos, name, cat, verdict) "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ORDER BY t.id, k.pos "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
     # w historii). Lustro migracji.

@@ -65,5 +65,5 @@ def test_reason_has_a_polish_label():
     assert WORK_MODE_MISMATCH in REJECTION_REASON_LABELS
     assert (
         rejection_reason_label(WORK_MODE_MISMATCH)
-        == "Nie akceptuje trybu pracy (biuro / hybryda)"
+        == "Lokalizacja lub tryb pracy"
     )
