@@ -148,6 +148,14 @@
   `MAX_DOWNLOADS + BACKFILL_EXTRA_DOWNLOADS` (20 + 30 = 50) pobrań faktury; limit KSeF na produkcji to 64 na godzinę
   i dzieli go pętla zakupów (do 40, zwykle kilka). Po `done` wraca 20. Przekroczenie limitu daje blokadę 429
   (`blocked_until`), nie utratę danych.
+- **`done` to koniec listowania, nie pobrań (19.11.2026).** Okno kosztuje jedno zapytanie o metadane, więc
+  znacznik dochodzi do `to` w kilka godzin, a faktury z okien czekają w kolejce (`pending`, powód `budget`).
+  Na produkcji 19.11 czekało tak 494 faktury (405 z lipca, 42 z czerwca, 47 bieżących z listopada) po 20 na
+  godzinę, a w tabeli nie było ani jednej faktury z lipca. Dlatego dodatkowe 30 pobrań zostaje, dopóki w kolejce
+  jest choć jedna faktura z powodem `budget` (`_backfill_pending`), także przy fali bieżących faktur na początku
+  miesiąca. Kolejka idzie od najnowszych (`acquired_at` malejąco), żeby bieżące faktury nie czekały za zaległymi.
+  Brak faktur z jakiegoś miesiąca przy niepustej kolejce to zwykle czekanie, nie luka: sprawdź `pending` w stanie,
+  zanim klikniesz cokolwiek ponownie.
 - **Adres nabywcy z `Podmiot2/Adres` (0730, 17.11.2026).** Lista „Czeka na Symfonię” i plik dla księgowej potrzebują
   adresu nabywcy, a `clients.address` miał go u 11 ze 170 klientów (staging 17.11: 206 z 208 nabywców bez adresu).
   `client_sales_invoices` ma `buyer_country`, `buyer_address_line1`, `buyer_address_line2` (`KodKraju`, `AdresL1`,

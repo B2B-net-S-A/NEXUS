@@ -485,6 +485,90 @@ async def test_backfill_raises_the_download_budget_until_it_is_done(env, monkeyp
     assert first["saved"] == 4
 
 
+async def _finish_backfill_windows(key: str) -> None:
+    """Zaległe okna wylistowane (``done``), znacznik bieżący od pierwszego przebiegu."""
+
+    async with AsyncSessionLocal() as db:
+        await sync._save_state(
+            db,
+            {
+                "backfill": {
+                    key: {
+                        "from": "2025-01-01T00:00:00+00:00",
+                        "to": "2026-08-01T00:00:00+00:00",
+                        "cursor": "2026-08-01T00:00:00+00:00",
+                        "done": True,
+                    }
+                }
+            },
+        )
+        await db.commit()
+
+
+async def test_download_budget_stays_raised_while_listed_backfill_waits(
+    env, monkeypatch
+):
+    """Okna wylistowane, ale faktury czekają w kolejce na budżet: dodatkowy budżet zostaje.
+
+    Produkcja 19.11.2026: znacznik zaległych okien doszedł do końca w kilka godzin
+    (listowanie to jedno zapytanie na okno), a 494 faktury z czerwca i lipca czekały
+    w kolejce na pobranie po 20 na godzinę, bo ``done`` wyłączało dodatkowe 30.
+    """
+
+    key = f"test:{fx.COMPANY_NIP}"
+    assert (
+        sync._backfill_pending(
+            {
+                "backfill": {key: {"done": True}},
+                "pending": {key: [{"ksef_number": "x", "reason": "budget"}]},
+            },
+            key,
+        )
+        is True
+    )
+    assert (
+        sync._backfill_pending(
+            {
+                "backfill": {key: {"done": True}},
+                "pending": {key: [{"ksef_number": "x", "reason": "not_ready"}]},
+            },
+            key,
+        )
+        is False
+    )
+    await _finish_backfill_windows(key)
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 3)
+    first = await env.run()
+    assert first["status"] == "ok", first
+    assert (first["saved"], first["pending"]) == (1, 4)
+    env.clock.advance(hours=1)
+    second = await env.run()
+    assert second["status"] == "ok", second
+    assert (second["saved"], second["pending"]) == (4, 0)
+
+
+async def test_queue_downloads_the_newest_invoices_first(env, monkeypatch):
+    """Kolejka zaległości nie trzyma bieżących faktur za starymi (najnowsze pierwsze)."""
+
+    key = f"test:{fx.COMPANY_NIP}"
+    await _finish_backfill_windows(key)
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "BACKFILL_EXTRA_DOWNLOADS", 0)
+    await env.run()
+    env.clock.advance(hours=1)
+    await env.run()
+    async with AsyncSessionLocal() as db:
+        stored = set(
+            await db.scalars(
+                select(ClientSalesInvoice.ksef_number).where(
+                    ClientSalesInvoice.ksef_number.like(f"{fx.COMPANY_NIP}-%")
+                )
+            )
+        )
+    assert stored == {fx.KSEF_118, fx.KSEF_CORRECTION}
+
+
 # ── Adres nabywcy (0730) ─────────────────────────────────────────────────────
 
 
