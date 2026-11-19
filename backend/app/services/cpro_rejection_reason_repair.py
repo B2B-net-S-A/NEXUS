@@ -24,6 +24,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
+from app.models.recruitment_pipeline import CandidateStage
 from app.services.cpro_reason_map import reason_name_for
 
 logger = logging.getLogger(__name__)
@@ -50,11 +51,6 @@ _TEMPLATE_REASONS = text(
     SELECT template_id, name, id FROM rejection_reasons
     WHERE category::text = 'rejected' AND template_id = ANY(:templates)
     """
-)
-
-_MOVE = text(
-    "UPDATE candidate_stages SET rejection_reason_id = :new "
-    "WHERE id = :id AND rejection_reason_id = :old"
 )
 
 
@@ -90,9 +86,14 @@ async def run_cpro_rejection_reason_repair(
         if new_id is None:
             kept["not_in_template"] += 1
             continue
-        await db.execute(
-            _MOVE, {"new": new_id, "id": row.id, "old": row.rejection_reason_id}
-        )
+        # Przez ORM, nie surowym SQL-em (strażnik
+        # `test_priority_work_writer_architecture`); powód nie jest polem
+        # cyklu życia procesu, więc nie idzie przez `recruitment_process_commands`.
+        stage = await db.get(CandidateStage, row.id)
+        if stage is None or stage.rejection_reason_id != row.rejection_reason_id:
+            kept["changed_meanwhile"] += 1
+            continue
+        stage.rejection_reason_id = new_id
         moved[name] += 1
         receipt.append([row.id, row.rejection_reason_id, new_id])
 
