@@ -59,7 +59,7 @@ class BalanceCheck:
     opening_day: Optional[date] = None
     #: Data salda zamknięcia (MT940 ``:62F:``, CAMT ``CLBD``).
     closing_day: Optional[date] = None
-    #: Numer wyciągu banku bez numeru części (MT940 ``:28C:`` „26156/1” → 26156,
+    #: Numer wyciągu banku bez numeru części (MT940 ``:28C:`` „26101/1” → 26101,
     #: CAMT ``LglSeqNb``, a bez niego ``ElctrncSeqNb``).
     number: Optional[int] = None
 

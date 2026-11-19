@@ -4,7 +4,7 @@
 rachunek odbioru od dnia wystawienia do dnia po terminie
 (``client_invoicing/payment_proof.py``). Dni operacji tego nie dowodzą:
 rachunek EUR ma operacje rzadko, a Santander (eBI24) daje wyciąg tylko w dni
-z operacjami (12.11.2026 wyciąg EUR miał numer 156 w roku). Dowodem jest
+z operacjami (numer wyciągu w roku rośnie tylko w te dni). Dowodem jest
 łańcuch sald:
 
 * **plik** ma saldo otwarcia i zamknięcia z datami (``file_span``) tylko wtedy,
@@ -14,8 +14,8 @@ z operacjami (12.11.2026 wyciąg EUR miał numer 156 w roku). Dowodem jest
   zamknięcia A, B nie otwiera się przed dniem zamknięcia A, a między nimi nie
   ma dnia bez wyciągu (otwarcie B najpóźniej dzień po zamknięciu A — Santander
   datuje saldo otwarcia dniem samego wyciągu, standard SWIFT dniem
-  poprzedniego) albo numery wyciągów banku idą po kolei (``:28C:`` 26156 →
-  26157; w nowym roku numer kończy się na 001). Równe saldo nad luką bez
+  poprzedniego) albo numery wyciągów banku idą po kolei (``:28C:`` 26101 →
+  26102; w nowym roku numer kończy się na 001). Równe saldo nad luką bez
   numerów nie wystarcza: brakujący wyciąg mógł mieć wpływ i wypływ tej samej
   kwoty (wpłata w EUR i jej wymiana na PLN tego samego dnia);
 * **ostatni dzień ciągłości** (``covered_until``) liczy się od wyciągu

@@ -22,7 +22,7 @@ banku, z datami obu sald i numerem wyciągu z ``:28C:``. Parser sam nie odrzuca
 pliku (stare ekrany importu bez zmian), robi to Księga (K4a). Wyciąg Santandera
 przez eBI24 (``.eMT``, 06.10.2026) ma trzy części z ``:62M:``/``:60M:``
 i nagłówki SWIFT ``{1:}{2:}{4:`` … ``-}``; saldo otwarcia ma datę dnia
-samego wyciągu, a ``:28C:`` to rok i numer wyciągu w roku („26156/1”).
+samego wyciągu, a ``:28C:`` to rok i numer wyciągu w roku („26101/1”).
 
 Storno: ``RC`` (reversal of credit) to obciążenie, ``RD`` (reversal of debit)
 — uznanie. Znak opisuje więc kierunek samego wpisu, tak jak ``CdtDbtInd``
@@ -61,7 +61,7 @@ _LINE_61 = re.compile(
 _BALANCE = re.compile(
     r"^(?P<mark>[CD])(?P<date>\d{6})(?P<currency>[A-Z]{3})(?P<amount>\d{1,15},\d{0,2})"
 )
-#: ``:28C:`` numer wyciągu i część: Santander „26156/1” (rok + numer w roku).
+#: ``:28C:`` numer wyciągu i część: Santander „26101/1” (rok + numer w roku).
 _STATEMENT_NUMBER = re.compile(r"^(?P<number>\d{1,15})(?:/\d{1,10})?\s*$")
 _SUBFIELD = re.compile(r"[~^<>?](\d{2})")
 _ACCOUNT_IN_TEXT = re.compile(r"(?:PL)?(\d{2}(?:\s?\d{4}){6})")

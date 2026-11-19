@@ -51,6 +51,13 @@ dopisuj czwartej ścieżki dopasowania ani kopii logiki E3/R9/E8 w Księdze.
   pliku przyjmują `.emt`. Próbka 06.10.2026: 30/30 operacji, saldo zgodne.
   Fikstury testów z MT940 do Księgi muszą mieć saldo końcowe zgodne
   z operacjami (`_mt940_balance` w `test_ledger_sources_db.py`).
+- **Salda i numery wyciągu zostają w bazie** (0741, 19.11.2026): saldo otwarcia
+  i zamknięcia pliku w groszach ze znakiem, ich daty, numer wyciągu banku
+  pierwszej i ostatniej części (`:28C:`) i `credits_matched` (uznania przeszły
+  przez E8). Z nich „po terminie” faktur do klientów liczy ciągłość rachunku
+  (`docs/claude/zamowienia/faktury-do-klientow-z-ksef.md`). Plik, który sam nie
+  jest ciągły, wchodzi jak dotąd, tylko bez sald. Ten sam plik wgrany drugi raz
+  uzupełnia puste salda (wyciągi sprzed 0741) — bez drugiego importu operacji.
 - **Rozpoznanie**, po kolei: duplikat (ten sam rachunek, referencja banku,
   data i kwota w innym wyciągu — dzienny i miesięczny) → wypłata dla zespołu
   **tak jak w E3**: każdy wiersz R9 tego pliku (też „unmatched”/„ignored”)

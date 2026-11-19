@@ -58,8 +58,8 @@ def _file(*parts: str) -> bytes:
 
 
 def test_mt940_balances_carry_their_dates_and_statement_number():
-    first, after = _part("261112", "26286/1", 100_000, [5_000, -2_000])
-    second, _ = _part("261113", "26287/1", after, [-1_000])
+    first, after = _part("261112", "26201/1", 100_000, [5_000, -2_000])
+    second, _ = _part("261113", "26202/1", after, [-1_000])
     parsed = mt940.parse(_file(first, second))
 
     assert [b.opening_day for b in parsed.balances] == [
@@ -70,11 +70,11 @@ def test_mt940_balances_carry_their_dates_and_statement_number():
         date(2026, 11, 12),
         date(2026, 11, 13),
     ]
-    assert [b.number for b in parsed.balances] == [26286, 26287]
+    assert [b.number for b in parsed.balances] == [26201, 26202]
 
 
 def test_mt940_bad_balance_date_does_not_reject_the_file():
-    text, _ = _part("261112", "26286/1", 100_000, [5_000])
+    text, _ = _part("261112", "26201/1", 100_000, [5_000])
     parsed = mt940.parse(text.replace(":62F:C261112", ":62F:C261199").encode())
 
     assert parsed.balances[0].ok
@@ -82,7 +82,7 @@ def test_mt940_bad_balance_date_does_not_reject_the_file():
     assert file_span(parsed) is None
 
 
-def _camt(opening_day: str, closing_day: str, number: str = "156") -> bytes:
+def _camt(opening_day: str, closing_day: str, number: str = "41") -> bytes:
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02">
 <BkToCstmrStmt><Stmt><Id>S1</Id><LglSeqNb>{number}</LglSeqNb>
@@ -103,10 +103,10 @@ def test_camt_balances_carry_dates_and_legal_sequence_number():
     assert (balance.opening_day, balance.closing_day, balance.number) == (
         date(2026, 11, 2),
         date(2026, 11, 30),
-        156,
+        41,
     )
     assert file_span(parsed) == Span(
-        10_000, date(2026, 11, 2), 15_000, date(2026, 11, 30), 156, 156
+        10_000, date(2026, 11, 2), 15_000, date(2026, 11, 30), 41, 41
     )
 
 
@@ -117,34 +117,34 @@ def test_file_of_daily_statements_gives_one_span():
     """Wyciąg „miesięczny” z eBI24 jako dni z operacjami: luka 13–15.11 bez wyciągu,
     numery po kolei — plik jest ciągły."""
 
-    first, after = _part("261112", "26156/1", 100_000, [5_000])
-    second, end = _part("261116", "26157/1", after, [-2_500])
+    first, after = _part("261112", "26101/1", 100_000, [5_000])
+    second, end = _part("261116", "26102/1", after, [-2_500])
     span = file_span(mt940.parse(_file(first, second)))
 
     assert span == Span(
-        100_000, date(2026, 11, 12), end, date(2026, 11, 16), 26156, 26157
+        100_000, date(2026, 11, 12), end, date(2026, 11, 16), 26101, 26102
     )
 
 
 def test_file_with_a_missing_statement_inside_gives_no_span():
-    """Numer 26157 brakuje: równe saldo nad luką nie dowodzi, że nic się nie działo."""
+    """Numer 26102 brakuje: równe saldo nad luką nie dowodzi, że nic się nie działo."""
 
-    first, after = _part("261112", "26156/1", 100_000, [5_000])
-    third, _ = _part("261116", "26158/1", after, [-2_500])
+    first, after = _part("261112", "26101/1", 100_000, [5_000])
+    third, _ = _part("261116", "26103/1", after, [-2_500])
 
     assert file_span(mt940.parse(_file(first, third))) is None
 
 
 def test_file_whose_parts_do_not_chain_gives_no_span():
-    first, after = _part("261112", "26156/1", 100_000, [5_000])
-    second, _ = _part("261113", "26157/1", after + 1, [-2_500])
+    first, after = _part("261112", "26101/1", 100_000, [5_000])
+    second, _ = _part("261113", "26102/1", after + 1, [-2_500])
 
     assert file_span(mt940.parse(_file(first, second))) is None
 
 
 def test_part_without_closing_balance_gives_no_span():
-    first, after = _part("261112", "26156/1", 100_000, [5_000])
-    second, _ = _part("261113", "26157/1", after, [-2_500])
+    first, after = _part("261112", "26101/1", 100_000, [5_000])
+    second, _ = _part("261113", "26102/1", after, [-2_500])
     without_close = second.replace(":62F:", ":64:")
 
     assert file_span(mt940.parse(_file(first, without_close))) is None
@@ -168,22 +168,22 @@ def test_next_statement_follows_on_the_same_or_next_day_with_equal_balance():
 
 
 def test_gap_of_days_needs_consecutive_statement_numbers():
-    friday = _span(0, date(2026, 11, 13), 500, date(2026, 11, 13), 26290, 26290)
+    friday = _span(0, date(2026, 11, 13), 500, date(2026, 11, 13), 26210, 26210)
 
     assert follows(
-        friday, _span(500, date(2026, 11, 16), 700, date(2026, 11, 16), 26291, 26291)
+        friday, _span(500, date(2026, 11, 16), 700, date(2026, 11, 16), 26211, 26211)
     )
     assert not follows(
-        friday, _span(500, date(2026, 11, 16), 700, date(2026, 11, 16), 26292, 26292)
+        friday, _span(500, date(2026, 11, 16), 700, date(2026, 11, 16), 26212, 26212)
     )
     assert not follows(friday, _span(500, date(2026, 11, 16), 700, date(2026, 11, 16)))
 
 
 def test_statement_numbering_restarts_in_a_new_year():
-    assert numbers_follow(26301, 27001, date(2026, 12, 30), date(2027, 1, 4))
+    assert numbers_follow(26221, 27001, date(2026, 12, 30), date(2027, 1, 4))
     assert numbers_follow(301, 1, date(2026, 12, 30), date(2027, 1, 4))
-    assert not numbers_follow(26301, 27002, date(2026, 12, 30), date(2027, 1, 4))
-    assert not numbers_follow(26301, 26001, date(2026, 12, 30), date(2026, 12, 31))
+    assert not numbers_follow(26221, 27002, date(2026, 12, 30), date(2027, 1, 4))
+    assert not numbers_follow(26221, 26001, date(2026, 12, 30), date(2026, 12, 31))
 
 
 def test_covered_until_follows_the_chain_from_before_the_day():
@@ -200,9 +200,9 @@ def test_covered_until_follows_the_chain_from_before_the_day():
 
 
 def test_daily_statement_inside_a_monthly_one_does_not_break_the_chain():
-    november = _span(0, date(2026, 11, 2), 800, date(2026, 11, 30), 26270, 26300)
-    daily = _span(300, date(2026, 11, 12), 350, date(2026, 11, 12), 26286, 26286)
-    december = _span(800, date(2026, 12, 1), 900, date(2026, 12, 31), 26301, 26320)
+    november = _span(0, date(2026, 11, 2), 800, date(2026, 11, 30), 26190, 26220)
+    daily = _span(300, date(2026, 11, 12), 350, date(2026, 11, 12), 26201, 26201)
+    december = _span(800, date(2026, 12, 1), 900, date(2026, 12, 31), 26221, 26240)
 
     assert covered_until([daily, november, december], date(2026, 11, 5)) == date(
         2026, 12, 31
