@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, MoreHorizontal, Plus } from "lucide-react";
@@ -294,6 +294,12 @@ interface ConsultantCardProps {
   layout: "panel" | "page";
   /** Akcja przy zdarzeniu „Historii” (zakładka kontraktu: „Edytuj” starej karty technologicznej). */
   historyAction?: (event: TimelineEvent) => ReactNode;
+  /**
+   * Otwórz od razu okno zapisu rozmowy (przycisk „Zapisz rozmowę” w pasie
+   * „Co się dzieje” na stronie kontraktu); po otwarciu karta woła `onAutoStartTalkDone`.
+   */
+  autoStartTalk?: boolean;
+  onAutoStartTalkDone?: () => void;
 }
 
 /**
@@ -304,7 +310,13 @@ interface ConsultantCardProps {
  * komponent w panelu `/care?contract=<id>` i w zakładce „Opieka” kontraktu.
  * Bez stawek i danych o zdrowiu — serwer ich nie wysyła.
  */
-export function ConsultantCard({ contractId, layout, historyAction }: ConsultantCardProps) {
+export function ConsultantCard({
+  contractId,
+  layout,
+  historyAction,
+  autoStartTalk = false,
+  onAutoStartTalkDone,
+}: ConsultantCardProps) {
   const query = useConsultantCard(contractId);
   const state = resolveViewState({
     isLoading: query.isLoading,
@@ -328,17 +340,29 @@ export function ConsultantCard({ contractId, layout, historyAction }: Consultant
       />
     );
   }
-  return <CardBody card={query.data} layout={layout} historyAction={historyAction} />;
+  return (
+    <CardBody
+      card={query.data}
+      layout={layout}
+      historyAction={historyAction}
+      autoStartTalk={autoStartTalk}
+      onAutoStartTalkDone={onAutoStartTalkDone}
+    />
+  );
 }
 
 function CardBody({
   card,
   layout,
   historyAction,
+  autoStartTalk = false,
+  onAutoStartTalkDone,
 }: {
   card: ConsultantCardData;
   layout: "panel" | "page";
   historyAction?: (event: TimelineEvent) => ReactNode;
+  autoStartTalk?: boolean;
+  onAutoStartTalkDone?: () => void;
 }) {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -372,6 +396,16 @@ function CardBody({
 
   const startTalk = (item: CardPlanItem | null) =>
     setTalk({ planItem: item ? { id: item.id, label: item.label } : null });
+
+  // „Zapisz rozmowę” z pasa „Co się dzieje”: okno zapisu otwiera się samo,
+  // z najbliższym punktem planu — tak jak przycisk „Następnego kroku”.
+  useEffect(() => {
+    if (!autoStartTalk) return;
+    if (card.can_edit) startTalk(nextPlan);
+    onAutoStartTalkDone?.();
+    // Jednorazowo na żądanie, nie przy każdej zmianie planu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStartTalk]);
 
   const handOffNow = async () => {
     const matches = step?.matches ?? [];

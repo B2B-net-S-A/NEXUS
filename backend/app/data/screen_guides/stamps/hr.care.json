@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/back-office/QueueBoard.tsx": "7d1914670255d697a3b178cb68e3b9777459e0a3cc20ac06ca22ef28e3d0f72a",
     "frontend/src/components/care/CareScreen.tsx": "d2d64bfcc0a2c7e1344e4eb333a212be15094aa4d283a4fe9766f123dd10fc2c",
-    "frontend/src/components/care/card/ConsultantCard.tsx": "1cf67b41a482b04231c5ef8e1cc04ecb870fb6af86f6bed177271ad7bf26e50a"
+    "frontend/src/components/care/card/ConsultantCard.tsx": "9b27907c4a21f541492e295df58f2be288a2358119b9aa41b49f58a6d2d12c47"
   }
 }
