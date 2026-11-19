@@ -48,6 +48,7 @@ from app.services import finance_ledger_schema as finance_ledger
 from app.services import finance_payments_schema as finance_payments
 from app.services import ledger_assets_schema as ledger_assets
 from app.services import ledger_automation_schema as ledger_automation
+from app.services import ledger_bank_balance_schema as ledger_bank_balances
 from app.services import ledger_bank_schema as ledger_bank
 from app.services import ledger_export_schema as ledger_export
 from app.services import ledger_fx_schema as ledger_fx
@@ -179,6 +180,8 @@ MODULES = (
     board_reports,
     # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
     contract_rate_documents,
+    # 0741: salda i numery wyciągów — ciągłość rachunku dla „po terminie” (19.11.2026).
+    ledger_bank_balances,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

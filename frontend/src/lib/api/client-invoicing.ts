@@ -125,15 +125,37 @@ export interface SalesInvoice {
   paid: string;
   to_pay: string;
   paid_on: string | null;
+  /** Dni po terminie do ostatniego dnia ciągłych wyciągów (tylko z dowodem). */
   overdue_days: number;
-  /** Termin minął, a zapłaty nie ma w NEXUSIE — brak danych, nie zaległość. */
+  /** Termin minął, a zaległości nie da się udowodnić z wyciągów — brak danych. */
   payment_unknown?: boolean;
+  payment_unknown_reason?: PaymentUnknownReason | null;
+  /** Cztery ostatnie cyfry rachunku odbioru faktury. */
+  payment_account?: string | null;
+  /** Ostatni dzień ciągłych wyciągów rachunku odbioru od wystawienia faktury. */
+  statements_until?: string | null;
+}
+
+/** Dlaczego NEXUS nie liczy zaległości faktury (`payment_proof.REASONS` w API). */
+export type PaymentUnknownReason =
+  | "compensation"
+  | "no_account"
+  | "account_outside_ledger"
+  | "statements"
+  | "credit_pending";
+
+export interface PaymentUnknownCount {
+  reason: PaymentUnknownReason;
+  label: string;
+  account: string | null;
+  count: number;
 }
 
 export interface OverdueInvoices {
   invoices: SalesInvoice[];
   /** Faktury po dacie terminu bez danych o zapłacie — poza listą. */
   payment_unknown?: number;
+  payment_unknown_reasons?: PaymentUnknownCount[];
 }
 
 export interface MoneyTotal {
@@ -157,6 +179,7 @@ export interface InvoicingSummary {
   overdue?: number;
   /** Faktury po dacie terminu, o których zapłacie NEXUS nie ma danych. */
   payment_unknown?: number;
+  payment_unknown_reasons?: PaymentUnknownCount[];
 }
 
 export interface ClientInvoicing {

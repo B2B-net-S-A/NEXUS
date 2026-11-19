@@ -72,7 +72,7 @@ from app.services.finance_ledger.costs import LedgerError
 from app.services.hr.bank import statements as hr_statements
 from app.services.hr.bank.parsed import ParsedStatement, StatementError, StatementLine
 from app.services.hr.bank.titles import ksef_numbers_in
-from app.services.ledger import documents, engine, sources
+from app.services.ledger import bank_continuity, documents, engine, sources
 from app.services.ledger.documents import DocumentSpec, Viewer
 from app.services.ledger.engine import LineIn
 from app.services.ledger.settings import (
@@ -577,11 +577,18 @@ async def import_file(
     rates: dict[date, Decimal] = {}
     if currency != "PLN":
         rates = await nbp_rates(db, currency, {line.booked_on for line in lines})
+    span = bank_continuity.file_span(parsed)
     sha = hashlib.sha256(raw).hexdigest()
     existing = await db.scalar(
         select(LedgerBankStatement).where(LedgerBankStatement.sha256 == sha)
     )
     if existing is not None:
+        # Plik wgrany przed zapisem sald (0741): ponowne wgranie je uzupełnia,
+        # bez drugiego importu operacji (E3/R9/E8 i linie zostają, jakie były).
+        if existing.closing_balance is None and span is not None:
+            for key, value in _span_fields(span).items():
+                setattr(existing, key, value)
+            await db.flush()
         return existing, False
     # D2 zamyka się po bezpiecznej stronie: bez rachunków zespołu wypłaty
     # wyglądałyby jak zwykłe przelewy i trafiłyby do osób bez Płac.
@@ -599,7 +606,7 @@ async def import_file(
         db, raw, actor_id=viewer.user_id, parsed=parsed, team=team
     )
     if viewer.payroll:
-        await hr_statements.import_statement(
+        payroll_import = await hr_statements.import_statement(
             db,
             raw,
             actor_id=viewer.user_id,
@@ -607,10 +614,13 @@ async def import_file(
             parsed=parsed,
             team=team,
         )
+        credits = payroll_import.credits or {"error": True}
     else:
-        await client_payments.import_credits(
-            db, parsed, sha=sha, actor_id=viewer.user_id
-        )
+        credits = (
+            await client_payments.import_credits(
+                db, parsed, sha=sha, actor_id=viewer.user_id
+            )
+        ).as_dict()
     classified = await _classify(
         db,
         lines,
@@ -635,6 +645,10 @@ async def import_file(
         credit_total=sum(
             grosze(line.amount) for line in lines if line.direction == "credit"
         ),
+        **_span_fields(span),
+        # Uznań, których E8 nie sprawdziło (moduł wyłączony, błąd w ścieżce
+        # Płac), wyciąg nie dowodzi — „po terminie” go wtedy nie liczy.
+        credits_matched=credits_matched(credits),
         created_by=viewer.user_id,
         created_at=now,
     )
@@ -668,6 +682,29 @@ async def import_file(
         )
     await db.flush()
     return statement, True
+
+
+def _span_fields(span: Optional[bank_continuity.Span]) -> dict[str, Any]:
+    """Salda i numery pliku do ``ledger_bank_statements`` (``None`` = puste)."""
+
+    if span is None:
+        return {}
+    return {
+        "opening_balance": span.opening_balance,
+        "opening_day": span.opening_day,
+        "closing_balance": span.closing_balance,
+        "closing_day": span.closing_day,
+        "first_number": span.first_number,
+        "last_number": span.last_number,
+    }
+
+
+def credits_matched(result: dict[str, Any]) -> bool:
+    """Wynik E8 importu (``CreditResult.as_dict``): uznania przeszły dopasowanie."""
+
+    return not (
+        result.get("disabled") or result.get("error") or result.get("restricted")
+    )
 
 
 # ── Odczyt ───────────────────────────────────────────────────────────────────

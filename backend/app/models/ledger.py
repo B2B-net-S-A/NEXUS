@@ -33,6 +33,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.services import ledger_automation_schema as automation
+from app.services import ledger_bank_balance_schema as bank_balances
 from app.services import ledger_bank_schema as bank
 from app.services import ledger_export_schema as export
 from app.services import ledger_fx_schema as fx
@@ -459,13 +460,16 @@ class LedgerExportDocument(Base):
 
 
 class LedgerBankStatement(Base):
-    """Wyciąg bankowy wgrany w Księdze (K4a, 0705)."""
+    """Wyciąg bankowy wgrany w Księdze (K4a, 0705; salda i numery — 0741)."""
 
     __tablename__ = "ledger_bank_statements"
     __table_args__ = (
         UniqueConstraint("sha256", name="uq_ledger_bank_statements_sha"),
         CheckConstraint(
             bank.CK_STATEMENT_CURRENCY, name="ck_ledger_bank_statements_currency"
+        ),
+        CheckConstraint(
+            bank_balances.CK_BALANCES, name="ck_ledger_bank_statements_balances"
         ),
         Index("ix_ledger_bank_statements_account", "bank_account", "last_day"),
     )
@@ -485,6 +489,19 @@ class LedgerBankStatement(Base):
     line_count: Mapped[int] = mapped_column(Integer, nullable=False)
     debit_total: Mapped[int] = mapped_column(BigInteger, nullable=False)
     credit_total: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    #: Saldo otwarcia i zamknięcia pliku (grosze ze znakiem) z datami sald —
+    #: puste, gdy plik ich nie dowodzi (``ledger/bank_continuity.file_span``).
+    opening_balance: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    opening_day: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    closing_balance: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    closing_day: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    #: Numer wyciągu banku pierwszej i ostatniej części pliku (``:28C:``).
+    first_number: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    last_number: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
+    #: Uznania pliku przeszły przez E8 przy imporcie (faktury do klientów).
+    credits_matched: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     created_by: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
