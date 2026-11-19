@@ -163,7 +163,11 @@ def chain_payload(
         "paid": _amount(chain.paid),
         "to_pay": _amount(chain.to_pay),
         "paid_on": _iso(chain.paid_on),
-        "overdue_days": chain.overdue_days(today),
+        # Termin minął, a zapłaty nie ma w NEXUSIE: to brak danych, nie zaległość
+        # (``overdue``). „Po terminie” zostaje 0, dopóki NEXUS nie liczy zaległości
+        # z wyciągów.
+        "overdue_days": 0,
+        "payment_unknown": chain.overdue_days(today) > 0,
     }
 
 
@@ -377,21 +381,25 @@ async def month_view(
 
 async def overdue(
     db: AsyncSession, *, client_ids: Optional[Collection[int]], today: date
-) -> list[dict[str, Any]]:
-    chains = [
+) -> dict[str, Any]:
+    """Faktury po dacie terminu bez zapisanej zapłaty — jako liczba, nie zaległości.
+
+    Zapłatę NEXUS zna tylko z uznań na wyciągach (E8), ręcznego „opłacono”
+    i lustra eBI24. 19.11.2026 jeden klient miał „62 po terminie”, a firma
+    2 741 faktur, żadna z datą zapłaty: wyciągi były z jednego dnia, lustro
+    eBI24 nie ruszyło, a w eBI24 zapłat się nie oznacza (8 z 5 117 faktur
+    z 2026 r.). Lista zaległości jest więc pusta, a ``payment_unknown`` mówi,
+    ile faktur ma termin za sobą bez danych o zapłacie. Liczenie zaległości
+    z wyciągów wymaga rachunku odbioru klienta, kompensat i ciągłości wyciągów
+    każdego rachunku (``docs/claude/zamowienia/faktury-do-klientow-z-ksef.md``).
+    """
+
+    late = [
         chain
         for chain in await ledger.open_chains(db, client_ids=client_ids)
         if chain.overdue_days(today) > 0
     ]
-    names = await clients.names(
-        db, {c.head.client_id for c in chains if c.head.client_id}
-    )
-    rows = await ledger.rows_by_period(db, chains)
-    out = []
-    for chain in sorted(chains, key=lambda c: (-c.overdue_days(today), c.head.id)):
-        result = ledger.check(chain, rows.get(chain.period or (0, 0), {}))
-        out.append(chain_payload(chain, result, today, names=names))
-    return out
+    return {"invoices": [], "payment_unknown": len(late)}
 
 
 async def client_view(
@@ -402,8 +410,9 @@ async def client_view(
         db, year=year, month=month, client_ids=members, today=today
     )
     late = await overdue(db, client_ids=members, today=today)
-    payload["overdue"] = late
-    payload["summary"]["overdue"] = len(late)
+    payload["overdue"] = late["invoices"]
+    payload["summary"]["overdue"] = len(late["invoices"])
+    payload["summary"]["payment_unknown"] = late["payment_unknown"]
     return payload
 
 

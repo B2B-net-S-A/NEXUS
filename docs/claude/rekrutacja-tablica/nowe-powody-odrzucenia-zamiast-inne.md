@@ -46,7 +46,8 @@ zostaje obowiązkowy.
   Wymagania, Warunki, Sprawa osoby, Pozostałe. Powód dopisany przez admina trafia
   do „Pozostałe”. Rezygnacja zostaje bez grup. Wybór powodu z wymaganym opisem
   przenosi kursor do pola opisu, bo stoi ono pod listą.
-- **Powiązanie z CPro bez zmian.** `cpro_mail._reason_id` zostaje przy „Inne
+- **Powiązanie z CPro bez zmian** (do 19.11.2026; od tego dnia powód z treści maila,
+  `powod-odrzucenia-z-tresci-maila-cpro.md`). `cpro_mail._reason_id` zostaje przy „Inne
   (rejected)” z notatką `Z CPro: …`: 61 takich wpisów od 12.10 ma tekst od klienta,
   żaden nie jest pusty, a treści nie da się bezpiecznie przypisać do powodu bez
   odczytu modelem.

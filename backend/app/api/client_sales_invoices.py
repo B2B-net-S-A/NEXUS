@@ -224,9 +224,7 @@ async def overdue_in_scope(
     await _module_open(db, current_user)
     scope = await _finance_scope(db, current_user)
     members = await clients.family(db, scope) if scope is not None else None
-    return {
-        "invoices": await views.overdue(db, client_ids=members, today=business_today())
-    }
+    return await views.overdue(db, client_ids=members, today=business_today())
 
 
 @router.get("/{client_id}/invoicing")
@@ -429,9 +427,7 @@ async def finance_overdue(
     current_user: FinanceModuleUser, db: AsyncSession = Depends(get_db)
 ) -> dict[str, Any]:
     await _module_open(db, current_user)
-    return {
-        "invoices": await views.overdue(db, client_ids=None, today=business_today())
-    }
+    return await views.overdue(db, client_ids=None, today=business_today())
 
 
 @finance_router.get("/credits")

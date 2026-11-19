@@ -101,6 +101,63 @@ export function contractAttention(
   };
 }
 
+export interface ConsultantAttentionCounts {
+  order_ending: number;
+  order_ending_first: string | null;
+  no_current_order: number;
+  notice: number;
+}
+
+function shortDate(isoDate: string): string {
+  const [, month, day] = isoDate.slice(0, 10).split("-");
+  return `${day}.${month}`;
+}
+
+/**
+ * Konsultanci ze znacznikiem „Wymaga uwagi” (lista „Klienci”, 19.11.2026) —
+ * liczby z serwera, te same reguły co podzakładka „Wymaga uwagi” w zakładce
+ * Konsultanci profilu, więc link prowadzi tam, gdzie widać te same osoby.
+ */
+export function consultantAttention(row: {
+  client_id: number;
+  consultant_attention: ConsultantAttentionCounts;
+}): AttentionItem[] {
+  const counts = row.consultant_attention;
+  const href = `/clients/${row.client_id}?tab=konsultanci`;
+  const items: AttentionItem[] = [];
+  if (counts.order_ending > 0) {
+    items.push({
+      key: `order-ending-${row.client_id}`,
+      tone: "warning",
+      // Słownictwo zakładki Konsultanci i pigułki „Bez kontynuacji 30 dni”.
+      label: `${countPl(counts.order_ending, "zamówienie", "zamówienia", "zamówień")} bez kontynuacji`,
+      note: counts.order_ending_first
+        ? `najbliższe ${shortDate(counts.order_ending_first)}`
+        : undefined,
+      href,
+    });
+  }
+  if (counts.no_current_order > 0) {
+    items.push({
+      key: `no-order-${row.client_id}`,
+      tone: "warning",
+      // Ta sama nazwa co znacznik w zakładce Konsultanci („Brak bieżącego zamówienia”).
+      label: "Brak bieżącego zamówienia",
+      note: countPl(counts.no_current_order, "osoba", "osoby", "osób"),
+      href,
+    });
+  }
+  if (counts.notice > 0) {
+    items.push({
+      key: `notice-${row.client_id}`,
+      tone: "info",
+      label: countPl(counts.notice, "umowa wypowiedziana", "umowy wypowiedziane", "umów wypowiedzianych"),
+      href,
+    });
+  }
+  return items;
+}
+
 /** Znaczniki raportów miesiąca i relacji, po `client_id` (dane z dwóch zapytań). */
 export function useClientAttention(): Map<number, AttentionItem[]> {
   const month = warsawToday().slice(0, 7);
