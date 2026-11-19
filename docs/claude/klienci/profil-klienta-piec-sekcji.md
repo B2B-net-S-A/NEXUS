@@ -88,8 +88,14 @@ rozsiane po pięciu kartach.
   Projektach). Karta (`ClientPlaybookCard`) bez zmian — używa jej też Champion.
 - **Ludzie klienta › Sprzedaż**: trzy liczby nad listą szans (otwarte, wygrane
   w 12 miesięcy, przegrane; suma tylko w jednej walucie, `salesFigures`).
-- Poza etapem 3a (osobny krok): Umowa na jednej stronie (umowy, stawki,
-  raporty), Rozliczenie miesiąca jako kroki RCP → faktura → KSeF → zapłata
+- **Umowa i pieniądze › Umowa**: jedna strona (`ContractPage` w `page.tsx`)
+  — umowy i aneksy, „Stawki i cennik”, raporty dla klienta — dla osób
+  z podglądem dokumentów umów. `?tab=stawki-ramowe` i `?tab=raporty` otwierają
+  ją przewiniętą do swojej części, w pasku świeci „Umowa”; podzakładek stawek
+  i raportów wtedy nie ma. Bez podglądu umów zostają same „Raporty dla
+  klienta”. Kotwica nowości `client.sections.framework-rates` stoi na nagłówku
+  „Stawki i cennik”.
+- Poza etapem 3 (osobny krok): Rozliczenie miesiąca jako kroki RCP → faktura → KSeF → zapłata
   (czeka na naprawę „po terminie” — zapłaty nie są zapisywane) i „Start
   u klienta: N z 5 ustalone” (sposób rozliczania godzin jest w innej trasie
   niż pakiet klienta).

@@ -1437,10 +1437,20 @@ export default function ClientDetailPage() {
     { key: "materialy", label: "Materiały dla rekruterów" },
     { key: "konflikty", label: "Konflikty z kandydatami" },
   ];
+  // „Umowa” na jednej stronie (makieta 19.11.2026, wariant A ekranu „Umowy”):
+  // kto widzi dokumenty umów, ma umowy, stawki i raporty w jednym widoku.
+  // `?tab=stawki-ramowe` i `?tab=raporty` otwierają ten widok przewinięty do
+  // swojej części, a w pasku świeci „Umowa”. Bez podglądu umów zostają same
+  // „Raporty dla klienta”.
+  const contractPageOn = canViewDeliveryLegal;
+  const onContractPage =
+    contractPageOn &&
+    (activeTab === "umowy-ramowe" || activeTab === "stawki-ramowe" || activeTab === "raporty");
   const TABS = allTabs.filter(
     (tab) =>
       (canViewDeliveryLegal || tab.key !== "umowy-ramowe") &&
       (canViewDeliveryLegal || tab.key !== "stawki-ramowe") &&
+      (!contractPageOn || (tab.key !== "stawki-ramowe" && tab.key !== "raporty")) &&
       (careOpen || tab.key !== "ludzie") &&
       (startDocsOpen || packOpen || tab.key !== "wejscie") &&
       (invoicingOpen || tab.key !== "faktury") &&
@@ -1584,7 +1594,7 @@ export default function ClientDetailPage() {
           <SectionNav
             label="Sekcje klienta"
             groups={sectionGroups}
-            activeItem={activeTab}
+            activeItem={onContractPage ? "umowy-ramowe" : activeTab}
             onSelect={(key) => selectTab(key as ClientTab)}
             insetClassName="px-3 sm:px-5"
           />
@@ -1675,15 +1685,52 @@ export default function ClientDetailPage() {
             />
           )}
           {activeTab === "konflikty" && <ClientConflictsSection clientId={Number(id)} />}
-          {activeTab === "raporty" && <ClientReportsTab clientId={Number(id)} />}
+          {!contractPageOn && activeTab === "raporty" && <ClientReportsTab clientId={Number(id)} />}
 
           {activeTab === "kontakty" && <ContactsTab clientId={Number(id)} />}
 
-          {canViewDeliveryLegal && activeTab === "umowy-ramowe" && (
-            <FrameworkContractsTab
-              clientId={Number(id)}
-              focusContractId={focusFrameworkId}
-              onFocusHandled={clearFocusParams}
+          {onContractPage && (
+            <ContractPage
+              target={activeTab}
+              documents={
+                <FrameworkContractsTab
+                  clientId={Number(id)}
+                  focusContractId={focusFrameworkId}
+                  onFocusHandled={clearFocusParams}
+                />
+              }
+              rates={
+                <div className="space-y-4">
+                  {hasFrameworkTerms ? (
+                    <FrameworkRatesTab
+                      clientId={Number(id)}
+                      canImport={hasAnalyticsCapability(user, "manage_finance")}
+                      canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                    />
+                  ) : null}
+                  {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
+                      Czyta też DL swojego klienta (bramka kwot z portfela). */}
+                  <LazyDetails
+                    defaultOpen
+                    icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                    title="Umowa ramowa: kategorie i dopłaty"
+                  >
+                    <FrameworkTermsPanel
+                      clientId={Number(id)}
+                      canImport={hasAnalyticsCapability(user, "manage_finance")}
+                      canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
+                    />
+                  </LazyDetails>
+                  <LazyDetails
+                    defaultOpen
+                    icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
+                    title="Cennik (rate cards)"
+                  >
+                    <RateCardsTab clientId={Number(id)} />
+                  </LazyDetails>
+                </div>
+              }
+              reports={<ClientReportsTab clientId={Number(id)} />}
             />
           )}
 
@@ -1723,37 +1770,6 @@ export default function ClientDetailPage() {
           {activeTab === "analityka" && <AnalyticsTab clientId={Number(id)} />}
           {/* Makieta 18.11.2026: „Stawki i cennik” — wszystko o kwotach z umowy
               w jednym miejscu (dotąd cennik i dopłaty stały pod umowami). */}
-          {canViewDeliveryLegal && activeTab === "stawki-ramowe" && (
-            <div className="space-y-4">
-              {hasFrameworkTerms ? (
-                <FrameworkRatesTab
-                  clientId={Number(id)}
-                  canImport={hasAnalyticsCapability(user, "manage_finance")}
-                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
-                />
-              ) : null}
-              {/* F1 (15.11.2026): cennik umowy ramowej i dopłaty za technologie.
-                  Czyta też DL swojego klienta (bramka kwot z portfela). */}
-              <LazyDetails
-                defaultOpen
-                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
-                title="Umowa ramowa: kategorie i dopłaty"
-              >
-                <FrameworkTermsPanel
-                  clientId={Number(id)}
-                  canImport={hasAnalyticsCapability(user, "manage_finance")}
-                  canRecompute={hasAnyPermission(user, "contracts_orders_edit", "amounts_edit")}
-                />
-              </LazyDetails>
-              <LazyDetails
-                defaultOpen
-                icon={<DollarSign className="w-4 h-4 text-muted-foreground" />}
-                title="Cennik (rate cards)"
-              >
-                <RateCardsTab clientId={Number(id)} />
-              </LazyDetails>
-            </div>
-          )}
           {canViewSales && activeTab === "sprzedaz" && <ClientSalesTab clientId={Number(id)} />}
           {careOpen && activeTab === "ludzie" && (
             <ClientPeopleTechTab
@@ -2032,5 +2048,58 @@ function CooperationStatsSection({ clientId }: { clientId: number }) {
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * „Umowa” klienta na jednej stronie (makieta 19.11.2026): dokumenty, stawki
+ * i obowiązki raportowe jedna pod drugą, zamiast trzech podzakładek, z których
+ * dwie bywały puste. `target` przewija do części, którą otworzył link
+ * (`?tab=stawki-ramowe`, `?tab=raporty`).
+ */
+function ContractPage({
+  target,
+  documents,
+  rates,
+  reports,
+}: {
+  target: ClientTab;
+  documents: React.ReactNode;
+  rates: React.ReactNode;
+  reports: React.ReactNode;
+}) {
+  useEffect(() => {
+    const sectionId =
+      target === "stawki-ramowe" ? "umowa-stawki" : target === "raporty" ? "umowa-raporty" : null;
+    if (!sectionId) return;
+    document.getElementById(sectionId)?.scrollIntoView({ block: "start" });
+  }, [target]);
+  return (
+    <div className="space-y-6">
+      <section id="umowa-dokumenty" aria-labelledby="umowa-dokumenty-h" className="scroll-mt-4 space-y-2">
+        {/* Lista umów ma własny tytuł — nagłówek części tylko dla czytników. */}
+        <h2 id="umowa-dokumenty-h" className="sr-only">
+          Umowy i aneksy
+        </h2>
+        {documents}
+      </section>
+      <section id="umowa-stawki" aria-labelledby="umowa-stawki-h" className="scroll-mt-4 space-y-2">
+        {/* Kotwica wpisu nowości „Stawki ramowe i raport kwartalny” (dawniej podzakładka). */}
+        <h2
+          id="umowa-stawki-h"
+          className="text-sm font-semibold text-foreground"
+          data-tour="client.sections.framework-rates"
+        >
+          Stawki i cennik
+        </h2>
+        {rates}
+      </section>
+      <section id="umowa-raporty" aria-labelledby="umowa-raporty-h" className="scroll-mt-4 space-y-2">
+        <h2 id="umowa-raporty-h" className="sr-only">
+          Raporty dla klienta
+        </h2>
+        {reports}
+      </section>
+    </div>
   );
 }

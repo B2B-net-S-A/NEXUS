@@ -43,7 +43,10 @@ export const CLIENT_SUBTAB_LABELS: Readonly<Record<ClientTab, string>> = {
   profil: "Przegląd",
   zamowienia: "Zamówienia",
   "importy-md": "Importy MD",
-  "umowy-ramowe": "Umowy i aneksy",
+  // Od 19.11.2026 „Umowa” to jedna strona: umowy, stawki i raporty
+  // (`stawki-ramowe` i `raporty` widać jako osobne pozycje tylko bez
+  // podglądu umów — wtedy zostają same raporty).
+  "umowy-ramowe": "Umowa",
   "stawki-ramowe": "Stawki i cennik",
   raporty: "Raporty dla klienta",
   faktury: "Faktury i rozliczenie",
@@ -68,9 +71,9 @@ const GROUP_TOUR: Readonly<Record<string, string>> = {
   "ludzie-klienta": "client.sections.people", // data-tour="client.sections.people"
   umowa: "client.sections.contracts", // data-tour="client.sections.contracts"
 };
-const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {
-  "stawki-ramowe": "client.sections.framework-rates", // data-tour="client.sections.framework-rates"
-};
+// „Stawki i cennik” to od 19.11.2026 część strony „Umowa” — kotwica
+// `client.sections.framework-rates` stoi na nagłówku tej części (`page.tsx`).
+const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {};
 
 /**
  * Grupy z pozycjami, które ta osoba widzi (puste grupy odpadają). `meta` to
