@@ -187,6 +187,10 @@ interface Props {
   *  (silnik „Nowi na 20”, 23.10.2026) — okno pyta o powód dla systemu.
   *  `rateKnown`: czy system znał stawkę (jedna osoba). */
  autofill?: { rateKnown: boolean; several: boolean } | null;
+ /** Odrzucenie z „Nowych”/„Screeningu” (19.11.2026): okno pyta o powód z tej
+  *  samej listy co przy osobie od systemu, także przy karcie dodanej ręcznie —
+  *  dwie różne listy w tym samym miejscu myliły zespół. */
+ decisionColumn?: boolean;
 }
 
 const EMAIL_STATE_IDLE: RejectionEmailFieldState = {
@@ -223,6 +227,7 @@ export function RejectionV2({
  profileWorkMode,
  profileRate,
  autofill = null,
+ decisionColumn = false,
 }: Props) {
  // Notatkę startową czytamy tylko przy otwarciu (efekt resetu niżej) —
  // zmiana propa przy otwartym oknie nie kasuje tego, co ktoś już wpisał.
@@ -321,12 +326,14 @@ export function RejectionV2({
  ? groupRejectedReasons(visibleReasons)
  : [{ title: null, reasons: visibleReasons }];
  const autofillAsked = terminalType === "rejected" && autofill != null;
- // Osoba od systemu (27.10.2026): okno pyta o powód raz — powód z szablonu
- // do raportu lejka wynika z powodu dla systemu.
- const effectiveReasonId = autofillAsked
+ // Lista powodów okna (osoba od systemu, a od 19.11.2026 każda karta
+ // z „Nowych”/„Screeningu”): okno pyta o powód raz — powód z szablonu do
+ // raportu lejka wynika z wybranego powodu.
+ const reasonListAsked = terminalType === "rejected" && (autofillAsked || decisionColumn);
+ const effectiveReasonId = reasonListAsked
  ? templateReasonFor(autofillReason, filtered)?.id ?? ""
  : reasonId;
- const chosenReason = (autofillAsked ? filtered : visibleReasons).find(
+ const chosenReason = (reasonListAsked ? filtered : visibleReasons).find(
  (r) => r.id === effectiveReasonId,
  );
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
@@ -334,13 +341,13 @@ export function RejectionV2({
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
  // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
- const descriptionRequired = autofillAsked
+ const descriptionRequired = reasonListAsked
  ? autofillReason === "other"
  : hasReasons && reasonNeedsDescription(chosenReason);
  // Powód bez odpowiednika w szablonie idzie jako „Inne” z nazwą powodu
  // w opisie — inaczej w historii zostaje samo słowo.
  const reasonNotes =
- autofillAsked &&
+ reasonListAsked &&
  autofillReason &&
  autofillReason !== "other" &&
  (reasonNeedsDescription(chosenReason) || autofillReasonKeepsLabel(autofillReason))
@@ -422,7 +429,7 @@ export function RejectionV2({
  // jako `freeReason` -> backend przyjmuje to jako `rejection_reason`, co
  // spełnia walidację ruchu na etap terminalny. reasonId zostaje pusty.
  const reasonText =
- autofillAsked && autofillReason ? autofillReasonLabel(autofillReason) : freeReason.trim();
+ reasonListAsked && autofillReason ? autofillReasonLabel(autofillReason) : freeReason.trim();
  const combinedNotes = notes.trim()
  ? `${reasonText}\n\n${notes.trim()}`
  : reasonText;
@@ -445,12 +452,12 @@ export function RejectionV2({
 
  const submitDisabled =
  pending ||
- (autofillAsked
- ? hasReasons && !effectiveReasonId
+ (reasonListAsked
+ ? !autofillReason || (hasReasons && !effectiveReasonId)
  : hasReasons
  ? !chosenReason
  : !freeReason.trim()) ||
- (descriptionRequired && (autofillAsked ? !otherNoteHasWords(notes) : !notes.trim())) ||
+ (descriptionRequired && (reasonListAsked ? !otherNoteHasWords(notes) : !notes.trim())) ||
  (offerResponseRequired && !offerResponse) ||
  (autofillAsked && autofillChoice == null) ||
  (emailAvailable && sendEmail && emailState.invalid);
@@ -515,7 +522,7 @@ export function RejectionV2({
  </RadioGroup>
  </FormField>
  )}
- {autofillAsked && autofill ? (
+ {reasonListAsked ? (
  <AutofillFeedbackField
  learnedFrom={autofillLearnedFrom}
  onLearnedFromChange={setAutofillLearnedFrom}
@@ -523,13 +530,18 @@ export function RejectionV2({
  onReasonChange={setAutofillReason}
  rate={autofillRate}
  onRateChange={setAutofillRate}
- rateKnown={autofill.rateKnown}
- several={autofill.several}
+ rateKnown={autofill?.rateKnown ?? false}
+ several={autofill?.several ?? several}
  askRate={!rateReason}
  wholeClient={autofillWholeClient}
  onWholeClientChange={setAutofillWholeClient}
  notLookingUntil={notLookingUntilValue}
- onNotLookingUntilChange={setNotLookingUntilValue}
+ // Karta ręczna: datę niesie powód „Nie szuka pracy” z szablonu — bez
+ // niego w szablonie nie ma gdzie jej zapisać.
+ onNotLookingUntilChange={
+ autofillAsked || notLookingReason ? setNotLookingUntilValue : undefined
+ }
+ fromSystem={autofillAsked}
  >
  {workModeReason ? (
  <RejectionWorkModeField

@@ -39,6 +39,7 @@ export function AutofillFeedbackField({
   onWholeClientChange,
   notLookingUntil = null,
   onNotLookingUntilChange,
+  fromSystem = true,
   children,
 }: {
   learnedFrom: AutofillLearnedFrom | null;
@@ -59,15 +60,23 @@ export function AutofillFeedbackField({
   /** 28.10.2026: „Nie szuka pracy” — do kiedy („RRRR-MM-DD”). */
   notLookingUntil?: string | null;
   onNotLookingUntilChange?: (value: string) => void;
+  /** `false` — karta dodana ręcznie w „Nowych”/„Screeningu” (19.11.2026): ta
+   *  sama lista powodów, ale bez „Skąd to wiesz?” i podpowiedzi raportu
+   *  wyszukiwania — powód idzie tylko do raportu lejka. */
+  fromSystem?: boolean;
   children?: React.ReactNode;
 }) {
-  const hint = autofillBucketHint(reason, rateKnown);
+  const hint = fromSystem ? autofillBucketHint(reason, rateKnown) : null;
   return (
     <div className="space-y-3" data-testid="autofill-feedback">
       <FormField
         label="Powód"
         required
-        description={`${several ? "Wśród odrzucanych są osoby od systemu" : "To osoba od systemu"} — powód trafia do raportu lejka i uczy system, co poprawić w podpowiedziach.`}
+        description={
+          fromSystem
+            ? `${several ? "Wśród odrzucanych są osoby od systemu" : "To osoba od systemu"} — powód trafia do raportu lejka i uczy system, co poprawić w podpowiedziach.`
+            : undefined
+        }
       >
         <RadioGroup
           value={reason ?? ""}
@@ -91,7 +100,7 @@ export function AutofillFeedbackField({
         </RadioGroup>
       </FormField>
       {children}
-      {reason && CLIENT_WIDE_REASONS.has(reason) && !several && onWholeClientChange ? (
+      {fromSystem && reason && CLIENT_WIDE_REASONS.has(reason) && !several && onWholeClientChange ? (
         <label
           htmlFor="autofill-whole-client"
           className="flex cursor-pointer items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm"
@@ -116,7 +125,7 @@ export function AutofillFeedbackField({
           several={several}
         />
       ) : null}
-      {reason === "too_expensive" && !several && askRate ? (
+      {fromSystem && reason === "too_expensive" && !several && askRate ? (
         <FormField
           label="Ile chce? (zł/h, opcjonalnie)"
           description="Zapisze się jako „Stawka od” w profilu."
@@ -132,6 +141,7 @@ export function AutofillFeedbackField({
         </FormField>
       ) : null}
       {hint ? <p className="text-xs text-muted-foreground">{hint}</p> : null}
+      {fromSystem ? (
       <FormField label="Skąd to wiesz?" required>
         <RadioGroup
           value={learnedFrom ?? ""}
@@ -157,6 +167,7 @@ export function AutofillFeedbackField({
           ))}
         </RadioGroup>
       </FormField>
+      ) : null}
     </div>
   );
 }
