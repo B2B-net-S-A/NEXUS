@@ -54,8 +54,10 @@ const PAGES = [
   "/preview/client-profile-tabs?tab=umowy-ramowe&framework=7001",
   "/preview/client-profile-tabs?tab=analityka",
   "/preview/clients-list",
-  "/preview/clients-list?category=inactive&page=1",
+  "/preview/clients-list?state=archive&page=1",
   "/preview/clients-list?view=contacts",
+  // „Porządki portfela” (dawna lista zakresów, 19.11.2026).
+  "/preview/clients-list?harness=portfolio&category=inactive&page=1",
   "/preview/contact-queue",
   "/preview/contract-candidate-contact",
   "/preview/contracts-consolidation",

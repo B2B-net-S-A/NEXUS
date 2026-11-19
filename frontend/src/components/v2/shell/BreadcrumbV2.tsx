@@ -23,6 +23,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   // Zespół dla klienta: kilka rekrutacji pod jednym zapytaniem (15.11.2026).
   zespoly: "Zespoły",
   clients: "Klienci",
+  // `/clients/portfolio` — „Porządki portfela” (dawna lista zakresów, 19.11.2026).
+  portfolio: "Porządki portfela",
   contacts: "Kontakty",
   contracts: "Kontrakty",
   "client-contracts": "Umowy klientów",

@@ -23,7 +23,10 @@ from sqlalchemy.orm import selectinload
 from starlette.responses import RedirectResponse
 
 from app.api.clients import client_time_to_fill, polish_alphabetical_key
-from app.api.financial_access import can_read_client_finance
+from app.api.financial_access import (
+    can_read_client_finance,
+    list_finance_client_ids,
+)
 from app.api.permission_access import DeliveryViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -44,11 +47,9 @@ from app.schemas.my_clients import (
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
-    is_delivery_lead_governed,
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
-from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -263,22 +264,13 @@ async def list_my_clients(
     # Kwoty według tej samej reguły co dashboard i profil klienta: „Moduł
     # Finanse” albo „Stawki i kwoty: podgląd” u klienta z zakresu — konto
     # z rolą DL u klientów z przypisania, pozostali posiadacze u wszystkich.
-    finance_client_ids = frozenset(
-        client_id
-        for client_id in client_ids
-        if can_read_client_finance(
-            user,
-            client_id=client_id,
-            delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
-        )
-    )
-
     # Przychody wszystkich klientów na jednej liście to zbiorczy wynik firmy
     # (decyzja Artura 02.11.2026). Portfel Delivery Leada zostaje.
-    if not has_permission(
-        user, ProductAction.company_results
-    ) and not is_delivery_lead_governed(user):
-        finance_client_ids = frozenset()
+    finance_client_ids = list_finance_client_ids(
+        user,
+        client_ids,
+        delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
+    )
 
     # Aktywne zamówienia — licznik jest operacyjny dla każdego dopuszczonego
     # czytelnika Delivery, w tym TCM. Zamówienie MD/kosztowe to jedno

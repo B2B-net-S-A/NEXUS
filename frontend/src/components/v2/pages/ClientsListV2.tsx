@@ -222,9 +222,16 @@ function countLabel(
 
 export function ClientsListV2({
   modeTabs,
+  variant = "list",
 }: {
   /** Przełącznik trybów modułu (Lista / Kluczowe relacje) — pod tytułem. */
   modeTabs?: ReactNode;
+  /**
+   * `portfolio` = „Porządki portfela” (`/clients/portfolio`, od 19.11.2026):
+   * ta sama lista zakresów w zakładkach portfela jako narzędzie
+   * administratora, bo „Klienci” liczą stan współpracy sami.
+   */
+  variant?: "list" | "portfolio";
 } = {}) {
   const urlWriter = useUrlWriter();
   const pathname = usePathname();
@@ -516,7 +523,17 @@ export function ClientsListV2({
           linii — laptop 1280×720 ma zobaczyć tabelę w górnych 60% okna. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          <h1 className="text-lg font-semibold text-foreground">Klienci</h1>
+          {variant === "portfolio" ? (
+            <Link
+              href="/clients"
+              className="rounded-sm text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              ← Klienci
+            </Link>
+          ) : null}
+          <h1 className="text-lg font-semibold text-foreground">
+            {variant === "portfolio" ? "Porządki portfela" : "Klienci"}
+          </h1>
           <p
             className="text-xs text-muted-foreground"
             aria-live="polite"
@@ -592,6 +609,14 @@ export function ClientsListV2({
       </div>
 
       {modeTabs}
+      {variant === "portfolio" ? (
+        <p className="max-w-3xl text-xs text-muted-foreground">
+          Zakresy umów ramowych w zakładkach portfela z manifestu. Tu przenosisz
+          zakres, przypinasz daty umowy i czyścisz nieaktywnych. Lista „Klienci”
+          nie zależy od tych zakładek: stan współpracy liczy z ludzi, rekrutacji
+          i umów.
+        </p>
+      ) : null}
 
       {/* Jeden pasek: kategorie jako pigułki, „Moi / Wszyscy” i wyszukiwarka
           (32 px) — zamiast trzech dużych kafli i pola z etykietą nad nim. */}

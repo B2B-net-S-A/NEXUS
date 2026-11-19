@@ -12,7 +12,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
+from app.models.client_sales_invoice import (
+    ClientSalesInvoice,
+    ClientSalesInvoiceLink,
+    ClientSalesInvoicePayment,
+)
 from app.services.client_invoicing import billing, clients, fa_sales
 from app.services.client_invoicing.billing import (
     COST_NOTE,
@@ -22,7 +26,7 @@ from app.services.client_invoicing.billing import (
     OrderRef,
     period_fraction,
 )
-from app.services.client_invoicing.ledger import Chain, check
+from app.services.client_invoicing.ledger import Chain, ChainCheck, check
 from app.services.client_invoicing.line_gaps import GAP_REASONS
 from app.services.client_invoicing.matching import (
     REASON_LABELS,
@@ -32,7 +36,7 @@ from app.services.client_invoicing.matching import (
     decide,
     numbers_found,
 )
-from app.services.client_invoicing.views import row_status
+from app.services.client_invoicing.views import chain_payload, row_status
 from app.services.client_invoicing.payments import (
     OpenInvoice,
     decide_credit,
@@ -887,3 +891,42 @@ async def test_auto_match_blocks_by_the_number_written_on_the_invoice(monkeypatc
         "unmatched",
         "unknown_order_number",
     )
+
+
+# ── Zapłata a termin ─────────────────────────────────────────────────────────
+
+
+def test_unpaid_after_due_date_is_missing_payment_data_not_overdue():
+    """19.11.2026: 2 741 faktur „po terminie”, żadna z datą zapłaty (wyciągi z 12.11)."""
+
+    today = date(2026, 11, 19)
+
+    def payload(due, *paid):
+        head = ClientSalesInvoice(
+            id=1,
+            currency="PLN",
+            issue_date=date(2026, 9, 3),
+            due_date=due,
+            net_amount=Decimal("1000.00"),
+            gross_amount=Decimal("1230.00"),
+            match_status="unmatched",
+        )
+        chain = Chain(
+            head=head,
+            payments=[
+                ClientSalesInvoicePayment(amount=Decimal(value), booked_on=today)
+                for value in paid
+            ],
+        )
+        result = chain_payload(chain, ChainCheck("unmatched", None, None), today)
+        return (
+            result["payment_status"],
+            result["overdue_days"],
+            result["payment_unknown"],
+        )
+
+    assert payload(date(2026, 10, 2)) == ("unpaid", 0, True)
+    assert payload(date(2026, 10, 2), "230.00") == ("partial", 0, True)
+    assert payload(date(2026, 10, 2), "1230.00") == ("paid", 0, False)
+    assert payload(date(2026, 11, 19)) == ("unpaid", 0, False)
+    assert payload(None) == ("unpaid", 0, False)

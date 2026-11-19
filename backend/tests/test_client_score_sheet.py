@@ -14,7 +14,7 @@ from app.services import client_form_fill as fill
 from app.services import client_form_render as render
 from app.services import client_score_structure as score
 from app.services.client_form_structure import FormRejected
-from tests._client_score_xlsx import score_xlsx
+from tests._client_score_xlsx import score_xlsx, score_xlsx_unheaded_maximum
 
 CV = (
     "Anna Fikcyjna\n"
@@ -53,6 +53,29 @@ def test_reads_person_lines_yes_no_results_and_points_with_maximum() -> None:
     # „Razem” z formułami zostaje nietknięte.
     assert not any(key.startswith("s0.r15.") for key in fields)
     assert score.max_points_total(_structure()) == 13
+
+
+def test_maximum_in_unheaded_column_result_under_points_header() -> None:
+    """Zał. 5 Testera CEZ (19.11.2026): maksimum w kolumnie bez nagłówka,
+    wynik w pustej „Liczbie punktów” — wcześniej żaden wiersz punktowany nie
+    dostawał pola."""
+    structure = score.read_structure(score_xlsx_unheaded_maximum())
+    fields = {item["id"]: item for item in structure["fields"]}
+    assert fields["s0.r2.c6"]["label"] == "Firma"
+    assert fields["s0.r3.c6"]["label"] == "Imię i nazwisko"
+    assert fields["s0.r6.c4"]["label"] == "Wynik (Tak/Nie)"
+    scored = {key: item for key, item in fields.items() if "max_points" in item}
+    assert sorted(scored) == ["s0.r10.c4", "s0.r11.c4", "s0.r12.c4"]
+    assert fields["s0.r10.c4"]["label"] == "Liczba punktów (0–5 pkt)"
+    assert fields["s0.r10.c4"]["section"] == "Kryteria punktowane"
+    assert fields["s0.r12.c4"]["row_label"] == (
+        "Doświadczenie w pracy z wtyczką do Jira Xray"
+    )
+    assert fields["s0.r12.c4"]["max_points"] == 3
+    # Maksimum zostaje w swojej kolumnie, wiersz testu pod „Razem” też.
+    assert not any(key.endswith(".c3") for key in fields)
+    assert not any(key.startswith(("s0.r13.", "s0.r14.", "s0.r15.")) for key in fields)
+    assert score.max_points_total(structure) == 11
 
 
 def test_summary_and_format() -> None:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Protocol
+from typing import Annotated, Any, Iterable, Protocol
 
 from fastapi import Depends, HTTPException, status
 
@@ -80,6 +80,39 @@ def can_read_client_finance(
     if delivery_lead_finance_client_ids is None:
         return not is_delivery_lead_governed(user)
     return client_id in delivery_lead_finance_client_ids
+
+
+def list_finance_client_ids(
+    user: User,
+    client_ids: Iterable[int],
+    *,
+    delivery_lead_finance_client_ids: frozenset[int] | None,
+) -> frozenset[int]:
+    """Klienci, których kwoty wolno pokazać na LIŚCIE wielu klientów naraz.
+
+    Wiersz po wierszu ta sama reguła co profil (:func:`can_read_client_finance`).
+    Do tego kwoty wszystkich klientów na jednej liście to zbiorczy wynik firmy
+    (decyzja Artura 02.11.2026): bez uprawnienia „Wyniki firmy” zostają tylko
+    kontu rządzonemu portfelem Delivery Leada, u jego klientów.
+
+    Konsumenci: „Moi klienci” (``api/my_clients.py``) i lista klientów
+    (``api/client_directory.py``) — jedna reguła, żeby te same kwoty tego
+    samego klienta nie były widoczne na jednej liście, a puste na drugiej.
+    """
+
+    if not has_permission(
+        user, ProductAction.company_results
+    ) and not is_delivery_lead_governed(user):
+        return frozenset()
+    return frozenset(
+        client_id
+        for client_id in client_ids
+        if can_read_client_finance(
+            user,
+            client_id=client_id,
+            delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
+        )
+    )
 
 
 def require_financial_access(user: _RoleAwareUser) -> None:
