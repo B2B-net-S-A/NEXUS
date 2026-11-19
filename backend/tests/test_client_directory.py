@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from datetime import date, datetime, timedelta, timezone
 from io import BytesIO
 
@@ -27,6 +28,7 @@ from app.models.client_framework_contract import (
 )
 from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import Contract, ContractStatus
+from app.models.job import Job, JobStatus
 from app.models.user import User, UserRole
 from app.core.scheduling import business_today
 
@@ -1333,3 +1335,373 @@ async def test_directory_mine_filters_to_dl_and_tac_assignments(
             await db.commit()
         await _delete_user(user_id)
         await _cleanup_directory(seed)
+
+
+# ── Lista „Klienci”: jeden wiersz na klienta, stan z faktów (19.11.2026) ─────
+
+
+async def _seed_client_list(suffix: str) -> dict[str, list[int]]:
+    """Cztery stany: praca (dwa zakresy), rekrutacja w „nieaktywnych”,
+    relacja bez pracy i dawny klient z zamkniętą rekrutacją."""
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        working = Client(
+            name=f"Pracuje {suffix}",
+            display_name=f"Pracuje {suffix}",
+            legal_name=f"Pracuje Legal {suffix} S.A.",
+            status=ClientStatus.active,
+        )
+        recruiting = Client(
+            name=f"Rekrutuje {suffix}",
+            display_name=f"Rekrutuje {suffix}",
+            status=ClientStatus.inactive,
+        )
+        idle = Client(
+            name=f"Czeka {suffix}",
+            display_name=f"Czeka {suffix}",
+            status=ClientStatus.active,
+        )
+        archived = Client(
+            name=f"Dawny {suffix}",
+            display_name=f"Dawny {suffix}",
+            status=ClientStatus.inactive,
+        )
+        db.add_all((working, recruiting, idle, archived))
+        await db.flush()
+
+        msa_old = ClientFrameworkContract(
+            client_id=working.id,
+            name=f"MSA-1 {suffix}",
+            status=FrameworkContractStatus.active,
+            effective_date=today - timedelta(days=400),
+            expiry_date=today + timedelta(days=30),
+        )
+        msa_new = ClientFrameworkContract(
+            client_id=working.id,
+            name=f"MSA-2 {suffix}",
+            status=FrameworkContractStatus.active,
+            effective_date=today - timedelta(days=10),
+            expiry_date=today + timedelta(days=700),
+        )
+        db.add_all((msa_old, msa_new))
+        await db.flush()
+        db.add_all(
+            [
+                ClientPortfolioScope(
+                    client_id=working.id,
+                    framework_contract_id=msa_old.id,
+                    category=PortfolioCategory.active,
+                    source_system="test",
+                    source_key=f"{suffix}:w1",
+                ),
+                # Drugi zakres w „relacyjnych” — klient i tak ma jeden wiersz.
+                ClientPortfolioScope(
+                    client_id=working.id,
+                    framework_contract_id=msa_new.id,
+                    category=PortfolioCategory.relationship,
+                    label="Pentesty",
+                    source_system="test",
+                    source_key=f"{suffix}:w2",
+                ),
+                # Ręcznie przeniesiony do nieaktywnych, ale z otwartą rekrutacją.
+                ClientPortfolioScope(
+                    client_id=recruiting.id,
+                    category=PortfolioCategory.active,
+                    category_override=PortfolioCategory.inactive,
+                    source_system="test",
+                    source_key=f"{suffix}:r",
+                ),
+                ClientPortfolioScope(
+                    client_id=idle.id,
+                    category=PortfolioCategory.relationship,
+                    source_system="test",
+                    source_key=f"{suffix}:i",
+                ),
+                ClientPortfolioScope(
+                    client_id=archived.id,
+                    category=PortfolioCategory.inactive,
+                    source_system="test",
+                    source_key=f"{suffix}:a",
+                ),
+            ]
+        )
+        db.add_all(
+            [
+                Job(
+                    title=f"Otwarta {suffix}",
+                    client_id=recruiting.id,
+                    status=JobStatus.published,
+                ),
+                Job(
+                    title=f"Zamknięta {suffix}",
+                    client_id=archived.id,
+                    status=JobStatus.closed,
+                ),
+            ]
+        )
+        current = Candidate(name="Obecna", lastname=f"Osoba-{suffix}")
+        future = Candidate(name="Przyszla", lastname=f"Osoba-{suffix}")
+        db.add_all((current, future))
+        await db.flush()
+        contract_now = Contract(
+            candidate_id=current.id,
+            client_id=working.id,
+            status=ContractStatus.active,
+            start_date=today - timedelta(days=60),
+            rate_candidate=Decimal("10000.000"),
+            rate_client=Decimal("15000.000"),
+            rate_unit="monthly",
+        )
+        contract_later = Contract(
+            candidate_id=future.id,
+            client_id=working.id,
+            status=ContractStatus.active,
+            start_date=today + timedelta(days=12),
+        )
+        db.add_all((contract_now, contract_later))
+        await db.flush()
+        # Zamówienie okresowe kończy się za 10 dni bez kolejnego — znacznik
+        # „Wymaga uwagi” jak w zakładce Konsultanci profilu.
+        db.add(
+            ClientOrder(
+                client_id=working.id,
+                contract_id=contract_now.id,
+                title=f"ZAM-{suffix}",
+                status=ClientOrderStatus.active,
+                start_date=today - timedelta(days=60),
+                end_date=today + timedelta(days=10),
+            )
+        )
+        await db.commit()
+        return {
+            "clients": [working.id, recruiting.id, idle.id, archived.id],
+            "candidates": [current.id, future.id],
+        }
+
+
+async def _cleanup_client_list(seed: dict[str, list[int]]) -> None:
+    client_ids = seed["clients"]
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(ClientOrder).where(ClientOrder.client_id.in_(client_ids))
+        )
+        await db.execute(delete(Contract).where(Contract.client_id.in_(client_ids)))
+        await db.execute(delete(Job).where(Job.client_id.in_(client_ids)))
+        await db.execute(
+            delete(ClientPortfolioScope).where(
+                ClientPortfolioScope.client_id.in_(client_ids)
+            )
+        )
+        await db.execute(
+            delete(ClientFrameworkContract).where(
+                ClientFrameworkContract.client_id.in_(client_ids)
+            )
+        )
+        await db.execute(delete(Candidate).where(Candidate.id.in_(seed["candidates"])))
+        await db.execute(delete(Client).where(Client.id.in_(client_ids)))
+        await db.commit()
+
+
+async def test_client_list_requires_auth(app_client: AsyncClient) -> None:
+    response = await app_client.get("/api/clients/directory/clients")
+    assert response.status_code == 401
+
+
+async def test_client_list_derives_state_from_facts_one_row_per_client(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    """Zgłoszenie Artura 19.11.2026: zakładki portfela nie mówiły prawdy
+    (klient z rekrutacją w „Nieaktywnych”, jeden klient w dwóch zakładkach)."""
+
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed_client_list(suffix)
+    working_id, recruiting_id, idle_id, archived_id = seed["clients"]
+    today = business_today()
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"q": suffix, "page_size": 50},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        ids = [item["client_id"] for item in body["items"]]
+        # Fraza szuka we wszystkich stanach; dwa zakresy = jeden wiersz.
+        assert ids == [working_id, recruiting_id, idle_id, archived_id]
+        rows = {item["client_id"]: item for item in body["items"]}
+        assert [rows[client_id]["state"] for client_id in ids] == [
+            "working",
+            "working",
+            "idle",
+            "archive",
+        ]
+
+        working = rows[working_id]
+        assert working["active_consultants"] == 1
+        assert working["planned_consultants"] == 1
+        assert working["open_jobs"] == 0
+        assert working["monthly_margin"] == 5000
+        assert working["monthly_margin_unpriced"] == 0
+        # Z dwóch umów ramowych wiersz pokazuje tę, która kończy się później.
+        assert (
+            working["framework_expiry_date"]
+            == (today + timedelta(days=700)).isoformat()
+        )
+        assert working["framework_count"] == 2
+        assert working["consultant_attention"]["total"] == 1
+        assert working["consultant_attention"]["order_ending"] == 1
+        assert (
+            working["consultant_attention"]["order_ending_first"]
+            == (today + timedelta(days=10)).isoformat()
+        )
+        assert working["legal_name"] == f"Pracuje Legal {suffix} S.A."
+
+        recruiting = rows[recruiting_id]
+        assert recruiting["open_jobs"] == 1
+        assert recruiting["manually_placed"] is True
+        # Bez obecnych konsultantów marża to 0, jak „Aktywne MRR” profilu.
+        assert recruiting["monthly_margin"] == 0
+        assert rows[archived_id]["open_jobs"] == 0
+        assert body["amounts_visible"] is True
+    finally:
+        await _cleanup_client_list(seed)
+
+
+async def test_client_list_state_filter_keeps_counts_independent_of_search(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed_client_list(suffix)
+    working_id, recruiting_id, idle_id, _archived_id = seed["clients"]
+    try:
+        idle = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"state": "idle", "page_size": 100},
+            headers=app_auth_headers,
+        )
+        assert idle.status_code == 200, idle.text
+        idle_body = idle.json()
+        assert idle_id in {item["client_id"] for item in idle_body["items"]}
+        assert {item["state"] for item in idle_body["items"]} == {"idle"}
+
+        working = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"state": "working", "page_size": 100},
+            headers=app_auth_headers,
+        )
+        working_ids = [item["client_id"] for item in working.json()["items"]]
+        assert {working_id, recruiting_id} <= set(working_ids)
+        # Najwięksi u góry: klient z osobą przed klientem z samą rekrutacją.
+        assert working_ids.index(working_id) < working_ids.index(recruiting_id)
+
+        searched = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"state": "working", "q": suffix},
+            headers=app_auth_headers,
+        )
+        assert searched.json()["state_counts"] == idle_body["state_counts"]
+        assert searched.json()["total"] == 4
+
+        invalid = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"state": "relationship"},
+            headers=app_auth_headers,
+        )
+        assert invalid.status_code == 422
+    finally:
+        await _cleanup_client_list(seed)
+
+
+async def test_client_list_hides_amounts_and_legal_for_role_without_them(
+    app_client: AsyncClient,
+) -> None:
+    """Kwoty wszystkich klientów na jednej liście to wynik firmy (decyzja
+    Artura 02.11.2026) — ta sama reguła co „Moi klienci”."""
+
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed_client_list(suffix)
+    working_id = seed["clients"][0]
+    user_id, headers = await _seed_role_user(UserRole.talent_community_manager)
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/clients",
+            params={"q": suffix},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["amounts_visible"] is False
+        working = next(
+            item for item in body["items"] if item["client_id"] == working_id
+        )
+        assert working["monthly_margin"] is None
+        assert working["legal_name"] is None
+        # Liczby operacyjne zostają.
+        assert working["active_consultants"] == 1
+
+        export = await app_client.get(
+            "/api/clients/directory/clients/export",
+            params={"q": suffix, "format": "xlsx"},
+            headers=headers,
+        )
+        assert export.status_code == 200, export.text
+        header, _records = _read_sheet(export.content)
+        assert "Marża / mc (PLN)" not in header
+        assert "Nazwa prawna" not in header
+    finally:
+        await _delete_user(user_id)
+        await _cleanup_client_list(seed)
+
+
+async def test_client_list_export_mirrors_the_list(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+) -> None:
+    suffix = uuid.uuid4().hex[:10]
+    seed = await _seed_client_list(suffix)
+    try:
+        response = await app_client.get(
+            "/api/clients/directory/clients/export",
+            params={"q": suffix, "format": "xlsx"},
+            headers=app_auth_headers,
+        )
+        assert response.status_code == 200, response.text
+        header, records = _read_sheet(response.content)
+        assert header == [
+            "ID klienta",
+            "Klient",
+            "Stan",
+            "Nasi ludzie u klienta",
+            "Zaczynają",
+            "Otwarte rekrutacje",
+            "Marża / mc (PLN)",
+            "Umowa ramowa od",
+            "Umowa ramowa do",
+            "Delivery Lead",
+            "Branża",
+            "Nazwa prawna",
+        ]
+        assert [record["Stan"] for record in records] == [
+            "Współpracujemy",
+            "Współpracujemy",
+            "Bez bieżącej pracy",
+            "Archiwum",
+        ]
+        assert records[0]["Klient"] == f"Pracuje {suffix}"
+        assert records[0]["Marża / mc (PLN)"] == 5000
+        assert records[0]["Zaczynają"] == 1
+
+        csv_response = await app_client.get(
+            "/api/clients/directory/clients/export",
+            params={"q": suffix, "format": "csv"},
+            headers=app_auth_headers,
+        )
+        assert csv_response.status_code == 200, csv_response.text
+        assert csv_response.content.startswith(b"\xef\xbb\xbf")
+        first_line = csv_response.content.decode("utf-8-sig").splitlines()[0]
+        assert first_line.startswith("ID klienta,Klient,Stan,")
+    finally:
+        await _cleanup_client_list(seed)

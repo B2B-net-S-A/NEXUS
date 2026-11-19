@@ -480,6 +480,71 @@ export interface ClientDirectoryParams {
 }
 
 /**
+ * Lista „Klienci” (makieta 19.11.2026, wariant A): jeden wiersz na klienta,
+ * stan liczony z faktów zamiast zakładek portfela. `working` = ktoś od nas
+ * pracuje albo zaczyna u klienta, albo trwa rekrutacja; bez tego zakładka
+ * portfela decyduje: aktywni i relacyjni → `idle`, nieaktywni → `archive`.
+ */
+export type ClientListState = "working" | "idle" | "archive";
+
+export interface ClientListConsultantAttention {
+  /** Obecni konsultanci z jakimkolwiek znacznikiem „Wymaga uwagi”. */
+  total: number;
+  order_ending: number;
+  order_ending_first: string | null;
+  no_current_order: number;
+  notice: number;
+}
+
+export interface ClientListItem {
+  client_id: number;
+  display_name: string;
+  legal_name: string | null;
+  industry: string | null;
+  state: ClientListState;
+  active_consultants: number;
+  planned_consultants: number;
+  open_jobs: number;
+  /** Marża miesięczna w PLN (= „Aktywne MRR” profilu); `null` = niewidoczna. */
+  monthly_margin: number | null;
+  monthly_margin_unpriced: number;
+  delivery_leads: { name: string; is_head: boolean }[];
+  framework_effective_date: string | null;
+  framework_expiry_date: string | null;
+  has_framework_period: boolean;
+  framework_count: number;
+  consultant_attention: ClientListConsultantAttention;
+  manually_placed: boolean;
+}
+
+export interface ClientListResponse {
+  items: ClientListItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  state_counts: Record<ClientListState, number>;
+  amounts_visible: boolean;
+  manually_placed_count: number;
+  as_of: string;
+}
+
+export interface ClientListParams {
+  state: ClientListState;
+  q?: string;
+  page: number;
+  page_size: number;
+  mine?: boolean;
+}
+
+export const clientListApi = {
+  list: (params: ClientListParams, signal?: AbortSignal) =>
+    api.get<ClientListResponse>("/api/clients/directory/clients", {
+      params,
+      signal,
+    }),
+};
+
+/**
  * Manual placement of a directory scope — moves a client between the
  * Aktywni/Relacyjni/Nieaktywni tabs and/or pins a contract period WITHOUT
  * touching the manifest-owned columns (so it never causes portfolio drift /
