@@ -77,6 +77,7 @@ export function JobDatesFact({ job, now = new Date() }: JobDatesFactProps) {
       aria-label={`Dodana: ${addedText}. Termin: ${deadlineText}`}
       role="note"
       data-testid="job-header-dates"
+      data-tour="job.header-dates"
       data-urgency={info.urgency}
     >
       <CalendarRange className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
