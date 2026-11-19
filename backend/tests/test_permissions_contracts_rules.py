@@ -850,6 +850,7 @@ def test_every_document_kind_names_its_contract_permission() -> None:
         "preliminary_cez": None,
         "preliminary_participation_jdg": None,
         "preliminary_participation_person": None,
+        "preliminary_b2b": None,
     }
 
 

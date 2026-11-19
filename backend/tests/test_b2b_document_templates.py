@@ -297,6 +297,24 @@ def _expected(doc_type: DocumentType, lang: str, values: dict) -> list[str]:
             # v2 (21.10.2026): każda forma podpisu.
             "podpisem zaufanym lub podpisem osobistym",
         ]
+    elif key == "preliminary_b2b":
+        out += [
+            "Umowa przedwstępna na współpracę B2B",
+            "Podpisana w dniu 05.10.2026 r. w Warszawie",
+            "0000387063",
+            "następcą prawnym B2B.net S.A. w tej części działalności",
+            f"reprezentowaną przez {COMPANY_PL['representative']}",
+            "90010112345",
+            "ABC123456",
+            "ul. Domowa 2, 00-002 Kraków",
+            "nie później niż do dnia 04.12.2026 r.",
+            "stawki godzinowej wynoszącej 160 zł netto",
+            "kary umownej w wysokości 10000 zł (słownie: dziesięć tysięcy złotych)",
+            "iod@b2bnetwork.pl",
+            # Każda forma podpisu (decyzja Artura 21.10.2026), § 6 ust. 1 i 3.
+            "z wykorzystaniem podpisu zaufanego lub podpisu osobistego",
+            "W przypadku zawarcia Umowy w formie elektronicznej albo dokumentowej",
+        ]
     elif key.startswith("preliminary_participation_"):
         out += [
             "Umowa o udziale w procesie rekrutacyjnym",
@@ -743,6 +761,36 @@ def test_participation_jdg_and_person_differ_only_where_the_source_does():
     assert "legitymującym się dowodem osobistym" in person_text
     # Bez cyfr kary wpisanych na sztywno — kwota z formularza.
     assert "10.000" not in jdg_text and "10.000" not in person_text
+
+
+def test_preliminary_b2b_takes_amounts_and_dates_from_the_form():
+    doc_type = TYPES["preliminary_b2b"]
+    _, docx_bytes, html = _render(
+        doc_type,
+        "pl",
+        "k",
+        {"penalty_amount": 15000, "hourly_rate": 175.5, "valid_until": "2026-12-01"},
+    )
+    _, text = _docx_text(docx_bytes)
+    for fragment in (
+        "15000 zł (słownie: piętnaście tysięcy złotych)",
+        "175,50 zł netto",
+        "do dnia 01.12.2026 r.",
+        "Panią Anną Próbną",
+        "zamieszkałą pod adresem",
+        "legitymującą się dowodem osobistym",
+        "zwaną w treści umowy",
+    ):
+        assert fragment in text, fragment
+        assert fragment in _html_unescape(html), fragment
+    # Nic ze wzoru działu: kara, daty i stara klauzula formy zawarcia.
+    for leftover in (
+        "10.000",
+        "06.05.2026",
+        "14.05.2026",
+        "jednym egzemplarzu w postaci elektronicznej, dostępnym dla obu Stron. W przypadku",
+    ):
+        assert leftover not in text
 
 
 _SERVICE_PHRASE = {

@@ -102,8 +102,9 @@ async def _create(app_client, headers, doc_type: str, parent_id: int | None, **v
 
 
 def test_every_type_declares_fields_and_languages():
-    # 13 od 16.11.2026: aneks z własną nazwą (annex_custom).
-    assert len(TYPES) == 13
+    # 13 od 16.11.2026: aneks z własną nazwą (annex_custom); 14 od 19.11.2026:
+    # umowa przedwstępna na współpracę B2B (preliminary_b2b).
+    assert len(TYPES) == 14
     for doc_type in TYPES.values():
         assert doc_type.languages
         assert any(f.key == "document_date" for f in doc_type.fields)
@@ -831,7 +832,10 @@ async def test_preliminary_options_follow_the_client(
     assert [t["key"] for t in body["types"]] == [
         "preliminary_participation_jdg",
         "preliminary_participation_person",
+        "preliminary_b2b",
     ]
+    by_key = {t["key"]: t for t in body["types"]}
+    assert by_key["preliminary_b2b"]["default_validity_days"] == 14
     assert body["default_validity_days"] == 60
     assert body["b2b_term_business_days"] is None
 
@@ -876,6 +880,77 @@ async def test_participation_prefill_suggests_project_penalty_and_term(
     today = business_today()
     assert values["valid_until"] == date.fromordinal(today.toordinal() + 60).isoformat()
     assert values["partner_name"].startswith("Ewa P-")
+
+
+def _preliminary_b2b_body(cand_id: int, job_id: int) -> dict:
+    return {
+        "document_type": "preliminary_b2b",
+        "candidate_id": cand_id,
+        "job_id": job_id,
+        "values": {
+            "document_date": "2026-11-19",
+            "gender": "m",
+            "partner_name": "Jan P",
+            "partner_home_address": "ul. Domowa 3",
+            "id_document": "XYZ000111",
+            "pesel": "91020212345",
+            "valid_until": "2026-12-03",
+            "hourly_rate": "150",
+            "penalty_amount": "12000",
+        },
+    }
+
+
+async def test_preliminary_b2b_for_any_client_but_cez(
+    app_client, app_auth_headers, monkeypatch
+):
+    """Umowa przedwstępna na współpracę B2B (19.11.2026): rodzina
+    ``preliminary`` jak umowa o udziale — każdy klient poza CeZ, PESEL,
+    dowód i adres tylko w pliku, kara z formularza."""
+    from app.models.b2b_contract_document import B2BContractDocument
+    from app.services import ezdrowie
+
+    client_id, cand_id, job_id = await _seed_recruitment()
+    body = _preliminary_b2b_body(cand_id, job_id)
+    ok = await app_client.post(f"{BASE}/documents", headers=app_auth_headers, json=body)
+    assert ok.status_code == 200, ok.text
+    async with AsyncSessionLocal() as db:
+        doc = await db.get(B2BContractDocument, int(ok.headers["X-Document-Id"]))
+        assert doc.document_type == "preliminary_b2b"
+        assert doc.client_id == client_id
+        assert doc.parent_generated_contract_id is None
+        stored = str(doc.render_payload)
+        for secret in ("91020212345", "XYZ000111", "ul. Domowa 3"):
+            assert secret not in stored
+        assert doc.render_payload["values"]["penalty_amount"] == "12000"
+        assert doc.render_payload["values"]["valid_until"] == "2026-12-03"
+
+    monkeypatch.setattr(ezdrowie, "EZDROWIE_CLIENT_ID", client_id)
+    at_cez = await app_client.post(
+        f"{BASE}/documents", headers=app_auth_headers, json=body
+    )
+    assert at_cez.status_code == 422, at_cez.text
+
+
+async def test_preliminary_b2b_prefill_suggests_penalty_and_14_days(
+    app_client, app_auth_headers
+):
+    _, cand_id, job_id = await _seed_recruitment()
+    resp = await app_client.get(
+        f"{BASE}/documents/prefill",
+        headers=app_auth_headers,
+        params={
+            "document_type": "preliminary_b2b",
+            "candidate_id": cand_id,
+            "job_id": job_id,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    values = resp.json()["values"]
+    assert values["penalty_amount"] == 10000
+    today = business_today()
+    assert values["valid_until"] == date.fromordinal(today.toordinal() + 14).isoformat()
+    assert "project_label" not in values
 
 
 async def test_redownload_and_pdf_use_the_stored_template(
