@@ -24,6 +24,12 @@ describe("contract timeline labels", () => {
     );
   });
 
+  it("aneksy i korekty z migracji mają własne etykiety, nie „Zdarzenie systemowe”", () => {
+    expect(contractActivityLabel("amendment_rate_change")).toBe("Aneks: zmiana stawek");
+    expect(contractActivityLabel("amendment_extension")).toBe("Aneks: przedłużenie");
+    expect(contractActivityLabel("start_date_corrected")).toBe("Poprawiono datę startu");
+  });
+
   it("nieznany slug nigdy nie wraca dosłownie", () => {
     expect(contractActivityLabel("some_future_action")).toBe("Zdarzenie systemowe");
     expect(contractActivityLabel(null)).toBe("Zdarzenie");
