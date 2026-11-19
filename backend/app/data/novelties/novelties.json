@@ -3641,6 +3641,22 @@
     "dot_anchor": "client.overview.attention"
   },
   {
+    "id": "klient-konsultanci-os-czasu",
+    "title": "Konsultanci klienta: filtry w jednym rzędzie i oś czasu",
+    "why": "„Kończy się DD.MM” pokazuje, gdy wiele zamówień kończy się tego samego dnia, a „Oś czasu” rysuje okresy zamówień. Projekty bez przypisanego rekrutera stoją na górze listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-19",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Klienci → klient → Nasi ludzie → Konsultanci",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.consultants.view"
+  },
+  {
     "id": "klienci-stan-z-faktow",
     "title": "Klienci: stan współpracy liczy się sam",
     "why": "Zamiast zakładek „Aktywni / Relacyjni / Nieaktywni” lista pokazuje „Współpracujemy”, gdy pracuje u nich ktoś od nas albo trwa rekrutacja. W wierszu: ludzie, rekrutacje, umowa i DL.",

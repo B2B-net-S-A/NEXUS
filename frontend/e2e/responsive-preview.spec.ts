@@ -324,10 +324,12 @@ const PRIMARY_CONTENT = [
   // Profil klienta (18.11.2026): tabela konsultantów przeszła z Przeglądu do
   // zakładki „Konsultanci”. Pierwsza wersja z nagłówkiem i opisem nad listą
   // dała na runnerze CI 0,73 przy 1280 × 720 (Mac 0,62) — przyciski stoją
-  // teraz w rzędzie podzakładek: Mac 0,55 / 0,52 / 0,46 (z ramką). Przegląd
+  // teraz w rzędzie podzakładek: Mac 0,55 / 0,52 / 0,46 (z ramką); z pigułkami
+  // stanu i „Lista / Oś czasu” (etap 3, 19.11.2026) 0,59 / 0,50 / 0,45. Przegląd
   // zaczyna się od „Wymaga uwagi” (pięć sekcji, 19.11.2026; wcześniej karta
-  // „Konsultanci”, 0,38 / 0,35 / 0,31). Nagłówek ze stanem, umową ramową
-  // i czterema liczbami ma przy 1280 px dwa rzędy: Mac 0,42 / 0,40 / 0,35.
+  // „Konsultanci”, 0,38 / 0,35 / 0,31). Nagłówek z czterema liczbami i umową
+  // ramową miał przy 1280 px dwa rzędy (0,42 / 0,40 / 0,35); liczby stoją
+  // teraz w pasku sekcji, nagłówek w jednym rzędzie: 0,37 / 0,35 / 0,31.
   { path: "/preview/client-profile-tabs?tab=konsultanci", selector: "tbody tr", maxTop: 0.72, shell: false },
   { path: "/preview/client-profile-tabs", selector: "[aria-labelledby='client-overview-attention']", maxTop: 0.45, shell: false },
   // Finanse → Wyniki: pierwszy wiersz tabeli pod kaflami i paskiem importu (0,71).

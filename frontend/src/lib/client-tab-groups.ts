@@ -43,7 +43,10 @@ export const CLIENT_SUBTAB_LABELS: Readonly<Record<ClientTab, string>> = {
   profil: "Przegląd",
   zamowienia: "Zamówienia",
   "importy-md": "Importy MD",
-  "umowy-ramowe": "Umowy i aneksy",
+  // Od 19.11.2026 „Umowa” to jedna strona: umowy, stawki i raporty
+  // (`stawki-ramowe` i `raporty` widać jako osobne pozycje tylko bez
+  // podglądu umów — wtedy zostają same raporty).
+  "umowy-ramowe": "Umowa",
   "stawki-ramowe": "Stawki i cennik",
   raporty: "Raporty dla klienta",
   faktury: "Faktury i rozliczenie",
@@ -68,26 +71,34 @@ const GROUP_TOUR: Readonly<Record<string, string>> = {
   "ludzie-klienta": "client.sections.people", // data-tour="client.sections.people"
   umowa: "client.sections.contracts", // data-tour="client.sections.contracts"
 };
-const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {
-  "stawki-ramowe": "client.sections.framework-rates", // data-tour="client.sections.framework-rates"
-};
+// „Stawki i cennik” to od 19.11.2026 część strony „Umowa” — kotwica
+// `client.sections.framework-rates` stoi na nagłówku tej części (`page.tsx`).
+const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {};
+
+/** Cichy dopisek przy nazwie grupy; z dymkiem, gdy liczy coś węższego niż nazwa. */
+export type ClientSectionMeta = string | { text: string; title: string };
 
 /**
  * Grupy z pozycjami, które ta osoba widzi (puste grupy odpadają). `meta` to
- * cicha liczba przy nazwie grupy, np. `{ "nasi-ludzie": "32" }`.
+ * cicha liczba przy nazwie grupy, np. `{ "nasi-ludzie": "32" }`, albo krótki
+ * stan, np. „do 31.12.2026” przy „Umowie i pieniądzach”.
  */
 export function clientSectionGroups(
   visibleTabs: readonly ClientTab[],
-  meta: Readonly<Partial<Record<string, string>>> = {},
+  meta: Readonly<Partial<Record<string, ClientSectionMeta>>> = {},
 ): SectionNavGroup[] {
   const visible = new Set(visibleTabs);
-  return CLIENT_TAB_GROUPS.map((group) => ({
-    key: group.key,
-    label: group.label,
-    meta: meta[group.key],
-    tourId: GROUP_TOUR[group.key],
-    items: group.tabs
-      .filter((tab) => visible.has(tab))
-      .map((tab) => ({ key: tab, label: CLIENT_SUBTAB_LABELS[tab], tourId: TAB_TOUR[tab] })),
-  })).filter((group) => group.items.length > 0);
+  return CLIENT_TAB_GROUPS.map((group) => {
+    const groupMeta = meta[group.key];
+    return {
+      key: group.key,
+      label: group.label,
+      meta: typeof groupMeta === "string" ? groupMeta : groupMeta?.text,
+      metaTitle: typeof groupMeta === "string" ? undefined : groupMeta?.title,
+      tourId: GROUP_TOUR[group.key],
+      items: group.tabs
+        .filter((tab) => visible.has(tab))
+        .map((tab) => ({ key: tab, label: CLIENT_SUBTAB_LABELS[tab], tourId: TAB_TOUR[tab] })),
+    };
+  }).filter((group) => group.items.length > 0);
 }

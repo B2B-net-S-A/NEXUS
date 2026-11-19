@@ -95,7 +95,11 @@ const AMOUNT_CELL = cn(CALM_AMOUNT, "py-2 pr-4");
  * wykonawcza e-Zdrowia, koniec umowy i rekrutacja. Wspólna dla Archiwum
  * i listy roboczej zakładki „Konsultanci” (18.11.2026).
  */
-export function ConsultantIdentity({ r }: { r: ConsultantTableRow }) {
+/**
+ * `compact` (zakładka Konsultanci, 19.11.2026): kategoria kompetencji idzie
+ * do dymka przy nazwisku zamiast plakietki — wiersz ma dwie linie, nie cztery.
+ */
+export function ConsultantIdentity({ r, compact = false }: { r: ConsultantTableRow; compact?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       {r.candidate.avatar_url ? (
@@ -118,6 +122,7 @@ export function ConsultantIdentity({ r }: { r: ConsultantTableRow }) {
             <Link
               href={`/candidates/${r.candidate.id}`}
               className="truncate font-semibold text-foreground hover:text-primary"
+              title={compact && r.candidate.competence_category ? r.candidate.competence_category : undefined}
             >
               {r.candidate.name}
             </Link>
@@ -129,7 +134,7 @@ export function ConsultantIdentity({ r }: { r: ConsultantTableRow }) {
               {r.candidate.name}
             </span>
           )}
-          {r.candidate.competence_category ? (
+          {r.candidate.competence_category && !compact ? (
             <span className="rounded-md bg-muted px-1.5 text-[11px] leading-[18px] text-muted-foreground">
               <CompetenceCategoryName slug={r.candidate.competence_category} />
             </span>

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SectionNav, type SectionNavGroup } from "@/components/ds/SectionNav";
@@ -17,6 +17,20 @@ const GROUPS: SectionNavGroup[] = [
 ];
 
 describe("SectionNav — grupy i podzakładki", () => {
+  it("cicha liczba grupy ma dymek, a treść z `trailing` stoi w pasku grup", () => {
+    render(
+      <SectionNav
+        label="Sekcje"
+        groups={[{ ...GROUPS[0], meta: "4", metaTitle: "Otwarte rekrutacje: opublikowane, bez szkiców" }, GROUPS[1]]}
+        activeItem="profil"
+        onSelect={() => {}}
+        trailing={<span>36 624 zł</span>}
+      />,
+    );
+    expect(screen.getByText("4")).toHaveAttribute("title", "Otwarte rekrutacje: opublikowane, bez szkiców");
+    expect(within(screen.getByRole("navigation", { name: "Sekcje" })).getByText("36 624 zł")).toBeInTheDocument();
+  });
+
   it("pokazuje grupy bez pustych, a podzakładki tylko aktywnej grupy z ≥ 2 pozycjami", () => {
     const { rerender } = render(<SectionNav label="Sekcje" groups={GROUPS} activeItem="profil" onSelect={() => {}} />);
     expect(screen.getByRole("button", { name: "Przegląd" })).toHaveAttribute("aria-current", "page");

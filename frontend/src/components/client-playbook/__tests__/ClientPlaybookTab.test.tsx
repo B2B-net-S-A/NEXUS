@@ -75,6 +75,16 @@ describe("ClientPlaybookTab", () => {
     }));
   });
 
+  it("nad kartą stoją najważniejsze zasady: liczby i pierwsze linie zasad procesu (19.11.2026)", async () => {
+    renderTab();
+    const highlights = await screen.findByRole("region", { name: "Najważniejsze zasady" });
+    expect(highlights).toHaveTextContent("Blokada kandydata: 48 h");
+    // Nagłówek „## Etapy” traci znaczniki, numeracja listy znika.
+    expect(highlights).toHaveTextContent("Etapy");
+    expect(highlights).toHaveTextContent("Screening HR");
+    expect(highlights).not.toHaveTextContent("##");
+  });
+
   it("DL: „Edytuj kartę” otwiera formularz w miejscu, „Zamknij edycję” wraca do karty", async () => {
     renderTab();
     fireEvent.click(await screen.findByTestId("client-playbook-edit"));
