@@ -63,4 +63,17 @@ describe("sekcje profilu klienta (19.11.2026)", () => {
       ["ludzie-klienta", undefined],
     ]);
   });
+
+  it("dopisek z dymkiem: tekst stoi przy nazwie grupy, dymek mówi, co liczy", () => {
+    const groups = clientSectionGroups(["konsultanci", "kontakty", "umowy-ramowe"], {
+      "nasi-ludzie": { text: "6", title: "Nasi ludzie: 6 aktywnych kontraktów" },
+      "ludzie-klienta": "4",
+      umowa: { text: "do 31.12.2026", title: "Umowa ramowa: Umowa o usługi IT" },
+    });
+    expect(groups.map((group) => [group.key, group.meta, group.metaTitle])).toEqual([
+      ["nasi-ludzie", "6", "Nasi ludzie: 6 aktywnych kontraktów"],
+      ["ludzie-klienta", "4", undefined],
+      ["umowa", "do 31.12.2026", "Umowa ramowa: Umowa o usługi IT"],
+    ]);
+  });
 });

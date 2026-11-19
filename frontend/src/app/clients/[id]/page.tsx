@@ -113,8 +113,8 @@ import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTa
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
 import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
-import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
-import { ClientFrameworkChip, ClientStateChip } from "@/components/client-profile/ClientHeaderFacts";
+import { ClientHeaderStats, clientSummaryStats } from "@/components/client-profile/SummaryBar";
+import { ClientStateChip, useClientFrameworkMeta } from "@/components/client-profile/ClientHeaderFacts";
 import { useClientOverviewAttention } from "@/components/client-profile/overview-attention";
 import { useClientProfile } from "@/components/client-profile/useClientProfile";
 import { SectionNav } from "@/components/ds/SectionNav";
@@ -1360,6 +1360,9 @@ export default function ClientDetailPage() {
   const overviewAttention = useClientOverviewAttention(Number(id), {
     showContracts: canViewDeliveryLegal,
   });
+  // Umowa ramowa jako dopisek przy „Umowie i pieniądzach” — ten sam klucz
+  // co zakładka umów, tylko przy podglądzie dokumentów umów.
+  const frameworkMeta = useClientFrameworkMeta(Number(id), canViewDeliveryLegal);
   const headDeliveryLead = (() => {
     const leads = teamQuery.data?.delivery_leads ?? [];
     const head = leads.find((lead) => lead.is_head) ?? leads[0];
@@ -1457,17 +1460,33 @@ export default function ClientDetailPage() {
       (canViewSales || tab.key !== "sprzedaz"),
   );
   // Makieta 19.11.2026: pięć sekcji (`lib/client-tab-groups.ts`) z cichą
-  // liczbą przy nazwie (ile tam jest); klucze `?tab=` bez zmian.
+  // liczbą przy nazwie (ile tam jest); klucze `?tab=` bez zmian. „Nasi
+  // ludzie” i „Otwarte rekrutacje” stoją tylko tutaj (nagłówek w jednym
+  // rzędzie) — z dymkiem, który dawniej miały liczby w nagłówku.
+  const profileStats = profileQuery.data
+    ? clientSummaryStats(profileQuery.data.summary, {
+        planned: profileQuery.data.planned_consultants?.length ?? 0,
+      })
+    : [];
+  const statTitle = (statId: string) =>
+    profileStats.find((stat) => stat.id === statId)?.title ?? "";
   const sectionGroups = clientSectionGroups(TABS.map((tab) => tab.key), {
     ...(profileQuery.data
       ? {
-          "nasi-ludzie": String(profileQuery.data.summary.active_consultants),
-          rekrutacje: String(profileQuery.data.summary.open_jobs),
+          "nasi-ludzie": {
+            text: String(profileQuery.data.summary.active_consultants),
+            title: `Nasi ludzie: ${statTitle("active-consultants")}`,
+          },
+          rekrutacje: {
+            text: String(profileQuery.data.summary.open_jobs),
+            title: `Otwarte rekrutacje: ${statTitle("open-jobs")}`,
+          },
         }
       : {}),
     ...(overviewAttention.contactsCount !== null
       ? { "ludzie-klienta": String(overviewAttention.contactsCount) }
       : {}),
+    ...(frameworkMeta ? { umowa: frameworkMeta } : {}),
   });
 
   return (
@@ -1480,7 +1499,9 @@ export default function ClientDetailPage() {
         {/* Nagłówek w jednej linii (wersja B, 29.09.2026): nazwa, status,
             Delivery Lead i menu. Do 09.2026 karta miała ~130 px (ikona 56 px,
             tytuł 24 px, osobne rzędy WWW i NDA), więc zamówienia zaczynały się
-            w połowie ekranu laptopa. WWW, NDA i „Usuń klienta” są w menu „⋯”. */}
+            w połowie ekranu laptopa. WWW, NDA i „Usuń klienta” są w menu „⋯”.
+            19.11.2026 (decyzja Artura): liczby klienta i umowa ramowa stoją
+            w pasku sekcji — z nimi nagłówek miał przy 1280 px dwa rzędy. */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 sm:px-5" data-client-header>
           <Link
             href="/clients"
@@ -1509,17 +1530,15 @@ export default function ClientDetailPage() {
               DL: <span className="font-medium text-foreground">{headDeliveryLead}</span>
             </button>
           )}
-          {canViewDeliveryLegal ? (
-            <ClientFrameworkChip clientId={Number(id)} onOpen={selectTab} />
-          ) : null}
-          {/* Liczby klienta na KAŻDEJ zakładce (dawniej dwa kafle w zakładce
-              Profil). To samo zapytanie co `ProfileTab` — jeden klucz. */}
+          {/* Liczby klienta na KAŻDEJ zakładce: od 1280 px w pasku sekcji,
+              na węższych ekranach pod nazwą (w pasku by się nie zmieściły).
+              To samo zapytanie co `ProfileTab`. */}
           <ClientHeaderStats
             clientId={Number(id)}
             attention={overviewAttention.items.length}
-            className="ml-auto justify-end max-sm:order-last max-sm:ml-0 max-sm:w-full max-sm:justify-start"
+            className="order-last w-full xl:hidden"
           />
-          <div className="flex flex-wrap items-center justify-end gap-1.5 max-sm:ml-auto">
+          <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
             {/* „Ludzie i technologie”: akcje zakładki w nagłówku (makieta P5). */}
             {careOpen && activeTab === "ludzie" ? <PeopleTechHeaderActions clientId={Number(id)} /> : null}
             {canUpdateClient && (
@@ -1597,6 +1616,13 @@ export default function ClientDetailPage() {
             activeItem={onContractPage ? "umowy-ramowe" : activeTab}
             onSelect={(key) => selectTab(key as ClientTab)}
             insetClassName="px-3 sm:px-5"
+            trailing={
+              <ClientHeaderStats
+                clientId={Number(id)}
+                attention={overviewAttention.items.length}
+                className="hidden flex-nowrap xl:flex"
+              />
+            }
           />
         </div>
 

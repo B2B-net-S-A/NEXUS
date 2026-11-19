@@ -11,7 +11,17 @@ interface Props {
   className?: string;
   planned?: number;
   attention?: number;
+  /** Tylko te liczby (`id` z `clientSummaryStats`); bez = wszystkie. */
+  only?: ReadonlySet<string>;
 }
+
+/**
+ * Liczby w pasku sekcji strony klienta. „Nasi ludzie” i „Otwarte rekrutacje”
+ * stoją przy nazwach sekcji („Nasi ludzie 6”, „Rekrutacje 4”, z tym samym
+ * dymkiem) — decyzja Artura z 19.11.2026: nagłówek w jednym rzędzie przy
+ * 1280 px. Z czterema liczbami i umową ramową miał dwa rzędy (92 px).
+ */
+export const CLIENT_HEADER_STAT_IDS: ReadonlySet<string> = new Set(["active-mrr", "attention"]);
 
 /**
  * Liczby w nagłówku klienta (makieta 19.11.2026): nasi ludzie, otwarte
@@ -118,8 +128,11 @@ export function clientSummaryStats(
 }
 
 /** Zwarte liczby klienta (dawniej dwa kafle nad tabelą konsultantów). */
-export function SummaryBar({ summary, className, planned, attention }: Props) {
-  return <InlineStats stats={clientSummaryStats(summary, { planned, attention })} className={className} />;
+export function SummaryBar({ summary, className, planned, attention, only }: Props) {
+  const stats = clientSummaryStats(summary, { planned, attention });
+  return (
+    <InlineStats stats={only ? stats.filter((stat) => only.has(stat.id)) : stats} className={className} />
+  );
 }
 
 /**
@@ -143,8 +156,8 @@ export function ClientHeaderStats({
     <SummaryBar
       summary={data.summary}
       className={className}
-      planned={data.planned_consultants?.length ?? 0}
       attention={attention}
+      only={CLIENT_HEADER_STAT_IDS}
     />
   );
 }

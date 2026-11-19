@@ -1,5 +1,5 @@
 # Profil klienta: pięć sekcji, nagłówek ze stanem i Przegląd od „Wymaga uwagi” (19.11.2026)
-<!-- indeks: `lib/client-tab-groups.ts` (5 grup), `ClientStateChip`, `ClientFrameworkChip`, `ClientHeaderStats` (Nasi ludzie, Otwarte rekrutacje, Marża / mc, Wymaga uwagi), `useClientOverviewAttention`, `ProfileTab` = Przegląd -->
+<!-- indeks: `lib/client-tab-groups.ts` (5 grup), `ClientStateChip`, `useClientFrameworkMeta` (dopisek przy „Umowie i pieniądzach”), `ClientHeaderStats` (Marża / mc, Wymaga uwagi — w pasku sekcji, `SectionNav.trailing`), `useClientOverviewAttention`, `ProfileTab` = Przegląd -->
 
 Decyzja Artura z 19.11.2026 (makiety „Klienci: nowe ekrany”, warianty A ekranów
 „Nagłówek i sekcje” oraz „Przegląd”). Zastępuje „osiem grup” z
@@ -21,7 +21,9 @@ rozsiane po pięciu kartach.
   („Wejście u klienta”), „Kontakty” („Kontakty i relacje”), „Działy
   i technologie” („Ludzie i technologie”).
 - Przy nazwie grupy cicha liczba (`SectionNavGroup.meta`): ilu naszych ludzi,
-  ile otwartych rekrutacji, ile kontaktów. To nie plakietka „do zrobienia”.
+  ile otwartych rekrutacji, ile kontaktów; przy „Umowie i pieniądzach” stan
+  umowy ramowej. To nie plakietka „do zrobienia”. Dymek (`metaTitle`) mówi,
+  co liczba liczy — ten sam tekst, który miały liczby w nagłówku.
 - Kotwice nowości grup zostały: `client.sections.people` na „Ludziach klienta”,
   `client.sections.contracts` na „Umowie i pieniądzach”.
 - Tekst checklisty „Koniec współpracy” w sprawach back office mówi dalej
@@ -33,13 +35,22 @@ rozsiane po pięciu kartach.
 
 - Zamiast „Statusu klienta” stan współpracy (`ClientStateChip`): ta sama reguła
   co lista „Klienci” (`klienci/lista-klientow-stan-z-faktow.md`).
-- „DL: …” to przycisk do „Nasi ludzie › Delivery Lead”. Umowa ramowa
-  (`ClientFrameworkChip`, tylko przy podglądzie dokumentów umów): do kiedy,
-  ostrzeżenie od 90 dni, klik do „Umów i aneksów”.
-- Liczby (`ClientHeaderStats`): Nasi ludzie (+ kto zaczyna w dymku), Otwarte
-  rekrutacje (`summary.open_jobs`, tylko opublikowane — jak kolumna listy;
-  „Aktywne projekty” w Projektach liczą też szkice), Marża / mc (reguły
-  „Brak stawek”, „Brak kursu”, „(niepełna)” bez zmian), Wymaga uwagi (tylko > 0).
+- „DL: …” to przycisk do „Nasi ludzie › Delivery Lead”.
+- **Jeden rząd przy 1280 × 720** (decyzja Artura z 19.11.2026, wieczór; tak
+  samo jak wersja B z 29.09.2026). Z czterema liczbami i chipem umowy ramowej
+  nagłówek miał dwa rzędy (92 px zamiast 58 px), a Przegląd zaczynał się na
+  42% wysokości okna zamiast 37%. Nie dokładaj do nagłówka chipów ani liczb
+  bez sprawdzenia szerokości przy 1280 px (strażnik e2e „okna laptopów
+  z Windows”, próg 0,45).
+- Liczby (`ClientHeaderStats`) stoją po prawej w pasku sekcji
+  (`SectionNav.trailing`), na telefonie pod nazwą: Marża / mc (reguły „Brak
+  stawek”, „Brak kursu”, „(niepełna)” bez zmian) i Wymaga uwagi (tylko > 0).
+  „Nasi ludzie” (+ kto zaczyna w dymku) i „Otwarte rekrutacje”
+  (`summary.open_jobs`, tylko opublikowane — jak kolumna listy; „Aktywne
+  projekty” w Projektach liczą też szkice) to liczby przy nazwach sekcji.
+- Umowa ramowa (`useClientFrameworkMeta`, tylko przy podglądzie dokumentów
+  umów): dopisek przy „Umowie i pieniądzach” — „bezterminowa”, „do
+  31.12.2026” albo „wygasła …”. Ostrzeżenie od 90 dni daje „Wymaga uwagi”.
 
 ## Przegląd
 

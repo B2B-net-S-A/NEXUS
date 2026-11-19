@@ -297,10 +297,11 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("liczby klienta w nagłówku: nasi ludzie, otwarte rekrutacje i marża z jednego zapytania", async () => {
-    // Liczby klienta stoją w nagłówku strony (`ClientHeaderStats`) i czytają to
-    // samo zapytanie profilu co Przegląd. „Otwarte rekrutacje” wróciły
-    // 19.11.2026 (decyzja Artura): liczą tylko opublikowane, jak lista klientów.
+  it("liczby klienta w pasku sekcji: marża z tego samego zapytania co Przegląd, bez liczb stojących przy sekcjach", async () => {
+    // Liczby klienta stoją w pasku sekcji strony (`ClientHeaderStats`) i czytają
+    // to samo zapytanie profilu co Przegląd. „Nasi ludzie” i „Otwarte
+    // rekrutacje” (tylko opublikowane, jak lista klientów) są przy nazwach
+    // sekcji — nagłówek w jednym rzędzie przy 1280 px (decyzja Artura, 19.11.2026).
     mocks.apiGet.mockImplementation(answerByUrl(PROFILE));
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
@@ -312,17 +313,13 @@ describe("ProfileTab — brak rekrutacji w Profilu", () => {
       </QueryClientProvider>,
     );
 
-    // „Nasi ludzie” stoi też na karcie Przeglądu — liczby nagłówka szukamy
-    // od etykiety marży, która jest tylko w nagłówku.
+    // „Nasi ludzie” stoi też na karcie Przeglądu — liczby paska szukamy od
+    // etykiety marży, która jest tylko tam.
     const mrrLabel = await screen.findByText("Marża / mc");
     const stats = mrrLabel.closest("dl");
     expect(stats).not.toBeNull();
-    expect(
-      within(stats as HTMLElement).getByText("Nasi ludzie").closest("div"),
-    ).toHaveTextContent("3");
-    expect(
-      within(stats as HTMLElement).getByText("Otwarte rekrutacje").closest("div"),
-    ).toHaveTextContent("7");
+    expect(within(stats as HTMLElement).queryByText("Nasi ludzie")).not.toBeInTheDocument();
+    expect(within(stats as HTMLElement).queryByText("Otwarte rekrutacje")).not.toBeInTheDocument();
     expect(mrrLabel.closest("div")?.textContent?.replace(/\s/g, " ")).toContain(
       "45 000,00 zł",
     );
