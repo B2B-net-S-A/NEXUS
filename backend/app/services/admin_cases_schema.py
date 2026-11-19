@@ -38,8 +38,14 @@ AREAS: tuple[str, ...] = (
     "offboarding",
     "negotiation",
     "administration",
+    # 0743: mail na adres rozliczeń (To/Cc) bez załącznika — pytania o faktury i godziny.
+    "settlements",
     "marketing",
     "other",
+)
+#: Lista obszarów sprzed 0743 (downgrade).
+AREAS_BEFORE_SETTLEMENTS: tuple[str, ...] = tuple(
+    a for a in AREAS if a != "settlements"
 )
 PRIORITIES: tuple[str, ...] = ("P1", "P2", "P3")
 #: Kolejność kolumn kanbanu; ``done`` i ``closed`` to stany końcowe.
@@ -164,7 +170,30 @@ INDEX_DDL: tuple[str, ...] = (
     "ON admin_case_comments (case_id, created_at)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+#: 0743: podmienia CHECK obszaru tylko przy starej definicji (bez „settlements”); na świeżej
+#: bazie 0463 zakłada już pełną listę i blok niczego nie robi. Poszerzenie listy jest zgodne
+#: wstecz: stary kod nie zapisuje nowego obszaru.
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$
+    BEGIN
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'ck_admin_cases_area'
+              AND conrelid = 'admin_cases'::regclass
+              AND pg_get_constraintdef(oid) NOT LIKE '%settlements%'
+        ) THEN
+            ALTER TABLE admin_cases DROP CONSTRAINT ck_admin_cases_area;
+            ALTER TABLE admin_cases ADD CONSTRAINT ck_admin_cases_area
+                CHECK ({CK_CASE_AREA});
+        END IF;
+    END $$""",
+)
+SETTLEMENTS_AREA_DOWNGRADE_DDL: tuple[str, ...] = (
+    "UPDATE admin_cases SET area = 'administration' WHERE area = 'settlements'",
+    "ALTER TABLE admin_cases DROP CONSTRAINT IF EXISTS ck_admin_cases_area",
+    "ALTER TABLE admin_cases ADD CONSTRAINT ck_admin_cases_area CHECK "
+    f"(area IN ({quoted(AREAS_BEFORE_SETTLEMENTS)}))",
+)
 DATA_DDL: tuple[str, ...] = ()
 
 TABLES: tuple[str, ...] = (

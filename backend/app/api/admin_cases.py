@@ -39,7 +39,13 @@ CASE_FORBIDDEN_DETAIL = "Ta sprawa nie jest przypisana do Ciebie."
 CASE_NOT_FOUND_DETAIL = "Nie ma takiej sprawy."
 
 Area = Literal[
-    "onboarding", "offboarding", "negotiation", "administration", "marketing", "other"
+    "onboarding",
+    "offboarding",
+    "negotiation",
+    "administration",
+    "settlements",
+    "marketing",
+    "other",
 ]
 Priority = Literal["P1", "P2", "P3"]
 Status = Literal["new", "in_progress", "waiting", "done", "closed"]

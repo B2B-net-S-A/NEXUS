@@ -156,6 +156,14 @@ Gdy `CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX` i skrzynka spraw (`ADMIN_CASES_M365_
   → czytnik rozliczeń (dokument, dalej jak dotąd), a czytnik spraw liczy go jako `routed_settlements`;
 - każdy inny mail (także pytanie na rozliczenia@ bez załącznika i mail w ukrytej kopii) → sprawa.
 
+**Obszar „Rozliczenia”** (decyzja Artura z 19.11.2026, migracja 0743): nowa sprawa z maila
+z adresem z `CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES` w „Do” albo „DW” dostaje obszar
+`settlements`, a nie obszar ze słów w temacie (`mail_ingest._new_case_area`). Wynika to z próby na sucho
+na archiwum IX–XI: 997 pytań konsultantów o faktury i godziny trafiłoby do „Administracji” (1121
+z 1182 spraw). Mail w ukrytej kopii nie ma tego adresu w nagłówkach, więc dostaje obszar z tematu.
+Odpowiedź w wątku istniejącej sprawy nie zmienia jej obszaru. Uprawnienia i kolumna back office
+(Opieka → Pomoc) są jak przy „Administracji”. Bez ustawionych adresów rozliczeń nic się nie zmienia.
+
 Czytnik spraw oddaje maile rozliczeniom tylko wtedy, gdy czytnik rozliczeń czyta (portal `internal`,
 `pilot` albo `all`); przy portalu `off` raport na rozliczenia@ zostaje sprawą.
 
