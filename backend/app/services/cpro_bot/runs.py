@@ -33,7 +33,8 @@ from app.services.sales.signals import hash_token, token_matches
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+KIND = "cpro_offers"
 TOKEN_TTL = timedelta(hours=2)
 WEBHOOK_TIMEOUT_SECONDS = 20.0
 INVALID_TOKEN_DETAIL = "Nieważny token biegu."
@@ -55,6 +56,7 @@ __all__ = [
     "hash_token",
     "item_states",
     "start_run",
+    "task_body",
     "token_matches",
     "webhook_body",
 ]
@@ -77,6 +79,10 @@ def callback_url(run_id: int) -> str:
     return f"{base}/api/integrations/cpro-bot/runs/{run_id}"
 
 
+def task_url(run_id: int) -> str:
+    return f"{callback_url(run_id)}/task"
+
+
 def cv_url(run_id: int, stage_id: int) -> str:
     return f"{callback_url(run_id)}/cv/{stage_id}"
 
@@ -95,7 +101,7 @@ def new_run(
         submit=submit,
         stage_ids=[int(item["ref"]) for item in items],
         # ``cards`` (etap docelowy, wersja procesu) zostaje w NEXUSIE — botowi
-        # idą tylko ``items`` (``webhook_body``).
+        # idą tylko ``items`` (``task_body``).
         request={"items": [dict(item) for item in items], "cards": dict(cards or {})},
         report={},
         requested_by_user_id=requested_by_user_id,
@@ -107,7 +113,18 @@ def new_run(
 
 
 def webhook_body(run: CproBotRun, token: str) -> dict[str, Any]:
-    """Treść dla bota: polecenie, kształt raportu i pozycje z adresem CV."""
+    """Krótki sygnał dla rutyny. Grok ucina dłuższe wejścia webhooka."""
+    return {
+        "run_id": run.id,
+        "kind": KIND,
+        "token": token,
+        "task_url": task_url(run.id),
+        "schema_version": SCHEMA_VERSION,
+    }
+
+
+def task_body(run: CproBotRun) -> dict[str, Any]:
+    """Pełne zlecenie dla posiadacza tokenu biegu, bez powtarzania tokenu."""
 
     items = []
     for item in (run.request or {}).get("items", []):
@@ -116,8 +133,7 @@ def webhook_body(run: CproBotRun, token: str) -> dict[str, Any]:
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run.id,
-        "kind": "cpro_offers",
-        "token": token,
+        "kind": KIND,
         "expires_at": run.token_expires_at.isoformat()
         if run.token_expires_at
         else None,

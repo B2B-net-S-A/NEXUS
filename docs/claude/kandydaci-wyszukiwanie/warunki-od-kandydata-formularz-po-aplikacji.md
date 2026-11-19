@@ -48,6 +48,23 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   w nagłówku), bo Gmail zwija powtarzającą się stopkę w drugim mailu wątku. Ciemny
   wygląd przez `prefers-color-scheme` z jasnym logo. Samo podziękowanie nie ma paska
   ani „30 sekund”. Artur odrzucił listę pięciu tematów w mailu: zostaje jedno zdanie.
+- **Ekrany `/warunki/<token>` w tym samym wyglądzie (decyzja Artura 19.11.2026,
+  makiety https://claude.ai/artifact/TZhPRcvtxRWCLLVGC4w6jm):** jedna kolumna jak
+  mail, karta z paskiem (trzeci odcinek wypełnia się z odpowiedziami, do pełna po
+  zapisie), „Ostatni krok.” i „30 sekund” jak w mailu, po zapisie „Komplet.”,
+  grafitowy przycisk, jasna stopka, ciemny tryb. Wygasły link mówi tylko, że
+  zgłoszenie z CV nadal jest u nas: bez obietnicy nowego linku (wysyłka najwyżej
+  raz na 30 dni i tylko przy brakach) i bez przycisku do ofert.
+- **Bez zgody na inne rekrutacje** (decyzja Artura 19.11.2026: „i tak będziemy
+  dzwonić z czymś innym, ale nie pisz tego i nie zbieraj zgody”). Formularz nie ma
+  pola zgody i nie wysyła `future_consent`; backend dalej przyjmuje to pole jako
+  opcjonalne ze starych odpowiedzi.
+- **Wypis jednym kliknięciem w M365 zostaje bez dalszych prób** (decyzja Artura
+  19.11.2026). T3b/T3c: `List-Unsubscribe-Post` nie dociera, a DKIM Microsoftu nie
+  obejmuje nagłówków wypisu. Wymóg Gmaila i Yahoo dotyczy nadawców powyżej 5000
+  maili dziennie; przy pilocie 20 dziennie wystarcza widoczny link „Wypisz się”
+  i nagłówek `List-Unsubscribe`. Nie wracaj do reguł transportu ani innego kanału
+  bez nowego faktu (np. skok wolumenu albo skargi na spam).
 - **Wysyłka:** pętla `candidate_terms_sender` co 5 min, 8:00–20:00 Warszawa,
   limit `CANDIDATE_TERMS_DAILY_LIMIT` (400). Zgłoszenia sprzed włączenia rodzaju
   odpadają (`before_enabled`), nie ma zaległości. Na stagingu pętla zablokowana
@@ -69,7 +86,7 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   miesiąc ÷ 168 h, tylko PLN), tryb i dni przez `set_profile_work_mode`, miasta
   w `preferences.office_cities`, start w `availability_date`/`notice_period`.
   Pole zmienione przez człowieka w ostatnich 14 dniach zostaje (`details.kept`
-  wpisu `candidate_terms_answered`). Zgoda na inne rekrutacje leży w odpowiedzi.
+  wpisu `candidate_terms_answered`). Stare odpowiedzi mogą mieć `future_consent`; nowe go nie mają.
 
 ## Czego nie robić
 
@@ -78,5 +95,6 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
 - Nie dodawaj piksela śledzącego ani skracacza linków (dostarczalność).
 - Próbny mail (T3): Coolify Ops → `candidate-terms-mail-probe` (`.github/scripts/candidate_terms_mail_probe.py`),
   stan skrzynki i uprawnień: `docs/m365-system-mail-setup.md`.
+- Nie dodawaj do formularza zgody na inne rekrutacje.
 - Nie włączaj rodzaju bez T3 (próbny mail na Gmail i skrzynkę firmową,
-  nagłówki SPF/DKIM/DMARC = PASS) i T4 (pilot do 20 dziennie przez 5 dni).
+  nagłówki SPF/DKIM/DMARC = PASS) i T4 (pilot do 20 dziennie przez 5 dni). T4 dopiero po wdrożeniu ekranów z 19.11 i obejrzeniu próbnego maila na telefonie (decyzja Artura 19.11.2026).

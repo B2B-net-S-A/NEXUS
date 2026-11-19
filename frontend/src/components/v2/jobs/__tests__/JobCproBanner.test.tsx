@@ -64,6 +64,24 @@ describe("JobCproBanner", () => {
     );
   });
 
+  it("B7: przy osobie pokazuje powód, który NEXUS wpisał z treści maila", () => {
+    const withReason: CproJobEvents = {
+      ...rejected,
+      rejected: [{ ...rejected.rejected[0], nexus_reason: "Nie spełnia wymagań technicznych" }],
+    };
+    render(<JobCproBanner jobId={9} events={withReason} />);
+    fireEvent.click(screen.getByTestId("job-cpro-banner-show"));
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("wpisał powód z treści maila");
+    expect(status).toHaveTextContent("Jan TestowyNie spełnia wymagań technicznych„Profile not matching”");
+  });
+
+  it("B7: bez powodu z serwera (starszy backend) nie pokazuje pustej pigułki", () => {
+    render(<JobCproBanner jobId={9} events={rejected} />);
+    fireEvent.click(screen.getByTestId("job-cpro-banner-show"));
+    expect(screen.queryByTitle("Powód, który NEXUS wpisał z treści maila CPro")).toBeNull();
+  });
+
   it("U3: zwinięty do jednej linii z liczbą osób i „Pokaż”", () => {
     render(<JobCproBanner jobId={9} events={rejected} />);
     expect(screen.getByTestId("job-cpro-banner")).toHaveTextContent("Z CPro: klient odrzucił 3 osobyPokaż");

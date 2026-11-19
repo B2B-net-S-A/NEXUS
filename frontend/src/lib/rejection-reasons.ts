@@ -37,6 +37,9 @@ export const CONTRACT_FORM_REASON = "contract_form";
 export const NO_CONTACT_REASON = "no_contact";
 export const CLIENT_NO_REASON_REASON = "client_no_reason";
 export const CLIENT_CHOSE_OTHER_REASON = "client_chose_other";
+/** Dwa powody klienta z odczytu maili CPro (19.11.2026, 0740, sprawa B7). */
+export const CLIENT_OTHER_VENDOR_REASON = "client_other_vendor";
+export const CLIENT_INTERVIEW_WEAK_REASON = "client_interview_weak";
 
 /** Końce procesu bez decyzji klienta o osobie (08.11.2026, 0663): zapisuje je
  *  zamknięcie rekrutacji albo brak odpowiedzi klienta, nikt ich nie wybiera. */
@@ -49,6 +52,8 @@ const SYSTEM_ONLY_REASONS: ReadonlySet<string> = new Set([
 const CLIENT_ONLY_REASONS: ReadonlySet<string> = new Set([
   CLIENT_NO_REASON_REASON,
   CLIENT_CHOSE_OTHER_REASON,
+  CLIENT_OTHER_VENDOR_REASON,
+  CLIENT_INTERVIEW_WEAK_REASON,
 ]);
 /** Nie przy „Odrzuca klient”: na 104 opisach klienta od 12.10 żaden tak nie
  *  mówi, bo to sprawa osoby, nie decyzja klienta. */
@@ -78,7 +83,12 @@ export function reasonFitsEndedBy(
 const REJECTED_REASON_GROUPS: { title: string; names: readonly string[] }[] = [
   {
     title: "Klient",
-    names: [CLIENT_NO_REASON_REASON, CLIENT_CHOSE_OTHER_REASON],
+    names: [
+      CLIENT_NO_REASON_REASON,
+      CLIENT_CHOSE_OTHER_REASON,
+      CLIENT_OTHER_VENDOR_REASON,
+      CLIENT_INTERVIEW_WEAK_REASON,
+    ],
   },
   {
     title: "Wymagania",

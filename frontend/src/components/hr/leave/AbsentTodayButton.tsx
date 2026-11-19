@@ -11,7 +11,7 @@ import { UserX } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useHrConfig } from "@/lib/api/hr";
-import { useAbsentToday, type AbsentTodayRow } from "@/lib/api/hr-leave";
+import { canReadAbsences, useAbsentToday, type AbsentTodayRow } from "@/lib/api/hr-leave";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -76,10 +76,12 @@ export function AbsentTodayButton({ className }: { className?: string }) {
   const traineeOnly = roles.size === 1 && roles.has("trainee");
   const config = useHrConfig(Boolean(user) && !traineeOnly);
   const leaveOpen = Boolean(config.data?.open_modules.leave);
-  const absent = useAbsentToday(Boolean(user) && leaveOpen);
+  // Rada, Automatyzacje i konto podglądu nie są personelem: serwer da im 403
+  // (`require_hr_absence_reader`), więc nie pytamy i przycisku nie ma.
+  const absent = useAbsentToday(canReadAbsences(user) && leaveOpen);
   const [open, setOpen] = useState(false);
   const total = absent.data?.total ?? 0;
-  if (!leaveOpen || !absent.data || total === 0) return null;
+  if (!canReadAbsences(user) || !leaveOpen || !absent.data || total === 0) return null;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>

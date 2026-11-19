@@ -707,6 +707,24 @@ export function useAbsentToday(enabled: boolean) {
 }
 
 /**
+ * Konta, które nie są ludźmi zatrudnionymi w firmie — lustro `_NOT_STAFF`
+ * w `backend/app/api/hr_leave.py`. Konto złożone wyłącznie z tych ról (bez
+ * admina) dostaje 403 na `/absent-today` i `/absence`, więc front o nie nie
+ * pyta (sprawa Testera z 19.11.2026: konto Rady miało 403 w konsoli).
+ */
+const NOT_STAFF_ROLES: ReadonlySet<string> = new Set(["automation", "user", "board"]);
+
+/** Czy konto przejdzie bramkę `require_hr_absence_reader` (bez sprawdzania modułu). */
+export function canReadAbsences(
+  user: { role: string; roles?: readonly string[] } | null | undefined,
+): boolean {
+  if (!user) return false;
+  const roles = [user.role, ...(user.roles ?? [])].filter(Boolean);
+  if (roles.includes("admin")) return true;
+  return roles.some((role) => !NOT_STAFF_ROLES.has(role));
+}
+
+/**
  * Czy moduł urlopów jest otwarty dla zalogowanej osoby — plakietki przy
  * osobach poza ekranami „Ludzi” (lista „@”, lista rekrutacji). Praktykant ma
  * własną powłokę i nie pyta o moduły (jak „Nieobecni dziś” w pasku). Awaria
@@ -717,7 +735,7 @@ export function useLeaveModuleOpen(enabled = true): boolean {
   const roles = new Set([user?.role, ...(user?.roles ?? [])].filter(Boolean));
   const traineeOnly = roles.size === 1 && roles.has("trainee");
   const config = useHrConfig(enabled && Boolean(user) && !traineeOnly);
-  return enabled && Boolean(config.data?.open_modules?.leave);
+  return enabled && canReadAbsences(user) && Boolean(config.data?.open_modules?.leave);
 }
 
 /**
