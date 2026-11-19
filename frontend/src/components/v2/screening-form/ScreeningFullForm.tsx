@@ -74,6 +74,7 @@ import {
 } from "@/components/v2/screening/ScreeningForm";
 import { ScreeningSuggestionChips } from "@/components/v2/screening/ScreeningSuggestionChips";
 import { VerifiedRateFields } from "@/components/v2/screening/VerifiedRateFields";
+import { ClientFormScreeningAsks } from "@/components/v2/screening-form/ClientFormScreeningAsks";
 import { ScreeningProfileFields } from "@/components/v2/screening-form/ScreeningProfileFields";
 import { useCapability } from "@/hooks/useCapability";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
@@ -1105,6 +1106,8 @@ export function ScreeningFullFormView({
             </>
           )}
         </section>
+
+        {state.stage_id != null ? <ClientFormScreeningAsks stageId={state.stage_id} /> : null}
 
         {/* ── Ocena ───────────────────────────────────────────────────── */}
         <section aria-label="Ocena" className="space-y-3">

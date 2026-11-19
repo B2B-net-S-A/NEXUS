@@ -6,6 +6,10 @@
  * screeningu i notatek”, „wpisane ręcznie”). Zapis wysyła tylko zmienione
  * pola; pusta wartość = pole do uzupełnienia. Oceny 1–10 i numery
  * certyfikatów zwykle wpisuje rekruter — model ich nie zgaduje.
+ *
+ * Na górze siatka lat (`ClientFormYearsGrid`, 19.11.2026): lata w
+ * kompetencjach liczy serwer z dat stanowisk w CV, rekruter zdejmuje role
+ * i wysyła braki do ściągi screeningu.
  */
 
 import { useMemo, useState } from "react";
@@ -22,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { ClientFormYearsGrid } from "@/components/v2/recruitment/client-form/ClientFormYearsGrid";
 import {
   CLIENT_FORM_SOURCE_LABEL,
   type ClientFormField,
@@ -41,6 +46,8 @@ export interface ClientFormDialogProps {
   saving?: boolean;
   downloading?: boolean;
   onSave: (fields: Record<string, string>) => Promise<void> | void;
+  /** Siatka lat: role liczone do pól i braki do ściągi screeningu. */
+  onSaveYears?: (payload: { roles?: Record<string, string[]>; ask?: string[] }) => Promise<void> | void;
   onDownload: () => void;
 }
 
@@ -149,6 +156,7 @@ export function ClientFormDialog({
   saving = false,
   downloading = false,
   onSave,
+  onSaveYears,
   onDownload,
 }: ClientFormDialogProps) {
   const initial = useMemo(
@@ -184,6 +192,15 @@ export function ClientFormDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="max-h-[65dvh] space-y-5 overflow-y-auto">
+          {onSaveYears && view.fields.some((field) => field.years) ? (
+            <ClientFormYearsGrid
+              fields={view.fields}
+              readOnly={readOnly}
+              saving={saving}
+              onSaveRoles={(roles) => onSaveYears({ roles })}
+              onAsk={(ask) => onSaveYears({ ask })}
+            />
+          ) : null}
           {missing.length > 0 ? (
             <section aria-label="Do uzupełnienia" className="space-y-1">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
