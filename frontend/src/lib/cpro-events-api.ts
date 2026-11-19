@@ -21,6 +21,8 @@ export interface CproJobRejected {
   at: string;
   person: string | null;
   reason: string | null;
+  /** Powód, który NEXUS wpisał z treści maila (19.11.2026); starszy backend go nie zwraca. */
+  nexus_reason?: string | null;
   candidate_id: number;
 }
 

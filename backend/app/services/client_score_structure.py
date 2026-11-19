@@ -14,9 +14,12 @@ Ten moduł raz odczytuje strukturę wzoru, w tym samym kształcie co
 * ``cell`` — pusta komórka (albo podpowiedź „Tak/Nie”) w wierszu tabeli pod
   nagłówkiem z „Lp.”; etykieta = nagłówek kolumny, nazwa wiersza = oceniany
   element. Gdy wiersz ma liczbę w kolumnie „punkty”, pole niesie
-  ``max_points`` — wynik nie może go przekroczyć.
+  ``max_points`` — wynik nie może go przekroczyć. Gdy kolumna „punkty” jest
+  w wierszu pusta, a liczba stoi w kolumnie bez nagłówka (zał. 5 Testera,
+  19.11.2026), to ta liczba jest maksimum, a „Liczba punktów” — polem wyniku.
 
 Wiersze „Razem” i komórki z formułą zostają nietknięte — Excel sam liczy sumy.
+„Razem” zamyka tabelę: wiersz pod nim (wynik testu klienta) nie jest polem.
 Identyfikator pola ``s0.r13.c4`` = arkusz, wiersz, kolumna (jak w Excelu, od 1).
 """
 
@@ -32,7 +35,7 @@ from openpyxl.cell.cell import MergedCell
 
 from app.services.client_form_structure import FormRejected, summary
 
-STRUCTURE_VERSION = 1
+STRUCTURE_VERSION = 2
 
 MAX_ZIP_ENTRIES = 1000
 MAX_UNPACKED_BYTES = 60 * 1024 * 1024
@@ -189,9 +192,26 @@ def _sheet_fields(
         if table is None or not headers:
             continue
         element = texts.get(element_col) if element_col is not None else None
-        if not element or _TOTAL.match(element) or _ORDINAL.match(element):
+        if element and _TOTAL.match(element):
+            table = None
             continue
-        max_points = _points(dict(cells).get(points_col)) if points_col else None
+        if not element or _ORDINAL.match(element):
+            continue
+        values = dict(cells)
+        max_points = _points(values.get(points_col)) if points_col else None
+        # Maksimum w kolumnie bez nagłówka, wynik w pustej „Liczbie punktów”.
+        result_col: Optional[int] = None
+        if max_points is None and points_col and not _clean(values.get(points_col)):
+            max_points = next(
+                (
+                    _points(value)
+                    for col, value in cells
+                    if not headers.get(col) and _points(value) is not None
+                ),
+                None,
+            )
+            if max_points is not None:
+                result_col = points_col
         hints = {col for col, value in cells if _YES_NO_HINT.match(_clean(value))}
         empty = [
             col
@@ -200,7 +220,7 @@ def _sheet_fields(
             and not _is_formula(value)
             and headers.get(col)
             and not _LP.match(headers[col])
-            and col not in (element_col, points_col)
+            and (col == result_col or col not in (element_col, points_col))
         ]
         # „Tak/Nie” w wierszu to metoda oceny (zał. 5), odpowiedź idzie do
         # pustej kolumny obok („Wynik”); bez pustej kolumny polem jest sama

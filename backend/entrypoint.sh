@@ -9555,6 +9555,28 @@ SELECT 'job', id, 'archived',
     "WHERE EXISTS (SELECT 1 FROM marker) "
     "ORDER BY t.id, k.pos "
     "ON CONFLICT (template_id, name, category) DO NOTHING",
+    # 0740 — jednorazowo: dwa powody klienta z odczytu maili CPro (B7, decyzja
+    # Artura 19.11.2026) w każdym szablonie, tuż przed „Inne”. Słaba rozmowa
+    # jest werdyktem o osobie (weto hiring managera), inny dostawca nie. Lustro
+    # migracji (pilnuje `test_cpro_reason_map.py`).
+    "WITH marker AS ("
+    "INSERT INTO app_settings (key, value) "
+    "VALUES ('cpro_client_reasons_seeded', 'true'::jsonb) "
+    "ON CONFLICT (key) DO NOTHING RETURNING key) "
+    "INSERT INTO rejection_reasons "
+    '(template_id, name, category, "order", active, disqualifies_person, '
+    "external_source, created_at, updated_at) "
+    "SELECT t.id, k.name, 'rejected'::terminaltype, "
+    "COALESCE((SELECT GREATEST(r.\"order\" - 1, 0) FROM rejection_reasons r "
+    "WHERE r.template_id = t.id AND r.category::text = 'rejected' "
+    "AND r.name = 'Inne (rejected)' LIMIT 1), 99), "
+    "TRUE, k.verdict, 'manual', NOW(), NOW() "
+    "FROM pipeline_templates t "
+    "CROSS JOIN (VALUES (1, 'client_other_vendor', FALSE), "
+    "(2, 'client_interview_weak', TRUE)) AS k(pos, name, verdict) "
+    "WHERE EXISTS (SELECT 1 FROM marker) "
+    "ORDER BY t.id, k.pos "
+    "ON CONFLICT (template_id, name, category) DO NOTHING",
     # 0452: „Pracuje u nas” tylko z umowy (decyzja Artura 17.10.2026) —
     # ręczne wpisy `current_employment` zdjęte raz, z powodem (wiersze zostają
     # w historii). Lustro migracji.
@@ -11684,6 +11706,40 @@ async def repair():
             )
             return
     print(f"stale acceptance hired repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Powód z treści maila dla starych odrzuceń z CPro (B7, decyzja Artura
+# 19.11.2026): 108 wpisów „Inne (rejected)” z notatką „Z CPro: …” przepięte tym
+# samym słownikiem, który wybiera powód dla nowych maili. Po siatce DDL, bo
+# potrzebuje powodów z 0740. Marker w `app_settings` + advisory lock; porażka nie
+# zapisuje niczego, następny start ponawia. Log: wyłącznie liczby.
+startup_phase "repair-cpro-rejection-reasons-2026-11"
+echo "Pipeline: reason from CPro mail text for old client rejections (one-shot)..."
+run_unless_marked "cpro_rejection_reason_repair_2026_11_19" <<'PY' || echo "cpro rejection reason repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cpro_rejection_reason_repair import (
+    run_cpro_rejection_reason_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_cpro_rejection_reason_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"cpro rejection reason repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"cpro rejection reason repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY
