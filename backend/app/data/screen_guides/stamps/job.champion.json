@@ -1,5 +1,5 @@
 {
-  "entry": "f54dfaffa0d00f92ca305add5fd76ee646a66bc508990669029eddb672bf3cad",
+  "entry": "363cc497ac83536089a6747a1197dbbf4e1cbafe1acc02f8b1cf2c03f6e1455c",
   "guide": "job.champion",
   "sources": {
     "frontend/src/components/champion/ChampionBriefView.tsx": "25007f600adda9e03f790c4c2cc8d44ab92efdd801722941d89d479b7512ffe7",
