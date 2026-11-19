@@ -165,7 +165,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
                 db,
                 user_id=request.company_signer_id,
                 title=f"Umowa {number} nadal czeka na Twój podpis",
-                message=f"{request.contractor_name} podpisał(a) umowę — brakuje podpisu B2B Network.",
+                message=f"{request.contractor_name} podpisał(a) umowę — brakuje podpisu B2Bnetwork.",
                 ntype=NotificationType.signature_sent,
                 request_id=request.id,
             )

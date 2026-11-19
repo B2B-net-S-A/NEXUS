@@ -274,6 +274,16 @@ Serwis `services/finance_ledger/payments.py`, reguły bez bazy
   Elixir wymaga rachunku nadawcy (`app_settings['finance_payments']`, „Rachunek
   nadawcy” na zakładce). **Układ pliku Elixir-O i komunikatu MPP trzeba
   sprawdzić w bankowości firmowej przed pierwszą paczką** (import próbny).
+  **Rachunek nadawcy w Santanderze (numer banku 1090…) = układ pliku z eBI24**
+  (decyzja Artura 18.11.2026, `elixir.render_santander`): 17 pól jak w próbce
+  „Płatności_…pli” z 17.11.2026 — pole 1 puste, numery rozliczeniowe obu
+  banków w polach 4–5 w cudzysłowie, nazwy jednym tekstem, pola 10, 11
+  i 13–17 puste (na próbce identyczny wiersz poza podwójną spacją w nazwie).
+  **MPP w tym układzie jest zablokowane** (409 `santander_mpp` przy „Utwórz
+  paczkę” i przy pliku), dopóki rozliczenia nie przyślą próbki przelewu MPP
+  z eBI24 — wysłanie MPP jako zwykłego przelewu byłoby gorsze niż odmowa.
+  Paczki Płac (`hr/bank/batches.py`, `payroll_lists/transfers.py`) zostają
+  w Elixir-O.
   CSV przez `safe_row` (bez formuł). Dwie równoległe „Utwórz paczkę”: blokada
   doradcza `finance-cost-batch` i indeks częściowy
   `uq_finance_payment_batch_items_active` — druga dostaje 409 „w paczce”.

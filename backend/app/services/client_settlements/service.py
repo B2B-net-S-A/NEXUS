@@ -51,11 +51,13 @@ from app.services.client_settlements import (
     acceptance_mail,
     contractor_invoices,
     kesu,
+    kcp,
     kesu_flow,
     mail_text,
     rcp_bnp,
     rcp_checks,
     rules_catalog,
+    redmine_timelog,
     signoffs,
     timesheet,
     timesheet_pko,
@@ -88,6 +90,8 @@ ORDER_STATUSES = (
 MD_MAX = Decimal("31")
 #: Zapłata konsultanta po mailowej akceptacji, gdy podpisujący KEŚU jest nieobecny.
 PAY_ON_MAIL = "pay_on_mail"
+#: Wysyłka KCP do klienta i jego akceptacja mailem (E6.5, `client_acceptance`).
+CLIENT_ACCEPTANCE = "client_acceptance"
 #: „Imię Nazwisko” jak na liście kontraktów; puste części pomija.
 _FULL_NAME = func.nullif(func.concat_ws(" ", Candidate.name, Candidate.lastname), "")
 
@@ -496,6 +500,9 @@ async def month_view(
     )
     numbers = await _order_numbers(db, ids, month)
     rules = await rules_for(db, client_id, month)
+    from app.services.client_settlements import client_acceptance
+
+    acceptance = client_acceptance.params(rules)
     invoices = await contractor_invoices.for_month(db, ids, month)
     issued = await _issued_orders(
         db, [s.order_id for s in settlements.values() if s.order_id], month
@@ -521,6 +528,13 @@ async def month_view(
             settlement, rules
         ):
             row["client_invoice"] = "awaiting_signature"
+        elif row["client_invoice"] == "ready" and client_acceptance.waiting(
+            settlement, rules
+        ):
+            row["client_invoice"] = "awaiting_client"
+        row["client_acceptance"] = (
+            client_acceptance.summary(settlement) if acceptance is not None else None
+        )
         row["kesu"] = kesu_summary(settlement)
         rows.append(row)
     return {
@@ -661,6 +675,9 @@ async def detail(
         contract_id, []
     )
     rules = await rules_for(db, person.contract.client_id, month)
+    from app.services.client_settlements import client_acceptance
+
+    acceptance = client_acceptance.params(rules)
     estimate = (
         await _settlement(db, contract_id, month, kind=ESTIMATE)
         if kind == ACTUAL
@@ -704,10 +721,21 @@ async def detail(
         "total_md": total_md,
         "total_net": _dec(s.amount_cost, 2) if s and amounts else None,
         "checks": [
-            c
-            for c in (s.checks if s else [])
-            if "remaining_after" not in c and signoffs.SIGNED_KEY not in c
+            *(
+                c
+                for c in (s.checks if s else [])
+                if "remaining_after" not in c and signoffs.SIGNED_KEY not in c
+            ),
+            *(
+                [client_acceptance.check_group(s, acceptance)]
+                if acceptance is not None and kind == ACTUAL
+                else []
+            ),
         ],
+        # KCP w PDF do pobrania (E6.5): od konsultanta albo złożona z Redmine.
+        "kcp_pdf": bool(
+            acceptance is not None and s is not None and s.report_document_id
+        ),
         "order": None
         if state is None
         else {
@@ -754,6 +782,7 @@ def meta_of(s: Optional[ClientSettlement]) -> dict[str, Any]:
 
 def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> None:
     kept = meta_of(s).get(PAY_ON_MAIL)
+    accepted_by_client = meta_of(s).get(CLIENT_ACCEPTANCE)
     signed = signoffs.marker(s.checks)
     s.status = result.status
     s.md_onboarding = result.md_onboarding
@@ -771,6 +800,9 @@ def _store(s: ClientSettlement, result: Result, order: Optional[OrderState]) -> 
     if kept:
         # Decyzja Finansów o zapłacie po mailu przeżywa przeliczenie (E6.3).
         meta[PAY_ON_MAIL] = kept
+    if accepted_by_client:
+        # Wysyłka KCP do klienta i jego akceptacja (E6.5) też.
+        meta[CLIENT_ACCEPTANCE] = accepted_by_client
     s.checks = [*result.checks, meta]
     # Podpisany arkusz albo protokół (E6) zostaje przy przeliczeniu.
     s.checks = signoffs.with_marker(s.checks, signed)
@@ -926,6 +958,21 @@ async def _proof(
     has_mail = any(d.mime in MAIL_MIMES for d in reports) or bool(mails)
     working_days = len(business_days(*month_bounds(month)))
     if parsed is None:
+        # KCP Banku Pocztowego albo eksport Redmine, z którego KCP składa NEXUS (E6.5).
+        card = await asyncio.to_thread(
+            redmine_timelog.read_card, content, report.mime, month
+        )
+        if card is not None:
+            found, outside = card
+            return kcp.evaluate(
+                found,
+                month=month,
+                person_name=person_name,
+                rules=rules,
+                working_days=working_days,
+                other_md=other_md,
+                outside_month=outside,
+            )
         # Szablon klienta w godzinach z makrami (E6.1, PKO).
         pko = await asyncio.to_thread(timesheet_pko.parse, content, report.mime)
         if pko is not None:
@@ -1414,6 +1461,10 @@ async def refresh_for_document(db: AsyncSession, document: CpDocument) -> None:
     if await signoffs.apply(db, document, now=now):
         return
     if document.contract_id is None:
+        # Odpowiedź klienta na paczkę KCP (E6.5): akceptacja wysłanych osób.
+        from app.services.client_settlements import client_acceptance
+
+        await client_acceptance.apply(db, document, now=now)
         return
     month = f"{document.period_year}-{document.period_month:02d}"
     # Domyślna data z bazy nie zawsze jest już w obiekcie po flush.

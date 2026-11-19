@@ -210,7 +210,7 @@ function Messages({ detail }: { detail: CaseDetail }) {
         ))}
       </ol>
       <p className="mt-2 text-xs text-muted-foreground">
-        Załączniki są w skrzynce administracja@ — NEXUS trzyma tylko ich nazwy.
+        Załączniki są w skrzynce wsparcie@ — NEXUS trzyma tylko ich nazwy.
       </p>
     </Card>
   );

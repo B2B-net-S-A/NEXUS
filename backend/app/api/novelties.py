@@ -8,6 +8,10 @@ domenowych); tabela ``novelty_progress`` trzyma tylko stan osoby przy nowości.
 - ``GET /novelties/adoption`` i ``POST /novelties/{id}/remind`` — admin i Head
   of Recruitment (decyzja Artura 28.10.2026), bo panel pokazuje imiennie, kto
   jeszcze nie umie;
+- ``GET /novelties/daily`` — poranna porcja (decyzja Artura 18.11.2026): przy
+  pierwszym wejściu dnia osoba przeklikuje wszystko, co weszło do jej roli
+  i czego nie przeszła; potem do jutra nic nie wyskakuje. Wyłącznik porcji
+  jest osobny od Startu (``PUT /novelties/start/gate`` z ``daily``);
 - ``GET /novelties/start`` — „Start w NEXUSIE” osoby (``app/data/novelties/start.json``):
   dopóki nie przeklika najważniejszych funkcji swojej roli, front wpuszcza ją
   tylko na pulpit i ekrany przeklikania (decyzja Artura 30.10.2026: twarda
@@ -86,15 +90,17 @@ class NoveltyEventIn(BaseModel):
 
 
 class StartGateIn(BaseModel):
-    """Wyłączniki blokad: Startu (``enforced``) i Poligonu nowych osób (``poligon``)."""
+    """Wyłączniki blokad: Startu (``enforced``), Poligonu nowych osób
+    (``poligon``) i porannej porcji nowości (``daily``)."""
 
     enforced: Optional[bool] = None
     poligon: Optional[bool] = None
+    daily: Optional[bool] = None
 
     @model_validator(mode="after")
     def _one_switch(self) -> "StartGateIn":
-        if self.enforced is None and self.poligon is None:
-            raise ValueError("Podaj enforced albo poligon.")
+        if self.enforced is None and self.poligon is None and self.daily is None:
+            raise ValueError("Podaj enforced, poligon albo daily.")
         return self
 
 
@@ -105,6 +111,13 @@ START_GATE_KEY = "start_gate"
 #: seed stacku E2E (`scripts/seed_e2e.py`) też ją wyłącza, bo scenariusze
 #: zakładają świeże konta rekruterów.
 POLIGON_GATE_KEY = "poligon_gate"
+#: Poranna porcja nowości (18.11.2026). Osobny wyłącznik, bo blokada Startu
+#: jest wyłączona od 30.10 — porcja nie może od niej zależeć.
+DAILY_GATE_KEY = "novelty_daily_gate"
+#: Pierwsza porcja = nowości z ostatnich 7 dni przed jej wdrożeniem (Artur,
+#: 18.11.2026). Starszych nikt nie nadrabia; od tej daty porcja nie ma limitu,
+#: więc po urlopie czeka wszystko, co weszło w tym czasie.
+DAILY_FLOOR = date(2026, 11, 12)
 
 
 class RemindIn(BaseModel):
@@ -185,6 +198,7 @@ def shape_for_user(
         "shipped_on": novelty.shipped_on.isoformat(),
         "where": novelty.where,
         "href": novelty.href,
+        "practice_href": novelty.practice_href,
         "dot_anchor": novelty.dot_anchor,
         "used_anchor": novelty.used_anchor,
         "path_prefix": novelty.path_prefix,
@@ -247,6 +261,66 @@ async def my_novelties(
     if _impersonating(request):
         return [quiet_for_preview(item) for item in shaped]
     return shaped
+
+
+def daily_batch(
+    novelties: list[Novelty],
+    progress: dict[str, NoveltyProgress],
+    today: date,
+) -> list[Novelty]:
+    """Porcja dnia: nowości od ``DAILY_FLOOR`` do wczoraj, których osoba nie
+    przeszła przed dzisiaj. Przeszłe dziś zostają na liście (licznik „X z N”).
+    Dzisiejsze nowości czekają do jutra — porcja nie rośnie w ciągu dnia."""
+    tz = ZoneInfo(DEFAULT_TZ)
+
+    def done_before_today(novelty: Novelty) -> bool:
+        row = progress.get(novelty.id)
+        return (
+            row is not None
+            and row.completed_at is not None
+            and row.completed_at.astimezone(tz).date() < today
+        )
+
+    return sorted(
+        (
+            n
+            for n in novelties
+            if DAILY_FLOOR <= n.shipped_on < today and not done_before_today(n)
+        ),
+        key=lambda n: (n.shipped_on, n.title),
+    )
+
+
+@router.get("/novelties/daily")
+async def my_daily_novelties(
+    request: Request, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Poranna porcja osoby. Podgląd jako inna osoba i praktykant niczego nie
+    blokują; wyłącznik porcji zdejmuje blokadę, lista zostaje."""
+    today = business_today()
+    mine = [
+        n
+        for n in load_novelties().values()
+        if n.switched_on() and _audience_of(current_user, n)
+    ]
+    progress = await _progress_rows(db, current_user.id, [n.id for n in mine])
+    batch = daily_batch(mine, progress, today)
+    now = datetime.now(timezone.utc)
+    items = [shape_for_user(n, progress.get(n.id), now) for n in batch]
+    gate_on = await start_gate_on(db, DAILY_GATE_KEY)
+    pending = sum(1 for item in items if not item["done"])
+    trainee = "trainee" in _role_values(current_user)
+    return {
+        "gate_on": gate_on,
+        "enforced": gate_on
+        and pending > 0
+        and not trainee
+        and not _impersonating(request),
+        "today": today.isoformat(),
+        "done": len(items) - pending,
+        "total": len(items),
+        "items": items,
+    }
 
 
 def quiet_for_preview(item: dict[str, Any]) -> dict[str, Any]:
@@ -648,10 +722,12 @@ async def set_start_gate(
     current_user: HeadOfRecruitmentPlus,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, bool]:
-    """Wyłączniki blokad dla całej firmy (admin, HoR): Startu i Poligonu nowych osób."""
+    """Wyłączniki blokad dla całej firmy (admin, HoR): Startu, Poligonu nowych
+    osób i porannej porcji nowości."""
     for key, enforced in (
         (START_GATE_KEY, payload.enforced),
         (POLIGON_GATE_KEY, payload.poligon),
+        (DAILY_GATE_KEY, payload.daily),
     ):
         if enforced is None:
             continue
@@ -666,6 +742,7 @@ async def set_start_gate(
     return {
         "enforced": await start_gate_on(db),
         "poligon": await start_gate_on(db, POLIGON_GATE_KEY),
+        "daily": await start_gate_on(db, DAILY_GATE_KEY),
     }
 
 

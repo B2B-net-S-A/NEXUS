@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # żądania z `/api/health/live` = 503, żeby Traefik zdjął go z routingu.
     # 0 = zamknięcie od razu (compose). → app/core/shutdown_drain.py
     NEXUS_SHUTDOWN_DRAIN_SECONDS: float = 0
+    # Progi GC Pythona (`gc.set_threshold`) ustawiane po zamrożeniu sterty startu.
+    # Pusty = domyślne (700, 10, 10), czyli wycofanie bez zmiany kodu.
+    # → app/tasks/runtime_metrics_monitor.py `apply_gc_thresholds`
+    GC_THRESHOLDS: str = "50000,20,10"
     # Skąd web czyta stan pętli do `/api/health` i `/api/admin/snapshot`.
     NEXUS_WORKER_HEALTH_URL: str = "http://worker:8000/api/health/background"
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
@@ -1427,6 +1431,13 @@ class Settings(BaseSettings):
     CONTRACT_DOCS_SP_SYNC_ENABLED: bool = False
     CONTRACT_DOCS_SP_SYNC_MINUTES: int = 60
 
+    # Stawki z dokumentów kontraktu (0739): pętla czyta każdy plik umowy
+    # i aneksu modelem i liczy różnicę z harmonogramem (karta na kontrakcie).
+    # Wpis automatyczny różnic „oczywistych” — osobno, po tygodniu na karcie
+    # (decyzja Artura 18.11.2026: wariant B, najpierw tryb karty).
+    CONTRACT_RATE_DOCS_READ_ENABLED: bool = True
+    CONTRACT_RATE_DOCS_AUTO_APPLY: bool = False
+
     # Progi oceny prepu (liczy kod, nie model). Udział kandydata = jego czas
     # mówienia / (kandydat + zespół).
     PREP_REVIEW_GOOD_COVERAGE: float = 0.8
@@ -1672,6 +1683,10 @@ class Settings(BaseSettings):
     CONSULTANT_PORTAL_MAILBOX: str = ""
     # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
     CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # Jedna skrzynka wsparcie@ (E8, 18.11.2026): adresy rozliczeń po przecinku. Gdy skrzynka
+    # rozliczeń = skrzynka spraw, mail z załącznikiem na te adresy idzie do rozliczeń,
+    # reszta do spraw (`app/services/support_mail_route.py`).
+    CONSULTANT_PORTAL_SETTLEMENTS_ADDRESSES: str = ""
     # Szkolenia w Teams (0697, decyzja Artura 13.11.2026): organizatorem spotkań jest
     # osobne konto szkolenia@ z licencją Teams i OneDrive (nagranie ląduje w OneDrive
     # organizatora). Puste albo OFF = link wkleja TCM ręcznie, jak przed 0697.
@@ -1839,7 +1854,7 @@ class Settings(BaseSettings):
     # bo ``PUT`` 1EP wymaga pełnego kontaktu z telefonem. Wartość wyłącznie przez
     # „Coolify set env” z ``value_from_secret`` (repo i logi Actions są publiczne).
     JJIT_CONTACT_PHONE: str = ""
-    JJIT_CONTACT_NAME: str = "B2B Network"
+    JJIT_CONTACT_NAME: str = "B2Bnetwork"
     PORTAL_JJIT_API_URL: str = "https://jobboardcore-external.justjoin.it/external-api"
     JJIT_OAUTH_CLIENT_ID: str = ""
     JJIT_OAUTH_CLIENT_SECRET: str = ""

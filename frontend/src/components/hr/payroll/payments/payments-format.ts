@@ -12,7 +12,7 @@ import { formatMoney } from "@/lib/money";
 
 /** Ten sam limit co `statements.MAX_STATEMENT_BYTES` na serwerze. */
 export const MAX_STATEMENT_BYTES = 5 * 1024 * 1024;
-export const STATEMENT_ACCEPT = ".sta,.txt,.mt940,.940,.xml";
+export const STATEMENT_ACCEPT = ".sta,.txt,.mt940,.940,.emt,.xml";
 
 export function financeStats(data: FinanceList): InlineStat[] {
   const totals = Object.entries(data.totals_to_pay)
@@ -83,7 +83,7 @@ export function statementFileProblem(file: File): string | null {
   if (file.size > MAX_STATEMENT_BYTES) return "Wyciąg jest większy niż 5 MB.";
   const lower = file.name.toLowerCase();
   if (!STATEMENT_ACCEPT.split(",").some((ext) => lower.endsWith(ext))) {
-    return "Wgraj wyciąg MT940 (.sta, .txt) albo CAMT.053 (.xml).";
+    return "Wgraj wyciąg MT940 (.sta, .txt, .eMT) albo CAMT.053 (.xml).";
   }
   return null;
 }

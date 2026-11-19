@@ -112,6 +112,16 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   i stary tekst przeszedłby jako poprawka do cudzej, nowszej treści. Własny
   udany zapis przesuwa wersję bazową, więc dwa pola otwarte naraz zapisują
   się po kolei bez fałszywego konfliktu.
+- **Każde pole karty Pracuj.pl ma „Edytuj”** (zgłoszenie rekrutera
+  18.11.2026: etapów i technologii nie dało się poprawić). „Etapy
+  rekrutacji” to `content.process`: puste = stały blok firmy, wpisane =
+  własna lista, która ZASTĘPUJE blok na obu portalach (`render._process`;
+  edytor otwiera się z tym, co widać na karcie, i nie wycina punktów bloku
+  jak „To oferujemy”). Klucz zapisuje się tylko przy wpisanych etapach —
+  jak `offer_hidden`, przez odcisk treści. „Technologie wymagane / mile
+  widziane” zapisują się do `tech` (`withTechNames`): znana nazwa zachowuje
+  poziom, nowa dostaje „wymagana” albo „mile widziana”, a nazwa wpisana na
+  jednej liście znika z drugiej. Ta sama lista zasila tech stack JustJoin.IT.
 - **Niezapisany tekst trzyma okno, nie blok** (`drafts` w `JobAdWindow`, dla
   pól obu zakładek i warunków z lewej kolumny). Nieaktywna zakładka jest
   odmontowana, a „Pokaż” z kontroli samo przełącza zakładkę — stan lokalny

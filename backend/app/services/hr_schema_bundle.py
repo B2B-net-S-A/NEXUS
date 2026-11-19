@@ -31,6 +31,9 @@ from app.services import order_revenue_steps_schema as order_revenue_steps
 from app.services import board_documents_schema as board_documents
 from app.services import board_budget_schema as board_budgets
 from app.services import board_statements_schema as board_statements
+from app.services import board_meetings_schema as board_meetings
+from app.services import board_votes_schema as board_votes
+from app.services import board_reports_schema as board_reports
 from app.services import client_settlements_schema as client_settlements
 from app.services import client_structure_schema as client_structure
 from app.services import client_time_reports_schema as client_time_reports
@@ -74,6 +77,7 @@ from app.services import hr_time_schema as time_
 from app.services import trainings_schema as trainings
 from app.services.law_radar import schema as law_radar
 from app.services.cpro_bot import schema as cpro_bot
+from app.services.contract_rate_documents import schema_sql as contract_rate_documents
 
 #: Moduły po fundamencie, w kolejności migracji 0458–0476 (0467 i 0472 to statystyki z maina) (kontrakt każdego:
 #: ``TABLE_DDL, COLUMN_DDL, INDEX_DDL, CONSTRAINT_DDL, DATA_DDL``).
@@ -167,6 +171,14 @@ MODULES = (
     board_budgets,
     # 0734: sprawozdania roczne dla Rady — bilans i RZiS (R4, 18.11.2026).
     board_statements,
+    # 0735: posiedzenia Rady z zamrażanym pakietem (R5, 18.11.2026).
+    board_meetings,
+    # 0736: uchwały Rady w trybie pisemnym (R6, 18.11.2026).
+    board_votes,
+    # 0737: gotówka i archiwum raportów Rady (R7, 18.11.2026).
+    board_reports,
+    # 0739: stawki Partnera z umów i aneksów kontraktu (18.11.2026).
+    contract_rate_documents,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

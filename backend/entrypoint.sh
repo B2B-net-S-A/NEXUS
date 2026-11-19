@@ -390,6 +390,12 @@ _ENUM_STATEMENTS = [
     # 0727: Rada — odczyt skanu dokumentu korporacyjnego i dzwonek o wpisie w KRS.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'board_document_read'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_krs_entry'",
+    # 0739: odczyt stawki Partnera z umów i aneksów kontraktu.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'contract_document_rate_read'",
+    # 0735: Rada — pakiet na posiedzenie gotowy (dzwonek).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_meeting_pack'",
+    # 0736: Rada — uchwała w trybie pisemnym do głosowania i jej wynik (dzwonek).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'board_vote'",
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
@@ -8073,6 +8079,11 @@ _DATA_STATEMENTS = [
     "SELECT 'premium_skill_justification', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'premium_skill_justification')",
+    # 0739: seed klucza AI odczytu stawek z dokumentów kontraktu.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'contract_document_rate_read', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'contract_document_rate_read')",
     # 0727: seed klucza AI odczytu dokumentów Rady.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'board_document_read', TRUE, 0, now(), now() "
@@ -11637,6 +11648,42 @@ async def repair():
             )
             return
     print(f"notice withdrawal repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# „Zatrudniony” z datą akceptacji (zgłoszenie 18.11.2026): cztery pary
+# z podpisaną umową i żywym kontraktem zostały na „Akceptacji”, a ponowne
+# otwarcie rekrutacji wróciło jedną do kafelka „Kandydaci do zamknięcia”.
+# Decyzja Artura 18.11: zatrudnienie liczy się w miesiącu podpisu. Logika
+# w `app/services/stale_acceptance_hired_repair.py`, pary przypięte po ID.
+# Marker w `app_settings` + advisory lock; porażka nie zapisuje niczego —
+# następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-stale-acceptance-hired-2026-11"
+echo "Pipeline: hire signed pairs left on acceptance (one-shot)..."
+run_unless_marked "stale_acceptance_hired_2026_11_18" <<'PY' || echo "stale acceptance hired repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.stale_acceptance_hired_repair import (
+    run_stale_acceptance_hired_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_stale_acceptance_hired_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane osób
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"stale acceptance hired repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"stale acceptance hired repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

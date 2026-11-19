@@ -155,6 +155,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "order_mail_ingest",
         "teams_prep_transcripts",
         "contract_docs_sharepoint",
+        # Woła model dla każdego pliku teczki (koszt) i może zapisać stawki.
+        "contract_rate_documents",
         "compass_workdays_sync",
         "compass_lifecycle_sync",
         "m365_account_sweep",

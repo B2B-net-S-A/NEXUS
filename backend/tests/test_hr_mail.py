@@ -211,7 +211,7 @@ def test_case_title_and_return_note_never_go_by_mail():
     # Tytuł sprawy przychodzi z cudzej poczty — może nieść cokolwiek.
     _t, body = hr_mail.mail_text(
         NotificationType.admin_case_assigned,
-        "Przypisano Ci sprawę administracja@",
+        "Przypisano Ci sprawę wsparcie@",
         "Prośba o zaświadczenie dla Anny Przykładowej",
     )
     assert body == "Szczegóły sprawy znajdziesz w NEXUSIE."
@@ -383,7 +383,7 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
             _row(
                 boss,
                 "admin_case_assigned",
-                "Przypisano Ci sprawę administracja@",
+                "Przypisano Ci sprawę wsparcie@",
                 "Zaświadczenie dla Jana Przykładowego",
                 "/people/cases/7",
             ),
@@ -414,7 +414,7 @@ async def test_outbox_mails_hr_events_without_absence_kind_or_amounts(monkeypatc
             mine = [item for item in sent if item[0] in {boss.email, off.email}]
             assert sorted((to, subject) for to, subject, _t, _h in mine) == sorted(
                 [
-                    (boss.email, "[NEXUS] Przypisano Ci sprawę administracja@"),
+                    (boss.email, "[NEXUS] Przypisano Ci sprawę wsparcie@"),
                     (boss.email, "[NEXUS] Zgłoszona nieobecność"),
                     (off.email, "[NEXUS] Wniosek zaakceptowany"),
                 ]

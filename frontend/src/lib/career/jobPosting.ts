@@ -11,7 +11,7 @@ import type { CareerJobResponse } from "./api";
 
 export const HIRING_ORGANIZATION = {
   "@type": "Organization",
-  name: "B2B Network",
+  name: "B2Bnetwork",
   legalName: "B2B.NET S.A.",
   sameAs: "https://b2bnetwork.pl",
 } as const;
@@ -54,7 +54,7 @@ export function jobPostingJsonLd(
     // Jedna rekrutacja = jedna oferta w Google, choć ma kilka linków (każdy rekruter swój).
     identifier: {
       "@type": "PropertyValue",
-      name: "B2B Network",
+      name: "B2Bnetwork",
       value: data.canonical_slug ?? job.slug,
     },
   };

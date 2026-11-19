@@ -32,6 +32,7 @@ from app.models.recommendation_card import RecommendationCard
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import UserRole
 from app.services.cpro_bot import flow, runs
+from app.services.cpro_bot import items as bot_items
 from tests.test_board_tasks import (
     CPRO_RATE,
     _cleanup,
@@ -78,8 +79,9 @@ async def _latest(candidate_id: int, job_id: int) -> CandidateStage:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("account_id", [14, 27], ids=["igor", "marcin"])
 async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
-    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch, account_id: int
 ) -> None:
     world = await _seed_world()
     await seed_entry_row(world["candidate_id"], world["job_id"])
@@ -92,8 +94,16 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
     hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
     rec_id, rec_creds = await _seed_user(UserRole.recruiter)
     dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    other_dl_id, _ = await _seed_user(UserRole.delivery_lead)
     admin_id, admin_creds = await _seed_user(UserRole.admin)
-    users = [hor_id, rec_id, dl_id, admin_id]
+    users = [hor_id, rec_id, dl_id, other_dl_id, admin_id]
+    account_name, vault_entry = bot_items.CPRO_ACCOUNTS[account_id]
+    other_account = bot_items.CPRO_ACCOUNTS[27 if account_id == 14 else 14]
+    monkeypatch.setattr(
+        bot_items,
+        "CPRO_ACCOUNTS",
+        {dl_id: (account_name, vault_entry), other_dl_id: other_account},
+    )
     cid, job_id = world["candidate_id"], world["job_id"]
     unique = uuid.uuid4().hex[:6]
     other_job_id = None
@@ -106,6 +116,7 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                 client_reference="42511",
                 location="Gdynia, Gdańsk lub Warszawa",
                 onsite_days_per_week=3,
+                delivery_lead_id=dl_id,
             )
         )
         other = Job(
@@ -115,6 +126,7 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
             client_id=world["client_id"],
             pipeline_template_id=world["template_id"],
             client_reference="42480",
+            delivery_lead_id=other_dl_id,
         )
         db.add(other)
         await db.flush()
@@ -194,6 +206,37 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
                 )
                 await db.commit()
 
+            # Nawet kompletna karta z danymi od innego DL-a nie może dostać
+            # jego konta, gdy rekrutacja docelowa nie ma znanego DL-a.
+            for missing_owner in (None, admin_id):
+                async with AsyncSessionLocal() as db:
+                    await db.execute(
+                        update(Job)
+                        .where(Job.id == job_id)
+                        .values(delivery_lead_id=missing_owner)
+                    )
+                    await db.commit()
+                    now = datetime.now(timezone.utc)
+                    blocked = await bot_items.load_items(
+                        db, now=now, today=business_date(now), stage_ids=[queued.id]
+                    )
+                    assert len(blocked) == 1
+                    assert blocked[0].payload is None
+                    assert bot_items.BLOCK_NO_CPRO_ACCOUNT in blocked[0].blockers
+                    with pytest.raises(flow.NotReady, match="Delivery Lead"):
+                        await flow.start_chosen(
+                            db,
+                            [queued.id],
+                            now=now,
+                            today=business_date(now),
+                            submit=False,
+                        )
+            async with AsyncSessionLocal() as db:
+                await db.execute(
+                    update(Job).where(Job.id == job_id).values(delivery_lead_id=dl_id)
+                )
+                await db.commit()
+
             sent: list[dict] = []
 
             def bot(request: httpx.Request) -> httpx.Response:
@@ -215,6 +258,13 @@ async def test_bot_sends_queued_card_and_moves_it_like_wrzucone(
             body = sent[0]
             token = body["token"]
             offer = body["items"][0]["offer"]
+            # Warunki pochodzą z drugiej rekrutacji, ale konto zawsze z DL-a
+            # rekrutacji docelowej, a nie DL-a źródła ani osoby od Cpro.
+            assert body["items"][0]["cpro_account"] == {
+                "delivery_lead_id": dl_id,
+                "delivery_lead_name": account_name,
+                "vault_entry": vault_entry,
+            }
             assert body["items"][0]["request_number"] == "42511"
             assert body["items"][0]["candidate"]["citizenship"] == "Austria"
             assert body["items"][0]["data_from"] == ["42480"]

@@ -208,7 +208,7 @@ describe("CompanySignaturesPanel", () => {
     expect(screen.getByText("Wgraj podpisany plik PDF.")).toBeInTheDocument();
     const pdf = new File(["%PDF-1.7"], "umowa.pdf", { type: "application/pdf" });
     await userEvent.upload(field, pdf);
-    await userEvent.click(screen.getByRole("button", { name: /Wgraj podpisaną za B2B Network/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Wgraj podpisaną za B2Bnetwork/ }));
     await waitFor(() => expect(mocks.companySign).toHaveBeenCalledWith(3, pdf));
     expect(mocks.showSuccess).toHaveBeenCalledWith("Umowa podpisana przez obie strony.");
   });
@@ -568,7 +568,7 @@ describe("CompanySignaturesPanel przy błędzie (audyt 22.10, F87)", () => {
     mocks.mine.mockRejectedValue(new Error("500"));
     wrap(<CompanySignaturesPanel />);
     expect(
-      await screen.findByText(/Nie udało się wczytać umów do podpisu za B2B Network/),
+      await screen.findByText(/Nie udało się wczytać umów do podpisu za B2Bnetwork/),
     ).toBeInTheDocument();
     mocks.mine.mockResolvedValue([]);
     await userEvent.click(screen.getByRole("button", { name: "Ponów" }));

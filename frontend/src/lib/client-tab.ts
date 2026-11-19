@@ -43,7 +43,10 @@ export type ClientTab =
   // Makieta 18.11.2026: karty z prawej kolumny Profilu jako podzakładki
   // grupy „Rekrutacje” — materiały dla rekruterów i konflikty z kandydatami.
   | "materialy"
-  | "konflikty";
+  | "konflikty"
+  // Konsultanci u klienta (18.11.2026): umowa + bieżące zamówienie + „Wymaga
+  // uwagi” — zastępuje sekcję w Przeglądzie i rejestr klienta w Kontraktach.
+  | "konsultanci";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
@@ -63,6 +66,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "stawki-ramowe",
   "materialy",
   "konflikty",
+  "konsultanci",
 ] as const;
 
 /**

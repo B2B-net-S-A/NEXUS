@@ -51,10 +51,10 @@ import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 const REVIEW_TAG = "atlas: do przejrzenia";
 
 type Tab = "overview" | "people" | "contacts" | "decision-map" | "activities" | "files";
-const TABS: { value: Tab; label: string }[] = [
+const TABS: { value: Tab; label: React.ReactNode }[] = [
   { value: "overview", label: "Przegląd" },
   { value: "people", label: "Kogo znamy" },
-  { value: "contacts", label: "Kontakty" },
+  { value: "contacts", label: <span data-tour="sales.company.contacts-tab">Kontakty</span> },
   { value: "decision-map", label: "Mapa decydentów" },
   { value: "activities", label: "Aktywności" },
   { value: "files", label: "Pliki" },

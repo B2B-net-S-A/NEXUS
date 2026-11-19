@@ -29,6 +29,25 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
   Bezpiecznik Graph jest osobny dla tej skrzynki (`mail_circuit.sender_scope`).
 - **Bez Reply-To i bez zachęty do odpowiedzi** (decyzja Artura 17.11.2026: „nie chcemy,
   żeby odpisywali na maile, tylko wypełniali formularz”). Stopka mówi „nie odpowiadaj”.
+- **Format (etap 0, 18.11.2026):** mail z linkiem ma część tekstową obok HTML
+  i nagłówki `List-Unsubscribe` + `List-Unsubscribe-Post: List-Unsubscribe=One-Click`
+  wskazujące `POST {PUBLIC_API_BASE_URL}/api/public/candidate-terms/<token>/opt-out`
+  (Gmail i Yahoo wymagają tego od nadawców masowych). JSON Graph przyjmuje tylko
+  nagłówki `x-*`, więc taki mail idzie przez `sendMail` w MIME
+  (`app_mail._mime_body`). Samo podziękowanie nie ma tokenu, więc nie ma nagłówka.
+  Nie dawaj `mailto:` w wypisie: MX domeny wskazuje hosting, nie M365.
+  MIME serializuj z `policy.SMTP.clone(max_line_length=998)`: przy domyślnych 78
+  znakach adres wypisu z tokenem wychodził jako `=?utf-8?q?...?=` i Gmail go nie
+  uznawał (T3 18.11.2026: dostarczenie i SPF/DKIM/DMARC = PASS, nagłówek zakodowany,
+  `List-Unsubscribe-Post` nie dotarł).
+- **Wygląd „Pasek postępu” (decyzja Artura 18.11.2026, makiety
+  https://claude.ai/artifact/CqKhX41iCPVCwQJyam4ruR):** nagłówek z logo i stanowiskiem,
+  „30 sekund.” i pasek z trzech odcinków (Zgłoszenie ✓, CV ✓, Twoje warunki), zdanie
+  z tematami formularza zamiast wypunktowania, przycisk „Dokończ w 30 sekund”. Wypis,
+  informacja o danych i dane spółki są na końcu i nic pod nimi nie stoi (logo tylko
+  w nagłówku), bo Gmail zwija powtarzającą się stopkę w drugim mailu wątku. Ciemny
+  wygląd przez `prefers-color-scheme` z jasnym logo. Samo podziękowanie nie ma paska
+  ani „30 sekund”. Artur odrzucił listę pięciu tematów w mailu: zostaje jedno zdanie.
 - **Wysyłka:** pętla `candidate_terms_sender` co 5 min, 8:00–20:00 Warszawa,
   limit `CANDIDATE_TERMS_DAILY_LIMIT` (400). Zgłoszenia sprzed włączenia rodzaju
   odpadają (`before_enabled`), nie ma zaległości. Na stagingu pętla zablokowana
@@ -57,5 +76,7 @@ Pomiar na kopii z 15.11: 5 066 osób z ogłoszeń w 30 dni, 94% bez stawki i try
 - Nie wysyłaj tych maili ze skrzynki zespołowej (`M365_MAIL_SENDER_UPN`).
 - Nie pokazuj na stronie formularza danych z profilu — link bywa przekazywany dalej.
 - Nie dodawaj piksela śledzącego ani skracacza linków (dostarczalność).
+- Próbny mail (T3): Coolify Ops → `candidate-terms-mail-probe` (`.github/scripts/candidate_terms_mail_probe.py`),
+  stan skrzynki i uprawnień: `docs/m365-system-mail-setup.md`.
 - Nie włączaj rodzaju bez T3 (próbny mail na Gmail i skrzynkę firmową,
   nagłówki SPF/DKIM/DMARC = PASS) i T4 (pilot do 20 dziennie przez 5 dni).

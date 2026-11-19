@@ -351,7 +351,7 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
               <LinkedInPreviewCard
                 person={{
                   initial: firstName.charAt(0).toLocaleUpperCase("pl-PL"),
-                  name: `${firstName} · rekrutacje IT w B2B Network`,
+                  name: `${firstName} · rekrutacje IT w B2Bnetwork`,
                 }}
                 headline="Szukasz kolejnego projektu IT?"
                 foot="Zostaw CV — odezwę się →"

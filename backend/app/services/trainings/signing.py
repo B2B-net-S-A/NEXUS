@@ -50,14 +50,14 @@ MSG_NOT_FOR_TRAINER = "Ta umowa nie czeka na Twój podpis."
 MSG_NO_AGREEMENT = "Umowa nie jest jeszcze gotowa do podpisu."
 MSG_NO_PARTNER = "W umowie brakuje imienia i nazwiska trenera. Wygeneruj ją ponownie."
 MSG_FILE_GONE = (
-    "Nie znaleźliśmy pliku umowy w NEXUSIE. Skontaktuj się z osobą z B2B Network."
+    "Nie znaleźliśmy pliku umowy w NEXUSIE. Skontaktuj się z osobą z B2Bnetwork."
 )
 MSG_RACE = "Stan umowy zmienił się w trakcie sprawdzania podpisu. Odśwież stronę."
 MSG_NOT_SIGNER = (
-    "Za B2B Network podpisuje osoba z listy reprezentantów w ustawieniach podpisu umów."
+    "Za B2Bnetwork podpisuje osoba z listy reprezentantów w ustawieniach podpisu umów."
 )
 MSG_WAITS_FOR_TRAINER = "Umowa czeka jeszcze na podpis trenera."
-MSG_NOT_FOR_COMPANY = "Ta umowa nie czeka na podpis B2B Network."
+MSG_NOT_FOR_COMPANY = "Ta umowa nie czeka na podpis B2Bnetwork."
 
 #: Kod wyroku walidacji → (status HTTP, kod dla frontu).
 _VERDICT_ERRORS: dict[str, tuple[int, str]] = {

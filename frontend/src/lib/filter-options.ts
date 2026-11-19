@@ -105,7 +105,15 @@ export const JOB_STATUS_OPTIONS: ReadonlyArray<
 // did not map to backend values — see plan "Out of scope" #1. Multi-select
 // uses backend values only, so the filter is now wire-correct.
 
-export type ContractStatusValue = "draft" | "active" | "ending" | "ended";
+// Makieta 18.11.2026: „Do podpisu” (`ready_for_signature`) — szybki filtr
+// „Do uzupełnienia” obejmuje szkic i umowę czekającą na podpis, jak dawna
+// „Obsługa kontraktorów” (`_PENDING_STATUSES` w `api/contractors.py`).
+export type ContractStatusValue =
+  | "draft"
+  | "ready_for_signature"
+  | "active"
+  | "ending"
+  | "ended";
 
 export const CONTRACT_STATUS_OPTIONS: ReadonlyArray<
   MultiSelectFilterOption<ContractStatusValue>
@@ -114,6 +122,7 @@ export const CONTRACT_STATUS_OPTIONS: ReadonlyArray<
   { value: "ending", label: "Kończące się" },
   { value: "ended", label: "Zakończone" },
   { value: "draft", label: "Draft" },
+  { value: "ready_for_signature", label: "Do podpisu" },
 ];
 
 // Słownik MUSI być lustrem `ContractType` z `backend/app/models/contract.py`.

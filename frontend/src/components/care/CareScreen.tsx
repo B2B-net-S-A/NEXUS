@@ -130,7 +130,7 @@ function canSeeBackOfficeLead(config: Pick<HrConfig, "me">): boolean {
 const TITLE = "Opieka nad konsultantami";
 const DESCRIPTION =
   "Rozmowy, sprawy i decyzje na jednej tablicy; konsultanci ze zdrowiem relacji; wiedza o klientach.";
-const CASES_ONLY_DESCRIPTION = "Sprawy administracja@ na jednej tablicy.";
+const CASES_ONLY_DESCRIPTION = "Sprawy wsparcie@ na jednej tablicy.";
 const BACK_OFFICE_TITLE = "Back office";
 const BACK_OFFICE_DESCRIPTION =
   "Kolejka spraw czterech zespołów: każdy bierze swoje, a kierownik widzi całość.";

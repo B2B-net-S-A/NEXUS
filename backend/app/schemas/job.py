@@ -19,6 +19,7 @@ from app.models.job import (
     WorkMode,
 )
 from app.schemas.candidate import _normalize_skill_list
+from app.schemas.champion import ClientProcessIn
 from app.schemas.job_ad_publication import JobAdPublicationOut
 from app.schemas.job_team import JobPreviousRecruiterOut, JobRecruiterOut
 from app.schemas.matching_requirements import MatchingRequirements
@@ -122,6 +123,9 @@ class JobCreate(BaseModel):
     # do searchu + publikacja w JEDNEJ transakcji. Brak czegokolwiek, czego
     # wymaga bramka przekazania, = 422 ``job_not_ready`` i żadnego wiersza.
     champion_profile: dict
+    # Proces u klienta (18.11.2026): etapy po wysłaniu CV i termin decyzji.
+    # Brak = rekrutacja bez procesu (dopisuje się go potem z nagłówka).
+    client_process: Optional[ClientProcessIn] = None
     hiring_manager: "JobCreateHiringManager"
     handoff: "JobHandoffRequest"
     # Rekrutacje wskazane jako podobne już przy tworzeniu (ta sama bramka

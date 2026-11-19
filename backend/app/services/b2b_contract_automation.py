@@ -48,7 +48,7 @@ from app.services.cost_orders import skips_standard_order_automation
 from app.services.multi_consultant_orders import is_multi_consultant_client
 from app.services.order_engagement_separation import has_open_group_line
 from app.services.order_rate_snapshots import inherited_order_rate_fields
-from app.services.order_types import suggested_order_type
+from app.services.order_types import most_common_order_type
 from app.services.priority_work_policy import PriorityWorkLocked
 from app.services.recruitment_process_commands import transition_process
 
@@ -745,7 +745,11 @@ async def _ensure_open_order(
 
     candidate_name = f"{candidate.name} {candidate.lastname}".strip()
     from_signed_confirmation = source == "signed_generated_contract"
-    suggested_type = await suggested_order_type(db, job.client_id)
+    # Typ, w którym klient się rozlicza (najczęstszy), nie typ ostatnio
+    # założonego zamówienia. Zgłoszenie 18.11.2026 (BNP 4643_2026): u klienta
+    # z 50 zamówieniami MD na 51 szkic po podpisie wyszedł okresowy i tak
+    # został aktywowany — bez budżetu MD i bez zużycia z importów.
+    suggested_type = await most_common_order_type(db, job.client_id)
     # U klienta wielo-konsultantowego tytuł szkicu to przyszły NUMER GRUPY
     # (materializacja przy aktywacji). Tytuł-imię przechodziłby bramkę
     # aktywacji jako „numer" i zakładał grupę „Jan Kowalski — Java Developer";

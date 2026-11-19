@@ -97,6 +97,9 @@ const ul = (items: string[]) => `<ul>${items.map((i) => `<li>${esc(i)}</li>`).jo
 
 /** Uproszczony odpowiednik `services/job_ad/render.py` — tylko dla harnessu. */
 function renderForHarness(content: AdContent, tech: AdTechItem[]): RenderedAd {
+  // Własne etapy zastępują stały blok — jak `render._process`.
+  const steps = content.process?.length ? content.process : FIXED_PROCESS;
+  const processFixed = content.process?.length ? 0 : FIXED_PROCESS.length;
   const title = `${content.title} (k/m/x)`;
   const terms = [
     "kontrakt B2B",
@@ -159,9 +162,9 @@ function renderForHarness(content: AdContent, tech: AdTechItem[]): RenderedAd {
     section("offer", "Co oferujemy", [...content.offer, ...FIXED_OFFER], {
       fixed_count: FIXED_OFFER.length,
     }),
-    section("process", "Jak wygląda proces", FIXED_PROCESS, {
+    section("process", "Jak wygląda proces", steps, {
       kind: "ordered",
-      fixed_count: FIXED_PROCESS.length,
+      fixed_count: processFixed,
     }),
     section("company", null, FIXED_ABOUT),
   ].filter((item): item is RenderedSection => item !== null);
@@ -197,9 +200,9 @@ function renderForHarness(content: AdContent, tech: AdTechItem[]): RenderedAd {
           "Technologie mile widziane",
           stack.filter((t) => t.level === "nice").map((t) => t.name),
         ),
-        list("process", "Etapy rekrutacji", FIXED_PROCESS, {
+        list("process", "Etapy rekrutacji", steps, {
           kind: "ordered",
-          fixed_count: FIXED_PROCESS.length,
+          fixed_count: processFixed,
         }),
       ],
     },

@@ -37,7 +37,7 @@ function mailboxCheck(start: SettlementsStart): Check {
     return {
       key: "mailbox",
       tone: "danger",
-      text: "Skrzynka rozliczenia@ nie jest ustawiona",
+      text: "Skrzynka dla czytnika rozliczeń nie jest ustawiona",
       note: "zmienna skrzynki",
     };
   }
@@ -45,21 +45,37 @@ function mailboxCheck(start: SettlementsStart): Check {
     return {
       key: "mailbox",
       tone: "success",
-      text: "Czytnik rozliczenia@ działa",
+      text: "Czytnik rozliczeń działa",
+    };
+  }
+  if (box.last_status === "error" && box.last_error === "shared_without_route") {
+    return {
+      key: "mailbox",
+      tone: "danger",
+      text: "Skrzynka rozliczeń jest wspólna ze sprawami, a brak adresu rozliczeń",
+      note: "zmienna adresów rozliczeń (E8)",
+    };
+  }
+  if (box.last_status === "error" && box.last_error === "route_not_shared") {
+    return {
+      key: "mailbox",
+      tone: "danger",
+      text: "Adres rozliczeń ustawiony, ale skrzynka spraw jest inna niż skrzynka rozliczeń",
+      note: "skrzynka spraw = skrzynka rozliczeń (E8)",
     };
   }
   if (box.last_status === "error") {
     return {
       key: "mailbox",
       tone: "danger",
-      text: `Czytnik rozliczenia@ nie ma dostępu (${box.last_error ?? "błąd"})`,
+      text: `Czytnik rozliczeń nie ma dostępu (${box.last_error ?? "błąd"})`,
       note: "M365: Mail.Read dla „NEXUS Kadry”",
     };
   }
   return {
     key: "mailbox",
     tone: "warning",
-    text: "Czytnik rozliczenia@ jeszcze nie ruszył",
+    text: "Czytnik rozliczeń jeszcze nie ruszył",
     note: "rusza co 15 min po włączeniu",
   };
 }

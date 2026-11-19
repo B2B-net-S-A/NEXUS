@@ -227,7 +227,7 @@ export const HR_MODULE_LABELS: Record<HrModuleKey, string> = {
   payroll: "Rozliczenia i premie",
   lifecycle: "Wejście i odejście",
   care: "Opieka nad konsultantami",
-  cases: "Sprawy administracja@",
+  cases: "Sprawy wsparcie@",
   equipment: "Sprzęt i protokoły",
   settlements: "Rozliczenia zespołu",
   approvals: "Zgody na wydatki i premie poza umową",

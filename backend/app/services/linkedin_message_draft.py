@@ -108,7 +108,7 @@ def _profile_block(profile: ProfileRead) -> str:
 
 def _signature(user: User) -> str:
     first = (user.name or "").split()[0] if user.name else "Rekruter"
-    return f"{first}, B2B Network"
+    return f"{first}, B2Bnetwork"
 
 
 def fallback_text(profile: ProfileRead, job: dict, user: User, kind: str) -> str:

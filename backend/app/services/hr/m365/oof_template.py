@@ -29,7 +29,7 @@ from app.core.scheduling import DEFAULT_TZ
 from app.services.hr.m365.oof_state import NEXUS_OOF_MARKER
 from app.services.m365.html_sanitize import html_to_text
 
-COMPANY_SIGNATURE = "B2B Network"
+COMPANY_SIGNATURE = "B2Bnetwork"
 #: Granica długości własnego tekstu (Exchange przyjmuje więcej, ale to ma być
 #: autoodpowiedź, nie list).
 CUSTOM_TEXT_LIMIT = 4000

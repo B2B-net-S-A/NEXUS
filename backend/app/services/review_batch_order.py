@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Mapping, Optional
 
 from sqlalchemy import select
 
@@ -280,15 +280,53 @@ async def order_signals_for_ids(
     db, job, candidate_ids: list[int]
 ) -> dict[int, tuple[Optional[str], bool]]:
     """Jak ``order_signals_if_enabled``, gdy w ręku są same id (Tablica)."""
-    from app.services import review_batch
-
-    if not review_batch.enabled() or not candidate_ids or job is None:
+    if job is None:
         return {}
-    people = (
+    return (await order_signals_for_jobs(db, {job.id: (job, candidate_ids)}))[job.id]
+
+
+async def order_signals_for_jobs(
+    db, boards: Mapping[int, tuple[Job, list[int]]]
+) -> dict[int, dict[int, tuple[Optional[str], bool]]]:
+    """``order_signals_for_ids`` dla wielu Tablic: ``{rekrutacja: (job, id)}``.
+
+    Osoby i polski z profilu czytane raz dla wszystkich Tablic, więc liczba
+    zapytań nie rośnie z liczbą rekrutacji (``my-next-steps``)."""
+    from app.services import review_batch
+    from app.services.review_batch_facts import polish_states_for_jobs
+    from app.services.role_family import current_position, leader_gap
+
+    out: dict[int, dict[int, tuple[Optional[str], bool]]] = {
+        job_id: {} for job_id in boards
+    }
+    live = {
+        job_id: (job, ids)
+        for job_id, (job, ids) in boards.items()
+        if job is not None and ids
+    }
+    if not review_batch.enabled() or not live:
+        return out
+    rows = (
         await db.execute(
             select(Candidate.id, *_SIGNAL_COLUMNS).where(
-                Candidate.id.in_(candidate_ids)
+                Candidate.id.in_(
+                    sorted({cid for _, ids in live.values() for cid in ids})
+                )
             )
         )
     ).all()
-    return await order_signals_if_enabled(db, job, people)
+    by_id = {row.id: row for row in rows}
+    people = {
+        job_id: [by_id[cid] for cid in dict.fromkeys(ids) if cid in by_id]
+        for job_id, (_, ids) in live.items()
+    }
+    polish = await polish_states_for_jobs(
+        db, {job_id: (job, people[job_id]) for job_id, (job, _) in live.items()}
+    )
+    for job_id, (job, _) in live.items():
+        title = getattr(job, "title", None)
+        out[job_id] = {
+            p.id: (polish[job_id].get(p.id), leader_gap(title, current_position(p)))
+            for p in people[job_id]
+        }
+    return out

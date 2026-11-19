@@ -79,7 +79,7 @@ export function preContractSteps(req: PreContractRequest): Step[] {
     },
     {
       key: "company_signed",
-      label: "Podpis za B2B Network",
+      label: "Podpis za B2Bnetwork",
       done: req.company_signed_at != null,
       meta: meta("company_signed", req.company_signed_at),
     },

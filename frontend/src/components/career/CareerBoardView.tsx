@@ -215,7 +215,7 @@ function Board({
         <div className={s.glow} aria-hidden="true" />
         <BrandArc />
         <div className={`${s.wrap} ${s.heroInner}`}>
-          <p className={s.kicker}>Kariera w B2B Network</p>
+          <p className={s.kicker}>Kariera w B2Bnetwork</p>
           <BrandTitle text="Otwarte rekrutacje IT" />
           <p className={s.lead}>
             {jobs.length > 0 ? `${openCountLabel(jobs.length)} · ` : ""}Projekty B2B — zdalnie,

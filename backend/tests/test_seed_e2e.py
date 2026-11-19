@@ -120,10 +120,11 @@ async def test_seeded_stack_does_not_send_accounts_to_start(
 ) -> None:
     """Blokada „Start w NEXUSIE” na stacku E2E jest wyłączona — scenariusze
     testują przepływ, nie Start (jak z bramką onboardingu)."""
-    from app.api.novelties import POLIGON_GATE_KEY, START_GATE_KEY
+    from app.api.novelties import DAILY_GATE_KEY, POLIGON_GATE_KEY, START_GATE_KEY
 
     assert seed_e2e.START_GATE_KEY == START_GATE_KEY
     assert seed_e2e.POLIGON_GATE_KEY == POLIGON_GATE_KEY
+    assert seed_e2e.DAILY_GATE_KEY == DAILY_GATE_KEY
     password = "E2e-Password-" + uuid.uuid4().hex[:8]
     try:
         async with AsyncSessionLocal() as db:
@@ -139,10 +140,15 @@ async def test_seeded_stack_does_not_send_accounts_to_start(
         assert start.status_code == 200, start.text
         assert start.json()["enforced"] is False
         assert start.json()["gate_on"] is False
+        daily = await app_client.get(
+            "/api/novelties/daily", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert daily.status_code == 200, daily.text
+        assert daily.json()["enforced"] is False
     finally:
         # Wspólna baza testów: przełącznik nie może przeciec do testów Startu.
         async with AsyncSessionLocal() as db:
-            for key in (START_GATE_KEY, POLIGON_GATE_KEY):
+            for key in (START_GATE_KEY, POLIGON_GATE_KEY, DAILY_GATE_KEY):
                 row = await db.get(AppSetting, key)
                 if row is not None:
                     await db.delete(row)

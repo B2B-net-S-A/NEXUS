@@ -19,7 +19,7 @@ import { ReasonDialog } from "./ReasonDialog";
 
 const CHANNEL_LABELS: Record<StaffDocument["channel"], string> = {
   portal: "z portalu",
-  mailbox: "z rozliczenia@",
+  mailbox: "z poczty rozliczeniowej",
 };
 
 function DocumentRow({ document_ }: { document_: StaffDocument }) {

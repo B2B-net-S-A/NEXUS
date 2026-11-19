@@ -7,7 +7,7 @@ import { requestDisplayHost } from "@/lib/career/host";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "Rekrutacja IT — B2B Network";
+export const alt = "Rekrutacja IT — B2Bnetwork";
 export const dynamic = "force-dynamic";
 
 /**

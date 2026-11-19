@@ -53,6 +53,8 @@ class AdContent(BaseModel):
     offer_hidden: list[Item] = Field(
         default_factory=list, max_length=generate.OFFER_HIDDEN_MAX
     )
+    # Własne etapy rekrutacji; puste = stały blok firmy.
+    process: list[Item] = Field(default_factory=list, max_length=generate.PROCESS_MAX)
 
 
 class AdTechItem(BaseModel):

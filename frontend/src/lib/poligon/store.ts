@@ -89,6 +89,7 @@ export type PoligonAction =
 export const POLIGON_ID_MIN = 990_000;
 /** Zapis zaliczonego ćwiczenia (`novelty_progress`, id `poligon-…`) — idzie do API. */
 export const POLIGON_PROGRESS = /^\/api\/novelties\/poligon-[a-z0-9-]+\/events$/;
+const NOVELTY_EVENTS = /^\/api\/novelties\/[a-z0-9-]+\/events$/;
 export const POLIGON_ID_MAX = 999_999;
 const DAY_MS = 86_400_000;
 /** Bramka „Zweryfikowany” działa tylko przy wejściu z tych kolumn (serwer:
@@ -630,6 +631,9 @@ export function createPoligonStore(dataset: PoligonDataset, now: number = Date.n
     // Od tego miejsca tylko zapisy. Jedyny, który wychodzi z przeglądarki, to
     // postęp osoby na poligonie (zaliczone ćwiczenie) — dane rekrutacji nie.
     if (POLIGON_PROGRESS.test(path)) return "network";
+    // Przeklikanie nowości z porannej porcji idzie na poligonie (18.11.2026):
+    // zaliczenie ma dotrzeć na serwer. Reszta zdarzeń nowości zostaje tutaj.
+    if (NOVELTY_EVENTS.test(path) && body.event === "toured") return "network";
     if (path.startsWith("/api/novelties/")) return { status: 204, data: null };
     if (path === "/api/pipeline/move") return move(body);
     if (path === "/api/pipeline/claim") return claim(body);

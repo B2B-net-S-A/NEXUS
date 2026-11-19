@@ -1,3 +1,4 @@
+import type { ClientProcess } from "@/lib/job-client-process";
 import { forgetCvGenerationRequest } from "./cv-generation-request";
 import type { PipelineMovePayload, PipelineMoveResult } from "@/lib/pipeline-move-core";
 import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request";
@@ -3952,12 +3953,12 @@ export const b2bGeneratorApi = {
         { params: { format: "html" } },
       )
       .then((r) => r.data),
-  renderHtml: (body: B2BRenderPayload) =>
+  renderHtml: (body: B2BRenderPayload, generatedId?: number) =>
     api
       .post<{ html: string; contract_number: string | null }>(
         "/api/b2b-generator/render",
         body,
-        { params: { format: "html" } },
+        { params: { format: "html", preview_generated_id: generatedId } },
       )
       .then((r) => r.data),
   companyLookup: (params: { nip?: string; krs?: string }) =>
@@ -5683,6 +5684,8 @@ export interface ChampionProfile {
   client_history?: ClientHistorySummary;
   verification?: ChampionVerification;
   briefing?: ChampionBriefing;
+  /** Proces u klienta (18.11.2026) — osobna trasa zapisu, `lib/job-client-process.ts`. */
+  client_process?: ClientProcess | null;
   /**
    * Ingest provenance (`app/schemas/champion.py::ChampionProfile.provenance`,
    * flattened back onto the top level by its custom `model_dump`). Present

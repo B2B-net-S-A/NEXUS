@@ -154,7 +154,7 @@ async def notify_assignee(
         db,
         [case.assignee_user_id],
         exclude=[actor_id],
-        title="Przypisano Ci sprawę administracja@",
+        title="Przypisano Ci sprawę wsparcie@",
         message=case.title,
         ntype=NotificationType.admin_case_assigned,
         related_entity_type=ENTITY,

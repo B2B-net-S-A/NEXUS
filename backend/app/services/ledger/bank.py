@@ -38,6 +38,7 @@ koniec okresu — K4c-2.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
 import hashlib
 import re
@@ -47,7 +48,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import and_, delete, func, select, text
+from sqlalchemy import and_, delete, func, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_sales_invoice import (
@@ -226,18 +227,26 @@ async def _sales_accounts(
             select(ClientSalesInvoice).where(ClientSalesInvoice.id.in_(invoice_ids))
         )
     )
-    out: dict[int, tuple[Optional[int], Optional[str]]] = {}
-    for invoice in invoices:
-        party = None
-        for key in sources.buyer_keys(invoice):
-            party = await db.scalar(
-                select(FinanceCounterparty).where(
-                    FinanceCounterparty.id_type == key[0],
-                    FinanceCounterparty.id_value == key[1],
+    keys = {key for invoice in invoices for key in sources.buyer_keys(invoice)}
+    parties: dict[tuple[str, str], FinanceCounterparty] = {}
+    if keys:
+        # Jedno zapytanie zamiast jednego na fakturę i klucz (import 18.11.2026).
+        for party in await db.scalars(
+            select(FinanceCounterparty)
+            .where(
+                tuple_(FinanceCounterparty.id_type, FinanceCounterparty.id_value).in_(
+                    keys
                 )
             )
-            if party is not None:
-                break
+            .order_by(FinanceCounterparty.id)
+        ):
+            parties.setdefault((party.id_type, party.id_value), party)
+    out: dict[int, tuple[Optional[int], Optional[str]]] = {}
+    for invoice in invoices:
+        party = next(
+            (parties[key] for key in sources.buyer_keys(invoice) if key in parties),
+            None,
+        )
         if party is None:
             out[invoice.id] = (None, None)
             continue
@@ -485,9 +494,15 @@ async def nbp_rates(
     return {day: Decimal(found[rate]) for day, rate in wanted.items()}
 
 
+def _money(amount: Decimal) -> str:
+    """Kwota do komunikatu: ``-1 234,50``."""
+
+    return f"{amount:,.2f}".replace(",", " ").replace(".", ",")
+
+
 def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> None:
-    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, jedna waluta,
-    jeden miesiąc."""
+    """Plik musi dać się zaksięgować jednym WB: jeden rachunek, saldo zgodne
+    z operacjami, jedna waluta, jeden miesiąc."""
 
     if not lines:
         raise LedgerError("Wyciąg nie ma żadnej operacji.", status=422)
@@ -495,6 +510,17 @@ def _check_file(parsed: ParsedStatement, lines: tuple[StatementLine, ...]) -> No
         raise LedgerError(
             "Plik ma wyciągi kilku rachunków — wgraj każdy rachunek osobnym plikiem "
             "(WB księguje jeden rachunek).",
+            status=422,
+        )
+    gap = next((item for item in parsed.balances if not item.ok), None)
+    if gap is not None:
+        # Ucięty albo uszkodzony plik wszedłby po cichu z częścią operacji.
+        part = f" (wyciąg {gap.statement} w pliku)" if len(parsed.balances) > 1 else ""
+        raise LedgerError(
+            f"Saldo wyciągu się nie zgadza{part}: otwarcie {_money(gap.opening)} "
+            f"i operacje {_money(gap.movement)} dają {_money(gap.expected)}, a bank "
+            f"podaje saldo końcowe {_money(gap.closing)}. Plik jest niepełny albo "
+            "uszkodzony — pobierz go z banku jeszcze raz.",
             status=422,
         )
     file_currency(parsed, lines)
@@ -524,7 +550,9 @@ async def import_file(
     """
 
     try:
-        parsed = hr_statements.parse_file(raw)
+        # Parsowanie MT940/CAMT to czysty CPU — poza pętlą zdarzeń jedynego
+        # procesu web; ten sam wynik dostają E3, R9 i E8.
+        parsed = await asyncio.to_thread(hr_statements.parse_file, raw)
     except StatementError as exc:
         raise LedgerError(str(exc), status=422) from exc
     # Pozycja 0,00 (np. kapitalizacja bez odsetek) nie zmienia salda ani WB.
@@ -566,10 +594,18 @@ async def import_file(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
         {"key": f"hr-statement:{sha}"},
     )
-    await cost_payments.import_debits(db, raw, actor_id=viewer.user_id)
+    team = (owners, candidates)
+    await cost_payments.import_debits(
+        db, raw, actor_id=viewer.user_id, parsed=parsed, team=team
+    )
     if viewer.payroll:
         await hr_statements.import_statement(
-            db, raw, actor_id=viewer.user_id, match_credits=True
+            db,
+            raw,
+            actor_id=viewer.user_id,
+            match_credits=True,
+            parsed=parsed,
+            team=team,
         )
     else:
         await client_payments.import_credits(

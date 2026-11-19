@@ -77,6 +77,7 @@ from app.models.user import User, UserRole
 from app.schemas.champion import (
     ChampionBriefingRequest,
     ChampionVerificationRequest,
+    ClientProcessIn,
 )
 from app.schemas.job import (
     CcOverrideRequest,
@@ -1095,6 +1096,31 @@ def jobs_sent_to_client_subquery(job_ids):
         .group_by(milestones.c.job_id)
         .subquery()
     )
+
+
+@router.get("/client-process")
+async def get_client_process_hints(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+    client_id: int = Query(..., gt=0),
+    job_id: Optional[int] = Query(None, gt=0),
+) -> dict:
+    """Proces u klienta (18.11.2026): podpowiedź etapów i czas zmierzony.
+
+    ``suggested`` — etapy z najnowszej INNEJ rekrutacji klienta, która je ma
+    (``/jobs/new`` i rekrutacja bez procesu). ``measured`` — mediany z ruchów
+    kart u klienta (18 mies.) albo ``null`` poniżej 5 decyzji. Same liczby
+    i nazwy etapów, bez osób i kwot.
+    """
+    from app.services import job_client_process
+
+    return {
+        "client_id": client_id,
+        "suggested": await job_client_process.suggested_for_client(
+            db, client_id, exclude_job_id=job_id
+        ),
+        "measured": await job_client_process.measured_for_client(db, client_id),
+    }
 
 
 @router.get("")
@@ -3768,6 +3794,34 @@ async def update_champion_profile(
     return await _save_champion_profile(
         job_id, current_user, db, body, expected_profile_hash=expected
     )
+
+
+@router.put("/{job_id}/client-process")
+async def update_client_process(
+    job_id: int,
+    payload: ClientProcessIn,
+    current_user: JobEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Zapis procesu u klienta (18.11.2026) — ta sama bramka co Champion.
+
+    Osobna trasa, bo proces nie jest wymaganiem roli: nie przelicza dopasowań,
+    nie robi wersji „Co się zmieniło” i nie budzi dzwonków Championa. Pusta
+    lista etapów usuwa proces.
+    """
+    from app.services import job_client_process
+
+    job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    await ensure_champion_job_editor(job, current_user, db)
+    process = job_client_process.stamp(payload, current_user)
+    job.champion_profile = job_client_process.with_process(
+        job.champion_profile, process
+    )
+    await db.commit()
+    return {"job_id": job.id, "client_process": process}
 
 
 class ChampionChangesSeenIn(BaseModel):

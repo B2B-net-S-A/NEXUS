@@ -34,6 +34,12 @@ export interface ContractsListState {
    * zapisanego rozwiązania. Filtruje serwer (`agreement_not_terminated`).
    */
   agreementNotTerminated: boolean;
+  /**
+   * „Stawka z dokumentu” (`?rate_doc=1`, 0739): umowa albo aneks w Dokumentach
+   * podaje stawkę Partnera, której nie ma w harmonogramie. Filtruje serwer
+   * (`bucket=rate_document`).
+   */
+  rateDocument?: boolean;
   /** Zakres daty rozpoczęcia umowy (ISO `YYYY-MM-DD`, pusty = bez granicy). */
   startFrom: string;
   startTo: string;
@@ -88,6 +94,7 @@ const LIST_PARAM_NAMES = [
   "contract_type",
   "ending",
   "agreement",
+  "rate_doc",
   "start_from",
   "start_to",
   "order_end_from",
@@ -101,6 +108,7 @@ const CONTRACT_SORT_KEY_SET: ReadonlySet<string> = new Set(CONTRACT_SORT_KEYS);
 
 const CONTRACT_STATUS_VALUES = new Set<ContractStatusValue>([
   "draft",
+  "ready_for_signature",
   "active",
   "ending",
   "ended",
@@ -163,6 +171,7 @@ export function parseContractsListState(
   );
   const endingSoon = params.get("ending") === "30";
   const agreementNotTerminated = params.get("agreement") === "not_terminated";
+  const rateDocument = params.get("rate_doc") === "1";
   const rawSort = params.get("sort");
 
   return {
@@ -173,7 +182,7 @@ export function parseContractsListState(
         ? []
         : validStatuses.length > 0
           ? validStatuses
-          : endingSoon || agreementNotTerminated
+          : endingSoon || agreementNotTerminated || rateDocument
             ? []
             : [...DEFAULT_CONTRACT_STATUS_FILTER],
       typeFilter: uniqueValues(
@@ -185,6 +194,7 @@ export function parseContractsListState(
       ),
       endingSoon,
       agreementNotTerminated,
+      rateDocument,
       startFrom: validIsoDate(params.get("start_from")),
       startTo: validIsoDate(params.get("start_to")),
       orderEndFrom: validIsoDate(params.get("order_end_from")),
@@ -223,6 +233,7 @@ export function buildContractsListUrl(
   if (state.search) params.set("q", state.search);
   if (state.endingSoon) params.set("ending", "30");
   if (state.agreementNotTerminated) params.set("agreement", "not_terminated");
+  if (state.rateDocument) params.set("rate_doc", "1");
   if (state.startFrom) params.set("start_from", state.startFrom);
   if (state.startTo) params.set("start_to", state.startTo);
   if (state.orderEndFrom) params.set("order_end_from", state.orderEndFrom);

@@ -15,7 +15,7 @@ export default async function CareerNotFound() {
           <BrandTitle text="Nie znaleziono strony." />
           <p className={s.messageText}>
             Sprawdź, czy link z ogłoszenia jest kompletny — albo zobacz wszystkie otwarte
-            rekrutacje B2B Network.
+            rekrutacje B2Bnetwork.
           </p>
           <div className={`${s.actions} ${s.messageActions}`}>
             <a className={s.btn} href={homeHref}>

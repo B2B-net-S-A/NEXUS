@@ -18,14 +18,15 @@ NOW = datetime(2026, 10, 17, 12, 0, tzinfo=timezone.utc)
 def no_db(monkeypatch):
     """Rodzina klienta = sam klient; umowy ma osoba 2."""
 
-    async def family(_db, client_id):
-        return {client_id}
+    # Od 19.11.2026 jedna droga z wariantem hurtowym (wiele Tablic naraz).
+    async def families(_db, client_ids):
+        return {client_id: {client_id} for client_id in client_ids}
 
     async def with_contract(_db, *, candidate_ids, client_ids):
-        return {cid for cid in candidate_ids if cid == 2}
+        return {cid: set(client_ids) for cid in candidate_ids if cid == 2}
 
-    monkeypatch.setattr(reminder, "job_client_family", family)
-    monkeypatch.setattr(reminder, "candidates_with_contract", with_contract)
+    monkeypatch.setattr(reminder, "job_client_families", families)
+    monkeypatch.setattr(reminder, "contract_client_ids", with_contract)
 
 
 @pytest.mark.asyncio

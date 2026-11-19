@@ -20,24 +20,24 @@ export const PANEL_STATE_OPTIONS: readonly { value: PanelState; label: string; c
   {
     value: "off",
     label: "Wyłączony",
-    confirm: "Czytnik rozliczenia@ stanie, sesje konsultantów zostaną zamknięte, maile do nich przestaną wychodzić.",
+    confirm: "Czytnik rozliczeń stanie, sesje konsultantów zostaną zamknięte, maile do nich przestaną wychodzić.",
   },
   {
     value: "internal",
     label: "Tylko zespół",
     confirm:
-      "Czytnik rozliczenia@ bierze pliki od wszystkich osób z kontraktem, a Finanse i back office widzą je w NEXUSIE. Konsultanci nie wejdą do panelu i nie dostaną żadnego maila.",
+      "Czytnik rozliczeń bierze pliki od wszystkich osób z kontraktem, a Finanse i back office widzą je w NEXUSIE. Konsultanci nie wejdą do panelu i nie dostaną żadnego maila.",
   },
   {
     value: "pilot",
     label: "Pilotaż",
-    confirm: "Wejdą tylko osoby z ręczną aktywacją; tylko ich maile czyta czytnik rozliczenia@.",
+    confirm: "Wejdą tylko osoby z ręczną aktywacją; tylko ich maile czyta czytnik rozliczeń.",
   },
   {
     value: "all",
     label: "Wszyscy",
     confirm:
-      "Wejdą osoby z aktywacją, a czytnik rozliczenia@ bierze pliki od wszystkich. To wysyłka do ludzi spoza firmy: maile o przyjęciu i poprawkach dostaną osoby z aktywnym panelem.",
+      "Wejdą osoby z aktywacją, a czytnik rozliczeń bierze pliki od wszystkich. To wysyłka do ludzi spoza firmy: maile o przyjęciu i poprawkach dostaną osoby z aktywnym panelem.",
   },
 ];
 

@@ -913,6 +913,7 @@ export function ClientsListV2({
                         <div className="flex items-center gap-2">
                           <Link
                             href={`/clients/${item.client_id}`}
+                            data-tour="clients.list.row"
                             className="flex min-w-0 items-center gap-3 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <Avatar size="sm">

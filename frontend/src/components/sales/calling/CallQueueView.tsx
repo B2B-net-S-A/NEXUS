@@ -196,7 +196,13 @@ export function CallingActions() {
   if (!hasPermission(user, "sales_edit")) return null;
   return (
     <>
-      <Button size="sm" variant="outline" className="h-7" onClick={() => setCampaignsOpen("list")}>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7"
+        data-tour="sales.calling.campaigns"
+        onClick={() => setCampaignsOpen("list")}
+      >
         Kampanie
       </Button>
       <Button

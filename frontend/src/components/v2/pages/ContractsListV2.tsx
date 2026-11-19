@@ -1,5 +1,7 @@
 "use client";
 
+import { RateDocumentRowNote } from "@/components/contracts/rate-documents/RateDocumentRowNote";
+import type { RateDocumentChange } from "@/lib/api/contractRateDocuments";
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from"react";
 import Link from"next/link";
 import dynamic from"next/dynamic";
@@ -18,8 +20,10 @@ import {
  TrendingUp,
  X,
 } from"lucide-react";
-import api from"@/lib/api";
+import api, { contractorsApi, type ContractorListItem } from"@/lib/api";
+import { DraftCompletionModal } from "@/components/v2/modals/DraftCompletionModal";
 import { cn, formatCurrency, formatDate } from"@/lib/utils";
+import { CONTRACT_FIELD_LABELS } from "@/lib/api-error";
 import { contractRateUnitSuffix } from"@/lib/rate-unit";
 import { useDebouncedValue } from"@/lib/use-debounced-value";
 import { resolveViewState } from"@/lib/view-state";
@@ -79,9 +83,14 @@ import {
  takeContractsListScroll,
 } from "@/lib/contracts-list-navigation";
 import { localTodayIso } from "@/lib/client-order-list";
-import { hasAnyPermission, hasPermission } from "@/lib/permissions";
+import { hasAnyPermission, hasPermission, permissionLabel } from "@/lib/permissions";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
+import {
+ canManageCandidateFinance,
+ hasAnalyticsCapability,
+ hasRole,
+ useAuthStore,
+} from "@/store/auth";
 
 // Panel ładowany leniwie: niesie okna zakończenia, aneksów i dokumentów, których
 // lista bez otwartego panelu nie potrzebuje.
@@ -131,6 +140,12 @@ interface ContractGroupMemberRow {
 interface ContractRow {
  id: number;
  candidate_id?: number | null;
+ client_id?: number | null;
+ work_mode?: "remote" | "hybrid" | "onsite" | null;
+ // Braki szkicu z serwera (bramka aktywacji) — „Uzupełnij / Aktywuj” w wierszu.
+ missing_fields?: string[];
+ // Stawka z dokumentu, której nie ma w harmonogramie (0739, redagowana z kwotami).
+ rate_document_change?: RateDocumentChange | null;
  candidate_name?: string;
  client_name?: string;
  job_title?: string;
@@ -226,20 +241,136 @@ function hasComparableRateCurrencies(row: RateCurrencyRow): boolean {
  return clientCurrency(row).toUpperCase() === candidateCurrency(row).toUpperCase();
 }
 
-// Polish plural for "kontrakt" + matching verb (1 / 2–4 / 0,5+ forms), so the
-// banner reads correctly whether 1 or 45 contracts are expiring.
 /** Statusy, w których umowa DZIŚ obowiązuje — „kończąca się" też. */
 const RUNNING_CONTRACT_STATUSES: ReadonlySet<ContractStatusValue> = new Set(
  DEFAULT_CONTRACT_STATUS_FILTER,
 );
 
-function expiringBannerText(n: number): string {
+/**
+ * Szybkie filtry jednej listy kontraktów (makieta 18.11.2026): zastępują tryby
+ * „Obsługa kontraktorów” i „Rejestr kontraktów”, które pokazywały te same
+ * umowy w dwóch cięciach. Każdy filtr to zbiór statusów rejestru, więc
+ * licznik na pigułce i wiersze pod nią pochodzą z tego samego zapytania.
+ * „Kończące się” = jedna reguła z serwera (`bucket=ending`,
+ * `contract_service.ending_bucket_clause`): status `ending` albo żywa umowa
+ * z końcem w 30 dni — ta sama, którą liczyła „Obsługa kontraktorów”.
+ */
+type QuickFilterKey = "pending" | "running" | "ending" | "all" | "rate_document";
+const QUICK_FILTERS: ReadonlyArray<{
+ key: QuickFilterKey;
+ label: string;
+ statuses: ContractStatusValue[];
+ /** Zbiór liczy serwer (`bucket`), nie lista statusów. */
+ bucket?: "ending" | "rate_document";
+ hint: string;
+}> = [
+ {
+ key: "pending",
+ label: "Do uzupełnienia",
+ statuses: ["draft", "ready_for_signature"],
+ hint: "Szkice bez danych do aktywacji i umowy czekające na podpis.",
+ },
+ {
+ key: "running",
+ label: "Aktywne",
+ statuses: [...DEFAULT_CONTRACT_STATUS_FILTER],
+ hint: "Obowiązujące dziś: aktywne i kończące się.",
+ },
+ {
+ key: "ending",
+ label: "Kończące się",
+ statuses: [],
+ bucket: "ending",
+ hint: "Wypowiedziane i te, którym zostało 30 dni lub mniej.",
+ },
+ {
+ key: "all",
+ label: "Wszystkie",
+ statuses: [],
+ hint: "Wszystkie statusy, także zakończone.",
+ },
+ {
+ key: "rate_document",
+ label: "Stawka z dokumentu",
+ statuses: [],
+ bucket: "rate_document",
+ hint: "Umowa albo aneks w Dokumentach podaje stawkę Partnera, której nie ma w kontrakcie.",
+ },
+];
+
+function sameStatuses(a: ContractStatusValue[], b: ContractStatusValue[]): boolean {
+ return a.length === b.length && a.every((value) => b.includes(value));
+}
+
+/** Stawki ukryte przed kontem bez podglądu kwot — ten brak uzupełnia ktoś inny. */
+const FINANCE_COMPLETION_FIELDS = new Set(["rate_candidate", "rate_client"]);
+
+type DraftRowAction =
+ | { kind: "activate" }
+ | { kind: "complete"; fields: string[] }
+ | { kind: "waits-for-rates" };
+
+/**
+ * Stan szkicu w wierszu, jak w dawnej „Obsłudze kontraktorów”: stawki, których
+ * konto nie widzi, nie liczą się do braków, a szkic, któremu brakuje tylko
+ * stawek, czeka na osobę z „Stawki i kwoty: zmiana”.
+ */
+export function draftRowAction(
+ missingFields: readonly string[],
+ access: { canSeeRates: boolean; canEditRates: boolean },
+): DraftRowAction {
+ if (missingFields.length === 0) return { kind: "activate" };
+ const visible = missingFields.filter(
+ (field) => access.canSeeRates || !FINANCE_COMPLETION_FIELDS.has(field),
+ );
+ if (visible.length > 0) return { kind: "complete", fields: visible };
+ const waitsForRates =
+ !access.canEditRates &&
+ missingFields.some((field) => FINANCE_COMPLETION_FIELDS.has(field));
+ return waitsForRates
+ ? { kind: "waits-for-rates" }
+ : { kind: "complete", fields: [...missingFields] };
+}
+
+/** Polska liczba mnoga: 1 / 2–4 (bez 12–14) / reszta. */
+function pluralPl(n: number, one: string, few: string, many: string): string {
  const m10 = n % 10;
  const m100 = n % 100;
- const few = m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14);
- const noun = n === 1 ?"kontrakt" : few ?"kontrakty" :"kontraktów";
- const verb = few ?"kończą się" :"kończy się";
- return `${n} ${noun} ${verb} w ciągu 30 dni`;
+ if (n === 1) return one;
+ return m10 >= 2 && m10 <= 4 && !(m100 >= 12 && m100 <= 14) ? few : many;
+}
+
+export function missingCountLabel(n: number): string {
+ return `${n} ${pluralPl(n, "brak", "braki", "braków")}`;
+}
+
+/** Podpowiedź z nazwami brakujących pól (te same etykiety co formularz kontraktu). */
+function missingFieldsHint(fields: readonly string[]): string {
+ return `Brakuje: ${fields.map((field) => CONTRACT_FIELD_LABELS[field] ?? field).join(", ")}`;
+}
+
+/** Wiersz rejestru jako wejście okna „Uzupełnij szkic” (to samo co w panelu). */
+function draftFromRow(row: ContractRow): ContractorListItem {
+ return {
+ contract_id: row.id,
+ candidate: { id: row.candidate_id ?? 0, name: row.candidate_name ?? `Kontrakt #${row.id}`, lastname: "" },
+ client_id: row.client_id ?? null,
+ client_name: row.client_name ?? null,
+ job_title: row.job_title ?? null,
+ status: (row.status ?? "draft") as ContractorListItem["status"],
+ start_date: row.start_date ?? "",
+ end_date: row.end_date ?? null,
+ rate_candidate: row.rate_candidate ?? null,
+ rate_client: row.rate_client ?? null,
+ rate_unit: (row.rate_unit ?? "hourly") as ContractorListItem["rate_unit"],
+ currency: row.currency,
+ rate_client_currency: row.rate_client_currency ?? null,
+ rate_candidate_currency: row.rate_candidate_currency ?? null,
+ margin: row.margin ?? null,
+ contract_type: (row.contract_type ?? "b2b") as ContractorListItem["contract_type"],
+ work_mode: row.work_mode ?? null,
+ missing_fields: row.missing_fields ?? [],
+ };
 }
 
 /**
@@ -579,16 +710,16 @@ function MobileFieldLabel({ children, unit }: { children: string; unit?: string 
 interface ContractsListV2Props {
  /** Reactive search string from the App Router; omitted in isolated embeds/tests. */
  navigationSearch?: string;
- /** Przełącznik trybów modułu — pod tytułem, jak w makiecie B. */
- modeTabs?: ReactNode;
  /** Pierwsza kontrolka paska filtrów (wybór klienta). */
  toolbarLead?: ReactNode;
+ /** Przyciski z prawej strony rzędu szybkich filtrów (np. „Zamówienia z maila”). */
+ trailingActions?: ReactNode;
 }
 
 export function ContractsListV2({
  navigationSearch,
- modeTabs,
  toolbarLead,
+ trailingActions,
 }: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
  const impersonating = useAuthStore((state) => state.realUser !== null);
@@ -617,6 +748,10 @@ export function ContractsListV2({
  // Rozwiązanie umowy z wiersza listy — to samo uprawnienie co
  // „Zakończ współpracę”.
  const canRecordAgreement = !impersonating && hasPermission(user, "contract_status");
+ // „Uzupełnij” / „Aktywuj” szkicu w wierszu (dawniej tylko w „Obsłudze
+ // kontraktorów”) — „Kontrakty i zamówienia: tworzenie i edycja”.
+ const canCompleteDrafts = !impersonating && hasPermission(user, "contracts_orders_edit");
+ const [draftToComplete, setDraftToComplete] = useState<ContractorListItem | null>(null);
  const [recordAgreementFor, setRecordAgreementFor] = useState<{
  id: number;
  candidateName: string | null;
@@ -641,10 +776,15 @@ export function ContractsListV2({
  const [typeFilter, setTypeFilter] = useState<ContractTypeValue[]>(
  initialListState.state.typeFilter,
  );
- // Date-based "ending within 30 days" quick filter, driven by the banner's
- // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
- // so it always matches the date-based /api/contracts/expiring banner.
+ // „Kończące się” (18.11.2026): zbiór liczy serwer (`bucket=ending`) —
+ // status `ending` albo żywa umowa z końcem w 30 dni. Adres `?ending=30`
+ // zostaje, bo prowadzą na niego stare linki „Obsługi kontraktorów”.
  const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ // „Stawka z dokumentu” (0739): umowa albo aneks podaje stawkę, której nie
+ // ma w harmonogramie — zbiór liczy serwer (`bucket=rate_document`).
+ const [rateDocument, setRateDocument] = useState(
+ initialListState.state.rateDocument ?? false,
+ );
  // „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zakończone i kończące się
  // projekty B2B bez zapisanego rozwiązania umowy — lista zaległych porozumień.
  const [agreementNotTerminated, setAgreementNotTerminated] = useState(
@@ -683,6 +823,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  ...dateRange,
  sortBy: sort.by,
  sortDir: sort.dir,
@@ -695,6 +836,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  dateRange,
  sort,
  page,
@@ -730,6 +872,7 @@ export function ContractsListV2({
  setStatusFilter(next.statusFilter);
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
+ setRateDocument(next.rateDocument ?? false);
  setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
  startFrom: next.startFrom,
@@ -786,6 +929,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  appliedDates,
  sort,
  page,
@@ -809,7 +953,8 @@ export function ContractsListV2({
  if (debouncedSearch) params.set("q", debouncedSearch);
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
- if (endingSoon) params.set("expiring_in_days", "30");
+ if (endingSoon) params.set("bucket", "ending");
+ else if (rateDocument) params.set("bucket", "rate_document");
  if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
  if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
@@ -926,6 +1071,7 @@ export function ContractsListV2({
  statusFilter,
  typeFilter,
  endingSoon,
+ rateDocument,
  appliedDates,
  sort,
  page,
@@ -938,7 +1084,8 @@ export function ContractsListV2({
  q: debouncedSearch || undefined,
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
- expiring_in_days: endingSoon ? 30 : undefined,
+ // „Kończące się” (18.11.2026): jedna reguła z serwera, nie sama data końca.
+ bucket: endingSoon ? "ending" : rateDocument ? "rate_document" : undefined,
  agreement_not_terminated: agreementNotTerminated || undefined,
  start_from: appliedDates.startFrom || undefined,
  start_to: appliedDates.startTo || undefined,
@@ -961,11 +1108,65 @@ export function ContractsListV2({
  placeholderData: keepPreviousData,
  });
 
- const { data: expiring } = useQuery({
- queryKey: ["contracts-expiring-v2"],
- queryFn: () => api.get("/api/contracts/expiring").then((r) => r.data),
- staleTime: 5 * 60 * 1000,
+ // Liczniki szybkich filtrów: ta sama trasa i ten sam zakres co lista
+ // (Delivery Lead — swój portfel), tylko status. Bez wyszukiwania i dat,
+ // żeby pigułka mówiła, ile jest w module, a nie w bieżącym zawężeniu.
+ const quickCounts = useQuery({
+ queryKey: ["contracts-quick-counts"],
+ staleTime: 60_000,
+ queryFn: async () => {
+ const entries = await Promise.all(
+ QUICK_FILTERS.map(async (filter) => {
+ const response = await api.get("/api/contracts", {
+ params: {
+ status: filter.statuses.length ? filter.statuses : undefined,
+ bucket: filter.bucket,
+ group_by_candidate: true,
+ page: 1,
+ // Pigułka potrzebuje samej sumy, nie wierszy.
+ page_size: 1,
+ },
+ paramsSerializer: { indexes: null },
  });
+ const total: number =
+ response.data?.contracts_total ?? response.data?.total ?? 0;
+ return [filter.key, total] as const;
+ }),
+ );
+ return Object.fromEntries(entries) as Record<QuickFilterKey, number>;
+ },
+ });
+ // Ostrzeżenie o szkicach bez danych z dawnej „Obsługi kontraktorów”
+ // (`drafts_incomplete` z `/api/contractors/stats`, ta sama bramka podglądu).
+ const draftStats = useQuery({
+ queryKey: ["contractors-stats-v2"],
+ enabled: hasPermission(user, "delivery_view"),
+ staleTime: 60_000,
+ queryFn: () => contractorsApi.stats().then((r) => r.data),
+ });
+ const incompleteDrafts = draftStats.data?.drafts_incomplete ?? 0;
+ const activeQuickFilter: QuickFilterKey | null = agreementNotTerminated
+ ? null
+ : rateDocument
+ ? statusFilter.length === 0
+ ? "rate_document"
+ : null
+ : endingSoon
+ ? statusFilter.length === 0
+ ? "ending"
+ : null
+ : (QUICK_FILTERS.find(
+ (filter) => !filter.bucket && sameStatuses(filter.statuses, statusFilter),
+ )?.key ?? null);
+ const selectQuickFilter = (key: QuickFilterKey) => {
+ const filter = QUICK_FILTERS.find((item) => item.key === key);
+ if (!filter) return;
+ setStatusFilter([...filter.statuses]);
+ setEndingSoon(filter.bucket === "ending");
+ setRateDocument(filter.bucket === "rate_document");
+ setAgreementNotTerminated(false);
+ setPage(1);
+ };
 
  const items = useMemo<ContractRow[]>(() => data?.items ?? [], [data]);
  const total = data?.total ?? 0;
@@ -1027,11 +1228,6 @@ export function ContractsListV2({
  visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
 
- const expiringCount = useMemo(
- () => (Array.isArray(expiring) ? expiring.length : expiring?.total ?? 0),
- [expiring]
- );
-
  // Kolejność wierszy na ekranie = kolejność ↑/↓. Wiersz osoby otwiera umowę
  // główną (`c.id`), pas klienta — umowę tego klienta.
  const rowKeys = useMemo(
@@ -1081,6 +1277,7 @@ export function ContractsListV2({
  typeFilter,
  endingSoon,
  agreementNotTerminated,
+ rateDocument,
  appliedDates,
  ]);
  const previousFilters = useRef(filtersSignature);
@@ -1174,6 +1371,21 @@ export function ContractsListV2({
  onClose={() => setRecordAgreementFor(null)}
  />
  )}
+ {canCompleteDrafts && draftToComplete && (
+ <DraftCompletionModal
+ contractor={draftToComplete}
+ open={!!draftToComplete}
+ onOpenChange={(open) => {
+ if (!open) setDraftToComplete(null);
+ }}
+ onActivated={() => {
+ setDraftToComplete(null);
+ queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+ queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
+ queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
+ }}
+ />
+ )}
  {canExport && (
  <PlacementsExportDialog
  open={placementsOpen}
@@ -1192,7 +1404,62 @@ export function ContractsListV2({
  </div>
  </div>
 
- {modeTabs}
+ <div className="flex flex-wrap items-center gap-2">
+ <div
+ role="group"
+ aria-label="Szybkie filtry kontraktów"
+ data-tour="contracts.quick-filters"
+ className="flex flex-wrap items-center gap-1.5"
+ >
+ {QUICK_FILTERS.map((filter) => {
+ const selected = activeQuickFilter === filter.key;
+ const count = quickCounts.data?.[filter.key];
+ return (
+ <button
+ key={filter.key}
+ type="button"
+ data-tour={filter.key === "rate_document" ? "contracts.rate-document" : undefined}
+ aria-pressed={selected}
+ title={filter.hint}
+ onClick={() => selectQuickFilter(filter.key)}
+ className={cn(
+ "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors pointer-coarse:h-10",
+ "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+ selected
+ ? "border-primary bg-primary/10 text-primary"
+ : "border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground",
+ )}
+ >
+ {filter.label}
+ {count !== undefined ? (
+ <span
+ className={cn(
+ "rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums",
+ selected ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+ )}
+ >
+ {count}
+ </span>
+ ) : null}
+ </button>
+ );
+ })}
+ </div>
+ <div className="ml-auto flex flex-wrap items-center gap-2">
+ {incompleteDrafts > 0 && activeQuickFilter !== "pending" ? (
+ <button
+ type="button"
+ onClick={() => selectQuickFilter("pending")}
+ title="Pokaż szkice do uzupełnienia"
+ className="flex h-8 items-center gap-1.5 rounded-md border border-warning/25 bg-warning-muted px-2 text-xs font-semibold text-warning-muted-foreground hover:border-warning/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10"
+ >
+ <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+ {`${incompleteDrafts} ${pluralPl(incompleteDrafts, "szkic", "szkice", "szkiców")} z brakami`}
+ </button>
+ ) : null}
+ {trailingActions}
+ </div>
+ </div>
 
  {/* Filtry — wszystkie kontrolki mają 32 px wysokości (h-8). */}
  <div className="flex flex-wrap items-center gap-2">
@@ -1309,6 +1576,7 @@ export function ContractsListV2({
  setAgreementNotTerminated(true);
  setStatusFilter([]);
  setEndingSoon(false);
+ setRateDocument(false);
  }
  setPage(1);
  }}
@@ -1329,7 +1597,7 @@ export function ContractsListV2({
  <X className="h-3.5 w-3.5" />
  </Button>
  )}
- {endingSoon && (
+ {endingSoon && activeQuickFilter !== "ending" && (
  <Button
  size="sm"
  variant="outline"
@@ -1339,39 +1607,9 @@ export function ContractsListV2({
  setPage(1);
  }}
  >
- Kończące się w ciągu 30 dni
+ Kończące się
  <X className="h-3.5 w-3.5" />
  </Button>
- )}
- {/* Baner „kończą się w ciągu 30 dni" — w linii paska filtrów, nie jako
- osobna karta nad tabelą. „Pokaż" działa jak dotąd. */}
- {expiringCount > 0 && (
- <div
- role="status"
- className="ml-auto flex h-8 items-center gap-2 rounded-md border border-warning/25 bg-warning-muted px-2 text-xs text-warning-muted-foreground"
- title="Sprawdź, czy wymagają przedłużenia albo wypowiedzenia."
- >
- <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
- <span className="font-semibold">{expiringBannerText(expiringCount)}</span>
- <Button
- size="sm"
- variant="outline"
- className="h-6 px-2"
- onClick={() => {
- // Surface exactly the contracts the banner counts. The banner reads
- // the date-based /api/contracts/expiring (end_date within 30 days),
- // so filter the list the same way via `expiring_in_days` — not the
- // stored `ending` status, which is a cron-maintained set disjoint
- // from the banner's and would show the wrong rows (or none).
- setEndingSoon(true);
- setStatusFilter([]);
- setSearch("");
- setPage(1);
- }}
- >
- Pokaż
- </Button>
- </div>
  )}
  </div>
 
@@ -1390,7 +1628,7 @@ export function ContractsListV2({
  setToast(msg);
  setTimeout(() => setToast(null), 3500);
  queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
- queryClient.invalidateQueries({ queryKey: ["contracts-expiring-v2"] });
+ queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
  setSelectedIds(new Set());
  }}
  />
@@ -1413,14 +1651,17 @@ export function ContractsListV2({
  <col className="w-[15%] @min-[1700px]:w-[13%]" />
  <col className="w-[14%] @min-[1700px]:w-[11%]" />
  <col className={cn(WIDE_ONLY_COL, "w-[13%]")} />
- <col className="w-[9.5%] @min-[1700px]:w-[7%]" />
+ {/* Makieta 18.11.2026: „umowa do DD.MM.RR” pod datą startu ma ok. 99 px,
+ a przy 1280 px kolumna miała 94 px z odstępami i tekst wchodził na
+ sąsiednią — 3 pkt procentowe z kolumn Marża i Typ (miały zapas). */}
+ <col className="w-[12.5%] @min-[1700px]:w-[7%]" />
  <col className={cn(WIDE_ONLY_COL, "w-[7%]")} />
  <col className={cn(WIDE_ONLY_COL, "w-[7%]")} />
  <col className="w-[11%] @min-[1700px]:w-[8%]" />
  <col className="w-[12%] @min-[1700px]:w-[8%]" />
  <col className="w-[12.5%] @min-[1700px]:w-[8.5%]" />
- <col className="w-[9%] @min-[1700px]:w-[7%]" />
- <col className="w-[7%] @min-[1700px]:w-[5%]" />
+ <col className="w-[7.5%] @min-[1700px]:w-[7%]" />
+ <col className="w-[5.5%] @min-[1700px]:w-[5%]" />
  <col className="w-[10%] @min-[1700px]:w-[5.5%]" />
  </>
  ) : (
@@ -1562,6 +1803,13 @@ export function ContractsListV2({
  className="max-xl:mb-3 max-xl:block max-xl:overflow-hidden max-xl:rounded-lg max-xl:border max-xl:border-border max-xl:bg-card"
  >
  {members.map((m, memberIndex) => {
+ const draftAction =
+ !multi && m.status === "draft" && c.missing_fields
+ ? draftRowAction(c.missing_fields, {
+ canSeeRates: canSeeFinance,
+ canEditRates: canManageCandidateFinance(user, m.client_id || c.client_id),
+ })
+ : null;
  const comparableMargin = hasComparableRateCurrencies(m)
  ? m.margin
  : null;
@@ -1636,6 +1884,7 @@ export function ContractsListV2({
  >
  {c.candidate_name ?? `#${c.id}`}
  </Link>
+ <RateDocumentRowNote change={c.rate_document_change} />
  {liveClientCount > 1 && (
  <div className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
  pracuje u {liveClientCount} klientów
@@ -1856,6 +2105,55 @@ export function ContractsListV2({
  ) : (
  <span className={cn("text-xs", CALM_EMPTY)}>—</span>
  )}
+ {/* Szkic (dawna „Obsługa kontraktorów”): „Uzupełnij · N braki” albo
+ „Aktywuj” dla osoby z edycją, sam opis braków dla podglądu. Tylko wiersz
+ jednej umowy — w grupie brak jest w panelu umowy. */}
+ {draftAction?.kind === "waits-for-rates" ? (
+ <span
+ className="mt-1 block text-[11px] font-medium leading-tight text-warning-muted-foreground"
+ title={`Stawki uzupełnia osoba z uprawnieniem „${permissionLabel("amounts_edit")}”`}
+ >
+ Czeka na stawki
+ </span>
+ ) : draftAction && canCompleteDrafts ? (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ setDraftToComplete(draftFromRow(c));
+ }}
+ // Kolumna Status ma przy 1280 px ok. 80 px treści: w komórce sama
+ // liczba, pełna nazwa i nazwy pól w etykiecie i podpowiedzi.
+ aria-label={
+ draftAction.kind === "activate"
+ ? "Aktywuj"
+ : `Uzupełnij · ${missingCountLabel(draftAction.fields.length)}`
+ }
+ title={
+ draftAction.kind === "activate"
+ ? "Szkic ma komplet danych do aktywacji"
+ : missingFieldsHint(draftAction.fields)
+ }
+ className="mt-1 block whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
+ >
+ {draftAction.kind === "activate"
+ ? "Aktywuj"
+ : `Uzupełnij · ${draftAction.fields.length}`}
+ </button>
+ ) : draftAction ? (
+ <span
+ className="mt-1 block whitespace-nowrap text-[11px] text-muted-foreground"
+ title={
+ draftAction.kind === "activate"
+ ? "Szkic ma komplet danych — aktywuje osoba z edycją kontraktów"
+ : missingFieldsHint(draftAction.fields)
+ }
+ >
+ {draftAction.kind === "activate"
+ ? "gotowy"
+ : missingCountLabel(draftAction.fields.length)}
+ </span>
+ ) : null}
  {/* Zgłoszenie zespołu 29.10.2026: rozwiązanie umowy podpisane
  poza NEXUSEM zapisuje się wprost z listy „Umowa nierozwiązana”. */}
  {canRecordAgreement &&

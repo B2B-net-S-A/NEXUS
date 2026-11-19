@@ -141,7 +141,7 @@ export function SendForSignatureDialog({
                     {
                       value: "nexus" as const,
                       title: "W NEXUSIE — podpis kwalifikowany",
-                      text: "Kontraktor dostaje link, podpisuje i wgrywa plik. Potem podpis za B2B Network w NEXUSIE. Podpisany PDF zostaje przy kontrakcie.",
+                      text: "Kontraktor dostaje link, podpisuje i wgrywa plik. Potem podpis za B2Bnetwork w NEXUSIE. Podpisany PDF zostaje przy kontrakcie.",
                     },
                     {
                       value: "usual" as const,
@@ -200,7 +200,7 @@ export function SendForSignatureDialog({
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label htmlFor={`esign-signer-${row.id}`}>2. Za B2B Network</Label>
+                        <Label htmlFor={`esign-signer-${row.id}`}>2. Za B2Bnetwork</Label>
                         <select
                           id={`esign-signer-${row.id}`}
                           className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
@@ -258,7 +258,7 @@ export function SendForSignatureDialog({
                           Wzory z listy klienta „Dokumenty do startu”, których jeszcze brakuje.
                           Kontraktor podpisuje wszystko pod jednym linkiem, a podpisany dokument od
                           razu trafia do jego dokumentów do startu. Umowa przejdzie do podpisu za
-                          B2B Network po ostatnim podpisanym pliku.
+                          B2Bnetwork po ostatnim podpisanym pliku.
                         </p>
                       </fieldset>
                     ) : null}

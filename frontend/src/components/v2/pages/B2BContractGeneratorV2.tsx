@@ -2765,7 +2765,8 @@ export function GeneratedContractsTab({
       durationMs: 10_000,
     });
     queryClient.invalidateQueries({ queryKey: ["b2b-generated"] });
-    queryClient.invalidateQueries({ queryKey: ["contractors-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["contracts-quick-counts"] });
     queryClient.invalidateQueries({ queryKey: ["contractors-stats-v2"] });
     queryClient.invalidateQueries({
       queryKey: ["candidate", result.candidate_id],
@@ -4919,7 +4920,9 @@ export function GeneratorForm({
       const res = saved
         ? await b2bGeneratorApi.rerenderGenerated(saved.id, payload)
         : await b2bGeneratorApi.renderDocx(payload);
-      const number = saved?.number ?? contractNumber.trim();
+      const number = String(
+        res.headers["x-contract-number"] || saved?.number || contractNumber.trim(),
+      );
       const filename = parseDispositionFilename(
         res.headers["content-disposition"] || "",
         `Umowa B2B ${number.replaceAll("/", "-")}.docx`,
@@ -4938,6 +4941,7 @@ export function GeneratorForm({
           : `Umowa ${result.number} pobrana (DOCX) i zapisana w rejestrze.`,
       );
       if (result.id !== null) {
+        setContractNumber(result.number);
         setSavedContract({
           id: result.id,
           number: result.number,
@@ -5145,7 +5149,8 @@ export function GeneratorForm({
   };
 
   const previewMut = useMutation({
-    mutationFn: () => b2bGeneratorApi.renderHtml(buildPayload(language)),
+    mutationFn: () =>
+      b2bGeneratorApi.renderHtml(buildPayload(language), activeSaved?.id ?? undefined),
     onSuccess: (d) => setPreviewHtml(d.html),
     onError: (e) => toast.showError(extractErrorMsg(e)),
   });

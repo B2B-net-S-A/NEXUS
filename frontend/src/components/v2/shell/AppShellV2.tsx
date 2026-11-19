@@ -19,8 +19,10 @@ import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
 import { PoligonBanner, PoligonLayer } from "@/components/poligon/PoligonLayer";
 import { PoligonLukiNotice } from "@/components/poligon/PoligonLukiNotice";
-import { isPoligonActive } from "@/lib/poligon/mode";
+import { isNoveltyPractice, isPoligonActive } from "@/lib/poligon/mode";
+import { NoveltyPracticeBanner } from "@/components/novelties/NoveltyPracticeBanner";
 import { useStartGate } from "@/components/novelties/useStartGate";
+import { useDailyNoveltyGate } from "@/components/novelties/useDailyNoveltyGate";
 import { PREVIEW_PATH } from "@/components/phone-preview/access";
 import { PhonePreviewRedirect } from "@/components/phone-preview/usePhonePreviewRedirect";
 import { KidsBackdrop } from "./KidsBackdrop";
@@ -161,9 +163,16 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // Start w NEXUSIE (30.10.2026): bez przeklikania najważniejszych funkcji
   // roli tylko pulpit i `/start` — reszta przekierowuje na Start.
   const startBlocked = useStartGate();
-  // Poligon NEXUSA: tryb ćwiczeń na tej karcie (sessionStorage, czytany po hydracji).
-  const [poligon, setPoligon] = useState(false);
-  useEffect(() => setPoligon(isPoligonActive()), []);
+  // Poranna porcja nowości (18.11.2026): przy pierwszym wejściu dnia najpierw
+  // przeklikanie tego, co weszło do roli, potem praca bez kropek i okien.
+  const dailyBlocked = useDailyNoveltyGate();
+  // Poligon NEXUSA: tryb ćwiczeń na tej karcie (sessionStorage, czytany po
+  // hydracji). `novelty` = ten sam tryb dla przeklikania nowości z porcji.
+  const [poligon, setPoligon] = useState<"off" | "exercises" | "novelty">("off");
+  useEffect(
+    () => setPoligon(isNoveltyPractice() ? "novelty" : isPoligonActive() ? "exercises" : "off"),
+    [],
+  );
 
   if (isLoginPage) return <>{children}</>;
   if (pathname === PREVIEW_PATH || pathname?.startsWith(`${PREVIEW_PATH}/`)) return <>{children}</>;
@@ -251,8 +260,14 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
               dolnym rogu — ostatnie przyciski strony dają się wyprzewijać
               spod niej. */}
           <div className="p-4 pb-24 md:p-6 animate-fadeIn">
-            {poligon ? <PoligonBanner /> : <PoligonLukiNotice />}
-            {startBlocked ? null : children}
+            {poligon === "novelty" ? (
+              <NoveltyPracticeBanner />
+            ) : poligon === "exercises" ? (
+              <PoligonBanner />
+            ) : (
+              <PoligonLukiNotice />
+            )}
+            {startBlocked || dailyBlocked ? null : children}
           </div>
         </main>
       </div>
@@ -278,7 +293,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       <KidsBackdrop />
       <JarvisRoot />
       {/* Kropki „Nowe”, przeklikanie i okno zmiany procesu. */}
-      {poligon ? <PoligonLayer /> : <NoveltyLayer />}
+      {poligon === "exercises" ? <PoligonLayer /> : <NoveltyLayer />}
     </div>
   );
 }

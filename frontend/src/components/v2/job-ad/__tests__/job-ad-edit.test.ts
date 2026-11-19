@@ -12,6 +12,7 @@ import {
   withoutExcerpt,
   withoutTech,
   withTechLevel,
+  withTechNames,
 } from "../job-ad-edit";
 import { CONTENT, TECH } from "./job-ad-fixtures";
 
@@ -52,10 +53,19 @@ describe("job-ad-edit — pole ogłoszenia ↔ tekst w edytorze", () => {
   });
 
   it("rozpoznaje pola, które rekruter poprawia w oknie", () => {
-    for (const key of ["title", "lead", "about", "start", "language", "offer", "requirements"]) {
+    for (const key of [
+      "title",
+      "lead",
+      "about",
+      "start",
+      "language",
+      "offer",
+      "requirements",
+      "process",
+    ]) {
       expect(isEditKey(key)).toBe(true);
     }
-    for (const key of ["terms", "fixed", "tech", "process", "", null, undefined]) {
+    for (const key of ["terms", "fixed", "tech", "tech_required", "", null, undefined]) {
       expect(isEditKey(key)).toBe(false);
     }
   });
@@ -130,5 +140,45 @@ describe("job-ad-edit — własne punkty „To oferujemy” (zgłoszenie 28.10.2
   it("ukryte punkty zapisują się razem z poprawką pola", () => {
     expect(withEdited(CONTENT, "offer", "a\nb").offer).toEqual(["a", "b"]);
     expect(sameItem(" Prywatna  opieka medyczna", "prywatna opieka medyczna")).toBe(true);
+  });
+});
+
+describe("job-ad-edit — karta Pracuj.pl: technologie i etapy (zgłoszenie 18.11.2026)", () => {
+  it("„Technologie wymagane” zachowują poziom znanych nazw, nowe są wymagane", () => {
+    expect(withTechNames(TECH, "tech_required", "java\nSpring Boot\n\n")).toEqual([
+      { name: "java", level: "critical" },
+      { name: "Spring Boot", level: "must" },
+      { name: "Kubernetes", level: "nice" },
+    ]);
+  });
+
+  it("nazwa przeniesiona do drugiej listy zmienia poziom i nie zostaje w obu", () => {
+    expect(withTechNames(TECH, "tech_required", "Java\nKafka\nKubernetes")).toEqual([
+      { name: "Java", level: "critical" },
+      { name: "Kafka", level: "must" },
+      { name: "Kubernetes", level: "must" },
+    ]);
+    expect(withTechNames(TECH, "tech_optional", "Kubernetes\nKafka\nDocker\ndocker")).toEqual([
+      { name: "Java", level: "critical" },
+      { name: "Kubernetes", level: "nice" },
+      { name: "Kafka", level: "nice" },
+      { name: "Docker", level: "nice" },
+    ]);
+  });
+
+  it("pusta lista mile widzianych usuwa tylko je", () => {
+    expect(withTechNames(TECH, "tech_optional", "")).toEqual(TECH.slice(0, 2));
+  });
+
+  it("etapy bez własnej listy otwierają się z tym, co widać na karcie", () => {
+    expect(editorText(CONTENT, "process", ["Rozmowa z rekruterem", "Rozmowa z klientem"])).toBe(
+      "Rozmowa z rekruterem\nRozmowa z klientem",
+    );
+    const own = { ...CONTENT, process: ["Rozmowa z klientem"] };
+    expect(editorText(own, "process", ["coś innego"])).toBe("Rozmowa z klientem");
+    expect(withEdited(CONTENT, "process", "  Test online \n\nRozmowa").process).toEqual([
+      "Test online",
+      "Rozmowa",
+    ]);
   });
 });

@@ -41,7 +41,7 @@ describe("jobPostingJsonLd", () => {
       title: "Senior Java Developer",
       datePosted: "2026-10-18",
       employmentType: "CONTRACTOR",
-      hiringOrganization: { name: "B2B Network" },
+      hiringOrganization: { name: "B2Bnetwork" },
       directApply: true,
       url: URL,
       jobLocation: { address: { addressLocality: "Warszawa", addressCountry: "PL" } },

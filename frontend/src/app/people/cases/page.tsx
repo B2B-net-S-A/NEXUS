@@ -29,7 +29,7 @@ export default function PeopleCasesPage() {
         ) : (
           <div className="space-y-4">
             <PageHeader
-              title="Sprawy administracja@"
+              title="Sprawy wsparcie@"
               description="Maile ze skrzynki, nowe kontrakty i odejścia zakładają sprawy same."
               density="compact"
             />

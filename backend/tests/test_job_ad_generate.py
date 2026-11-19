@@ -592,3 +592,14 @@ def test_strict_validation_explains_the_problem_in_polish(patch, message):
     value = {**fixed_blocks.DEFAULTS.as_dict(), **patch}
     with pytest.raises(ValueError, match=message):
         fixed_blocks.validate_blocks(value)
+
+
+def test_own_process_steps_are_saved_only_when_typed():
+    """Puste = etapy ze stałych części firmy. Klucz tylko przy wpisanych —
+    odcisk treści liczy się z całego słownika (jak `offer_hidden`)."""
+    assert "process" not in generate.clean_content({"offer": ["x"]}, title="Dev")
+    assert "process" not in generate.clean_content({"process": ["", "  "]}, title="Dev")
+    own = generate.clean_content(
+        {"process": ["Rozmowa  z rekruterem", "Rozmowa z klientem"]}, title="Dev"
+    )
+    assert own["process"] == ["Rozmowa z rekruterem", "Rozmowa z klientem"]

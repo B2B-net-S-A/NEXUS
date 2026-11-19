@@ -205,21 +205,37 @@ async def client_family_ids(db: AsyncSession, client_id: int) -> set[int]:
     Od rundy 9 duplikaty scalone wcześniej w źródło wskazują wprost na cel,
     więc jeden krok w każdą stronę wystarcza.
     """
-    family = {int(client_id)}
-    merged_into = await db.scalar(
-        select(Client.merged_into_client_id).where(Client.id == client_id)
-    )
-    root = int(merged_into) if merged_into else int(client_id)
-    family.add(root)
-    family.update(
-        int(cid)
-        for cid in (
+    return (await client_family_ids_for_clients(db, [client_id]))[int(client_id)]
+
+
+async def client_family_ids_for_clients(
+    db: AsyncSession, client_ids: Iterable[int]
+) -> dict[int, set[int]]:
+    """:func:`client_family_ids` dla wielu klientów — dwa zapytania niezależnie
+    od ich liczby (Tablice wielu rekrutacji naraz, „Moje następne kroki”)."""
+    ids = sorted({int(cid) for cid in client_ids})
+    if not ids:
+        return {}
+    merged_into = dict(
+        (
             await db.execute(
-                select(Client.id).where(Client.merged_into_client_id == root)
+                select(Client.id, Client.merged_into_client_id).where(
+                    Client.id.in_(ids)
+                )
             )
-        ).scalars()
+        ).all()
     )
-    return family
+    roots = {cid: int(merged_into[cid]) if merged_into.get(cid) else cid for cid in ids}
+    members: dict[int, set[int]] = {}
+    for cid, root in (
+        await db.execute(
+            select(Client.id, Client.merged_into_client_id).where(
+                Client.merged_into_client_id.in_(sorted(set(roots.values())))
+            )
+        )
+    ).all():
+        members.setdefault(int(root), set()).add(int(cid))
+    return {cid: {cid, root, *members.get(root, ())} for cid, root in roots.items()}
 
 
 def _moment(value: Optional[datetime]) -> float:

@@ -185,7 +185,7 @@
     },
     {
       "key": "cases",
-      "label": "Sprawy: skrzynka administracja@",
+      "label": "Sprawy: skrzynka wsparcie@",
       "group": "people",
       "requires": [],
       "default_roles": [

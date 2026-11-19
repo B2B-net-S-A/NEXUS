@@ -7,7 +7,7 @@ import { requestDisplayHost } from "@/lib/career/host";
 
 export const size = OG_SIZE;
 export const contentType = "image/png";
-export const alt = "Rekrutacje IT — B2B Network";
+export const alt = "Rekrutacje IT — B2Bnetwork";
 export const dynamic = "force-dynamic";
 
 /** Grafika posta dla stałego linku rekrutera: inicjał i imię, pytanie, „Zostaw CV”. */
@@ -24,11 +24,11 @@ export default async function Image({ params }: { params: Promise<{ slug: string
           firstName
             ? {
                 initial: firstName.charAt(0).toLocaleUpperCase("pl-PL"),
-                name: `${firstName} · rekrutacje IT w B2B Network`,
+                name: `${firstName} · rekrutacje IT w B2Bnetwork`,
               }
             : null
         }
-        kicker={firstName ? null : "Kariera w B2B Network"}
+        kicker={firstName ? null : "Kariera w B2Bnetwork"}
         title="Szukasz kolejnego projektu IT?"
         foot="Zostaw CV — odezwę się →"
         host={host}

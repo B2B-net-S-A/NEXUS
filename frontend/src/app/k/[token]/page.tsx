@@ -8,7 +8,7 @@ import type { Metadata } from "next";
 import { ClientPanelApp } from "@/components/v2/client-panel/ClientPanelApp";
 
 export const metadata: Metadata = {
-  title: "Panel klienta B2B Network",
+  title: "Panel klienta B2Bnetwork",
   robots: { index: false, follow: false, nocache: true },
   referrer: "no-referrer",
 };

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
@@ -22,14 +22,27 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import AdminUser, require_roles
-from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
+from app.api.section_access import (
+    INSIGHTS_SECTION_DEPENDENCIES,
+    require_section_access_any_read,
+)
 from app.core.database import get_db
 from app.core.http_headers import content_disposition
 from app.core.scheduling import business_today
 from app.models.ai_feature import AIFeatureKey
 from decimal import Decimal
 
-from app.models.board_document import BoardBudget, BoardBudgetLine, BoardDocument
+from app.models.board_document import (
+    BoardBudget,
+    BoardBudgetLine,
+    BoardCashPosition,
+    BoardDocument,
+    BoardReport,
+    BoardMeeting,
+    BoardVote,
+    BoardVoteBallot,
+)
+from app.models.finance_archive import FinanceArchiveDocument
 from app.models.user import User, UserRole
 from app.services import storage_service
 from app.services import board_documents_schema as schema
@@ -38,14 +51,31 @@ from app.services.board import krs as krs_service
 from app.services.board import reader
 from app.services.board import budget as budget_service
 from app.services.board import financials
+from app.services.board import meetings as meetings_service
+from app.services.board import votes as votes_service
+from app.services import board_votes_schema as votes_schema
+from app.services import board_meetings_schema as meetings_schema
 from app.services.board.statements import StatementError
 from app.services.board import summary as summary_service
+from app.services.board import outlook as outlook_service
+from app.services.board import people as people_service
+from app.services.board import reports as reports_service
+from app.services import board_reports_schema as reports_schema
+from app.analytics.periods import PeriodError, resolve_period
+from app.services.insights_team_signals import previous_matching_window
 from app.services import board_budget_schema as budget_schema
 from app.services.board.notify import notify_new_entries
+from app.services.section_permissions import ProductSection
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
+# Oddanie głosu (R6) to zapis członka Rady, który w sekcji Insights ma tylko
+# odczyt: bramka sekcji na poziomie „odczyt”, a uprawnienie do głosu (członek
+# ze składu uchwały) sprawdza trasa. Konto bez Insights nie dojdzie i tu.
+ballot_router = APIRouter(
+    dependencies=[Depends(require_section_access_any_read(ProductSection.insights))]
+)
 
 BoardViewer = Annotated[User, Depends(require_roles(UserRole.board))]
 
@@ -89,6 +119,274 @@ async def get_summary(
         )
     ).scalar_one()
     return data
+
+
+# ── Pulpit: gotówka, zdolność kredytowa, wycena, symulacja roku (R7) ────────
+
+
+@router.get("/outlook")
+async def get_outlook(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Kafle pulpitu: gotówka, zdolność kredytowa, wycena, symulacja roku."""
+
+    return await outlook_service.outlook(db, business_today())
+
+
+def cash_view(row: BoardCashPosition) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "as_of": row.as_of.isoformat(),
+        "amount": float(row.amount),
+        "note": row.note,
+        "updated_at": _iso(row.updated_at),
+    }
+
+
+@router.get("/cash")
+async def list_cash(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    rows = (
+        await db.execute(
+            select(BoardCashPosition).order_by(BoardCashPosition.as_of.desc()).limit(24)
+        )
+    ).scalars()
+    return {"items": [cash_view(row) for row in rows]}
+
+
+class CashBody(BaseModel):
+    as_of: date
+    amount: Decimal = Field(ge=Decimal("-1000000000"), le=Decimal("10000000000"))
+    note: Optional[str] = Field(default=None, max_length=reports_schema.NOTE_MAX)
+
+
+@router.put("/cash")
+async def put_cash(
+    body: CashBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Stan gotówki na dzień — jeden wpis na dzień, ponowny zapis go poprawia."""
+
+    if body.as_of > business_today():
+        raise HTTPException(422, "Stan gotówki podaje się na dzień, który minął.")
+    row = (
+        await db.execute(
+            select(BoardCashPosition).where(BoardCashPosition.as_of == body.as_of)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        row = BoardCashPosition(as_of=body.as_of)
+        db.add(row)
+    row.amount = body.amount
+    row.note = (body.note or "").strip() or None
+    row.updated_by = current_user.id
+    row.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(row)
+    return cash_view(row)
+
+
+@router.delete("/cash/{cash_id}", status_code=204)
+async def delete_cash(
+    cash_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(BoardCashPosition, cash_id)
+    if row is None:
+        raise HTTPException(404, "Nie ma takiego wpisu.")
+    await db.delete(row)
+    await db.commit()
+    return Response(status_code=204)
+
+
+# ── Raporty PDF i archiwum (R7) ──────────────────────────────────────────────
+
+
+def report_view(row: BoardReport) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "kind": row.kind,
+        "year": row.year,
+        "month": row.month,
+        "title": reports_service.title(row.kind, row.year, row.month),
+        "file_name": reports_service.file_name(row.kind, row.year, row.month),
+        "file_size": row.file_size,
+        "created_at": _iso(row.created_at),
+    }
+
+
+@router.get("/reports")
+async def list_reports(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Archiwum zapisanych raportów i okresy, za które raport można pobrać."""
+
+    today = business_today()
+    rows = (
+        await db.execute(
+            select(BoardReport).order_by(
+                BoardReport.created_at.desc(), BoardReport.id.desc()
+            )
+        )
+    ).scalars()
+    first = (
+        await db.execute(select(func.min(FinanceArchiveDocument.issue_date)))
+    ).scalar_one_or_none()
+    first_year = max(first.year if first else today.year, today.year - 4)
+    return {
+        "items": [report_view(row) for row in rows],
+        "years": list(range(today.year, first_year - 1, -1)),
+        "today": today.isoformat(),
+    }
+
+
+async def _render(
+    db: AsyncSession, kind: str, year: int, month: Optional[int]
+) -> bytes:
+    try:
+        html = await reports_service.render_html(
+            db, kind, year, month, business_today(), datetime.now(timezone.utc)
+        )
+    except reports_service.ReportError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return reports_service.render_pdf(html)
+
+
+def _pdf(content: bytes, name: str) -> Response:
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition(name, disposition="inline"),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.get("/reports/render")
+async def render_report(
+    current_user: BoardViewer,
+    kind: str = Query(..., pattern="^(monthly|annual|budget)$"),
+    year: int = Query(..., ge=2000, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Raport z bieżących danych (PDF)."""
+
+    content = await _render(db, kind, year, month)
+    return _pdf(content, reports_service.file_name(kind, year, month))
+
+
+class ReportBody(BaseModel):
+    kind: str = Field(pattern="^(monthly|annual|budget)$")
+    year: int = Field(ge=2000, le=2100)
+    month: Optional[int] = Field(default=None, ge=1, le=12)
+
+
+@router.post("/reports", status_code=201)
+async def archive_report(
+    body: ReportBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zapisz raport z bieżących danych w archiwum Rady."""
+
+    content = await _render(db, body.kind, body.year, body.month)
+    name = reports_service.file_name(body.kind, body.year, body.month)
+    path, size = storage_service.save_board_document_file(name, content)
+    row = BoardReport(
+        kind=body.kind,
+        year=body.year,
+        month=body.month,
+        file_path=path,
+        file_size=size,
+        created_by=current_user.id,
+    )
+    db.add(row)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        storage_service.delete_board_document_file(path)
+        raise
+    await db.refresh(row)
+    return report_view(row)
+
+
+@router.get("/reports/{report_id}/file")
+async def download_report(
+    report_id: int,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(BoardReport, report_id)
+    if row is None:
+        raise HTTPException(404, "Nie ma takiego raportu.")
+    try:
+        content = storage_service.read_board_document_file(row.file_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "Pliku nie ma w magazynie.") from exc
+    return _pdf(content, reports_service.file_name(row.kind, row.year, row.month))
+
+
+@router.delete("/reports/{report_id}", status_code=204)
+async def delete_report(
+    report_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    row = await db.get(BoardReport, report_id)
+    if row is None:
+        raise HTTPException(404, "Nie ma takiego raportu.")
+    path = row.file_path
+    await db.delete(row)
+    await db.commit()
+    try:
+        storage_service.delete_board_document_file(path)
+    except OSError:
+        logger.warning("board report file not removed: report_id=%s", report_id)
+    return Response(status_code=204)
+
+
+# ── Firma: placementy, kontraktorzy, zejścia (R7) ────────────────────────────
+
+
+@router.get("/people")
+async def get_people(
+    current_user: BoardViewer,
+    period: str = Query("quarter", pattern="^(month|quarter|year|custom)$"),
+    offset: int = Query(0, ge=-40, le=0),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Placementy, kontraktorzy na projektach i zejścia z powodami w okresie."""
+
+    try:
+        resolved = resolve_period(
+            period, offset=offset, date_from=date_from, date_to=date_to
+        )
+    except PeriodError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    today = business_today()
+    now = datetime.now(timezone.utc)
+    first = resolved.start.date()
+    last = min((resolved.end - timedelta(days=1)).date(), today)
+    prev_start, prev_end = previous_matching_window(resolved, now)
+    data = await people_service.people_view(
+        db,
+        window=(first, last),
+        previous=(prev_start.date(), (prev_end - timedelta(days=1)).date()),
+        bounds=(resolved.start, min(resolved.end, now)),
+        previous_bounds=(prev_start, prev_end),
+    )
+    return {"period": resolved.as_payload(), **data}
 
 
 # ── Budżet (R3) ──────────────────────────────────────────────────────────────
@@ -270,6 +568,456 @@ async def import_statement(
     return result
 
 
+# ── Posiedzenia (R5) ─────────────────────────────────────────────────────────
+
+
+def meeting_view(meeting: BoardMeeting, *, with_pack: bool = False) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": meeting.id,
+        "held_on": meeting.held_on.isoformat(),
+        "kind": meeting.kind,
+        "status": meeting.status,
+        "title": meeting.title,
+        "place": meeting.place,
+        "agenda": meeting.agenda or [],
+        "note": meeting.note,
+        "minutes_document_id": meeting.minutes_document_id,
+        "pack_frozen_at": _iso(meeting.pack_frozen_at),
+        "has_pack": meeting.pack is not None,
+    }
+    if with_pack:
+        out["pack"] = meeting.pack
+    return out
+
+
+async def _meeting(db: AsyncSession, meeting_id: int) -> BoardMeeting:
+    meeting = await db.get(BoardMeeting, meeting_id)
+    if meeting is None:
+        raise HTTPException(404, "Nie ma takiego posiedzenia.")
+    return meeting
+
+
+@router.get("/meetings")
+async def list_meetings(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Posiedzenia (najnowsze pierwsze) i obowiązki korporacyjne roku."""
+
+    rows = (
+        await db.execute(
+            select(BoardMeeting).order_by(BoardMeeting.held_on.desc(), BoardMeeting.id)
+        )
+    ).scalars()
+    return {
+        "items": [meeting_view(meeting) for meeting in rows],
+        "obligations": await meetings_service.obligations_view(db, business_today()),
+    }
+
+
+@router.get("/meetings/{meeting_id}")
+async def get_meeting(
+    meeting_id: int,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    return meeting_view(await _meeting(db, meeting_id), with_pack=True)
+
+
+class AgendaItem(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    document_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+class MeetingBody(BaseModel):
+    held_on: date
+    kind: str = "meeting"
+    status: str = "planned"
+    title: str = Field(..., min_length=1, max_length=meetings_schema.TITLE_MAX)
+    place: Optional[str] = Field(None, max_length=meetings_schema.PLACE_MAX)
+    agenda: list[AgendaItem] = Field(
+        default_factory=list, max_length=meetings_schema.AGENDA_MAX
+    )
+    note: Optional[str] = Field(None, max_length=4000)
+    minutes_document_id: Optional[int] = None
+
+
+async def _apply_meeting(
+    db: AsyncSession, meeting: BoardMeeting, body: MeetingBody, user_id: int
+) -> None:
+    if body.kind not in meetings_schema.KINDS:
+        raise HTTPException(422, "Tryb: posiedzenie, zdalnie albo pisemnie.")
+    if body.status not in meetings_schema.STATUSES:
+        raise HTTPException(422, "Status: zaplanowane, odbyte albo odwołane.")
+    referenced = {doc_id for item in body.agenda for doc_id in item.document_ids}
+    if body.minutes_document_id is not None:
+        referenced.add(body.minutes_document_id)
+    if referenced:
+        found = set(
+            (
+                await db.execute(
+                    select(BoardDocument.id).where(BoardDocument.id.in_(referenced))
+                )
+            ).scalars()
+        )
+        if found != referenced:
+            raise HTTPException(
+                422, "Porządek obrad wskazuje dokument, którego nie ma."
+            )
+    meeting.held_on = body.held_on
+    meeting.kind = body.kind
+    meeting.status = body.status
+    meeting.title = body.title.strip()
+    meeting.place = (body.place or "").strip() or None
+    meeting.agenda = [
+        {"title": item.title.strip(), "document_ids": item.document_ids}
+        for item in body.agenda
+    ]
+    meeting.note = (body.note or "").strip() or None
+    meeting.minutes_document_id = body.minutes_document_id
+    meeting.updated_by = user_id
+    meeting.updated_at = datetime.now(timezone.utc)
+
+
+@router.post("/meetings", status_code=201)
+async def create_meeting(
+    body: MeetingBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    meeting = BoardMeeting(created_by=current_user.id)
+    await _apply_meeting(db, meeting, body, current_user.id)
+    db.add(meeting)
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting_view(meeting)
+
+
+@router.put("/meetings/{meeting_id}")
+async def update_meeting(
+    meeting_id: int,
+    body: MeetingBody,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    meeting = await _meeting(db, meeting_id)
+    await _apply_meeting(db, meeting, body, current_user.id)
+    await db.commit()
+    await db.refresh(meeting)
+    return meeting_view(meeting)
+
+
+@router.delete("/meetings/{meeting_id}", status_code=204)
+async def delete_meeting(
+    meeting_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Usuń wpis bez pakietu. Posiedzenie z wysłanym pakietem tylko odwołaj."""
+
+    meeting = await _meeting(db, meeting_id)
+    if meeting.pack is not None:
+        raise HTTPException(
+            409, "Pakiet poszedł już do Rady — zmień status na „odwołane”."
+        )
+    await db.delete(meeting)
+    await db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/meetings/{meeting_id}/pack")
+async def freeze_pack(
+    meeting_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zamroź pakiet na dziś i daj znać Radzie (ponowne zamrożenie podmienia)."""
+
+    meeting = await _meeting(db, meeting_id)
+    if meeting.status == "cancelled":
+        raise HTTPException(409, "Posiedzenie jest odwołane.")
+    meeting.pack = await meetings_service.build_pack(db, meeting, business_today())
+    meeting.pack_frozen_at = datetime.now(timezone.utc)
+    meeting.pack_frozen_by = current_user.id
+    await db.flush()
+    notified = await meetings_service.notify_pack(db, meeting)
+    await db.commit()
+    await db.refresh(meeting)
+    return {**meeting_view(meeting, with_pack=True), "notified": notified}
+
+
+# ── Uchwały w trybie pisemnym (R6) ───────────────────────────────────────────
+
+
+async def _ballots(db: AsyncSession, vote_ids: list[int]) -> dict[int, dict[int, str]]:
+    out: dict[int, dict[int, str]] = {vote_id: {} for vote_id in vote_ids}
+    if not vote_ids:
+        return out
+    rows = await db.execute(
+        select(
+            BoardVoteBallot.vote_id, BoardVoteBallot.user_id, BoardVoteBallot.choice
+        ).where(BoardVoteBallot.vote_id.in_(vote_ids))
+    )
+    for vote_id, user_id, choice in rows.all():
+        out[vote_id][user_id] = choice
+    return out
+
+
+def _vote_open(vote: BoardVote) -> bool:
+    return vote.status == "open" and business_today() <= vote.deadline
+
+
+async def vote_view(
+    db: AsyncSession, vote: BoardVote, ballots: dict[int, str], viewer: User
+) -> dict[str, Any]:
+    current = votes_service.tally(vote.member_ids, ballots, vote.chair_user_id)
+    members = await votes_service.board_members(db, list(vote.member_ids))
+    return {
+        "id": vote.id,
+        "number": vote.number,
+        "title": vote.title,
+        "draft": vote.draft,
+        "document_id": vote.document_id,
+        "meeting_id": vote.meeting_id,
+        "deadline": vote.deadline.isoformat(),
+        "status": vote.status,
+        "accepting": _vote_open(vote),
+        "chair_user_id": vote.chair_user_id,
+        "members": [
+            {**member, "choice": ballots.get(member["id"])} for member in members
+        ],
+        "tally": current.as_dict(),
+        "result": vote.result,
+        "resolution_document_id": vote.resolution_document_id,
+        "my_choice": ballots.get(viewer.id),
+        "can_vote": viewer.id in vote.member_ids and _vote_open(vote),
+        # Zamknięcie: po terminie albo gdy zagłosowali wszyscy ze składu.
+        "closable": vote.status == "open"
+        and (
+            business_today() > vote.deadline
+            or all(uid in ballots for uid in vote.member_ids)
+        ),
+        "created_at": _iso(vote.created_at),
+        "closed_at": _iso(vote.closed_at),
+    }
+
+
+async def _vote(db: AsyncSession, vote_id: int, *, lock: bool = False) -> BoardVote:
+    """Uchwała; ``lock`` = wiersz zablokowany do końca transakcji (głos,
+    zamknięcie, wycofanie idą po kolei — bez głosu po wyniku, podwójnego
+    zamknięcia i 500 przy podwójnym kliknięciu pierwszego głosu)."""
+
+    query = select(BoardVote).where(BoardVote.id == vote_id)
+    if lock:
+        query = query.with_for_update()
+    vote = (await db.execute(query)).scalar_one_or_none()
+    if vote is None:
+        raise HTTPException(404, "Nie ma takiej uchwały.")
+    return vote
+
+
+@router.get("/votes")
+async def list_votes(
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Uchwały w trybie pisemnym, najnowsze pierwsze, z głosami członków."""
+
+    votes = list(
+        (
+            await db.execute(
+                select(BoardVote).order_by(BoardVote.created_at.desc(), BoardVote.id)
+            )
+        ).scalars()
+    )
+    ballots = await _ballots(db, [vote.id for vote in votes])
+    members = await votes_service.board_member_ids(db)
+    return {
+        "items": [
+            await vote_view(db, vote, ballots[vote.id], current_user) for vote in votes
+        ],
+        "board": await votes_service.board_members(db, members),
+        "excluded_matters": list(votes_service.EXCLUDED_MATTERS),
+    }
+
+
+class VoteCreate(BaseModel):
+    number: Optional[str] = Field(None, max_length=votes_schema.NUMBER_MAX)
+    title: str = Field(..., min_length=1, max_length=votes_schema.TITLE_MAX)
+    draft: str = Field(..., min_length=1, max_length=20000)
+    document_id: Optional[int] = None
+    meeting_id: Optional[int] = None
+    deadline: date
+    chair_user_id: Optional[int] = None
+    #: Admin potwierdza, że sprawa nie jest wyłączona z trybu pisemnego (§ 25 ust. 5).
+    not_excluded_matter: bool = False
+
+
+@router.post("/votes", status_code=201)
+async def create_vote(
+    body: VoteCreate,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Projekt uchwały do głosowania pisemnego; każdy członek Rady dostaje dzwonek."""
+
+    if not body.not_excluded_matter:
+        raise HTTPException(
+            422,
+            "Potwierdź, że uchwała nie dotyczy spraw wyłączonych z trybu pisemnego "
+            "(§ 25 ust. 5 statutu).",
+        )
+    if body.deadline < business_today():
+        raise HTTPException(422, "Termin głosowania nie może być w przeszłości.")
+    members = await votes_service.board_member_ids(db)
+    if not members:
+        raise HTTPException(409, "W NEXUSIE nie ma aktywnych kont członków Rady.")
+    if body.chair_user_id is not None and body.chair_user_id not in members:
+        raise HTTPException(422, "Przewodniczący musi być członkiem Rady.")
+    if (
+        body.document_id is not None
+        and await db.get(BoardDocument, body.document_id) is None
+    ):
+        raise HTTPException(422, "Wskazany dokument nie istnieje.")
+    if (
+        body.meeting_id is not None
+        and await db.get(BoardMeeting, body.meeting_id) is None
+    ):
+        raise HTTPException(422, "Wskazane posiedzenie nie istnieje.")
+    vote = BoardVote(
+        number=(body.number or "").strip() or None,
+        title=body.title.strip(),
+        draft=body.draft.strip(),
+        document_id=body.document_id,
+        meeting_id=body.meeting_id,
+        deadline=body.deadline,
+        member_ids=members,
+        chair_user_id=body.chair_user_id,
+        created_by=current_user.id,
+    )
+    db.add(vote)
+    await db.flush()
+    await votes_service.notify_opened(db, vote)
+    await db.commit()
+    await db.refresh(vote)
+    return await vote_view(db, vote, {}, current_user)
+
+
+class BallotBody(BaseModel):
+    choice: str
+
+
+@ballot_router.post("/votes/{vote_id}/ballot")
+async def cast_ballot(
+    vote_id: int,
+    body: BallotBody,
+    current_user: BoardViewer,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Głos członka Rady ze składu; do zamknięcia i terminu można go zmienić."""
+
+    if body.choice not in votes_schema.CHOICES:
+        raise HTTPException(422, "Głos: za, przeciw albo wstrzymuję się.")
+    vote = await _vote(db, vote_id, lock=True)
+    if current_user.id not in vote.member_ids:
+        raise HTTPException(403, "Głosują członkowie Rady, którzy dostali projekt.")
+    if not _vote_open(vote):
+        raise HTTPException(409, "Głosowanie jest zamknięte albo minął termin.")
+    ballot = (
+        await db.execute(
+            select(BoardVoteBallot).where(
+                BoardVoteBallot.vote_id == vote.id,
+                BoardVoteBallot.user_id == current_user.id,
+            )
+        )
+    ).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if ballot is None:
+        db.add(
+            BoardVoteBallot(
+                vote_id=vote.id,
+                user_id=current_user.id,
+                choice=body.choice,
+                cast_at=now,
+            )
+        )
+    else:
+        ballot.choice = body.choice
+        ballot.cast_at = now
+    await db.commit()
+    ballots = (await _ballots(db, [vote.id]))[vote.id]
+    return await vote_view(db, vote, ballots, current_user)
+
+
+@router.post("/votes/{vote_id}/close")
+async def close_vote(
+    vote_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zamknij głosowanie: wynik według § 25; podjęta uchwała trafia do Dokumentów."""
+
+    vote = await _vote(db, vote_id, lock=True)
+    if vote.status != "open":
+        raise HTTPException(409, "Głosowanie jest już zamknięte.")
+    ballots = (await _ballots(db, [vote.id]))[vote.id]
+    missing = [uid for uid in vote.member_ids if uid not in ballots]
+    if business_today() <= vote.deadline and missing:
+        # Każdy członek, który dostał projekt, ma czas do terminu (§ 25 ust. 4).
+        raise HTTPException(
+            409,
+            f"Termin mija {vote.deadline.strftime('%d.%m.%Y')}, a nie głosowało "
+            f"{len(missing)} z {len(vote.member_ids)} członków. Zamknąć można po "
+            "terminie albo gdy zagłosują wszyscy; wcześniej — tylko wycofać.",
+        )
+    result = votes_service.tally(vote.member_ids, ballots, vote.chair_user_id)
+    vote.status = "closed"
+    vote.result = result.as_dict()
+    vote.closed_by = current_user.id
+    vote.closed_at = datetime.now(timezone.utc)
+    if result.passed:
+        doc = BoardDocument(
+            category="resolution_supervisory",
+            organ="supervisory",
+            number=vote.number,
+            title=vote.title[: schema.TITLE_MAX],
+            subject=(
+                f"Podjęta w trybie pisemnym (§ 25 ust. 4 statutu): za {result.votes_for}, "
+                f"przeciw {result.against}, wstrzymało się {result.abstain}; "
+                f"głosowało {result.voted} z {result.members}."
+            ),
+            doc_date=business_today(),
+            source="upload",
+            created_by=current_user.id,
+            updated_by=current_user.id,
+        )
+        db.add(doc)
+        await db.flush()
+        vote.resolution_document_id = doc.id
+    await votes_service.notify_closed(db, vote, result)
+    await db.commit()
+    await db.refresh(vote)
+    return await vote_view(db, vote, ballots, current_user)
+
+
+@router.post("/votes/{vote_id}/withdraw")
+async def withdraw_vote(
+    vote_id: int,
+    current_user: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    vote = await _vote(db, vote_id, lock=True)
+    if vote.status != "open":
+        raise HTTPException(409, "Głosowanie jest już zamknięte.")
+    vote.status = "withdrawn"
+    vote.closed_by = current_user.id
+    vote.closed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(vote)
+    ballots = (await _ballots(db, [vote.id]))[vote.id]
+    return await vote_view(db, vote, ballots, current_user)
+
+
 # ── KRS ──────────────────────────────────────────────────────────────────────
 
 
@@ -390,24 +1138,52 @@ def document_view(doc: BoardDocument) -> dict[str, Any]:
 async def list_documents(
     current_user: BoardViewer,
     category: Optional[str] = Query(None),
+    year: Optional[int] = Query(None, ge=1990, le=2100),
+    month: Optional[int] = Query(None, ge=1, le=12),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
+    """Dokumenty z filtrem rodzaju oraz roku i miesiąca powstania dokumentu
+    (data dokumentu, a bez niej data wpisu w KRS) — R7, uwaga Rady 18.11.2026:
+    „dokumenty z czerwca 2026 — wszystkie protokoły i uchwały z tego miesiąca”."""
+
     if category is not None and category not in schema.CATEGORIES:
         raise HTTPException(422, "Nieznany rodzaj dokumentu.")
+    if month is not None and year is None:
+        raise HTTPException(422, "Miesiąc wybiera się razem z rokiem.")
+    day = func.coalesce(BoardDocument.doc_date, BoardDocument.krs_entry_date)
+    period = []
+    if year is not None:
+        period.append(func.extract("year", day) == year)
+    if month is not None:
+        period.append(func.extract("month", day) == month)
     counts_rows = await db.execute(
         select(
             BoardDocument.category,
             func.count(),
             func.count().filter(BoardDocument.file_path.is_(None)),
-        ).group_by(BoardDocument.category)
+        )
+        .where(*period)
+        .group_by(BoardDocument.category)
     )
     counts = {
         row[0]: {"total": row[1], "without_file": row[2]} for row in counts_rows.all()
     }
-    query = select(BoardDocument).order_by(
-        BoardDocument.doc_date.desc().nulls_last(),
-        BoardDocument.krs_entry_date.desc().nulls_last(),
-        BoardDocument.id.desc(),
+    years = (
+        await db.execute(
+            select(func.extract("year", day).label("y"))
+            .where(day.is_not(None))
+            .group_by("y")
+            .order_by(func.extract("year", day).desc())
+        )
+    ).scalars()
+    query = (
+        select(BoardDocument)
+        .where(*period)
+        .order_by(
+            BoardDocument.doc_date.desc().nulls_last(),
+            BoardDocument.krs_entry_date.desc().nulls_last(),
+            BoardDocument.id.desc(),
+        )
     )
     if category is not None:
         query = query.where(BoardDocument.category == category)
@@ -417,6 +1193,7 @@ async def list_documents(
             {"key": key, **counts.get(key, {"total": 0, "without_file": 0})}
             for key in schema.CATEGORIES
         ],
+        "years": [int(y) for y in years],
         "items": [document_view(doc) for doc in docs],
     }
 

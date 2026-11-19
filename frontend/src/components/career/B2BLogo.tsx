@@ -21,7 +21,7 @@ export function B2BLogo({
       height={height}
       width={(height * 736) / 344}
       role="img"
-      aria-label="B2B Network"
+      aria-label="B2Bnetwork"
       className={className}
     >
       <g fill={word}>

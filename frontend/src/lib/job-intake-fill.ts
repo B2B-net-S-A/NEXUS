@@ -307,7 +307,8 @@ export function isPristineIntake(form: IntakeForm): boolean {
     !form.deadlineNotProvided &&
     blank(form.headcount) &&
     !form.categoryConfirmed &&
-    form.championExtras == null
+    form.championExtras == null &&
+    form.clientProcess == null
   );
 }
 

@@ -68,6 +68,8 @@ from app.services.contractor_identity import (
 )
 from app.schemas.client_executive_contract import ExecutiveContractBrief
 from app.services.order_client_identity import normalize_buyer_number
+from app.services.consultant_order_state import consultant_order_state
+from app.services.contract_service import PENDING_CONTRACT_STATUSES
 from app.services.representative_order import representative_order
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.fx_service import (
@@ -355,6 +357,39 @@ async def client_time_to_fill(
         fill_days.append(delta)
     avg = (sum(fill_days) / len(fill_days)) if fill_days else None
     return avg, not_assessable
+
+
+def _profile_contract_loads() -> tuple:
+    """Relacje kontraktu, których potrzebuje wiersz konsultanta w profilu.
+
+    Wspólne dla obecnych, planowanych i szkiców (18.11.2026) — każda brakująca
+    relacja to lazy-load, czyli w async `MissingGreenlet` (500 bez CORS).
+    """
+    return (
+        selectinload(Contract.candidate),
+        selectinload(Contract.job),
+        # Zamówienia + ich rekrutacje: „część umowy" e-Zdrowia (ticket #3)
+        # ORAZ fallback kolumny „rekrutacja", gdy `Contract.job_id` jest
+        # pusty. Bez `.selectinload(ClientOrder.job)` odczyt tytułu robi
+        # lazy-load w async → MissingGreenlet 500 bez CORS.
+        selectinload(Contract.client_orders).selectinload(ClientOrder.job),
+        # Umowa wykonawcza CeZ + jej umowa ramowa (część) — tag na wierszu
+        # konsultanta; bez tego łańcucha odczyt byłby lazy-loadem.
+        selectinload(Contract.client_orders)
+        .selectinload(ClientOrder.executive_contract)
+        .selectinload(ClientExecutiveContract.framework_contract),
+        # Okres linii MD/kosztowej bez własnych dat = okres grupy — kolumna
+        # „Bieżące zamówienie” i znaczniki zakładki „Konsultanci”.
+        selectinload(Contract.client_orders).selectinload(ClientOrder.order_group),
+        # Trzy harmonogramy stawek — WYMAGANE przez `_effective_rate_fields`.
+        # Bez nich helper sięga po relację leniwie i w async leci
+        # `MissingGreenlet` (500 bez nagłówków CORS, w UI „Nie udało się
+        # wczytać profilu"). Ta sama pułapka pilnowana jest w 9 innych
+        # miejscach serializujących kontrakt.
+        selectinload(Contract.candidate_rate_schedule),
+        selectinload(Contract.client_rate_schedule),
+        selectinload(Contract.framework_rate_schedule),
+    )
 
 
 # Archiwum konsultantów na profilu: tyle wierszy trafia do listy; liczniki
@@ -678,28 +713,7 @@ async def get_client_profile(
             Contract.client_id == client_id,
             Contract.status.in_((ContractStatus.active, ContractStatus.ending)),
         )
-        .options(
-            selectinload(Contract.candidate),
-            selectinload(Contract.job),
-            # Zamówienia + ich rekrutacje: „część umowy" e-Zdrowia (ticket #3)
-            # ORAZ fallback kolumny „rekrutacja", gdy `Contract.job_id` jest
-            # pusty. Bez `.selectinload(ClientOrder.job)` odczyt tytułu robi
-            # lazy-load w async → MissingGreenlet 500 bez CORS.
-            selectinload(Contract.client_orders).selectinload(ClientOrder.job),
-            # Umowa wykonawcza CeZ + jej umowa ramowa (część) — tag na wierszu
-            # konsultanta; bez tego łańcucha odczyt byłby lazy-loadem.
-            selectinload(Contract.client_orders)
-            .selectinload(ClientOrder.executive_contract)
-            .selectinload(ClientExecutiveContract.framework_contract),
-            # Trzy harmonogramy stawek — WYMAGANE przez `_effective_rate_fields`.
-            # Bez nich helper sięga po relację leniwie i w async leci
-            # `MissingGreenlet` (500 bez nagłówków CORS, w UI „Nie udało się
-            # wczytać profilu"). Ta sama pułapka pilnowana jest w 9 innych
-            # miejscach serializujących kontrakt.
-            selectinload(Contract.candidate_rate_schedule),
-            selectinload(Contract.client_rate_schedule),
-            selectinload(Contract.framework_rate_schedule),
-        )
+        .options(*_profile_contract_loads())
         .order_by(Contract.start_date.desc())
     )
     active_contracts = list((await db.execute(active_stmt)).scalars().all())
@@ -748,40 +762,92 @@ async def get_client_profile(
         for c in active_contracts
     }
 
+    def _consultant_item(
+        c: Contract, rates: dict, *, is_current: bool
+    ) -> ActiveConsultantItem:
+        job_id, job_title, job_from_order = _resolve_job(c)
+        state = consultant_order_state(c, today, is_current=is_current)
+        return ActiveConsultantItem(
+            contract_id=c.id,
+            candidate=_candidate_brief(c.candidate),
+            job_id=job_id,
+            job_title=job_title,
+            job_from_order=job_from_order,
+            start_date=c.start_date,
+            end_date=c.end_date,
+            days_to_end=_days_to(c.end_date),
+            contract_status=getattr(c.status, "value", c.status),
+            monthly_rate_client=rates["monthly_rate_client"],
+            monthly_rate_candidate=rates["monthly_rate_candidate"],
+            monthly_margin=rates["monthly_margin"],
+            hourly_rate_client=rates["hourly_rate_client"],
+            hourly_rate_candidate=rates["hourly_rate_candidate"],
+            # This profile schema has a single display currency. Both rate
+            # legs above have already been converted independently to PLN.
+            currency="PLN",
+            project_part=_representative_project_part(c),
+            executive_contract=_representative_executive_contract(c),
+            order_start_date=state.order_start_date,
+            order_end_date=state.order_end_date,
+            order_status=state.order_status,
+            order_ending_on=state.order_ending_on,
+            attention=list(state.attention),
+            project_code=c.project_code,
+            project_name=c.project_name,
+            prolongation_status=getattr(
+                c.prolongation_status, "value", c.prolongation_status
+            ),
+            hours_pool_total=c.hours_pool_total,
+            hours_pool_consumed=c.hours_pool_consumed,
+        )
+
     active_consultants: list[ActiveConsultantItem] = []
     planned_consultants: list[ActiveConsultantItem] = []
     for c in active_contracts:
         # Kontrakt bez kandydata (usunięty z art. 17 RODO) ZOSTAJE wierszem:
         # jego marża wchodzi do „Aktywnego MRR”, a kafel ma być sumą kolumny
         # pod nim (audyt 24.09.2026, S6). Wiersz nie linkuje do profilu.
-        rates = active_rates_pln[c.id]
-        job_id, job_title, job_from_order = _resolve_job(c)
-        bucket = (
-            active_consultants if c.id in current_contract_ids else planned_consultants
-        )
+        is_current = c.id in current_contract_ids
+        bucket = active_consultants if is_current else planned_consultants
         bucket.append(
-            ActiveConsultantItem(
-                contract_id=c.id,
-                candidate=_candidate_brief(c.candidate),
-                job_id=job_id,
-                job_title=job_title,
-                job_from_order=job_from_order,
-                start_date=c.start_date,
-                end_date=c.end_date,
-                days_to_end=_days_to(c.end_date),
-                contract_status=getattr(c.status, "value", c.status),
-                monthly_rate_client=rates["monthly_rate_client"],
-                monthly_rate_candidate=rates["monthly_rate_candidate"],
-                monthly_margin=rates["monthly_margin"],
-                hourly_rate_client=rates["hourly_rate_client"],
-                hourly_rate_candidate=rates["hourly_rate_candidate"],
-                # This profile schema has a single display currency. Both rate
-                # legs above have already been converted independently to PLN.
-                currency="PLN",
-                project_part=_representative_project_part(c),
-                executive_contract=_representative_executive_contract(c),
-            )
+            _consultant_item(c, active_rates_pln[c.id], is_current=is_current)
         )
+
+    # ── 2b. Szkice i umowy do podpisu (zakładka „Konsultanci”, 18.11.2026) ──
+    # Rejestr klienta w Kontraktach pokazywał wszystkie statusy; zakładka,
+    # która go zastępuje, też. Poza licznikami i „Aktywnym MRR”.
+    pending_stmt = (
+        select(Contract)
+        .where(
+            Contract.client_id == client_id,
+            Contract.status.in_(PENDING_CONTRACT_STATUSES),
+        )
+        .options(*_profile_contract_loads())
+        .order_by(Contract.created_at.desc())
+    )
+    pending_contracts = list((await db.execute(pending_stmt)).scalars().all())
+    pending_fx_rates = await rates_to_pln(
+        db,
+        {
+            currency
+            for contract in pending_contracts
+            for currency in _profile_currencies(contract, today)
+        },
+        today,
+    )
+    pending_consultants = [
+        _consultant_item(
+            c,
+            _finance_rates_in_pln(
+                c,
+                _effective_rate_fields(c, today),
+                pending_fx_rates,
+                _representative_order(c, today),
+            ),
+            is_current=False,
+        )
+        for c in pending_contracts
+    ]
 
     # ── 3. Historical placements (ended contracts) ────────────────────────
     ended_stmt = (
@@ -875,6 +941,8 @@ async def get_client_profile(
                 total_revenue=_contract_total_revenue(
                     c, end_boundary, rates["monthly_rate_client"]
                 ),
+                project_code=c.project_code,
+                project_name=c.project_name,
             )
         )
 
@@ -1052,6 +1120,7 @@ async def get_client_profile(
         open_jobs=open_jobs,
         active_consultants=active_consultants,
         planned_consultants=planned_consultants,
+        pending_consultants=pending_consultants,
         historical=ClientProfileHistory(
             placements=placements,
             placements_total=archived_total,
@@ -1084,7 +1153,10 @@ async def get_client_profile(
             consultant.hourly_rate_candidate = None
         # „Planowani" niosą ten sam kształt (`ActiveConsultantItem`) i te same
         # trzy kwoty — redakcja obejmuje ich tak samo jak obecnych.
-        for consultant in response.planned_consultants:
+        for consultant in [
+            *response.planned_consultants,
+            *response.pending_consultants,
+        ]:
             consultant.monthly_rate_client = None
             consultant.monthly_rate_candidate = None
             consultant.monthly_margin = None

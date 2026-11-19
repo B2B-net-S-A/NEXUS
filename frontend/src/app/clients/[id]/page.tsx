@@ -112,6 +112,7 @@ import { KeyRelationshipDialog } from "@/components/KeyRelationshipDialog";
 import { ClientPlaybookTab } from "@/components/client-playbook/ClientPlaybookTab";
 import { DeleteClientDialog } from "@/components/client-profile/DeleteClientDialog";
 import { ClientConflictsSection } from "@/components/client-profile/ClientConflictsSection";
+import { ClientConsultantsTab } from "@/components/client-profile/ClientConsultantsTab";
 import { ClientHeaderStats } from "@/components/client-profile/SummaryBar";
 import { ClientOverviewCards } from "@/components/client-profile/ClientOverviewCards";
 import { SectionNav } from "@/components/ds/SectionNav";
@@ -882,7 +883,11 @@ function ContactsTab({ clientId }: { clientId: number }) {
         <Table density="compact" className="min-w-[900px]">
           <TableHeader>
             <TableRow>
-              <TableHead className={cn(CALM_HEAD, "min-w-[15rem]")}>Osoba</TableHead>
+              {/* 12rem, nie 15rem: od ikon „kopiuj” przy e-mailu i telefonie
+                  (#3541) tabela przy 1280 × 720 miała 972 px w karcie 956 px
+                  i ucinała „Usuń”. Razem z e-mailem 11rem najwęższa treść ma
+                  908 px — zapas na pasek przewijania w Windows. */}
+              <TableHead className={cn(CALM_HEAD, "min-w-[12rem]")}>Osoba</TableHead>
               <TableHead className={CALM_HEAD}>E-mail</TableHead>
               <TableHead className={CALM_HEAD}>Telefon</TableHead>
               <TableHead className={CALM_HEAD}>Siła relacji</TableHead>
@@ -985,7 +990,7 @@ function ContactsTab({ clientId }: { clientId: number }) {
                             title={contact.email}
                             // Jedna linia z wielokropkiem — łamany w pół słowa adres
                             // („…exampl / e”) trudniej przeczytać niż przycięty.
-                            className="block min-w-0 max-w-[12rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
+                            className="block min-w-0 max-w-[11rem] truncate font-medium text-primary hover:underline pointer-coarse:flex pointer-coarse:min-h-10 pointer-coarse:items-center"
                           >
                             {contact.email}
                           </a>
@@ -1367,6 +1372,9 @@ export default function ClientDetailPage() {
   const hasFrameworkTerms = canViewDeliveryLegal && (frameworkTerms.data?.cards.length ?? 0) > 0;
   const allTabs: { key: ClientTab; label: string }[] = [
     { key: "profil", label: "Profil" },
+    // Kto u klienta pracuje (18.11.2026): umowa + bieżące zamówienie w jednym
+    // wierszu; dawniej sekcja w Profilu i rejestr klienta w Kontraktach.
+    { key: "konsultanci", label: "Konsultanci" },
     // Karta klienta — bez filtra po roli: rola `user` dostanie 403 z backendu
     // i karta pokaże „Brak uprawnień", nie pustkę (zamierzone).
     { key: "zasady", label: "Zasady współpracy" },
@@ -1405,7 +1413,11 @@ export default function ClientDetailPage() {
 
   return (
     <div className="space-y-3">
-      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-hidden">
+      {/* `overflow-clip`, nie `overflow-hidden`: hidden robi z karty kontener
+          przewijania i wyłącza `sticky` panelu szczegółów w Zamówieniach
+          (≥ 1600 px panel stał na górze listy, tysiące px nad klikniętym
+          wierszem). Clip przycina rogi tak samo, ale nie łapie sticky. */}
+      <div className="bg-card dark:bg-muted rounded-xl border border-border shadow-xs overflow-clip">
         {/* Nagłówek w jednej linii (wersja B, 29.09.2026): nazwa, status,
             Delivery Lead i menu. Do 09.2026 karta miała ~130 px (ikona 56 px,
             tytuł 24 px, osobne rzędy WWW i NDA), więc zamówienia zaczynały się
@@ -1539,7 +1551,10 @@ export default function ClientDetailPage() {
             // Od `xl` dwie kolumny: konsultanci po lewej, po prawej rozwinięte
             // karty (informacje, materiały, konflikty). Węziej — karty pod tabelą.
             <div className="grid grid-cols-[minmax(0,1fr)] gap-4 xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
-              <ProfileTab clientId={Number(id)} />
+              <ProfileTab
+                clientId={Number(id)}
+                onOpenConsultants={() => selectTab("konsultanci")}
+              />
 
               <aside className="@container grid min-w-0 grid-cols-[minmax(0,1fr)] gap-3" aria-label="Najważniejsze o kliencie">
                 <ClientOverviewCards
@@ -1597,6 +1612,12 @@ export default function ClientDetailPage() {
           )}
 
           {activeTab === "projekty" && <ProjectsTab clientId={Number(id)} />}
+          {activeTab === "konsultanci" && (
+            <ClientConsultantsTab
+              clientId={Number(id)}
+              clientName={client?.display_name || client?.name || ""}
+            />
+          )}
           {activeTab === "materialy" && (
             <MaterialsTab
               clientId={Number(id)}

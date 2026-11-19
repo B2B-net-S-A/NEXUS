@@ -210,6 +210,8 @@ _CREATE_EXCLUDED_FIELDS = {
     "similar_job_ids",
     "cc_override",
     "intake_form_id",
+    # Proces u klienta (18.11.2026) — do profilu Championa, nie do kolumn.
+    "client_process",
 }
 
 
@@ -1630,6 +1632,14 @@ async def apply_job_create(
     await save_champion_core(
         db, job, data.champion_profile, current_user, effects, notify=False
     )
+    # Proces u klienta (18.11.2026) — poza sekcjami profilu, więc osobno.
+    process_in = getattr(data, "client_process", None)
+    if process_in is not None:
+        from app.services import job_client_process
+
+        job.champion_profile = job_client_process.with_process(
+            job.champion_profile, job_client_process.stamp(process_in, current_user)
+        )
     clear_decision_flags(job)
     await db.flush()
     ensure_handoff_ready(job)

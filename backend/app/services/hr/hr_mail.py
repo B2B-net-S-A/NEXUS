@@ -98,7 +98,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Przekazano Ci pracę osoby, która kończy współpracę.",
     ),
     "admin_case_assigned": (
-        "Przypisano Ci sprawę administracja@",
+        "Przypisano Ci sprawę wsparcie@",
         "Szczegóły sprawy znajdziesz w NEXUSIE.",
     ),
     "back_office_escalated": (

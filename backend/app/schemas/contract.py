@@ -380,6 +380,9 @@ class ContractGroupMember(BaseModel):
 
 class ContractResponse(BaseModel):
     id: int
+    # Braki szkicu (pola bramki aktywacji) — tylko w wierszach listy dla
+    # szkiców i umów do podpisu; poza listą puste (18.11.2026).
+    missing_fields: list[str] = []
     # Ustawiane wyłącznie w odpowiedzi POST z ``source_contract_id``.
     # Klienci kosztowi zostają przy jawnym wyborze typu zamówienia, więc tam
     # pole pozostaje puste i frontend nie obiecuje niewidocznego auto-szkicu.
@@ -481,6 +484,10 @@ class ContractResponse(BaseModel):
     # musiał rozróżniać „wiersz stary" od „wiersz zgrupowany". W trybie płaskim
     # (domyślnym) pole zostaje puste.
     group_members: list[ContractGroupMember] = []
+    # Stawka z dokumentu kontraktu, której nie ma w harmonogramie (0739):
+    # {"from", "rate", "kind", "category"} pierwszego kroku otwartej różnicy.
+    # Tylko w wierszach listy; redagowane razem z kwotami.
+    rate_document_change: Optional[dict] = None
 
     model_config = {"from_attributes": True}
 

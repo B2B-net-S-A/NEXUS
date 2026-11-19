@@ -1145,9 +1145,18 @@ async def parse_cv(
     db: "AsyncSession | None" = None,
     model: str | None = None,
     user_id: int | None = None,
+    release_db_during_model: bool = False,
 ) -> dict[str, Any]:
     """
     Extract structured facts from CV text.
+
+    ``release_db_during_model`` (18.11.2026) — sesja ``db`` oddaje połączenie
+    do puli na czas odpowiedzi modelu (`release_idle_connection`; odmawia po
+    zapisach). Odczyt CV trwa na produkcji p50 16,5 s, p95 26 s
+    (`ai_provider_calls`, 17.11), a sesja trzymała połączenie „idle in
+    transaction” od zapytań kwoty do końca odpowiedzi. Tylko na życzenie
+    wołającego: sesja z blokadą doradczą transakcji (narzędzia CLI) zgubiłaby ją
+    na commicie.
 
     ``user_id`` (AI-07, audyt 22.09 r2) — osoba, na którą idzie operacja AI
     w liczniku kosztów; bez niego każde wgranie CV było „systemowe”.
@@ -1188,6 +1197,10 @@ async def parse_cv(
 
             try:
                 async with ai_feature(db, AIFeatureKey.cv_parser, user_id=user_id):
+                    if release_db_during_model:
+                        from app.core.database import release_idle_connection
+
+                        await release_idle_connection(db)
                     claude = await _parse_with_claude(cv_text, model=model)
             except AIQuotaExceeded as quota_exc:
                 logger.info(

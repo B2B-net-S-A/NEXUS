@@ -1,4 +1,6 @@
-"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) budżet (0733, R3) i sprawozdania roczne (0734, R4).
+"""Dokumenty Rady nadzorczej, odpisy KRS spółki (0727, R1) budżet (0733, R3), sprawozdania roczne (0734, R4)
+posiedzenia (0735, R5), uchwały w trybie pisemnym (0736, R6) oraz gotówka i archiwum
+raportów (0737, R7).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/board_documents_schema.py``
 (raport ``compare_metadata`` w ``/api/health/deep`` porównuje model z bazą).
@@ -30,7 +32,10 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 from app.services import board_budget_schema as budget_schema
 from app.services import board_documents_schema as schema
+from app.services import board_meetings_schema as meetings_schema
+from app.services import board_reports_schema as reports_schema
 from app.services import board_statements_schema as statements_schema
+from app.services import board_votes_schema as votes_schema
 
 
 class BoardDocument(Base):
@@ -221,5 +226,183 @@ class BoardFinancialStatement(Base):
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardMeeting(Base):
+    """Posiedzenie Rady (0735, R5) z porządkiem obrad i zamrożonym pakietem."""
+
+    __tablename__ = "board_meetings"
+    __table_args__ = (
+        CheckConstraint(meetings_schema.CK_KIND, name="ck_board_meetings_kind"),
+        CheckConstraint(meetings_schema.CK_STATUS, name="ck_board_meetings_status"),
+        CheckConstraint(meetings_schema.CK_AGENDA, name="ck_board_meetings_agenda"),
+        CheckConstraint(meetings_schema.CK_PACK, name="ck_board_meetings_pack"),
+        Index("ix_board_meetings_held_on", text("held_on DESC")),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    held_on: Mapped[date] = mapped_column(Date, nullable=False)
+    kind: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="meeting", server_default="meeting"
+    )
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="planned", server_default="planned"
+    )
+    title: Mapped[str] = mapped_column(
+        String(meetings_schema.TITLE_MAX), nullable=False
+    )
+    place: Mapped[Optional[str]] = mapped_column(
+        String(meetings_schema.PLACE_MAX), nullable=True
+    )
+    agenda: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    minutes_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    pack: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    pack_frozen_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    pack_frozen_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardVote(Base):
+    """Uchwała Rady w trybie pisemnym (0736, R6) — § 25 ust. 4 projektu statutu."""
+
+    __tablename__ = "board_votes"
+    __table_args__ = (
+        CheckConstraint(votes_schema.CK_STATUS, name="ck_board_votes_status"),
+        CheckConstraint(votes_schema.CK_MEMBERS, name="ck_board_votes_members"),
+        CheckConstraint(votes_schema.CK_RESULT, name="ck_board_votes_result"),
+        Index("ix_board_votes_status_deadline", "status", "deadline"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    number: Mapped[Optional[str]] = mapped_column(
+        String(votes_schema.NUMBER_MAX), nullable=True
+    )
+    title: Mapped[str] = mapped_column(String(votes_schema.TITLE_MAX), nullable=False)
+    draft: Mapped[str] = mapped_column(Text, nullable=False)
+    document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    meeting_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_meetings.id", ondelete="SET NULL"), nullable=True
+    )
+    deadline: Mapped[date] = mapped_column(Date, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default="open", server_default="open"
+    )
+    member_ids: Mapped[list[int]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    chair_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB, nullable=True)
+    resolution_document_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("board_documents.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    closed_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    closed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class BoardVoteBallot(Base):
+    """Głos członka Rady w uchwale pisemnej."""
+
+    __tablename__ = "board_vote_ballots"
+    __table_args__ = (
+        CheckConstraint(votes_schema.CK_CHOICE, name="ck_board_vote_ballots_choice"),
+        Index("uq_board_vote_ballots_vote_user", "vote_id", "user_id", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    vote_id: Mapped[int] = mapped_column(
+        ForeignKey("board_votes.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    choice: Mapped[str] = mapped_column(String(8), nullable=False)
+    cast_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardCashPosition(Base):
+    """Stan gotówki na dzień (0737, R7) — wpis admina z wyciągów."""
+
+    __tablename__ = "board_cash_positions"
+    __table_args__ = (Index("uq_board_cash_positions_as_of", "as_of", unique=True),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    as_of: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(16, 2), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(
+        String(reports_schema.NOTE_MAX), nullable=True
+    )
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoardReport(Base):
+    """Raport PDF zapisany w archiwum Rady (0737, R7)."""
+
+    __tablename__ = "board_reports"
+    __table_args__ = (
+        CheckConstraint(reports_schema.CK_KIND, name="ck_board_reports_kind"),
+        CheckConstraint(reports_schema.CK_YEAR, name="ck_board_reports_year"),
+        CheckConstraint(reports_schema.CK_MONTH, name="ck_board_reports_month"),
+        CheckConstraint(
+            reports_schema.CK_MONTHLY_HAS_MONTH,
+            name="ck_board_reports_monthly_has_month",
+        ),
+        Index("ix_board_reports_period", "kind", "year", "month"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    year: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    month: Mapped[Optional[int]] = mapped_column(SmallInteger, nullable=True)
+    file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

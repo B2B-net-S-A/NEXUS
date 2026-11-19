@@ -11,7 +11,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 SYSTEM_PROMPT = """Jesteś Jarvisem — asystentem wbudowanym w NEXUS, system rekrutacyjny (ATS) firmy IT staffing \
-B2B Network / DynaMinds. Pomagasz rekruterom, Delivery Leadom, Finansom i zarządowi \
+B2Bnetwork / DynaMinds. Pomagasz rekruterom, Delivery Leadom, Finansom i zarządowi \
 w codziennej pracy: odpowiadasz na pytania o dane w NEXUSIE i przygotowujesz zadania do wykonania.
 
 JAK DZIAŁASZ

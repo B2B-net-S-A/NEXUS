@@ -18,7 +18,10 @@ export interface ClientTabGroup {
  */
 export const CLIENT_TAB_GROUPS: readonly ClientTabGroup[] = [
   { key: "przeglad", label: "Przegląd", tabs: ["profil"] },
-  { key: "zamowienia", label: "Zamówienia", tabs: ["zamowienia", "importy-md"] },
+  // 18.11.2026: kto u klienta pracuje — umowa i bieżące zamówienie w jednym
+  // wierszu; zamówienia jako dokumenty i budżety MD obok (klucz `zamowienia`
+  // bez zmian, linki z powiadomień trafiają do tej samej grupy).
+  { key: "konsultanci", label: "Konsultanci", tabs: ["konsultanci", "zamowienia", "importy-md"] },
   { key: "umowy", label: "Umowy", tabs: ["umowy-ramowe", "stawki-ramowe", "raporty"] },
   { key: "rozliczenia", label: "Rozliczenia", tabs: ["faktury", "analityka"] },
   { key: "wspolpraca", label: "Współpraca", tabs: ["zasady", "wejscie", "zespol"] },
@@ -46,6 +49,18 @@ export const CLIENT_SUBTAB_LABELS: Readonly<Record<ClientTab, string>> = {
   materialy: "Materiały dla rekruterów",
   konflikty: "Konflikty z kandydatami",
   sprzedaz: "Sprzedaż",
+  konsultanci: "Konsultanci",
+};
+
+// Kotwice nowości (`data-tour`) prowadzące przeklikanie z listy klientów do
+// zakładki: grupa „Ludzie” otwiera od razu kontakty, w „Umowach” trzeba
+// jeszcze wybrać „Stawki i cennik”.
+const GROUP_TOUR: Readonly<Record<string, string>> = {
+  ludzie: "client.sections.people", // data-tour="client.sections.people"
+  umowy: "client.sections.contracts", // data-tour="client.sections.contracts"
+};
+const TAB_TOUR: Readonly<Partial<Record<ClientTab, string>>> = {
+  "stawki-ramowe": "client.sections.framework-rates", // data-tour="client.sections.framework-rates"
 };
 
 /** Grupy z pozycjami, które ta osoba widzi (puste grupy odpadają). */
@@ -54,8 +69,9 @@ export function clientSectionGroups(visibleTabs: readonly ClientTab[]): SectionN
   return CLIENT_TAB_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
+    tourId: GROUP_TOUR[group.key],
     items: group.tabs
       .filter((tab) => visible.has(tab))
-      .map((tab) => ({ key: tab, label: CLIENT_SUBTAB_LABELS[tab] })),
+      .map((tab) => ({ key: tab, label: CLIENT_SUBTAB_LABELS[tab], tourId: TAB_TOUR[tab] })),
   })).filter((group) => group.items.length > 0);
 }

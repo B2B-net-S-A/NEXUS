@@ -14,7 +14,14 @@ import { cn } from "@/lib/utils";
 
 import { AdBlock } from "./AdBlock";
 import { editHint, toneOf, type AdTabProps } from "./PracujTab";
-import { editorText, findingsByField, isEditKey, withTechLevel, withoutTech } from "./job-ad-edit";
+import {
+  editorText,
+  findingsByField,
+  isEditKey,
+  lockedFixedCount,
+  withTechLevel,
+  withoutTech,
+} from "./job-ad-edit";
 
 interface JustJoinTabProps extends AdTabProps {
   tech: AdTechItem[];
@@ -111,9 +118,9 @@ export function JustJoinTab({
         kind={item.kind}
         text={item.text}
         items={item.items}
-        fixedCount={item.fixed_count}
+        fixedCount={lockedFixedCount(item.key, item.fixed_count, drafts)}
         tone={toneOf(byField.get(item.key))}
-        editValue={editKey ? editorText(content, editKey) : undefined}
+        editValue={editKey ? editorText(content, editKey, item.items) : undefined}
         editHint={editKey ? editHint(editKey) : undefined}
         draft={editKey ? (drafts[editKey] ?? null) : null}
         onDraftChange={editKey ? (text) => onDraftChange(editKey, text) : undefined}

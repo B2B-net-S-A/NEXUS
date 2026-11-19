@@ -23,60 +23,21 @@ describe("kolumny tabeli kandydatów", () => {
     ]);
   });
 
-  it("szeroki ekran pokazuje domyślnie „Ostatnie odrzucenie”; laptop i „Szukaj ręcznie” — nie", () => {
+  it("„Ostatniego odrzucenia” nie ma od 18.11.2026 — ani domyślnie, ani w „Kolumny”", () => {
+    // Stary cytat wyglądał w niej na dzisiejszy; dwie ostatnie informacje
+    // o osobie są w linii „Ostatnio z osobą” pod wierszem.
     const at = (hidden: string[] | null, options: { wide?: boolean; forJob?: boolean }) =>
-      visibleCandidateColumns(hidden, options).map((c) => c.id);
-    expect(at(null, { wide: true })).toContain("last_rejection");
-    // Laptop: domyślna tabela mieści się na styk, kolumna zostaje do włączenia.
-    expect(at(null, {})).not.toContain("last_rejection");
-    expect(at(null, { forJob: true, wide: true })).not.toContain("last_rejection");
-    // 06.11.2026: „Ostatnia rozmowa” ustąpiła miejsca — tylko w „Kolumny”.
-    expect(at(null, { wide: true })).not.toContain("last_contact");
+      visibleCandidateColumns(hidden, options).map((c) => c.id as string);
+    expect(at(null, { wide: true })).not.toContain("last_rejection");
+    expect(selectableCandidateColumns().map((c) => c.id as string)).not.toContain("last_rejection");
+    // Szeroki ekran ma te same kolumny domyślne co laptop.
+    expect(at(null, { wide: true })).toEqual(at(null, {}));
   });
 
-  it("zapisany wybór nie zależy od szerokości okna, w którym go zapisano", () => {
-    const at = (hidden: string[] | null, wide: boolean) =>
-      visibleCandidateColumns(hidden, { wide }).map((c) => c.id);
-    // Przełączenie INNEJ kolumny na dużym monitorze nie przykleja kolumny do
-    // laptopa (wypychałaby „Przypisz” poza ekran)…
-    const savedWide = toggleCandidateColumn(null, "email", { wide: true });
-    expect(at(savedWide, true)).toContain("last_rejection");
-    expect(at(savedWide, false)).not.toContain("last_rejection");
-    // …a przełączenie na laptopie nie chowa jej na dużym monitorze.
-    const savedNarrow = toggleCandidateColumn(null, "email", { wide: false });
-    expect(at(savedNarrow, false)).not.toContain("last_rejection");
-    expect(at(savedNarrow, true)).toContain("last_rejection");
-  });
-
-  it("wybór zapisany przed nową kolumną: brak jej id to brak decyzji, nie włączenie", () => {
-    const at = (hidden: string[] | null, wide: boolean) =>
-      visibleCandidateColumns(hidden, { wide }).map((c) => c.id);
-    // Zapis sprzed 06.11.2026 — nie zna „last_rejection”.
-    const beforeColumn = ["email", "location", "experience", "last_contact", "added"];
-    expect(at(beforeColumn, true)).toContain("last_rejection");
-    expect(at(beforeColumn, false)).not.toContain("last_rejection");
-    // „Ostatnia rozmowa” na liście ukrytych zostaje ukryta także na szerokim ekranie…
-    expect(at(beforeColumn, true)).not.toContain("last_contact");
-    // …a kto ją sam włączył (brak id), dalej ją widzi.
-    expect(at(["email", "location", "experience", "added"], false)).toContain("last_contact");
-  });
-
-  it("jawne włączenie albo wyłączenie „Ostatniego odrzucenia” obowiązuje na każdym ekranie", () => {
-    const at = (hidden: string[] | null, wide: boolean) =>
-      visibleCandidateColumns(hidden, { wide }).map((c) => c.id);
-    const off = toggleCandidateColumn(null, "last_rejection", { wide: true });
-    expect(at(off, true)).not.toContain("last_rejection");
-    expect(at(off, false)).not.toContain("last_rejection");
-    const on = toggleCandidateColumn(null, "last_rejection", { wide: false });
-    expect(at(on, false)).toContain("last_rejection");
-    expect(at(on, true)).toContain("last_rejection");
-    // Kolejne przełączenia innych kolumn nie gubią decyzji…
-    const onPlusEmail = toggleCandidateColumn(on, "email", { wide: false });
-    expect(at(onPlusEmail, false)).toEqual(expect.arrayContaining(["last_rejection", "email"]));
-    // …a ponowne kliknięcie ją odwraca.
-    const offAgain = toggleCandidateColumn(onPlusEmail, "last_rejection", { wide: false });
-    expect(at(offAgain, true)).not.toContain("last_rejection");
-    expect(at(offAgain, false)).not.toContain("last_rejection");
+  it("zapisany wybór z dawną kolumną i jej znacznikami działa dalej, a kolejne przełączenie je zdejmuje", () => {
+    const saved = ["email", "last_rejection", "last_rejection:hidden", "last_rejection:shown"];
+    expect(ids(saved)).toEqual(ids(["email"]));
+    expect(toggleCandidateColumn(saved, "location")).toEqual(["email", "location"]);
   });
 
   it("kolumn wymaganych nie da się ukryć, nieznane id są ignorowane", () => {
