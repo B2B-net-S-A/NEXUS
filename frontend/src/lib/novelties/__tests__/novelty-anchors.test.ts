@@ -11,7 +11,9 @@ import {
   acknowledgeStep,
   advanceTour,
   cardCandidate,
+  dotClickAnchor,
   dotNovelties,
+  dotRect,
   eventForClick,
   onEveryClick,
   intersectRects,
@@ -283,6 +285,64 @@ describe("logika nowości", () => {
       null,
     ]);
     document.body.innerHTML = "";
+  });
+
+  // „Rozwiń pole” w czacie (19.11.2026: 25 osób widziało kropkę, 0 zaliczeń).
+  // Przycisk ma 40 px, a kropka 14 px stoi na jego rogu: na przycisku leży
+  // tylko jej narożnik 4 × 8 px. Kropka drobiazgu nie przyjmuje kliknięć, więc
+  // klik w nią trafiał w odstęp między przyciskami. Pomiar ze stagingu przy
+  // 1280 × 720: przycisk x 1154–1194, y 567–607; środek kropki (1197, 568).
+  it("klik w kropkę obok małego przycisku idzie do przycisku i zalicza drobiazg", () => {
+    document.body.innerHTML =
+      '<form><div id="row"><button data-tour="chat.compose.expand">Rozwiń</button>' +
+      '<button type="submit">Wyślij</button></div></form>';
+    const row = document.getElementById("row")!;
+    const dot = novelty({
+      id: "czat-rozwin-pole",
+      tier: "dot",
+      dot_anchor: "chat.compose.expand",
+      used_anchor: null,
+      steps: [],
+    });
+    // Pudełko kotwicy = widoczna część przycisku z marginesem 6 px.
+    const boxes = new Map([
+      ["chat.compose.expand", { top: 561, left: 1148, width: 52, height: 52 }],
+    ]);
+    const center = { x: 1197, y: 568 };
+
+    const points: ({ x: number; y: number } | null)[] = [];
+    const stop = onEveryClick(document, (_t, p) => points.push(p));
+    row.dispatchEvent(
+      new MouseEvent("click", {
+        bubbles: true,
+        clientX: center.x,
+        clientY: center.y,
+      }),
+    );
+    stop();
+    expect(points).toEqual([center]);
+
+    expect(eventForClick(dot, row)).toBeNull();
+    expect(dotClickAnchor([dot], boxes, row, center)).toBe(
+      "chat.compose.expand",
+    );
+    // Klik obok kropki, zaliczony drobiazg i kropka nad innym przyciskiem — nie.
+    expect(dotClickAnchor([dot], boxes, row, { x: 1180, y: 600 })).toBeNull();
+    expect(
+      dotClickAnchor([{ ...dot, done: true }], boxes, row, center),
+    ).toBeNull();
+    const send = document.querySelector('button[type="submit"]')!;
+    expect(dotClickAnchor([dot], boxes, send, center)).toBeNull();
+    document.body.innerHTML = "";
+  });
+
+  it("kropka stoi na prawym górnym rogu pudełka kotwicy", () => {
+    expect(dotRect({ top: 561, left: 1148, width: 52, height: 52 })).toEqual({
+      top: 561,
+      left: 1190,
+      width: 14,
+      height: 14,
+    });
   });
 });
 

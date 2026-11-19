@@ -129,10 +129,11 @@ export function withinAnchor(
  * na `<html>` (wspólny przodek). Gdy `click` trafił w przodka elementu
  * z `pointerdown`, liczy się ten element. Bez tego „Zmień plik” w panelu
  * osoby nie zaliczał kropki nikomu (14.11.2026: 23 widzących, 0 zaliczeń).
+ * Drugi argument to miejsce kliknięcia — po nim poznajemy klik w kropkę.
  */
 export function onEveryClick(
   doc: Document,
-  handler: (target: EventTarget | null) => void,
+  handler: (target: EventTarget | null, point: Point | null) => void,
 ): () => void {
   let down: EventTarget | null = null;
   const onDown = (event: Event) => {
@@ -149,6 +150,9 @@ export function onEveryClick(
         target.contains(pressed)
         ? pressed
         : target,
+      event instanceof MouseEvent
+        ? { x: event.clientX, y: event.clientY }
+        : null,
     );
   };
   doc.addEventListener("pointerdown", onDown, true);
@@ -173,6 +177,64 @@ export function eventForClick(
   if (novelty.used_anchor && withinAnchor(target, novelty.used_anchor))
     return "used";
   return null;
+}
+
+export interface Point {
+  x: number;
+  y: number;
+}
+
+/** Średnica kropki „Nowe” w pikselach. */
+export const DOT_SIZE = 14;
+
+/**
+ * Kropka na prawym górnym rogu pudełka kotwicy (pudełko ma margines 6 px,
+ * więc kropka wystaje 10 px za element i 6 px nad niego).
+ */
+export function dotRect(box: Rect): Rect {
+  return {
+    top: box.top,
+    left: box.left + box.width - 10,
+    width: DOT_SIZE,
+    height: DOT_SIZE,
+  };
+}
+
+/** Elementy, które same coś robią po kliknięciu — klik w nie zostaje u nich. */
+const INTERACTIVE =
+  'a[href], button, input, textarea, select, label, [role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"], [contenteditable="true"]';
+
+/**
+ * Kotwica drobiazgu, w którego kropkę trafił klik, gdy pod kropką nie leży
+ * nic klikalnego; `null` = zwykły klik. Kropka drobiazgu nie przyjmuje
+ * kliknięć (w modalnym panelu klik w nią zamknąłby panel), a przy małym
+ * przycisku prawie cała leży poza nim: „Rozwiń pole” w czacie ma 40 px
+ * i do 19.11.2026 nie zaliczył się nikomu z 25 widzących. Klik w kropkę
+ * przekazujemy więc elementowi, na którym stoi.
+ * `boxes` — pudełka widocznych kotwic.
+ */
+export function dotClickAnchor(
+  list: readonly Novelty[],
+  boxes: ReadonlyMap<string, Rect>,
+  target: EventTarget | null,
+  point: Point,
+): string | null {
+  if (target instanceof Element && target.closest(INTERACTIVE)) return null;
+  const hit = list.find((n) => {
+    if (n.done || n.start || n.tier !== "dot") return false;
+    const box = boxes.get(n.dot_anchor);
+    return box !== undefined && containsPoint(dotRect(box), point);
+  });
+  return hit?.dot_anchor ?? null;
+}
+
+export function containsPoint(rect: Rect, point: Point): boolean {
+  return (
+    point.x >= rect.left &&
+    point.x <= rect.left + rect.width &&
+    point.y >= rect.top &&
+    point.y <= rect.top + rect.height
+  );
 }
 
 /** Następny krok po kliknięciu; `null` = kliknięcie nie dotyczy kroku. */

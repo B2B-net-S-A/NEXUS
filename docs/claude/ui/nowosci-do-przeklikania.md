@@ -47,6 +47,15 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   elemencie z `pointerdown` (`onEveryClick` w `lib/novelties/logic.ts`), bo menu
   Radix (DropdownMenu, Select) kieruje `click` na `<html>` — tak „Zmień plik”
   przez 10 dni nie zaliczył się nikomu.
+- **Klik w kropkę drobiazgu to klik w jej element (19.11.2026).** Kropka ma
+  14 px i stoi na rogu kotwicy, więc przy przycisku 40 px na przycisku leży
+  tylko jej narożnik 4 × 8 px. „Rozwiń pole” w czacie miał 25 widzących
+  i 0 zaliczeń, bo klik w kropkę trafiał w odstęp między przyciskami.
+  Kropka nadal nie przyjmuje kliknięć (w modalnym panelu klik poza nim by go
+  zamknął). Zamiast tego `dotClickAnchor` w `lib/novelties/logic.ts`
+  rozpoznaje klik w jej miejscu i `NoveltyLayer` przekazuje go elementowi
+  kotwicy (`el.click()`), o ile pod kropką nie leży inny przycisk, link
+  albo pole.
 - **Zaliczenie = przeklikanie (`tour`) albo użycie w pracy (`used`, klik
   w `used_anchor` poza przeklikaniem)**. Przycisku „Przeczytałem” nie ma
   i nie dokładamy go. Demo wideo odrzucone 28.10.

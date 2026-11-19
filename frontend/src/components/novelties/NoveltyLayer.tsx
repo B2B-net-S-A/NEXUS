@@ -39,7 +39,10 @@ import {
   anchorSelector,
   advanceTour,
   cardCandidate,
+  containsPoint,
+  dotClickAnchor,
   dotNovelties,
+  dotRect,
   eventForClick,
   intersectRects,
   markSeenOnce,
@@ -50,6 +53,7 @@ import {
   START_PATH,
   writeTour,
   type Novelty,
+  type Point,
   type Rect,
   type TourState,
 } from "@/lib/novelties/logic";
@@ -173,6 +177,18 @@ function measureAnchor(anchor: string): Box | null {
   );
 }
 
+/** Element kotwicy, na którego rogu stoi kropka w miejscu kliknięcia. */
+function elementUnderDot(anchor: string, point: Point): HTMLElement | null {
+  const elements = anchorElements(anchor);
+  return (
+    elements.find((el) =>
+      containsPoint(dotRect(padded(rectOf(el), "visible", true)), point),
+    ) ??
+    elements[0] ??
+    null
+  );
+}
+
 /** Przewija do elementu; prędkość zgodna z ustawieniem „mniej ruchu”. */
 function revealAnchor(anchor: string): void {
   const el = anchorElements(anchor)[0];
@@ -287,6 +303,7 @@ function Dot({
   label: string;
   onClick?: () => void;
 }) {
+  const spot = dotRect(box);
   return (
     <button
       type="button"
@@ -294,7 +311,7 @@ function Dot({
       aria-label={`Nowe: ${label}`}
       title={`Nowe: ${label}`}
       className={`fixed z-[55] flex h-3.5 w-3.5 ${onClick ? "" : "pointer-events-none"}`}
-      style={{ top: box.top, left: box.left + box.width - 10 }}
+      style={{ top: spot.top, left: spot.left }}
       data-testid="novelty-dot"
     >
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60 motion-reduce:animate-none" />
@@ -637,6 +654,9 @@ export function NoveltyLayer() {
   const stepAnchor =
     touring && tour ? (touring.steps[tour.step]?.anchor ?? null) : null;
   const boxes = useAnchorBoxes(anchors, stepAnchor);
+  const boxesRef = useRef(boxes);
+  boxesRef.current = boxes;
+  const forwarding = useRef(false);
 
   // `seen` raz na kartę przeglądarki, gdy kropka pierwszy raz stanie na ekranie.
   useEffect(() => {
@@ -662,7 +682,25 @@ export function NoveltyLayer() {
 
   // Jedno nasłuchiwanie kliknięć: krok przeklikania, użycie w pracy, drobiazg.
   useEffect(() => {
-    const onClick = (target: EventTarget | null) => {
+    const onClick = (target: EventTarget | null, point: Point | null) => {
+      // Klik w kropkę drobiazgu = klik w jej element. Ten klik wraca tu
+      // z elementem jako celem i dopiero on zalicza nowość.
+      if (point && !forwarding.current) {
+        const visible = new Map(
+          [...boxesRef.current].filter(([, b]) => b.state === "visible"),
+        );
+        const anchor = dotClickAnchor(novelties, visible, target, point);
+        const el = anchor ? elementUnderDot(anchor, point) : null;
+        if (el) {
+          forwarding.current = true;
+          try {
+            el.click();
+          } finally {
+            forwarding.current = false;
+          }
+          return;
+        }
+      }
       if (touring && tour) {
         const next = advanceTour(touring, tour, target);
         if (next === "finished")
