@@ -39,8 +39,10 @@ from app.models.client_order import ClientOrder, ClientOrderStatus
 from app.models.contract import (
     Contract,
     ContractStatus,
+    ContractTerminationReason,
     ContractType,
     ContractWorkMode,
+    ProlongationStatus,
     RateUnit,
 )
 from app.models.job import Job
@@ -223,6 +225,46 @@ async def test_grouped_list_one_row_per_person(app_client, app_auth_headers):
     assert flat.json()["contractors_total"] == 2
     assert flat.json()["contracts_total"] == 3
     assert all(row["group_members"] == [] for row in flat.json()["items"])
+
+
+async def test_grouped_member_carries_next_step_facts(app_client, app_auth_headers):
+    """Kolumna „Co dalej” (20.11.2026): każdy klient osoby niesie fakty
+    zakończenia i przedłużenia, nie tylko umowa w wierszu głównym."""
+    marker = f"Nxt{uuid.uuid4().hex[:6]}"
+    cand = await _seed_candidate(marker, email=f"{marker.lower()}@example.com")
+    c1 = await _seed_client(f"Pierwszy {marker}")
+    c2 = await _seed_client(f"Drugi {marker}")
+    id_live = await _seed_contract(cand, c1)
+    id_ending = await _seed_contract(cand, c2, status=ContractStatus.ending)
+    last_day = business_today() + timedelta(days=10)
+    async with AsyncSessionLocal() as db:
+        ending = await db.get(Contract, id_ending)
+        ending.terminated_at = last_day
+        ending.end_date = last_day
+        ending.termination_reason = ContractTerminationReason.project_ended
+        ending.termination_lessons = "Klient — koniec projektu"
+        ending.agreement_termination_mode = "notice"
+        ending.prolongation_status = ProlongationStatus.no
+        ending.billing_hours_per_month = 160
+        await db.commit()
+
+    resp = await app_client.get(
+        "/api/contracts",
+        params={"q": marker, "group_by_candidate": "true", "page_size": 50},
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    (row,) = resp.json()["items"]
+    members = {m["id"]: m for m in row["group_members"]}
+    assert members[id_ending]["terminated_at"] == last_day.isoformat()
+    assert members[id_ending]["termination_reason"] == "project_ended"
+    assert members[id_ending]["termination_lessons"] == "Klient — koniec projektu"
+    assert members[id_ending]["agreement_termination_mode"] == "notice"
+    assert members[id_ending]["prolongation_status"] == "no"
+    assert members[id_ending]["billing_hours_per_month"] == 160
+    assert members[id_live]["terminated_at"] is None
+    assert members[id_live]["agreement_termination_mode"] is None
+    assert members[id_live]["prolongation_status"] == "unknown"
 
 
 async def test_list_metadata_counts_active_contracts_with_future_start(
