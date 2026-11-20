@@ -156,7 +156,7 @@ MODULES = (
     finance_archive,
     # 0724: kroki stawki przychodowej zamówienia z aneksu (16.11.2026).
     order_revenue_steps,
-    # 0745: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
+    # 0746: dodatki do rozliczenia kontraktora — źródła, karta sprawy, dokumenty (13.11.2026).
     settlement_extras,
 )
 
