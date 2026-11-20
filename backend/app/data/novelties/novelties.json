@@ -3782,7 +3782,7 @@
   },
   {
     "id": "generator-umow-kroki-kartka-pasek",
-    "pr": 0,
+    "pr": 3666,
     "title": "Generator umów: umowa krokami, z kartką i paskiem braków",
     "why": "Nowa umowa idzie krokami. Obok widać jej pierwszy akapit z brakami jako „[REGON]”, a pasek na dole mówi, czego brakuje do pobrania. Rejestry umów są w jednej zakładce „Umowy”.",
     "tier": "tour",
