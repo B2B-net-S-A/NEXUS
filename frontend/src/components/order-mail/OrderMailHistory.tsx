@@ -44,6 +44,12 @@ function scheduleLabel(w: OrderMailRecheckWindow | undefined): string {
   return `co godzinę w godzinach ${hh(w.start_hour)}–${hh(w.end_hour)}`;
 }
 
+/** Początek zdania o kadencji — „całą dobę” potrzebuje przecinka przed dalszym ciągiem. */
+function scheduleSentence(w: OrderMailRecheckWindow | undefined): string {
+  const label = scheduleLabel(w);
+  return `${label.charAt(0).toUpperCase()}${label.slice(1)}${!w || !w.enabled ? "," : ""}`;
+}
+
 const ENTRY_STATUS: Record<string, { tone: StatusDotTone; label: string }> = {
   applied: { tone: "success", label: "Zapisane" },
   error: { tone: "danger", label: "Błąd" },
@@ -100,9 +106,9 @@ function RecheckTable({ runs, scoped, window: w }: { runs: OrderMailRecheckRun[]
   return (
     <div className="border-t border-border/60">
       <p className="max-w-4xl px-4 pt-2 text-xs text-muted-foreground">
-        {scheduleLabel(w).replace(/^co/, "Co")} system sam próbuje dokończyć wstrzymane zamówienia. Wiersz powstaje
-        tylko wtedy, gdy sprawdzenie coś zmieniło. Zamówienie czekające na podpis umowy nowego kontraktora czeka bez
-        limitu czasu i nie powiadamia Delivery Leada.
+        {scheduleSentence(w)} system sam próbuje dokończyć wstrzymane zamówienia. Wiersz powstaje tylko wtedy, gdy
+        sprawdzenie coś zmieniło. Zamówienie czekające na podpis umowy nowego kontraktora czeka bez limitu czasu
+        i nie powiadamia Delivery Leada.
         {scoped ? " Liczby dotyczą Twojego portfela klientów." : ""}
       </p>
       <div className="mt-1 overflow-x-auto">
