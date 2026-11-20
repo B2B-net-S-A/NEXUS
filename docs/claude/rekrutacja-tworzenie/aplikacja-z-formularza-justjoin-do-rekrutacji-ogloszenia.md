@@ -43,9 +43,10 @@ scraper na Macu (`rocketjobs-traffit-scraper`: `CURRENT_AD`,
   W mapie OAuth tylko `POST`.
 - **Ogłoszenie bez rekrutacji = `no_job`, bez zapisu.** Rekrutacja zamknięta =
   źródło z `job_id`, bez karty (`job_not_open`).
-- **Dzwonek idzie jak przy stronie kariery:** pracujący prowadzący, inaczej DL.
-  Rekrutacja w P0 z uśpionym zespołem bywa bez odbiorcy; tak samo działa dziś
-  strona kariery.
+- **Dzwonek idzie do pracującego prowadzącego; bez niego do nikogo** (od
+  19.11.2026, `powiadomienia/dl-tylko-dzwonki-z-zadaniem.md`; wcześniej zapasem był DL).
+  Rekrutacja w P0 z uśpionym zespołem bywa bez odbiorcy. Strona kariery i link
+  aplikacyjny mają dalej zapas „prowadzący, inaczej DL”.
 - **Scraper woła trasę po udanym `from-cv`.** 404 (NEXUS bez trasy) i błąd nie
   zatrzymują importu ani nie cofają `lastRun`. Auto-match do innych rekrutacji
   zostaje jako propozycje.

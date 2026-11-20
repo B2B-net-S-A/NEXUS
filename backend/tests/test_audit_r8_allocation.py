@@ -115,7 +115,6 @@ async def test_similar_job_recipients_skip_the_dead_and_tac(monkeypatch) -> None
         return active.get(owners[0])
 
     monkeypatch.setattr(notify, "_operational_recipient", recipient)
-    monkeypatch.setattr(notify, "_delivery_lead_targets", AsyncMock(return_value=[5]))
     # Nikt nie jest „Poprzednim rekruterem” (14.10.2026).
     monkeypatch.setattr(
         notify,
@@ -124,7 +123,8 @@ async def test_similar_job_recipients_skip_the_dead_and_tac(monkeypatch) -> None
     )
     assert await notify._recipients(SimpleNamespace(), job) == [2]
     active.clear()
-    assert await notify._recipients(SimpleNamespace(), job) == [5]
+    # Bez nikogo — nikt; DL nie jest już zapasem (19.11.2026).
+    assert await notify._recipients(SimpleNamespace(), job) == []
 
 
 # ── Testy z bazą ─────────────────────────────────────────────────────────────

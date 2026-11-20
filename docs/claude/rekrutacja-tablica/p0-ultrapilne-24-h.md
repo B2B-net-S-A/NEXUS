@@ -21,8 +21,9 @@ Makiety: https://claude.ai/artifact/JTKoqosf8yQf61YcrP7dhE.
   niezależnie od własnego układu (nie kafelek do usunięcia); znika, gdy nie
   ma żadnego P0. *(Od 28.10.2026 tylko u zespołu rekrutacji — sekcja niżej.)*
 - **Powiadomienie**: dzwonek `job_p0_set` i mail obowiązkowy `job_p0`
-  (od razu, z kolejki maili) do rekruterów pracujących nad rekrutacją
-  i jej Delivery Leada, bez osoby, która ustawiła P0.
+  (od razu, z kolejki maili) do rekruterów pracujących nad rekrutacją, bez
+  osoby, która ustawiła P0. Delivery Lead dostawał go do 19.11.2026
+  (`powiadomienia/dl-tylko-dzwonki-z-zadaniem.md`); P0 widzi na pulpicie i w pasku.
 
 ## Jak działa
 
