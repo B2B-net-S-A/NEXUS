@@ -392,9 +392,12 @@ describe("ContractInvoicesTab — faktury konsultanta z KSeF", () => {
     mocks.get.mockResolvedValue({ data: PAYLOAD });
     renderWith(<ContractInvoicesTab contractId={5} />);
 
-    expect(await screen.findByText("Faktury konsultanta z KSeF")).toBeInTheDocument();
+    // Tytuł sekcji stoi już w stanie ładowania — czekamy na wiersz z danymi.
+    expect(await screen.findByText("Korekta")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Faktury konsultanta z KSeF" }),
+    ).toBeInTheDocument();
     expect(mocks.get).toHaveBeenCalledWith("/api/contracts/5/contractor-invoices");
-    expect(screen.getByText("Korekta")).toBeInTheDocument();
     expect(screen.getByText("Faktura")).toBeInTheDocument();
     expect(screen.getByText("FK 2/11/2026")).toBeInTheDocument();
     expect(screen.getByText("9970000001-20261117-AAAAAAAAAAAA-AB")).toBeInTheDocument();
