@@ -78,6 +78,34 @@ export function formatMoney(
 }
 
 /**
+ * Pełne złote w podsumowaniach (Analityka, karta „Podsumowanie” nowego
+ * kontraktu): „26 376”, „−75 432”, z `signed` także „+47 321”. Spacja twarda
+ * grupuje także cztery cyfry, więc liczba nie łamie się w wąskiej kolumnie.
+ * Pusta albo nieczytelna kwota → „—”.
+ */
+export function formatWholeNumber(
+  value: number | string | null | undefined,
+  signed = false,
+): string {
+  const n = toNumber(value);
+  if (n == null) return "—";
+  const whole = Math.round(Math.abs(n));
+  const digits = String(whole).replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const sign = whole === 0 ? "" : n < 0 ? "−" : signed ? "+" : "";
+  return `${sign}${digits}`;
+}
+
+/** „26 376 zł”, „1 200 EUR”, z `signed` „+47 321 zł” — `formatWholeNumber` z walutą. */
+export function formatWholeMoney(
+  value: number | string | null | undefined,
+  currency?: string | null,
+  signed = false,
+): string {
+  const text = formatWholeNumber(value, signed);
+  return text === "—" ? text : `${text} ${currencySymbol(currency)}`;
+}
+
+/**
  * Kwota w złotych jak na dokumencie (protokół recepcji sprzętu): spacja
  * grupująca także przy czterech cyfrach („3 903,73 zł”; `formatMoney` daje
  * „3903,73 zł” jak `Intl` dla pl-PL) i znak minus „−”. Pusta albo nieczytelna
