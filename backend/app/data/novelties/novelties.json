@@ -3788,7 +3788,7 @@
   },
   {
     "id": "nowy-kontrakt-podsumowanie",
-    "pr": 0,
+    "pr": 3665,
     "title": "Nowy kontrakt: podsumowanie z marżą obok formularza",
     "why": "Formularz ma trzy sekcje, a karta po prawej na bieżąco mówi, co powstanie: kto u kogo, od kiedy, marża i status. Waluty, zmiany stawki, zużycie i status są w „Zaawansowanych”.",
     "tier": "tour",
@@ -3818,7 +3818,7 @@
   },
   {
     "id": "analityka-kontraktow-90-dni",
-    "pr": 0,
+    "pr": 3665,
     "title": "Analityka kontraktów: co zmieni się w 90 dni i kto ile przynosi",
     "why": "Na górze cztery liczby, pod nimi kto kończy i kto startuje w 90 dni i ile marży to zmienia, prognoza marży i jedna tabela klientów albo konsultantów z sortowaniem.",
     "tier": "tour",
