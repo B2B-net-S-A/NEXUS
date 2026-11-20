@@ -400,13 +400,15 @@ export function ContractSidePanel({
   ) : null;
 
   const subtitle = (
-    <span className="block min-w-0">
-      <span className="block truncate">
+    // Bez `truncate`: nagłówek panelu to siatka, a długi tytuł rekrutacji
+    // w jednej linii rozpychał ją poza panel (ginął przycisk zamknięcia).
+    <span className="block min-w-0 wrap-break-word">
+      <span className="block">
         {clientName ?? "—"}
         {typeLabel ? ` · ${typeLabel}` : ""} · #{contractId}
       </span>
       {jobTitle ? (
-        <span className="block truncate" title={jobTitle}>
+        <span className="line-clamp-2 block" title={jobTitle}>
           {jobTitle}
         </span>
       ) : null}

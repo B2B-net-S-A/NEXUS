@@ -1614,6 +1614,8 @@ export function ContractsListV2({
  status={m.status}
  contractType={m.contract_type}
  statusLabel={m.status ? CONTRACT_STATUS_BADGE[m.status]?.label : undefined}
+ // Status nie ustępuje miejsca rekrutacji obok — inaczej napisy na siebie wchodzą.
+ className="shrink-0"
  />
  {!groupView && m.job_title && (
  <TruncatedText className={cn("min-w-0 max-w-full text-[11px] leading-4 text-muted-foreground", WIDE_HIDDEN)}>

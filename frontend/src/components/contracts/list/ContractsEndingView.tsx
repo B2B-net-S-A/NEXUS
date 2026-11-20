@@ -172,7 +172,11 @@ function PersonCell({ row, props }: { row: EndingListRow; props: Omit<ContractsE
         <span className="truncate" title={row.client_name ?? undefined}>
           {row.client_name ?? "—"}
         </span>
-        <ContractRowNote status={row.status === "ending" ? null : row.status} contractType={row.contract_type} />
+        <ContractRowNote
+          status={row.status === "ending" ? null : row.status}
+          contractType={row.contract_type}
+          className="shrink-0"
+        />
       </span>
     </>
   );
@@ -431,7 +435,7 @@ function EndingTimeline({ rows, ...props }: ContractsEndingViewProps) {
                       </span>
                     ) : null}
                     <span className={cn("block text-[11px]", agreement === "open" ? "text-warning-muted-foreground" : "text-muted-foreground")}>
-                      {agreement === "not_applicable" ? "umowa bez rozwiązania B2B" : `umowa ${AGREEMENT_STATE_LABEL[agreement]}`}
+                      {agreement === "not_applicable" ? "umowa B2B: nie dotyczy" : `umowa ${AGREEMENT_STATE_LABEL[agreement]}`}
                     </span>
                   </div>
                 </div>
