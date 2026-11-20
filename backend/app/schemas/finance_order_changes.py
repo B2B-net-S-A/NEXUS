@@ -140,6 +140,22 @@ class OrderEntryItem(OrderRef):
 ExitVerdict = Literal["ended_intent", "no_successor", "ending_pending"]
 
 
+class ExitOtherOrder(BaseModel):
+    """Kolejne zamówienie tej samej osoby u tego samego klienta w jednym zejściu.
+
+    Bez stawek: zejście liczy się raz na osobę, a stawki wiersza zostają przy
+    zamówieniu głównym (API v1 i tak ukrywa stawkę kosztową zejść)."""
+
+    order_id: Optional[int] = None
+    order_group_id: Optional[int] = None
+    order_number: str
+    end_date: date
+    start_date: Optional[date] = None
+    order_start: Optional[date] = None
+    order_end: Optional[date] = None
+    pdf: Optional[OrderPdfRef] = None
+
+
 class OrderExitItem(OrderRef):
     end_date: date
     start_date: Optional[date] = None
@@ -151,6 +167,10 @@ class OrderExitItem(OrderRef):
     verdict: ExitVerdict
     verdict_label: str
     intent: Optional[str] = None
+    # Zejście to osoba, nie zamówienie (zgłoszenie 19.11.2026): pozostałe
+    # zamówienia tej osoby u tego klienta kończące się w miesiącu stoją tutaj,
+    # a nie jako osobne wiersze. W „Kończących się zamówieniach” zawsze puste.
+    other_orders: list[ExitOtherOrder] = Field(default_factory=list)
 
 
 # ``order_continuation`` / ``client_change`` / ``additional_project`` liczone są

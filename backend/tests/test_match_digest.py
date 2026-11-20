@@ -458,11 +458,12 @@ async def test_digest_uses_each_recipient_profile_without_unknown_notification(
 
 
 @pytest.mark.asyncio
-async def test_digest_only_for_requests_in_work_and_falls_back_to_the_dl(
+async def test_digest_only_for_requests_in_work_and_skips_jobs_without_a_recruiter(
     monkeypatch,
 ):
     """R10-N7-7: „Zakończony" i „Klient milczy" nie dostają digestu, a bez
-    prowadzącego (nieaktywne konto, brak zastępstwa) dzwonek idzie do DL-a."""
+    prowadzącego (nieaktywne konto, brak zastępstwa) nie dostaje go nikt —
+    od 19.11.2026 DL nie jest zapasem (dl-tylko-dzwonki-z-zadaniem.md)."""
     import app.tasks.match_digest as md
 
     job = SimpleNamespace(id=78, title="Go", recruiter_id=50, tac_id=None)
@@ -508,7 +509,7 @@ async def test_digest_only_for_requests_in_work_and_falls_back_to_the_dl(
         return None
 
     async def delivery_lead(db, job_row):
-        return [7]
+        raise AssertionError("DL nie jest zapasem digestu")
 
     monkeypatch.setattr(md, "AsyncSessionLocal", Db)
     monkeypatch.setattr(md, "_fresh_top_matches", matches)
@@ -520,7 +521,7 @@ async def test_digest_only_for_requests_in_work_and_falls_back_to_the_dl(
         "app.services.notification_triggers._delivery_lead_targets", delivery_lead
     )
     await md.run_match_digest()
-    assert recipients == [7]
+    assert recipients == []
     first = str(statements[0].compile(compile_kwargs={"literal_binds": True}))
     where = first.split("WHERE", 1)[1]
     assert "work_state IN ('to_review', 'searching')" in where

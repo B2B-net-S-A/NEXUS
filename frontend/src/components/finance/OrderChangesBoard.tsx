@@ -171,6 +171,8 @@ export function OrderChangesBoard({
           onPreview={() => onPreviewCard(card.key)}
           onDownload={() => card.pdf && onDownloadPdf(card.pdf)}
           downloading={Boolean(card.pdf && downloadingPdf === pdfKey(card.pdf))}
+          onDownloadPdf={onDownloadPdf}
+          downloadingPdf={downloadingPdf}
         />
       ))}
     </ul>
@@ -312,6 +314,7 @@ export function OrderChangesBoard({
 
       {previewed ? (
         <OrderChangePreviewPanel
+          key={previewed.key}
           {...preview}
           card={previewed}
           items={preview.itemsForCard?.(previewed.key) ?? previewed.items}
@@ -348,6 +351,8 @@ function OrderCard({
   onPreview,
   onDownload,
   downloading,
+  onDownloadPdf,
+  downloadingPdf,
 }: {
   card: BoardCard;
   selected: boolean;
@@ -358,13 +363,13 @@ function OrderCard({
   onPreview: () => void;
   onDownload: () => void;
   downloading: boolean;
+  onDownloadPdf: (pdf: OrderPdfRef) => void;
+  downloadingPdf: string | null;
 }) {
   const title = cardTitle(card);
   const finished = card.todo === 0;
   const stop = (event: MouseEvent) => event.stopPropagation();
-  const period = `${card.orderStart ? formatDay(card.orderStart) : "—"} – ${
-    card.orderEnd ? formatDay(card.orderEnd) : "bezterminowo"
-  }`;
+  const period = orderPeriod(card);
   // Rodzaj każdej widocznej zmiany stoi przy niej (plakietka w `ChangeRow`);
   // tu zostają tylko rodzaje, których w widocznych pozycjach nie ma.
   const extraLabels = card.labels.filter(
@@ -408,6 +413,37 @@ function OrderCard({
           <p className={CALM_SUBLINE}>
             zam. {card.orderNumber} · {period}
           </p>
+          {card.otherOrders.length > 0 ? (
+            <ul
+              aria-label={`Pozostałe zamówienia: ${card.consultantName}`}
+              className="space-y-0.5"
+            >
+              {card.otherOrders.map((other) => (
+                <li key={other.orderNumber} className={CALM_SUBLINE}>
+                  zam. {other.orderNumber} · {orderPeriod(other)}
+                  {other.pdf ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (other.pdf) onDownloadPdf(other.pdf);
+                      }}
+                      disabled={downloadingPdf === pdfKey(other.pdf)}
+                      aria-label={`Pobierz PDF: zamówienie ${other.orderNumber}`}
+                      title="Pobierz PDF"
+                      className="hit-area ml-1 inline-flex h-4 w-4 items-center justify-center rounded align-[-2px] text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60"
+                    >
+                      {downloadingPdf === pdfKey(other.pdf) ? (
+                        <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                      ) : (
+                        <Download className="h-3 w-3" aria-hidden />
+                      )}
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
           {extraLabels.length > 0 || card.changedAgain || finished ? (
             <div className="mt-1 flex flex-wrap gap-1">
               {extraLabels.map((label) => (
@@ -501,6 +537,15 @@ function OrderCard({
       </div>
     </li>
   );
+}
+
+function orderPeriod(order: {
+  orderStart: string | null;
+  orderEnd: string | null;
+}): string {
+  return `${order.orderStart ? formatDay(order.orderStart) : "—"} – ${
+    order.orderEnd ? formatDay(order.orderEnd) : "bezterminowo"
+  }`;
 }
 
 function Empty({ children }: { children: ReactNode }) {

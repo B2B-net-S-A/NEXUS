@@ -88,6 +88,17 @@ wypowiedziana umowa, szkic następnego zamówienia ani decyzja offboardingu MD /
   osoba schodzi. Nie zawężaj tego do samego `INTENT_CONTRACT_ENDED`.
   Zakres następcy per (osoba, klient) ZOSTAJE: przejście konsultanta do innego
   klienta JEST zejściem z punktu widzenia rozliczeń klienta A.
+- **Zejście to OSOBA, nie zamówienie (zgłoszenie 19.11.2026, decyzja Artura).**
+  Konsultant z trzema zamówieniami u klienta, z których „zjadano” środki, stał
+  w Zejściach trzy razy, a liczniki mówiły, że zeszło trzech konsultantów
+  (staging na kopii produkcji: październik 12 wierszy = 10 osób, wrzesień
+  17 = 15). `_one_exit_per_person` skleja zejścia tego samego `sibling_key`
+  (osoba × klient) w jeden wiersz: głównym jest zamówienie kończące się
+  najpóźniej, przy remisie najstarsze — jego klucz odhaczenia się nie zmienia.
+  Reszta idzie do `other_orders` (numer, okres, PDF z `decorate`); karta
+  pokazuje je pod nazwiskiem, panel podglądu przełącza PDF, szukajka i eksport
+  znają wszystkie numery. „Kończące się zamówienia” zostają per zamówienie.
+  Rada i Insights liczą zejścia z umów (`departure_day`) i dubli nie miały.
 - **`ending_pending` i `no_successor` to „Kończące się zamówienia"** — osobna
   zakładka (`?sub=ending`, `?tab=ending`), ten sam `OrderExitItem` i ten sam
   render co Zejścia. Bliźniaczy typ różniący się wyłącznie nazwą byłby drugim
