@@ -784,6 +784,39 @@ describe("domknięcie makiet 22.10.2026", () => {
     expect(within(panel).queryByRole("button", { name: "Sprawa: Negocjacje stawki" })).toBeNull();
     expect(mocks.apiGet).not.toHaveBeenCalledWith("/api/cases/931");
   });
+
+  it("panel karty rozmowy przy module back office: bez wiersza „Rytm” i bez „Zmień rytm” (20.11.2026)", async () => {
+    asUser("talent_community_manager");
+    const summary = {
+      contract_id: 10,
+      candidate_id: 20,
+      candidate_name: "Anna Przykładowa",
+      client_id: 30,
+      client_name: "Bank Przykładowy",
+      role: "QA",
+      form: "B2B",
+      start_on: "2026-01-01",
+      end_on: null,
+      owner: { user_id: 5, name: "Natalia Opiekuńcza", source: "contract" },
+      cadence: { level: "monthly", label: "co miesiąc", until_on: null },
+      health: null,
+      kpis: { last_contact: null, satisfaction: null, order_end: null },
+      known_project: null,
+      cases: [],
+    } satisfies CareContractCardSummary;
+    route({ cases: { error: 403 }, board: board([careCard({ title: "Anna Przykładowa" })]), summary });
+    const base = config(false);
+    const withQueue = { ...base, open_modules: { ...base.open_modules, back_office: true } } as HrConfig;
+    renderBoard({ scope: "care", initialSelectedKey: "contact:plan:1" }, withQueue);
+
+    const panel = await screen.findByRole("dialog");
+    expect(await within(panel).findByText("Konsultant w skrócie")).toBeInTheDocument();
+    expect(within(panel).getByText("Koniec zamówienia")).toBeInTheDocument();
+    expect(within(panel).queryByText("Rytm")).toBeNull();
+    expect(within(panel).queryByText("co miesiąc")).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "Zmień rytm" })).toBeNull();
+    expect(within(panel).getByRole("button", { name: "Pomiń z powodem" })).toBeInTheDocument();
+  });
 });
 
 describe("tablica pracy — poprawki po audycie 22.10", () => {

@@ -42,6 +42,7 @@ import { warsawToday } from "@/lib/warsaw-date";
 
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 
+import { careWithoutRhythm, nearestPlanItem, planItemOverdue } from "../back-office-care";
 import { CadenceDialog } from "../CadenceDialog";
 import { ClientFeedbackDialog } from "../ClientFeedbackDialog";
 import { ConversationDialog } from "../ConversationDialog";
@@ -226,6 +227,7 @@ function CaseRow({ item }: { item: CardCase }) {
 function PlanRow({
   item,
   today,
+  withoutRhythm,
   canEdit,
   onRecord,
   onSkip,
@@ -234,13 +236,14 @@ function PlanRow({
 }: {
   item: CardPlanItem;
   today: string;
+  withoutRhythm: boolean;
   canEdit: boolean;
   onRecord: () => void;
   onSkip: () => void;
   onRestore: () => void;
   restoring: boolean;
 }) {
-  const overdue = item.status === "open" && item.due_on < today;
+  const overdue = planItemOverdue(item, today, withoutRhythm);
   return (
     <li className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 py-1.5 text-sm">
       <StatusDot
@@ -308,6 +311,8 @@ interface ConsultantCardProps {
  * o projekcie”, sprawy, jedna „Historia” z filtrami, plan kontaktów zwinięty
  * i menu „Więcej” (opiekun, rytm, pominięcie punktu planu, kontrakt). Ten sam
  * komponent w panelu `/care?contract=<id>` i w zakładce „Opieka” kontraktu.
+ * Z modułem back office (20.11.2026) bez rytmu: bez „Rytm kontaktu” i „Zmień
+ * rytm”, a rozmowa z rytmu sprzed modułu nie jest „po terminie”.
  * Bez stawek i danych o zdrowiu — serwer ich nie wysyła.
  */
 export function ConsultantCard({
@@ -384,6 +389,9 @@ function CardBody({
     .filter((item) => item.status === "open")
     .sort((a, b) => (a.due_on < b.due_on ? -1 : a.due_on > b.due_on ? 1 : 0));
   const nextPlan = openPlan[0] ?? null;
+  // Do czasu wczytania konfiguracji karta jak bez modułu (menu jest zamknięte).
+  const withoutRhythm = hr.data ? careWithoutRhythm(hr.data) : false;
+  const nearestPlan = nearestPlanItem(openPlan, today, withoutRhythm);
   const casesOpen = Boolean(hr.data?.open_modules.cases);
   const canOpenCase = casesOpen && Boolean(hr.data?.me.cases || hr.data?.me.is_admin);
   const name = card.candidate_name ?? "Konsultant";
@@ -454,7 +462,7 @@ function CardBody({
         </Button>
       );
     }
-    if (step.kind === "raise_cadence") {
+    if (step.kind === "raise_cadence" && !withoutRhythm) {
       return (
         <Button size="sm" onClick={() => setCadenceOpen(true)}>
           Zmień rytm
@@ -507,8 +515,8 @@ function CardBody({
         Plan kontaktów
         <span className="text-xs font-normal text-muted-foreground">
           {openPlan.length ? `${openPlan.length} otwarte` : "bez otwartych"}
-          {openPlan.some((item) => item.due_on < today) ? " · po terminie" : ""}
-          {nextPlan ? ` · najbliższy ${formatDayMonthPl(nextPlan.due_on)}` : ""}
+          {openPlan.some((item) => planItemOverdue(item, today, withoutRhythm)) ? " · po terminie" : ""}
+          {nearestPlan ? ` · najbliższy ${formatDayMonthPl(nearestPlan.due_on)}` : ""}
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className="border-t border-border/60 px-3 py-1">
@@ -519,6 +527,7 @@ function CardBody({
                 key={item.id}
                 item={item}
                 today={today}
+                withoutRhythm={withoutRhythm}
                 canEdit={card.can_edit}
                 onRecord={() => startTalk(item)}
                 onSkip={() => setSkipping(item)}
@@ -583,7 +592,9 @@ function CardBody({
                 {card.can_change_owner ? (
                   <DropdownMenuItem onSelect={() => setOwnerOpen(true)}>Zmień opiekuna</DropdownMenuItem>
                 ) : null}
-                <DropdownMenuItem onSelect={() => setCadenceOpen(true)}>Rytm kontaktu</DropdownMenuItem>
+                {withoutRhythm ? null : (
+                  <DropdownMenuItem onSelect={() => setCadenceOpen(true)}>Rytm kontaktu</DropdownMenuItem>
+                )}
                 {card.can_edit && nextPlan ? (
                   <DropdownMenuItem onSelect={() => setSkipping(nextPlan)}>
                     Pomiń punkt planu ({formatDayMonthPl(nextPlan.due_on)})
@@ -723,7 +734,7 @@ function CardBody({
           }}
         />
       ) : null}
-      {cadenceOpen ? (
+      {cadenceOpen && !withoutRhythm ? (
         <CadenceDialog contractId={card.contract_id} open onOpenChange={setCadenceOpen} />
       ) : null}
       {ownerOpen ? <OwnerDialog card={card} open onOpenChange={setOwnerOpen} /> : null}

@@ -3,7 +3,7 @@
 // opiekuna prowadzi kolejka back office'u („Kontakt 7. dnia”, „Co dalej po
 // projekcie”). DL-owi zostają sprawy klienta. Bez Reacta, z testem.
 
-import type { ConsultantRow } from "@/lib/api/care";
+import type { CardPlanItem, ConsultantRow } from "@/lib/api/care";
 import type { HrConfig } from "@/lib/api/hr";
 
 export const BACK_OFFICE_CARE_DESCRIPTION =
@@ -45,4 +45,26 @@ export function showMineCareChip(withoutRhythm: boolean, count: number | null, a
  */
 export function countsAsWard(kind: string, withoutRhythm: boolean): boolean {
   return !withoutRhythm || kind === "contact" || kind === "decision";
+}
+
+type PlanPoint = Pick<CardPlanItem, "kind" | "status" | "due_on">;
+
+/**
+ * Punkt planu kontaktów „po terminie”. Przy module back office rozmowa z rytmu
+ * (`cadence`, punkty sprzed modułu — plan już ich nie tworzy) nie jest zaległa:
+ * rytmu nie ma, a takie punkty zamyka krok 5 runbooka back office'u.
+ */
+export function planItemOverdue(item: PlanPoint, today: string, withoutRhythm: boolean): boolean {
+  if (item.status !== "open" || item.due_on >= today) return false;
+  return !(withoutRhythm && item.kind === "cadence");
+}
+
+/**
+ * „Najbliższy” punkt w nagłówku planu kontaktów (`open` posortowane od
+ * najwcześniejszego). Przy module back office pomija rozmowy z rytmu sprzed
+ * dziś — inaczej „najbliższy” wskazywałby datę sprzed tygodni.
+ */
+export function nearestPlanItem<T extends PlanPoint>(open: readonly T[], today: string, withoutRhythm: boolean): T | null {
+  if (!withoutRhythm) return open[0] ?? null;
+  return open.find((item) => !(item.kind === "cadence" && item.due_on < today)) ?? null;
 }

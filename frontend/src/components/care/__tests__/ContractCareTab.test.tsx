@@ -159,12 +159,20 @@ function contractCare(): Pick<ContractCare, "tech_cards"> {
   };
 }
 
-function serve(data: ConsultantCardData) {
+/** Konfiguracja HR z modułem back office (bez rytmu rozmów, 20.11.2026). */
+const BACK_OFFICE_CONFIG = {
+  open_modules: { care: true, cases: false, back_office: true },
+  me: { cases: false, is_admin: false },
+};
+
+function serve(data: ConsultantCardData, hrConfig: unknown = null) {
   mocks.get.mockImplementation((url: string) => {
     if (url.endsWith("/card")) return Promise.resolve({ data });
     if (url.endsWith("/timeline")) return Promise.resolve({ data: timeline() });
     if (url.endsWith("/client-state")) return Promise.resolve({ data: STATE });
-    if (url === "/api/hr/config") return Promise.reject(httpError(403));
+    if (url === "/api/hr/config") {
+      return hrConfig ? Promise.resolve({ data: hrConfig }) : Promise.reject(httpError(403));
+    }
     if (url.endsWith("/api/care/contracts/5")) return Promise.resolve({ data: contractCare() });
     if (url.includes("/areas")) return Promise.resolve({ data: { items: [] } });
     return Promise.resolve({ data: { items: [] } });
@@ -242,6 +250,42 @@ describe("ContractCareTab", () => {
     await userEvent.click(screen.getByRole("button", { name: /Plan kontaktów/ }));
     expect(screen.getByText("po terminie")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
+  });
+
+  it("moduł back office: bez „Rytm kontaktu”, rozmowa z rytmu nie jest „po terminie”, kamień tak", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const plan: ConsultantCardData["plan"] = [
+      { id: 21, kind: "cadence", label: "Rozmowa według rytmu", due_on: "2026-10-05", status: "open", skip_reason: null },
+      { id: 22, kind: "pre_end", label: "Przed końcem zamówienia", due_on: "2099-01-15", status: "open", skip_reason: null },
+    ];
+    serve(card({ cadence: null, plan, next_step: null }), BACK_OFFICE_CONFIG);
+    renderTab();
+    await screen.findByRole("heading", { name: "Anna Przykładowa" });
+    const trigger = await screen.findByRole("button", { name: /Plan kontaktów/ });
+    await waitFor(() => expect(trigger).toHaveTextContent("2 otwarte · najbliższy 15.01"));
+    expect(trigger).not.toHaveTextContent("po terminie");
+    await user.click(trigger);
+    expect(screen.queryByText("po terminie")).toBeNull();
+    expect(within(screen.getByRole("list", { name: "Plan kontaktów" })).getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.queryByText(/rytm co/)).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Więcej akcji" }));
+    expect(await screen.findByRole("menuitem", { name: "Zmień opiekuna" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Rytm kontaktu" })).toBeNull();
+  });
+
+  it("bez modułu back office rytm jak dotąd: „Rytm kontaktu” w menu, rozmowa z rytmu „po terminie”", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const plan: ConsultantCardData["plan"] = [
+      { id: 21, kind: "cadence", label: "Rozmowa według rytmu", due_on: "2026-10-05", status: "open", skip_reason: null },
+    ];
+    serve(card({ plan, next_step: null }));
+    renderTab();
+    const trigger = await screen.findByRole("button", { name: /Plan kontaktów/ });
+    expect(trigger).toHaveTextContent("1 otwarte · po terminie · najbliższy 05.10");
+    await user.click(trigger);
+    expect(screen.getByText("po terminie")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Więcej akcji" }));
+    expect(await screen.findByRole("menuitem", { name: "Rytm kontaktu" })).toBeInTheDocument();
   });
 
   it("„Zapisz” przy punkcie planu wysyła rozmowę zamykającą ten punkt, bez stanu u klienta", async () => {

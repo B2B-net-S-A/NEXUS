@@ -15,13 +15,13 @@ from datetime import timedelta
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 import app.models  # noqa: F401  (rejestracja wszystkich mapperów)
 from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.contract import Contract
-from app.models.contract_care import CONTRACTS_CARE, RedeployQueueItem
+from app.models.contract_care import CONTRACTS_CARE, CarePlanItem, RedeployQueueItem
 from app.models.notification import Notification, NotificationType
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import UserRole
@@ -779,3 +779,53 @@ async def test_back_office_health_skips_rhythm_rules(app_client, care_on) -> Non
     row = next(r for r in after.json()["items"] if r["contract_id"] == contract_id)
     assert row["health"]["level"] == "ok"
     assert row["is_mine"] is False
+
+
+async def test_back_office_card_without_rhythm(app_client, care_on) -> None:
+    """Moduł back office (decyzja Artura 20.11.2026): karta konsultanta bez
+    poziomu rytmu i bez „Podnieś rytm”, a zaległa rozmowa z rytmu sprzed modułu
+    nie jest następnym krokiem. Bez modułu karta jak dotąd."""
+
+    lead, _client_id, _area, _manager, contract_id, _c = await _setup()
+    await nightly_plan(contract_id)
+    today = business_today()
+    stale = today - timedelta(days=3)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(CarePlanItem)
+            .where(CarePlanItem.contract_id == contract_id)
+            .values(status="done", resolved_at=func.now())
+        )
+        db.add(
+            CarePlanItem(
+                contract_id=contract_id,
+                kind="cadence",
+                seq=stale.toordinal(),
+                due_on=stale,
+                status="open",
+            )
+        )
+        await db.commit()
+
+    before = await app_client.get(
+        f"/api/care/contracts/{contract_id}/card", headers=headers(lead)
+    )
+    assert before.status_code == 200, before.text
+    card = before.json()
+    assert card["cadence"]["level"] == "biweekly"
+    assert card["next_step"]["kind"] == "conversation"
+    assert card["next_step"]["detail"] == "zaległe 3 dni · Rozmowa według rytmu"
+
+    await set_modules({key: True for key in HR_MODULE_KEYS})
+    after = await app_client.get(
+        f"/api/care/contracts/{contract_id}/card", headers=headers(lead)
+    )
+    assert after.status_code == 200, after.text
+    card = after.json()
+    assert card["cadence"] is None
+    step = card["next_step"]
+    assert step["kind"] != "raise_cadence"
+    assert "zaległe" not in (step["detail"] or ""), step
+    assert "rytm" not in step["label"].lower(), step
+    # Punkt zostaje w planie jako historia (krok 5 runbooka zamyka je osobno).
+    assert [i["kind"] for i in card["plan"] if i["status"] == "open"] == ["cadence"]

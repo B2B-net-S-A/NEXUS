@@ -1,5 +1,5 @@
 # Opieka przy back office: Delivery Lead bez podopiecznych z automatu, zdrowie bez rytmu
-<!-- indeks: effective_owners bez DL-a przy back_office, back_office_on, karty rozmów i decyzji tylko z opiekunem, opinia menedżera prowadzi DL klienta, zdrowie bez reguł rytmu (HealthSignals.rhythm), „Moi podopieczni” i „Moi” tylko z podopiecznymi, Konsultanci bez rytmu, 20.11.2026 -->
+<!-- indeks: effective_owners bez DL-a przy back_office, back_office_on, karty rozmów i decyzji tylko z opiekunem, opinia menedżera prowadzi DL klienta, zdrowie bez reguł rytmu (HealthSignals.rhythm), „Moi podopieczni” i „Moi” tylko z podopiecznymi, Konsultanci bez rytmu, karta konsultanta i panel tablicy bez rytmu (planItemOverdue, nearestPlanItem), 20.11.2026 -->
 
 Decyzje Artura z 20.11.2026 (przegląd z zrzutami i wariantami:
 https://claude.ai/artifact/2PRniukBqfxb4u6YcQaVso, wybrany wariant A i „zdrowie bez
@@ -56,6 +56,22 @@ dotyczy konsultanta, kolejka ma u siebie („Kontakt 7. dnia”, „Co dalej po 
   zadowolenie, „Do przepięcia” i koniec bez decyzji. U DL 27 „Uwaga” spadła z 296 do
   około 127 z 300 osób (zostaje „zamówienie kończy się za N dni, bez decyzji”).
 
+## Karta konsultanta i panel tablicy
+
+- Z modułem karta (`care/card.py`, panel `/care?contract=` i zakładka „Opieka”
+  kontraktu) ma `cadence: null` i nie podpowiada „Podnieś rytm”. Następny krok
+  liczy się bez otwartych rozmów z rytmu (`kind = cadence`, punkty sprzed modułu;
+  na kopii z 19.11 1 084 zaległe), więc nie mówi „zaległe 45 dni · Rozmowa według
+  rytmu”. Punkty zostają w planie jako historia.
+- Front (`careWithoutRhythm`): bez „Rytm kontaktu” w „Więcej” i bez „Zmień rytm”,
+  punkt z rytmu nie jest „po terminie” (`planItemOverdue`), a „najbliższy”
+  w nagłówku planu pomija rozmowy z rytmu sprzed dziś (`nearestPlanItem`). Kamienie
+  (dzień 7, przed końcem) dalej bywają po terminie. Panel karty na tablicy: bez
+  wiersza „Rytm” w „Konsultant w skrócie” i bez „Zmień rytm”.
+- Kafelki tablicy się nie zmieniają: rozmowa z rytmu u kontraktu z opiekunem
+  (19.11: 52 punkty) dalej stoi jako „N dni po”, bo to kolejka pracy opiekuna.
+  Znikną po kroku 5 runbooka (niżej).
+
 ## Czego ta zmiana nie robi
 
 - Nie zamyka zaległych punktów planu. Krok 5 runbooka back office'u
@@ -65,7 +81,7 @@ dotyczy konsultanta, kolejka ma u siebie („Kontakt 7. dnia”, „Co dalej po 
   DL-a (decyzje z 18.10 i 22.10).
 - Nie wprowadza rytmu rozmów ani kontroli zapisu rozmów (Artur 09.11: „Zostaw”).
 
-Testy: `tests/test_care_board.py` (`test_back_office_*`), `tests/test_care_health.py`,
+Testy: `tests/test_care_board.py` (`test_back_office_*`, w tym karta bez rytmu), `tests/test_care_health.py`,
 `tests/test_care_owner_pool.py`, front `components/care/__tests__/back-office-care.test.ts`.
 Testy łańcucha z DL-em uruchamiają się bez modułu (`care_on` w `test_care_board.py`,
 `care_on_lead_owner` w `test_admin_cases_care.py`).
