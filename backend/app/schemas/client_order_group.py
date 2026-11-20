@@ -3,9 +3,9 @@
 Liczby MD i stawki jadą na drut jako **JSON number**, nie string. Goły
 ``Decimal`` w Pydantic v2 serializuje się do stringa, a front liczy z nich
 procent wypełnienia paska zużycia — ``"15" / "50"`` w JS nie jest błędem,
-tylko cichym ``NaN``. Ten sam problem rozwiązano wcześniej w
-``app/api/invoices.py`` (``MoneyPLN``); tutaj potrzebne są osobne skale dla
-MD, pieniędzy linii, surowej stawki kontraktu i kursu FX.
+tylko cichym ``NaN``. Ten sam problem rozwiązywał ``MoneyPLN`` wycofanego
+rejestru faktur; tutaj potrzebne są osobne skale dla MD, pieniędzy linii,
+surowej stawki kontraktu i kursu FX.
 """
 
 from __future__ import annotations

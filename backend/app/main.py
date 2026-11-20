@@ -76,7 +76,6 @@ from app.api import (
     contract_analytics,
     contract_templates,
     fx,
-    invoices,
     framework_rates,
     rate_cards,
     dashboard,
@@ -1889,7 +1888,6 @@ app.include_router(
     prefix="/api/contract-docs-sharepoint",
     tags=["contracts"],
 )
-app.include_router(invoices.router, prefix="/api/invoices", tags=["invoices"])
 app.include_router(fx.router, prefix="/api/fx", tags=["fx"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["dashboard"])
 app.include_router(search.router, prefix="/api/search", tags=["search"])
