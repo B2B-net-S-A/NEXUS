@@ -15,14 +15,37 @@ export type HappeningActionId =
   | "add_order"
   | "terminate"
   | "log_conversation"
-  | "fill_rate";
+  | "fill_rate"
+  | "extend_agreement"
+  | "reassign_order"
+  | "cancel_order_draft";
+
+/**
+ * Zamówienie złożone na okres po końcu współpracy (`order_after_end`
+ * z `GET /api/contracts/{id}`, decyzja Artura 19.11.2026).
+ */
+export interface HappeningOrderAfterEnd {
+  order_id: number;
+  client_id: number;
+  order_group_id: number | null;
+  order_number: string | null;
+  status: string;
+  start_date: string | null;
+  end_date: string | null;
+  /** Szkic, którego wypowiedzenie nie pozwala aktywować (automat poczty). */
+  held_by_termination: boolean;
+}
 
 export interface HappeningItem {
-  id: "end" | "order_end" | "care" | "rate";
+  id: "end" | "order_end" | "care" | "rate" | "order_after_end";
+  /** Klucz wiersza: kilka zamówień po końcu to kilka pozycji tego samego rodzaju. */
+  key?: string;
   tone: HappeningTone;
   lead: string;
   detail: string | null;
   actions: HappeningActionId[];
+  /** Zamówienie, którego dotyczą akcje pozycji `order_after_end`. */
+  order?: HappeningOrderAfterEnd;
 }
 
 export interface HappeningContract {
@@ -37,6 +60,7 @@ export interface HappeningContract {
   prolongation_status: string | null;
   rate_client: number | null;
   can_reverse_termination?: boolean | null;
+  order_after_end?: HappeningOrderAfterEnd[] | null;
 }
 
 export interface HappeningCare {
@@ -76,6 +100,62 @@ export function relativeDays(days: number): string {
   return `za ${days} dni`;
 }
 
+/** Umowy z datą końca w treści — zamówienie ich nie przedłuża (nie-B2B). */
+const AGREEMENT_LABEL: Record<string, string> = {
+  uzlecenie: "Umowa zlecenie",
+  uop: "Umowa o pracę",
+};
+
+function orderPeriod(order: HappeningOrderAfterEnd): string {
+  if (!order.start_date) return "bez dat";
+  if (!order.end_date) return `od ${fmtDatePl(order.start_date)} bez daty końca`;
+  return `${fmtDatePl(order.start_date)} – ${fmtDatePl(order.end_date)}`;
+}
+
+/**
+ * „Klient zamówił okres po zakończeniu” — jedna pozycja na zamówienie.
+ * Konflikt liczy serwer (`services/contract_order_after_end.py`); tu tylko
+ * zdanie i wyjścia: przedłużenie umowy albo cofnięcie zakończenia, zamówienie
+ * dla innej osoby, anulowanie szkicu.
+ */
+function orderAfterEndItems(c: HappeningContract): HappeningItem[] {
+  const projectEnd = c.end_date ?? c.terminated_at;
+  if ((c.status !== "ending" && c.status !== "ended") || !projectEnd) return [];
+  const agreement = AGREEMENT_LABEL[c.contract_type] ?? null;
+  return (c.order_after_end ?? []).map((order) => {
+    const draft = order.status === "draft";
+    const line = order.order_group_id != null;
+    const what = line ? "Linia zamówienia zbiorczego" : draft ? "Szkic zamówienia" : "Zamówienie";
+    const number = order.order_number ? ` ${order.order_number}` : "";
+    const when = c.status === "ended" ? "zakończyła się" : "kończy się";
+    const detail = [
+      `${what}${number}: ${orderPeriod(order)}, a współpraca ${when} ${fmtDatePl(projectEnd)}.`,
+      order.held_by_termination
+        ? "NEXUS nie aktywuje go sam, bo zakończenie współpracy to decyzja człowieka."
+        : null,
+      agreement
+        ? `${agreement} nie przedłuża się zamówieniem — przedłuż ją aneksem albo załóż nowy kontrakt.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" ");
+    const actions: HappeningActionId[] = [];
+    if (agreement) actions.push("extend_agreement");
+    else if (c.can_reverse_termination) actions.push("reverse_termination");
+    actions.push("reassign_order");
+    if (draft && !line) actions.push("cancel_order_draft");
+    return {
+      id: "order_after_end",
+      key: `order_after_end:${order.order_id}`,
+      tone: "danger",
+      lead: "Klient zamówił okres po zakończeniu współpracy",
+      detail,
+      actions,
+      order,
+    };
+  });
+}
+
 function reasonLabel(value: string | null): string | null {
   if (!value) return null;
   return CONTRACT_TERMINATION_REASONS.find((r) => r.value === value)?.label ?? value;
@@ -100,6 +180,7 @@ export function buildContractHappening(
   options: HappeningOptions = { canSeeRates: false },
 ): HappeningItem[] {
   const items: HappeningItem[] = [];
+  const afterEnd = orderAfterEndItems(c);
   const agreementOpen = c.contract_type === "b2b" && !c.agreement_termination_mode;
   const live = c.status === "active" || c.status === "ending";
 
@@ -126,7 +207,10 @@ export function buildContractHappening(
       detail: detail || null,
       actions: [
         ...(agreementOpen ? (["record_agreement"] as const) : []),
-        ...(c.can_reverse_termination ? (["reverse_termination"] as const) : []),
+        // Przy zamówieniu po końcu „Cofnij zakończenie” stoi w jego pozycji.
+        ...(c.can_reverse_termination && afterEnd.length === 0
+          ? (["reverse_termination"] as const)
+          : []),
       ],
     });
   } else if (c.status === "ended" && agreementOpen) {
@@ -149,6 +233,8 @@ export function buildContractHappening(
       });
     }
   }
+
+  items.push(...afterEnd);
 
   if (care && care.level !== "ok" && care.reasons.length > 0) {
     // Koniec zamówienia stoi już wyżej — nie powtarzamy go w powodach opieki.

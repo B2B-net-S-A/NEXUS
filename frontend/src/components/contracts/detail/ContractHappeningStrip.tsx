@@ -3,7 +3,7 @@
 // wariant A). Treść liczy `lib/contract-happening.ts`; o tym, czy osoba może
 // użyć akcji i co ona otwiera, decyduje strona (`renderAction`).
 import type { ReactNode } from "react";
-import { CalendarClock, CircleDollarSign, HeartPulse } from "lucide-react";
+import { CalendarClock, CalendarX2, CircleDollarSign, HeartPulse } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { HappeningActionId, HappeningItem, HappeningTone } from "@/lib/contract-happening";
 
@@ -17,7 +17,13 @@ const TONE_ICON: Record<HappeningTone, string> = {
   warning: "text-warning",
   info: "text-info",
 };
-const ICON = { end: CalendarClock, order_end: CalendarClock, care: HeartPulse, rate: CircleDollarSign } as const;
+const ICON = {
+  end: CalendarClock,
+  order_end: CalendarClock,
+  order_after_end: CalendarX2,
+  care: HeartPulse,
+  rate: CircleDollarSign,
+} as const;
 
 export interface ContractHappeningStripProps {
   items: HappeningItem[];
@@ -38,7 +44,11 @@ export function ContractHappeningStrip({ items, renderAction }: ContractHappenin
           const Icon = ICON[item.id];
           const actions = item.actions.map((a) => ({ id: a, node: renderAction(a, item) })).filter((a) => a.node != null);
           return (
-            <li key={item.id} className="relative flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3" data-happening={item.id}>
+            <li
+              key={item.key ?? item.id}
+              className="relative flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5 pl-4 pr-3"
+              data-happening={item.id}
+            >
               <span aria-hidden className={cn("absolute inset-y-0 left-0 w-[3px]", TONE_BAR[item.tone])} />
               <Icon aria-hidden className={cn("size-4 shrink-0", TONE_ICON[item.tone])} />
               <div className="min-w-0 flex-1">
