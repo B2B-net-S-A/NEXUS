@@ -16,8 +16,16 @@
     },
     "where": "Rekrutacja → nagłówek → proces u klienta",
     "href": "/jobs",
+    "practice_href": "/jobs/990001",
     "section": "pipeline",
-    "dot_anchor": "job.client-process"
+    "dot_anchor": "job.client-process",
+    "steps": [
+      {
+        "anchor": "job.client-process",
+        "text": "Kliknij „proces” w nagłówku rekrutacji.",
+        "hint": "Zobaczysz etapy po wysłaniu CV, ile u klienta trwa decyzja i zdanie dla kandydata. Tu nic się nie zapisze."
+      }
+    ]
   },
   {
     "id": "kandydaci-ostatnio-z-osoba",
@@ -4021,7 +4029,21 @@
     },
     "where": "Rekrutacja → Odrzuć z powodem → Nie szuka pracy lub niezainteresowany",
     "href": "/jobs",
+    "practice_href": "/jobs/990001?candidate=990105",
     "section": "pipeline",
-    "dot_anchor": "rejection.not-looking"
+    "dot_anchor": "rejection.not-looking",
+    "steps": [
+      {
+        "anchor": "person.dock.reject",
+        "text": "W panelu osoby kliknij „Odrzuć z powodem”.",
+        "hint": "Otworzy się okno z powodami odrzucenia. Na Poligonie nic nie zostanie zapisane."
+      },
+      {
+        "anchor": "rejection.not-looking",
+        "text": "Przy „Nie szuka pracy” wybierzesz, do kiedy.",
+        "hint": "3 miesiące, 6 miesięcy, rok albo data. Do tego dnia profil ma „Nie szuka”, a system nie podsuwa tej osoby.",
+        "ack": true
+      }
+    ]
   }
 ]
