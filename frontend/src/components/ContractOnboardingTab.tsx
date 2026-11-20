@@ -7,16 +7,12 @@ import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { apiErrorMessage } from "@/lib/api-error";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { resolveViewState } from "@/lib/view-state";
-import {
-  CheckSquare,
-  Square,
-  Minus,
-  Plus,
-  Trash2,
-  Loader2,
-  X,
-} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { warsawToday } from "@/lib/warsaw-date";
+import { Loader2, Plus, Trash2, X } from "lucide-react";
 
 interface OnboardingItem {
   id: number;
@@ -31,12 +27,6 @@ interface OnboardingItem {
   updated_at: string;
 }
 
-const STATUS_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
-  pending: Square,
-  done: CheckSquare,
-  na: Minus,
-};
-
 // Etykiety PL zamiast surowego `pending` w podpowiedzi (audyt 24.09, N9).
 export const ONBOARDING_STATUS_LABELS: Record<string, string> = {
   pending: "do zrobienia",
@@ -44,17 +34,19 @@ export const ONBOARDING_STATUS_LABELS: Record<string, string> = {
   na: "nie dotyczy",
 };
 
-const NEXT_STATUS: Record<string, "pending" | "done" | "na"> = {
-  pending: "done",
-  done: "na",
-  na: "pending",
-};
+/** Pozycje bez terminów i notatek układamy w dwie kolumny — tabela byłaby samymi kreskami. */
+export function onboardingDetailed(items: readonly Pick<OnboardingItem, "due_date" | "notes">[]): boolean {
+  return items.some((item) => item.due_date != null || Boolean(item.notes));
+}
 
 /**
- * Lista onboardingowa kontraktu. Bramka zapisu jest JEDNA i przychodzi z góry
- * (`readOnly` = brak uprawnienia „Kontrakty i zamówienia: tworzenie i edycja”
- * albo tryb podglądu) — bez drugiej, zagnieżdżonej bramki po roli, która
- * chowała przyciski posiadaczom uprawnienia spoza ról admin/Delivery Lead.
+ * Stara lista startowa kontraktu (lista onboardingu sprzed modułu „Wejście
+ * i odejście”) jako checklista zakładki „Start i sprzęt” (wariant A,
+ * 20.11.2026): pole wyboru odhacza pozycję, „Nie dotyczy” wyjmuje ją
+ * z kroków, kosz usuwa po potwierdzeniu w wierszu. Postęp liczy nagłówek
+ * zakładki. Bramka zapisu jest JEDNA i przychodzi z góry (`readOnly` = brak
+ * uprawnienia „Kontrakty i zamówienia: tworzenie i edycja” albo tryb
+ * podglądu) — bez drugiej, zagnieżdżonej bramki po roli.
  */
 export function ContractOnboardingTab({
   contractId,
@@ -90,7 +82,7 @@ export function ContractOnboardingTab({
       queryClient.setQueryData(["contract-onboarding", contractId], items);
       queryClient.invalidateQueries({ queryKey: ["contract-onboarding", contractId] });
     },
-    onError: onMutationError("Nie udało się wygenerować listy onboardingowej."),
+    onError: onMutationError("Nie udało się wygenerować listy startowej."),
   });
 
   const createMutation = useMutation({
@@ -137,7 +129,7 @@ export function ContractOnboardingTab({
     });
   };
 
-  const items = onboardingQuery.data ?? [];
+  const items = [...(onboardingQuery.data ?? [])].sort((a, b) => a.order - b.order);
   const viewState = resolveViewState({
     isLoading: onboardingQuery.isLoading,
     error: onboardingQuery.error,
@@ -148,12 +140,95 @@ export function ContractOnboardingTab({
     viewState === "forbidden" ||
     viewState === "not_found" ||
     viewState === "error";
-  const doneCount = items.filter((i) => i.status === "done").length;
-  const activeCount = items.filter((i) => i.status !== "na").length;
-  const pct = activeCount > 0 ? Math.round((doneCount / activeCount) * 100) : 0;
+
+  const setStatus = (item: OnboardingItem, status: OnboardingItem["status"]) =>
+    updateMutation.mutate({ id: item.id, payload: { status } });
+
+  const row = (item: OnboardingItem) => {
+    const done = item.status === "done";
+    const na = item.status === "na";
+    const late = !done && !na && item.due_date != null && item.due_date.slice(0, 10) < warsawToday();
+    return (
+      <li key={item.id} className="group flex min-h-10 items-center gap-3 py-1.5">
+        <Checkbox
+          checked={done}
+          disabled={readOnly || na || updateMutation.isPending}
+          onCheckedChange={(value) => setStatus(item, value === true ? "done" : "pending")}
+          aria-label={`${item.label} — ${ONBOARDING_STATUS_LABELS[item.status] ?? item.status}`}
+        />
+        <span className="min-w-0 flex-1">
+          <span className={cn("block text-[13px] text-foreground", (done || na) && "text-muted-foreground line-through")}>
+            {item.label}
+          </span>
+          {item.notes || item.due_date ? (
+            <span className="block text-[11.5px] leading-4 text-muted-foreground">
+              {[item.due_date ? `termin ${formatDate(item.due_date)}` : null, item.notes].filter(Boolean).join(" · ")}
+              {late ? <span className="font-medium text-destructive"> · po terminie</span> : null}
+            </span>
+          ) : null}
+        </span>
+        {na ? <span className="text-[12px] text-muted-foreground">nie dotyczy</span> : null}
+        {!readOnly ? (
+          <span className="flex shrink-0 items-center gap-1 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-within:opacity-100">
+            {confirmDeleteId === item.id ? (
+              <span className="inline-flex items-center gap-1 text-xs">
+                <span className="text-muted-foreground">Usunąć?</span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    deleteMutation.mutate(item.id, {
+                      onSettled: () => setConfirmDeleteId(null),
+                    })
+                  }
+                  disabled={deleteMutation.isPending}
+                  aria-label={`Potwierdź usunięcie pozycji ${item.label}`}
+                  className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
+                >
+                  Usuń
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteId(null)}
+                  aria-label="Anuluj usuwanie"
+                  className="hit-area rounded p-1 hover:bg-muted"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setStatus(item, na ? "pending" : "na")}
+                  disabled={updateMutation.isPending}
+                  aria-label={na ? `Przywróć pozycję ${item.label}` : `Nie dotyczy: ${item.label}`}
+                  className="rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  {na ? "Przywróć" : "Nie dotyczy"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteId(item.id)}
+                  className="hit-area rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title="Usuń"
+                  aria-label={`Usuń pozycję ${item.label}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
+          </span>
+        ) : null}
+      </li>
+    );
+  };
+
+  // Krótka lista bez terminów: dwie kolumny (1–4 po lewej, 5–8 po prawej) mieszczą się w oknie.
+  const twoColumns = !onboardingDetailed(items) && items.length > 3;
+  const half = Math.ceil(items.length / 2);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {(viewState === "forbidden" ||
         viewState === "not_found" ||
         viewState === "error") && (
@@ -164,47 +239,40 @@ export function ContractOnboardingTab({
       )}
 
       {viewState === "empty" && !readOnly && (
-        <div className="bg-primary/10 dark:bg-primary/10 border border-primary/20 dark:border-primary/10 rounded-2xl p-5">
-          <p className="text-sm text-primary dark:text-primary mb-3">
-            Brak listy onboardingowej. Zacznij od domyślnego zestawu (BHP,
-            sprzęt, dostępy, VPN, Slack klient, email, repo) i dostosuj.
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2.5">
+          <p className="text-[13px] text-muted-foreground">
+            Listy startowej jeszcze nie ma. Szablon to BHP, sprzęt, dostępy, VPN, Slack klienta, e-mail i repozytorium — potem go dopasujesz.
           </p>
-          <button
-            type="button"
-            onClick={handleSeed}
-            disabled={seedMutation.isPending}
-            className="inline-flex items-center gap-2 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
-          >
-            {seedMutation.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-            Wygeneruj domyślny checklist
-          </button>
+          <Button type="button" size="sm" variant="outline" onClick={handleSeed} disabled={seedMutation.isPending}>
+            {seedMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+            Wygeneruj z szablonu
+          </Button>
         </div>
       )}
 
       {viewState === "empty" && readOnly && (
-        <p className="text-sm text-muted-foreground italic">
-          Brak listy onboardingowej.
+        <p className="text-[13px] text-muted-foreground">Listy startowej nie założono.</p>
+      )}
+
+      {viewState === "loading" ? (
+        <p className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> Wczytywanie listy…
         </p>
-      )}
-
-      {items.length > 0 && (
-        <div className="bg-card dark:bg-muted rounded-2xl shadow-xs p-4">
-          <div className="flex items-center justify-between mb-3 text-sm">
-            <span className="text-muted-foreground dark:text-muted-foreground">
-              Postęp: <strong>{doneCount}/{activeCount}</strong>{" "}
-              {pct}%
-            </span>
-          </div>
-          <div className="w-full h-2 bg-muted dark:bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-emerald-500 transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+      ) : items.length === 0 ? null : twoColumns ? (
+        <div className="grid gap-x-8 sm:grid-cols-2">
+          {[items.slice(0, half), items.slice(half)].map((column, index) => (
+            <ul key={index} className="divide-y divide-border/60 border-y border-border/60" aria-label="Lista startowa">
+              {column.map(row)}
+            </ul>
+          ))}
         </div>
+      ) : (
+        <ul className="divide-y divide-border/60 border-y border-border/60" aria-label="Lista startowa">
+          {items.map(row)}
+        </ul>
       )}
 
-      {!readOnly && !isBlocked && (
+      {!readOnly && !isBlocked && viewState !== "loading" && (
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -215,115 +283,20 @@ export function ContractOnboardingTab({
           }}
           className="flex gap-2"
         >
+          <label htmlFor={`onboarding-new-${contractId}`} className="sr-only">
+            Nowa pozycja listy startowej
+          </label>
           <input
+            id={`onboarding-new-${contractId}`}
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
-            placeholder="Dodaj pozycję (np. 'Karta dostępu do biura')"
-            className="w-0 flex-1 px-3 py-2 border border-border dark:border-border rounded-lg text-sm bg-card dark:bg-muted"
+            placeholder="Dodaj pozycję (np. „Karta dostępu do biura”)"
+            className="h-8 w-0 flex-1 rounded-md border border-border bg-card px-2.5 text-[13px] placeholder:text-muted-foreground focus:border-primary focus:outline-hidden"
           />
-          <button
-            type="submit"
-            disabled={createMutation.isPending || !newLabel.trim()}
-            className="flex items-center gap-1 bg-primary hover:bg-primary/90 disabled:opacity-60 text-white px-3 py-2 rounded-lg text-sm font-medium"
-          >
-            <Plus className="w-4 h-4" /> Dodaj
-          </button>
+          <Button type="submit" size="sm" variant="ghost" disabled={createMutation.isPending || !newLabel.trim()}>
+            <Plus className="h-3.5 w-3.5" aria-hidden /> Dodaj
+          </Button>
         </form>
-      )}
-
-      {viewState === "loading" ? (
-        <div className="text-sm text-muted-foreground flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Ładowanie…
-        </div>
-      ) : items.length === 0 ? null : (
-        <ul className="space-y-1">
-          {items.map((item) => {
-            const Icon = STATUS_ICON[item.status] ?? Square;
-            const isDone = item.status === "done";
-            const isNa = item.status === "na";
-            return (
-              <li
-                key={item.id}
-                className={`flex items-center gap-3 bg-card dark:bg-muted rounded-lg px-3 py-2 shadow-xs ${
-                  isNa ? "opacity-50" : ""
-                }`}
-              >
-                {!readOnly && (
-                  <button
-                    onClick={() =>
-                      updateMutation.mutate({
-                        id: item.id,
-                        payload: { status: NEXT_STATUS[item.status] },
-                      })
-                    }
-                    className={
-                      isDone
-                        ? "text-emerald-600"
-                        : isNa
-                          ? "text-muted-foreground"
-                          : "text-muted-foreground hover:text-primary"
-                    }
-                    title={`Zmień status (obecnie: ${
-                      ONBOARDING_STATUS_LABELS[item.status] ?? item.status
-                    })`}
-                    aria-label={`${item.label}: zmień status (obecnie: ${
-                      ONBOARDING_STATUS_LABELS[item.status] ?? item.status
-                    })`}
-                  >
-                    <Icon className="w-5 h-5" />
-                  </button>
-                )}
-                <span
-                  className={`flex-1 text-sm ${isDone ? "line-through text-muted-foreground" : ""}`}
-                >
-                  {item.label}
-                </span>
-                {item.due_date && (
-                  <span className="text-xs text-muted-foreground dark:text-muted-foreground">
-                    → {formatDate(item.due_date)}
-                  </span>
-                )}
-                {!readOnly &&
-                  (confirmDeleteId === item.id ? (
-                    <span className="inline-flex items-center gap-1 text-xs">
-                      <span className="text-muted-foreground">Usunąć?</span>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          deleteMutation.mutate(item.id, {
-                            onSettled: () => setConfirmDeleteId(null),
-                          })
-                        }
-                        disabled={deleteMutation.isPending}
-                        aria-label={`Potwierdź usunięcie pozycji ${item.label}`}
-                        className="rounded px-2 py-1 font-medium text-destructive hover:bg-destructive/10 disabled:opacity-60"
-                      >
-                        Usuń
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmDeleteId(null)}
-                        aria-label="Anuluj usuwanie"
-                        className="rounded p-1 hover:bg-muted"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmDeleteId(item.id)}
-                      className="p-1 rounded hover:bg-destructive/10 dark:hover:bg-red-900/20 text-red-400 hover:text-destructive"
-                      title="Usuń"
-                      aria-label={`Usuń pozycję ${item.label}`}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  ))}
-              </li>
-            );
-          })}
-        </ul>
       )}
     </div>
   );

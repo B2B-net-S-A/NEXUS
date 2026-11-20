@@ -162,9 +162,8 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
 
     expect(await screen.findByText("Karta dostępu")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Dodaj/ })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: /Karta dostępu: zmień status/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Karta dostępu/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Nie dotyczy: Karta dostępu" })).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Usuń pozycję Karta dostępu" }),
     ).toBeInTheDocument();
@@ -176,9 +175,8 @@ describe("zakładki kontraktu — zapis rozstrzyga `readOnly`, nie rola", () => 
 
     expect(await screen.findByText("Karta dostępu")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Dodaj/ })).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: /zmień status/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Karta dostępu/ })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Nie dotyczy/ })).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Usuń pozycję/ }),
     ).not.toBeInTheDocument();

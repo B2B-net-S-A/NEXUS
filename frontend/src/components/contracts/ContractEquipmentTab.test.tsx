@@ -35,6 +35,7 @@ vi.mock("@/lib/api/hr", () => ({
   useHrConfig: () => ({ data: register.config }),
 }));
 vi.mock("@/lib/api/equipment", () => ({
+  useClientProvider: () => ({ data: undefined }),
   useHolderEquipment: () => ({ data: register.holder }),
   useContractEquipmentRegister: () =>
     register.holder
@@ -161,7 +162,9 @@ describe("ContractEquipmentTab — pozycje z magazynu (rejestr „Sprzęt”)", 
     renderTab(false);
 
     expect(await screen.findByText("Dell Vostro 3530")).toBeInTheDocument();
-    expect(screen.getByText(/TEST0001 · z magazynu/)).toBeInTheDocument();
+    // Wariant A (20.11.2026): numer w kolumnie „Numer”, pochodzenie pod nazwą urządzenia.
+    expect(screen.getByText("S/N TEST0001")).toBeInTheDocument();
+    expect(screen.getByText("Laptop · nasz · z magazynu")).toBeInTheDocument();
     expect(screen.getByText("zwrot przyjmuje recepcja")).toBeInTheDocument();
     // Ręczny wpis zachowuje dotychczasowe akcje.
     expect(screen.getAllByRole("button", { name: /Zwrócono/i })).toHaveLength(1);

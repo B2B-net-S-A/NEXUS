@@ -201,7 +201,7 @@ describe("ContractEntryTab", () => {
         : Promise.resolve({ data: [] }),
     );
     renderTab();
-    expect(await screen.findByText(/Wygeneruj domyślny checklist/)).toBeInTheDocument();
+    expect(await screen.findByText(/Wygeneruj z szablonu/)).toBeInTheDocument();
     expect(mocks.get).toHaveBeenCalledWith("/api/contracts/7/onboarding");
   });
 
@@ -209,7 +209,7 @@ describe("ContractEntryTab", () => {
     mocks.get.mockRejectedValue(httpError(500));
     renderTab();
     expect(await screen.findByRole("button", { name: /Spróbuj ponownie/ })).toBeInTheDocument();
-    expect(screen.queryByText(/Wygeneruj domyślny checklist/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Wygeneruj z szablonu/)).not.toBeInTheDocument();
     expect(screen.queryByText("Lista wejścia jest pusta.")).not.toBeInTheDocument();
   });
 

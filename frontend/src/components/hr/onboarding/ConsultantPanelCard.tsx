@@ -1,14 +1,16 @@
 "use client";
 
-// Panel konsultanta w zakładce „Wejście” kontraktu. Panel nie powstaje sam: po podpisaniu
+// Panel konsultanta w zakładce „Start i sprzęt” kontraktu. Panel nie powstaje sam: po podpisaniu
 // umowy osoba z Opieki sprawdza adres, materiały i mail, a dopiero jej klik otwiera dostęp.
-// Bez uprawnień serwer odpowiada 403 i karty po prostu nie ma.
+// Bez uprawnień serwer odpowiada 403 i sekcji po prostu nie ma. Wariant A (20.11.2026):
+// stan jednym wierszem, aktywacja w oknie; tryb panelu to ustawienie całej firmy, więc tu
+// widać jego stan, a administrator zmienia go w osobnym oknie „Tryb panelu w firmie”.
 
 import { useEffect, useRef, useState } from "react";
 
 import { AppModal } from "@/components/ds/AppModal";
+import { StatusDot } from "@/components/ds/StatusDot";
 import { useToast } from "@/components/Toast";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -249,6 +251,11 @@ function SendMailDialog({ data, contractId, onClose }: { data: PanelProposal; co
   );
 }
 
+/** „Tylko zespół” — tryb panelu w całej firmie słowem. */
+export function panelModeLabel(state: PanelState): string {
+  return PANEL_STATE_OPTIONS.find((option) => option.value === state)?.label ?? state;
+}
+
 function ActiveState({ data, contractId }: { data: PanelProposal; contractId: number }) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
@@ -271,36 +278,35 @@ function ActiveState({ data, contractId }: { data: PanelProposal; contractId: nu
     }
   };
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
-      <div className="min-w-0">
-        <p className="flex items-center gap-2 font-medium">
-          <Badge variant="success">Panel aktywny</Badge> {data.activation.email}
-        </p>
-        <p className="mt-1 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-between gap-3 text-[13px]">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <StatusDot tone="success">aktywny</StatusDot>
+        <span className="min-w-0 text-muted-foreground">
           {[
+            data.activation.email,
             data.activation.activated_at
-              ? `Aktywowano ${shortDate(data.activation.activated_at)}${
+              ? `od ${shortDate(data.activation.activated_at)}${
                   data.activation.activated_by ? `, ${data.activation.activated_by}` : ""
                 }`
               : null,
-            data.mail.sent_at ? `Mail wysłany ${shortDate(data.mail.sent_at)}` : "Mail nie został wysłany",
+            data.mail.sent_at ? `mail wysłany ${shortDate(data.mail.sent_at)}` : "mail nie został wysłany",
             data.activation.last_login_at
-              ? `Ostatnie logowanie ${shortDate(data.activation.last_login_at)}`
-              : "Jeszcze bez logowania",
+              ? `ostatnie logowanie ${shortDate(data.activation.last_login_at)}`
+              : "jeszcze bez logowania",
+            `tryb firmy: ${panelModeLabel(data.portal_state)}`,
           ]
             .filter(Boolean)
-            .join(". ")}
-          .
-        </p>
+            .join(" · ")}
+        </span>
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap gap-1.5">
         {data.mail.sent_at ? null : (
           <Button size="sm" variant="outline" disabled={blocker !== null} title={blocker ?? undefined} onClick={() => setSending(true)}>
             Wyślij mail powitalny
           </Button>
         )}
-        <Button size="sm" variant="outline" disabled={deactivate.isPending} onClick={stop}>
-          Wyłącz panel
+        <Button size="sm" variant="quiet" disabled={deactivate.isPending} onClick={stop}>
+          Wyłącz panel…
         </Button>
       </div>
       {sending ? <SendMailDialog data={data} contractId={contractId} onClose={() => setSending(false)} /> : null}
@@ -309,7 +315,16 @@ function ActiveState({ data, contractId }: { data: PanelProposal; contractId: nu
   );
 }
 
-function ActivationForm({ data, contractId }: { data: PanelProposal; contractId: number }) {
+function ActivationForm({
+  data,
+  contractId,
+  onDone,
+}: {
+  data: PanelProposal;
+  contractId: number;
+  /** Po udanej aktywacji (okno aktywacji się zamyka). */
+  onDone?: () => void;
+}) {
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const activate = usePanelActivate(contractId);
@@ -370,6 +385,7 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
       } else {
         showToast(sendMail ? "Panel aktywny, mail wysłany." : "Panel aktywny.", "success");
       }
+      onDone?.();
     } catch (failure) {
       setError(apiErrorMessage(failure, "Nie udało się aktywować panelu."));
     }
@@ -481,39 +497,83 @@ function ActivationForm({ data, contractId }: { data: PanelProposal; contractId:
 export function ConsultantPanelCard({ contractId }: { contractId: number }) {
   const proposal = usePanelProposal(contractId);
   const isAdmin = useHrConfig().data?.me.is_admin === true;
+  const [activating, setActivating] = useState(false);
+  const [modeOpen, setModeOpen] = useState(false);
   const state = resolveViewState({
     isLoading: proposal.isLoading,
     error: proposal.error,
     isSuccess: proposal.isSuccess,
   });
   if (state === "forbidden" || state === "loading") return null;
+  const data = state === "ready" ? proposal.data : undefined;
+  const addressChanged = Boolean(data?.activation.active && data.activation.address_changed);
   return (
-    <section className="space-y-3 rounded-xl border bg-card p-4">
-      <div>
-        <h3 className="text-sm font-semibold text-foreground">Panel konsultanta</h3>
-        <p className="text-xs text-muted-foreground">
-          Panel powstaje dopiero po kliknięciu. Tego konsultant nie widzi.
-        </p>
+    <section aria-label="Panel konsultanta" className="space-y-1.5 px-4 py-3">
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-baseline gap-2 text-[13.5px] font-semibold text-foreground">
+          Panel konsultanta{" "}
+          <span className="text-[12px] font-normal text-muted-foreground">powstaje dopiero po kliknięciu, konsultant tego nie widzi</span>
+        </h3>
+        {isAdmin ? (
+          <Button size="sm" variant="ghost" onClick={() => setModeOpen(true)}>
+            Tryb panelu w firmie…
+          </Button>
+        ) : null}
       </div>
-      {isAdmin ? <AdminSwitches /> : null}
-      {state !== "ready" || !proposal.data ? (
+      {!data ? (
         <p role="alert" className="text-sm text-destructive">
           {apiErrorMessage(proposal.error, "Nie udało się wczytać panelu konsultanta. Odśwież stronę.")}
         </p>
-      ) : proposal.data.activation.active && !proposal.data.activation.address_changed ? (
-        <ActiveState data={proposal.data} contractId={contractId} />
-      ) : proposal.data.can_activate ? (
-        <>
-          {proposal.data.activation.address_changed ? (
-            <p role="status" className="text-sm text-warning-muted-foreground">
+      ) : data.activation.active && !data.activation.address_changed ? (
+        <ActiveState data={data} contractId={contractId} />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-[13px]">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+            <StatusDot tone={addressChanged ? "warning" : "neutral"}>
+              {addressChanged ? "zamknięty — zmienił się adres" : "nieaktywny"}
+            </StatusDot>
+            <span className="text-muted-foreground">
+              tryb firmy: <span className="text-foreground">{panelModeLabel(data.portal_state)}</span>
+              {isAdmin ? "" : " (zmienia administrator)"}
+            </span>
+          </div>
+          {data.can_activate ? (
+            <Button size="sm" variant="outline" onClick={() => setActivating(true)}>
+              {addressChanged ? "Potwierdź adres…" : "Aktywuj panel…"}
+            </Button>
+          ) : (
+            <span className="text-[12px] text-muted-foreground">Panel można aktywować przy działającym kontrakcie.</span>
+          )}
+        </div>
+      )}
+      {activating && data ? (
+        <AppModal
+          open
+          onOpenChange={(open) => {
+            if (!open) setActivating(false);
+          }}
+          title="Aktywacja panelu konsultanta"
+          description="Sprawdź adres, materiały i mail powitalny — panel otwiera się dopiero po kliknięciu."
+          size="xl"
+        >
+          {addressChanged ? (
+            <p role="status" className="mb-3 text-sm text-warning-muted-foreground">
               Adres w kontrakcie zmienił się po aktywacji, więc panel jest zamknięty. Potwierdź adres, żeby go otworzyć.
             </p>
           ) : null}
-          <ActivationForm data={proposal.data} contractId={contractId} />
-        </>
-      ) : (
-        <p className="text-sm text-muted-foreground">Panel można aktywować przy działającym kontrakcie.</p>
-      )}
+          <ActivationForm data={data} contractId={contractId} onDone={() => setActivating(false)} />
+        </AppModal>
+      ) : null}
+      {modeOpen ? (
+        <AppModal
+          open
+          onOpenChange={setModeOpen}
+          title="Tryb panelu w firmie"
+          description="Ustawienie dla wszystkich kontraktów — tego samego przełącznika używa „Start rozliczeń” w Finansach."
+        >
+          <AdminSwitches />
+        </AppModal>
+      ) : null}
     </section>
   );
 }

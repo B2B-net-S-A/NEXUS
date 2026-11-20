@@ -186,12 +186,12 @@ describe("ContractEquipmentTab — urządzenia z rejestru „Sprzęt”", () => 
     renderTab();
 
     expect(
-      await screen.findByRole("heading", { name: "Sprzęt kontraktora (3)" }),
+      await screen.findByRole("heading", { name: "Sprzęt u konsultanta 3 u konsultanta" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Laptop Testowy 14")).toBeInTheDocument();
     expect(screen.getByText("Monitor Testowy 24")).toBeInTheDocument();
     expect(screen.getByText(/TESTSN0001/)).toBeInTheDocument();
-    expect(screen.getByText(/0001 · z magazynu/)).toBeInTheDocument();
+    expect(screen.getAllByText("z magazynu · bez protokołu")).toHaveLength(3);
     expect(screen.queryByText(/Brak pozycji/)).not.toBeInTheDocument();
     // Bez uprawnienia „Sprzęt” zwrot przyjmuje recepcja — przy każdej pozycji.
     expect(screen.getAllByText("zwrot przyjmuje recepcja")).toHaveLength(3);
@@ -229,14 +229,14 @@ describe("ContractEquipmentTab — urządzenia z rejestru „Sprzęt”", () => 
     renderTab();
 
     expect(
-      await screen.findByRole("heading", { name: "Sprzęt kontraktora (3)" }),
+      await screen.findByRole("heading", { name: "Sprzęt u konsultanta 2 u konsultanta · 1 zwrócone" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("Laptop Testowy 14")).toHaveLength(1);
     expect(screen.getByText("Laptop Zwrócony 13")).toBeInTheDocument();
     expect(screen.getByText("Telefon od klienta")).toBeInTheDocument();
-    expect(screen.getByText("Zwrócony")).toBeInTheDocument();
+    expect(screen.getByText("zwrócony")).toBeInTheDocument();
     // Termin zwrotu z wpisu zakładki zostaje przy pozycji z rejestru.
-    expect(screen.getByText("31.01.2027")).toBeInTheDocument();
+    expect(screen.getByText("zwrot do 31.01.2027")).toBeInTheDocument();
     // Ręczny wpis zachowuje swoje akcje.
     expect(screen.getAllByRole("button", { name: /Zwrócono/ })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /Usuń pozycję/ })).toHaveLength(1);
@@ -265,7 +265,7 @@ describe("ContractEquipmentTab — urządzenia z rejestru „Sprzęt”", () => 
     renderTab();
 
     expect(
-      await screen.findByRole("heading", { name: "Sprzęt kontraktora (1)" }),
+      await screen.findByRole("heading", { name: "Sprzęt u konsultanta 1 u konsultanta" }),
     ).toBeInTheDocument();
     expect(screen.queryByText("Laptop z Anulowanego")).not.toBeInTheDocument();
   });
@@ -277,7 +277,7 @@ describe("ContractEquipmentTab — urządzenia z rejestru „Sprzęt”", () => 
     });
     renderTab();
 
-    await screen.findByRole("heading", { name: "Sprzęt kontraktora (1)" });
+    await screen.findByRole("heading", { name: "Sprzęt u konsultanta 1 u konsultanta" });
     // Przycisk w nagłówku (po odczycie posiadacza) i w wierszu.
     await waitFor(() =>
       expect(screen.getAllByRole("button", { name: /Przyjmij zwrot/ })).toHaveLength(2),
@@ -292,7 +292,7 @@ describe("ContractEquipmentTab — urządzenia z rejestru „Sprzęt”", () => 
     renderTab();
 
     expect(
-      await screen.findByRole("heading", { name: "Sprzęt kontraktora (1)" }),
+      await screen.findByRole("heading", { name: "Sprzęt u konsultanta 1 u konsultanta" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Telefon od klienta")).toBeInTheDocument();
     expect(screen.queryByText("Nie udało się pobrać danych")).not.toBeInTheDocument();
@@ -304,6 +304,7 @@ describe("ContractEquipmentTab — urządzenia z rejestru „Sprzęt”", () => 
 
     expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
     expect(screen.queryByText(/Brak pozycji/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /\(0\)/ })).not.toBeInTheDocument();
+    // Bez liczby przy awarii — zaniżona liczba czytałaby się jak „nic nie wydano”.
+    expect(screen.getByRole("heading", { name: "Sprzęt u konsultanta" })).toBeInTheDocument();
   });
 });

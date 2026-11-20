@@ -95,7 +95,7 @@ async function openAmendmentForm(item: string) {
   await user.click(await screen.findByRole("menuitem", { name: item }));
 }
 
-const SEED = /Wygeneruj domyślny checklist/;
+const SEED = /Wygeneruj z szablonu/;
 const FAILURE = "Nie udało się pobrać danych";
 
 beforeEach(() => {
