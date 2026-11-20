@@ -9,6 +9,7 @@ import type {
   SalesKsefStatus,
   ToInvoiceClient,
 } from "@/lib/api/client-invoicing";
+import type { ClientInvoiceRow, DeliverySettlements } from "@/lib/api/client-settlements";
 
 export function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
   return {
@@ -275,6 +276,42 @@ export const CLIENT_MONTH: ClientInvoicing = {
     invoiced_net: [{ currency: "PLN", amount: "80420.00" }],
     overdue: 2,
   },
+};
+
+function rcpRow(overrides: Partial<ClientInvoiceRow>): ClientInvoiceRow {
+  return {
+    contract_id: 1,
+    person: "Jan Przykładowy",
+    order_number: "ZAM/2026/118",
+    kind: null,
+    state: "waiting",
+    positions: [],
+    currency: "PLN",
+    net: null,
+    cost: null,
+    margin: null,
+    margin_pct: null,
+    template: false,
+    ksef_number: null,
+    invoice_number: null,
+    ...overrides,
+  };
+}
+
+/** RCP miesiąca z rozliczeń (krok 1 paska): 2 z 4 osób z przyjętym RCP. */
+export const DELIVERY_MONTH: DeliverySettlements = {
+  client_id: 7,
+  client_name: "Bank Testowy S.A.",
+  month: "2026-10",
+  can_see_amounts: true,
+  rows: [
+    rcpRow({ contract_id: 1, kind: "actual", state: "issued" }),
+    rcpRow({ contract_id: 2, person: "Ewa Przykładowa", order_number: "ZAM/2026/121", kind: "actual", state: "ready" }),
+    rcpRow({ contract_id: 3, person: "Adam Testowy", order_number: "ZAM/2026/124" }),
+    rcpRow({ contract_id: 4, person: "Tomasz Wzorcowy", order_number: "ZAM/2026/127" }),
+  ],
+  integration: { enabled: false, limit: null, year: 2026, items: [] },
+  can_decide: false,
 };
 
 export const KSEF_STATUS: SalesKsefStatus = {

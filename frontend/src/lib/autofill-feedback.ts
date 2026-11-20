@@ -29,6 +29,16 @@ export type AutofillReason =
   | "weak_english"
   | "contract_form"
   | "cleanup"
+  // Jeden słownik powodów zamknięcia procesu (19.11.2026, 0745).
+  | "culture"
+  | "available_too_late"
+  | "accepted_other_offer"
+  | "hm_already_interviewed"
+  | "client_chose_other"
+  | "client_interview_weak"
+  | "client_project_closed"
+  | "client_after_deadline"
+  | "client_no_reason"
   | "other";
 
 export type AutofillLearnedFrom = "profile" | "call";
@@ -186,49 +196,51 @@ export const AUTOFILL_REASON_GROUPS: {
 /**
  * Powód z szablonu procesu dla powodu dla systemu (27.10.2026): przy osobie od
  * systemu okno pyta o powód raz, a powód do raportu lejka liczy się z tej mapy.
- * Klucz `rejection_reasons.name` szablonu domyślnego; `null` — „Inne” z nazwą
- * powodu jako opisem, bo w szablonie nie ma odpowiednika. Od 04.11.2026 (0646)
- * sprawy osoby mają własne powody; koszyki raportu liczy serwer z powodu dla
- * systemu (`autofill_feedback.bucket_for`), więc ta mapa ich nie zmienia.
+ * Od 19.11.2026 (jeden słownik, 0745) każdy powód ma w szablonie własny klucz,
+ * więc mapa jest 1:1 — lustro `backend/app/services/close_reasons.py`. `null`
+ * — „Inne” z nazwą powodu jako opisem (stary „Język”, „Porządki” z porcji).
+ * Koszyki raportu liczy serwer z powodu dla systemu (`autofill_feedback.bucket_for`).
  */
 export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   missing_skill: "Nie spełnia wymagań technicznych",
   too_junior: "Brak doświadczenia",
-  overqualified: null,
-  other_level_or_role: "Nie spełnia wymagań technicznych",
+  overqualified: "overqualified",
+  other_level_or_role: "other_level_or_role",
   location_mode: "work_mode_mismatch",
   language: null,
   too_expensive: "Za wysokie oczekiwania finansowe",
-  outdated_cv: null,
-  profile_mismatch: null,
-  wrong_phone: "no_contact",
+  outdated_cv: "outdated_cv",
+  profile_mismatch: "profile_mismatch",
+  wrong_phone: "wrong_phone",
   not_looking: "not_looking_for_work",
   no_answer: "no_contact",
-  in_other_process: null,
-  client_employed: "client_conflict",
-  client_refused: "client_conflict",
-  client_other_vendor: "client_conflict",
-  no_polish: null,
-  weak_english: null,
-  contract_form: null,
+  in_other_process: "in_other_process",
+  client_employed: "client_other_vendor",
+  client_refused: "client_refused",
+  client_other_vendor: "client_other_vendor",
+  no_polish: "no_polish",
+  weak_english: "weak_english",
+  contract_form: "contract_form",
   cleanup: null,
+  culture: "Nie pasuje kulturowo",
+  available_too_late: "available_too_late",
+  accepted_other_offer: "Zatrudniony gdzie indziej",
+  hm_already_interviewed: "hm_already_interviewed",
+  client_chose_other: "client_chose_other",
+  client_interview_weak: "client_interview_weak",
+  client_project_closed: "client_project_closed",
+  client_after_deadline: "client_after_deadline",
+  client_no_reason: "client_no_reason",
   other: null,
 };
 
 /**
- * Powód z szablonu jest tu szerszy niż wybór w oknie („Brak kontaktu” przy
- * złym numerze), więc nazwa powodu zostaje w opisie, żeby historia nie straciła
- * szczegółu, który dotąd niosło „Inne”.
+ * Do 19.11.2026 kilka powodów szło do szerszego powodu z szablonu („Brak
+ * kontaktu” przy złym numerze) z nazwą w opisie. Po 0745 każdy ma własny klucz;
+ * szablon bez niego (admin skasował) i tak wraca do „Inne” z nazwą w opisie.
  */
-const COARSER_TEMPLATE_REASON: ReadonlySet<AutofillReason> = new Set([
-  "wrong_phone",
-  "client_employed",
-  "client_refused",
-  "client_other_vendor",
-]);
-
-export function autofillReasonKeepsLabel(reason: AutofillReason): boolean {
-  return COARSER_TEMPLATE_REASON.has(reason);
+export function autofillReasonKeepsLabel(_reason: AutofillReason): boolean {
+  return false;
 }
 
 export function autofillReasonLabel(reason: AutofillReason): string {
@@ -266,12 +278,21 @@ export function templateReasonFor<T extends { name?: string; label: string }>(
 
 const DECISION_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "screening"]);
 
+/**
+ * Czy odrzucenie z tej kolumny pyta o powód z listy okna („Nie pasuje do
+ * wymagań” / „Pieniądze i dane” / „Sprawa osoby”). Od 19.11.2026 tak samo przy
+ * karcie dodanej ręcznie — zespół wolał tę listę od krótkiej z szablonu.
+ */
+export function isDecisionColumn(fromColumn: BoardColumnKey | null | undefined): boolean {
+  return fromColumn != null && DECISION_COLUMNS.has(fromColumn);
+}
+
 /** Czy ruch na „Odrzucony” tej osoby wymaga powodu dla systemu. */
 export function needsAutofillReason(
   item: { entry_source?: string | null },
   fromColumn: BoardColumnKey | null | undefined,
 ): boolean {
-  return item.entry_source === "system" && fromColumn != null && DECISION_COLUMNS.has(fromColumn);
+  return item.entry_source === "system" && isDecisionColumn(fromColumn);
 }
 
 /** Pola żądania `/api/pipeline/move` dla wybranego powodu. */

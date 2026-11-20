@@ -43,6 +43,19 @@ REASONS: tuple[str, ...] = (
     # Runda 5 (0717, 16.11.2026): 22 z 45 „Inne” z 13.11 to porządki tablicy
     # (duplikat, „czyszczenie pipeline”, sama kropka) — nie ocena osoby.
     "cleanup",
+    # Jeden słownik powodów zamknięcia procesu (0745, 19.11.2026): każdy powód
+    # słownika jest też powodem dla systemu, więc okno pyta raz
+    # (`close_reasons.py`). Powody klienta trafiają tu, gdy klient kończy
+    # proces osoby od systemu jeszcze w „Screeningu”.
+    "culture",
+    "available_too_late",
+    "accepted_other_offer",
+    "hm_already_interviewed",
+    "client_chose_other",
+    "client_interview_weak",
+    "client_project_closed",
+    "client_after_deadline",
+    "client_no_reason",
     "other",
 )
 # Braki przy pozycjach (0686): „Brak umiejętności” kliknięty przy pozycji.

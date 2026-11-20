@@ -2,124 +2,108 @@
 
 import { useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
-import { RefreshCw } from "lucide-react";
+import { Hand, Plus, RefreshCw, Search } from "lucide-react";
 
-import { CaseFormDialog } from "@/components/admin-cases/CaseFormDialog";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useBoBoard, useBoSync, useBoSyncCases, type BoBoard, type BoCard, type BoTeam } from "@/lib/api/back-office";
+import {
+  useBoBoard,
+  useBoSync,
+  useTakeNext,
+  type BoBoard,
+  type BoCard,
+} from "@/lib/api/back-office";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { cn } from "@/lib/utils";
 
 import {
+  COLUMN_LABELS,
+  COLUMNS,
   FILTER_LABELS,
-  dueTone,
-  defaultTeam,
-  formatDay,
+  columnOf,
+  isOverdue,
+  labelCounts,
   matchesFilter,
+  matchesLabels,
   matchesSearch,
-  teamCount,
   waitLabel,
+  type BoColumn,
   type BoFilter,
 } from "./board-model";
 import { CardPanel } from "./CardPanel";
-import { CardTile } from "./CardTile";
+import { Avatar, CardTile, DueChip, FamilyDot, LabelChip } from "./CardTile";
+import { NewCaseDialog } from "./NewCaseDialog";
 import { TriageStrip } from "./TriageStrip";
 import { useCardCommands, type CardCommands } from "./use-card-commands";
 
-const VISIBLE_IN_LANE = 5;
-const STATUS_COLUMNS = [
-  { id: "new", label: "Nowa" },
-  { id: "in_progress", label: "W toku" },
-  { id: "waiting", label: "Czeka na kogoś" },
-] as const;
+const FILTERS: BoFilter[] = ["all", "free", "mine", "overdue", "week"];
 
-function Lane({
-  lane,
-  cards,
-  board,
-  commands,
-  onOpen,
-}: {
-  lane: BoTeam["lanes"][number];
-  cards: BoCard[];
-  board: BoBoard;
-  commands: CardCommands;
-  onOpen: (card: BoCard) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? cards : cards.slice(0, VISIBLE_IN_LANE);
-  const hidden = cards.length - visible.length;
+function conflictCode(error: unknown): string | null {
+  const detail = (
+    error as { response?: { data?: { detail?: { code?: string } } } }
+  )?.response?.data?.detail;
+  return typeof detail === "object" && detail ? (detail.code ?? null) : null;
+}
+
+function statusOf(error: unknown): number | null {
   return (
-    <section className="min-w-0 rounded-xl bg-muted/60 p-2" aria-label={lane.label}>
-      <header className="px-1.5 pb-2 pt-1">
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="truncate text-sm font-semibold">{lane.label}</h3>
-          <Badge variant={cards.length > 0 ? "soft" : "neutral"} size="sm">
-            {cards.length}
-          </Badge>
-        </div>
-        <p className="mt-0.5 truncate text-[11px] leading-tight text-muted-foreground">{lane.description}</p>
-      </header>
-      {cards.length === 0 ? (
-        <p className="rounded-lg border border-dashed bg-card p-3 text-xs text-muted-foreground">
-          Nic tu teraz nie czeka.
-        </p>
-      ) : null}
-      <ul className="space-y-2">
-        {visible.map((card) => (
-          <CardTile key={card.id} card={card} board={board} commands={commands} onOpen={onOpen} />
-        ))}
-      </ul>
-      {hidden > 0 || expanded ? (
-        <button
-          type="button"
-          onClick={() => setExpanded((value) => !value)}
-          className="px-1.5 pt-2 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          {expanded ? "Zwiń" : `+ ${hidden} kolejnych`}
-        </button>
-      ) : null}
-    </section>
+    (error as { response?: { status?: number } })?.response?.status ?? null
   );
 }
 
-function StatusColumns({
+function Column({
+  column,
   cards,
   board,
   commands,
   onOpen,
 }: {
+  column: BoColumn;
   cards: BoCard[];
   board: BoBoard;
   commands: CardCommands;
   onOpen: (card: BoCard) => void;
 }) {
   return (
-    <div className="grid grid-cols-3 gap-3">
-      {STATUS_COLUMNS.map((column) => {
-        const inColumn = cards.filter((card) => card.state === column.id);
-        return (
-          <Lane
-            key={column.id}
-            lane={{ id: column.id, label: column.label, description: "" }}
-            cards={inColumn}
+    <section
+      className="flex min-w-0 flex-col rounded-xl bg-muted/60 p-2"
+      aria-label={COLUMN_LABELS[column]}
+    >
+      <header className="flex items-center justify-between gap-2 px-1.5 pb-2 pt-1">
+        <h3 className="truncate text-[13px] font-semibold">
+          {COLUMN_LABELS[column]}
+        </h3>
+        <span className="rounded-full bg-card px-1.5 text-[11px] tabular-nums text-muted-foreground">
+          {cards.length}
+        </span>
+      </header>
+      {cards.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border bg-card p-2.5 text-[11.5px] text-muted-foreground">
+          {column === "outside"
+            ? "Nic nie czeka na inny dział. Sprawę przekazujesz przyciskiem „Na zewnątrz” w karcie."
+            : "Nic tu teraz nie czeka."}
+        </p>
+      ) : null}
+      <ul className="max-h-[calc(100dvh-340px)] min-h-24 space-y-2 overflow-y-auto pr-0.5">
+        {cards.map((card) => (
+          <CardTile
+            key={card.id}
+            card={card}
             board={board}
             commands={commands}
             onOpen={onOpen}
           />
-        );
-      })}
-    </div>
+        ))}
+      </ul>
+    </section>
   );
 }
 
-function AllList({
+function ListView({
   cards,
   board,
   onOpen,
@@ -130,71 +114,78 @@ function AllList({
   onOpen: (card: BoCard) => void;
   commands: CardCommands;
 }) {
-  const laneLabel = useMemo(() => {
-    const labels = new Map<string, string>();
-    board.teams.forEach((team) => team.lanes.forEach((lane) => labels.set(lane.id, lane.label)));
-    return labels;
-  }, [board.teams]);
-  const teamLabel = (id: string) => board.teams.find((team) => team.id === id)?.label ?? id;
   if (cards.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed bg-card p-3 text-sm text-muted-foreground">
+      <p className="rounded-lg border border-dashed border-border bg-card p-3 text-sm text-muted-foreground">
         Nic tu teraz nie czeka.
       </p>
     );
   }
   return (
-    <div className="max-h-[calc(100dvh-300px)] min-h-48 overflow-y-auto rounded-xl border bg-card">
+    <div className="max-h-[calc(100dvh-300px)] min-h-48 overflow-y-auto rounded-xl border border-border bg-card">
       <table className="w-full text-sm">
-        <thead className="sticky top-0 bg-card text-left text-[11px] uppercase tracking-wide text-muted-foreground">
-          <tr className="border-b">
-            <th className="px-4 py-2 font-medium">Termin</th>
-            <th className="py-2 font-medium">Typ</th>
-            <th className="py-2 font-medium">Sprawa</th>
-            <th className="py-2 font-medium">Zespół</th>
-            <th className="py-2 font-medium">Czeka</th>
-            <th className="px-4 py-2 font-medium">Kto</th>
+        <thead className="sticky top-0 z-[1] bg-card text-left text-[10.5px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
+          <tr className="border-b border-border/60">
+            <th className="px-3 py-2">Termin</th>
+            <th className="py-2">Etykieta</th>
+            <th className="py-2">Sprawa</th>
+            <th className="py-2">Stan</th>
+            <th className="px-3 py-2">Kto</th>
           </tr>
         </thead>
         <tbody>
           {cards.map((card) => (
-            <tr key={card.id} className="border-b last:border-0">
-              <td className="px-4 py-2">
-                <Badge variant={dueTone(card.due_on, board.today)} size="sm">
-                  {formatDay(card.due_on)}
-                </Badge>
+            <tr
+              key={card.id}
+              className="border-b border-border/60 last:border-0"
+            >
+              <td className="px-3 py-1.5">
+                <DueChip due={card.due_on} today={board.today} />
               </td>
-              <td className="py-2 text-xs">{laneLabel.get(card.lane) ?? card.lane}</td>
-              <td className="max-w-[320px] py-2">
+              <td className="py-1.5">
+                <LabelChip board={board} card={card} />
+              </td>
+              <td className="max-w-[360px] py-1.5">
                 <button
                   type="button"
                   onClick={() => onOpen(card)}
-                  className="block max-w-full truncate text-left font-medium hover:underline"
+                  className="block max-w-full truncate text-left text-[13px] font-medium hover:underline"
                 >
                   {card.person || card.title}
                 </button>
-                <span className="block truncate text-xs text-muted-foreground">
-                  {[card.person ? card.title : null, card.client].filter(Boolean).join(" · ")}
+                <span className="block truncate text-[11.5px] text-muted-foreground">
+                  {[card.person ? card.title : null, card.client]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </td>
-              <td className="py-2 text-xs text-muted-foreground">{teamLabel(card.team)}</td>
-              <td className="py-2 text-xs text-muted-foreground">{waitLabel(card, board.today)}</td>
-              <td className="px-4 py-2 text-xs">
+              <td className="py-1.5 text-[11.5px] text-muted-foreground">
+                {COLUMN_LABELS[columnOf(card)]}
+                {card.assignee == null && waitLabel(card, board.today)
+                  ? ` · ${waitLabel(card, board.today)}`
+                  : ""}
+              </td>
+              <td className="px-3 py-1.5 text-[11.5px]">
                 {card.assignee ? (
-                  card.assignee.name
+                  <span className="inline-flex items-center gap-1.5">
+                    <Avatar name={card.assignee.name} />
+                    {card.assignee.name}
+                  </span>
                 ) : card.actions.length > 0 ? (
-                  <span className="text-muted-foreground">akcept na karcie</span>
-                ) : board.me.is_lead ? (
-                  <Button size="sm" className="h-7 px-2.5 text-xs" onClick={() => onOpen(card)}>
-                    Przydziel
-                  </Button>
+                  <span className="text-muted-foreground">
+                    akcept na karcie
+                  </span>
                 ) : (
                   <Button
                     size="sm"
                     variant="outline"
                     className="h-7 px-2.5 text-xs"
                     onClick={() =>
-                      commands.take(card, { substitute: !board.me.teams.includes(card.team) })
+                      commands.take(card, {
+                        substitute:
+                          !board.me.is_lead &&
+                          !board.me.teams.includes(card.team),
+                      })
                     }
                   >
                     Biorę
@@ -210,21 +201,28 @@ function AllList({
 }
 
 interface QueueBoardProps {
-  /** „Po statusie” zespołu Opieka: dotychczasowy kanban spraw 1:1 (warunek z 22.10). */
-  careStatusBoard: ReactNode | null;
+  /**
+   * Dotychczasowy kanban Opieki 1:1 (warunek Artura z 22.10.2026) jako trzeci
+   * widok „Tablica Opieki”; `null`, gdy osoba nie ma do niego dostępu.
+   */
+  careStatusBoard?: ReactNode | null;
 }
 
+type View = "tablica" | "lista" | "opieka";
+
 /**
- * Kolejka całego back office'u. `?zespol=care|finance|contracts|orders|all`,
- * `?uklad=status`, `?filtr=`, `?karta=<id>` (dzwonki, linki).
+ * Sprawy całego back office'u (jeden zespół, decyzje Artura z 19.11.2026):
+ * tablica stanów Nowe · W toku · Czeka na kogoś · Na zewnątrz, etykiety zamiast
+ * zespołów i „Weź następną”. `?filtr=`, `?etykiety=help,exit`,
+ * `?widok=lista|opieka`, `?karta=<id>` (dzwonki, linki).
  */
-export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
+export function QueueBoard({ careStatusBoard = null }: QueueBoardProps) {
   const params = useSearchParams();
   const { replaceUrl } = useUrlWriter();
   const { showToast } = useToast();
   const query = useBoBoard();
   const sync = useBoSync();
-  const syncCases = useBoSyncCases();
+  const takeNext = useTakeNext();
   const commands = useCardCommands();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -234,8 +232,15 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
     const next = new URLSearchParams(window.location.search);
     change(next);
     const qs = next.toString();
-    replaceUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+    replaceUrl(
+      qs ? `${window.location.pathname}?${qs}` : window.location.pathname,
+    );
   };
+
+  const picked = useMemo(
+    () => new Set((params?.get("etykiety") ?? "").split(",").filter(Boolean)),
+    [params],
+  );
 
   const state = resolveViewState({
     isLoading: query.isLoading,
@@ -247,96 +252,94 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
     if (state === "forbidden" || state === "not_found" || state === "error") {
       return <QueryStateNotice state={state} onRetry={() => query.refetch()} />;
     }
-    return <p className="p-4 text-sm text-muted-foreground">Ładowanie kolejki…</p>;
+    return (
+      <p className="p-4 text-sm text-muted-foreground">Ładowanie spraw…</p>
+    );
   }
 
-  const teamId = params?.get("zespol") || defaultTeam(board);
-  const layout = params?.get("uklad") === "status" ? "status" : "type";
-  const filter = (params?.get("filtr") as BoFilter) || "all";
-  const cardParam = Number(params?.get("karta"));
-  const openId = Number.isInteger(cardParam) && cardParam > 0 ? cardParam : null;
-  const activeTeam = board.teams.find((team) => team.id === teamId);
-  const shown = board.cards.filter(
-    (card) =>
-      matchesFilter(card, filter, board.me.user_id, board.today) && matchesSearch(card, search),
-  );
-  const filters: BoFilter[] = [
-    "all",
-    "free",
-    "mine",
-    "week",
-    "nobody",
-    ...(board.me.is_lead ? (["escalated"] as const) : []),
+  const rawFilter = params?.get("filtr");
+  const filter: BoFilter =
+    rawFilter && rawFilter in FILTER_LABELS ? (rawFilter as BoFilter) : "all";
+  const rawView = params?.get("widok");
+  const view: View =
+    rawView === "lista"
+      ? "lista"
+      : rawView === "opieka" && careStatusBoard
+        ? "opieka"
+        : "tablica";
+  const list = view === "lista";
+  const views: [View, string][] = [
+    ["tablica", "Tablica"],
+    ["lista", "Lista"],
+    ...(careStatusBoard
+      ? ([["opieka", "Tablica Opieki"]] as [View, string][])
+      : []),
   ];
-  const onOpen = (card: BoCard) => write((next) => next.set("karta", String(card.id)));
-  // Kanban Opieki ma własne filtry i szukanie; dwa paski obok siebie mylą.
-  const kanban = activeTeam?.id === "care" && layout === "status" && Boolean(careStatusBoard);
+  const cardParam = Number(params?.get("karta"));
+  const openId =
+    Number.isInteger(cardParam) && cardParam > 0 ? cardParam : null;
+  const filters: BoFilter[] = board.me.is_lead
+    ? [...FILTERS, "escalated"]
+    : FILTERS;
+  const byFilter = board.cards.filter(
+    (card) =>
+      matchesFilter(card, filter, board.me.user_id, board.today) &&
+      matchesSearch(card, search),
+  );
+  const shown = byFilter.filter((card) => matchesLabels(card, picked));
+  const counts = labelCounts(byFilter);
+  const filterCount = (id: BoFilter) =>
+    board.cards.filter((card) =>
+      matchesFilter(card, id, board.me.user_id, board.today),
+    ).length;
+  const onOpen = (card: BoCard) =>
+    write((next) => next.set("karta", String(card.id)));
+  const toggleLabel = (lane: string) =>
+    write((next) => {
+      const set = new Set(picked);
+      if (set.has(lane)) set.delete(lane);
+      else set.add(lane);
+      if (set.size) next.set("etykiety", [...set].join(","));
+      else next.delete("etykiety");
+    });
+  const overdueFree = board.cards.filter(
+    (card) => card.assignee == null && isOverdue(card, board.today),
+  ).length;
+
+  const grabNext = async () => {
+    try {
+      const card = await takeNext.mutateAsync();
+      showToast(`Twoja sprawa: ${card.person || card.title}`, "success");
+      write((next) => next.set("karta", String(card.id)));
+    } catch (error) {
+      if (statusOf(error) === 404) {
+        showToast("Nie ma teraz nic do wzięcia.", "info");
+      } else {
+        showToast(
+          apiErrorMessage(
+            error,
+            conflictCode(error) === "limit"
+              ? "Masz już 5 spraw w toku."
+              : "Nie udało się wziąć sprawy.",
+          ),
+          "error",
+        );
+      }
+    }
+  };
 
   return (
-    <div className="space-y-2" data-help="hr.care.queue">
+    <div className="space-y-2.5" data-help="hr.care.queue">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Zespoły">
-          {board.teams.map((team) => (
-            <button
-              key={team.id}
-              type="button"
-              role="tab"
-              aria-selected={teamId === team.id}
-              onClick={() => write((next) => next.set("zespol", team.id))}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm",
-                teamId === team.id ? "border-primary bg-primary/10 font-medium text-primary" : "bg-card text-muted-foreground",
-              )}
-            >
-              {team.label} <span className="text-xs tabular-nums">{teamCount(team, board.cards)}</span>
-            </button>
-          ))}
-          <button
-            type="button"
-            role="tab"
-            aria-selected={teamId === "all"}
-            onClick={() => write((next) => next.set("zespol", "all"))}
-            className={cn(
-              "rounded-full border px-3 py-1 text-sm",
-              teamId === "all" ? "border-primary bg-primary/10 font-medium text-primary" : "bg-card text-muted-foreground",
-            )}
-          >
-            Wszystko
-          </button>
-        </div>
-        <span className="inline-flex overflow-hidden rounded-md border text-xs" role="group" aria-label="Układ tablicy">
-          {(
-            [
-              ["type", "Po typie"],
-              ["status", "Po statusie"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={layout === id}
-              onClick={() =>
-                write((next) => {
-                  if (id === "status") next.set("uklad", "status");
-                  else next.delete("uklad");
-                })
-              }
-              className={cn(
-                "px-2.5 py-1",
-                layout === id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground",
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </span>
-      </div>
-
-      {kanban ? null : (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <span className="inline-flex overflow-hidden rounded-md border">
-              {filters.map((id) => (
+        <div
+          className="flex flex-wrap items-center gap-1.5"
+          role="group"
+          aria-label="Filtr spraw"
+        >
+          {/* Kanban Opieki ma własne filtry i szukanie; dwa paski obok siebie mylą. */}
+          {view === "opieka"
+            ? null
+            : filters.map((id) => (
                 <button
                   key={id}
                   type="button"
@@ -348,90 +351,203 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
                     })
                   }
                   className={cn(
-                    "px-2.5 py-1",
-                    filter === id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground",
+                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs",
+                    filter === id
+                      ? "border-primary bg-primary/10 font-medium text-primary"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {FILTER_LABELS[id]}
+                  <span className="text-[11px] tabular-nums opacity-80">
+                    {filterCount(id)}
+                  </span>
                 </button>
               ))}
-            </span>
-            <span className="flex items-center gap-2">
-              <Input
-                aria-label="Szukaj spraw"
-                placeholder="Szukaj spraw…"
-                className="h-7 w-40 text-xs"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-              {board.me.cases_handler ? (
-                <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreating(true)}>
-                  Nowa sprawa
-                </Button>
-              ) : null}
-              {board.me.is_lead ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 gap-1 px-2 text-xs"
-                  disabled={sync.isPending}
-                  onClick={() =>
-                    sync.mutate(undefined, {
-                      onError: (error) =>
-                        showToast(apiErrorMessage(error, "Nie udało się odświeżyć kolejki."), "error"),
-                    })
-                  }
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className={cn("relative", view === "opieka" && "hidden")}>
+            <Search
+              aria-hidden
+              className="absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              aria-label="Szukaj spraw"
+              placeholder="Szukaj: osoba, klient…"
+              className="h-8 w-48 pl-7 text-xs"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <span
+            className="inline-flex overflow-hidden rounded-md border border-border text-xs"
+            role="group"
+            aria-label="Widok"
+          >
+            {views.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={view === id}
+                onClick={() =>
+                  write((next) => {
+                    if (id === "tablica") next.delete("widok");
+                    else next.set("widok", id);
+                  })
+                }
+                className={cn(
+                  "px-2.5 py-1.5",
+                  view === id
+                    ? "bg-primary font-medium text-primary-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </span>
+          {board.me.cases_handler ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1 px-2.5 text-xs"
+              onClick={() => setCreating(true)}
+            >
+              <Plus aria-hidden className="size-3.5" /> Nowa sprawa
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            className="h-8 gap-1 px-3 text-xs"
+            disabled={takeNext.isPending}
+            onClick={grabNext}
+          >
+            <Hand aria-hidden className="size-3.5" /> Weź następną
+          </Button>
+          {board.me.is_lead ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 gap-1 px-2 text-xs"
+              disabled={sync.isPending}
+              onClick={() =>
+                sync.mutate(undefined, {
+                  onError: (error) =>
+                    showToast(
+                      apiErrorMessage(error, "Nie udało się odświeżyć spraw."),
+                      "error",
+                    ),
+                })
+              }
+            >
+              <RefreshCw aria-hidden className="size-3" /> Odśwież
+            </Button>
+          ) : null}
+        </div>
+      </div>
+
+      {view === "opieka" ? null : (
+        <>
+          <div
+            className="flex flex-wrap items-center gap-1.5"
+            role="group"
+            aria-label="Etykiety"
+          >
+            <span className="text-[11px] text-muted-foreground">Etykiety:</span>
+            {board.labels
+              .filter(
+                (label) =>
+                  (counts.get(label.id) ?? 0) > 0 || picked.has(label.id),
+              )
+              .sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
+              .map((label) => (
+                <button
+                  key={label.id}
+                  type="button"
+                  aria-pressed={picked.has(label.id)}
+                  title={label.description}
+                  onClick={() => toggleLabel(label.id)}
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1 rounded-full border px-2 text-[11px]",
+                    picked.has(label.id)
+                      ? "border-primary bg-primary/10 font-medium text-primary"
+                      : "border-border bg-card text-foreground hover:border-primary/40",
+                  )}
                 >
-                  <RefreshCw aria-hidden className="size-3" /> Odśwież
-                </Button>
-              ) : null}
-            </span>
+                  <FamilyDot family={label.family} />
+                  {label.label}
+                  <span className="tabular-nums text-muted-foreground">
+                    {counts.get(label.id) ?? 0}
+                  </span>
+                </button>
+              ))}
+            {picked.size ? (
+              <button
+                type="button"
+                className="text-[11px] text-primary hover:underline"
+                onClick={() => write((next) => next.delete("etykiety"))}
+              >
+                Wszystkie etykiety
+              </button>
+            ) : null}
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Bez osoby: <span className="font-medium text-foreground">{board.counts.unassigned}</span> · po terminie i bez
-            osoby: <span className="font-medium text-destructive">{board.counts.overdue_unassigned}</span> · u kierownika po
-            dniu roboczym: <span className="font-medium text-foreground">{board.counts.escalated}</span> · moje w toku:{" "}
+          <p className="text-[11.5px] text-muted-foreground">
+            Bez osoby:{" "}
+            <span className="font-medium text-foreground">
+              {board.counts.unassigned}
+            </span>{" "}
+            · po terminie i bez osoby:{" "}
+            <span className="font-medium text-destructive">{overdueFree}</span>
+            {board.me.is_lead ? (
+              <>
+                {" "}
+                · u kierownika po dniu roboczym:{" "}
+                <span className="font-medium text-foreground">
+                  {board.counts.escalated}
+                </span>
+              </>
+            ) : null}{" "}
+            · moje w toku:{" "}
             <span
               className={cn(
                 "font-medium",
-                board.me.in_progress > board.me.limit ? "text-destructive" : "text-foreground",
+                board.me.in_progress > board.me.limit
+                  ? "text-destructive"
+                  : "text-foreground",
               )}
             >
               {board.me.in_progress} z {board.me.limit}
             </span>
           </p>
-
         </>
       )}
 
-      {board.me.is_lead && !activeTeam ? <TriageStrip board={board} /> : null}
-      {activeTeam && layout === "status" ? (
-        activeTeam.id === "care" && careStatusBoard ? (
-          careStatusBoard
-        ) : (
-          <StatusColumns
-            cards={shown.filter((card) => card.team === activeTeam.id)}
-            board={board}
-            commands={commands}
-            onOpen={onOpen}
-          />
-        )
-      ) : activeTeam ? (
-        <div className="grid grid-cols-4 gap-3">
-          {activeTeam.lanes.map((lane) => (
-            <Lane
-              key={lane.id}
-              lane={lane}
-              cards={shown.filter((card) => card.team === activeTeam.id && card.lane === lane.id)}
+      {board.me.is_lead && view !== "opieka" ? (
+        <TriageStrip board={board} />
+      ) : null}
+
+      {view === "opieka" ? (
+        careStatusBoard
+      ) : list ? (
+        <ListView
+          cards={shown}
+          board={board}
+          onOpen={onOpen}
+          commands={commands}
+        />
+      ) : (
+        <div className="grid grid-cols-4 gap-2.5">
+          {COLUMNS.map((column) => (
+            <Column
+              key={column}
+              column={column}
+              cards={shown.filter((card) => columnOf(card) === column)}
               board={board}
               commands={commands}
               onOpen={onOpen}
             />
           ))}
         </div>
-      ) : (
-        <AllList cards={shown} board={board} onOpen={onOpen} commands={commands} />
       )}
 
       {!openId ? commands.dialogs : null}
@@ -441,9 +557,12 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
           board={board}
           commands={commands}
           onClose={() => write((next) => next.delete("karta"))}
+          onOpenCard={(id) => write((next) => next.set("karta", String(id)))}
         />
       ) : null}
-      {creating ? <CaseFormDialog open onOpenChange={setCreating} onCreated={() => syncCases.mutate()} /> : null}
+      {creating ? (
+        <NewCaseDialog board={board} onClose={() => setCreating(false)} />
+      ) : null}
     </div>
   );
 }

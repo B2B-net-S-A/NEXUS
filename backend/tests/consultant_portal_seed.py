@@ -11,7 +11,7 @@ import pytest_asyncio
 from sqlalchemy import delete, update
 
 from app.core.database import AsyncSessionLocal
-from app.models.back_office import BoTeamMember
+from app.models.back_office import BoMember, BoTeamMember
 from app.models.consultant_panel import CpActivation
 from app.models.consultant_portal import CpLink, CpMeeting
 from app.models.contract import ContractStatus, Contract
@@ -150,10 +150,12 @@ async def session_headers(client, person: Person) -> dict[str, str]:
     return {SESSION: response.json()["session_token"]}
 
 
-async def make_member(team: str, *, name: str = "Julia") -> User:
+async def make_member(*, name: str = "Julia", takes_calls: bool = True) -> User:
+    """Osoba z jednego zespołu back office'u (decyzja 19.11.2026)."""
+
     user = await make_user(UserRole.recruiter, name=name)
     async with AsyncSessionLocal() as db:
-        db.add(BoTeamMember(team=team, user_id=user.id))
+        db.add(BoMember(user_id=user.id, takes_calls=takes_calls))
         await db.commit()
     return user
 
@@ -163,10 +165,12 @@ async def clean_team():
     """Skład zespołów wpływa na domyślne członkostwo: test zaczyna od swojego."""
 
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(BoMember))
         await db.execute(delete(BoTeamMember))
         await db.commit()
     yield
     async with AsyncSessionLocal() as db:
+        await db.execute(delete(BoMember))
         await db.execute(delete(BoTeamMember))
         await db.commit()
 

@@ -385,6 +385,7 @@ from app.api import service_accounts as service_accounts_api
 from app.api import linkedin_extension as linkedin_extension_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
+from app.api import contract_contractor_invoices as contract_contractor_invoices_api
 from app.api import contract_document_folders as contract_document_folders_api
 from app.api import job_board_connection as job_board_connection_api
 from app.api import job_portals as job_portals_api
@@ -1842,6 +1843,10 @@ app.include_router(
 # Foldery w zakładce Dokumenty kontraktu (0494).
 app.include_router(
     contract_document_folders_api.router, prefix="/api/contracts", tags=["contracts"]
+)
+# Zakładka „Faktury” kontraktu: faktury konsultanta z KSeF (19.11.2026).
+app.include_router(
+    contract_contractor_invoices_api.router, prefix="/api/contracts", tags=["contracts"]
 )
 app.include_router(contractors.router, prefix="/api/contractors", tags=["contractors"])
 app.include_router(rate_cards.router, prefix="/api/rate-cards", tags=["rate-cards"])
@@ -4184,7 +4189,13 @@ async def api_health_deep_check(request: Request):
         ClientSalesInvoicePayment,
     )
     from app.models.client_structure import ClientStructureSkip
-    from app.models.back_office import BoCard, BoCardEvent, BoTeamMember
+    from app.models.back_office import (
+        BoCard,
+        BoCardEvent,
+        BoClientNote,
+        BoMember,
+        BoTeamMember,
+    )
     from app.models.consultant_portal import (
         CpDocument,
         CpFaqItem,
@@ -4878,6 +4889,9 @@ async def api_health_deep_check(request: Request):
         ("bo_cards", BoCard),
         ("bo_card_events", BoCardEvent),
         ("bo_team_members", BoTeamMember),
+        # 0746: jeden zespół back office'u i ściąga klienta.
+        ("bo_members", BoMember),
+        ("bo_client_notes", BoClientNote),
         # 0643: portal konsultanta.
         ("cp_meetings", CpMeeting),
         ("cp_links", CpLink),

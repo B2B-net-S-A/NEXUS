@@ -8,7 +8,8 @@
  *
  * Stany (`?state=`):
  * - `dl` (domyślnie) — zakładka „Faktury” klienta oczami jego Delivery Leada:
- *   do faktury z zamówień obok faktur z KSeF, różnica, zaległość, brak faktury;
+ *   kroki miesiąca (RCP → do faktury → KSeF → zapłata), do faktury z zamówień
+ *   obok faktur z KSeF, różnica, zaległość, brak faktury;
  * - `finance` — Finanse: faktury z KSeF z decyzjami (przypisz, pomiń, uznaj różnicę);
  * - `to-invoice` — Finanse: „Do faktury” wszystkich klientów z eksportem;
  * - `credits` — Finanse: wpłata z wyciągu do sprawdzenia.
@@ -18,6 +19,7 @@
 import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
 import { FinanceSalesInvoicesTab } from "@/components/clients/invoicing/FinanceSalesInvoicesTab";
 import { invoicingKeys } from "@/lib/api/client-invoicing";
+import { settlementKeys } from "@/lib/api/client-settlements";
 
 import { HR_CAST } from "../hr-fixtures";
 import {
@@ -28,7 +30,7 @@ import {
   useHrHarness,
   type HarnessUser,
 } from "../hr-harness";
-import { CLIENT_MONTH, CREDITS, KSEF_STATUS, TO_INVOICE } from "./fixtures";
+import { CLIENT_MONTH, CREDITS, DELIVERY_MONTH, KSEF_STATUS, TO_INVOICE } from "./fixtures";
 
 const CLIENT_ID = 7;
 const PERIOD = "2026-10";
@@ -66,6 +68,8 @@ function prepare(params: URLSearchParams) {
       ...CLIENT_MONTH,
       overdue: CLIENT_MONTH.invoices.filter((invoice) => invoice.overdue_days > 0),
     });
+    // Krok „RCP” paska kroków czyta rozliczenia miesiąca.
+    client.setQueryData(settlementKeys.delivery(CLIENT_ID, PERIOD), DELIVERY_MONTH);
   } else {
     user = { ...HR_CAST.piotr, role: "finance" };
     client.setQueryData(invoicingKeys.status, KSEF_STATUS);

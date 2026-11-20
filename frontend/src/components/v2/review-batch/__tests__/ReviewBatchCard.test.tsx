@@ -30,6 +30,8 @@ const template = vi.hoisted(() => {
   const defaultReasons = [
     { id: "41", label: "Nie spełnia wymagań technicznych", name: "Nie spełnia wymagań technicznych", applies_to: ["rejected"] },
     { id: "43", label: "Nie akceptuje trybu pracy (biuro / hybryda)", name: "work_mode_mismatch", applies_to: ["rejected"] },
+    // Od 19.11.2026 (0745) „Inna rola” ma własny powód w szablonie.
+    { id: "44", label: "Inny poziom lub inna rola", name: "other_level_or_role", applies_to: ["rejected"] },
     { id: "49", label: "Inne", name: "Inne (rejected)", applies_to: ["rejected"] },
   ];
   return { defaultReasons, reasons: defaultReasons };
@@ -183,7 +185,7 @@ describe("ReviewBatchCard: szczegół powodu (runda 5)", () => {
         role_wanted: "analityk biznesowy",
         person_role: "Oracle DBA",
       },
-      rejection_reason_id: "41",
+      rejection_reason_id: "44",
       notes: "Inny zawód, osoba: Oracle DBA, szukamy: analityk biznesowy",
     });
   });

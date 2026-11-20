@@ -120,24 +120,6 @@ describe("invoicing-format", () => {
     expect(text).toContain("Powody: brak ciągłych wyciągów rachunku …8025: 2 · rozliczane kompensatą: 1.");
   });
 
-  it("shows no data about payments instead of an overdue count it cannot back", () => {
-    // 19.11.2026: „62 po terminie” u jednego klienta, a w NEXUSIE wyciągi tylko z 12.11.
-    const summary = { ...CLIENT_MONTH.summary, payment_unknown: 62 };
-    const overdue = (stats: ReturnType<typeof summaryStats>) =>
-      stats.find((stat) => stat.id === "overdue");
-    const none = overdue(summaryStats(summary, "2026-10", 0));
-    expect([none?.value, none?.label]).toEqual(["brak danych", "o zapłatach"]);
-    expect(none?.title).toContain("62 faktury mają termin za sobą, ale NEXUS nie wie, czy są zapłacone");
-    expect(none?.title).toContain("Księgowość → Bank");
-
-    const mixed = overdue(summaryStats({ ...summary, payment_unknown: 1 }, "2026-10", 3));
-    expect([mixed?.value, mixed?.label]).toEqual([3, "po terminie"]);
-    expect(mixed?.title).toContain("1 faktura ma termin za sobą, ale NEXUS nie wie, czy jest zapłacona");
-
-    const known = overdue(summaryStats(CLIENT_MONTH.summary, "2026-10", 2));
-    expect([known?.value, known?.label, known?.title]).toEqual([2, "po terminie", undefined]);
-  });
-
   it("names differences with a sign and status of rows", () => {
     const diff = invoice({ check: "difference", difference: "75.00" });
     expect(nbsp(checkText(diff))).toBe("różnica +75,00 zł");
@@ -183,8 +165,8 @@ describe("invoicing-format", () => {
     expect(nbsp(totalsText([{ currency: "PLN", amount: "79545.00" }, { currency: "EUR", amount: "100" }]))).toBe(
       "79 545,00 zł · 100,00 EUR",
     );
-    const stats = summaryStats(CLIENT_MONTH.summary, "2026-10", 2);
-    expect(stats.map((stat) => stat.id)).toEqual(["rows", "invoiced", "expected", "differences", "overdue"]);
+    const stats = summaryStats(CLIENT_MONTH.summary, "2026-10");
+    expect(stats.map((stat) => stat.id)).toEqual(["rows", "invoiced", "expected", "differences"]);
     expect(statusSummary({ ok: 2, not_invoiced: 1, difference: 0 })).toBe("zgodne: 2 · bez faktury: 1");
   });
 });

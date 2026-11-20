@@ -16,10 +16,11 @@ from app.services.rejection_reason_labels import rejection_reason_label
 SEEDED = {
     "counter_offer": "Kontroferta od obecnego pracodawcy",
     "personal_reasons": "Powody osobiste",
-    "lost_interest": "Stracił zainteresowanie",
-    "accepted_other_offer": "Przyjął inną ofertę",
-    "salary_mismatch": "Rozbieżność oczekiwań finansowych",
-    "process_too_long": "Za długi proces",
+    # Etykiety jednego słownika powodów (19.11.2026, `close_reasons.py`).
+    "lost_interest": "Straciła zainteresowanie / za długi proces",
+    "accepted_other_offer": "Przyjęła inną ofertę",
+    "salary_mismatch": "Za droga",
+    "process_too_long": "Straciła zainteresowanie / za długi proces",
     "Inne (rejected)": "Inne",
     "Inne (withdrawn)": "Inne",
 }
@@ -31,9 +32,7 @@ def test_seeded_codes_have_polish_labels(code: str, label: str) -> None:
 
 
 def test_unknown_name_passes_through_and_none_stays_none() -> None:
-    assert rejection_reason_label("Nie spełnia wymagań technicznych") == (
-        "Nie spełnia wymagań technicznych"
-    )
+    assert rejection_reason_label("Kandydat się wycofał") == "Kandydat się wycofał"
     assert rejection_reason_label(None) is None
 
 
