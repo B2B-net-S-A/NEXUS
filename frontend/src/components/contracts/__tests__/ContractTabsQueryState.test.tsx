@@ -349,94 +349,105 @@ describe("audyt 24.09 (blok D) — zakładki kontraktu", () => {
     expect(screen.getByRole("button", { name: /Potwierdź usunięcie/ })).toBeInTheDocument();
     confirmSpy.mockRestore();
   });
-
-  it("faktury: status po polsku, a odmowa usunięcia kończy się toastem (N9, N10)", async () => {
-    mocks.get.mockResolvedValue({
-      data: [
-        {
-          id: 7,
-          contract_id: 5,
-          direction: "to_client",
-          invoice_number: "FV/1",
-          period_month: null,
-          period_year: null,
-          issue_date: "2026-09-01",
-          due_date: "2026-09-15",
-          paid_date: "2026-09-10",
-          amount: 1000,
-          currency: "PLN",
-          status: "paid",
-          notes: null,
-        },
-      ],
-    });
-    mocks.del.mockRejectedValue(httpError(403, "Brak uprawnień do faktur"));
-    renderWith(<ContractInvoicesTab contractId={5} />);
-
-    expect(await screen.findByText("Zapłacona")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Usuń fakturę FV/1" }));
-    fireEvent.click(screen.getByRole("button", { name: "Potwierdź usunięcie faktury FV/1" }));
-    await waitFor(() =>
-      expect(mocks.showToast).toHaveBeenCalledWith(
-        "Brak uprawnień do faktur",
-        "error",
-      ),
-    );
-  });
 });
 
-// Runda 10 (R10-X1-1): puste pole kwoty zapisywało fakturę na 0 zł, a grosze
-// były blokowane domyślnym `step=1`.
-describe("ContractInvoicesTab — kwota faktury", () => {
-  async function openForm() {
-    mocks.get.mockResolvedValue({ data: [] });
+// Zakładka „Faktury” od 19.11.2026: faktury konsultanta z KSeF z Rozliczeń,
+// tylko do odczytu (decyzja Artura). Ręczny rejestr `/api/invoices` z „Dodaj
+// fakturę” zniknął — na produkcji nie miał ani jednego wiersza.
+describe("ContractInvoicesTab — faktury konsultanta z KSeF", () => {
+  const PAYLOAD = {
+    contract_id: 5,
+    client_id: 12,
+    invoices: [
+      {
+        id: 2,
+        ksef_number: "9970000001-20261117-AAAAAAAAAAAA-AB",
+        invoice_number: "FK 2/11/2026",
+        invoice_type: "Kor",
+        is_correction: true,
+        issue_date: "2026-11-17",
+        period_month: "2026-10",
+        nip_state: "known",
+        net_amount: "-1500.00",
+        gross_amount: "-1845.00",
+        currency: "PLN",
+      },
+      {
+        id: 1,
+        ksef_number: "9970000001-20261003-BBBBBBBBBBBB-AB",
+        invoice_number: "FV 9/10/2026",
+        invoice_type: "Vat",
+        is_correction: false,
+        issue_date: "2026-10-03",
+        period_month: "2026-09",
+        nip_state: "suggested",
+        net_amount: "18000.00",
+        gross_amount: "22140.00",
+        currency: "PLN",
+      },
+    ],
+  };
+
+  it("czyta faktury z KSeF kontraktu i linkuje miesiąc do Rozliczeń, bez „Dodaj fakturę”", async () => {
+    mocks.get.mockResolvedValue({ data: PAYLOAD });
     renderWith(<ContractInvoicesTab contractId={5} />);
-    fireEvent.click(await screen.findByRole("button", { name: /Dodaj fakturę/ }));
-    const field = (label: string) =>
-      screen.getByText(label).parentElement!.querySelector("input")!;
-    const form = screen.getByRole("button", { name: "Zapisz" }).closest("form")!;
-    return { input: field("Kwota"), number: field("Numer"), form };
-  }
 
-  it("pola kwoty i numeru są wymagane, kwota przyjmuje grosze", async () => {
-    const { input, number } = await openForm();
-    expect(input).toHaveAttribute("step", "0.01");
-    expect(input).toBeRequired();
-    expect(number).toBeRequired();
-  });
+    // Tytuł sekcji stoi już w stanie ładowania — czekamy na wiersz z danymi.
+    expect(await screen.findByText("Korekta")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Faktury konsultanta z KSeF" }),
+    ).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/contracts/5/contractor-invoices");
+    expect(screen.getByText("Faktura")).toBeInTheDocument();
+    expect(screen.getByText("FK 2/11/2026")).toBeInTheDocument();
+    expect(screen.getByText("9970000001-20261117-AAAAAAAAAAAA-AB")).toBeInTheDocument();
+    expect(screen.getByText("do zatwierdzenia")).toBeInTheDocument();
 
-  it("UI F01: pusty formularz nie wysyła faktury (najpierw numer)", async () => {
-    const { form } = await openForm();
-    fireEvent.submit(form);
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.showToast).toHaveBeenCalledWith("Podaj numer faktury.", "error");
-  });
-
-  it("zerowa albo ujemna kwota nie wysyła faktury", async () => {
-    const { input, number, form } = await openForm();
-    fireEvent.change(number, { target: { value: "FV/9" } });
-    for (const value of ["", "0", "-5"]) {
-      fireEvent.change(input, { target: { value } });
-      fireEvent.submit(form);
-    }
-    expect(mocks.post).not.toHaveBeenCalled();
-    expect(mocks.showToast).toHaveBeenCalledWith(
-      "Podaj kwotę faktury większą od zera.",
-      "error",
+    const october = screen.getByRole("link", { name: "10.2026" });
+    expect(october).toHaveAttribute(
+      "href",
+      "/finance?view=settlements&stClient=12&stMonth=2026-10&stContract=5",
     );
+    expect(
+      screen.getByRole("link", { name: /Otwórz 10\.2026 w Rozliczeniach/ }),
+    ).toHaveAttribute("href", october.getAttribute("href"));
+
+    expect(screen.queryByRole("button", { name: /Dodaj fakturę/ })).not.toBeInTheDocument();
+    expect(mocks.post).not.toHaveBeenCalled();
   });
 
-  it("kwota z groszami idzie do API bez zaokrąglenia", async () => {
-    mocks.post.mockResolvedValue({ data: {} });
-    const { input, number, form } = await openForm();
-    fireEvent.change(number, { target: { value: " FV/2026/09/1 " } });
-    // UI F13: 123,45 PLN.
-    fireEvent.change(input, { target: { value: "123.45" } });
-    fireEvent.submit(form);
-    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
-    expect(mocks.post.mock.calls[0][1]).toMatchObject({
-      amount: 123.45,
-      invoice_number: "FV/2026/09/1",
-    });
+  it("pusty stan dopiero po udanym odczycie", async () => {
+    mocks.get.mockResolvedValue({ data: { ...PAYLOAD, invoices: [] } });
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(
+      await screen.findByText("Brak faktur konsultanta w KSeF dla tego kontraktu."),
+    ).toBeInTheDocument();
+  });
+
+  it("awaria odczytu nie udaje braku faktur i daje się ponowić", async () => {
+    mocks.get.mockRejectedValueOnce(httpError(500));
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(await screen.findByText(FAILURE)).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak faktur konsultanta w KSeF dla tego kontraktu."),
+    ).not.toBeInTheDocument();
+
+    mocks.get.mockResolvedValueOnce({ data: PAYLOAD });
+    fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
+    expect(await screen.findByText("Korekta")).toBeInTheDocument();
+  });
+
+  it("wyłączony moduł rozliczeń: komunikat z API zamiast pustej listy", async () => {
+    mocks.get.mockRejectedValue(httpError(404, "Moduł rozliczeń klientów jest wyłączony."));
+    renderWith(<ContractInvoicesTab contractId={5} />);
+
+    expect(
+      await screen.findByText("Moduł rozliczeń klientów jest wyłączony."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Brak faktur konsultanta w KSeF dla tego kontraktu."),
+    ).not.toBeInTheDocument();
   });
 });

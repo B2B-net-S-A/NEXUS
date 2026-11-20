@@ -675,7 +675,22 @@ async def _end_case(contract_id: int) -> AdminCase | None:
         )
 
 
+async def test_contract_end_case_goes_to_the_queue_with_back_office(care_on) -> None:
+    """Jeden zespół (19.11.2026): sprawę wyjścia bierze pierwsza wolna osoba, nie DL."""
+
+    dl = await make_user(UserRole.delivery_lead)
+    client_id = await make_client(dl=dl)
+    await _pack(client_id)
+    contract_id, _candidate_id = await make_contract(client_id)
+    last_day = business_today() + timedelta(days=20)
+    assert (await _end(contract_id, last_day))["cases_end"] == "ok"
+    case = await _end_case(contract_id)
+    assert case.assignee_user_id is None
+
+
 async def test_contract_end_opens_case_for_owner_and_undo_closes_it(care_on) -> None:
+    # Bez modułu back office sprawa idzie do dawnego opiekuna (tu: DL klienta).
+    await set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
     dl = await make_user(UserRole.delivery_lead)
     client_id = await make_client(dl=dl)
     await _pack(client_id)

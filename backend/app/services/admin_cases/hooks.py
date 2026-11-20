@@ -447,6 +447,22 @@ async def _end_checklist(db: AsyncSession, contract: Contract) -> list[dict[str,
     )
 
 
+async def automatic_assignee(db: AsyncSession, contract_id: int) -> Optional[int]:
+    """Kto dostaje automatyczną sprawę kontraktu.
+
+    Z modułem back office (jeden zespół, decyzja Artura z 19.11.2026) nikt:
+    sprawę bierze pierwsza wolna osoba z kolejki. Efektywny opiekun spada na
+    Delivery Leada klienta, a DL-e nie pracują w back office'ie. Bez modułu
+    zostaje dawny opiekun kontraktu.
+    """
+
+    from app.services.hr import modules as hr_modules
+
+    if (await hr_modules.load_modules(db)).get(hr_modules.HrModule.back_office, False):
+        return None
+    return await _care_owner_id(db, contract_id)
+
+
 async def _care_owner_id(db: AsyncSession, contract_id: int) -> Optional[int]:
     """Efektywny opiekun kontraktu (pole kontraktu → klient → DL).
 
@@ -530,7 +546,7 @@ async def open_case_for_contract_end(
         if last_day
         else None
     )
-    owner_id = await _care_owner_id(db, contract.id)
+    owner_id = await automatic_assignee(db, contract.id)
     case, created = await open_automatic_case(
         db,
         AutomaticCase(

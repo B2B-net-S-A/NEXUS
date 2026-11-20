@@ -9,7 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { RejectionWorkModeField } from "@/components/v2/modals/RejectionWorkModeField";
 import { useJobPipelineTemplate } from "@/hooks/useJobPipelineTemplate";
 import { usePipelineMoveCore } from "@/hooks/usePipelineMoveCore";
-import type { ReviewBatchItem, ReviewBatchRoleProfile } from "@/lib/api/reviewBatch";
+import type {
+  ReviewBatchItem,
+  ReviewBatchRoleProfile,
+  ReviewBatchSentBefore,
+} from "@/lib/api/reviewBatch";
 import {
   autofillMoveFields,
   autofillReasonLabel,
@@ -265,6 +269,26 @@ export function orderLine(item: ReviewBatchItem): string | null {
   return `Kolejność: ${Math.round(item.score)}% + ${parts.join(" + ")}${laterText}`;
 }
 
+/** „Wysłany do klienta 2× · ostatnio 7 dni temu: …” (Z1, 20.11.2026). */
+export function sentBeforeText(sent: ReviewBatchSentBefore): string {
+  const when = sent.last_days <= 0 ? "dziś" : sent.last_days === 1 ? "wczoraj" : `${sent.last_days} dni temu`;
+  const title = sent.last_job_title.trim();
+  return `Wysłany do klienta ${sent.count}× · ostatnio ${when}${title ? `: ${title}` : ""}`;
+}
+
+function SentBeforeLine({ sent }: { sent: ReviewBatchSentBefore }) {
+  const text = sentBeforeText(sent);
+  return (
+    <p
+      className="truncate rounded-md border border-success/40 bg-success/10 px-2.5 py-1.5 text-xs text-success"
+      title={text}
+      data-testid="review-sent-before"
+    >
+      {text}
+    </p>
+  );
+}
+
 function rateLine(item: ReviewBatchItem): string | null {
   if (item.rate_from_hourly == null) return null;
   const rate = `od ${Math.round(item.rate_from_hourly)} ${item.rate_currency === "PLN" || !item.rate_currency ? "zł" : item.rate_currency}/h`;
@@ -472,6 +496,7 @@ export function ReviewBatchCard({
             {Math.round(item.score)}%
           </div>
         </div>
+        {item.sent_before ? <SentBeforeLine sent={item.sent_before} /> : null}
         {order ? <p className="text-xs text-muted-foreground">{order}</p> : null}
         {hasKeyFacts(item.key_facts) ? (
           <ReviewBatchKeyFactsBlock

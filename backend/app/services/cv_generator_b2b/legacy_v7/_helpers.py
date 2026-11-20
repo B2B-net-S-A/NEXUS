@@ -12,12 +12,17 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from app.services.cv_generator_b2b.champion_builder import ChampionProfileForPrompt
 from app.services.cv_generator_b2b.docx_renderer import (
     compile_keyword_patterns,
     highlight_spans,
+)
+from app.services.cv_generator_b2b.legacy_v7.role_family import (
+    names_company,
+    same_profession,
 )
 from app.services.cv_generator_b2b.standalone_service import (  # noqa: F401
     StandaloneGenerationError,
@@ -382,7 +387,9 @@ _ROLE_TENURE_LEAD_RE = re.compile(
 )
 
 
-def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None:
+def _fix_experience_years(
+    candidate_data: dict[str, Any], language: str, notes: list[str] | None = None
+) -> None:
     """Popraw liczbę lat w nagłówku kariery (pierwszy punkt z „doświadczenia").
 
     Model liczy staż z dat słabo („ponad 4" przy 5 latach), więc kod liczy go
@@ -393,8 +400,9 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
       wszystkich ról.
     * „N lat doświadczenia jako X" — ``min(cała kariera, max(liczba modelu,
       role pasujące do X))``: liczba rośnie tylko wtedy, gdy potwierdzają to
-      daty ról X, i nigdy ponad całą karierę. Brak pasującej roli albo ułamek,
-      którego nie trzeba zmieniać = bez zmiany.
+      daty ról X, i nigdy ponad całą karierę. Od 20.11.2026 role X to także
+      role tego samego zawodu (`role_family`); doliczone trafiają do ``notes``.
+      Brak pasującej roli albo ułamek, którego nie trzeba zmieniać = bez zmiany.
     * Wszystko inne („2 lata w SQL", „od 2023 roku", „2.5 years combined …")
       zostaje, jak napisał model; sprawdzają to bezpieczniki i kontrola AI.
 
@@ -425,6 +433,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         ):
             continue
         tail = head[match.end() :]
+        found: _ScopedRoles | None = None
         if _GENERIC_TENURE_TAIL_RE.fullmatch(tail):
             if head != point:
                 # „3 lata w IT, w tym 3 lata jako Analyst”: model policzył obszar
@@ -437,18 +446,35 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
             months = total
         else:
             lead = _ROLE_TENURE_LEAD_RE.match(tail)
-            scoped = (
-                _scoped_months(
-                    tail[lead.end() :], experience, _company_keys(experience)
+            found = (
+                _scoped_roles(
+                    tail[lead.end() :],
+                    experience,
+                    _company_keys(experience),
+                    family=_role_claims(point) < 2,
                 )
                 if lead
                 else None
             )
+            scoped = found.months() if found else None
             if not scoped:
                 continue
             months = min(total, max(int(figure * 12), scoped))
+            if found.added:
+                # Zawód (20.11.2026) tylko podnosi liczbę w tekście. Bez roli o tej
+                # nazwie kod dotąd jej nie ruszał, więc nie przycina jej do dat.
+                named = found.named_months()
+                if named is None:
+                    if not _shows_more(months, match):
+                        continue
+                else:
+                    without = min(total, max(int(figure * 12), named))
+                    if not _raised(months, without, language):
+                        months, found = without, None
         if figure != int(figure) and _fraction_matches(figure, months):
             break  # ułamek modelu jest zgodny z datami — zostaje
+        if found and found.added:
+            _note_added_roles(found, notes)
         lead_space = match.group(0)[
             : len(match.group(0)) - len(match.group(0).lstrip())
         ]
@@ -474,7 +500,8 @@ def _fix_role_subfigure(
 
     Pomiar na Solu: „Ponad 8 lat w IT, w tym ponad 1 rok jako DevOps…” przy
     ponad 5 latach w rolach DevOps. Liczba tylko rośnie (niższa może być
-    prawdziwa), nigdy ponad całą karierę ani ponad liczbę obszaru.
+    prawdziwa), nigdy ponad całą karierę ani ponad liczbę obszaru. Role X to
+    od 20.11.2026 wszystkie role tego zawodu (`role_family`), jak każe prompt.
     """
     split = _SUBFIGURE_SPLIT_RE.search(point)
     if not split:
@@ -487,7 +514,9 @@ def _fix_role_subfigure(
     tail = sub[match.end() :]
     if not _SCOPED_ROLE_CONNECTOR_RE.match(tail):
         return point
-    scoped = _scoped_months(tail, experience, _company_keys(experience))
+    scoped = _scoped_months(
+        tail, experience, _company_keys(experience), family=_role_claims(point) < 2
+    )
     if not scoped:
         return point
     months = min(total, scoped, int(area_figure) * 12 + 11)
@@ -672,23 +701,60 @@ def _company_keys(roles: list[dict[str, Any]]) -> list[str]:
     )
 
 
-def _scoped_months(
-    tail: str, roles: list[dict[str, Any]], companies: list[str]
-) -> int | None:
-    """Miesiące ról pasujących do frazy po liczbie: „jako X" (stanowisko zawiera X)
-    albo „w/u/at Firma" (dokładnie ta firma). ``None`` = brak dopasowania albo
-    niepełne daty — wtedy liczba zostaje, jak napisał model."""
+@dataclass(frozen=True)
+class _ScopedRoles:
+    """Role pod liczbą lat: o tej nazwie (albo z tej firmy) i dołożone role zawodu."""
+
+    phrase: str
+    named: tuple[dict[str, Any], ...]
+    added: tuple[dict[str, Any], ...]
+
+    def months(self) -> int | None:
+        return _total_experience_months([*self.named, *self.added])
+
+    def named_months(self) -> int | None:
+        return _total_experience_months(list(self.named)) if self.named else None
+
+
+def _scoped_roles(
+    tail: str,
+    roles: list[dict[str, Any]],
+    companies: list[str],
+    *,
+    family: bool = False,
+) -> _ScopedRoles | None:
+    """Role pasujące do frazy po liczbie: „jako X" (stanowisko zawiera X) albo
+    „w/u/at Firma" (dokładnie ta firma). ``None`` = brak dopasowania albo
+    niepełne daty roli o tej nazwie — wtedy liczba zostaje, jak napisał model.
+
+    Z ``family`` „jako X" bierze też role tego samego zawodu z czytelnymi datami
+    (`role_family.same_profession`, decyzja Artura 20.11.2026), ale nie przy
+    „jako X w <Firma>”, bo wtedy liczba mówi o jednej firmie.
+    """
+    added: list[dict[str, Any]] = []
     role = _SCOPED_ROLE_CONNECTOR_RE.match(tail)
     if role:
         rest = tail[role.end() :]
         end = _SCOPED_PHRASE_END_RE.search(rest)
-        phrase = _scope_key(rest[: end.start()] if end else rest)
+        raw = (rest[: end.start()] if end else rest).strip()
+        phrase = _scope_key(raw)
         if len(phrase) < 4:
             return None
         pattern = re.compile(rf"(?:^|\s){re.escape(phrase)}(?:\s|$)")
         matched = [
             job for job in roles if pattern.search(_scope_key(job.get("position")))
         ]
+        if family and not names_company(rest[end.start() :] if end else ""):
+            named_ids = {id(job) for job in matched}
+            added = [
+                job
+                for job in roles
+                if id(job) not in named_ids
+                and _parse_date_range(str(job.get("dates") or "")) is not None
+                and same_profession(
+                    raw, job.get("position"), job.get("technologies") or ()
+                )
+            ]
     else:
         company = _SCOPED_COMPANY_CONNECTOR_RE.match(tail)
         if not company:
@@ -699,15 +765,94 @@ def _scoped_months(
         )
         if name is None:
             return None
+        raw = name
         matched = [job for job in roles if _scope_key(job.get("company")) == name]
-    if not matched or any(
+    if not (matched or added) or any(
         _parse_date_range(str(job.get("dates") or "")) is None for job in matched
     ):
         return None
-    return _total_experience_months(matched)
+    return _ScopedRoles(raw, tuple(matched), tuple(added))
 
 
-def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
+def _scoped_months(
+    tail: str,
+    roles: list[dict[str, Any]],
+    companies: list[str],
+    *,
+    family: bool = False,
+) -> int | None:
+    """Miesiące ról z `_scoped_roles`; ``None`` = liczba zostaje, jak napisał model."""
+    found = _scoped_roles(tail, roles, companies, family=family)
+    return found.months() if found else None
+
+
+def _role_claims(point: str) -> int:
+    """Ile liczb lat w punkcie stoi przy stanowisku („N lat (doświadczenia) jako X”).
+
+    Punkt z dwiema („7 years as a System Analyst and 2 years as a Business
+    Analyst”) wylicza role osobno, więc rodzina zawodu by je zdublowała.
+    """
+    count = 0
+    for match in _YEARS_PHRASE_RE.finditer(point):
+        if _tenure_figure(match) is None:
+            continue
+        tail = point[match.end() :]
+        if _SCOPED_ROLE_CONNECTOR_RE.match(tail) or _ROLE_TENURE_LEAD_RE.match(tail):
+            count += 1
+    return count
+
+
+def _raised(months: int, without_family: int, language: str) -> bool:
+    """Czy role zawodu zmieniły liczbę w tekście (a nie tylko miesiące)."""
+    return months > without_family and _tenure_text(
+        months, language, at_start=False
+    ) != _tenure_text(without_family, language, at_start=False)
+
+
+_OVER_PREFIX_RE = re.compile(
+    r"(?:ponad|powyżej|przeszło|over|more than)\b|\+", re.IGNORECASE
+)
+
+
+def _shows_more(months: int, match: re.Match[str]) -> bool:
+    """Czy `_tenure_text(months)` mówi więcej niż liczba modelu.
+
+    „Ponad 5 lat”, „5+ years” i „4,5 roku” nie mogą stać się „5 lat” ani
+    „ponad 4 lata”: tam, gdzie kod dotąd liczby nie ruszał, zawód ją tylko podnosi.
+    """
+    figure = _tenure_figure(match) or 0
+    over = OVER_YEARS_FROM_MONTHS if _OVER_PREFIX_RE.search(match.group(0)) else 0
+    shown = months // 12 * 12 + (
+        OVER_YEARS_FROM_MONTHS if months % 12 >= OVER_YEARS_FROM_MONTHS else 0
+    )
+    return shown > figure * 12 + over
+
+
+# Tyle doliczonych ról wypisuje uwaga; resztę podaje liczbą.
+_NOTE_ROLES_LISTED = 4
+
+
+def _note_added_roles(found: _ScopedRoles, notes: list[str] | None) -> None:
+    """Uwaga dla rekrutera: które role o innej nazwie weszły do lat „jako X”."""
+    if notes is None or not found.added:
+        return
+    listed = ", ".join(
+        f"{job.get('position')} ({job.get('dates')})"
+        for job in found.added[:_NOTE_ROLES_LISTED]
+    )
+    more = len(found.added) - _NOTE_ROLES_LISTED
+    note = (
+        f"WERYFIKUJ: lata „jako {found.phrase}” w podsumowaniu liczą też role tego "
+        f"samego zawodu: {listed}{f' i {more} innych' if more > 0 else ''}. "
+        "Popraw liczbę, jeśli któraś z nich to inny zawód."
+    )
+    if note not in notes:
+        notes.append(note)
+
+
+def _fix_scoped_years(
+    candidate_data: dict[str, Any], language: str, notes: list[str] | None = None
+) -> None:
     """Przelicz z dat liczby lat przypięte do KONKRETNEJ roli albo firmy.
 
     Model nie zna dzisiejszej daty i liczył „obecnie" jak rok wcześniej
@@ -719,6 +864,13 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
     niepełne daty = liczba zostaje, jak napisał model. Dzięki temu poprawka
     nigdy nie dolicza lat z innej roli ani innej firmy. Daty („od 2023 roku")
     nie są liczbą lat i zostają.
+
+    Od 20.11.2026 (decyzja Artura) „jako X" liczy też role tego samego zawodu
+    (`role_family`): prompt 14 każe pisać w „w tym M lat jako X” sumę
+    wszystkich ról zawodu, a sama nazwa zbijała „16 lat” do „ponad 1 rok”.
+    Zawód tylko podnosi liczbę: nie mniej niż role o tej nazwie, w „w tym M”
+    nie więcej niż liczba obszaru przed „w tym”, a bez roli o tej nazwie nie
+    mniej, niż napisał model. Doliczone role idą do ``notes``.
     """
     roles = [
         job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
@@ -731,16 +883,38 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
     for i, point in enumerate(points):
         if not isinstance(point, str):
             continue
+        family = _role_claims(point) < 2
+        head = _SUBFIGURE_SPLIT_RE.split(point, maxsplit=1)[0]
+        area_match = _YEARS_PHRASE_RE.search(head)
+        area = _tenure_figure(area_match) if area_match else None
 
         def replace(match: re.Match[str]) -> str:
             figure = _tenure_figure(match)
             if figure is None:
                 return match.group(0)
-            months = _scoped_months(match.string[match.end() :], roles, companies)
-            if not months or months < MIN_TENURE_MONTHS:
+            found = _scoped_roles(
+                match.string[match.end() :], roles, companies, family=family
+            )
+            months = found.months() if found else None
+            if not found or not months or months < MIN_TENURE_MONTHS:
                 return match.group(0)
+            named = found.named_months()
+            by_family = False
+            if found.added:
+                if area is not None and match.start() >= len(head):
+                    months = min(months, int(area) * 12 + 11)
+                if named is not None and named >= MIN_TENURE_MONTHS:
+                    # Dotąd liczba = role o tej nazwie; zawód ją tylko podnosi.
+                    by_family = _raised(months, named, language)
+                    months = months if by_family else named
+                elif _shows_more(months, match):
+                    by_family = True  # dotąd zostawała liczba modelu
+                else:
+                    return match.group(0)
             if figure != int(figure) and _fraction_matches(figure, months):
                 return match.group(0)  # „4,5 roku w Acme” zgodne z datami
+            if by_family:
+                _note_added_roles(found, notes)
             text = match.group(0)
             lead = text[: len(text) - len(text.lstrip())]
             before = match.string[: match.start()]

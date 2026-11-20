@@ -5,7 +5,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck, Video } from "lucide-react";
 
 import { AppModal } from "@/components/ds/AppModal";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Textarea } from "@/components/ui/textarea";
@@ -113,14 +112,21 @@ export function BookingDialog({
         {hosts.isSuccess && hosts.data.available
           ? hosts.data.hosts.map((host) => (
               <div key={host.id} className="rounded-xl border bg-card p-3">
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Jeden zespół (19.11.2026): konsultant wybiera osobę, nie zespół. */}
+                <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+                  >
+                    {(host.name ?? "?")
+                      .split(" ")
+                      .filter(Boolean)
+                      .map((part) => part[0])
+                      .join("")
+                      .slice(0, 2)
+                      .toUpperCase()}
+                  </span>
                   <p className="font-medium">{host.name}</p>
-                  <span className="text-xs text-muted-foreground">{host.team}</span>
-                  {host.matches_topic ? (
-                    <Badge variant="success" size="sm">
-                      od tego tematu
-                    </Badge>
-                  ) : null}
                 </div>
                 {host.slots.length === 0 ? (
                   <p className="mt-2 text-xs text-muted-foreground">

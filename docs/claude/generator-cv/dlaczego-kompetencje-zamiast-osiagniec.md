@@ -63,6 +63,8 @@ bez nazwy firmy w punktach. Po pierwszym pomiarze dopisane:
 - **„w tym M lat jako X”**: M to suma wszystkich ról zawodu, jedno określenie, punkt 1 do
   ~20 słów; `_fix_role_subfigure` podnosi zbyt niskie M do sumy dat pasujących ról (Sol
   napisał „ponad 1 rok jako DevOps” przy ponad 5 latach), nigdy ponad liczbę obszaru.
+  Do 20.11.2026 `_fix_scoped_years` zbijał potem M do ról o dokładnie tej nazwie; od
+  tego dnia obie funkcje liczą role tego samego zawodu: `lata-jako-x-rodzina-zawodu.md`.
 - **Poziom języka słownie w języku CV** („German basic” w polskim CV → „podstawowy”).
 - **Kategoria AI tylko z nazwanymi technologiami**, bez ogólników („artificial
   intelligence” u Scrum Mastera po kursie wstępnym).

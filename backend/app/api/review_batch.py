@@ -167,6 +167,13 @@ async def my_queue(
             if card.job_id in jobs and card.candidate_id in candidates
         ],
     )
+    # „Wysłany wcześniej” (20.11.2026): gdzie i kiedy osoba poszła już do klienta.
+    from app.services import sent_before
+    from app.services.process_entry_meta import caution_views
+
+    sent = await sent_before.facts_for(
+        db, job_id=None, candidate_ids=candidate_ids, now=now
+    )
     items = []
     for card in cards:
         person = candidates.get(card.candidate_id)
@@ -191,7 +198,12 @@ async def my_queue(
                 "rate_from_hourly": meta.get("rate_from_hourly"),
                 "rate_currency": meta.get("rate_currency"),
                 "availability_status": meta.get("availability_status"),
-                "cautions": meta.get("cautions") or [],
+                "cautions": caution_views(meta.get("cautions")),
+                "sent_before": (
+                    sent[card.candidate_id].as_dict()
+                    if card.candidate_id in sent
+                    else None
+                ),
                 "budget_hourly": (
                     float(job.rate_budget_hourly)
                     if job.rate_budget_hourly is not None

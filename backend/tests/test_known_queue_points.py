@@ -119,7 +119,10 @@ async def test_facts_count_this_client_and_fresh_notes_only():
     # Weryfikacja u innego klienta nie daje punktów, odrzucenie przez tego klienta
     # zabiera też punkty za świeżą notatkę.
     assert set(facts) == {familiar, legacy}
-    assert facts[legacy].points == 6
+    # 6 za klienta + 8 za wysyłkę CV w innej rekrutacji w ostatnim roku (20.11.2026).
+    assert facts[legacy].client_points == 6
+    assert facts[legacy].sent_points == known.SENT_POINTS
+    assert facts[legacy].points == 6 + known.SENT_POINTS
 
 
 @pytest.mark.asyncio

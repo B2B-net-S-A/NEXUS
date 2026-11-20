@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import func, select, text, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
@@ -541,3 +541,59 @@ async def next_position(db: AsyncSession, client_id: int) -> int:
         )
     )
     return int(current or 0) + 1
+
+
+@dataclass(frozen=True)
+class NotRequired:
+    """„Klient nie wymaga dokumentów” (0747): kiedy i kto to zaznaczył.
+
+    Pusta lista znaczy też „nikt jeszcze nie ustalił”, więc licznik „Start
+    u klienta” liczy dokumenty jako ustalone dopiero z pozycją na liście albo
+    z tym znacznikiem (``docs/claude/klienci/start-u-klienta-ustalone.md``).
+    Kolumny są przy kliencie poza modelem ORM, jak ``equipment_provider``.
+    """
+
+    at: datetime
+    by_name: Optional[str]
+
+
+async def not_required_mark(db: AsyncSession, client_id: int) -> Optional[NotRequired]:
+    row = (
+        await db.execute(
+            text(
+                "SELECT c.start_documents_not_required_at, u.name FROM clients c "
+                "LEFT JOIN users u ON u.id = c.start_documents_not_required_by "
+                "WHERE c.id = :id"
+            ),
+            {"id": client_id},
+        )
+    ).first()
+    if row is None or row[0] is None:
+        return None
+    return NotRequired(at=row[0], by_name=row[1])
+
+
+async def mark_not_required(db: AsyncSession, client_id: int, *, actor_id: int) -> None:
+    await db.execute(
+        text(
+            "UPDATE clients SET start_documents_not_required_at = :at, "
+            "start_documents_not_required_by = :by WHERE id = :id"
+        ),
+        {"at": utcnow(), "by": actor_id, "id": client_id},
+    )
+
+
+async def clear_not_required(db: AsyncSession, client_id: int) -> bool:
+    """Zdejmij znacznik; ``True``, gdy był. Pozycja na liście też go zdejmuje,
+    żeby usunięcie wszystkich pozycji wracało do „nieustalone”, a nie do starej
+    decyzji sprzed listy."""
+
+    result = await db.execute(
+        text(
+            "UPDATE clients SET start_documents_not_required_at = NULL, "
+            "start_documents_not_required_by = NULL "
+            "WHERE id = :id AND start_documents_not_required_at IS NOT NULL"
+        ),
+        {"id": client_id},
+    )
+    return bool(result.rowcount)

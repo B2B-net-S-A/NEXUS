@@ -3705,6 +3705,25 @@
     "dot_anchor": "finance.rate-divergences"
   },
   {
+    "id": "jeden-slownik-powodow-zamkniecia",
+    "title": "Jedna lista powodów zamknięcia procesu",
+    "why": "Ta sama lista powodów w każdej kolumnie. Nowe: „Projekt zamknięty / przetarg przegrany”, „Wysłany po terminie”, „Dostępna za późno / wypowiedzenie” — rzadziej „Inne” z opisem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Powód",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.close-reasons"
+  },
+  {
     "id": "kontrakt-co-sie-dzieje-7-zakladek",
     "pr": 3639,
     "title": "Kontrakt: „Co się dzieje” na górze i 7 zakładek",
@@ -3731,6 +3750,38 @@
         "anchor": "contract.tabs",
         "text": "Zakładek jest 7 zamiast 10.",
         "hint": "Notatki są w „Opiece i rozmowach”, faktury i historia stawek w „Pieniądzach”, sprzęt w „Starcie i sprzęcie”.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "klient-rozliczenie-kroki",
+    "pr": null,
+    "title": "Rozliczenie miesiąca w czterech krokach",
+    "why": "Karta „Rozliczenie” w Przeglądzie klienta pokazuje poprzedni miesiąc krokami: RCP, do faktury, KSeF, zapłata. „Brak danych o zapłacie” to brak wyciągów, a nie zaległość.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "admin",
+        "delivery_lead",
+        "finance"
+      ]
+    },
+    "where": "Klienci → klient → Przegląd → Rozliczenie",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.overview.settlement",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę klienta, u którego pracują nasi ludzie.",
+        "hint": "Otworzy się Przegląd klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.overview.settlement",
+        "text": "To rozliczenie poprzedniego miesiąca w czterech krokach.",
+        "hint": "Szczegół kroku pokaże dymek, cały miesiąc „Faktury”. „Po terminie” pojawia się tylko z dowodem z wyciągów rachunku.",
         "ack": true
       }
     ]

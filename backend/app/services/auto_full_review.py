@@ -1158,12 +1158,98 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
         if len(rows) < page_size:
             break
     payload = payload[:AUTOFILL_POOL_SIZE]
+    payload.extend(
+        await _sent_before_extras(
+            db, run, job, excluded | {row["candidate_id"] for row in payload}
+        )
+    )
     await db.execute(
         delete(JobAutofillPool).where(JobAutofillPool.job_id == run.job_id)
     )
     if payload:
         await db.execute(insert(JobAutofillPool), payload)
     return len(payload)
+
+
+async def _sent_before_extras(
+    db, run: CandidateSearchRun, job, taken: set[int]
+) -> list[dict]:
+    """Osoby wysłane wcześniej do klienta spoza 150 najlepszych (Z1, 20.11.2026).
+
+    Z 89 sprawdzonych osób wysłanych ręcznie 09–19.11 aż 53 miało w ostatnim
+    przeglądzie wynik od 50%, ale poza pulą. Ten sam filtr co pula (dopuszczony,
+    oceniony, zmierzony, bez innej roli i osób z rekrutacji), od
+    ``sent_before.MIN_SCORE``, najwyżej ``sent_before.POOL_EXTRA`` osób."""
+    from app.services import sent_before
+    from app.services.auto_match_outbox import candidate_revision
+
+    rows = (
+        await db.execute(
+            select(
+                CandidateSearchResult.candidate_id,
+                CandidateSearchResult.fit_score,
+                CandidateSearchResult.evidence,
+            )
+            .where(
+                CandidateSearchResult.run_id == run.id,
+                CandidateSearchResult.state == "evaluated",
+                CandidateSearchResult.eligible.is_(True),
+                CandidateSearchResult.measurement == "measured",
+                CandidateSearchResult.fit_score >= sent_before.MIN_SCORE,
+                CandidateSearchResult.candidate_id.in_(
+                    sent_before.sent_elsewhere_select(
+                        run.job_id, now=datetime.now(timezone.utc)
+                    )
+                ),
+            )
+            .order_by(
+                CandidateSearchResult.fit_score.desc(),
+                CandidateSearchResult.candidate_id,
+            )
+            .limit(sent_before.POOL_EXTRA * 3)
+        )
+    ).all()
+    rows = [r for r in rows if r[0] not in taken]
+    if not rows:
+        return []
+    candidates = {
+        c.id: c
+        for c in (
+            await db.scalars(
+                select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+            )
+        ).all()
+    }
+    off_role = await _off_role_ids(
+        db,
+        job,
+        [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
+        candidates,
+        keep_strong=False,
+    )
+    extras: list[dict] = []
+    for candidate_id, score, evidence in rows:
+        candidate = candidates.get(candidate_id)
+        if candidate is None or candidate_id in off_role:
+            continue
+        requirements = (evidence or {}).get("requirements") or []
+        extras.append(
+            {
+                "job_id": run.job_id,
+                "candidate_id": candidate_id,
+                "score": round(float(score), 2),
+                "run_id": run.id,
+                "cv_revision": candidate_revision(candidate),
+                "evidence": {
+                    "matched_must": _requirement_names(requirements, met=True),
+                    "missing_must": _requirement_names(requirements, met=False),
+                    sent_before.EVIDENCE_KEY: True,
+                },
+            }
+        )
+        if len(extras) >= sent_before.POOL_EXTRA:
+            break
+    return extras
 
 
 async def _newest_result_run(db, run: CandidateSearchRun) -> bool:
