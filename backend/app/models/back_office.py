@@ -19,6 +19,7 @@ from sqlalchemy import (
     Integer,
     SmallInteger,
     String,
+    Text,
     UniqueConstraint,
     func,
     text,
@@ -28,6 +29,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.services import back_office_schema as schema
+from app.services import back_office_team_schema as team_schema
 
 
 class BoCard(Base):
@@ -41,6 +43,7 @@ class BoCard(Base):
         CheckConstraint(schema.CK_CARD_TITLE, name="ck_bo_cards_title"),
         CheckConstraint(schema.CK_CARD_CLOSED, name="ck_bo_cards_closed"),
         CheckConstraint(schema.CK_CARD_META, name="ck_bo_cards_meta"),
+        CheckConstraint(team_schema.CK_CARD_OUTSIDE, name="ck_bo_cards_outside_team"),
         Index(
             "ix_bo_cards_board",
             "team",
@@ -111,6 +114,8 @@ class BoCard(Base):
     needs_review: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false"), default=False
     )
+    #: 0746: dział poza back office'em, na który sprawa czeka („Na zewnątrz”).
+    outside_team: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -160,5 +165,61 @@ class BoTeamMember(Base):
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoMember(Base):
+    """0746: jeden zespół back office'u z rolą i przełącznikiem rozmów z portalu."""
+
+    __tablename__ = "bo_members"
+    __table_args__ = (
+        CheckConstraint(team_schema.CK_MEMBER_ROLE, name="ck_bo_members_role"),
+        Index(
+            "ux_bo_members_deputy",
+            "role",
+            unique=True,
+            postgresql_where=text("role = 'deputy'"),
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(
+        String(12), nullable=False, server_default=text("'member'"), default="member"
+    )
+    takes_calls: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
+    added_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class BoClientNote(Base):
+    """0746: ściąga klienta — jeden blok tekstu na klienta i temat."""
+
+    __tablename__ = "bo_client_notes"
+    __table_args__ = (
+        CheckConstraint(team_schema.CK_NOTE_BLOCK, name="ck_bo_client_notes_block"),
+        CheckConstraint(team_schema.CK_NOTE_BODY, name="ck_bo_client_notes_body"),
+    )
+
+    client_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("clients.id", ondelete="CASCADE"), primary_key=True
+    )
+    block: Mapped[str] = mapped_column(String(12), primary_key=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

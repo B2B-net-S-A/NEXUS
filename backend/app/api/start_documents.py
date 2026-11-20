@@ -61,6 +61,7 @@ from app.services.access_scope import (
 from app.services.b2b_documents.signed_scan import read_scan
 from app.services.b2b_esign.mail import mailbox_connected, send_from
 from app.services.board_tasks import dl_portfolio_client_ids
+from app.services.client_access import record_client_audit
 from app.services.m365.sender import FileAttachment
 from app.services.notification_triggers import emit
 from app.services.request_semantics import is_read_only_http_request
@@ -79,6 +80,9 @@ clients_router = APIRouter(dependencies=DELIVERY_SECTION_DEPENDENCIES)
 MSG_ROLE = "Dokumenty do startu prowadzą osoby z rekrutacji i Delivery Lead klienta."
 MSG_NOT_FOUND = "Nie ma takiej pozycji na liście tego klienta."
 MSG_NO_LIST = "Ten klient nie ma listy dokumentów do startu."
+MSG_LIST_NOT_EMPTY = (
+    "Lista ma pozycje. Usuń je, zanim zaznaczysz, że klient nie wymaga dokumentów."
+)
 MSG_NOT_IN_JOB = "Ta osoba nie jest w tej rekrutacji."
 MSG_LINK = "Podaj pełny adres strony zaczynający się od https://."
 MSG_NO_REVIEW = "To robi Delivery Lead klienta, Head of Recruitment albo administrator."
@@ -219,13 +223,51 @@ async def _load_document(db: AsyncSession, document_id: int) -> ClientStartDocum
     return document
 
 
+async def _client_list_out(db: AsyncSession, client_id: int) -> dict[str, Any]:
+    lists = await svc.client_lists(db, [client_id])
+    mark = await svc.not_required_mark(db, client_id)
+    return {
+        "items": [_document_out(d) for d in lists.get(client_id, [])],
+        # „Klient nie wymaga dokumentów” (0747); ``None`` = nikt tego nie zaznaczył.
+        "not_required": (
+            {"at": _iso(mark.at), "by_name": mark.by_name} if mark else None
+        ),
+    }
+
+
 @clients_router.get("/start-documents/clients/{client_id}")
 async def client_list(
     client_id: int, current_user: DeliveryViewUser, db: Db
 ) -> dict[str, Any]:
     await _client_in_scope(db, current_user, client_id)
-    lists = await svc.client_lists(db, [client_id])
-    return {"items": [_document_out(d) for d in lists.get(client_id, [])]}
+    return await _client_list_out(db, client_id)
+
+
+class NotRequiredIn(BaseModel):
+    not_required: bool
+
+
+@clients_router.put("/start-documents/clients/{client_id}/not-required")
+async def set_client_not_required(
+    client_id: int, payload: NotRequiredIn, current_user: ClientsEditUser, db: Db
+) -> dict[str, Any]:
+    """„Klient nie wymaga dokumentów” — jawna decyzja przy pustej liście (0747)."""
+
+    await _client_in_scope(db, current_user, client_id)
+    if payload.not_required:
+        lists = await svc.client_lists(db, [client_id])
+        if lists.get(client_id):
+            raise HTTPException(status_code=409, detail=MSG_LIST_NOT_EMPTY)
+        await svc.mark_not_required(db, client_id, actor_id=current_user.id)
+        action = "start_documents_not_required_set"
+    else:
+        await svc.clear_not_required(db, client_id)
+        action = "start_documents_not_required_cleared"
+    record_client_audit(
+        db, client_id=client_id, actor_id=current_user.id, action=action
+    )
+    await db.commit()
+    return await _client_list_out(db, client_id)
 
 
 @clients_router.post("/start-documents/clients/{client_id}", status_code=201)
@@ -241,6 +283,7 @@ async def add_client_document(
         **payload.model_dump(),
     )
     db.add(document)
+    await svc.clear_not_required(db, client_id)
     await db.commit()
     await db.refresh(document)
     return _document_out(document)

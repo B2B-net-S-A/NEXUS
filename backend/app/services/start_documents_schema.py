@@ -84,6 +84,17 @@ TABLE_DDL: tuple[str, ...] = (
     PLACEMENT_DOCUMENTS_INDEX,
     PLACEMENT_DOCUMENTS_JOB_INDEX,
 )
+#: 0747: „Klient nie wymaga dokumentów” — jawna decyzja przy pustej liście, bo
+#: sama pusta lista znaczy też „nikt jeszcze nie ustalił” (licznik „Start
+#: u klienta”, ``docs/claude/klienci/start-u-klienta-ustalone.md``). Kolumny
+#: przy kliencie poza modelem ORM, jak ``clients.equipment_provider``: czyta
+#: i pisze je ``services/start_documents.py``.
+NOT_REQUIRED_DDL: tuple[str, ...] = (
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS start_documents_not_required_at "
+    "TIMESTAMPTZ NULL",
+    "ALTER TABLE clients ADD COLUMN IF NOT EXISTS start_documents_not_required_by "
+    "INTEGER NULL REFERENCES users(id) ON DELETE SET NULL",
+)
 #: Poza transakcją: ``ALTER TYPE … ADD VALUE`` (``autocommit_block`` w migracji).
 ENUM_DDL: tuple[str, ...] = (
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'start_documents'",

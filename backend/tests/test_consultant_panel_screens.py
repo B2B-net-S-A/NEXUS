@@ -385,10 +385,10 @@ async def test_trainer_needs_topics_and_experience(app_client) -> None:
 
 
 @pytest.mark.usefixtures("portal_restored", "clean_team")
-async def test_only_care_and_admin_activate(app_client) -> None:
+async def test_only_the_team_and_admin_activate(app_client) -> None:
     person = await make_person(activated=False)
-    outsider = await make_member("finance")
-    care = await make_member("care", name="Maja")
+    outsider = await make_user(UserRole.recruiter)
+    care = await make_member(name="Maja")
     url = f"{PANEL}/contracts/{person.contract_id}/activation"
     refused = await app_client.post(
         url, headers=headers(outsider), json={"email": person.email}

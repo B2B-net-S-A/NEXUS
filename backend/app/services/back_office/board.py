@@ -1,8 +1,12 @@
-"""Odczyt tablicy back office'u: zespoły, kolumny, karty, liczby, panel karty.
+"""Odczyt tablicy back office'u: etykiety, karty, liczby, panel karty.
 
-Kwoty dostaje przy odczycie tylko osoba z Płacami. Tytuł sprawy, której czytający
-nie ma prawa czytać, zostaje „Sprawa: <obszar>” (reguła ``redact_case_title``),
-negocjacje też. Odczyt niczego nie zapisuje.
+Jeden zespół (decyzje 10.11 i 19.11.2026): dawne kolumny zespołów to etykiety
+(``LABELS``), a jedno zdarzenie to jedna karta na tablicy — kroki sprawy widać
+w jej panelu, a ławka konsultanta, który ma już otwartą sprawę wyjścia, jest
+krokiem tej sprawy (``folded``). Kwoty dostaje przy odczycie tylko osoba
+z Płacami. Tytuł sprawy, której czytający nie ma prawa czytać, zostaje
+„Sprawa: <obszar>” (reguła ``redact_case_title``), negocjacje też. Odczyt
+niczego nie zapisuje.
 """
 
 from __future__ import annotations
@@ -69,6 +73,41 @@ LANE_META: dict[str, dict[str, str]] = {
         "label": "Zużycie MD",
         "description": "Ostatni import: wiersze bez przypisania",
     },
+}
+#: Etykieta na karcie: krótka nazwa dawnej kolumny i rodzina (dawny zespół),
+#: która służy tylko do filtrowania, nie do podziału ludzi.
+LABELS: dict[str, str] = {
+    "help": "Pomoc",
+    "entry": "Wejście",
+    "bench": "Ławka",
+    "exit": "Wyjście",
+    "timesheet": "Raport godzin",
+    "bonus": "Premie",
+    "invoice": "Faktura",
+    "changes": "Zmiana w zamówieniu",
+    "draft": "Do umowy",
+    "sign": "Podpis",
+    "annex": "Aneks / stawka",
+    "ending": "Zakończenie",
+    "mail": "Poczta zamówień",
+    "gap": "Przerwa",
+    "extend": "Przedłużenie",
+    "md": "Zużycie MD",
+}
+FAMILY_LABELS = {
+    "care": "Konsultant",
+    "finance": "Rozliczenia",
+    "contracts": "Umowy",
+    "orders": "Zamówienia",
+}
+OUTSIDE_LABELS = {
+    "recruitment": "Rekrutacja / Delivery",
+    "sales": "Sprzedaż",
+    "it": "IT",
+    # Słowa Artura z 10.11.2026; „Kadry” to stara nazwa (słownik z 03.11).
+    "hr": "HR",
+    "accounting": "Finanse",
+    "legal": "Prawnik",
 }
 _ACTIONS = {
     "timesheet": ("approve", "return"),
@@ -192,12 +231,68 @@ def card_payload(
             else None
         ),
         "parent_title": meta.get("parent_title"),
+        "contract_id": card.contract_id,
+        "outside_team": card.outside_team,
         "meta": {
             k: meta[k]
             for k in ("timesheet_id", "year", "month", "item_key", "gap_id")
             if k in meta
         },
     }
+
+
+async def _meetings(db: AsyncSession, case_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Rozmowa z portalu to sprawa w kolejce: termin i temat na karcie (19.11.2026)."""
+
+    if not case_ids:
+        return {}
+    from app.models.consultant_portal import CpMeeting  # noqa: PLC0415
+    from app.services.consultant_portal.content import TOPIC_LABELS  # noqa: PLC0415
+
+    out: dict[int, dict[str, Any]] = {}
+    for meeting in (
+        await db.scalars(
+            select(CpMeeting)
+            .where(
+                CpMeeting.case_id.in_(case_ids),
+                CpMeeting.status.in_(("pending", "booked")),
+            )
+            .order_by(CpMeeting.start_at)
+        )
+    ).all():
+        out.setdefault(
+            meeting.case_id,
+            {
+                "start_at": meeting.start_at,
+                "topic": TOPIC_LABELS.get(meeting.topic, meeting.topic),
+                "join_url": meeting.join_url,
+            },
+        )
+    return out
+
+
+def folded(rows: Iterable[BoCard]) -> list[BoCard]:
+    """Karty na tablicę: jedno zdarzenie = jedna karta.
+
+    Krok sprawy wejścia albo wyjścia widać w panelu sprawy, nie jako osobną
+    kartę. Ławka konsultanta, który ma już otwartą sprawę wyjścia, to pierwszy
+    krok tej sprawy („Ławka: decyzja o przepięciu”), więc też znika z tablicy.
+    „Do rozdzielenia” stoi osobno u kierownika.
+    """
+
+    rows = list(rows)
+    exiting = {
+        c.contract_id
+        for c in rows
+        if c.source_kind == "case" and c.lane == "exit" and c.contract_id is not None
+    }
+    return [
+        c
+        for c in rows
+        if c.lane != TRIAGE_LANE
+        and c.source_kind != "step"
+        and not (c.source_kind == "bench" and c.contract_id in exiting)
+    ]
 
 
 async def board(
@@ -210,20 +305,13 @@ async def board(
             .order_by(BoCard.due_on.asc().nulls_last(), BoCard.id)
         )
     ).all()
-    # Krok własnego zespołu widać w panelu sprawy, nie drugi raz w kolumnie.
-    parent_team = {c.id: c.team for c in rows}
     children: dict[int, list[BoCard]] = {}
     all_children = (
         await db.scalars(select(BoCard).where(BoCard.source_kind == "step"))
     ).all()
     for child in all_children:
         children.setdefault(child.parent_card_id, []).append(child)
-    cards = [
-        c
-        for c in rows
-        if c.lane != TRIAGE_LANE
-        and not (c.parent_card_id and parent_team.get(c.parent_card_id) == c.team)
-    ]
+    cards = folded(rows)
     names = await user_names(
         db, [c.assignee_user_id for c in rows] + [c.priority_user_id for c in rows]
     )
@@ -234,6 +322,9 @@ async def board(
         )
         for c in cards
     ]
+    meetings = await _meetings(db, [c.case_id for c in cards if c.case_id])
+    for row, card in zip(payload, cards):
+        row["meeting"] = meetings.get(card.case_id) if card.case_id else None
     triage = (
         [
             card_payload(c, viewer=viewer, user=user, names=names)
@@ -252,6 +343,20 @@ async def board(
                 "lanes": [{"id": lane, **LANE_META[lane]} for lane in TEAM_LANES[team]],
             }
             for team in TEAMS
+        ],
+        "labels": [
+            {
+                "id": lane,
+                "label": LABELS[lane],
+                "family": team,
+                "family_label": FAMILY_LABELS[team],
+                "description": LANE_META[lane]["description"],
+            }
+            for team in TEAMS
+            for lane in TEAM_LANES[team]
+        ],
+        "outside_teams": [
+            {"id": key, "label": label} for key, label in OUTSIDE_LABELS.items()
         ],
         "cards": payload,
         "triage": triage,
@@ -274,6 +379,7 @@ async def board(
             ),
             "escalated": sum(1 for c in cards if c.escalated_at is not None),
             "review": sum(1 for c in cards if c.needs_review),
+            "outside": sum(1 for c in cards if c.outside_team is not None),
         },
     }
 
@@ -342,9 +448,48 @@ async def card_detail(
         }
         for e in events
     ]
+    out["related"] = await _related(db, card, viewer=viewer, user=user)
     if card.source_kind == "bonus" and viewer.sees_amounts:
         out["bonuses"] = await _bonus_rows(db, card)
     return out
+
+
+async def _related(
+    db: AsyncSession, card: BoCard, *, viewer: Viewer, user: User
+) -> list[dict[str, Any]]:
+    """Inne otwarte karty tego samego kontraktu (np. ławka przy sprawie wyjścia)."""
+
+    if card.contract_id is None:
+        return []
+    rows = (
+        await db.scalars(
+            select(BoCard)
+            .where(
+                BoCard.contract_id == card.contract_id,
+                BoCard.id != card.id,
+                BoCard.state != "done",
+                BoCard.source_kind != "step",
+            )
+            .order_by(BoCard.due_on.asc().nulls_last(), BoCard.id)
+        )
+    ).all()
+    names = await user_names(db, [c.assignee_user_id for c in rows])
+    return [
+        {
+            "id": c.id,
+            "lane": c.lane,
+            "label": LABELS.get(c.lane, c.lane),
+            "title": visible_title(c, viewer=viewer, user=user),
+            "state": c.state,
+            "due_on": c.due_on,
+            "assignee": (
+                {"id": c.assignee_user_id, "name": names.get(c.assignee_user_id)}
+                if c.assignee_user_id
+                else None
+            ),
+        }
+        for c in rows
+    ]
 
 
 async def _bonus_rows(db: AsyncSession, card: BoCard) -> list[dict[str, Any]]:

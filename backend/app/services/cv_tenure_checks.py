@@ -169,13 +169,20 @@ def tenure(point: str, roles: list[RoleLine], today: date) -> Optional[Tenure]:
 
     Rola pasuje, gdy jej nazwa stoi we frazie po liczbie lat („w rolach Cloud
     Operations Engineer i DevOps Engineer”) albo zawiera stanowisko po „jako”
-    / „as”. Rola bez dat nie wchodzi do żadnej sumy (stoi na liście „bez dat”),
-    a odwrócone daty pokazuje osobna uwaga.
+    / „as”. Od 20.11.2026 przy „jako X” pasują też role tego samego zawodu,
+    jak w generatorze (`legacy_v7.role_family`), poza „jako X w <Firma>”
+    i punktem wyliczającym kilka ról. Rola bez dat nie wchodzi do żadnej sumy
+    (stoi na liście „bez dat”), a odwrócone daty pokazuje osobna uwaga.
     """
     from app.services.cv_generator_b2b.legacy_v7._helpers import (
         _YEARS_PHRASE_RE,
+        _role_claims,
         _tenure_figure,
         _tenure_text,
+    )
+    from app.services.cv_generator_b2b.legacy_v7.role_family import (
+        names_company,
+        same_profession,
     )
 
     found = next(
@@ -188,6 +195,11 @@ def tenure(point: str, roles: list[RoleLine], today: date) -> Optional[Tenure]:
     scope_key = _fold(scope)
     as_phrase = _as_phrase(scope)
     as_key = _fold(as_phrase) if as_phrase else None
+    family = (
+        as_phrase is not None
+        and _role_claims(point) < 2
+        and not names_company(scope[scope.find(as_phrase) + len(as_phrase) :])
+    )
 
     listed: list[RoleMonths] = []
     all_bounds: list[tuple[int, int]] = []
@@ -195,7 +207,9 @@ def tenure(point: str, roles: list[RoleLine], today: date) -> Optional[Tenure]:
     matched_titles: list[str] = []
     for role in roles:
         bounds = role_bounds(role.period, today)
-        hit = _matches(role.title, scope_key, as_key)
+        hit = _matches(role.title, scope_key, as_key) or (
+            family and same_profession(str(as_phrase), role.title)
+        )
         if bounds is not None:
             all_bounds.append(bounds)
             if hit:

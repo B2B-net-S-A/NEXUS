@@ -1574,9 +1574,12 @@ try:
     from app.services import start_documents_schema as _start_documents_schema
 
     _START_DOCUMENTS_TABLE_DDL = list(_start_documents_schema.TABLE_DDL)
+    # 0747: „Klient nie wymaga dokumentów” (kolumny przy kliencie).
+    _START_DOCUMENTS_NOT_REQUIRED_DDL = list(_start_documents_schema.NOT_REQUIRED_DDL)
 except Exception as _start_documents_schema_err:  # noqa: BLE001
     print(f"start documents schema unavailable: {_start_documents_schema_err!r}")
     _START_DOCUMENTS_TABLE_DDL = []
+    _START_DOCUMENTS_NOT_REQUIRED_DDL = []
 
 # 0651: pytania pod CV w ściądze do rozmowy (`app/services/cv_call_questions_schema.py`).
 try:
@@ -7206,6 +7209,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0647: decyzje z zakładki „Wnioski” (po `users`, na które wskazują).
     *_INSIGHT_DECISIONS_TABLE_DDL,
     *_START_DOCUMENTS_TABLE_DDL,
+    *_START_DOCUMENTS_NOT_REQUIRED_DDL,
     # 0687: po `b2b_signing_requests` i `client_start_documents`.
     *_B2B_SIGNING_DOCUMENTS_DDL,
     *_CV_CALL_QUESTIONS_TABLE_DDL,

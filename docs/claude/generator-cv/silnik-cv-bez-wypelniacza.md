@@ -108,7 +108,9 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
     suma wszystkich ról, jak dotąd;
   - „N lat doświadczenia jako X” = `min(cała kariera, max(liczba modelu,
     role X))` — kod nigdy nie dopisuje lat z cudzych ról („3 lata jako Data
-    Engineer” przy latach w sklepie nie staje się „13 lat”);
+    Engineer” przy latach w sklepie nie staje się „13 lat”). Od 20.11.2026
+    role X to role tego samego zawodu, nie tylko o tej nazwie, a zawód liczbę
+    wyłącznie podnosi: `lata-jako-x-rodzina-zawodu.md`;
   - **od 02.11.2026 bez zaokrąglania w górę** (decyzja Artura po audycie CV
     wgrywanych ręcznie, 19 z 67 plików zmieniało tę liczbę, najczęściej w dół):
     `_tenure_text` pisze pełne lata w dół, a od 3 dodatkowych miesięcy „Ponad N

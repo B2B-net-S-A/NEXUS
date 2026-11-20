@@ -3736,6 +3736,38 @@
     ]
   },
   {
+    "id": "klient-rozliczenie-kroki",
+    "pr": null,
+    "title": "Rozliczenie miesiąca w czterech krokach",
+    "why": "Karta „Rozliczenie” w Przeglądzie klienta pokazuje poprzedni miesiąc krokami: RCP, do faktury, KSeF, zapłata. „Brak danych o zapłacie” to brak wyciągów, a nie zaległość.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "admin",
+        "delivery_lead",
+        "finance"
+      ]
+    },
+    "where": "Klienci → klient → Przegląd → Rozliczenie",
+    "href": "/clients",
+    "section": "delivery",
+    "dot_anchor": "client.overview.settlement",
+    "steps": [
+      {
+        "anchor": "clients.list.row",
+        "text": "Kliknij nazwę klienta, u którego pracują nasi ludzie.",
+        "hint": "Otworzy się Przegląd klienta. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "client.overview.settlement",
+        "text": "To rozliczenie poprzedniego miesiąca w czterech krokach.",
+        "hint": "Szczegół kroku pokaże dymek, cały miesiąc „Faktury”. „Po terminie” pojawia się tylko z dowodem z wyciągów rachunku.",
+        "ack": true
+      }
+    ]
+  },
+  {
     "id": "nie-szuka-data-kazda-karta",
     "pr": 3621,
     "title": "„Nie szuka pracy”: wybierz, do kiedy",
