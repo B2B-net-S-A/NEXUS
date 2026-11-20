@@ -7,7 +7,12 @@ import { Plus, Search } from "lucide-react";
 
 import { CaseFormDialog } from "@/components/admin-cases/CaseFormDialog";
 import { casePatchError } from "@/components/admin-cases/CaseConsultant";
-import { BACK_OFFICE_CARE_NOTE, careWithoutRhythm, showMineCareChip } from "@/components/care/back-office-care";
+import {
+  BACK_OFFICE_CARE_NOTE,
+  careWithoutRhythm,
+  countsAsWard,
+  showMineCareChip,
+} from "@/components/care/back-office-care";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -316,10 +321,10 @@ export function WorkBoard({
   const careCards = useMemo(
     () =>
       filterCareCards(allCareCards, filters, weekEnd).filter(
-        (card) => !mineCare || card.owner_user_id === me,
+        (card) => !mineCare || (card.owner_user_id === me && countsAsWard(card.kind, careByQueue)),
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allCareCards, area, week, unassigned, query, weekEnd, mineCare, me],
+    [allCareCards, area, week, unassigned, query, weekEnd, mineCare, me, careByQueue],
   );
   const allItems = useMemo<WorkItem[]>(
     () => [...caseCards.map(caseItem), ...careCards.map(careItem)],
@@ -573,7 +578,7 @@ export function WorkBoard({
   // „Moi podopieczni” liczy sprawy moich konsultantów (serwer) i moje karty opieki.
   const careMine = careAccess
     ? filterCareCards(allCareCards, { ...filters, area: "care", week: false, unassigned: false }, weekEnd).filter(
-        (card) => card.owner_user_id === me,
+        (card) => card.owner_user_id === me && countsAsWard(card.kind, careByQueue),
       ).length
     : 0;
   const mineCareCount =

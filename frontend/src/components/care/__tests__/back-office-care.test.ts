@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { careWithoutRhythm, showMineCareChip, withoutWards } from "../back-office-care";
+import { careWithoutRhythm, countsAsWard, showMineCareChip, withoutWards } from "../back-office-care";
 
 const modules = (backOffice: boolean) =>
   ({ open_modules: { back_office: backOffice } }) as unknown as Parameters<typeof careWithoutRhythm>[0];
@@ -27,5 +27,15 @@ describe("Opieka przy module back office (20.11.2026)", () => {
     expect(showMineCareChip(true, null, false)).toBe(false);
     expect(showMineCareChip(true, 3, false)).toBe(true);
     expect(showMineCareChip(true, 0, true)).toBe(true);
+  });
+
+  it("przy module do podopiecznych liczą się tylko karty konsultanta", () => {
+    expect(countsAsWard("contact", true)).toBe(true);
+    expect(countsAsWard("decision", true)).toBe(true);
+    expect(countsAsWard("feedback", true)).toBe(false);
+    expect(countsAsWard("demand", true)).toBe(false);
+    expect(countsAsWard("data", true)).toBe(false);
+    // Bez modułu jak dotąd: każda karta z czytającym jako opiekunem.
+    expect(countsAsWard("feedback", false)).toBe(true);
   });
 });

@@ -37,3 +37,12 @@ export function showMineCareChip(withoutRhythm: boolean, count: number | null, a
   if (!withoutRhythm) return true;
   return active || (count ?? 0) > 0;
 }
+
+/**
+ * Karta liczy się do „Moich podopiecznych”. Przy module back office tylko karty
+ * konsultanta (rozmowa, decyzja) — opinię, popyt i dane klienta prowadzi DL
+ * klienta jako sprawę klienta, nie podopiecznego.
+ */
+export function countsAsWard(kind: string, withoutRhythm: boolean): boolean {
+  return !withoutRhythm || kind === "contact" || kind === "decision";
+}
