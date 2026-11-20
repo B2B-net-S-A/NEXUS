@@ -60,6 +60,7 @@ from app.services.client_settlements import (
     redmine_timelog,
     signoffs,
     timesheet,
+    timesheet_bik,
     timesheet_pko,
 )
 from app.services.client_settlements import settings as module_settings
@@ -323,14 +324,31 @@ def _is_mail_printout(doc: CpDocument) -> bool:
     return bool(acceptance_mail.read(content, doc.mime))
 
 
+def _is_blank_sheet(doc: CpDocument) -> bool:
+    """Pusty szablon raportu BIK, np. wzór od rozliczeń w cytowanym wątku: przy
+    innym pliku miesiąca nie jest RCP (IX 2026: wygrywał z tabelą 176 h)."""
+
+    if doc.mime != timesheet_bik.XLSX:
+        return False
+    try:
+        content = portal_documents.path_for(doc.file_path).read_bytes()
+    except OSError:
+        return False
+    return timesheet_bik.is_blank(content, doc.mime)
+
+
+def _not_report(doc: CpDocument) -> bool:
+    return _is_mail_printout(doc) or _is_blank_sheet(doc)
+
+
 async def _pick_report(reports: list[CpDocument]) -> Optional[CpDocument]:
     """RCP spośród plików miesiąca (najnowsze pierwsze): PDF albo XLSX, ale nie
-    wydruk maila — konsultant często dosyła go po RCP."""
+    wydruk maila — konsultant często dosyła go po RCP — ani pusty szablon."""
 
     candidates = [d for d in reports if d.mime in RCP_MIMES]
     if len(candidates) > 1:
         for doc in candidates:
-            if not await asyncio.to_thread(_is_mail_printout, doc):
+            if not await asyncio.to_thread(_not_report, doc):
                 return doc
     return candidates[0] if candidates else (reports[0] if reports else None)
 
@@ -1008,6 +1026,24 @@ async def _proof(
                 reports,
                 month=month,
                 hours=sheet.total_hours if sheet.entries else None,
+                rules=rules,
+            )
+        # Raport godzin BIK: szablon klienta, jego PDF albo tabela dni.
+        bik = await asyncio.to_thread(timesheet_bik.parse, content, report.mime)
+        if bik is not None:
+            result = timesheet_bik.evaluate(
+                bik,
+                month=month,
+                person_name=person_name,
+                rules=rules,
+                working_days=working_days,
+                other_md=other_md,
+            )
+            return await _acceptance(
+                result,
+                reports,
+                month=month,
+                hours=bik.total_hours if bik.total_hours > 0 else None,
                 rules=rules,
             )
     return rcp_checks.evaluate(
