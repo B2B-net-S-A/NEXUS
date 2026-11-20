@@ -448,3 +448,148 @@ async def test_settlements_address_with_separate_mailboxes_stops_reader(
     async with AsyncSessionLocal() as db:
         state = await db.get(CpMailboxState, 1)
     assert (state.last_error, state.last_seen_received_at) == ("route_not_shared", None)
+
+
+# ── Przekazane maile i nazwisko w temacie (próba IX–XI 2026) ────────────────
+
+
+class MimeMailbox(FakeMailbox):
+    def __init__(self, messages, files, raw) -> None:
+        super().__init__(messages, files)
+        self.raw = raw
+
+    async def mime(self, message_id):
+        return self.raw.get(message_id)
+
+
+def _eml(sender: str, text: str, *, attach: object = None) -> bytes:
+    from email.message import EmailMessage
+
+    message = EmailMessage()
+    message["From"] = sender
+    message["Subject"] = "FW: raport"
+    message.set_content(text)
+    if isinstance(attach, EmailMessage):
+        message.add_attachment(attach)
+    elif attach is not None:
+        message.add_attachment(
+            attach, maintype="application", subtype="pdf", filename="TS.pdf"
+        )
+    return message.as_bytes()
+
+
+async def _full_name(person) -> str:
+    async with AsyncSessionLocal() as db:
+        candidate = await db.get(Candidate, person.candidate_id)
+    return f"{candidate.lastname} {candidate.name}"
+
+
+@pytest.mark.usefixtures("internal")
+async def test_forward_in_body_goes_to_the_original_sender() -> None:
+    person = await make_person(activated=False)
+    raw = _eml(
+        "koordynator@firma.example.com",
+        f"Przesyłam.\n\nFrom: Konsultant <{person.email}>\nSent: wtorek\n",
+    )
+    reader = MimeMailbox(
+        [_message("m1", "koordynator@firma.example.com")],
+        {"m1": [_attachment("r.pdf", PDF)]},
+        {"m1": raw},
+    )
+    await _read(reader)
+    assert [row.contract_id for row in await _documents()] == [person.contract_id]
+
+
+@pytest.mark.usefixtures("internal")
+async def test_attached_mail_files_are_read_and_assigned() -> None:
+    from email.message import EmailMessage
+
+    person = await make_person(activated=False)
+    inner = EmailMessage()
+    inner["From"] = person.email
+    inner.set_content("raport")
+    inner.add_attachment(
+        b"%PDF-1.4 raport z wnetrza",
+        maintype="application",
+        subtype="pdf",
+        filename="TS.pdf",
+    )
+    item = {"@odata.type": "#microsoft.graph.itemAttachment", "name": "raport"}
+    reader = MimeMailbox(
+        [_message("m1", "kierownik@klient.example.com")],
+        {"m1": [item]},
+        {"m1": _eml("kierownik@klient.example.com", "w załączeniu", attach=inner)},
+    )
+    assert (await _read(reader))["created"] == 1
+    assert [(r.contract_id, r.file_name) for r in await _documents()] == [
+        (person.contract_id, "TS.pdf")
+    ]
+
+
+@pytest.fixture
+def company_domain(monkeypatch):
+    from app.services.consultant_portal import identity
+
+    monkeypatch.setattr(
+        identity, "_company_domains", lambda: frozenset({"firma.example.com"})
+    )
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_name_in_subject_assigns_only_settlement_files() -> None:
+    person = await make_person(activated=False)
+    message = _message("m1", "koordynator@firma.example.com")
+    message["subject"] = f"Odbiór usług za 10.2026: {await _full_name(person)}"
+    reader = FakeMailbox(
+        [message],
+        {
+            "m1": [
+                _attachment("TimeSheet.pdf", PDF),
+                _attachment("pismo.pdf", b"%PDF-1.4 inne pismo"),
+            ]
+        },
+    )
+    await _read(reader)
+    assert {r.file_name: r.contract_id for r in await _documents()} == {
+        "TimeSheet.pdf": person.contract_id,
+        "pismo.pdf": None,
+    }
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_name_from_outside_address_waits_for_assignment() -> None:
+    """Temat może napisać każdy: obcy adres nie wskazuje nim osoby."""
+    person = await make_person(activated=False)
+    message = _message("m1", "ktos@poczta.example.com")
+    message["subject"] = f"Odbiór usług za 10.2026: {await _full_name(person)}"
+    reader = FakeMailbox([message], {"m1": [_attachment("TimeSheet.pdf", PDF)]})
+    await _read(reader)
+    assert [row.contract_id for row in await _documents()] == [None]
+
+
+@pytest.mark.usefixtures("internal", "company_domain")
+async def test_two_people_in_subject_wait_for_assignment() -> None:
+    first = await make_person(activated=False)
+    second = await make_person(activated=False)
+    message = _message("m1", "koordynator@firma.example.com")
+    message["subject"] = (
+        f"Raport {await _full_name(first)} i {await _full_name(second)}"
+    )
+    reader = FakeMailbox([message], {"m1": [_attachment("raport.pdf", PDF)]})
+    await _read(reader)
+    assert [row.contract_id for row in await _documents()] == [None]
+
+
+@pytest.mark.usefixtures("internal")
+async def test_forwarded_notice_without_settlement_name_waits() -> None:
+    """Wypowiedzenie przekazane z łańcuchem konsultanta nie jest jego fakturą."""
+    person = await make_person(activated=False)
+    message = _message("m1", "koordynator@firma.example.com")
+    message["subject"] = "PD: Wypowiedzenie umowy o współpracy"
+    reader = MimeMailbox(
+        [message],
+        {"m1": [_attachment("skan.pdf", PDF)]},
+        {"m1": _eml("koordynator@firma.example.com", f"Od: {person.email}\n")},
+    )
+    await _read(reader)
+    assert [row.contract_id for row in await _documents()] == [None]
