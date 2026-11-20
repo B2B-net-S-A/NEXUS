@@ -26,7 +26,8 @@ vi.mock("@/lib/authenticated-files", () => ({
 
 import { ClientInvoicingTab } from "@/components/clients/invoicing/ClientInvoicingTab";
 
-import { CLIENT_MONTH } from "@/app/preview/client-invoicing/fixtures";
+import { CLIENT_MONTH, DELIVERY_MONTH } from "@/app/preview/client-invoicing/fixtures";
+import type { ClientInvoicing } from "@/lib/api/client-invoicing";
 
 function renderTab() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -37,7 +38,21 @@ function renderTab() {
   );
 }
 
-const nbsp = (text: string | null) => (text ?? "").replace(/ /g, " ");
+const nbsp = (text: string | null) => (text ?? "").replace(/[\u00a0\u202f]/g, " ");
+
+/** Faktury miesiąca pod `/invoicing`, RCP z rozliczeń pod `/my-clients/7/settlements`. */
+function answer(month: ClientInvoicing, rcp: unknown = { data: DELIVERY_MONTH }) {
+  get.mockImplementation((url: string) => {
+    if (url === "/api/my-clients/7/settlements") {
+      return (rcp as { response?: unknown }).response ? Promise.reject(rcp) : Promise.resolve(rcp);
+    }
+    return Promise.resolve({ data: month });
+  });
+}
+
+function stepsList() {
+  return screen.findByRole("list", { name: "Kroki rozliczenia miesiąca" });
+}
 
 describe("ClientInvoicingTab", () => {
   beforeEach(() => {
@@ -48,7 +63,7 @@ describe("ClientInvoicingTab", () => {
   });
 
   it("shows what to invoice next to the KSeF invoice and payment", async () => {
-    get.mockResolvedValue({ data: CLIENT_MONTH });
+    answer(CLIENT_MONTH);
     renderTab();
     const first = await screen.findByTestId("billing-row-g11");
     expect(get).toHaveBeenCalledWith("/api/clients/7/invoicing", { params: { year: 2026, month: 10 } });
@@ -79,24 +94,46 @@ describe("ClientInvoicingTab", () => {
     expect(screen.queryByText("Rozstrzygnij w Finansach")).not.toBeInTheDocument();
   });
 
+  it("shows the month as four steps: RCP → do faktury → KSeF → zapłata", async () => {
+    answer(CLIENT_MONTH);
+    renderTab();
+    const steps = await stepsList();
+    await waitFor(() => expect(within(steps).getByText("2 z 4 przyjętych")).toBeInTheDocument());
+    expect(get).toHaveBeenCalledWith("/api/my-clients/7/settlements", { params: { month: "2026-10" } });
+    const items = within(steps).getAllByRole("listitem");
+    expect(items.map((item) => item.firstChild?.textContent)).toEqual([
+      "1 · RCP",
+      "2 · Do faktury",
+      "3 · W KSeF",
+      "4 · Zapłata",
+    ]);
+    expect(nbsp(items[1].textContent)).toContain("79 545,00 zł");
+    expect(nbsp(items[1].textContent)).toContain("5 zamówień · 1 kosztowe bez kwoty");
+    expect(items[2]).toHaveTextContent("4 z 5 zamówień");
+    expect(items[2]).toHaveTextContent("1 różnica do sprawdzenia · 1 faktura do przypisania");
+    // Dwie zaległości z dowodem z wyciągów (fikcja harnessu) — „po terminie” tylko z dowodem.
+    expect(items[3]).toHaveTextContent("1 z 5 zapłacone");
+    expect(items[3]).toHaveTextContent("2 po terminie · 2 przed terminem");
+    // Pięć liczb nad tabelą zastąpił pasek kroków.
+    expect(document.querySelector("#client-invoicing-stats")).toBeNull();
+  });
+
   it("shows no data about payments instead of an overdue count without statements", async () => {
     // 19.11.2026: „62 po terminie” u jednego klienta to faktury bez wyciągów, nie zaległości.
     const invoices = CLIENT_MONTH.invoices.map((item) =>
       item.overdue_days > 0 ? { ...item, overdue_days: 0, payment_unknown: true } : item,
     );
-    get.mockResolvedValue({
-      data: {
-        ...CLIENT_MONTH,
-        invoices,
-        overdue: [],
-        summary: {
-          ...CLIENT_MONTH.summary,
-          overdue: 0,
-          payment_unknown: 2,
-        },
+    answer({
+      ...CLIENT_MONTH,
+      invoices,
+      overdue: [],
+      summary: {
+        ...CLIENT_MONTH.summary,
+        overdue: 0,
+        payment_unknown: 2,
       },
     });
-    const { container } = renderTab();
+    renderTab();
     const unpaid = await screen.findByTestId("billing-row-g13");
     expect(nbsp(unpaid.textContent)).toContain("brak danych o zapłacie");
     expect(nbsp(unpaid.textContent)).not.toContain("po terminie");
@@ -105,13 +142,20 @@ describe("ClientInvoicingTab", () => {
     expect(nbsp(hourly.textContent)).toContain("zapłacono część");
     expect(nbsp(hourly.textContent)).not.toContain("po terminie");
 
-    const stats = container.querySelector<HTMLElement>("#client-invoicing-stats");
-    expect(stats).not.toBeNull();
-    expect(within(stats!).getByText("brak danych")).toBeInTheDocument();
-    expect(within(stats!).getByText("o zapłatach")).toBeInTheDocument();
-    expect(within(stats!).queryByText("po terminie")).not.toBeInTheDocument();
-    expect(within(stats!).getByTitle(/2 faktury mają termin za sobą/)).toBeInTheDocument();
+    const payment = within(await stepsList()).getAllByRole("listitem")[3];
+    expect(payment).toHaveTextContent("1 z 5 zapłacone");
+    expect(payment).toHaveTextContent("1 zapłacone w części · 1 bez danych o zapłacie · 2 przed terminem");
+    expect(payment).not.toHaveTextContent(/po terminie|niezapłac/);
     expect(screen.queryByText("Po terminie z wcześniejszych miesięcy")).not.toBeInTheDocument();
+  });
+
+  it("keeps the steps when the settlements module is closed for the account", async () => {
+    answer(CLIENT_MONTH, { response: { status: 404, data: { detail: "Moduł wyłączony" } } });
+    renderTab();
+    const steps = await stepsList();
+    await waitFor(() => expect(within(steps).getByText("bez dostępu")).toBeInTheDocument());
+    expect(within(steps).getByText("rozliczenia RCP są poza Twoim dostępem")).toBeInTheDocument();
+    expect(within(steps).getByText("4 z 5 zamówień")).toBeInTheDocument();
   });
 
   it("does not render an empty month when the request fails", async () => {
@@ -131,7 +175,7 @@ describe("ClientInvoicingTab", () => {
   });
 
   it("switches month and downloads the export for issuing", async () => {
-    get.mockResolvedValue({ data: CLIENT_MONTH });
+    answer(CLIENT_MONTH);
     download.mockResolvedValue({ blob: new Blob(["x"]), filename: "do-faktury.xlsx" });
     renderTab();
     await screen.findByTestId("billing-row-g11");
@@ -144,6 +188,10 @@ describe("ClientInvoicingTab", () => {
       expect(get).toHaveBeenCalledWith("/api/clients/7/invoicing", {
         params: { year: 2026, month: 9 },
       }),
+    );
+    // Krok RCP idzie za miesiącem wybranym strzałką.
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith("/api/my-clients/7/settlements", { params: { month: "2026-09" } }),
     );
   });
 });
