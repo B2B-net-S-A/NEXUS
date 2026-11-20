@@ -1056,7 +1056,7 @@
       },
       {
         "q": "Gdzie zobaczę wszystko o jednej osobie?",
-        "a": "Kliknij nazwisko — otworzy się karta konsultanta: zdrowie relacji z powodem, ostatni kontakt, zadowolenie, opinia menedżera, koniec zamówienia, następny krok, projekt, sprawy i historia. W „Więcej” zmienisz opiekuna i rytm albo pominiesz punkt planu.",
+        "a": "Kliknij nazwisko — otworzy się karta konsultanta: zdrowie relacji z powodem, ostatni kontakt, zadowolenie, opinia menedżera, koniec zamówienia, następny krok, projekt, sprawy i historia. W „Więcej” zmienisz opiekuna i rytm (przy back office rytmu nie ma) albo pominiesz punkt planu.",
         "anchor": "hr.care.card"
       },
       {

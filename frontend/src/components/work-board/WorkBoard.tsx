@@ -845,6 +845,7 @@ export function WorkBoard({
         onOpenCase={openCaseFromCard}
         onOpenContract={onOpenContract}
         canCreateCase={Boolean(config.open_modules.cases && canManageFromConfig)}
+        withoutRhythm={careByQueue}
       />
 
       {closing ? (
