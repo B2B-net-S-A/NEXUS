@@ -158,16 +158,17 @@ async def create_interactive_draft(
     await runs.lock_new_run(db)
     if await runs.has_open_run(db):
         raise NotReady("Bot właśnie wypełnia Cpro — spróbuj za kilka minut.")
-    found = await bot_items.load_items(
-        db, now=now, today=today, stage_ids=[stage_id]
-    )
+    found = await bot_items.load_items(db, now=now, today=today, stage_ids=[stage_id])
     if len(found) != 1 or found[0].stage_id != stage_id:
         raise NotReady("Tej osoby nie ma już w kolejce Cpro.")
     item = found[0]
     if item.blockers or item.payload is None:
         raise NotReady("Karta nie jest gotowa do próby Cpro.")
     payload = item.payload
-    if payload.get("ref") != stage_id or payload.get("request_number") != request_number:
+    if (
+        payload.get("ref") != stage_id
+        or payload.get("request_number") != request_number
+    ):
         raise NotReady("Karta nie odpowiada wskazanemu requestowi Cpro.")
     if payload.get("cpro_account") != {
         "delivery_lead_id": delivery_lead_id,
@@ -191,9 +192,7 @@ async def create_interactive_draft(
     if recorded is not None:
         raise NotReady("Ta karta ma już szkic albo wysłaną ofertę w Cpro.")
 
-    run, token = runs.new_run(
-        [payload], now=now, submit=False, cards=_cards([item])
-    )
+    run, token = runs.new_run([payload], now=now, submit=False, cards=_cards([item]))
     db.add(run)
     await db.commit()
     return run, token
