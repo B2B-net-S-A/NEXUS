@@ -64,9 +64,11 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       await expect(myRows.filter({ hasText: "Czeka na akceptację" })).toHaveCount(1);
 
       // Przełożona: „Ludzie → Akceptacje” → „Akceptuj” przy tym wniosku.
+      // `level: 1` — tytuł strony; sekcja kolejki ma <h2> o tym samym tekście,
+      // gdy dane zdążą przyjść (strict mode, kolejka merge'ów 19.11.2026).
       const manager = await loginInBrowser(browser, HR_ACCOUNTS.manager, "/people/approvals");
       sessions.push(manager);
-      await expect(manager.page.getByRole("heading", { name: "Do potwierdzenia" })).toBeVisible({
+      await expect(manager.page.getByRole("heading", { name: "Do potwierdzenia", level: 1 })).toBeVisible({
         timeout: 30_000,
       });
       await expect(manager.page).toHaveURL(/\/people\/approvals/);
@@ -139,7 +141,7 @@ test.describe("Ludzie w NEXUSIE — urlopy i dostęp @stack", () => {
       // Koordynatorka: „Akceptacje” → zgłoszenie do wiadomości, bez „Akceptuj”.
       const manager = await loginInBrowser(browser, HR_ACCOUNTS.manager, "/people/approvals");
       sessions.push(manager);
-      await expect(manager.page.getByRole("heading", { name: "Do potwierdzenia" })).toBeVisible({
+      await expect(manager.page.getByRole("heading", { name: "Do potwierdzenia", level: 1 })).toBeVisible({
         timeout: 30_000,
       });
       const reported = manager.page.getByRole("list", {
