@@ -66,7 +66,11 @@ async def test_every_check_runs_without_error(
         "a check errored — likely an invalid column/table in its SQL: "
         f"{[c for c in body['checks'] if 'error' in c]}"
     )
-    assert summary["checks_run"] == len(body["checks"]) == 9
+    # 8 od 20.11.2026: licznik faktur zniknął razem z rejestrem `invoices`.
+    assert summary["checks_run"] == len(body["checks"]) == 8
+    assert "blast_invoices_via_candidate_contracts" not in {
+        c["key"] for c in body["checks"]
+    }
     # The Traffit contact-intake ledger is a PII store the report used to miss
     # entirely: `candidate_id` is ON DELETE SET NULL, so an erasure leaves the
     # durable Traffit person id and the verbatim remote event body behind, and

@@ -20,12 +20,13 @@ import { listFilterFromParam } from "@/components/work-board/work-board-model";
 import { useCareClients, useCareConsultants } from "@/lib/api/care";
 import { useAnnouncements } from "@/lib/api/care-announcements";
 import { useCareBoard, type CareBoardCard } from "@/lib/api/care-board";
-import { casesInCare, type HrConfig } from "@/lib/api/hr";
+import type { HrConfig } from "@/lib/api/hr";
 import { canSeeSettingsItem, findSettingsItem, settingsItemHref } from "@/lib/settings-registry";
 import { useUrlWriter } from "@/lib/url-selection";
 import { useAuthStore } from "@/store/auth";
 
 import { AnnouncementsTab } from "./announcements/AnnouncementsTab";
+import { BACK_OFFICE_CARE_DESCRIPTION, careWithoutRhythm, withoutWards } from "./back-office-care";
 import { consultantsIn } from "./cadence-format";
 import { ConsultantCardPanel } from "./card/ConsultantCardPanel";
 import { FrontOfficeDialog } from "./card/FrontOfficeDialog";
@@ -191,9 +192,8 @@ function CareTabs({ config }: { config: HrConfig }) {
   // Bez roli opieki (same sprawy administracja@, od 22.10.2026 tu zamiast
   // „Ludzie → Sprawy”) jest tylko „Do zrobienia” — reszty serwer i tak odmawia.
   const careRole = canSeeCareBoard(user, config);
-  // Moduł `back_office`: główna zakładka to kolejka zespołów. Stare linki z kartą
-  // albo filtrem kanbanu (`?card=`, `?filter=`) dalej otwierają kanban.
-  const kanbanLink = Boolean(searchParams?.get("card") || searchParams?.get("filter"));
+  // Moduł `back_office`: główna zakładka to kolejka Spraw bez kanbanu Opieki (decyzja
+  // Artura z 20.11.2026). Stare linki kanbanu (`?card=`, `?filter=`) tłumaczy kolejka.
   const teamOpen = canSeeTeam(config);
   // Bez miejsca w zespole serwer odmawia kolejce: ta osoba pracuje na kanbanie jak dotąd.
   const backOffice = config.open_modules.back_office && config.me.back_office_member === true;
@@ -218,6 +218,13 @@ function CareTabs({ config }: { config: HrConfig }) {
   const todoCount = useCareBoard("mine", careCounts);
   const consultantsCount = useCareConsultants(careCounts);
   const clientsCount = useCareClients(scope, careCounts);
+  // Moduł back office (decyzja Artura 20.11.2026): bez rytmu rozmów, a kto nie ma
+  // podopiecznych (Delivery Lead), widzi cały swój zakres — bez pustego „Moi”.
+  const rhythmOff = careWithoutRhythm(config);
+  const noWards = withoutWards(rhythmOff, consultantsCount.isSuccess ? consultantsCount.data.items : null);
+  useEffect(() => {
+    if (noWards) setScope("all");
+  }, [noWards]);
   // `?filter=` — chip kolejki „Do zrobienia” z linku (dzwonki).
   const listFilter = listFilterFromParam(searchParams?.get("filter"));
 
@@ -299,7 +306,7 @@ function CareTabs({ config }: { config: HrConfig }) {
 
   const actions = (
     <div className="flex flex-wrap items-center gap-2">
-      {scoped ? (
+      {scoped && !noWards ? (
         <SegmentedRadio
           label="Zakres"
           size="sm"
@@ -352,7 +359,15 @@ function CareTabs({ config }: { config: HrConfig }) {
     <div className="space-y-4">
       <PageHeader
         title={backOffice ? BACK_OFFICE_TITLE : TITLE}
-        description={backOffice ? BACK_OFFICE_DESCRIPTION : careRole ? DESCRIPTION : CASES_ONLY_DESCRIPTION}
+        description={
+          backOffice
+            ? BACK_OFFICE_DESCRIPTION
+            : careRole
+              ? rhythmOff
+                ? BACK_OFFICE_CARE_DESCRIPTION
+                : DESCRIPTION
+              : CASES_ONLY_DESCRIPTION
+        }
         density="compact"
         actions={careRole ? actions : undefined}
       />
@@ -363,10 +378,8 @@ function CareTabs({ config }: { config: HrConfig }) {
         tabs={tabs}
       >
         <div className="pt-3">
-          {tab === "todo" && backOffice && !kanbanLink ? (
-            <QueueBoard careStatusBoard={careRole || casesInCare(config) ? kanban : null} />
-          ) : null}
-          {tab === "todo" && (!backOffice || kanbanLink) ? kanban : null}
+          {tab === "todo" && backOffice ? <QueueBoard /> : null}
+          {tab === "todo" && !backOffice ? kanban : null}
           {backOffice && tab === "consultants" ? <ConsultantsTab /> : null}
           {backOffice && tab === "clients" ? <ClientsTab /> : null}
           {backOffice && tab === "teams" ? <TeamTab key={teamSection} initialSection={teamSection} /> : null}
@@ -381,6 +394,8 @@ function CareTabs({ config }: { config: HrConfig }) {
               canAssign={teamOpen}
               initialFilter={route.filter}
               selectedId={contractId}
+              rhythm={!rhythmOff}
+              wards={!noWards}
             />
           ) : null}
           {!backOffice && tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
@@ -432,7 +447,8 @@ function CareTabs({ config }: { config: HrConfig }) {
  * „Komunikaty” to przycisk w nagłówku z liczbą do zatwierdzenia.
  * `?contract=<id>` otwiera kartę konsultanta na każdej zakładce, `?card=<klucz>`
  * — panel karty tablicy, `?filter=po-terminie|do-piatku|rozmowy|opinie|decyzje|
- * dane|popyt` — chip kolejki „Do zrobienia” (linki z dzwonków).
+ * dane|popyt` — chip kolejki „Do zrobienia” (linki z dzwonków). W module back
+ * office te dwa prowadzą na tablicę Spraw (`legacyCareLink` w `back-office`).
  */
 export function CareScreen() {
   return (

@@ -3,7 +3,9 @@
 /**
  * Harness wizualny formularza Generatora Umów B2B — przede wszystkim
  * przełącznik „Umowa JDG / Umowa spółka” (ticket 8, 28.09.2026) i pola
- * komparycji spółki z KRS.
+ * komparycji spółki z KRS. Od 20.11.2026 (etap 3b) domyślnie w układzie
+ * strony Generatora: kroki, kartka z pierwszym akapitem i pasek braków;
+ * „Panel osoby” pokazuje ten sam formularz w jednej kolumnie.
  *
  * ZERO zapytań: zasiane są stałe klucze formularza (obszary, numer, klienci)
  * z `updatedAt` w przyszłości, a interceptor odrzuca każde żądanie — lookup
@@ -15,6 +17,7 @@ import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ToastProvider } from "@/components/Toast";
+import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { GeneratorForm } from "@/components/v2/pages/B2BContractGeneratorV2";
 import { api, type B2BRole } from "@/lib/api";
 
@@ -78,10 +81,23 @@ function useNetworkBlocked() {
 
 function Harness() {
   useNetworkBlocked();
+  const [layout, setLayout] = useState<"wizard" | "stacked">("wizard");
   return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4 sm:p-6">
-      <h1 className="text-lg font-semibold">Generator Umów B2B — formularz</h1>
-      <GeneratorForm />
+    <div className="mx-auto max-w-6xl space-y-4 p-4 sm:p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-lg font-semibold">Generator Umów B2B — formularz</h1>
+        <SegmentedRadio<"wizard" | "stacked">
+          label="Układ formularza"
+          size="sm"
+          value={layout}
+          onChange={setLayout}
+          options={[
+            { value: "wizard", label: "Strona Generatora" },
+            { value: "stacked", label: "Panel osoby" },
+          ]}
+        />
+      </div>
+      <GeneratorForm key={layout} layout={layout} />
     </div>
   );
 }

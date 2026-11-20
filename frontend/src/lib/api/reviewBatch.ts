@@ -70,6 +70,12 @@ export interface ReviewBatchStatus {
   sources?: { p0: number; rest: number; level_next: number; level_cap: number }
 }
 
+export interface ReviewBatchSentBefore {
+  count: number
+  last_days: number
+  last_job_title: string
+}
+
 export interface ReviewBatchCaution {
   key: string
   label: string
@@ -108,6 +114,8 @@ export interface ReviewBatchItem {
   order_polish_later?: boolean
   /** Rekrutacja na lidera, osoba wykonawca (16.11.2026). */
   order_leader_gap?: boolean
+  /** Wysłany do klienta w innej rekrutacji w ostatnim roku (20.11.2026). */
+  sent_before?: ReviewBatchSentBefore | null
   why?: ReviewBatchWhy
   /** „Kluczowe w tej rekrutacji”: krytyczne z dowodem i polski. */
   key_facts?: ReviewBatchKeyFacts | null

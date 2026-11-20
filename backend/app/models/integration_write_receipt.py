@@ -66,7 +66,7 @@ class IntegrationWriteReceipt(Base):
     key_id: Mapped[str] = mapped_column(String(64), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(80), nullable=False)
     method: Mapped[str] = mapped_column(String(8), nullable=False)
-    # Szablon trasy (``/api/integrations/v1/invoices/{invoice_id}``), nie ścieżka
+    # Szablon trasy (``/api/integrations/v1/orders/{order_id}/close``), nie ścieżka
     # z wartościami — do grupowania na ekranie.
     route: Mapped[str] = mapped_column(String(255), nullable=False)
     payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)

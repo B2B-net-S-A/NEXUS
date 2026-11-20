@@ -134,3 +134,33 @@ export function stepSummary(card: BoCard): string | null {
   const word = card.lane === "exit" ? "Wyjście" : card.lane === "entry" ? "Wejście" : "Kroki";
   return `${word} · ${card.steps.done} z ${card.steps.total} kroków`;
 }
+
+/** Chipy dawnej tablicy Opieki z dzwonków przypomnień (`?filter=`) → filtr Spraw. */
+const CARE_LINK_FILTERS = new Map<string, BoFilter>([
+  ["po-terminie", "overdue"],
+  ["do-piatku", "week"],
+]);
+
+/**
+ * Stary link tablicy Opieki (`?card=<klucz>`, `?filter=<chip>` — dzwonki, kafelki
+ * pulpitu) w module back office, gdzie tej tablicy nie ma od 20.11.2026 (decyzja
+ * Artura): `?card=case:<id>` otwiera kartę tej sprawy, `po-terminie` i `do-piatku`
+ * włączają najbliższy filtr, a karta Opieki bez odpowiednika (popyt, dane klienta)
+ * zostaje samą tablicą. Zwraca nowe parametry adresu albo `null` bez starego linku.
+ */
+export function legacyCareLink(search: string, cards: readonly Pick<BoCard, "id" | "case_id">[]): string | null {
+  const params = new URLSearchParams(search);
+  const key = params.get("card");
+  const filter = params.get("filter");
+  if (key === null && filter === null) return null;
+  params.delete("card");
+  params.delete("filter");
+  // `area` niesie tylko link dzwonka popytu (`?card=demand:…&area=`).
+  if (key !== null) params.delete("area");
+  const caseId = Number(/^case:(\d+)$/.exec(key ?? "")?.[1]);
+  const card = caseId > 0 ? cards.find((row) => row.case_id === caseId) : undefined;
+  if (card && !params.has("karta")) params.set("karta", String(card.id));
+  const mapped = filter === null ? undefined : CARE_LINK_FILTERS.get(filter);
+  if (mapped && !params.has("filtr")) params.set("filtr", mapped);
+  return params.toString();
+}

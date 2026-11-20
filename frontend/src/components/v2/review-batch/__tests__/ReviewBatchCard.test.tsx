@@ -15,6 +15,7 @@ import {
   rememberLine,
   ReviewBatchCard,
   rejectMissing,
+  sentBeforeText,
 } from "@/components/v2/review-batch/ReviewBatchCard";
 import type { ReviewBatchItem } from "@/lib/api/reviewBatch";
 import { notLookingUntil } from "@/lib/autofill-feedback";
@@ -426,5 +427,29 @@ describe("rememberLine", () => {
   });
   it("puste pole milczy", () => {
     expect(rememberLine("  ", base)).toBeNull();
+  });
+});
+
+describe("wysłany wcześniej (20.11.2026)", () => {
+  it("karta mówi, ile razy i gdzie ostatnio osoba poszła do klienta", () => {
+    render(
+      <ReviewBatchCard
+        item={{ ...item, sent_before: { count: 2, last_days: 7, last_job_title: "Backend Java developer – TOR" } }}
+        onDecided={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("review-sent-before")).toHaveTextContent(
+      "Wysłany do klienta 2× · ostatnio 7 dni temu: Backend Java developer – TOR",
+    );
+  });
+  it("bez wysyłki linii nie ma", () => {
+    render(<ReviewBatchCard item={{ ...item, sent_before: null }} onDecided={() => {}} />);
+    expect(screen.queryByTestId("review-sent-before")).toBeNull();
+  });
+  it("dziś i wczoraj słowami", () => {
+    expect(sentBeforeText({ count: 1, last_days: 0, last_job_title: "" })).toBe("Wysłany do klienta 1× · ostatnio dziś");
+    expect(sentBeforeText({ count: 1, last_days: 1, last_job_title: " QA " })).toBe(
+      "Wysłany do klienta 1× · ostatnio wczoraj: QA",
+    );
   });
 });
