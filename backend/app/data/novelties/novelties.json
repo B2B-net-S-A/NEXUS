@@ -3769,7 +3769,7 @@
   },
   {
     "id": "kontrakt-dokumenty-i-aneksy-nowy-uklad",
-    "pr": 0,
+    "pr": 3659,
     "title": "Kontrakt: dokumenty w grupach, aneksy na osi dat",
     "why": "Dokumenty zaczynają się od kart „Obowiązuje teraz” (umowa, ostatni aneks, zamówienie), a pliki są w grupach po rodzaju. Zmiana stawki, zakresu i przedłużenie są w jednym menu „Dodaj aneks”.",
     "tier": "dot",
