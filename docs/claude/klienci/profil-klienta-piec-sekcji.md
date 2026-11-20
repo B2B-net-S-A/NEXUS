@@ -107,6 +107,8 @@ rozsiane po pięciu kartach.
   klienta”. Kotwica nowości `client.sections.framework-rates` stoi na nagłówku
   „Stawki i cennik”.
 - Poza etapem 3 (osobny krok): Rozliczenie miesiąca jako kroki RCP → faktura → KSeF → zapłata
-  (czeka na naprawę „po terminie” — zapłaty nie są zapisywane) i „Start
-  u klienta: N z 5 ustalone” (sposób rozliczania godzin jest w innej trasie
-  niż pakiet klienta).
+  (czeka na naprawę „po terminie” — zapłaty nie są zapisywane).
+- **Nasi ludzie › Start u klienta**: licznik „N z M ustalone” nad częściami
+  zakładki — cztery pola, tylko jawny wybór, od dwóch widocznych części
+  (`klienci/start-u-klienta-ustalone.md`, decyzja Artura z 20.11.2026; makieta
+  „2 z 5” liczyła wartości domyślne).
