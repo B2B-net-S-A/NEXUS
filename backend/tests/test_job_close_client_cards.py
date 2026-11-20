@@ -106,7 +106,7 @@ def test_preview_says_how_many_and_no_mail():
     assert payload is not None
     assert payload["people"] == 3
     assert payload["columns"] == {"cv_sent": 2, "client_interview": 1}
-    assert payload["reason_label"] == "Klient wybrał kogoś innego"
+    assert payload["reason_label"] == "Klient wybrał innego kandydata"
     assert "3 osoby są u klienta" in payload["message"]
     assert "nie dostaną maila" in payload["message"]
 

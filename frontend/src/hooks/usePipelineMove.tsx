@@ -62,6 +62,7 @@ import {
 } from "@/components/v2/modals/RejectionRateField";
 import {
   autofillMoveFields,
+  isDecisionColumn,
   needsAutofillReason,
   type AutofillFeedbackChoice,
 } from "@/lib/autofill-feedback";
@@ -1746,6 +1747,15 @@ export function usePipelineMove({
     const src = columns.find((c) => colId(c) === srcColId);
     return needsAutofillReason(item, src ? placeStage(src).column : null);
   }
+  // Wszystkie odrzucane z „Nowych”/„Screeningu” (19.11.2026): ta sama lista
+  // powodów co przy osobie od systemu, także przy kartach dodanych ręcznie.
+  const rejectionFromDecisionColumns =
+    pendingRejection?.terminalType === "rejected" &&
+    pendingRejection.entries.length > 0 &&
+    pendingRejection.entries.every((entry) => {
+      const src = columns.find((c) => colId(c) === entry.srcColId);
+      return isDecisionColumn(src ? placeStage(src).column : null);
+    });
   const autofillEntries = (pendingRejection?.entries ?? []).filter((entry) =>
     rejectionNeedsAutofill(entry.item, entry.srcColId)
   );
@@ -1814,6 +1824,7 @@ export function usePipelineMove({
         profileWorkMode={rejectionProfileWorkMode}
         profileRate={rejectionProfileRate}
         autofill={rejectionAutofill}
+        decisionColumn={rejectionFromDecisionColumns}
         emailPreview={
           pendingRejection
             ? {

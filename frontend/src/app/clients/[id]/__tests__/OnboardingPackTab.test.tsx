@@ -146,4 +146,14 @@ describe("OnboardingPackTab", () => {
     expect(await screen.findByText("Nie udało się pobrać danych")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Sprzęt" })).not.toBeInTheDocument();
   });
+
+  it("pusta lista dokumentów nie udaje decyzji klienta", async () => {
+    // „Klient nie wymaga dokumentów” to jawna decyzja w „Dokumentach do startu”
+    // (licznik „Start u klienta”, 20.11.2026) — pusta lista pakietu jej nie udaje.
+    mocks.get.mockResolvedValue({ data: packFixture({ documents: [] }) });
+    renderTab();
+    const card = await screen.findByRole("region", { name: "Dokumenty od konsultanta" });
+    expect(within(card).getByText("Brak dokumentów na liście.")).toBeInTheDocument();
+    expect(within(card).queryByText(/nie wymaga/)).toBeNull();
+  });
 });

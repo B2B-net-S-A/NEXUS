@@ -1,16 +1,34 @@
-// Reguły tablicy bez Reacta: filtry, termin, „czeka od”, liczniki.
+// Reguły tablicy bez Reacta: kolumny stanu, filtry, termin, „czeka od”, liczniki.
+// Jeden zespół (decyzje Artura z 19.11.2026): kolumny to stan sprawy, a dawne
+// kolumny zespołów są etykietami na kartach.
 
-import type { BoBoard, BoCard, BoTeam } from "@/lib/api/back-office";
+import type { BoCard } from "@/lib/api/back-office";
 
-export type BoFilter = "all" | "free" | "mine" | "week" | "nobody" | "escalated";
+export type BoFilter = "all" | "free" | "mine" | "overdue" | "week" | "escalated";
 export const FILTER_LABELS: Record<BoFilter, string> = {
   all: "Wszystkie",
   free: "Do wzięcia",
   mine: "Moje",
-  week: "Na ten tydzień",
-  nobody: "Bez osoby",
+  overdue: "Po terminie",
+  week: "Do piątku",
   escalated: "Do przydzielenia",
 };
+
+/** Kolumny tablicy: stan sprawy. „Na zewnątrz” = czeka na dział poza back office'em. */
+export type BoColumn = "new" | "in_progress" | "waiting" | "outside";
+export const COLUMNS: BoColumn[] = ["new", "in_progress", "waiting", "outside"];
+export const COLUMN_LABELS: Record<BoColumn, string> = {
+  new: "Nowe",
+  in_progress: "W toku",
+  waiting: "Czeka na kogoś",
+  outside: "Na zewnątrz",
+};
+
+export function columnOf(card: Pick<BoCard, "state" | "outside_team">): BoColumn {
+  if (card.state === "waiting") return card.outside_team ? "outside" : "waiting";
+  if (card.state === "in_progress") return "in_progress";
+  return "new";
+}
 
 export type DueTone = "danger" | "warning" | "neutral";
 
@@ -54,20 +72,37 @@ export function waitLabel(card: BoCard, today: string): string {
   return `${waited} ${waited === 1 ? "dzień" : "dni"} bez osoby`;
 }
 
+export function isOverdue(card: Pick<BoCard, "due_on">, today: string): boolean {
+  return card.due_on != null && card.due_on.slice(0, 10) < today;
+}
+
 export function matchesFilter(card: BoCard, filter: BoFilter, me: number, today: string): boolean {
   switch (filter) {
     case "free":
-    case "nobody":
       return card.assignee == null;
     case "mine":
       return card.assignee?.id === me;
     case "escalated":
       return card.escalated && card.assignee == null;
+    case "overdue":
+      return isOverdue(card, today);
     case "week":
-      return card.due_on != null && card.due_on.slice(0, 10) <= weekEnd(today);
+      // „Do piątku” bez zaległych: te są w „Po terminie”.
+      return card.due_on != null && !isOverdue(card, today) && card.due_on.slice(0, 10) <= weekEnd(today);
     default:
       return true;
   }
+}
+
+/** Etykiety wybrane w filtrze; pusty zbiór = wszystkie. */
+export function matchesLabels(card: Pick<BoCard, "lane">, labels: ReadonlySet<string>): boolean {
+  return labels.size === 0 || labels.has(card.lane);
+}
+
+export function labelCounts(cards: readonly Pick<BoCard, "lane">[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const card of cards) out.set(card.lane, (out.get(card.lane) ?? 0) + 1);
+  return out;
 }
 
 export function matchesSearch(card: BoCard, search: string): boolean {
@@ -78,14 +113,6 @@ export function matchesSearch(card: BoCard, search: string): boolean {
     .some((value) => (value as string).toLocaleLowerCase("pl").includes(needle));
 }
 
-export function teamCount(team: BoTeam, cards: readonly BoCard[]): number {
-  return cards.filter((card) => card.team === team.id).length;
-}
-
-export function defaultTeam(board: Pick<BoBoard, "me" | "teams">): string {
-  if (board.me.is_lead) return "all";
-  return board.me.teams[0] ?? board.teams[0]?.id ?? "all";
-}
 
 /** Pierwszeństwo cudze i jeszcze ważne: „Biorę” wymaga świadomego „mimo to”. */
 export function othersPriority(card: BoCard, me: number, today: string): boolean {

@@ -816,7 +816,7 @@ async def test_kanban_closed_card_carries_reason_and_who_closed_it(
         for item in col["items"]
     }
     closed = items[rejected]
-    assert closed["rejection_reason_name"] == "Rozbieżność oczekiwań finansowych"
+    assert closed["rejection_reason_name"] == "Za droga"
     assert closed["closed_by_name"] == admin_name
     assert closed["notes"] == "Oczekuje 190 zł/h, budżet do 150."
     assert items[open_cand]["rejection_reason_name"] is None

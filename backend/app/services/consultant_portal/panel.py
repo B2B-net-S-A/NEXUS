@@ -38,7 +38,7 @@ from app.models.equipment import (
 )
 from app.models.user import User
 from app.services.admin_cases import rules
-from app.services.admin_cases.hooks import _care_owner_id
+from app.services.admin_cases.hooks import automatic_assignee
 from app.services.admin_cases.service import AutomaticCase, open_automatic_case
 from app.services.consultant_panel_schema import (
     MATERIAL_URL_MAX,
@@ -593,7 +593,7 @@ async def save_trainer_application(
                 source_key=f"{CASE_KEY_PREFIX}trainer:{uuid4().hex}",
                 description=description,
                 contract_id=contract_id,
-                assignee_user_id=await _care_owner_id(db, contract_id),
+                assignee_user_id=await automatic_assignee(db, contract_id),
             ),
         )
         application.case_id = case.id

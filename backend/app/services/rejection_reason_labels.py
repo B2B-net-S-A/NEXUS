@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from app.services.close_reasons import labels_by_template_name
+
 # „Nie akceptuje trybu pracy” (14.10.2026, migracja 0442): jedyny powód, który
 # coś zapisuje poza procesem — tryb pracy na profilu kandydata
 # (`candidate_notes_facts.set_work_mode_from_rejection`). Rozpoznawany po
@@ -70,28 +72,15 @@ CLIENT_NOT_A_VERDICT = (
 
 OTHER_LABEL = "Inne"
 
+# Etykiety powodów słownika (19.11.2026, `close_reasons.py`) wygrywają ze
+# starszymi: ten sam klucz ma w oknie, historii i raportach jedną nazwę.
+# Zostają tu tylko nazwy spoza słownika (stare wpisy i końce bez wyboru).
 REJECTION_REASON_LABELS: dict[str, str] = {
-    WORK_MODE_MISMATCH: "Nie akceptuje trybu pracy (biuro / hybryda)",
-    HM_ALREADY_INTERVIEWED: "Już po rozmowie u tego hiring managera",
-    NOT_LOOKING_FOR_WORK: "Nie szuka pracy lub niezainteresowany",
     CLIENT_CONFLICT: "Pracuje u klienta lub nie chce do klienta",
-    CONTRACT_FORM: "Forma umowy (UoP, B2B, etat)",
-    NO_CONTACT: "Brak kontaktu",
-    CLIENT_NO_REASON: "Klient nie podał powodu",
-    CLIENT_CHOSE_OTHER: "Klient wybrał kogoś innego",
-    CLIENT_OTHER_VENDOR: "Zgłoszony już przez innego dostawcę",
-    CLIENT_INTERVIEW_WEAK: "Rozmowa u klienta wypadła słabo",
     REQUEST_CLOSED: "Request zamknięty",
     CLIENT_NO_RESPONSE: "Klient nie odpowiedział",
-    "counter_offer": "Kontroferta od obecnego pracodawcy",
-    "personal_reasons": "Powody osobiste",
-    "lost_interest": "Stracił zainteresowanie",
-    "accepted_other_offer": "Przyjął inną ofertę",
-    "salary_mismatch": "Rozbieżność oczekiwań finansowych",
-    "process_too_long": "Za długi proces",
     "legacy_unknown": "Powód nieznany (import z Traffita)",
-    "Inne (rejected)": "Inne",
-    "Inne (withdrawn)": "Inne",
+    **labels_by_template_name(),
 }
 
 
