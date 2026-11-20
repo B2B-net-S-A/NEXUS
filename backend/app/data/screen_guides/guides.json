@@ -525,7 +525,7 @@
       }
     ],
     "pitfalls": [
-      "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem. Zmianę stawki klienta od jakiegoś dnia wpisz aneksem w kontrakcie („Aneksy” → „Zmień stawkę”), nie w zamówieniu — wcześniejsze miesiące zostaną po starej stawce. Tak samo stawkę Partnera: koszt zamówienia liczy się wtedy „w częściach”.",
+      "Usunięcie zamówienia może zmienić stawkę w przeszłych miesiącach — okno usuwania pokazuje skutki, przeczytaj je przed potwierdzeniem. Zmianę stawki klienta od jakiegoś dnia wpisz aneksem w kontrakcie („Aneksy” → „Dodaj aneks” → „Zmiana stawki”), nie w zamówieniu — wcześniejsze miesiące zostaną po starej stawce. Tak samo stawkę Partnera: koszt zamówienia liczy się wtedy „w częściach”.",
       "Zamówienia z rozliczonym zużyciem MD albo fakturą nie da się usunąć ani anulować (okno pokaże blokujące miesiące) — najpierw usuń zejścia: wspólna pula w panelu zamówienia („Zejścia MD”), osoba w oknie „Zużycie MD”, kwoty zamówienia kosztowego w zakładce „Zużycie” osoby.",
       "Osoby zakończonej przez pomyłkę albo wracającej po przerwie nie dodawaj od nowa — użyj „Cofnij zakończenie” albo „Powrót po przerwie” na jej kontrakcie.",
       "Zamówienie okresowe nie ma budżetu ani zużycia MD. Przełącznik typu pokazuje „zwykle u klienta” — u klienta rozliczanego w MD wybieraj MD. Gdy w szkicu okresowym zczytasz PDF z liczbą MD, okno samo zmieni typ na MD (przycisk „Cofnij — zostaw okresowe” przywraca poprzedni stan)."

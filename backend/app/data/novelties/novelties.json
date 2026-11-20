@@ -3403,11 +3403,11 @@
     "id": "aneks-stawki-zmienia-zamowienie",
     "pr": 3504,
     "title": "Aneks stawki klienta zmienia też zamówienie",
-    "why": "Nowa stawka klienta z aneksu wchodzi do trwającego zamówienia od dnia aneksu. Okno „Zmień stawkę” pokazuje to przed zapisem. Wcześniejsze miesiące zostają po starej stawce.",
+    "why": "Nowa stawka klienta z aneksu wchodzi do trwającego zamówienia od dnia aneksu. Okno „Zmiana stawki” pokazuje to przed zapisem. Wcześniejsze miesiące zostają po starej stawce.",
     "tier": "dot",
     "shipped_on": "2026-11-17",
     "audience": { "permissions": ["amounts_edit"] },
-    "where": "Kontrakty → kontrakt → Aneksy → Zmień stawkę",
+    "where": "Kontrakty → kontrakt → Aneksy → Dodaj aneks → Zmiana stawki",
     "href": "/contracts",
     "section": "delivery",
     "dot_anchor": "contract.amendments.rate-change",
@@ -3429,7 +3429,7 @@
       },
       {
         "anchor": "contract.amendments.rate-change",
-        "text": "Tu jest „Zmień stawkę”.",
+        "text": "Tu jest „Dodaj aneks”, a w nim „Zmiana stawki”.",
         "hint": "Okno pokaże przed zapisem, że nowa stawka klienta wejdzie do trwającego zamówienia od dnia aneksu. Wcześniejsze miesiące zostają.",
         "ack": true
       }
@@ -3763,6 +3763,42 @@
         "anchor": "client.overview.settlement",
         "text": "To rozliczenie poprzedniego miesiąca w czterech krokach.",
         "hint": "Szczegół kroku pokaże dymek, cały miesiąc „Faktury”. „Po terminie” pojawia się tylko z dowodem z wyciągów rachunku.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "kontrakt-dokumenty-i-aneksy-nowy-uklad",
+    "pr": 0,
+    "title": "Kontrakt: dokumenty w grupach, aneksy na osi dat",
+    "why": "Dokumenty zaczynają się od kart „Obowiązuje teraz” (umowa, ostatni aneks, zamówienie), a pliki są w grupach po rodzaju. Zmiana stawki, zakresu i przedłużenie są w jednym menu „Dodaj aneks”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": { "permissions": ["amounts_view"] },
+    "where": "Kontrakty → kontrakt → Dokumenty i Aneksy",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contract.tabs.documents",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.open",
+        "text": "Kliknij „Otwórz kontrakt” pod nazwiskiem.",
+        "hint": "Pełna karta kontraktu otworzy się na „Przeglądzie”."
+      },
+      {
+        "anchor": "contract.tabs.documents",
+        "text": "Kliknij zakładkę „Dokumenty”.",
+        "hint": "Na górze karty „Obowiązuje teraz” do pobrania, niżej pliki w grupach po rodzaju i foldery."
+      },
+      {
+        "anchor": "contract.tabs.amendments",
+        "text": "Aneksy stoją teraz na osi dat wejścia w życie.",
+        "hint": "Zmiana stawki, zakresu, przedłużenie i dokument aneksu są w jednym menu „Dodaj aneks”.",
         "ack": true
       }
     ]
