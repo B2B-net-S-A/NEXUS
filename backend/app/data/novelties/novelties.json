@@ -3657,7 +3657,7 @@
   },
   {
     "id": "kontrakty-lista-co-dalej",
-    "pr": 0,
+    "pr": 3672,
     "title": "Kontrakty: „Co dalej” w wierszu, grupy klientów i odejścia na osi czasu",
     "why": "Wiersz mówi, co zrobić: koniec zamówienia, odejście, nierozwiązana umowa. „Grupuj: klient” zbiera osoby pod klientem, a „Kończące się” pokazuje odejścia do domknięcia i oś czasu.",
     "tier": "tour",
