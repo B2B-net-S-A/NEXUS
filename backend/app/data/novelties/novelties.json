@@ -1219,6 +1219,71 @@
     ]
   },
   {
+    "id": "nowy-kontrakt-podsumowanie",
+    "pr": 3665,
+    "title": "Nowy kontrakt: podsumowanie z marżą obok formularza",
+    "why": "Formularz ma trzy sekcje, a karta po prawej na bieżąco mówi, co powstanie: kto u kogo, od kiedy, marża i status. Waluty, zmiany stawki, zużycie i status są w „Zaawansowanych”.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "contracts_orders_edit"
+      ]
+    },
+    "where": "Kontrakty → Nowy kontrakt",
+    "href": "/contracts/new",
+    "section": "delivery",
+    "dot_anchor": "contracts.new.summary",
+    "steps": [
+      {
+        "anchor": "contracts.new.summary",
+        "text": "Karta „Podsumowanie” mówi, co powstanie, zanim klikniesz.",
+        "hint": "Z uprawnieniem do kwot liczy marżę na godzinę i w miesiącu ze stawek z formularza. Przycisk mówi, czy powstanie szkic.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.new.advanced",
+        "text": "Kliknij „Zaawansowane”.",
+        "hint": "Tu są waluty i jednostka stawek, stawka ramowa, zmiany stawki w czasie, zużycie zamówienia i status przy utworzeniu."
+      }
+    ]
+  },
+  {
+    "id": "analityka-kontraktow-90-dni",
+    "pr": 3665,
+    "title": "Analityka kontraktów: co zmieni się w 90 dni i kto ile przynosi",
+    "why": "Na górze cztery liczby, pod nimi kto kończy i kto startuje w 90 dni i ile marży to zmienia, prognoza marży i jedna tabela klientów albo konsultantów z sortowaniem.",
+    "tier": "tour",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "company_results"
+      ]
+    },
+    "where": "Kontrakty → Analityka",
+    "href": "/contracts/analytics",
+    "section": "finance",
+    "dot_anchor": "contracts.analytics.next90",
+    "steps": [
+      {
+        "anchor": "contracts.analytics.next90",
+        "text": "„Najbliższe 3 miesiące”: kto kończy, kto startuje i ile marży to zmienia.",
+        "hint": "Kwoty z bieżących stawek kontraktów, tylko w złotych. Nazwisko otwiera kontrakt.",
+        "ack": true
+      },
+      {
+        "anchor": "contracts.analytics.sort",
+        "text": "Kliknij nagłówek „Marża” w tabeli.",
+        "hint": "Każdy nagłówek sortuje tabelę; strzałka stoi przy aktywnej kolumnie, drugi klik odwraca kolejność."
+      },
+      {
+        "anchor": "contracts.analytics.view",
+        "text": "Przełącz tabelę na „Konsultanci”.",
+        "hint": "Ta sama tabela pokazuje klientów albo osoby z najwyższą marżą i ich koniec umowy w 90 dni."
+      }
+    ]
+  },
+  {
     "id": "rekrutacje-bez-ruchu",
     "title": "Rekrutacje bez ruchu: 14 dni DL, 21 dni HoR, po 28 NEXUS zamyka",
     "why": "Bez CV do klienta i odpowiedzi klienta po 14 dniach przypomnienie dostaje DL, po 21 także HoR, a po 28 NEXUS zamyka rekrutację jako przegraną.",

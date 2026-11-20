@@ -40,6 +40,8 @@ vi.mock("@/store/auth", () => ({
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...args: unknown[]) => mocks.apiGet(...args) },
+  // `fetchRecruitmentRates` (podpowiedź stawek z rekrutacji) używa eksportu nazwanego.
+  api: { get: (...args: unknown[]) => mocks.apiGet(...args) },
   contractsApi: {
     create: (...args: unknown[]) => mocks.create(...args),
   },
@@ -165,13 +167,22 @@ function renderPage() {
   );
 }
 
+// Wariant B (20.11.2026): przycisk główny w karcie „Podsumowanie” mówi, co
+// powstanie — przy domyślnym statusie „Utwórz szkic” (dawniej „Utwórz kontrakt”).
+const CREATE_DRAFT = "Utwórz szkic";
+
 async function fillRequiredFieldsAndSubmit() {
   const user = userEvent.setup({ delay: null });
   renderPage();
 
   await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
   await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
-  await user.click(screen.getByRole("button", { name: "Utwórz kontrakt" }));
+  await user.click(screen.getByRole("button", { name: CREATE_DRAFT }));
+}
+
+/** Waluty, jednostka, harmonogramy, zużycie i status są w zwiniętych „Zaawansowanych”. */
+async function openAdvanced(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: /Zaawansowane/ }));
 }
 
 beforeEach(() => {
@@ -344,6 +355,7 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
 
     await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
     await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+    await openAdvanced(user);
 
     await user.selectOptions(
       screen.getByRole("combobox", {
@@ -357,7 +369,7 @@ describe("Nowy kontrakt — historia nawigacji po zapisie", () => {
       }),
       "PLN",
     );
-    await user.click(screen.getByRole("button", { name: "Utwórz kontrakt" }));
+    await user.click(screen.getByRole("button", { name: CREATE_DRAFT }));
 
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
     expect(mocks.create).toHaveBeenCalledWith(
@@ -420,7 +432,7 @@ describe("Nowy kontrakt — formularz widzi posiadacz uprawnienia, nie rola", ()
     renderPage();
 
     expect(
-      await screen.findByRole("button", { name: "Utwórz kontrakt" }),
+      await screen.findByRole("button", { name: CREATE_DRAFT }),
     ).toBeInTheDocument();
     expect(screen.queryByText(DENIAL)).not.toBeInTheDocument();
   });
@@ -431,7 +443,7 @@ describe("Nowy kontrakt — formularz widzi posiadacz uprawnienia, nie rola", ()
 
     expect(await screen.findByText(DENIAL)).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Utwórz kontrakt" }),
+      screen.queryByRole("button", { name: CREATE_DRAFT }),
     ).not.toBeInTheDocument();
     expect(mocks.apiGet).not.toHaveBeenCalled();
   });
@@ -444,7 +456,7 @@ describe("Nowy kontrakt — formularz widzi posiadacz uprawnienia, nie rola", ()
     renderPage();
 
     expect(
-      await screen.findByRole("button", { name: "Utwórz kontrakt" }),
+      await screen.findByRole("button", { name: CREATE_DRAFT }),
     ).toBeInTheDocument();
   });
 
@@ -457,7 +469,193 @@ describe("Nowy kontrakt — formularz widzi posiadacz uprawnienia, nie rola", ()
 
     expect(await screen.findByText(DENIAL)).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Utwórz kontrakt" }),
+      screen.queryByRole("button", { name: CREATE_DRAFT }),
     ).not.toBeInTheDocument();
+  });
+});
+
+/** Tekst bez spacji twardych z formatowania kwot. */
+function plainText(element: Element): string {
+  return (element.textContent ?? "").replace(/ /g, " ");
+}
+
+describe("Nowy kontrakt — karta „Podsumowanie” (wariant B)", () => {
+  function recruitmentRatesFor(rate: Record<string, unknown> | null) {
+    mocks.apiGet.mockImplementation((url: string) => {
+      if (url === "/api/clients-lookup") {
+        return Promise.resolve({ data: [{ id: 2, name: "Klient Testowy" }] });
+      }
+      if (url === "/api/cv-generator/candidates") {
+        return Promise.resolve({
+          data: [{ id: 42, name: "Jan", lastname: "Kowalski", full_name: "Jan Kowalski" }],
+        });
+      }
+      if (url === "/api/cv-generator/candidates/42/recruitments") {
+        return Promise.resolve({
+          data: [{ stage_id: 7, job_id: 17, job_title: "Backend Engineer", client_id: 2 }],
+        });
+      }
+      if (url === "/api/clients/2/recruitment-rates") {
+        return Promise.resolve({ data: { rate, amounts_redacted: false } });
+      }
+      return Promise.reject(new Error(`Nieoczekiwany GET: ${url}`));
+    });
+  }
+
+  it("liczy marżę na godzinę i w miesiącu ze stawek wpisanych w formularzu", async () => {
+    mocks.canManageFinance = true;
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
+    await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+    await user.type(screen.getByLabelText(/Klient płaci/), "157");
+    await user.type(screen.getByLabelText(/Konsultant dostaje/), "110");
+
+    const summary = screen.getByRole("region", { name: "Podsumowanie" });
+    expect(plainText(summary)).toContain("47,00 zł/h · 29,9 %");
+    expect(plainText(summary)).toContain("Miesięcznie (168 h)");
+    expect(plainText(summary)).toContain("≈ 7 896 zł");
+    expect(plainText(summary)).toContain("Po utworzeniu: szkic");
+  });
+
+  it("bez uprawnienia do kwot karta nie pokazuje stawek ani marży", async () => {
+    renderPage();
+
+    const summary = await screen.findByRole("region", { name: "Podsumowanie" });
+    expect(within(summary).queryByText("Klient płaci")).not.toBeInTheDocument();
+    expect(within(summary).queryByText(/Miesięcznie/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Klient płaci/)).not.toBeInTheDocument();
+    expect(screen.getByText(/tu kontrakt powstaje bez kwot/)).toBeInTheDocument();
+  });
+
+  it("różne waluty stawek: przychód i koszt zostają, marży nie liczymy", async () => {
+    mocks.canManageFinance = true;
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
+    await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+    await user.type(screen.getByLabelText(/Klient płaci/), "40");
+    await user.type(screen.getByLabelText(/Konsultant dostaje/), "110");
+    await openAdvanced(user);
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Waluta stawki przychodowej (klienta)" }),
+      "EUR",
+    );
+
+    const summary = screen.getByRole("region", { name: "Podsumowanie" });
+    expect(plainText(summary)).toContain("Różne waluty stawek (EUR / PLN) — marży nie liczymy.");
+    expect(plainText(summary)).toContain("6 720 EUR");
+    expect(plainText(summary)).not.toContain("%");
+  });
+
+  it("status z „Zaawansowanych” zmienia przycisk i wysyła się w zapisie", async () => {
+    mocks.canManageFinance = true;
+    mocks.create.mockResolvedValue({ data: { id: 77 } });
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
+    await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+    await user.type(screen.getByLabelText(/Klient płaci/), "157");
+    await user.type(screen.getByLabelText(/Konsultant dostaje/), "110");
+    await openAdvanced(user);
+    await user.click(screen.getByRole("radio", { name: "Aktywny" }));
+    await user.click(screen.getByRole("button", { name: "Utwórz jako aktywny" }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(1));
+    expect(mocks.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "active",
+        rate_client: 157,
+        candidate_rate_schedule: [
+          expect.objectContaining({ rate: 110, effective_to: null }),
+        ],
+      }),
+    );
+  });
+
+  it("odmowa statusu „Aktywny” bez kwot rozwija „Zaawansowane” z komunikatem przy polu", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
+    await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+    await openAdvanced(user);
+    await user.click(screen.getByRole("radio", { name: "Aktywny" }));
+    // Zwinięcie sekcji nie chowa błędu — po odmowie rozwinie się sama.
+    await user.click(screen.getByRole("button", { name: /Zaawansowane/ }));
+    await user.click(screen.getByRole("button", { name: "Utwórz jako aktywny" }));
+
+    expect(
+      await screen.findByText(/Aktywacja wymaga stawek/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Zaawansowane/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Uzupełnij brakujące pola");
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("„Kończący się” nie jest do wyboru przy umowie B2B", async () => {
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await screen.findByRole("region", { name: "Podsumowanie" });
+    await openAdvanced(user);
+    expect(screen.queryByRole("radio", { name: "Kończący się" })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Typ umowy" }), "uop");
+    expect(screen.getByRole("radio", { name: "Kończący się" })).toBeInTheDocument();
+  });
+
+  it("stawka konsultanta z rekrutacji wpisuje się dopiero po „Użyj”; stawka klienta jest samą informacją", async () => {
+    mocks.canManageFinance = true;
+    recruitmentRatesFor({
+      candidate_id: 42,
+      job_id: 17,
+      job_title: "Backend Engineer",
+      client_rate_value: 157,
+      client_rate_unit: "hourly",
+      client_rate_currency: "PLN",
+      client_rate_at: "2026-10-27",
+      client_rate_by_name: "Anna Przykładowa",
+      client_rate_redacted: false,
+      candidate_rate_value: 110,
+      candidate_rate_unit: "hourly",
+      candidate_rate_currency: "PLN",
+      candidate_rate_at: "2026-10-26",
+    });
+    const user = userEvent.setup({ delay: null });
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
+    await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
+
+    // Bez wybranej rekrutacji nie pytamy: najnowsza para u klienta bywa sprzed lat.
+    expect(mocks.apiGet).not.toHaveBeenCalledWith(
+      "/api/clients/2/recruitment-rates",
+      expect.anything(),
+    );
+    expect(screen.queryByText(/w rekrutacji:/)).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Rekrutacja" }), "7");
+
+    const candidateRate = screen.getByLabelText(/Konsultant dostaje/);
+    expect(candidateRate).toHaveValue("");
+    expect(
+      await screen.findByText(/w rekrutacji: 157,00\s+zł\/h · Anna Przykładowa, 27\.10\.2026/),
+    ).toBeInTheDocument();
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/clients/2/recruitment-rates", {
+      params: { candidate_id: 42, job_id: 17 },
+    });
+    // Jedno „Użyj” — przy stawce konsultanta; nic nie wpisało się samo.
+    expect(screen.getAllByRole("button", { name: "Użyj" })).toHaveLength(1);
+    expect(screen.getByLabelText(/Klient płaci/)).toHaveValue("");
+
+    await user.click(screen.getByRole("button", { name: "Użyj" }));
+    expect(candidateRate).toHaveValue("110,00");
+    expect(screen.getByText(/z rekrutacji: 110,00\s+zł\/h · 26\.10\.2026/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Użyj" })).not.toBeInTheDocument();
   });
 });
