@@ -288,7 +288,8 @@ export function recheckLine(
     : doc.outcome === "needs_review" && applyBlockedReason(doc) == null
       ? "zdecyduj: „Zastosuj” albo „Odrzuć”"
       : "czeka na Twoją decyzję";
-  return `Automat sprawdził ten wpis ${n} ${plural(n, "raz", "razy", "razy")}${when} i nadal go wstrzymuje — ${decide}.`;
+  // Wtrącenie „, ostatnio …” zamyka przecinek przed „i nadal”.
+  return `Automat sprawdził ten wpis ${n} ${plural(n, "raz", "razy", "razy")}${when ? `${when},` : ""} i nadal go wstrzymuje — ${decide}.`;
 }
 
 /**

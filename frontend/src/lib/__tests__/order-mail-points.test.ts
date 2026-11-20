@@ -200,6 +200,10 @@ describe("recheckLine", () => {
     const line = recheckLine(doc({ document_meta: meta({ category: "other", attempts: 3 }) }));
     expect(line).toBe("Automat sprawdził ten wpis 3 razy i nadal go wstrzymuje — zdecyduj: „Zastosuj” albo „Odrzuć”.");
     expect(recheckLine(doc({ document_meta: meta({ attempts: 1 }) }))).toContain("1 raz ");
+    // Wtrącenie z datą zamknięte przecinkiem.
+    expect(recheckLine(doc({ document_meta: meta({ attempts: 2, last_at: "2031-03-03T08:00:00Z" }) }))).toMatch(
+      /^Automat sprawdził ten wpis 2 razy, ostatnio \d{2}\.\d{2}\.2031 \d{2}:\d{2}, i nadal go wstrzymuje/,
+    );
     expect(recheckLine(doc({ can_apply: false, document_meta: meta({ attempts: 5 }) }))).toContain(
       "decyzja należy do admina albo Delivery Leada klienta",
     );
