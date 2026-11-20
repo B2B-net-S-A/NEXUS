@@ -1953,6 +1953,22 @@
     "dot_anchor": "settings.team.automat"
   },
   {
+    "id": "kontrakt-zamowienie-po-koncu-wspolpracy",
+    "title": "Klient zamówił okres po zakończeniu współpracy",
+    "why": "Gdy klient zamówił okres po końcu współpracy, kontrakt pokazuje w „Co się dzieje” wyjścia: cofnij zakończenie, przypisz zamówienie innej osobie albo anuluj szkic. Listę zbiera nowa pigułka.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Kontrakty → pigułka „Zamówione po końcu” → kontrakt",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.order-after-end"
+  },
+  {
     "id": "karta-przed-cv-do-klienta",
     "pr": 2835,
     "title": "Karta przed CV wypełnia się sama",

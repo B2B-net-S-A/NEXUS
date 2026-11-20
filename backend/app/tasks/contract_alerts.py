@@ -10,6 +10,9 @@ Runs once a day. Responsibilities:
        (if SLACK_WEBHOOK_URL set).
     4. Dedup: Notification rows are keyed by (user, contract, threshold_days).
        We never re-notify for the same triple.
+    5. „Klient zamówił okres po zakończeniu” (19.11.2026): dzwonek DL-a
+       klienta raz na zamówienie i koniec projektu
+       (``services/contract_order_after_end.py``).
 """
 
 from __future__ import annotations
@@ -19,7 +22,7 @@ import logging
 import os
 import re
 from datetime import timedelta
-from typing import Iterable
+from typing import Iterable, Optional, Sequence
 
 import httpx
 from sqlalchemy import and_, or_, select, update
@@ -36,6 +39,7 @@ from app.models.contract_equipment import ContractEquipment, EquipmentReturnStat
 from app.models.notification import Notification, NotificationType
 from app.services.contract_order_sync import (
     backfill_missing_order_periods,
+    resync_contract_safely,
     run_daily_order_cost_sync,
 )
 from app.services.contract_order_offboarding import (
@@ -46,7 +50,14 @@ from app.services.contract_termination_snapshot import ContractStateBefore
 from app.services.contract_termination_sync import (
     sync_generator_after_contract_ended,
 )
+from app.services.contract_order_after_end import (
+    OrderAfterEnd,
+    open_order_after_end,
+    order_after_end_message,
+    project_end,
+)
 from app.services.delivery_alert_recipients import (
+    DeliveryAlertRecipientScope,
     load_delivery_alert_recipient_scope,
 )
 from app.services import loop_heartbeat
@@ -517,6 +528,8 @@ async def run_contract_alerts_cycle() -> dict:
         "equipment_return_alerts": 0,
         "client_order_alerts": 0,
         "md_offboarding_alerts": 0,
+        "order_after_end_alerts": 0,
+        "order_after_end_periods": 0,
         "slack_sent": 0,
         "order_costs_synced": 0,
     }
@@ -770,6 +783,22 @@ async def run_contract_alerts_cycle() -> dict:
                 stats["client_order_alerts"] += 1
         await db.commit()
 
+    # Klient zamówił okres po zakończeniu współpracy (decyzja Artura
+    # 19.11.2026). Osobna sesja: awaria tej sekcji nie cofa alertów wyżej.
+    async with AsyncSessionLocal() as db:
+        try:
+            conflicts = await open_order_after_end(db)
+            stats["order_after_end_periods"] = await _resync_held_draft_periods(
+                db, conflicts
+            )
+            stats["order_after_end_alerts"] = await _notify_orders_after_end(
+                db, recipient_scope, conflicts=conflicts
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001
+            await db.rollback()
+            logger.exception("contract_alerts: order-after-end alerts failed")
+
     webhook = os.environ.get("SLACK_WEBHOOK_URL", "").strip()
     if webhook and to_slack and await _post_slack_summary(webhook, to_slack):
         # Only count as sent on a 2xx — a 4xx/5xx webhook must not inflate the stat.
@@ -777,6 +806,86 @@ async def run_contract_alerts_cycle() -> dict:
 
     logger.info("contract_alerts: cycle done %s", stats)
     return stats
+
+
+async def _resync_held_draft_periods(
+    db: AsyncSession, conflicts: Sequence[OrderAfterEnd]
+) -> int:
+    """Kontrakt ze szkicem wstrzymanym wypowiedzeniem przelicza okres zamówienia.
+
+    Reguła okresu (``contract_order_sync._period_source``) działa przy zapisie
+    zamówienia albo kontraktu. Kontrakt, którego nikt nie ruszał, trzymałby
+    okres ze szkicu do pierwszego zapisu. Przebieg jest idempotentny.
+    """
+    changed = 0
+    for contract_id in sorted(
+        {item.contract_id for item in conflicts if item.held_by_termination}
+    ):
+        outcome = await resync_contract_safely(db, contract_id, actor_id=None)
+        if outcome is not None and outcome.period_changed:
+            changed += 1
+    return changed
+
+
+async def _notify_orders_after_end(
+    db: AsyncSession,
+    recipient_scope: DeliveryAlertRecipientScope,
+    *,
+    conflicts: Optional[Sequence[OrderAfterEnd]] = None,
+) -> int:
+    """Dzwonek DL-a klienta: klient zamówił okres po końcu współpracy.
+
+    DL ma tu decyzję (`dl-tylko-dzwonki-z-zadaniem.md`): na karcie kontraktu
+    cofa zakończenie albo przedłuża umowę, przypisuje zamówienie innej osobie
+    albo anuluje szkic. Raz na zamówienie i koniec projektu — klucz w
+    ``contract_alert_dedup``; nowy koniec projektu to nowa decyzja.
+
+    Wiersz nie ma ``related_entity_*``: indeks ``ix_notif_dedup_daily`` nie zna
+    typu encji, więc id zamówienia zderzałoby się z id kontraktu z alertu
+    końca umowy z tego samego dnia i dzwonek przepadałby po cichu, a klucz
+    zostawałby zajęty. Powtórki pilnuje sam klucz w ``contract_alert_dedup``.
+    """
+    if conflicts is None:
+        conflicts = await open_order_after_end(db)
+    if not conflicts or recipient_scope.is_empty:
+        return 0
+    contracts = {
+        contract.id: contract
+        for contract in (
+            await db.scalars(
+                select(Contract).where(
+                    Contract.id.in_({item.contract_id for item in conflicts})
+                )
+            )
+        ).all()
+    }
+    labels = await _contract_labels(db, list(contracts.values()))
+    sent = 0
+    for conflict in conflicts:
+        contract = contracts.get(conflict.contract_id)
+        end = project_end(contract) if contract is not None else None
+        if contract is None or end is None:
+            continue
+        recipient_ids = recipient_scope.bell_recipients(
+            contract.client_id, NotificationType.contract_ending
+        )
+        if not recipient_ids:
+            continue
+        key = f"order_after_end:{conflict.order_id}:{end.isoformat()}"
+        if not await _claim_alert(db, key):
+            continue
+        label = labels.get(contract.id, f"Kontrakt #{contract.id}")
+        for uid in recipient_ids:
+            await _insert_dedup_notification(
+                db,
+                user_id=uid,
+                title=f"Klient zamówił okres po zakończeniu: {label}"[:255],
+                message=order_after_end_message(contract, conflict),
+                link=f"/contracts/{contract.id}",
+                notification_type=NotificationType.contract_ending,
+            )
+        sent += 1
+    return sent
 
 
 async def _insert_dedup_notification(db: AsyncSession, **values: object) -> bool:
