@@ -376,12 +376,14 @@ function NewContractForm() {
 
   // Stawki z rekrutacji (D7): podpowiedź pod polami stawek. Tylko odczyt —
   // nic się nie wpisuje samo, różnica nie blokuje zapisu, a awaria zapytania
-  // chowa podpis (jak w „Nowym kontraktorze”).
+  // chowa podpis (jak w „Nowym kontraktorze”). Tylko przy wybranej rekrutacji:
+  // bez niej API oddaje najnowszą parę u klienta, która bywa sprzed lat
+  // (ta sama reguła co karta „Stawki finansowe” kontraktu).
   const recruitmentRatesQuery = useQuery({
     queryKey: ["recruitment-rates", Number(clientId), candidate?.id ?? null, selectedJobId],
     queryFn: () =>
       fetchRecruitmentRates(Number(clientId), candidate?.id as number, selectedJobId),
-    enabled: canManageFinance && !!candidate && !!clientId,
+    enabled: canManageFinance && !!candidate && !!clientId && selectedJobId != null,
     staleTime: 60_000,
     retry: false,
   });

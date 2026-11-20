@@ -491,7 +491,9 @@ describe("Nowy kontrakt — karta „Podsumowanie” (wariant B)", () => {
         });
       }
       if (url === "/api/cv-generator/candidates/42/recruitments") {
-        return Promise.resolve({ data: [] });
+        return Promise.resolve({
+          data: [{ stage_id: 7, job_id: 17, job_title: "Backend Engineer", client_id: 2 }],
+        });
       }
       if (url === "/api/clients/2/recruitment-rates") {
         return Promise.resolve({ data: { rate, amounts_redacted: false } });
@@ -631,11 +633,22 @@ describe("Nowy kontrakt — karta „Podsumowanie” (wariant B)", () => {
     await user.click(await screen.findByRole("button", { name: /Jan Kowalski/ }));
     await user.click(await screen.findByRole("button", { name: /Klient Testowy/ }));
 
+    // Bez wybranej rekrutacji nie pytamy: najnowsza para u klienta bywa sprzed lat.
+    expect(mocks.apiGet).not.toHaveBeenCalledWith(
+      "/api/clients/2/recruitment-rates",
+      expect.anything(),
+    );
+    expect(screen.queryByText(/w rekrutacji:/)).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Rekrutacja" }), "7");
+
     const candidateRate = screen.getByLabelText(/Konsultant dostaje/);
     expect(candidateRate).toHaveValue("");
     expect(
       await screen.findByText(/w rekrutacji: 157,00\s+zł\/h · Anna Przykładowa, 27\.10\.2026/),
     ).toBeInTheDocument();
+    expect(mocks.apiGet).toHaveBeenCalledWith("/api/clients/2/recruitment-rates", {
+      params: { candidate_id: 42, job_id: 17 },
+    });
     // Jedno „Użyj” — przy stawce konsultanta; nic nie wpisało się samo.
     expect(screen.getAllByRole("button", { name: "Użyj" })).toHaveLength(1);
     expect(screen.getByLabelText(/Klient płaci/)).toHaveValue("");

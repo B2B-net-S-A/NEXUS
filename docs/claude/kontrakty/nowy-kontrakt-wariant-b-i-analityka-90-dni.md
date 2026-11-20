@@ -19,7 +19,9 @@ Decyzja Artura z 19.11.2026 po makietach modułu Kontrakty (etap 3a wdrożenia):
   pierwszego są w „Zaawansowanych”. Błąd pola stamtąd (status, waluty, etapy)
   rozwija sekcję — komunikat nie może stać pod zwiniętym nagłówkiem.
 - Podpowiedź stawek z rekrutacji (D7, `GET /api/clients/{id}/recruitment-rates`)
-  stoi pod polem, nic nie wpisuje się samo, różnica nie blokuje zapisu. „Użyj”
+  stoi pod polem tylko przy wybranej rekrutacji (bez niej API oddaje najnowszą
+  parę u klienta, która bywa sprzed lat), nic nie wpisuje się samo, różnica nie
+  blokuje zapisu. „Użyj”
   jest tylko przy stawce konsultanta w tej samej jednostce i walucie; stawka
   klienta to sama informacja, bo przychód w kontrakcie przed zamówieniem gasi
   Finansom dzwonek „bez zamówienia” (`stawki-z-rekrutacji-w-zamowieniu-i-umowie.md`).
