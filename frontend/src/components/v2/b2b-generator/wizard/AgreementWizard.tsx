@@ -43,6 +43,11 @@ export interface WizardStepItem {
   summary: string;
   /** Liczba braków w kroku (dla „Sprawdź i pobierz” — wszystkich). */
   gaps: number;
+  /**
+   * Krok czeka na inny (szczegóły administracyjne przed wyborem rekrutacji):
+   * bez braków, ale też bez ✓ — nie ma jeszcze czego uzupełnić.
+   */
+  waiting?: boolean;
 }
 
 /** Lista kroków: numer albo ✓, nazwa i jedna linia stanu. */
@@ -61,7 +66,7 @@ export function AgreementStepList({
         {steps.map((s, i) => {
           const active = s.key === current;
           const download = s.key === "pobierz";
-          const done = !download && s.gaps === 0;
+          const done = !download && s.gaps === 0 && !s.waiting;
           const ready = download && s.gaps === 0;
           return (
             <li key={s.key} className="relative shrink-0 @4xl:shrink">
