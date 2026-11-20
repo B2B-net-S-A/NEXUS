@@ -18,6 +18,8 @@ import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
 import { notLookingUntil } from "@/lib/autofill-feedback";
 
 const NOT_LOOKING = "Nie szuka pracy lub niezainteresowany";
+/** Etykieta tego wiersza w oknie odrzucenia — słownik powodów (19.11.2026). */
+const NOT_LOOKING_LABEL = "Nie szuka pracy";
 
 const reasons = [
   { id: "1", name: "Brak doświadczenia", label: "Brak doświadczenia", applies_to: ["rejected" as const] },
@@ -50,7 +52,7 @@ describe("RejectionV2 — „Nie szuka pracy” z datą przy karcie dodanej ręc
   it("pyta, do kiedy nie podsuwać; domyślnie 3 miesiące", () => {
     const onConfirm = renderWindow();
     expect(screen.queryByTestId("autofill-not-looking-until")).toBeNull();
-    fireEvent.click(screen.getByText(NOT_LOOKING));
+    fireEvent.click(screen.getByText(NOT_LOOKING_LABEL));
     expect(screen.getByTestId("autofill-not-looking-until")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     const args = onConfirm.mock.calls[0];
@@ -60,7 +62,7 @@ describe("RejectionV2 — „Nie szuka pracy” z datą przy karcie dodanej ręc
 
   it("„6 miesięcy” wysyła datę za pół roku", () => {
     const onConfirm = renderWindow();
-    fireEvent.click(screen.getByText(NOT_LOOKING));
+    fireEvent.click(screen.getByText(NOT_LOOKING_LABEL));
     fireEvent.click(screen.getByRole("button", { name: "6 miesięcy" }));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][12]).toBe(notLookingUntil(6));
@@ -68,8 +70,8 @@ describe("RejectionV2 — „Nie szuka pracy” z datą przy karcie dodanej ręc
 
   it("przy innym powodzie nie ma pola i data nie idzie", () => {
     const onConfirm = renderWindow();
-    fireEvent.click(screen.getByText(NOT_LOOKING));
-    fireEvent.click(screen.getByText("Brak doświadczenia"));
+    fireEvent.click(screen.getByText(NOT_LOOKING_LABEL));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     expect(screen.queryByTestId("autofill-not-looking-until")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][12]).toBeNull();

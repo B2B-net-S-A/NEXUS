@@ -3705,6 +3705,25 @@
     "dot_anchor": "finance.rate-divergences"
   },
   {
+    "id": "jeden-slownik-powodow-zamkniecia",
+    "title": "Jedna lista powodów zamknięcia procesu",
+    "why": "Ta sama lista powodów w każdej kolumnie. Nowe: „Projekt zamknięty / przetarg przegrany”, „Wysłany po terminie”, „Dostępna za późno / wypowiedzenie” — rzadziej „Inne” z opisem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-20",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Odrzuć z powodem → Powód",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.close-reasons"
+  },
+  {
     "id": "kontrakt-co-sie-dzieje-7-zakladek",
     "pr": 3639,
     "title": "Kontrakt: „Co się dzieje” na górze i 7 zakładek",

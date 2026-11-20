@@ -19,6 +19,8 @@ import { rejectionRateMoveFields } from "@/components/v2/modals/RejectionRateFie
 import { RejectionV2 } from "@/components/v2/modals/RejectionV2";
 
 const RATE = "Za wysokie oczekiwania finansowe";
+/** Etykieta tego wiersza w oknie odrzucenia — słownik powodów (19.11.2026). */
+const RATE_LABEL = "Za droga";
 
 const reasons = [
   { id: "3", name: RATE, label: RATE, applies_to: ["rejected" as const] },
@@ -58,9 +60,9 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
   it("pyta o kwotę dopiero po wybraniu tego powodu", () => {
     renderRate();
     expect(screen.queryByTestId("rejection-rate")).toBeNull();
-    fireEvent.click(screen.getByText("Brak doświadczenia"));
+    fireEvent.click(screen.getByText("Za mało doświadczenia"));
     expect(screen.queryByTestId("rejection-rate")).toBeNull();
-    fireEvent.click(screen.getByText(RATE));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     expect(screen.getByTestId("rejection-rate")).toBeInTheDocument();
   });
 
@@ -68,7 +70,7 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
     const onConfirm = renderRate({
       profileRate: { rateFromHourly: 129, rateFromAt: "2026-04-16T10:00:00Z" },
     });
-    fireEvent.click(screen.getByText(RATE));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     expect(screen.getByText(/Teraz w profilu: od 129 zł\/h \(04\.2026\)/)).toBeInTheDocument();
     typeRate("150");
     expect(screen.getByText(/Stawka od 129 zł\/h → 150 zł\/h/)).toBeInTheDocument();
@@ -79,7 +81,7 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
 
   it("odznaczone minimum i przecinek w kwocie", () => {
     const onConfirm = renderRate();
-    fireEvent.click(screen.getByText(RATE));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     typeRate("152,5");
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
@@ -88,7 +90,7 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
 
   it("bez kwoty odrzucenie przechodzi i nic nie zapisuje (D1)", () => {
     const onConfirm = renderRate();
-    fireEvent.click(screen.getByText(RATE));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     expect(screen.getByRole("checkbox")).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm).toHaveBeenCalledTimes(1);
@@ -97,7 +99,7 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
 
   it("kwota niższa niż „Stawka od” ostrzega, ale nie blokuje", () => {
     const onConfirm = renderRate({ profileRate: { rateFromHourly: 130, rateFromAt: null } });
-    fireEvent.click(screen.getByText(RATE));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     typeRate("120");
     expect(screen.getByText(/To mniej niż obecna „Stawka od” \(130 zł\/h\)/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
@@ -121,7 +123,7 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
         ],
       },
     });
-    fireEvent.click(screen.getByText(RATE));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     expect(screen.queryByTestId("rejection-rate")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     expect(onConfirm.mock.calls[0][10]).toBeNull();
@@ -129,7 +131,7 @@ describe("RejectionV2 — „Za wysokie oczekiwania finansowe” (26.10.2026)", 
 
   it("osoba od systemu: „Za droga” to ten powód, bez drugiego „Ile chce?”", () => {
     const onConfirm = renderRate({ autofill: { rateKnown: false, several: false } });
-    fireEvent.click(screen.getByText("Za droga"));
+    fireEvent.click(screen.getByText(RATE_LABEL));
     expect(screen.queryByLabelText("Ile chce w złotych na godzinę")).toBeNull();
     typeRate("150");
     fireEvent.click(screen.getByText("Z rozmowy z osobą"));

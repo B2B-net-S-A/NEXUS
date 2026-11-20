@@ -48,11 +48,9 @@ import {
 import {
  CLIENT_WIDE_REASONS,
  NOT_LOOKING_DEFAULT_MONTHS,
- autofillReasonKeepsLabel,
  autofillReasonLabel,
  notLookingUntil,
  otherNoteHasWords,
- templateReasonFor,
  type AutofillFeedbackChoice,
  type AutofillLearnedFrom,
  type AutofillReason,
@@ -62,11 +60,17 @@ import {
  WORK_MODE_MISMATCH_REASON,
  EMPLOYED_ELSEWHERE_REASON,
  NOT_LOOKING_FOR_WORK_REASON,
- groupRejectedReasons,
  isRateTooHighReason,
  reasonFitsEndedBy,
  reasonNeedsDescription,
 } from "@/lib/rejection-reasons";
+import {
+ closeReason,
+ closeReasonFits,
+ closeReasonGroups,
+ closeTemplateReason,
+ closeWhoFor,
+} from "@/lib/close-reasons";
 
 interface RejectionReason {
  id: string;
@@ -318,20 +322,22 @@ export function RejectionV2({
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
- // 04.11.2026: lista zależy od „Kto kończy?”. Powód dla systemu liczy się
- // z pełnej listy, bo tam człowiek nie wybiera powodu z szablonu.
+ // Rezygnacja (do etapu 3): lista z szablonu dla kandydata.
  const visibleReasons = filtered.filter((r) => reasonFitsEndedBy(r, endedByValue));
- const reasonGroups =
- terminalType === "rejected"
- ? groupRejectedReasons(visibleReasons)
- : [{ title: null, reasons: visibleReasons }];
+ const reasonGroups: { title: string | null; reasons: typeof visibleReasons }[] = [
+ { title: null, reasons: visibleReasons },
+ ];
  const autofillAsked = terminalType === "rejected" && autofill != null;
- // Lista powodów okna (osoba od systemu, a od 19.11.2026 każda karta
- // z „Nowych”/„Screeningu”): okno pyta o powód raz — powód z szablonu do
- // raportu lejka wynika z wybranego powodu.
- const reasonListAsked = terminalType === "rejected" && (autofillAsked || decisionColumn);
+ // Jeden słownik powodów (19.11.2026): odrzucenie zawsze pyta z listy
+ // słownika — grupy zależą od „Kto kończy?” i etapu („Dane w bazie” tylko
+ // w „Nowych”/„Screeningu”), a powód z szablonu do raportu lejka wynika
+ // z wybranego powodu 1:1.
+ const reasonListAsked = terminalType === "rejected";
+ const closeWho = closeWhoFor(endedByValue);
+ const earlyStage = decisionColumn || autofillAsked;
+ const closeGroups = closeReasonGroups(closeWho, earlyStage);
  const effectiveReasonId = reasonListAsked
- ? templateReasonFor(autofillReason, filtered)?.id ?? ""
+ ? closeTemplateReason(autofillReason, closeWho, filtered)?.id ?? ""
  : reasonId;
  const chosenReason = (reasonListAsked ? filtered : visibleReasons).find(
  (r) => r.id === effectiveReasonId,
@@ -342,15 +348,15 @@ export function RejectionV2({
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
  // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
  const descriptionRequired = reasonListAsked
- ? autofillReason === "other"
+ ? autofillReason === "other" || autofillReason === "hm_already_interviewed"
  : hasReasons && reasonNeedsDescription(chosenReason);
- // Powód bez odpowiednika w szablonie idzie jako „Inne” z nazwą powodu
- // w opisie — inaczej w historii zostaje samo słowo.
+ // Powód bez wiersza w szablonie (admin skasował) idzie jako „Inne” z nazwą
+ // powodu w opisie — inaczej w historii zostaje samo słowo.
  const reasonNotes =
  reasonListAsked &&
  autofillReason &&
  autofillReason !== "other" &&
- (reasonNeedsDescription(chosenReason) || autofillReasonKeepsLabel(autofillReason))
+ chosenReason?.label.trim() === "Inne"
  ? [autofillReasonLabel(autofillReason), notes.trim()].filter(Boolean).join(". ")
  : notes;
  const several = (emailPreview?.people.length ?? 1) > 1;
@@ -392,8 +398,8 @@ export function RejectionV2({
  setEndedBy(next);
  // Wybrany powód znika z listy innej osoby, która kończy — nie zostaje po
  // cichu wybrany poza ekranem.
- const current = filtered.find((r) => r.id === reasonId);
- if (current && !reasonFitsEndedBy(current, next)) setReasonId("");
+ const current = closeReason(autofillReason);
+ if (current && !closeReasonFits(current, closeWhoFor(next), earlyStage)) setAutofillReason(null);
  };
 
  const handleConfirm = () => {
@@ -542,6 +548,7 @@ export function RejectionV2({
  autofillAsked || notLookingReason ? setNotLookingUntilValue : undefined
  }
  fromSystem={autofillAsked}
+ groups={closeGroups}
  >
  {workModeReason ? (
  <RejectionWorkModeField
@@ -562,6 +569,13 @@ export function RejectionV2({
  isMinimum={newRateIsMinimum}
  onIsMinimumChange={setNewRateIsMinimum}
  />
+ ) : null}
+ {chosenReason?.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? (
+ <p className="text-xs text-muted-foreground" data-testid="rejection-employed-elsewhere">
+ W profilu zapiszemy „Nie szuka” na 3 miesiące i system nie doda{" "}
+ {several ? "tych osób" : "tej osoby"} do żadnej rekrutacji. Ręcznie można{" "}
+ {several ? "je" : "ją"} dodać, a datę zmienisz w profilu.
+ </p>
  ) : null}
  </AutofillFeedbackField>
  ) : (

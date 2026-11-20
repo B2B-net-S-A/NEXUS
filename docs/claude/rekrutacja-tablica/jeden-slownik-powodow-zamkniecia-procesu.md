@@ -42,8 +42,17 @@ u klienta (108 z 397).
   liczą po etykiecie, sumują stare i nowe wpisy. `client_conflict` (0646)
   łączył dwa powody i zostaje z własną etykietą. Insights „Wnioski” mają
   nowe klucze w `_READ_CASE`.
-- **Przejściowo (do etapu 2):** lista z szablonu od „Zweryfikowanego” chowa
-  „Dane w bazie”, a nowe powody stoją w swoich grupach (`groupRejectedReasons`).
+- **Okno (etap 2):** `RejectionV2` przy odrzuceniu zawsze pyta z listy
+  słownika (`AutofillFeedbackField` z `groups`) — na Tablicy, w panelu
+  osoby, w formularzu screeningu i w zakładce rozmów. Grupy w trzech
+  kolumnach, każda do najkrótszej (`reasonColumns`), żeby przy 1280 × 720
+  „Dane w bazie” i „Inne” nie spadały pod zgięcie. Wiersz szablonu wynika
+  z powodu 1:1 (`closeTemplateReason`); szablon bez wiersza → „Inne”
+  z etykietą powodu w opisie. Zmiana „Kto kończy?” zdejmuje powód, którego
+  nie ma na nowej liście. „Skąd to wiesz?”, podpowiedź raportu i „na cały
+  klient” tylko przy osobie od systemu. Opis obowiązkowy przy „Inne”
+  i „Już po rozmowie u tego HM”. Panel DL i karta rozmowy u klienta biorą
+  wiersze szablonu przez `closeTemplateOptions` (bez wierszy spoza słownika).
 - Nowy powód = wpis w `close_reasons.py`, wiersz w nowej migracji z lustrem,
   klucz w `autofill_feedback_schema.REASONS` i lustro na froncie
   (`test_close_reasons.py` pilnuje zgodności).

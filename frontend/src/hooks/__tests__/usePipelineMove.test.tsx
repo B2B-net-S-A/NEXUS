@@ -720,8 +720,7 @@ describe("usePipelineMove — odrzucenie", () => {
     mount(b.all);
 
     React.act(() => controls.requestReject(item));
-    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
-    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(await screen.findByText("Za droga"));
     if (checkEmail) fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
@@ -734,7 +733,7 @@ describe("usePipelineMove — odrzucenie", () => {
       candidate_id: 200,
       stage: "rejected",
       stage_def_id: 9,
-      rejection_reason: "Za wysoka stawka",
+      rejection_reason: "Za droga",
     });
     expect(payload.send_rejection_email).not.toBe(true);
     expect(showActionToast).not.toHaveBeenCalled();
@@ -759,8 +758,7 @@ describe("usePipelineMove — odrzucenie", () => {
     mount(b.all);
 
     React.act(() => controls.requestReject(item));
-    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
-    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(await screen.findByText("Za droga"));
     fireEvent.click(screen.getByRole("checkbox"));
     const body = await screen.findByLabelText("Treść");
     expect(previewPost).toHaveBeenCalledWith("/api/rejection-emails/preview", {
@@ -802,8 +800,7 @@ describe("usePipelineMove — odrzucenie", () => {
     mount(b.all);
 
     React.act(() => controls.requestReject(items));
-    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
-    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(await screen.findByText("Za droga"));
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
@@ -824,9 +821,9 @@ describe("usePipelineMove — odrzucenie z notatką startową", () => {
     mount(b.all);
 
     React.act(() => controls.requestReject(item, undefined, { notes: "Odpada, gdy: brak Javy" }));
-    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
+    const reason = await screen.findByText("Brak kluczowej umiejętności");
     expect(screen.getByPlaceholderText(/lepszą ofertę/)).toHaveValue("Odpada, gdy: brak Javy");
-    fireEvent.change(reason, { target: { value: "Narusza deal-breaker" } });
+    fireEvent.click(reason);
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1].notes).toContain("Odpada, gdy: brak Javy");
@@ -852,7 +849,7 @@ describe("usePipelineMove — odrzucenie za tryb pracy (14.10.2026)", () => {
     mount(b.all, undefined, { rejectionReasons: reasons });
 
     React.act(() => controls.requestReject(items));
-    fireEvent.click(await screen.findByText("Nie akceptuje trybu pracy (biuro / hybryda)"));
+    fireEvent.click(await screen.findByText("Lokalizacja lub tryb pracy"));
     fireEvent.click(screen.getByText("Do 1 dnia"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
 
@@ -873,8 +870,7 @@ describe("usePipelineMove — odrzucenie za tryb pracy (14.10.2026)", () => {
     mount(b.all);
 
     React.act(() => controls.requestReject(item));
-    const reason = await screen.findByPlaceholderText(/brak wymaganych kompetencji/);
-    fireEvent.change(reason, { target: { value: "Za wysoka stawka" } });
+    fireEvent.click(await screen.findByText("Za droga"));
     fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     expect(post.mock.calls[0][1].work_mode_max_onsite_days).toBeUndefined();
