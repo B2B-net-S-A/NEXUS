@@ -174,9 +174,6 @@ vi.mock("@/components/ContractInvoicesTab", () => ({
 vi.mock("@/components/ContractOnboardingTab", () => ({
   ContractOnboardingTab: () => null,
 }));
-vi.mock("@/components/contracts/ContractNotesTab", () => ({
-  ContractNotesTab: () => null,
-}));
 vi.mock("@/components/contracts/ContractRateBenchmarkCard", () => ({
   ContractRateBenchmarkCard: () => <p>karta benchmarku</p>,
 }));

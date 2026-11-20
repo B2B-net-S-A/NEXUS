@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 
-import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useConsultantCard, useContractCare, type TechCard, type TimelineEvent } from "@/lib/api/care";
+import { useConsultantCard, useContractCare, type TechCard } from "@/lib/api/care";
 
-import { ConsultantCard } from "./card/ConsultantCard";
+import { ConsultantCard, type CareStreamActions } from "./card/ConsultantCard";
+import { CareStream } from "./stream/CareStream";
 import { TechCardDialog } from "./TechCardDialog";
 
 /** Karta do „Edytuj” z historii: po `tech_card_id` zdarzenia, a bez niego (stara oś) po dacie. */
@@ -20,9 +20,9 @@ export function findTechCard<T extends Pick<TechCard, "id" | "interview_on">>(
 }
 
 /**
- * Edycja starej karty technologicznej z „Historii” (przycisk „Karta
+ * Edycja starej karty technologicznej ze strumienia rozmów (przycisk „Karta
  * technologiczna” zniknął 22.10.2026 — nowy stan u klienta zapisuje okno
- * „Rozmowa”). Karty czyta zakładka kontraktu dopiero po „Edytuj”.
+ * „Rozmowa”). Karty czyta ten sam odczyt co strumień (`useContractCare`).
  */
 function TechCardEditor({
   contractId,
@@ -62,42 +62,54 @@ function TechCardEditor({
 }
 
 /**
- * Zakładka „Opieka” kontraktu = karta konsultanta na pełną szerokość (ta
- * sama co w panelu `/care?contract=`). Historię opinii klienta (D11)
- * dokłada strona kontraktu pod kartą (`ContractFeedbackHistory`).
+ * Zakładka „Opieka i rozmowy” kontraktu (wariant A, 20.11.2026): cienki
+ * wiersz z opiekunem i rytmem, po lewej jeden strumień rozmów, notatek
+ * i opinii klienta z polem zapisu, po prawej następny krok, plan kontaktów,
+ * zadowolenie i opinie, sprawy i to, co wiemy o projekcie (karta konsultanta
+ * w układzie `page`; panel `/care` ma układ `panel` bez zmian). Bez modułu
+ * opieki zostają same notatki kontraktu.
  */
 export function ContractCareTab({
   contractId,
+  careOpen = true,
+  canAddNote = false,
+  canReadFeedback = false,
   autoStartTalk = false,
   onAutoStartTalkDone,
 }: {
   contractId: number;
+  /** Moduł opieki „Ludzi w NEXUSIE” włączony dla czytającego (bez niego same notatki). */
+  careOpen?: boolean;
+  /** Notatka przy kontrakcie — edycja kontraktów (`POST /api/contracts/{id}/notes`). */
+  canAddNote?: boolean;
+  /** Opinie klienta (krąg D11). */
+  canReadFeedback?: boolean;
   /** Otwórz od razu okno zapisu rozmowy (pas „Co się dzieje” strony kontraktu). */
   autoStartTalk?: boolean;
   onAutoStartTalkDone?: () => void;
 }) {
-  const card = useConsultantCard(contractId);
+  const card = useConsultantCard(contractId, careOpen);
   const [editTarget, setEditTarget] = useState<{ id: number | null; on: string } | null>(null);
-  const canEdit = card.data?.can_edit ?? false;
+  const canEdit = careOpen && (card.data?.can_edit ?? false);
 
-  const historyAction = (event: TimelineEvent) =>
-    canEdit && event.kind === "tech_card" ? (
-      <Button
-        size="sm"
-        variant="ghost"
-        className="h-7 px-2 text-xs"
-        onClick={() => setEditTarget({ id: event.tech_card_id ?? null, on: event.on })}
-      >
-        Edytuj
-      </Button>
-    ) : null;
+  const stream = (actions: CareStreamActions | null) => (
+    <CareStream
+      contractId={contractId}
+      careOpen={careOpen}
+      care={actions}
+      canAddNote={canAddNote}
+      canReadFeedback={careOpen && canReadFeedback}
+      onEditTechCard={canEdit ? (target) => setEditTarget(target) : undefined}
+    />
+  );
 
+  if (!careOpen) return stream(null);
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-card p-4">
+    <>
       <ConsultantCard
         contractId={contractId}
         layout="page"
-        historyAction={historyAction}
+        stream={stream}
         autoStartTalk={autoStartTalk}
         onAutoStartTalkDone={onAutoStartTalkDone}
       />
@@ -109,6 +121,6 @@ export function ContractCareTab({
           onClose={() => setEditTarget(null)}
         />
       ) : null}
-    </div>
+    </>
   );
 }

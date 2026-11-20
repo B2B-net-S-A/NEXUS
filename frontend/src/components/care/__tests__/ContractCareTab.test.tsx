@@ -1,10 +1,12 @@
 /**
- * Zakładka „Opieka” kontraktu = karta konsultanta (22.10.2026): awaria
- * odczytu nie wygląda jak brak historii, czytelnik bez prawa zapisu nie
- * widzi przycisków, zdrowie spoza D11 nie ma etykiety, „Zapisz” przy punkcie
- * planu zamyka go rozmową, „Pomiń” wymaga powodu, historia ma filtry, a starą
- * kartę technologiczną edytuje się z historii (przycisku „Karta
- * technologiczna” już nie ma).
+ * Zakładka „Opieka i rozmowy” kontraktu w wariancie A (20.11.2026): cienki
+ * wiersz z opiekunem i rytmem, po lewej jeden strumień rozmów i notatek
+ * z polem zapisu, po prawej następny krok, plan, zadowolenie i opinie, sprawy
+ * i projekt. Awaria karty nie chowa notatek, awaria notatek nie udaje pustki,
+ * czytelnik bez prawa zapisu nie widzi przycisków, „Zapisz” przy punkcie planu
+ * zamyka go rozmową, „Pomiń” wymaga powodu, tekst z pola strumienia trafia do
+ * okna rozmowy, notatka zapisuje się trasą kontraktu z rodzajem z menu, a starą
+ * kartę technologiczną edytuje się ze strumienia.
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -19,12 +21,17 @@ const mocks = vi.hoisted(() => ({
   showToast: vi.fn(),
 }));
 
-vi.mock("@/lib/api", () => ({
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
   api: {
     get: (...a: unknown[]) => mocks.get(...a),
     post: (...a: unknown[]) => mocks.post(...a),
     put: vi.fn(),
     patch: (...a: unknown[]) => mocks.patch(...a),
+  },
+  contractsApi: {
+    notesTimeline: (id: number) => mocks.get(`/api/contracts/${id}/notes`),
+    createNote: (id: number, payload: unknown) => mocks.post(`/api/contracts/${id}/notes`, payload),
   },
 }));
 
@@ -42,6 +49,7 @@ if (!Element.prototype.hasPointerCapture) {
 }
 
 import { ContractCareTab } from "@/components/care/ContractCareTab";
+import type { ContractTimelineItem } from "@/lib/api";
 import type {
   ClientStateView,
   ConsultantCardData,
@@ -70,7 +78,7 @@ function card(overrides: Partial<ConsultantCardData> = {}): ConsultantCardData {
     cadence: { level: "biweekly", label: "co 2 tygodnie", until_on: null },
     health: { level: "watch", label: "Uwaga", reasons: ["rozmowa zaległa od 14 dni"] },
     kpis: {
-      last_contact: null,
+      last_contact: { on: "2026-10-20", days_ago: 30 },
       satisfaction: { value: 3, previous: 5 },
       manager_feedback: { avg: 3.7, extension: "likely", on: "2026-10-12" },
       order_end: { on: "2026-11-20", days: 29 },
@@ -86,7 +94,7 @@ function card(overrides: Partial<ConsultantCardData> = {}): ConsultantCardData {
   };
 }
 
-function timeline(): ContractTimeline {
+function timeline(): Pick<ContractTimeline, "events" | "feedback_visible" | "can_edit"> {
   const event = (kind: ContractTimeline["events"][number]["kind"], on: string, title: string) => ({
     kind,
     on,
@@ -96,28 +104,10 @@ function timeline(): ContractTimeline {
     future: false,
   });
   return {
-    contract: {
-      id: 5,
-      candidate_id: 9,
-      candidate_name: "Anna Przykładowa",
-      client_id: 3,
-      client_name: "Firma Testowa",
-      job_id: null,
-      job_title: null,
-      status: "active",
-      is_live: true,
-      start_date: "2026-10-01",
-      end_date: null,
-    },
-    owner: null,
-    manager: null,
-    signals: [],
-    front_office_reasons: [],
     events: [
       event("start", "2026-10-01", "Start u klienta"),
       event("tech_card", "2026-10-05", "Karta technologiczna"),
-      event("case_opened", "2026-10-06", "Sprawa: Dostęp do VPN"),
-      event("feedback", "2026-10-12", "Opinia: Piotr Menedżerski"),
+      event("case_opened", "2026-10-06", "Sprawa otwarta: Dostęp do VPN"),
     ],
     feedback_visible: true,
     can_edit: true,
@@ -126,8 +116,24 @@ function timeline(): ContractTimeline {
 
 const STATE: ClientStateView = { state: null, source: null, questions: [] };
 
-function contractCare(): Pick<ContractCare, "tech_cards"> {
+function contractCare(): Pick<ContractCare, "tech_cards" | "conversations"> {
   return {
+    conversations: [
+      {
+        id: 41,
+        occurred_on: "2026-10-20",
+        channel: "phone",
+        satisfaction: 3,
+        note: "Brakuje dostępu do VPN.",
+        attrition_risk: false,
+        wants_change: false,
+        project_end_on: null,
+        client_hiring: false,
+        client_hiring_note: null,
+        follow_up_on: null,
+        author: { id: 2, name: "Natalia Opiekunka" },
+      },
+    ],
     tech_cards: [
       {
         id: 31,
@@ -151,7 +157,7 @@ function contractCare(): Pick<ContractCare, "tech_cards"> {
         team_externals: null,
         initiatives: [],
         memorable_quote: null,
-        note: null,
+        note: "Zespół płatności.",
         sales_status: null,
         author: null,
       },
@@ -159,11 +165,26 @@ function contractCare(): Pick<ContractCare, "tech_cards"> {
   };
 }
 
-function serve(data: ConsultantCardData) {
+const NOTE: ContractTimelineItem = {
+  id: 61,
+  kind: "note",
+  at: "2026-10-15T10:00:00Z",
+  summary: null,
+  content: "Klient pyta o przedłużenie.",
+  sub_type: "general",
+  status: null,
+  author_id: 7,
+  author_name: "jan.testowy@firma.test",
+  duration_seconds: null,
+};
+
+function serve(data: ConsultantCardData, notes: ContractTimelineItem[] = [NOTE]) {
   mocks.get.mockImplementation((url: string) => {
     if (url.endsWith("/card")) return Promise.resolve({ data });
     if (url.endsWith("/timeline")) return Promise.resolve({ data: timeline() });
     if (url.endsWith("/client-state")) return Promise.resolve({ data: STATE });
+    if (url.endsWith("/feedback")) return Promise.resolve({ data: { items: [], client_id: 3, can_write: true } });
+    if (url === "/api/contracts/5/notes") return Promise.resolve({ data: notes });
     if (url === "/api/hr/config") return Promise.reject(httpError(403));
     if (url.endsWith("/api/care/contracts/5")) return Promise.resolve({ data: contractCare() });
     if (url.includes("/areas")) return Promise.resolve({ data: { items: [] } });
@@ -171,11 +192,11 @@ function serve(data: ConsultantCardData) {
   });
 }
 
-function renderTab() {
+function renderTab(props: Partial<React.ComponentProps<typeof ContractCareTab>> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <ContractCareTab contractId={5} />
+      <ContractCareTab contractId={5} canAddNote canReadFeedback {...props} />
     </QueryClientProvider>,
   );
 }
@@ -184,14 +205,18 @@ beforeEach(() => {
   mocks.get.mockReset();
   mocks.post.mockReset();
   mocks.patch.mockReset();
+  mocks.showToast.mockReset();
 });
 
-describe("ContractCareTab", () => {
-  it("awaria serwera to komunikat z ponowieniem, nie pusta historia", async () => {
-    mocks.get.mockRejectedValue(httpError(500));
+describe("ContractCareTab — wariant A", () => {
+  it("awaria karty to komunikat obok, a notatki kontraktu zostają", async () => {
+    mocks.get.mockImplementation((url: string) =>
+      url === "/api/contracts/5/notes" ? Promise.resolve({ data: [NOTE] }) : Promise.reject(httpError(500)),
+    );
     renderTab();
     expect(await screen.findByText("Nie udało się wczytać karty konsultanta.")).toBeInTheDocument();
-    expect(screen.queryByText(/Nie ma jeszcze zdarzeń/)).not.toBeInTheDocument();
+    expect(await screen.findByText("Klient pyta o przedłużenie.")).toBeInTheDocument();
+    expect(screen.queryByText(/nie ma jeszcze rozmów/)).not.toBeInTheDocument();
   });
 
   it("wyłączony moduł mówi to wprost", async () => {
@@ -200,31 +225,48 @@ describe("ContractCareTab", () => {
     expect(await screen.findByText("Ten moduł nie jest jeszcze włączony.")).toBeInTheDocument();
   });
 
-  it("zdrowie z „dlaczego”, cztery liczby, opiekun i rytm; bez „Karty technologicznej”", async () => {
+  it("awaria notatek to zdanie z ponowieniem, nie pusty strumień", async () => {
+    serve(card());
+    const served = mocks.get.getMockImplementation()!;
+    mocks.get.mockImplementation((url: string) =>
+      url === "/api/contracts/5/notes" ? Promise.reject(httpError(500)) : served(url),
+    );
+    renderTab();
+    await screen.findByRole("group", { name: "Opiekun i rytm" });
+    expect(await screen.findByText("Nie udało się wczytać notatek kontraktu.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Spróbuj ponownie" })).toBeInTheDocument();
+    expect(screen.queryByText(/nie ma jeszcze rozmów/)).not.toBeInTheDocument();
+  });
+
+  it("wiersz z opiekunem i rytmem, strumień i prawa kolumna; bez imienia i powodów „Uwaga”", async () => {
     serve(card());
     renderTab();
-    expect(await screen.findByRole("heading", { name: "Anna Przykładowa" })).toBeInTheDocument();
-    expect(screen.getByText("Uwaga")).toBeInTheDocument();
-    expect(screen.getByText(/Dlaczego „Uwaga”:/).parentElement).toHaveTextContent(
-      "Dlaczego „Uwaga”: rozmowa zaległa od 14 dni.",
-    );
-    const kpis = screen.getByRole("region", { name: "Najważniejsze liczby" });
-    expect(within(kpis).getByText("brak rozmów")).toBeInTheDocument();
-    expect(within(kpis).getByText("rytm co 2 tyg.")).toBeInTheDocument();
-    expect(within(kpis).getByText("było 5 / 5")).toBeInTheDocument();
-    expect(within(kpis).getByText("3,7")).toBeInTheDocument();
-    expect(within(kpis).getByText("za 29 dni")).toBeInTheDocument();
-    // Opiekun w podtytule (makieta P2), skąd się wziął — w podpowiedzi.
-    expect(screen.getByText(/· opiekun Natalia Opiekunka$/)).toHaveAttribute(
-      "title",
-      "Opiekun: Delivery Lead kontraktu",
-    );
-    expect(screen.getByRole("region", { name: "Następny krok" })).toHaveTextContent("Zaległa rozmowa");
+    const owner = await screen.findByRole("group", { name: "Opiekun i rytm" });
+    expect(owner).toHaveTextContent("Opiekun: Natalia Opiekunka (Delivery Lead kontraktu)");
+    expect(owner).toHaveTextContent("rytm: co 2 tygodnie");
+    expect(owner).toHaveTextContent("ostatni kontakt 20.10.2026 (30 dni temu)");
+    // Imię, zdrowie i „dlaczego” stoją w nagłówku i w pasie „Co się dzieje”.
+    expect(screen.queryByRole("heading", { name: "Anna Przykładowa" })).toBeNull();
+    expect(screen.queryByText(/Dlaczego „Uwaga”/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Karta technologiczna" })).toBeNull();
+
+    const stream = await screen.findByRole("list", { name: "Strumień rozmów i notatek" });
+    await waitFor(() => expect(within(stream).getAllByRole("listitem")).toHaveLength(4));
+    expect(within(stream).getByText("Rozmowa z konsultantem · telefon")).toBeInTheDocument();
+    expect(within(stream).getByText("Sprawa otwarta: Dostęp do VPN")).toBeInTheDocument();
+    expect(within(stream).getByText(/Jan Testowy/)).toBeInTheDocument();
+    expect(screen.queryByText("Start u klienta")).toBeNull();
+
+    expect(screen.getByRole("region", { name: "Następny krok" })).toHaveTextContent("Zaległa rozmowa");
+    const opinions = screen.getByRole("region", { name: "Zadowolenie i opinie" });
+    expect(within(opinions).getByText("3 / 5")).toBeInTheDocument();
+    expect(within(opinions).getByText("3,7")).toBeInTheDocument();
+    expect(await within(opinions).findByText("brak")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Sprawy" })).toHaveTextContent("Brak otwartych spraw");
     expect(screen.getByText(/Nic jeszcze nie wiemy o projekcie/)).toBeInTheDocument();
   });
 
-  it("czytelnik spoza D11: bez etykiety zdrowia, bez opinii i bez przycisków zapisu", async () => {
+  it("czytelnik bez zapisu opieki i bez D11: tylko notatka w polu, bez przycisków planu", async () => {
     serve(
       card({
         health: null,
@@ -234,26 +276,27 @@ describe("ContractCareTab", () => {
         kpis: { last_contact: null, satisfaction: null, manager_feedback: null, order_end: null },
       }),
     );
-    renderTab();
-    await screen.findByRole("heading", { name: "Anna Przykładowa" });
-    expect(screen.queryByText("Uwaga")).toBeNull();
+    renderTab({ canReadFeedback: false });
+    await screen.findByRole("group", { name: "Opiekun i rytm" });
     expect(screen.getByText("widzi opiekun, DL, HoR i admin")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zapisz rozmowę" })).toBeNull();
-    await userEvent.click(screen.getByRole("button", { name: /Plan kontaktów/ }));
-    expect(screen.getByText("po terminie")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
+    // Zostaje sama notatka kontraktu (edycja kontraktów), bez rozmowy i opinii.
+    expect(screen.queryByRole("radiogroup", { name: "Rodzaj wpisu" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zapisz rozmowę…" })).toBeNull();
+    const plan = screen.getByRole("region", { name: "Plan kontaktów" });
+    expect(within(plan).getByText(/po terminie/)).toBeInTheDocument();
+    expect(within(plan).queryByRole("button")).toBeNull();
+    expect(screen.getByText(/Opinie klienta widzą opiekun/)).toBeInTheDocument();
   });
 
-  it("„Zapisz” przy punkcie planu wysyła rozmowę zamykającą ten punkt, bez stanu u klienta", async () => {
+  it("„Zapisz” przy punkcie planu wysyła rozmowę zamykającą ten punkt", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     serve(card());
     mocks.post.mockResolvedValue({ data: { conversation_id: 1, tech_card_id: null, case_ids: [], demand_notified: 0 } });
     renderTab();
-    await user.click(await screen.findByRole("button", { name: /Plan kontaktów/ }));
-    await user.click(screen.getByRole("button", { name: "Zapisz" }));
+    const plan = await screen.findByRole("region", { name: "Plan kontaktów" });
+    await user.click(within(plan).getByRole("button", { name: "Zapisz" }));
     const dialog = await screen.findByRole("dialog", { name: "Rozmowa · Anna Przykładowa" });
     expect(within(dialog).getByText(/Zamyka punkt planu: dzień 7 \d\d\.\d\d\./)).toBeInTheDocument();
-    expect(within(dialog).getByText("Zapisze: rozmowę.")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("radio", { name: "4 z 5" }));
     await user.click(within(dialog).getByRole("button", { name: "Zapisz rozmowę" }));
     await waitFor(() => expect(mocks.post).toHaveBeenCalled());
@@ -268,8 +311,8 @@ describe("ContractCareTab", () => {
     serve(card());
     mocks.patch.mockResolvedValue({ data: { contract: { client_id: 3 } } });
     renderTab();
-    await user.click(await screen.findByRole("button", { name: /Plan kontaktów/ }));
-    await user.click(screen.getByRole("button", { name: "Pomiń" }));
+    const plan = await screen.findByRole("region", { name: "Plan kontaktów" });
+    await user.click(within(plan).getByRole("button", { name: "Pomiń" }));
     const dialog = await screen.findByRole("dialog", { name: "Pomiń kontakt" });
     await user.click(within(dialog).getByRole("button", { name: "Pomiń" }));
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Wybierz powód pominięcia.");
@@ -286,18 +329,64 @@ describe("ContractCareTab", () => {
     ]);
   });
 
-  it("historia z filtrami; „Edytuj” przy karcie technologicznej otwiera starą kartę", async () => {
+  it("tekst z pola strumienia trafia do okna rozmowy, a po zapisie pole jest puste", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serve(card());
+    mocks.post.mockResolvedValue({ data: { conversation_id: 2, tech_card_id: null, case_ids: [], demand_notified: 0 } });
+    renderTab();
+    const kinds = await screen.findByRole("radiogroup", { name: "Rodzaj wpisu" });
+    // Czeka punkt planu — na start rozmowa z konsultantem.
+    expect(within(kinds).getByRole("radio", { name: "Rozmowa z konsultantem" })).toHaveAttribute("aria-checked", "true");
+    const field = screen.getByLabelText("Treść wpisu");
+    await user.type(field, "Dostał VPN.");
+    await user.click(screen.getByRole("button", { name: "Zapisz rozmowę…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rozmowa · Anna Przykładowa" });
+    expect(within(dialog).getByLabelText("Notatka")).toHaveValue("Dostał VPN.");
+    await user.click(within(dialog).getByRole("button", { name: "Zapisz rozmowę" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    expect(mocks.post.mock.calls[0][1]).toMatchObject({ plan_item_id: 11, note: "Dostał VPN." });
+    await waitFor(() => expect(screen.getByLabelText("Treść wpisu")).toHaveValue(""));
+  });
+
+  it("notatka zapisuje się trasą kontraktu z rodzajem z menu, nie z natywnej listy", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    serve(card());
+    mocks.post.mockResolvedValue({ data: NOTE });
+    renderTab();
+    await user.click(await screen.findByRole("radio", { name: "Notatka" }));
+    expect(screen.queryByRole("combobox", { name: "Rodzaj notatki" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Rodzaj notatki: Notatka" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Spotkanie" }));
+    const field = screen.getByLabelText("Treść wpisu");
+    await user.type(field, "Spotkanie u klienta.");
+    await user.click(within(field.closest("form")!).getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalled());
+    expect(mocks.post.mock.calls[0]).toEqual([
+      "/api/contracts/5/notes",
+      { content: "Spotkanie u klienta.", note_type: "meeting" },
+    ]);
+    expect(mocks.showToast).toHaveBeenCalledWith("Notatka zapisana przy kontrakcie", "success");
+  });
+
+  it("„Edytuj” przy karcie technologicznej w strumieniu otwiera starą kartę", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     serve(card());
     renderTab();
-    const history = await screen.findByRole("list", { name: "Historia konsultanta" });
-    expect(within(history).getAllByRole("listitem")).toHaveLength(4);
-    await user.click(screen.getByRole("button", { name: "Sprawy 1" }));
-    expect(within(screen.getByRole("list", { name: "Historia konsultanta" })).getAllByRole("listitem")).toHaveLength(1);
-    await user.click(screen.getByRole("button", { name: "Rozmowy 1" }));
-    await user.click(screen.getByRole("button", { name: "Edytuj" }));
+    // Strumień przed wczytaniem karty stoi w układzie zastępczym — szukamy go po karcie.
+    await screen.findByRole("group", { name: "Opiekun i rytm" });
+    const stream = await screen.findByRole("list", { name: "Strumień rozmów i notatek" });
+    await user.click(await within(stream).findByRole("button", { name: "Edytuj" }));
     expect(await screen.findByRole("dialog", { name: "Karta technologiczna" })).toBeInTheDocument();
     expect(mocks.get).toHaveBeenCalledWith("/api/care/contracts/5");
+  });
+
+  it("bez modułu opieki zostają same notatki — karta opieki nie jest pytana", async () => {
+    serve(card());
+    renderTab({ careOpen: false });
+    expect(await screen.findByText("Klient pyta o przedłużenie.")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Opiekun i rytm" })).toBeNull();
+    expect(mocks.get.mock.calls.some(([url]) => String(url).startsWith("/api/care/"))).toBe(false);
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
   });
 });
 

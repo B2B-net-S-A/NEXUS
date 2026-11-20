@@ -1,5 +1,5 @@
 /**
- * Zakładki kontraktu (aneksy, onboarding, sprzęt, notatki) — audyt FE-02..07.
+ * Zakładki kontraktu (aneksy, onboarding, sprzęt, notatki w strumieniu opieki) — audyt FE-02..07.
  *
  * * awaria odczytu NIE może renderować się jak pusta lista (FE-03) — pusta
  *   lista onboardingu zaprasza do „wygenerowania”, czyli do zdublowania
@@ -70,7 +70,7 @@ vi.mock("@/store/auth", async () => {
 import { ContractOnboardingTab } from "@/components/ContractOnboardingTab";
 import { ContractAmendmentsTab } from "@/components/ContractAmendmentsTab";
 import { ContractEquipmentTab } from "@/components/contracts/ContractEquipmentTab";
-import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
+import { CareStream } from "@/components/care/stream/CareStream";
 import { ContractInvoicesTab } from "@/components/ContractInvoicesTab";
 
 function httpError(status: number, detail?: string) {
@@ -221,40 +221,46 @@ describe("ContractEquipmentTab", () => {
   });
 });
 
-describe("ContractNotesTab", () => {
-  it("awaria odczytu pokazuje błąd z ponowieniem zamiast zachęty do powiązania", async () => {
+// Notatki kontraktu od 20.11.2026 stoją w strumieniu „Opieki i rozmów”
+// (`CareStream`; bez modułu opieki — same notatki). Reguły zostały: awaria
+// to błąd z ponowieniem, pusty strumień nie każe ustawiać pól technicznych,
+// notatkę dodaje się wprost przy kontrakcie z rodzajem z menu.
+describe("CareStream — notatki kontraktu", () => {
+  it("awaria odczytu pokazuje błąd z ponowieniem zamiast pustego strumienia", async () => {
     mocks.notesTimeline.mockRejectedValueOnce(httpError(500));
-    renderWith(<ContractNotesTab contractId={4} />);
+    renderWith(<CareStream contractId={4} careOpen={false} care={null} canAddNote={false} canReadFeedback={false} />);
 
-    expect(await screen.findByText(FAILURE)).toBeInTheDocument();
-    expect(screen.queryByText(/Brak notatek/)).not.toBeInTheDocument();
+    expect(await screen.findByText("Nie udało się wczytać notatek kontraktu.")).toBeInTheDocument();
+    expect(screen.queryByText(/nie ma jeszcze rozmów/)).not.toBeInTheDocument();
 
     mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
     fireEvent.click(screen.getByRole("button", { name: /Spróbuj ponownie/ }));
-    expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+    expect(await screen.findByText(/nie ma jeszcze rozmów ani notatek/)).toBeInTheDocument();
   });
 
-  it("pusta zakładka nie każe ustawiać pola technicznego (runda 10, F03)", async () => {
+  it("pusty strumień nie każe ustawiać pola technicznego (runda 10, F03)", async () => {
     mocks.notesTimeline.mockResolvedValueOnce({ data: [] });
-    renderWith(<ContractNotesTab contractId={4} />);
-    expect(await screen.findByText(/Brak notatek/)).toBeInTheDocument();
+    renderWith(<CareStream contractId={4} careOpen={false} care={null} canAddNote={false} canReadFeedback={false} />);
+    expect(await screen.findByText(/nie ma jeszcze rozmów ani notatek/)).toHaveTextContent(
+      "Notatkę przy kontrakcie dodaje osoba z edycją kontraktów.",
+    );
     expect(screen.queryByText(/contract_id/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Dodaj notatkę/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
   });
 
-  it("notatkę dodaje się wprost przy kontrakcie (runda 10, F03)", async () => {
+  it("notatkę dodaje się wprost przy kontrakcie, rodzaj z menu (runda 10, F03)", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
     mocks.notesTimeline.mockResolvedValue({ data: [] });
     mocks.createNote.mockResolvedValueOnce({ data: { id: 1 } });
-    renderWith(<ContractNotesTab contractId={4} canAddNote />);
+    renderWith(<CareStream contractId={4} careOpen={false} care={null} canAddNote canReadFeedback={false} />);
 
-    const button = await screen.findByRole("button", { name: /Dodaj notatkę/ });
+    const button = await screen.findByRole("button", { name: "Zapisz" });
     expect(button).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/Nowa notatka przy kontrakcie/), {
+    fireEvent.change(screen.getByLabelText("Treść wpisu"), {
       target: { value: "  Ustalenia z rozmowy  " },
     });
-    fireEvent.change(screen.getByLabelText("Rodzaj notatki"), {
-      target: { value: "call" },
-    });
+    await user.click(screen.getByRole("button", { name: "Rodzaj notatki: Notatka" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: "Telefon" }));
     fireEvent.click(button);
     await waitFor(() =>
       expect(mocks.createNote).toHaveBeenCalledWith(4, {

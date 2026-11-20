@@ -5,6 +5,7 @@
  * zdrowie i rytm), Michał ma pełną kartę z wiedzą o projekcie i sprawami.
  */
 
+import type { ContractTimelineItem } from "@/lib/api";
 import type {
   CardCase,
   CardPlanItem,
@@ -16,6 +17,7 @@ import type {
   NextStep,
   TimelineEvent,
 } from "@/lib/api/care";
+import type { ContractFeedbackItem } from "@/lib/api/client-people";
 
 import { HR_CAST, HR_CLIENTS, HR_CONSULTANTS, shiftDay } from "../hr-fixtures";
 import { CARE_CONTRACT_ID, careTechCard, contractCare, contractStart } from "./fixtures";
@@ -491,4 +493,61 @@ export function careClients(today: string, scope: "mine" | "all"): CareClients {
     );
   }
   return { rows, today };
+}
+
+/** Notatki kontraktu Michała w strumieniu „Rozmowy i notatki” (autor to adres, ekran pokazuje imię). */
+export function contractNotes(today: string): ContractTimelineItem[] {
+  return [
+    {
+      id: 7701,
+      kind: "note",
+      at: `${shiftDay(today, -4)}T09:20:00Z`,
+      summary: null,
+      content: "Klient pyta, czy Michał może zostać po lutym — prośba o termin rozmowy z menedżerem.",
+      sub_type: "call",
+      status: null,
+      author_id: HR_CAST.kamil.id,
+      author_name: HR_CAST.kamil.email,
+      duration_seconds: null,
+    },
+    {
+      id: 7702,
+      kind: "note",
+      at: `${shiftDay(today, -36)}T14:05:00Z`,
+      summary: null,
+      content: "Umowa podpisana, sprzęt odbiera w biurze klienta.",
+      sub_type: "general",
+      status: null,
+      author_id: natalia.id,
+      author_name: natalia.email,
+      duration_seconds: null,
+    },
+  ];
+}
+
+/** Opinie menedżera u klienta o Michale (krąg D11). */
+export function contractFeedback(today: string): {
+  items: ContractFeedbackItem[];
+  client_id: number;
+  can_write: boolean;
+} {
+  return {
+    items: [
+      {
+        session_id: 8801,
+        held_on: shiftDay(today, -20),
+        channel: "teams",
+        contact: { id: 8202, name: "Piotr Menedżerski" },
+        quality: 4,
+        communication: 5,
+        autonomy: 4,
+        average: 4.3,
+        extension_outlook: "likely",
+        note: "Szybko wszedł w projekt, zespół go chwali.",
+        author: { id: natalia.id, name: natalia.name },
+      },
+    ],
+    client_id: HR_CLIENTS.bank.id,
+    can_write: true,
+  };
 }

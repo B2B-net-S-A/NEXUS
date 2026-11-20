@@ -30,9 +30,7 @@ import {
 } from "@/components/contracts/FinancialRatesCard";
 import { FrameworkCategoryCard } from "@/components/contracts/FrameworkCategoryCard";
 import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
-import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
-import { ContractFeedbackHistory } from "@/components/care/ContractFeedbackHistory";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { canReadClientPeople, type ManagerHint } from "@/lib/api/client-people";
 import type { HiringManagerChoice } from "@/lib/hiring-manager";
@@ -2907,24 +2905,20 @@ export default function ContractDetailPage() {
         </div>
       )}
 
-      {/* Tab: Opieka i rozmowy — karta opieki (moduł „care” z „Ludzi
-          w NEXUSIE”, tylko przy włączonym module) i notatki z rozmów. */}
+      {/* Tab: Opieka i rozmowy (wariant A, 20.11.2026) — jeden strumień
+          rozmów, notatek i opinii klienta (dawne osobne karty „Opinie
+          klienta” i „Notatki i rozmowy”) z polem zapisu, obok plan,
+          zadowolenie, sprawy i projekt z karty opieki (moduł „care”
+          z „Ludzi w NEXUSIE”). Bez modułu — same notatki kontraktu. */}
       {activeTab === "care" && (
-        <div className="space-y-4">
-          {careOpen ? (
-            <ContractCareTab
-              contractId={id}
-              autoStartTalk={careTalkRequested}
-              onAutoStartTalkDone={() => setCareTalkRequested(false)}
-            />
-          ) : null}
-          {careOpen && canReadClientPeople(user) ? (
-            <ContractFeedbackHistory contractId={id} clientId={contract.client_id} />
-          ) : null}
-          <section aria-label="Notatki i rozmowy" className="rounded-xl border border-border bg-card p-4 shadow-xs">
-            <ContractNotesTab contractId={id} canAddNote={canEditContract} />
-          </section>
-        </div>
+        <ContractCareTab
+          contractId={id}
+          careOpen={careOpen}
+          canAddNote={canEditContract}
+          canReadFeedback={canReadClientPeople(user)}
+          autoStartTalk={careTalkRequested}
+          onAutoStartTalkDone={() => setCareTalkRequested(false)}
+        />
       )}
 
       {/* Pieniądze, ciąg dalszy: faktury konsultanta z KSeF (tylko do odczytu,
