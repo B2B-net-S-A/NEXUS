@@ -89,6 +89,11 @@ function newestFirst(rows: FileRow[]): FileRow[] {
  * „Zamówienia” (tylko gdy coś w nim jest), potem foldery w kolejności
  * założenia. Plik ze wskazaniem na folder, którego już nie ma (wyścig
  * z usunięciem), ląduje w „Aktualnej umowie”, a nie znika.
+ *
+ * PDF linii zamówienia zbiorczego i kopia PDF-u jej grupy bywają tym samym
+ * plikiem (19.11.2026: 14 par w 13 kontraktach). Gdy serwer to potwierdzi
+ * (`same_file_document_id`), folder pokazuje jeden wiersz — linię z zakładki
+ * Zamówienia; kopia nie niesie nic więcej, a bez „Usuń” wiersz nie wraca.
  */
 export function buildDocumentSections(
   docs: readonly ContractDocument[],
@@ -104,10 +109,16 @@ export function buildDocumentSections(
     key: `order-${order.order_id}`,
     order,
   }));
+  const sameAsOrderFile = new Set(
+    orderFiles
+      .map((order) => order.same_file_document_id)
+      .filter((id): id is number => id != null),
+  );
 
   for (const doc of docs) {
     const row: FileRow = { kind: "doc", key: `doc-${doc.id}`, doc };
     if (doc.doc_type === "order") {
+      if (sameAsOrderFile.has(doc.id)) continue;
       orders.push(row);
     } else if (doc.folder_id != null && known.has(doc.folder_id)) {
       const list = byFolder.get(doc.folder_id) ?? [];
@@ -185,6 +196,19 @@ export function folderNameSuggestions(
     out.push(name);
   }
   return out;
+}
+
+/**
+ * 409 `document_duplicate`: kontrakt ma już ten plik (ten sam SHA-256,
+ * 20.11.2026). Okno „Dodaj plik” pokazuje zdanie z serwera; załącznik z okien
+ * zakończenia współpracy jest wtedy już w Dokumentach, więc to nie błąd.
+ */
+export function isDocumentDuplicate(error: unknown): boolean {
+  const response = (error as { response?: { status?: number; data?: unknown } } | null)
+    ?.response;
+  const detail = (response?.data as { detail?: { code?: unknown } } | null | undefined)
+    ?.detail;
+  return response?.status === 409 && detail?.code === "document_duplicate";
 }
 
 /** Dokumenty, które liczą się do alarmu „dokument wygasł” — bez archiwum. */

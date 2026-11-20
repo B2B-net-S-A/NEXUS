@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { AppModal } from "@/components/ds/AppModal";
 import { apiErrorMessage } from "@/lib/api-error";
+import { isDocumentDuplicate } from "@/lib/contract-document-folders";
 import {
   AGREEMENT_PLANS,
   AGREEMENT_TERMINATION_MODES,
@@ -228,6 +229,9 @@ export function ContractTerminationDialog({
           try {
             await contractsApi.uploadDocument(id, body);
           } catch (error: unknown) {
+            // Ten plik już jest w Dokumentach kontraktu (20.11.2026) —
+            // załącznik jest na miejscu, drugiej kopii serwer nie dokłada.
+            if (isDocumentDuplicate(error)) continue;
             uploadError = apiErrorMessage(error, "Nie udało się dodać załącznika.");
           }
         }

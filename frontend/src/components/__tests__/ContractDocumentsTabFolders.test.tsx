@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   moveDocuments: vi.fn(),
   createDocumentFolder: vi.fn(),
   orderFiles: vi.fn(),
+  uploadDocument: vi.fn(),
 }));
 
 vi.mock("@/lib/api", () => ({
@@ -23,7 +24,7 @@ vi.mock("@/lib/api", () => ({
     documentFolders: (...a: unknown[]) => api.documentFolders(...a),
     moveDocuments: (...a: unknown[]) => api.moveDocuments(...a),
     createDocumentFolder: (...a: unknown[]) => api.createDocumentFolder(...a),
-    uploadDocument: vi.fn(),
+    uploadDocument: (...a: unknown[]) => api.uploadDocument(...a),
     deleteDocument: vi.fn(),
     renameDocumentFolder: vi.fn(),
     renameOrdersFolder: vi.fn(),
@@ -49,6 +50,20 @@ function doc(id: number, filename: string, doc_type: string, folder_id: number |
     folder_id,
   };
 }
+
+const ORDER_FILE = {
+  order_id: 77,
+  client_id: 9,
+  contract_id: 3,
+  title: "ZAM-2026-0930",
+  filename: "zam.pdf",
+  content_type: "application/pdf",
+  size_bytes: 2048,
+  created_at: "2026-09-30T10:00:00Z",
+  order_status: "active",
+  uploaded_by_email: null,
+  uploaded_at: null,
+};
 
 function renderTab(readOnly = false) {
   const client = new QueryClient({
@@ -87,25 +102,7 @@ beforeEach(() => {
       ],
     },
   });
-  api.orderFiles.mockResolvedValue({
-    data: {
-      documents: [
-        {
-          order_id: 77,
-          client_id: 9,
-          contract_id: 3,
-          title: "ZAM-2026-0930",
-          filename: "zam.pdf",
-          content_type: "application/pdf",
-          size_bytes: 2048,
-          created_at: "2026-09-30T10:00:00Z",
-          order_status: "active",
-          uploaded_by_email: null,
-          uploaded_at: null,
-        },
-      ],
-    },
-  });
+  api.orderFiles.mockResolvedValue({ data: { documents: [ORDER_FILE] } });
   api.moveDocuments.mockResolvedValue({ data: { moved: 1 } });
   api.createDocumentFolder.mockResolvedValue({
     data: { folder: { id: 21, name: "Poprzednia umowa – nr 361-2019", created_at: "x" }, moved: 2 },
@@ -185,5 +182,35 @@ describe("ContractDocumentsTab — foldery", () => {
     renderTab();
     expect(await screen.findByText("Stara polisa.pdf")).toBeInTheDocument();
     expect(screen.getByText(/Nie udało się wczytać folderów/)).toBeInTheDocument();
+  });
+
+  it("shows the line PDF once when the group copy is the same file", async () => {
+    // 19.11.2026: PDF linii zamówienia i kopia PDF-u jej grupy jako dwa wiersze.
+    api.orderFiles.mockResolvedValue({
+      data: { documents: [{ ...ORDER_FILE, same_file_document_id: 4 }] },
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Rozwiń folder Zamówienia" }));
+    expect(screen.getByText("ZAM-2026-0930")).toBeInTheDocument();
+    expect(screen.queryByText("Zamówienie wrzesień.pdf")).toBeNull();
+  });
+
+  it("keeps a file the contract already has out and says so in the upload dialog", async () => {
+    const message =
+      "Ten plik jest już w Dokumentach kontraktu: „Umowa B2B nr 518-2026.pdf”, dodany 01.10.2026. Drugiej kopii nie dodajemy.";
+    api.uploadDocument.mockRejectedValue({
+      isAxiosError: true,
+      response: { status: 409, data: { detail: { code: "document_duplicate", message } } },
+    });
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Dodaj plik" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Plik do dodania"), {
+      target: { files: [new File(["%PDF"], "umowa.pdf", { type: "application/pdf" })] },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Dodaj plik" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(message);
+    expect(api.uploadDocument).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });

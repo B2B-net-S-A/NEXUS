@@ -344,6 +344,10 @@ from app.services.order_excel_export import (
     orders_export_filename,
 )
 from app.services import storage_service
+from app.services.contract_folder_docs.store import (
+    same_content_documents,
+    sha256_hex,
+)
 from app.services.order_gaps import close_gaps_of_deleted_orders
 from app.services.order_settlements import (
     assert_order_has_no_settlements,
@@ -953,6 +957,11 @@ async def _sync_group_pdf_documents(
     from the group, so replacing the master PDF updates the historical copy as
     required. Manual documents have ``source_order_group_id IS NULL`` and are
     never touched.
+
+    20.11.2026 (Artur: jedna kopia): kontrakt, który ma już ten plik (ten sam
+    SHA-256, np. PO wgrany ręcznie), nie dostaje nowej kopii — w folderze
+    „Zamówienia” leżały dwa wiersze tego samego PDF-u. Istniejąca kopia grupy
+    podmienia się jak dotąd.
     """
 
     current_contract_ids = set(
@@ -981,13 +990,18 @@ async def _sync_group_pdf_documents(
     # i bez `/` z numeru („OIT/0189/2026/ITVM”), inaczej pobranie z karty
     # kontraktu dawało plik bez rozszerzenia.
     copy_filename = _order_copy_filename(group.order_number)
+    digest = sha256_hex(payload)
     for contract_id in sorted(target_contract_ids):
+        document = by_contract.get(contract_id)
+        if document is None and await same_content_documents(
+            db, contract_id, digest, size_bytes=len(payload)
+        ):
+            continue
         rel_path, size = storage_service.save_contract_document(
             contract_id,
             copy_filename,
             io.BytesIO(payload),
         )
-        document = by_contract.get(contract_id)
         if document is None:
             document = ContractDocument(
                 contract_id=contract_id,
@@ -998,6 +1012,7 @@ async def _sync_group_pdf_documents(
                 content_type="application/pdf",
                 size_bytes=size,
                 uploaded_by=user.id,
+                content_sha256=digest,
             )
             db.add(document)
         else:
@@ -1009,6 +1024,7 @@ async def _sync_group_pdf_documents(
             document.size_bytes = size
             document.doc_type = ContractDocumentType.order
             document.uploaded_by = user.id
+            document.content_sha256 = digest
     await db.flush()
     return superseded_paths
 

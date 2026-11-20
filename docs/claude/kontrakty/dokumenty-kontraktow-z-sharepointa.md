@@ -25,7 +25,8 @@ stary `/settings/contract-docs-sharepoint` przekierowuje; `ContractDocsSharePoin
 - **„Kontrakt ma już ten dokument” = ten sam SHA-256 albo ten sam plik
   SharePointa** (`contract_documents.content_sha256`, `sharepoint_item_id`);
   stare wiersze dostają skrót leniwie (`store.attach_file`, blokada doradcza
-  per kontrakt). Ręczny upload też liczy skrót.
+  per kontrakt). Ręczny upload też liczy skrót, a od 20.11.2026 odmawia
+  drugiej kopii (409) — `jeden-plik-raz-w-dokumentach-kontraktu.md`.
 - **Pierwsze pobranie** = przebieg z dzierżawą (`listing → preview → applying →
   applied`, cofnięcie tylko ostatniego); przerwany deployem podejmuje pętla.
   Paragon `0402_contract_docs_sharepoint_run_<id>` = liczby i ID.

@@ -20,7 +20,9 @@ harness `/preview/contract-documents-folders`.
   o folderze, a istniejące zamówienia nie wymagały migracji danych.
   Zamówienia nie przenosi się ręcznie (422), nie da się go usunąć jako
   folderu; wiersz `kind = 'orders'` trzyma tylko własną nazwę po zmianie.
-  Pusty folder „Zamówienia” się nie pokazuje.
+  Pusty folder „Zamówienia” się nie pokazuje. PDF linii i kopia PDF-u jej
+  grupy, które są tym samym plikiem, to jeden wiersz (20.11.2026,
+  `jeden-plik-raz-w-dokumentach-kontraktu.md`).
 - **Podpowiedź „Poprzednia umowa – nr …”** (`build_suggestions`): numer
   z nazwy pliku tylko dla typów umowa/aneks/wypowiedzenie/porozumienie
   („ZUS 03-2026” to miesiąc), bez dat z kropkami i „01-10-2026”. Bieżący

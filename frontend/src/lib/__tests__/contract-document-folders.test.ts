@@ -6,6 +6,7 @@ import {
   complianceRelevantDocs,
   filesLabel,
   folderNameSuggestions,
+  isDocumentDuplicate,
   ORDERS_FOLDER_ID,
   type ContractDocument,
 } from "@/lib/contract-document-folders";
@@ -78,6 +79,46 @@ describe("buildDocumentSections", () => {
   it("uses the renamed orders folder name", () => {
     const out = buildDocumentSections([doc(1, "order")], [], [], "Zamówienia BNP");
     expect(out.folders[0].name).toBe("Zamówienia BNP");
+  });
+
+  it("shows the line PDF once when the server says the group copy is the same file", () => {
+    const out = buildDocumentSections(
+      [doc(3, "order"), doc(4, "order")],
+      [],
+      [{ ...ORDER_FILE, same_file_document_id: 4 }],
+      "Zamówienia",
+    );
+    const [orders] = out.folders;
+    expect(orders.rows.map((r) => r.key)).toEqual(["doc-3", "order-77"]);
+    expect(orders.totalBytes).toBe(300 + 1000);
+  });
+
+  it("keeps both rows without the server's word, even at the same size", () => {
+    const sameSize = { ...doc(4, "order"), size_bytes: ORDER_FILE.size_bytes };
+    const out = buildDocumentSections(
+      [sameSize],
+      [],
+      [{ ...ORDER_FILE, same_file_document_id: null }],
+      "Zamówienia",
+    );
+    expect(out.folders[0].rows.map((r) => r.key)).toEqual(["doc-4", "order-77"]);
+  });
+});
+
+describe("isDocumentDuplicate", () => {
+  const refusal = (status: number, code: string) => ({
+    response: { status, data: { detail: { code, message: "Ten plik jest już…" } } },
+  });
+
+  it("recognises only the 409 document_duplicate refusal", () => {
+    expect(isDocumentDuplicate(refusal(409, "document_duplicate"))).toBe(true);
+    expect(isDocumentDuplicate(refusal(409, "duplicate_contractor"))).toBe(false);
+    expect(isDocumentDuplicate(refusal(413, "document_duplicate"))).toBe(false);
+    expect(isDocumentDuplicate({ response: { status: 409, data: { detail: "x" } } })).toBe(
+      false,
+    );
+    expect(isDocumentDuplicate(new Error("network"))).toBe(false);
+    expect(isDocumentDuplicate(null)).toBe(false);
   });
 });
 

@@ -225,6 +225,37 @@ describe("ContractTerminationDialog — rozwiązanie umowy", () => {
     expect((body as FormData).get("doc_type")).toBe("termination_notice");
   });
 
+  it("załącznik, który już jest w Dokumentach kontraktu, nie jest błędem", async () => {
+    mocks.uploadDocument.mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "document_duplicate",
+            message: "Ten plik jest już w Dokumentach kontraktu (dodany 19.11.2026).",
+          },
+        },
+      },
+    });
+    const { onSuccess } = renderDialog();
+    await userEvent.click(planRadio(DONE));
+    await userEvent.click(screen.getByRole("radio", { name: "Wypowiedzenie" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Konsultant" }));
+    await userEvent.type(screen.getByLabelText(/Data złożenia wypowiedzenia/), "2026-08-10");
+    const lastDay = screen.getByLabelText(/Ostatni dzień umowy/);
+    await userEvent.clear(lastDay);
+    await userEvent.type(lastDay, "2026-09-15");
+    await userEvent.upload(
+      screen.getByLabelText(/Załącznik/),
+      new File(["%PDF"], "wypowiedzenie.pdf", { type: "application/pdf" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Zakończ" }));
+    await waitFor(() => expect(onSuccess).toHaveBeenCalledWith({ changed: 1 }));
+    expect(mocks.uploadDocument).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Zakończenie zapisane")).toBeNull();
+  });
+
   it("„Umowa zostaje” nie wysyła danych rozwiązania ani załącznika i nie otwiera generatora", async () => {
     const { onSuccess } = renderDialog();
     await userEvent.click(planRadio(KEEP));
